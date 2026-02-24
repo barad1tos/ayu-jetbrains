@@ -30,7 +30,7 @@ intellijPlatform {
         version = providers.gradleProperty("pluginVersion")
         ideaVersion {
             sinceBuild = providers.gradleProperty("pluginSinceBuild")
-            untilBuild = provider { "" }
+            untilBuild = provider { null }
         }
     }
     publishing {
@@ -39,7 +39,8 @@ intellijPlatform {
     buildSearchableOptions = false
     pluginVerification {
         ides {
-            recommended()
+            ide("IC", "2025.1")
+            ide("IC", "2025.2.3")
         }
     }
 }

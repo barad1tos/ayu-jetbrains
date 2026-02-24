@@ -94,7 +94,7 @@
       "borderArcLength.compact": 10,
       "borderWidth": 6,
       "borderWidth.compact": 4,
-      "borderColor": "Gray1",
+      "borderColor": "Gray2.5",
       "inactiveAlpha": 0.44,
       "inactiveAlphaInStatusBar": {
         "os.mac": 0.2,
