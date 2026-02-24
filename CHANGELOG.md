@@ -8,4 +8,4 @@
 - Full Islands Dark UI with compact mode
 - Terminal color palette
 - VCS and diff gutter colors
-- Project color gradients (9 groups)
+- Project color gradients (nine groups)
