@@ -52,8 +52,8 @@
     "HoverBackgroundMid": "Gray3",
     "HoverBackgroundLight": "Gray4",
 
-    "SelectionActive": "#344B6B",
-    "SelectionInactive": "#293350",
+    "SelectionActive": "#33415E",
+    "SelectionInactive": "#273045",
 
     "Blue2": "#344B6B",
     "Blue3": "#FFCC66",
