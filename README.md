@@ -18,7 +18,7 @@ Settings → Plugins → Marketplace → search "Ayu Islands" → Install
 
 **Manual:**
 
-Download `.jar` from [Releases](https://github.com/AyuIslands/ayu-jetbrains/releases) → Settings → Plugins → ⚙ → Install from Disk
+Download `.zip` from [Releases](https://github.com/barad1tos/ayu-jetbrains/releases) → Settings → Plugins → ⚙ → Install from Disk
 
 ## Build
 
@@ -28,21 +28,20 @@ Download `.jar` from [Releases](https://github.com/AyuIslands/ayu-jetbrains/rele
 
 Output: `build/distributions/ayu-jetbrains-<version>.zip`
 
-Test in sandboxed IDE:
+Test in a sandboxed IDE:
 ```bash
 ./gradlew runIde
 ```
 
 ## Roadmap
 
-- [ ] Accent color customization (paid)
-- [ ] Contrast/brightness tuning (paid)
-- [ ] Font style customization (paid)
-- [ ] Preset themes ("Warm", "Cool", "High Contrast")
 - [ ] Ayu Dark Islands variant
 - [ ] Ayu Light Islands variant
+- [ ] Accent color customization *(paid)*
+- [ ] Contrast/brightness tuning *(paid)*
+- [ ] Font customization *(paid)*
+- [ ] Theme presets *(paid)*
 
 ## License
 
-[Business Source License 1.1](LICENSE) — code is viewable, personal use allowed,
-commercial redistribution prohibited. Converts to Apache 2.0 on 2030-02-24.
+[BSL-1.1](LICENSE) — source-available, converts to Apache 2.0 on 2030-02-24.

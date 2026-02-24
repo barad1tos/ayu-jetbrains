@@ -3,7 +3,7 @@
   <name>Ayu Islands</name>
   <!-- version patched by Gradle from gradle.properties -->
   <vendor email="roman.borodavkin@gmail.com"
-          url="https://github.com/AyuIslands/ayu-jetbrains">cloud</vendor>
+          url="https://github.com/barad1tos/ayu-jetbrains">cloud</vendor>
 
   <description><![CDATA[
     <p>Ayu Mirage color palette meets modern Islands UI — warm gold accents,
