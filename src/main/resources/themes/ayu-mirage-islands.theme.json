@@ -301,7 +301,12 @@
     "Button": {
       "startBackground": "#00000000",
       "endBackground": "#00000000",
-      "default.foreground": "#ffffff"
+      "default.startBackground": "#FFCC66",
+      "default.endBackground": "#FFCC66",
+      "default.foreground": "#1F2430",
+      "default.focusedBorderColor": "#D4A84A",
+      "default.startBorderColor": "#D4A84A",
+      "default.endBorderColor": "#D4A84A"
     },
 
     "TextField.background": "InputBackground",
