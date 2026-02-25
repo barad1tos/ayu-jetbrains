@@ -6,12 +6,12 @@
           url="https://github.com/barad1tos/ayu-jetbrains">cloud</vendor>
 
   <description><![CDATA[
-    <p>Ayu Mirage and Ayu Dark color palettes meet modern Islands UI — warm gold
+    <p>Ayu Mirage, Ayu Dark, and Ayu Light color palettes meet modern Islands UI — warm
     accents, rounded panels, and carefully tuned contrast for long coding sessions.</p>
 
     <h3>Features</h3>
     <ul>
-      <li>Two color palettes: Ayu Mirage (blue-gray) and Ayu Dark (deep midnight)</li>
+      <li>Three color palettes: Ayu Mirage (blue-gray), Ayu Dark (deep midnight), and Ayu Light (warm daylight)</li>
       <li>Dual-variant approach: base theme for all IDEs, Islands UI variant with rounded panels for 2025.2.3+</li>
       <li>Full syntax highlighting for HCL/Terraform, Go, Python, JS/TS, Markdown, YAML, JSON, and more</li>
       <li>Tuned VCS colors, diff gutters, and 16-color terminal palette per variant</li>
@@ -23,10 +23,11 @@
   <change-notes><![CDATA[
     <h3>2.0.0</h3>
     <ul>
+      <li>Ayu Light variant with canonical ayu-colors light palette</li>
       <li>Ayu Dark variant with canonical ayu-colors dark palette</li>
-      <li>Renamed themes to "Ayu Islands Mirage" / "Ayu Islands Dark" convention</li>
+      <li>Renamed themes to "Ayu Islands Mirage" / "Ayu Islands Dark" / "Ayu Islands Light" convention</li>
       <li>Dual-variant approach: base theme + Islands UI variant per palette</li>
-      <li>Four theme variants total: Mirage, Mirage (Islands UI), Dark, Dark (Islands UI)</li>
+      <li>Six theme variants total: Mirage, Dark, Light (base + Islands UI each)</li>
     </ul>
     <h3>1.0.0</h3>
     <ul>
@@ -50,5 +51,10 @@
                    path="/themes/ayu-islands-dark.theme.json"/>
     <themeProvider id="com.ayuislands.theme.dark.islands"
                    path="/themes/ayu-islands-dark-islands.theme.json"/>
+    <!-- Light variants -->
+    <themeProvider id="com.ayuislands.theme.light"
+                   path="/themes/ayu-islands-light.theme.json"/>
+    <themeProvider id="com.ayuislands.theme.light.islands"
+                   path="/themes/ayu-islands-light-islands.theme.json"/>
   </extensions>
 </idea-plugin>
