@@ -13,6 +13,7 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@v4
+        # Verifies against: IC-2025.1, IC-2025.2.3, IU-2025.3.3, PS-2025.3.3, WS-2025.3.3, CL-2025.3.3
       - run: ./gradlew buildPlugin verifyPlugin
       - run: ./gradlew publishPlugin
         env:
