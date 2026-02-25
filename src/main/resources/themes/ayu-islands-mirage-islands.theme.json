@@ -282,10 +282,29 @@
       "Button.background": "TooltipBackground",
       "Button.borderColor": "Gray7",
       "MoreButton.background": "PanelBackground",
-      "MoreButton.foreground": "#707A8C"
+      "MoreButton.foreground": "#707A8C",
+      "MoreButton.innerBorderColor": "TooltipBorder",
+      "ToolWindow.informativeBackground": "TooltipBackground",
+      "ToolWindow.informativeBorderColor": "TooltipBorder",
+      "ToolWindow.informativeForeground": "#CCCAC2",
+      "ToolWindow.warningBackground": "TooltipBackground",
+      "ToolWindow.warningBorderColor": "TooltipBorder",
+      "ToolWindow.warningForeground": "#CCCAC2",
+      "ToolWindow.errorBackground": "TooltipBackground",
+      "ToolWindow.errorBorderColor": "TooltipBorder",
+      "ToolWindow.errorForeground": "#CCCAC2"
     },
 
     "NotificationsToolwindow.newNotification.background": "BackgroundLight",
+
+    "Banner": {
+      "infoBackground": "TooltipBackground",
+      "infoBorderColor": "TooltipBorder",
+      "warningBackground": "TooltipBackground",
+      "warningBorderColor": "TooltipBorder",
+      "errorBackground": "TooltipBackground",
+      "errorBorderColor": "TooltipBorder"
+    },
 
     "SpeedSearch": {
       "background": "BackgroundDark",

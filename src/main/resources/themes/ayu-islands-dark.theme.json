@@ -17,11 +17,11 @@
     "Gray0.25": "#060A11",
     "Gray0": "#000000",
 
-    "Gray4": "#2D3548",
-    "Gray5": "#38425A",
-    "Gray6": "#445068",
-    "Gray7": "#4D5763",
-    "Gray8": "#5A6378",
+    "Gray4": "#2C3342",
+    "Gray5": "#353D4D",
+    "Gray6": "#3E4759",
+    "Gray7": "#475164",
+    "Gray8": "#4F5A6E",
 
     "ForegroundDefault": "#BFBDB6",
 
@@ -107,7 +107,7 @@
 
     "List": {
       "background": "BackgroundDark",
-      "Tag.foreground": "#5A6378",
+      "Tag.foreground": "#4F5A6E",
       "Button": {
         "hoverBackground": "#FFFFFF16",
         "separatorColor": "#FFFFFF33"
@@ -116,7 +116,7 @@
 
     "Borders.color": "BorderDark",
     "Borders.ContrastBorderColor": "BorderDark",
-    "MainWindow.FullScreeControl.Background": "#38425A",
+    "MainWindow.FullScreeControl.Background": "#353D4D",
 
     "MainWindow.Tab": {
       "background": "#060A11",
@@ -136,8 +136,8 @@
     "StatusBar": {
       "background": "BackgroundLight",
       "borderColor": "BorderTransparent",
-      "Breadcrumbs.foreground": "#5A6378",
-      "Widget.foreground": "#5A6378",
+      "Breadcrumbs.foreground": "#4F5A6E",
+      "Widget.foreground": "#4F5A6E",
       "Breadcrumbs.hoverBackground": "#FFFFFF18",
       "Breadcrumbs.selectionBackground": "#FFFFFF18",
       "Breadcrumbs.selectionInactiveBackground": "#FFFFFF18",
@@ -147,7 +147,7 @@
     "ToolWindow": {
       "background": "ToolWindowBackground",
       "borderColor": "BorderDark",
-      "Button.foreground": "#5A6378",
+      "Button.foreground": "#4F5A6E",
       "Header": {
         "background": "ToolWindowBackground",
         "inactiveBackground": "ToolWindowBackground",
@@ -184,8 +184,8 @@
     "EditorTabs": {
       "background": "BackgroundDark",
       "underTabsBorderColor": "BackgroundLight",
-      "underlinedBorderColor": "#5A6378",
-      "underlinedTabBackground": "#5A637815",
+      "underlinedBorderColor": "#4F5A6E",
+      "underlinedTabBackground": "#4F5A6E15",
       "inactiveUnderlinedTabBorderColor": "Gray4",
       "inactiveUnderlinedTabBackground": "Gray2",
       "hoverBackground": "Gray2",
@@ -228,7 +228,7 @@
       "Header.activeBackground": "PopupBackground",
       "Advertiser.background": "PopupBackgroundLight",
       "Advertiser.borderColor": "PopupBackgroundLight",
-      "Advertiser.foreground": "#5A6378",
+      "Advertiser.foreground": "#4F5A6E",
       "borderColor": "PopupBorder",
       "Toolbar.background": "PopupBackground"
     },
@@ -237,7 +237,7 @@
     "CompletionPopup": {
       "foreground": "#BFBDB6",
       "Advertiser.background": "PopupBackgroundLight",
-      "Advertiser.foreground": "#5A6673"
+      "Advertiser.foreground": "#4F5565"
     },
 
     "Menu": {
@@ -282,7 +282,7 @@
       "Button.background": "TooltipBackground",
       "Button.borderColor": "Gray7",
       "MoreButton.background": "PanelBackground",
-      "MoreButton.foreground": "#5A6378"
+      "MoreButton.foreground": "#4F5A6E"
     },
 
     "NotificationsToolwindow.newNotification.background": "BackgroundLight",
@@ -294,7 +294,7 @@
 
     "SearchEverywhere": {
       "Header.insets": "2,4,0,9",
-      "Advertiser.foreground": "#5A6378",
+      "Advertiser.foreground": "#4F5A6E",
       "List.settingsBackground": "PopupBackground"
     },
 
@@ -357,8 +357,8 @@
 
     "LineProfiler": {
       "HotLine.foreground": "#F26D78",
-      "IgnoredLine.foreground": "#2D3548",
-      "Line.foreground": "#5A6673"
+      "IgnoredLine.foreground": "#2C3342",
+      "Line.foreground": "#4F5565"
     },
 
     "PresentationAssistant": {
@@ -372,7 +372,7 @@
         "Snippet": {
           "MoreLines": {
             "background": "BackgroundMid",
-            "foreground": "#5A6378"
+            "foreground": "#4F5A6E"
           }
         }
       },
@@ -380,7 +380,7 @@
         "Snippet": {
           "MoreLines": {
             "background": "BackgroundMid",
-            "foreground": "#5A6378"
+            "foreground": "#4F5A6E"
           }
         }
       }
@@ -631,7 +631,7 @@
       "Alert.foreground": "#E6B450",
       "Default.foreground": "#BFBDB6",
       "Expiring.foreground": "#F26D78",
-      "Progress.foreground": "#5A6378"
+      "Progress.foreground": "#4F5A6E"
     },
 
     "Bookmark": {
@@ -664,7 +664,7 @@
       "SearchResult.background": "#0E1930",
       "SearchResult.PackageTag.background": "#1B2030",
       "PackageTag.background": "Gray4",
-      "PackageTag.foreground": "#5A6378",
+      "PackageTag.foreground": "#4F5A6E",
       "PackageTagSelected.background": "Blue4",
       "PackageTagSelected.foreground": "#BFBDB6"
     },
@@ -721,7 +721,7 @@
 
     "VersionControl": {
       "MarkerPopup.borderColor": "Gray4",
-      "Log.Commit.Reference.foreground": "#6B7385",
+      "Log.Commit.Reference.foreground": "#606B7D",
       "Merge.Status.NoConflicts.foreground": "#70BF56"
     },
 
@@ -760,13 +760,13 @@
       "cardBorderColor": "#0D1017",
       "cardHeaderTitle": "#BFBDB6",
       "cardHeaderLinkBackground": "#141821",
-      "cardHeaderSubtitle": "#5A6378",
-      "cardFooterForeground": "#5A6378",
+      "cardHeaderSubtitle": "#4F5A6E",
+      "cardFooterForeground": "#4F5A6E",
       "chroniclesBackground": "#10141C",
       "chroniclesBorderColor": "#10141C",
       "chroniclesBackgroundHovered": "#242A38",
       "chroniclesForeground": "#BFBDB6",
-      "chroniclesForegroundGreyed": "#5A6378",
+      "chroniclesForegroundGreyed": "#4F5A6E",
       "errorBackground": "#1C1A10",
       "errorBorder": "#3A2F1E",
       "errorForeground": "#BFBDB6"
