@@ -1,5 +1,7 @@
+import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
+
 plugins {
-    id("org.jetbrains.intellij.platform") version "2.2.1"
+    id("org.jetbrains.intellij.platform") version "2.10.5"
 }
 
 group = providers.gradleProperty("pluginGroup").get()
@@ -39,8 +41,15 @@ intellijPlatform {
     buildSearchableOptions = false
     pluginVerification {
         ides {
-            ide("IC", "2025.1")
-            ide("IC", "2025.2.3")
+            // Pre-2025.3: IC (Community) still published as separate distribution
+            create(IntelliJPlatformType.IntellijIdeaCommunity, "2025.1")
+            create(IntelliJPlatformType.IntellijIdeaCommunity, "2025.2.3")
+            // 2025.3+: IC merged into unified IU (IntelliJ IDEA) distribution
+            create(IntelliJPlatformType.IntellijIdea, "2025.3.3")
+            // Additional IDE types (latest stable only)
+            create(IntelliJPlatformType.PhpStorm, "2025.3.3")
+            create(IntelliJPlatformType.WebStorm, "2025.3.3")
+            create(IntelliJPlatformType.CLion, "2025.3.3")
         }
     }
 }
