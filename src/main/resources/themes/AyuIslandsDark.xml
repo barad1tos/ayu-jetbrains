@@ -11,15 +11,15 @@
         <option name="DEFAULT_FOREGROUND" value="BFBDB6" />
         <option name="EDITOR_GUTTER_BACKGROUND" value="0D1017" />
         <option name="GUTTER_BACKGROUND" value="0D1017" />
-        <option name="LINE_NUMBERS_COLOR" value="6B7385" />
-        <option name="LINE_NUMBER_ON_CARET_ROW_COLOR" value="6B7385" />
+        <option name="LINE_NUMBERS_COLOR" value="606B7D" />
+        <option name="LINE_NUMBER_ON_CARET_ROW_COLOR" value="606B7D" />
         <option name="INDENT_GUIDE" value="171C27" />
-        <option name="SELECTED_INDENT_GUIDE" value="2D3548" />
+        <option name="SELECTED_INDENT_GUIDE" value="2C3342" />
         <option name="VISUAL_INDENT_GUIDE" value="171C27" />
         <option name="RIGHT_MARGIN_COLOR" value="171C27" />
-        <option name="WHITESPACES" value="2D3548" />
+        <option name="WHITESPACES" value="2C3342" />
         <option name="WHITESPACES_MODIFIED_LINES_COLOR" value="3A2F1E" />
-        <option name="MATCHED_BRACES_INDENT_GUIDE_COLOR" value="2D3548" />
+        <option name="MATCHED_BRACES_INDENT_GUIDE_COLOR" value="2C3342" />
         <option name="METHOD_SEPARATORS_COLOR" value="242A38" />
         <option name="TEARLINE_COLOR" value="181C24" />
 
@@ -32,7 +32,7 @@
         <option name="SEARCH_RESULT_BACKGROUND" value="4C4126" />
         <option name="TEXT_SEARCH_RESULT_BACKGROUND" value="4C4126" />
         <option name="IDENTIFIER_UNDER_CARET_BACKGROUND" value="4C4126" />
-        <option name="MATCHED_BRACE_BACKGROUND" value="6B7385" />
+        <option name="MATCHED_BRACE_BACKGROUND" value="606B7D" />
         <option name="MATCHED_TEXT" value="E6B450" />
 
         <!-- Surfaces -->
@@ -53,16 +53,16 @@
         <option name="COMBOBOX_BACKGROUND" value="10141C" />
 
         <!-- Foregrounds -->
-        <option name="ACTIVITY_BAR_FOREGROUND" value="5A6378" />
-        <option name="SIDE_PANEL_TITLE_FOREGROUND" value="5A6378" />
-        <option name="STATUS_BAR_FOREGROUND" value="5A6378" />
+        <option name="ACTIVITY_BAR_FOREGROUND" value="4F5A6E" />
+        <option name="SIDE_PANEL_TITLE_FOREGROUND" value="4F5A6E" />
+        <option name="STATUS_BAR_FOREGROUND" value="4F5A6E" />
         <option name="PANEL_TITLE_FOREGROUND" value="BFBDB6" />
         <option name="TAB_SELECTED_FOREGROUND" value="BFBDB6" />
-        <option name="TAB_UNSELECTED_FOREGROUND" value="5A6378" />
-        <option name="COMBOBOX_FOREGROUND" value="5A6378" />
+        <option name="TAB_UNSELECTED_FOREGROUND" value="4F5A6E" />
+        <option name="COMBOBOX_FOREGROUND" value="4F5A6E" />
         <option name="INPUT_FOREGROUND" value="BFBDB6" />
-        <option name="INPUT_BORDER_COLOR" value="5A6378" />
-        <option name="ANNOTATIONS_COLOR" value="5A6378" />
+        <option name="INPUT_BORDER_COLOR" value="4F5A6E" />
+        <option name="ANNOTATIONS_COLOR" value="4F5A6E" />
         <option name="ANNOTATIONS_LAST_COMMIT_COLOR" value="BFBDB6" />
 
         <!-- Links -->
@@ -134,8 +134,8 @@
         <option name="RECENT_LOCATIONS_SELECTION" value="141821" />
 
         <!-- Scrollbar (Mac) -->
-        <option name="SCROLLBAR_THUMB" value="5A6378" />
-        <option name="SCROLLBAR_THUMB_HOVER" value="5A6378" />
+        <option name="SCROLLBAR_THUMB" value="4F5A6E" />
+        <option name="SCROLLBAR_THUMB_HOVER" value="4F5A6E" />
         <option name="ScrollBar.Mac.hoverThumbColor" value="FFFFFF4D" />
         <option name="ScrollBar.Mac.thumbColor" value="FFFFFF26" />
 
@@ -204,7 +204,7 @@
         </option>
         <option name="BREADCRUMBS_DEFAULT">
             <value>
-                <option name="FOREGROUND" value="5A6378" />
+                <option name="FOREGROUND" value="4F5A6E" />
             </value>
         </option>
         <option name="BREADCRUMBS_HOVERED">
@@ -229,7 +229,7 @@
         <!-- Code lens -->
         <option name="CODE_LENS_BORDER_COLOR">
             <value>
-                <option name="EFFECT_COLOR" value="5A6378" />
+                <option name="EFFECT_COLOR" value="4F5A6E" />
             </value>
         </option>
 
@@ -251,7 +251,7 @@
         </option>
         <option name="CONSOLE_SYSTEM_OUTPUT">
             <value>
-                <option name="FOREGROUND" value="5A6378" />
+                <option name="FOREGROUND" value="4F5A6E" />
             </value>
         </option>
         <option name="CONSOLE_USER_INPUT">
@@ -440,7 +440,7 @@
         </option>
         <option name="DEFAULT_HIGHLIGHTED_REFERENCE">
             <value>
-                <option name="EFFECT_COLOR" value="445068" />
+                <option name="EFFECT_COLOR" value="3E4759" />
                 <option name="EFFECT_TYPE" value="1" />
             </value>
         </option>
@@ -513,14 +513,14 @@
         <option name="DEFAULT_REASSIGNED_LOCAL_VARIABLE">
             <value>
                 <option name="FOREGROUND" value="BFBDB6" />
-                <option name="EFFECT_COLOR" value="445068" />
+                <option name="EFFECT_COLOR" value="3E4759" />
                 <option name="EFFECT_TYPE" value="1" />
             </value>
         </option>
         <option name="DEFAULT_REASSIGNED_PARAMETER">
             <value>
                 <option name="FOREGROUND" value="BFBDB6" />
-                <option name="EFFECT_COLOR" value="445068" />
+                <option name="EFFECT_COLOR" value="3E4759" />
                 <option name="EFFECT_TYPE" value="1" />
             </value>
         </option>
@@ -612,7 +612,7 @@
         <option name="DOC_TIPS_SHORTCUT">
             <value>
                 <option name="FOREGROUND" value="BFBDB6" />
-                <option name="EFFECT_COLOR" value="5A6378" />
+                <option name="EFFECT_COLOR" value="4F5A6E" />
             </value>
         </option>
 
@@ -633,7 +633,7 @@
         <!-- Folded text -->
         <option name="FOLDED_TEXT_ATTRIBUTES">
             <value>
-                <option name="FOREGROUND" value="5A6378" />
+                <option name="FOREGROUND" value="4F5A6E" />
                 <option name="BACKGROUND" value="161A24" />
             </value>
         </option>
@@ -655,7 +655,7 @@
         </option>
         <option name="INACTIVE_HYPERLINK_ATTRIBUTES">
             <value>
-                <option name="FOREGROUND" value="5A6378" />
+                <option name="FOREGROUND" value="4F5A6E" />
             </value>
         </option>
 
@@ -807,18 +807,18 @@
         <!-- Inlay hints -->
         <option name="INLAY_DEFAULT">
             <value>
-                <option name="FOREGROUND" value="5A6378" />
+                <option name="FOREGROUND" value="4F5A6E" />
                 <option name="BACKGROUND" value="161A24" />
             </value>
         </option>
         <option name="INLAY_TEXT_WITHOUT_BACKGROUND">
             <value>
-                <option name="FOREGROUND" value="445068" />
+                <option name="FOREGROUND" value="3E4759" />
             </value>
         </option>
         <option name="INLINE_PARAMETER_HINT">
             <value>
-                <option name="FOREGROUND" value="5A6378" />
+                <option name="FOREGROUND" value="4F5A6E" />
                 <option name="BACKGROUND" value="161A24" />
             </value>
         </option>
@@ -831,7 +831,7 @@
         <option name="INLINE_PARAMETER_HINT_HIGHLIGHTED">
             <value>
                 <option name="FOREGROUND" value="BFBDB6" />
-                <option name="BACKGROUND" value="2D3548" />
+                <option name="BACKGROUND" value="2C3342" />
             </value>
         </option>
 
@@ -927,7 +927,7 @@
         </option>
         <option name="KOTLIN_MUTABLE_VARIABLE">
             <value>
-                <option name="EFFECT_COLOR" value="445068" />
+                <option name="EFFECT_COLOR" value="3E4759" />
                 <option name="EFFECT_TYPE" value="1" />
             </value>
         </option>
@@ -975,7 +975,7 @@
         </option>
         <option name="LIVE_TEMPLATE_INACTIVE_SEGMENT">
             <value>
-                <option name="EFFECT_COLOR" value="5A6378" />
+                <option name="EFFECT_COLOR" value="4F5A6E" />
             </value>
         </option>
 
@@ -1275,7 +1275,7 @@
         <option name="REGEXP.QUOTE_CHARACTER" baseAttributes="DEFAULT_VALID_STRING_ESCAPE" />
         <option name="REGEXP.REDUNDANT_ESCAPE">
             <value>
-                <option name="FOREGROUND" value="445068" />
+                <option name="FOREGROUND" value="3E4759" />
                 <option name="FONT_TYPE" value="1" />
             </value>
         </option>
@@ -1382,8 +1382,8 @@
         </option>
         <option name="Unresolved reference access">
             <value>
-                <option name="FOREGROUND" value="445068" />
-                <option name="EFFECT_COLOR" value="445068" />
+                <option name="FOREGROUND" value="3E4759" />
+                <option name="EFFECT_COLOR" value="3E4759" />
                 <option name="EFFECT_TYPE" value="5" />
             </value>
         </option>
