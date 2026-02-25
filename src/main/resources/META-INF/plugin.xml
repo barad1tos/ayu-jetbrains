@@ -34,6 +34,6 @@
 
   <extensions defaultExtensionNs="com.intellij">
     <themeProvider id="com.ayuislands.theme.mirage"
-                   path="/themes/ayu-mirage-islands.theme.json"/>
+                   path="/themes/ayu-islands-mirage.theme.json"/>
   </extensions>
 </idea-plugin>
