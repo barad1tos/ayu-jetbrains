@@ -23,7 +23,8 @@
     "Gray7": "#475164",
     "Gray8": "#4F5A6E",
 
-    "ForegroundDefault": "#BFBDB6",
+    "ForegroundDefault": "#9DA5B0",
+    "ForegroundBright": "#BFBDB6",
 
     "BackgroundDark": "Gray1.5",
     "BackgroundMid": "Gray2",
@@ -235,7 +236,7 @@
     "ComplexPopup.Header.background": "PopupBackgroundLight",
 
     "CompletionPopup": {
-      "foreground": "#BFBDB6",
+      "foreground": "ForegroundBright",
       "Advertiser.background": "PopupBackgroundLight",
       "Advertiser.foreground": "#4F5565"
     },
@@ -250,7 +251,7 @@
     "ToolTip": {
       "background": "TooltipBackground",
       "borderColor": "TooltipBorder",
-      "foreground": "#BFBDB6"
+      "foreground": "ForegroundBright"
     },
 
     "GotItTooltip": {
@@ -271,12 +272,12 @@
     "ParameterInfo": {
       "background": "Gray3",
       "borderColor": "Gray6",
-      "foreground": "#BFBDB6"
+      "foreground": "ForegroundBright"
     },
 
     "Notification": {
-      "Button.foreground": "#BFBDB6",
-      "foreground": "#BFBDB6",
+      "Button.foreground": "ForegroundBright",
+      "foreground": "ForegroundBright",
       "background": "TooltipBackground",
       "borderColor": "TooltipBorder",
       "Button.background": "TooltipBackground",
@@ -629,7 +630,7 @@
       "Expiring.borderColor": "#F26D78",
       "Active.foreground": "#70BF56",
       "Alert.foreground": "#E6B450",
-      "Default.foreground": "#BFBDB6",
+      "Default.foreground": "ForegroundBright",
       "Expiring.foreground": "#F26D78",
       "Progress.foreground": "#4F5A6E"
     },
@@ -666,7 +667,7 @@
       "PackageTag.background": "Gray4",
       "PackageTag.foreground": "#4F5A6E",
       "PackageTagSelected.background": "Blue4",
-      "PackageTagSelected.foreground": "#BFBDB6"
+      "PackageTagSelected.foreground": "ForegroundBright"
     },
 
     "Profiler": {
@@ -719,9 +720,18 @@
       }
     },
 
+    "Table": {
+      "foreground": "#9DA5B0",
+      "background": "#10141C",
+      "lightSelectionForeground": "ForegroundBright",
+      "stripeColor": "#141821"
+    },
+
     "VersionControl": {
       "MarkerPopup.borderColor": "Gray4",
+      "Log.Commit.currentBranchBackground": "#141821",
       "Log.Commit.Reference.foreground": "#606B7D",
+      "Log.Commit.unmatchedForeground": "#606B7D",
       "Merge.Status.NoConflicts.foreground": "#70BF56"
     },
 
@@ -758,18 +768,18 @@
       "ijnext": "#1E3550",
       "cardBackground": "#0F131A",
       "cardBorderColor": "#0D1017",
-      "cardHeaderTitle": "#BFBDB6",
+      "cardHeaderTitle": "ForegroundBright",
       "cardHeaderLinkBackground": "#141821",
       "cardHeaderSubtitle": "#4F5A6E",
       "cardFooterForeground": "#4F5A6E",
       "chroniclesBackground": "#10141C",
       "chroniclesBorderColor": "#10141C",
       "chroniclesBackgroundHovered": "#242A38",
-      "chroniclesForeground": "#BFBDB6",
+      "chroniclesForeground": "ForegroundBright",
       "chroniclesForegroundGreyed": "#4F5A6E",
       "errorBackground": "#1C1A10",
       "errorBorder": "#3A2F1E",
-      "errorForeground": "#BFBDB6"
+      "errorForeground": "ForegroundBright"
     }
   }
 }

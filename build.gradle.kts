@@ -7,6 +7,7 @@ plugins {
 group = providers.gradleProperty("pluginGroup").get()
 version = providers.gradleProperty("pluginVersion").get()
 
+
 java {
     sourceCompatibility = JavaVersion.VERSION_21
     targetCompatibility = JavaVersion.VERSION_21
@@ -41,7 +42,7 @@ intellijPlatform {
     buildSearchableOptions = false
     pluginVerification {
         ides {
-            // Pre-2025.3: IC (Community) still published as separate distribution
+            // Pre-2025.3: IC (Community) still published as a separate distribution
             create(IntelliJPlatformType.IntellijIdeaCommunity, "2025.1")
             create(IntelliJPlatformType.IntellijIdeaCommunity, "2025.2.3")
             // 2025.3+: IC merged into unified IU (IntelliJ IDEA) distribution
