@@ -1,9 +1,9 @@
 {
-  "name": "Ayu Mirage Islands",
+  "name": "Ayu Islands Mirage",
   "dark": true,
   "author": "cloud",
   "parentTheme": "ExperimentalDark",
-  "editorScheme": "/themes/AyuMirageIslands.xml",
+  "editorScheme": "/themes/AyuIslandsMirage.xml",
   "colors": {
     "Gray3": "#3B4559",
     "Gray2.5": "#323D50",
