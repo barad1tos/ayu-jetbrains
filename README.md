@@ -6,17 +6,15 @@
   Warm, refined color themes for JetBrains IDEs — three Ayu palettes with modern Islands UI.
 </p>
 
-<!-- Replace PLUGIN_ID below with the numeric ID from JetBrains Marketplace once published -->
-
 <p align="center">
   <a href="https://github.com/barad1tos/ayu-jetbrains/actions/workflows/build.yml">
     <img src="https://github.com/barad1tos/ayu-jetbrains/actions/workflows/build.yml/badge.svg" alt="Build">
   </a>
-  <a href="https://plugins.jetbrains.com/plugin/PLUGIN_ID-ayu-islands">
-    <img src="https://img.shields.io/jetbrains/plugin/v/PLUGIN_ID-ayu-islands?label=Marketplace&colorA=1F2430&colorB=FFCC66" alt="JetBrains Marketplace">
+  <a href="https://plugins.jetbrains.com/plugin/30373-ayu-islands">
+    <img src="https://img.shields.io/jetbrains/plugin/v/30373-ayu-islands?label=Marketplace&colorA=1F2430&colorB=FFCC66" alt="JetBrains Marketplace">
   </a>
-  <a href="https://plugins.jetbrains.com/plugin/PLUGIN_ID-ayu-islands">
-    <img src="https://img.shields.io/jetbrains/plugin/d/PLUGIN_ID-ayu-islands?colorA=1F2430&colorB=73D0FF" alt="Downloads">
+  <a href="https://plugins.jetbrains.com/plugin/30373-ayu-islands">
+    <img src="https://img.shields.io/jetbrains/plugin/d/30373-ayu-islands?colorA=1F2430&colorB=73D0FF" alt="Downloads">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-BSL--1.1-FFAD66?colorA=1F2430" alt="License">
