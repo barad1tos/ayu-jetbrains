@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.0] - 2026-02-26
+
+### Added
+- C#/.NET syntax highlighting (Rider/ReSharper) for all three variants
+- Dart, Ruby, PHP, Scala, Kotlin language-specific highlighting
+- Rust, Bash/Shell, SQL, Regular Expressions language-specific highlighting
+- 20+ languages with hand-tuned syntax tokens
+
+### Changed
+- Upgraded language highlight count from 15+ to 20+
+- Redesigned README with palettes table, badges, and professional structure
+
 ## [1.0.3] - 2026-02-26
 
 ### Added

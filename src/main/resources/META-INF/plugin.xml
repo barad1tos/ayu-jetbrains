@@ -6,34 +6,36 @@
           url="https://github.com/barad1tos/ayu-jetbrains">cloud</vendor>
 
   <description><![CDATA[
-    <p>Ayu Mirage, Ayu Dark, and Ayu Light color palettes meet modern Islands UI — warm
-    accents, rounded panels, and carefully tuned contrast for long coding sessions.</p>
+    <p>Warm, refined color themes for JetBrains IDEs — three Ayu palettes with modern Islands UI.</p>
 
     <h3>Features</h3>
     <ul>
-      <li>Three color palettes: Ayu Mirage (blue-gray), Ayu Dark (deep midnight), and Ayu Light (warm daylight)</li>
-      <li>Dual-variant approach: base theme for all IDEs, Islands UI variant with rounded panels for 2025.2.3+</li>
-      <li>Full syntax highlighting for HCL/Terraform, Go, Python, JS/TS, Markdown, YAML, JSON, and more</li>
-      <li>Tuned VCS colors, diff gutters, and 16-color terminal palette per variant</li>
-      <li>Compact mode support</li>
-      <li>Project color gradients in Ayu hues</li>
+      <li><strong>6 themes</strong> — Ayu Mirage, Ayu Dark, and Ayu Light, each in classic and Islands UI variants</li>
+      <li><strong>20+ language highlights</strong> — Java, C#/.NET, Rust, Go, Python, JS/TS, HCL/Terraform, Kotlin, Scala, Dart, Ruby, PHP, HTML/CSS, SQL, Bash, YAML, JSON, XML, Markdown</li>
+      <li><strong>Islands UI</strong> — rounded panels, island gaps, and compact mode support</li>
+      <li><strong>Canonical ayu-colors</strong> — syntax palettes from <a href="https://github.com/ayu-theme/ayu-colors">ayu-theme/ayu-colors</a></li>
+      <li><strong>Full VCS integration</strong> — tuned diff gutters, file status colors, and 16-color terminal palette</li>
+      <li><strong>Verified on 12 IDEs</strong> — IntelliJ IDEA, PyCharm, WebStorm, GoLand, RustRover, Rider, PhpStorm, CLion, DataGrip, RubyMine</li>
     </ul>
   ]]></description>
 
   <change-notes><![CDATA[
-    <h3>2.0.0</h3>
+    <h3>1.1.0</h3>
     <ul>
-      <li>Ayu Light variant with canonical ayu-colors light palette</li>
-      <li>Ayu Dark variant with canonical ayu-colors dark palette</li>
-      <li>Renamed themes to "Ayu Islands Mirage" / "Ayu Islands Dark" / "Ayu Islands Light" convention</li>
-      <li>Dual-variant approach: base theme + Islands UI variant per palette</li>
+      <li>C#/.NET syntax highlighting (Rider/ReSharper) for all three variants</li>
+      <li>Dart, Ruby, PHP, Scala, Kotlin, Rust, Bash, SQL, RegExp language-specific highlights</li>
+      <li>20+ languages with hand-tuned syntax tokens</li>
+    </ul>
+    <h3>1.0.3</h3>
+    <ul>
+      <li>Ayu Dark and Ayu Light variants with canonical ayu-colors palettes</li>
       <li>Six theme variants total: Mirage, Dark, Light (base + Islands UI each)</li>
+      <li>Git Log contrast and notification border fixes</li>
     </ul>
     <h3>1.0.0</h3>
     <ul>
-      <li>Initial release</li>
-      <li>Ayu Mirage Islands dark theme</li>
-      <li>Editor color scheme with 15+ language-specific highlights</li>
+      <li>Initial release — Ayu Mirage Islands dark theme</li>
+      <li>Editor color scheme with HCL, Go, Python, JS/TS, Markdown, YAML, JSON support</li>
     </ul>
   ]]></change-notes>
 
