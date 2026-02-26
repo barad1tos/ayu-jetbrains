@@ -37,6 +37,9 @@
     "BorderLight": "Gray2.25",
     "BorderTransparent": "#00000000",
 
+    "AccentBorder": "#FFA65940",
+    "AccentBorderAlt": "#FFA65933",
+
     "ToolWindowBackground": "Gray1.5",
     "PanelBackground": "Gray0.75",
     "InputBackground": "Gray0.25",
@@ -95,7 +98,7 @@
       "borderArcLength.compact": 10,
       "borderWidth": 6,
       "borderWidth.compact": 4,
-      "borderColor": "Gray2.5",
+      "borderColor": "AccentBorder",
       "inactiveAlpha": 0.44,
       "inactiveAlphaInStatusBar": {
         "os.mac": 0.2,
@@ -763,7 +766,7 @@
       "Borders.color": "#E7E5DC",
       "Borders.ContrastBorderColor": "#E7E5DC",
       "ToolWindow.Header.borderColor": "#E7E5DC",
-      "Island.borderColor": "#F8F9FA"
+      "Island.borderColor": "AccentBorderAlt"
     },
 
     "AlertDialog.background": "PopupBackground",
