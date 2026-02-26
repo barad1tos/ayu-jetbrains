@@ -43,6 +43,10 @@
   <depends>com.intellij.modules.platform</depends>
 
   <extensions defaultExtensionNs="com.intellij">
+    <!-- Plugin lifecycle -->
+    <postStartupActivity
+        implementation="dev.ayuislands.AyuIslandsStartupActivity"/>
+
     <!-- Mirage variants -->
     <themeProvider id="com.ayuislands.theme.mirage"
                    path="/themes/ayu-islands-mirage.theme.json"/>
