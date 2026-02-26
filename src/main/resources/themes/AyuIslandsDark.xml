@@ -2424,6 +2424,281 @@
             </value>
         </option>
 
+        <!-- ReSharper / C# / .NET -->
+        <!-- Generic ReSharper identifiers (apply to all .NET languages) -->
+        <option name="ReSharper.DELEGATE_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="D2A6FF" />
+            </value>
+        </option>
+        <option name="ReSharper.ENUM_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="59C2FF" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="ReSharper.EVENT_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="F07178" />
+            </value>
+        </option>
+        <option name="ReSharper.EXTENSION_METHOD_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="FFB454" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="ReSharper.FORMAT_STRING_ITEM">
+            <value>
+                <option name="FOREGROUND" value="D2A6FF" />
+            </value>
+        </option>
+        <option name="ReSharper.FORMAT_STRING_ITEM_2">
+            <value>
+                <option name="FOREGROUND" value="D2A6FF" />
+            </value>
+        </option>
+        <option name="ReSharper.INACTIVE_PREPROCESSOR_BRANCH">
+            <value>
+                <option name="FOREGROUND" value="ACB6BF" />
+            </value>
+        </option>
+        <option name="ReSharper.LATE_BOUND_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="BFBDB6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="ReSharper.MATCHED_FORMAT_STRING_ITEM">
+            <value>
+                <option name="BACKGROUND" value="4C4126" />
+            </value>
+        </option>
+        <option name="ReSharper.MUTABLE_LOCAL_VARIABLE_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="BFBDB6" />
+                <option name="EFFECT_COLOR" value="BFBDB6" />
+                <option name="EFFECT_TYPE" value="1" />
+            </value>
+        </option>
+        <option name="ReSharper.NAMESPACE_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="59C2FF" />
+            </value>
+        </option>
+        <option name="ReSharper.STATIC_CLASS_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="59C2FF" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="ReSharper.STRING_ESCAPE_CHARACTER_2">
+            <value>
+                <option name="FOREGROUND" value="95E6CB" />
+            </value>
+        </option>
+        <option name="ReSharper.STRUCT_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="59C2FF" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="ReSharper.TYPE_PARAMETER_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="59C2FF" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+
+        <!-- C#-specific ReSharper identifiers -->
+        <option name="ReSharper.CSHARP_ACCESSOR_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="FFB454" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_BLOCK_COMMENT" baseAttributes="DEFAULT_BLOCK_COMMENT" />
+        <option name="ReSharper.CSHARP_BRACES" baseAttributes="DEFAULT_BRACES" />
+        <option name="ReSharper.CSHARP_BRACKETS" baseAttributes="DEFAULT_BRACKETS" />
+        <option name="ReSharper.CSHARP_CLASS_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="59C2FF" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_COMMA" baseAttributes="DEFAULT_COMMA" />
+        <option name="ReSharper.CSHARP_CONSTANT_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="D2A6FF" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_DELEGATE_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="D2A6FF" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_DOC_COMMENT" baseAttributes="DEFAULT_DOC_COMMENT" />
+        <option name="ReSharper.CSHARP_DOC_COMMENT_ATTRIBUTE">
+            <value>
+                <option name="FOREGROUND" value="FFD5A0" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_DOC_COMMENT_ATTRIBUTE_VALUE">
+            <value>
+                <option name="FOREGROUND" value="AAD94C" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_DOC_COMMENT_TAG_NAME">
+            <value>
+                <option name="FOREGROUND" value="ACB6BF" />
+                <option name="FONT_TYPE" value="3" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_DOT" baseAttributes="DEFAULT_DOT" />
+        <option name="ReSharper.CSHARP_ENUM_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="59C2FF" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_ESCAPE_CHARACTER_1" baseAttributes="DEFAULT_VALID_STRING_ESCAPE" />
+        <option name="ReSharper.CSHARP_ESCAPE_CHARACTER_2">
+            <value>
+                <option name="FOREGROUND" value="95E6CB" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_EVENT_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="F07178" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_EXTENSION_METHOD_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="FFB454" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_FIELD_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="F07178" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_INTERFACE_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="59C2FF" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_KEYWORD">
+            <value>
+                <option name="FOREGROUND" value="FF8F40" />
+                <option name="FONT_TYPE" value="1" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_LATE_BOUND_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="BFBDB6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_LINE_COMMENT" baseAttributes="DEFAULT_LINE_COMMENT" />
+        <option name="ReSharper.CSHARP_LOCAL_FUNCTION_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="FFB454" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_LOCAL_VARIABLE_IDENTIFIER" baseAttributes="DEFAULT_LOCAL_VARIABLE" />
+        <option name="ReSharper.CSHARP_METHOD_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="FFB454" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_MUTABLE_LOCAL_VARIABLE_IDENTIFIER" baseAttributes="DEFAULT_REASSIGNED_LOCAL_VARIABLE" />
+        <option name="ReSharper.CSHARP_NUMBER" baseAttributes="DEFAULT_NUMBER" />
+        <option name="ReSharper.CSHARP_OPERATOR_SIGN" baseAttributes="DEFAULT_OPERATION_SIGN" />
+        <option name="ReSharper.CSHARP_OVERFLOW_CHECKED_OPERATION">
+            <value>
+                <option name="BACKGROUND" value="1D0F13" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_OVERLOADED_OPERATOR">
+            <value>
+                <option name="FOREGROUND" value="F29668" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_PARAMETER_IDENTIFIER" baseAttributes="DEFAULT_PARAMETER" />
+        <option name="ReSharper.CSHARP_PARENTHESES" baseAttributes="DEFAULT_PARENTHS" />
+        <option name="ReSharper.CSHARP_PREPROCESSOR_INACTIVE_BRANCH">
+            <value>
+                <option name="FOREGROUND" value="ACB6BF" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_PREPROCESSOR_KEYWORD">
+            <value>
+                <option name="FOREGROUND" value="FF8F40" />
+                <option name="FONT_TYPE" value="1" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_PROPERTY_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="F07178" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_RECORD_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="59C2FF" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_RECORD_STRUCT_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="59C2FF" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_SEMICOLON" baseAttributes="DEFAULT_SEMICOLON" />
+        <option name="ReSharper.CSHARP_STATIC_CLASS_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="59C2FF" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_STATIC_FIELD_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="F07178" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_STATIC_METHOD_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="FFB454" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_STATIC_PROPERTY_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="F07178" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_STRING" baseAttributes="DEFAULT_STRING" />
+        <option name="ReSharper.CSHARP_STRUCT_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="59C2FF" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_TUPLE_COMPONENT_NAME">
+            <value>
+                <option name="FOREGROUND" value="BFBDB6" />
+            </value>
+        </option>
+        <option name="ReSharper.CSHARP_TYPE_PARAMETER_IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="59C2FF" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+
         <!-- Regexp -->
         <option name="REGEXP.BRACES" baseAttributes="DEFAULT_BRACES" />
         <option name="REGEXP.BRACKETS" baseAttributes="DEFAULT_BRACKETS" />
