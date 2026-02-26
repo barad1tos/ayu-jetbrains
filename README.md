@@ -53,9 +53,9 @@ Each variant uses canonical colors from [ayu-colors](https://github.com/ayu-them
 
 | | Background | Foreground | Accent | Keyword | String | Entity |
 |---|---|---|---|---|---|---|
-| **Mirage** | `#1F2430` | `#CCCAC2` | `#FFCC66` | `#FFAD66` | `#D5FF80` | `#73D0FF` |
-| **Dark** | `#0D1017` | `#BFBDB6` | `#E6B450` | `#FF8F40` | `#AAD94C` | `#59C2FF` |
-| **Light** | `#FAFAFA` | `#5C6166` | `#F29718` | `#FA8532` | `#86B300` | `#22A4E6` |
+| **Mirage** | ![](https://placehold.co/16x16/1F2430/1F2430) `#1F2430` | ![](https://placehold.co/16x16/CCCAC2/CCCAC2) `#CCCAC2` | ![](https://placehold.co/16x16/FFCC66/FFCC66) `#FFCC66` | ![](https://placehold.co/16x16/FFAD66/FFAD66) `#FFAD66` | ![](https://placehold.co/16x16/D5FF80/D5FF80) `#D5FF80` | ![](https://placehold.co/16x16/73D0FF/73D0FF) `#73D0FF` |
+| **Dark** | ![](https://placehold.co/16x16/0D1017/0D1017) `#0D1017` | ![](https://placehold.co/16x16/BFBDB6/BFBDB6) `#BFBDB6` | ![](https://placehold.co/16x16/E6B450/E6B450) `#E6B450` | ![](https://placehold.co/16x16/FF8F40/FF8F40) `#FF8F40` | ![](https://placehold.co/16x16/AAD94C/AAD94C) `#AAD94C` | ![](https://placehold.co/16x16/59C2FF/59C2FF) `#59C2FF` |
+| **Light** | ![](https://placehold.co/16x16/FAFAFA/FAFAFA) `#FAFAFA` | ![](https://placehold.co/16x16/5C6166/5C6166) `#5C6166` | ![](https://placehold.co/16x16/F29718/F29718) `#F29718` | ![](https://placehold.co/16x16/FA8532/FA8532) `#FA8532` | ![](https://placehold.co/16x16/86B300/86B300) `#86B300` | ![](https://placehold.co/16x16/22A4E6/22A4E6) `#22A4E6` |
 
 ## Features
 
@@ -84,20 +84,31 @@ Then activate: **Settings** → **Appearance & Behavior** → **Appearance** →
 
 ## Supported Languages
 
-Ayu Islands provides hand-tuned syntax highlighting for:
+Ayu Islands provides hand-tuned syntax highlighting for 21 languages and formats:
 
-| Languages | |
-|---|---|
-| Java, Kotlin, Scala | C#/.NET (Rider/ReSharper) |
-| Rust | Go |
-| Python | JavaScript / TypeScript |
-| HCL / Terraform | Dart |
-| HTML, CSS, XML | SQL |
-| Ruby | PHP |
-| Bash / Shell | YAML, JSON, TOML |
-| Markdown | Regular Expressions |
+- Java
+- Kotlin
+- Scala
+- C# / .NET (Rider / ReSharper)
+- Rust
+- Go
+- Python
+- JavaScript / TypeScript
+- Ruby
+- PHP
+- Dart
+- HCL / Terraform
+- HTML
+- CSS
+- XML
+- JSON
+- YAML
+- Bash / Shell
+- Markdown
+- Django Templates
+- Regular Expressions
 
-Languages without explicit overrides inherit from `DEFAULT_*` attributes, which are also themed — so every language benefits from the Ayu palette.
+Languages without explicit overrides (SQL, TOML, and others) inherit from `DEFAULT_*` attributes, which are also themed — so every language benefits from the Ayu palette.
 
 ## Building from Source
 
