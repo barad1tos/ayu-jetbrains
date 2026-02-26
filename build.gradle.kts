@@ -51,6 +51,13 @@ intellijPlatform {
             create(IntelliJPlatformType.PhpStorm, "2025.3.3")
             create(IntelliJPlatformType.WebStorm, "2025.3.3")
             create(IntelliJPlatformType.CLion, "2025.3.3")
+            // Language-specific IDEs
+            create(IntelliJPlatformType.RustRover, "2025.1.3")
+            create(IntelliJPlatformType.GoLand, "2025.1.3")
+            create(IntelliJPlatformType.PyCharm, "2025.1.3")
+            create(IntelliJPlatformType.DataGrip, "2025.1.3")
+            create(IntelliJPlatformType.Rider, "2025.1.3")
+            create(IntelliJPlatformType.RubyMine, "2025.1.3")
         }
     }
 }
