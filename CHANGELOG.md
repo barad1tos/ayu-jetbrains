@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.2.0] - 2026-02-27
+
+### Added
+- Accent-colored active tab underline, caret, and focus borders for all variants
+- Accent color defaults for editor selections, search highlights, and breadcrumbs
+- Kotlin 2.1.10 JVM toolchain build support
+
+### Changed
+- CI build steps labeled for clarity
+- Release workflow now has `contents: write` permission for GitHub Releases
+
+### Fixed
+- README color swatches and language list corrections
+
 ## [1.1.0] - 2026-02-26
 
 ### Added
