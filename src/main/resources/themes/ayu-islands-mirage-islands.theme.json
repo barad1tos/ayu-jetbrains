@@ -348,6 +348,7 @@
 
     "Component.borderColor": "ComponentBorder",
     "Component.focusedBorderColor": "#FFCC66",
+    "Component.focusColor": "#FFCC66",
     "Component.focusWidth": 1,
 
     "Link": {
