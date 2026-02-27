@@ -6,7 +6,7 @@
     <colors>
         <!-- Core editor -->
         <option name="CARET_COLOR" value="FFCC66" />
-        <option name="CARET_ROW_COLOR" value="1A1F29" />
+        <option name="CARET_ROW_COLOR" value="FFCC661A" />
         <option name="CONSOLE_BACKGROUND_KEY" value="1F2430" />
         <option name="DEFAULT_FOREGROUND" value="CCCAC2" />
         <option name="EDITOR_GUTTER_BACKGROUND" value="1F2430" />
