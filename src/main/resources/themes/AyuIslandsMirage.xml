@@ -12,7 +12,7 @@
         <option name="EDITOR_GUTTER_BACKGROUND" value="1F2430" />
         <option name="GUTTER_BACKGROUND" value="1F2430" />
         <option name="LINE_NUMBERS_COLOR" value="8A9199" />
-        <option name="LINE_NUMBER_ON_CARET_ROW_COLOR" value="8A9199" />
+        <option name="LINE_NUMBER_ON_CARET_ROW_COLOR" value="FFCC66" />
         <option name="INDENT_GUIDE" value="2B3245" />
         <option name="SELECTED_INDENT_GUIDE" value="445066" />
         <option name="VISUAL_INDENT_GUIDE" value="2B3245" />
@@ -29,9 +29,9 @@
         <option name="SELECTED_BACKGROUND" value="637599" />
         <option name="SELECTED_FOREGROUND" value="CCCAC2" />
         <option name="HOVER_BACKGROUND" value="637599" />
-        <option name="SEARCH_RESULT_BACKGROUND" value="695380" />
-        <option name="TEXT_SEARCH_RESULT_BACKGROUND" value="695380" />
-        <option name="IDENTIFIER_UNDER_CARET_BACKGROUND" value="695380" />
+        <option name="SEARCH_RESULT_BACKGROUND" value="544B2E" />
+        <option name="TEXT_SEARCH_RESULT_BACKGROUND" value="544B2E" />
+        <option name="IDENTIFIER_UNDER_CARET_BACKGROUND" value="544B2E" />
         <option name="MATCHED_BRACE_BACKGROUND" value="8A9199" />
         <option name="MATCHED_TEXT" value="FFCC66" />
 
@@ -1298,7 +1298,7 @@
         <!-- Identifier under caret -->
         <option name="IDENTIFIER_UNDER_CARET_ATTRIBUTES">
             <value>
-                <option name="BACKGROUND" value="695380" />
+                <option name="BACKGROUND" value="544B2E" />
             </value>
         </option>
 
@@ -2037,13 +2037,13 @@
         <!-- Matched brace / tag -->
         <option name="MATCHED_BRACE_ATTRIBUTES">
             <value>
-                <option name="BACKGROUND" value="3B514D" />
+                <option name="BACKGROUND" value="463D2E" />
                 <option name="FONT_TYPE" value="1" />
             </value>
         </option>
         <option name="MATCHED_TAG_NAME">
             <value>
-                <option name="BACKGROUND" value="3B514D" />
+                <option name="BACKGROUND" value="463D2E" />
             </value>
         </option>
 
@@ -2401,7 +2401,7 @@
         </option>
         <option name="ReSharper.MATCHED_FORMAT_STRING_ITEM">
             <value>
-                <option name="BACKGROUND" value="695380" />
+                <option name="BACKGROUND" value="544B2E" />
             </value>
         </option>
         <option name="ReSharper.MUTABLE_LOCAL_VARIABLE_IDENTIFIER">
@@ -3006,7 +3006,7 @@
         <!-- Search results -->
         <option name="SEARCH_RESULT_ATTRIBUTES">
             <value>
-                <option name="BACKGROUND" value="695380" />
+                <option name="BACKGROUND" value="544B2E" />
             </value>
         </option>
 
@@ -3096,7 +3096,7 @@
         <!-- Text search -->
         <option name="TEXT_SEARCH_RESULT_ATTRIBUTES">
             <value>
-                <option name="BACKGROUND" value="695380" />
+                <option name="BACKGROUND" value="544B2E" />
             </value>
         </option>
         <option name="TEXT_STYLE_ERROR">
@@ -3161,12 +3161,12 @@
         <!-- Write search/identifier -->
         <option name="WRITE_IDENTIFIER_UNDER_CARET_ATTRIBUTES">
             <value>
-                <option name="BACKGROUND" value="695380" />
+                <option name="BACKGROUND" value="544B2E" />
             </value>
         </option>
         <option name="WRITE_SEARCH_RESULT_ATTRIBUTES">
             <value>
-                <option name="BACKGROUND" value="695380" />
+                <option name="BACKGROUND" value="544B2E" />
             </value>
         </option>
 

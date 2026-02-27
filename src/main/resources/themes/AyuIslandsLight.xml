@@ -12,7 +12,7 @@
         <option name="EDITOR_GUTTER_BACKGROUND" value="FCFCFC" />
         <option name="GUTTER_BACKGROUND" value="FCFCFC" />
         <option name="LINE_NUMBERS_COLOR" value="828E9F66" />
-        <option name="LINE_NUMBER_ON_CARET_ROW_COLOR" value="828E9FCC" />
+        <option name="LINE_NUMBER_ON_CARET_ROW_COLOR" value="F29718CC" />
         <option name="INDENT_GUIDE" value="828E9F2E" />
         <option name="SELECTED_INDENT_GUIDE" value="828E9F59" />
         <option name="VISUAL_INDENT_GUIDE" value="828E9F2E" />
@@ -2037,13 +2037,13 @@
         <!-- Matched brace / tag -->
         <option name="MATCHED_BRACE_ATTRIBUTES">
             <value>
-                <option name="BACKGROUND" value="D0E8D8" />
+                <option name="BACKGROUND" value="F9E6C8" />
                 <option name="FONT_TYPE" value="1" />
             </value>
         </option>
         <option name="MATCHED_TAG_NAME">
             <value>
-                <option name="BACKGROUND" value="D0E8D8" />
+                <option name="BACKGROUND" value="F9E6C8" />
             </value>
         </option>
 

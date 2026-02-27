@@ -73,6 +73,20 @@
     "Yellow6": "#FFCC66"
   },
 
+  "icons": {
+    "ColorPalette": {
+      "Checkbox.Background.Default": "#242936",
+      "Checkbox.Border.Default": "#5A6680",
+      "Checkbox.Background.Selected": "#FFCC66",
+      "Checkbox.Border.Selected": "#FFCC66",
+      "Checkbox.Foreground.Selected": "#1F2430",
+      "Checkbox.Focus.Wide": "#FFCC66",
+      "Checkbox.Background.Disabled": "#242936",
+      "Checkbox.Border.Disabled": "#3B4559",
+      "Checkbox.Foreground.Disabled": "#3B4559"
+    }
+  },
+
   "ui": {
     "*": {
       "foreground": "ForegroundDefault",
@@ -155,7 +169,9 @@
       },
       "HeaderTab": {
         "hoverBackground": "HoverBackgroundMid",
-        "hoverInactiveBackground": "HoverBackgroundMid"
+        "hoverInactiveBackground": "HoverBackgroundMid",
+        "underlineColor": "#FFCC66",
+        "inactiveUnderlineColor": "Gray4"
       },
       "Stripe": {
         "background": "BackgroundLight",
@@ -315,6 +331,17 @@
     "Component.focusedBorderColor": "#FFCC66",
     "Component.focusWidth": 1,
 
+    "Link": {
+      "activeForeground": "#FFCC66",
+      "hoverForeground": "#FFCC66",
+      "pressedForeground": "#D4A84A",
+      "visitedForeground": "#D4A84A",
+      "secondaryForeground": "#FFCC66"
+    },
+    "Notification.linkForeground": "#FFCC66",
+    "GotItTooltip.linkForeground": "#FFCC66",
+    "Tooltip.Learning.linkForeground": "#FFCC66",
+
     "ComboBox": {
       "background": "ComboboxBackground",
       "disabledBackground": "PanelBackground",
@@ -328,6 +355,7 @@
     "Toolbar.Floating.background": "Gray3",
 
     "TabbedPane.hoverColor": "HoverBackgroundMid",
+    "TabbedPane.underlineColor": "#FFCC66",
 
     "Tree.border.compact": "2,8,2,8",
 
@@ -704,19 +732,35 @@
     },
 
     "ScrollBar": {
-      "hoverThumbBorderColor": "#2626268C",
-      "hoverThumbColor": "#8080808C",
+      "hoverThumbBorderColor": "#FFCC668C",
+      "hoverThumbColor": "#FFCC668C",
       "hoverTrackColor": "#80808000",
       "thumbBorderColor": "#26262659",
       "thumbColor": "#80808059",
       "trackColor": "#80808000",
       "Transparent": {
-        "hoverThumbBorderColor": "#2626268C",
-        "hoverThumbColor": "#8080808C",
+        "hoverThumbBorderColor": "#FFCC668C",
+        "hoverThumbColor": "#FFCC668C",
         "hoverTrackColor": "#8080801A",
         "thumbBorderColor": "#26262600",
         "thumbColor": "#80808059",
         "trackColor": "#80808000"
+      },
+      "Mac": {
+        "hoverThumbBorderColor": "#FFCC668C",
+        "hoverThumbColor": "#FFCC668C",
+        "hoverTrackColor": "#80808000",
+        "thumbBorderColor": "#26262659",
+        "thumbColor": "#80808059",
+        "trackColor": "#80808000",
+        "Transparent": {
+          "hoverThumbBorderColor": "#FFCC668C",
+          "hoverThumbColor": "#FFCC668C",
+          "hoverTrackColor": "#8080801A",
+          "thumbBorderColor": "#26262600",
+          "thumbColor": "#80808059",
+          "trackColor": "#80808000"
+        }
       }
     },
 
@@ -732,6 +776,7 @@
     },
 
     "ProgressBar": {
+      "foreground": "#FFCC66",
       "progressCounterBackground": "#FFCC66",
       "progressCounterForeground": "#000000"
     },
