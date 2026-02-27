@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.1] - 2026-02-27
+
+### Fixed
+- Add missing Marketplace changelog for v1.2.0 changes
+
 ## [1.2.0] - 2026-02-27
 
 ### Added
