@@ -53,6 +53,17 @@
   <depends>com.intellij.modules.platform</depends>
 
   <extensions defaultExtensionNs="com.intellij">
+    <!-- Settings panel under Appearance > Ayu Islands -->
+    <applicationConfigurable
+        parentId="appearance"
+        instance="dev.ayuislands.settings.AyuIslandsConfigurable"
+        id="dev.ayuislands.settings.AyuIslandsConfigurable"
+        displayName="Ayu Islands"/>
+
+    <!-- Persistent accent color state -->
+    <applicationService
+        serviceImplementation="dev.ayuislands.settings.AyuIslandsSettings"/>
+
     <!-- Plugin lifecycle -->
     <postStartupActivity
         implementation="dev.ayuislands.AyuIslandsStartupActivity"/>
