@@ -20,6 +20,16 @@
   ]]></description>
 
   <change-notes><![CDATA[
+    <h3>1.2.1</h3>
+    <ul>
+      <li>Add missing Marketplace changelog for v1.2.0 changes</li>
+    </ul>
+    <h3>1.2.0</h3>
+    <ul>
+      <li>Accent-colored active tab underline, caret, and focus borders for all variants</li>
+      <li>Accent color defaults for editor selections, search highlights, and breadcrumbs</li>
+      <li>Kotlin 2.1.10 JVM toolchain build support</li>
+    </ul>
     <h3>1.1.0</h3>
     <ul>
       <li>C#/.NET syntax highlighting (Rider/ReSharper) for all three variants</li>
