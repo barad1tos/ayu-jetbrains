@@ -185,7 +185,7 @@
     "EditorTabs": {
       "background": "BackgroundDark",
       "underTabsBorderColor": "BackgroundLight",
-      "underlinedBorderColor": "#4F5A6E",
+      "underlinedBorderColor": "#E6B450",
       "underlinedTabBackground": "#4F5A6E15",
       "inactiveUnderlinedTabBorderColor": "Gray4",
       "inactiveUnderlinedTabBackground": "Gray2",
@@ -332,7 +332,8 @@
     "TextField.background": "InputBackground",
 
     "Component.borderColor": "ComponentBorder",
-    "Component.focusedBorderColor": "#10141C",
+    "Component.focusedBorderColor": "#E6B450",
+    "Component.focusWidth": 1,
 
     "ComboBox": {
       "background": "ComboboxBackground",
