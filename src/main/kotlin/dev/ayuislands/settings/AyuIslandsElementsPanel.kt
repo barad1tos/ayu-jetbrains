@@ -1,0 +1,210 @@
+package dev.ayuislands.settings
+
+import com.intellij.icons.AllIcons
+import com.intellij.ui.dsl.builder.Panel
+import com.intellij.util.ui.JBUI
+import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.AccentGroup
+import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.conflict.ConflictRegistry
+import dev.ayuislands.licensing.LicenseChecker
+import javax.swing.JCheckBox
+
+/** Per-element accent toggle checkboxes with conflict detection and license-aware dimming. */
+class AyuIslandsElementsPanel : AyuIslandsSettingsPanel() {
+
+    private val pendingToggles: MutableMap<AccentElementId, Boolean> = mutableMapOf()
+    private var storedToggles: Map<AccentElementId, Boolean> = emptyMap()
+    private var pendingForceOverrides: MutableSet<String> = mutableSetOf()
+    private var storedForceOverrides: Set<String> = emptySet()
+    private var pendingCgpIntegration: Boolean = false
+    private var storedCgpIntegration: Boolean = false
+    private val checkboxes: MutableMap<AccentElementId, JCheckBox> = mutableMapOf()
+    private var cgpCheckbox: JCheckBox? = null
+    private var variant: AyuVariant? = null
+
+    var onToggleChanged: (() -> Unit)? = null
+
+    fun currentToggles(): Map<AccentElementId, Boolean> = pendingToggles.toMap()
+
+    override fun buildPanel(panel: Panel, variant: AyuVariant) {
+        this.variant = variant
+        val state = AyuIslandsSettings.getInstance().state
+        val licensed = LicenseChecker.isLicensedOrGrace()
+
+        // Initialize toggle state from persisted settings
+        for (id in AccentElementId.entries) {
+            val enabled = state.isToggleEnabled(id)
+            pendingToggles[id] = enabled
+        }
+        storedToggles = pendingToggles.toMap()
+
+        storedForceOverrides = state.forceOverrides.toSet()
+        pendingForceOverrides = storedForceOverrides.toMutableSet()
+
+        storedCgpIntegration = state.cgpIntegrationEnabled
+        pendingCgpIntegration = storedCgpIntegration
+
+        // Detect conflicts on panel open
+        val conflicts = ConflictRegistry.detectConflicts()
+
+        panel.group("Accent Elements") {
+            if (!licensed) {
+                row {
+                    label("Pro feature").applyToComponent {
+                        foreground = JBUI.CurrentTheme.ContextHelp.FOREGROUND
+                    }
+                    link("Get Ayu Islands Pro") {
+                        LicenseChecker.requestLicense(
+                            "Unlock per-element accent toggles, custom colors, and neon glow effects"
+                        )
+                    }
+                }
+            }
+
+            twoColumnsRow(
+                // Visual group (left)
+                {
+                    panel {
+                        row { label("Visual").bold() }
+                        for (id in AccentElementId.entries.filter { it.group == AccentGroup.VISUAL }) {
+                            buildToggleRow(this, id, conflicts, licensed)
+                        }
+                    }
+                },
+                // Interactive group (right)
+                {
+                    panel {
+                        row { label("Interactive").bold() }
+                        for (id in AccentElementId.entries.filter { it.group == AccentGroup.INTERACTIVE }) {
+                            buildToggleRow(this, id, conflicts, licensed)
+                        }
+                    }
+                },
+            )
+
+            // Enable All / Disable All / Reset buttons
+            row {
+                button("Enable All") {
+                    AccentElementId.entries.forEach { pendingToggles[it] = true }
+                    refreshCheckboxes()
+                    onToggleChanged?.invoke()
+                }.enabled(licensed)
+                button("Disable All") {
+                    AccentElementId.entries.forEach { pendingToggles[it] = false }
+                    refreshCheckboxes()
+                    onToggleChanged?.invoke()
+                }.enabled(licensed)
+                button("Reset") {
+                    AccentElementId.entries.forEach { pendingToggles[it] = true }
+                    pendingForceOverrides.clear()
+                    refreshCheckboxes()
+                    onToggleChanged?.invoke()
+                }.enabled(licensed)
+            }
+
+            // CGP integration toggle (only if CodeGlance Pro detected)
+            if (ConflictRegistry.isCodeGlanceProDetected()) {
+                separator()
+                row { label("Integrations").bold() }
+                row {
+                    val cb = checkBox("CodeGlance Pro viewport color")
+                        .comment("Sync CodeGlance Pro viewport color with accent")
+                    cb.component.isSelected = pendingCgpIntegration
+                    cb.component.isEnabled = licensed
+                    cb.component.addActionListener {
+                        pendingCgpIntegration = cb.component.isSelected
+                    }
+                    cgpCheckbox = cb.component
+                }
+            }
+        }
+    }
+
+    private fun buildToggleRow(
+        panel: Panel,
+        id: AccentElementId,
+        conflicts: List<dev.ayuislands.accent.conflict.ConflictEntry>,
+        licensed: Boolean,
+    ) {
+        panel.row {
+            val cb = checkBox(elementDisplayName(id))
+            cb.component.isSelected = pendingToggles[id] ?: true
+            cb.component.isEnabled = licensed
+            cb.component.addActionListener {
+                pendingToggles[id] = cb.component.isSelected
+                // If enabling a conflicting element, treat as force override
+                val conflict = conflicts.firstOrNull { entry -> id in entry.affectedElements }
+                if (cb.component.isSelected && conflict != null) {
+                    pendingForceOverrides.add(id.name)
+                } else if (!cb.component.isSelected) {
+                    pendingForceOverrides.remove(id.name)
+                }
+                onToggleChanged?.invoke()
+            }
+            checkboxes[id] = cb.component
+
+            // Conflict indicator
+            val conflict = conflicts.firstOrNull { entry -> id in entry.affectedElements }
+            if (conflict != null) {
+                icon(AllIcons.General.Warning).applyToComponent {
+                    toolTipText = "${conflict.pluginDisplayName} overrides this element. Enabling may not have visible effect."
+                }
+            }
+        }
+    }
+
+    private fun refreshCheckboxes() {
+        for ((id, cb) in checkboxes) {
+            cb.isSelected = pendingToggles[id] ?: true
+        }
+    }
+
+    private fun elementDisplayName(id: AccentElementId): String = when (id) {
+        AccentElementId.TAB_UNDERLINES -> "Tab Underlines"
+        AccentElementId.CARET_ROW -> "Caret Row"
+        AccentElementId.PROGRESS_BAR -> "Progress Bar"
+        AccentElementId.SCROLLBAR -> "Scrollbar"
+        AccentElementId.LINKS -> "Links"
+        AccentElementId.BRACKET_MATCH -> "Bracket Match"
+        AccentElementId.SEARCH_RESULTS -> "Search Results"
+        AccentElementId.CHECKBOXES -> "Checkboxes"
+    }
+
+    override fun isModified(): Boolean {
+        if (pendingToggles != storedToggles) return true
+        if (pendingForceOverrides != storedForceOverrides) return true
+        if (pendingCgpIntegration != storedCgpIntegration) return true
+        return false
+    }
+
+    override fun apply() {
+        if (!isModified()) return
+        val state = AyuIslandsSettings.getInstance().state
+
+        for ((id, enabled) in pendingToggles) {
+            state.setToggle(id, enabled)
+        }
+        state.forceOverrides = pendingForceOverrides.toMutableSet()
+        state.cgpIntegrationEnabled = pendingCgpIntegration
+
+        storedToggles = pendingToggles.toMap()
+        storedForceOverrides = pendingForceOverrides.toSet()
+        storedCgpIntegration = pendingCgpIntegration
+
+        // Re-apply accent with new toggle states
+        val currentVariant = variant ?: return
+        val accentHex = AyuIslandsSettings.getInstance().getAccentForVariant(currentVariant)
+        AccentApplicator.apply(accentHex)
+    }
+
+    override fun reset() {
+        pendingToggles.clear()
+        pendingToggles.putAll(storedToggles)
+        pendingForceOverrides = storedForceOverrides.toMutableSet()
+        pendingCgpIntegration = storedCgpIntegration
+        refreshCheckboxes()
+        cgpCheckbox?.isSelected = storedCgpIntegration
+    }
+}
