@@ -5,12 +5,13 @@ import com.intellij.ui.dsl.builder.Panel
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.glow.GlowRenderer
 import java.awt.BasicStroke
 import java.awt.Color
 import java.awt.Dimension
-import java.awt.GradientPaint
 import java.awt.Graphics
 import java.awt.Graphics2D
+import java.awt.Rectangle
 import java.awt.RenderingHints
 import javax.swing.JComponent
 import javax.swing.UIManager
@@ -45,6 +46,8 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel() {
     override fun reset() {}
 
     private inner class AccentPreviewComponent(private val variant: AyuVariant) : JComponent() {
+
+        private val glowRenderer = GlowRenderer()
 
         init {
             preferredSize = Dimension(0, JBUI.scale(80))
@@ -171,15 +174,11 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel() {
                 g2.color = Color(progressColor.red, progressColor.green, progressColor.blue, 40)
                 g2.fillRect(progressWidth, editorBottom, width - progressWidth, progressHeight)
 
-                // Glow effect around editor area
-                if (previewGlowEnabled && isEnabled(AccentElementId.TAB_UNDERLINES)) {
-                    val glowColor = Color(accent.red, accent.green, accent.blue, 30)
-                    val glowInset = JBUI.scale(2)
-                    g2.paint = GradientPaint(
-                        0f, editorTop.toFloat(), glowColor,
-                        0f, (editorTop + JBUI.scale(12)).toFloat(), Color(accent.red, accent.green, accent.blue, 0)
-                    )
-                    g2.fillRect(glowInset, editorTop, width - 2 * glowInset, JBUI.scale(12))
+                // Glow effect around editor area using GlowRenderer
+                if (previewGlowEnabled) {
+                    val editorBounds = Rectangle(0, editorTop, width, editorBottom - editorTop)
+                    glowRenderer.ensureCache(accent)
+                    glowRenderer.paintGlow(g2, editorBounds)
                 }
             } finally {
                 g2.dispose()
