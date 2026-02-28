@@ -29,6 +29,24 @@ class GlowPanel : JPanel() {
             }
         }
 
+    var glowStyle: GlowStyle = GlowStyle.SOFT
+        set(value) {
+            if (field != value) {
+                field = value
+                renderer.invalidateCache()
+                repaint()
+            }
+        }
+
+    var glowIntensity: Int = 40
+        set(value) {
+            if (field != value) {
+                field = value
+                renderer.invalidateCache()
+                repaint()
+            }
+        }
+
     var glowWidth: Int = GlowRenderer.DEFAULT_GLOW_WIDTH
         set(value) {
             if (field != value) {
@@ -52,7 +70,7 @@ class GlowPanel : JPanel() {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
 
-            renderer.ensureCache(glowColor, glowWidth)
+            renderer.ensureCache(glowColor, glowStyle, glowIntensity, glowWidth)
             renderer.paintGlow(g2, Rectangle(0, 0, width, height), glowWidth)
         } finally {
             g2.dispose()
