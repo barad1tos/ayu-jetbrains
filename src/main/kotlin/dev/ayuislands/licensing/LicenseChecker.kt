@@ -32,7 +32,8 @@ object LicenseChecker {
     private val LOG = logger<LicenseChecker>()
     private const val TIMESTAMP_VALIDITY_PERIOD_MS = 3_600_000L // 1 hour
 
-    // JetBrains root certificates -- copied from marketplace-makemecoffee-plugin CheckLicense.java
+    // JetBrains public root CAs for license verification.
+    // Source: marketplace-makemecoffee-plugin (Apache 2.0), the official JetBrains licensing example.
     private val ROOT_CERTIFICATES = arrayOf(
         // Certificate 1: JetProfile CA
         "-----BEGIN CERTIFICATE-----\n" +
@@ -169,7 +170,8 @@ object LicenseChecker {
         }
     }
 
-    // Cryptographic verification methods adapted from marketplace-makemecoffee-plugin CheckLicense.java
+    // Cryptographic verification adapted from marketplace-makemecoffee-plugin (Apache 2.0).
+    // Manual RSA verification is required per JetBrains docs — LicensingFacade does not verify stamps.
 
     private fun isKeyValid(keyString: String): Boolean {
         try {
