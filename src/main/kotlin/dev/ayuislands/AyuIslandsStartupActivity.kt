@@ -7,8 +7,10 @@ import com.intellij.openapi.startup.ProjectActivity
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.conflict.ConflictRegistry
+import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
+import javax.swing.SwingUtilities
 
 internal class AyuIslandsStartupActivity : ProjectActivity {
 
@@ -37,6 +39,15 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
 
         // Check license state
         checkLicenseState(project, variant, settings)
+
+        // Initialize glow overlay system if glow is enabled
+        // Wrapped in invokeLater because execute() runs on a background coroutine
+        // and glow overlay work (JLayer, ToolWindowManager) is EDT-only
+        if (settings.state.glowEnabled) {
+            SwingUtilities.invokeLater {
+                GlowOverlayManager.getInstance(project).initialize()
+            }
+        }
     }
 
     private fun checkLicenseState(project: Project, variant: AyuVariant, settings: AyuIslandsSettings) {
