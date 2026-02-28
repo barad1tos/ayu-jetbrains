@@ -1,11 +1,15 @@
 package dev.ayuislands.accent
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.colors.ColorKey
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.ui.ColorUtil
+import dev.ayuislands.accent.conflict.ConflictRegistry
+import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.Color
 import java.awt.Window
 import javax.swing.SwingUtilities
@@ -13,11 +17,14 @@ import javax.swing.UIManager
 
 object AccentApplicator {
 
-    private val ACCENT_FULL_KEYS = listOf(
-        // Tab underlines
-        "ToolWindow.HeaderTab.underlineColor",
-        "EditorTabs.underlinedBorderColor",
-        "TabbedPane.underlineColor",
+    private val EP_NAME = ExtensionPointName<AccentElement>(
+        "com.ayuislands.theme.accentElement"
+    )
+
+    private val log = logger<AccentApplicator>()
+
+    // Always-on UIManager keys (not per-element toggleable)
+    private val ALWAYS_ON_UI_KEYS = listOf(
         // GotItTooltip
         "GotItTooltip.background",
         "GotItTooltip.borderColor",
@@ -27,59 +34,17 @@ object AccentApplicator {
         // Focus border
         "Component.focusedBorderColor",
         "Component.focusColor",
-        // Links
-        "Link.activeForeground",
-        "Link.hoverForeground",
-        "Link.secondaryForeground",
-        "Notification.linkForeground",
-        "GotItTooltip.linkForeground",
-        "Tooltip.Learning.linkForeground",
         // Drag and drop
         "DragAndDrop.borderColor",
         // Trial widget
         "TrialWidget.Alert.borderColor",
         "TrialWidget.Alert.foreground",
-        // Progress bar
-        "ProgressBar.foreground",
-        "ProgressBar.progressCounterBackground",
     )
 
-    private val SCROLLBAR_ALPHA_KEYS = listOf(
-        "ScrollBar.hoverThumbBorderColor",
-        "ScrollBar.hoverThumbColor",
-        "ScrollBar.Transparent.hoverThumbBorderColor",
-        "ScrollBar.Transparent.hoverThumbColor",
-        "ScrollBar.Mac.hoverThumbBorderColor",
-        "ScrollBar.Mac.hoverThumbColor",
-        "ScrollBar.Mac.Transparent.hoverThumbBorderColor",
-        "ScrollBar.Mac.Transparent.hoverThumbColor",
-    )
-
-    private const val SCROLLBAR_ALPHA = 0x8C
-
-    private data class SelectionKey(val key: String, val alpha: Int)
-
-    private val SELECTION_KEYS = listOf(
-        SelectionKey("List.selectionBackground", 0x26),
-        SelectionKey("List.selectionInactiveBackground", 0x1A),
-        SelectionKey("Tree.selectionBackground", 0x26),
-        SelectionKey("Tree.selectionInactiveBackground", 0x1A),
-        SelectionKey("Table.selectionBackground", 0x26),
-        SelectionKey("Table.selectionInactiveBackground", 0x1A),
-    )
-
-    private data class ColorKeyEntry(val name: String, val alpha: Int = 0xFF)
-
-    private val EDITOR_COLOR_KEYS = listOf(
-        ColorKeyEntry("CARET_COLOR"),
-        ColorKeyEntry("CARET_ROW_COLOR", alpha = 0x1A),
-        ColorKeyEntry("LINE_NUMBER_ON_CARET_ROW_COLOR"),
-        ColorKeyEntry("MATCHED_TEXT"),
-        ColorKeyEntry("HYPERLINK_COLOR"),
-        ColorKeyEntry("LINK_FOREGROUND"),
-        ColorKeyEntry("BUTTON_BACKGROUND"),
-        ColorKeyEntry("PROGRESS_BAR_TRACK"),
-        ColorKeyEntry("WARNING_FOREGROUND"),
+    // Always-on editor ColorKeys (not per-element toggleable)
+    private val ALWAYS_ON_EDITOR_COLOR_KEYS = listOf(
+        ColorKey.find("BUTTON_BACKGROUND"),
+        ColorKey.find("WARNING_FOREGROUND"),
     )
 
     private data class AttrOverride(
@@ -89,12 +54,10 @@ object AccentApplicator {
         val errorStripe: Boolean = false,
     )
 
-    private val EDITOR_ATTR_OVERRIDES = listOf(
+    // Always-on editor TextAttributesKey overrides
+    private val ALWAYS_ON_EDITOR_ATTR_OVERRIDES = listOf(
         AttrOverride("BOOKMARKS_ATTRIBUTES", errorStripe = true),
-        AttrOverride("CTRL_CLICKABLE", foreground = true, effectColor = true),
         AttrOverride("DEBUGGER_INLINED_VALUES_MODIFIED", foreground = true),
-        AttrOverride("FOLLOWED_HYPERLINK_ATTRIBUTES", foreground = true, effectColor = true),
-        AttrOverride("HYPERLINK_ATTRIBUTES", foreground = true, effectColor = true),
         AttrOverride("LIVE_TEMPLATE_ATTRIBUTES", effectColor = true),
         AttrOverride("LOG_INFO_OUTPUT", foreground = true),
         AttrOverride("RUNTIME_ERROR", effectColor = true),
@@ -106,19 +69,92 @@ object AccentApplicator {
 
     fun apply(accentHex: String) {
         val accent = Color.decode(accentHex)
+        val state = AyuIslandsSettings.getInstance().state
 
-        // UIManager.put is thread-safe, do it immediately
-        for (key in ACCENT_FULL_KEYS) {
+        // Always-on UIManager keys
+        applyAlwaysOnUiKeys(accent)
+
+        // EP-registered element keys with toggle + conflict awareness
+        for (element in EP_NAME.extensionList) {
+            val enabled = state.isToggleEnabled(element.id)
+            if (!enabled) {
+                try {
+                    element.revert()
+                } catch (exception: Exception) {
+                    log.warn("Failed to revert ${element.displayName}", exception)
+                }
+                continue
+            }
+            val hasConflict = ConflictRegistry.hasConflict(element.id)
+            val forceOverride = element.id.name in state.forceOverrides
+            if (hasConflict && !forceOverride) {
+                try {
+                    element.revert()
+                } catch (exception: Exception) {
+                    log.warn("Failed to revert ${element.displayName}", exception)
+                }
+                continue
+            }
+            if (hasConflict && forceOverride) {
+                log.warn("Force-overriding conflict for ${element.displayName}")
+            }
+            try {
+                element.apply(accent)
+            } catch (exception: Exception) {
+                log.warn("Failed to apply accent to ${element.displayName}", exception)
+            }
+        }
+
+        // EDT-only work: always-on editor keys + global scheme notification + repaint
+        val edtWork = Runnable {
+            applyAlwaysOnEditorKeys(accent)
+            repaintAllWindows()
+        }
+        if (SwingUtilities.isEventDispatchThread()) {
+            edtWork.run()
+        } else {
+            SwingUtilities.invokeLater(edtWork)
+        }
+    }
+
+    fun revertAll() {
+        // Revert always-on UIManager keys
+        for (key in ALWAYS_ON_UI_KEYS) {
+            UIManager.put(key, null)
+        }
+        // Contrast foreground keys
+        UIManager.put("GotItTooltip.foreground", null)
+        UIManager.put("GotItTooltip.Button.foreground", null)
+        UIManager.put("GotItTooltip.Header.foreground", null)
+        // Darkened button border keys
+        UIManager.put("Button.default.focusedBorderColor", null)
+        UIManager.put("Button.default.startBorderColor", null)
+        UIManager.put("Button.default.endBorderColor", null)
+
+        // Revert all EP-registered elements
+        for (element in EP_NAME.extensionList) {
+            try {
+                element.revert()
+            } catch (exception: Exception) {
+                log.warn("Failed to revert ${element.displayName}", exception)
+            }
+        }
+
+        // EDT-only: revert editor keys + repaint
+        val edtWork = Runnable {
+            revertAlwaysOnEditorKeys()
+            repaintAllWindows()
+        }
+        if (SwingUtilities.isEventDispatchThread()) {
+            edtWork.run()
+        } else {
+            SwingUtilities.invokeLater(edtWork)
+        }
+    }
+
+    private fun applyAlwaysOnUiKeys(accent: Color) {
+        for (key in ALWAYS_ON_UI_KEYS) {
             UIManager.put(key, accent)
-        }
-
-        val scrollbarColor = Color(accent.red, accent.green, accent.blue, SCROLLBAR_ALPHA)
-        for (key in SCROLLBAR_ALPHA_KEYS) {
-            UIManager.put(key, scrollbarColor)
-        }
-
-        for (sel in SELECTION_KEYS) {
-            UIManager.put(sel.key, Color(accent.red, accent.green, accent.blue, sel.alpha))
         }
 
         // Contrast foreground for accent-background elements (GotItTooltip, buttons)
@@ -132,34 +168,18 @@ object AccentApplicator {
         UIManager.put("Button.default.focusedBorderColor", darkenedAccent)
         UIManager.put("Button.default.startBorderColor", darkenedAccent)
         UIManager.put("Button.default.endBorderColor", darkenedAccent)
-
-        // EDT-only operations: editor scheme + repaint
-        val edtWork = Runnable {
-            applyToEditorScheme(accent)
-            repaintAllWindows()
-        }
-        if (SwingUtilities.isEventDispatchThread()) {
-            edtWork.run()
-        } else {
-            SwingUtilities.invokeLater(edtWork)
-        }
     }
 
-    private fun applyToEditorScheme(accent: Color) {
+    private fun applyAlwaysOnEditorKeys(accent: Color) {
         val scheme = EditorColorsManager.getInstance().globalScheme
 
         // ColorKey entries
-        for (entry in EDITOR_COLOR_KEYS) {
-            val color = if (entry.alpha == 0xFF) {
-                accent
-            } else {
-                Color(accent.red, accent.green, accent.blue, entry.alpha)
-            }
-            scheme.setColor(ColorKey.find(entry.name), color)
+        for (colorKey in ALWAYS_ON_EDITOR_COLOR_KEYS) {
+            scheme.setColor(colorKey, accent)
         }
 
-        // TextAttributesKey entries — clone existing, override only accent properties
-        for (override in EDITOR_ATTR_OVERRIDES) {
+        // TextAttributesKey entries -- clone existing, override only accent properties
+        for (override in ALWAYS_ON_EDITOR_ATTR_OVERRIDES) {
             val attrKey = TextAttributesKey.find(override.key)
             val existing = scheme.getAttributes(attrKey)
             val updated = existing?.clone() ?: TextAttributes()
@@ -170,6 +190,23 @@ object AccentApplicator {
         }
 
         // Notify editors to repaint with updated scheme
+        ApplicationManager.getApplication().messageBus
+            .syncPublisher(EditorColorsManager.TOPIC)
+            .globalSchemeChange(null)
+    }
+
+    private fun revertAlwaysOnEditorKeys() {
+        val scheme = EditorColorsManager.getInstance().globalScheme
+
+        for (colorKey in ALWAYS_ON_EDITOR_COLOR_KEYS) {
+            scheme.setColor(colorKey, null)
+        }
+
+        for (override in ALWAYS_ON_EDITOR_ATTR_OVERRIDES) {
+            val attrKey = TextAttributesKey.find(override.key)
+            scheme.setAttributes(attrKey, null)
+        }
+
         ApplicationManager.getApplication().messageBus
             .syncPublisher(EditorColorsManager.TOPIC)
             .globalSchemeChange(null)
