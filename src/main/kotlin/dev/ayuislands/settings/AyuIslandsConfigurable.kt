@@ -3,7 +3,6 @@ package dev.ayuislands.settings
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.options.BoundConfigurable
-import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AyuVariant
@@ -12,9 +11,18 @@ import dev.ayuislands.licensing.LicenseChecker
 /** Settings page at Appearance > Ayu Islands composing panel sections. */
 class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
 
+    private val accentPanel = AyuIslandsAccentPanel()
+    private val elementsPanel = AyuIslandsElementsPanel()
+    private val previewPanel = AyuIslandsPreviewPanel()
+    private val effectsPanel = AyuIslandsEffectsPanel()
+    private val licenseFooter = AyuIslandsLicenseFooter()
+
     private val panels: List<AyuIslandsSettingsPanel> = listOf(
-        AyuIslandsAccentPanel(),
-        AyuIslandsLicenseFooter(),
+        accentPanel,
+        elementsPanel,
+        previewPanel,
+        effectsPanel,
+        licenseFooter,
     )
 
     override fun createPanel(): com.intellij.openapi.ui.DialogPanel {
@@ -41,8 +49,32 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                     comment("Activate an Ayu Islands theme to configure accent colors")
                 }
             } else {
+                row {
+                    comment("${variant.name} variant")
+                }
+
                 for (section in panels) {
                     section.buildPanel(this@panel, variant)
+                }
+
+                // Initialize preview state from current settings
+                val settings = AyuIslandsSettings.getInstance()
+                previewPanel.previewAccentHex = settings.getAccentForVariant(variant)
+                previewPanel.previewToggles = elementsPanel.currentToggles()
+                previewPanel.previewGlowEnabled = effectsPanel.isGlowEnabled()
+
+                // Wire callbacks for cross-panel preview updates
+                accentPanel.onAccentChanged = { hex ->
+                    previewPanel.previewAccentHex = hex
+                    previewPanel.updatePreview()
+                }
+                elementsPanel.onToggleChanged = {
+                    previewPanel.previewToggles = elementsPanel.currentToggles()
+                    previewPanel.updatePreview()
+                }
+                effectsPanel.onGlowChanged = {
+                    previewPanel.previewGlowEnabled = effectsPanel.isGlowEnabled()
+                    previewPanel.updatePreview()
                 }
             }
         }

@@ -111,4 +111,10 @@
     <themeProvider id="com.ayuislands.theme.light.islands"
                    path="/themes/ayu-islands-light-islands.theme.json"/>
   </extensions>
+
+  <applicationListeners>
+    <listener
+        class="dev.ayuislands.AyuIslandsLafListener"
+        topic="com.intellij.ide.ui.LafManagerListener"/>
+  </applicationListeners>
 </idea-plugin>

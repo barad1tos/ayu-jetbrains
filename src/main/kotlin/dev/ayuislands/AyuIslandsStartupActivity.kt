@@ -6,6 +6,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 
@@ -22,6 +23,17 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         val accentHex = settings.getAccentForVariant(variant)
         AccentApplicator.apply(accentHex)
         LOG.info("Ayu Islands accent applied: $accentHex for variant ${variant.name}")
+
+        // Log detected third-party plugin conflicts
+        val conflicts = ConflictRegistry.detectConflicts()
+        if (conflicts.isNotEmpty()) {
+            LOG.info("Ayu Islands detected third-party plugins: ${conflicts.joinToString { it.pluginDisplayName }}")
+        }
+
+        // Apply CGP viewport color at startup if integration enabled
+        if (settings.state.cgpIntegrationEnabled && ConflictRegistry.isCodeGlanceProDetected()) {
+            AyuIslandsLafListener().applyCgpViewportColor(accentHex)
+        }
 
         // Check license state
         checkLicenseState(project, variant, settings)
