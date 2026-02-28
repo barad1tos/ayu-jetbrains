@@ -58,6 +58,23 @@
       release-version="20261"
       optional="true"/>
 
+  <extensionPoints>
+    <extensionPoint
+        name="accentElement"
+        interface="dev.ayuislands.accent.AccentElement"/>
+  </extensionPoints>
+
+  <extensions defaultExtensionNs="com.ayuislands.theme">
+    <accentElement implementation="dev.ayuislands.accent.elements.TabUnderlineElement"/>
+    <accentElement implementation="dev.ayuislands.accent.elements.CaretRowElement"/>
+    <accentElement implementation="dev.ayuislands.accent.elements.ProgressBarElement"/>
+    <accentElement implementation="dev.ayuislands.accent.elements.ScrollbarElement"/>
+    <accentElement implementation="dev.ayuislands.accent.elements.LinksElement"/>
+    <accentElement implementation="dev.ayuislands.accent.elements.BracketMatchElement"/>
+    <accentElement implementation="dev.ayuislands.accent.elements.SearchResultsElement"/>
+    <accentElement implementation="dev.ayuislands.accent.elements.CheckboxElement"/>
+  </extensions>
+
   <extensions defaultExtensionNs="com.intellij">
     <!-- Settings panel under Appearance > Ayu Islands -->
     <applicationConfigurable
