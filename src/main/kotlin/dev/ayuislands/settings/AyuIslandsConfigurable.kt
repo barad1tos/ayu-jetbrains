@@ -7,12 +7,14 @@ import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.licensing.LicenseChecker
 
 /** Settings page at Appearance > Ayu Islands composing panel sections. */
 class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
 
     private val panels: List<AyuIslandsSettingsPanel> = listOf(
         AyuIslandsAccentPanel(),
+        AyuIslandsLicenseFooter(),
     )
 
     override fun createPanel(): com.intellij.openapi.ui.DialogPanel {
@@ -26,6 +28,12 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
             row {
                 label("Ayu Islands v$pluginVersion")
                     .applyToComponent { font = JBUI.Fonts.label(13f).asBold() }
+            }
+
+            if (LicenseChecker.isLicensedOrGrace()) {
+                row {
+                    comment("Licensed")
+                }
             }
 
             if (variant == null) {

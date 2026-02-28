@@ -6,4 +6,5 @@ class AyuIslandsState : BaseState() {
     var mirageAccent by string("#FFCC66")
     var darkAccent by string("#E6B450")
     var lightAccent by string("#F29718")
+    var trialExpiredNotified by property(false)
 }

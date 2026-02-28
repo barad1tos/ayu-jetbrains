@@ -6,6 +6,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 
 internal class AyuIslandsStartupActivity : ProjectActivity {
@@ -15,10 +16,45 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         LOG.info("Ayu Islands loaded — active theme: $themeName, project: ${project.name}")
 
         val variant = AyuVariant.fromThemeName(themeName) ?: return
+
+        // Apply persisted accent color
         val settings = AyuIslandsSettings.getInstance()
         val accentHex = settings.getAccentForVariant(variant)
         AccentApplicator.apply(accentHex)
         LOG.info("Ayu Islands accent applied: $accentHex for variant ${variant.name}")
+
+        // Check license state
+        checkLicenseState(project, variant, settings)
+    }
+
+    private fun checkLicenseState(project: Project, variant: AyuVariant, settings: AyuIslandsSettings) {
+        val licenseState = LicenseChecker.isLicensed()
+        LOG.info("Ayu Islands license check: ${licenseStateLabel(licenseState)}")
+
+        // Reset notification flag if license becomes valid again (user purchased)
+        if (licenseState == true && settings.state.trialExpiredNotified) {
+            settings.state.trialExpiredNotified = false
+        }
+
+        // null = facade not initialized (grace period, treat as licensed)
+        // true = licensed or trial active
+        // false = not licensed (trial expired or never purchased)
+        if (licenseState == false) {
+            LicenseChecker.revertToFreeDefaults(variant)
+            LOG.info("Ayu Islands reverted to free defaults for ${variant.name}")
+
+            // One-time balloon notification
+            if (!settings.state.trialExpiredNotified) {
+                LicenseChecker.notifyTrialExpired(project)
+                settings.state.trialExpiredNotified = true
+            }
+        }
+    }
+
+    private fun licenseStateLabel(state: Boolean?): String = when (state) {
+        true -> "licensed"
+        false -> "not licensed"
+        null -> "facade not initialized (grace period)"
     }
 
     companion object {
