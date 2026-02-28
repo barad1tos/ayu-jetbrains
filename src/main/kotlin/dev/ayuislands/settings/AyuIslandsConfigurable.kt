@@ -1,15 +1,23 @@
 package dev.ayuislands.settings
 
 import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.options.BoundConfigurable
+import com.intellij.openapi.project.ProjectManager
+import com.intellij.ui.GotItTooltip
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.glow.GlowAnimation
+import dev.ayuislands.glow.GlowOverlayManager
+import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.licensing.LicenseChecker
 
 /** Settings page at Appearance > Ayu Islands composing panel sections. */
 class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
+
+    private val log = logger<AyuIslandsConfigurable>()
 
     private val accentPanel = AyuIslandsAccentPanel()
     private val elementsPanel = AyuIslandsElementsPanel()
@@ -63,6 +71,12 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                 previewPanel.previewToggles = elementsPanel.currentToggles()
                 previewPanel.previewGlowEnabled = effectsPanel.isGlowEnabled()
 
+                // Initialize glow style preview state
+                val style = GlowStyle.fromName(settings.state.glowStyle ?: GlowStyle.SOFT.name)
+                previewPanel.previewGlowStyle = style
+                previewPanel.previewGlowIntensity = settings.state.getIntensityForStyle(style)
+                previewPanel.previewGlowWidth = settings.state.getWidthForStyle(style)
+
                 // Wire callbacks for cross-panel preview updates
                 accentPanel.onAccentChanged = { hex ->
                     previewPanel.previewAccentHex = hex
@@ -74,8 +88,47 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                 }
                 effectsPanel.onGlowChanged = {
                     previewPanel.previewGlowEnabled = effectsPanel.isGlowEnabled()
+                    previewPanel.previewGlowStyle = effectsPanel.getCurrentStyle()
+                    previewPanel.previewGlowIntensity = effectsPanel.getCurrentIntensity()
+                    previewPanel.previewGlowWidth = effectsPanel.getCurrentWidth()
                     previewPanel.updatePreview()
                 }
+                effectsPanel.onStyleChanged = {
+                    previewPanel.previewGlowStyle = effectsPanel.getCurrentStyle()
+                    previewPanel.previewGlowIntensity = effectsPanel.getCurrentIntensity()
+                    previewPanel.previewGlowWidth = effectsPanel.getCurrentWidth()
+                    previewPanel.previewEffectsTabIndex = effectsPanel.getActiveTabIndex()
+                    previewPanel.previewIslandToggles = effectsPanel.getIslandToggles()
+                    previewPanel.updatePreview()
+                }
+                effectsPanel.onAnimationChanged = {
+                    val animation = effectsPanel.getCurrentAnimation()
+                    if (animation != GlowAnimation.NONE) {
+                        previewPanel.startAnimationPreview(animation)
+                    } else {
+                        previewPanel.stopAnimationPreview()
+                    }
+                }
+
+                // GotItTooltip onboarding on first Effects section open
+                showOnboardingTooltipIfNeeded(settings)
+            }
+        }
+    }
+
+    private fun showOnboardingTooltipIfNeeded(settings: AyuIslandsSettings) {
+        val state = settings.state
+        if (!state.glowOnboardingShown && LicenseChecker.isLicensedOrGrace()) {
+            javax.swing.SwingUtilities.invokeLater {
+                effectsPanel.getEffectsTabbedPane()?.let { tabs ->
+                    val tooltip = GotItTooltip(
+                        "ayu.islands.glow.onboarding",
+                        "Customize the neon glow effect with different styles, intensity, and animation. " +
+                            "Try the 'Balanced' preset to get started.",
+                    )
+                    tooltip.show(tabs, GotItTooltip.BOTTOM_MIDDLE)
+                }
+                state.glowOnboardingShown = true
             }
         }
     }
@@ -88,6 +141,32 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         for (section in panels) {
             section.apply()
         }
+
+        // Trigger glow overlay update for all open projects
+        val glowEnabled = AyuIslandsSettings.getInstance().state.glowEnabled
+
+        // Zen Mode: skip glow activation in presentation/distraction-free mode
+        val inZenMode = com.intellij.ide.ui.UISettings.getInstance().presentationMode
+        if (inZenMode && glowEnabled) {
+            log.info("Zen Mode active, skipping glow activation")
+        }
+
+        for (openProject in ProjectManager.getInstance().openProjects) {
+            try {
+                val manager = GlowOverlayManager.getInstance(openProject)
+                if (glowEnabled && !inZenMode) {
+                    manager.initialize()
+                    manager.updateGlow()
+                } else {
+                    manager.updateGlow()
+                }
+            } catch (exception: Exception) {
+                log.warn("Failed to update glow for project: ${openProject.name}", exception)
+            }
+        }
+
+        // Stop animation preview on apply (leaving settings mode)
+        previewPanel.stopAnimationPreview()
     }
 
     override fun reset() {

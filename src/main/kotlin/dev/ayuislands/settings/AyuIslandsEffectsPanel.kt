@@ -9,6 +9,7 @@ import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowAnimator
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
+import dev.ayuislands.glow.GlowTabMode
 import dev.ayuislands.licensing.LicenseChecker
 import java.awt.BorderLayout
 import java.awt.Color
@@ -50,6 +51,9 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
     private var pendingAnimation: GlowAnimation = GlowAnimation.NONE
     private var pendingIslandToggles: MutableMap<String, Boolean> = mutableMapOf()
     private var pendingUserPresets: MutableList<GlowPreset> = mutableListOf()
+    private var pendingTabMode: String = "UNDERLINE"
+    private var pendingFocusRing: Boolean = true
+    private var pendingFloatingPanels: Boolean = false
 
     // Stored state (for isModified comparison)
     private var storedGlowEnabled: Boolean = false
@@ -59,6 +63,9 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
     private var storedAnimation: GlowAnimation = GlowAnimation.NONE
     private var storedIslandToggles: Map<String, Boolean> = emptyMap()
     private var storedUserPresets: List<GlowPreset> = emptyList()
+    private var storedTabMode: String = "UNDERLINE"
+    private var storedFocusRing: Boolean = true
+    private var storedFloatingPanels: Boolean = false
 
     // UI components
     private var tabbedPane: JTabbedPane? = null
@@ -324,6 +331,79 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
         buttonRow.add(disableAllButton)
         buttonRow.alignmentX = 0f
         tabPanel.add(buttonRow)
+        tabPanel.add(Box.createVerticalStrut(JBUI.scale(16)))
+
+        // Tab glow mode
+        val tabGlowLabel = JLabel("Active Tab Glow")
+        tabGlowLabel.font = tabGlowLabel.font.deriveFont(java.awt.Font.BOLD)
+        tabGlowLabel.alignmentX = 0f
+        tabPanel.add(tabGlowLabel)
+        tabPanel.add(Box.createVerticalStrut(JBUI.scale(4)))
+
+        val tabModeRow = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(4), 0))
+        val tabModeLabel = JLabel("Mode:")
+        tabModeRow.add(tabModeLabel)
+        val tabModeCombo = JComboBox(GlowTabMode.entries.map { it.displayName }.toTypedArray())
+        tabModeCombo.selectedItem = GlowTabMode.fromName(pendingTabMode).displayName
+        tabModeCombo.isEnabled = licensed && pendingGlowEnabled
+        tabModeCombo.addActionListener {
+            if (!suppressListeners) {
+                val selectedIndex = tabModeCombo.selectedIndex.coerceIn(0, GlowTabMode.entries.size - 1)
+                pendingTabMode = GlowTabMode.entries[selectedIndex].name
+                onGlowChanged?.invoke()
+            }
+        }
+        tabModeRow.add(tabModeCombo)
+        tabModeRow.alignmentX = 0f
+        tabPanel.add(tabModeRow)
+        tabPanel.add(Box.createVerticalStrut(JBUI.scale(12)))
+
+        // Focus-ring glow
+        val focusRingLabel = JLabel("Input Glow")
+        focusRingLabel.font = focusRingLabel.font.deriveFont(java.awt.Font.BOLD)
+        focusRingLabel.alignmentX = 0f
+        tabPanel.add(focusRingLabel)
+        tabPanel.add(Box.createVerticalStrut(JBUI.scale(4)))
+
+        val focusRingCheckbox = JCheckBox("Focused input glow ring")
+        focusRingCheckbox.isSelected = pendingFocusRing
+        focusRingCheckbox.isEnabled = licensed && pendingGlowEnabled
+        focusRingCheckbox.addActionListener {
+            pendingFocusRing = focusRingCheckbox.isSelected
+            onGlowChanged?.invoke()
+        }
+        focusRingCheckbox.alignmentX = 0f
+        tabPanel.add(focusRingCheckbox)
+
+        val focusRingHint = JLabel("Subtle glow around focused text fields and inputs")
+        focusRingHint.foreground = UIManager.getColor("Label.disabledForeground")
+        focusRingHint.font = JBUI.Fonts.smallFont()
+        focusRingHint.alignmentX = 0f
+        tabPanel.add(focusRingHint)
+        tabPanel.add(Box.createVerticalStrut(JBUI.scale(12)))
+
+        // Floating panels toggle
+        val floatingLabel = JLabel("Floating Panels")
+        floatingLabel.font = floatingLabel.font.deriveFont(java.awt.Font.BOLD)
+        floatingLabel.alignmentX = 0f
+        tabPanel.add(floatingLabel)
+        tabPanel.add(Box.createVerticalStrut(JBUI.scale(4)))
+
+        val floatingCheckbox = JCheckBox("Glow on floating panels")
+        floatingCheckbox.isSelected = pendingFloatingPanels
+        floatingCheckbox.isEnabled = licensed && pendingGlowEnabled
+        floatingCheckbox.addActionListener {
+            pendingFloatingPanels = floatingCheckbox.isSelected
+            onGlowChanged?.invoke()
+        }
+        floatingCheckbox.alignmentX = 0f
+        tabPanel.add(floatingCheckbox)
+
+        val floatingHint = JLabel("Apply glow to undocked/floating tool windows")
+        floatingHint.foreground = UIManager.getColor("Label.disabledForeground")
+        floatingHint.font = JBUI.Fonts.smallFont()
+        floatingHint.alignmentX = 0f
+        tabPanel.add(floatingHint)
 
         return tabPanel
     }
@@ -583,6 +663,10 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
         if (!serialized.isNullOrBlank()) {
             pendingUserPresets.addAll(GlowPreset.deserializePresets(serialized))
         }
+
+        pendingTabMode = state.glowTabMode ?: "UNDERLINE"
+        pendingFocusRing = state.glowFocusRing
+        pendingFloatingPanels = state.glowFloatingPanels
     }
 
     private fun copyPendingToStored() {
@@ -593,6 +677,9 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
         storedAnimation = pendingAnimation
         storedIslandToggles = pendingIslandToggles.toMap()
         storedUserPresets = pendingUserPresets.map { it.copy() }
+        storedTabMode = pendingTabMode
+        storedFocusRing = pendingFocusRing
+        storedFloatingPanels = pendingFloatingPanels
     }
 
     private fun updateControlStates() {
@@ -685,6 +772,12 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
 
     fun getCurrentAnimation(): GlowAnimation = pendingAnimation
 
+    fun getActiveTabIndex(): Int = tabbedPane?.selectedIndex ?: 0
+
+    fun getIslandToggles(): Map<String, Boolean> = pendingIslandToggles.toMap()
+
+    fun getEffectsTabbedPane(): javax.swing.JTabbedPane? = tabbedPane
+
     // AyuIslandsSettingsPanel contract
 
     override fun isModified(): Boolean {
@@ -695,6 +788,9 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
         if (pendingAnimation != storedAnimation) return true
         if (pendingIslandToggles != storedIslandToggles) return true
         if (pendingUserPresets != storedUserPresets) return true
+        if (pendingTabMode != storedTabMode) return true
+        if (pendingFocusRing != storedFocusRing) return true
+        if (pendingFloatingPanels != storedFloatingPanels) return true
         return false
     }
 
@@ -718,6 +814,10 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
 
         state.glowUserPresets = GlowPreset.serializePresets(pendingUserPresets)
 
+        state.glowTabMode = pendingTabMode
+        state.glowFocusRing = pendingFocusRing
+        state.glowFloatingPanels = pendingFloatingPanels
+
         // Mark onboarding shown if glow was enabled
         if (pendingGlowEnabled) {
             state.glowOnboardingShown = true
@@ -735,6 +835,9 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
         pendingAnimation = storedAnimation
         pendingIslandToggles = storedIslandToggles.toMutableMap()
         pendingUserPresets = storedUserPresets.map { it.copy() }.toMutableList()
+        pendingTabMode = storedTabMode
+        pendingFocusRing = storedFocusRing
+        pendingFloatingPanels = storedFloatingPanels
 
         refreshAllControls()
     }

@@ -39,6 +39,8 @@ object AccentApplicator {
         // Trial widget
         "TrialWidget.Alert.borderColor",
         "TrialWidget.Alert.foreground",
+        // Split editor border
+        "OnePixelDivider.background",
     )
 
     // Always-on editor ColorKeys (not per-element toggleable)

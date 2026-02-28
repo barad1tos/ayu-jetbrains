@@ -12,9 +12,13 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.BorderLayout
 import java.awt.Color
+import java.awt.Component
 import java.awt.Container
+import java.awt.event.FocusListener
+import javax.swing.JComboBox
 import javax.swing.JComponent
 import javax.swing.JLayer
+import javax.swing.JTextField
 import javax.swing.SwingUtilities
 
 class GlowOverlayManager(private val project: Project) : Disposable {
@@ -23,6 +27,12 @@ class GlowOverlayManager(private val project: Project) : Disposable {
     private val overlays = mutableMapOf<String, OverlayEntry>()
     private var activeToolWindowId: String? = null
     private var disposed = false
+
+    // Tab glow
+    private var tabPainter: GlowTabPainter? = null
+
+    // Focus-ring glow
+    private val focusListeners = mutableMapOf<JComponent, FocusListener>()
 
     private data class OverlayEntry(
         val layerUI: GlowLayerUI,
@@ -86,7 +96,76 @@ class GlowOverlayManager(private val project: Project) : Disposable {
             activeToolWindowId?.let { activateGlow(it) }
         }
 
+        // Initialize tab glow and focus-ring glow
+        SwingUtilities.invokeLater {
+            initializeTabGlow()
+            initializeFocusRingGlow()
+        }
+
         log.info("GlowOverlayManager initialized for project: ${project.name}")
+    }
+
+    private fun initializeTabGlow() {
+        val state = AyuIslandsSettings.getInstance().state
+        val tabMode = GlowTabMode.fromName(state.glowTabMode ?: "UNDERLINE")
+        if (tabMode == GlowTabMode.OFF) return
+
+        val variant = AyuVariant.detect()
+        val settings = AyuIslandsSettings.getInstance()
+        val accentHex = if (variant != null) settings.getAccentForVariant(variant) else "#FFCC66"
+        val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
+
+        tabPainter = GlowTabPainter().apply {
+            glowColor = Color.decode(accentHex)
+            glowStyle = style
+            this.tabMode = tabMode
+            baseIntensity = state.getIntensityForStyle(style)
+        }
+
+        log.info("Tab glow initialized: mode=$tabMode")
+    }
+
+    private fun initializeFocusRingGlow() {
+        val state = AyuIslandsSettings.getInstance().state
+        if (!state.glowFocusRing) return
+
+        val variant = AyuVariant.detect()
+        val settings = AyuIslandsSettings.getInstance()
+        val accentHex = if (variant != null) settings.getAccentForVariant(variant) else "#FFCC66"
+        val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
+        val accent = Color.decode(accentHex)
+        val intensity = state.getIntensityForStyle(style)
+
+        // Install focus listeners on text fields and combo boxes in visible IDE windows
+        for (window in java.awt.Window.getWindows()) {
+            installFocusListenersRecursively(window, accent, style, intensity)
+        }
+
+        log.info("Focus-ring glow initialized")
+    }
+
+    private fun installFocusListenersRecursively(
+        component: Component,
+        accent: Color,
+        style: GlowStyle,
+        intensity: Int,
+    ) {
+        if (component is JTextField ||
+            component is JComboBox<*> ||
+            (component is JComponent && component.javaClass.simpleName.contains("SearchTextField"))
+        ) {
+            val jComponent = component as JComponent
+            if (!focusListeners.containsKey(jComponent)) {
+                val listener = GlowFocusBorder.createFocusListener(accent, style, intensity)
+                jComponent.addFocusListener(listener)
+                focusListeners[jComponent] = listener
+            }
+        }
+        if (component is Container) {
+            for (child in component.components) {
+                installFocusListenersRecursively(child, accent, style, intensity)
+            }
+        }
     }
 
     private fun attachOverlayIfNeeded(toolWindow: ToolWindow) {
@@ -190,6 +269,25 @@ class GlowOverlayManager(private val project: Project) : Disposable {
             entry.layer?.repaint()
         }
 
+        // Update tab painter
+        val tabMode = GlowTabMode.fromName(state.glowTabMode ?: "UNDERLINE")
+        if (state.glowEnabled && tabMode != GlowTabMode.OFF) {
+            tabPainter?.apply {
+                glowColor = accent
+                glowStyle = style
+                this.tabMode = tabMode
+                baseIntensity = state.getIntensityForStyle(style)
+                invalidateCache()
+            }
+        } else {
+            tabPainter = null
+        }
+
+        // Update focus-ring state
+        if (!state.glowEnabled || !state.glowFocusRing) {
+            removeFocusListeners()
+        }
+
         log.info("Glow overlays updated: style=$style, accent=$accentHex")
     }
 
@@ -212,7 +310,21 @@ class GlowOverlayManager(private val project: Project) : Disposable {
             }
         }
         overlays.clear()
+
+        // Clean up tab painter
+        tabPainter = null
+
+        // Clean up focus listeners
+        removeFocusListeners()
+
         log.info("All glow overlays removed")
+    }
+
+    private fun removeFocusListeners() {
+        for ((component, listener) in focusListeners) {
+            component.removeFocusListener(listener)
+        }
+        focusListeners.clear()
     }
 
     override fun dispose() {
