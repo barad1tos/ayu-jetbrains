@@ -2,6 +2,7 @@ package dev.ayuislands.glow
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindow
@@ -14,12 +15,16 @@ import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Component
 import java.awt.Container
+import java.awt.Graphics
+import java.awt.Graphics2D
+import java.awt.Rectangle
 import java.awt.event.FocusListener
 import javax.swing.JComboBox
 import javax.swing.JComponent
 import javax.swing.JLayer
 import javax.swing.JTextField
 import javax.swing.SwingUtilities
+import javax.swing.plaf.LayerUI
 
 class GlowOverlayManager(private val project: Project) : Disposable {
 
@@ -30,6 +35,7 @@ class GlowOverlayManager(private val project: Project) : Disposable {
 
     // Tab glow
     private var tabPainter: GlowTabPainter? = null
+    private var tabGlowLayer: JLayer<JComponent>? = null
 
     // Focus-ring glow
     private val focusListeners = mutableMapOf<JComponent, FocusListener>()
@@ -105,6 +111,15 @@ class GlowOverlayManager(private val project: Project) : Disposable {
         log.info("GlowOverlayManager initialized for project: ${project.name}")
     }
 
+    private fun findAncestorByClassName(component: Component, className: String): Component? {
+        var current: Component? = component.parent
+        while (current != null) {
+            if (current.javaClass.name.contains(className)) return current
+            current = current.parent
+        }
+        return null
+    }
+
     private fun initializeTabGlow() {
         val state = AyuIslandsSettings.getInstance().state
         val tabMode = GlowTabMode.fromName(state.glowTabMode ?: "UNDERLINE")
@@ -120,6 +135,64 @@ class GlowOverlayManager(private val project: Project) : Disposable {
             glowStyle = style
             this.tabMode = tabMode
             baseIntensity = state.getIntensityForStyle(style)
+        }
+
+        // Hook tab painter into editor tabs via JLayer wrapping.
+        // Find the JBEditorTabs component from FileEditorManager's selected editor,
+        // then wrap it with a JLayer whose LayerUI delegates to paintTabGlow().
+        try {
+            val fileEditorManager = FileEditorManager.getInstance(project)
+            val editorComponent = fileEditorManager.selectedEditor?.component ?: run {
+                log.info("No selected editor, tab glow deferred")
+                return
+            }
+
+            // Walk up from editor to find the JBEditorTabs component
+            val tabsComponent = findAncestorByClassName(editorComponent, "JBEditorTabs")
+            if (tabsComponent == null) {
+                log.info("JBEditorTabs not found in component hierarchy, tab glow skipped")
+                return
+            }
+
+            val painter = tabPainter ?: return
+            val tabLayerUI = object : LayerUI<JComponent>() {
+                override fun paint(graphics: Graphics, component: JComponent) {
+                    super.paint(graphics, component)
+                    val tabs = (component as? JLayer<*>)?.view ?: return
+                    // Find selected tab bounds from the JBEditorTabs component via reflection
+                    try {
+                        val infoMethod = tabs.javaClass.getMethod("getSelectedInfo")
+                        val tabInfo = infoMethod.invoke(tabs) ?: return
+                        val labelMethod = tabInfo.javaClass.getMethod("getTabLabel")
+                        val label = labelMethod.invoke(tabInfo) as? JComponent ?: return
+                        val tabBounds = label.bounds
+                        val g2 = graphics.create() as Graphics2D
+                        try {
+                            g2.translate(tabBounds.x, tabBounds.y)
+                            painter.paintTabGlow(g2, Rectangle(0, 0, tabBounds.width, tabBounds.height))
+                        } finally {
+                            g2.dispose()
+                        }
+                    } catch (exception: Exception) {
+                        // Reflection may fail across IDE versions -- log once and degrade gracefully
+                        log.warn("Failed to paint tab glow: ${exception.message}")
+                    }
+                }
+            }
+
+            val jcTabs = tabsComponent as JComponent
+            val layer = JLayer(jcTabs, tabLayerUI)
+            val parent = tabsComponent.parent
+            if (parent != null) {
+                val constraints = (parent.layout as? BorderLayout)?.getConstraints(tabsComponent)
+                parent.remove(tabsComponent)
+                parent.add(layer, constraints ?: BorderLayout.CENTER)
+                parent.revalidate()
+                parent.repaint()
+                tabGlowLayer = layer
+            }
+        } catch (exception: Exception) {
+            log.warn("Tab glow hookup failed: ${exception.message}")
         }
 
         log.info("Tab glow initialized: mode=$tabMode")
@@ -310,6 +383,24 @@ class GlowOverlayManager(private val project: Project) : Disposable {
             }
         }
         overlays.clear()
+
+        // Remove tab glow JLayer -- restore original component hierarchy
+        tabGlowLayer?.let { layer ->
+            val view = layer.view
+            val parent = layer.parent
+            if (parent != null && view != null) {
+                try {
+                    val constraints = (parent.layout as? BorderLayout)?.getConstraints(layer)
+                    parent.remove(layer)
+                    parent.add(view, constraints ?: BorderLayout.CENTER)
+                    parent.revalidate()
+                    parent.repaint()
+                } catch (exception: Exception) {
+                    log.warn("Failed to remove tab glow layer: ${exception.message}")
+                }
+            }
+        }
+        tabGlowLayer = null
 
         // Clean up tab painter
         tabPainter = null
