@@ -5,7 +5,11 @@ import com.intellij.ui.dsl.builder.Panel
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.glow.GlowAnimation
+import dev.ayuislands.glow.GlowAnimator
 import dev.ayuislands.glow.GlowRenderer
+import dev.ayuislands.glow.GlowStyle
+import java.awt.AlphaComposite
 import java.awt.BasicStroke
 import java.awt.Color
 import java.awt.Dimension
@@ -24,6 +28,17 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel() {
     var previewGlowEnabled: Boolean = true
     var previewConflicts: Set<AccentElementId> = emptySet()
 
+    // Glow style properties for contextual preview
+    var previewGlowStyle: GlowStyle = GlowStyle.SOFT
+    var previewGlowIntensity: Int = 40
+    var previewGlowWidth: Int = GlowRenderer.DEFAULT_GLOW_WIDTH
+    var previewEffectsTabIndex: Int = 0 // 0=Style, 1=Targets, 2=Animation, 3=Presets
+    var previewIslandToggles: Map<String, Boolean> = emptyMap()
+
+    // Animation preview
+    private var previewAnimator: GlowAnimator? = null
+    private var animationAlpha: Float = 1.0f
+
     private var mockupComponent: AccentPreviewComponent? = null
 
     override fun buildPanel(panel: Panel, variant: AyuVariant) {
@@ -39,6 +54,27 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel() {
 
     fun updatePreview() {
         mockupComponent?.repaint()
+    }
+
+    fun startAnimationPreview(animation: GlowAnimation) {
+        stopAnimationPreview()
+        if (animation == GlowAnimation.NONE) {
+            animationAlpha = 1.0f
+            updatePreview()
+            return
+        }
+        previewAnimator = GlowAnimator().also { animator ->
+            animator.start(animation) { alpha ->
+                animationAlpha = alpha
+                mockupComponent?.repaint()
+            }
+        }
+    }
+
+    fun stopAnimationPreview() {
+        previewAnimator?.stop()
+        previewAnimator = null
+        animationAlpha = 1.0f
     }
 
     override fun isModified(): Boolean = false
@@ -177,8 +213,37 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel() {
                 // Glow effect around editor area using GlowRenderer
                 if (previewGlowEnabled) {
                     val editorBounds = Rectangle(0, editorTop, width, editorBottom - editorTop)
-                    glowRenderer.ensureCache(accent)
-                    glowRenderer.paintGlow(g2, editorBounds)
+                    glowRenderer.ensureCache(accent, previewGlowStyle, previewGlowIntensity, previewGlowWidth)
+
+                    // Apply animation alpha if animation is running
+                    if (animationAlpha < 1.0f) {
+                        val composite = g2.composite
+                        g2.composite = AlphaComposite.SrcOver.derive(animationAlpha)
+                        glowRenderer.paintGlow(g2, editorBounds, previewGlowWidth)
+                        g2.composite = composite
+                    } else {
+                        glowRenderer.paintGlow(g2, editorBounds, previewGlowWidth)
+                    }
+                }
+
+                // Targets tab: show mini panel labels indicating glow target status
+                if (previewEffectsTabIndex == 1) {
+                    val panelLabels = listOf("Editor", "Project", "Terminal", "Run", "Git")
+                    val labelY = editorBottom - JBUI.scale(14)
+                    var labelX = JBUI.scale(4)
+                    val labelFont = JBUI.Fonts.miniFont()
+                    g2.font = labelFont
+                    for (label in panelLabels) {
+                        val isEnabled = previewIslandToggles[label] ?: (label == "Editor")
+                        val labelColor = if (isEnabled) accent else mutedForeground
+                        g2.color = Color(labelColor.red, labelColor.green, labelColor.blue, 100)
+                        val metrics = g2.fontMetrics
+                        val textWidth = metrics.stringWidth(label)
+                        g2.fillRoundRect(labelX, labelY, textWidth + JBUI.scale(6), JBUI.scale(12), 3, 3)
+                        g2.color = if (isEnabled) Color.WHITE else mutedForeground
+                        g2.drawString(label, labelX + JBUI.scale(3), labelY + JBUI.scale(9))
+                        labelX += textWidth + JBUI.scale(10)
+                    }
                 }
             } finally {
                 g2.dispose()
