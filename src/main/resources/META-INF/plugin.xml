@@ -52,6 +52,12 @@
   <!-- idea-version patched by Gradle from gradle.properties -->
   <depends>com.intellij.modules.platform</depends>
 
+  <product-descriptor
+      code="PAYUISLANDS"
+      release-date="20260301"
+      release-version="20261"
+      optional="true"/>
+
   <extensions defaultExtensionNs="com.intellij">
     <!-- Settings panel under Appearance > Ayu Islands -->
     <applicationConfigurable
@@ -67,6 +73,10 @@
     <!-- Plugin lifecycle -->
     <postStartupActivity
         implementation="dev.ayuislands.AyuIslandsStartupActivity"/>
+
+    <!-- Trial expiry notifications -->
+    <notificationGroup id="Ayu Islands"
+                       displayType="BALLOON"/>
 
     <!-- Mirage variants -->
     <themeProvider id="com.ayuislands.theme.mirage"
