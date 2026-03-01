@@ -32,7 +32,6 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel() {
     var previewGlowStyle: GlowStyle = GlowStyle.SOFT
     var previewGlowIntensity: Int = 40
     var previewGlowWidth: Int = GlowRenderer.DEFAULT_GLOW_WIDTH
-    var previewEffectsTabIndex: Int = 0 // 0=Style, 1=Targets, 2=Animation, 3=Presets
     var previewIslandToggles: Map<String, Boolean> = emptyMap()
 
     // Animation preview
