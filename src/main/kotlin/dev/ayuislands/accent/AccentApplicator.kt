@@ -1,8 +1,10 @@
 package dev.ayuislands.accent
 
+import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.colors.ColorKey
+import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
@@ -106,6 +108,9 @@ object AccentApplicator {
                 log.warn("Failed to apply accent to ${element.displayName}", exception)
             }
         }
+
+        // CodeGlance Pro viewport color sync (skips silently if CGP not installed)
+        syncCodeGlanceProViewport(accentHex)
 
         // EDT-only work: always-on editor keys + global scheme notification + repaint
         val edtWork = Runnable {
@@ -217,6 +222,62 @@ object AccentApplicator {
     private fun repaintAllWindows() {
         for (window in Window.getWindows()) {
             window.repaint()
+        }
+    }
+
+    private fun syncCodeGlanceProViewport(accentHex: String) {
+        try {
+            val hexWithoutHash = accentHex.removePrefix("#")
+
+            val pluginId = PluginId.getId("com.nasller.CodeGlancePro")
+            val cgpPlugin = PluginManagerCore.getPlugin(pluginId)
+            if (cgpPlugin == null) {
+                log.info("CodeGlance Pro not found via PluginManagerCore (id=$pluginId)")
+                return
+            }
+            val cgpClassLoader = cgpPlugin.pluginClassLoader
+                ?: throw IllegalStateException("CodeGlance Pro classloader not available")
+
+            val serviceClass = Class.forName(
+                "com.nasller.codeglance.config.CodeGlanceConfigService",
+                true,
+                cgpClassLoader,
+            )
+
+            val service = ApplicationManager.getApplication().getService(serviceClass)
+                ?: throw IllegalStateException("CodeGlanceConfigService not registered")
+
+            val config = service.javaClass.getMethod("getState").invoke(service)
+
+            config.javaClass.getMethod("setViewportColor", String::class.java)
+                .invoke(config, hexWithoutHash)
+            config.javaClass.getMethod("setViewportBorderColor", String::class.java)
+                .invoke(config, hexWithoutHash)
+            config.javaClass.getMethod("setViewportBorderThickness", Int::class.java)
+                .invoke(config, 1)
+
+            // Repaint GlancePanel components without dispose+recreate
+            SwingUtilities.invokeLater {
+                for (window in Window.getWindows()) {
+                    repaintCodeGlancePanels(window)
+                }
+            }
+
+            log.info("CodeGlance Pro viewport color synced to $hexWithoutHash")
+        } catch (exception: Exception) {
+            val cause = if (exception is java.lang.reflect.InvocationTargetException) exception.cause else exception
+            log.warn("CodeGlance Pro sync failed: ${cause?.javaClass?.simpleName}: ${cause?.message}")
+        }
+    }
+
+    private fun repaintCodeGlancePanels(container: java.awt.Container) {
+        for (component in container.components) {
+            if (component.javaClass.name.contains("GlancePanel")) {
+                component.repaint()
+            }
+            if (component is java.awt.Container) {
+                repaintCodeGlancePanels(component)
+            }
         }
     }
 }

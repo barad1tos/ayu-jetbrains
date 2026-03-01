@@ -32,11 +32,6 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
             LOG.info("Ayu Islands detected third-party plugins: ${conflicts.joinToString { it.pluginDisplayName }}")
         }
 
-        // Apply CGP viewport color at startup if integration enabled
-        if (settings.state.cgpIntegrationEnabled && ConflictRegistry.isCodeGlanceProDetected()) {
-            AyuIslandsLafListener().applyCgpViewportColor(accentHex)
-        }
-
         // Check license state
         checkLicenseState(project, variant, settings)
 
