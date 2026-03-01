@@ -27,6 +27,14 @@ dependencies {
     }
 }
 
+tasks {
+    named<JavaExec>("runIde") {
+        jvmArgumentProviders += CommandLineArgumentProvider {
+            listOf("-Dayu.islands.dev=true")
+        }
+    }
+}
+
 intellijPlatform {
     pluginConfiguration {
         name = providers.gradleProperty("pluginName")

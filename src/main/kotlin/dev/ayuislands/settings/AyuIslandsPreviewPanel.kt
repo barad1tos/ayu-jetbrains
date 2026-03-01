@@ -1,8 +1,9 @@
 package dev.ayuislands.settings
 
-import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.util.ui.JBUI
+import java.awt.FlowLayout
+import javax.swing.JPanel
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowAnimation
@@ -47,8 +48,12 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel() {
         val mockup = AccentPreviewComponent(variant)
         mockupComponent = mockup
 
+        val wrapper = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0))
+        wrapper.isOpaque = false
+        wrapper.add(mockup)
+
         panel.group("Preview") {
-            row { cell(mockup).resizableColumn().align(Align.FILL) }
+            row { cell(wrapper) }
         }
     }
 
@@ -86,7 +91,7 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel() {
         private val glowRenderer = GlowRenderer()
 
         init {
-            preferredSize = Dimension(0, JBUI.scale(80))
+            preferredSize = Dimension(JBUI.scale(400), JBUI.scale(160))
         }
 
         override fun paintComponent(graphics: Graphics) {
@@ -219,10 +224,10 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel() {
                     if (animationAlpha < 1.0f) {
                         val composite = g2.composite
                         g2.composite = AlphaComposite.SrcOver.derive(animationAlpha)
-                        glowRenderer.paintGlow(g2, editorBounds, previewGlowWidth)
+                        glowRenderer.paintGlow(g2, editorBounds, previewGlowWidth, 8)
                         g2.composite = composite
                     } else {
-                        glowRenderer.paintGlow(g2, editorBounds, previewGlowWidth)
+                        glowRenderer.paintGlow(g2, editorBounds, previewGlowWidth, 8)
                     }
                 }
 

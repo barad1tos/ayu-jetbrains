@@ -1,6 +1,7 @@
 package dev.ayuislands.settings
 
 import com.intellij.ui.dsl.builder.Panel
+import dev.ayuislands.AyuIslandsLafListener
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AyuVariant
@@ -47,6 +48,11 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel() {
         val settings = AyuIslandsSettings.getInstance()
         settings.setAccentForVariant(currentVariant, pendingAccent)
         AccentApplicator.apply(pendingAccent)
+
+        if (settings.state.cgpIntegrationEnabled) {
+            AyuIslandsLafListener().applyCgpViewportColor(pendingAccent)
+        }
+
         storedAccent = pendingAccent
     }
 

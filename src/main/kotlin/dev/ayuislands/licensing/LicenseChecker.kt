@@ -107,8 +107,10 @@ object LicenseChecker {
      *         null if LicensingFacade not yet initialized.
      */
     fun isLicensed(): Boolean? {
+        if (isDevBuild()) return true
         val facade = LicensingFacade.getInstance() ?: return null
-        val stamp = facade.getConfirmationStamp(PRODUCT_CODE) ?: return false
+        val stamp = facade.getConfirmationStamp(PRODUCT_CODE)
+        if (stamp == null) return false
         return when {
             stamp.startsWith("key:") -> isKeyValid(stamp.substring(4))
             stamp.startsWith("stamp:") -> isLicenseServerStampValid(stamp.substring(6))
@@ -168,6 +170,14 @@ object LicenseChecker {
                 LOG.error("Revert to free defaults retry failed", retryException)
             }
         }
+    }
+
+    /**
+     * Dev builds include META-INF/ayu-dev-mode resource marker.
+     * Remove this file before publishing to Marketplace.
+     */
+    private fun isDevBuild(): Boolean {
+        return javaClass.getResourceAsStream("/META-INF/ayu-dev-mode") != null
     }
 
     // Cryptographic verification adapted from marketplace-makemecoffee-plugin (Apache 2.0).

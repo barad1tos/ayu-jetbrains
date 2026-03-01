@@ -1,44 +1,55 @@
 package dev.ayuislands.glow
 
 import java.awt.AlphaComposite
+import java.awt.Color
+import java.awt.Component
 import java.awt.Graphics
 import java.awt.Graphics2D
+import java.awt.Insets
 import java.awt.Rectangle
 import java.awt.RenderingHints
-import java.awt.Color
 import javax.swing.JComponent
-import javax.swing.JLayer
 import javax.swing.Timer
 import javax.swing.UIManager
-import javax.swing.plaf.LayerUI
+import javax.swing.border.Border
 
-class GlowLayerUI : LayerUI<JComponent>() {
+/**
+ * Decorating border that paints a neon glow effect around tool window panels.
+ * Wraps the original border and adds glow rendering on top.
+ * Supports fade-in/fade-out animation via an internal alpha timer.
+ */
+class GlowIslandBorder(
+    private val originalBorder: Border?,
+    var glowColor: Color,
+    var glowStyle: GlowStyle,
+    var glowIntensity: Int,
+    var glowWidth: Int,
+) : Border {
 
-    var glowColor: Color = Color.decode("#FFCC66")
-    var glowStyle: GlowStyle = GlowStyle.SOFT
-    var glowIntensity: Int = 40
-    var glowWidth: Int = GlowRenderer.DEFAULT_GLOW_WIDTH
-    var isActive: Boolean = false
-
+    private val renderer = GlowRenderer()
     private var fadeAlpha: Float = 0.0f
     private var fadeTimer: Timer? = null
-    private val renderer = GlowRenderer()
+    private var targetComponent: JComponent? = null
 
-    private var parentLayer: JLayer<*>? = null
-
-    override fun paint(graphics: Graphics, component: JComponent) {
-        super.paint(graphics, component)
+    override fun paintBorder(
+        component: Component,
+        graphics: Graphics,
+        x: Int,
+        y: Int,
+        width: Int,
+        height: Int,
+    ) {
+        originalBorder?.paintBorder(component, graphics, x, y, width, height)
 
         if (fadeAlpha <= 0.0f) return
 
-        val layer = component as? JLayer<*> ?: return
         val g2 = graphics.create() as Graphics2D
         try {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             g2.composite = AlphaComposite.SrcOver.derive(fadeAlpha)
 
             val arcRadius = UIManager.getInt("Island.arc").let { if (it > 0) it else 8 }
-            val bounds = Rectangle(0, 0, layer.width, layer.height)
+            val bounds = Rectangle(x, y, width, height)
 
             renderer.ensureCache(glowColor, glowStyle, glowIntensity, glowWidth)
             renderer.paintGlow(g2, bounds, glowWidth, arcRadius)
@@ -47,12 +58,21 @@ class GlowLayerUI : LayerUI<JComponent>() {
         }
     }
 
+    override fun getBorderInsets(component: Component): Insets {
+        return originalBorder?.getBorderInsets(component) ?: Insets(0, 0, 0, 0)
+    }
+
+    override fun isBorderOpaque(): Boolean = false
+
+    fun attach(component: JComponent) {
+        targetComponent = component
+    }
+
     fun startFadeIn() {
         fadeTimer?.stop()
-        // ~60fps at 16ms interval, 0.08f step = ~12 frames = ~200ms total
         fadeTimer = Timer(16) {
             fadeAlpha = (fadeAlpha + 0.08f).coerceAtMost(1.0f)
-            repaintLayer()
+            targetComponent?.repaint()
             if (fadeAlpha >= 1.0f) fadeTimer?.stop()
         }.also { it.start() }
     }
@@ -61,7 +81,7 @@ class GlowLayerUI : LayerUI<JComponent>() {
         fadeTimer?.stop()
         fadeTimer = Timer(16) {
             fadeAlpha = (fadeAlpha - 0.08f).coerceAtLeast(0.0f)
-            repaintLayer()
+            targetComponent?.repaint()
             if (fadeAlpha <= 0.0f) fadeTimer?.stop()
         }.also { it.start() }
     }
@@ -69,19 +89,5 @@ class GlowLayerUI : LayerUI<JComponent>() {
     fun stopAnimation() {
         fadeTimer?.stop()
         fadeTimer = null
-    }
-
-    override fun installUI(component: JComponent) {
-        super.installUI(component)
-        if (component is JLayer<*>) parentLayer = component
-    }
-
-    override fun uninstallUI(component: JComponent) {
-        parentLayer = null
-        super.uninstallUI(component)
-    }
-
-    private fun repaintLayer() {
-        parentLayer?.repaint()
     }
 }

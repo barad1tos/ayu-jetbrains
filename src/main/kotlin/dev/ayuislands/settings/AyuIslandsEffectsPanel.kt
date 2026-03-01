@@ -1,7 +1,6 @@
 package dev.ayuislands.settings
 
 import com.intellij.openapi.ui.Messages
-import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AyuVariant
@@ -129,7 +128,12 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
                 onStyleChanged?.invoke()
             }
 
-            row { cell(tabs).resizableColumn().align(Align.FILL) }
+            tabs.preferredSize = Dimension(JBUI.scale(420), JBUI.scale(340))
+
+            val wrapper = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0))
+            wrapper.isOpaque = false
+            wrapper.add(tabs)
+            row { cell(wrapper) }
         }
 
         updateControlStates()

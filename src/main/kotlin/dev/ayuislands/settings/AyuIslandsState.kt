@@ -131,11 +131,10 @@ class AyuIslandsState : BaseState() {
         "Terminal" -> glowTerminal
         "Run" -> glowRun
         "Debug" -> glowDebug
-        "Git" -> glowGit
+        "Git", "Version Control", "Commit" -> glowGit
         "Services" -> glowServices
-        // Unknown tool window IDs default to OFF -- intentional; covers the 7 standard IDs.
-        // Future: add more IDs here if users request specific tool windows.
-        else -> false
+        // Unknown tool windows inherit the global glow toggle
+        else -> glowEnabled
     }
 
     fun setIslandEnabled(toolWindowId: String, enabled: Boolean) {

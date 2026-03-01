@@ -4,7 +4,6 @@ import com.intellij.openapi.diagnostic.logger
 import java.awt.Graphics2D
 import java.awt.Rectangle
 import java.awt.RenderingHints
-import java.awt.geom.RoundRectangle2D
 import java.awt.Color
 import javax.swing.UIManager
 
@@ -48,15 +47,8 @@ class GlowTabPainter {
                     val borderWidth = 8.coerceAtMost(tabBounds.height / 4)
                     renderer.ensureCache(glowColor, glowStyle, tabIntensity, borderWidth)
 
-                    // Clip to tab bounds
                     val arcRadius = UIManager.getInt("Island.arc").let { if (it > 0) it / 2 else 4 }
-                    val roundRect = RoundRectangle2D.Double(
-                        tabBounds.x.toDouble(), tabBounds.y.toDouble(),
-                        tabBounds.width.toDouble(), tabBounds.height.toDouble(),
-                        arcRadius.toDouble(), arcRadius.toDouble(),
-                    )
-                    g2.clip(roundRect)
-                    renderer.paintGlow(g2, tabBounds, borderWidth)
+                    renderer.paintGlow(g2, tabBounds, borderWidth, arcRadius)
                 }
                 GlowTabMode.OFF -> { /* no-op */ }
             }

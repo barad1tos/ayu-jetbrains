@@ -71,7 +71,7 @@ class GlowPanel : JPanel() {
             g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
 
             renderer.ensureCache(glowColor, glowStyle, glowIntensity, glowWidth)
-            renderer.paintGlow(g2, Rectangle(0, 0, width, height), glowWidth)
+            renderer.paintGlow(g2, Rectangle(0, 0, width, height), glowWidth, 8)
         } finally {
             g2.dispose()
         }

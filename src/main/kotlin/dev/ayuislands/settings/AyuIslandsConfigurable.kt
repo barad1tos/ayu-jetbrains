@@ -23,14 +23,12 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
     private val elementsPanel = AyuIslandsElementsPanel()
     private val previewPanel = AyuIslandsPreviewPanel()
     private val effectsPanel = AyuIslandsEffectsPanel()
-    private val licenseFooter = AyuIslandsLicenseFooter()
 
     private val panels: List<AyuIslandsSettingsPanel> = listOf(
         accentPanel,
         elementsPanel,
         previewPanel,
         effectsPanel,
-        licenseFooter,
     )
 
     override fun createPanel(): com.intellij.openapi.ui.DialogPanel {
@@ -46,10 +44,9 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                     .applyToComponent { font = JBUI.Fonts.label(13f).asBold() }
             }
 
-            if (LicenseChecker.isLicensedOrGrace()) {
-                row {
-                    comment("Licensed")
-                }
+            row {
+                val status = if (LicenseChecker.isLicensedOrGrace()) "Licensed" else ""
+                comment(status)
             }
 
             if (variant == null) {
@@ -121,6 +118,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         if (!state.glowOnboardingShown && LicenseChecker.isLicensedOrGrace()) {
             javax.swing.SwingUtilities.invokeLater {
                 effectsPanel.getEffectsTabbedPane()?.let { tabs ->
+                    if (!tabs.isShowing) return@let
                     val tooltip = GotItTooltip(
                         "ayu.islands.glow.onboarding",
                         "Customize the neon glow effect with different styles, intensity, and animation. " +

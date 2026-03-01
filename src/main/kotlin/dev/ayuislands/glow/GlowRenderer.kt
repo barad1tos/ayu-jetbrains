@@ -3,10 +3,10 @@ package dev.ayuislands.glow
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.ui.ColorUtil
 import java.awt.Color
-import java.awt.GradientPaint
 import java.awt.Graphics2D
 import java.awt.Rectangle
 import java.awt.RenderingHints
+import java.awt.geom.RoundRectangle2D
 import java.awt.image.BufferedImage
 import javax.swing.UIManager
 
@@ -14,23 +14,36 @@ class GlowRenderer {
 
     private val log = logger<GlowRenderer>()
 
-    private data class CacheKey(
+    companion object {
+        const val DEFAULT_GLOW_WIDTH = 12
+    }
+
+    // Style cache (lightweight, recomputed on style/color change)
+    private data class StyleKey(
         val style: GlowStyle,
         val color: Color,
         val intensity: Int,
-        val width: Int,
+        val glowWidth: Int,
     )
 
-    private var cacheKey: CacheKey? = null
-    private var topStrip: BufferedImage? = null
-    private var bottomStrip: BufferedImage? = null
-    private var leftStrip: BufferedImage? = null
-    private var rightStrip: BufferedImage? = null
+    private var styleKey: StyleKey? = null
+    private var cachedColor: Color = Color.BLACK
+    private var cachedStyle: GlowStyle = GlowStyle.SOFT
+    private var cachedBaseAlpha: Int = 0
 
-    companion object {
-        const val DEFAULT_GLOW_WIDTH = 12
-        const val GLOW_START_ALPHA = 80
-    }
+    // Frame image cache (expensive, keyed on size + style)
+    private data class FrameKey(
+        val width: Int,
+        val height: Int,
+        val arcRadius: Int,
+        val style: GlowStyle,
+        val color: Color,
+        val baseAlpha: Int,
+        val glowWidth: Int,
+    )
+
+    private var frameKey: FrameKey? = null
+    private var cachedFrame: BufferedImage? = null
 
     fun ensureCache(
         accentColor: Color,
@@ -38,226 +51,108 @@ class GlowRenderer {
         intensity: Int = 40,
         glowWidth: Int = DEFAULT_GLOW_WIDTH,
     ) {
-        val key = CacheKey(style, accentColor, intensity, glowWidth)
-        if (key == cacheKey && topStrip != null) {
-            return
-        }
+        val key = StyleKey(style, accentColor, intensity, glowWidth)
+        if (key == styleKey) return
 
-        topStrip = createStyledStrip(1, glowWidth, accentColor, style, intensity, vertical = true, reverse = false)
-        bottomStrip = createStyledStrip(1, glowWidth, accentColor, style, intensity, vertical = true, reverse = true)
-        leftStrip = createStyledStrip(glowWidth, 1, accentColor, style, intensity, vertical = false, reverse = false)
-        rightStrip = createStyledStrip(glowWidth, 1, accentColor, style, intensity, vertical = false, reverse = true)
-
-        cacheKey = key
-    }
-
-    private fun createStyledStrip(
-        width: Int,
-        height: Int,
-        accentColor: Color,
-        style: GlowStyle,
-        intensity: Int,
-        vertical: Boolean,
-        reverse: Boolean,
-    ): BufferedImage {
-        // Scale alpha by intensity (0-100) -> 0-255 range
         val baseAlpha = (intensity / 100.0 * 255).toInt().coerceIn(0, 255)
 
-        // Light variant detection: boost alpha for visibility on light backgrounds
         val panelBackground = UIManager.getColor("Panel.background")
         val isLight = panelBackground != null && !ColorUtil.isDark(panelBackground)
-        val scaledAlpha = if (isLight) (baseAlpha * 1.5).toInt().coerceIn(0, 255) else baseAlpha
+        cachedBaseAlpha = if (isLight) (baseAlpha * 1.5).toInt().coerceIn(0, 255) else baseAlpha
+        cachedColor = accentColor
+        cachedStyle = style
+        styleKey = key
 
-        return when (style) {
-            GlowStyle.SOFT -> createSoftStrip(width, height, accentColor, scaledAlpha, vertical, reverse)
-            GlowStyle.SHARP_NEON -> createSharpNeonStrip(width, height, accentColor, scaledAlpha, vertical, reverse)
-            GlowStyle.GRADIENT -> createGradientStrip(width, height, accentColor, scaledAlpha, vertical, reverse)
+        // Style changed — invalidate frame cache
+        cachedFrame = null
+        frameKey = null
+    }
+
+    /**
+     * Paints glow as concentric rounded rectangles from edge inward.
+     * Renders to a cached BufferedImage for performance (~0.5ms after first render).
+     */
+    fun paintGlow(
+        graphics: Graphics2D,
+        bounds: Rectangle,
+        glowWidth: Int = DEFAULT_GLOW_WIDTH,
+        arcRadius: Int = 0,
+    ) {
+        if (bounds.width <= 0 || bounds.height <= 0) return
+
+        val fKey = FrameKey(
+            bounds.width, bounds.height, arcRadius,
+            cachedStyle, cachedColor, cachedBaseAlpha, glowWidth,
+        )
+
+        if (fKey != frameKey || cachedFrame == null) {
+            val startNanos = System.nanoTime()
+            cachedFrame = renderFrame(bounds.width, bounds.height, arcRadius, glowWidth)
+            frameKey = fKey
+            val elapsedMs = (System.nanoTime() - startNanos) / 1_000_000.0
+            if (elapsedMs > 16.0) {
+                log.warn("Glow frame render took %.2fms (target: <16ms) — cached for reuse".format(elapsedMs))
+            }
         }
+
+        graphics.drawImage(cachedFrame, bounds.x, bounds.y, null)
     }
 
-    private fun createSoftStrip(
-        width: Int,
-        height: Int,
-        accentColor: Color,
-        alpha: Int,
-        vertical: Boolean,
-        reverse: Boolean,
-    ): BufferedImage {
-        val startColor = Color(accentColor.red, accentColor.green, accentColor.blue, alpha / 3)
-        val endColor = Color(accentColor.red, accentColor.green, accentColor.blue, 0)
-
-        val from = if (reverse) endColor else startColor
-        val to = if (reverse) startColor else endColor
-        return createStrip(width, height, from, to, vertical)
-    }
-
-    private fun createSharpNeonStrip(
-        width: Int,
-        height: Int,
-        accentColor: Color,
-        alpha: Int,
-        vertical: Boolean,
-        reverse: Boolean,
-    ): BufferedImage {
-        val strip = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
-        val graphics = strip.createGraphics()
+    private fun renderFrame(width: Int, height: Int, arcRadius: Int, glowWidth: Int): BufferedImage {
+        val image = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
+        val g2 = image.createGraphics()
         try {
-            graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
 
-            val totalSize = if (vertical) height else width
-            val coreSize = (totalSize * 0.3).toInt().coerceAtLeast(1)
-            val bloomSize = totalSize - coreSize
+            for (i in 0 until glowWidth) {
+                val progress = i.toFloat() / glowWidth.toFloat()
+                val alpha = computeAlpha(progress)
+                if (alpha <= 0) continue
 
-            val brightColor = Color(accentColor.red, accentColor.green, accentColor.blue, alpha)
-            val midColor = Color(accentColor.red, accentColor.green, accentColor.blue, (alpha * 0.6).toInt())
-            val fadeColor = Color(accentColor.red, accentColor.green, accentColor.blue, 0)
+                g2.color = Color(cachedColor.red, cachedColor.green, cachedColor.blue, alpha)
 
-            if (reverse) {
-                // Bloom region (far end to mid-point): fade -> mid
-                if (bloomSize > 0) {
-                    val bloomPaint = if (vertical) {
-                        GradientPaint(0f, 0f, fadeColor, 0f, bloomSize.toFloat(), midColor)
-                    } else {
-                        GradientPaint(0f, 0f, fadeColor, bloomSize.toFloat(), 0f, midColor)
-                    }
-                    graphics.paint = bloomPaint
-                    graphics.fillRect(0, 0, if (vertical) width else bloomSize, if (vertical) bloomSize else height)
-                }
+                val inset = i.toDouble()
+                val w = (width - 2.0 * inset - 1).coerceAtLeast(0.0)
+                val h = (height - 2.0 * inset - 1).coerceAtLeast(0.0)
+                if (w <= 0 || h <= 0) break
 
-                // Core region (mid-point to border): mid -> bright
-                val coreStart = bloomSize
-                val corePaint = if (vertical) {
-                    GradientPaint(0f, coreStart.toFloat(), midColor, 0f, totalSize.toFloat(), brightColor)
+                if (arcRadius > 0) {
+                    val arc = (arcRadius.toDouble() - 2.0 * i).coerceAtLeast(0.0)
+                    g2.draw(
+                        RoundRectangle2D.Double(inset, inset, w, h, arc, arc),
+                    )
                 } else {
-                    GradientPaint(coreStart.toFloat(), 0f, midColor, totalSize.toFloat(), 0f, brightColor)
-                }
-                graphics.paint = corePaint
-                if (vertical) {
-                    graphics.fillRect(0, coreStart, width, coreSize)
-                } else {
-                    graphics.fillRect(coreStart, 0, coreSize, height)
-                }
-            } else {
-                // Core region (border to 30%): bright -> mid
-                val corePaint = if (vertical) {
-                    GradientPaint(0f, 0f, brightColor, 0f, coreSize.toFloat(), midColor)
-                } else {
-                    GradientPaint(0f, 0f, brightColor, coreSize.toFloat(), 0f, midColor)
-                }
-                graphics.paint = corePaint
-                graphics.fillRect(0, 0, if (vertical) width else coreSize, if (vertical) coreSize else height)
-
-                // Bloom region (30% to end): mid -> fade
-                if (bloomSize > 0) {
-                    val bloomPaint = if (vertical) {
-                        GradientPaint(0f, coreSize.toFloat(), midColor, 0f, totalSize.toFloat(), fadeColor)
-                    } else {
-                        GradientPaint(coreSize.toFloat(), 0f, midColor, totalSize.toFloat(), 0f, fadeColor)
-                    }
-                    graphics.paint = bloomPaint
-                    if (vertical) {
-                        graphics.fillRect(0, coreSize, width, bloomSize)
-                    } else {
-                        graphics.fillRect(coreSize, 0, bloomSize, height)
-                    }
+                    g2.drawRect(inset.toInt(), inset.toInt(), w.toInt(), h.toInt())
                 }
             }
         } finally {
-            graphics.dispose()
+            g2.dispose()
         }
-        return strip
+        return image
     }
 
-    private fun createGradientStrip(
-        width: Int,
-        height: Int,
-        accentColor: Color,
-        alpha: Int,
-        vertical: Boolean,
-        reverse: Boolean,
-    ): BufferedImage {
-        val panelBackground = UIManager.getColor("Panel.background") ?: Color(0x1F, 0x24, 0x30)
-        val blended = ColorUtil.mix(accentColor, panelBackground, 0.7)
-
-        val startColor = Color(accentColor.red, accentColor.green, accentColor.blue, alpha / 2)
-        val endColor = Color(blended.red, blended.green, blended.blue, 0)
-
-        val from = if (reverse) endColor else startColor
-        val to = if (reverse) startColor else endColor
-        return createStrip(width, height, from, to, vertical)
-    }
-
-    private fun createStrip(
-        width: Int,
-        height: Int,
-        startColor: Color,
-        endColor: Color,
-        vertical: Boolean,
-    ): BufferedImage {
-        val strip = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
-        val graphics = strip.createGraphics()
-        try {
-            graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
-            val paint = if (vertical) {
-                GradientPaint(0f, 0f, startColor, 0f, height.toFloat(), endColor)
-            } else {
-                GradientPaint(0f, 0f, startColor, width.toFloat(), 0f, endColor)
+    private fun computeAlpha(progress: Float): Int {
+        return when (cachedStyle) {
+            GlowStyle.SOFT -> {
+                ((1.0f - progress) * cachedBaseAlpha / 3.0f).toInt().coerceIn(0, 255)
             }
-            graphics.paint = paint
-            graphics.fillRect(0, 0, width, height)
-        } finally {
-            graphics.dispose()
-        }
-        return strip
-    }
-
-    fun paintGlow(graphics: Graphics2D, bounds: Rectangle, glowWidth: Int = DEFAULT_GLOW_WIDTH) {
-        val startNanos = System.nanoTime()
-
-        val top = topStrip ?: return
-        val bottom = bottomStrip ?: return
-        val left = leftStrip ?: return
-        val right = rightStrip ?: return
-
-        // Top edge: stretch 1px strip across full width at top of bounds
-        graphics.drawImage(
-            top,
-            bounds.x, bounds.y,
-            bounds.width, glowWidth, null,
-        )
-
-        // Bottom edge: stretch bottom strip across full width at bottom of bounds
-        graphics.drawImage(
-            bottom,
-            bounds.x, bounds.y + bounds.height - glowWidth,
-            bounds.width, glowWidth, null,
-        )
-
-        // Left edge: stretch left strip across height excluding corners
-        graphics.drawImage(
-            left,
-            bounds.x, bounds.y + glowWidth,
-            glowWidth, bounds.height - 2 * glowWidth, null,
-        )
-
-        // Right edge: stretch right strip excluding corners
-        graphics.drawImage(
-            right,
-            bounds.x + bounds.width - glowWidth, bounds.y + glowWidth,
-            glowWidth, bounds.height - 2 * glowWidth, null,
-        )
-
-        val elapsedMs = (System.nanoTime() - startNanos) / 1_000_000.0
-        if (elapsedMs > 16.0) {
-            log.warn("Glow paint took %.2fms (target: <16ms)".format(elapsedMs))
+            GlowStyle.SHARP_NEON -> {
+                if (progress < 0.3f) {
+                    cachedBaseAlpha
+                } else {
+                    val bloomProgress = (progress - 0.3f) / 0.7f
+                    (cachedBaseAlpha * 0.6f * (1.0f - bloomProgress)).toInt().coerceIn(0, 255)
+                }
+            }
+            GlowStyle.GRADIENT -> {
+                ((1.0f - progress) * cachedBaseAlpha / 2.0f).toInt().coerceIn(0, 255)
+            }
         }
     }
 
     fun invalidateCache() {
-        cacheKey = null
-        topStrip = null
-        bottomStrip = null
-        leftStrip = null
-        rightStrip = null
+        styleKey = null
+        cachedFrame = null
+        frameKey = null
     }
 }

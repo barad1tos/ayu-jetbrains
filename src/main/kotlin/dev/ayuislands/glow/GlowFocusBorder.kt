@@ -10,7 +10,6 @@ import java.awt.Rectangle
 import java.awt.RenderingHints
 import java.awt.event.FocusEvent
 import java.awt.event.FocusListener
-import java.awt.geom.RoundRectangle2D
 import javax.swing.JComponent
 import javax.swing.UIManager
 import javax.swing.border.Border
@@ -53,16 +52,8 @@ class GlowFocusBorder(
             val arcRadius = UIManager.getInt("Component.arc").let { if (it > 0) it else 6 }
             val bounds = Rectangle(x, y, width, height)
 
-            // Clip to rounded rect
-            val roundRect = RoundRectangle2D.Double(
-                x.toDouble(), y.toDouble(),
-                width.toDouble(), height.toDouble(),
-                arcRadius.toDouble(), arcRadius.toDouble(),
-            )
-            g2.clip(roundRect)
-
             renderer.ensureCache(glowColor, glowStyle, focusIntensity, focusRingWidth)
-            renderer.paintGlow(g2, bounds, focusRingWidth)
+            renderer.paintGlow(g2, bounds, focusRingWidth, arcRadius)
         } finally {
             g2.dispose()
         }
