@@ -1,6 +1,7 @@
 package dev.ayuislands.settings
 
 import com.intellij.openapi.ui.Messages
+import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AyuVariant
@@ -92,6 +93,10 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
     // Suppress listener events during programmatic updates
     private var suppressListeners = false
 
+    companion object {
+        private const val ANIMATION_TAB_INDEX = 2
+    }
+
     override fun buildPanel(panel: Panel, variant: AyuVariant) {
         val state = AyuIslandsSettings.getInstance().state
         val licensed = LicenseChecker.isLicensedOrGrace()
@@ -99,41 +104,61 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
         loadStateIntoPending(state)
         copyPendingToStored()
 
-        panel.group("Effects") {
+        // Master glow toggle — always visible at top of Effects content
+        panel.row {
+            val cb = checkBox("Enable Glow")
+            cb.component.isSelected = pendingGlowEnabled
+            cb.component.isEnabled = licensed
+            cb.component.addActionListener {
+                val wasEnabled = pendingGlowEnabled
+                pendingGlowEnabled = cb.component.isSelected
+
+                // First-time enable: auto-apply Balanced preset
+                if (!wasEnabled && pendingGlowEnabled && !storedGlowEnabled) {
+                    val onboardingState = AyuIslandsSettings.getInstance().state
+                    if (!onboardingState.glowOnboardingShown) {
+                        loadPreset(GlowPreset.BALANCED)
+                        onStyleChanged?.invoke()
+                    }
+                }
+
+                updateControlStates()
+                onGlowChanged?.invoke()
+            }
+            masterToggle = cb.component
+
             if (!licensed) {
-                row {
-                    label("Pro feature").applyToComponent {
-                        foreground = JBUI.CurrentTheme.ContextHelp.FOREGROUND
-                    }
-                    link("Get Ayu Islands Pro") {
-                        LicenseChecker.requestLicense(
-                            "Unlock glow effects and custom accent colors"
-                        )
-                    }
+                link("Get Ayu Islands Pro") {
+                    LicenseChecker.requestLicense(
+                        "Unlock glow effects and custom accent colors"
+                    )
                 }
             }
+        }
 
-            val tabs = JTabbedPane()
-            tabbedPane = tabs
+        // Inner tabs for glow configuration
+        val tabs = JTabbedPane()
+        tabbedPane = tabs
 
-            tabs.addTab("Style", buildStyleTab(licensed))
-            tabs.addTab("Targets", buildTargetsTab(licensed))
-            tabs.addTab("Animation", buildAnimationTab(licensed))
-            tabs.addTab("Presets", buildPresetsTab(licensed))
+        tabs.addTab("Style", buildStyleTab(licensed))
+        tabs.addTab("Targets", buildTargetsTab(licensed))
+        tabs.addTab("Animation", buildAnimationTab(licensed))
+        tabs.addTab("Presets", buildPresetsTab(licensed))
 
-            tabs.addChangeListener {
-                if (tabs.selectedIndex != 2) {
-                    stopAnimationPreview()
-                }
-                onStyleChanged?.invoke()
+        tabs.addChangeListener {
+            if (tabs.selectedIndex != ANIMATION_TAB_INDEX) {
+                stopAnimationPreview()
             }
+            onStyleChanged?.invoke()
+        }
 
-            tabs.preferredSize = Dimension(JBUI.scale(420), JBUI.scale(340))
-
-            val wrapper = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0))
-            wrapper.isOpaque = false
-            wrapper.add(tabs)
-            row { cell(wrapper) }
+        // Let layout manager determine size — do NOT set preferredSize.
+        // IMPORTANT: Do NOT wrap in FlowLayout — it honors preferredSize and
+        // reintroduces width constraints. Use DSL cell with FILL alignment instead.
+        panel.row {
+            cell(tabs)
+                .resizableColumn()
+                .align(Align.FILL)
         }
 
         updateControlStates()
@@ -218,7 +243,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
 
         // Reset button
         val resetPanel = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0))
-        val resetButton = JButton("Reset to Defaults")
+        val resetButton = JButton("Reset Style Defaults")
         resetButton.addActionListener {
             pendingIntensity[pendingStyle] = pendingStyle.defaultIntensity
             pendingWidth[pendingStyle] = pendingStyle.defaultWidth
@@ -256,31 +281,6 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
         tabPanel.border = BorderFactory.createEmptyBorder(
             JBUI.scale(8), JBUI.scale(8), JBUI.scale(8), JBUI.scale(8)
         )
-
-        // Master toggle
-        val masterCb = JCheckBox("Enable Glow")
-        masterCb.isSelected = pendingGlowEnabled
-        masterCb.isEnabled = licensed
-        masterCb.addActionListener {
-            val wasEnabled = pendingGlowEnabled
-            pendingGlowEnabled = masterCb.isSelected
-
-            // First-time enable: auto-apply Balanced preset
-            if (!wasEnabled && pendingGlowEnabled && !storedGlowEnabled) {
-                val state = AyuIslandsSettings.getInstance().state
-                if (!state.glowOnboardingShown) {
-                    loadPreset(GlowPreset.BALANCED)
-                    onStyleChanged?.invoke()
-                }
-            }
-
-            updateControlStates()
-            onGlowChanged?.invoke()
-        }
-        masterToggle = masterCb
-        masterCb.alignmentX = 0f
-        tabPanel.add(masterCb)
-        tabPanel.add(Box.createVerticalStrut(JBUI.scale(12)))
 
         // Island groups
         val groups = listOf(
