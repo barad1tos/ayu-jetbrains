@@ -30,13 +30,19 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel() {
         panel.group("Accent Color") {
             row { cell(swatch) }
             row {
-                button("Reset to Default") {
+                button("Reset Color") {
                     pendingAccent = variant.defaultAccent
                     swatch.selectedColor = variant.defaultAccent
                     onAccentChanged?.invoke(variant.defaultAccent)
                 }
             }
         }
+    }
+
+    fun resetToDefault(variant: AyuVariant) {
+        pendingAccent = variant.defaultAccent
+        swatchPanel?.selectedColor = variant.defaultAccent
+        onAccentChanged?.invoke(variant.defaultAccent)
     }
 
     override fun isModified(): Boolean = pendingAccent != storedAccent

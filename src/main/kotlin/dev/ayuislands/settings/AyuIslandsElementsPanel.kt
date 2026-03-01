@@ -107,7 +107,6 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel() {
             // CGP integration toggle (only if CodeGlance Pro detected)
             if (ConflictRegistry.isCodeGlanceProDetected()) {
                 separator()
-                row { label("Integrations").bold() }
                 row {
                     val cb = checkBox("CodeGlance Pro viewport color")
                         .comment("Sync CodeGlance Pro viewport color with accent")
