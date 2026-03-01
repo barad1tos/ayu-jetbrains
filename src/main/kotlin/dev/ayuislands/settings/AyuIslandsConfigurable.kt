@@ -6,6 +6,8 @@ import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.options.BoundConfigurable
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.ui.GotItTooltip
+import com.intellij.ui.components.JBTabbedPane
+import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AyuVariant
@@ -31,6 +33,10 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         effectsPanel,
     )
 
+    companion object {
+        private const val EFFECTS_TAB_INDEX = 1
+    }
+
     override fun createPanel(): com.intellij.openapi.ui.DialogPanel {
         val pluginVersion = PluginManagerCore
             .getPlugin(PluginId.getId("com.ayuislands.theme"))
@@ -38,79 +44,137 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
 
         val variant = AyuVariant.detect()
 
+        if (variant == null) {
+            return panel {
+                row {
+                    label("Ayu Islands v$pluginVersion")
+                        .applyToComponent { font = JBUI.Fonts.label(13f).asBold() }
+                }
+                row {
+                    comment("Activate an Ayu Islands theme to configure accent colors")
+                }
+            }
+        }
+
+        // Build tab content panels eagerly via DSL
+        val accentTab = panel {
+            accentPanel.buildPanel(this@panel, variant)
+            elementsPanel.buildPanel(this@panel, variant)
+        }
+
+        val effectsTab = panel {
+            effectsPanel.buildPanel(this@panel, variant)
+        }
+
+        // Top-level tab container
+        val outerTabs = JBTabbedPane()
+        outerTabs.addTab("Accent", accentTab)
+        outerTabs.addTab("Effects", effectsTab)
+
+        // Stop animation preview when switching away from Effects tab
+        outerTabs.addChangeListener {
+            if (outerTabs.selectedIndex != EFFECTS_TAB_INDEX) {
+                previewPanel.stopAnimationPreview()
+            }
+        }
+
+        // Wire cross-panel callbacks AFTER both tabs are built (all UI components exist)
+        wireCallbacks(variant)
+
+        // Initialize preview state from current settings
+        initializePreviewState(variant)
+
+        // GotItTooltip onboarding
+        val settings = AyuIslandsSettings.getInstance()
+        showOnboardingTooltipIfNeeded(settings)
+
         return panel {
+            // Header
             row {
                 label("Ayu Islands v$pluginVersion")
                     .applyToComponent { font = JBUI.Fonts.label(13f).asBold() }
             }
-
             row {
                 val status = if (LicenseChecker.isLicensedOrGrace()) "Licensed" else ""
-                comment(status)
+                comment("${variant.name} variant $status".trim())
             }
 
-            if (variant == null) {
-                row {
-                    comment("Activate an Ayu Islands theme to configure accent colors")
-                }
-            } else {
-                row {
-                    comment("${variant.name} variant")
-                }
+            // Compact preview strip (persistent, above tabs)
+            previewPanel.buildPanel(this@panel, variant)
 
-                for (section in panels) {
-                    section.buildPanel(this@panel, variant)
-                }
+            // Tab container
+            row {
+                cell(outerTabs)
+                    .resizableColumn()
+                    .align(Align.FILL)
+            }
 
-                // Initialize preview state from current settings
-                val settings = AyuIslandsSettings.getInstance()
-                previewPanel.previewAccentHex = settings.getAccentForVariant(variant)
-                previewPanel.previewToggles = elementsPanel.currentToggles()
-                previewPanel.previewGlowEnabled = effectsPanel.isGlowEnabled()
-
-                // Initialize glow style preview state
-                val style = GlowStyle.fromName(settings.state.glowStyle ?: GlowStyle.SOFT.name)
-                previewPanel.previewGlowStyle = style
-                previewPanel.previewGlowIntensity = settings.state.getIntensityForStyle(style)
-                previewPanel.previewGlowWidth = settings.state.getWidthForStyle(style)
-
-                // Wire callbacks for cross-panel preview updates
-                accentPanel.onAccentChanged = { hex ->
-                    previewPanel.previewAccentHex = hex
-                    previewPanel.updatePreview()
+            // Footer
+            row {
+                button("Reset All Settings") {
+                    resetAllSettings(variant)
                 }
-                elementsPanel.onToggleChanged = {
-                    previewPanel.previewToggles = elementsPanel.currentToggles()
-                    previewPanel.updatePreview()
-                }
-                effectsPanel.onGlowChanged = {
-                    previewPanel.previewGlowEnabled = effectsPanel.isGlowEnabled()
-                    previewPanel.previewGlowStyle = effectsPanel.getCurrentStyle()
-                    previewPanel.previewGlowIntensity = effectsPanel.getCurrentIntensity()
-                    previewPanel.previewGlowWidth = effectsPanel.getCurrentWidth()
-                    previewPanel.updatePreview()
-                }
-                effectsPanel.onStyleChanged = {
-                    previewPanel.previewGlowStyle = effectsPanel.getCurrentStyle()
-                    previewPanel.previewGlowIntensity = effectsPanel.getCurrentIntensity()
-                    previewPanel.previewGlowWidth = effectsPanel.getCurrentWidth()
-                    previewPanel.previewEffectsTabIndex = effectsPanel.getActiveTabIndex()
-                    previewPanel.previewIslandToggles = effectsPanel.getIslandToggles()
-                    previewPanel.updatePreview()
-                }
-                effectsPanel.onAnimationChanged = {
-                    val animation = effectsPanel.getCurrentAnimation()
-                    if (animation != GlowAnimation.NONE) {
-                        previewPanel.startAnimationPreview(animation)
-                    } else {
-                        previewPanel.stopAnimationPreview()
-                    }
-                }
-
-                // GotItTooltip onboarding on first Effects section open
-                showOnboardingTooltipIfNeeded(settings)
             }
         }
+    }
+
+    private fun wireCallbacks(variant: AyuVariant) {
+        accentPanel.onAccentChanged = { hex ->
+            previewPanel.previewAccentHex = hex
+            previewPanel.updatePreview()
+        }
+        elementsPanel.onToggleChanged = {
+            previewPanel.previewToggles = elementsPanel.currentToggles()
+            previewPanel.updatePreview()
+        }
+        effectsPanel.onGlowChanged = {
+            previewPanel.previewGlowEnabled = effectsPanel.isGlowEnabled()
+            previewPanel.previewGlowStyle = effectsPanel.getCurrentStyle()
+            previewPanel.previewGlowIntensity = effectsPanel.getCurrentIntensity()
+            previewPanel.previewGlowWidth = effectsPanel.getCurrentWidth()
+            previewPanel.updatePreview()
+        }
+        effectsPanel.onStyleChanged = {
+            previewPanel.previewGlowStyle = effectsPanel.getCurrentStyle()
+            previewPanel.previewGlowIntensity = effectsPanel.getCurrentIntensity()
+            previewPanel.previewGlowWidth = effectsPanel.getCurrentWidth()
+            previewPanel.previewEffectsTabIndex = effectsPanel.getActiveTabIndex()
+            previewPanel.previewIslandToggles = effectsPanel.getIslandToggles()
+            previewPanel.updatePreview()
+        }
+        effectsPanel.onAnimationChanged = {
+            val animation = effectsPanel.getCurrentAnimation()
+            if (animation != GlowAnimation.NONE) {
+                previewPanel.startAnimationPreview(animation)
+            } else {
+                previewPanel.stopAnimationPreview()
+            }
+        }
+    }
+
+    private fun initializePreviewState(variant: AyuVariant) {
+        val settings = AyuIslandsSettings.getInstance()
+        previewPanel.previewAccentHex = settings.getAccentForVariant(variant)
+        previewPanel.previewToggles = elementsPanel.currentToggles()
+        previewPanel.previewGlowEnabled = effectsPanel.isGlowEnabled()
+
+        val style = GlowStyle.fromName(settings.state.glowStyle ?: GlowStyle.SOFT.name)
+        previewPanel.previewGlowStyle = style
+        previewPanel.previewGlowIntensity = settings.state.getIntensityForStyle(style)
+        previewPanel.previewGlowWidth = settings.state.getWidthForStyle(style)
+    }
+
+    private fun resetAllSettings(variant: AyuVariant) {
+        // Accent: use resetToDefault() which updates pendingAccent, swatch color,
+        // AND fires onAccentChanged -- so the preview also updates.
+        accentPanel.resetToDefault(variant)
+
+        // Elements + Effects: reset() restores stored (last-applied) state.
+        elementsPanel.reset()
+        effectsPanel.reset()
+
+        // Update preview to reflect all resets
+        previewPanel.updatePreview()
     }
 
     private fun showOnboardingTooltipIfNeeded(settings: AyuIslandsSettings) {
