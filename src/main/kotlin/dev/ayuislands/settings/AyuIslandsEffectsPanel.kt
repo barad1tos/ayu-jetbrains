@@ -441,10 +441,6 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
         state.glowFocusRing = pendingFocusRing
         state.glowFloatingPanels = pendingFloatingPanels
 
-        if (pendingGlowEnabled) {
-            state.glowOnboardingShown = true
-        }
-
         copyPendingToStored()
     }
 

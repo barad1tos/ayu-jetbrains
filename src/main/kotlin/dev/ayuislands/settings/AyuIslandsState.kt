@@ -50,9 +50,6 @@ class AyuIslandsState : BaseState() {
     var glowGit by property(false)
     var glowServices by property(false)
 
-    // User presets (serialized string)
-    var glowUserPresets by string("")
-
     // Tab glow mode: UNDERLINE (underline only), FULL_BORDER (all sides), OFF
     var glowTabMode by string("UNDERLINE")
 
@@ -61,9 +58,6 @@ class AyuIslandsState : BaseState() {
 
     // Floating panels — controls whether floating (undocked) tool windows get glow
     var glowFloatingPanels by property(false)
-
-    // Onboarding
-    var glowOnboardingShown by property(false)
 
     // CodeGlancePro integration (opt-in, default OFF)
     var cgpIntegrationEnabled by property(false)
