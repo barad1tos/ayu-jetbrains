@@ -15,11 +15,11 @@ import javax.swing.JLabel
 import javax.swing.JSlider
 
 /**
- * Glow effects configuration split across Glow and Advanced tabs.
+ * Glow effects configuration rendered in a single Glow tab.
  *
- * [buildGlowPanel] renders the master toggle, style/animation ComboBoxes, and sliders.
- * [buildAdvancedPanel] renders targets, tab mode, focus ring, and floating panels.
- * Both are called from [AyuIslandsConfigurable] into separate tab panes.
+ * [buildGlowPanel] renders the master toggle, style/animation controls, sliders,
+ * glow targets, tab mode, focus ring, and floating panels.
+ * Called from [AyuIslandsConfigurable] into a single tab pane.
  */
 class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
 
@@ -63,9 +63,9 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
     private var suppressListeners = false
     private var stateLoaded = false
 
-    /** Not used — Glow and Advanced panels are built via dedicated methods. */
+    /** Not used — Glow panel is built via [buildGlowPanel]. */
     override fun buildPanel(panel: Panel, variant: AyuVariant) {
-        // no-op: use buildGlowPanel / buildAdvancedPanel instead
+        // no-op: use buildGlowPanel instead
     }
 
     private fun ensureStateLoaded() {
@@ -200,37 +200,8 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
             }
         }
 
-        updateControlStates()
-    }
-
-    // Advanced tab content
-
-    fun buildAdvancedPanel(panel: Panel, variant: AyuVariant) {
-        ensureStateLoaded()
-        val licensed = LicenseChecker.isLicensedOrGrace()
-
-        panel.row {
-            comment("Fine-tune glow targets and additional effects.")
-
-            if (!licensed) {
-                link("Get Ayu Islands Pro") {
-                    LicenseChecker.requestLicense(
-                        "Unlock glow effects and custom accent colors"
-                    )
-                }
-            }
-        }
-
-        // Glow targets
-        val groups = listOf(
-            "Editor Tools" to listOf("Editor"),
-            "Navigation" to listOf("Project"),
-            "Build & Run" to listOf("Run", "Debug", "Terminal"),
-            "Version Control" to listOf("Git", "Services"),
-        )
-
-        panel.group("Glow Targets") {
-            // Enable All / Disable All links in header row
+        // Targets
+        panel.group("Targets") {
             row {
                 link("Enable All") {
                     for (key in pendingIslandToggles.keys) {
@@ -246,71 +217,72 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
                 }.enabled(licensed && pendingGlowEnabled)
             }
 
+            // Editor (standalone — not a tool window)
+            buildIslandCheckboxRow(this, "Editor", licensed)
+
+            // Sidebar
+            row { label("Sidebar").bold() }
+            buildIslandCheckboxRow(this, "Project", licensed)
+
+            // Panel
+            row { label("Panel").bold() }
             twoColumnsRow(
                 {
                     panel {
-                        for ((groupName, islands) in groups.take(2)) {
-                            row { label(groupName).bold() }
-                            for (islandId in islands) {
-                                buildIslandCheckboxRow(this, islandId, licensed)
-                            }
-                        }
+                        buildIslandCheckboxRow(this, "Terminal", licensed)
+                        buildIslandCheckboxRow(this, "Run", licensed)
+                        buildIslandCheckboxRow(this, "Debug", licensed)
                     }
                 },
                 {
                     panel {
-                        for ((groupName, islands) in groups.drop(2)) {
-                            row { label(groupName).bold() }
-                            for (islandId in islands) {
-                                buildIslandCheckboxRow(this, islandId, licensed)
-                            }
-                        }
+                        buildIslandCheckboxRow(this, "Git", licensed)
+                        buildIslandCheckboxRow(this, "Services", licensed)
                     }
                 },
             )
         }
 
-        // Active Tab Glow
-        panel.row {
-            label("Active Tab")
-            val model = DefaultComboBoxModel(GlowTabMode.entries.map { it.displayName }.toTypedArray())
-            val combo = ComboBox(model)
-            combo.selectedItem = GlowTabMode.fromName(pendingTabMode).displayName
-            combo.isEnabled = licensed && pendingGlowEnabled
-            combo.addActionListener {
-                if (!suppressListeners) {
-                    val selectedName = combo.selectedItem as? String ?: return@addActionListener
-                    pendingTabMode = GlowTabMode.entries.first { it.displayName == selectedName }.name
+        // Extras
+        panel.group("Extras") {
+            row {
+                label("Active Tab")
+                val model = DefaultComboBoxModel(GlowTabMode.entries.map { it.displayName }.toTypedArray())
+                val combo = ComboBox(model)
+                combo.selectedItem = GlowTabMode.fromName(pendingTabMode).displayName
+                combo.isEnabled = licensed && pendingGlowEnabled
+                combo.addActionListener {
+                    if (!suppressListeners) {
+                        val selectedName = combo.selectedItem as? String ?: return@addActionListener
+                        pendingTabMode = GlowTabMode.entries.first { it.displayName == selectedName }.name
+                    }
                 }
+                tabModeCombo = combo
+                cell(combo)
             }
-            tabModeCombo = combo
-            cell(combo)
+            row {
+                val cb = checkBox("Focused input glow ring")
+                cb.component.isSelected = pendingFocusRing
+                cb.component.isEnabled = licensed && pendingGlowEnabled
+                cb.component.addActionListener {
+                    pendingFocusRing = cb.component.isSelected
+                }
+                focusRingCheckbox = cb.component
+                cb.comment("Subtle glow around focused text fields")
+            }
+            row {
+                val cb = checkBox("Glow on floating panels")
+                cb.component.isSelected = pendingFloatingPanels
+                cb.component.isEnabled = licensed && pendingGlowEnabled
+                cb.component.addActionListener {
+                    pendingFloatingPanels = cb.component.isSelected
+                }
+                floatingCheckbox = cb.component
+                cb.comment("Apply glow to undocked/floating tool windows")
+            }
         }
 
-        // Focus ring
-        panel.row {
-            val cb = checkBox("Focused input glow ring")
-            cb.component.isSelected = pendingFocusRing
-            cb.component.isEnabled = licensed && pendingGlowEnabled
-            cb.component.addActionListener {
-                pendingFocusRing = cb.component.isSelected
-            }
-            focusRingCheckbox = cb.component
-            cb.comment("Subtle glow around focused text fields")
-        }
-
-        // Floating panels
-        panel.row {
-            val cb = checkBox("Glow on floating panels")
-            cb.component.isSelected = pendingFloatingPanels
-            cb.component.isEnabled = licensed && pendingGlowEnabled
-            cb.component.addActionListener {
-                pendingFloatingPanels = cb.component.isSelected
-            }
-            floatingCheckbox = cb.component
-            cb.comment("Apply glow to undocked/floating tool windows")
-        }
-
+        updateControlStates()
     }
 
     private fun buildIslandCheckboxRow(panel: Panel, islandId: String, licensed: Boolean) {
