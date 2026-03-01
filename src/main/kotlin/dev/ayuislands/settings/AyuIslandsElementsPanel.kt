@@ -84,29 +84,22 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel() {
                 },
             )
 
-            // Enable All / Disable All / Reset buttons
+            // Enable All / Disable All links
             row {
-                button("Enable All") {
+                link("Enable All") {
                     AccentElementId.entries.forEach { pendingToggles[it] = true }
                     refreshCheckboxes()
                     onToggleChanged?.invoke()
                 }.enabled(licensed)
-                button("Disable All") {
+                link("Disable All") {
                     AccentElementId.entries.forEach { pendingToggles[it] = false }
-                    refreshCheckboxes()
-                    onToggleChanged?.invoke()
-                }.enabled(licensed)
-                button("Reset") {
-                    AccentElementId.entries.forEach { pendingToggles[it] = true }
-                    pendingForceOverrides.clear()
                     refreshCheckboxes()
                     onToggleChanged?.invoke()
                 }.enabled(licensed)
             }
 
-            // CGP integration toggle (only if CodeGlance Pro detected)
+            // CGP integration toggle (inside elements group, only if CodeGlance Pro detected)
             if (ConflictRegistry.isCodeGlanceProDetected()) {
-                separator()
                 row {
                     val cb = checkBox("CodeGlance Pro viewport color")
                         .comment("Sync CodeGlance Pro viewport color with accent")

@@ -28,14 +28,15 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel() {
         swatchPanel = swatch
 
         panel.group("Accent Color") {
-            row { cell(swatch) }
             row {
-                button("Reset Color") {
+                comment("Choose your accent color and which UI elements use it.")
+                link("Reset") {
                     pendingAccent = variant.defaultAccent
                     swatch.selectedColor = variant.defaultAccent
                     onAccentChanged?.invoke(variant.defaultAccent)
                 }
             }
+            row { cell(swatch) }
         }
     }
 
