@@ -1,17 +1,13 @@
 package dev.ayuislands.settings
 
-import com.intellij.openapi.ui.Messages
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowAnimation
-import dev.ayuislands.glow.GlowAnimator
-import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.GlowTabMode
 import dev.ayuislands.licensing.LicenseChecker
-import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Cursor
 import java.awt.Dimension
@@ -22,24 +18,18 @@ import java.awt.RenderingHints
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.util.Hashtable
-import javax.swing.BorderFactory
-import javax.swing.Box
-import javax.swing.BoxLayout
-import javax.swing.DefaultComboBoxModel
-import javax.swing.JButton
 import javax.swing.JCheckBox
-import javax.swing.JComboBox
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JSlider
-import javax.swing.JTabbedPane
 import javax.swing.UIManager
 
 /**
- * Tabbed effects panel with Style, Targets, Animation, and Presets tabs.
+ * Glow effects configuration split across Glow and Advanced tabs.
  *
- * Replaces the single glow checkbox with a rich configuration UI for
- * glow appearance, target panels, animation effects, and saved presets.
+ * [buildGlowPanel] renders the master toggle, style swatches, sliders, and animation.
+ * [buildAdvancedPanel] renders targets, tab mode, focus ring, and floating panels.
+ * Both are called from [AyuIslandsConfigurable] into separate tab panes.
  */
 class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
 
@@ -50,7 +40,6 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
     private var pendingWidth: MutableMap<GlowStyle, Int> = mutableMapOf()
     private var pendingAnimation: GlowAnimation = GlowAnimation.NONE
     private var pendingIslandToggles: MutableMap<String, Boolean> = mutableMapOf()
-    private var pendingUserPresets: MutableList<GlowPreset> = mutableListOf()
     private var pendingTabMode: String = "UNDERLINE"
     private var pendingFocusRing: Boolean = true
     private var pendingFloatingPanels: Boolean = false
@@ -62,68 +51,57 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
     private var storedWidth: Map<GlowStyle, Int> = emptyMap()
     private var storedAnimation: GlowAnimation = GlowAnimation.NONE
     private var storedIslandToggles: Map<String, Boolean> = emptyMap()
-    private var storedUserPresets: List<GlowPreset> = emptyList()
     private var storedTabMode: String = "UNDERLINE"
     private var storedFocusRing: Boolean = true
     private var storedFloatingPanels: Boolean = false
 
     // UI components
-    private var tabbedPane: JTabbedPane? = null
     private var masterToggle: JCheckBox? = null
     private var intensitySlider: JSlider? = null
     private var widthSlider: JSlider? = null
-    private var animationCombo: JComboBox<String>? = null
-    private var presetCombo: JComboBox<String>? = null
-    private var saveButton: JButton? = null
-    private var deleteButton: JButton? = null
-    private var renameButton: JButton? = null
-    private var duplicateWarning: JLabel? = null
+    private val animationSwatches = mutableMapOf<GlowAnimation, StyleSwatchPanel>()
     private val islandCheckboxes = mutableMapOf<String, JCheckBox>()
     private val styleSwatches = mutableMapOf<GlowStyle, StyleSwatchPanel>()
     private var animationDescriptionLabel: JLabel? = null
-
-    // Preview animation
-    private var previewAnimator: GlowAnimator? = null
-
-    // Callbacks for cross-panel communication
-    var onGlowChanged: (() -> Unit)? = null
-    var onStyleChanged: (() -> Unit)? = null
-    var onAnimationChanged: (() -> Unit)? = null
+    private val tabModeSwatches = mutableMapOf<GlowTabMode, StyleSwatchPanel>()
+    private var focusRingCheckbox: JCheckBox? = null
+    private var floatingCheckbox: JCheckBox? = null
 
     // Suppress listener events during programmatic updates
     private var suppressListeners = false
+    private var stateLoaded = false
 
-    companion object {
-        private const val ANIMATION_TAB_INDEX = 2
+    /** Not used — Glow and Advanced panels are built via dedicated methods. */
+    override fun buildPanel(panel: Panel, variant: AyuVariant) {
+        // no-op: use buildGlowPanel / buildAdvancedPanel instead
     }
 
-    override fun buildPanel(panel: Panel, variant: AyuVariant) {
+    private fun ensureStateLoaded() {
+        if (stateLoaded) return
         val state = AyuIslandsSettings.getInstance().state
-        val licensed = LicenseChecker.isLicensedOrGrace()
-
         loadStateIntoPending(state)
         copyPendingToStored()
+        stateLoaded = true
+    }
 
-        // Master glow toggle — always visible at top of Effects content
+    // Glow tab content
+
+    fun buildGlowPanel(panel: Panel, variant: AyuVariant) {
+        ensureStateLoaded()
+        val licensed = LicenseChecker.isLicensedOrGrace()
+
+        panel.row {
+            comment("Neon glow effects around editor islands and UI elements.")
+        }
+
+        // Master toggle + Pro link
         panel.row {
             val cb = checkBox("Enable Glow")
             cb.component.isSelected = pendingGlowEnabled
             cb.component.isEnabled = licensed
             cb.component.addActionListener {
-                val wasEnabled = pendingGlowEnabled
                 pendingGlowEnabled = cb.component.isSelected
-
-                // First-time enable: auto-apply Balanced preset
-                if (!wasEnabled && pendingGlowEnabled && !storedGlowEnabled) {
-                    val onboardingState = AyuIslandsSettings.getInstance().state
-                    if (!onboardingState.glowOnboardingShown) {
-                        loadPreset(GlowPreset.BALANCED)
-                        onStyleChanged?.invoke()
-                    }
-                }
-
                 updateControlStates()
-                onGlowChanged?.invoke()
             }
             masterToggle = cb.component
 
@@ -134,127 +112,245 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
                     )
                 }
             }
-        }
 
-        // Inner tabs for glow configuration
-        val tabs = JTabbedPane()
-        tabbedPane = tabs
-
-        tabs.addTab("Style", buildStyleTab(licensed))
-        tabs.addTab("Targets", buildTargetsTab(licensed))
-        tabs.addTab("Animation", buildAnimationTab(licensed))
-        tabs.addTab("Presets", buildPresetsTab(licensed))
-
-        tabs.addChangeListener {
-            if (tabs.selectedIndex != ANIMATION_TAB_INDEX) {
-                stopAnimationPreview()
+            // Reset defaults link (right-aligned)
+            link("Reset defaults") {
+                pendingIntensity[pendingStyle] = pendingStyle.defaultIntensity
+                pendingWidth[pendingStyle] = pendingStyle.defaultWidth
+                refreshSliders()
             }
-            onStyleChanged?.invoke()
         }
 
-        // Let layout manager determine size — do NOT set preferredSize.
-        // IMPORTANT: Do NOT wrap in FlowLayout — it honors preferredSize and
-        // reintroduces width constraints. Use DSL cell with FILL alignment instead.
+        // Style swatches
+        panel.group("Style") {
+            row {
+                val swatchRow = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), 0))
+                for (style in GlowStyle.entries) {
+                    val swatch = StyleSwatchPanel(style.displayName, style == pendingStyle)
+                    swatch.addMouseListener(object : MouseAdapter() {
+                        override fun mouseClicked(event: MouseEvent) {
+                            if (!licensed || !pendingGlowEnabled) return
+                            selectStyle(style)
+                        }
+                    })
+                    swatchRow.add(swatch)
+                    styleSwatches[style] = swatch
+                }
+                cell(swatchRow)
+            }
+        }
+
+        // Intensity slider
         panel.row {
-            cell(tabs)
-                .resizableColumn()
-                .align(Align.FILL)
+            label("Intensity")
+        }
+        panel.row {
+            val slider = JSlider(0, 100, pendingIntensity[pendingStyle] ?: 40)
+            slider.paintTicks = true
+            slider.paintLabels = true
+            slider.majorTickSpacing = 50
+            slider.minorTickSpacing = 10
+            val labels = Hashtable<Int, JLabel>()
+            labels[0] = JLabel("Low")
+            labels[50] = JLabel("Med")
+            labels[100] = JLabel("High")
+            slider.labelTable = labels
+            slider.addChangeListener {
+                if (!suppressListeners) {
+                    pendingIntensity[pendingStyle] = slider.value
+                }
+            }
+            intensitySlider = slider
+            cell(slider).resizableColumn().align(Align.FILL)
+        }
+
+        // Width slider
+        panel.row {
+            label("Width (px)")
+        }
+        panel.row {
+            val slider = JSlider(4, 32, pendingWidth[pendingStyle] ?: 10)
+            slider.paintTicks = true
+            slider.paintLabels = true
+            slider.majorTickSpacing = 7
+            slider.minorTickSpacing = 1
+            slider.addChangeListener {
+                if (!suppressListeners) {
+                    pendingWidth[pendingStyle] = slider.value
+                }
+            }
+            widthSlider = slider
+            cell(slider).resizableColumn().align(Align.FILL)
+        }
+
+        // Animation
+        panel.group("Animation") {
+            row {
+                val swatchRow = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), 0))
+                for (animation in GlowAnimation.entries) {
+                    val swatch = StyleSwatchPanel(animation.displayName, animation == pendingAnimation)
+                    swatch.addMouseListener(object : MouseAdapter() {
+                        override fun mouseClicked(event: MouseEvent) {
+                            if (!licensed || !pendingGlowEnabled) return
+                            if (suppressListeners) return
+                            pendingAnimation = animation
+                            for ((anim, sw) in animationSwatches) {
+                                sw.selected = anim == animation
+                                sw.repaint()
+                            }
+                            updateAnimationDescription()
+                        }
+                    })
+                    swatchRow.add(swatch)
+                    animationSwatches[animation] = swatch
+                }
+                cell(swatchRow)
+            }
+            row {
+                val descLabel = JLabel(animationDescription(pendingAnimation))
+                descLabel.foreground = JBUI.CurrentTheme.ContextHelp.FOREGROUND
+                descLabel.font = JBUI.Fonts.smallFont()
+                animationDescriptionLabel = descLabel
+                cell(descLabel)
+            }
         }
 
         updateControlStates()
     }
 
-    // Style tab
+    // Advanced tab content
 
-    private fun buildStyleTab(licensed: Boolean): JPanel {
-        val tabPanel = JPanel(BorderLayout(0, JBUI.scale(8)))
-        tabPanel.border = BorderFactory.createEmptyBorder(
-            JBUI.scale(8), JBUI.scale(8), JBUI.scale(8), JBUI.scale(8)
+    fun buildAdvancedPanel(panel: Panel, variant: AyuVariant) {
+        ensureStateLoaded()
+        val licensed = LicenseChecker.isLicensedOrGrace()
+
+        panel.row {
+            comment("Fine-tune glow targets and additional effects.")
+
+            if (!licensed) {
+                link("Get Ayu Islands Pro") {
+                    LicenseChecker.requestLicense(
+                        "Unlock glow effects and custom accent colors"
+                    )
+                }
+            }
+        }
+
+        // Glow targets
+        val groups = listOf(
+            "Editor Tools" to listOf("Editor"),
+            "Navigation" to listOf("Project"),
+            "Build & Run" to listOf("Run", "Debug", "Terminal"),
+            "Version Control" to listOf("Git", "Services"),
         )
 
-        // Style swatches row
-        val swatchRow = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), 0))
-        for (style in GlowStyle.entries) {
-            val swatch = StyleSwatchPanel(style, style == pendingStyle)
-            swatch.addMouseListener(object : MouseAdapter() {
-                override fun mouseClicked(event: MouseEvent) {
-                    if (!licensed || !pendingGlowEnabled) return
-                    selectStyle(style)
-                }
-            })
-            swatchRow.add(swatch)
-            styleSwatches[style] = swatch
-        }
-        tabPanel.add(swatchRow, BorderLayout.NORTH)
-
-        // Sliders panel
-        val slidersPanel = JPanel()
-        slidersPanel.layout = BoxLayout(slidersPanel, BoxLayout.Y_AXIS)
-
-        // Intensity slider
-        val intensityLabel = JLabel("Intensity")
-        intensityLabel.alignmentX = 0f
-        slidersPanel.add(intensityLabel)
-        slidersPanel.add(Box.createVerticalStrut(JBUI.scale(4)))
-
-        val intensitySlider = JSlider(0, 100, pendingIntensity[pendingStyle] ?: 40)
-        intensitySlider.paintTicks = true
-        intensitySlider.paintLabels = true
-        intensitySlider.majorTickSpacing = 50
-        intensitySlider.minorTickSpacing = 10
-        val intensityLabels = Hashtable<Int, JLabel>()
-        intensityLabels[0] = JLabel("Low")
-        intensityLabels[50] = JLabel("Med")
-        intensityLabels[100] = JLabel("High")
-        intensitySlider.labelTable = intensityLabels
-        intensitySlider.addChangeListener {
-            if (!suppressListeners) {
-                pendingIntensity[pendingStyle] = intensitySlider.value
-                onGlowChanged?.invoke()
+        panel.group("Glow Targets") {
+            // Enable All / Disable All links in header row
+            row {
+                link("Enable All") {
+                    for (key in pendingIslandToggles.keys) {
+                        pendingIslandToggles[key] = true
+                    }
+                    refreshIslandCheckboxes()
+                }.enabled(licensed && pendingGlowEnabled)
+                link("Disable All") {
+                    for (key in pendingIslandToggles.keys) {
+                        pendingIslandToggles[key] = false
+                    }
+                    refreshIslandCheckboxes()
+                }.enabled(licensed && pendingGlowEnabled)
             }
+
+            twoColumnsRow(
+                {
+                    panel {
+                        for ((groupName, islands) in groups.take(2)) {
+                            row { label(groupName).bold() }
+                            for (islandId in islands) {
+                                buildIslandCheckboxRow(this, islandId, licensed)
+                            }
+                        }
+                    }
+                },
+                {
+                    panel {
+                        for ((groupName, islands) in groups.drop(2)) {
+                            row { label(groupName).bold() }
+                            for (islandId in islands) {
+                                buildIslandCheckboxRow(this, islandId, licensed)
+                            }
+                        }
+                    }
+                },
+            )
         }
-        this.intensitySlider = intensitySlider
-        intensitySlider.alignmentX = 0f
-        slidersPanel.add(intensitySlider)
-        slidersPanel.add(Box.createVerticalStrut(JBUI.scale(12)))
 
-        // Width slider
-        val widthLabel = JLabel("Width (px)")
-        widthLabel.alignmentX = 0f
-        slidersPanel.add(widthLabel)
-        slidersPanel.add(Box.createVerticalStrut(JBUI.scale(4)))
-
-        val widthSlider = JSlider(4, 32, pendingWidth[pendingStyle] ?: 10)
-        widthSlider.paintTicks = true
-        widthSlider.paintLabels = true
-        widthSlider.majorTickSpacing = 7
-        widthSlider.minorTickSpacing = 1
-        widthSlider.addChangeListener {
-            if (!suppressListeners) {
-                pendingWidth[pendingStyle] = widthSlider.value
-                onGlowChanged?.invoke()
+        // Active Tab Glow
+        panel.row {
+            label("Active Tab Glow")
+        }
+        panel.row {
+            val swatchRow = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), 0))
+            swatchRow.isOpaque = false
+            val currentTabMode = GlowTabMode.fromName(pendingTabMode)
+            for (mode in GlowTabMode.entries) {
+                val swatch = StyleSwatchPanel(mode.displayName, mode == currentTabMode)
+                swatch.addMouseListener(object : MouseAdapter() {
+                    override fun mouseClicked(event: MouseEvent) {
+                        if (!licensed || !pendingGlowEnabled) return
+                        if (suppressListeners) return
+                        pendingTabMode = mode.name
+                        for ((m, sw) in tabModeSwatches) {
+                            sw.selected = m == mode
+                            sw.repaint()
+                        }
+                    }
+                })
+                swatchRow.add(swatch)
+                tabModeSwatches[mode] = swatch
             }
+            cell(swatchRow)
         }
-        this.widthSlider = widthSlider
-        widthSlider.alignmentX = 0f
-        slidersPanel.add(widthSlider)
 
-        tabPanel.add(slidersPanel, BorderLayout.CENTER)
-
-        // Reset button
-        val resetPanel = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0))
-        val resetButton = JButton("Reset Style Defaults")
-        resetButton.addActionListener {
-            pendingIntensity[pendingStyle] = pendingStyle.defaultIntensity
-            pendingWidth[pendingStyle] = pendingStyle.defaultWidth
-            refreshSliders()
-            onGlowChanged?.invoke()
+        // Focus ring
+        panel.row {
+            val cb = checkBox("Focused input glow ring")
+            cb.component.isSelected = pendingFocusRing
+            cb.component.isEnabled = licensed && pendingGlowEnabled
+            cb.component.addActionListener {
+                pendingFocusRing = cb.component.isSelected
+            }
+            focusRingCheckbox = cb.component
+            cb.comment("Subtle glow around focused text fields")
         }
-        resetPanel.add(resetButton)
-        tabPanel.add(resetPanel, BorderLayout.SOUTH)
 
-        return tabPanel
+        // Floating panels
+        panel.row {
+            val cb = checkBox("Glow on floating panels")
+            cb.component.isSelected = pendingFloatingPanels
+            cb.component.isEnabled = licensed && pendingGlowEnabled
+            cb.component.addActionListener {
+                pendingFloatingPanels = cb.component.isSelected
+            }
+            floatingCheckbox = cb.component
+            cb.comment("Apply glow to undocked/floating tool windows")
+        }
+
     }
+
+    private fun buildIslandCheckboxRow(panel: Panel, islandId: String, licensed: Boolean) {
+        panel.row {
+            val cb = checkBox(islandId)
+            cb.component.isSelected = pendingIslandToggles[islandId] ?: false
+            cb.component.isEnabled = licensed && pendingGlowEnabled
+            cb.component.addActionListener {
+                pendingIslandToggles[islandId] = cb.component.isSelected
+            }
+            islandCheckboxes[islandId] = cb.component
+        }
+    }
+
+    // Style selection
 
     private fun selectStyle(style: GlowStyle) {
         pendingStyle = style
@@ -263,7 +359,6 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
             swatch.repaint()
         }
         refreshSliders()
-        onStyleChanged?.invoke()
     }
 
     private fun refreshSliders() {
@@ -273,194 +368,13 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
         suppressListeners = false
     }
 
-    // Targets tab
-
-    private fun buildTargetsTab(licensed: Boolean): JPanel {
-        val tabPanel = JPanel()
-        tabPanel.layout = BoxLayout(tabPanel, BoxLayout.Y_AXIS)
-        tabPanel.border = BorderFactory.createEmptyBorder(
-            JBUI.scale(8), JBUI.scale(8), JBUI.scale(8), JBUI.scale(8)
-        )
-
-        // Island groups
-        val groups = listOf(
-            "Editor Tools" to listOf("Editor"),
-            "Navigation" to listOf("Project"),
-            "Build & Run" to listOf("Run", "Debug", "Terminal"),
-            "Version Control" to listOf("Git", "Services"),
-        )
-
-        for ((groupName, islands) in groups) {
-            val groupLabel = JLabel(groupName)
-            groupLabel.font = groupLabel.font.deriveFont(java.awt.Font.BOLD)
-            groupLabel.alignmentX = 0f
-            tabPanel.add(groupLabel)
-            tabPanel.add(Box.createVerticalStrut(JBUI.scale(4)))
-
-            for (islandId in islands) {
-                val cb = JCheckBox(islandId)
-                cb.isSelected = pendingIslandToggles[islandId] ?: false
-                cb.isEnabled = licensed && pendingGlowEnabled
-                cb.addActionListener {
-                    pendingIslandToggles[islandId] = cb.isSelected
-                    onGlowChanged?.invoke()
-                }
-                islandCheckboxes[islandId] = cb
-                cb.alignmentX = 0f
-                tabPanel.add(cb)
-            }
-            tabPanel.add(Box.createVerticalStrut(JBUI.scale(8)))
-        }
-
-        // Enable All / Disable All buttons
-        val buttonRow = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(4), 0))
-        val enableAllButton = JButton("Enable All")
-        enableAllButton.addActionListener {
-            for (key in pendingIslandToggles.keys) {
-                pendingIslandToggles[key] = true
-            }
-            refreshIslandCheckboxes()
-            onGlowChanged?.invoke()
-        }
-        buttonRow.add(enableAllButton)
-
-        val disableAllButton = JButton("Disable All")
-        disableAllButton.addActionListener {
-            for (key in pendingIslandToggles.keys) {
-                pendingIslandToggles[key] = false
-            }
-            refreshIslandCheckboxes()
-            onGlowChanged?.invoke()
-        }
-        buttonRow.add(disableAllButton)
-        buttonRow.alignmentX = 0f
-        tabPanel.add(buttonRow)
-        tabPanel.add(Box.createVerticalStrut(JBUI.scale(16)))
-
-        // Tab glow mode
-        val tabGlowLabel = JLabel("Active Tab Glow")
-        tabGlowLabel.font = tabGlowLabel.font.deriveFont(java.awt.Font.BOLD)
-        tabGlowLabel.alignmentX = 0f
-        tabPanel.add(tabGlowLabel)
-        tabPanel.add(Box.createVerticalStrut(JBUI.scale(4)))
-
-        val tabModeRow = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(4), 0))
-        val tabModeLabel = JLabel("Mode:")
-        tabModeRow.add(tabModeLabel)
-        val tabModeCombo = JComboBox(GlowTabMode.entries.map { it.displayName }.toTypedArray())
-        tabModeCombo.selectedItem = GlowTabMode.fromName(pendingTabMode).displayName
-        tabModeCombo.isEnabled = licensed && pendingGlowEnabled
-        tabModeCombo.addActionListener {
-            if (!suppressListeners) {
-                val selectedIndex = tabModeCombo.selectedIndex.coerceIn(0, GlowTabMode.entries.size - 1)
-                pendingTabMode = GlowTabMode.entries[selectedIndex].name
-                onGlowChanged?.invoke()
-            }
-        }
-        tabModeRow.add(tabModeCombo)
-        tabModeRow.alignmentX = 0f
-        tabPanel.add(tabModeRow)
-        tabPanel.add(Box.createVerticalStrut(JBUI.scale(12)))
-
-        // Focus-ring glow
-        val focusRingLabel = JLabel("Input Glow")
-        focusRingLabel.font = focusRingLabel.font.deriveFont(java.awt.Font.BOLD)
-        focusRingLabel.alignmentX = 0f
-        tabPanel.add(focusRingLabel)
-        tabPanel.add(Box.createVerticalStrut(JBUI.scale(4)))
-
-        val focusRingCheckbox = JCheckBox("Focused input glow ring")
-        focusRingCheckbox.isSelected = pendingFocusRing
-        focusRingCheckbox.isEnabled = licensed && pendingGlowEnabled
-        focusRingCheckbox.addActionListener {
-            pendingFocusRing = focusRingCheckbox.isSelected
-            onGlowChanged?.invoke()
-        }
-        focusRingCheckbox.alignmentX = 0f
-        tabPanel.add(focusRingCheckbox)
-
-        val focusRingHint = JLabel("Subtle glow around focused text fields and inputs")
-        focusRingHint.foreground = UIManager.getColor("Label.disabledForeground")
-        focusRingHint.font = JBUI.Fonts.smallFont()
-        focusRingHint.alignmentX = 0f
-        tabPanel.add(focusRingHint)
-        tabPanel.add(Box.createVerticalStrut(JBUI.scale(12)))
-
-        // Floating panels toggle
-        val floatingLabel = JLabel("Floating Panels")
-        floatingLabel.font = floatingLabel.font.deriveFont(java.awt.Font.BOLD)
-        floatingLabel.alignmentX = 0f
-        tabPanel.add(floatingLabel)
-        tabPanel.add(Box.createVerticalStrut(JBUI.scale(4)))
-
-        val floatingCheckbox = JCheckBox("Glow on floating panels")
-        floatingCheckbox.isSelected = pendingFloatingPanels
-        floatingCheckbox.isEnabled = licensed && pendingGlowEnabled
-        floatingCheckbox.addActionListener {
-            pendingFloatingPanels = floatingCheckbox.isSelected
-            onGlowChanged?.invoke()
-        }
-        floatingCheckbox.alignmentX = 0f
-        tabPanel.add(floatingCheckbox)
-
-        val floatingHint = JLabel("Apply glow to undocked/floating tool windows")
-        floatingHint.foreground = UIManager.getColor("Label.disabledForeground")
-        floatingHint.font = JBUI.Fonts.smallFont()
-        floatingHint.alignmentX = 0f
-        tabPanel.add(floatingHint)
-
-        return tabPanel
-    }
-
     private fun refreshIslandCheckboxes() {
         for ((id, cb) in islandCheckboxes) {
             cb.isSelected = pendingIslandToggles[id] ?: false
         }
     }
 
-    // Animation tab
-
-    private fun buildAnimationTab(licensed: Boolean): JPanel {
-        val tabPanel = JPanel()
-        tabPanel.layout = BoxLayout(tabPanel, BoxLayout.Y_AXIS)
-        tabPanel.border = BorderFactory.createEmptyBorder(
-            JBUI.scale(8), JBUI.scale(8), JBUI.scale(8), JBUI.scale(8)
-        )
-
-        val animLabel = JLabel("Animation Type")
-        animLabel.alignmentX = 0f
-        tabPanel.add(animLabel)
-        tabPanel.add(Box.createVerticalStrut(JBUI.scale(4)))
-
-        val displayNames = GlowAnimation.entries.map { it.displayName }.toTypedArray()
-        val combo = JComboBox(displayNames)
-        combo.selectedIndex = GlowAnimation.entries.indexOf(pendingAnimation).coerceAtLeast(0)
-        combo.isEnabled = licensed && pendingGlowEnabled
-        combo.addActionListener {
-            if (!suppressListeners) {
-                val selectedIndex = combo.selectedIndex.coerceIn(0, GlowAnimation.entries.size - 1)
-                pendingAnimation = GlowAnimation.entries[selectedIndex]
-                updateAnimationDescription()
-                onAnimationChanged?.invoke()
-            }
-        }
-        animationCombo = combo
-        combo.alignmentX = 0f
-        combo.maximumSize = Dimension(JBUI.scale(200), combo.preferredSize.height)
-        tabPanel.add(combo)
-        tabPanel.add(Box.createVerticalStrut(JBUI.scale(12)))
-
-        val descLabel = JLabel(animationDescription(pendingAnimation))
-        descLabel.foreground = UIManager.getColor("Label.disabledForeground")
-        descLabel.alignmentX = 0f
-        animationDescriptionLabel = descLabel
-        tabPanel.add(descLabel)
-
-        // Vertical glue to push content to top
-        tabPanel.add(Box.createVerticalGlue())
-
-        return tabPanel
-    }
+    // Animation
 
     private fun animationDescription(animation: GlowAnimation): String = when (animation) {
         GlowAnimation.NONE -> "Static glow with no animation."
@@ -473,176 +387,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
         animationDescriptionLabel?.text = animationDescription(pendingAnimation)
     }
 
-    // Presets tab
-
-    private fun buildPresetsTab(licensed: Boolean): JPanel {
-        val tabPanel = JPanel()
-        tabPanel.layout = BoxLayout(tabPanel, BoxLayout.Y_AXIS)
-        tabPanel.border = BorderFactory.createEmptyBorder(
-            JBUI.scale(8), JBUI.scale(8), JBUI.scale(8), JBUI.scale(8)
-        )
-
-        val presetLabel = JLabel("Preset")
-        presetLabel.alignmentX = 0f
-        tabPanel.add(presetLabel)
-        tabPanel.add(Box.createVerticalStrut(JBUI.scale(4)))
-
-        val combo = JComboBox<String>()
-        refreshPresetComboModel(combo)
-        combo.isEnabled = licensed && pendingGlowEnabled
-        combo.addActionListener {
-            if (!suppressListeners) {
-                val selectedName = combo.selectedItem as? String ?: return@addActionListener
-                val preset = findPresetByName(selectedName) ?: return@addActionListener
-                loadPreset(preset)
-                updatePresetButtonStates()
-            }
-        }
-        presetCombo = combo
-        combo.alignmentX = 0f
-        combo.maximumSize = Dimension(JBUI.scale(250), combo.preferredSize.height)
-        tabPanel.add(combo)
-        tabPanel.add(Box.createVerticalStrut(JBUI.scale(12)))
-
-        // Buttons row
-        val buttonRow = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(4), 0))
-
-        val saveBtn = JButton("Save As...")
-        saveBtn.addActionListener { savePresetAction() }
-        saveButton = saveBtn
-        buttonRow.add(saveBtn)
-
-        val deleteBtn = JButton("Delete")
-        deleteBtn.addActionListener { deletePresetAction() }
-        deleteButton = deleteBtn
-        buttonRow.add(deleteBtn)
-
-        val renameBtn = JButton("Rename...")
-        renameBtn.addActionListener { renamePresetAction() }
-        renameButton = renameBtn
-        buttonRow.add(renameBtn)
-
-        buttonRow.alignmentX = 0f
-        tabPanel.add(buttonRow)
-        tabPanel.add(Box.createVerticalStrut(JBUI.scale(4)))
-
-        // Duplicate warning label (hidden by default)
-        val warning = JLabel()
-        warning.foreground = Color(0xCC, 0x66, 0x00)
-        warning.isVisible = false
-        warning.alignmentX = 0f
-        duplicateWarning = warning
-        tabPanel.add(warning)
-
-        tabPanel.add(Box.createVerticalGlue())
-
-        updatePresetButtonStates()
-
-        return tabPanel
-    }
-
-    private fun refreshPresetComboModel(combo: JComboBox<String>) {
-        val model = DefaultComboBoxModel<String>()
-        for (preset in GlowPreset.BUILT_IN) {
-            model.addElement(preset.name)
-        }
-        for (preset in pendingUserPresets) {
-            model.addElement(preset.name)
-        }
-        combo.model = model
-    }
-
-    private fun findPresetByName(name: String): GlowPreset? {
-        return GlowPreset.BUILT_IN.firstOrNull { it.name == name }
-            ?: pendingUserPresets.firstOrNull { it.name == name }
-    }
-
-    private fun isBuiltInPresetSelected(): Boolean {
-        val selectedName = presetCombo?.selectedItem as? String ?: return true
-        return GlowPreset.BUILT_IN.any { it.name == selectedName }
-    }
-
-    private fun updatePresetButtonStates() {
-        val isBuiltIn = isBuiltInPresetSelected()
-        deleteButton?.isEnabled = !isBuiltIn
-        renameButton?.isEnabled = !isBuiltIn
-    }
-
-    private fun savePresetAction() {
-        val name = Messages.showInputDialog(
-            "Enter preset name:",
-            "Save Preset",
-            null,
-        ) ?: return
-
-        if (name.isBlank()) return
-
-        // Check for duplicates
-        val allNames = GlowPreset.BUILT_IN.map { it.name } + pendingUserPresets.map { it.name }
-        if (name in allNames) {
-            duplicateWarning?.text = "A preset named \"$name\" already exists."
-            duplicateWarning?.isVisible = true
-            return
-        }
-
-        duplicateWarning?.isVisible = false
-
-        val newPreset = buildCurrentPresetState(name)
-        pendingUserPresets.add(newPreset)
-
-        val combo = presetCombo ?: return
-        refreshPresetComboModel(combo)
-        combo.selectedItem = name
-        updatePresetButtonStates()
-    }
-
-    private fun deletePresetAction() {
-        val selectedName = presetCombo?.selectedItem as? String ?: return
-        if (isBuiltInPresetSelected()) return
-
-        pendingUserPresets.removeAll { it.name == selectedName }
-        val combo = presetCombo ?: return
-        refreshPresetComboModel(combo)
-        if (combo.itemCount > 0) combo.selectedIndex = 0
-        updatePresetButtonStates()
-    }
-
-    private fun renamePresetAction() {
-        val selectedName = presetCombo?.selectedItem as? String ?: return
-        if (isBuiltInPresetSelected()) return
-
-        val newName = Messages.showInputDialog(
-            "Enter new name:",
-            "Rename Preset",
-            null,
-            selectedName,
-            null,
-        ) ?: return
-
-        if (newName.isBlank() || newName == selectedName) return
-
-        val allNames = GlowPreset.BUILT_IN.map { it.name } +
-            pendingUserPresets.filter { it.name != selectedName }.map { it.name }
-        if (newName in allNames) {
-            duplicateWarning?.text = "A preset named \"$newName\" already exists."
-            duplicateWarning?.isVisible = true
-            return
-        }
-
-        duplicateWarning?.isVisible = false
-
-        val index = pendingUserPresets.indexOfFirst { it.name == selectedName }
-        if (index >= 0) {
-            pendingUserPresets[index] = pendingUserPresets[index].copy(name = newName)
-        }
-
-        val combo = presetCombo ?: return
-        refreshPresetComboModel(combo)
-        combo.selectedItem = newName
-        updatePresetButtonStates()
-    }
-
-    // Helpers
+    // State management
 
     private fun loadStateIntoPending(state: AyuIslandsState) {
         pendingGlowEnabled = state.glowEnabled
@@ -662,12 +407,6 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
             pendingIslandToggles[id] = state.isIslandEnabled(id)
         }
 
-        pendingUserPresets.clear()
-        val serialized = state.glowUserPresets
-        if (!serialized.isNullOrBlank()) {
-            pendingUserPresets.addAll(GlowPreset.deserializePresets(serialized))
-        }
-
         pendingTabMode = state.glowTabMode ?: "UNDERLINE"
         pendingFocusRing = state.glowFocusRing
         pendingFloatingPanels = state.glowFloatingPanels
@@ -680,7 +419,6 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
         storedWidth = pendingWidth.toMap()
         storedAnimation = pendingAnimation
         storedIslandToggles = pendingIslandToggles.toMap()
-        storedUserPresets = pendingUserPresets.map { it.copy() }
         storedTabMode = pendingTabMode
         storedFocusRing = pendingFocusRing
         storedFloatingPanels = pendingFloatingPanels
@@ -689,14 +427,10 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
     private fun updateControlStates() {
         val enabled = pendingGlowEnabled && LicenseChecker.isLicensedOrGrace()
 
-        // Dim tabs content when glow is off
         intensitySlider?.isEnabled = enabled
         widthSlider?.isEnabled = enabled
-        animationCombo?.isEnabled = enabled
-        presetCombo?.isEnabled = enabled
-        saveButton?.isEnabled = enabled
-        deleteButton?.isEnabled = enabled && !isBuiltInPresetSelected()
-        renameButton?.isEnabled = enabled && !isBuiltInPresetSelected()
+        focusRingCheckbox?.isEnabled = enabled
+        floatingCheckbox?.isEnabled = enabled
 
         for ((_, cb) in islandCheckboxes) {
             cb.isEnabled = enabled
@@ -707,27 +441,18 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
             swatch.cursor = if (enabled) Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) else Cursor.getDefaultCursor()
             swatch.repaint()
         }
-    }
 
-    private fun stopAnimationPreview() {
-        previewAnimator?.stop()
-    }
-
-    private fun loadPreset(preset: GlowPreset) {
-        suppressListeners = true
-        pendingStyle = preset.style
-        pendingIntensity[preset.style] = preset.intensity
-        pendingWidth[preset.style] = preset.width
-        pendingAnimation = preset.animation
-
-        // Update island toggles from preset
-        for (id in pendingIslandToggles.keys) {
-            pendingIslandToggles[id] = id in preset.enabledIslands
+        for ((_, swatch) in animationSwatches) {
+            swatch.isEnabled = enabled
+            swatch.cursor = if (enabled) Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) else Cursor.getDefaultCursor()
+            swatch.repaint()
         }
 
-        refreshAllControls()
-        suppressListeners = false
-        onGlowChanged?.invoke()
+        for ((_, swatch) in tabModeSwatches) {
+            swatch.isEnabled = enabled
+            swatch.cursor = if (enabled) Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) else Cursor.getDefaultCursor()
+            swatch.repaint()
+        }
     }
 
     private fun refreshAllControls() {
@@ -737,11 +462,13 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
             swatch.repaint()
         }
 
-        // Sliders
         refreshSliders()
 
-        // Animation combo
-        animationCombo?.selectedIndex = GlowAnimation.entries.indexOf(pendingAnimation).coerceAtLeast(0)
+        // Animation swatches
+        for ((anim, swatch) in animationSwatches) {
+            swatch.selected = anim == pendingAnimation
+            swatch.repaint()
+        }
         updateAnimationDescription()
 
         // Island checkboxes
@@ -750,37 +477,17 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
         // Master toggle
         masterToggle?.isSelected = pendingGlowEnabled
 
+        // Tab mode swatches
+        val currentTabMode = GlowTabMode.fromName(pendingTabMode)
+        for ((mode, swatch) in tabModeSwatches) {
+            swatch.selected = mode == currentTabMode
+            swatch.repaint()
+        }
+        focusRingCheckbox?.isSelected = pendingFocusRing
+        floatingCheckbox?.isSelected = pendingFloatingPanels
+
         updateControlStates()
     }
-
-    private fun buildCurrentPresetState(name: String): GlowPreset {
-        return GlowPreset(
-            name = name,
-            style = pendingStyle,
-            intensity = pendingIntensity[pendingStyle] ?: pendingStyle.defaultIntensity,
-            width = pendingWidth[pendingStyle] ?: pendingStyle.defaultWidth,
-            animation = pendingAnimation,
-            enabledIslands = pendingIslandToggles.filter { it.value }.keys.toSet(),
-        )
-    }
-
-    // Public accessors
-
-    fun isGlowEnabled(): Boolean = pendingGlowEnabled
-
-    fun getCurrentStyle(): GlowStyle = pendingStyle
-
-    fun getCurrentIntensity(): Int = pendingIntensity[pendingStyle] ?: pendingStyle.defaultIntensity
-
-    fun getCurrentWidth(): Int = pendingWidth[pendingStyle] ?: pendingStyle.defaultWidth
-
-    fun getCurrentAnimation(): GlowAnimation = pendingAnimation
-
-    fun getActiveTabIndex(): Int = tabbedPane?.selectedIndex ?: 0
-
-    fun getIslandToggles(): Map<String, Boolean> = pendingIslandToggles.toMap()
-
-    fun getEffectsTabbedPane(): javax.swing.JTabbedPane? = tabbedPane
 
     // AyuIslandsSettingsPanel contract
 
@@ -791,7 +498,6 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
         if (pendingWidth != storedWidth) return true
         if (pendingAnimation != storedAnimation) return true
         if (pendingIslandToggles != storedIslandToggles) return true
-        if (pendingUserPresets != storedUserPresets) return true
         if (pendingTabMode != storedTabMode) return true
         if (pendingFocusRing != storedFocusRing) return true
         if (pendingFloatingPanels != storedFloatingPanels) return true
@@ -816,18 +522,14 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
             state.setIslandEnabled(id, pendingIslandToggles[id] ?: false)
         }
 
-        state.glowUserPresets = GlowPreset.serializePresets(pendingUserPresets)
-
         state.glowTabMode = pendingTabMode
         state.glowFocusRing = pendingFocusRing
         state.glowFloatingPanels = pendingFloatingPanels
 
-        // Mark onboarding shown if glow was enabled
         if (pendingGlowEnabled) {
             state.glowOnboardingShown = true
         }
 
-        stopAnimationPreview()
         copyPendingToStored()
     }
 
@@ -838,7 +540,6 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
         pendingWidth = storedWidth.toMutableMap()
         pendingAnimation = storedAnimation
         pendingIslandToggles = storedIslandToggles.toMutableMap()
-        pendingUserPresets = storedUserPresets.map { it.copy() }.toMutableList()
         pendingTabMode = storedTabMode
         pendingFocusRing = storedFocusRing
         pendingFloatingPanels = storedFloatingPanels
@@ -846,15 +547,15 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
         refreshAllControls()
     }
 
-    /** Mini swatch showing a glow style preview with selection highlight. */
+    /** Mini swatch button with selection highlight, used for Style and Animation selectors. */
     private class StyleSwatchPanel(
-        private val style: GlowStyle,
+        private val displayName: String,
         var selected: Boolean,
     ) : JPanel() {
 
         init {
             preferredSize = Dimension(JBUI.scale(60), JBUI.scale(40))
-            toolTipText = style.displayName
+            toolTipText = displayName
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
             isOpaque = false
         }
@@ -868,11 +569,9 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
                 val bg = UIManager.getColor("Panel.background") ?: Color(0x2B, 0x2D, 0x30)
                 val accent = UIManager.getColor("Component.focusColor") ?: Color(0xFF, 0xCC, 0x66)
 
-                // Background
                 g2.color = if (isEnabled) bg.darker() else bg
                 g2.fillRoundRect(0, 0, width, height, 6, 6)
 
-                // Mini glow preview
                 if (isEnabled) {
                     val glowColor = Color(accent.red, accent.green, accent.blue, 80)
                     g2.color = glowColor
@@ -880,17 +579,15 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
                     g2.drawRoundRect(inset, inset, width - 2 * inset, height - 2 * inset, 4, 4)
                 }
 
-                // Selection border
                 if (selected) {
                     g2.color = accent
                     g2.drawRoundRect(0, 0, width - 1, height - 1, 6, 6)
                 }
 
-                // Label
                 g2.color = if (isEnabled) Color.WHITE else Color.GRAY
                 g2.font = JBUI.Fonts.miniFont()
-                val textWidth = g2.fontMetrics.stringWidth(style.displayName)
-                g2.drawString(style.displayName, (width - textWidth) / 2, height - JBUI.scale(6))
+                val textWidth = g2.fontMetrics.stringWidth(displayName)
+                g2.drawString(displayName, (width - textWidth) / 2, height - JBUI.scale(6))
             } finally {
                 g2.dispose()
             }
