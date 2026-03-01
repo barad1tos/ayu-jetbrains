@@ -13,8 +13,10 @@ import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
+import java.awt.Image
+import javax.swing.ImageIcon
 
-/** Settings page at Appearance > Ayu Islands with Color / Glow tabs. */
+/** Settings page at Appearance > Ayu Islands with Accent / Glow tabs. */
 class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
 
     private val log = logger<AyuIslandsConfigurable>()
@@ -39,8 +41,16 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         if (variant == null) {
             return panel {
                 row {
-                    label("Ayu Islands v$pluginVersion")
-                        .applyToComponent { font = JBUI.Fonts.label(13f).asBold() }
+                    val logoUrl = AyuIslandsConfigurable::class.java.getResource("/assets/logo.png")
+                    if (logoUrl != null) {
+                        val originalIcon = ImageIcon(logoUrl)
+                        val scaledHeight = JBUI.scale(28)
+                        val scaledWidth = (originalIcon.iconWidth.toDouble() / originalIcon.iconHeight * scaledHeight).toInt()
+                        val scaledImage = originalIcon.image.getScaledInstance(scaledWidth, scaledHeight, Image.SCALE_SMOOTH)
+                        icon(ImageIcon(scaledImage))
+                    }
+                    label("v$pluginVersion")
+                        .applyToComponent { font = JBUI.Fonts.smallFont() }
                 }
                 row {
                     comment("Activate an Ayu Islands theme to configure accent colors")
@@ -49,11 +59,11 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         }
 
         // Build tab content panels eagerly via DSL
-        val colorTab = panel {
+        val accentTab = panel {
             accentPanel.buildPanel(this@panel, variant)
             elementsPanel.buildPanel(this@panel, variant)
 
-            // "Reset all settings..." link at bottom of Color tab
+            // "Reset all settings..." link at bottom of Accent tab
             row {
                 link("Reset all settings\u2026") {
                     val result = Messages.showYesNoDialog(
@@ -74,14 +84,22 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
 
         // Single-level tab container
         val tabs = JBTabbedPane()
-        tabs.addTab("Color", colorTab)
+        tabs.addTab("Accent", accentTab)
         tabs.addTab("Glow", glowTab)
 
         return panel {
             // Header
             row {
-                label("Ayu Islands v$pluginVersion")
-                    .applyToComponent { font = JBUI.Fonts.label(13f).asBold() }
+                val logoUrl = AyuIslandsConfigurable::class.java.getResource("/assets/logo.png")
+                if (logoUrl != null) {
+                    val originalIcon = ImageIcon(logoUrl)
+                    val scaledHeight = JBUI.scale(28)
+                    val scaledWidth = (originalIcon.iconWidth.toDouble() / originalIcon.iconHeight * scaledHeight).toInt()
+                    val scaledImage = originalIcon.image.getScaledInstance(scaledWidth, scaledHeight, Image.SCALE_SMOOTH)
+                    icon(ImageIcon(scaledImage))
+                }
+                label("v$pluginVersion")
+                    .applyToComponent { font = JBUI.Fonts.smallFont() }
             }
             row {
                 val status = if (LicenseChecker.isLicensedOrGrace()) "Licensed" else ""
