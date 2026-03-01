@@ -1,5 +1,6 @@
 package dev.ayuislands.settings
 
+import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.util.ui.JBUI
@@ -8,26 +9,15 @@ import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.GlowTabMode
 import dev.ayuislands.licensing.LicenseChecker
-import java.awt.Color
-import java.awt.Cursor
-import java.awt.Dimension
-import java.awt.FlowLayout
-import java.awt.Graphics
-import java.awt.Graphics2D
-import java.awt.RenderingHints
-import java.awt.event.MouseAdapter
-import java.awt.event.MouseEvent
-import java.util.Hashtable
+import javax.swing.DefaultComboBoxModel
 import javax.swing.JCheckBox
 import javax.swing.JLabel
-import javax.swing.JPanel
 import javax.swing.JSlider
-import javax.swing.UIManager
 
 /**
  * Glow effects configuration split across Glow and Advanced tabs.
  *
- * [buildGlowPanel] renders the master toggle, style swatches, sliders, and animation.
+ * [buildGlowPanel] renders the master toggle, style/animation ComboBoxes, and sliders.
  * [buildAdvancedPanel] renders targets, tab mode, focus ring, and floating panels.
  * Both are called from [AyuIslandsConfigurable] into separate tab panes.
  */
@@ -59,11 +49,13 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
     private var masterToggle: JCheckBox? = null
     private var intensitySlider: JSlider? = null
     private var widthSlider: JSlider? = null
-    private val animationSwatches = mutableMapOf<GlowAnimation, StyleSwatchPanel>()
+    private var styleCombo: ComboBox<String>? = null
+    private var animationCombo: ComboBox<String>? = null
+    private var tabModeCombo: ComboBox<String>? = null
+    private var intensityValueLabel: JLabel? = null
+    private var widthValueLabel: JLabel? = null
     private val islandCheckboxes = mutableMapOf<String, JCheckBox>()
-    private val styleSwatches = mutableMapOf<GlowStyle, StyleSwatchPanel>()
     private var animationDescriptionLabel: JLabel? = null
-    private val tabModeSwatches = mutableMapOf<GlowTabMode, StyleSwatchPanel>()
     private var focusRingCheckbox: JCheckBox? = null
     private var floatingCheckbox: JCheckBox? = null
 
@@ -121,90 +113,83 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
             }
         }
 
-        // Style swatches
+        // Style, sliders, and animation
         panel.group("Style") {
+            // Style ComboBox row
             row {
-                val swatchRow = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), 0))
-                for (style in GlowStyle.entries) {
-                    val swatch = StyleSwatchPanel(style.displayName, style == pendingStyle)
-                    swatch.addMouseListener(object : MouseAdapter() {
-                        override fun mouseClicked(event: MouseEvent) {
-                            if (!licensed || !pendingGlowEnabled) return
-                            selectStyle(style)
-                        }
-                    })
-                    swatchRow.add(swatch)
-                    styleSwatches[style] = swatch
+                label("Style")
+                val model = DefaultComboBoxModel(GlowStyle.entries.map { it.displayName }.toTypedArray())
+                val combo = ComboBox(model)
+                combo.selectedItem = pendingStyle.displayName
+                combo.isEnabled = licensed && pendingGlowEnabled
+                combo.addActionListener {
+                    if (!suppressListeners) {
+                        val selectedName = combo.selectedItem as? String ?: return@addActionListener
+                        val style = GlowStyle.entries.first { it.displayName == selectedName }
+                        pendingStyle = style
+                        refreshSliders()
+                    }
                 }
-                cell(swatchRow)
+                styleCombo = combo
+                cell(combo)
             }
-        }
 
-        // Intensity slider
-        panel.row {
-            label("Intensity")
-        }
-        panel.row {
-            val slider = JSlider(0, 100, pendingIntensity[pendingStyle] ?: 40)
-            slider.paintTicks = true
-            slider.paintLabels = true
-            slider.majorTickSpacing = 50
-            slider.minorTickSpacing = 10
-            val labels = Hashtable<Int, JLabel>()
-            labels[0] = JLabel("Low")
-            labels[50] = JLabel("Med")
-            labels[100] = JLabel("High")
-            slider.labelTable = labels
-            slider.addChangeListener {
-                if (!suppressListeners) {
-                    pendingIntensity[pendingStyle] = slider.value
-                }
-            }
-            intensitySlider = slider
-            cell(slider).resizableColumn().align(Align.FILL)
-        }
-
-        // Width slider
-        panel.row {
-            label("Width (px)")
-        }
-        panel.row {
-            val slider = JSlider(4, 32, pendingWidth[pendingStyle] ?: 10)
-            slider.paintTicks = true
-            slider.paintLabels = true
-            slider.majorTickSpacing = 7
-            slider.minorTickSpacing = 1
-            slider.addChangeListener {
-                if (!suppressListeners) {
-                    pendingWidth[pendingStyle] = slider.value
-                }
-            }
-            widthSlider = slider
-            cell(slider).resizableColumn().align(Align.FILL)
-        }
-
-        // Animation
-        panel.group("Animation") {
+            // Intensity slider with numeric value
             row {
-                val swatchRow = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), 0))
-                for (animation in GlowAnimation.entries) {
-                    val swatch = StyleSwatchPanel(animation.displayName, animation == pendingAnimation)
-                    swatch.addMouseListener(object : MouseAdapter() {
-                        override fun mouseClicked(event: MouseEvent) {
-                            if (!licensed || !pendingGlowEnabled) return
-                            if (suppressListeners) return
-                            pendingAnimation = animation
-                            for ((anim, sw) in animationSwatches) {
-                                sw.selected = anim == animation
-                                sw.repaint()
-                            }
-                            updateAnimationDescription()
-                        }
-                    })
-                    swatchRow.add(swatch)
-                    animationSwatches[animation] = swatch
+                label("Intensity")
+                val slider = JSlider(0, 100, pendingIntensity[pendingStyle] ?: 40)
+                slider.paintTicks = true
+                slider.majorTickSpacing = 25
+                slider.minorTickSpacing = 5
+                val valueLabel = JLabel("${slider.value}")
+                slider.addChangeListener {
+                    if (!suppressListeners) {
+                        pendingIntensity[pendingStyle] = slider.value
+                    }
+                    valueLabel.text = "${slider.value}"
                 }
-                cell(swatchRow)
+                intensitySlider = slider
+                intensityValueLabel = valueLabel
+                cell(slider).resizableColumn().align(Align.FILL)
+                cell(valueLabel)
+            }
+
+            // Width slider with numeric value
+            row {
+                label("Width (px)")
+                val slider = JSlider(4, 32, pendingWidth[pendingStyle] ?: 10)
+                slider.paintTicks = true
+                slider.majorTickSpacing = 7
+                slider.minorTickSpacing = 1
+                val valueLabel = JLabel("${slider.value}")
+                slider.addChangeListener {
+                    if (!suppressListeners) {
+                        pendingWidth[pendingStyle] = slider.value
+                    }
+                    valueLabel.text = "${slider.value}"
+                }
+                widthSlider = slider
+                widthValueLabel = valueLabel
+                cell(slider).resizableColumn().align(Align.FILL)
+                cell(valueLabel)
+            }
+
+            // Animation ComboBox
+            row {
+                label("Animation")
+                val model = DefaultComboBoxModel(GlowAnimation.entries.map { it.displayName }.toTypedArray())
+                val combo = ComboBox(model)
+                combo.selectedItem = pendingAnimation.displayName
+                combo.isEnabled = licensed && pendingGlowEnabled
+                combo.addActionListener {
+                    if (!suppressListeners) {
+                        val selectedName = combo.selectedItem as? String ?: return@addActionListener
+                        pendingAnimation = GlowAnimation.entries.first { it.displayName == selectedName }
+                        updateAnimationDescription()
+                    }
+                }
+                animationCombo = combo
+                cell(combo)
             }
             row {
                 val descLabel = JLabel(animationDescription(pendingAnimation))
@@ -287,29 +272,19 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
 
         // Active Tab Glow
         panel.row {
-            label("Active Tab Glow")
-        }
-        panel.row {
-            val swatchRow = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(8), 0))
-            swatchRow.isOpaque = false
-            val currentTabMode = GlowTabMode.fromName(pendingTabMode)
-            for (mode in GlowTabMode.entries) {
-                val swatch = StyleSwatchPanel(mode.displayName, mode == currentTabMode)
-                swatch.addMouseListener(object : MouseAdapter() {
-                    override fun mouseClicked(event: MouseEvent) {
-                        if (!licensed || !pendingGlowEnabled) return
-                        if (suppressListeners) return
-                        pendingTabMode = mode.name
-                        for ((m, sw) in tabModeSwatches) {
-                            sw.selected = m == mode
-                            sw.repaint()
-                        }
-                    }
-                })
-                swatchRow.add(swatch)
-                tabModeSwatches[mode] = swatch
+            label("Active Tab")
+            val model = DefaultComboBoxModel(GlowTabMode.entries.map { it.displayName }.toTypedArray())
+            val combo = ComboBox(model)
+            combo.selectedItem = GlowTabMode.fromName(pendingTabMode).displayName
+            combo.isEnabled = licensed && pendingGlowEnabled
+            combo.addActionListener {
+                if (!suppressListeners) {
+                    val selectedName = combo.selectedItem as? String ?: return@addActionListener
+                    pendingTabMode = GlowTabMode.entries.first { it.displayName == selectedName }.name
+                }
             }
-            cell(swatchRow)
+            tabModeCombo = combo
+            cell(combo)
         }
 
         // Focus ring
@@ -354,17 +329,20 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
 
     private fun selectStyle(style: GlowStyle) {
         pendingStyle = style
-        for ((swatchStyle, swatch) in styleSwatches) {
-            swatch.selected = swatchStyle == style
-            swatch.repaint()
-        }
+        suppressListeners = true
+        styleCombo?.selectedItem = style.displayName
+        suppressListeners = false
         refreshSliders()
     }
 
     private fun refreshSliders() {
         suppressListeners = true
-        intensitySlider?.value = pendingIntensity[pendingStyle] ?: pendingStyle.defaultIntensity
-        widthSlider?.value = pendingWidth[pendingStyle] ?: pendingStyle.defaultWidth
+        val intensity = pendingIntensity[pendingStyle] ?: pendingStyle.defaultIntensity
+        val width = pendingWidth[pendingStyle] ?: pendingStyle.defaultWidth
+        intensitySlider?.value = intensity
+        widthSlider?.value = width
+        intensityValueLabel?.text = "$intensity"
+        widthValueLabel?.text = "$width"
         suppressListeners = false
     }
 
@@ -431,61 +409,26 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
         widthSlider?.isEnabled = enabled
         focusRingCheckbox?.isEnabled = enabled
         floatingCheckbox?.isEnabled = enabled
+        styleCombo?.isEnabled = enabled
+        animationCombo?.isEnabled = enabled
+        tabModeCombo?.isEnabled = enabled
 
         for ((_, cb) in islandCheckboxes) {
             cb.isEnabled = enabled
         }
-
-        for ((_, swatch) in styleSwatches) {
-            swatch.isEnabled = enabled
-            swatch.cursor = if (enabled) Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) else Cursor.getDefaultCursor()
-            swatch.repaint()
-        }
-
-        for ((_, swatch) in animationSwatches) {
-            swatch.isEnabled = enabled
-            swatch.cursor = if (enabled) Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) else Cursor.getDefaultCursor()
-            swatch.repaint()
-        }
-
-        for ((_, swatch) in tabModeSwatches) {
-            swatch.isEnabled = enabled
-            swatch.cursor = if (enabled) Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) else Cursor.getDefaultCursor()
-            swatch.repaint()
-        }
     }
 
     private fun refreshAllControls() {
-        // Style swatches
-        for ((style, swatch) in styleSwatches) {
-            swatch.selected = style == pendingStyle
-            swatch.repaint()
-        }
-
+        suppressListeners = true
+        styleCombo?.selectedItem = pendingStyle.displayName
+        animationCombo?.selectedItem = pendingAnimation.displayName
+        tabModeCombo?.selectedItem = GlowTabMode.fromName(pendingTabMode).displayName
         refreshSliders()
-
-        // Animation swatches
-        for ((anim, swatch) in animationSwatches) {
-            swatch.selected = anim == pendingAnimation
-            swatch.repaint()
-        }
-        updateAnimationDescription()
-
-        // Island checkboxes
         refreshIslandCheckboxes()
-
-        // Master toggle
         masterToggle?.isSelected = pendingGlowEnabled
-
-        // Tab mode swatches
-        val currentTabMode = GlowTabMode.fromName(pendingTabMode)
-        for ((mode, swatch) in tabModeSwatches) {
-            swatch.selected = mode == currentTabMode
-            swatch.repaint()
-        }
         focusRingCheckbox?.isSelected = pendingFocusRing
         floatingCheckbox?.isSelected = pendingFloatingPanels
-
+        suppressListeners = false
         updateControlStates()
     }
 
@@ -547,50 +490,4 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel() {
         refreshAllControls()
     }
 
-    /** Mini swatch button with selection highlight, used for Style and Animation selectors. */
-    private class StyleSwatchPanel(
-        private val displayName: String,
-        var selected: Boolean,
-    ) : JPanel() {
-
-        init {
-            preferredSize = Dimension(JBUI.scale(60), JBUI.scale(40))
-            toolTipText = displayName
-            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            isOpaque = false
-        }
-
-        override fun paintComponent(graphics: Graphics) {
-            super.paintComponent(graphics)
-            val g2 = graphics.create() as Graphics2D
-            try {
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-
-                val bg = UIManager.getColor("Panel.background") ?: Color(0x2B, 0x2D, 0x30)
-                val accent = UIManager.getColor("Component.focusColor") ?: Color(0xFF, 0xCC, 0x66)
-
-                g2.color = if (isEnabled) bg.darker() else bg
-                g2.fillRoundRect(0, 0, width, height, 6, 6)
-
-                if (isEnabled) {
-                    val glowColor = Color(accent.red, accent.green, accent.blue, 80)
-                    g2.color = glowColor
-                    val inset = 4
-                    g2.drawRoundRect(inset, inset, width - 2 * inset, height - 2 * inset, 4, 4)
-                }
-
-                if (selected) {
-                    g2.color = accent
-                    g2.drawRoundRect(0, 0, width - 1, height - 1, 6, 6)
-                }
-
-                g2.color = if (isEnabled) Color.WHITE else Color.GRAY
-                g2.font = JBUI.Fonts.miniFont()
-                val textWidth = g2.fontMetrics.stringWidth(displayName)
-                g2.drawString(displayName, (width - textWidth) / 2, height - JBUI.scale(6))
-            } finally {
-                g2.dispose()
-            }
-        }
-    }
 }
