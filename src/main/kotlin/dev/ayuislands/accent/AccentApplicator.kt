@@ -74,6 +74,7 @@ object AccentApplicator {
     fun apply(accentHex: String) {
         val accent = Color.decode(accentHex)
         val state = AyuIslandsSettings.getInstance().state
+        val variant = AyuVariant.detect()
 
         // Always-on UIManager keys
         applyAlwaysOnUiKeys(accent)
@@ -82,21 +83,13 @@ object AccentApplicator {
         for (element in EP_NAME.extensionList) {
             val enabled = state.isToggleEnabled(element.id)
             if (!enabled) {
-                try {
-                    element.revert()
-                } catch (exception: Exception) {
-                    log.warn("Failed to revert ${element.displayName}", exception)
-                }
+                neutralizeOrRevert(element, variant)
                 continue
             }
             val hasConflict = ConflictRegistry.hasConflict(element.id)
             val forceOverride = element.id.name in state.forceOverrides
             if (hasConflict && !forceOverride) {
-                try {
-                    element.revert()
-                } catch (exception: Exception) {
-                    log.warn("Failed to revert ${element.displayName}", exception)
-                }
+                neutralizeOrRevert(element, variant)
                 continue
             }
             if (hasConflict && forceOverride) {
@@ -156,6 +149,18 @@ object AccentApplicator {
             edtWork.run()
         } else {
             SwingUtilities.invokeLater(edtWork)
+        }
+    }
+
+    private fun neutralizeOrRevert(element: AccentElement, variant: AyuVariant?) {
+        try {
+            if (variant != null) {
+                element.applyNeutral(variant)
+            } else {
+                element.revert()
+            }
+        } catch (exception: Exception) {
+            log.warn("Failed to neutralize ${element.displayName}", exception)
         }
     }
 
@@ -226,6 +231,8 @@ object AccentApplicator {
     }
 
     private fun syncCodeGlanceProViewport(accentHex: String) {
+        if (!AyuIslandsSettings.getInstance().state.cgpIntegrationEnabled) return
+
         try {
             val hexWithoutHash = accentHex.removePrefix("#")
 

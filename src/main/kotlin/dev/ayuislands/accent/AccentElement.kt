@@ -20,4 +20,5 @@ interface AccentElement {
     val displayName: String
     fun apply(color: Color)
     fun revert()
+    fun applyNeutral(variant: AyuVariant) { revert() }
 }

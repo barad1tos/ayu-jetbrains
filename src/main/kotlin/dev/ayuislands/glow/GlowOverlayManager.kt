@@ -11,6 +11,7 @@ import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ToolWindowType
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
+import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.Color
@@ -198,6 +199,7 @@ class GlowOverlayManager(private val project: Project) : Disposable {
         val state = AyuIslandsSettings.getInstance().state
         val tabMode = GlowTabMode.fromName(state.glowTabMode ?: "UNDERLINE")
         if (tabMode == GlowTabMode.OFF) return
+        if (!state.isToggleEnabled(AccentElementId.TAB_UNDERLINES)) return
 
         val variant = AyuVariant.detect()
         val settings = AyuIslandsSettings.getInstance()
@@ -451,7 +453,8 @@ class GlowOverlayManager(private val project: Project) : Disposable {
         }
 
         val tabMode = GlowTabMode.fromName(state.glowTabMode ?: "UNDERLINE")
-        if (state.glowEnabled && tabMode != GlowTabMode.OFF) {
+        val tabToggleEnabled = state.isToggleEnabled(AccentElementId.TAB_UNDERLINES)
+        if (state.glowEnabled && tabMode != GlowTabMode.OFF && tabToggleEnabled) {
             tabPainter?.apply {
                 glowColor = accent
                 glowStyle = style

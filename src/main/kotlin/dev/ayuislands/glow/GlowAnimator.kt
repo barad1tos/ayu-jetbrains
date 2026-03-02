@@ -20,6 +20,7 @@ class GlowAnimator : Disposable {
     // Performance monitoring
     private var slowFrameCount = 0
     private var lastFrameTimeNanos: Long = 0
+    private var startTimeNanos: Long = 0
 
     // Reactive animation state
     private var reactiveBoost: Float = 0.0f
@@ -34,21 +35,25 @@ class GlowAnimator : Disposable {
         frame = 0
         slowFrameCount = 0
         lastFrameTimeNanos = 0
+        startTimeNanos = System.nanoTime()
         reactiveBoost = 0.0f
 
         timer = Timer(16) {
             val now = System.nanoTime()
             if (lastFrameTimeNanos > 0) {
                 val elapsedMs = (now - lastFrameTimeNanos) / 1_000_000.0
-                if (elapsedMs > 32.0) {
-                    slowFrameCount++
-                    if (slowFrameCount > 30) {
-                        stop()
-                        notifyPerformanceDegradation()
-                        return@Timer
+                val elapsedSinceStart = (now - startTimeNanos) / 1_000_000
+                if (elapsedSinceStart > 180_000) { // 3min warmup grace (IDE startup)
+                    if (elapsedMs > 32.0) {
+                        slowFrameCount++
+                        if (slowFrameCount > 30) {
+                            stop()
+                            notifyPerformanceDegradation()
+                            return@Timer
+                        }
+                    } else {
+                        slowFrameCount = (slowFrameCount - 1).coerceAtLeast(0)
                     }
-                } else {
-                    slowFrameCount = (slowFrameCount - 1).coerceAtLeast(0)
                 }
             }
             lastFrameTimeNanos = now

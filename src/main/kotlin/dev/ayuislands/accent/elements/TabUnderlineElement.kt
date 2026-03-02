@@ -2,6 +2,7 @@ package dev.ayuislands.accent.elements
 
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.AyuVariant
 import java.awt.Color
 import javax.swing.UIManager
 
@@ -19,6 +20,13 @@ class TabUnderlineElement : AccentElement {
     override fun apply(color: Color) {
         for (key in keys) {
             UIManager.put(key, color)
+        }
+    }
+
+    override fun applyNeutral(variant: AyuVariant) {
+        val neutral = Color.decode(variant.neutralGray)
+        for (key in keys) {
+            UIManager.put(key, neutral)
         }
     }
 

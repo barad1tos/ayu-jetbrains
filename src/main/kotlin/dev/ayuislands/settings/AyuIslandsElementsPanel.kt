@@ -98,17 +98,24 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel() {
                 }.enabled(licensed)
             }
 
-            // CGP integration toggle (inside elements group, only if CodeGlance Pro detected)
-            if (ConflictRegistry.isCodeGlanceProDetected()) {
+        }
+
+        if (ConflictRegistry.isCodeGlanceProDetected()) {
+            panel.group("Integrations") {
                 row {
-                    val cb = checkBox("CodeGlance Pro viewport color")
-                        .comment("Sync CodeGlance Pro viewport color with accent")
+                    comment("Sync features with third-party plugins")
+                }
+                row {
+                    val cb = checkBox("Sync color with CodeGlance")
+                        .comment("Apply accent color to CodeGlance Pro viewport")
                     cb.component.isSelected = pendingCgpIntegration
                     cb.component.isEnabled = licensed
                     cb.component.addActionListener {
                         pendingCgpIntegration = cb.component.isSelected
                     }
                     cgpCheckbox = cb.component
+
+                    browserLink("Plugin page", "https://plugins.jetbrains.com/plugin/18824-codeglance-pro")
                 }
             }
         }

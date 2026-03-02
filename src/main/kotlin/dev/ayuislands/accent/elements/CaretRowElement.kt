@@ -4,6 +4,7 @@ import com.intellij.openapi.editor.colors.ColorKey
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.AyuVariant
 import java.awt.Color
 import javax.swing.SwingUtilities
 
@@ -23,6 +24,21 @@ class CaretRowElement : AccentElement {
             scheme.setColor(caretRowKey, caretRowColor)
             scheme.setColor(caretKey, color)
             scheme.setColor(lineNumberKey, color)
+        }
+        if (SwingUtilities.isEventDispatchThread()) {
+            edtWork.run()
+        } else {
+            SwingUtilities.invokeLater(edtWork)
+        }
+    }
+
+    override fun applyNeutral(variant: AyuVariant) {
+        val edtWork = Runnable {
+            val parentScheme = EditorColorsManager.getInstance().getScheme(variant.parentSchemeName)
+            val scheme = EditorColorsManager.getInstance().globalScheme
+            for (colorKey in listOf(caretRowKey, caretKey, lineNumberKey)) {
+                scheme.setColor(colorKey, parentScheme?.getColor(colorKey))
+            }
         }
         if (SwingUtilities.isEventDispatchThread()) {
             edtWork.run()

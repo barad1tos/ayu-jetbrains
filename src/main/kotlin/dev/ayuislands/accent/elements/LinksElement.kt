@@ -6,6 +6,7 @@ import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.AyuVariant
 import java.awt.Color
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
@@ -50,6 +51,30 @@ class LinksElement : AccentElement {
                 updated.foregroundColor = color
                 updated.effectColor = color
                 scheme.setAttributes(attrKey, updated)
+            }
+        }
+        if (SwingUtilities.isEventDispatchThread()) {
+            edtWork.run()
+        } else {
+            SwingUtilities.invokeLater(edtWork)
+        }
+    }
+
+    override fun applyNeutral(variant: AyuVariant) {
+        // UIManager links → null (standard blue link fallback)
+        for (key in uiKeys) {
+            UIManager.put(key, null)
+        }
+        // Editor keys → parent scheme values
+        val edtWork = Runnable {
+            val parentScheme = EditorColorsManager.getInstance().getScheme(variant.parentSchemeName)
+            val scheme = EditorColorsManager.getInstance().globalScheme
+            for (colorKey in editorColorKeys) {
+                scheme.setColor(colorKey, parentScheme?.getColor(colorKey))
+            }
+            for (attrKey in editorAttrKeys) {
+                val parentAttrs = parentScheme?.getAttributes(attrKey)
+                scheme.setAttributes(attrKey, parentAttrs)
             }
         }
         if (SwingUtilities.isEventDispatchThread()) {

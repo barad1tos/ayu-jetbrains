@@ -4,6 +4,7 @@ import com.intellij.openapi.editor.colors.ColorKey
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.AyuVariant
 import java.awt.Color
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
@@ -27,6 +28,24 @@ class ProgressBarElement : AccentElement {
         val edtWork = Runnable {
             val scheme = EditorColorsManager.getInstance().globalScheme
             scheme.setColor(editorKey, color)
+        }
+        if (SwingUtilities.isEventDispatchThread()) {
+            edtWork.run()
+        } else {
+            SwingUtilities.invokeLater(edtWork)
+        }
+    }
+
+    override fun applyNeutral(variant: AyuVariant) {
+        // UIManager keys → null (parent theme progress bar defaults)
+        for (key in uiKeys) {
+            UIManager.put(key, null)
+        }
+        // Editor key → parent scheme value
+        val edtWork = Runnable {
+            val parentScheme = EditorColorsManager.getInstance().getScheme(variant.parentSchemeName)
+            val scheme = EditorColorsManager.getInstance().globalScheme
+            scheme.setColor(editorKey, parentScheme?.getColor(editorKey))
         }
         if (SwingUtilities.isEventDispatchThread()) {
             edtWork.run()

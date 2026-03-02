@@ -4,6 +4,7 @@ import com.intellij.openapi.editor.colors.ColorKey
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.AyuVariant
 import java.awt.Color
 import javax.swing.SwingUtilities
 
@@ -18,6 +19,19 @@ class BracketMatchElement : AccentElement {
         val edtWork = Runnable {
             val scheme = EditorColorsManager.getInstance().globalScheme
             scheme.setColor(matchedTextKey, color)
+        }
+        if (SwingUtilities.isEventDispatchThread()) {
+            edtWork.run()
+        } else {
+            SwingUtilities.invokeLater(edtWork)
+        }
+    }
+
+    override fun applyNeutral(variant: AyuVariant) {
+        val edtWork = Runnable {
+            val parentScheme = EditorColorsManager.getInstance().getScheme(variant.parentSchemeName)
+            val scheme = EditorColorsManager.getInstance().globalScheme
+            scheme.setColor(matchedTextKey, parentScheme?.getColor(matchedTextKey))
         }
         if (SwingUtilities.isEventDispatchThread()) {
             edtWork.run()
