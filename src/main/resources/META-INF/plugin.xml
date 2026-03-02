@@ -3,7 +3,7 @@
   <name>Ayu Islands</name>
   <!-- version patched by Gradle from gradle.properties -->
   <vendor email="roman.borodavkin@gmail.com"
-          url="https://github.com/barad1tos/ayu-jetbrains">cloud</vendor>
+          url="https://github.com/barad1tos/ayu-jetbrains">ayu-islands</vendor>
 
   <description><![CDATA[
     <p>Warm, refined color themes for JetBrains IDEs — three Ayu palettes with modern Islands UI. Free themes with optional premium accent and glow customization.</p>
