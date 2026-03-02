@@ -58,6 +58,9 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
             }
         }
 
+        // Wire accent color changes to elements preview
+        accentPanel.onAccentChanged = { hex -> elementsPanel.updatePreviewAccent(hex) }
+
         // Build tab content panels eagerly via DSL
         val accentTab = panel {
             accentPanel.buildPanel(this@panel, variant)

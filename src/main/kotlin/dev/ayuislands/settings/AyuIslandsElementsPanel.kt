@@ -1,6 +1,7 @@
 package dev.ayuislands.settings
 
 import com.intellij.icons.AllIcons
+import com.intellij.ui.dsl.builder.AlignY
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentApplicator
@@ -9,6 +10,8 @@ import dev.ayuislands.accent.AccentGroup
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.licensing.LicenseChecker
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import javax.swing.JCheckBox
 
 /** Per-element accent toggle checkboxes with conflict detection and license-aware dimming. */
@@ -23,10 +26,16 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel() {
     private val checkboxes: MutableMap<AccentElementId, JCheckBox> = mutableMapOf()
     private var cgpCheckbox: JCheckBox? = null
     private var variant: AyuVariant? = null
+    private var elementPreview: AyuIslandsPreviewPanel? = null
 
     var onToggleChanged: (() -> Unit)? = null
 
     fun currentToggles(): Map<AccentElementId, Boolean> = pendingToggles.toMap()
+
+    fun updatePreviewAccent(hex: String) {
+        elementPreview?.previewAccentHex = hex
+        elementPreview?.updatePreview()
+    }
 
     override fun buildPanel(panel: Panel, variant: AyuVariant) {
         this.variant = variant
@@ -49,6 +58,14 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel() {
         // Detect conflicts on panel open
         val conflicts = ConflictRegistry.detectConflicts()
 
+        // Create preview component (used inside the row below)
+        val preview = AyuIslandsPreviewPanel()
+        preview.previewAccentHex = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
+        preview.previewToggles = pendingToggles.toMap()
+        preview.previewGlowEnabled = false
+        val previewComponent = preview.createComponent(variant)
+        elementPreview = preview
+
         panel.group("Accent Elements") {
             if (!licensed) {
                 row {
@@ -63,41 +80,50 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel() {
                 }
             }
 
-            twoColumnsRow(
-                // Visual group (left)
-                {
-                    panel {
-                        row { label("Visual").bold() }
-                        for (id in AccentElementId.entries.filter { it.group == AccentGroup.VISUAL }) {
-                            buildToggleRow(this, id, conflicts, licensed)
-                        }
-                    }
-                },
-                // Interactive group (right)
-                {
-                    panel {
-                        row { label("Interactive").bold() }
-                        for (id in AccentElementId.entries.filter { it.group == AccentGroup.INTERACTIVE }) {
-                            buildToggleRow(this, id, conflicts, licensed)
-                        }
-                    }
-                },
-            )
-
-            // Enable All / Disable All links
             row {
-                link("Enable All") {
-                    AccentElementId.entries.forEach { pendingToggles[it] = true }
-                    refreshCheckboxes()
-                    onToggleChanged?.invoke()
-                }.enabled(licensed)
-                link("Disable All") {
-                    AccentElementId.entries.forEach { pendingToggles[it] = false }
-                    refreshCheckboxes()
-                    onToggleChanged?.invoke()
-                }.enabled(licensed)
-            }
+                // Left: checkbox columns + enable/disable
+                panel {
+                    twoColumnsRow(
+                        // Visual group
+                        {
+                            panel {
+                                row { label("Visual").bold() }
+                                for (id in AccentElementId.entries.filter { it.group == AccentGroup.VISUAL }) {
+                                    buildToggleRow(this, id, conflicts, licensed)
+                                }
+                            }
+                        },
+                        // Interactive group
+                        {
+                            panel {
+                                row { label("Interactive").bold() }
+                                for (id in AccentElementId.entries.filter { it.group == AccentGroup.INTERACTIVE }) {
+                                    buildToggleRow(this, id, conflicts, licensed)
+                                }
+                            }
+                        },
+                    )
 
+                    // Enable All / Disable All links
+                    row {
+                        link("Enable All") {
+                            AccentElementId.entries.forEach { pendingToggles[it] = true }
+                            refreshCheckboxes()
+                            syncPreviewToggles()
+                            onToggleChanged?.invoke()
+                        }.enabled(licensed)
+                        link("Disable All") {
+                            AccentElementId.entries.forEach { pendingToggles[it] = false }
+                            refreshCheckboxes()
+                            syncPreviewToggles()
+                            onToggleChanged?.invoke()
+                        }.enabled(licensed)
+                    }
+                }
+
+                // Right: hover preview mockup
+                cell(previewComponent).align(AlignY.CENTER)
+            }
         }
 
         if (ConflictRegistry.isCodeGlanceProDetected()) {
@@ -140,9 +166,22 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel() {
                 } else if (!cb.component.isSelected) {
                     pendingForceOverrides.remove(id.name)
                 }
+                syncPreviewToggles()
                 onToggleChanged?.invoke()
             }
             checkboxes[id] = cb.component
+
+            // Hover-to-highlight in preview
+            cb.component.addMouseListener(object : MouseAdapter() {
+                override fun mouseEntered(e: MouseEvent) {
+                    elementPreview?.highlightedElement = id
+                    elementPreview?.updatePreview()
+                }
+                override fun mouseExited(e: MouseEvent) {
+                    elementPreview?.highlightedElement = null
+                    elementPreview?.updatePreview()
+                }
+            })
 
             // Conflict indicator
             val conflict = conflicts.firstOrNull { entry -> id in entry.affectedElements }
@@ -158,6 +197,11 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel() {
         for ((id, cb) in checkboxes) {
             cb.isSelected = pendingToggles[id] ?: true
         }
+    }
+
+    private fun syncPreviewToggles() {
+        elementPreview?.previewToggles = pendingToggles.toMap()
+        elementPreview?.updatePreview()
     }
 
     private fun elementDisplayName(id: AccentElementId): String = when (id) {
@@ -204,6 +248,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel() {
         pendingForceOverrides = storedForceOverrides.toMutableSet()
         pendingCgpIntegration = storedCgpIntegration
         refreshCheckboxes()
+        syncPreviewToggles()
         cgpCheckbox?.isSelected = storedCgpIntegration
     }
 }
