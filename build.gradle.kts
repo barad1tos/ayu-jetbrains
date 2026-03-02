@@ -49,8 +49,6 @@ intellijPlatform {
     }
     buildSearchableOptions = false
     pluginVerification {
-        // release-version will match plugin version when v2.0 ships
-        freeArgs = listOf("-mute", "ReleaseVersionAndPluginVersionMismatch")
         ides {
             // Pre-2025.3: IC (Community) still published as a separate distribution
             create(IntelliJPlatformType.IntellijIdeaCommunity, "2025.1")

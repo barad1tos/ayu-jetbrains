@@ -6,20 +6,39 @@
           url="https://github.com/barad1tos/ayu-jetbrains">cloud</vendor>
 
   <description><![CDATA[
-    <p>Warm, refined color themes for JetBrains IDEs — three Ayu palettes with modern Islands UI.</p>
+    <p>Warm, refined color themes for JetBrains IDEs — three Ayu palettes with modern Islands UI. Free themes with optional premium accent and glow customization.</p>
 
-    <h3>Features</h3>
+    <h3>Free Features</h3>
     <ul>
       <li><strong>6 themes</strong> — Ayu Mirage, Ayu Dark, and Ayu Light, each in classic and Islands UI variants</li>
       <li><strong>20+ language highlights</strong> — Java, C#/.NET, Rust, Go, Python, JS/TS, HCL/Terraform, Kotlin, Scala, Dart, Ruby, PHP, HTML/CSS, SQL, Bash, YAML, JSON, XML, Markdown</li>
       <li><strong>Islands UI</strong> — rounded panels, island gaps, and compact mode support</li>
       <li><strong>Canonical ayu-colors</strong> — syntax palettes from <a href="https://github.com/ayu-theme/ayu-colors">ayu-theme/ayu-colors</a></li>
       <li><strong>Full VCS integration</strong> — tuned diff gutters, file status colors, and 16-color terminal palette</li>
-      <li><strong>Verified on 12 IDEs</strong> — IntelliJ IDEA, PyCharm, WebStorm, GoLand, RustRover, Rider, PhpStorm, CLion, DataGrip, RubyMine</li>
     </ul>
+
+    <h3>Premium Features</h3>
+    <ul>
+      <li><strong>Accent color customization</strong> — 10 hand-picked Ayu palette presets, per-element toggles (tabs, scrollbars, links, caret row, and more), and a live visual preview</li>
+      <li><strong>Neon glow effects</strong> — island borders, active tabs, and focused inputs with 3 glow styles (Soft, Sharp Neon, Pulse animation)</li>
+      <li><strong>Per-variant accent storage</strong> — independent accent colors for Mirage, Dark, and Light</li>
+      <li><strong>Conflict detection</strong> — automatic detection and override for third-party plugin conflicts (Atom Material Icons, CodeGlance Pro)</li>
+    </ul>
+
+    <p>Settings panel under Appearance &gt; Ayu Islands with tabbed Accent/Effects layout.</p>
+    <p><strong>Verified on 12 IDEs</strong> — IntelliJ IDEA, PyCharm, WebStorm, GoLand, RustRover, Rider, PhpStorm, CLion, DataGrip, RubyMine</p>
   ]]></description>
 
   <change-notes><![CDATA[
+    <h3>2026.1.0</h3>
+    <ul>
+      <li>Accent color customization: 10 Ayu palette presets with per-element toggles and visual preview (premium)</li>
+      <li>Neon glow effects: island borders, active tabs, and focused inputs with 3 glow styles (premium)</li>
+      <li>Per-variant accent storage (independent colors for Mirage, Dark, Light)</li>
+      <li>Third-party conflict detection (Atom Material Icons, CodeGlance Pro)</li>
+      <li>Settings panel under Appearance with tabbed Accent/Effects layout</li>
+      <li>Freemium licensing: all 6 base themes remain free</li>
+    </ul>
     <h3>1.2.1</h3>
     <ul>
       <li>Add missing Marketplace changelog for v1.2.0 changes</li>
@@ -54,7 +73,7 @@
 
   <product-descriptor
       code="PAYUISLANDS"
-      release-date="20260301"
+      release-date="20260302"
       release-version="20261"
       optional="true"/>
 
