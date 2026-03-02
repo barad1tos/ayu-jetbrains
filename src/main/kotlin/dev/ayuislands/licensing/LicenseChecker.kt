@@ -172,12 +172,9 @@ object LicenseChecker {
         }
     }
 
-    /**
-     * Dev builds include META-INF/ayu-dev-mode resource marker.
-     * Remove this file before publishing to Marketplace.
-     */
+    /** Dev mode enabled via -Dayu.islands.dev=true system property (set by runIde task). */
     private fun isDevBuild(): Boolean {
-        return javaClass.getResourceAsStream("/META-INF/ayu-dev-mode") != null
+        return System.getProperty("ayu.islands.dev") == "true"
     }
 
     // Cryptographic verification adapted from marketplace-makemecoffee-plugin (Apache 2.0).

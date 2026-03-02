@@ -141,7 +141,7 @@ Expanded from 1 Mirage variant to 6 themes (Mirage, Dark, Light x base + Islands
 </details>
 
 ---
-*Last updated: 2026-02-28 — Phase 10 gap closure plan added for tab glow JLayer hookup*
+*Last updated: 2026-03-02 — Phase 10.1.1 planned (2 plans)*
 
 ### Phase 10.1: Settings Panel UX Overhaul (INSERTED)
 
@@ -160,3 +160,20 @@ Expanded from 1 Mirage variant to 6 themes (Mirage, Dark, Light x base + Islands
 Plans:
 - [ ] 10.1-01-PLAN.md -- Sub-panel preparation: rename resets, absorb integrations, extract master toggle, compact preview
 - [ ] 10.1-02-PLAN.md -- Configurable tab restructuring: JBTabbedPane, preview strip, footer, callback rewiring
+
+### Phase 10.1.1: Fix freemium marketplace listing and license purchase 404 (INSERTED)
+
+**Goal:** Eliminate dev-mode license bypass in release builds, align plugin version with JetBrains release-version requirements, update Marketplace listing for freemium, and configure vendor portal Sales Info to enable purchase links
+**Requirements**: MKT-01, MKT-02, MKT-03, MKT-04
+**Depends on:** Phase 10.1
+**Success Criteria** (what must be TRUE):
+  1. `isDevBuild()` returns false in release builds (uses system property, not resource marker)
+  2. `pluginVersion` (2026.1.0) aligns with `release-version` (20261) per JetBrains requirements
+  3. Plugin description and change-notes communicate freemium features and v2 changes
+  4. Marketplace API returns `pricingModel: FREEMIUM` after vendor portal configuration and JetBrains approval
+  5. `./gradlew buildPlugin` succeeds and built JAR contains no `ayu-dev-mode` marker
+**Plans:** 2 plans
+
+Plans:
+- [ ] 10.1.1-01-PLAN.md -- Fix dev-mode detection, version alignment, plugin metadata update
+- [ ] 10.1.1-02-PLAN.md -- Build verification and Marketplace vendor portal configuration
