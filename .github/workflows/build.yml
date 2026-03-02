@@ -1,14 +1,36 @@
 name: Build & Verify
+
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
+    paths-ignore:
+      - '.github/**'
+      - '**/*.md'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.sourcery.yaml'
   pull_request:
+    branches: [main]
+    paths-ignore:
+      - '.github/**'
+      - '**/*.md'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.sourcery.yaml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
+    name: Build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -16,12 +38,44 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Compile Kotlin and build plugin
         run: ./gradlew buildPlugin
+
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
       # Verifies against 12 IDE targets:
-      # IC-2025.1, IC-2025.2.3, IU-2025.3.3, PS-2025.3.3, WS-2025.3.3, CL-2025.3.3,
-      # RR-2025.1.3, GO-2025.1.3, PY-2025.1.3, DB-2025.1.3, RD-2025.1.3, RM-2025.1.3
+      # IC-2025.1, IC-2025.2.3, IU-2025.3.3,
+      # PS/WS/CL-2025.3.3, RR/GO/PY/DB/RD/RM-2025.1.3
       - name: Verify plugin across IDE targets
         run: ./gradlew verifyPlugin
       - uses: actions/upload-artifact@v4
         with:
           name: ayu-islands-plugin
           path: build/distributions/*.zip
+
+  gate:
+    name: Gate
+    runs-on: ubuntu-latest
+    needs: [build, verify]
+    if: always()
+    steps:
+      - name: Check results
+        run: |
+          if [[ "${{ needs.build.result }}" != "success" ]] || \
+             [[ "${{ needs.verify.result }}" != "success" ]]; then
+            echo "One or more checks failed"
+            echo "  build: ${{ needs.build.result }}"
+            echo "  verify: ${{ needs.verify.result }}"
+            exit 1
+          fi
+          echo "All checks passed"

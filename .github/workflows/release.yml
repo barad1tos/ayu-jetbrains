@@ -1,4 +1,5 @@
 name: Release to Marketplace
+
 on:
   push:
     tags: ['v*']
@@ -8,17 +9,20 @@ permissions:
 
 jobs:
   publish:
+    name: Publish
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@v4
-        # Verifies against: IC-2025.1, IC-2025.2.3, IU-2025.3.3, PS-2025.3.3, WS-2025.3.3, CL-2025.3.3
-      - run: ./gradlew buildPlugin verifyPlugin
-      - run: ./gradlew publishPlugin
+      - name: Build, verify and publish
+        run: ./gradlew buildPlugin verifyPlugin publishPlugin
         env:
           PUBLISH_TOKEN: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
       - name: Create GitHub Release
@@ -26,3 +30,4 @@ jobs:
         with:
           files: build/distributions/*.zip
           generate_release_notes: true
+          draft: false

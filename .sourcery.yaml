@@ -1,0 +1,8 @@
+# .sourcery.yaml - Sourcery AI code review configuration
+# https://docs.sourcery.ai/Code-Review/Configuration/
+
+# Exclude build artifacts and generated files from AI review
+ignore:
+  - build/**
+  - .gradle/**
+  - src/main/resources/themes/**
