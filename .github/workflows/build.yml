@@ -35,7 +35,7 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
       - name: Compile Kotlin and build plugin
         run: ./gradlew buildPlugin
 
@@ -52,7 +52,7 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
       # Verifies against 12 IDE targets:
       # IC-2025.1, IC-2025.2.3, IU-2025.3.3,
       # PS/WS/CL-2025.3.3, RR/GO/PY/DB/RD/RM-2025.1.3
