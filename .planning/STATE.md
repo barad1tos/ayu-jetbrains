@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
-status: completed
-last_updated: "2026-03-01T16:13:09.534Z"
-last_activity: 2026-03-01
+status: in-progress
+last_updated: "2026-03-02T21:45:00Z"
+last_activity: 2026-03-02
 progress:
-  total_phases: 8
+  total_phases: 9
   completed_phases: 7
-  total_plans: 18
-  completed_plans: 19
+  total_plans: 20
+  completed_plans: 20
 ---
 
 # Project State
@@ -19,16 +19,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-26)
 
 **Core value:** Beautiful, cohesive Ayu color experience across all three palettes with Islands UI
-**Current focus:** v2.0.0 — Phase 10.1: Settings Panel UX Overhaul
+**Current focus:** v2.0.0 — Phase 10.1.1: Fix Freemium Marketplace Listing
 
 ## Current Position
 
-**Phase:** 10.1 of 10.1 — v2.0.0 milestone
-**Plan:** 2 of 2 (complete)
-**Status:** Milestone complete
-**Last Activity:** 2026-03-01
+**Phase:** 10.1.1 of 10.1.1 — v2.0.0 milestone
+**Plan:** 1 of 2
+**Status:** In progress
+**Last Activity:** 2026-03-02
 
-Progress: [██████████] 100%
+Progress: [█████████░] 95%
 
 ## Performance Metrics
 
@@ -60,6 +60,7 @@ Progress: [██████████] 100%
 | 10    | 06   | 2min     | 1     | 1     |
 | 10.1  | 01   | 4min     | 2     | 4     |
 | 10.1  | 02   | 2min     | 2     | 1     |
+| 10.1.1| 01   | 3min     | 2     | 4     |
 
 ## Accumulated Context
 
@@ -121,10 +122,14 @@ Progress: [██████████] 100%
 - [Phase 10.1]: Preview strip in root panel above tabs for persistent cross-tab visibility (Phase 10.1)
 - [Phase 10.1]: resetAllSettings uses accentPanel.resetToDefault() for proper swatch + pending state reset (Phase 10.1)
 - [Phase 10.1]: Null variant early return with dedicated panel instead of if/else branch (Phase 10.1)
+- [Phase 10.1.1]: System property -Dayu.islands.dev=true for dev-mode instead of resource marker file (Phase 10.1.1)
+- [Phase 10.1.1]: pluginVersion 2026.1.0 aligns with release-version 20261 for JetBrains Sales System (Phase 10.1.1)
+- [Phase 10.1.1]: release-date 20260302 marks actual release date of paid version (Phase 10.1.1)
 
 ### Roadmap Evolution
 
 - Phase 10.1 inserted after Phase 10: Settings panel UX overhaul (URGENT)
+- Phase 10.1.1 inserted after Phase 10.1: Fix freemium marketplace listing and license purchase 404 (URGENT)
 
 ### Pending Todos
 
@@ -137,5 +142,5 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-01
-Stopped at: Completed 10.1-02-PLAN.md (Phase 10.1 complete)
+Last session: 2026-03-02
+Stopped at: Completed 10.1.1-01-PLAN.md

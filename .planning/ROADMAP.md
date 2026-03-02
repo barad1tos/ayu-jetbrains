@@ -172,7 +172,7 @@ Plans:
   3. Plugin description and change-notes communicate freemium features and v2 changes
   4. Marketplace API returns `pricingModel: FREEMIUM` after vendor portal configuration and JetBrains approval
   5. `./gradlew buildPlugin` succeeds and built JAR contains no `ayu-dev-mode` marker
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 - [ ] 10.1.1-01-PLAN.md -- Fix dev-mode detection, version alignment, plugin metadata update
