@@ -112,11 +112,12 @@ class GlowOverlayManager(
                     changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
                 ) {
                     SwingUtilities.invokeLater {
-                        for (twId in toolWindowManager.toolWindowIdSet) {
-                            val tw = toolWindowManager.getToolWindow(twId) ?: continue
-                            if (tw.isVisible) {
-                                attachToolWindowOverlay(tw)
-                            }
+                        // Only process the active tool window instead of scanning all
+                        // (startup full scan already catches all visible windows)
+                        val activeId = toolWindowManager.activeToolWindowId ?: return@invokeLater
+                        val tw = toolWindowManager.getToolWindow(activeId) ?: return@invokeLater
+                        if (tw.isVisible) {
+                            attachToolWindowOverlay(tw)
                         }
                     }
                 }

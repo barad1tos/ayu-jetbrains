@@ -90,81 +90,84 @@ object AccentApplicator {
         val state = AyuIslandsSettings.getInstance().state
         val variant = AyuVariant.detect()
 
-        // Always-on UIManager keys
-        applyAlwaysOnUiKeys(accent)
-
-        // EP-registered element keys with toggle + conflict awareness
-        for (element in EP_NAME.extensionList) {
-            val enabled = state.isToggleEnabled(element.id)
-            if (!enabled) {
-                neutralizeOrRevert(element, variant)
-                continue
-            }
-            val conflict = ConflictRegistry.getConflictFor(element.id)
-            val forceOverride = element.id.name in state.forceOverrides
-            if (conflict != null && !forceOverride) {
-                neutralizeOrRevert(element, variant)
-                continue
-            }
-            if (conflict != null) {
-                log.warn("Force-overriding ${conflict.pluginDisplayName} conflict for ${element.displayName}")
-            }
-            try {
-                element.apply(accent)
-            } catch (exception: RuntimeException) {
-                log.warn("Failed to apply accent to ${element.displayName}", exception)
-            }
-        }
-
-        // CodeGlance Pro viewport color sync (skips silently if CGP not installed)
-        syncCodeGlanceProViewport(accentHex)
-
-        // EDT-only work: always-on editor keys + global scheme notification + repaint
-        val edtWork =
+        // All work batched into a single EDT dispatch (UIManager.put is not
+        // thread-safe, and elements previously posted their own invokeLater)
+        val work =
             Runnable {
+                applyAlwaysOnUiKeys(accent)
+
+                for (element in EP_NAME.extensionList) {
+                    val enabled = state.isToggleEnabled(element.id)
+                    if (!enabled) {
+                        neutralizeOrRevert(element, variant)
+                        continue
+                    }
+                    val conflict = ConflictRegistry.getConflictFor(element.id)
+                    val forceOverride = element.id.name in state.forceOverrides
+                    if (conflict != null && !forceOverride) {
+                        neutralizeOrRevert(element, variant)
+                        continue
+                    }
+                    if (conflict != null) {
+                        log.warn(
+                            "Force-overriding ${conflict.pluginDisplayName} conflict for ${element.displayName}",
+                        )
+                    }
+                    try {
+                        element.apply(accent)
+                    } catch (exception: RuntimeException) {
+                        log.warn(
+                            "Failed to apply accent to ${element.displayName}",
+                            exception,
+                        )
+                    }
+                }
+
+                syncCodeGlanceProViewport(accentHex)
                 applyAlwaysOnEditorKeys(accent)
                 repaintAllWindows()
             }
+
         if (SwingUtilities.isEventDispatchThread()) {
-            edtWork.run()
+            work.run()
         } else {
-            SwingUtilities.invokeLater(edtWork)
+            SwingUtilities.invokeLater(work)
         }
     }
 
     fun revertAll() {
-        // Revert always-on UIManager keys
-        for (key in ALWAYS_ON_UI_KEYS) {
-            UIManager.put(key, null)
-        }
-        // Contrast foreground keys
-        UIManager.put("GotItTooltip.foreground", null)
-        UIManager.put("GotItTooltip.Button.foreground", null)
-        UIManager.put("GotItTooltip.Header.foreground", null)
-        // Darkened button border keys
-        UIManager.put("Button.default.focusedBorderColor", null)
-        UIManager.put("Button.default.startBorderColor", null)
-        UIManager.put("Button.default.endBorderColor", null)
-
-        // Revert all EP-registered elements
-        for (element in EP_NAME.extensionList) {
-            try {
-                element.revert()
-            } catch (exception: RuntimeException) {
-                log.warn("Failed to revert ${element.displayName}", exception)
-            }
-        }
-
-        // EDT-only: revert editor keys + repaint
-        val edtWork =
+        // All revert work batched into a single EDT dispatch
+        val work =
             Runnable {
+                for (key in ALWAYS_ON_UI_KEYS) {
+                    UIManager.put(key, null)
+                }
+                UIManager.put("GotItTooltip.foreground", null)
+                UIManager.put("GotItTooltip.Button.foreground", null)
+                UIManager.put("GotItTooltip.Header.foreground", null)
+                UIManager.put("Button.default.focusedBorderColor", null)
+                UIManager.put("Button.default.startBorderColor", null)
+                UIManager.put("Button.default.endBorderColor", null)
+
+                for (element in EP_NAME.extensionList) {
+                    try {
+                        element.revert()
+                    } catch (exception: RuntimeException) {
+                        log.warn(
+                            "Failed to revert ${element.displayName}",
+                            exception,
+                        )
+                    }
+                }
+
                 revertAlwaysOnEditorKeys()
                 repaintAllWindows()
             }
+
         if (SwingUtilities.isEventDispatchThread()) {
-            edtWork.run()
+            work.run()
         } else {
-            SwingUtilities.invokeLater(edtWork)
+            SwingUtilities.invokeLater(work)
         }
     }
 
