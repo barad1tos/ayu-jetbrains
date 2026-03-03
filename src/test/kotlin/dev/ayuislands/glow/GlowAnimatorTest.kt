@@ -28,7 +28,7 @@ class GlowAnimatorTest {
     @Test
     fun `PULSE attack phase increases alpha`() {
         val animator = GlowAnimator()
-        // Attack phase: frames 0-17 of 120-frame cycle (15% attack ratio)
+        // Attack phase: frames 0-17 of a 120-frame cycle (15% attack ratio)
         animator.frame = 0
         val alphaAtStart = animator.calculateAlpha(GlowAnimation.PULSE)
         animator.frame = 9
@@ -94,7 +94,7 @@ class GlowAnimatorTest {
     @Test
     fun `REACTIVE cuts boost to zero below threshold`() {
         val animator = GlowAnimator()
-        animator.reactiveBoost = 0.005f // Below 0.01 threshold
+        animator.reactiveBoost = 0.005f // Below the 0.01 threshold
 
         animator.frame = 0
         val alpha = animator.calculateAlpha(GlowAnimation.REACTIVE)

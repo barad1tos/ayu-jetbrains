@@ -27,6 +27,7 @@
 -keep enum dev.ayuislands.glow.GlowStyle { *; }
 -keep enum dev.ayuislands.glow.GlowAnimation { *; }
 -keep enum dev.ayuislands.glow.GlowTabMode { *; }
+-keep enum dev.ayuislands.glow.GlowPreset { *; }
 
 # Public API singletons (called from kept classes)
 -keep class dev.ayuislands.accent.AccentApplicator { *; }

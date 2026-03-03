@@ -3,6 +3,7 @@ package dev.ayuislands.settings
 import com.intellij.openapi.components.BaseState
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.glow.GlowAnimation
+import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
 
 class AyuIslandsState : BaseState() {
@@ -25,6 +26,9 @@ class AyuIslandsState : BaseState() {
 
     // Glow effect
     var glowEnabled by property(false)
+
+    // Glow preset (null = legacy state, needs migration via GlowPreset.detect())
+    var glowPreset by string(GlowPreset.WHISPER.name)
 
     // Glow style
     var glowStyle by string(GlowStyle.SOFT.name)
@@ -59,6 +63,9 @@ class AyuIslandsState : BaseState() {
 
     // Floating panels — controls whether floating (undocked) tool windows get the glow
     var glowFloatingPanels by property(false)
+
+    // Settings UI: remember which tab was active (0=Accent, 1=Glow)
+    var settingsSelectedTab by property(0)
 
     // CodeGlancePro integration (opt-in, default OFF)
     var cgpIntegrationEnabled by property(false)
@@ -159,11 +166,11 @@ class AyuIslandsState : BaseState() {
     }
 
     companion object {
-        private const val DEFAULT_SOFT_INTENSITY = 40
-        private const val DEFAULT_SHARP_NEON_INTENSITY = 85
-        private const val DEFAULT_GRADIENT_INTENSITY = 50
-        private const val DEFAULT_SOFT_WIDTH = 10
-        private const val DEFAULT_SHARP_NEON_WIDTH = 20
-        private const val DEFAULT_GRADIENT_WIDTH = 12
+        private const val DEFAULT_SOFT_INTENSITY = 35
+        private const val DEFAULT_SHARP_NEON_INTENSITY = 65
+        private const val DEFAULT_GRADIENT_INTENSITY = 45
+        private const val DEFAULT_SOFT_WIDTH = 8
+        private const val DEFAULT_SHARP_NEON_WIDTH = 8
+        private const val DEFAULT_GRADIENT_WIDTH = 10
     }
 }

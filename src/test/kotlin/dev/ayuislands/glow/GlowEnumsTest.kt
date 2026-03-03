@@ -28,11 +28,13 @@ class GlowEnumsTest {
     }
 
     @Test
-    fun `GlowStyle entries have positive default intensity and width`() {
-        for (style in GlowStyle.entries) {
-            assert(style.defaultIntensity > 0) { "${style.name} intensity should be positive" }
-            assert(style.defaultWidth > 0) { "${style.name} width should be positive" }
-        }
+    fun `GlowStyle entries have expected defaults`() {
+        assertEquals(35, GlowStyle.SOFT.defaultIntensity)
+        assertEquals(8, GlowStyle.SOFT.defaultWidth)
+        assertEquals(65, GlowStyle.SHARP_NEON.defaultIntensity)
+        assertEquals(8, GlowStyle.SHARP_NEON.defaultWidth)
+        assertEquals(45, GlowStyle.GRADIENT.defaultIntensity)
+        assertEquals(10, GlowStyle.GRADIENT.defaultWidth)
     }
 
     // GlowTabMode

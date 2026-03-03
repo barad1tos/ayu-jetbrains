@@ -1,11 +1,11 @@
 package dev.ayuislands.glow
 
-private const val DEFAULT_SOFT_INTENSITY = 40
-private const val DEFAULT_SOFT_WIDTH = 10
-private const val DEFAULT_NEON_INTENSITY = 85
-private const val DEFAULT_NEON_WIDTH = 20
-private const val DEFAULT_GRADIENT_INTENSITY = 50
-private const val DEFAULT_GRADIENT_WIDTH = 12
+private const val DEFAULT_SOFT_INTENSITY = 35
+private const val DEFAULT_SOFT_WIDTH = 8
+private const val DEFAULT_NEON_INTENSITY = 65
+private const val DEFAULT_NEON_WIDTH = 8
+private const val DEFAULT_GRADIENT_INTENSITY = 45
+private const val DEFAULT_GRADIENT_WIDTH = 10
 
 enum class GlowStyle(
     val displayName: String,

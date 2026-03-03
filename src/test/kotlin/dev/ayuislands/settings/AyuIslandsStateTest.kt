@@ -32,9 +32,9 @@ class AyuIslandsStateTest {
     @Test
     fun `getIntensityForStyle returns correct per-style defaults`() {
         val state = freshState()
-        assertEquals(40, state.getIntensityForStyle(GlowStyle.SOFT))
-        assertEquals(85, state.getIntensityForStyle(GlowStyle.SHARP_NEON))
-        assertEquals(50, state.getIntensityForStyle(GlowStyle.GRADIENT))
+        assertEquals(35, state.getIntensityForStyle(GlowStyle.SOFT))
+        assertEquals(65, state.getIntensityForStyle(GlowStyle.SHARP_NEON))
+        assertEquals(45, state.getIntensityForStyle(GlowStyle.GRADIENT))
     }
 
     @Test
@@ -49,9 +49,9 @@ class AyuIslandsStateTest {
     @Test
     fun `getWidthForStyle returns correct per-style defaults`() {
         val state = freshState()
-        assertEquals(10, state.getWidthForStyle(GlowStyle.SOFT))
-        assertEquals(20, state.getWidthForStyle(GlowStyle.SHARP_NEON))
-        assertEquals(12, state.getWidthForStyle(GlowStyle.GRADIENT))
+        assertEquals(8, state.getWidthForStyle(GlowStyle.SOFT))
+        assertEquals(8, state.getWidthForStyle(GlowStyle.SHARP_NEON))
+        assertEquals(10, state.getWidthForStyle(GlowStyle.GRADIENT))
     }
 
     @Test
@@ -61,6 +61,19 @@ class AyuIslandsStateTest {
             state.setWidthForStyle(style, 25)
             assertEquals(25, state.getWidthForStyle(style))
         }
+    }
+
+    @Test
+    fun `settingsSelectedTab defaults to 0`() {
+        val state = freshState()
+        assertEquals(0, state.settingsSelectedTab)
+    }
+
+    @Test
+    fun `settingsSelectedTab round-trips`() {
+        val state = freshState()
+        state.settingsSelectedTab = 1
+        assertEquals(1, state.settingsSelectedTab)
     }
 
     @Test

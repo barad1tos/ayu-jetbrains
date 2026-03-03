@@ -85,9 +85,12 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
             }
 
         // Single-level tab container
+        val state = AyuIslandsSettings.getInstance().state
         val tabs = JBTabbedPane()
         tabs.addTab("Accent", accentTab)
         tabs.addTab("Glow", glowTab)
+        tabs.selectedIndex = state.settingsSelectedTab.coerceIn(0, tabs.tabCount - 1)
+        tabs.addChangeListener { state.settingsSelectedTab = tabs.selectedIndex }
 
         return panel {
             // Header
