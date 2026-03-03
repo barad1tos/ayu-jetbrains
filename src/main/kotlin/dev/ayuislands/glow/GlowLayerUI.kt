@@ -8,7 +8,7 @@ import javax.swing.JComponent
 import javax.swing.JLayer
 import javax.swing.plaf.LayerUI
 
-/** LayerUI that paints tab glow via [tabPainter] on the selected editor tab. */
+/** LayerUI that paints a tab glow via [tabPainter] on the selected editor tab. */
 class GlowLayerUI : LayerUI<JComponent>() {
     /** Delegates painting to GlowTabPainter for the selected-tab glow. */
     var tabPainter: GlowTabPainter? = null

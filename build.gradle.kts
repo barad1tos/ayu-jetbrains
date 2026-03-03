@@ -33,6 +33,13 @@ dependencies {
         intellijIdeaCommunity(providers.gradleProperty("platformVersion"))
         pluginVerifier()
     }
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testRuntimeOnly("org.junit.vintage:junit-vintage-engine")
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 tasks {

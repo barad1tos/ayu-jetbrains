@@ -12,7 +12,7 @@ class GlowAnimator : Disposable {
     private val log = logger<GlowAnimator>()
 
     private var timer: Timer? = null
-    private var frame: Long = 0
+    internal var frame: Long = 0
     private var currentAnimation: GlowAnimation = GlowAnimation.NONE
     private var onFrame: ((alpha: Float) -> Unit)? = null
 
@@ -22,7 +22,7 @@ class GlowAnimator : Disposable {
     private var startTimeNanos: Long = 0
 
     // Reactive animation state
-    private var reactiveBoost: Float = 0.0f
+    internal var reactiveBoost: Float = 0.0f
     private val reactiveDecayRate: Float = REACTIVE_DECAY
 
     companion object {
@@ -103,7 +103,7 @@ class GlowAnimator : Disposable {
         return true
     }
 
-    private fun calculateAlpha(animation: GlowAnimation): Float =
+    internal fun calculateAlpha(animation: GlowAnimation): Float =
         when (animation) {
             GlowAnimation.PULSE -> {
                 // Sharp brightening pulse every 2 seconds (120 frames at 60fps)

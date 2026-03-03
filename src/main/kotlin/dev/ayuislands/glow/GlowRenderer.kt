@@ -38,8 +38,8 @@ class GlowRenderer {
 
     private var styleKey: StyleKey? = null
     private var cachedColor: Color = Color.BLACK
-    private var cachedStyle: GlowStyle = GlowStyle.SOFT
-    private var cachedBaseAlpha: Int = 0
+    internal var cachedStyle: GlowStyle = GlowStyle.SOFT
+    internal var cachedBaseAlpha: Int = 0
 
     // Frame image cache (expensive, keyed on size + style)
     private data class FrameKey(
@@ -157,7 +157,7 @@ class GlowRenderer {
         return image
     }
 
-    private fun computeAlpha(progress: Float): Int =
+    internal fun computeAlpha(progress: Float): Int =
         when (cachedStyle) {
             GlowStyle.SOFT -> {
                 ((1.0f - progress) * cachedBaseAlpha / SOFT_ALPHA_DIVISOR).toInt().coerceIn(0, MAX_ALPHA)
