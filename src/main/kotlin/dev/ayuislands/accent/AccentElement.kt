@@ -4,21 +4,29 @@ import java.awt.Color
 
 enum class AccentGroup { VISUAL, INTERACTIVE }
 
-enum class AccentElementId(val group: AccentGroup) {
-    TAB_UNDERLINES(AccentGroup.VISUAL),
-    CARET_ROW(AccentGroup.VISUAL),
-    PROGRESS_BAR(AccentGroup.VISUAL),
-    SCROLLBAR(AccentGroup.VISUAL),
-    LINKS(AccentGroup.INTERACTIVE),
-    BRACKET_MATCH(AccentGroup.INTERACTIVE),
-    SEARCH_RESULTS(AccentGroup.INTERACTIVE),
-    CHECKBOXES(AccentGroup.INTERACTIVE),
+enum class AccentElementId(
+    val group: AccentGroup,
+    val displayName: String,
+) {
+    TAB_UNDERLINES(AccentGroup.VISUAL, "Tab underlines"),
+    CARET_ROW(AccentGroup.VISUAL, "Caret row"),
+    PROGRESS_BAR(AccentGroup.VISUAL, "Progress bar"),
+    SCROLLBAR(AccentGroup.VISUAL, "Scrollbar"),
+    LINKS(AccentGroup.INTERACTIVE, "Links"),
+    BRACKET_MATCH(AccentGroup.INTERACTIVE, "Bracket match"),
+    SEARCH_RESULTS(AccentGroup.INTERACTIVE, "Search results"),
+    CHECKBOXES(AccentGroup.INTERACTIVE, "Checkboxes"),
 }
 
 interface AccentElement {
     val id: AccentElementId
     val displayName: String
+
     fun apply(color: Color)
+
     fun revert()
-    fun applyNeutral(variant: AyuVariant) { revert() }
+
+    fun applyNeutral(variant: AyuVariant) {
+        revert()
+    }
 }

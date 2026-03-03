@@ -16,7 +16,6 @@ import javax.swing.JCheckBox
 
 /** Per-element accent toggle checkboxes with conflict detection and license-aware dimming. */
 class AyuIslandsElementsPanel : AyuIslandsSettingsPanel() {
-
     private val pendingToggles: MutableMap<AccentElementId, Boolean> = mutableMapOf()
     private var storedToggles: Map<AccentElementId, Boolean> = emptyMap()
     private var pendingForceOverrides: MutableSet<String> = mutableSetOf()
@@ -30,14 +29,15 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel() {
 
     var onToggleChanged: (() -> Unit)? = null
 
-    fun currentToggles(): Map<AccentElementId, Boolean> = pendingToggles.toMap()
-
     fun updatePreviewAccent(hex: String) {
         elementPreview?.previewAccentHex = hex
         elementPreview?.updatePreview()
     }
 
-    override fun buildPanel(panel: Panel, variant: AyuVariant) {
+    override fun buildPanel(
+        panel: Panel,
+        variant: AyuVariant,
+    ) {
         this.variant = variant
         val state = AyuIslandsSettings.getInstance().state
         val licensed = LicenseChecker.isLicensedOrGrace()
@@ -58,7 +58,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel() {
         // Detect conflicts on panel open
         val conflicts = ConflictRegistry.detectConflicts()
 
-        // Create preview component (used inside the row below)
+        // Create a preview component (used inside the row below)
         val preview = AyuIslandsPreviewPanel()
         preview.previewAccentHex = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
         preview.previewToggles = pendingToggles.toMap()
@@ -74,7 +74,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel() {
                     }
                     link("Get Ayu Islands Pro") {
                         LicenseChecker.requestLicense(
-                            "Unlock per-element accent toggles, custom colors, and neon glow effects"
+                            "Unlock per-element accent toggles, custom colors, and neon glow effects",
                         )
                     }
                 }
@@ -126,23 +126,27 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel() {
             }
         }
 
-        if (ConflictRegistry.isCodeGlanceProDetected()) {
-            panel.group("Integrations") {
-                row {
-                    comment("Sync features with third-party plugins")
-                }
-                row {
-                    val cb = checkBox("Sync color with CodeGlance")
-                        .comment("Apply accent color to CodeGlance Pro viewport")
-                    cb.component.isSelected = pendingCgpIntegration
-                    cb.component.isEnabled = licensed
-                    cb.component.addActionListener {
-                        pendingCgpIntegration = cb.component.isSelected
-                    }
-                    cgpCheckbox = cb.component
+        buildIntegrationsGroup(panel, licensed)
+    }
 
-                    browserLink("Plugin page", "https://plugins.jetbrains.com/plugin/18824-codeglance-pro")
+    private fun buildIntegrationsGroup(panel: Panel, licensed: Boolean) {
+        if (!ConflictRegistry.isCodeGlanceProDetected()) return
+        panel.group("Integrations") {
+            row {
+                comment("Sync features with third-party plugins")
+            }
+            row {
+                val cb =
+                    checkBox("Sync color with CodeGlance")
+                        .comment("Apply accent color to CodeGlance Pro viewport")
+                cb.component.isSelected = pendingCgpIntegration
+                cb.component.isEnabled = licensed
+                cb.component.addActionListener {
+                    pendingCgpIntegration = cb.component.isSelected
                 }
+                cgpCheckbox = cb.component
+
+                browserLink("Plugin page", "https://plugins.jetbrains.com/plugin/18824-codeglance-pro")
             }
         }
     }
@@ -154,7 +158,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel() {
         licensed: Boolean,
     ) {
         panel.row {
-            val cb = checkBox(elementDisplayName(id))
+            val cb = checkBox(id.displayName)
             cb.component.isSelected = pendingToggles[id] ?: true
             cb.component.isEnabled = licensed
             cb.component.addActionListener {
@@ -172,22 +176,27 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel() {
             checkboxes[id] = cb.component
 
             // Hover-to-highlight in preview
-            cb.component.addMouseListener(object : MouseAdapter() {
-                override fun mouseEntered(e: MouseEvent) {
-                    elementPreview?.highlightedElement = id
-                    elementPreview?.updatePreview()
-                }
-                override fun mouseExited(e: MouseEvent) {
-                    elementPreview?.highlightedElement = null
-                    elementPreview?.updatePreview()
-                }
-            })
+            cb.component.addMouseListener(
+                object : MouseAdapter() {
+                    override fun mouseEntered(e: MouseEvent) {
+                        elementPreview?.highlightedElement = id
+                        elementPreview?.updatePreview()
+                    }
+
+                    override fun mouseExited(e: MouseEvent) {
+                        elementPreview?.highlightedElement = null
+                        elementPreview?.updatePreview()
+                    }
+                },
+            )
 
             // Conflict indicator
             val conflict = conflicts.firstOrNull { entry -> id in entry.affectedElements }
             if (conflict != null) {
                 icon(AllIcons.General.Warning).applyToComponent {
-                    toolTipText = "${conflict.pluginDisplayName} overrides this element. Enabling may not have visible effect."
+                    toolTipText =
+                        "${conflict.pluginDisplayName} overrides this element." +
+                            " Enabling may not have visible effect."
                 }
             }
         }
@@ -202,17 +211,6 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel() {
     private fun syncPreviewToggles() {
         elementPreview?.previewToggles = pendingToggles.toMap()
         elementPreview?.updatePreview()
-    }
-
-    private fun elementDisplayName(id: AccentElementId): String = when (id) {
-        AccentElementId.TAB_UNDERLINES -> "Tab Underlines"
-        AccentElementId.CARET_ROW -> "Caret Row"
-        AccentElementId.PROGRESS_BAR -> "Progress Bar"
-        AccentElementId.SCROLLBAR -> "Scrollbar"
-        AccentElementId.LINKS -> "Links"
-        AccentElementId.BRACKET_MATCH -> "Bracket Match"
-        AccentElementId.SEARCH_RESULTS -> "Search Results"
-        AccentElementId.CHECKBOXES -> "Checkboxes"
     }
 
     override fun isModified(): Boolean {
