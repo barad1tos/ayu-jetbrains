@@ -1,4 +1,4 @@
-name: Build & Verify
+name: CI
 
 on:
   push:
@@ -25,6 +25,68 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ── Tier 1: Fast checks (no Gradle, seconds) ──────────
+  lint-files:
+    name: Lint files
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Check trailing whitespace
+        run: |
+          ! git grep -rIl '[[:blank:]]$' -- \
+            ':!*.jar' ':!*.zip' ':!*.png' ':!*.svg' \
+            || { echo "::error::Trailing whitespace found"; exit 1; }
+      - name: Validate YAML
+        run: |
+          find . -name '*.yml' -o -name '*.yaml' | while read f; do
+            python3 -c "import yaml; yaml.safe_load(open('$f'))" \
+              || { echo "::error::Invalid YAML: $f"; exit 1; }
+          done
+      - name: Validate JSON
+        run: |
+          find . -name '*.json' -not -path '*/build/*' | while read f; do
+            python3 -c "import json; json.load(open('$f'))" \
+              || { echo "::error::Invalid JSON: $f"; exit 1; }
+          done
+      - name: Validate XML
+        run: |
+          find . -name '*.xml' -not -path '*/build/*' | while read f; do
+            python3 -c "
+          import xml.etree.ElementTree as ET
+          ET.parse('$f')
+          " || { echo "::error::Invalid XML: $f"; exit 1; }
+          done
+      - name: Check for large files (>500KB)
+        run: |
+          find . -not -path '*/build/*' -not -path '*/.gradle/*' \
+            -not -path '*/.git/*' -type f -size +500k \
+            -not -name '*.jar' -not -name '*.zip' | \
+          while read f; do
+            echo "::error::Large file detected: $f ($(du -h "$f" | cut -f1))"
+            exit 1
+          done || true
+      - name: Check for merge conflict markers
+        run: |
+          ! git grep -rIl '<<<<<<<\|>>>>>>>' -- \
+            ':!*.md' \
+            || { echo "::error::Merge conflict markers found"; exit 1; }
+
+  gha-security:
+    name: GHA security (zizmor)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+      - name: Scan workflows for vulnerabilities
+        run: uvx zizmor --min-severity medium .
+
+  # ── Tier 2: Gradle compilation ─────────────────────────
   build:
     name: Build
     runs-on: ubuntu-latest
@@ -38,8 +100,43 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@v5
-      - name: Compile Kotlin and build plugin
+      - name: Compile and build plugin
         run: ./gradlew buildPlugin
+
+  # ── Tier 3: Parallel analysis (after build) ────────────
+  ktlint:
+    name: Ktlint
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v5
+      - name: Check code formatting
+        run: ./gradlew ktlintCheck
+
+  detekt:
+    name: Detekt
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v5
+      - name: Run static analysis
+        run: ./gradlew detekt
 
   test:
     name: Test
@@ -58,6 +155,26 @@ jobs:
       - name: Run unit tests
         run: ./gradlew test
 
+  kotlin-warnings:
+    name: Kotlin warnings
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v5
+      - name: Compile with -Werror (warnings as errors)
+        run: >
+          ./gradlew compileKotlin
+          -Pkotlin.compiler.option.allWarningsAsErrors=true
+
+  # ── Tier 4: Full IDE verification ──────────────────────
   verify:
     name: Verify
     runs-on: ubuntu-latest
@@ -88,21 +205,45 @@ jobs:
           name: ayu-islands-plugin
           path: build/distributions/*.zip
 
+  # ── Gate: all checks must pass ─────────────────────────
   gate:
     name: Gate
     runs-on: ubuntu-latest
-    needs: [build, test, verify]
+    needs:
+      - lint-files
+      - gha-security
+      - build
+      - ktlint
+      - detekt
+      - test
+      - kotlin-warnings
+      - verify
     if: always()
     steps:
       - name: Check results
         run: |
-          if [[ "${{ needs.build.result }}" != "success" ]] || \
-             [[ "${{ needs.test.result }}" != "success" ]] || \
-             [[ "${{ needs.verify.result }}" != "success" ]]; then
-            echo "One or more checks failed"
-            echo "  build: ${{ needs.build.result }}"
-            echo "  test: ${{ needs.test.result }}"
-            echo "  verify: ${{ needs.verify.result }}"
+          results=(
+            "lint-files=${{ needs.lint-files.result }}"
+            "gha-security=${{ needs.gha-security.result }}"
+            "build=${{ needs.build.result }}"
+            "ktlint=${{ needs.ktlint.result }}"
+            "detekt=${{ needs.detekt.result }}"
+            "test=${{ needs.test.result }}"
+            "kotlin-warnings=${{ needs.kotlin-warnings.result }}"
+            "verify=${{ needs.verify.result }}"
+          )
+          failed=0
+          for r in "${results[@]}"; do
+            name="${r%%=*}"
+            status="${r##*=}"
+            if [[ "$status" != "success" ]]; then
+              echo "::error::$name: $status"
+              failed=1
+            else
+              echo "✓ $name"
+            fi
+          done
+          if [[ "$failed" -eq 1 ]]; then
             exit 1
           fi
           echo "All checks passed"
