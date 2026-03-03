@@ -110,8 +110,7 @@ object LicenseChecker {
     fun isLicensed(): Boolean? {
         if (isDevBuild()) return true
         val facade = LicensingFacade.getInstance() ?: return null
-        val stamp = facade.getConfirmationStamp(PRODUCT_CODE)
-        if (stamp == null) return false
+        val stamp = facade.getConfirmationStamp(PRODUCT_CODE) ?: return false
         return when {
             stamp.startsWith("key:") -> isKeyValid(stamp.substring(KEY_PREFIX_LENGTH))
             stamp.startsWith("stamp:") -> isLicenseServerStampValid(stamp.substring(STAMP_PREFIX_LENGTH))
@@ -209,12 +208,7 @@ object LicenseChecker {
             val certBytes = Base64.getDecoder().decode(certBase64)
             val licenseBytes = Base64.getDecoder().decode(licensePartBase64)
 
-            val cert =
-                createCertificate(
-                    certBytes,
-                    emptyList(),
-                    checkValidityAtCurrentDate = true,
-                )
+            val cert = createCertificate(certBytes, emptyList())
 
             val signature = Signature.getInstance("SHA1withRSA")
             signature.initVerify(cert)
@@ -252,12 +246,7 @@ object LicenseChecker {
             val certBytes = Base64.getDecoder().decode(certBase64)
             val intermediateCertsBytes = intermediateCertsBase64.map { Base64.getDecoder().decode(it) }
 
-            val cert =
-                createCertificate(
-                    certBytes,
-                    intermediateCertsBytes,
-                    checkValidityAtCurrentDate = true,
-                )
+            val cert = createCertificate(certBytes, intermediateCertsBytes)
 
             val algorithmName = if (signatureType == "0") "SHA1withRSA" else "SHA256withRSA"
             val signature = Signature.getInstance(algorithmName)
@@ -281,7 +270,6 @@ object LicenseChecker {
     private fun createCertificate(
         certBytes: ByteArray,
         intermediateCertsBytes: Collection<ByteArray>,
-        checkValidityAtCurrentDate: Boolean,
     ): X509Certificate {
         val factory = CertificateFactory.getInstance("X.509")
 
@@ -317,10 +305,7 @@ object LicenseChecker {
         val validator = CertPathValidator.getInstance("PKIX")
         validator.validate(certPath, params)
 
-        if (checkValidityAtCurrentDate) {
-            cert.checkValidity()
-        }
-
+        cert.checkValidity()
         return cert
     }
 }

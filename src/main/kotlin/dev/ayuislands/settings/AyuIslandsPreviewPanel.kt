@@ -23,7 +23,7 @@ import javax.swing.JPanel
 import javax.swing.UIManager
 
 /** Visual preview mockup of all 8 accent elements, reacts to color/toggle/glow/highlight changes. */
-class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel() {
+class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
     var previewAccentHex: String = "#FFCC66"
     var previewToggles: Map<AccentElementId, Boolean> = emptyMap()
     var previewGlowEnabled: Boolean = true

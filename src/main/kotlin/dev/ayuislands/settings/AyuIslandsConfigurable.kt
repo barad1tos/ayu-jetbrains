@@ -18,37 +18,31 @@ import javax.swing.ImageIcon
 
 /** Settings page at Appearance > Ayu Islands with Accent / Glow tabs. */
 class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
-
     private val log = logger<AyuIslandsConfigurable>()
 
     private val accentPanel = AyuIslandsAccentPanel()
     private val elementsPanel = AyuIslandsElementsPanel()
     private val effectsPanel = AyuIslandsEffectsPanel()
 
-    private val panels: List<AyuIslandsSettingsPanel> = listOf(
-        accentPanel,
-        elementsPanel,
-        effectsPanel,
-    )
+    private val panels: List<AyuIslandsSettingsPanel> =
+        listOf(
+            accentPanel,
+            elementsPanel,
+            effectsPanel,
+        )
 
     override fun createPanel(): com.intellij.openapi.ui.DialogPanel {
-        val pluginVersion = PluginManagerCore
-            .getPlugin(PluginId.getId("com.ayuislands.theme"))
-            ?.version ?: "unknown"
+        val pluginVersion =
+            PluginManagerCore
+                .getPlugin(PluginId.getId("com.ayuislands.theme"))
+                ?.version ?: "unknown"
 
         val variant = AyuVariant.detect()
 
         if (variant == null) {
             return panel {
                 row {
-                    val logoUrl = AyuIslandsConfigurable::class.java.getResource("/assets/logo.png")
-                    if (logoUrl != null) {
-                        val originalIcon = ImageIcon(logoUrl)
-                        val scaledHeight = JBUI.scale(28)
-                        val scaledWidth = (originalIcon.iconWidth.toDouble() / originalIcon.iconHeight * scaledHeight).toInt()
-                        val scaledImage = originalIcon.image.getScaledInstance(scaledWidth, scaledHeight, Image.SCALE_SMOOTH)
-                        icon(ImageIcon(scaledImage))
-                    }
+                    scaleIcon(28)?.let { icon(it) }
                     label("v$pluginVersion")
                         .applyToComponent { font = JBUI.Fonts.smallFont() }
                 }
@@ -62,28 +56,32 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         accentPanel.onAccentChanged = { hex -> elementsPanel.updatePreviewAccent(hex) }
 
         // Build tab content panels eagerly via DSL
-        val accentTab = panel {
-            accentPanel.buildPanel(this@panel, variant)
-            elementsPanel.buildPanel(this@panel, variant)
+        val accentTab =
+            panel {
+                accentPanel.buildPanel(this@panel, variant)
+                elementsPanel.buildPanel(this@panel, variant)
 
-            // "Reset all settings..." link at bottom of Accent tab
-            row {
-                link("Reset all settings\u2026") {
-                    val result = Messages.showYesNoDialog(
-                        "Reset all Ayu Islands settings to defaults?\n\nThis will reset accent color, element toggles, and all glow settings.",
-                        "Reset All Settings",
-                        Messages.getWarningIcon(),
-                    )
-                    if (result == Messages.YES) {
-                        resetAllSettings(variant)
+                // "Reset all settings..." link at the bottom of the Accent tab
+                row {
+                    link("Reset all settings\u2026") {
+                        val result =
+                            Messages.showYesNoDialog(
+                                "Reset all Ayu Islands settings to defaults?\n\n" +
+                                    "This will reset accent color, element toggles, and all glow settings.",
+                                "Reset All Settings",
+                                Messages.getWarningIcon(),
+                            )
+                        if (result == Messages.YES) {
+                            resetAllSettings(variant)
+                        }
                     }
                 }
             }
-        }
 
-        val glowTab = panel {
-            effectsPanel.buildGlowPanel(this@panel, variant)
-        }
+        val glowTab =
+            panel {
+                effectsPanel.buildGlowPanel(this@panel)
+            }
 
         // Single-level tab container
         val tabs = JBTabbedPane()
@@ -93,14 +91,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         return panel {
             // Header
             row {
-                val logoUrl = AyuIslandsConfigurable::class.java.getResource("/assets/logo.png")
-                if (logoUrl != null) {
-                    val originalIcon = ImageIcon(logoUrl)
-                    val scaledHeight = JBUI.scale(28)
-                    val scaledWidth = (originalIcon.iconWidth.toDouble() / originalIcon.iconHeight * scaledHeight).toInt()
-                    val scaledImage = originalIcon.image.getScaledInstance(scaledWidth, scaledHeight, Image.SCALE_SMOOTH)
-                    icon(ImageIcon(scaledImage))
-                }
+                scaleIcon(28)?.let { icon(it) }
                 label("v$pluginVersion")
                     .applyToComponent { font = JBUI.Fonts.smallFont() }
             }
@@ -118,14 +109,24 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         }
     }
 
+    private fun scaleIcon(height: Int): ImageIcon? {
+        val logoUrl = AyuIslandsConfigurable::class.java.getResource("/assets/logo.png") ?: return null
+        val originalIcon = ImageIcon(logoUrl)
+        val scaledHeight = JBUI.scale(height)
+        val scaledWidth =
+            (originalIcon.iconWidth.toDouble() / originalIcon.iconHeight * scaledHeight).toInt()
+        val scaledImage =
+            originalIcon.image.getScaledInstance(scaledWidth, scaledHeight, Image.SCALE_SMOOTH)
+        return ImageIcon(scaledImage)
+    }
+
     private fun resetAllSettings(variant: AyuVariant) {
         accentPanel.resetToDefault(variant)
         elementsPanel.reset()
         effectsPanel.reset()
     }
 
-    override fun isModified(): Boolean =
-        super.isModified() || panels.any { it.isModified() }
+    override fun isModified(): Boolean = super.isModified() || panels.any { it.isModified() }
 
     override fun apply() {
         super.apply()
@@ -137,7 +138,10 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         val glowEnabled = AyuIslandsSettings.getInstance().state.glowEnabled
 
         // Zen Mode: skip glow activation in presentation/distraction-free mode
-        val inZenMode = com.intellij.ide.ui.UISettings.getInstance().presentationMode
+        val inZenMode =
+            com.intellij.ide.ui.UISettings
+                .getInstance()
+                .presentationMode
         if (inZenMode && glowEnabled) {
             log.info("Zen Mode active, skipping glow activation")
         }
@@ -151,7 +155,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                 } else {
                     manager.updateGlow()
                 }
-            } catch (exception: Exception) {
+            } catch (exception: RuntimeException) {
                 log.warn("Failed to update glow for project: ${openProject.name}", exception)
             }
         }

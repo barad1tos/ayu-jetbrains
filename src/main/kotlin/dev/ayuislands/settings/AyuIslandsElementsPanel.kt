@@ -15,7 +15,7 @@ import java.awt.event.MouseEvent
 import javax.swing.JCheckBox
 
 /** Per-element accent toggle checkboxes with conflict detection and license-aware dimming. */
-class AyuIslandsElementsPanel : AyuIslandsSettingsPanel() {
+class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
     private val pendingToggles: MutableMap<AccentElementId, Boolean> = mutableMapOf()
     private var storedToggles: Map<AccentElementId, Boolean> = emptyMap()
     private var pendingForceOverrides: MutableSet<String> = mutableSetOf()
@@ -104,15 +104,15 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel() {
                         },
                     )
 
-                    // Enable All / Disable All links
+                    // Enable all / Disable all links
                     row {
-                        link("Enable All") {
+                        link("Enable all") {
                             AccentElementId.entries.forEach { pendingToggles[it] = true }
                             refreshCheckboxes()
                             syncPreviewToggles()
                             onToggleChanged?.invoke()
                         }.enabled(licensed)
-                        link("Disable All") {
+                        link("Disable all") {
                             AccentElementId.entries.forEach { pendingToggles[it] = false }
                             refreshCheckboxes()
                             syncPreviewToggles()
