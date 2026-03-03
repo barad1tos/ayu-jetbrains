@@ -71,7 +71,7 @@ jobs:
       - name: Check for merge conflict markers
         run: |
           ! git grep -rIl '<<<<<<<\|>>>>>>>' -- \
-            ':!*.md' \
+            ':!*.md' ':!.github/workflows/*' \
             || { echo "::error::Merge conflict markers found"; exit 1; }
 
   gha-security:
