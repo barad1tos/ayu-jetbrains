@@ -143,6 +143,24 @@ Expanded from 1 Mirage variant to 6 themes (Mirage, Dark, Light x base + Islands
 ---
 *Last updated: 2026-03-02 — Phase 10.1.1 planned (2 plans)*
 
+### Phase 10.2: Fix inspections: dead code cleanup, code quality, and Glow integration (INSERTED)
+
+**Goal:** Resolve all IDE inspection warnings: remove dead code, deduplicate display name logic, fix UI string capitalization, apply code quality improvements, convert abstract class to interface, and integrate or delete unused Glow files
+**Requirements**: None (inserted phase, no formal requirement IDs)
+**Depends on:** Phase 10.1.1
+**Success Criteria** (what must be TRUE):
+  1. No dead code flagged by inspections remains (unused methods, properties, files removed)
+  2. `elementDisplayName()` consolidated to `AccentElementId.displayName` enum property
+  3. UI strings follow JetBrains sentence-case convention
+  4. `AyuIslandsSettingsPanel` is an interface
+  5. GlowLayerUI, GlowIslandBorder, GlowPanel, GlowPreset either integrated or deleted
+  6. `./gradlew buildPlugin` succeeds
+**Plans:** 2/2 plans complete
+
+Plans:
+- [ ] 10.2-01-PLAN.md -- Dead code cleanup, deduplication, UI strings, code quality, interface conversion
+- [ ] 10.2-02-PLAN.md -- Glow dead file integration and GlowOverlayManager cleanup
+
 ### Phase 10.1: Settings Panel UX Overhaul (INSERTED)
 
 **Goal:** Restructure the settings panel to eliminate vertical scroll, improve Effects discoverability via top-level JBTabbedPane, and clean up UX inconsistencies (reset button naming, orphan sections, master toggle visibility)
