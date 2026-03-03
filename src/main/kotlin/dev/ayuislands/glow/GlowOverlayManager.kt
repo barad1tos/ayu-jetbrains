@@ -14,6 +14,7 @@ import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.settings.AyuIslandsSettings
+import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Component
 import java.awt.Container
@@ -26,12 +27,27 @@ import java.awt.event.HierarchyEvent
 import java.beans.PropertyChangeListener
 import javax.swing.JComboBox
 import javax.swing.JComponent
+import javax.swing.JLayer
 import javax.swing.JLayeredPane
 import javax.swing.JTextField
 import javax.swing.SwingUtilities
 
-class GlowOverlayManager(private val project: Project) : Disposable {
-
+/**
+ * Manages glow overlays for tool windows, editor, tabs, and focus rings.
+ *
+ * Glow rendering uses three approaches:
+ * - GlowGlassPane: overlay positioned in JLayeredPane for island glow (tool windows, editor)
+ * - GlowLayerUI: JLayer-based painting for tab glow (via tabPainter) and border glow
+ * - GlowFocusBorder: transient border swap on focus events for text input glow
+ *
+ * GlowIslandBorder (border-based island glow) was evaluated and removed: the GlassPane approach
+ * is more robust (independent of component border chains, no layout interference).
+ * GlowPanel (standalone glow JPanel) was removed: preview uses GlowRenderer directly.
+ * GlowPreset (named configurations) was removed: deferred feature, flat state properties suffice.
+ */
+class GlowOverlayManager(
+    private val project: Project,
+) : Disposable {
     private val log = logger<GlowOverlayManager>()
     private val overlays = mutableMapOf<String, OverlayEntry>()
     private var activeGlowId: String? = null
@@ -40,6 +56,7 @@ class GlowOverlayManager(private val project: Project) : Disposable {
     // Tab glow
     private var tabPainter: GlowTabPainter? = null
     private var tabGlowComponent: JComponent? = null
+    private var tabGlowLayer: JLayer<JComponent>? = null
 
     // Focus-ring glow
     private val focusListeners = mutableMapOf<JComponent, FocusListener>()
@@ -52,19 +69,16 @@ class GlowOverlayManager(private val project: Project) : Disposable {
 
     companion object {
         private const val EDITOR_ID = "Editor"
+        private const val HOST_SEARCH_MAX_DEPTH = 6
+        private const val DEFAULT_ACCENT_HEX = "#FFCC66"
         private val instances = mutableMapOf<Project, GlowOverlayManager>()
 
-        fun getInstance(project: Project): GlowOverlayManager {
-            return instances.getOrPut(project) {
+        fun getInstance(project: Project): GlowOverlayManager =
+            instances.getOrPut(project) {
                 GlowOverlayManager(project).also {
                     Disposer.register(project, it)
                 }
             }
-        }
-
-        fun removeInstance(project: Project) {
-            instances.remove(project)
-        }
     }
 
     private data class OverlayEntry(
@@ -109,7 +123,7 @@ class GlowOverlayManager(private val project: Project) : Disposable {
             },
         )
 
-        // Subscribe to editor selection changes (for editor glow)
+        // Subscribe to editor selection changes (for an editor glow)
         connection.subscribe(
             FileEditorManagerListener.FILE_EDITOR_MANAGER,
             object : FileEditorManagerListener {
@@ -135,7 +149,7 @@ class GlowOverlayManager(private val project: Project) : Disposable {
             // Install global focus tracker
             installFocusTracker()
 
-            // Activate glow on the focused area
+            // Activate a glow on the focused area
             refreshActiveGlow()
         }
 
@@ -148,12 +162,14 @@ class GlowOverlayManager(private val project: Project) : Disposable {
     }
 
     private fun installFocusTracker() {
-        focusChangeListener = PropertyChangeListener {
-            SwingUtilities.invokeLater {
-                if (!disposed) refreshActiveGlow()
+        focusChangeListener =
+            PropertyChangeListener {
+                SwingUtilities.invokeLater {
+                    if (!disposed) refreshActiveGlow()
+                }
             }
-        }
-        KeyboardFocusManager.getCurrentKeyboardFocusManager()
+        KeyboardFocusManager
+            .getCurrentKeyboardFocusManager()
             .addPropertyChangeListener("permanentFocusOwner", focusChangeListener)
     }
 
@@ -179,10 +195,10 @@ class GlowOverlayManager(private val project: Project) : Disposable {
         return null
     }
 
-    private fun findAncestorByClassName(component: Component, className: String): Component? {
+    private fun findJBEditorTabs(component: Component): Component? {
         var current: Component? = component.parent
         while (current != null) {
-            if (current.javaClass.name.contains(className)) return current
+            if (current.javaClass.name.contains("JBEditorTabs")) return current
             current = current.parent
         }
         return null
@@ -196,32 +212,52 @@ class GlowOverlayManager(private val project: Project) : Disposable {
 
         val variant = AyuVariant.detect()
         val settings = AyuIslandsSettings.getInstance()
-        val accentHex = if (variant != null) settings.getAccentForVariant(variant) else "#FFCC66"
+        val accentHex = if (variant != null) settings.getAccentForVariant(variant) else DEFAULT_ACCENT_HEX
         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
 
-        tabPainter = GlowTabPainter().apply {
-            glowColor = Color.decode(accentHex)
-            glowStyle = style
-            this.tabMode = tabMode
-            baseIntensity = state.getIntensityForStyle(style)
-        }
+        tabPainter =
+            GlowTabPainter().apply {
+                glowColor = Color.decode(accentHex)
+                glowStyle = style
+                this.tabMode = tabMode
+                baseIntensity = state.getIntensityForStyle(style)
+            }
 
         try {
             val fileEditorManager = FileEditorManager.getInstance(project)
-            val editorComponent = fileEditorManager.selectedEditor?.component ?: run {
-                log.info("No selected editor, tab glow deferred")
-                return
-            }
+            val editorComponent =
+                fileEditorManager.selectedEditor?.component ?: run {
+                    log.info("No selected editor, tab glow deferred")
+                    return
+                }
 
-            val tabsComponent = findAncestorByClassName(editorComponent, "JBEditorTabs")
+            val tabsComponent = findJBEditorTabs(editorComponent)
             if (tabsComponent == null) {
                 log.info("JBEditorTabs not found in component hierarchy, tab glow skipped")
                 return
             }
 
-            tabGlowComponent = tabsComponent as JComponent
+            val jcTabs = tabsComponent as JComponent
+            tabGlowComponent = jcTabs
+
+            val painter = tabPainter ?: return
+            val tabLayerUI = GlowLayerUI().apply {
+                tabPainter = painter
+            }
+
+            val parent = jcTabs.parent
+            if (parent != null) {
+                val constraints = (parent.layout as? BorderLayout)?.getConstraints(jcTabs)
+                parent.remove(jcTabs)
+                val layer = JLayer(jcTabs, tabLayerUI)
+                parent.add(layer, constraints ?: BorderLayout.CENTER)
+                parent.revalidate()
+                parent.repaint()
+                tabGlowLayer = layer
+            }
+
             log.info("Tab glow initialized: mode=$tabMode")
-        } catch (exception: Exception) {
+        } catch (exception: RuntimeException) {
             log.warn("Tab glow hookup failed: ${exception.message}")
         }
     }
@@ -232,7 +268,7 @@ class GlowOverlayManager(private val project: Project) : Disposable {
 
         val variant = AyuVariant.detect()
         val settings = AyuIslandsSettings.getInstance()
-        val accentHex = if (variant != null) settings.getAccentForVariant(variant) else "#FFCC66"
+        val accentHex = if (variant != null) settings.getAccentForVariant(variant) else DEFAULT_ACCENT_HEX
         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
         val accent = Color.decode(accentHex)
         val intensity = state.getIntensityForStyle(style)
@@ -244,21 +280,21 @@ class GlowOverlayManager(private val project: Project) : Disposable {
         log.info("Focus-ring glow initialized")
     }
 
+    private fun isTextInputComponent(component: Component): Boolean =
+        component is JTextField ||
+            component is JComboBox<*> ||
+            (component is JComponent && component.javaClass.simpleName.contains("SearchTextField"))
+
     private fun installFocusListenersRecursively(
         component: Component,
         accent: Color,
         style: GlowStyle,
         intensity: Int,
     ) {
-        if (component is JTextField ||
-            component is JComboBox<*> ||
-            (component is JComponent && component.javaClass.simpleName.contains("SearchTextField"))
-        ) {
-            if (!focusListeners.containsKey(component)) {
-                val listener = GlowFocusBorder.createFocusListener(accent, style, intensity)
-                component.addFocusListener(listener)
-                focusListeners[component] = listener
-            }
+        if (isTextInputComponent(component) && component is JComponent && !focusListeners.containsKey(component)) {
+            val listener = GlowFocusBorder.createFocusListener(accent, style, intensity)
+            component.addFocusListener(listener)
+            focusListeners[component] = listener
         }
         if (component is Container) {
             for (child in component.components) {
@@ -270,7 +306,7 @@ class GlowOverlayManager(private val project: Project) : Disposable {
     private fun findGlowHost(component: JComponent): JComponent {
         var current: Component? = component.parent
         var depth = 0
-        while (current != null && depth < 6) {
+        while (current != null && depth < HOST_SEARCH_MAX_DEPTH) {
             val name = current.javaClass.name
             if (name.contains("InternalDecoratorImpl")) {
                 return current as JComponent
@@ -280,7 +316,7 @@ class GlowOverlayManager(private val project: Project) : Disposable {
         }
         current = component.parent
         depth = 0
-        while (current != null && depth < 6) {
+        while (current != null && depth < HOST_SEARCH_MAX_DEPTH) {
             val name = current.javaClass.name
             if (name.contains("IslandHolder")) {
                 return current as JComponent
@@ -308,17 +344,24 @@ class GlowOverlayManager(private val project: Project) : Disposable {
         return null
     }
 
-    private fun updateOverlayBounds(glassPane: GlowGlassPane, host: JComponent, layeredPane: JLayeredPane) {
+    private fun updateOverlayBounds(
+        glassPane: GlowGlassPane,
+        host: JComponent,
+        layeredPane: JLayeredPane,
+    ) {
         if (!host.isShowing) return
         try {
             val point = SwingUtilities.convertPoint(host, 0, 0, layeredPane)
             glassPane.setBounds(point.x, point.y, host.width, host.height)
-        } catch (e: Exception) {
-            // Component hierarchy may have changed
+        } catch (exception: RuntimeException) {
+            log.debug("Component hierarchy changed during overlay bounds update", exception)
         }
     }
 
-    private fun attachOverlay(id: String, host: JComponent) {
+    private fun attachOverlay(
+        id: String,
+        host: JComponent,
+    ) {
         if (overlays.containsKey(id)) return
         if (host.width == 0 || host.height == 0) return
 
@@ -328,28 +371,35 @@ class GlowOverlayManager(private val project: Project) : Disposable {
         val state = AyuIslandsSettings.getInstance().state
         val settings = AyuIslandsSettings.getInstance()
         val variant = AyuVariant.detect()
-        val accentHex = if (variant != null) settings.getAccentForVariant(variant) else "#FFCC66"
+        val accentHex = if (variant != null) settings.getAccentForVariant(variant) else DEFAULT_ACCENT_HEX
         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
 
-        val glassPane = GlowGlassPane(
-            glowColor = Color.decode(accentHex),
-            glowStyle = style,
-            glowIntensity = state.getIntensityForStyle(style),
-            glowWidth = state.getWidthForStyle(style),
-        )
+        val glassPane =
+            GlowGlassPane(
+                glowColor = Color.decode(accentHex),
+                glowStyle = style,
+                glowIntensity = state.getIntensityForStyle(style),
+                glowWidth = state.getWidthForStyle(style),
+            )
 
         layeredPane.add(glassPane, JLayeredPane.PALETTE_LAYER)
         updateOverlayBounds(glassPane, host, layeredPane)
 
-        host.addComponentListener(object : ComponentAdapter() {
-            override fun componentResized(e: ComponentEvent) = updateOverlayBounds(glassPane, host, layeredPane)
-            override fun componentMoved(e: ComponentEvent) = updateOverlayBounds(glassPane, host, layeredPane)
-        })
+        host.addComponentListener(
+            object : ComponentAdapter() {
+                override fun componentResized(e: ComponentEvent) = updateOverlayBounds(glassPane, host, layeredPane)
 
-        host.addHierarchyBoundsListener(object : HierarchyBoundsAdapter() {
-            override fun ancestorMoved(e: HierarchyEvent) = updateOverlayBounds(glassPane, host, layeredPane)
-            override fun ancestorResized(e: HierarchyEvent) = updateOverlayBounds(glassPane, host, layeredPane)
-        })
+                override fun componentMoved(e: ComponentEvent) = updateOverlayBounds(glassPane, host, layeredPane)
+            },
+        )
+
+        host.addHierarchyBoundsListener(
+            object : HierarchyBoundsAdapter() {
+                override fun ancestorMoved(e: HierarchyEvent) = updateOverlayBounds(glassPane, host, layeredPane)
+
+                override fun ancestorResized(e: HierarchyEvent) = updateOverlayBounds(glassPane, host, layeredPane)
+            },
+        )
 
         SwingUtilities.invokeLater {
             updateOverlayBounds(glassPane, host, layeredPane)
@@ -407,11 +457,12 @@ class GlowOverlayManager(private val project: Project) : Disposable {
 
         // Stop any previous animator
         animator?.stop()
-        animator = GlowAnimator().also { anim ->
-            anim.start(animation) { alpha ->
-                glassPane.animationAlpha = alpha
+        animator =
+            GlowAnimator().also { anim ->
+                anim.start(animation) { alpha ->
+                    glassPane.animationAlpha = alpha
+                }
             }
-        }
     }
 
     private fun stopAnimation(glassPane: GlowGlassPane) {
@@ -426,7 +477,7 @@ class GlowOverlayManager(private val project: Project) : Disposable {
         val settings = AyuIslandsSettings.getInstance()
         val state = settings.state
         val variant = AyuVariant.detect()
-        val accentHex = if (variant != null) settings.getAccentForVariant(variant) else "#FFCC66"
+        val accentHex = if (variant != null) settings.getAccentForVariant(variant) else DEFAULT_ACCENT_HEX
         val accent = Color.decode(accentHex)
         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
 
@@ -444,9 +495,10 @@ class GlowOverlayManager(private val project: Project) : Disposable {
             entry.glassPane.repaint()
         }
 
+        // Update tab painter
         val tabMode = GlowTabMode.fromName(state.glowTabMode ?: "UNDERLINE")
         val tabToggleEnabled = state.isToggleEnabled(AccentElementId.TAB_UNDERLINES)
-        if (state.glowEnabled && tabMode != GlowTabMode.OFF && tabToggleEnabled) {
+        if (tabMode != GlowTabMode.OFF && tabToggleEnabled) {
             tabPainter?.apply {
                 glowColor = accent
                 glowStyle = style
@@ -457,18 +509,16 @@ class GlowOverlayManager(private val project: Project) : Disposable {
         } else {
             tabPainter = null
         }
+        tabGlowLayer?.repaint()
 
-        if (!state.glowEnabled || !state.glowFocusRing) {
+        if (!state.glowFocusRing) {
             removeFocusListeners()
         }
 
-        // Restart animation on the active overlay if animation setting changed
-        val activeId = activeGlowId
-        if (activeId != null) {
-            val activeEntry = overlays[activeId]
-            if (activeEntry != null) {
-                startAnimationIfConfigured(activeEntry.glassPane)
-            }
+        // Restart animation on the active overlay
+        val activeEntry = activeGlowId?.let { overlays[it] }
+        if (activeEntry != null) {
+            startAnimationIfConfigured(activeEntry.glassPane)
         }
 
         log.info("Glow overlays updated: style=$style, accent=$accentHex")
@@ -479,12 +529,30 @@ class GlowOverlayManager(private val project: Project) : Disposable {
             entry.glassPane.stopAnimation()
             entry.layeredPane.remove(entry.glassPane)
             entry.layeredPane.repaint(
-                entry.glassPane.x, entry.glassPane.y,
-                entry.glassPane.width, entry.glassPane.height,
+                entry.glassPane.x,
+                entry.glassPane.y,
+                entry.glassPane.width,
+                entry.glassPane.height,
             )
         }
         overlays.clear()
 
+        tabGlowLayer?.let { layer ->
+            val view = layer.view
+            val parent = layer.parent
+            if (parent != null && view != null) {
+                try {
+                    val constraints = (parent.layout as? BorderLayout)?.getConstraints(layer)
+                    parent.remove(layer)
+                    parent.add(view, constraints ?: BorderLayout.CENTER)
+                    parent.revalidate()
+                    parent.repaint()
+                } catch (exception: Exception) {
+                    log.warn("Failed to remove tab glow layer: ${exception.message}")
+                }
+            }
+        }
+        tabGlowLayer = null
         tabGlowComponent = null
         tabPainter = null
 
@@ -507,7 +575,8 @@ class GlowOverlayManager(private val project: Project) : Disposable {
         animator = null
 
         focusChangeListener?.let {
-            KeyboardFocusManager.getCurrentKeyboardFocusManager()
+            KeyboardFocusManager
+                .getCurrentKeyboardFocusManager()
                 .removePropertyChangeListener("permanentFocusOwner", it)
         }
         focusChangeListener = null
