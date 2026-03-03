@@ -3,6 +3,7 @@ package dev.ayuislands.licensing
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ActionUiKind
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.Presentation
 import com.intellij.openapi.application.ApplicationManager
@@ -140,7 +141,7 @@ object LicenseChecker {
             val event = AnActionEvent.createEvent(
                 dataContext, Presentation(), "", ActionUiKind.NONE, null
             )
-            action.actionPerformed(event)
+            ActionUtil.performActionDumbAwareWithCallbacks(action, event)
         }, ModalityState.nonModal())
     }
 

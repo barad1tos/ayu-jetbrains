@@ -93,13 +93,6 @@ class GlowOverlayManager(private val project: Project) : Disposable {
         connection.subscribe(
             ToolWindowManagerListener.TOPIC,
             object : ToolWindowManagerListener {
-                override fun toolWindowShown(id: String, toolWindow: ToolWindow) {
-                    SwingUtilities.invokeLater {
-                        log.info("toolWindowShown: $id")
-                        attachToolWindowOverlay(toolWindow)
-                    }
-                }
-
                 override fun stateChanged(
                     toolWindowManager: ToolWindowManager,
                     changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
@@ -261,11 +254,10 @@ class GlowOverlayManager(private val project: Project) : Disposable {
             component is JComboBox<*> ||
             (component is JComponent && component.javaClass.simpleName.contains("SearchTextField"))
         ) {
-            val jComponent = component as JComponent
-            if (!focusListeners.containsKey(jComponent)) {
+            if (!focusListeners.containsKey(component)) {
                 val listener = GlowFocusBorder.createFocusListener(accent, style, intensity)
-                jComponent.addFocusListener(listener)
-                focusListeners[jComponent] = listener
+                component.addFocusListener(listener)
+                focusListeners[component] = listener
             }
         }
         if (component is Container) {

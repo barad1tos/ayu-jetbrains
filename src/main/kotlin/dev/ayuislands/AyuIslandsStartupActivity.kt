@@ -14,6 +14,7 @@ import javax.swing.SwingUtilities
 
 internal class AyuIslandsStartupActivity : ProjectActivity {
 
+    @Suppress("UnstableApiUsage")
     override suspend fun execute(project: Project) {
         val themeName = LafManager.getInstance().currentUIThemeLookAndFeel.name
         LOG.info("Ayu Islands loaded — active theme: $themeName, project: ${project.name}")
