@@ -28,7 +28,9 @@ object ConflictRegistry {
             ),
         )
 
-    fun detectConflicts(): List<ConflictEntry> =
+    // Cached: installed plugins don't change during a session, so Class.forName()
+    // lookups only need to happen once (was up to 16+ per accent change)
+    private val cachedConflicts: List<ConflictEntry> by lazy {
         entries.filter { entry ->
             try {
                 Class.forName(entry.detectionClassName)
@@ -37,10 +39,13 @@ object ConflictRegistry {
                 false
             }
         }
+    }
+
+    fun detectConflicts(): List<ConflictEntry> = cachedConflicts
 
     fun getConflictFor(elementId: AccentElementId): ConflictEntry? =
-        detectConflicts()
+        cachedConflicts
             .firstOrNull { elementId in it.affectedElements }
 
-    fun isCodeGlanceProDetected(): Boolean = detectConflicts().any { it.type == ConflictType.INTEGRATE }
+    fun isCodeGlanceProDetected(): Boolean = cachedConflicts.any { it.type == ConflictType.INTEGRATE }
 }

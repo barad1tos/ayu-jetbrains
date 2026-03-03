@@ -6,6 +6,7 @@ import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.Rectangle
 import java.awt.RenderingHints
+import java.lang.reflect.Method
 import javax.swing.JComponent
 import javax.swing.JLayer
 import javax.swing.Timer
@@ -14,8 +15,8 @@ import javax.swing.plaf.LayerUI
 
 /**
  * LayerUI that paints glow effects in two modes:
- * - Border glow (default): renders glow around the entire JLayer bounds with fade animation
- * - Tab glow: when [tabPainter] is set, delegates to GlowTabPainter for selected-tab glow
+ * - Border glow (default): renders the glow around the entire JLayer bounds with fade animation
+ * - Tab glow: when [tabPainter] is set, delegates to GlowTabPainter for the selected-tab glow
  */
 class GlowLayerUI : LayerUI<JComponent>() {
     var glowColor: Color = Color.decode("#FFCC66")
@@ -24,7 +25,7 @@ class GlowLayerUI : LayerUI<JComponent>() {
     var glowWidth: Int = GlowRenderer.DEFAULT_GLOW_WIDTH
     var isActive: Boolean = false
 
-    /** When set, paint() delegates to tab glow mode instead of border glow. */
+    /** When set, paint() delegates to tab glow mode instead of a border glow. */
     var tabPainter: GlowTabPainter? = null
 
     private var fadeAlpha: Float = 0.0f
@@ -32,6 +33,11 @@ class GlowLayerUI : LayerUI<JComponent>() {
     private val renderer = GlowRenderer()
 
     private var parentLayer: JLayer<*>? = null
+
+    // Cached reflection Method objects for tab glow painting (resolved once per instance)
+    private var cachedTabsClass: Class<*>? = null
+    private var cachedGetSelectedInfo: Method? = null
+    private var cachedGetTabLabel: Method? = null
 
     companion object {
         private const val DEFAULT_INTENSITY = 40
@@ -62,8 +68,23 @@ class GlowLayerUI : LayerUI<JComponent>() {
     ) {
         val tabs = layer.view ?: return
         try {
-            val tabInfo = tabs.javaClass.getMethod("getSelectedInfo").invoke(tabs) ?: return
-            val label = tabInfo.javaClass.getMethod("getTabLabel").invoke(tabInfo) as? JComponent ?: return
+            // Cache Method objects on the first paint (or if tabs class changes across IDE versions)
+            val tabsClass = tabs.javaClass
+            if (tabsClass !== cachedTabsClass) {
+                cachedTabsClass = tabsClass
+                cachedGetSelectedInfo = tabsClass.getMethod("getSelectedInfo")
+                cachedGetTabLabel = null // Will resolve from tabInfo class below
+            }
+
+            val getSelectedInfo = cachedGetSelectedInfo ?: return
+            val tabInfo = getSelectedInfo.invoke(tabs) ?: return
+
+            if (cachedGetTabLabel == null) {
+                cachedGetTabLabel = tabInfo.javaClass.getMethod("getTabLabel")
+            }
+            val getTabLabel = cachedGetTabLabel ?: return
+            val label = getTabLabel.invoke(tabInfo) as? JComponent ?: return
+
             val tabBounds = label.bounds
             val g2 = graphics.create() as Graphics2D
             try {

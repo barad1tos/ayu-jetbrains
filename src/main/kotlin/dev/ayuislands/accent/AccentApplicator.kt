@@ -14,6 +14,7 @@ import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.Color
 import java.awt.Window
+import java.lang.reflect.Method
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
 
@@ -26,6 +27,14 @@ object AccentApplicator {
     private val log = logger<AccentApplicator>()
     private const val DARK_FOREGROUND_HEX = 0x1F2430
     private val DARK_FOREGROUND = Color(DARK_FOREGROUND_HEX)
+
+    // Cached CodeGlance Pro reflection objects (resolved once per session)
+    private var cgpService: Any? = null
+    private var cgpGetState: Method? = null
+    private var cgpSetViewportColor: Method? = null
+    private var cgpSetViewportBorderColor: Method? = null
+    private var cgpSetViewportBorderThickness: Method? = null
+    private var cgpMethodsResolved = false
 
     // Always-on UIManager keys (not per-element toggleable)
     private val ALWAYS_ON_UI_KEYS =
@@ -244,21 +253,14 @@ object AccentApplicator {
         }
     }
 
-    private fun syncCodeGlanceProViewport(accentHex: String) {
-        if (!AyuIslandsSettings.getInstance().state.cgpIntegrationEnabled) return
+    private fun resolveCgpMethods() {
+        if (cgpMethodsResolved) return
+        cgpMethodsResolved = true
 
         try {
-            val hexWithoutHash = accentHex.removePrefix("#")
-
             val pluginId = PluginId.getId("com.nasller.CodeGlancePro")
-            val cgpPlugin = PluginManagerCore.getPlugin(pluginId)
-            if (cgpPlugin == null) {
-                log.info("CodeGlance Pro not found via PluginManagerCore (id=$pluginId)")
-                return
-            }
-            val cgpClassLoader =
-                cgpPlugin.pluginClassLoader
-                    ?: error("CodeGlance Pro classloader not available")
+            val cgpPlugin = PluginManagerCore.getPlugin(pluginId) ?: return
+            val cgpClassLoader = cgpPlugin.pluginClassLoader ?: return
 
             val serviceClass =
                 Class.forName(
@@ -267,27 +269,46 @@ object AccentApplicator {
                     cgpClassLoader,
                 )
 
-            val service =
-                ApplicationManager.getApplication().getService(serviceClass)
-                    ?: error("CodeGlanceConfigService not registered")
+            val service = ApplicationManager.getApplication().getService(serviceClass) ?: return
 
-            val config = service.javaClass.getMethod("getState").invoke(service)
+            cgpService = service
+            cgpGetState = service.javaClass.getMethod("getState")
 
-            config.javaClass
-                .getMethod("setViewportColor", String::class.java)
-                .invoke(config, hexWithoutHash)
-            config.javaClass
-                .getMethod("setViewportBorderColor", String::class.java)
-                .invoke(config, hexWithoutHash)
-            config.javaClass
-                .getMethod("setViewportBorderThickness", Int::class.java)
-                .invoke(config, 1)
+            // Resolve config methods from the state object's class
+            val config = cgpGetState!!.invoke(service) ?: return
+            val configClass = config.javaClass
+            cgpSetViewportColor = configClass.getMethod("setViewportColor", String::class.java)
+            cgpSetViewportBorderColor = configClass.getMethod("setViewportBorderColor", String::class.java)
+            cgpSetViewportBorderThickness = configClass.getMethod("setViewportBorderThickness", Int::class.java)
+        } catch (exception: ReflectiveOperationException) {
+            log.warn("CodeGlance Pro method resolution failed: ${exception.javaClass.simpleName}: ${exception.message}")
+        } catch (exception: RuntimeException) {
+            log.warn("CodeGlance Pro method resolution failed: ${exception.javaClass.simpleName}: ${exception.message}")
+        }
+    }
+
+    private fun syncCodeGlanceProViewport(accentHex: String) {
+        if (!AyuIslandsSettings.getInstance().state.cgpIntegrationEnabled) return
+
+        resolveCgpMethods()
+
+        val service = cgpService ?: return
+        val getState = cgpGetState ?: return
+        val setColor = cgpSetViewportColor ?: return
+        val setBorderColor = cgpSetViewportBorderColor ?: return
+        val setBorderThickness = cgpSetViewportBorderThickness ?: return
+
+        try {
+            val hexWithoutHash = accentHex.removePrefix("#")
+            val config = getState.invoke(service) ?: return
+
+            setColor.invoke(config, hexWithoutHash)
+            setBorderColor.invoke(config, hexWithoutHash)
+            setBorderThickness.invoke(config, 1)
 
             // Repaint GlancePanel components without dispose+recreate
-            SwingUtilities.invokeLater {
-                for (window in Window.getWindows()) {
-                    repaintCodeGlancePanels(window)
-                }
+            for (window in Window.getWindows()) {
+                repaintCodeGlancePanels(window)
             }
 
             log.info("CodeGlance Pro viewport color synced to $hexWithoutHash")
