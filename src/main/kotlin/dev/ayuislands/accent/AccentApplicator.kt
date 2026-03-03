@@ -125,7 +125,8 @@ object AccentApplicator {
 
                 syncCodeGlanceProViewport(accentHex)
                 applyAlwaysOnEditorKeys(accent)
-                repaintAllWindows()
+                val windows = Window.getWindows()
+                repaintAllWindows(windows)
             }
 
         if (SwingUtilities.isEventDispatchThread()) {
@@ -161,7 +162,8 @@ object AccentApplicator {
                 }
 
                 revertAlwaysOnEditorKeys()
-                repaintAllWindows()
+                val windows = Window.getWindows()
+                repaintAllWindows(windows)
             }
 
         if (SwingUtilities.isEventDispatchThread()) {
@@ -250,8 +252,8 @@ object AccentApplicator {
             .globalSchemeChange(null)
     }
 
-    private fun repaintAllWindows() {
-        for (window in Window.getWindows()) {
+    private fun repaintAllWindows(windows: Array<Window>) {
+        for (window in windows) {
             window.repaint()
         }
     }
@@ -309,11 +311,7 @@ object AccentApplicator {
             setBorderColor.invoke(config, hexWithoutHash)
             setBorderThickness.invoke(config, 1)
 
-            // Repaint GlancePanel components without dispose+recreate
-            for (window in Window.getWindows()) {
-                repaintCodeGlancePanels(window)
-            }
-
+            // CGP panels repaint via globalSchemeChange notification (no manual walk needed)
             log.info("CodeGlance Pro viewport color synced to $hexWithoutHash")
         } catch (exception: java.lang.reflect.InvocationTargetException) {
             val cause = exception.cause
@@ -322,17 +320,6 @@ object AccentApplicator {
             log.warn("CodeGlance Pro sync failed: ${exception.javaClass.simpleName}: ${exception.message}")
         } catch (exception: RuntimeException) {
             log.warn("CodeGlance Pro sync failed: ${exception.javaClass.simpleName}: ${exception.message}")
-        }
-    }
-
-    private fun repaintCodeGlancePanels(container: java.awt.Container) {
-        for (component in container.components) {
-            if (component.javaClass.name.contains("GlancePanel")) {
-                component.repaint()
-            }
-            if (component is java.awt.Container) {
-                repaintCodeGlancePanels(component)
-            }
         }
     }
 }

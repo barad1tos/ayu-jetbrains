@@ -465,7 +465,10 @@ class GlowOverlayManager(
         animator =
             GlowAnimator().also { anim ->
                 Disposer.register(this, anim)
-                anim.start(animation) { alpha ->
+                anim.start(
+                    animation,
+                    isVisible = { glassPane.isShowing },
+                ) { alpha ->
                     glassPane.animationAlpha = alpha
                 }
             }

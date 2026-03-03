@@ -52,6 +52,7 @@ class GlowAnimator : Disposable {
 
     fun start(
         animation: GlowAnimation,
+        isVisible: () -> Boolean = { true },
         callback: (alpha: Float) -> Unit,
     ) {
         stop()
@@ -67,6 +68,7 @@ class GlowAnimator : Disposable {
 
         timer =
             Timer(FRAME_INTERVAL_MS) {
+                if (!isVisible()) return@Timer
                 if (!shouldContinueAnimation(System.nanoTime())) return@Timer
 
                 val alpha = calculateAlpha(animation)
