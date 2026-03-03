@@ -4,7 +4,6 @@ on:
   push:
     branches: [main, dev]
     paths-ignore:
-      - '.github/**'
       - '**/*.md'
       - 'LICENSE'
       - '.gitignore'
@@ -12,11 +11,11 @@ on:
   pull_request:
     branches: [main]
     paths-ignore:
-      - '.github/**'
       - '**/*.md'
       - 'LICENSE'
       - '.gitignore'
       - '.sourcery.yaml'
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -53,6 +52,12 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@v5
+        with:
+          # 12 IDE downloads produce ~14GB transforms,
+          # exceeding GitHub Actions 10GB cache limit
+          gradle-home-cache-excludes: |
+            caches/transforms-*
+            caches/modules-*/files-*
       # Verifies against 12 IDE targets:
       # IC-2025.1, IC-2025.2.3, IU-2025.3.3,
       # PS/WS/CL-2025.3.3, RR/GO/PY/DB/RD/RM-2025.1.3
