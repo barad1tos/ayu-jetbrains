@@ -188,8 +188,10 @@ object LicenseChecker {
     private const val STAMP_CERT_INDEX = 4
     private const val STAMP_INTERMEDIATE_START_INDEX = 5
 
-    /** Dev mode enabled via -Dayu.islands.dev=true system property (set by runIde task). */
-    private fun isDevBuild(): Boolean = System.getProperty("ayu.islands.dev") == "true"
+    /** Dev mode: system property (runIde) or classpath marker (installed from source). */
+    private fun isDevBuild(): Boolean =
+        System.getProperty("ayu.islands.dev") == "true" ||
+            LicenseChecker::class.java.getResource("/META-INF/ayu-dev-mode") != null
 
     // Cryptographic verification adapted from marketplace-makemecoffee-plugin (Apache 2.0).
     // Manual RSA verification is required per JetBrains docs — LicensingFacade does not verify stamps.

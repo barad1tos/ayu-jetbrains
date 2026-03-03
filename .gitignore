@@ -8,3 +8,4 @@ build/
 out/
 local.properties
 samples/
+src/main/resources/META-INF/ayu-dev-mode
