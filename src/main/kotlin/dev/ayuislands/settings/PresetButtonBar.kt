@@ -83,6 +83,12 @@ class PresetButtonBar(
         buttons[selectedPreset]?.isSelected = true
     }
 
+    override fun removeNotify() {
+        dismissCard()
+        cancelHoverTimer()
+        super.removeNotify()
+    }
+
     fun setAllEnabled(enabled: Boolean) {
         for (button in buttons.values) {
             button.isEnabled = enabled
