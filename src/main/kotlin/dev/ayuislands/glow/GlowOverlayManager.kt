@@ -71,14 +71,8 @@ class GlowOverlayManager(
         private const val EDITOR_ID = "Editor"
         private const val HOST_SEARCH_MAX_DEPTH = 6
         private const val DEFAULT_ACCENT_HEX = "#FFCC66"
-        private val instances = mutableMapOf<Project, GlowOverlayManager>()
 
-        fun getInstance(project: Project): GlowOverlayManager =
-            instances.getOrPut(project) {
-                GlowOverlayManager(project).also {
-                    Disposer.register(project, it)
-                }
-            }
+        fun getInstance(project: Project): GlowOverlayManager = project.getService(GlowOverlayManager::class.java)
     }
 
     private data class OverlayEntry(
@@ -136,7 +130,7 @@ class GlowOverlayManager(
             },
         )
 
-        // Attach to already-visible tool windows + editor
+        // Attach to already-visible tool windows + editor (single EDT dispatch)
         SwingUtilities.invokeLater {
             val manager = ToolWindowManager.getInstance(project)
             for (id in manager.toolWindowIdSet) {
@@ -146,15 +140,8 @@ class GlowOverlayManager(
                 }
             }
             attachEditorOverlayIfNeeded()
-
-            // Install global focus tracker
             installFocusTracker()
-
-            // Activate a glow on the focused area
             refreshActiveGlow()
-        }
-
-        SwingUtilities.invokeLater {
             initializeTabGlow()
             initializeFocusRingGlow()
         }
@@ -163,8 +150,10 @@ class GlowOverlayManager(
     }
 
     private fun installFocusTracker() {
+        if (disposed) return
         focusChangeListener =
             PropertyChangeListener {
+                if (disposed) return@PropertyChangeListener
                 SwingUtilities.invokeLater {
                     if (!disposed) refreshActiveGlow()
                 }
@@ -301,6 +290,16 @@ class GlowOverlayManager(
             val listener = GlowFocusBorder.createFocusListener(accent, style, intensity)
             component.addFocusListener(listener)
             focusListeners[component] = listener
+
+            // Auto-remove focus listener when component becomes undisplayable
+            component.addHierarchyListener { event ->
+                val displayabilityChanged =
+                    (event.changeFlags and HierarchyEvent.DISPLAYABILITY_CHANGED.toLong()) != 0L
+                if (displayabilityChanged && !component.isDisplayable) {
+                    component.removeFocusListener(listener)
+                    focusListeners.remove(component)
+                }
+            }
         }
         if (component is Container) {
             for (child in component.components) {
@@ -461,10 +460,11 @@ class GlowOverlayManager(
             return
         }
 
-        // Stop any previous animator
-        animator?.stop()
+        // Dispose any previous animator (not just stop — unregisters from Disposer)
+        animator?.let { Disposer.dispose(it) }
         animator =
             GlowAnimator().also { anim ->
+                Disposer.register(this, anim)
                 anim.start(animation) { alpha ->
                     glassPane.animationAlpha = alpha
                 }
@@ -472,7 +472,7 @@ class GlowOverlayManager(
     }
 
     private fun stopAnimation(glassPane: GlowGlassPane) {
-        animator?.stop()
+        animator?.let { Disposer.dispose(it) }
         animator = null
         glassPane.animationAlpha = 1.0f
     }
@@ -517,8 +517,13 @@ class GlowOverlayManager(
         }
         tabGlowLayer?.repaint()
 
-        if (!state.glowFocusRing) {
-            removeFocusListeners()
+        // Reinstall focus listeners with updated accent color (or remove if disabled)
+        removeFocusListeners()
+        if (state.glowFocusRing) {
+            val intensity = state.getIntensityForStyle(style)
+            for (window in java.awt.Window.getWindows()) {
+                installFocusListenersRecursively(window, accent, style, intensity)
+            }
         }
 
         // Restart animation on the active overlay
@@ -577,7 +582,7 @@ class GlowOverlayManager(
     override fun dispose() {
         disposed = true
 
-        animator?.stop()
+        animator?.let { Disposer.dispose(it) }
         animator = null
 
         focusChangeListener?.let {
@@ -587,7 +592,8 @@ class GlowOverlayManager(
         }
         focusChangeListener = null
 
-        removeAllOverlays()
-        instances.remove(project)
+        SwingUtilities.invokeLater {
+            removeAllOverlays()
+        }
     }
 }

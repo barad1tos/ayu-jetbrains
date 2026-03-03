@@ -1,6 +1,7 @@
 package dev.ayuislands
 
 import com.intellij.ide.ui.LafManager
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
@@ -10,7 +11,6 @@ import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
-import javax.swing.SwingUtilities
 
 internal class AyuIslandsStartupActivity : ProjectActivity {
     @Suppress("UnstableApiUsage")
@@ -36,12 +36,13 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         checkLicenseState(project, variant, settings)
 
         // Initialize the glow overlay system if the glow is enabled
-        // Wrapped in invokeLater because execute() runs on a background coroutine
-        // and glow overlay work (JLayer, ToolWindowManager) is EDT-only
+        // Uses ApplicationManager.invokeLater with project.disposed condition to skip
+        // if the project closes before the EDT processes this (execute() runs on a background coroutine)
         if (settings.state.glowEnabled) {
-            SwingUtilities.invokeLater {
-                GlowOverlayManager.getInstance(project).initialize()
-            }
+            ApplicationManager.getApplication().invokeLater(
+                { GlowOverlayManager.getInstance(project).initialize() },
+                project.disposed,
+            )
         }
     }
 

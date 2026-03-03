@@ -44,6 +44,11 @@ class GlowGlassPane(
         isOpaque = false
     }
 
+    override fun removeNotify() {
+        stopAnimation()
+        super.removeNotify()
+    }
+
     override fun contains(
         x: Int,
         y: Int,
