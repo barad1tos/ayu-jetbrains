@@ -61,13 +61,14 @@ jobs:
           done
       - name: Check for large files (>500KB)
         run: |
-          find . -not -path '*/build/*' -not -path '*/.gradle/*' \
-            -not -path '*/.git/*' -type f -size +500k \
-            -not -name '*.jar' -not -name '*.zip' | \
-          while read f; do
+          found=0
+          while IFS= read -r f; do
             echo "::error::Large file detected: $f ($(du -h "$f" | cut -f1))"
-            exit 1
-          done || true
+            found=1
+          done < <(find . -not -path '*/build/*' -not -path '*/.gradle/*' \
+            -not -path '*/.git/*' -type f -size +500k \
+            -not -name '*.jar' -not -name '*.zip')
+          if [ "$found" -eq 1 ]; then exit 1; fi
       - name: Check for merge conflict markers
         run: |
           ! git grep -rIl '<<<<<<<\|>>>>>>>' -- \

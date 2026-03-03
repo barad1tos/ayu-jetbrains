@@ -85,13 +85,6 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
     fun buildGlowPanel(panel: Panel) {
         if (!stateLoaded) {
             val state = AyuIslandsSettings.getInstance().state
-            if (state.glowPreset == null) {
-                val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
-                val intensity = state.getIntensityForStyle(style)
-                val width = state.getWidthForStyle(style)
-                val animation = GlowAnimation.fromName(state.glowAnimation ?: GlowAnimation.NONE.name)
-                state.glowPreset = GlowPreset.detect(style, intensity, width, animation).name
-            }
             loadStateIntoPending(state)
             copyPendingToStored()
             stateLoaded = true
@@ -491,8 +484,16 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
 
     private fun loadStateIntoPending(state: AyuIslandsState) {
         pendingGlowEnabled = state.glowEnabled
-        pendingPreset = GlowPreset.fromName(state.glowPreset ?: GlowPreset.WHISPER.name)
         pendingStyle = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
+        pendingPreset =
+            if (state.glowPreset != null) {
+                GlowPreset.fromName(state.glowPreset!!)
+            } else {
+                val intensity = state.getIntensityForStyle(pendingStyle)
+                val width = state.getWidthForStyle(pendingStyle)
+                val animation = GlowAnimation.fromName(state.glowAnimation ?: GlowAnimation.NONE.name)
+                GlowPreset.detect(pendingStyle, intensity, width, animation)
+            }
         pendingAnimation = GlowAnimation.fromName(state.glowAnimation ?: GlowAnimation.NONE.name)
 
         pendingIntensity.clear()
