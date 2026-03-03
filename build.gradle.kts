@@ -9,7 +9,7 @@ buildscript {
 
 plugins {
     id("org.jetbrains.intellij.platform") version "2.10.5"
-    kotlin("jvm") version "2.1.10"
+    kotlin("jvm") version "2.3.10"
 }
 
 group = providers.gradleProperty("pluginGroup").get()
