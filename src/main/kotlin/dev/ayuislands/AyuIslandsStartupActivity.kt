@@ -59,6 +59,12 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
             settings.state.trialExpiredNotified = false
         }
 
+        // One-time: enable all Pro features when license first activates
+        if (licenseState != false && !settings.state.proDefaultsApplied) {
+            LicenseChecker.enableProDefaults()
+            LOG.info("Ayu Islands Pro defaults enabled (first-time license activation)")
+        }
+
         // null = facade not initialized (grace period, treat as licensed)
         // true = licensed or trial active
         // false = not licensed (trial expired or never purchased)

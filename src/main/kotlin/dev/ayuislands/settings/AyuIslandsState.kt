@@ -11,6 +11,7 @@ class AyuIslandsState : BaseState() {
     var darkAccent by string("#E6B450")
     var lightAccent by string("#F29718")
     var trialExpiredNotified by property(false)
+    var proDefaultsApplied by property(false)
 
     // Per-element accent toggles (all ON by default)
     var tabUnderlines by property(true)

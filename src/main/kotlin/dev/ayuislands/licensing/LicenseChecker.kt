@@ -163,6 +163,21 @@ object LicenseChecker {
             ).notify(project)
     }
 
+    /** Enable all Pro features on first license activation (one-time). */
+    fun enableProDefaults() {
+        val state = AyuIslandsSettings.getInstance().state
+        state.glowEnabled = true
+        state.glowEditor = true
+        state.glowProject = true
+        state.glowTerminal = true
+        state.glowRun = true
+        state.glowDebug = true
+        state.glowGit = true
+        state.glowServices = true
+        state.glowFocusRing = true
+        state.proDefaultsApplied = true
+    }
+
     /** Revert paid features to free defaults for the given variant. */
     fun revertToFreeDefaults(variant: AyuVariant) {
         try {
