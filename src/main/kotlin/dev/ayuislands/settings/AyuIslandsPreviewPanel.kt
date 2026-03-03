@@ -54,8 +54,6 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
     }
 
     fun createComponent(variant: AyuVariant): JComponent {
-        previewAccentHex = variant.defaultAccent
-
         val mockup = AccentPreviewComponent(variant)
         mockupComponent = mockup
 
