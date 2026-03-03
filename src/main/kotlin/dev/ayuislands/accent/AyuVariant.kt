@@ -10,11 +10,11 @@ enum class AyuVariant(
 ) {
     MIRAGE("#FFCC66", "#445066", "Darcula", setOf("Ayu Islands Mirage", "Ayu Islands Mirage (Islands UI)")),
     DARK("#E6B450", "#2C3342", "Darcula", setOf("Ayu Islands Dark", "Ayu Islands Dark (Islands UI)")),
-    LIGHT("#F29718", "#CCC8B8", "Default", setOf("Ayu Islands Light", "Ayu Islands Light (Islands UI)"));
+    LIGHT("#F29718", "#CCC8B8", "Default", setOf("Ayu Islands Light", "Ayu Islands Light (Islands UI)")),
+    ;
 
     companion object {
-        fun fromThemeName(name: String): AyuVariant? =
-            entries.firstOrNull { name in it.themeNames }
+        fun fromThemeName(name: String): AyuVariant? = entries.firstOrNull { name in it.themeNames }
 
         @Suppress("UnstableApiUsage")
         fun detect(): AyuVariant? {

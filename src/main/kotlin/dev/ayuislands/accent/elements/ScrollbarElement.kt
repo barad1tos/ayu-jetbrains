@@ -8,31 +8,32 @@ import java.awt.Color
 import javax.swing.UIManager
 
 class ScrollbarElement : AccentElement {
-
     override val id = AccentElementId.SCROLLBAR
     override val displayName = "Scrollbar"
 
-    private val hoverKeys = listOf(
-        "ScrollBar.hoverThumbBorderColor",
-        "ScrollBar.hoverThumbColor",
-        "ScrollBar.Transparent.hoverThumbBorderColor",
-        "ScrollBar.Transparent.hoverThumbColor",
-        "ScrollBar.Mac.hoverThumbBorderColor",
-        "ScrollBar.Mac.hoverThumbColor",
-        "ScrollBar.Mac.Transparent.hoverThumbBorderColor",
-        "ScrollBar.Mac.Transparent.hoverThumbColor",
-    )
+    private val hoverKeys =
+        listOf(
+            "ScrollBar.hoverThumbBorderColor",
+            "ScrollBar.hoverThumbColor",
+            "ScrollBar.Transparent.hoverThumbBorderColor",
+            "ScrollBar.Transparent.hoverThumbColor",
+            "ScrollBar.Mac.hoverThumbBorderColor",
+            "ScrollBar.Mac.hoverThumbColor",
+            "ScrollBar.Mac.Transparent.hoverThumbBorderColor",
+            "ScrollBar.Mac.Transparent.hoverThumbColor",
+        )
 
-    private val defaultKeys = listOf(
-        "ScrollBar.thumbBorderColor",
-        "ScrollBar.thumbColor",
-        "ScrollBar.Transparent.thumbBorderColor",
-        "ScrollBar.Transparent.thumbColor",
-        "ScrollBar.Mac.thumbBorderColor",
-        "ScrollBar.Mac.thumbColor",
-        "ScrollBar.Mac.Transparent.thumbBorderColor",
-        "ScrollBar.Mac.Transparent.thumbColor",
-    )
+    private val defaultKeys =
+        listOf(
+            "ScrollBar.thumbBorderColor",
+            "ScrollBar.thumbColor",
+            "ScrollBar.Transparent.thumbBorderColor",
+            "ScrollBar.Transparent.thumbColor",
+            "ScrollBar.Mac.thumbBorderColor",
+            "ScrollBar.Mac.thumbColor",
+            "ScrollBar.Mac.Transparent.thumbBorderColor",
+            "ScrollBar.Mac.Transparent.thumbColor",
+        )
 
     private companion object {
         const val HOVER_ALPHA = 0x8C

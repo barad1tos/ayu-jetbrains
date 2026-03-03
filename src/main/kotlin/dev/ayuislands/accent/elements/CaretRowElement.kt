@@ -9,7 +9,6 @@ import java.awt.Color
 import javax.swing.SwingUtilities
 
 class CaretRowElement : AccentElement {
-
     override val id = AccentElementId.CARET_ROW
     override val displayName = "Caret Row"
 
@@ -18,13 +17,14 @@ class CaretRowElement : AccentElement {
     private val lineNumberKey = ColorKey.find("LINE_NUMBER_ON_CARET_ROW_COLOR")
 
     override fun apply(color: Color) {
-        val caretRowColor = Color(color.red, color.green, color.blue, 0x1A)
-        val edtWork = Runnable {
-            val scheme = EditorColorsManager.getInstance().globalScheme
-            scheme.setColor(caretRowKey, caretRowColor)
-            scheme.setColor(caretKey, color)
-            scheme.setColor(lineNumberKey, color)
-        }
+        val caretRowColor = Color(color.red, color.green, color.blue, CARET_ROW_ALPHA)
+        val edtWork =
+            Runnable {
+                val scheme = EditorColorsManager.getInstance().globalScheme
+                scheme.setColor(caretRowKey, caretRowColor)
+                scheme.setColor(caretKey, color)
+                scheme.setColor(lineNumberKey, color)
+            }
         if (SwingUtilities.isEventDispatchThread()) {
             edtWork.run()
         } else {
@@ -33,13 +33,14 @@ class CaretRowElement : AccentElement {
     }
 
     override fun applyNeutral(variant: AyuVariant) {
-        val edtWork = Runnable {
-            val parentScheme = EditorColorsManager.getInstance().getScheme(variant.parentSchemeName)
-            val scheme = EditorColorsManager.getInstance().globalScheme
-            for (colorKey in listOf(caretRowKey, caretKey, lineNumberKey)) {
-                scheme.setColor(colorKey, parentScheme?.getColor(colorKey))
+        val edtWork =
+            Runnable {
+                val parentScheme = EditorColorsManager.getInstance().getScheme(variant.parentSchemeName)
+                val scheme = EditorColorsManager.getInstance().globalScheme
+                for (colorKey in listOf(caretRowKey, caretKey, lineNumberKey)) {
+                    scheme.setColor(colorKey, parentScheme?.getColor(colorKey))
+                }
             }
-        }
         if (SwingUtilities.isEventDispatchThread()) {
             edtWork.run()
         } else {
@@ -47,13 +48,18 @@ class CaretRowElement : AccentElement {
         }
     }
 
+    companion object {
+        private const val CARET_ROW_ALPHA = 0x1A
+    }
+
     override fun revert() {
-        val edtWork = Runnable {
-            val scheme = EditorColorsManager.getInstance().globalScheme
-            scheme.setColor(caretRowKey, null)
-            scheme.setColor(caretKey, null)
-            scheme.setColor(lineNumberKey, null)
-        }
+        val edtWork =
+            Runnable {
+                val scheme = EditorColorsManager.getInstance().globalScheme
+                scheme.setColor(caretRowKey, null)
+                scheme.setColor(caretKey, null)
+                scheme.setColor(lineNumberKey, null)
+            }
         if (SwingUtilities.isEventDispatchThread()) {
             edtWork.run()
         } else {

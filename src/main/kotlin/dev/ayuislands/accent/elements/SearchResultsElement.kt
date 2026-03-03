@@ -6,20 +6,28 @@ import java.awt.Color
 import javax.swing.UIManager
 
 class SearchResultsElement : AccentElement {
-
     override val id = AccentElementId.SEARCH_RESULTS
     override val displayName = "Search Results"
 
-    private data class SelectionKey(val key: String, val alpha: Int)
-
-    private val selectionKeys = listOf(
-        SelectionKey("List.selectionBackground", 0x26),
-        SelectionKey("List.selectionInactiveBackground", 0x1A),
-        SelectionKey("Tree.selectionBackground", 0x26),
-        SelectionKey("Tree.selectionInactiveBackground", 0x1A),
-        SelectionKey("Table.selectionBackground", 0x26),
-        SelectionKey("Table.selectionInactiveBackground", 0x1A),
+    private data class SelectionKey(
+        val key: String,
+        val alpha: Int,
     )
+
+    private val selectionKeys =
+        listOf(
+            SelectionKey("List.selectionBackground", ACTIVE_ALPHA),
+            SelectionKey("List.selectionInactiveBackground", INACTIVE_ALPHA),
+            SelectionKey("Tree.selectionBackground", ACTIVE_ALPHA),
+            SelectionKey("Tree.selectionInactiveBackground", INACTIVE_ALPHA),
+            SelectionKey("Table.selectionBackground", ACTIVE_ALPHA),
+            SelectionKey("Table.selectionInactiveBackground", INACTIVE_ALPHA),
+        )
+
+    companion object {
+        private const val ACTIVE_ALPHA = 0x26
+        private const val INACTIVE_ALPHA = 0x1A
+    }
 
     override fun apply(color: Color) {
         for (selection in selectionKeys) {

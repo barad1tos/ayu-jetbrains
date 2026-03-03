@@ -12,24 +12,24 @@ data class ConflictEntry(
 )
 
 object ConflictRegistry {
+    private val entries =
+        listOf(
+            ConflictEntry(
+                pluginDisplayName = "Atom Material Icons",
+                detectionClassName = "com.mallowigi.config.AtomSettingsConfigurable",
+                affectedElements = setOf(AccentElementId.CHECKBOXES),
+                type = ConflictType.BLOCK,
+            ),
+            ConflictEntry(
+                pluginDisplayName = "CodeGlance Pro",
+                detectionClassName = "com.nasller.codeglance.config.CodeGlanceConfigService",
+                affectedElements = emptySet(),
+                type = ConflictType.INTEGRATE,
+            ),
+        )
 
-    private val entries = listOf(
-        ConflictEntry(
-            pluginDisplayName = "Atom Material Icons",
-            detectionClassName = "com.mallowigi.config.AtomSettingsConfigurable",
-            affectedElements = setOf(AccentElementId.CHECKBOXES),
-            type = ConflictType.BLOCK,
-        ),
-        ConflictEntry(
-            pluginDisplayName = "CodeGlance Pro",
-            detectionClassName = "com.nasller.codeglance.config.CodeGlanceConfigService",
-            affectedElements = emptySet(),
-            type = ConflictType.INTEGRATE,
-        ),
-    )
-
-    fun detectConflicts(): List<ConflictEntry> {
-        return entries.filter { entry ->
+    fun detectConflicts(): List<ConflictEntry> =
+        entries.filter { entry ->
             try {
                 Class.forName(entry.detectionClassName)
                 true
@@ -37,17 +37,10 @@ object ConflictRegistry {
                 false
             }
         }
-    }
 
-    fun hasConflict(elementId: AccentElementId): Boolean {
-        return detectConflicts().any { elementId in it.affectedElements }
-    }
+    fun getConflictFor(elementId: AccentElementId): ConflictEntry? =
+        detectConflicts()
+            .firstOrNull { elementId in it.affectedElements }
 
-    fun getConflictFor(elementId: AccentElementId): ConflictEntry? {
-        return detectConflicts().firstOrNull { elementId in it.affectedElements }
-    }
-
-    fun isCodeGlanceProDetected(): Boolean {
-        return detectConflicts().any { it.type == ConflictType.INTEGRATE }
-    }
+    fun isCodeGlanceProDetected(): Boolean = detectConflicts().any { it.type == ConflictType.INTEGRATE }
 }

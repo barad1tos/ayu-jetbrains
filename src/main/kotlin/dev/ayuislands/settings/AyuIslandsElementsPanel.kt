@@ -129,7 +129,10 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
         buildIntegrationsGroup(panel, licensed)
     }
 
-    private fun buildIntegrationsGroup(panel: Panel, licensed: Boolean) {
+    private fun buildIntegrationsGroup(
+        panel: Panel,
+        licensed: Boolean,
+    ) {
         if (!ConflictRegistry.isCodeGlanceProDetected()) return
         panel.group("Integrations") {
             row {
@@ -196,7 +199,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
                 icon(AllIcons.General.Warning).applyToComponent {
                     toolTipText =
                         "${conflict.pluginDisplayName} overrides this element." +
-                            " Enabling may not have visible effect."
+                        " Enabling may not have visible effect."
                 }
             }
         }

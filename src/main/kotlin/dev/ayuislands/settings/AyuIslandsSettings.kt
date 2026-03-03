@@ -10,13 +10,14 @@ import dev.ayuislands.accent.AyuVariant
 @Service
 @State(
     name = "AyuIslandsSettings",
-    storages = [Storage("ayuIslands.xml")]
+    storages = [Storage("ayuIslands.xml")],
 )
 class AyuIslandsSettings : SimplePersistentStateComponent<AyuIslandsState>(AyuIslandsState()) {
-
     companion object {
         fun getInstance(): AyuIslandsSettings =
-            ApplicationManager.getApplication().getService(AyuIslandsSettings::class.java)
+            ApplicationManager
+                .getApplication()
+                .getService(AyuIslandsSettings::class.java)
     }
 
     fun getAccentForVariant(variant: AyuVariant): String =
@@ -26,7 +27,10 @@ class AyuIslandsSettings : SimplePersistentStateComponent<AyuIslandsState>(AyuIs
             AyuVariant.LIGHT -> state.lightAccent ?: variant.defaultAccent
         }
 
-    fun setAccentForVariant(variant: AyuVariant, hex: String) {
+    fun setAccentForVariant(
+        variant: AyuVariant,
+        hex: String,
+    ) {
         when (variant) {
             AyuVariant.MIRAGE -> state.mirageAccent = hex
             AyuVariant.DARK -> state.darkAccent = hex

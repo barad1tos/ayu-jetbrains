@@ -241,25 +241,30 @@ class GlowOverlayManager(
             tabGlowComponent = jcTabs
 
             val painter = tabPainter ?: return
-            val tabLayerUI = GlowLayerUI().apply {
-                tabPainter = painter
-            }
-
-            val parent = jcTabs.parent
-            if (parent != null) {
-                val constraints = (parent.layout as? BorderLayout)?.getConstraints(jcTabs)
-                parent.remove(jcTabs)
-                val layer = JLayer(jcTabs, tabLayerUI)
-                parent.add(layer, constraints ?: BorderLayout.CENTER)
-                parent.revalidate()
-                parent.repaint()
-                tabGlowLayer = layer
-            }
+            tabGlowLayer = wrapWithGlowLayer(jcTabs, painter)
 
             log.info("Tab glow initialized: mode=$tabMode")
         } catch (exception: RuntimeException) {
             log.warn("Tab glow hookup failed: ${exception.message}")
         }
+    }
+
+    private fun wrapWithGlowLayer(
+        component: JComponent,
+        painter: GlowTabPainter,
+    ): JLayer<JComponent>? {
+        val tabLayerUI =
+            GlowLayerUI().apply {
+                tabPainter = painter
+            }
+        val parent = component.parent ?: return null
+        val constraints = (parent.layout as? BorderLayout)?.getConstraints(component)
+        parent.remove(component)
+        val layer = JLayer(component, tabLayerUI)
+        parent.add(layer, constraints ?: BorderLayout.CENTER)
+        parent.revalidate()
+        parent.repaint()
+        return layer
     }
 
     private fun initializeFocusRingGlow() {
@@ -547,7 +552,7 @@ class GlowOverlayManager(
                     parent.add(view, constraints ?: BorderLayout.CENTER)
                     parent.revalidate()
                     parent.repaint()
-                } catch (exception: Exception) {
+                } catch (exception: RuntimeException) {
                     log.warn("Failed to remove tab glow layer: ${exception.message}")
                 }
             }

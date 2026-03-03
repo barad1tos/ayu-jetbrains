@@ -121,7 +121,7 @@ class GlowAnimator : Disposable {
                 BREATHE_MIN_ALPHA + breath.toFloat() * BREATHE_RANGE
             }
             GlowAnimation.REACTIVE -> {
-                // Base alpha with boost from typing/actions (managed via boost() calls)
+                // Base alpha with reactive boost decay
                 reactiveBoost *= reactiveDecayRate
                 if (reactiveBoost < REACTIVE_THRESHOLD) reactiveBoost = 0.0f
                 (REACTIVE_BASE_ALPHA + reactiveBoost * REACTIVE_RANGE).coerceAtMost(1.0f)

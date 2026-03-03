@@ -11,11 +11,21 @@ import java.awt.image.BufferedImage
 import javax.swing.UIManager
 
 class GlowRenderer {
-
     private val log = logger<GlowRenderer>()
 
     companion object {
         const val DEFAULT_GLOW_WIDTH = 12
+
+        private const val MAX_ALPHA = 255
+        private const val PERCENTAGE_DIVISOR = 100.0
+        private const val LIGHT_THEME_ALPHA_MULTIPLIER = 1.5
+        private const val SOFT_ALPHA_DIVISOR = 3.0f
+        private const val GRADIENT_ALPHA_DIVISOR = 2.0f
+        private const val NEON_CORE_THRESHOLD = 0.3f
+        private const val NEON_BLOOM_DIVISOR = 0.7f
+        private const val NEON_BLOOM_INTENSITY = 0.6f
+        private const val FRAME_RENDER_BUDGET_MS = 16.0
+        private const val NANOS_PER_MS = 1_000_000.0
     }
 
     // Style cache (lightweight, recomputed on style/color change)
@@ -54,11 +64,16 @@ class GlowRenderer {
         val key = StyleKey(style, accentColor, intensity, glowWidth)
         if (key == styleKey) return
 
-        val baseAlpha = (intensity / 100.0 * 255).toInt().coerceIn(0, 255)
+        val baseAlpha = (intensity / PERCENTAGE_DIVISOR * MAX_ALPHA).toInt().coerceIn(0, MAX_ALPHA)
 
         val panelBackground = UIManager.getColor("Panel.background")
         val isLight = panelBackground != null && !ColorUtil.isDark(panelBackground)
-        cachedBaseAlpha = if (isLight) (baseAlpha * 1.5).toInt().coerceIn(0, 255) else baseAlpha
+        cachedBaseAlpha =
+            if (isLight) {
+                (baseAlpha * LIGHT_THEME_ALPHA_MULTIPLIER).toInt().coerceIn(0, MAX_ALPHA)
+            } else {
+                baseAlpha
+            }
         cachedColor = accentColor
         cachedStyle = style
         styleKey = key
@@ -80,17 +95,23 @@ class GlowRenderer {
     ) {
         if (bounds.width <= 0 || bounds.height <= 0) return
 
-        val fKey = FrameKey(
-            bounds.width, bounds.height, arcRadius,
-            cachedStyle, cachedColor, cachedBaseAlpha, glowWidth,
-        )
+        val fKey =
+            FrameKey(
+                bounds.width,
+                bounds.height,
+                arcRadius,
+                cachedStyle,
+                cachedColor,
+                cachedBaseAlpha,
+                glowWidth,
+            )
 
         if (fKey != frameKey || cachedFrame == null) {
             val startNanos = System.nanoTime()
             cachedFrame = renderFrame(bounds.width, bounds.height, arcRadius, glowWidth)
             frameKey = fKey
-            val elapsedMs = (System.nanoTime() - startNanos) / 1_000_000.0
-            if (elapsedMs > 16.0) {
+            val elapsedMs = (System.nanoTime() - startNanos) / NANOS_PER_MS
+            if (elapsedMs > FRAME_RENDER_BUDGET_MS) {
                 log.warn("Glow frame render took %.2fms (target: <16ms) — cached for reuse".format(elapsedMs))
             }
         }
@@ -98,7 +119,12 @@ class GlowRenderer {
         graphics.drawImage(cachedFrame, bounds.x, bounds.y, null)
     }
 
-    private fun renderFrame(width: Int, height: Int, arcRadius: Int, glowWidth: Int): BufferedImage {
+    private fun renderFrame(
+        width: Int,
+        height: Int,
+        arcRadius: Int,
+        glowWidth: Int,
+    ): BufferedImage {
         val image = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
         val g2 = image.createGraphics()
         try {
@@ -131,24 +157,23 @@ class GlowRenderer {
         return image
     }
 
-    private fun computeAlpha(progress: Float): Int {
-        return when (cachedStyle) {
+    private fun computeAlpha(progress: Float): Int =
+        when (cachedStyle) {
             GlowStyle.SOFT -> {
-                ((1.0f - progress) * cachedBaseAlpha / 3.0f).toInt().coerceIn(0, 255)
+                ((1.0f - progress) * cachedBaseAlpha / SOFT_ALPHA_DIVISOR).toInt().coerceIn(0, MAX_ALPHA)
             }
             GlowStyle.SHARP_NEON -> {
-                if (progress < 0.3f) {
+                if (progress < NEON_CORE_THRESHOLD) {
                     cachedBaseAlpha
                 } else {
-                    val bloomProgress = (progress - 0.3f) / 0.7f
-                    (cachedBaseAlpha * 0.6f * (1.0f - bloomProgress)).toInt().coerceIn(0, 255)
+                    val bloomProgress = (progress - NEON_CORE_THRESHOLD) / NEON_BLOOM_DIVISOR
+                    (cachedBaseAlpha * NEON_BLOOM_INTENSITY * (1.0f - bloomProgress)).toInt().coerceIn(0, MAX_ALPHA)
                 }
             }
             GlowStyle.GRADIENT -> {
-                ((1.0f - progress) * cachedBaseAlpha / 2.0f).toInt().coerceIn(0, 255)
+                ((1.0f - progress) * cachedBaseAlpha / GRADIENT_ALPHA_DIVISOR).toInt().coerceIn(0, MAX_ALPHA)
             }
         }
-    }
 
     fun invalidateCache() {
         styleKey = null

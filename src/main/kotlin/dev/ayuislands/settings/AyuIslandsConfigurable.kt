@@ -20,6 +20,10 @@ import javax.swing.ImageIcon
 class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
     private val log = logger<AyuIslandsConfigurable>()
 
+    private companion object {
+        const val LOGO_HEIGHT = 28
+    }
+
     private val accentPanel = AyuIslandsAccentPanel()
     private val elementsPanel = AyuIslandsElementsPanel()
     private val effectsPanel = AyuIslandsEffectsPanel()
@@ -37,12 +41,10 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                 .getPlugin(PluginId.getId("com.ayuislands.theme"))
                 ?.version ?: "unknown"
 
-        val variant = AyuVariant.detect()
-
-        if (variant == null) {
-            return panel {
+        val variant =
+            AyuVariant.detect() ?: return panel {
                 row {
-                    scaleIcon(28)?.let { icon(it) }
+                    scaleIcon()?.let { icon(it) }
                     label("v$pluginVersion")
                         .applyToComponent { font = JBUI.Fonts.smallFont() }
                 }
@@ -50,7 +52,6 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                     comment("Activate an Ayu Islands theme to configure accent colors")
                 }
             }
-        }
 
         // Wire accent color changes to elements preview
         accentPanel.onAccentChanged = { hex -> elementsPanel.updatePreviewAccent(hex) }
@@ -91,7 +92,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         return panel {
             // Header
             row {
-                scaleIcon(28)?.let { icon(it) }
+                scaleIcon()?.let { icon(it) }
                 label("v$pluginVersion")
                     .applyToComponent { font = JBUI.Fonts.smallFont() }
             }
@@ -109,10 +110,10 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         }
     }
 
-    private fun scaleIcon(height: Int): ImageIcon? {
+    private fun scaleIcon(): ImageIcon? {
         val logoUrl = AyuIslandsConfigurable::class.java.getResource("/assets/logo.png") ?: return null
         val originalIcon = ImageIcon(logoUrl)
-        val scaledHeight = JBUI.scale(height)
+        val scaledHeight = JBUI.scale(LOGO_HEIGHT)
         val scaledWidth =
             (originalIcon.iconWidth.toDouble() / originalIcon.iconHeight * scaledHeight).toInt()
         val scaledImage =

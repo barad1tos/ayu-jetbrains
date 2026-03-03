@@ -305,10 +305,18 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
                 // Annotation label when an element is highlighted
                 val target = highlightedElement
                 if (target != null) {
-                    val layout = EditorLayout(
-                        width, height, tabHeight, editorTop, editorBottom,
-                        line1Y, line2Y, line3Y, scrollbarWidth,
-                    )
+                    val layout =
+                        EditorLayout(
+                            width,
+                            height,
+                            tabHeight,
+                            editorTop,
+                            editorBottom,
+                            line1Y,
+                            line2Y,
+                            line3Y,
+                            scrollbarWidth,
+                        )
                     paintAnnotationLabel(g2, target, codeFont, accent, layout)
                 }
 
@@ -416,9 +424,11 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
 
         private fun contrastTextColor(background: Color): Color {
             val luminance =
-                (RED_LUMINANCE_WEIGHT * background.red +
-                    GREEN_LUMINANCE_WEIGHT * background.green +
-                    BLUE_LUMINANCE_WEIGHT * background.blue) / MAX_COLOR_VALUE
+                (
+                    RED_LUMINANCE_WEIGHT * background.red +
+                        GREEN_LUMINANCE_WEIGHT * background.green +
+                        BLUE_LUMINANCE_WEIGHT * background.blue
+                ) / MAX_COLOR_VALUE
             return if (luminance > LUMINANCE_THRESHOLD) {
                 Color(DARK_TEXT_RGB, DARK_TEXT_RGB, DARK_TEXT_RGB)
             } else {
@@ -442,7 +452,6 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
             val blue = (color.blue * (1 - factor)).toInt().coerceIn(0, MAX_COLOR_CHANNEL)
             return Color(red, green, blue)
         }
-
     }
 
     companion object {

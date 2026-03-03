@@ -29,14 +29,14 @@ class AyuIslandsState : BaseState() {
     var glowStyle by string(GlowStyle.SOFT.name)
 
     // Per-style intensity (0-100)
-    var softIntensity by property(40)
-    var sharpNeonIntensity by property(85)
-    var gradientIntensity by property(50)
+    var softIntensity by property(DEFAULT_SOFT_INTENSITY)
+    var sharpNeonIntensity by property(DEFAULT_SHARP_NEON_INTENSITY)
+    var gradientIntensity by property(DEFAULT_GRADIENT_INTENSITY)
 
     // Per-style width (4-32)
-    var softWidth by property(10)
-    var sharpNeonWidth by property(20)
-    var gradientWidth by property(12)
+    var softWidth by property(DEFAULT_SOFT_WIDTH)
+    var sharpNeonWidth by property(DEFAULT_SHARP_NEON_WIDTH)
+    var gradientWidth by property(DEFAULT_GRADIENT_WIDTH)
 
     // Animation
     var glowAnimation by string(GlowAnimation.NONE.name)
@@ -53,10 +53,10 @@ class AyuIslandsState : BaseState() {
     // Tab glow mode: UNDERLINE (underline only), FULL_BORDER (all sides), OFF
     var glowTabMode by string("UNDERLINE")
 
-    // Focused input focus-ring glow (subtle, less intense than island glow)
+    // Focused input focus-ring glow (subtle, less intense than an island glow)
     var glowFocusRing by property(true)
 
-    // Floating panels — controls whether floating (undocked) tool windows get glow
+    // Floating panels — controls whether floating (undocked) tool windows get the glow
     var glowFloatingPanels by property(false)
 
     // CodeGlancePro integration (opt-in, default OFF)
@@ -65,8 +65,8 @@ class AyuIslandsState : BaseState() {
     // Force overrides for conflicting elements (element ID names)
     var forceOverrides by stringSet()
 
-    fun isToggleEnabled(id: AccentElementId): Boolean {
-        return when (id) {
+    fun isToggleEnabled(id: AccentElementId): Boolean =
+        when (id) {
             AccentElementId.TAB_UNDERLINES -> tabUnderlines
             AccentElementId.CARET_ROW -> caretRow
             AccentElementId.PROGRESS_BAR -> progressBar
@@ -76,9 +76,11 @@ class AyuIslandsState : BaseState() {
             AccentElementId.SEARCH_RESULTS -> searchResults
             AccentElementId.CHECKBOXES -> checkboxes
         }
-    }
 
-    fun setToggle(id: AccentElementId, enabled: Boolean) {
+    fun setToggle(
+        id: AccentElementId,
+        enabled: Boolean,
+    ) {
         when (id) {
             AccentElementId.TAB_UNDERLINES -> tabUnderlines = enabled
             AccentElementId.CARET_ROW -> caretRow = enabled
@@ -91,13 +93,17 @@ class AyuIslandsState : BaseState() {
         }
     }
 
-    fun getIntensityForStyle(style: GlowStyle): Int = when (style) {
-        GlowStyle.SOFT -> softIntensity
-        GlowStyle.SHARP_NEON -> sharpNeonIntensity
-        GlowStyle.GRADIENT -> gradientIntensity
-    }
+    fun getIntensityForStyle(style: GlowStyle): Int =
+        when (style) {
+            GlowStyle.SOFT -> softIntensity
+            GlowStyle.SHARP_NEON -> sharpNeonIntensity
+            GlowStyle.GRADIENT -> gradientIntensity
+        }
 
-    fun setIntensityForStyle(style: GlowStyle, value: Int) {
+    fun setIntensityForStyle(
+        style: GlowStyle,
+        value: Int,
+    ) {
         when (style) {
             GlowStyle.SOFT -> softIntensity = value
             GlowStyle.SHARP_NEON -> sharpNeonIntensity = value
@@ -105,13 +111,17 @@ class AyuIslandsState : BaseState() {
         }
     }
 
-    fun getWidthForStyle(style: GlowStyle): Int = when (style) {
-        GlowStyle.SOFT -> softWidth
-        GlowStyle.SHARP_NEON -> sharpNeonWidth
-        GlowStyle.GRADIENT -> gradientWidth
-    }
+    fun getWidthForStyle(style: GlowStyle): Int =
+        when (style) {
+            GlowStyle.SOFT -> softWidth
+            GlowStyle.SHARP_NEON -> sharpNeonWidth
+            GlowStyle.GRADIENT -> gradientWidth
+        }
 
-    fun setWidthForStyle(style: GlowStyle, value: Int) {
+    fun setWidthForStyle(
+        style: GlowStyle,
+        value: Int,
+    ) {
         when (style) {
             GlowStyle.SOFT -> softWidth = value
             GlowStyle.SHARP_NEON -> sharpNeonWidth = value
@@ -119,19 +129,23 @@ class AyuIslandsState : BaseState() {
         }
     }
 
-    fun isIslandEnabled(toolWindowId: String): Boolean = when (toolWindowId) {
-        "Editor" -> glowEditor
-        "Project" -> glowProject
-        "Terminal" -> glowTerminal
-        "Run" -> glowRun
-        "Debug" -> glowDebug
-        "Git", "Version Control", "Commit" -> glowGit
-        "Services" -> glowServices
-        // Unknown tool windows inherit the global glow toggle
-        else -> glowEnabled
-    }
+    fun isIslandEnabled(toolWindowId: String): Boolean =
+        when (toolWindowId) {
+            "Editor" -> glowEditor
+            "Project" -> glowProject
+            "Terminal" -> glowTerminal
+            "Run" -> glowRun
+            "Debug" -> glowDebug
+            "Git", "Version Control", "Commit" -> glowGit
+            "Services" -> glowServices
+            // Unknown tool windows inherit the global glow toggle
+            else -> glowEnabled
+        }
 
-    fun setIslandEnabled(toolWindowId: String, enabled: Boolean) {
+    fun setIslandEnabled(
+        toolWindowId: String,
+        enabled: Boolean,
+    ) {
         when (toolWindowId) {
             "Editor" -> glowEditor = enabled
             "Project" -> glowProject = enabled
@@ -141,5 +155,14 @@ class AyuIslandsState : BaseState() {
             "Git" -> glowGit = enabled
             "Services" -> glowServices = enabled
         }
+    }
+
+    companion object {
+        private const val DEFAULT_SOFT_INTENSITY = 40
+        private const val DEFAULT_SHARP_NEON_INTENSITY = 85
+        private const val DEFAULT_GRADIENT_INTENSITY = 50
+        private const val DEFAULT_SOFT_WIDTH = 10
+        private const val DEFAULT_SHARP_NEON_WIDTH = 20
+        private const val DEFAULT_GRADIENT_WIDTH = 12
     }
 }

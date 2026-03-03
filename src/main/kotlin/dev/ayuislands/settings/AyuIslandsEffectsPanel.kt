@@ -94,7 +94,10 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         updateControlStates()
     }
 
-    private fun buildMasterToggleRow(panel: Panel, licensed: Boolean) {
+    private fun buildMasterToggleRow(
+        panel: Panel,
+        licensed: Boolean,
+    ) {
         panel.row {
             val cb = checkBox("Enable glow")
             cb.component.isSelected = pendingGlowEnabled
@@ -121,7 +124,10 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         }
     }
 
-    private fun buildStyleGroup(panel: Panel, licensed: Boolean) {
+    private fun buildStyleGroup(
+        panel: Panel,
+        licensed: Boolean,
+    ) {
         panel.group("Style") {
             row {
                 label("Style")
@@ -182,7 +188,10 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         }
     }
 
-    private fun buildAnimationRows(group: Panel, licensed: Boolean) {
+    private fun buildAnimationRows(
+        group: Panel,
+        licensed: Boolean,
+    ) {
         group.row {
             label("Animation")
             val model = DefaultComboBoxModel(GlowAnimation.entries.map { it.displayName }.toTypedArray())
@@ -208,7 +217,10 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         }
     }
 
-    private fun buildTargetsGroup(panel: Panel, licensed: Boolean) {
+    private fun buildTargetsGroup(
+        panel: Panel,
+        licensed: Boolean,
+    ) {
         panel.group("Targets") {
             row {
                 link("Enable all") {
@@ -249,7 +261,10 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         }
     }
 
-    private fun buildExtrasGroup(panel: Panel, licensed: Boolean) {
+    private fun buildExtrasGroup(
+        panel: Panel,
+        licensed: Boolean,
+    ) {
         panel.group("Extras") {
             row {
                 label("Active tab")

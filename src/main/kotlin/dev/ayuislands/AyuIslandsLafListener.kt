@@ -11,11 +11,11 @@ import dev.ayuislands.settings.AyuIslandsSettings
 
 /** Re-applies accent color on theme change. */
 class AyuIslandsLafListener : LafManagerListener {
-
     override fun lookAndFeelChanged(source: LafManager) {
         val variant = AyuVariant.detect()
         if (variant == null) {
-            // Switched away from Ayu theme -- remove glow overlays
+            // Switched away from the Ayu theme -- clean up accent overrides and glow overlays
+            AccentApplicator.revertAll()
             updateGlowForAllProjects()
             return
         }
@@ -33,7 +33,7 @@ class AyuIslandsLafListener : LafManagerListener {
         for (openProject in ProjectManager.getInstance().openProjects) {
             try {
                 GlowOverlayManager.getInstance(openProject).updateGlow()
-            } catch (exception: Exception) {
+            } catch (exception: RuntimeException) {
                 LOG.warn("Failed to update glow for project ${openProject.name}: ${exception.message}")
             }
         }

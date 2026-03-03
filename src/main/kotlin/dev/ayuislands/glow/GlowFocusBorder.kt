@@ -1,6 +1,5 @@
 package dev.ayuislands.glow
 
-import com.intellij.openapi.diagnostic.logger
 import java.awt.Color
 import java.awt.Component
 import java.awt.Graphics
@@ -20,16 +19,14 @@ class GlowFocusBorder(
     private val glowStyle: GlowStyle,
     private val baseIntensity: Int,
 ) : Border {
-
-    private val log = logger<GlowFocusBorder>()
     private val renderer = GlowRenderer()
 
     // Focus ring width is fixed at 3px (subtle)
-    private val focusRingWidth = 3
+    private val focusRingWidth = FOCUS_RING_WIDTH
 
     // Focus-ring intensity is 40% of island glow intensity
     private val focusIntensity: Int
-        get() = (baseIntensity * 0.4).toInt().coerceIn(3, 60)
+        get() = (baseIntensity * FOCUS_INTENSITY_FACTOR).toInt().coerceIn(MIN_FOCUS_INTENSITY, MAX_FOCUS_INTENSITY)
 
     override fun paintBorder(
         component: Component,
@@ -39,7 +36,7 @@ class GlowFocusBorder(
         width: Int,
         height: Int,
     ) {
-        // Paint original border first
+        // Paint the original border first
         originalBorder?.paintBorder(component, graphics, x, y, width, height)
 
         // Paint glow ring only when focused
@@ -49,7 +46,7 @@ class GlowFocusBorder(
         try {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
 
-            val arcRadius = UIManager.getInt("Component.arc").let { if (it > 0) it else 6 }
+            val arcRadius = UIManager.getInt("Component.arc").let { if (it > 0) it else DEFAULT_ARC }
             val bounds = Rectangle(x, y, width, height)
 
             renderer.ensureCache(glowColor, glowStyle, focusIntensity, focusRingWidth)
@@ -67,6 +64,12 @@ class GlowFocusBorder(
     override fun isBorderOpaque(): Boolean = false
 
     companion object {
+        private const val FOCUS_RING_WIDTH = 3
+        private const val FOCUS_INTENSITY_FACTOR = 0.4
+        private const val MIN_FOCUS_INTENSITY = 3
+        private const val MAX_FOCUS_INTENSITY = 60
+        private const val DEFAULT_ARC = 6
+
         /**
          * Creates a FocusListener that swaps the component border to a GlowFocusBorder
          * on focus gain and restores the original on focus loss.
@@ -82,9 +85,13 @@ class GlowFocusBorder(
                 override fun focusGained(event: FocusEvent) {
                     val component = event.component as? JComponent ?: return
                     originalBorder = component.border
-                    component.border = GlowFocusBorder(
-                        originalBorder, glowColor, glowStyle, baseIntensity,
-                    )
+                    component.border =
+                        GlowFocusBorder(
+                            originalBorder,
+                            glowColor,
+                            glowStyle,
+                            baseIntensity,
+                        )
                     component.repaint()
                 }
 

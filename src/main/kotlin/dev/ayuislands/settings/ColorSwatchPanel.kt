@@ -60,8 +60,12 @@ class ColorSwatchPanel(
                 g2.color = color
                 g2.fill(
                     RoundRectangle2D.Float(
-                        0f, 0f, width.toFloat(), height.toFloat(),
-                        ARC_RADIUS, ARC_RADIUS,
+                        0f,
+                        0f,
+                        width.toFloat(),
+                        height.toFloat(),
+                        ARC_RADIUS,
+                        ARC_RADIUS,
                     ),
                 )
 

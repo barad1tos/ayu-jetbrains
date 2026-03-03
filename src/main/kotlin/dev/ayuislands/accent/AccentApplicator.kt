@@ -4,11 +4,11 @@ import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.colors.ColorKey
-import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.extensions.ExtensionPointName
+import com.intellij.openapi.extensions.PluginId
 import com.intellij.ui.ColorUtil
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -18,38 +18,42 @@ import javax.swing.SwingUtilities
 import javax.swing.UIManager
 
 object AccentApplicator {
-
-    private val EP_NAME = ExtensionPointName<AccentElement>(
-        "com.ayuislands.theme.accentElement"
-    )
+    private val EP_NAME =
+        ExtensionPointName<AccentElement>(
+            "com.ayuislands.theme.accentElement",
+        )
 
     private val log = logger<AccentApplicator>()
+    private const val DARK_FOREGROUND_HEX = 0x1F2430
+    private val DARK_FOREGROUND = Color(DARK_FOREGROUND_HEX)
 
     // Always-on UIManager keys (not per-element toggleable)
-    private val ALWAYS_ON_UI_KEYS = listOf(
-        // GotItTooltip
-        "GotItTooltip.background",
-        "GotItTooltip.borderColor",
-        // Default button
-        "Button.default.startBackground",
-        "Button.default.endBackground",
-        // Focus border
-        "Component.focusedBorderColor",
-        "Component.focusColor",
-        // Drag and drop
-        "DragAndDrop.borderColor",
-        // Trial widget
-        "TrialWidget.Alert.borderColor",
-        "TrialWidget.Alert.foreground",
-        // Split editor border
-        "OnePixelDivider.background",
-    )
+    private val ALWAYS_ON_UI_KEYS =
+        listOf(
+            // GotItTooltip
+            "GotItTooltip.background",
+            "GotItTooltip.borderColor",
+            // Default button
+            "Button.default.startBackground",
+            "Button.default.endBackground",
+            // Focus border
+            "Component.focusedBorderColor",
+            "Component.focusColor",
+            // Drag and drop
+            "DragAndDrop.borderColor",
+            // Trial widget
+            "TrialWidget.Alert.borderColor",
+            "TrialWidget.Alert.foreground",
+            // Split editor border
+            "OnePixelDivider.background",
+        )
 
     // Always-on editor ColorKeys (not per-element toggleable)
-    private val ALWAYS_ON_EDITOR_COLOR_KEYS = listOf(
-        ColorKey.find("BUTTON_BACKGROUND"),
-        ColorKey.find("WARNING_FOREGROUND"),
-    )
+    private val ALWAYS_ON_EDITOR_COLOR_KEYS =
+        listOf(
+            ColorKey.find("BUTTON_BACKGROUND"),
+            ColorKey.find("WARNING_FOREGROUND"),
+        )
 
     private data class AttrOverride(
         val key: String,
@@ -59,17 +63,18 @@ object AccentApplicator {
     )
 
     // Always-on editor TextAttributesKey overrides
-    private val ALWAYS_ON_EDITOR_ATTR_OVERRIDES = listOf(
-        AttrOverride("BOOKMARKS_ATTRIBUTES", errorStripe = true),
-        AttrOverride("DEBUGGER_INLINED_VALUES_MODIFIED", foreground = true),
-        AttrOverride("LIVE_TEMPLATE_ATTRIBUTES", effectColor = true),
-        AttrOverride("LOG_INFO_OUTPUT", foreground = true),
-        AttrOverride("RUNTIME_ERROR", effectColor = true),
-        AttrOverride("SMART_COMPLETION_STATISTICAL_MATCHED_ITEM", foreground = true),
-        AttrOverride("TEXT_STYLE_WARNING", effectColor = true),
-        AttrOverride("TODO_DEFAULT_ATTRIBUTES", foreground = true),
-        AttrOverride("WARNING_ATTRIBUTES", effectColor = true, errorStripe = true),
-    )
+    private val ALWAYS_ON_EDITOR_ATTR_OVERRIDES =
+        listOf(
+            AttrOverride("BOOKMARKS_ATTRIBUTES", errorStripe = true),
+            AttrOverride("DEBUGGER_INLINED_VALUES_MODIFIED", foreground = true),
+            AttrOverride("LIVE_TEMPLATE_ATTRIBUTES", effectColor = true),
+            AttrOverride("LOG_INFO_OUTPUT", foreground = true),
+            AttrOverride("RUNTIME_ERROR", effectColor = true),
+            AttrOverride("SMART_COMPLETION_STATISTICAL_MATCHED_ITEM", foreground = true),
+            AttrOverride("TEXT_STYLE_WARNING", effectColor = true),
+            AttrOverride("TODO_DEFAULT_ATTRIBUTES", foreground = true),
+            AttrOverride("WARNING_ATTRIBUTES", effectColor = true, errorStripe = true),
+        )
 
     fun apply(accentHex: String) {
         val accent = Color.decode(accentHex)
@@ -86,18 +91,18 @@ object AccentApplicator {
                 neutralizeOrRevert(element, variant)
                 continue
             }
-            val hasConflict = ConflictRegistry.hasConflict(element.id)
+            val conflict = ConflictRegistry.getConflictFor(element.id)
             val forceOverride = element.id.name in state.forceOverrides
-            if (hasConflict && !forceOverride) {
+            if (conflict != null && !forceOverride) {
                 neutralizeOrRevert(element, variant)
                 continue
             }
-            if (hasConflict && forceOverride) {
-                log.warn("Force-overriding conflict for ${element.displayName}")
+            if (conflict != null) {
+                log.warn("Force-overriding ${conflict.pluginDisplayName} conflict for ${element.displayName}")
             }
             try {
                 element.apply(accent)
-            } catch (exception: Exception) {
+            } catch (exception: RuntimeException) {
                 log.warn("Failed to apply accent to ${element.displayName}", exception)
             }
         }
@@ -106,10 +111,11 @@ object AccentApplicator {
         syncCodeGlanceProViewport(accentHex)
 
         // EDT-only work: always-on editor keys + global scheme notification + repaint
-        val edtWork = Runnable {
-            applyAlwaysOnEditorKeys(accent)
-            repaintAllWindows()
-        }
+        val edtWork =
+            Runnable {
+                applyAlwaysOnEditorKeys(accent)
+                repaintAllWindows()
+            }
         if (SwingUtilities.isEventDispatchThread()) {
             edtWork.run()
         } else {
@@ -135,16 +141,17 @@ object AccentApplicator {
         for (element in EP_NAME.extensionList) {
             try {
                 element.revert()
-            } catch (exception: Exception) {
+            } catch (exception: RuntimeException) {
                 log.warn("Failed to revert ${element.displayName}", exception)
             }
         }
 
         // EDT-only: revert editor keys + repaint
-        val edtWork = Runnable {
-            revertAlwaysOnEditorKeys()
-            repaintAllWindows()
-        }
+        val edtWork =
+            Runnable {
+                revertAlwaysOnEditorKeys()
+                repaintAllWindows()
+            }
         if (SwingUtilities.isEventDispatchThread()) {
             edtWork.run()
         } else {
@@ -152,14 +159,17 @@ object AccentApplicator {
         }
     }
 
-    private fun neutralizeOrRevert(element: AccentElement, variant: AyuVariant?) {
+    private fun neutralizeOrRevert(
+        element: AccentElement,
+        variant: AyuVariant?,
+    ) {
         try {
             if (variant != null) {
                 element.applyNeutral(variant)
             } else {
                 element.revert()
             }
-        } catch (exception: Exception) {
+        } catch (exception: RuntimeException) {
             log.warn("Failed to neutralize ${element.displayName}", exception)
         }
     }
@@ -170,7 +180,7 @@ object AccentApplicator {
         }
 
         // Contrast foreground for accent-background elements (GotItTooltip, buttons)
-        val contrastForeground = if (ColorUtil.isDark(accent)) Color.WHITE else Color(0x1F, 0x24, 0x30)
+        val contrastForeground = if (ColorUtil.isDark(accent)) Color.WHITE else DARK_FOREGROUND
         UIManager.put("GotItTooltip.foreground", contrastForeground)
         UIManager.put("GotItTooltip.Button.foreground", contrastForeground)
         UIManager.put("GotItTooltip.Header.foreground", contrastForeground)
@@ -201,8 +211,10 @@ object AccentApplicator {
             scheme.setAttributes(attrKey, updated)
         }
 
-        // Notify editors to repaint with updated scheme
-        ApplicationManager.getApplication().messageBus
+        // Notify editors to repaint with an updated scheme
+        ApplicationManager
+            .getApplication()
+            .messageBus
             .syncPublisher(EditorColorsManager.TOPIC)
             .globalSchemeChange(null)
     }
@@ -219,7 +231,9 @@ object AccentApplicator {
             scheme.setAttributes(attrKey, null)
         }
 
-        ApplicationManager.getApplication().messageBus
+        ApplicationManager
+            .getApplication()
+            .messageBus
             .syncPublisher(EditorColorsManager.TOPIC)
             .globalSchemeChange(null)
     }
@@ -242,25 +256,31 @@ object AccentApplicator {
                 log.info("CodeGlance Pro not found via PluginManagerCore (id=$pluginId)")
                 return
             }
-            val cgpClassLoader = cgpPlugin.pluginClassLoader
-                ?: throw IllegalStateException("CodeGlance Pro classloader not available")
+            val cgpClassLoader =
+                cgpPlugin.pluginClassLoader
+                    ?: error("CodeGlance Pro classloader not available")
 
-            val serviceClass = Class.forName(
-                "com.nasller.codeglance.config.CodeGlanceConfigService",
-                true,
-                cgpClassLoader,
-            )
+            val serviceClass =
+                Class.forName(
+                    "com.nasller.codeglance.config.CodeGlanceConfigService",
+                    true,
+                    cgpClassLoader,
+                )
 
-            val service = ApplicationManager.getApplication().getService(serviceClass)
-                ?: throw IllegalStateException("CodeGlanceConfigService not registered")
+            val service =
+                ApplicationManager.getApplication().getService(serviceClass)
+                    ?: error("CodeGlanceConfigService not registered")
 
             val config = service.javaClass.getMethod("getState").invoke(service)
 
-            config.javaClass.getMethod("setViewportColor", String::class.java)
+            config.javaClass
+                .getMethod("setViewportColor", String::class.java)
                 .invoke(config, hexWithoutHash)
-            config.javaClass.getMethod("setViewportBorderColor", String::class.java)
+            config.javaClass
+                .getMethod("setViewportBorderColor", String::class.java)
                 .invoke(config, hexWithoutHash)
-            config.javaClass.getMethod("setViewportBorderThickness", Int::class.java)
+            config.javaClass
+                .getMethod("setViewportBorderThickness", Int::class.java)
                 .invoke(config, 1)
 
             // Repaint GlancePanel components without dispose+recreate
@@ -271,9 +291,13 @@ object AccentApplicator {
             }
 
             log.info("CodeGlance Pro viewport color synced to $hexWithoutHash")
-        } catch (exception: Exception) {
-            val cause = if (exception is java.lang.reflect.InvocationTargetException) exception.cause else exception
+        } catch (exception: java.lang.reflect.InvocationTargetException) {
+            val cause = exception.cause
             log.warn("CodeGlance Pro sync failed: ${cause?.javaClass?.simpleName}: ${cause?.message}")
+        } catch (exception: ReflectiveOperationException) {
+            log.warn("CodeGlance Pro sync failed: ${exception.javaClass.simpleName}: ${exception.message}")
+        } catch (exception: RuntimeException) {
+            log.warn("CodeGlance Pro sync failed: ${exception.javaClass.simpleName}: ${exception.message}")
         }
     }
 

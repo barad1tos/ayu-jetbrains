@@ -13,7 +13,6 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import javax.swing.SwingUtilities
 
 internal class AyuIslandsStartupActivity : ProjectActivity {
-
     @Suppress("UnstableApiUsage")
     override suspend fun execute(project: Project) {
         val themeName = LafManager.getInstance().currentUIThemeLookAndFeel.name
@@ -36,7 +35,7 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         // Check license state
         checkLicenseState(project, variant, settings)
 
-        // Initialize glow overlay system if glow is enabled
+        // Initialize the glow overlay system if the glow is enabled
         // Wrapped in invokeLater because execute() runs on a background coroutine
         // and glow overlay work (JLayer, ToolWindowManager) is EDT-only
         if (settings.state.glowEnabled) {
@@ -46,11 +45,15 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         }
     }
 
-    private fun checkLicenseState(project: Project, variant: AyuVariant, settings: AyuIslandsSettings) {
+    private fun checkLicenseState(
+        project: Project,
+        variant: AyuVariant,
+        settings: AyuIslandsSettings,
+    ) {
         val licenseState = LicenseChecker.isLicensed()
         LOG.info("Ayu Islands license check: ${licenseStateLabel(licenseState)}")
 
-        // Reset notification flag if license becomes valid again (user purchased)
+        // Reset the notification flag if the license becomes valid again (user purchased)
         if (licenseState == true && settings.state.trialExpiredNotified) {
             settings.state.trialExpiredNotified = false
         }
@@ -70,11 +73,12 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         }
     }
 
-    private fun licenseStateLabel(state: Boolean?): String = when (state) {
-        true -> "licensed"
-        false -> "not licensed"
-        null -> "facade not initialized (grace period)"
-    }
+    private fun licenseStateLabel(state: Boolean?): String =
+        when (state) {
+            true -> "licensed"
+            false -> "not licensed"
+            null -> "facade not initialized (grace period)"
+        }
 
     companion object {
         private val LOG = logger<AyuIslandsStartupActivity>()
