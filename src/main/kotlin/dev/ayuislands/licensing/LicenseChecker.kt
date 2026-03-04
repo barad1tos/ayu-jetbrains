@@ -1,5 +1,6 @@
 package dev.ayuislands.licensing
 
+import com.google.gson.JsonParser
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.ActionManager
@@ -10,6 +11,7 @@ import com.intellij.openapi.actionSystem.Presentation
 import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.ui.LicensingFacade
@@ -164,7 +166,7 @@ object LicenseChecker {
             ).notify(project)
     }
 
-    /** Enable all Pro features on first license activation (one-time). */
+    /** Enable all Pro features on the first license activation (one-time). */
     fun enableProDefaults() {
         val state = AyuIslandsSettings.getInstance().state
         state.glowEnabled = true
@@ -209,8 +211,12 @@ object LicenseChecker {
     private const val STAMP_CERT_INDEX = 4
     private const val STAMP_INTERMEDIATE_START_INDEX = 5
 
-    /** Dev mode: system property set by runIde task. */
-    private fun isDevBuild(): Boolean = System.getProperty("ayu.islands.dev") == "true"
+    /** Dev mode: requires BOTH system property AND Gradle sandbox environment. */
+    private fun isDevBuild(): Boolean {
+        if (System.getProperty("ayu.islands.dev") != "true") return false
+        val configPath = PathManager.getConfigPath()
+        return configPath.contains("idea-sandbox")
+    }
 
     // Cryptographic verification adapted from marketplace-makemecoffee-plugin (Apache 2.0).
     // Manual RSA verification is required per JetBrains docs — LicensingFacade does not verify stamps.
@@ -239,7 +245,8 @@ object LicenseChecker {
             if (!signature.verify(signatureBytes)) return false
 
             val licenseData = String(licenseBytes, StandardCharsets.UTF_8)
-            return licenseData.contains("\"licenseId\":\"$licenseId\"")
+            val json = JsonParser.parseString(licenseData).asJsonObject
+            return json["licenseId"]?.asString == licenseId
         } catch (exception: Exception) {
             LOG.warn("License key validation failed", exception)
             return false

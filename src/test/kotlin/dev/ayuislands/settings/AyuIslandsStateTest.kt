@@ -1,6 +1,8 @@
 package dev.ayuislands.settings
 
 import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.glow.GlowAnimation
+import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -116,5 +118,129 @@ class AyuIslandsStateTest {
             setter(false)
             assertFalse(state.isIslandEnabled(id), "$id should be disabled")
         }
+    }
+
+    // Accent defaults
+
+    @Test
+    fun `default accent colors match variant specifications`() {
+        val state = freshState()
+        assertEquals("#FFCC66", state.mirageAccent)
+        assertEquals("#E6B450", state.darkAccent)
+        assertEquals("#F29718", state.lightAccent)
+    }
+
+    @Test
+    fun `accent color round-trips per variant`() {
+        val state = freshState()
+        state.mirageAccent = "#FF0000"
+        state.darkAccent = "#00FF00"
+        state.lightAccent = "#0000FF"
+        assertEquals("#FF0000", state.mirageAccent)
+        assertEquals("#00FF00", state.darkAccent)
+        assertEquals("#0000FF", state.lightAccent)
+    }
+
+    // Glow defaults
+
+    @Test
+    fun `glow is disabled by default`() {
+        val state = freshState()
+        assertFalse(state.glowEnabled)
+    }
+
+    @Test
+    fun `glow preset defaults to WHISPER`() {
+        val state = freshState()
+        assertEquals(GlowPreset.WHISPER.name, state.glowPreset)
+    }
+
+    @Test
+    fun `glow style defaults to SOFT`() {
+        val state = freshState()
+        assertEquals(GlowStyle.SOFT.name, state.glowStyle)
+    }
+
+    @Test
+    fun `glow animation defaults to NONE`() {
+        val state = freshState()
+        assertEquals(GlowAnimation.NONE.name, state.glowAnimation)
+    }
+
+    @Test
+    fun `glow tab mode defaults to MINIMAL`() {
+        val state = freshState()
+        assertEquals("MINIMAL", state.glowTabMode)
+    }
+
+    @Test
+    fun `glowEditor is on by default, other islands are off`() {
+        val state = freshState()
+        assertTrue(state.glowEditor)
+        assertFalse(state.glowProject)
+        assertFalse(state.glowTerminal)
+        assertFalse(state.glowRun)
+        assertFalse(state.glowDebug)
+        assertFalse(state.glowGit)
+        assertFalse(state.glowServices)
+    }
+
+    @Test
+    fun `glow focus ring is on by default`() {
+        val state = freshState()
+        assertTrue(state.glowFocusRing)
+    }
+
+    @Test
+    fun `glow floating panels is off by default`() {
+        val state = freshState()
+        assertFalse(state.glowFloatingPanels)
+    }
+
+    @Test
+    fun `cgp integration is off by default`() {
+        val state = freshState()
+        assertFalse(state.cgpIntegrationEnabled)
+    }
+
+    // setIslandEnabled round-trip
+
+    @Test
+    fun `setIslandEnabled and isIslandEnabled round-trip`() {
+        val state = freshState()
+        val ids = listOf("Editor", "Project", "Terminal", "Run", "Debug", "Git", "Services")
+        for (id in ids) {
+            state.setIslandEnabled(id, true)
+            assertTrue(state.isIslandEnabled(id), "$id should be enabled after set(true)")
+            state.setIslandEnabled(id, false)
+            assertFalse(state.isIslandEnabled(id), "$id should be disabled after set(false)")
+        }
+    }
+
+    @Test
+    fun `setIslandEnabled with Git aliases maps to same property`() {
+        val state = freshState()
+        state.setIslandEnabled("Version Control", true)
+        assertTrue(state.isIslandEnabled("Git"))
+        assertTrue(state.isIslandEnabled("Commit"))
+
+        state.setIslandEnabled("Commit", false)
+        assertFalse(state.isIslandEnabled("Git"))
+        assertFalse(state.isIslandEnabled("Version Control"))
+    }
+
+    // Force overrides
+
+    @Test
+    fun `forceOverrides is empty by default`() {
+        val state = freshState()
+        assertTrue(state.forceOverrides.isEmpty())
+    }
+
+    @Test
+    fun `trial and pro defaults flags are false by default`() {
+        val state = freshState()
+        assertFalse(state.trialExpiredNotified)
+        assertFalse(state.proDefaultsApplied)
     }
 }
