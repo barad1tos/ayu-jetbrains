@@ -11,7 +11,6 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
-import dev.ayuislands.glow.GlowTabMode
 import dev.ayuislands.licensing.LicenseChecker
 import java.awt.BorderLayout
 import java.awt.Color
@@ -35,7 +34,7 @@ private data class SliderConfig(
  * Glow effects configuration rendered in a single Glow tab.
  *
  * [buildGlowPanel] renders the master toggle, preset selection, style/animation controls,
- * sliders, glow targets, tab mode, focus ring, and floating panels.
+ * sliders, and glow targets.
  * Called from [AyuIslandsConfigurable] into a single tab pane.
  */
 @Suppress("TooManyFunctions") // Settings panel with grouped UI builders
@@ -48,9 +47,6 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
     private var pendingWidth: MutableMap<GlowStyle, Int> = mutableMapOf()
     private var pendingAnimation: GlowAnimation = GlowAnimation.NONE
     private var pendingIslandToggles: MutableMap<String, Boolean> = mutableMapOf()
-    private var pendingTabMode: String = "UNDERLINE"
-    private var pendingFocusRing: Boolean = true
-    private var pendingFloatingPanels: Boolean = false
 
     // Stored state (for isModified comparison)
     private var storedGlowEnabled: Boolean = false
@@ -60,9 +56,6 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
     private var storedWidth: Map<GlowStyle, Int> = emptyMap()
     private var storedAnimation: GlowAnimation = GlowAnimation.NONE
     private var storedIslandToggles: Map<String, Boolean> = emptyMap()
-    private var storedTabMode: String = "UNDERLINE"
-    private var storedFocusRing: Boolean = true
-    private var storedFloatingPanels: Boolean = false
 
     // Observable property for Custom mode visibility
     private val customModeVisible = AtomicBooleanProperty(false)
@@ -73,13 +66,10 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
     private var widthSlider: JSlider? = null
     private var styleCombo: ComboBox<String>? = null
     private var animationCombo: ComboBox<String>? = null
-    private var tabModeCombo: ComboBox<String>? = null
     private var intensityValueLabel: JLabel? = null
     private var widthValueLabel: JLabel? = null
     private val islandCheckboxes = mutableMapOf<String, JCheckBox>()
     private var animationDescriptionLabel: JLabel? = null
-    private var focusRingCheckbox: JCheckBox? = null
-    private var floatingCheckbox: JCheckBox? = null
     private var presetSegmentedButton: SegmentedButton<GlowPreset>? = null
     private var glowPreview: GlowGroupPanel? = null
     private var glowGroupPanel: GlowGroupPanel? = null
@@ -110,7 +100,6 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         val licensed = LicenseChecker.isLicensedOrGrace()
 
         buildStyleGroup(panel, licensed)
-        buildExtrasGroup(panel, licensed)
 
         updateControlStates()
     }
@@ -402,49 +391,6 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         }
     }
 
-    private fun buildExtrasGroup(
-        panel: Panel,
-        licensed: Boolean,
-    ) {
-        panel.group("Extras") {
-            row {
-                label("Active tab")
-                val model = DefaultComboBoxModel(GlowTabMode.entries.map { it.displayName }.toTypedArray())
-                val combo = ComboBox(model)
-                combo.selectedItem = GlowTabMode.fromName(pendingTabMode).displayName
-                combo.isEnabled = licensed && pendingGlowEnabled
-                combo.addActionListener {
-                    if (!suppressListeners) {
-                        val selectedName = combo.selectedItem as? String ?: return@addActionListener
-                        pendingTabMode = GlowTabMode.entries.first { it.displayName == selectedName }.name
-                    }
-                }
-                tabModeCombo = combo
-                cell(combo)
-            }
-            row {
-                val cb = checkBox("Focused input glow ring")
-                cb.component.isSelected = pendingFocusRing
-                cb.component.isEnabled = licensed && pendingGlowEnabled
-                cb.component.addActionListener {
-                    pendingFocusRing = cb.component.isSelected
-                }
-                focusRingCheckbox = cb.component
-                cb.comment("Subtle glow around focused text fields")
-            }
-            row {
-                val cb = checkBox("Glow on floating panels")
-                cb.component.isSelected = pendingFloatingPanels
-                cb.component.isEnabled = licensed && pendingGlowEnabled
-                cb.component.addActionListener {
-                    pendingFloatingPanels = cb.component.isSelected
-                }
-                floatingCheckbox = cb.component
-                cb.comment("Apply glow to undocked/floating tool windows")
-            }
-        }
-    }
-
     private fun Row.islandCheckbox(
         islandId: String,
         licensed: Boolean,
@@ -555,10 +501,6 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
             pendingIslandToggles[id] = state.isIslandEnabled(id)
         }
 
-        pendingTabMode = state.glowTabMode ?: "UNDERLINE"
-        pendingFocusRing = state.glowFocusRing
-        pendingFloatingPanels = state.glowFloatingPanels
-
         customModeVisible.set(pendingPreset == GlowPreset.CUSTOM)
     }
 
@@ -570,9 +512,6 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         storedWidth = pendingWidth.toMap()
         storedAnimation = pendingAnimation
         storedIslandToggles = pendingIslandToggles.toMap()
-        storedTabMode = pendingTabMode
-        storedFocusRing = pendingFocusRing
-        storedFloatingPanels = pendingFloatingPanels
     }
 
     private fun resolveAccentColor(): Color {
@@ -600,11 +539,8 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
 
         intensitySlider?.isEnabled = enabled
         widthSlider?.isEnabled = enabled
-        focusRingCheckbox?.isEnabled = enabled
-        floatingCheckbox?.isEnabled = enabled
         styleCombo?.isEnabled = enabled
         animationCombo?.isEnabled = enabled
-        tabModeCombo?.isEnabled = enabled
         presetSegmentedButton?.enabled(enabled)
 
         for ((_, cb) in islandCheckboxes) {
@@ -618,12 +554,9 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         customModeVisible.set(pendingPreset == GlowPreset.CUSTOM)
         styleCombo?.selectedItem = pendingStyle.displayName
         animationCombo?.selectedItem = pendingAnimation.displayName
-        tabModeCombo?.selectedItem = GlowTabMode.fromName(pendingTabMode).displayName
         refreshSliders()
         refreshIslandCheckboxes()
         masterToggle?.isSelected = pendingGlowEnabled
-        focusRingCheckbox?.isSelected = pendingFocusRing
-        floatingCheckbox?.isSelected = pendingFloatingPanels
         updateAnimationDescription()
         suppressListeners = false
         updateControlStates()
@@ -639,10 +572,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
             pendingIntensity != storedIntensity ||
             pendingWidth != storedWidth ||
             pendingAnimation != storedAnimation ||
-            pendingIslandToggles != storedIslandToggles ||
-            pendingTabMode != storedTabMode ||
-            pendingFocusRing != storedFocusRing ||
-            pendingFloatingPanels != storedFloatingPanels
+            pendingIslandToggles != storedIslandToggles
 
     override fun apply() {
         if (!isModified()) return
@@ -669,10 +599,6 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
             state.setIslandEnabled(id, pendingIslandToggles[id] ?: false)
         }
 
-        state.glowTabMode = pendingTabMode
-        state.glowFocusRing = pendingFocusRing
-        state.glowFloatingPanels = pendingFloatingPanels
-
         copyPendingToStored()
     }
 
@@ -684,9 +610,6 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         pendingWidth = storedWidth.toMutableMap()
         pendingAnimation = storedAnimation
         pendingIslandToggles = storedIslandToggles.toMutableMap()
-        pendingTabMode = storedTabMode
-        pendingFocusRing = storedFocusRing
-        pendingFloatingPanels = storedFloatingPanels
 
         refreshAllControls()
     }

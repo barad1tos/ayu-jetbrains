@@ -15,7 +15,7 @@ class AyuIslandsState : BaseState() {
     var proDefaultsApplied by property(false)
 
     // Per-element accent toggles (all ON by default)
-    var tabUnderlines by property(true)
+    var inlayHints by property(true)
     var caretRow by property(true)
     var progressBar by property(true)
     var scrollbar by property(true)
@@ -55,8 +55,8 @@ class AyuIslandsState : BaseState() {
     var glowGit by property(false)
     var glowServices by property(false)
 
-    // Tab glow mode: UNDERLINE (underline only), FULL_BORDER (all sides), OFF
-    var glowTabMode by string("UNDERLINE")
+    // Tab glow mode: MINIMAL (underline only), FULL (underline + tinted bg), OFF
+    var glowTabMode by string("MINIMAL")
 
     // Focused input focus-ring glow (subtle, less intense than an island glow)
     var glowFocusRing by property(true)
@@ -75,7 +75,7 @@ class AyuIslandsState : BaseState() {
 
     fun isToggleEnabled(id: AccentElementId): Boolean =
         when (id) {
-            AccentElementId.TAB_UNDERLINES -> tabUnderlines
+            AccentElementId.INLAY_HINTS -> inlayHints
             AccentElementId.CARET_ROW -> caretRow
             AccentElementId.PROGRESS_BAR -> progressBar
             AccentElementId.SCROLLBAR -> scrollbar
@@ -90,7 +90,7 @@ class AyuIslandsState : BaseState() {
         enabled: Boolean,
     ) {
         when (id) {
-            AccentElementId.TAB_UNDERLINES -> tabUnderlines = enabled
+            AccentElementId.INLAY_HINTS -> inlayHints = enabled
             AccentElementId.CARET_ROW -> caretRow = enabled
             AccentElementId.PROGRESS_BAR -> progressBar = enabled
             AccentElementId.SCROLLBAR -> scrollbar = enabled

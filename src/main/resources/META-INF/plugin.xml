@@ -84,7 +84,7 @@
   </extensionPoints>
 
   <extensions defaultExtensionNs="com.ayuislands.theme">
-    <accentElement implementation="dev.ayuislands.accent.elements.TabUnderlineElement"/>
+    <accentElement implementation="dev.ayuislands.accent.elements.InlayHintsElement"/>
     <accentElement implementation="dev.ayuislands.accent.elements.CaretRowElement"/>
     <accentElement implementation="dev.ayuislands.accent.elements.ProgressBarElement"/>
     <accentElement implementation="dev.ayuislands.accent.elements.ScrollbarElement"/>

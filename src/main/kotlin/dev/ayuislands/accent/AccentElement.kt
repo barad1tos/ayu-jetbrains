@@ -8,7 +8,7 @@ enum class AccentElementId(
     val group: AccentGroup,
     val displayName: String,
 ) {
-    TAB_UNDERLINES(AccentGroup.VISUAL, "Tab underlines"),
+    INLAY_HINTS(AccentGroup.VISUAL, "Inlay hints"),
     CARET_ROW(AccentGroup.VISUAL, "Caret row"),
     PROGRESS_BAR(AccentGroup.VISUAL, "Progress bar"),
     SCROLLBAR(AccentGroup.VISUAL, "Scrollbar"),

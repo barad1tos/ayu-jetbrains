@@ -2,6 +2,7 @@ package dev.ayuislands.accent
 
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.colors.ColorKey
 import com.intellij.openapi.editor.colors.EditorColorsManager
@@ -55,6 +56,9 @@ object AccentApplicator {
             "TrialWidget.Alert.foreground",
             // Split editor border
             "OnePixelDivider.background",
+            // Tab underlines (always accent, not toggleable)
+            "ToolWindow.HeaderTab.underlineColor",
+            "TabbedPane.underlineColor",
         )
 
     // Always-on editor ColorKeys (not per-element toggleable)
@@ -226,11 +230,15 @@ object AccentApplicator {
         }
 
         // Notify editors to repaint with an updated scheme
-        ApplicationManager
-            .getApplication()
-            .messageBus
-            .syncPublisher(EditorColorsManager.TOPIC)
-            .globalSchemeChange(null)
+        // Wrapped in ReadAction because Jupyter's NotebookEditorColorsListener
+        // accesses PSI from globalSchemeChange, which requires read access.
+        ReadAction.run<RuntimeException> {
+            ApplicationManager
+                .getApplication()
+                .messageBus
+                .syncPublisher(EditorColorsManager.TOPIC)
+                .globalSchemeChange(null)
+        }
     }
 
     private fun revertAlwaysOnEditorKeys() {
@@ -245,11 +253,13 @@ object AccentApplicator {
             scheme.setAttributes(attrKey, null)
         }
 
-        ApplicationManager
-            .getApplication()
-            .messageBus
-            .syncPublisher(EditorColorsManager.TOPIC)
-            .globalSchemeChange(null)
+        ReadAction.run<RuntimeException> {
+            ApplicationManager
+                .getApplication()
+                .messageBus
+                .syncPublisher(EditorColorsManager.TOPIC)
+                .globalSchemeChange(null)
+        }
     }
 
     private fun repaintAllWindows(windows: Array<Window>) {

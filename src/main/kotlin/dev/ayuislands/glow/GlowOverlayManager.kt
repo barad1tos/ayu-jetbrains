@@ -11,11 +11,10 @@ import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ToolWindowType
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
-import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
-import java.awt.BorderLayout
+import dev.ayuislands.settings.AyuIslandsState
 import java.awt.Color
 import java.awt.Component
 import java.awt.Container
@@ -28,17 +27,17 @@ import java.awt.event.HierarchyEvent
 import java.beans.PropertyChangeListener
 import javax.swing.JComboBox
 import javax.swing.JComponent
-import javax.swing.JLayer
 import javax.swing.JLayeredPane
 import javax.swing.JTextField
 import javax.swing.SwingUtilities
+import javax.swing.UIManager
 
 /**
  * Manages glow overlays for tool windows, editor, tabs, and focus rings.
  *
  * Glow rendering uses three approaches:
  * - GlowGlassPane: overlay positioned in JLayeredPane for an island glow (tool windows, editor)
- * - GlowLayerUI: JLayer-based painting for tab glow (via tabPainter) and border glow
+ * - UIManager keys: EditorTabs underline/background colors for tab accent modes
  * - GlowFocusBorder: transient border swap on focus events for the text input glow
  *
  * GlowIslandBorder (border-based island glow) was evaluated and removed: the GlassPane approach
@@ -57,11 +56,6 @@ class GlowOverlayManager(
     @Volatile
     private var disposed = false
 
-    // Tab glow
-    private var tabPainter: GlowTabPainter? = null
-    private var tabGlowComponent: JComponent? = null
-    private var tabGlowLayer: JLayer<JComponent>? = null
-
     // Focus-ring glow
     private val focusListeners = mutableMapOf<JComponent, FocusListener>()
 
@@ -75,6 +69,9 @@ class GlowOverlayManager(
         private const val EDITOR_ID = "Editor"
         private const val HOST_SEARCH_MAX_DEPTH = 6
         private const val DEFAULT_ACCENT_HEX = "#FFCC66"
+        private const val TAB_ACCENT_BG_ALPHA = 50
+        private const val KEY_TAB_UNDERLINE = "EditorTabs.underlinedBorderColor"
+        private const val KEY_TAB_BACKGROUND = "EditorTabs.underlinedTabBackground"
 
         fun getInstance(project: Project): GlowOverlayManager = project.getService(GlowOverlayManager::class.java)
 
@@ -125,7 +122,6 @@ class GlowOverlayManager(
             attachEditorOverlayIfNeeded()
             installFocusTracker()
             refreshActiveGlow()
-            initializeTabGlow()
             initializeFocusRingGlow()
         }
 
@@ -216,78 +212,6 @@ class GlowOverlayManager(
             current = current.parent
         }
         return null
-    }
-
-    private fun findJBEditorTabs(component: Component): Component? {
-        var current: Component? = component.parent
-        while (current != null) {
-            if (current.javaClass.name.contains("JBEditorTabs")) return current
-            current = current.parent
-        }
-        return null
-    }
-
-    private fun initializeTabGlow() {
-        val state = AyuIslandsSettings.getInstance().state
-        val tabMode = GlowTabMode.fromName(state.glowTabMode ?: "UNDERLINE")
-        if (tabMode == GlowTabMode.OFF) return
-        if (!state.isToggleEnabled(AccentElementId.TAB_UNDERLINES)) return
-
-        val variant = AyuVariant.detect()
-        val settings = AyuIslandsSettings.getInstance()
-        val accentHex = if (variant != null) settings.getAccentForVariant(variant) else DEFAULT_ACCENT_HEX
-        val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
-
-        tabPainter =
-            GlowTabPainter().apply {
-                glowColor = safeDecodeColor(accentHex)
-                glowStyle = style
-                this.tabMode = tabMode
-                baseIntensity = state.getIntensityForStyle(style)
-            }
-
-        try {
-            val fileEditorManager = FileEditorManager.getInstance(project)
-            val editorComponent =
-                fileEditorManager.selectedEditor?.component ?: run {
-                    log.info("No selected editor, tab glow deferred")
-                    return
-                }
-
-            val tabsComponent = findJBEditorTabs(editorComponent)
-            if (tabsComponent == null) {
-                log.info("JBEditorTabs not found in component hierarchy, tab glow skipped")
-                return
-            }
-
-            val jcTabs = tabsComponent as JComponent
-            tabGlowComponent = jcTabs
-
-            val painter = tabPainter ?: return
-            tabGlowLayer = wrapWithGlowLayer(jcTabs, painter)
-
-            log.info("Tab glow initialized: mode=$tabMode")
-        } catch (exception: RuntimeException) {
-            log.warn("Tab glow hookup failed: ${exception.message}")
-        }
-    }
-
-    private fun wrapWithGlowLayer(
-        component: JComponent,
-        painter: GlowTabPainter,
-    ): JLayer<JComponent>? {
-        val tabLayerUI =
-            GlowLayerUI().apply {
-                tabPainter = painter
-            }
-        val parent = component.parent ?: return null
-        val constraints = (parent.layout as? BorderLayout)?.getConstraints(component)
-        parent.remove(component)
-        val layer = JLayer(component, tabLayerUI)
-        parent.add(layer, constraints ?: BorderLayout.CENTER)
-        parent.revalidate()
-        parent.repaint()
-        return layer
     }
 
     private fun initializeFocusRingGlow() {
@@ -518,16 +442,33 @@ class GlowOverlayManager(
 
         val settings = AyuIslandsSettings.getInstance()
         val state = settings.state
-        val variant = AyuVariant.detect()
-        val accentHex = if (variant != null) settings.getAccentForVariant(variant) else DEFAULT_ACCENT_HEX
-        val accent = safeDecodeColor(accentHex)
-        val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
-
         if (!state.glowEnabled) {
             removeAllOverlays()
             return
         }
 
+        val variant = AyuVariant.detect()
+        val accentHex = if (variant != null) settings.getAccentForVariant(variant) else DEFAULT_ACCENT_HEX
+        val accent = safeDecodeColor(accentHex)
+        val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
+
+        updateOverlayStyles(state, accent, style)
+        updateTabGlow(state, accent)
+        updateFocusRingGlow(state, accent, style)
+
+        val activeEntry = activeGlowId?.let { overlays[it] }
+        if (activeEntry != null) {
+            startAnimationIfConfigured(activeEntry.glassPane)
+        }
+
+        log.info("Glow overlays updated: style=$style, accent=$accentHex")
+    }
+
+    private fun updateOverlayStyles(
+        state: AyuIslandsState,
+        accent: Color,
+        style: GlowStyle,
+    ) {
         for ((_, entry) in overlays) {
             entry.glassPane.glowColor = accent
             entry.glassPane.glowStyle = style
@@ -536,24 +477,63 @@ class GlowOverlayManager(
             entry.glassPane.invalidateRendererCache()
             entry.glassPane.repaint()
         }
+    }
 
-        // Update tab painter
-        val tabMode = GlowTabMode.fromName(state.glowTabMode ?: "UNDERLINE")
-        val tabToggleEnabled = state.isToggleEnabled(AccentElementId.TAB_UNDERLINES)
-        if (tabMode != GlowTabMode.OFF && tabToggleEnabled) {
-            tabPainter?.apply {
-                glowColor = accent
-                glowStyle = style
-                this.tabMode = tabMode
-                baseIntensity = state.getIntensityForStyle(style)
-                invalidateCache()
+    private fun updateTabGlow(
+        state: AyuIslandsState,
+        accent: Color,
+    ) {
+        val tabMode = GlowTabMode.fromName(state.glowTabMode ?: "MINIMAL")
+
+        when (tabMode) {
+            GlowTabMode.MINIMAL -> {
+                // Accent underline, no background tint
+                UIManager.put(KEY_TAB_UNDERLINE, accent)
+                UIManager.put(KEY_TAB_BACKGROUND, Color(0, 0, 0, 0))
             }
-        } else {
-            tabPainter = null
+            GlowTabMode.FULL -> {
+                // Accent underline + accent background tint
+                UIManager.put(KEY_TAB_UNDERLINE, accent)
+                UIManager.put(
+                    KEY_TAB_BACKGROUND,
+                    Color(accent.red, accent.green, accent.blue, TAB_ACCENT_BG_ALPHA),
+                )
+            }
+            GlowTabMode.OFF -> {
+                // Neutral underline, no background
+                val variant = AyuVariant.detect()
+                if (variant != null) {
+                    UIManager.put(KEY_TAB_UNDERLINE, Color.decode(variant.neutralGray))
+                }
+                UIManager.put(KEY_TAB_BACKGROUND, Color(0, 0, 0, 0))
+            }
         }
-        tabGlowLayer?.repaint()
+        repaintEditorTabs()
+    }
 
-        // Reinstall focus listeners with updated accent color (or remove if disabled)
+    private fun repaintEditorTabs() {
+        try {
+            val fileEditorManager = FileEditorManager.getInstance(project)
+            val editorComponent = fileEditorManager.selectedEditor?.component ?: return
+            var current: Component? = editorComponent.parent
+            while (current != null) {
+                val name = current.javaClass.name
+                if (name.contains("EditorTabs") || name.contains("JBEditorTabs")) {
+                    current.repaint()
+                    return
+                }
+                current = current.parent
+            }
+        } catch (exception: RuntimeException) {
+            log.debug("Could not repaint editor tabs", exception)
+        }
+    }
+
+    private fun updateFocusRingGlow(
+        state: AyuIslandsState,
+        accent: Color,
+        style: GlowStyle,
+    ) {
         removeFocusListeners()
         if (state.glowFocusRing) {
             val intensity = state.getIntensityForStyle(style)
@@ -561,14 +541,6 @@ class GlowOverlayManager(
                 installFocusListenersRecursively(window, accent, style, intensity)
             }
         }
-
-        // Restart animation on the active overlay
-        val activeEntry = activeGlowId?.let { overlays[it] }
-        if (activeEntry != null) {
-            startAnimationIfConfigured(activeEntry.glassPane)
-        }
-
-        log.info("Glow overlays updated: style=$style, accent=$accentHex")
     }
 
     private fun removeAllOverlays() {
@@ -586,25 +558,8 @@ class GlowOverlayManager(
         }
         overlays.clear()
 
-        tabGlowLayer?.let { layer ->
-            val view = layer.view
-            val parent = layer.parent
-            if (parent != null && view != null) {
-                try {
-                    val constraints = (parent.layout as? BorderLayout)?.getConstraints(layer)
-                    parent.remove(layer)
-                    parent.add(view, constraints ?: BorderLayout.CENTER)
-                    parent.revalidate()
-                    parent.repaint()
-                } catch (exception: RuntimeException) {
-                    log.warn("Failed to remove tab glow layer: ${exception.message}")
-                }
-            }
-        }
-        tabGlowLayer = null
-        tabGlowComponent = null
-        tabPainter = null
-
+        UIManager.put(KEY_TAB_BACKGROUND, null)
+        UIManager.put(KEY_TAB_UNDERLINE, null)
         removeFocusListeners()
 
         log.info("All glow overlays removed")

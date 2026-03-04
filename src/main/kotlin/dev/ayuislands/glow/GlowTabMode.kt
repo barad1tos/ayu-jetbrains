@@ -3,12 +3,17 @@ package dev.ayuislands.glow
 enum class GlowTabMode(
     val displayName: String,
 ) {
-    UNDERLINE("Underline"),
-    FULL_BORDER("Full Border"),
+    MINIMAL("Minimal"),
+    FULL("Full"),
     OFF("Off"),
     ;
 
     companion object {
-        fun fromName(name: String): GlowTabMode = entries.firstOrNull { it.name == name } ?: UNDERLINE
+        private val LEGACY_MAP = mapOf("UNDERLINE" to MINIMAL, "FULL_BORDER" to FULL)
+
+        fun fromName(name: String): GlowTabMode =
+            entries.firstOrNull { it.name == name }
+                ?: LEGACY_MAP[name]
+                ?: MINIMAL
     }
 }

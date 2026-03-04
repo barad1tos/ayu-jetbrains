@@ -144,12 +144,6 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
                     )
                 }
 
-                // Tab underline (first tab)
-                drawWithAlpha(g2, AccentElementId.TAB_UNDERLINES) {
-                    g2.color = elementColor(AccentElementId.TAB_UNDERLINES, accent, dimmedAccent, mutedForeground)
-                    g2.fillRect(0, tabHeight - JBUI.scale(UNDERLINE_HEIGHT), tabWidth, JBUI.scale(UNDERLINE_HEIGHT))
-                }
-
                 // Editor area
                 val editorTop = tabHeight
                 val editorBottom = height - progressHeight
@@ -175,6 +169,15 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
                 g2.color = mutedForeground
                 g2.font = codeFont
                 g2.drawString("fun main() {", codeIndent, line1Y + textOffsetY)
+
+                // Inlay hints (code vision: usages count after declaration)
+                drawWithAlpha(g2, AccentElementId.INLAY_HINTS) {
+                    val hintColor = elementColor(AccentElementId.INLAY_HINTS, accent, dimmedAccent, mutedForeground)
+                    g2.color = Color(hintColor.red, hintColor.green, hintColor.blue, INLAY_HINT_ALPHA)
+                    val hintText = "3 Usages"
+                    val hintX = codeIndent + fm.stringWidth("fun main() {") + JBUI.scale(INLAY_HINT_GAP)
+                    g2.drawString(hintText, hintX, line1Y + textOffsetY)
+                }
 
                 // Line 2: "  val x = (1 + 2)"
                 g2.color = mutedForeground
@@ -396,8 +399,8 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
             layout: EditorLayout,
         ): Pair<Int, Int> =
             when (id) {
-                AccentElementId.TAB_UNDERLINES ->
-                    Pair(JBUI.scale(LABEL_TAB_X), layout.tabHeight - JBUI.scale(LABEL_TAB_Y_OFFSET))
+                AccentElementId.INLAY_HINTS ->
+                    Pair(JBUI.scale(LABEL_INLAY_X), layout.line1Y - JBUI.scale(LABEL_LINE_Y_OFFSET))
                 AccentElementId.CARET_ROW ->
                     Pair(JBUI.scale(LABEL_CARET_X), layout.line1Y - JBUI.scale(LABEL_CLAMP_MARGIN))
                 AccentElementId.SEARCH_RESULTS ->
@@ -519,9 +522,12 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
         const val LABEL_ALPHA = 220
         const val LABEL_CLAMP_MARGIN = 2
 
+        // Inlay hints preview
+        const val INLAY_HINT_ALPHA = 140
+        const val INLAY_HINT_GAP = 12
+
         // Annotation label positions
-        const val LABEL_TAB_X = 100
-        const val LABEL_TAB_Y_OFFSET = 20
+        const val LABEL_INLAY_X = 170
         const val LABEL_CARET_X = 170
         const val LABEL_SEARCH_X = 10
         const val LABEL_LINE_Y_OFFSET = 16
