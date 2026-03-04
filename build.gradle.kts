@@ -10,11 +10,12 @@ buildscript {
 plugins {
     id("org.jetbrains.intellij.platform") version "2.11.0"
     kotlin("jvm") version "2.3.10"
+    id("org.jlleitschuh.gradle.ktlint") version "14.0.1"
+    id("io.gitlab.arturbosch.detekt") version "1.23.8"
 }
 
 group = providers.gradleProperty("pluginGroup").get()
 version = providers.gradleProperty("pluginVersion").get()
-
 
 kotlin {
     jvmToolchain(21)
@@ -32,13 +33,21 @@ dependencies {
         intellijIdeaCommunity(providers.gradleProperty("platformVersion"))
         pluginVerifier()
     }
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testRuntimeOnly("org.junit.vintage:junit-vintage-engine")
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 tasks {
     named<JavaExec>("runIde") {
-        jvmArgumentProviders += CommandLineArgumentProvider {
-            listOf("-Dayu.islands.dev=true")
-        }
+        jvmArgumentProviders +=
+            CommandLineArgumentProvider {
+                listOf("-Dayu.islands.dev=true")
+            }
     }
 }
 
@@ -57,17 +66,18 @@ intellijPlatform {
     buildSearchableOptions = false
 
     pluginVerification {
-        freeArgs = listOf(
-            "-mute",
-            "ReleaseVersionAndPluginVersionMismatch"
-        )
+        freeArgs =
+            listOf(
+                "-mute",
+                "ReleaseVersionAndPluginVersionMismatch",
+            )
         ides {
             // Pre-2025.3: IC (Community) still published as a separate distribution
             create(IntelliJPlatformType.IntellijIdeaCommunity, "2025.1")
             create(IntelliJPlatformType.IntellijIdeaCommunity, "2025.2.3")
             // 2025.3+: IC merged into unified IU (IntelliJ IDEA) distribution
             create(IntelliJPlatformType.IntellijIdea, "2025.3.3")
-            // Additional IDE types (latest stable only)
+            // Additional IDE types (the latest stable only)
             create(IntelliJPlatformType.PhpStorm, "2025.3.3")
             create(IntelliJPlatformType.WebStorm, "2025.3.3")
             create(IntelliJPlatformType.CLion, "2025.3.3")
@@ -82,34 +92,49 @@ intellijPlatform {
     }
 }
 
-val proguardTask = tasks.register<proguard.gradle.ProGuardTask>("proguard") {
-    dependsOn("jar")
-
-    val jarTask = tasks.named<Jar>("jar").get()
-    val jarFile = jarTask.archiveFile.get().asFile
-    val tempOut = layout.buildDirectory.file("proguard/obfuscated.jar").get().asFile
-
-    injars(jarFile)
-    outjars(tempOut)
-
-    val javaHome = org.gradle.internal.jvm.Jvm.current().javaHome.absolutePath
-    libraryjars(
-        mapOf("jarfilter" to "!**.jar", "filter" to "!module-info.class"),
-        "$javaHome/jmods/java.base.jmod"
-    )
-    libraryjars(
-        mapOf("jarfilter" to "!**.jar", "filter" to "!module-info.class"),
-        "$javaHome/jmods/java.desktop.jmod"
-    )
-
-    libraryjars(configurations.getByName("compileClasspath"))
-
-    configuration(file("proguard-rules.pro"))
-
-    doLast {
-        tempOut.copyTo(jarFile, overwrite = true)
-    }
+detekt {
+    config.setFrom(files("detekt.yml"))
+    buildUponDefaultConfig = true
 }
+
+val proguardTask =
+    tasks.register<proguard.gradle.ProGuardTask>("proguard") {
+        group = "build"
+        description = "Obfuscate JAR with ProGuard"
+        dependsOn("jar")
+
+        val jarTask = tasks.named<Jar>("jar").get()
+        val jarFile = jarTask.archiveFile.get().asFile
+        val tempOut =
+            layout.buildDirectory
+                .file("proguard/obfuscated.jar")
+                .get()
+                .asFile
+
+        injars(jarFile)
+        outjars(tempOut)
+
+        val javaHome =
+            org.gradle.internal.jvm.Jvm
+                .current()
+                .javaHome.absolutePath
+        libraryjars(
+            mapOf("jarfilter" to "!**.jar", "filter" to "!module-info.class"),
+            "$javaHome/jmods/java.base.jmod",
+        )
+        libraryjars(
+            mapOf("jarfilter" to "!**.jar", "filter" to "!module-info.class"),
+            "$javaHome/jmods/java.desktop.jmod",
+        )
+
+        libraryjars(configurations.getByName("compileClasspath"))
+
+        configuration(file("proguard-rules.pro"))
+
+        doLast {
+            tempOut.copyTo(jarFile, overwrite = true)
+        }
+    }
 
 tasks.named("prepareSandbox") {
     dependsOn(proguardTask)

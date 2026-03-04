@@ -1,0 +1,9 @@
+rules:
+  # Dependabot manages action version updates via tags —
+  # SHA pinning adds noise without meaningful security benefit here
+  unpinned-uses:
+    disable: true
+  # Release workflow intentionally uses Gradle cache on tag push;
+  # cache poisoning risk is minimal for a single-owner repo
+  cache-poisoning:
+    disable: true

@@ -1,6 +1,8 @@
 package dev.ayuislands.glow
 
-enum class GlowAnimation(val displayName: String) {
+enum class GlowAnimation(
+    val displayName: String,
+) {
     NONE("None"),
     PULSE("Pulse"),
     BREATHE("Breathe"),
@@ -8,7 +10,6 @@ enum class GlowAnimation(val displayName: String) {
     ;
 
     companion object {
-        fun fromName(name: String): GlowAnimation =
-            entries.firstOrNull { it.name == name } ?: NONE
+        fun fromName(name: String): GlowAnimation = entries.firstOrNull { it.name == name } ?: NONE
     }
 }

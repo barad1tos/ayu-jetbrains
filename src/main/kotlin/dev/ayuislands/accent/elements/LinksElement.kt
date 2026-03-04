@@ -8,79 +8,64 @@ import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
 import java.awt.Color
-import javax.swing.SwingUtilities
 import javax.swing.UIManager
 
 class LinksElement : AccentElement {
-
     override val id = AccentElementId.LINKS
     override val displayName = "Links"
 
-    private val uiKeys = listOf(
-        "Link.activeForeground",
-        "Link.hoverForeground",
-        "Link.secondaryForeground",
-        "Notification.linkForeground",
-        "GotItTooltip.linkForeground",
-        "Tooltip.Learning.linkForeground",
-    )
+    private val uiKeys =
+        listOf(
+            "Link.activeForeground",
+            "Link.hoverForeground",
+            "Link.secondaryForeground",
+            "Notification.linkForeground",
+            "GotItTooltip.linkForeground",
+            "Tooltip.Learning.linkForeground",
+        )
 
-    private val editorColorKeys = listOf(
-        ColorKey.find("HYPERLINK_COLOR"),
-        ColorKey.find("LINK_FOREGROUND"),
-    )
+    private val editorColorKeys =
+        listOf(
+            ColorKey.find("HYPERLINK_COLOR"),
+            ColorKey.find("LINK_FOREGROUND"),
+        )
 
-    private val editorAttrKeys = listOf(
-        TextAttributesKey.find("CTRL_CLICKABLE"),
-        TextAttributesKey.find("FOLLOWED_HYPERLINK_ATTRIBUTES"),
-        TextAttributesKey.find("HYPERLINK_ATTRIBUTES"),
-    )
+    private val editorAttrKeys =
+        listOf(
+            TextAttributesKey.find("CTRL_CLICKABLE"),
+            TextAttributesKey.find("FOLLOWED_HYPERLINK_ATTRIBUTES"),
+            TextAttributesKey.find("HYPERLINK_ATTRIBUTES"),
+        )
 
     override fun apply(color: Color) {
         for (key in uiKeys) {
             UIManager.put(key, color)
         }
-        val edtWork = Runnable {
-            val scheme = EditorColorsManager.getInstance().globalScheme
-            for (key in editorColorKeys) {
-                scheme.setColor(key, color)
-            }
-            for (attrKey in editorAttrKeys) {
-                val existing = scheme.getAttributes(attrKey)
-                val updated = existing?.clone() ?: TextAttributes()
-                updated.foregroundColor = color
-                updated.effectColor = color
-                scheme.setAttributes(attrKey, updated)
-            }
+        val scheme = EditorColorsManager.getInstance().globalScheme
+        for (key in editorColorKeys) {
+            scheme.setColor(key, color)
         }
-        if (SwingUtilities.isEventDispatchThread()) {
-            edtWork.run()
-        } else {
-            SwingUtilities.invokeLater(edtWork)
+        for (attrKey in editorAttrKeys) {
+            val existing = scheme.getAttributes(attrKey)
+            val updated = existing?.clone() ?: TextAttributes()
+            updated.foregroundColor = color
+            updated.effectColor = color
+            scheme.setAttributes(attrKey, updated)
         }
     }
 
     override fun applyNeutral(variant: AyuVariant) {
-        // UIManager links → null (standard blue link fallback)
         for (key in uiKeys) {
             UIManager.put(key, null)
         }
-        // Editor keys → parent scheme values
-        val edtWork = Runnable {
-            val parentScheme = EditorColorsManager.getInstance().getScheme(variant.parentSchemeName)
-            val scheme = EditorColorsManager.getInstance().globalScheme
-            for (colorKey in editorColorKeys) {
-                scheme.setColor(colorKey, parentScheme?.getColor(colorKey))
-            }
-            for (attrKey in editorAttrKeys) {
-                val parentAttrs = parentScheme?.getAttributes(attrKey)
-                scheme.setAttributes(attrKey, parentAttrs)
-            }
+        val parentScheme = EditorColorsManager.getInstance().getScheme(variant.parentSchemeName)
+        val scheme = EditorColorsManager.getInstance().globalScheme
+        for (colorKey in editorColorKeys) {
+            scheme.setColor(colorKey, parentScheme?.getColor(colorKey))
         }
-        if (SwingUtilities.isEventDispatchThread()) {
-            edtWork.run()
-        } else {
-            SwingUtilities.invokeLater(edtWork)
+        for (attrKey in editorAttrKeys) {
+            val parentAttrs = parentScheme?.getAttributes(attrKey)
+            scheme.setAttributes(attrKey, parentAttrs)
         }
     }
 
@@ -88,19 +73,12 @@ class LinksElement : AccentElement {
         for (key in uiKeys) {
             UIManager.put(key, null)
         }
-        val edtWork = Runnable {
-            val scheme = EditorColorsManager.getInstance().globalScheme
-            for (key in editorColorKeys) {
-                scheme.setColor(key, null)
-            }
-            for (attrKey in editorAttrKeys) {
-                scheme.setAttributes(attrKey, null)
-            }
+        val scheme = EditorColorsManager.getInstance().globalScheme
+        for (key in editorColorKeys) {
+            scheme.setColor(key, null)
         }
-        if (SwingUtilities.isEventDispatchThread()) {
-            edtWork.run()
-        } else {
-            SwingUtilities.invokeLater(edtWork)
+        for (attrKey in editorAttrKeys) {
+            scheme.setAttributes(attrKey, null)
         }
     }
 }

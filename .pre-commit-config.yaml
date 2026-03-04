@@ -1,0 +1,39 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-xml
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+      - id: check-merge-conflict
+      - id: no-commit-to-branch
+        args: ['--branch', 'main']
+      - id: detect-private-key
+
+  # GitHub Actions security scanner
+  - repo: https://github.com/woodruffw/zizmor-pre-commit
+    rev: v1.22.0
+    hooks:
+      - id: zizmor
+        args: ['--min-severity', 'medium']
+
+  # Local hooks
+  - repo: local
+    hooks:
+      - id: ktlint-check
+        name: ktlint
+        entry: ./gradlew ktlintCheck
+        language: system
+        pass_filenames: false
+        types: [kotlin]
+
+      - id: detekt
+        name: detekt
+        entry: ./gradlew detekt
+        language: system
+        pass_filenames: false
+        types: [kotlin]

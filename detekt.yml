@@ -1,0 +1,26 @@
+style:
+  ReturnCount:
+    max: 10
+  LoopWithTooManyJumpStatements:
+    maxJumpCount: 3
+
+complexity:
+  LongMethod:
+    threshold: 200
+  TooManyFunctions:
+    thresholdInClasses: 25
+  CyclomaticComplexMethod:
+    threshold: 15
+  NestedBlockDepth:
+    threshold: 5
+
+exceptions:
+  TooGenericExceptionCaught:
+    exceptionNames:
+      - ArrayIndexOutOfBoundsException
+      - Error
+      - Exception
+      - IllegalMonitorStateException
+      - IndexOutOfBoundsException
+      - NullPointerException
+      - Throwable

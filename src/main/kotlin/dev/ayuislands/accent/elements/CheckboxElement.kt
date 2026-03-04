@@ -6,7 +6,6 @@ import dev.ayuislands.accent.AccentElementId
 import java.awt.Color
 
 class CheckboxElement : AccentElement {
-
     override val id = AccentElementId.CHECKBOXES
     override val displayName = "Checkboxes"
 

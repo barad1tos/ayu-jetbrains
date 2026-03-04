@@ -1,87 +1,67 @@
 package dev.ayuislands.glow
 
-import java.awt.AlphaComposite
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.Rectangle
-import java.awt.RenderingHints
-import java.awt.Color
+import java.lang.reflect.Method
 import javax.swing.JComponent
 import javax.swing.JLayer
-import javax.swing.Timer
-import javax.swing.UIManager
 import javax.swing.plaf.LayerUI
 
+/** LayerUI that paints a tab glow via [tabPainter] on the selected editor tab. */
 class GlowLayerUI : LayerUI<JComponent>() {
+    /** Delegates painting to GlowTabPainter for the selected-tab glow. */
+    var tabPainter: GlowTabPainter? = null
 
-    var glowColor: Color = Color.decode("#FFCC66")
-    var glowStyle: GlowStyle = GlowStyle.SOFT
-    var glowIntensity: Int = 40
-    var glowWidth: Int = GlowRenderer.DEFAULT_GLOW_WIDTH
-    var isActive: Boolean = false
+    // Cached reflection Method objects for tab glow painting (resolved once per instance)
+    private var cachedTabsClass: Class<*>? = null
+    private var cachedGetSelectedInfo: Method? = null
+    private var cachedGetTabLabel: Method? = null
 
-    private var fadeAlpha: Float = 0.0f
-    private var fadeTimer: Timer? = null
-    private val renderer = GlowRenderer()
-
-    private var parentLayer: JLayer<*>? = null
-
-    override fun paint(graphics: Graphics, component: JComponent) {
+    override fun paint(
+        graphics: Graphics,
+        component: JComponent,
+    ) {
         super.paint(graphics, component)
 
-        if (fadeAlpha <= 0.0f) return
-
         val layer = component as? JLayer<*> ?: return
-        val g2 = graphics.create() as Graphics2D
+        val painter = tabPainter ?: return
+        paintTabGlow(graphics, layer, painter)
+    }
+
+    private fun paintTabGlow(
+        graphics: Graphics,
+        layer: JLayer<*>,
+        painter: GlowTabPainter,
+    ) {
+        val tabs = layer.view ?: return
         try {
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            g2.composite = AlphaComposite.SrcOver.derive(fadeAlpha)
+            val tabsClass = tabs.javaClass
+            if (tabsClass !== cachedTabsClass) {
+                cachedTabsClass = tabsClass
+                cachedGetSelectedInfo = tabsClass.getMethod("getSelectedInfo")
+                cachedGetTabLabel = null
+            }
 
-            val arcRadius = UIManager.getInt("Island.arc").let { if (it > 0) it else 8 }
-            val bounds = Rectangle(0, 0, layer.width, layer.height)
+            val getSelectedInfo = cachedGetSelectedInfo ?: return
+            val tabInfo = getSelectedInfo.invoke(tabs) ?: return
 
-            renderer.ensureCache(glowColor, glowStyle, glowIntensity, glowWidth)
-            renderer.paintGlow(g2, bounds, glowWidth, arcRadius)
-        } finally {
-            g2.dispose()
+            if (cachedGetTabLabel == null) {
+                cachedGetTabLabel = tabInfo.javaClass.getMethod("getTabLabel")
+            }
+            val getTabLabel = cachedGetTabLabel ?: return
+            val label = getTabLabel.invoke(tabInfo) as? JComponent ?: return
+
+            val tabBounds = label.bounds
+            val g2 = graphics.create() as Graphics2D
+            try {
+                g2.translate(tabBounds.x, tabBounds.y)
+                painter.paintTabGlow(g2, Rectangle(0, 0, tabBounds.width, tabBounds.height))
+            } finally {
+                g2.dispose()
+            }
+        } catch (_: Exception) {
+            // Graceful degradation if JBEditorTabs API changes across IDE versions
         }
-    }
-
-    fun startFadeIn() {
-        fadeTimer?.stop()
-        // ~60fps at 16ms interval, 0.08f step = ~12 frames = ~200ms total
-        fadeTimer = Timer(16) {
-            fadeAlpha = (fadeAlpha + 0.08f).coerceAtMost(1.0f)
-            repaintLayer()
-            if (fadeAlpha >= 1.0f) fadeTimer?.stop()
-        }.also { it.start() }
-    }
-
-    fun startFadeOut() {
-        fadeTimer?.stop()
-        fadeTimer = Timer(16) {
-            fadeAlpha = (fadeAlpha - 0.08f).coerceAtLeast(0.0f)
-            repaintLayer()
-            if (fadeAlpha <= 0.0f) fadeTimer?.stop()
-        }.also { it.start() }
-    }
-
-    fun stopAnimation() {
-        fadeTimer?.stop()
-        fadeTimer = null
-    }
-
-    override fun installUI(component: JComponent) {
-        super.installUI(component)
-        if (component is JLayer<*>) parentLayer = component
-    }
-
-    override fun uninstallUI(component: JComponent) {
-        parentLayer = null
-        super.uninstallUI(component)
-    }
-
-    private fun repaintLayer() {
-        parentLayer?.repaint()
     }
 }

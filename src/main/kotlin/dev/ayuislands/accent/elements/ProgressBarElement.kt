@@ -10,14 +10,14 @@ import javax.swing.SwingUtilities
 import javax.swing.UIManager
 
 class ProgressBarElement : AccentElement {
-
     override val id = AccentElementId.PROGRESS_BAR
     override val displayName = "Progress Bar"
 
-    private val uiKeys = listOf(
-        "ProgressBar.foreground",
-        "ProgressBar.progressCounterBackground",
-    )
+    private val uiKeys =
+        listOf(
+            "ProgressBar.foreground",
+            "ProgressBar.progressCounterBackground",
+        )
 
     private val editorKey = ColorKey.find("PROGRESS_BAR_TRACK")
 
@@ -25,32 +25,20 @@ class ProgressBarElement : AccentElement {
         for (key in uiKeys) {
             UIManager.put(key, color)
         }
-        val edtWork = Runnable {
+        runOnEdt {
             val scheme = EditorColorsManager.getInstance().globalScheme
             scheme.setColor(editorKey, color)
-        }
-        if (SwingUtilities.isEventDispatchThread()) {
-            edtWork.run()
-        } else {
-            SwingUtilities.invokeLater(edtWork)
         }
     }
 
     override fun applyNeutral(variant: AyuVariant) {
-        // UIManager keys → null (parent theme progress bar defaults)
         for (key in uiKeys) {
             UIManager.put(key, null)
         }
-        // Editor key → parent scheme value
-        val edtWork = Runnable {
+        runOnEdt {
             val parentScheme = EditorColorsManager.getInstance().getScheme(variant.parentSchemeName)
             val scheme = EditorColorsManager.getInstance().globalScheme
             scheme.setColor(editorKey, parentScheme?.getColor(editorKey))
-        }
-        if (SwingUtilities.isEventDispatchThread()) {
-            edtWork.run()
-        } else {
-            SwingUtilities.invokeLater(edtWork)
         }
     }
 
@@ -58,14 +46,17 @@ class ProgressBarElement : AccentElement {
         for (key in uiKeys) {
             UIManager.put(key, null)
         }
-        val edtWork = Runnable {
+        runOnEdt {
             val scheme = EditorColorsManager.getInstance().globalScheme
             scheme.setColor(editorKey, null)
         }
+    }
+
+    private inline fun runOnEdt(crossinline block: () -> Unit) {
         if (SwingUtilities.isEventDispatchThread()) {
-            edtWork.run()
+            block()
         } else {
-            SwingUtilities.invokeLater(edtWork)
+            SwingUtilities.invokeLater { block() }
         }
     }
 }
