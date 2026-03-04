@@ -14,6 +14,7 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.ui.LicensingFacade
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.io.ByteArrayInputStream
@@ -180,17 +181,22 @@ object LicenseChecker {
 
     /** Revert paid features to free defaults for the given variant. */
     fun revertToFreeDefaults(variant: AyuVariant) {
+        val state = AyuIslandsSettings.getInstance().state
+
+        // Disable glow (premium feature)
+        state.glowEnabled = false
+
+        // Reset per-element toggles to defaults (all ON)
+        for (id in AccentElementId.entries) {
+            state.setToggle(id, true)
+        }
+
+        // Re-apply accent with reset toggles (accent color itself stays — it's free)
         try {
-            AyuIslandsSettings.getInstance().setAccentForVariant(variant, variant.defaultAccent)
-            AccentApplicator.apply(variant.defaultAccent)
-        } catch (firstAttempt: RuntimeException) {
-            LOG.warn("Revert to free defaults failed, retrying", firstAttempt)
-            try {
-                AyuIslandsSettings.getInstance().setAccentForVariant(variant, variant.defaultAccent)
-                AccentApplicator.apply(variant.defaultAccent)
-            } catch (retryException: RuntimeException) {
-                LOG.error("Revert to free defaults retry failed", retryException)
-            }
+            val accentHex = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
+            AccentApplicator.apply(accentHex)
+        } catch (exception: RuntimeException) {
+            LOG.warn("Revert to free defaults failed", exception)
         }
     }
 
@@ -203,14 +209,13 @@ object LicenseChecker {
     private const val STAMP_CERT_INDEX = 4
     private const val STAMP_INTERMEDIATE_START_INDEX = 5
 
-    /** Dev mode: system property (runIde) or classpath marker (installed from source). */
-    private fun isDevBuild(): Boolean =
-        System.getProperty("ayu.islands.dev") == "true" ||
-            LicenseChecker::class.java.getResource("/META-INF/ayu-dev-mode") != null
+    /** Dev mode: system property set by runIde task. */
+    private fun isDevBuild(): Boolean = System.getProperty("ayu.islands.dev") == "true"
 
     // Cryptographic verification adapted from marketplace-makemecoffee-plugin (Apache 2.0).
     // Manual RSA verification is required per JetBrains docs — LicensingFacade does not verify stamps.
 
+    @Suppress("TooGenericExceptionCaught") // Corrupted data can throw any exception; must not crash IDE
     private fun isKeyValid(keyString: String): Boolean {
         try {
             val parts = keyString.split("-")
@@ -235,12 +240,13 @@ object LicenseChecker {
 
             val licenseData = String(licenseBytes, StandardCharsets.UTF_8)
             return licenseData.contains("\"licenseId\":\"$licenseId\"")
-        } catch (exception: java.security.GeneralSecurityException) {
+        } catch (exception: Exception) {
             LOG.warn("License key validation failed", exception)
             return false
         }
     }
 
+    @Suppress("TooGenericExceptionCaught") // Corrupted data can throw any exception; must not crash IDE
     private fun isLicenseServerStampValid(serverStamp: String): Boolean {
         try {
             val parts = serverStamp.split(":")
@@ -275,10 +281,10 @@ object LicenseChecker {
 
             if (!signature.verify(signatureBytes)) return false
 
-            // Timestamp must be within the validity period
+            // Timestamp must be within the validity period (allow negative clock drift)
             val timeDiff = System.currentTimeMillis() - timestamp
-            return timeDiff in 0..TIMESTAMP_VALIDITY_PERIOD_MS
-        } catch (exception: java.security.GeneralSecurityException) {
+            return timeDiff in -TIMESTAMP_VALIDITY_PERIOD_MS..TIMESTAMP_VALIDITY_PERIOD_MS
+        } catch (exception: Exception) {
             LOG.warn("License server stamp validation failed", exception)
             return false
         }

@@ -24,6 +24,8 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         const val LOGO_HEIGHT = 28
     }
 
+    private var pendingSelectedTab: Int = 0
+
     private val accentPanel = AyuIslandsAccentPanel()
     private val elementsPanel = AyuIslandsElementsPanel()
     private val effectsPanel = AyuIslandsEffectsPanel()
@@ -90,7 +92,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         tabs.addTab("Accent", accentTab)
         tabs.addTab("Glow", glowTab)
         tabs.selectedIndex = state.settingsSelectedTab.coerceIn(0, tabs.tabCount - 1)
-        tabs.addChangeListener { state.settingsSelectedTab = tabs.selectedIndex }
+        tabs.addChangeListener { pendingSelectedTab = tabs.selectedIndex }
 
         return panel {
             // Header
@@ -134,6 +136,10 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
 
     override fun apply() {
         super.apply()
+
+        // Persist tab selection only on Apply/OK (not on Cancel)
+        AyuIslandsSettings.getInstance().state.settingsSelectedTab = pendingSelectedTab
+
         for (section in panels) {
             section.apply()
         }

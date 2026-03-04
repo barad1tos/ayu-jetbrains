@@ -1,3 +1,5 @@
+@file:Suppress("DialogTitleCapitalization")
+
 package dev.ayuislands.settings
 
 import com.intellij.icons.AllIcons
@@ -69,12 +71,12 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
         panel.group("Accent Elements") {
             if (!licensed) {
                 row {
-                    label("Pro feature").applyToComponent {
+                    label("Per-element toggles require a Pro license").applyToComponent {
                         foreground = JBUI.CurrentTheme.ContextHelp.FOREGROUND
                     }
                     link("Get Ayu Islands Pro") {
                         LicenseChecker.requestLicense(
-                            "Unlock per-element accent toggles, custom colors, and neon glow effects",
+                            "Unlock per-element accent toggles and neon glow effects",
                         )
                     }
                 }

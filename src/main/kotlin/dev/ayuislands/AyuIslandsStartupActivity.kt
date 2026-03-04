@@ -11,6 +11,7 @@ import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
+import javax.swing.SwingUtilities
 
 internal class AyuIslandsStartupActivity : ProjectActivity {
     @Suppress("UnstableApiUsage")
@@ -54,28 +55,30 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         val licenseState = LicenseChecker.isLicensed()
         LOG.info("Ayu Islands license check: ${licenseStateLabel(licenseState)}")
 
-        // Reset the notification flag if the license becomes valid again (user purchased)
-        if (licenseState == true && settings.state.trialExpiredNotified) {
-            settings.state.trialExpiredNotified = false
-        }
+        SwingUtilities.invokeLater {
+            // Reset the notification flag if the license becomes valid again (user purchased)
+            if (licenseState == true && settings.state.trialExpiredNotified) {
+                settings.state.trialExpiredNotified = false
+            }
 
-        // One-time: enable all Pro features when license first activates
-        if (licenseState != false && !settings.state.proDefaultsApplied) {
-            LicenseChecker.enableProDefaults()
-            LOG.info("Ayu Islands Pro defaults enabled (first-time license activation)")
-        }
+            // One-time: enable all Pro features when the license first activates
+            if (licenseState == true && !settings.state.proDefaultsApplied) {
+                LicenseChecker.enableProDefaults()
+                LOG.info("Ayu Islands Pro defaults enabled (first-time license activation)")
+            }
 
-        // null = facade not initialized (grace period, treat as licensed)
-        // true = licensed or trial active
-        // false = not licensed (trial expired or never purchased)
-        if (licenseState == false) {
-            LicenseChecker.revertToFreeDefaults(variant)
-            LOG.info("Ayu Islands reverted to free defaults for ${variant.name}")
+            // null = facade not initialized (grace period, treat as licensed)
+            // true = licensed or trial active
+            // false = not licensed (trial expired or never purchased)
+            if (licenseState == false) {
+                LicenseChecker.revertToFreeDefaults(variant)
+                LOG.info("Ayu Islands reverted to free defaults for ${variant.name}")
 
-            // One-time balloon notification
-            if (!settings.state.trialExpiredNotified) {
-                LicenseChecker.notifyTrialExpired(project)
-                settings.state.trialExpiredNotified = true
+                // One-time balloon notification
+                if (!settings.state.trialExpiredNotified) {
+                    LicenseChecker.notifyTrialExpired(project)
+                    settings.state.trialExpiredNotified = true
+                }
             }
         }
     }

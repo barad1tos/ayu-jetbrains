@@ -64,11 +64,11 @@ class AyuIslandsState : BaseState() {
     // Floating panels — controls whether floating (undocked) tool windows get the glow
     var glowFloatingPanels by property(false)
 
-    // Settings UI: remember which tab was active (0=Accent, 1=Glow)
-    var settingsSelectedTab by property(0)
-
     // CodeGlancePro integration (opt-in, default OFF)
     var cgpIntegrationEnabled by property(false)
+
+    // Settings tab selection (persisted across settings opens)
+    var settingsSelectedTab by property(0)
 
     // Force overrides for conflicting elements (element ID names)
     var forceOverrides by stringSet()
@@ -146,8 +146,7 @@ class AyuIslandsState : BaseState() {
             "Debug" -> glowDebug
             "Git", "Version Control", "Commit" -> glowGit
             "Services" -> glowServices
-            // Unknown tool windows inherit the global glow toggle
-            else -> glowEnabled
+            else -> false
         }
 
     fun setIslandEnabled(
@@ -160,17 +159,17 @@ class AyuIslandsState : BaseState() {
             "Terminal" -> glowTerminal = enabled
             "Run" -> glowRun = enabled
             "Debug" -> glowDebug = enabled
-            "Git" -> glowGit = enabled
+            "Git", "Version Control", "Commit" -> glowGit = enabled
             "Services" -> glowServices = enabled
         }
     }
 
     companion object {
-        private const val DEFAULT_SOFT_INTENSITY = 35
-        private const val DEFAULT_SHARP_NEON_INTENSITY = 65
-        private const val DEFAULT_GRADIENT_INTENSITY = 45
-        private const val DEFAULT_SOFT_WIDTH = 8
-        private const val DEFAULT_SHARP_NEON_WIDTH = 8
-        private const val DEFAULT_GRADIENT_WIDTH = 10
+        private const val DEFAULT_SOFT_INTENSITY = 20
+        private const val DEFAULT_SHARP_NEON_INTENSITY = 50
+        private const val DEFAULT_GRADIENT_INTENSITY = 30
+        private const val DEFAULT_SOFT_WIDTH = 4
+        private const val DEFAULT_SHARP_NEON_WIDTH = 4
+        private const val DEFAULT_GRADIENT_WIDTH = 6
     }
 }

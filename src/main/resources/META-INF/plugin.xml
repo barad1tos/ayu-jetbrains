@@ -15,13 +15,13 @@
       <li><strong>Islands UI</strong> — rounded panels, island gaps, and compact mode support</li>
       <li><strong>Canonical ayu-colors</strong> — syntax palettes from <a href="https://github.com/ayu-theme/ayu-colors">ayu-theme/ayu-colors</a></li>
       <li><strong>Full VCS integration</strong> — tuned diff gutters, file status colors, and 16-color terminal palette</li>
+      <li><strong>Accent color customization</strong> — 10 hand-picked Ayu palette presets with per-variant storage and live visual preview</li>
     </ul>
 
     <h3>Premium Features</h3>
     <ul>
-      <li><strong>Accent color customization</strong> — 10 hand-picked Ayu palette presets, per-element toggles (tabs, scrollbars, links, caret row, and more), and a live visual preview</li>
+      <li><strong>Per-element accent toggles</strong> — fine-grained control over tabs, scrollbars, links, caret row, and more</li>
       <li><strong>Neon glow effects</strong> — island borders, active tabs, and focused inputs with 3 glow styles (Soft, Sharp Neon, Pulse animation)</li>
-      <li><strong>Per-variant accent storage</strong> — independent accent colors for Mirage, Dark, and Light</li>
       <li><strong>Conflict detection</strong> — automatic detection and override for third-party plugin conflicts (Atom Material Icons, CodeGlance Pro)</li>
     </ul>
 

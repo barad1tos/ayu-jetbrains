@@ -32,9 +32,9 @@ class AyuIslandsStateTest {
     @Test
     fun `getIntensityForStyle returns correct per-style defaults`() {
         val state = freshState()
-        assertEquals(35, state.getIntensityForStyle(GlowStyle.SOFT))
-        assertEquals(65, state.getIntensityForStyle(GlowStyle.SHARP_NEON))
-        assertEquals(45, state.getIntensityForStyle(GlowStyle.GRADIENT))
+        assertEquals(20, state.getIntensityForStyle(GlowStyle.SOFT))
+        assertEquals(50, state.getIntensityForStyle(GlowStyle.SHARP_NEON))
+        assertEquals(30, state.getIntensityForStyle(GlowStyle.GRADIENT))
     }
 
     @Test
@@ -49,9 +49,9 @@ class AyuIslandsStateTest {
     @Test
     fun `getWidthForStyle returns correct per-style defaults`() {
         val state = freshState()
-        assertEquals(8, state.getWidthForStyle(GlowStyle.SOFT))
-        assertEquals(8, state.getWidthForStyle(GlowStyle.SHARP_NEON))
-        assertEquals(10, state.getWidthForStyle(GlowStyle.GRADIENT))
+        assertEquals(4, state.getWidthForStyle(GlowStyle.SOFT))
+        assertEquals(4, state.getWidthForStyle(GlowStyle.SHARP_NEON))
+        assertEquals(6, state.getWidthForStyle(GlowStyle.GRADIENT))
     }
 
     @Test
@@ -91,13 +91,10 @@ class AyuIslandsStateTest {
     }
 
     @Test
-    fun `isIslandEnabled returns glowEnabled for unknown tool window IDs`() {
+    fun `isIslandEnabled returns false for unknown tool window IDs`() {
         val state = freshState()
-        state.glowEnabled = false
-        assertFalse(state.isIslandEnabled("SomeUnknownToolWindow"))
-
         state.glowEnabled = true
-        assertTrue(state.isIslandEnabled("SomeUnknownToolWindow"))
+        assertFalse(state.isIslandEnabled("SomeUnknownToolWindow"))
     }
 
     @Test

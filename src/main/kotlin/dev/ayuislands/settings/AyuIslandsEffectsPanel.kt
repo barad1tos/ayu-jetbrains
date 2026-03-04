@@ -4,6 +4,7 @@ import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
+import com.intellij.ui.dsl.builder.SegmentedButton
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowAnimation
@@ -11,13 +12,21 @@ import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.GlowTabMode
 import dev.ayuislands.licensing.LicenseChecker
-import java.awt.BorderLayout
 import java.awt.Color
+import java.awt.Dimension
 import javax.swing.DefaultComboBoxModel
 import javax.swing.JCheckBox
 import javax.swing.JLabel
 import javax.swing.JSlider
-import com.intellij.ui.dsl.builder.panel as dslPanel
+
+private data class SliderConfig(
+    val label: String,
+    val min: Int,
+    val max: Int,
+    val initialValue: Int,
+    val majorTick: Int,
+    val minorTick: Int = 0,
+)
 
 /**
  * Glow effects configuration rendered in a single Glow tab.
@@ -26,6 +35,7 @@ import com.intellij.ui.dsl.builder.panel as dslPanel
  * sliders, glow targets, tab mode, focus ring, and floating panels.
  * Called from [AyuIslandsConfigurable] into a single tab pane.
  */
+@Suppress("TooManyFunctions") // Settings panel with grouped UI builders
 class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
     // Pending state (applied on OK/Apply, not live)
     private var pendingGlowEnabled: Boolean = false
@@ -67,28 +77,32 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
     private var animationDescriptionLabel: JLabel? = null
     private var focusRingCheckbox: JCheckBox? = null
     private var floatingCheckbox: JCheckBox? = null
-    private var presetButtonBar: PresetButtonBar? = null
-    private var glowGroupPanel: GlowGroupPanel? = null
+    private var presetSegmentedButton: SegmentedButton<GlowPreset>? = null
+    private var glowPreview: GlowGroupPanel? = null
 
     // Suppress listener events during programmatic updates
     private var suppressListeners = false
     private var stateLoaded = false
 
-    /** Not used — the glow panel is built via [buildGlowPanel]. */
+    /** Not used — the Glow panel is built via [buildGlowPanel]. */
     override fun buildPanel(
         panel: Panel,
         variant: AyuVariant,
     ) { /* Glow panel is built via buildGlowPanel instead */ }
 
+    private fun ensureStateLoaded() {
+        if (stateLoaded) return
+        val state = AyuIslandsSettings.getInstance().state
+        migratePresetIfNeeded(state)
+        loadStateIntoPending(state)
+        copyPendingToStored()
+        stateLoaded = true
+    }
+
     // Glow tab content
 
     fun buildGlowPanel(panel: Panel) {
-        if (!stateLoaded) {
-            val state = AyuIslandsSettings.getInstance().state
-            loadStateIntoPending(state)
-            copyPendingToStored()
-            stateLoaded = true
-        }
+        ensureStateLoaded()
         val licensed = LicenseChecker.isLicensedOrGrace()
 
         panel.row {
@@ -114,7 +128,6 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
             cb.component.addActionListener {
                 pendingGlowEnabled = cb.component.isSelected
                 updateControlStates()
-                updateGlowGroupPanel()
             }
             masterToggle = cb.component
 
@@ -122,15 +135,35 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                 @Suppress("DialogTitleCapitalization")
                 link("Get Ayu Islands Pro") {
                     LicenseChecker.requestLicense(
-                        "Unlock glow effects and custom accent colors",
+                        "Unlock per-element accent toggles and neon glow effects",
                     )
                 }
             }
 
-            link("Reset defaults") {
-                applyPresetValues(GlowPreset.WHISPER)
-                pendingPreset = GlowPreset.WHISPER
-                refreshAllControls()
+            if (licensed) {
+                link("Reset defaults") {
+                    applyPresetValues(GlowPreset.WHISPER)
+                    pendingPreset = GlowPreset.WHISPER
+                    refreshAllControls()
+                }
+            }
+        }
+
+        if (!licensed) {
+            val variant = AyuVariant.detect() ?: AyuVariant.MIRAGE
+            val accentHex = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
+            val preview = GlowGroupPanel()
+            preview.preferredSize = Dimension(PREVIEW_WIDTH, PREVIEW_HEIGHT)
+            preview.updateFromPreset(
+                GlowStyle.SOFT,
+                GlowPreset.WHISPER.intensity ?: DEFAULT_INTENSITY,
+                GlowPreset.WHISPER.width ?: DEFAULT_WIDTH,
+                Color.decode(accentHex),
+                true,
+            )
+            glowPreview = preview
+            panel.row {
+                cell(preview).align(Align.FILL)
             }
         }
     }
@@ -139,80 +172,69 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         panel: Panel,
         licensed: Boolean,
     ) {
-        val glowPanel = GlowGroupPanel()
-        glowGroupPanel = glowPanel
-
-        val innerContent =
-            dslPanel {
-                group("Style") {
-                    buildPresetRow(this)
-                    buildStyleComboRow(this, licensed)
-                    buildSliderRow(
-                        "Intensity",
-                        0..MAX_INTENSITY,
-                        INTENSITY_MAJOR_TICK to INTENSITY_MINOR_TICK,
-                        pendingIntensity[pendingStyle] ?: DEFAULT_INTENSITY,
-                    ) { slider, valueLabel ->
-                        intensitySlider = slider
-                        intensityValueLabel = valueLabel
-                        { pendingIntensity[pendingStyle] = slider.value }
-                    }
-                    buildSliderRow(
-                        "Width (px)",
-                        MIN_WIDTH..MAX_WIDTH,
-                        WIDTH_MAJOR_TICK to 0,
-                        pendingWidth[pendingStyle] ?: DEFAULT_WIDTH,
-                    ) { slider, valueLabel ->
-                        widthSlider = slider
-                        widthValueLabel = valueLabel
-                        { pendingWidth[pendingStyle] = slider.value }
-                    }
-                    buildAnimationRows(this, licensed)
-                }
-            }
-
-        glowPanel.add(innerContent, BorderLayout.CENTER)
-        updateGlowGroupPanel()
-
-        panel.row {
-            cell(glowPanel)
-                .resizableColumn()
-                .align(Align.FILL)
+        panel.group("Style") {
+            buildPresetRow(this)
+            buildStyleComboRow(this, licensed)
+            buildSliderRow(
+                group = this,
+                config =
+                    SliderConfig(
+                        label = "Intensity",
+                        min = 0,
+                        max = MAX_INTENSITY,
+                        initialValue = pendingIntensity[pendingStyle] ?: DEFAULT_INTENSITY,
+                        majorTick = INTENSITY_MAJOR_TICK,
+                        minorTick = INTENSITY_MINOR_TICK,
+                    ),
+                onValueChanged = { pendingIntensity[pendingStyle] = it },
+                onCreated = { slider, label ->
+                    intensitySlider = slider
+                    intensityValueLabel = label
+                },
+            )
+            buildSliderRow(
+                group = this,
+                config =
+                    SliderConfig(
+                        label = "Width (px)",
+                        min = MIN_WIDTH,
+                        max = MAX_WIDTH,
+                        initialValue = pendingWidth[pendingStyle] ?: DEFAULT_WIDTH,
+                        majorTick = WIDTH_MAJOR_TICK,
+                    ),
+                onValueChanged = { pendingWidth[pendingStyle] = it },
+                onCreated = { slider, label ->
+                    widthSlider = slider
+                    widthValueLabel = label
+                },
+            )
+            buildAnimationRows(this, licensed)
         }
     }
 
     private fun buildPresetRow(group: Panel) {
         group.row {
             label("Preset")
-            val bar =
-                PresetButtonBar(
-                    onPresetSelected = { preset ->
-                        if (!suppressListeners) {
-                            pendingPreset = preset
-                            if (preset != GlowPreset.CUSTOM) {
-                                applyPresetValues(preset)
-                                refreshSlidersAndCombos()
-                            }
-                            customModeVisible.set(preset == GlowPreset.CUSTOM)
-                            updateGlowGroupPanel()
-                            updateControlStates()
-                        }
-                    },
-                    onPresetWithAnimation = { preset, animation ->
-                        if (!suppressListeners) {
-                            pendingPreset = preset
-                            applyPresetValues(preset)
-                            pendingAnimation = animation
-                            refreshSlidersAndCombos()
-                            customModeVisible.set(false)
-                            updateGlowGroupPanel()
-                            updateControlStates()
-                        }
-                    },
-                )
-            bar.selectedPreset = pendingPreset
-            presetButtonBar = bar
-            cell(bar)
+            val segmented =
+                segmentedButton(GlowPreset.entries) { preset ->
+                    text = preset.displayName
+                }
+            segmented.maxButtonsCount(GlowPreset.entries.size)
+            segmented.selectedItem = pendingPreset
+            @Suppress("UnstableApiUsage")
+            segmented.whenItemSelected { preset ->
+                if (!suppressListeners) {
+                    pendingPreset = preset
+                    if (preset != GlowPreset.CUSTOM) {
+                        applyPresetValues(preset)
+                        refreshSliders()
+                        refreshStyleAndAnimation()
+                    }
+                    customModeVisible.set(preset == GlowPreset.CUSTOM)
+                    updateControlStates()
+                }
+            }
+            presetSegmentedButton = segmented
         }
     }
 
@@ -233,7 +255,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                         val style = GlowStyle.entries.first { it.displayName == selectedName }
                         pendingStyle = style
                         switchToCustom()
-                        refreshSlidersAndCombos()
+                        refreshSliders()
                     }
                 }
                 styleCombo = combo
@@ -241,32 +263,31 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
             }.visibleIf(customModeVisible)
     }
 
-    private fun Panel.buildSliderRow(
-        labelText: String,
-        range: IntRange,
-        tickSpacing: Pair<Int, Int>,
-        initial: Int,
-        bind: (JSlider, JLabel) -> () -> Unit,
+    private fun buildSliderRow(
+        group: Panel,
+        config: SliderConfig,
+        onValueChanged: (Int) -> Unit,
+        onCreated: (JSlider, JLabel) -> Unit,
     ) {
-        val (majorTick, minorTick) = tickSpacing
-        row {
-            label(labelText)
-            val slider = JSlider(range.first, range.last, initial)
-            slider.paintTicks = true
-            slider.majorTickSpacing = majorTick
-            if (minorTick > 0) slider.minorTickSpacing = minorTick
-            val valueLabel = JLabel("${slider.value}")
-            val onChanged = bind(slider, valueLabel)
-            slider.addChangeListener {
-                if (!suppressListeners) {
-                    onChanged()
-                    switchToCustom()
+        group
+            .row {
+                label(config.label)
+                val slider = JSlider(config.min, config.max, config.initialValue)
+                slider.paintTicks = true
+                slider.majorTickSpacing = config.majorTick
+                if (config.minorTick > 0) slider.minorTickSpacing = config.minorTick
+                val valueLabel = JLabel("${slider.value}")
+                slider.addChangeListener {
+                    if (!suppressListeners) {
+                        onValueChanged(slider.value)
+                        switchToCustom()
+                    }
+                    valueLabel.text = "${slider.value}"
                 }
-                valueLabel.text = "${slider.value}"
-            }
-            cell(slider).resizableColumn().align(Align.FILL)
-            cell(valueLabel)
-        }.visibleIf(customModeVisible)
+                onCreated(slider, valueLabel)
+                cell(slider).resizableColumn().align(Align.FILL)
+                cell(valueLabel)
+            }.visibleIf(customModeVisible)
     }
 
     private fun buildAnimationRows(
@@ -285,7 +306,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                         val selectedName = combo.selectedItem as? String ?: return@addActionListener
                         pendingAnimation = GlowAnimation.entries.first { it.displayName == selectedName }
                         switchToCustom()
-                        animationDescriptionLabel?.text = animationDescription(pendingAnimation)
+                        updateAnimationDescription()
                     }
                 }
                 animationCombo = combo
@@ -311,13 +332,13 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                     for (key in pendingIslandToggles.keys) {
                         pendingIslandToggles[key] = true
                     }
-                    for ((id, cb) in islandCheckboxes) cb.isSelected = pendingIslandToggles[id] ?: false
+                    refreshIslandCheckboxes()
                 }.enabled(licensed && pendingGlowEnabled)
                 link("Disable all") {
                     for (key in pendingIslandToggles.keys) {
                         pendingIslandToggles[key] = false
                     }
-                    for ((id, cb) in islandCheckboxes) cb.isSelected = pendingIslandToggles[id] ?: false
+                    refreshIslandCheckboxes()
                 }.enabled(licensed && pendingGlowEnabled)
             }
 
@@ -365,36 +386,26 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                 tabModeCombo = combo
                 cell(combo)
             }
-            buildToggleRow(
-                "Focused input glow ring" to "Subtle glow around focused text fields",
-                licensed,
-                pendingFocusRing,
-                { v -> pendingFocusRing = v },
-            ) { focusRingCheckbox = it }
-            buildToggleRow(
-                "Glow on floating panels" to "Apply glow to undocked/floating tool windows",
-                licensed,
-                pendingFloatingPanels,
-                { v -> pendingFloatingPanels = v },
-            ) { floatingCheckbox = it }
-        }
-    }
-
-    private fun Panel.buildToggleRow(
-        labelAndComment: Pair<String, String>,
-        licensed: Boolean,
-        initialValue: Boolean,
-        onChanged: (Boolean) -> Unit,
-        bindCheckbox: (JCheckBox) -> Unit,
-    ) {
-        val (label, comment) = labelAndComment
-        row {
-            val cb = checkBox(label)
-            cb.component.isSelected = initialValue
-            cb.component.isEnabled = licensed && pendingGlowEnabled
-            cb.component.addActionListener { onChanged(cb.component.isSelected) }
-            bindCheckbox(cb.component)
-            cb.comment(comment)
+            row {
+                val cb = checkBox("Focused input glow ring")
+                cb.component.isSelected = pendingFocusRing
+                cb.component.isEnabled = licensed && pendingGlowEnabled
+                cb.component.addActionListener {
+                    pendingFocusRing = cb.component.isSelected
+                }
+                focusRingCheckbox = cb.component
+                cb.comment("Subtle glow around focused text fields")
+            }
+            row {
+                val cb = checkBox("Glow on floating panels")
+                cb.component.isSelected = pendingFloatingPanels
+                cb.component.isEnabled = licensed && pendingGlowEnabled
+                cb.component.addActionListener {
+                    pendingFloatingPanels = cb.component.isSelected
+                }
+                floatingCheckbox = cb.component
+                cb.comment("Apply glow to undocked/floating tool windows")
+            }
         }
     }
 
@@ -433,40 +444,12 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
             pendingPreset = GlowPreset.CUSTOM
             customModeVisible.set(true)
             suppressListeners = true
-            presetButtonBar?.selectedPreset = GlowPreset.CUSTOM
+            presetSegmentedButton?.selectedItem = GlowPreset.CUSTOM
             suppressListeners = false
-            updateGlowGroupPanel()
         }
     }
 
-    private fun updateGlowGroupPanel() {
-        val panel = glowGroupPanel ?: return
-        val style = pendingStyle
-        val intensity = pendingIntensity[style] ?: style.defaultIntensity
-        val width = pendingWidth[style] ?: style.defaultWidth
-        val color = resolveAccentColor()
-
-        panel.updateFromPreset(
-            style = style,
-            intensity = intensity,
-            width = width,
-            color = color,
-            visible = pendingGlowEnabled,
-        )
-    }
-
-    private fun resolveAccentColor(): Color {
-        val variant = AyuVariant.detect()
-        val settings = AyuIslandsSettings.getInstance()
-        val hex = if (variant != null) settings.getAccentForVariant(variant) else DEFAULT_ACCENT_HEX
-        return try {
-            Color.decode(hex)
-        } catch (_: NumberFormatException) {
-            Color.decode(DEFAULT_ACCENT_HEX)
-        }
-    }
-
-    private fun refreshSlidersAndCombos() {
+    private fun refreshSliders() {
         suppressListeners = true
         val intensity = pendingIntensity[pendingStyle] ?: pendingStyle.defaultIntensity
         val width = pendingWidth[pendingStyle] ?: pendingStyle.defaultWidth
@@ -474,26 +457,52 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         widthSlider?.value = width
         intensityValueLabel?.text = "$intensity"
         widthValueLabel?.text = "$width"
+        suppressListeners = false
+    }
+
+    private fun refreshStyleAndAnimation() {
+        suppressListeners = true
         styleCombo?.selectedItem = pendingStyle.displayName
         animationCombo?.selectedItem = pendingAnimation.displayName
-        animationDescriptionLabel?.text = animationDescription(pendingAnimation)
+        updateAnimationDescription()
         suppressListeners = false
+    }
+
+    private fun refreshIslandCheckboxes() {
+        for ((id, cb) in islandCheckboxes) {
+            cb.isSelected = pendingIslandToggles[id] ?: false
+        }
+    }
+
+    // Animation
+
+    private fun animationDescription(animation: GlowAnimation): String =
+        when (animation) {
+            GlowAnimation.NONE -> "Static glow with no animation."
+            GlowAnimation.PULSE -> "Sharp rhythmic brightening every 2 seconds."
+            GlowAnimation.BREATHE -> "Slow sinusoidal swell over 4 seconds."
+            GlowAnimation.REACTIVE -> "Responds to typing and IDE actions."
+        }
+
+    private fun updateAnimationDescription() {
+        animationDescriptionLabel?.text = animationDescription(pendingAnimation)
     }
 
     // State management
 
+    private fun migratePresetIfNeeded(state: AyuIslandsState) {
+        if (state.glowPreset != null) return
+        val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
+        val intensity = state.getIntensityForStyle(style)
+        val width = state.getWidthForStyle(style)
+        val animation = GlowAnimation.fromName(state.glowAnimation ?: GlowAnimation.NONE.name)
+        state.glowPreset = GlowPreset.detect(style, intensity, width, animation).name
+    }
+
     private fun loadStateIntoPending(state: AyuIslandsState) {
         pendingGlowEnabled = state.glowEnabled
+        pendingPreset = GlowPreset.fromName(state.glowPreset ?: GlowPreset.WHISPER.name)
         pendingStyle = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
-        pendingPreset =
-            if (state.glowPreset != null) {
-                GlowPreset.fromName(state.glowPreset!!)
-            } else {
-                val intensity = state.getIntensityForStyle(pendingStyle)
-                val width = state.getWidthForStyle(pendingStyle)
-                val animation = GlowAnimation.fromName(state.glowAnimation ?: GlowAnimation.NONE.name)
-                GlowPreset.detect(pendingStyle, intensity, width, animation)
-            }
         pendingAnimation = GlowAnimation.fromName(state.glowAnimation ?: GlowAnimation.NONE.name)
 
         pendingIntensity.clear()
@@ -532,32 +541,35 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
     private fun updateControlStates() {
         val enabled = pendingGlowEnabled && LicenseChecker.isLicensedOrGrace()
 
-        listOfNotNull(
-            intensitySlider,
-            widthSlider,
-            focusRingCheckbox,
-            floatingCheckbox,
-            styleCombo,
-            animationCombo,
-            tabModeCombo,
-        ).forEach { it.isEnabled = enabled }
-        presetButtonBar?.setAllEnabled(enabled)
-        islandCheckboxes.values.forEach { it.isEnabled = enabled }
+        intensitySlider?.isEnabled = enabled
+        widthSlider?.isEnabled = enabled
+        focusRingCheckbox?.isEnabled = enabled
+        floatingCheckbox?.isEnabled = enabled
+        styleCombo?.isEnabled = enabled
+        animationCombo?.isEnabled = enabled
+        tabModeCombo?.isEnabled = enabled
+        presetSegmentedButton?.enabled(enabled)
+
+        for ((_, cb) in islandCheckboxes) {
+            cb.isEnabled = enabled
+        }
     }
 
     private fun refreshAllControls() {
         suppressListeners = true
-        presetButtonBar?.selectedPreset = pendingPreset
+        presetSegmentedButton?.selectedItem = pendingPreset
         customModeVisible.set(pendingPreset == GlowPreset.CUSTOM)
+        styleCombo?.selectedItem = pendingStyle.displayName
+        animationCombo?.selectedItem = pendingAnimation.displayName
         tabModeCombo?.selectedItem = GlowTabMode.fromName(pendingTabMode).displayName
-        refreshSlidersAndCombos()
-        for ((id, cb) in islandCheckboxes) cb.isSelected = pendingIslandToggles[id] ?: false
+        refreshSliders()
+        refreshIslandCheckboxes()
         masterToggle?.isSelected = pendingGlowEnabled
         focusRingCheckbox?.isSelected = pendingFocusRing
         floatingCheckbox?.isSelected = pendingFloatingPanels
+        updateAnimationDescription()
         suppressListeners = false
         updateControlStates()
-        updateGlowGroupPanel()
     }
 
     // AyuIslandsSettingsPanel contract
@@ -623,21 +635,14 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
 
     companion object {
         private const val MAX_INTENSITY = 100
-        private const val DEFAULT_INTENSITY = 35
+        private const val DEFAULT_INTENSITY = 20
         private const val INTENSITY_MAJOR_TICK = 25
         private const val INTENSITY_MINOR_TICK = 5
         private const val MIN_WIDTH = 2
         private const val MAX_WIDTH = 16
-        private const val DEFAULT_WIDTH = 8
+        private const val DEFAULT_WIDTH = 4
         private const val WIDTH_MAJOR_TICK = 2
-        private const val DEFAULT_ACCENT_HEX = "#FFCC66"
-
-        private fun animationDescription(animation: GlowAnimation): String =
-            when (animation) {
-                GlowAnimation.NONE -> "Static glow with no animation."
-                GlowAnimation.PULSE -> "Sharp rhythmic brightening every 2 seconds."
-                GlowAnimation.BREATHE -> "Slow sinusoidal swell over 4 seconds."
-                GlowAnimation.REACTIVE -> "Responds to typing and IDE actions."
-            }
+        private const val PREVIEW_WIDTH = 300
+        private const val PREVIEW_HEIGHT = 60
     }
 }
