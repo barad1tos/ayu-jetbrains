@@ -4,6 +4,7 @@ import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
+import com.intellij.ui.dsl.builder.Row
 import com.intellij.ui.dsl.builder.SegmentedButton
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AyuVariant
@@ -109,7 +110,6 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         val licensed = LicenseChecker.isLicensedOrGrace()
 
         buildStyleGroup(panel, licensed)
-        buildTargetsGroup(panel, licensed)
         buildExtrasGroup(panel, licensed)
 
         updateControlStates()
@@ -228,6 +228,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                     )
                     buildAnimationRows(this, licensed)
                 }
+                buildTargetsGroup(this, licensed)
             }
 
         glowPanel.add(innerContent, BorderLayout.CENTER)
@@ -353,42 +354,50 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         panel: Panel,
         licensed: Boolean,
     ) {
-        panel.group("Targets") {
+        panel.collapsibleGroup("Targets") {
             row {
-                link("Enable all") {
-                    for (key in pendingIslandToggles.keys) {
-                        pendingIslandToggles[key] = true
-                    }
-                    refreshIslandCheckboxes()
-                }.enabled(licensed && pendingGlowEnabled)
-                link("Disable all") {
-                    for (key in pendingIslandToggles.keys) {
-                        pendingIslandToggles[key] = false
-                    }
-                    refreshIslandCheckboxes()
-                }.enabled(licensed && pendingGlowEnabled)
+                comment(
+                    "Fine-tune where glow appears. All targets are enabled by default.",
+                )
             }
-
-            buildIslandCheckboxRow(this, "Editor", licensed)
-
-            row { label("Sidebar").bold() }
-            buildIslandCheckboxRow(this, "Project", licensed)
-
-            row { label("Panel").bold() }
-            twoColumnsRow(
+            // Headers row
+            threeColumnsRow(
+                { label("Workspace").bold() },
+                { label("Output").bold() },
                 {
-                    panel {
-                        buildIslandCheckboxRow(this, "Terminal", licensed)
-                        buildIslandCheckboxRow(this, "Run", licensed)
-                        buildIslandCheckboxRow(this, "Debug", licensed)
-                    }
+                    label("VCS").bold()
+                    label("     ")
+                    link("Enable all") {
+                        for (key in pendingIslandToggles.keys) {
+                            pendingIslandToggles[key] = true
+                        }
+                        refreshIslandCheckboxes()
+                    }.enabled(licensed && pendingGlowEnabled)
+                    link("Disable all") {
+                        for (key in pendingIslandToggles.keys) {
+                            pendingIslandToggles[key] = false
+                        }
+                        refreshIslandCheckboxes()
+                    }.enabled(licensed && pendingGlowEnabled)
                 },
-                {
-                    panel {
-                        buildIslandCheckboxRow(this, "Git", licensed)
-                        buildIslandCheckboxRow(this, "Services", licensed)
-                    }
-                },
+            )
+            // Row 1: Editor | Terminal | Git
+            threeColumnsRow(
+                { islandCheckbox("Editor", licensed) },
+                { islandCheckbox("Terminal", licensed) },
+                { islandCheckbox("Git", licensed) },
+            )
+            // Row 2: Project | Run | Services
+            threeColumnsRow(
+                { islandCheckbox("Project", licensed) },
+                { islandCheckbox("Run", licensed) },
+                { islandCheckbox("Services", licensed) },
+            )
+            // Row 3: (empty) | Debug | (empty)
+            threeColumnsRow(
+                { },
+                { islandCheckbox("Debug", licensed) },
+                { },
             )
         }
     }
@@ -436,20 +445,17 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         }
     }
 
-    private fun buildIslandCheckboxRow(
-        panel: Panel,
+    private fun Row.islandCheckbox(
         islandId: String,
         licensed: Boolean,
     ) {
-        panel.row {
-            val cb = checkBox(islandId)
-            cb.component.isSelected = pendingIslandToggles[islandId] ?: false
-            cb.component.isEnabled = licensed && pendingGlowEnabled
-            cb.component.addActionListener {
-                pendingIslandToggles[islandId] = cb.component.isSelected
-            }
-            islandCheckboxes[islandId] = cb.component
+        val cb = checkBox(islandId)
+        cb.component.isSelected = pendingIslandToggles[islandId] ?: false
+        cb.component.isEnabled = licensed && pendingGlowEnabled
+        cb.component.addActionListener {
+            pendingIslandToggles[islandId] = cb.component.isSelected
         }
+        islandCheckboxes[islandId] = cb.component
     }
 
     // Preset helpers
