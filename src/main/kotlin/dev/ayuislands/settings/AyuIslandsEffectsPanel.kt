@@ -93,8 +93,8 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
     private fun ensureStateLoaded() {
         if (stateLoaded) return
         val state = AyuIslandsSettings.getInstance().state
-        migratePresetIfNeeded(state)
-        loadStateIntoPending(state)
+        val migratedPreset = migratePresetIfNeeded(state)
+        loadStateIntoPending(state, migratedPreset)
         copyPendingToStored()
         stateLoaded = true
     }
@@ -158,7 +158,11 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                 GlowStyle.SOFT,
                 GlowPreset.WHISPER.intensity ?: DEFAULT_INTENSITY,
                 GlowPreset.WHISPER.width ?: DEFAULT_WIDTH,
-                Color.decode(accentHex),
+                try {
+                    Color.decode(accentHex)
+                } catch (_: NumberFormatException) {
+                    Color.decode(FALLBACK_COLOR_HEX)
+                },
                 true,
             )
             glowPreview = preview
@@ -490,18 +494,21 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
 
     // State management
 
-    private fun migratePresetIfNeeded(state: AyuIslandsState) {
-        if (state.glowPreset != null) return
+    private fun migratePresetIfNeeded(state: AyuIslandsState): String {
+        if (state.glowPreset != null) return state.glowPreset!!
         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
         val intensity = state.getIntensityForStyle(style)
         val width = state.getWidthForStyle(style)
         val animation = GlowAnimation.fromName(state.glowAnimation ?: GlowAnimation.NONE.name)
-        state.glowPreset = GlowPreset.detect(style, intensity, width, animation).name
+        return GlowPreset.detect(style, intensity, width, animation).name
     }
 
-    private fun loadStateIntoPending(state: AyuIslandsState) {
+    private fun loadStateIntoPending(
+        state: AyuIslandsState,
+        presetName: String = state.glowPreset ?: GlowPreset.WHISPER.name,
+    ) {
         pendingGlowEnabled = state.glowEnabled
-        pendingPreset = GlowPreset.fromName(state.glowPreset ?: GlowPreset.WHISPER.name)
+        pendingPreset = GlowPreset.fromName(presetName)
         pendingStyle = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
         pendingAnimation = GlowAnimation.fromName(state.glowAnimation ?: GlowAnimation.NONE.name)
 
@@ -642,6 +649,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         private const val MAX_WIDTH = 16
         private const val DEFAULT_WIDTH = 4
         private const val WIDTH_MAJOR_TICK = 2
+        private const val FALLBACK_COLOR_HEX = "#FFCC66"
         private const val PREVIEW_WIDTH = 300
         private const val PREVIEW_HEIGHT = 60
     }

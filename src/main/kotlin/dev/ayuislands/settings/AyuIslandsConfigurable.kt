@@ -24,7 +24,8 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         const val LOGO_HEIGHT = 28
     }
 
-    private var pendingSelectedTab: Int = 0
+    private var pendingSelectedTab: Int =
+        AyuIslandsSettings.getInstance().state.settingsSelectedTab
 
     private val accentPanel = AyuIslandsAccentPanel()
     private val elementsPanel = AyuIslandsElementsPanel()
