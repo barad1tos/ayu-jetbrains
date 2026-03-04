@@ -41,21 +41,27 @@ class GlowEnumsTest {
 
     @Test
     fun `GlowTabMode fromName returns correct entry for valid names`() {
-        assertEquals(GlowTabMode.UNDERLINE, GlowTabMode.fromName("UNDERLINE"))
-        assertEquals(GlowTabMode.FULL_BORDER, GlowTabMode.fromName("FULL_BORDER"))
+        assertEquals(GlowTabMode.MINIMAL, GlowTabMode.fromName("MINIMAL"))
+        assertEquals(GlowTabMode.FULL, GlowTabMode.fromName("FULL"))
         assertEquals(GlowTabMode.OFF, GlowTabMode.fromName("OFF"))
     }
 
     @Test
-    fun `GlowTabMode fromName falls back to UNDERLINE for invalid name`() {
-        assertEquals(GlowTabMode.UNDERLINE, GlowTabMode.fromName("NONEXISTENT"))
-        assertEquals(GlowTabMode.UNDERLINE, GlowTabMode.fromName(""))
+    fun `GlowTabMode fromName resolves legacy names`() {
+        assertEquals(GlowTabMode.MINIMAL, GlowTabMode.fromName("UNDERLINE"))
+        assertEquals(GlowTabMode.FULL, GlowTabMode.fromName("FULL_BORDER"))
+    }
+
+    @Test
+    fun `GlowTabMode fromName falls back to MINIMAL for invalid name`() {
+        assertEquals(GlowTabMode.MINIMAL, GlowTabMode.fromName("NONEXISTENT"))
+        assertEquals(GlowTabMode.MINIMAL, GlowTabMode.fromName(""))
     }
 
     @Test
     fun `GlowTabMode entries have correct display names`() {
-        assertEquals("Underline", GlowTabMode.UNDERLINE.displayName)
-        assertEquals("Full Border", GlowTabMode.FULL_BORDER.displayName)
+        assertEquals("Minimal", GlowTabMode.MINIMAL.displayName)
+        assertEquals("Full", GlowTabMode.FULL.displayName)
         assertEquals("Off", GlowTabMode.OFF.displayName)
     }
 
