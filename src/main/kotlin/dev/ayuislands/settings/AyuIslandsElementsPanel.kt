@@ -2,7 +2,7 @@
 
 package dev.ayuislands.settings
 
-import com.intellij.icons.AllIcons
+import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.dsl.builder.AlignY
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.util.ui.JBUI
@@ -11,9 +11,12 @@ import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AccentGroup
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.conflict.ConflictRegistry
+import dev.ayuislands.accent.conflict.ConflictType
+import dev.ayuislands.glow.GlowTabMode
 import dev.ayuislands.licensing.LicenseChecker
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import javax.swing.DefaultComboBoxModel
 import javax.swing.JCheckBox
 
 /** Per-element accent toggle checkboxes with conflict detection and license-aware dimming. */
@@ -24,8 +27,11 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
     private var storedForceOverrides: Set<String> = emptySet()
     private var pendingCgpIntegration: Boolean = false
     private var storedCgpIntegration: Boolean = false
+    private var pendingTabMode: String = "MINIMAL"
+    private var storedTabMode: String = "MINIMAL"
     private val checkboxes: MutableMap<AccentElementId, JCheckBox> = mutableMapOf()
     private var cgpCheckbox: JCheckBox? = null
+    private var tabModeCombo: ComboBox<String>? = null
     private var variant: AyuVariant? = null
     private var elementPreview: AyuIslandsPreviewPanel? = null
 
@@ -57,8 +63,17 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
         storedCgpIntegration = state.cgpIntegrationEnabled
         pendingCgpIntegration = storedCgpIntegration
 
-        // Detect conflicts on panel open
-        val conflicts = ConflictRegistry.detectConflicts()
+        storedTabMode = state.glowTabMode ?: "MINIMAL"
+        pendingTabMode = storedTabMode
+
+        // Detect conflicts on panel open and clean stale overrides for blocked elements
+        ConflictRegistry.detectConflicts()
+        val blockedIds =
+            AccentElementId.entries
+                .filter { ConflictRegistry.getConflictFor(it)?.type == ConflictType.BLOCK }
+                .map { it.name }
+                .toSet()
+        pendingForceOverrides.removeAll(blockedIds)
 
         // Create a preview component (used inside the row below)
         val preview = AyuIslandsPreviewPanel()
@@ -91,7 +106,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
                             panel {
                                 row { label("Visual").bold() }
                                 for (id in AccentElementId.entries.filter { it.group == AccentGroup.VISUAL }) {
-                                    buildToggleRow(this, id, conflicts, licensed)
+                                    buildToggleRow(this, id, licensed)
                                 }
                             }
                         },
@@ -100,7 +115,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
                             panel {
                                 row { label("Interactive").bold() }
                                 for (id in AccentElementId.entries.filter { it.group == AccentGroup.INTERACTIVE }) {
-                                    buildToggleRow(this, id, conflicts, licensed)
+                                    buildToggleRow(this, id, licensed)
                                 }
                             }
                         },
@@ -129,6 +144,31 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
         }
 
         buildIntegrationsGroup(panel, licensed)
+        buildActiveTabRow(panel, licensed)
+    }
+
+    private fun buildActiveTabRow(
+        panel: Panel,
+        licensed: Boolean,
+    ) {
+        panel.group("Active Tab") {
+            row {
+                label("Tab accent style")
+                val model = DefaultComboBoxModel(GlowTabMode.entries.map { it.displayName }.toTypedArray())
+                val combo = ComboBox(model)
+                combo.selectedItem = GlowTabMode.fromName(pendingTabMode).displayName
+                combo.isEnabled = licensed
+                combo.addActionListener {
+                    val selectedName = combo.selectedItem as? String ?: return@addActionListener
+                    pendingTabMode = GlowTabMode.entries.first { it.displayName == selectedName }.name
+                }
+                tabModeCombo = combo
+                cell(combo)
+            }
+            row {
+                comment("Minimal = underline only, Full = underline + tinted background, Off = neutral")
+            }
+        }
     }
 
     private fun buildIntegrationsGroup(
@@ -159,22 +199,17 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
     private fun buildToggleRow(
         panel: Panel,
         id: AccentElementId,
-        conflicts: List<dev.ayuislands.accent.conflict.ConflictEntry>,
         licensed: Boolean,
     ) {
+        val conflict = ConflictRegistry.getConflictFor(id)
+        val blocked = conflict?.type == ConflictType.BLOCK
+
         panel.row {
             val cb = checkBox(id.displayName)
             cb.component.isSelected = pendingToggles[id] ?: true
-            cb.component.isEnabled = licensed
+            cb.component.isEnabled = licensed && !blocked
             cb.component.addActionListener {
                 pendingToggles[id] = cb.component.isSelected
-                // If enabling a conflicting element, treat as force override
-                val conflict = conflicts.firstOrNull { entry -> id in entry.affectedElements }
-                if (cb.component.isSelected && conflict != null) {
-                    pendingForceOverrides.add(id.name)
-                } else if (!cb.component.isSelected) {
-                    pendingForceOverrides.remove(id.name)
-                }
                 syncPreviewToggles()
                 onToggleChanged?.invoke()
             }
@@ -194,15 +229,11 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
                     }
                 },
             )
+        }
 
-            // Conflict indicator
-            val conflict = conflicts.firstOrNull { entry -> id in entry.affectedElements }
-            if (conflict != null) {
-                icon(AllIcons.General.Warning).applyToComponent {
-                    toolTipText =
-                        "${conflict.pluginDisplayName} overrides this element." +
-                        " Enabling may not have visible effect."
-                }
+        if (blocked && conflict != null) {
+            panel.row {
+                comment("Managed by ${conflict.pluginDisplayName}")
             }
         }
     }
@@ -222,6 +253,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
         if (pendingToggles != storedToggles) return true
         if (pendingForceOverrides != storedForceOverrides) return true
         if (pendingCgpIntegration != storedCgpIntegration) return true
+        if (pendingTabMode != storedTabMode) return true
         return false
     }
 
@@ -234,10 +266,12 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
         }
         state.forceOverrides = pendingForceOverrides.toMutableSet()
         state.cgpIntegrationEnabled = pendingCgpIntegration
+        state.glowTabMode = pendingTabMode
 
         storedToggles = pendingToggles.toMap()
         storedForceOverrides = pendingForceOverrides.toSet()
         storedCgpIntegration = pendingCgpIntegration
+        storedTabMode = pendingTabMode
 
         // Re-apply accent with new toggle states
         val currentVariant = variant ?: return
@@ -250,8 +284,10 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
         pendingToggles.putAll(storedToggles)
         pendingForceOverrides = storedForceOverrides.toMutableSet()
         pendingCgpIntegration = storedCgpIntegration
+        pendingTabMode = storedTabMode
         refreshCheckboxes()
         syncPreviewToggles()
         cgpCheckbox?.isSelected = storedCgpIntegration
+        tabModeCombo?.selectedItem = GlowTabMode.fromName(pendingTabMode).displayName
     }
 }
