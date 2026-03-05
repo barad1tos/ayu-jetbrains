@@ -10,6 +10,7 @@ buildscript {
 plugins {
     id("org.jetbrains.intellij.platform") version "2.11.0"
     kotlin("jvm") version "2.3.10"
+    id("org.jetbrains.kotlinx.kover") version "0.9.4"
     id("org.jlleitschuh.gradle.ktlint") version "14.0.1"
     id("io.gitlab.arturbosch.detekt") version "1.23.8"
 }
@@ -34,12 +35,23 @@ dependencies {
         pluginVerifier()
     }
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
+    testImplementation("io.mockk:mockk:${providers.gradleProperty("mockkVersion").get()}")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testRuntimeOnly("org.junit.vintage:junit-vintage-engine")
 }
 
 tasks.test {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags("integration")
+    }
+}
+
+tasks.register<Test>("integrationTest") {
+    useJUnitPlatform {
+        includeTags("integration")
+    }
+    group = "verification"
+    description = "Run integration tests with IDE fixtures"
 }
 
 tasks {
@@ -98,6 +110,52 @@ intellijPlatform {
 detekt {
     config.setFrom(files("detekt.yml"))
     buildUponDefaultConfig = true
+}
+
+kover {
+    reports {
+        filters {
+            excludes {
+                // Pure-rendering UI panels (no extractable logic, visual-only)
+                classes(
+                    "dev.ayuislands.settings.AyuIslandsPreviewPanel*",
+                    "dev.ayuislands.settings.AyuIslandsEffectsPanel*",
+                    "dev.ayuislands.settings.AyuIslandsElementsPanel*",
+                    "dev.ayuislands.settings.AyuIslandsAccentPanel*",
+                    "dev.ayuislands.settings.AyuIslandsAppearancePanel*",
+                    "dev.ayuislands.settings.AyuIslandsSettingsPanel*",
+                    "dev.ayuislands.settings.AyuIslandsConfigurable*",
+                    "dev.ayuislands.settings.PresetButtonBar*",
+                    "dev.ayuislands.settings.GlowGroupPanel*",
+                    // Data class in EffectsPanel file, pure UI config
+                    "dev.ayuislands.settings.SliderConfig*",
+                    // Glow rendering (Graphics2D paint, animation overlay)
+                    "dev.ayuislands.glow.GlowOverlayManager*",
+                    "dev.ayuislands.glow.GlowGlassPane*",
+                    "dev.ayuislands.glow.GlowFocusBorder*",
+                    // IDE glue (thin event listeners, startup activity)
+                    "dev.ayuislands.AyuIslandsStartupActivity*",
+                    "dev.ayuislands.AyuIslandsLafListener*",
+                    "dev.ayuislands.AppearanceSyncListener*",
+                    // LicenseChecker: public API tested, private crypto is JetBrains boilerplate
+                    "dev.ayuislands.licensing.LicenseChecker*",
+                )
+            }
+        }
+
+        total {
+            xml {
+                onCheck = false
+                xmlFile = layout.buildDirectory.file("reports/kover/report.xml")
+            }
+        }
+
+        verify {
+            rule("Line coverage") {
+                minBound(80)
+            }
+        }
+    }
 }
 
 val proguardTask =
