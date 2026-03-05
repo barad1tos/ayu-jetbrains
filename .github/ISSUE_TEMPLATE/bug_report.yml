@@ -1,0 +1,92 @@
+name: Bug Report
+description: Report a visual glitch, incorrect color, or plugin crash
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please fill in the details below so we can reproduce the issue.
+
+  - type: dropdown
+    id: theme
+    attributes:
+      label: Theme variant
+      options:
+        - Ayu Islands Mirage
+        - Ayu Islands Mirage (Islands UI)
+        - Ayu Islands Dark
+        - Ayu Islands Dark (Islands UI)
+        - Ayu Islands Light
+        - Ayu Islands Light (Islands UI)
+    validations:
+      required: true
+
+  - type: input
+    id: ide
+    attributes:
+      label: IDE & version
+      placeholder: "e.g. PyCharm 2025.2.1 Professional"
+    validations:
+      required: true
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      placeholder: "e.g. 2.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "e.g. macOS 15.3, Windows 11, Ubuntu 24.04"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the bug clearly — what did you expect vs. what actually happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps to trigger the issue.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: Attach screenshots if it's a visual issue (drag & drop).
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: "Paste any errors from Help > Show Log in Explorer/Finder (`idea.log`). Filter with: `grep -Ei 'ayu|ayuislands' idea.log`"
+      render: text
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: third-party
+    attributes:
+      label: Third-party plugins
+      options:
+        - label: I have **Atom Material Icons** installed
+        - label: I have **CodeGlance Pro** installed
+        - label: I have other UI-modifying plugins (please list in description)

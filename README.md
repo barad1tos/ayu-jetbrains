@@ -60,14 +60,27 @@ Each variant uses canonical colors from [ayu-colors](https://github.com/ayu-them
 
 ## Features
 
+### Free
+
 - **6 themes** — Mirage, Dark, and Light, each in classic and Islands UI variants
 - **Islands UI** — rounded panels, island gaps, and compact mode support
 - **20+ language-specific highlights** — carefully tuned per-language tokens, not just defaults
 - **Canonical ayu-colors** — syntax palettes from [ayu-theme/ayu-colors](https://github.com/ayu-theme/ayu-colors)
+- **Accent color customization** — 10 hand-picked Ayu palette presets with live visual preview
 - **Full VCS integration** — diff gutters, file status colors, merge indicators, blame annotations
 - **16-color terminal palette** — per-variant terminal colors that feel native
 - **Project color gradients** — 9 color groups in Ayu hues
+- **macOS sync** — follows system accent color and appearance (Light/Dark)
 - **Verified on 12 IDEs** — IntelliJ IDEA, PyCharm, WebStorm, GoLand, RustRover, Rider, PhpStorm, CLion, DataGrip, RubyMine, and more
+
+### Premium
+
+- **Per-element accent toggles** — fine-grained control over tabs, scrollbars, links, caret row, and more
+- **Neon glow effects** — island borders, active tabs, and focused inputs with 4 styles (Whisper, Ambient, Neon, Cyberpunk) plus custom mode and animations
+- **Plugin integrations** — accent colors in CodeGlance Pro, planning for more in the future
+- **Conflict detection** — detects conflicting theme settings and points out the source
+
+> 30-day free trial included. All 6 base themes remain free forever.
 
 ## Installation
 
@@ -130,7 +143,7 @@ Output: `build/distributions/ayu-jetbrains-<version>.zip`
 
 Contributions are welcome! Whether it's a bug report, a new language highlight, or a color tweak — open an [issue](https://github.com/barad1tos/ayu-jetbrains/issues) or submit a pull request.
 
-See [CHANGELOG.md](CHANGELOG.md) for the release history.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and [CHANGELOG.md](CHANGELOG.md) for the release history.
 
 ## Credits
 
