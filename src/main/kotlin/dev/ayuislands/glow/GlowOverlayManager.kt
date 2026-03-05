@@ -558,8 +558,7 @@ class GlowOverlayManager(
         }
         overlays.clear()
 
-        UIManager.put(KEY_TAB_BACKGROUND, null)
-        UIManager.put(KEY_TAB_UNDERLINE, null)
+        // Tab accent keys are now managed by AccentApplicator (always-on, not glow-gated)
         removeFocusListeners()
 
         log.info("All glow overlays removed")

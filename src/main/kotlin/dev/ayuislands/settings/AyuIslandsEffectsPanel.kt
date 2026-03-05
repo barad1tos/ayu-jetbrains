@@ -14,7 +14,6 @@ import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.licensing.LicenseChecker
 import java.awt.BorderLayout
 import java.awt.Color
-import java.awt.Dimension
 import javax.swing.DefaultComboBoxModel
 import javax.swing.JCheckBox
 import javax.swing.JLabel
@@ -71,7 +70,6 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
     private val islandCheckboxes = mutableMapOf<String, JCheckBox>()
     private var animationDescriptionLabel: JLabel? = null
     private var presetSegmentedButton: SegmentedButton<GlowPreset>? = null
-    private var glowPreview: GlowGroupPanel? = null
     private var glowGroupPanel: GlowGroupPanel? = null
 
     // Suppress listener events during programmatic updates
@@ -137,27 +135,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
             }
         }
 
-        if (!licensed) {
-            val variant = AyuVariant.detect() ?: AyuVariant.MIRAGE
-            val accentHex = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
-            val preview = GlowGroupPanel()
-            preview.preferredSize = Dimension(PREVIEW_WIDTH, PREVIEW_HEIGHT)
-            preview.updateFromPreset(
-                GlowStyle.SOFT,
-                GlowPreset.WHISPER.intensity ?: DEFAULT_INTENSITY,
-                GlowPreset.WHISPER.width ?: DEFAULT_WIDTH,
-                try {
-                    Color.decode(accentHex)
-                } catch (_: NumberFormatException) {
-                    Color.decode(FALLBACK_COLOR_HEX)
-                },
-                true,
-            )
-            glowPreview = preview
-            panel.row {
-                cell(preview).align(Align.FILL)
-            }
-        }
+        // Preview panel removed: the main GlowGroupPanel border serves as a live preview
     }
 
     private fun buildStyleGroup(
@@ -224,7 +202,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         updateGlowGroupPanel()
 
         panel.row {
-            cell(glowPanel).resizableColumn().align(Align.FILL)
+            cell(glowPanel)
         }
     }
 
@@ -531,7 +509,8 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         val intensity = pendingIntensity[style] ?: style.defaultIntensity
         val width = pendingWidth[style] ?: style.defaultWidth
         val color = resolveAccentColor()
-        panel.updateFromPreset(style, intensity, width, color, pendingGlowEnabled)
+        val visible = pendingGlowEnabled || !LicenseChecker.isLicensedOrGrace()
+        panel.updateFromPreset(style, intensity, width, color, visible)
     }
 
     private fun updateControlStates() {
@@ -541,7 +520,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         widthSlider?.isEnabled = enabled
         styleCombo?.isEnabled = enabled
         animationCombo?.isEnabled = enabled
-        presetSegmentedButton?.enabled(enabled)
+        presetSegmentedButton?.enabled(enabled || !LicenseChecker.isLicensedOrGrace())
 
         for ((_, cb) in islandCheckboxes) {
             cb.isEnabled = enabled
@@ -624,7 +603,5 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         private const val DEFAULT_WIDTH = 4
         private const val WIDTH_MAJOR_TICK = 2
         private const val FALLBACK_COLOR_HEX = "#FFCC66"
-        private const val PREVIEW_WIDTH = 300
-        private const val PREVIEW_HEIGHT = 60
     }
 }
