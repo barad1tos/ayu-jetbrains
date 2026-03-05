@@ -10,6 +10,9 @@
   <a href="https://github.com/barad1tos/ayu-jetbrains/actions/workflows/build.yml">
     <img src="https://github.com/barad1tos/ayu-jetbrains/actions/workflows/build.yml/badge.svg" alt="Build">
   </a>
+  <a href="https://codecov.io/gh/barad1tos/ayu-jetbrains">
+    <img src="https://codecov.io/gh/barad1tos/ayu-jetbrains/graph/badge.svg" alt="Coverage">
+  </a>
   <a href="https://plugins.jetbrains.com/plugin/30373-ayu-islands">
     <img src="https://img.shields.io/jetbrains/plugin/v/30373-ayu-islands?label=Marketplace&colorA=1F2430&colorB=FFCC66" alt="JetBrains Marketplace">
   </a>
