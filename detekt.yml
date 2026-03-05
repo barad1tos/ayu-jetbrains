@@ -9,6 +9,7 @@ complexity:
     threshold: 200
   TooManyFunctions:
     thresholdInClasses: 25
+    thresholdInObjects: 15
   CyclomaticComplexMethod:
     threshold: 15
   NestedBlockDepth:

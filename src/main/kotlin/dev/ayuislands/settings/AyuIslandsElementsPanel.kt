@@ -80,7 +80,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
         preview.previewAccentHex = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
         preview.previewToggles = pendingToggles.toMap()
         preview.previewGlowEnabled = false
-        val previewComponent = preview.createComponent(variant)
+        val previewComponent = preview.createComponent()
         elementPreview = preview
 
         panel.group("Accent Elements") {
@@ -231,9 +231,9 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
             )
         }
 
-        if (blocked && conflict != null) {
+        if (blocked) {
             panel.row {
-                comment("Managed by ${conflict.pluginDisplayName}")
+                comment("Managed by ${conflict!!.pluginDisplayName}")
             }
         }
     }
