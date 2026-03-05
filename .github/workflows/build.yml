@@ -105,11 +105,11 @@ jobs:
         run: ./gradlew buildPlugin
 
   # ── Tier 3: Parallel analysis (after build) ────────────
-  ktlint:
-    name: Ktlint
+  analyze:
+    name: Analyze
     runs-on: ubuntu-latest
     needs: build
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -119,25 +119,10 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5
-      - name: Check code formatting
-        run: ./gradlew ktlintCheck
-
-  detekt:
-    name: Detekt
-    runs-on: ubuntu-latest
-    needs: build
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
-        with:
-          distribution: temurin
-          java-version: 21
-      - uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5
-      - name: Run static analysis
-        run: ./gradlew detekt
+      - name: Ktlint + Detekt + Kotlin warnings
+        run: >
+          ./gradlew ktlintCheck detekt compileKotlin
+          -Pkotlin.compiler.option.allWarningsAsErrors=true
 
   test:
     name: Test
@@ -156,31 +141,16 @@ jobs:
       - name: Run unit tests
         run: ./gradlew test
 
-  kotlin-warnings:
-    name: Kotlin warnings
-    runs-on: ubuntu-latest
-    needs: build
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
-        with:
-          distribution: temurin
-          java-version: 21
-      - uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5
-      - name: Compile with -Werror (warnings as errors)
-        run: >
-          ./gradlew compileKotlin
-          -Pkotlin.compiler.option.allWarningsAsErrors=true
-
-  # ── Tier 4: Full IDE verification ──────────────────────
+  # ── Tier 4: Full IDE verification (2 parallel groups) ──
   verify:
-    name: Verify
+    name: Verify (${{ matrix.group }})
     runs-on: ubuntu-latest
     needs: build
-    timeout-minutes: 30
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [A, B]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -190,18 +160,10 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5
-        with:
-          # 12 IDE downloads produce ~14GB transforms,
-          # exceeding GitHub Actions 10GB cache limit
-          gradle-home-cache-excludes: |
-            caches/transforms-*
-            caches/modules-*/files-*
-      # Verifies against 12 IDE targets:
-      # IC-2025.1, IC-2025.2.3, IU-2025.3.3,
-      # PS/WS/CL-2025.3.3, RR/GO/PY/DB/RD/RM-2025.1.3
-      - name: Verify plugin across IDE targets
-        run: ./gradlew verifyPlugin
+      - name: Verify plugin (group ${{ matrix.group }})
+        run: ./gradlew verifyPlugin -DverifyGroup=${{ matrix.group }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: matrix.group == 'A'
         with:
           name: ayu-islands-plugin
           path: build/distributions/*.zip
@@ -214,10 +176,8 @@ jobs:
       - lint-files
       - gha-security
       - build
-      - ktlint
-      - detekt
+      - analyze
       - test
-      - kotlin-warnings
       - verify
     if: always()
     steps:
@@ -227,10 +187,8 @@ jobs:
             "lint-files=${{ needs.lint-files.result }}"
             "gha-security=${{ needs.gha-security.result }}"
             "build=${{ needs.build.result }}"
-            "ktlint=${{ needs.ktlint.result }}"
-            "detekt=${{ needs.detekt.result }}"
+            "analyze=${{ needs.analyze.result }}"
             "test=${{ needs.test.result }}"
-            "kotlin-warnings=${{ needs.kotlin-warnings.result }}"
             "verify=${{ needs.verify.result }}"
           )
           failed=0

@@ -43,7 +43,7 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
     ) {
         previewAccentHex = variant.defaultAccent
 
-        val mockup = AccentPreviewComponent(variant)
+        val mockup = AccentPreviewComponent()
         mockupComponent = mockup
 
         val wrapper = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0))
@@ -53,8 +53,8 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
         panel.row { cell(wrapper) }
     }
 
-    fun createComponent(variant: AyuVariant): JComponent {
-        val mockup = AccentPreviewComponent(variant)
+    fun createComponent(): JComponent {
+        val mockup = AccentPreviewComponent()
         mockupComponent = mockup
 
         val wrapper = JPanel()
@@ -87,9 +87,7 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
         val scrollbarWidth: Int,
     )
 
-    private inner class AccentPreviewComponent(
-        private val variant: AyuVariant,
-    ) : JComponent() {
+    private inner class AccentPreviewComponent : JComponent() {
         private val glowRenderer = GlowRenderer()
 
         init {
@@ -105,7 +103,7 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
                 val panelBackground =
                     UIManager.getColor("Panel.background")
                         ?: Color(FALLBACK_BG_RED, FALLBACK_BG_GREEN, FALLBACK_BG_BLUE)
-                val editorBackground = darken(panelBackground, DARKEN_FACTOR)
+                val editorBackground = darken(panelBackground)
                 val mutedForeground =
                     UIManager.getColor("Label.disabledForeground")
                         ?: Color(MUTED_FG_CHANNEL, MUTED_FG_CHANNEL, MUTED_FG_CHANNEL)
@@ -444,13 +442,10 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
                 Color(FALLBACK_RED, FALLBACK_GREEN, FALLBACK_BLUE)
             }
 
-        private fun darken(
-            color: Color,
-            factor: Float,
-        ): Color {
-            val red = (color.red * (1 - factor)).toInt().coerceIn(0, MAX_COLOR_CHANNEL)
-            val green = (color.green * (1 - factor)).toInt().coerceIn(0, MAX_COLOR_CHANNEL)
-            val blue = (color.blue * (1 - factor)).toInt().coerceIn(0, MAX_COLOR_CHANNEL)
+        private fun darken(color: Color): Color {
+            val red = (color.red * (1 - DARKEN_FACTOR)).toInt().coerceIn(0, MAX_COLOR_CHANNEL)
+            val green = (color.green * (1 - DARKEN_FACTOR)).toInt().coerceIn(0, MAX_COLOR_CHANNEL)
+            val blue = (color.blue * (1 - DARKEN_FACTOR)).toInt().coerceIn(0, MAX_COLOR_CHANNEL)
             return Color(red, green, blue)
         }
     }
@@ -482,9 +477,6 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
         const val CODE_INDENT = 12
         const val LINE_GAP = 4
         const val LINE_START_OFFSET = 6
-
-        // Tab underline
-        const val UNDERLINE_HEIGHT = 3
 
         // Alpha values
         const val DIMMED_ALPHA = 77

@@ -12,7 +12,9 @@ import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.ui.ColorUtil
 import dev.ayuislands.accent.conflict.ConflictRegistry
+import dev.ayuislands.glow.GlowTabMode
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
 import java.awt.Color
 import java.awt.Window
 import java.lang.reflect.Method
@@ -28,6 +30,10 @@ object AccentApplicator {
     private val log = logger<AccentApplicator>()
     private const val DARK_FOREGROUND_HEX = 0x1F2430
     private val DARK_FOREGROUND = Color(DARK_FOREGROUND_HEX)
+    private const val TAB_ACCENT_BG_ALPHA = 50
+    private const val KEY_TAB_BACKGROUND = "EditorTabs.underlinedTabBackground"
+    private const val CGP_RESOLUTION_FAILED = "method resolution failed"
+    private const val CGP_SYNC_FAILED = "sync failed"
 
     // Cached CodeGlance Pro reflection objects (resolved once per session)
     private var cgpService: Any? = null
@@ -59,6 +65,7 @@ object AccentApplicator {
             // Tab underlines (always accent, not toggleable)
             "ToolWindow.HeaderTab.underlineColor",
             "TabbedPane.underlineColor",
+            "EditorTabs.underlinedBorderColor",
         )
 
     // Always-on editor ColorKeys (not per-element toggleable)
@@ -100,33 +107,7 @@ object AccentApplicator {
             Runnable {
                 applyAlwaysOnUiKeys(accent)
 
-                for (element in EP_NAME.extensionList) {
-                    val enabled = state.isToggleEnabled(element.id)
-                    if (!enabled) {
-                        neutralizeOrRevert(element, variant)
-                        continue
-                    }
-                    val conflict = ConflictRegistry.getConflictFor(element.id)
-                    val forceOverride = element.id.name in state.forceOverrides
-                    if (conflict != null && !forceOverride) {
-                        neutralizeOrRevert(element, variant)
-                        continue
-                    }
-                    if (conflict != null) {
-                        log.warn(
-                            "Force-overriding ${conflict.pluginDisplayName} conflict for ${element.displayName}",
-                        )
-                    }
-                    try {
-                        element.apply(accent)
-                    } catch (exception: RuntimeException) {
-                        log.warn(
-                            "Failed to apply accent to ${element.displayName}",
-                            exception,
-                        )
-                    }
-                }
-
+                applyElements(state, accent, variant)
                 syncCodeGlanceProViewport(accentHex)
                 applyAlwaysOnEditorKeys(accent)
                 val windows = Window.getWindows()
@@ -153,6 +134,7 @@ object AccentApplicator {
                 UIManager.put("Button.default.focusedBorderColor", null)
                 UIManager.put("Button.default.startBorderColor", null)
                 UIManager.put("Button.default.endBorderColor", null)
+                UIManager.put(KEY_TAB_BACKGROUND, null)
 
                 for (element in EP_NAME.extensionList) {
                     try {
@@ -192,6 +174,39 @@ object AccentApplicator {
         }
     }
 
+    private fun applyElements(
+        state: AyuIslandsState,
+        accent: Color,
+        variant: AyuVariant?,
+    ) {
+        for (element in EP_NAME.extensionList) {
+            val enabled = state.isToggleEnabled(element.id)
+            if (!enabled) {
+                neutralizeOrRevert(element, variant)
+                continue
+            }
+            val conflict = ConflictRegistry.getConflictFor(element.id)
+            val forceOverride = element.id.name in state.forceOverrides
+            if (conflict != null && !forceOverride) {
+                neutralizeOrRevert(element, variant)
+                continue
+            }
+            if (conflict != null) {
+                log.warn(
+                    "Force-overriding ${conflict.pluginDisplayName} conflict for ${element.displayName}",
+                )
+            }
+            try {
+                element.apply(accent)
+            } catch (exception: RuntimeException) {
+                log.warn(
+                    "Failed to apply accent to ${element.displayName}",
+                    exception,
+                )
+            }
+        }
+    }
+
     private fun applyAlwaysOnUiKeys(accent: Color) {
         for (key in ALWAYS_ON_UI_KEYS) {
             UIManager.put(key, accent)
@@ -208,6 +223,23 @@ object AccentApplicator {
         UIManager.put("Button.default.focusedBorderColor", darkenedAccent)
         UIManager.put("Button.default.startBorderColor", darkenedAccent)
         UIManager.put("Button.default.endBorderColor", darkenedAccent)
+
+        // Editor tab background tint (respects persisted tab mode, not gated by license)
+        val state = AyuIslandsSettings.getInstance().state
+        val tabMode = GlowTabMode.fromName(state.glowTabMode ?: "MINIMAL")
+        when (tabMode) {
+            GlowTabMode.MINIMAL -> UIManager.put(KEY_TAB_BACKGROUND, Color(0, 0, 0, 0))
+            GlowTabMode.FULL -> {
+                val tinted = Color(accent.red, accent.green, accent.blue, TAB_ACCENT_BG_ALPHA)
+                UIManager.put(KEY_TAB_BACKGROUND, tinted)
+            }
+            GlowTabMode.OFF -> {
+                val variant = AyuVariant.detect()
+                val neutralColor = variant?.let { Color.decode(it.neutralGray) }
+                UIManager.put("EditorTabs.underlinedBorderColor", neutralColor)
+                UIManager.put(KEY_TAB_BACKGROUND, Color(0, 0, 0, 0))
+            }
+        }
     }
 
     private fun applyAlwaysOnEditorKeys(accent: Color) {
@@ -296,9 +328,9 @@ object AccentApplicator {
             cgpSetViewportBorderColor = configClass.getMethod("setViewportBorderColor", String::class.java)
             cgpSetViewportBorderThickness = configClass.getMethod("setViewportBorderThickness", Int::class.java)
         } catch (exception: ReflectiveOperationException) {
-            log.warn("CodeGlance Pro method resolution failed: ${exception.javaClass.simpleName}: ${exception.message}")
+            logCgpWarning(CGP_RESOLUTION_FAILED, exception)
         } catch (exception: RuntimeException) {
-            log.warn("CodeGlance Pro method resolution failed: ${exception.javaClass.simpleName}: ${exception.message}")
+            logCgpWarning(CGP_RESOLUTION_FAILED, exception)
         }
     }
 
@@ -325,11 +357,18 @@ object AccentApplicator {
             log.info("CodeGlance Pro viewport color synced to $hexWithoutHash")
         } catch (exception: java.lang.reflect.InvocationTargetException) {
             val cause = exception.cause
-            log.warn("CodeGlance Pro sync failed: ${cause?.javaClass?.simpleName}: ${cause?.message}")
+            logCgpWarning(CGP_SYNC_FAILED, cause ?: exception)
         } catch (exception: ReflectiveOperationException) {
-            log.warn("CodeGlance Pro sync failed: ${exception.javaClass.simpleName}: ${exception.message}")
+            logCgpWarning(CGP_SYNC_FAILED, exception)
         } catch (exception: RuntimeException) {
-            log.warn("CodeGlance Pro sync failed: ${exception.javaClass.simpleName}: ${exception.message}")
+            logCgpWarning(CGP_SYNC_FAILED, exception)
         }
+    }
+
+    private fun logCgpWarning(
+        action: String,
+        exception: Throwable,
+    ) {
+        log.warn("CodeGlance Pro $action: ${exception.javaClass.simpleName}: ${exception.message}")
     }
 }

@@ -188,6 +188,9 @@ object LicenseChecker {
         // Disable glow (premium feature)
         state.glowEnabled = false
 
+        // Reset tab accent to free default (underline only, no tinted background)
+        state.glowTabMode = "MINIMAL"
+
         // Reset per-element toggles to defaults (all ON)
         for (id in AccentElementId.entries) {
             state.setToggle(id, true)

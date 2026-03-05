@@ -80,7 +80,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
         preview.previewAccentHex = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
         preview.previewToggles = pendingToggles.toMap()
         preview.previewGlowEnabled = false
-        val previewComponent = preview.createComponent(variant)
+        val previewComponent = preview.createComponent()
         elementPreview = preview
 
         panel.group("Accent Elements") {
@@ -202,12 +202,12 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
         licensed: Boolean,
     ) {
         val conflict = ConflictRegistry.getConflictFor(id)
-        val blocked = conflict?.type == ConflictType.BLOCK
+        val isBlocking = conflict != null && conflict.type == ConflictType.BLOCK
 
         panel.row {
             val cb = checkBox(id.displayName)
             cb.component.isSelected = pendingToggles[id] ?: true
-            cb.component.isEnabled = licensed && !blocked
+            cb.component.isEnabled = licensed && !isBlocking
             cb.component.addActionListener {
                 pendingToggles[id] = cb.component.isSelected
                 syncPreviewToggles()
@@ -231,7 +231,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
             )
         }
 
-        if (blocked && conflict != null) {
+        if (isBlocking) {
             panel.row {
                 comment("Managed by ${conflict.pluginDisplayName}")
             }
