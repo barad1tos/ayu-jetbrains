@@ -77,7 +77,7 @@ body:
     id: logs
     attributes:
       label: Relevant logs
-      description: "Paste any errors from Help > Show Log in Explorer/Finder (`idea.log`). Filter with: `grep -i 'ayu\\|ayuislands' idea.log`"
+      description: "Paste any errors from Help > Show Log in Explorer/Finder (`idea.log`). Filter with: `grep -Ei 'ayu|ayuislands' idea.log`"
       render: text
     validations:
       required: false

@@ -76,7 +76,7 @@ Each variant uses canonical colors from [ayu-colors](https://github.com/ayu-them
 ### Premium
 
 - **Per-element accent toggles** — fine-grained control over tabs, scrollbars, links, caret row, and more
-- **Neon glow effects** — island borders, active tabs, and focused inputs with 3 styles (Soft, Sharp Neon, Pulse)
+- **Neon glow effects** — island borders, active tabs, and focused inputs with 4 styles (Whisper, Ambient, Neon, Cyberpunk) plus custom mode and animations
 - **Plugin integrations** — accent colors in CodeGlance Pro, planning for more in the future
 - **Conflict detection** — detects conflicting theme settings and points out the source
 
