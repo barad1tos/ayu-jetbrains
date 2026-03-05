@@ -12,6 +12,9 @@ class AyuIslandsState : BaseState() {
     var darkAccent by string("#E6B450")
     var lightAccent by string("#F29718")
     var followSystemAccent by property(false)
+    var followSystemAppearance by property(false)
+    var lastDarkThemeName by string("Ayu Islands Mirage (Islands UI)")
+    var lastLightThemeName by string("Ayu Islands Light (Islands UI)")
     var trialExpiredNotified by property(false)
     var proDefaultsApplied by property(false)
 

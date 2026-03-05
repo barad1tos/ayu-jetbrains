@@ -11,6 +11,7 @@ import dev.ayuislands.settings.AyuIslandsSettings
 
 /** Re-applies accent color on theme change. */
 class AyuIslandsLafListener : LafManagerListener {
+    @Suppress("UnstableApiUsage")
     override fun lookAndFeelChanged(source: LafManager) {
         val variant = AyuVariant.detect()
         if (variant == null) {
@@ -24,6 +25,14 @@ class AyuIslandsLafListener : LafManagerListener {
         val accentHex = settings.getAccentForVariant(variant)
         AccentApplicator.apply(accentHex)
         LOG.info("Ayu Islands accent re-applied on theme change: $accentHex")
+
+        // Track manual sub-variant choices for appearance sync
+        val syncService = AppearanceSyncService.getInstance()
+        if (settings.state.followSystemAppearance && !syncService.programmaticSwitch) {
+            val themeName = source.currentUIThemeLookAndFeel.name
+            syncService.recordManualChoice(themeName)
+        }
+        syncService.clearProgrammaticSwitch()
 
         // Update glow overlays with new accent color
         updateGlowForAllProjects()

@@ -36,6 +36,11 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         // Check license state
         checkLicenseState(project, variant, settings)
 
+        // Auto-switch theme to match macOS Light/Dark mode
+        if (settings.state.followSystemAppearance) {
+            AppearanceSyncService.getInstance().syncIfNeeded()
+        }
+
         // Initialize the glow overlay system if the glow is enabled
         // Uses ApplicationManager.invokeLater with project.disposed condition to skip
         // if the project closes before the EDT processes this (execute() runs on a background coroutine)

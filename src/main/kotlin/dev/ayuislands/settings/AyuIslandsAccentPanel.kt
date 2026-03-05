@@ -41,7 +41,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
 
         panel.group("Accent Color") {
             row {
-                comment("Choose your accent color and which UI elements use it.")
+                comment("Choose your accent color. Swatches are shared across all variants.")
                 link("Reset") {
                     pendingAccent = variant.defaultAccent
                     swatch.selectedColor = variant.defaultAccent
@@ -101,7 +101,9 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         onAccentChanged?.invoke(variant.defaultAccent)
     }
 
-    override fun isModified(): Boolean = pendingAccent != storedAccent || pendingFollowSystem != storedFollowSystem
+    override fun isModified(): Boolean =
+        pendingAccent != storedAccent ||
+            pendingFollowSystem != storedFollowSystem
 
     override fun apply() {
         val currentVariant = variant ?: return

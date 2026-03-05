@@ -106,6 +106,10 @@
     <applicationService
         serviceImplementation="dev.ayuislands.settings.AyuIslandsSettings"/>
 
+    <!-- Appearance sync (follow system Light/Dark mode) -->
+    <applicationService
+        serviceImplementation="dev.ayuislands.AppearanceSyncService"/>
+
     <!-- Glow overlay manager (per-project lifecycle) -->
     <projectService
         serviceImplementation="dev.ayuislands.glow.GlowOverlayManager"/>
@@ -139,5 +143,8 @@
     <listener
         class="dev.ayuislands.AyuIslandsLafListener"
         topic="com.intellij.ide.ui.LafManagerListener"/>
+    <listener
+        class="dev.ayuislands.AppearanceSyncListener"
+        topic="com.intellij.openapi.application.ApplicationActivationListener"/>
   </applicationListeners>
 </idea-plugin>
