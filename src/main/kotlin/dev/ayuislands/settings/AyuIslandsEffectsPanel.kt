@@ -6,7 +6,6 @@ import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.Row
 import com.intellij.ui.dsl.builder.SegmentedButton
-import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowPreset
@@ -68,7 +67,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
     private var intensityValueLabel: JLabel? = null
     private var widthValueLabel: JLabel? = null
     private val islandCheckboxes = mutableMapOf<String, JCheckBox>()
-    private var animationDescriptionLabel: JLabel? = null
+    private var animationDescriptionLabel: javax.swing.JEditorPane? = null
     private var presetSegmentedButton: SegmentedButton<GlowPreset>? = null
     private var glowGroupPanel: GlowGroupPanel? = null
 
@@ -116,15 +115,6 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                 updateGlowGroupPanel()
             }
             masterToggle = cb.component
-
-            if (!licensed) {
-                @Suppress("DialogTitleCapitalization")
-                link("Get Ayu Islands Pro") {
-                    LicenseChecker.requestLicense(
-                        "Unlock per-element accent toggles and neon glow effects",
-                    )
-                }
-            }
 
             if (licensed) {
                 link("Reset defaults") {
@@ -309,11 +299,8 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
             }.visibleIf(customModeVisible)
         group
             .row {
-                val descLabel = JLabel(animationDescription(pendingAnimation))
-                descLabel.foreground = JBUI.CurrentTheme.ContextHelp.FOREGROUND
-                descLabel.font = JBUI.Fonts.smallFont()
-                animationDescriptionLabel = descLabel
-                cell(descLabel)
+                val descCell = comment(animationDescription(pendingAnimation))
+                animationDescriptionLabel = descCell.component
             }.visibleIf(customModeVisible)
     }
 
@@ -327,26 +314,25 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                     "Fine-tune where glow appears. All targets are enabled by default.",
                 )
             }
+            row {
+                link("Enable all") {
+                    for (key in pendingIslandToggles.keys) {
+                        pendingIslandToggles[key] = true
+                    }
+                    refreshIslandCheckboxes()
+                }.enabled(licensed && pendingGlowEnabled)
+                link("Disable all") {
+                    for (key in pendingIslandToggles.keys) {
+                        pendingIslandToggles[key] = false
+                    }
+                    refreshIslandCheckboxes()
+                }.enabled(licensed && pendingGlowEnabled)
+            }
             // Headers row
             threeColumnsRow(
                 { label("Workspace").bold() },
                 { label("Output").bold() },
-                {
-                    label("VCS").bold()
-                    label("     ")
-                    link("Enable all") {
-                        for (key in pendingIslandToggles.keys) {
-                            pendingIslandToggles[key] = true
-                        }
-                        refreshIslandCheckboxes()
-                    }.enabled(licensed && pendingGlowEnabled)
-                    link("Disable all") {
-                        for (key in pendingIslandToggles.keys) {
-                            pendingIslandToggles[key] = false
-                        }
-                        refreshIslandCheckboxes()
-                    }.enabled(licensed && pendingGlowEnabled)
-                },
+                { label("VCS").bold() },
             )
             // Row 1: Editor | Terminal | Git
             threeColumnsRow(
@@ -449,7 +435,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
     // State management
 
     private fun migratePresetIfNeeded(state: AyuIslandsState): String {
-        if (state.glowPreset != null) return state.glowPreset!!
+        state.glowPreset?.let { return it }
         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
         val intensity = state.getIntensityForStyle(style)
         val width = state.getWidthForStyle(style)
@@ -474,8 +460,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         }
 
         pendingIslandToggles.clear()
-        val islandIds = listOf("Editor", "Project", "Terminal", "Run", "Debug", "Git", "Services")
-        for (id in islandIds) {
+        for (id in ISLAND_IDS) {
             pendingIslandToggles[id] = state.isIslandEnabled(id)
         }
 
@@ -573,8 +558,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
             state.setWidthForStyle(style, pendingWidth[style] ?: style.defaultWidth)
         }
 
-        val islandIds = listOf("Editor", "Project", "Terminal", "Run", "Debug", "Git", "Services")
-        for (id in islandIds) {
+        for (id in ISLAND_IDS) {
             state.setIslandEnabled(id, pendingIslandToggles[id] ?: false)
         }
 
@@ -603,5 +587,6 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         private const val DEFAULT_WIDTH = 4
         private const val WIDTH_MAJOR_TICK = 2
         private const val FALLBACK_COLOR_HEX = "#FFCC66"
+        private val ISLAND_IDS = listOf("Editor", "Project", "Terminal", "Run", "Debug", "Git", "Services")
     }
 }

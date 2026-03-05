@@ -5,7 +5,6 @@ package dev.ayuislands.settings
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.dsl.builder.AlignY
 import com.intellij.ui.dsl.builder.Panel
-import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AccentGroup
@@ -85,16 +84,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
 
         panel.group("Accent Elements") {
             if (!licensed) {
-                row {
-                    label("Per-element toggles require a Pro license").applyToComponent {
-                        foreground = JBUI.CurrentTheme.ContextHelp.FOREGROUND
-                    }
-                    link("Get Ayu Islands Pro") {
-                        LicenseChecker.requestLicense(
-                            "Unlock per-element accent toggles and neon glow effects",
-                        )
-                    }
-                }
+                row { comment("Per-element toggles require a Pro license.") }
             }
 
             row {
