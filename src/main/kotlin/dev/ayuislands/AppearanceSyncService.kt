@@ -27,11 +27,9 @@ class AppearanceSyncService {
         val appearance = SystemAppearanceProvider.resolve() ?: return
         if (appearance == lastSyncedAppearance) return
 
-        // Only act when an Ayu theme is active
-        if (AyuVariant.detect() == null) {
-            lastSyncedAppearance = appearance
-            return
-        }
+        // Skip when no Ayu theme is active — don't update lastSyncedAppearance
+        // so sync triggers immediately when an Ayu theme becomes active
+        if (AyuVariant.detect() == null) return
 
         val settings = AyuIslandsSettings.getInstance()
         val targetThemeName =

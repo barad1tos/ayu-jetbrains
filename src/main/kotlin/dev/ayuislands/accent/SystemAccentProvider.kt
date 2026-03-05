@@ -1,6 +1,8 @@
 package dev.ayuislands.accent
 
 import com.intellij.openapi.util.SystemInfo
+import java.util.concurrent.TimeUnit
+import javax.swing.SwingUtilities
 
 /**
  * Reads the macOS system accent color and maps it to the nearest Ayu preset hex.
@@ -32,6 +34,7 @@ object SystemAccentProvider {
 
     private const val DEFAULT_ACCENT_HEX = "#73D0FF" // Blue (macOS default)
     private const val CACHE_TTL_MS = 5_000L
+    private const val PROCESS_TIMEOUT_MS = 2_000L
 
     @Volatile
     private var cachedHex: String? = null
@@ -43,6 +46,7 @@ object SystemAccentProvider {
         if (!SystemInfo.isMac) return null
         val now = System.currentTimeMillis()
         if (now - cacheTimestamp < CACHE_TTL_MS) return cachedHex
+        if (SwingUtilities.isEventDispatchThread()) return cachedHex
         val result = readFromSystem()
         cachedHex = result
         cacheTimestamp = now
@@ -60,7 +64,12 @@ object SystemAccentProvider {
                     .bufferedReader()
                     .readText()
                     .trim()
-            val exitCode = process.waitFor()
+            val finished = process.waitFor(PROCESS_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            if (!finished) {
+                process.destroyForcibly()
+                return null
+            }
+            val exitCode = process.exitValue()
             if (exitCode != 0) {
                 DEFAULT_ACCENT_HEX
             } else {

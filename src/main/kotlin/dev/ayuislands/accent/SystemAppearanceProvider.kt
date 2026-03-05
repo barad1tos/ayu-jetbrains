@@ -1,6 +1,8 @@
 package dev.ayuislands.accent
 
 import com.intellij.openapi.util.SystemInfo
+import java.util.concurrent.TimeUnit
+import javax.swing.SwingUtilities
 
 /**
  * Reads the macOS system appearance (Light / Dark mode).
@@ -11,6 +13,7 @@ object SystemAppearanceProvider {
     enum class Appearance { LIGHT, DARK }
 
     private const val CACHE_TTL_MS = 5_000L
+    private const val PROCESS_TIMEOUT_MS = 2_000L
 
     @Volatile
     private var cachedAppearance: Appearance? = null
@@ -22,6 +25,7 @@ object SystemAppearanceProvider {
         if (!SystemInfo.isMac) return null
         val now = System.currentTimeMillis()
         if (now - cacheTimestamp < CACHE_TTL_MS) return cachedAppearance
+        if (SwingUtilities.isEventDispatchThread()) return cachedAppearance
         val result = readFromSystem()
         cachedAppearance = result
         cacheTimestamp = now
@@ -39,7 +43,12 @@ object SystemAppearanceProvider {
                     .bufferedReader()
                     .readText()
                     .trim()
-            val exitCode = process.waitFor()
+            val finished = process.waitFor(PROCESS_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            if (!finished) {
+                process.destroyForcibly()
+                return null
+            }
+            val exitCode = process.exitValue()
             if (exitCode != 0) {
                 // Key absent means Light mode
                 Appearance.LIGHT

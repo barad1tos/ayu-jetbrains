@@ -117,7 +117,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
 
         val effectiveAccent =
             if (pendingFollowSystem) {
-                SystemAccentProvider.resolve() ?: pendingAccent
+                settings.getAccentForVariant(currentVariant)
             } else {
                 settings.setAccentForVariant(currentVariant, pendingAccent)
                 pendingAccent
