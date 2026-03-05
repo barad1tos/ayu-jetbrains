@@ -16,7 +16,7 @@ import java.awt.geom.RoundRectangle2D
 import javax.swing.JComponent
 import javax.swing.JPanel
 
-/** A 2x5 grid of rounded color swatches with a checkmark on the selected color. */
+/** A 2x6 grid of rounded color swatches with a checkmark on the selected color. */
 class ColorSwatchPanel(
     colors: List<AccentColor>,
     private val onColorSelected: (AccentColor) -> Unit,
@@ -98,7 +98,7 @@ class ColorSwatchPanel(
 
     companion object {
         private const val GRID_ROWS = 2
-        private const val GRID_COLS = 5
+        private const val GRID_COLS = 6
         private const val GRID_GAP = 6
         private const val SWATCH_SIZE = 28
         private const val ARC_RADIUS = 6f

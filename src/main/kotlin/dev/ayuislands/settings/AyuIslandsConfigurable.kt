@@ -27,12 +27,14 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
     private var pendingSelectedTab: Int =
         AyuIslandsSettings.getInstance().state.settingsSelectedTab
 
+    private val appearancePanel = AyuIslandsAppearancePanel()
     private val accentPanel = AyuIslandsAccentPanel()
     private val elementsPanel = AyuIslandsElementsPanel()
     private val effectsPanel = AyuIslandsEffectsPanel()
 
     private val panels: List<AyuIslandsSettingsPanel> =
         listOf(
+            appearancePanel,
             accentPanel,
             elementsPanel,
             effectsPanel,
@@ -62,6 +64,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         // Build tab content panels eagerly via DSL
         val accentTab =
             panel {
+                appearancePanel.buildPanel(this@panel, variant)
                 accentPanel.buildPanel(this@panel, variant)
                 elementsPanel.buildPanel(this@panel, variant)
 
@@ -105,6 +108,16 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
             row {
                 val status = if (LicenseChecker.isLicensedOrGrace()) "Licensed" else ""
                 comment("${variant.name} variant $status".trim())
+            }
+
+            if (!LicenseChecker.isLicensedOrGrace()) {
+                row {
+                    link("Get Ayu Islands Pro — unlock element toggles and glow effects") {
+                        LicenseChecker.requestLicense(
+                            "Unlock per-element accent toggles and neon glow effects",
+                        )
+                    }
+                }
             }
 
             // Tab container

@@ -69,7 +69,7 @@ intellijPlatform {
         freeArgs =
             listOf(
                 "-mute",
-                "ReleaseVersionAndPluginVersionMismatch",
+                "ReleaseVersionAndPluginVersionMismatch,ExperimentalApiUsage",
             )
         ides {
             val group = providers.systemProperty("verifyGroup").orNull

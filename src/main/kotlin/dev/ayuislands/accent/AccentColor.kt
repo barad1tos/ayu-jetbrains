@@ -17,4 +17,6 @@ val AYU_ACCENT_PRESETS: List<AccentColor> =
         AccentColor("#95E6CB", "Mint"),
         AccentColor("#73D0FF", "Sky"),
         AccentColor("#5CCFE6", "Cyan"),
+        AccentColor("#F27983", "Rose"),
+        AccentColor("#8A9199", "Slate"),
     )
