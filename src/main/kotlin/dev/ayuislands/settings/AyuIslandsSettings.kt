@@ -6,6 +6,7 @@ import com.intellij.openapi.components.SimplePersistentStateComponent
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.SystemAccentProvider
 
 @Service
 @State(
@@ -20,12 +21,16 @@ class AyuIslandsSettings : SimplePersistentStateComponent<AyuIslandsState>(AyuIs
                 .getService(AyuIslandsSettings::class.java)
     }
 
-    fun getAccentForVariant(variant: AyuVariant): String =
-        when (variant) {
+    fun getAccentForVariant(variant: AyuVariant): String {
+        if (state.followSystemAccent) {
+            SystemAccentProvider.resolve()?.let { return it }
+        }
+        return when (variant) {
             AyuVariant.MIRAGE -> state.mirageAccent ?: variant.defaultAccent
             AyuVariant.DARK -> state.darkAccent ?: variant.defaultAccent
             AyuVariant.LIGHT -> state.lightAccent ?: variant.defaultAccent
         }
+    }
 
     fun setAccentForVariant(
         variant: AyuVariant,
