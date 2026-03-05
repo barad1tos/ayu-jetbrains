@@ -72,8 +72,7 @@ class AppearanceSyncService {
         LOG.info("Switching theme: $currentThemeName -> $targetThemeName")
         programmaticSwitch = true
         SwingUtilities.invokeLater {
-            @Suppress("DEPRECATION")
-            lafManager.setCurrentLookAndFeel(target as javax.swing.UIManager.LookAndFeelInfo)
+            lafManager.setCurrentLookAndFeel(target, true)
             lafManager.updateUI()
         }
     }
