@@ -133,6 +133,10 @@ kover {
                     "dev.ayuislands.glow.GlowOverlayManager*",
                     "dev.ayuislands.glow.GlowGlassPane*",
                     "dev.ayuislands.glow.GlowFocusBorder*",
+                    // macOS-only (SystemInfo.isMac guard, untestable on Linux CI)
+                    "dev.ayuislands.accent.CachedMacReader*",
+                    "dev.ayuislands.accent.SystemAccentProvider*",
+                    "dev.ayuislands.accent.SystemAppearanceProvider*",
                     // IDE glue (thin event listeners, startup activity)
                     "dev.ayuislands.AyuIslandsStartupActivity*",
                     "dev.ayuislands.AyuIslandsLafListener*",
