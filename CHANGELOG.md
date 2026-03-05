@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.0.0] - 2026-03-06
+
+### Added
+- Accent color customization with 10 hand-picked Ayu palette presets
+- Per-variant accent storage (independent colors for Mirage, Dark, Light)
+- Live visual preview in the accent picker
+- Per-element accent toggles for tabs, scrollbars, links, caret row, and more (premium)
+- Neon glow effects for island borders, active tabs, and focused inputs (premium)
+- Four glow styles: Whisper, Ambient, Neon, Cyberpunk, and custom mode plus animations (premium)
+- Third-party conflict detection (Atom Material Icons, CodeGlance Pro)
+- Settings panel under Appearance > Ayu Islands with tabbed Accent/Effects layout
+- macOS system accent color and appearance sync
+- Freemium licensing — all six base themes remain free forever
+
 ## [1.2.1] - 2026-02-27
 
 ### Fixed
@@ -36,8 +50,8 @@
 ### Added
 - Ayu Dark Islands variant (deep dark `#0D1017` background, gold `#E6B450` accent)
 - Ayu Light Islands variant (warm white `#FAFAFA` background, orange `#F29718` accent)
-- Each variant in two sub-themes: classic UI base + Islands UI
-- 6 themes total: Mirage, Dark, Light x (classic, Islands)
+- Each variant in two sub-themes: classic UI base and Islands UI
+- Six themes total: Mirage, Dark, Light x (classic, Islands)
 
 ### Fixed
 - Git Log contrast on dark variants (Table.foreground/background)
