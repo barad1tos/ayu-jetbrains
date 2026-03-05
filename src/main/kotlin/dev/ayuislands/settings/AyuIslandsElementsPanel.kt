@@ -202,12 +202,12 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
         licensed: Boolean,
     ) {
         val conflict = ConflictRegistry.getConflictFor(id)
-        val blocked = conflict?.type == ConflictType.BLOCK
+        val isBlocking = conflict != null && conflict.type == ConflictType.BLOCK
 
         panel.row {
             val cb = checkBox(id.displayName)
             cb.component.isSelected = pendingToggles[id] ?: true
-            cb.component.isEnabled = licensed && !blocked
+            cb.component.isEnabled = licensed && !isBlocking
             cb.component.addActionListener {
                 pendingToggles[id] = cb.component.isSelected
                 syncPreviewToggles()
@@ -231,9 +231,9 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
             )
         }
 
-        if (blocked) {
+        if (isBlocking) {
             panel.row {
-                comment("Managed by ${conflict!!.pluginDisplayName}")
+                comment("Managed by ${conflict.pluginDisplayName}")
             }
         }
     }

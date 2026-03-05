@@ -32,6 +32,8 @@ object AccentApplicator {
     private val DARK_FOREGROUND = Color(DARK_FOREGROUND_HEX)
     private const val TAB_ACCENT_BG_ALPHA = 50
     private const val KEY_TAB_BACKGROUND = "EditorTabs.underlinedTabBackground"
+    private const val CGP_RESOLUTION_FAILED = "method resolution failed"
+    private const val CGP_SYNC_FAILED = "sync failed"
 
     // Cached CodeGlance Pro reflection objects (resolved once per session)
     private var cgpService: Any? = null
@@ -233,9 +235,8 @@ object AccentApplicator {
             }
             GlowTabMode.OFF -> {
                 val variant = AyuVariant.detect()
-                if (variant != null) {
-                    UIManager.put("EditorTabs.underlinedBorderColor", Color.decode(variant.neutralGray))
-                }
+                val neutralColor = variant?.let { Color.decode(it.neutralGray) }
+                UIManager.put("EditorTabs.underlinedBorderColor", neutralColor)
                 UIManager.put(KEY_TAB_BACKGROUND, Color(0, 0, 0, 0))
             }
         }
@@ -327,9 +328,9 @@ object AccentApplicator {
             cgpSetViewportBorderColor = configClass.getMethod("setViewportBorderColor", String::class.java)
             cgpSetViewportBorderThickness = configClass.getMethod("setViewportBorderThickness", Int::class.java)
         } catch (exception: ReflectiveOperationException) {
-            logCgpWarning("method resolution failed", exception)
+            logCgpWarning(CGP_RESOLUTION_FAILED, exception)
         } catch (exception: RuntimeException) {
-            logCgpWarning("method resolution failed", exception)
+            logCgpWarning(CGP_RESOLUTION_FAILED, exception)
         }
     }
 
@@ -356,11 +357,11 @@ object AccentApplicator {
             log.info("CodeGlance Pro viewport color synced to $hexWithoutHash")
         } catch (exception: java.lang.reflect.InvocationTargetException) {
             val cause = exception.cause
-            logCgpWarning("sync failed", cause ?: exception)
+            logCgpWarning(CGP_SYNC_FAILED, cause ?: exception)
         } catch (exception: ReflectiveOperationException) {
-            logCgpWarning("sync failed", exception)
+            logCgpWarning(CGP_SYNC_FAILED, exception)
         } catch (exception: RuntimeException) {
-            logCgpWarning("sync failed", exception)
+            logCgpWarning(CGP_SYNC_FAILED, exception)
         }
     }
 
