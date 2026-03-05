@@ -3,6 +3,8 @@ package dev.ayuislands.accent
 import io.mockk.every
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
+import org.junit.jupiter.api.condition.EnabledOnOs
+import org.junit.jupiter.api.condition.OS
 import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -12,10 +14,10 @@ import kotlin.test.assertNull
 /**
  * Tests for [CachedMacReader].
  *
- * Note: SystemInfo.isMac is a static final boolean and cannot be mocked.
- * These tests run on macOS where SystemInfo.isMac is true, so the non-Mac
- * branch is not testable in this environment.
+ * CachedMacReader guards with `SystemInfo.isMac` (static final boolean),
+ * so these tests only run on macOS where that guard passes.
  */
+@EnabledOnOs(OS.MAC)
 class CachedMacReaderTest {
     @AfterTest
     fun tearDown() {
