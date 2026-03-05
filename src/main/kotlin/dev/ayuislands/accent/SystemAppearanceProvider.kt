@@ -10,9 +10,26 @@ import com.intellij.openapi.util.SystemInfo
 object SystemAppearanceProvider {
     enum class Appearance { LIGHT, DARK }
 
+    private const val CACHE_TTL_MS = 5_000L
+
+    @Volatile
+    private var cachedAppearance: Appearance? = null
+
+    @Volatile
+    private var cacheTimestamp: Long = 0L
+
     fun resolve(): Appearance? {
         if (!SystemInfo.isMac) return null
-        return try {
+        val now = System.currentTimeMillis()
+        if (now - cacheTimestamp < CACHE_TTL_MS) return cachedAppearance
+        val result = readFromSystem()
+        cachedAppearance = result
+        cacheTimestamp = now
+        return result
+    }
+
+    private fun readFromSystem(): Appearance? =
+        try {
             val process =
                 ProcessBuilder("defaults", "read", "-g", "AppleInterfaceStyle")
                     .redirectErrorStream(true)
@@ -34,5 +51,4 @@ object SystemAppearanceProvider {
         } catch (_: Exception) {
             null
         }
-    }
 }

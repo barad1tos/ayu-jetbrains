@@ -6,8 +6,8 @@ import kotlin.test.assertTrue
 
 class AccentColorTest {
     @Test
-    fun `preset list contains exactly 10 colors`() {
-        assertEquals(10, AYU_ACCENT_PRESETS.size)
+    fun `preset list contains exactly 12 colors`() {
+        assertEquals(12, AYU_ACCENT_PRESETS.size)
     }
 
     @Test
@@ -54,6 +54,8 @@ class AccentColorTest {
                 "Mint",
                 "Sky",
                 "Cyan",
+                "Rose",
+                "Slate",
             )
         assertEquals(expectedNames, AYU_ACCENT_PRESETS.map { it.name })
     }

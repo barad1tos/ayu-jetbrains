@@ -55,13 +55,15 @@ class AppearanceSyncService {
         LOG.info("Recorded manual appearance choice: $themeName")
     }
 
-    @Suppress("UnstableApiUsage", "DEPRECATION")
+    @Suppress("UnstableApiUsage")
     private fun switchToTheme(targetThemeName: String) {
         val lafManager = LafManager.getInstance()
         val currentThemeName = lafManager.currentUIThemeLookAndFeel.name
         if (currentThemeName == targetThemeName) return
 
-        val target = lafManager.installedThemes.firstOrNull { it.name == targetThemeName }
+        val target =
+            lafManager.installedThemes
+                .firstOrNull { it.name == targetThemeName }
         if (target == null) {
             LOG.warn("Target theme not found: $targetThemeName")
             return
@@ -70,6 +72,7 @@ class AppearanceSyncService {
         LOG.info("Switching theme: $currentThemeName -> $targetThemeName")
         programmaticSwitch = true
         SwingUtilities.invokeLater {
+            @Suppress("DEPRECATION")
             lafManager.setCurrentLookAndFeel(target as javax.swing.UIManager.LookAndFeelInfo)
             lafManager.updateUI()
         }

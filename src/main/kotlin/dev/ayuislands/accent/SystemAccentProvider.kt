@@ -31,9 +31,25 @@ object SystemAccentProvider {
         )
 
     private const val DEFAULT_ACCENT_HEX = "#73D0FF" // Blue (macOS default)
+    private const val CACHE_TTL_MS = 5_000L
+
+    @Volatile
+    private var cachedHex: String? = null
+
+    @Volatile
+    private var cacheTimestamp: Long = 0L
 
     fun resolve(): String? {
         if (!SystemInfo.isMac) return null
+        val now = System.currentTimeMillis()
+        if (now - cacheTimestamp < CACHE_TTL_MS) return cachedHex
+        val result = readFromSystem()
+        cachedHex = result
+        cacheTimestamp = now
+        return result
+    }
+
+    private fun readFromSystem(): String? {
         return try {
             val process =
                 ProcessBuilder("defaults", "read", "-g", "AppleAccentColor")
@@ -46,10 +62,13 @@ object SystemAccentProvider {
                     .trim()
             val exitCode = process.waitFor()
             if (exitCode != 0) {
-                return DEFAULT_ACCENT_HEX
+                DEFAULT_ACCENT_HEX
+            } else {
+                val accentValue =
+                    output.toIntOrNull()
+                        ?: return DEFAULT_ACCENT_HEX
+                MACOS_ACCENT_MAP[accentValue] ?: DEFAULT_ACCENT_HEX
             }
-            val accentValue = output.toIntOrNull() ?: return DEFAULT_ACCENT_HEX
-            MACOS_ACCENT_MAP[accentValue] ?: DEFAULT_ACCENT_HEX
         } catch (_: Exception) {
             null
         }
