@@ -5,6 +5,7 @@ import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
+import dev.ayuislands.indent.IndentPreset
 
 class AyuIslandsState : BaseState() {
     // Per-variant accent colors
@@ -78,7 +79,7 @@ class AyuIslandsState : BaseState() {
     var indentPresetName by string("AMBIENT")
 
     // Custom alpha for CUSTOM preset (0-255)
-    var indentCustomAlpha by property(DEFAULT_INDENT_CUSTOM_ALPHA)
+    var indentCustomAlpha by property(IndentPreset.DEFAULT_ALPHA)
 
     // IR version that failed reflection (suppresses repeated notifications)
     var irFailedVersion by string(null)
@@ -181,7 +182,6 @@ class AyuIslandsState : BaseState() {
     }
 
     companion object {
-        private const val DEFAULT_INDENT_CUSTOM_ALPHA = 0x2E
         private const val DEFAULT_SOFT_INTENSITY = 20
         private const val DEFAULT_SHARP_NEON_INTENSITY = 50
         private const val DEFAULT_GRADIENT_INTENSITY = 30

@@ -21,8 +21,8 @@ class IndentRainbowPanel : AyuIslandsSettingsPanel {
     private var storedEnabled: Boolean = false
     private var pendingPreset: String = IndentPreset.AMBIENT.name
     private var storedPreset: String = IndentPreset.AMBIENT.name
-    private var pendingCustomAlpha: Int = DEFAULT_ALPHA
-    private var storedCustomAlpha: Int = DEFAULT_ALPHA
+    private var pendingCustomAlpha: Int = IndentPreset.DEFAULT_ALPHA
+    private var storedCustomAlpha: Int = IndentPreset.DEFAULT_ALPHA
 
     private var variant: AyuVariant? = null
     private var enabledCheckbox: JCheckBox? = null
@@ -157,7 +157,6 @@ class IndentRainbowPanel : AyuIslandsSettingsPanel {
     }
 
     companion object {
-        private const val DEFAULT_ALPHA = 0x2E
         private const val MIN_ALPHA = 0x0D
         private const val MAX_ALPHA = 0x99
         private const val ALPHA_MAJOR_TICK = 0x1A

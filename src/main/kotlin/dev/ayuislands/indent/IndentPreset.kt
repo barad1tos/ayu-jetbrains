@@ -17,6 +17,8 @@ enum class IndentPreset(
     ;
 
     companion object {
+        const val DEFAULT_ALPHA = AMBIENT_ALPHA
+
         fun fromName(name: String): IndentPreset = entries.firstOrNull { it.name == name } ?: CUSTOM
 
         fun detect(alpha: Int): IndentPreset =

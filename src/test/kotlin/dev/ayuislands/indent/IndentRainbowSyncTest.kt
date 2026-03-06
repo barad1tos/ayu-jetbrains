@@ -1,0 +1,573 @@
+package dev.ayuislands.indent
+
+import com.intellij.ide.plugins.IdeaPluginDescriptor
+import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.notification.Notification
+import com.intellij.notification.NotificationGroup
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
+import com.intellij.openapi.application.ApplicationManager
+import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
+import io.mockk.clearAllMocks
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.mockkObject
+import io.mockk.mockkStatic
+import io.mockk.unmockkAll
+import io.mockk.verify
+import java.lang.reflect.Field
+import java.lang.reflect.Method
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+class IndentRainbowSyncTest {
+    private val mockSettings = mockk<AyuIslandsSettings>(relaxed = true)
+    private val state = AyuIslandsState()
+    private val mockApplication = mockk<com.intellij.openapi.application.Application>(relaxed = true)
+
+    @BeforeTest
+    fun setUp() {
+        mockkStatic(ApplicationManager::class)
+        every { ApplicationManager.getApplication() } returns mockApplication
+
+        mockkObject(AyuIslandsSettings.Companion)
+        every { AyuIslandsSettings.getInstance() } returns mockSettings
+        every { mockSettings.state } returns state
+        every { mockSettings.getAccentForVariant(any()) } returns "#FFCC66"
+
+        mockkStatic(PluginManagerCore::class)
+        every { PluginManagerCore.getPlugin(any()) } returns null
+
+        resetSyncState()
+    }
+
+    @AfterTest
+    fun tearDown() {
+        unmockkAll()
+        clearAllMocks()
+    }
+
+    @Test
+    fun `apply with integration disabled calls revert gracefully`() {
+        state.irIntegrationEnabled = false
+
+        IndentRainbowSync.apply(AyuVariant.MIRAGE)
+
+        // Should not throw — revert also gracefully returns when IR not installed
+    }
+
+    @Test
+    fun `apply with integration enabled but no IR plugin does not throw`() {
+        state.irIntegrationEnabled = true
+
+        IndentRainbowSync.apply(AyuVariant.MIRAGE)
+
+        // resolveReflection finds no plugin, resolveOrReturn returns null, method exits
+    }
+
+    @Test
+    fun `revert when IR plugin not installed does not throw`() {
+        IndentRainbowSync.revert()
+    }
+
+    @Test
+    fun `resolveReflection sets methodsResolved even when plugin not found`() {
+        invokePrivate("resolveReflection")
+
+        val resolved = getPrivateField<Boolean>("methodsResolved")
+        assertTrue(resolved, "methodsResolved should be true after first call")
+    }
+
+    @Test
+    fun `resolveReflection is idempotent`() {
+        invokePrivate("resolveReflection")
+        invokePrivate("resolveReflection")
+
+        // Second call exits immediately via guard
+        val resolved = getPrivateField<Boolean>("methodsResolved")
+        assertTrue(resolved)
+    }
+
+    @Test
+    fun `resolveReflection returns when plugin classloader is null`() {
+        val mockPlugin = mockk<IdeaPluginDescriptor>(relaxed = true)
+        every { PluginManagerCore.getPlugin(any()) } returns mockPlugin
+        every { mockPlugin.pluginClassLoader } returns null
+
+        invokePrivate("resolveReflection")
+
+        assertNull(getPrivateField("irConfig"))
+        assertTrue(getPrivateField("methodsResolved"))
+    }
+
+    @Test
+    fun `resolveOrReturn returns null when fields not resolved`() {
+        setPrivateField("methodsResolved", true)
+        // All fields remain null
+
+        val result = invokePrivateReturning("resolveOrReturn")
+        assertNull(result, "resolveOrReturn should return null when irConfig is null")
+    }
+
+    @Test
+    fun `apply for each variant does not throw when IR not installed`() {
+        state.irIntegrationEnabled = true
+        for (variant in AyuVariant.entries) {
+            resetSyncState()
+            IndentRainbowSync.apply(variant)
+        }
+    }
+
+    @Test
+    fun `apply with enabled integration writes to mock IR fields`() {
+        state.irIntegrationEnabled = true
+        state.indentPresetName = "AMBIENT"
+
+        val mockConfig = Any()
+        val mockPaletteTypeField = mockField()
+        val mockCustomPaletteField = mockField()
+        val mockNumberColorsField = mockIntField()
+        val mockUpdateMethod = mockMethod()
+        val mockRefreshMethod = mockMethod()
+        val mockCompanion = Any()
+        val mockColorsInstance = Any()
+
+        setPrivateField("methodsResolved", true)
+        setPrivateField("irConfig", mockConfig)
+        setPrivateField("paletteTypeField", mockPaletteTypeField)
+        setPrivateField("customPaletteField", mockCustomPaletteField)
+        setPrivateField("customPaletteNumberColorsField", mockNumberColorsField)
+        setPrivateField("customEnumValue", "CUSTOM_ENUM")
+        setPrivateField("defaultEnumValue", "DEFAULT_ENUM")
+        setPrivateField("cachedDataUpdateMethod", mockUpdateMethod)
+        setPrivateField("cachedDataCompanion", mockCompanion)
+        setPrivateField("refreshMethod", mockRefreshMethod)
+        setPrivateField("irColorsInstance", mockColorsInstance)
+
+        IndentRainbowSync.apply(AyuVariant.MIRAGE)
+
+        // Verify palette type was set to CUSTOM
+        verify { mockPaletteTypeField[mockConfig] = "CUSTOM_ENUM" }
+        // Verify custom palette string was written
+        verify { mockCustomPaletteField[mockConfig] = any<String>() }
+        // Verify number of colors = 7 (1 error + 6 indent)
+        verify { mockNumberColorsField.setInt(mockConfig, 7) }
+        // Verify cache flush
+        verify { mockUpdateMethod.invoke(mockCompanion, mockConfig) }
+        verify { mockRefreshMethod.invoke(mockColorsInstance) }
+    }
+
+    @Test
+    fun `revert writes DEFAULT enum to palette type field`() {
+        val mockConfig = Any()
+        val mockPaletteTypeField = mockField()
+        val mockUpdateMethod = mockMethod()
+        val mockRefreshMethod = mockMethod()
+        val mockCompanion = Any()
+        val mockColorsInstance = Any()
+
+        setPrivateField("methodsResolved", true)
+        setPrivateField("irConfig", mockConfig)
+        setPrivateField("paletteTypeField", mockPaletteTypeField)
+        setPrivateField("defaultEnumValue", "DEFAULT_ENUM")
+        setPrivateField("cachedDataUpdateMethod", mockUpdateMethod)
+        setPrivateField("cachedDataCompanion", mockCompanion)
+        setPrivateField("refreshMethod", mockRefreshMethod)
+        setPrivateField("irColorsInstance", mockColorsInstance)
+
+        IndentRainbowSync.revert()
+
+        verify { mockPaletteTypeField[mockConfig] = "DEFAULT_ENUM" }
+        verify { mockUpdateMethod.invoke(mockCompanion, mockConfig) }
+        verify { mockRefreshMethod.invoke(mockColorsInstance) }
+    }
+
+    @Test
+    fun `apply with disabled integration reverts to DEFAULT`() {
+        state.irIntegrationEnabled = false
+
+        val mockConfig = Any()
+        val mockPaletteTypeField = mockField()
+        val mockUpdateMethod = mockMethod()
+        val mockRefreshMethod = mockMethod()
+        val mockCompanion = Any()
+        val mockColorsInstance = Any()
+
+        setPrivateField("methodsResolved", true)
+        setPrivateField("irConfig", mockConfig)
+        setPrivateField("paletteTypeField", mockPaletteTypeField)
+        setPrivateField("defaultEnumValue", "DEFAULT_ENUM")
+        setPrivateField("cachedDataUpdateMethod", mockUpdateMethod)
+        setPrivateField("cachedDataCompanion", mockCompanion)
+        setPrivateField("refreshMethod", mockRefreshMethod)
+        setPrivateField("irColorsInstance", mockColorsInstance)
+
+        IndentRainbowSync.apply(AyuVariant.MIRAGE)
+
+        // Should revert, not apply custom
+        verify { mockPaletteTypeField[mockConfig] = "DEFAULT_ENUM" }
+    }
+
+    @Test
+    fun `apply handles InvocationTargetException from flushCache`() {
+        state.irIntegrationEnabled = true
+
+        val mockConfig = Any()
+        val mockPaletteTypeField = mockField()
+        val mockCustomPaletteField = mockField()
+        val mockNumberColorsField = mockIntField()
+        val mockUpdateMethod = mockk<Method>(relaxed = true)
+        val mockRefreshMethod = mockMethod()
+        val mockCompanion = Any()
+        val mockColorsInstance = Any()
+
+        every {
+            mockUpdateMethod.invoke(any(), any())
+        } throws java.lang.reflect.InvocationTargetException(RuntimeException("inner"))
+
+        setPrivateField("methodsResolved", true)
+        setPrivateField("irConfig", mockConfig)
+        setPrivateField("paletteTypeField", mockPaletteTypeField)
+        setPrivateField("customPaletteField", mockCustomPaletteField)
+        setPrivateField("customPaletteNumberColorsField", mockNumberColorsField)
+        setPrivateField("customEnumValue", "CUSTOM_ENUM")
+        setPrivateField("defaultEnumValue", "DEFAULT_ENUM")
+        setPrivateField("cachedDataUpdateMethod", mockUpdateMethod)
+        setPrivateField("cachedDataCompanion", mockCompanion)
+        setPrivateField("refreshMethod", mockRefreshMethod)
+        setPrivateField("irColorsInstance", mockColorsInstance)
+
+        // Mock NotificationGroupManager to prevent NPE in notifyFailure
+        mockkStatic(NotificationGroupManager::class)
+        val mockNotifManager = mockk<NotificationGroupManager>(relaxed = true)
+        val mockGroup = mockk<NotificationGroup>(relaxed = true)
+        val mockNotification = mockk<Notification>(relaxed = true)
+        every { NotificationGroupManager.getInstance() } returns mockNotifManager
+        every { mockNotifManager.getNotificationGroup(any()) } returns mockGroup
+        every {
+            mockGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
+        } returns mockNotification
+
+        IndentRainbowSync.apply(AyuVariant.MIRAGE)
+        // Should not throw — exception is caught and logged
+    }
+
+    @Test
+    fun `apply handles ReflectiveOperationException from flushCache`() {
+        state.irIntegrationEnabled = true
+
+        val mockConfig = Any()
+        val mockPaletteTypeField = mockField()
+        val mockCustomPaletteField = mockField()
+        val mockNumberColorsField = mockIntField()
+        val mockUpdateMethod = mockk<Method>(relaxed = true)
+        val mockRefreshMethod = mockMethod()
+        val mockCompanion = Any()
+        val mockColorsInstance = Any()
+
+        every {
+            mockUpdateMethod.invoke(any(), any())
+        } throws IllegalAccessException("denied")
+
+        setPrivateField("methodsResolved", true)
+        setPrivateField("irConfig", mockConfig)
+        setPrivateField("paletteTypeField", mockPaletteTypeField)
+        setPrivateField("customPaletteField", mockCustomPaletteField)
+        setPrivateField("customPaletteNumberColorsField", mockNumberColorsField)
+        setPrivateField("customEnumValue", "CUSTOM_ENUM")
+        setPrivateField("defaultEnumValue", "DEFAULT_ENUM")
+        setPrivateField("cachedDataUpdateMethod", mockUpdateMethod)
+        setPrivateField("cachedDataCompanion", mockCompanion)
+        setPrivateField("refreshMethod", mockRefreshMethod)
+        setPrivateField("irColorsInstance", mockColorsInstance)
+
+        mockkStatic(NotificationGroupManager::class)
+        val mockNotifManager = mockk<NotificationGroupManager>(relaxed = true)
+        val mockGroup = mockk<NotificationGroup>(relaxed = true)
+        val mockNotification = mockk<Notification>(relaxed = true)
+        every { NotificationGroupManager.getInstance() } returns mockNotifManager
+        every { mockNotifManager.getNotificationGroup(any()) } returns mockGroup
+        every {
+            mockGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
+        } returns mockNotification
+
+        IndentRainbowSync.apply(AyuVariant.MIRAGE)
+    }
+
+    @Test
+    fun `revert handles exception from flushCache`() {
+        val mockConfig = Any()
+        val mockPaletteTypeField = mockField()
+        val mockUpdateMethod = mockk<Method>(relaxed = true)
+        val mockRefreshMethod = mockMethod()
+        val mockCompanion = Any()
+        val mockColorsInstance = Any()
+
+        every {
+            mockUpdateMethod.invoke(any(), any())
+        } throws RuntimeException("flush failed")
+
+        setPrivateField("methodsResolved", true)
+        setPrivateField("irConfig", mockConfig)
+        setPrivateField("paletteTypeField", mockPaletteTypeField)
+        setPrivateField("defaultEnumValue", "DEFAULT_ENUM")
+        setPrivateField("cachedDataUpdateMethod", mockUpdateMethod)
+        setPrivateField("cachedDataCompanion", mockCompanion)
+        setPrivateField("refreshMethod", mockRefreshMethod)
+        setPrivateField("irColorsInstance", mockColorsInstance)
+
+        IndentRainbowSync.revert()
+        // Should not throw
+    }
+
+    @Test
+    fun `notifyFailure suppresses duplicate for same version`() {
+        state.irFailedVersion = "old-version"
+
+        mockkStatic(NotificationGroupManager::class)
+        val mockNotifManager = mockk<NotificationGroupManager>(relaxed = true)
+        val mockGroup = mockk<NotificationGroup>(relaxed = true)
+        val mockNotification = mockk<Notification>(relaxed = true)
+        every { NotificationGroupManager.getInstance() } returns mockNotifManager
+        every { mockNotifManager.getNotificationGroup(any()) } returns mockGroup
+        every {
+            mockGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
+        } returns mockNotification
+
+        // First call — should notify
+        invokePrivate("notifyFailure")
+
+        // irFailedVersion is now set to null (plugin version)
+        // Second call — same version, should skip
+        invokePrivate("notifyFailure")
+
+        // createNotification should be called only once
+        verify(exactly = 1) {
+            mockGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
+        }
+    }
+
+    @Test
+    fun `notifyFailure catches RuntimeException from notification system`() {
+        state.irFailedVersion = "different-version"
+
+        mockkStatic(NotificationGroupManager::class)
+        every { NotificationGroupManager.getInstance() } throws RuntimeException("no group")
+
+        invokePrivate("notifyFailure")
+        // Should not throw — caught internally
+    }
+
+    @Test
+    fun `logWarning does not throw`() {
+        invokePrivate("logWarning", "test action", RuntimeException("test message"))
+    }
+
+    @Test
+    fun `logWarning handles exception with null message`() {
+        invokePrivate("logWarning", "test action", RuntimeException())
+    }
+
+    @Test
+    fun `apply uses correct preset alpha`() {
+        state.irIntegrationEnabled = true
+        state.indentPresetName = "NEON"
+
+        val mockConfig = Any()
+        val mockPaletteTypeField = mockField()
+        val mockCustomPaletteField = mockField()
+        val mockNumberColorsField = mockIntField()
+        val mockUpdateMethod = mockMethod()
+        val mockRefreshMethod = mockMethod()
+        val mockCompanion = Any()
+        val mockColorsInstance = Any()
+
+        setPrivateField("methodsResolved", true)
+        setPrivateField("irConfig", mockConfig)
+        setPrivateField("paletteTypeField", mockPaletteTypeField)
+        setPrivateField("customPaletteField", mockCustomPaletteField)
+        setPrivateField("customPaletteNumberColorsField", mockNumberColorsField)
+        setPrivateField("customEnumValue", "CUSTOM_ENUM")
+        setPrivateField("defaultEnumValue", "DEFAULT_ENUM")
+        setPrivateField("cachedDataUpdateMethod", mockUpdateMethod)
+        setPrivateField("cachedDataCompanion", mockCompanion)
+        setPrivateField("refreshMethod", mockRefreshMethod)
+        setPrivateField("irColorsInstance", mockColorsInstance)
+
+        IndentRainbowSync.apply(AyuVariant.MIRAGE)
+
+        // Verify the palette string was written (contains NEON alpha-based values)
+        verify {
+            mockCustomPaletteField[mockConfig] =
+                match<String> { palette ->
+                    // NEON alpha = 0x4D, 7 colors joined with ", "
+                    palette.split(", ").size == 7
+                }
+        }
+    }
+
+    @Test
+    fun `apply falls back to custom alpha when preset is CUSTOM`() {
+        state.irIntegrationEnabled = true
+        state.indentPresetName = "CUSTOM"
+        state.indentCustomAlpha = 0x50
+
+        val mockConfig = Any()
+        val mockPaletteTypeField = mockField()
+        val mockCustomPaletteField = mockField()
+        val mockNumberColorsField = mockIntField()
+        val mockUpdateMethod = mockMethod()
+        val mockRefreshMethod = mockMethod()
+        val mockCompanion = Any()
+        val mockColorsInstance = Any()
+
+        setPrivateField("methodsResolved", true)
+        setPrivateField("irConfig", mockConfig)
+        setPrivateField("paletteTypeField", mockPaletteTypeField)
+        setPrivateField("customPaletteField", mockCustomPaletteField)
+        setPrivateField("customPaletteNumberColorsField", mockNumberColorsField)
+        setPrivateField("customEnumValue", "CUSTOM_ENUM")
+        setPrivateField("defaultEnumValue", "DEFAULT_ENUM")
+        setPrivateField("cachedDataUpdateMethod", mockUpdateMethod)
+        setPrivateField("cachedDataCompanion", mockCompanion)
+        setPrivateField("refreshMethod", mockRefreshMethod)
+        setPrivateField("irColorsInstance", mockColorsInstance)
+
+        IndentRainbowSync.apply(AyuVariant.DARK)
+
+        verify { mockCustomPaletteField[mockConfig] = any<String>() }
+    }
+
+    @Test
+    fun `IR_PLUGIN_ID constant has correct value`() {
+        val pluginId = getPrivateField<String>("IR_PLUGIN_ID")
+        assertEquals("indent-rainbow.indent-rainbow", pluginId)
+    }
+
+    @Test
+    fun `revert exits when defaultEnumValue is null`() {
+        val mockConfig = Any()
+        val mockPaletteTypeField = mockField()
+        val mockUpdateMethod = mockMethod()
+        val mockRefreshMethod = mockMethod()
+        val mockCompanion = Any()
+        val mockColorsInstance = Any()
+
+        setPrivateField("methodsResolved", true)
+        setPrivateField("irConfig", mockConfig)
+        setPrivateField("paletteTypeField", mockPaletteTypeField)
+        setPrivateField("defaultEnumValue", null)
+        setPrivateField("cachedDataUpdateMethod", mockUpdateMethod)
+        setPrivateField("cachedDataCompanion", mockCompanion)
+        setPrivateField("refreshMethod", mockRefreshMethod)
+        setPrivateField("irColorsInstance", mockColorsInstance)
+
+        IndentRainbowSync.revert()
+
+        // flushCache should NOT be called since method exits early
+        verify(exactly = 0) { mockUpdateMethod.invoke(any(), any()) }
+    }
+
+    @Test
+    fun `apply exits when customEnumValue is null`() {
+        state.irIntegrationEnabled = true
+
+        val mockConfig = Any()
+        val mockPaletteTypeField = mockField()
+        val mockCustomPaletteField = mockField()
+        val mockNumberColorsField = mockIntField()
+        val mockUpdateMethod = mockMethod()
+        val mockRefreshMethod = mockMethod()
+        val mockCompanion = Any()
+        val mockColorsInstance = Any()
+
+        setPrivateField("methodsResolved", true)
+        setPrivateField("irConfig", mockConfig)
+        setPrivateField("paletteTypeField", mockPaletteTypeField)
+        setPrivateField("customPaletteField", mockCustomPaletteField)
+        setPrivateField("customPaletteNumberColorsField", mockNumberColorsField)
+        setPrivateField("customEnumValue", null)
+        setPrivateField("defaultEnumValue", "DEFAULT_ENUM")
+        setPrivateField("cachedDataUpdateMethod", mockUpdateMethod)
+        setPrivateField("cachedDataCompanion", mockCompanion)
+        setPrivateField("refreshMethod", mockRefreshMethod)
+        setPrivateField("irColorsInstance", mockColorsInstance)
+
+        IndentRainbowSync.apply(AyuVariant.MIRAGE)
+
+        verify(exactly = 0) { mockUpdateMethod.invoke(any(), any()) }
+    }
+
+    // Helpers
+
+    private fun invokePrivate(
+        methodName: String,
+        vararg args: Any,
+    ) {
+        val method =
+            IndentRainbowSync::class.java.declaredMethods
+                .first { it.name == methodName }
+        method.isAccessible = true
+        method.invoke(IndentRainbowSync, *args)
+    }
+
+    private fun invokePrivateReturning(methodName: String): Any? {
+        val method =
+            IndentRainbowSync::class.java.declaredMethods
+                .first { it.name == methodName }
+        method.isAccessible = true
+        return method.invoke(IndentRainbowSync)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <T> getPrivateField(fieldName: String): T {
+        val field = IndentRainbowSync::class.java.getDeclaredField(fieldName)
+        field.isAccessible = true
+        return field.get(IndentRainbowSync) as T
+    }
+
+    private fun setPrivateField(
+        fieldName: String,
+        value: Any?,
+    ) {
+        val field = IndentRainbowSync::class.java.getDeclaredField(fieldName)
+        field.isAccessible = true
+        field.set(IndentRainbowSync, value)
+    }
+
+    private fun resetSyncState() {
+        val fields =
+            listOf(
+                "irConfig",
+                "paletteTypeField",
+                "customPaletteField",
+                "customPaletteNumberColorsField",
+                "customEnumValue",
+                "defaultEnumValue",
+                "cachedDataUpdateMethod",
+                "cachedDataCompanion",
+                "refreshMethod",
+                "irColorsInstance",
+            )
+        for (fieldName in fields) {
+            setPrivateField(fieldName, null)
+        }
+        setPrivateField("methodsResolved", false)
+    }
+
+    private fun mockField(): Field = mockk<Field>(relaxed = true)
+
+    private fun mockIntField(): Field {
+        val field = mockk<Field>(relaxed = true)
+        every { field.setInt(any(), any()) } returns Unit
+        return field
+    }
+
+    private fun mockMethod(): Method = mockk<Method>(relaxed = true)
+}

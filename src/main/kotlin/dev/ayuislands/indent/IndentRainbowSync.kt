@@ -17,6 +17,7 @@ object IndentRainbowSync {
     private const val IR_PLUGIN_ID = "indent-rainbow.indent-rainbow"
     private const val RESOLUTION_FAILED = "IR method resolution failed"
     private const val SYNC_FAILED = "IR sync failed"
+    private const val MAX_ALPHA_VALUE = 255
 
     // Cached reflection objects (resolved once per session)
     private var irConfig: Any? = null
@@ -50,7 +51,8 @@ object IndentRainbowSync {
                 IndentPreset.fromName(
                     state.indentPresetName ?: IndentPreset.AMBIENT.name,
                 )
-            val alpha = preset.alpha ?: state.indentCustomAlpha
+            val rawAlpha = preset.alpha ?: state.indentCustomAlpha
+            val alpha = rawAlpha.coerceIn(1, MAX_ALPHA_VALUE)
             val colorStrings = palette.toColorStrings(alpha)
             val customPaletteValue = colorStrings.joinToString(", ")
 

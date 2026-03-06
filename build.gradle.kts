@@ -137,6 +137,8 @@ kover {
                     "dev.ayuislands.accent.CachedMacReader*",
                     "dev.ayuislands.accent.SystemAccentProvider*",
                     "dev.ayuislands.accent.SystemAppearanceProvider*",
+                    // Pure-rendering UI panel (Indent Rainbow settings)
+                    "dev.ayuislands.settings.IndentRainbowPanel*",
                     // IDE glue (thin event listeners, startup activity)
                     "dev.ayuislands.AyuIslandsStartupActivity*",
                     "dev.ayuislands.AyuIslandsLafListener*",
