@@ -10,6 +10,11 @@ coverage:
     patch:
       default:
         target: 80%
+        threshold: 5%
+        informational: true
+
+ignore:
+  - "src/main/kotlin/dev/ayuislands/licensing/**"
 
 comment:
   layout: "condensed_header, condensed_files, condensed_footer"

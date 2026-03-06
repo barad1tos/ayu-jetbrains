@@ -150,7 +150,7 @@ object LicenseChecker {
                     ActionUiKind.NONE,
                     null,
                 )
-            ActionUtil.performActionDumbAwareWithCallbacks(action, event)
+            ActionUtil.invokeAction(action, event, null)
         }, ModalityState.nonModal())
     }
 

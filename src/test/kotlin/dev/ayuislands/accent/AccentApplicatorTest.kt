@@ -504,10 +504,10 @@ class AccentApplicatorTest {
     }
 
     @Test
-    fun `revertAlwaysOnEditorKeys clears all attribute overrides`() {
+    fun `revertAlwaysOnEditorKeys resets all attribute overrides`() {
         invokePrivate("revertAlwaysOnEditorKeys")
 
-        verify(atLeast = 9) { mockScheme.setAttributes(any<TextAttributesKey>(), null) }
+        verify(atLeast = 9) { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
     }
 
     // applyAlwaysOnEditorKeys detailed checks
@@ -813,7 +813,7 @@ class AccentApplicatorTest {
         revertWithoutExtensions()
 
         verify(atLeast = 2) { mockScheme.setColor(any<ColorKey>(), null) }
-        verify(atLeast = 9) { mockScheme.setAttributes(any<TextAttributesKey>(), null) }
+        verify(atLeast = 9) { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
     }
 
     // Helper for invoking private methods that accept nullable parameters

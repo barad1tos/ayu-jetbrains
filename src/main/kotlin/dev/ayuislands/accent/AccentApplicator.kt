@@ -34,6 +34,7 @@ object AccentApplicator {
     private const val KEY_TAB_BACKGROUND = "EditorTabs.underlinedTabBackground"
     private const val CGP_RESOLUTION_FAILED = "method resolution failed"
     private const val CGP_SYNC_FAILED = "sync failed"
+    private val EMPTY_TEXT_ATTRIBUTES = TextAttributes()
 
     // Cached CodeGlance Pro reflection objects (resolved once per session)
     private var cgpService: Any? = null
@@ -110,8 +111,7 @@ object AccentApplicator {
                 applyElements(state, accent, variant)
                 syncCodeGlanceProViewport(accentHex)
                 applyAlwaysOnEditorKeys(accent)
-                val windows = Window.getWindows()
-                repaintAllWindows(windows)
+                repaintAllWindows(Window.getWindows())
             }
 
         if (SwingUtilities.isEventDispatchThread()) {
@@ -148,8 +148,12 @@ object AccentApplicator {
                 }
 
                 revertAlwaysOnEditorKeys()
-                val windows = Window.getWindows()
-                repaintAllWindows(windows)
+                // No repaintAllWindows here: revertAll runs inside
+                // lookAndFeelChanged, before the new theme finishes
+                // loading. Forcing a repaint at this point causes
+                // NPE in the platform code (HeaderToolbarButtonLook)
+                // because UI keys are cleared but not yet replaced.
+                // The platform repaints everything after the theme switch.
             }
 
         if (SwingUtilities.isEventDispatchThread()) {
@@ -282,7 +286,10 @@ object AccentApplicator {
 
         for (override in ALWAYS_ON_EDITOR_ATTR_OVERRIDES) {
             val attrKey = TextAttributesKey.find(override.key)
-            scheme.setAttributes(attrKey, null)
+            val fallback = attrKey.fallbackAttributeKey
+            val defaultAttrs =
+                if (fallback != null) scheme.getAttributes(fallback) else null
+            scheme.setAttributes(attrKey, defaultAttrs ?: EMPTY_TEXT_ATTRIBUTES)
         }
 
         ReadAction.run<RuntimeException> {

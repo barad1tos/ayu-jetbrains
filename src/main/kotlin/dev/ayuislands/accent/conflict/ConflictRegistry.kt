@@ -33,8 +33,8 @@ object ConflictRegistry {
     // Cached: installed plugins don't change during a session
     private val cachedConflicts: List<ConflictEntry> by lazy {
         entries.filter { entry ->
-            val plugin = PluginManagerCore.getPlugin(PluginId.getId(entry.pluginId))
-            plugin != null && plugin.isEnabled
+            val pluginId = PluginId.getId(entry.pluginId)
+            PluginManagerCore.getPlugin(pluginId) != null && !PluginManagerCore.isDisabled(pluginId)
         }
     }
 
