@@ -22,6 +22,7 @@ class BracketMatchElement : AccentElement {
         updated.foregroundColor = color
         updated.fontType = Font.BOLD
         scheme.setAttributes(braceAttrKey, updated)
+        BracketFadeManager.activate(color)
     }
 
     override fun applyNeutral(variant: AyuVariant) {
@@ -29,6 +30,7 @@ class BracketMatchElement : AccentElement {
         val parentScheme = EditorColorsManager.getInstance().getScheme(variant.parentSchemeName)
         val parentAttrs = parentScheme?.getAttributes(braceAttrKey)
         scheme.setAttributes(braceAttrKey, parentAttrs ?: TextAttributes())
+        BracketFadeManager.deactivate()
     }
 
     override fun revert() {
@@ -36,5 +38,6 @@ class BracketMatchElement : AccentElement {
         val fallback = braceAttrKey.fallbackAttributeKey
         val defaultAttrs = if (fallback != null) scheme.getAttributes(fallback) else null
         scheme.setAttributes(braceAttrKey, defaultAttrs ?: TextAttributes())
+        BracketFadeManager.deactivate()
     }
 }
