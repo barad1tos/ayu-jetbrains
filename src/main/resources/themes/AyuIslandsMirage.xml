@@ -2037,6 +2037,7 @@
         <!-- Matched brace / tag -->
         <option name="MATCHED_BRACE_ATTRIBUTES">
             <value>
+                <option name="FOREGROUND" value="FFCC66" />
                 <option name="BACKGROUND" value="463D2E" />
                 <option name="FONT_TYPE" value="1" />
             </value>
