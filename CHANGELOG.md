@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- Fix crash on theme switch: `setAttributes` received null in `revertAlwaysOnEditorKeys`
+- Fix crash on theme switch: `repaintAllWindows` during `revertAll` triggered NPE in `HeaderToolbarButtonLook` because UI keys were cleared before the new theme loaded
+- Replace deprecated `PluginDescriptor.isEnabled` with `PluginManagerCore.isDisabled()`
+- Replace deprecated `ActionUtil.performActionDumbAwareWithCallbacks` with `ActionUtil.invokeAction`
+
 ## [2.0.0] - 2026-03-06
 
 ### Added
