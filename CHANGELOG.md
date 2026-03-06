@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [2.0.1] - 2026-03-06
 
 ### Fixed
 - Fix crash on theme switch: `setAttributes` received null in `revertAlwaysOnEditorKeys`
