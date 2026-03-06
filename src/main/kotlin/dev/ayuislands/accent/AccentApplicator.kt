@@ -34,6 +34,7 @@ object AccentApplicator {
     private const val KEY_TAB_BACKGROUND = "EditorTabs.underlinedTabBackground"
     private const val CGP_RESOLUTION_FAILED = "method resolution failed"
     private const val CGP_SYNC_FAILED = "sync failed"
+    private val EMPTY_TEXT_ATTRIBUTES = TextAttributes()
 
     // Cached CodeGlance Pro reflection objects (resolved once per session)
     private var cgpService: Any? = null
@@ -288,7 +289,7 @@ object AccentApplicator {
             val fallback = attrKey.fallbackAttributeKey
             val defaultAttrs =
                 if (fallback != null) scheme.getAttributes(fallback) else null
-            scheme.setAttributes(attrKey, defaultAttrs ?: TextAttributes())
+            scheme.setAttributes(attrKey, defaultAttrs ?: EMPTY_TEXT_ATTRIBUTES)
         }
 
         ReadAction.run<RuntimeException> {
