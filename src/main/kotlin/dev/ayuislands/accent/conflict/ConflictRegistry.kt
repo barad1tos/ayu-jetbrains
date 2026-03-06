@@ -28,6 +28,12 @@ object ConflictRegistry {
                 affectedElements = emptySet(),
                 type = ConflictType.INTEGRATE,
             ),
+            ConflictEntry(
+                pluginDisplayName = "Indent Rainbow",
+                pluginId = "indent-rainbow.indent-rainbow",
+                affectedElements = emptySet(),
+                type = ConflictType.INTEGRATE,
+            ),
         )
 
     // Cached: installed plugins don't change during a session
@@ -44,5 +50,7 @@ object ConflictRegistry {
         cachedConflicts
             .firstOrNull { elementId in it.affectedElements }
 
-    fun isCodeGlanceProDetected(): Boolean = cachedConflicts.any { it.type == ConflictType.INTEGRATE }
+    fun isCodeGlanceProDetected(): Boolean = cachedConflicts.any { it.pluginId == "com.nasller.CodeGlancePro" }
+
+    fun isIndentRainbowDetected(): Boolean = cachedConflicts.any { it.pluginId == "indent-rainbow.indent-rainbow" }
 }

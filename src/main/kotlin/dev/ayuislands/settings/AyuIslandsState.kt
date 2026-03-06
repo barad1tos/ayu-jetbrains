@@ -71,6 +71,18 @@ class AyuIslandsState : BaseState() {
     // CodeGlancePro integration (opt-in, default OFF)
     var cgpIntegrationEnabled by property(false)
 
+    // Indent Rainbow integration (opt-in, default OFF)
+    var irIntegrationEnabled by property(false)
+
+    // Indent preset name (persisted)
+    var indentPresetName by string("AMBIENT")
+
+    // Custom alpha for CUSTOM preset (0-255)
+    var indentCustomAlpha by property(DEFAULT_INDENT_CUSTOM_ALPHA)
+
+    // IR version that failed reflection (suppresses repeated notifications)
+    var irFailedVersion by string(null)
+
     // Settings tab selection (persisted across settings opens)
     var settingsSelectedTab by property(0)
 
@@ -169,6 +181,7 @@ class AyuIslandsState : BaseState() {
     }
 
     companion object {
+        private const val DEFAULT_INDENT_CUSTOM_ALPHA = 0x2E
         private const val DEFAULT_SOFT_INTENSITY = 20
         private const val DEFAULT_SHARP_NEON_INTENSITY = 50
         private const val DEFAULT_GRADIENT_INTENSITY = 30

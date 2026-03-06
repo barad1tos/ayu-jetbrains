@@ -30,8 +30,8 @@ class ConflictRegistryTest {
     }
 
     @Test
-    fun `entries has exactly 2 known conflict plugins`() {
-        assertEquals(2, getEntries().size)
+    fun `entries has exactly 3 known conflict plugins`() {
+        assertEquals(3, getEntries().size)
     }
 
     @Test
@@ -83,8 +83,23 @@ class ConflictRegistryTest {
     }
 
     @Test
+    fun `entries contain Indent Rainbow with INTEGRATE type`() {
+        val entries = getEntries()
+        val ir = entries.first { it.pluginId == "indent-rainbow.indent-rainbow" }
+
+        assertEquals("Indent Rainbow", ir.pluginDisplayName)
+        assertEquals(ConflictType.INTEGRATE, ir.type)
+        assertTrue(ir.affectedElements.isEmpty())
+    }
+
+    @Test
     fun `isCodeGlanceProDetected does not throw`() {
-        // In test environment without real plugins, just verify the method executes
+        // In a test environment without real plugins, just verify the method executes
         ConflictRegistry.isCodeGlanceProDetected()
+    }
+
+    @Test
+    fun `isIndentRainbowDetected does not throw`() {
+        ConflictRegistry.isIndentRainbowDetected()
     }
 }
