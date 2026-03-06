@@ -120,7 +120,6 @@ object AccentApplicator {
         }
     }
 
-
     fun revertAll() {
         // All revert work batched into a single EDT dispatch
         val work =
