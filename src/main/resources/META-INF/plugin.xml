@@ -87,7 +87,7 @@
   <product-descriptor
       code="PAYUISLANDS"
       release-date="20260302"
-      release-version="20"
+      release-version="21"
       optional="true"/>
 
   <extensionPoints>
