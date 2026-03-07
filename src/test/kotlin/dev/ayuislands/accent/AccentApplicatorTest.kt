@@ -908,6 +908,7 @@ class AccentApplicatorTest {
         AccentApplicator.apply("#FFCC66")
 
         verify { mockApplication.invokeLater(any()) }
+        verify(exactly = 0) { SwingUtilities.invokeLater(any()) }
         verify(atLeast = 1) { UIManager.put(any<String>(), any()) }
     }
 
@@ -983,6 +984,7 @@ class AccentApplicatorTest {
         AccentApplicator.revertAll()
 
         verify { mockApplication.invokeLater(any()) }
+        verify(exactly = 0) { SwingUtilities.invokeLater(any()) }
         verify(atLeast = 13) { UIManager.put(any<String>(), null) }
     }
 
