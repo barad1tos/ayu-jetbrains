@@ -118,10 +118,11 @@ object AccentApplicator {
                 repaintAllWindows(Window.getWindows())
             }
 
+        val app = ApplicationManager.getApplication()
         if (SwingUtilities.isEventDispatchThread()) {
             work.run()
         } else {
-            SwingUtilities.invokeLater(work)
+            app.invokeLater(work)
         }
     }
 
@@ -160,10 +161,11 @@ object AccentApplicator {
                 // The platform repaints everything after the theme switch.
             }
 
+        val app = ApplicationManager.getApplication()
         if (SwingUtilities.isEventDispatchThread()) {
             work.run()
         } else {
-            SwingUtilities.invokeLater(work)
+            app.invokeLater(work)
         }
     }
 

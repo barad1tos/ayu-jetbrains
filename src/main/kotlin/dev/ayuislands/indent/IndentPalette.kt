@@ -13,12 +13,24 @@ data class IndentPalette(
     val errorColor: String,
     val accentColor: String,
 ) {
-    fun toColorStrings(alpha: Int): List<String> {
-        val errorAlphaHex = alpha.toString(HEX_RADIX).uppercase().padStart(HEX_PAD_LENGTH, PAD_CHAR)
-        val errorStr = errorAlphaHex + errorColor
+    fun toColorStrings(
+        alpha: Int,
+        highlightErrors: Boolean = true,
+    ): List<String> {
+        val pyramidSteps = (1..INDENT_COUNT) + (INDENT_COUNT - 1 downTo 2)
+        val firstStepAlpha = (alpha * 1 / INDENT_COUNT).coerceIn(MIN_ALPHA, MAX_ALPHA)
+
+        val errorStr =
+            if (highlightErrors) {
+                val errorAlphaHex = alpha.toString(HEX_RADIX).uppercase().padStart(HEX_PAD_LENGTH, PAD_CHAR)
+                errorAlphaHex + errorColor
+            } else {
+                val alphaHex = firstStepAlpha.toString(HEX_RADIX).uppercase().padStart(HEX_PAD_LENGTH, PAD_CHAR)
+                alphaHex + accentColor
+            }
 
         val indentColors =
-            (1..INDENT_COUNT).map { step ->
+            pyramidSteps.map { step ->
                 val stepAlpha = (alpha * step / INDENT_COUNT).coerceIn(MIN_ALPHA, MAX_ALPHA)
                 val stepAlphaHex = stepAlpha.toString(HEX_RADIX).uppercase().padStart(HEX_PAD_LENGTH, PAD_CHAR)
                 stepAlphaHex + accentColor

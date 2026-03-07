@@ -35,14 +35,14 @@ class IndentPaletteTest {
     }
 
     @Test
-    fun `toColorStrings produces 7 AARRGGBB strings`() {
+    fun `toColorStrings produces 11 AARRGGBB strings`() {
         for (variant in AyuVariant.entries) {
             val palette = IndentPalette.forAccent(testAccent, variant)
             val colors = palette.toColorStrings(0x2E)
             assertEquals(
-                7,
+                11,
                 colors.size,
-                "${variant.name} should produce 7 color strings (1 error + 6 indent)",
+                "${variant.name} should produce 11 color strings (1 error + 10 indent)",
             )
         }
     }
@@ -71,17 +71,27 @@ class IndentPaletteTest {
     }
 
     @Test
-    fun `indent colors use gradient alpha increasing with depth`() {
+    fun `indent colors use pyramid alpha pattern`() {
         val palette = IndentPalette.forAccent(testAccent, AyuVariant.MIRAGE)
         val alpha = 0x3C
         val colors = palette.toColorStrings(alpha)
 
-        // Skip index 0 (error), check indices 1-6 have increasing alpha
         val indentAlphas = colors.drop(1).map { it.substring(0, 2).toInt(16) }
-        for (i in 0 until indentAlphas.size - 1) {
+        assertEquals(10, indentAlphas.size, "Should have 10 indent colors")
+
+        // First 6 ascending (steps 1..6)
+        for (i in 0 until 5) {
             assertTrue(
-                indentAlphas[i] <= indentAlphas[i + 1],
-                "Alpha should increase with depth: ${indentAlphas[i]} <= ${indentAlphas[i + 1]}",
+                indentAlphas[i] < indentAlphas[i + 1],
+                "Ascending phase: ${indentAlphas[i]} < ${indentAlphas[i + 1]}",
+            )
+        }
+
+        // Last 4 descending (steps 5,4,3,2)
+        for (i in 5 until 9) {
+            assertTrue(
+                indentAlphas[i] > indentAlphas[i + 1],
+                "Descending phase: ${indentAlphas[i]} > ${indentAlphas[i + 1]}",
             )
         }
     }
@@ -101,5 +111,36 @@ class IndentPaletteTest {
         val palette1 = IndentPalette.forAccent("#FFCC66", AyuVariant.MIRAGE)
         val palette2 = IndentPalette.forAccent("#E6B450", AyuVariant.MIRAGE)
         assertNotEquals(palette1.accentColor, palette2.accentColor)
+    }
+
+    @Test
+    fun `error color is red when highlightErrors is true`() {
+        val palette = IndentPalette.forAccent(testAccent, AyuVariant.MIRAGE)
+        val colors = palette.toColorStrings(0x2E, highlightErrors = true)
+        assertEquals(
+            palette.errorColor,
+            colors[0].substring(2),
+            "error color should use red variant when highlightErrors=true",
+        )
+    }
+
+    @Test
+    fun `error color matches first indent color when highlightErrors is false`() {
+        val palette = IndentPalette.forAccent(testAccent, AyuVariant.MIRAGE)
+        val colors = palette.toColorStrings(0x2E, highlightErrors = false)
+
+        // Error (index 0) should use accent color, not the red error color
+        assertEquals(
+            palette.accentColor,
+            colors[0].substring(2),
+            "error color should use accent when highlightErrors=false",
+        )
+
+        // Error alpha should match first indent step alpha
+        assertEquals(
+            colors[1].substring(0, 2),
+            colors[0].substring(0, 2),
+            "error alpha should match first indent step alpha",
+        )
     }
 }
