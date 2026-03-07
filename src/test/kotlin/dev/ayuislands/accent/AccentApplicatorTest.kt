@@ -901,14 +901,13 @@ class AccentApplicatorTest {
         every { IndentRainbowSync.apply(any()) } returns Unit
         state.cgpIntegrationEnabled = false
         every { SwingUtilities.isEventDispatchThread() } returns false
-        every { SwingUtilities.invokeLater(any()) } answers {
-            // Execute the Runnable to verify its contents
+        every { mockApplication.invokeLater(any()) } answers {
             firstArg<Runnable>().run()
         }
 
         AccentApplicator.apply("#FFCC66")
 
-        verify { SwingUtilities.invokeLater(any()) }
+        verify { mockApplication.invokeLater(any()) }
         verify(atLeast = 1) { UIManager.put(any<String>(), any()) }
     }
 
@@ -977,13 +976,13 @@ class AccentApplicatorTest {
     fun `revertAll posts to invokeLater when not on EDT`() {
         mockEpExtensionList(emptyList())
         every { SwingUtilities.isEventDispatchThread() } returns false
-        every { SwingUtilities.invokeLater(any()) } answers {
+        every { mockApplication.invokeLater(any()) } answers {
             firstArg<Runnable>().run()
         }
 
         AccentApplicator.revertAll()
 
-        verify { SwingUtilities.invokeLater(any()) }
+        verify { mockApplication.invokeLater(any()) }
         verify(atLeast = 13) { UIManager.put(any<String>(), null) }
     }
 
