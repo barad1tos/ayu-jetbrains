@@ -5,6 +5,7 @@ import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
+import dev.ayuislands.indent.IndentPreset
 
 class AyuIslandsState : BaseState() {
     // Per-variant accent colors
@@ -70,6 +71,21 @@ class AyuIslandsState : BaseState() {
 
     // CodeGlancePro integration (opt-in, default OFF)
     var cgpIntegrationEnabled by property(false)
+
+    // Indent Rainbow integration (opt-in, default OFF)
+    var irIntegrationEnabled by property(false)
+
+    // Indent preset name (persisted)
+    var indentPresetName by string("AMBIENT")
+
+    // Custom alpha for CUSTOM preset (0-255)
+    var indentCustomAlpha by property(IndentPreset.DEFAULT_ALPHA)
+
+    // Bracket scope gutter highlight (default ON)
+    var bracketScopeEnabled by property(true)
+
+    // IR version that failed reflection (suppresses repeated notifications)
+    var irFailedVersion by string(null)
 
     // Settings tab selection (persisted across settings opens)
     var settingsSelectedTab by property(0)

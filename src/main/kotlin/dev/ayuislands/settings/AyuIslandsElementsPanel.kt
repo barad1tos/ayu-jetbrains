@@ -2,9 +2,9 @@
 
 package dev.ayuislands.settings
 
-import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.dsl.builder.AlignY
 import com.intellij.ui.dsl.builder.Panel
+import com.intellij.ui.dsl.builder.SegmentedButton
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AccentGroup
@@ -15,7 +15,6 @@ import dev.ayuislands.glow.GlowTabMode
 import dev.ayuislands.licensing.LicenseChecker
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
-import javax.swing.DefaultComboBoxModel
 import javax.swing.JCheckBox
 
 /** Per-element accent toggle checkboxes with conflict detection and license-aware dimming. */
@@ -24,13 +23,10 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
     private var storedToggles: Map<AccentElementId, Boolean> = emptyMap()
     private var pendingForceOverrides: MutableSet<String> = mutableSetOf()
     private var storedForceOverrides: Set<String> = emptySet()
-    private var pendingCgpIntegration: Boolean = false
-    private var storedCgpIntegration: Boolean = false
     private var pendingTabMode: String = "MINIMAL"
     private var storedTabMode: String = "MINIMAL"
     private val checkboxes: MutableMap<AccentElementId, JCheckBox> = mutableMapOf()
-    private var cgpCheckbox: JCheckBox? = null
-    private var tabModeCombo: ComboBox<String>? = null
+    private var tabModeSegmented: SegmentedButton<GlowTabMode>? = null
     private var variant: AyuVariant? = null
     private var elementPreview: AyuIslandsPreviewPanel? = null
 
@@ -58,9 +54,6 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
 
         storedForceOverrides = state.forceOverrides.toSet()
         pendingForceOverrides = storedForceOverrides.toMutableSet()
-
-        storedCgpIntegration = state.cgpIntegrationEnabled
-        pendingCgpIntegration = storedCgpIntegration
 
         storedTabMode = state.glowTabMode ?: "MINIMAL"
         pendingTabMode = storedTabMode
@@ -133,7 +126,6 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
             }
         }
 
-        buildIntegrationsGroup(panel, licensed)
         buildActiveTabRow(panel, licensed)
     }
 
@@ -143,45 +135,21 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
     ) {
         panel.group("Active Tab") {
             row {
-                label("Tab accent style")
-                val model = DefaultComboBoxModel(GlowTabMode.entries.map { it.displayName }.toTypedArray())
-                val combo = ComboBox(model)
-                combo.selectedItem = GlowTabMode.fromName(pendingTabMode).displayName
-                combo.isEnabled = licensed
-                combo.addActionListener {
-                    val selectedName = combo.selectedItem as? String ?: return@addActionListener
-                    pendingTabMode = GlowTabMode.entries.first { it.displayName == selectedName }.name
-                }
-                tabModeCombo = combo
-                cell(combo)
-            }
-            row {
                 comment("Minimal = underline only, Full = underline + tinted background, Off = neutral")
             }
-        }
-    }
-
-    private fun buildIntegrationsGroup(
-        panel: Panel,
-        licensed: Boolean,
-    ) {
-        if (!ConflictRegistry.isCodeGlanceProDetected()) return
-        panel.group("Integrations") {
             row {
-                comment("Sync features with third-party plugins")
-            }
-            row {
-                val cb =
-                    checkBox("Sync color with CodeGlance")
-                        .comment("Apply accent color to CodeGlance Pro viewport")
-                cb.component.isSelected = pendingCgpIntegration
-                cb.component.isEnabled = licensed
-                cb.component.addActionListener {
-                    pendingCgpIntegration = cb.component.isSelected
+                label("Tab accent style")
+                val segmented =
+                    segmentedButton(GlowTabMode.entries) { mode ->
+                        text = mode.displayName
+                    }
+                segmented.selectedItem = GlowTabMode.fromName(pendingTabMode)
+                segmented.enabled(licensed)
+                @Suppress("UnstableApiUsage")
+                segmented.whenItemSelected { mode ->
+                    pendingTabMode = mode.name
                 }
-                cgpCheckbox = cb.component
-
-                browserLink("Plugin page", "https://plugins.jetbrains.com/plugin/18824-codeglance-pro")
+                tabModeSegmented = segmented
             }
         }
     }
@@ -242,7 +210,6 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
     override fun isModified(): Boolean {
         if (pendingToggles != storedToggles) return true
         if (pendingForceOverrides != storedForceOverrides) return true
-        if (pendingCgpIntegration != storedCgpIntegration) return true
         if (pendingTabMode != storedTabMode) return true
         return false
     }
@@ -255,12 +222,10 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
             state.setToggle(id, enabled)
         }
         state.forceOverrides = pendingForceOverrides.toMutableSet()
-        state.cgpIntegrationEnabled = pendingCgpIntegration
         state.glowTabMode = pendingTabMode
 
         storedToggles = pendingToggles.toMap()
         storedForceOverrides = pendingForceOverrides.toSet()
-        storedCgpIntegration = pendingCgpIntegration
         storedTabMode = pendingTabMode
 
         // Re-apply accent with new toggle states
@@ -273,11 +238,9 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
         pendingToggles.clear()
         pendingToggles.putAll(storedToggles)
         pendingForceOverrides = storedForceOverrides.toMutableSet()
-        pendingCgpIntegration = storedCgpIntegration
         pendingTabMode = storedTabMode
         refreshCheckboxes()
         syncPreviewToggles()
-        cgpCheckbox?.isSelected = storedCgpIntegration
-        tabModeCombo?.selectedItem = GlowTabMode.fromName(pendingTabMode).displayName
+        tabModeSegmented?.selectedItem = GlowTabMode.fromName(pendingTabMode)
     }
 }

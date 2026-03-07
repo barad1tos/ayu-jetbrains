@@ -30,6 +30,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
     private val appearancePanel = AyuIslandsAppearancePanel()
     private val accentPanel = AyuIslandsAccentPanel()
     private val elementsPanel = AyuIslandsElementsPanel()
+    private val integrationsPanel = IntegrationsPanel()
     private val effectsPanel = AyuIslandsEffectsPanel()
 
     private val panels: List<AyuIslandsSettingsPanel> =
@@ -37,6 +38,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
             appearancePanel,
             accentPanel,
             elementsPanel,
+            integrationsPanel,
             effectsPanel,
         )
 
@@ -67,6 +69,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                 appearancePanel.buildPanel(this@panel, variant)
                 accentPanel.buildPanel(this@panel, variant)
                 elementsPanel.buildPanel(this@panel, variant)
+                integrationsPanel.buildPanel(this@panel, variant)
 
                 // "Reset all settings..." link at the bottom of the Accent tab
                 row {

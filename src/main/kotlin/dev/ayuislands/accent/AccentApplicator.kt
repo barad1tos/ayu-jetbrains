@@ -13,6 +13,7 @@ import com.intellij.openapi.extensions.PluginId
 import com.intellij.ui.ColorUtil
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.glow.GlowTabMode
+import dev.ayuislands.indent.IndentRainbowSync
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import java.awt.Color
@@ -110,6 +111,9 @@ object AccentApplicator {
 
                 applyElements(state, accent, variant)
                 syncCodeGlanceProViewport(accentHex)
+                if (variant != null) {
+                    IndentRainbowSync.apply(variant)
+                }
                 applyAlwaysOnEditorKeys(accent)
                 repaintAllWindows(Window.getWindows())
             }

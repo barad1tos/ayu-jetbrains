@@ -13,6 +13,7 @@ import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
+import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkAll
@@ -53,6 +54,10 @@ class AccentElementsTest {
 
         mockkStatic(TextAttributesKey::class)
         every { TextAttributesKey.find(any<String>()) } answers { mockk(relaxed = true) }
+
+        mockkObject(BracketFadeManager)
+        every { BracketFadeManager.activate(any()) } returns Unit
+        every { BracketFadeManager.deactivate() } returns Unit
     }
 
     @AfterTest
@@ -131,7 +136,7 @@ class AccentElementsTest {
         for (element in editorElements) {
             element.apply(testColor)
         }
-        // InlayHintsElement uses setAttributes, CaretRowElement and BracketMatchElement use setColor
+        // InlayHintsElement and BracketMatchElement use setAttributes, CaretRowElement uses setColor
         verify(atLeast = 1) { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
         verify(atLeast = 1) { mockScheme.setColor(any<ColorKey>(), any()) }
     }
@@ -147,9 +152,9 @@ class AccentElementsTest {
         for (element in editorElements) {
             element.revert()
         }
-        // InlayHintsElement reverts with setAttributes(key, null)
-        verify(atLeast = 1) { mockScheme.setAttributes(any<TextAttributesKey>(), null) }
-        // CaretRowElement and BracketMatchElement revert with setColor(key, null)
+        // InlayHintsElement reverts with setAttributes(key, null), BracketMatchElement uses setAttributes too
+        verify(atLeast = 1) { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
+        // CaretRowElement reverts with setColor(key, null)
         verify(atLeast = 1) { mockScheme.setColor(any<ColorKey>(), null) }
     }
 
@@ -510,32 +515,41 @@ class AccentElementsTest {
     }
 
     @Test
-    fun `BracketMatchElement apply sets matched text color`() {
+    fun `BracketMatchElement apply sets foreground and bold via setAttributes`() {
+        val attributesSlot = slot<TextAttributes>()
+        every { mockScheme.getAttributes(any<TextAttributesKey>()) } returns null
+        every { mockScheme.setAttributes(any<TextAttributesKey>(), capture(attributesSlot)) } just Runs
+
         val element = BracketMatchElement()
         element.apply(testColor)
 
-        verify(exactly = 1) { mockScheme.setColor(any(), testColor) }
+        assertTrue(attributesSlot.isCaptured, "setAttributes should have been called")
+        assertEquals(testColor, attributesSlot.captured.foregroundColor)
+        assertEquals(java.awt.Font.BOLD, attributesSlot.captured.fontType)
+        verify { BracketFadeManager.activate(testColor) }
     }
 
     @Test
-    fun `BracketMatchElement revert nulls matched text color`() {
+    fun `BracketMatchElement revert restores fallback attributes`() {
         val element = BracketMatchElement()
         element.revert()
 
-        verify(exactly = 1) { mockScheme.setColor(any(), null) }
+        verify(atLeast = 1) { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
+        verify { BracketFadeManager.deactivate() }
     }
 
     @Test
     fun `BracketMatchElement applyNeutral restores from parent scheme`() {
         val parentScheme: EditorColorsScheme = mockk(relaxed = true)
-        val parentColor = Color(200, 200, 200)
+        val parentAttrs = TextAttributes()
         every { mockColorsManager.getScheme("Darcula") } returns parentScheme
-        every { parentScheme.getColor(any()) } returns parentColor
+        every { parentScheme.getAttributes(any<TextAttributesKey>()) } returns parentAttrs
 
         val element = BracketMatchElement()
         element.applyNeutral(AyuVariant.MIRAGE)
 
-        verify { mockScheme.setColor(any(), parentColor) }
+        verify { mockScheme.setAttributes(any<TextAttributesKey>(), parentAttrs) }
+        verify { BracketFadeManager.deactivate() }
     }
 
     @Test
@@ -545,7 +559,8 @@ class AccentElementsTest {
         val element = BracketMatchElement()
         element.applyNeutral(AyuVariant.MIRAGE)
 
-        verify { mockScheme.setColor(any(), null) }
+        verify { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
+        verify { BracketFadeManager.deactivate() }
     }
 
     // AccentElementId enum coverage
@@ -567,12 +582,13 @@ class AccentElementsTest {
     @Test
     fun `applyNeutral works with Light variant using Default parent scheme`() {
         val parentScheme: EditorColorsScheme = mockk(relaxed = true)
+        val parentAttrs = TextAttributes()
         every { mockColorsManager.getScheme("Default") } returns parentScheme
-        every { parentScheme.getColor(any()) } returns Color(220, 220, 220)
+        every { parentScheme.getAttributes(any<TextAttributesKey>()) } returns parentAttrs
 
         val element = BracketMatchElement()
         element.applyNeutral(AyuVariant.LIGHT)
 
-        verify { mockScheme.setColor(any(), Color(220, 220, 220)) }
+        verify { mockScheme.setAttributes(any<TextAttributesKey>(), parentAttrs) }
     }
 }

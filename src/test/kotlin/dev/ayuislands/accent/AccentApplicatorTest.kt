@@ -8,8 +8,12 @@ import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.util.messages.MessageBus
+import dev.ayuislands.accent.conflict.ConflictEntry
 import dev.ayuislands.accent.conflict.ConflictRegistry
+import dev.ayuislands.accent.conflict.ConflictType
+import dev.ayuislands.indent.IndentRainbowSync
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.clearAllMocks
@@ -21,6 +25,7 @@ import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.Color
 import java.awt.Window
+import java.lang.reflect.Method
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
 import kotlin.test.AfterTest
@@ -46,6 +51,8 @@ class AccentApplicatorTest {
 
     @BeforeTest
     fun setUp() {
+        saveOriginalEpName()
+
         mockkStatic(SwingUtilities::class)
         every { SwingUtilities.isEventDispatchThread() } returns true
 
@@ -86,6 +93,7 @@ class AccentApplicatorTest {
 
     @AfterTest
     fun tearDown() {
+        restoreOriginalEpName()
         unmockkAll()
         clearAllMocks()
     }
@@ -814,6 +822,498 @@ class AccentApplicatorTest {
 
         verify(atLeast = 2) { mockScheme.setColor(any<ColorKey>(), null) }
         verify(atLeast = 9) { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
+    }
+
+    // Tests for public apply() method
+
+    @Test
+    fun `apply calls applyAlwaysOnUiKeys and applyAlwaysOnEditorKeys on EDT`() {
+        mockEpExtensionList(emptyList())
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.apply(any()) } returns Unit
+        state.cgpIntegrationEnabled = false
+
+        AccentApplicator.apply("#FFCC66")
+
+        // Verify always-on UI keys were set (proves applyAlwaysOnUiKeys ran)
+        verify(atLeast = 13) { UIManager.put(any<String>(), any<Color>()) }
+        // Verify always-on editor keys were set (proves applyAlwaysOnEditorKeys ran)
+        verify(atLeast = 2) { mockScheme.setColor(any<ColorKey>(), any<Color>()) }
+    }
+
+    @Test
+    fun `apply invokes IndentRainbowSync when variant is non-null`() {
+        mockEpExtensionList(emptyList())
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.apply(any()) } returns Unit
+        state.cgpIntegrationEnabled = false
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+
+        AccentApplicator.apply("#FFCC66")
+
+        verify { IndentRainbowSync.apply(AyuVariant.MIRAGE) }
+    }
+
+    @Test
+    fun `apply skips IndentRainbowSync when variant is null`() {
+        mockEpExtensionList(emptyList())
+        mockkObject(IndentRainbowSync)
+        state.cgpIntegrationEnabled = false
+        every { AyuVariant.detect() } returns null
+
+        AccentApplicator.apply("#FFCC66")
+
+        verify(exactly = 0) { IndentRainbowSync.apply(any()) }
+    }
+
+    @Test
+    fun `apply calls repaintAllWindows`() {
+        mockEpExtensionList(emptyList())
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.apply(any()) } returns Unit
+        state.cgpIntegrationEnabled = false
+        val mockWindow = mockk<Window>(relaxed = true)
+        every { Window.getWindows() } returns arrayOf(mockWindow)
+
+        AccentApplicator.apply("#FFCC66")
+
+        verify { mockWindow.repaint() }
+    }
+
+    @Test
+    fun `apply runs work directly when on EDT`() {
+        mockEpExtensionList(emptyList())
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.apply(any()) } returns Unit
+        state.cgpIntegrationEnabled = false
+        every { SwingUtilities.isEventDispatchThread() } returns true
+
+        AccentApplicator.apply("#FFCC66")
+
+        // If on EDT, work runs synchronously so UIManager.put should be called
+        verify(atLeast = 1) { UIManager.put(any<String>(), any()) }
+    }
+
+    @Test
+    fun `apply posts to invokeLater when not on EDT`() {
+        mockEpExtensionList(emptyList())
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.apply(any()) } returns Unit
+        state.cgpIntegrationEnabled = false
+        every { SwingUtilities.isEventDispatchThread() } returns false
+        every { SwingUtilities.invokeLater(any()) } answers {
+            // Execute the Runnable to verify its contents
+            firstArg<Runnable>().run()
+        }
+
+        AccentApplicator.apply("#FFCC66")
+
+        verify { SwingUtilities.invokeLater(any()) }
+        verify(atLeast = 1) { UIManager.put(any<String>(), any()) }
+    }
+
+    // Tests for public revertAll() method
+
+    @Test
+    fun `revertAll clears all UI keys and iterates EP`() {
+        val mockElement = mockk<AccentElement>(relaxed = true)
+        mockEpExtensionList(listOf(mockElement))
+
+        AccentApplicator.revertAll()
+
+        // Verify always-on UI keys cleared
+        verify(atLeast = 13) { UIManager.put(any<String>(), null) }
+        // Verify element.revert() was called
+        verify { mockElement.revert() }
+    }
+
+    @Test
+    fun `revertAll calls revert on each registered element`() {
+        val element1 = mockk<AccentElement>(relaxed = true)
+        val element2 = mockk<AccentElement>(relaxed = true)
+        mockEpExtensionList(listOf(element1, element2))
+
+        AccentApplicator.revertAll()
+
+        verify { element1.revert() }
+        verify { element2.revert() }
+    }
+
+    @Test
+    fun `revertAll catches RuntimeException from element revert`() {
+        val failingElement = mockk<AccentElement>(relaxed = true)
+        every { failingElement.revert() } throws RuntimeException("revert failed")
+        every { failingElement.displayName } returns "FailingElement"
+        mockEpExtensionList(listOf(failingElement))
+
+        // Should not throw
+        AccentApplicator.revertAll()
+    }
+
+    @Test
+    fun `revertAll continues after one element throws`() {
+        val failingElement = mockk<AccentElement>(relaxed = true)
+        every { failingElement.revert() } throws RuntimeException("revert failed")
+        every { failingElement.displayName } returns "FailingElement"
+        val successElement = mockk<AccentElement>(relaxed = true)
+        mockEpExtensionList(listOf(failingElement, successElement))
+
+        AccentApplicator.revertAll()
+
+        verify { successElement.revert() }
+    }
+
+    @Test
+    fun `revertAll clears editor keys via revertAlwaysOnEditorKeys`() {
+        mockEpExtensionList(emptyList())
+
+        AccentApplicator.revertAll()
+
+        verify(atLeast = 2) { mockScheme.setColor(any<ColorKey>(), null) }
+        verify(atLeast = 9) { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
+    }
+
+    @Test
+    fun `revertAll posts to invokeLater when not on EDT`() {
+        mockEpExtensionList(emptyList())
+        every { SwingUtilities.isEventDispatchThread() } returns false
+        every { SwingUtilities.invokeLater(any()) } answers {
+            firstArg<Runnable>().run()
+        }
+
+        AccentApplicator.revertAll()
+
+        verify { SwingUtilities.invokeLater(any()) }
+        verify(atLeast = 13) { UIManager.put(any<String>(), null) }
+    }
+
+    // Tests for applyElements via reflection
+
+    @Test
+    fun `applyElements with enabled element calls element apply`() {
+        val mockElement = mockk<AccentElement>(relaxed = true)
+        every { mockElement.id } returns AccentElementId.CARET_ROW
+        every { mockElement.displayName } returns "Caret Row"
+        mockEpExtensionList(listOf(mockElement))
+
+        val accent = Color.decode("#FFCC66")
+        invokeApplyElements(state, accent, AyuVariant.MIRAGE)
+
+        verify { mockElement.apply(accent) }
+    }
+
+    @Test
+    fun `applyElements with disabled toggle neutralizes element`() {
+        val mockElement = mockk<AccentElement>(relaxed = true)
+        every { mockElement.id } returns AccentElementId.CARET_ROW
+        every { mockElement.displayName } returns "Caret Row"
+        state.caretRow = false
+        mockEpExtensionList(listOf(mockElement))
+
+        val accent = Color.decode("#FFCC66")
+        invokeApplyElements(state, accent, AyuVariant.MIRAGE)
+
+        verify { mockElement.applyNeutral(AyuVariant.MIRAGE) }
+        verify(exactly = 0) { mockElement.apply(any()) }
+    }
+
+    @Test
+    fun `applyElements with disabled toggle and null variant reverts element`() {
+        val mockElement = mockk<AccentElement>(relaxed = true)
+        every { mockElement.id } returns AccentElementId.CARET_ROW
+        every { mockElement.displayName } returns "Caret Row"
+        state.caretRow = false
+        mockEpExtensionList(listOf(mockElement))
+
+        val accent = Color.decode("#FFCC66")
+        invokeApplyElements(state, accent, null)
+
+        verify { mockElement.revert() }
+        verify(exactly = 0) { mockElement.apply(any()) }
+    }
+
+    @Test
+    fun `applyElements with conflict and no force override neutralizes`() {
+        val mockElement = mockk<AccentElement>(relaxed = true)
+        every { mockElement.id } returns AccentElementId.CHECKBOXES
+        every { mockElement.displayName } returns "Checkboxes"
+        val conflict =
+            ConflictEntry(
+                pluginDisplayName = "Atom Material Icons",
+                pluginId = "com.mallowigi",
+                affectedElements = setOf(AccentElementId.CHECKBOXES),
+                type = ConflictType.BLOCK,
+            )
+        every { ConflictRegistry.getConflictFor(AccentElementId.CHECKBOXES) } returns conflict
+        mockEpExtensionList(listOf(mockElement))
+
+        val accent = Color.decode("#FFCC66")
+        invokeApplyElements(state, accent, AyuVariant.MIRAGE)
+
+        verify { mockElement.applyNeutral(AyuVariant.MIRAGE) }
+        verify(exactly = 0) { mockElement.apply(any()) }
+    }
+
+    @Test
+    fun `applyElements with conflict and force override applies anyway`() {
+        val mockElement = mockk<AccentElement>(relaxed = true)
+        every { mockElement.id } returns AccentElementId.CHECKBOXES
+        every { mockElement.displayName } returns "Checkboxes"
+        val conflict =
+            ConflictEntry(
+                pluginDisplayName = "Atom Material Icons",
+                pluginId = "com.mallowigi",
+                affectedElements = setOf(AccentElementId.CHECKBOXES),
+                type = ConflictType.BLOCK,
+            )
+        every { ConflictRegistry.getConflictFor(AccentElementId.CHECKBOXES) } returns conflict
+        state.forceOverrides = mutableSetOf(AccentElementId.CHECKBOXES.name)
+        mockEpExtensionList(listOf(mockElement))
+
+        val accent = Color.decode("#FFCC66")
+        invokeApplyElements(state, accent, AyuVariant.MIRAGE)
+
+        verify { mockElement.apply(accent) }
+    }
+
+    @Test
+    fun `applyElements catches RuntimeException from element apply`() {
+        val mockElement = mockk<AccentElement>(relaxed = true)
+        every { mockElement.id } returns AccentElementId.CARET_ROW
+        every { mockElement.displayName } returns "Caret Row"
+        every { mockElement.apply(any()) } throws RuntimeException("apply failed")
+        mockEpExtensionList(listOf(mockElement))
+
+        val accent = Color.decode("#FFCC66")
+        // Should not throw
+        invokeApplyElements(state, accent, AyuVariant.MIRAGE)
+    }
+
+    @Test
+    fun `applyElements processes multiple elements independently`() {
+        val element1 = mockk<AccentElement>(relaxed = true)
+        every { element1.id } returns AccentElementId.CARET_ROW
+        every { element1.displayName } returns "Caret Row"
+        every { element1.apply(any()) } throws RuntimeException("element1 failed")
+
+        val element2 = mockk<AccentElement>(relaxed = true)
+        every { element2.id } returns AccentElementId.SCROLLBAR
+        every { element2.displayName } returns "Scrollbar"
+        mockEpExtensionList(listOf(element1, element2))
+
+        val accent = Color.decode("#FFCC66")
+        invokeApplyElements(state, accent, AyuVariant.MIRAGE)
+
+        // element2 should still be applied despite element1 throwing
+        verify { element2.apply(accent) }
+    }
+
+    // Tests for syncCodeGlanceProViewport full flow
+
+    @Test
+    fun `syncCodeGlanceProViewport full flow with all methods resolved`() {
+        state.cgpIntegrationEnabled = true
+
+        // Set up mock CGP service and methods
+        val mockConfig = Any()
+        val mockService = Any()
+        val mockGetState = mockk<Method>(relaxed = true)
+        val mockSetColor = mockk<Method>(relaxed = true)
+        val mockSetBorderColor = mockk<Method>(relaxed = true)
+        val mockSetBorderThickness = mockk<Method>(relaxed = true)
+
+        every { mockGetState.invoke(any()) } returns mockConfig
+        every { mockSetColor.invoke(any(), any()) } returns null
+        every { mockSetBorderColor.invoke(any(), any()) } returns null
+        every { mockSetBorderThickness.invoke(any(), any()) } returns null
+
+        setPrivateField("cgpMethodsResolved", true)
+        setPrivateField("cgpService", mockService)
+        setPrivateField("cgpGetState", mockGetState)
+        setPrivateField("cgpSetViewportColor", mockSetColor)
+        setPrivateField("cgpSetViewportBorderColor", mockSetBorderColor)
+        setPrivateField("cgpSetViewportBorderThickness", mockSetBorderThickness)
+
+        invokePrivate("syncCodeGlanceProViewport", "#FFCC66")
+
+        verify { mockGetState.invoke(mockService) }
+        verify { mockSetColor.invoke(mockConfig, "FFCC66") }
+        verify { mockSetBorderColor.invoke(mockConfig, "FFCC66") }
+        verify { mockSetBorderThickness.invoke(mockConfig, 1) }
+    }
+
+    @Test
+    fun `syncCodeGlanceProViewport strips hash prefix from accent hex`() {
+        state.cgpIntegrationEnabled = true
+
+        val mockConfig = Any()
+        val mockService = Any()
+        val mockGetState = mockk<Method>(relaxed = true)
+        val mockSetColor = mockk<Method>(relaxed = true)
+        val mockSetBorderColor = mockk<Method>(relaxed = true)
+        val mockSetBorderThickness = mockk<Method>(relaxed = true)
+
+        every { mockGetState.invoke(any()) } returns mockConfig
+        every { mockSetColor.invoke(any(), any()) } returns null
+        every { mockSetBorderColor.invoke(any(), any()) } returns null
+        every { mockSetBorderThickness.invoke(any(), any()) } returns null
+
+        setPrivateField("cgpMethodsResolved", true)
+        setPrivateField("cgpService", mockService)
+        setPrivateField("cgpGetState", mockGetState)
+        setPrivateField("cgpSetViewportColor", mockSetColor)
+        setPrivateField("cgpSetViewportBorderColor", mockSetBorderColor)
+        setPrivateField("cgpSetViewportBorderThickness", mockSetBorderThickness)
+
+        invokePrivate("syncCodeGlanceProViewport", "#E6B450")
+
+        // Verify the hash was stripped
+        verify { mockSetColor.invoke(mockConfig, "E6B450") }
+    }
+
+    @Test
+    fun `syncCodeGlanceProViewport returns early when getState returns null config`() {
+        state.cgpIntegrationEnabled = true
+
+        val mockService = Any()
+        val mockGetState = mockk<Method>(relaxed = true)
+        val mockSetColor = mockk<Method>(relaxed = true)
+        val mockSetBorderColor = mockk<Method>(relaxed = true)
+        val mockSetBorderThickness = mockk<Method>(relaxed = true)
+
+        every { mockGetState.invoke(any()) } returns null
+
+        setPrivateField("cgpMethodsResolved", true)
+        setPrivateField("cgpService", mockService)
+        setPrivateField("cgpGetState", mockGetState)
+        setPrivateField("cgpSetViewportColor", mockSetColor)
+        setPrivateField("cgpSetViewportBorderColor", mockSetBorderColor)
+        setPrivateField("cgpSetViewportBorderThickness", mockSetBorderThickness)
+
+        invokePrivate("syncCodeGlanceProViewport", "#FFCC66")
+
+        // setColor should not be called since config is null
+        verify(exactly = 0) { mockSetColor.invoke(any(), any()) }
+    }
+
+    @Test
+    fun `syncCodeGlanceProViewport catches InvocationTargetException`() {
+        state.cgpIntegrationEnabled = true
+
+        val mockConfig = Any()
+        val mockService = Any()
+        val mockGetState = mockk<Method>(relaxed = true)
+        val mockSetColor = mockk<Method>(relaxed = true)
+        val mockSetBorderColor = mockk<Method>(relaxed = true)
+        val mockSetBorderThickness = mockk<Method>(relaxed = true)
+
+        every { mockGetState.invoke(any()) } returns mockConfig
+        every { mockSetColor.invoke(any(), any()) } throws
+            java.lang.reflect.InvocationTargetException(RuntimeException("inner"))
+
+        setPrivateField("cgpMethodsResolved", true)
+        setPrivateField("cgpService", mockService)
+        setPrivateField("cgpGetState", mockGetState)
+        setPrivateField("cgpSetViewportColor", mockSetColor)
+        setPrivateField("cgpSetViewportBorderColor", mockSetBorderColor)
+        setPrivateField("cgpSetViewportBorderThickness", mockSetBorderThickness)
+
+        // Should not throw
+        invokePrivate("syncCodeGlanceProViewport", "#FFCC66")
+    }
+
+    @Test
+    fun `syncCodeGlanceProViewport catches RuntimeException`() {
+        state.cgpIntegrationEnabled = true
+
+        val mockConfig = Any()
+        val mockService = Any()
+        val mockGetState = mockk<Method>(relaxed = true)
+        val mockSetColor = mockk<Method>(relaxed = true)
+        val mockSetBorderColor = mockk<Method>(relaxed = true)
+        val mockSetBorderThickness = mockk<Method>(relaxed = true)
+
+        every { mockGetState.invoke(any()) } returns mockConfig
+        every { mockSetColor.invoke(any(), any()) } throws RuntimeException("CGP exploded")
+
+        setPrivateField("cgpMethodsResolved", true)
+        setPrivateField("cgpService", mockService)
+        setPrivateField("cgpGetState", mockGetState)
+        setPrivateField("cgpSetViewportColor", mockSetColor)
+        setPrivateField("cgpSetViewportBorderColor", mockSetBorderColor)
+        setPrivateField("cgpSetViewportBorderThickness", mockSetBorderThickness)
+
+        // Should not throw
+        invokePrivate("syncCodeGlanceProViewport", "#FFCC66")
+    }
+
+    // Helpers
+
+    /**
+     * Mocks `EP_NAME.extensionList` by reading the real EP_NAME instance and
+     * wrapping it with a `spyk`. Since the field is `static final` and can't be
+     * replaced, we instead mock the `getExtensionList` call at class level using
+     * `mockkClass` on `ExtensionPointName`.
+     *
+     * Uses `mockkStatic` on the `ExtensionPointName` Kotlin file to intercept
+     * the `extensionList` property getter.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun mockEpExtensionList(elements: List<AccentElement>) {
+        val epField = AccentApplicator::class.java.getDeclaredField("EP_NAME")
+        epField.isAccessible = true
+        // Use mockkClass to create a mock replacement, then use Unsafe to swap the field
+        val mockEp = mockk<ExtensionPointName<AccentElement>>(relaxed = true)
+        every { mockEp.extensionList } returns elements
+
+        // Use sun.misc.Unsafe to write to the static final field
+        val unsafe = sun.misc.Unsafe::class.java.getDeclaredField("theUnsafe")
+        unsafe.isAccessible = true
+        val unsafeInstance = unsafe.get(null) as sun.misc.Unsafe
+        val fieldOffset = unsafeInstance.staticFieldOffset(epField)
+        unsafeInstance.putObject(AccentApplicator::class.java, fieldOffset, mockEp)
+    }
+
+    /**
+     * Restores the original EP_NAME field value after mocking.
+     * Called in the resetCgpState or can be called in tearDown.
+     */
+    private var originalEpName: ExtensionPointName<AccentElement>? = null
+
+    private fun saveOriginalEpName() {
+        if (originalEpName != null) return
+        val epField = AccentApplicator::class.java.getDeclaredField("EP_NAME")
+        epField.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        originalEpName = epField.get(null) as ExtensionPointName<AccentElement>
+    }
+
+    private fun restoreOriginalEpName() {
+        val original = originalEpName ?: return
+        val epField = AccentApplicator::class.java.getDeclaredField("EP_NAME")
+        epField.isAccessible = true
+        val unsafe = sun.misc.Unsafe::class.java.getDeclaredField("theUnsafe")
+        unsafe.isAccessible = true
+        val unsafeInstance = unsafe.get(null) as sun.misc.Unsafe
+        val fieldOffset = unsafeInstance.staticFieldOffset(epField)
+        unsafeInstance.putObject(AccentApplicator::class.java, fieldOffset, original)
+        originalEpName = null
+    }
+
+    /**
+     * Invokes the private `applyElements(AyuIslandsState, Color, AyuVariant?)` method
+     * via reflection.
+     */
+    private fun invokeApplyElements(
+        targetState: AyuIslandsState,
+        accent: Color,
+        variant: AyuVariant?,
+    ) {
+        val method =
+            AccentApplicator::class.java.declaredMethods
+                .first { it.name == "applyElements" }
+        method.isAccessible = true
+        method.invoke(AccentApplicator, targetState, accent, variant)
     }
 
     // Helper for invoking private methods that accept nullable parameters

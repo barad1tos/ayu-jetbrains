@@ -1,31 +1,43 @@
 package dev.ayuislands.accent.elements
 
-import com.intellij.openapi.editor.colors.ColorKey
 import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.openapi.editor.colors.TextAttributesKey
+import com.intellij.openapi.editor.markup.TextAttributes
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
 import java.awt.Color
+import java.awt.Font
 
 class BracketMatchElement : AccentElement {
     override val id = AccentElementId.BRACKET_MATCH
     override val displayName = "Bracket Match"
 
-    private val matchedTextKey = ColorKey.find("MATCHED_TEXT")
+    private val braceAttrKey = TextAttributesKey.find("MATCHED_BRACE_ATTRIBUTES")
 
     override fun apply(color: Color) {
         val scheme = EditorColorsManager.getInstance().globalScheme
-        scheme.setColor(matchedTextKey, color)
+        val existing = scheme.getAttributes(braceAttrKey)
+        val updated = existing?.clone() ?: TextAttributes()
+        updated.foregroundColor = color
+        updated.fontType = Font.BOLD
+        scheme.setAttributes(braceAttrKey, updated)
+        BracketFadeManager.activate(color)
     }
 
     override fun applyNeutral(variant: AyuVariant) {
-        val parentScheme = EditorColorsManager.getInstance().getScheme(variant.parentSchemeName)
         val scheme = EditorColorsManager.getInstance().globalScheme
-        scheme.setColor(matchedTextKey, parentScheme?.getColor(matchedTextKey))
+        val parentScheme = EditorColorsManager.getInstance().getScheme(variant.parentSchemeName)
+        val parentAttrs = parentScheme?.getAttributes(braceAttrKey)
+        scheme.setAttributes(braceAttrKey, parentAttrs ?: TextAttributes())
+        BracketFadeManager.deactivate()
     }
 
     override fun revert() {
         val scheme = EditorColorsManager.getInstance().globalScheme
-        scheme.setColor(matchedTextKey, null)
+        val fallback = braceAttrKey.fallbackAttributeKey
+        val defaultAttrs = if (fallback != null) scheme.getAttributes(fallback) else null
+        scheme.setAttributes(braceAttrKey, defaultAttrs ?: TextAttributes())
+        BracketFadeManager.deactivate()
     }
 }
