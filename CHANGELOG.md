@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.1.0] - 2026-03-07
+
+### Added
+- [Paid] Indent Rainbow integration: accent-colored indent guides with 4 intensity presets (Whisper, Ambient, Neon, Cyberpunk)
+- [Paid] Bracket scope gutter highlight for matched braces
+- [Free] Accent-colored matched bracket styling
+- [Free] New Integrations settings panel for third-party plugin sync
+
+### Changed
+- CI: remove redundant push trigger to eliminate duplicate runs on merge
+
 ## [2.0.1] - 2026-03-06
 
 ### Fixed
