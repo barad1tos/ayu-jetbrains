@@ -111,7 +111,10 @@ class IndentRainbowSyncTest {
         setPrivateField("methodsResolved", true)
         // All fields remain null
 
-        val result = invokePrivateReturning("resolveOrReturn")
+        val method =
+            IndentRainbowSync::class.java.declaredMethods.first { it.name == "resolveOrReturn" }
+        method.isAccessible = true
+        val result = method.invoke(IndentRainbowSync)
         assertNull(result, "resolveOrReturn should return null when irConfig is null")
     }
 
@@ -242,16 +245,7 @@ class IndentRainbowSyncTest {
         setPrivateField("refreshMethod", mockRefreshMethod)
         setPrivateField("irColorsInstance", mockColorsInstance)
 
-        // Mock NotificationGroupManager to prevent NPE from notifyFailure
-        mockkStatic(NotificationGroupManager::class)
-        val mockNotifManager = mockk<NotificationGroupManager>(relaxed = true)
-        val mockGroup = mockk<NotificationGroup>(relaxed = true)
-        val mockNotification = mockk<Notification>(relaxed = true)
-        every { NotificationGroupManager.getInstance() } returns mockNotifManager
-        every { mockNotifManager.getNotificationGroup(any()) } returns mockGroup
-        every {
-            mockGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
-        } returns mockNotification
+        mockNotificationGroup()
 
         IndentRainbowSync.apply(AyuVariant.MIRAGE)
         // Should not throw — exception is caught and logged
@@ -284,15 +278,7 @@ class IndentRainbowSyncTest {
         setPrivateField("refreshMethod", mockRefreshMethod)
         setPrivateField("irColorsInstance", mockColorsInstance)
 
-        mockkStatic(NotificationGroupManager::class)
-        val mockNotifManager = mockk<NotificationGroupManager>(relaxed = true)
-        val mockGroup = mockk<NotificationGroup>(relaxed = true)
-        val mockNotification = mockk<Notification>(relaxed = true)
-        every { NotificationGroupManager.getInstance() } returns mockNotifManager
-        every { mockNotifManager.getNotificationGroup(any()) } returns mockGroup
-        every {
-            mockGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
-        } returns mockNotification
+        mockNotificationGroup()
 
         IndentRainbowSync.apply(AyuVariant.MIRAGE)
     }
@@ -325,15 +311,7 @@ class IndentRainbowSyncTest {
     fun `notifyFailure suppresses duplicate for same version`() {
         state.irFailedVersion = "old-version"
 
-        mockkStatic(NotificationGroupManager::class)
-        val mockNotifManager = mockk<NotificationGroupManager>(relaxed = true)
-        val mockGroup = mockk<NotificationGroup>(relaxed = true)
-        val mockNotification = mockk<Notification>(relaxed = true)
-        every { NotificationGroupManager.getInstance() } returns mockNotifManager
-        every { mockNotifManager.getNotificationGroup(any()) } returns mockGroup
-        every {
-            mockGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
-        } returns mockNotification
+        val group = mockNotificationGroup()
 
         // First call — should notify
         invokePrivate("notifyFailure")
@@ -344,7 +322,7 @@ class IndentRainbowSyncTest {
 
         // createNotification should be called only once
         verify(exactly = 1) {
-            mockGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
+            group.createNotification(any<String>(), any<String>(), any<NotificationType>())
         }
     }
 
@@ -509,15 +487,7 @@ class IndentRainbowSyncTest {
         // ClassNotFoundException (a ReflectiveOperationException) since the
         // class does not exist on the test classpath.
 
-        mockkStatic(NotificationGroupManager::class)
-        val mockNotifManager = mockk<NotificationGroupManager>(relaxed = true)
-        val mockGroup = mockk<NotificationGroup>(relaxed = true)
-        val mockNotification = mockk<Notification>(relaxed = true)
-        every { NotificationGroupManager.getInstance() } returns mockNotifManager
-        every { mockNotifManager.getNotificationGroup(any()) } returns mockGroup
-        every {
-            mockGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
-        } returns mockNotification
+        mockNotificationGroup()
 
         invokePrivate("resolveReflection")
 
@@ -609,15 +579,7 @@ class IndentRainbowSyncTest {
         setPrivateField("refreshMethod", mockRefreshMethod)
         setPrivateField("irColorsInstance", mockColorsInstance)
 
-        mockkStatic(NotificationGroupManager::class)
-        val mockNotifManager = mockk<NotificationGroupManager>(relaxed = true)
-        val mockGroup = mockk<NotificationGroup>(relaxed = true)
-        val mockNotification = mockk<Notification>(relaxed = true)
-        every { NotificationGroupManager.getInstance() } returns mockNotifManager
-        every { mockNotifManager.getNotificationGroup(any()) } returns mockGroup
-        every {
-            mockGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
-        } returns mockNotification
+        mockNotificationGroup()
 
         IndentRainbowSync.apply(AyuVariant.MIRAGE)
         // Should not throw — caught by RuntimeException handler
@@ -656,12 +618,6 @@ class IndentRainbowSyncTest {
         val method = IndentRainbowSync::class.java.declaredMethods.first { it.name == methodName }
         method.isAccessible = true
         method.invoke(IndentRainbowSync, *args)
-    }
-
-    private fun invokePrivateReturning(methodName: String): Any? {
-        val method = IndentRainbowSync::class.java.declaredMethods.first { it.name == methodName }
-        method.isAccessible = true
-        return method.invoke(IndentRainbowSync)
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -709,4 +665,17 @@ class IndentRainbowSyncTest {
     }
 
     private fun mockMethod(): Method = mockk<Method>(relaxed = true)
+
+    private fun mockNotificationGroup(): NotificationGroup {
+        mockkStatic(NotificationGroupManager::class)
+        val mockNotifManager = mockk<NotificationGroupManager>(relaxed = true)
+        val mockGroup = mockk<NotificationGroup>(relaxed = true)
+        val mockNotification = mockk<Notification>(relaxed = true)
+        every { NotificationGroupManager.getInstance() } returns mockNotifManager
+        every { mockNotifManager.getNotificationGroup(any()) } returns mockGroup
+        every {
+            mockGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
+        } returns mockNotification
+        return mockGroup
+    }
 }
