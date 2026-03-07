@@ -30,6 +30,11 @@
   ]]></description>
 
   <change-notes><![CDATA[
+    <h3>2.1.1</h3>
+    <ul>
+      <li>[Paid] Add "Highlight indent errors" toggle for Indent Rainbow — disable to blend continuation lines into gradient</li>
+      <li>[Paid] Fix write-unsafe EDT context error on startup with Indent Rainbow</li>
+    </ul>
     <h3>2.1.0</h3>
     <ul>
       <li>[Paid] Indent Rainbow integration: accent-colored indent guides with 4 intensity presets</li>
