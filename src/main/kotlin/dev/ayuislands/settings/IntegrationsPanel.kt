@@ -27,10 +27,13 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
     private var storedBracketScope: Boolean = true
     private var pendingCgpIntegration: Boolean = false
     private var storedCgpIntegration: Boolean = false
+    private var pendingErrorHighlight: Boolean = true
+    private var storedErrorHighlight: Boolean = true
 
     private var variant: AyuVariant? = null
     private var enabledCheckbox: JCheckBox? = null
     private var cgpCheckbox: JCheckBox? = null
+    private var errorHighlightCheckbox: JCheckBox? = null
     private var alphaSlider: JSlider? = null
     private var alphaValueLabel: JLabel? = null
     private var presetSegmented: SegmentedButton<IndentPreset>? = null
@@ -54,6 +57,9 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
 
         storedEnabled = state.irIntegrationEnabled
         pendingEnabled = storedEnabled
+
+        storedErrorHighlight = state.irErrorHighlightEnabled
+        pendingErrorHighlight = storedErrorHighlight
 
         storedPreset = state.indentPresetName ?: IndentPreset.AMBIENT.name
         pendingPreset = storedPreset
@@ -137,6 +143,19 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
                     presetSegmented = segmented
                 }.visibleIf(irEnabled)
 
+                // Error highlight toggle (visible when IR enabled)
+                row {
+                    val cb =
+                        checkBox("Highlight indent errors")
+                            .comment("When off, lines with irregular indentation blend into the color gradient")
+                    cb.component.isSelected = pendingErrorHighlight
+                    cb.component.isEnabled = licensed
+                    cb.component.addActionListener {
+                        pendingErrorHighlight = cb.component.isSelected
+                    }
+                    errorHighlightCheckbox = cb.component
+                }.visibleIf(irEnabled)
+
                 // Custom alpha slider (visible only in CUSTOM mode AND IR enabled)
                 row {
                     label("Alpha")
@@ -165,7 +184,8 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
             pendingPreset != storedPreset ||
             pendingCustomAlpha != storedCustomAlpha ||
             pendingBracketScope != storedBracketScope ||
-            pendingCgpIntegration != storedCgpIntegration
+            pendingCgpIntegration != storedCgpIntegration ||
+            pendingErrorHighlight != storedErrorHighlight
 
     override fun apply() {
         if (!isModified()) return
@@ -176,12 +196,14 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
         state.indentCustomAlpha = pendingCustomAlpha
         state.bracketScopeEnabled = pendingBracketScope
         state.cgpIntegrationEnabled = pendingCgpIntegration
+        state.irErrorHighlightEnabled = pendingErrorHighlight
 
         storedEnabled = pendingEnabled
         storedPreset = pendingPreset
         storedCustomAlpha = pendingCustomAlpha
         storedBracketScope = pendingBracketScope
         storedCgpIntegration = pendingCgpIntegration
+        storedErrorHighlight = pendingErrorHighlight
 
         // Trigger IR sync immediately
         val currentVariant = variant ?: return
@@ -195,10 +217,12 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
         pendingCustomAlpha = storedCustomAlpha
         pendingBracketScope = storedBracketScope
         pendingCgpIntegration = storedCgpIntegration
+        pendingErrorHighlight = storedErrorHighlight
 
         suppressListeners = true
         enabledCheckbox?.isSelected = storedEnabled
         cgpCheckbox?.isSelected = storedCgpIntegration
+        errorHighlightCheckbox?.isSelected = storedErrorHighlight
         presetSegmented?.selectedItem = IndentPreset.fromName(storedPreset)
         alphaSlider?.value = storedCustomAlpha
         alphaValueLabel?.text = "$storedCustomAlpha"

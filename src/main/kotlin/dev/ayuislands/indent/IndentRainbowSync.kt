@@ -53,7 +53,11 @@ object IndentRainbowSync {
                 )
             val rawAlpha = preset.alpha ?: state.indentCustomAlpha
             val alpha = rawAlpha.coerceIn(1, MAX_ALPHA_VALUE)
-            val colorStrings = palette.toColorStrings(alpha)
+            val colorStrings =
+                palette.toColorStrings(
+                    alpha,
+                    highlightErrors = state.irErrorHighlightEnabled,
+                )
             val customPaletteValue = colorStrings.joinToString(", ")
 
             resolved.paletteTypeField[resolved.config] = enumValue

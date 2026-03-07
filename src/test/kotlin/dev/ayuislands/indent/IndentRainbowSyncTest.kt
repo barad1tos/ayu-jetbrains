@@ -159,8 +159,8 @@ class IndentRainbowSyncTest {
         verify { mockPaletteTypeField[mockConfig] = "CUSTOM_ENUM" }
         // Verify custom palette string was written
         verify { mockCustomPaletteField[mockConfig] = any<String>() }
-        // Verify number of colors = 7 (1 error + 6 indent)
-        verify { mockNumberColorsField.setInt(mockConfig, 7) }
+        // Verify number of colors = 11 (IR ignores this field, pass full count)
+        verify { mockNumberColorsField.setInt(mockConfig, 11) }
         // Verify cache flush
         verify { mockUpdateMethod.invoke(mockCompanion, mockConfig) }
         verify { mockRefreshMethod.invoke(mockColorsInstance) }
@@ -379,8 +379,8 @@ class IndentRainbowSyncTest {
         verify {
             mockCustomPaletteField[mockConfig] =
                 match<String> { palette ->
-                    // NEON alpha = 0x4D, 7 colors joined with ", "
-                    palette.split(", ").size == 7
+                    // NEON alpha = 0x4D, 11 colors joined with ", "
+                    palette.split(", ").size == 11
                 }
         }
     }
@@ -583,6 +583,46 @@ class IndentRainbowSyncTest {
 
         IndentRainbowSync.apply(AyuVariant.MIRAGE)
         // Should not throw — caught by RuntimeException handler
+    }
+
+    @Test
+    fun `apply uses accent error color when irErrorHighlightEnabled is false`() {
+        state.irIntegrationEnabled = true
+        state.irErrorHighlightEnabled = false
+        state.indentPresetName = "AMBIENT"
+
+        val mockConfig = Any()
+        val mockPaletteTypeField = mockField()
+        val mockCustomPaletteField = mockField()
+        val mockNumberColorsField = mockIntField()
+        val mockUpdateMethod = mockMethod()
+        val mockRefreshMethod = mockMethod()
+        val mockCompanion = Any()
+        val mockColorsInstance = Any()
+
+        setPrivateField("methodsResolved", true)
+        setPrivateField("irConfig", mockConfig)
+        setPrivateField("paletteTypeField", mockPaletteTypeField)
+        setPrivateField("customPaletteField", mockCustomPaletteField)
+        setPrivateField("customPaletteNumberColorsField", mockNumberColorsField)
+        setPrivateField("customEnumValue", "CUSTOM_ENUM")
+        setPrivateField("defaultEnumValue", "DEFAULT_ENUM")
+        setPrivateField("cachedDataUpdateMethod", mockUpdateMethod)
+        setPrivateField("cachedDataCompanion", mockCompanion)
+        setPrivateField("refreshMethod", mockRefreshMethod)
+        setPrivateField("irColorsInstance", mockColorsInstance)
+
+        IndentRainbowSync.apply(AyuVariant.MIRAGE)
+
+        // Verify palette string: error color (index 0) should use accent, not red
+        verify {
+            mockCustomPaletteField[mockConfig] =
+                match<String> { palette ->
+                    val colors = palette.split(", ")
+                    // Error color (first) should use accent hex (FFCC66), not red (F27983)
+                    colors[0].endsWith("FFCC66") && !colors[0].endsWith("F27983")
+                }
+        }
     }
 
     @Test

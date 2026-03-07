@@ -84,6 +84,9 @@ class AyuIslandsState : BaseState() {
     // Bracket scope gutter highlight (default ON)
     var bracketScopeEnabled by property(true)
 
+    // IR error highlight toggle (true = red error color, false = accent gradient)
+    var irErrorHighlightEnabled by property(true)
+
     // IR version that failed reflection (suppresses repeated notifications)
     var irFailedVersion by string(null)
 
