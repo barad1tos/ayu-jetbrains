@@ -563,6 +563,55 @@ class AccentElementsTest {
         verify { BracketFadeManager.deactivate() }
     }
 
+    @Test
+    fun `BracketMatchElement apply clones existing attributes when present`() {
+        val existingAttrs = TextAttributes()
+        existingAttrs.foregroundColor = Color.WHITE
+        val attributesSlot = slot<TextAttributes>()
+        every { mockScheme.getAttributes(any<TextAttributesKey>()) } returns existingAttrs
+        every { mockScheme.setAttributes(any<TextAttributesKey>(), capture(attributesSlot)) } just Runs
+
+        val element = BracketMatchElement()
+        element.apply(testColor)
+
+        assertTrue(attributesSlot.isCaptured, "setAttributes should have been called")
+        assertEquals(testColor, attributesSlot.captured.foregroundColor)
+        assertEquals(java.awt.Font.BOLD, attributesSlot.captured.fontType)
+        verify { BracketFadeManager.activate(testColor) }
+    }
+
+    @Test
+    fun `BracketMatchElement applyNeutral with non-null parent but null attrs`() {
+        val parentScheme: EditorColorsScheme = mockk(relaxed = true)
+        every { mockColorsManager.getScheme("Darcula") } returns parentScheme
+        every { parentScheme.getAttributes(any<TextAttributesKey>()) } returns null
+        val attributesSlot = slot<TextAttributes>()
+        every { mockScheme.setAttributes(any<TextAttributesKey>(), capture(attributesSlot)) } just Runs
+
+        val element = BracketMatchElement()
+        element.applyNeutral(AyuVariant.MIRAGE)
+
+        assertTrue(attributesSlot.isCaptured, "setAttributes should have been called")
+        assertNotNull(attributesSlot.captured, "Should use fallback TextAttributes when parent attrs are null")
+        verify { BracketFadeManager.deactivate() }
+    }
+
+    @Test
+    fun `BracketMatchElement revert with null fallback attribute key`() {
+        val braceKey = mockk<TextAttributesKey>(relaxed = true)
+        every { braceKey.fallbackAttributeKey } returns null
+        every { TextAttributesKey.find("MATCHED_BRACE_ATTRIBUTES") } returns braceKey
+        val attributesSlot = slot<TextAttributes>()
+        every { mockScheme.setAttributes(any<TextAttributesKey>(), capture(attributesSlot)) } just Runs
+
+        val element = BracketMatchElement()
+        element.revert()
+
+        assertTrue(attributesSlot.isCaptured, "setAttributes should have been called")
+        assertNotNull(attributesSlot.captured, "Should use fallback TextAttributes when fallback key is null")
+        verify { BracketFadeManager.deactivate() }
+    }
+
     // AccentElementId enum coverage
 
     @Test

@@ -89,7 +89,7 @@ class IndentRainbowSyncTest {
         invokePrivate("resolveReflection")
         invokePrivate("resolveReflection")
 
-        // Second call exits immediately via guard
+        // The second call exits immediately via guard
         val resolved = getPrivateField<Boolean>("methodsResolved")
         assertTrue(resolved)
     }
@@ -152,7 +152,7 @@ class IndentRainbowSyncTest {
 
         IndentRainbowSync.apply(AyuVariant.MIRAGE)
 
-        // Verify palette type was set to CUSTOM
+        // Verify a palette type was set to CUSTOM
         verify { mockPaletteTypeField[mockConfig] = "CUSTOM_ENUM" }
         // Verify custom palette string was written
         verify { mockCustomPaletteField[mockConfig] = any<String>() }
@@ -227,9 +227,8 @@ class IndentRainbowSyncTest {
         val mockCompanion = Any()
         val mockColorsInstance = Any()
 
-        every {
-            mockUpdateMethod.invoke(any(), any())
-        } throws java.lang.reflect.InvocationTargetException(RuntimeException("inner"))
+        every { mockUpdateMethod.invoke(any(), any()) } throws
+            java.lang.reflect.InvocationTargetException(RuntimeException("inner"))
 
         setPrivateField("methodsResolved", true)
         setPrivateField("irConfig", mockConfig)
@@ -243,7 +242,7 @@ class IndentRainbowSyncTest {
         setPrivateField("refreshMethod", mockRefreshMethod)
         setPrivateField("irColorsInstance", mockColorsInstance)
 
-        // Mock NotificationGroupManager to prevent NPE in notifyFailure
+        // Mock NotificationGroupManager to prevent NPE from notifyFailure
         mockkStatic(NotificationGroupManager::class)
         val mockNotifManager = mockk<NotificationGroupManager>(relaxed = true)
         val mockGroup = mockk<NotificationGroup>(relaxed = true)
@@ -271,9 +270,7 @@ class IndentRainbowSyncTest {
         val mockCompanion = Any()
         val mockColorsInstance = Any()
 
-        every {
-            mockUpdateMethod.invoke(any(), any())
-        } throws IllegalAccessException("denied")
+        every { mockUpdateMethod.invoke(any(), any()) } throws IllegalAccessException("denied")
 
         setPrivateField("methodsResolved", true)
         setPrivateField("irConfig", mockConfig)
@@ -309,9 +306,7 @@ class IndentRainbowSyncTest {
         val mockCompanion = Any()
         val mockColorsInstance = Any()
 
-        every {
-            mockUpdateMethod.invoke(any(), any())
-        } throws RuntimeException("flush failed")
+        every { mockUpdateMethod.invoke(any(), any()) } throws RuntimeException("flush failed")
 
         setPrivateField("methodsResolved", true)
         setPrivateField("irConfig", mockConfig)
@@ -470,7 +465,7 @@ class IndentRainbowSyncTest {
 
         IndentRainbowSync.revert()
 
-        // flushCache should NOT be called since method exits early
+        // flushCache should NOT be called since the method exits early
         verify(exactly = 0) { mockUpdateMethod.invoke(any(), any()) }
     }
 
@@ -504,23 +499,167 @@ class IndentRainbowSyncTest {
         verify(exactly = 0) { mockUpdateMethod.invoke(any(), any()) }
     }
 
+    @Test
+    fun `resolveReflection catches ClassNotFoundException when plugin found`() {
+        val mockPlugin = mockk<IdeaPluginDescriptor>(relaxed = true)
+        every { PluginManagerCore.getPlugin(any()) } returns mockPlugin
+        every { mockPlugin.pluginClassLoader } returns this::class.java.classLoader
+
+        // Class.forName("indent.rainbow.settings.IrConfig") will throw
+        // ClassNotFoundException (a ReflectiveOperationException) since the
+        // class does not exist on the test classpath.
+
+        mockkStatic(NotificationGroupManager::class)
+        val mockNotifManager = mockk<NotificationGroupManager>(relaxed = true)
+        val mockGroup = mockk<NotificationGroup>(relaxed = true)
+        val mockNotification = mockk<Notification>(relaxed = true)
+        every { NotificationGroupManager.getInstance() } returns mockNotifManager
+        every { mockNotifManager.getNotificationGroup(any()) } returns mockGroup
+        every {
+            mockGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
+        } returns mockNotification
+
+        invokePrivate("resolveReflection")
+
+        assertTrue(getPrivateField("methodsResolved"))
+        assertNull(getPrivateField("irConfig"))
+    }
+
+    @Test
+    fun `apply returns early when customPaletteField is null`() {
+        state.irIntegrationEnabled = true
+
+        val mockConfig = Any()
+        val mockPaletteTypeField = mockField()
+        val mockUpdateMethod = mockMethod()
+        val mockRefreshMethod = mockMethod()
+        val mockCompanion = Any()
+        val mockColorsInstance = Any()
+
+        setPrivateField("methodsResolved", true)
+        setPrivateField("irConfig", mockConfig)
+        setPrivateField("paletteTypeField", mockPaletteTypeField)
+        setPrivateField("customPaletteField", null)
+        setPrivateField("customPaletteNumberColorsField", mockIntField())
+        setPrivateField("customEnumValue", "CUSTOM_ENUM")
+        setPrivateField("defaultEnumValue", "DEFAULT_ENUM")
+        setPrivateField("cachedDataUpdateMethod", mockUpdateMethod)
+        setPrivateField("cachedDataCompanion", mockCompanion)
+        setPrivateField("refreshMethod", mockRefreshMethod)
+        setPrivateField("irColorsInstance", mockColorsInstance)
+
+        IndentRainbowSync.apply(AyuVariant.MIRAGE)
+
+        verify(exactly = 0) { mockUpdateMethod.invoke(any(), any()) }
+    }
+
+    @Test
+    fun `apply returns early when customPaletteNumberColorsField is null`() {
+        state.irIntegrationEnabled = true
+
+        val mockConfig = Any()
+        val mockPaletteTypeField = mockField()
+        val mockCustomPaletteField = mockField()
+        val mockUpdateMethod = mockMethod()
+        val mockRefreshMethod = mockMethod()
+        val mockCompanion = Any()
+        val mockColorsInstance = Any()
+
+        setPrivateField("methodsResolved", true)
+        setPrivateField("irConfig", mockConfig)
+        setPrivateField("paletteTypeField", mockPaletteTypeField)
+        setPrivateField("customPaletteField", mockCustomPaletteField)
+        setPrivateField("customPaletteNumberColorsField", null)
+        setPrivateField("customEnumValue", "CUSTOM_ENUM")
+        setPrivateField("defaultEnumValue", "DEFAULT_ENUM")
+        setPrivateField("cachedDataUpdateMethod", mockUpdateMethod)
+        setPrivateField("cachedDataCompanion", mockCompanion)
+        setPrivateField("refreshMethod", mockRefreshMethod)
+        setPrivateField("irColorsInstance", mockColorsInstance)
+
+        IndentRainbowSync.apply(AyuVariant.MIRAGE)
+
+        verify(exactly = 0) { mockUpdateMethod.invoke(any(), any()) }
+    }
+
+    @Test
+    fun `apply catches RuntimeException from paletteTypeField set`() {
+        state.irIntegrationEnabled = true
+
+        val mockConfig = Any()
+        val mockPaletteTypeField = mockk<Field>(relaxed = true)
+        val mockCustomPaletteField = mockField()
+        val mockNumberColorsField = mockIntField()
+        val mockUpdateMethod = mockMethod()
+        val mockRefreshMethod = mockMethod()
+        val mockCompanion = Any()
+        val mockColorsInstance = Any()
+
+        every { mockPaletteTypeField[any()] = any() } throws RuntimeException("field set exploded")
+
+        setPrivateField("methodsResolved", true)
+        setPrivateField("irConfig", mockConfig)
+        setPrivateField("paletteTypeField", mockPaletteTypeField)
+        setPrivateField("customPaletteField", mockCustomPaletteField)
+        setPrivateField("customPaletteNumberColorsField", mockNumberColorsField)
+        setPrivateField("customEnumValue", "CUSTOM_ENUM")
+        setPrivateField("defaultEnumValue", "DEFAULT_ENUM")
+        setPrivateField("cachedDataUpdateMethod", mockUpdateMethod)
+        setPrivateField("cachedDataCompanion", mockCompanion)
+        setPrivateField("refreshMethod", mockRefreshMethod)
+        setPrivateField("irColorsInstance", mockColorsInstance)
+
+        mockkStatic(NotificationGroupManager::class)
+        val mockNotifManager = mockk<NotificationGroupManager>(relaxed = true)
+        val mockGroup = mockk<NotificationGroup>(relaxed = true)
+        val mockNotification = mockk<Notification>(relaxed = true)
+        every { NotificationGroupManager.getInstance() } returns mockNotifManager
+        every { mockNotifManager.getNotificationGroup(any()) } returns mockGroup
+        every {
+            mockGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
+        } returns mockNotification
+
+        IndentRainbowSync.apply(AyuVariant.MIRAGE)
+        // Should not throw — caught by RuntimeException handler
+    }
+
+    @Test
+    fun `revert catches ReflectiveOperationException from paletteTypeField set`() {
+        val mockConfig = Any()
+        val mockPaletteTypeField = mockk<Field>(relaxed = true)
+        val mockUpdateMethod = mockMethod()
+        val mockRefreshMethod = mockMethod()
+        val mockCompanion = Any()
+        val mockColorsInstance = Any()
+
+        every { mockPaletteTypeField[any()] = any() } throws IllegalAccessException("access denied")
+
+        setPrivateField("methodsResolved", true)
+        setPrivateField("irConfig", mockConfig)
+        setPrivateField("paletteTypeField", mockPaletteTypeField)
+        setPrivateField("defaultEnumValue", "DEFAULT_ENUM")
+        setPrivateField("cachedDataUpdateMethod", mockUpdateMethod)
+        setPrivateField("cachedDataCompanion", mockCompanion)
+        setPrivateField("refreshMethod", mockRefreshMethod)
+        setPrivateField("irColorsInstance", mockColorsInstance)
+
+        IndentRainbowSync.revert()
+        // Should not throw — caught by ReflectiveOperationException handler
+    }
+
     // Helpers
 
     private fun invokePrivate(
         methodName: String,
         vararg args: Any,
     ) {
-        val method =
-            IndentRainbowSync::class.java.declaredMethods
-                .first { it.name == methodName }
+        val method = IndentRainbowSync::class.java.declaredMethods.first { it.name == methodName }
         method.isAccessible = true
         method.invoke(IndentRainbowSync, *args)
     }
 
     private fun invokePrivateReturning(methodName: String): Any? {
-        val method =
-            IndentRainbowSync::class.java.declaredMethods
-                .first { it.name == methodName }
+        val method = IndentRainbowSync::class.java.declaredMethods.first { it.name == methodName }
         method.isAccessible = true
         return method.invoke(IndentRainbowSync)
     }
