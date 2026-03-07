@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.1] - 2026-03-07
+
+### Added
+- [Paid] "Highlight indent errors" toggle for Indent Rainbow — disable to blend continuation lines into gradient
+
+### Fixed
+- [Paid] Fix write-unsafe EDT context error on startup with Indent Rainbow integration
+
 ## [2.1.0] - 2026-03-07
 
 ### Added
