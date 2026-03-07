@@ -81,6 +81,9 @@ class AyuIslandsState : BaseState() {
     // Custom alpha for CUSTOM preset (0-255)
     var indentCustomAlpha by property(IndentPreset.DEFAULT_ALPHA)
 
+    // Bracket scope gutter highlight (default ON)
+    var bracketScopeEnabled by property(true)
+
     // IR version that failed reflection (suppresses repeated notifications)
     var irFailedVersion by string(null)
 

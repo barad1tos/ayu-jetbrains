@@ -14,6 +14,7 @@ import com.intellij.openapi.editor.markup.RangeHighlighter
 import com.intellij.openapi.util.Disposer
 import com.intellij.psi.PsiDocumentManager
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.Color
 
 object BracketFadeManager {
@@ -62,6 +63,7 @@ object BracketFadeManager {
     private fun handleCaretMove(editor: Editor) {
         removeHighlighters(editor)
         if (!LicenseChecker.isLicensedOrGrace()) return
+        if (!AyuIslandsSettings.getInstance().state.bracketScopeEnabled) return
         val color = currentColor ?: return
 
         val project = editor.project ?: return

@@ -2,6 +2,7 @@ package dev.ayuislands.settings
 
 import com.intellij.ui.ColorUtil
 import dev.ayuislands.accent.AccentColor
+import java.awt.AlphaComposite
 import java.awt.BasicStroke
 import java.awt.Color
 import java.awt.Cursor
@@ -16,7 +17,7 @@ import java.awt.geom.RoundRectangle2D
 import javax.swing.JComponent
 import javax.swing.JPanel
 
-/** A single-row grid of rounded color swatches with checkmark on the selected color. */
+/** A single-row grid of rounded color swatches with a checkmark on the selected color. */
 class ColorSwatchPanel(
     colors: List<AccentColor>,
     private val onColorSelected: (AccentColor) -> Unit,
@@ -86,13 +87,13 @@ class ColorSwatchPanel(
 
                 if (!isEnabled) {
                     g2.composite =
-                        java.awt.AlphaComposite.getInstance(
-                            java.awt.AlphaComposite.SRC_OVER,
+                        AlphaComposite.getInstance(
+                            AlphaComposite.SRC_OVER,
                             DISABLED_OVERLAY_ALPHA,
                         )
                     g2.color = javax.swing.UIManager.getColor("Panel.background") ?: background
                     g2.fill(shape)
-                    g2.composite = java.awt.AlphaComposite.getInstance(java.awt.AlphaComposite.SRC_OVER, 1f)
+                    g2.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 1f)
                 }
 
                 if (isSelected) {
@@ -108,7 +109,11 @@ class ColorSwatchPanel(
             background: Color,
         ) {
             val checkColor =
-                if (ColorUtil.isDark(background)) Color.WHITE else Color(DARK_TEXT_R, DARK_TEXT_G, DARK_TEXT_B)
+                if (ColorUtil.isDark(background)) {
+                    Color.WHITE
+                } else {
+                    Color(DARK_TEXT_R, DARK_TEXT_G, DARK_TEXT_B)
+                }
             g2.color = checkColor
             g2.stroke = BasicStroke(CHECKMARK_STROKE, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
 

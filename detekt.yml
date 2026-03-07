@@ -5,6 +5,9 @@ style:
     maxJumpCount: 3
 
 complexity:
+  LargeClass:
+    excludes:
+      - "**/test/**"
   LongMethod:
     threshold: 200
   TooManyFunctions:
