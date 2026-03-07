@@ -2,6 +2,7 @@ package dev.ayuislands.settings
 
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.ui.components.JBCheckBox
+import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentApplicator
@@ -72,7 +73,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                     followSystemCheckbox = checkbox
                 }
             }
-            row { cell(swatch) }
+            row { cell(swatch).resizableColumn().align(Align.FILL) }
         }
 
         updateSwatchEnabled()
