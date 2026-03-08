@@ -147,7 +147,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and [CHANGELOG.md](CHANGEL
 
 ## Credits
 
-- Color palettes from [ayu-theme/ayu-colors](https://github.com/ayu-theme/ayu-colors) by Ike Ku
+- Inspired by [Ayu](https://ayutheme.com) by Ike Ku ([@dempfi](https://github.com/dempfi))
+- Color palettes from [ayu-theme/ayu-colors](https://github.com/ayu-theme/ayu-colors)
 - Built on the [IntelliJ Platform](https://plugins.jetbrains.com/docs/intellij/welcome.html) by JetBrains
 
 ## License
