@@ -42,10 +42,10 @@
     <h3>2.1.2</h3>
     <ul>
       <li>[Free] Reintroduce non-Islands (Classic UI) theme variants for Mirage, Dark, and Light</li>
-      <li>[Free] Glow overlay now renders below tab strip for visual harmony with underline</li>
       <li>[Free] Settings controls adapt to active theme type (Islands UI vs Classic)</li>
-      <li>[Free] Tab underline thickness and glow-sync controls for Classic UI</li>
       <li>[Free] Updated plugin description with clearer feature breakdown</li>
+      <li>[Paid] Glow overlay now renders below tab strip for visual harmony with underline</li>
+      <li>[Paid] Tab underline thickness and glow-sync controls for Classic UI</li>
     </ul>
     <h3>2.1.1</h3>
     <ul>
