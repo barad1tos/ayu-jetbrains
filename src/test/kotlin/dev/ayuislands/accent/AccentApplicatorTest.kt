@@ -594,7 +594,7 @@ class AccentApplicatorTest {
     @Test
     fun `ALWAYS_ON_EDITOR_COLOR_KEYS contains expected keys`() {
         val keys = getPrivateField<List<ColorKey>>("ALWAYS_ON_EDITOR_COLOR_KEYS")
-        assertEquals(2, keys.size, "Expected 2 always-on editor color keys")
+        assertEquals(3, keys.size, "Expected 3 always-on editor color keys")
     }
 
     @Test
@@ -1325,6 +1325,107 @@ class AccentApplicatorTest {
                 .first { it.name == "neutralizeOrRevert" }
         method.isAccessible = true
         method.invoke(AccentApplicator, *args)
+    }
+
+    // resolveUnderlineHeight tests
+
+    @Test
+    fun `resolveUnderlineHeight returns tabUnderlineHeight when tab mode is OFF`() {
+        state.glowTabMode = "OFF"
+        state.tabUnderlineHeight = 6
+
+        assertEquals(6, AccentApplicator.resolveUnderlineHeight(state))
+    }
+
+    @Test
+    fun `resolveUnderlineHeight returns tabUnderlineHeight when glow sync disabled`() {
+        state.glowTabMode = "MINIMAL"
+        state.tabUnderlineGlowSync = false
+        state.tabUnderlineHeight = 4
+
+        assertEquals(4, AccentApplicator.resolveUnderlineHeight(state))
+    }
+
+    @Test
+    fun `resolveUnderlineHeight returns glow width when sync enabled and glow active`() {
+        state.glowTabMode = "MINIMAL"
+        state.tabUnderlineGlowSync = true
+        state.glowEnabled = true
+        state.glowStyle = "SOFT"
+
+        val expected = state.getWidthForStyle(dev.ayuislands.glow.GlowStyle.SOFT)
+        assertEquals(expected, AccentApplicator.resolveUnderlineHeight(state))
+    }
+
+    @Test
+    fun `resolveUnderlineHeight returns tabUnderlineHeight when sync enabled but glow disabled`() {
+        state.glowTabMode = "MINIMAL"
+        state.tabUnderlineGlowSync = true
+        state.glowEnabled = false
+        state.tabUnderlineHeight = 8
+
+        assertEquals(8, AccentApplicator.resolveUnderlineHeight(state))
+    }
+
+    // applyTabUnderlineStyle tests
+
+    @Test
+    fun `applyTabUnderlineStyle sets underline height and arc via UIManager`() {
+        state.glowTabMode = "MINIMAL"
+        state.tabUnderlineHeight = 4
+        state.tabUnderlineGlowSync = false
+
+        val method =
+            AccentApplicator::class.java.getDeclaredMethod(
+                "applyTabUnderlineStyle",
+                AyuIslandsState::class.java,
+            )
+        method.isAccessible = true
+        method.invoke(AccentApplicator, state)
+
+        verify { UIManager.put("EditorTabs.underlineHeight", Integer.valueOf(4)) }
+        verify { UIManager.put("EditorTabs.underlineArc", any<Int>()) }
+    }
+
+    // overrideTabUnderlineForOffMode tests
+
+    @Test
+    fun `overrideTabUnderlineForOffMode sets neutral gray when OFF and variant present`() {
+        state.glowTabMode = "OFF"
+
+        val method =
+            AccentApplicator::class.java.declaredMethods
+                .first { it.name == "overrideTabUnderlineForOffMode" }
+        method.isAccessible = true
+        method.invoke(AccentApplicator, state, AyuVariant.MIRAGE)
+
+        verify { mockScheme.setColor(any(), Color.decode(AyuVariant.MIRAGE.neutralGray)) }
+    }
+
+    @Test
+    fun `overrideTabUnderlineForOffMode does nothing when not OFF`() {
+        state.glowTabMode = "MINIMAL"
+
+        val method =
+            AccentApplicator::class.java.declaredMethods
+                .first { it.name == "overrideTabUnderlineForOffMode" }
+        method.isAccessible = true
+        method.invoke(AccentApplicator, state, AyuVariant.MIRAGE)
+
+        verify(exactly = 0) { mockScheme.setColor(ColorKey.find("TAB_UNDERLINE"), any()) }
+    }
+
+    @Test
+    fun `overrideTabUnderlineForOffMode does nothing when variant is null`() {
+        state.glowTabMode = "OFF"
+
+        val method =
+            AccentApplicator::class.java.declaredMethods
+                .first { it.name == "overrideTabUnderlineForOffMode" }
+        method.isAccessible = true
+        method.invoke(AccentApplicator, state, null)
+
+        verify(exactly = 0) { mockScheme.setColor(ColorKey.find("TAB_UNDERLINE"), any()) }
     }
 
     private fun resetCgpState() {

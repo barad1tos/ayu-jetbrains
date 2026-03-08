@@ -1,27 +1,52 @@
+@file:Suppress("UnstableApiUsage")
+
 package dev.ayuislands.accent
 
+import com.intellij.ide.ui.LafManager
+import com.intellij.ide.ui.laf.UIThemeLookAndFeelInfo
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.unmockkAll
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class AyuVariantTest {
+    private lateinit var lafManager: LafManager
+
+    @BeforeTest
+    fun setUp() {
+        lafManager = mockk(relaxed = true)
+        mockkStatic(LafManager::class)
+        every { LafManager.getInstance() } returns lafManager
+    }
+
+    @AfterTest
+    fun tearDown() {
+        unmockkAll()
+    }
+
     @Test
     fun `fromThemeName returns MIRAGE for Mirage theme names`() {
-        assertEquals(AyuVariant.MIRAGE, AyuVariant.fromThemeName("Ayu Islands Mirage"))
-        assertEquals(AyuVariant.MIRAGE, AyuVariant.fromThemeName("Ayu Islands Mirage (Islands UI)"))
+        assertEquals(AyuVariant.MIRAGE, AyuVariant.fromThemeName("Ayu Mirage"))
+        assertEquals(AyuVariant.MIRAGE, AyuVariant.fromThemeName("Ayu Mirage (Islands UI)"))
     }
 
     @Test
     fun `fromThemeName returns DARK for Dark theme names`() {
-        assertEquals(AyuVariant.DARK, AyuVariant.fromThemeName("Ayu Islands Dark"))
-        assertEquals(AyuVariant.DARK, AyuVariant.fromThemeName("Ayu Islands Dark (Islands UI)"))
+        assertEquals(AyuVariant.DARK, AyuVariant.fromThemeName("Ayu Dark"))
+        assertEquals(AyuVariant.DARK, AyuVariant.fromThemeName("Ayu Dark (Islands UI)"))
     }
 
     @Test
     fun `fromThemeName returns LIGHT for Light theme names`() {
-        assertEquals(AyuVariant.LIGHT, AyuVariant.fromThemeName("Ayu Islands Light"))
-        assertEquals(AyuVariant.LIGHT, AyuVariant.fromThemeName("Ayu Islands Light (Islands UI)"))
+        assertEquals(AyuVariant.LIGHT, AyuVariant.fromThemeName("Ayu Light"))
+        assertEquals(AyuVariant.LIGHT, AyuVariant.fromThemeName("Ayu Light (Islands UI)"))
     }
 
     @Test
@@ -101,5 +126,50 @@ class AyuVariantTest {
                 )
             }
         }
+    }
+
+    @Test
+    fun `detect returns variant for matching theme`() {
+        val themeLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
+        every { themeLaf.name } returns "Ayu Mirage"
+        every { lafManager.currentUIThemeLookAndFeel } returns themeLaf
+
+        assertEquals(AyuVariant.MIRAGE, AyuVariant.detect())
+    }
+
+    @Test
+    fun `detect returns null for non-Ayu theme`() {
+        val themeLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
+        every { themeLaf.name } returns "Darcula"
+        every { lafManager.currentUIThemeLookAndFeel } returns themeLaf
+
+        assertNull(AyuVariant.detect())
+    }
+
+    @Test
+    fun `isIslandsUi returns true for Islands UI theme`() {
+        val themeLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
+        every { themeLaf.name } returns "Ayu Mirage (Islands UI)"
+        every { lafManager.currentUIThemeLookAndFeel } returns themeLaf
+
+        assertTrue(AyuVariant.isIslandsUi())
+    }
+
+    @Test
+    fun `isIslandsUi returns false for non-Islands theme`() {
+        val themeLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
+        every { themeLaf.name } returns "Ayu Mirage"
+        every { lafManager.currentUIThemeLookAndFeel } returns themeLaf
+
+        assertFalse(AyuVariant.isIslandsUi())
+    }
+
+    @Test
+    fun `isIslandsUi returns false for non-Ayu theme`() {
+        val themeLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
+        every { themeLaf.name } returns "Darcula"
+        every { lafManager.currentUIThemeLookAndFeel } returns themeLaf
+
+        assertFalse(AyuVariant.isIslandsUi())
     }
 }
