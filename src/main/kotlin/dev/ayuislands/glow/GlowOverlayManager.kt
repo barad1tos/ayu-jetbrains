@@ -11,6 +11,7 @@ import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ToolWindowType
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
+import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -306,6 +307,23 @@ class GlowOverlayManager(
         return null
     }
 
+    private fun findTabBarHeight(host: JComponent): Int {
+        // EditorsSplitters has one child: EditorTabs (full JBTabsImpl tabbed pane).
+        // EditorTabs.height = entire editor area — NOT the tab strip.
+        // Walk into EditorTabs and find a TabLabel — its (y + height) is the strip height.
+        val editorTabs =
+            host.components.firstOrNull {
+                it.javaClass.name.contains("EditorTabs")
+            } as? Container ?: return 0
+
+        for (child in editorTabs.components) {
+            if (child.javaClass.name.contains("TabLabel")) {
+                return child.y + child.height
+            }
+        }
+        return 0
+    }
+
     private fun updateOverlayBounds(
         glassPane: GlowGlassPane,
         host: JComponent,
@@ -314,7 +332,12 @@ class GlowOverlayManager(
         if (!host.isShowing) return
         try {
             val point = SwingUtilities.convertPoint(host, 0, 0, layeredPane)
-            glassPane.setBounds(point.x, point.y, host.width, host.height)
+            if (glassPane.isEditorOverlay) {
+                val tabHeight = findTabBarHeight(host)
+                glassPane.setBounds(point.x, point.y + tabHeight, host.width, host.height - tabHeight)
+            } else {
+                glassPane.setBounds(point.x, point.y, host.width, host.height)
+            }
         } catch (exception: RuntimeException) {
             log.debug("Component hierarchy changed during overlay bounds update", exception)
         }
@@ -323,6 +346,7 @@ class GlowOverlayManager(
     private fun attachOverlay(
         id: String,
         host: JComponent,
+        isEditorOverlay: Boolean = false,
     ) {
         if (overlays.containsKey(id)) return
         if (host.width == 0 || host.height == 0) return
@@ -342,6 +366,7 @@ class GlowOverlayManager(
                 glowStyle = style,
                 glowIntensity = state.getIntensityForStyle(style),
                 glowWidth = state.getWidthForStyle(style),
+                isEditorOverlay = isEditorOverlay,
             )
 
         layeredPane.add(glassPane, JLayeredPane.PALETTE_LAYER)
@@ -393,7 +418,7 @@ class GlowOverlayManager(
         if (!state.isIslandEnabled(EDITOR_ID)) return
 
         val host = findEditorHost() ?: return
-        attachOverlay(EDITOR_ID, host)
+        attachOverlay(EDITOR_ID, host, isEditorOverlay = true)
     }
 
     private fun activateGlow(id: String) {
@@ -508,6 +533,10 @@ class GlowOverlayManager(
                 UIManager.put(KEY_TAB_BACKGROUND, Color(0, 0, 0, 0))
             }
         }
+
+        // Sync underline height (ensures glow width changes propagate when sync is on)
+        UIManager.put("EditorTabs.underlineHeight", AccentApplicator.resolveUnderlineHeight(state))
+
         repaintEditorTabs()
     }
 

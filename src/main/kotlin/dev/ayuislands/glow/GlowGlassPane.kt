@@ -22,6 +22,7 @@ class GlowGlassPane(
     var glowStyle: GlowStyle,
     var glowIntensity: Int,
     var glowWidth: Int,
+    var isEditorOverlay: Boolean = false,
 ) : JPanel(null) {
     private val renderer = GlowRenderer()
     private var fadeAlpha: Float = 0.0f

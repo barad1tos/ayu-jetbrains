@@ -1,5 +1,5 @@
 {
-  "name": "Ayu Islands Mirage",
+  "name": "Ayu Mirage",
   "dark": true,
   "author": "cloud",
   "parentTheme": "ExperimentalDark",
@@ -100,22 +100,7 @@
       "inactiveBackground": "BackgroundMid"
     },
 
-    "Islands": 1,
-    "Island": {
-      "arc": 20,
-      "arc.compact": 16,
-      "borderArcLength": 14,
-      "borderArcLength.compact": 10,
-      "borderWidth": 6,
-      "borderWidth.compact": 4,
-      "borderColor": "Gray2.5",
-      "inactiveAlpha": 0.44,
-      "inactiveAlphaInStatusBar": {
-        "os.mac": 0.2,
-        "os.windows": 0.2,
-        "os.linux": 0.15
-      }
-    },
+    "Islands": 0,
 
     "MainWindow.background": "BackgroundLight",
 
@@ -144,7 +129,7 @@
       "background": "BackgroundLight",
       "borderColor": "BorderTransparent",
       "Dropdown.transparentHoverBackground": "#FFFFFF12",
-      "Button.arc.compact": 8
+      "Button.arc.compact": 0
     },
 
     "StatusBar": {
@@ -326,6 +311,10 @@
     },
 
     "TextField.background": "InputBackground",
+
+    "Component.arc": 0,
+    "Button.arc": 0,
+    "TabbedPane.tabSelectionArc": 0,
 
     "Component.borderColor": "ComponentBorder",
     "Component.focusedBorderColor": "#FFCC66",
@@ -795,8 +784,7 @@
 
       "Borders.color": "#2B3245",
       "Borders.ContrastBorderColor": "#2B3245",
-      "ToolWindow.Header.borderColor": "#2B3245",
-      "Island.borderColor": "#1F2430"
+      "ToolWindow.Header.borderColor": "#2B3245"
     },
 
     "AlertDialog.background": "PopupBackground",

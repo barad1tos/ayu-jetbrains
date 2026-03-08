@@ -1,5 +1,5 @@
 {
-  "name": "Ayu Islands Light",
+  "name": "Ayu Light",
   "dark": false,
   "author": "cloud",
   "parentTheme": "IntelliJ",
@@ -101,22 +101,7 @@
       "inactiveBackground": "BackgroundMid"
     },
 
-    "Islands": 1,
-    "Island": {
-      "arc": 20,
-      "arc.compact": 16,
-      "borderArcLength": 14,
-      "borderArcLength.compact": 10,
-      "borderWidth": 6,
-      "borderWidth.compact": 4,
-      "borderColor": "Gray2.5",
-      "inactiveAlpha": 0.44,
-      "inactiveAlphaInStatusBar": {
-        "os.mac": 0.2,
-        "os.windows": 0.2,
-        "os.linux": 0.15
-      }
-    },
+    "Islands": 0,
 
     "MainWindow.background": "BackgroundLight",
 
@@ -145,7 +130,7 @@
       "background": "BackgroundLight",
       "borderColor": "BorderTransparent",
       "Dropdown.transparentHoverBackground": "#00000012",
-      "Button.arc.compact": 8
+      "Button.arc.compact": 0
     },
 
     "StatusBar": {
@@ -331,6 +316,10 @@
     },
 
     "TextField.background": "InputBackground",
+
+    "Component.arc": 0,
+    "Button.arc": 0,
+    "TabbedPane.tabSelectionArc": 0,
 
     "Component.borderColor": "ComponentBorder",
     "Component.focusedBorderColor": "#F29718",
@@ -808,8 +797,7 @@
 
       "Borders.color": "#E7E5DC",
       "Borders.ContrastBorderColor": "#E7E5DC",
-      "ToolWindow.Header.borderColor": "#E7E5DC",
-      "Island.borderColor": "#F8F9FA"
+      "ToolWindow.Header.borderColor": "#E7E5DC"
     },
 
     "AlertDialog.background": "PopupBackground",

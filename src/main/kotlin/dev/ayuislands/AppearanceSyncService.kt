@@ -34,8 +34,8 @@ class AppearanceSyncService {
         val settings = AyuIslandsSettings.getInstance()
         val targetThemeName =
             when (appearance) {
-                Appearance.DARK -> settings.state.lastDarkThemeName
-                Appearance.LIGHT -> settings.state.lastLightThemeName
+                Appearance.DARK -> settings.state.lastDarkAppearanceTheme
+                Appearance.LIGHT -> settings.state.lastLightAppearanceTheme
             } ?: return
 
         lastSyncedAppearance = appearance
@@ -47,8 +47,8 @@ class AppearanceSyncService {
         val variant = AyuVariant.fromThemeName(themeName) ?: return
         val settings = AyuIslandsSettings.getInstance()
         when (variant) {
-            AyuVariant.MIRAGE, AyuVariant.DARK -> settings.state.lastDarkThemeName = themeName
-            AyuVariant.LIGHT -> settings.state.lastLightThemeName = themeName
+            AyuVariant.MIRAGE, AyuVariant.DARK -> settings.state.lastDarkAppearanceTheme = themeName
+            AyuVariant.LIGHT -> settings.state.lastLightAppearanceTheme = themeName
         }
         LOG.info("Recorded manual appearance choice: $themeName")
     }

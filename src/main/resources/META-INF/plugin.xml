@@ -1,65 +1,74 @@
 <idea-plugin>
-  <id>com.ayuislands.theme</id>
-  <name>Ayu Islands</name>
-  <!-- version patched by Gradle from gradle.properties -->
-  <vendor email="roman.borodavkin@gmail.com"
-          url="https://github.com/barad1tos/ayu-jetbrains">ayu-islands</vendor>
+    <id>com.ayuislands.theme</id>
+    <name>Ayu Islands</name>
+    <!-- version patched by Gradle from gradle.properties -->
+    <vendor email="roman.borodavkin@gmail.com"
+            url="https://github.com/barad1tos/ayu-jetbrains">ayu-islands
+    </vendor>
 
-  <description><![CDATA[
-    <p>Warm, refined color themes for JetBrains IDEs — three Ayu palettes with modern Islands UI. Free themes with optional premium accent and glow customization.</p>
+    <description><![CDATA[
+    <p>Ayu colors, reimagined for modern JetBrains IDEs. Warm, refined palettes purpose-built for Islands UI with deep IDE integration that goes beyond simple color mapping.</p>
 
-    <h3>Free Features</h3>
+    <h3>What makes this different</h3>
     <ul>
-      <li><strong>6 themes</strong> — Ayu Mirage, Ayu Dark, and Ayu Light, each in classic and Islands UI variants</li>
-      <li><strong>20+ language highlights</strong> — Java, C#/.NET, Rust, Go, Python, JS/TS, HCL/Terraform, Kotlin, Scala, Dart, Ruby, PHP, HTML/CSS, SQL, Bash, YAML, JSON, XML, Markdown</li>
-      <li><strong>Islands UI</strong> — rounded panels, island gaps, and compact mode support</li>
-      <li><strong>Canonical ayu-colors</strong> — syntax palettes from <a href="https://github.com/ayu-theme/ayu-colors">ayu-theme/ayu-colors</a></li>
-      <li><strong>Full VCS integration</strong> — tuned diff gutters, file status colors, and 16-color terminal palette</li>
-      <li><strong>Accent color customization</strong> — 10 hand-picked Ayu palette presets with per-variant storage and live visual preview</li>
+      <li><strong>6 variants</strong> covering all lighting preferences — Mirage, Dark, and Light, each in Classic UI and Islands UI</li>
+      <li><strong>500+ UI properties</strong> hand-tuned per variant (not auto-generated from a base)</li>
+      <li><strong>Native Islands UI support</strong> with rounded panels, island gaps, and compact mode</li>
+      <li><strong>30+ language syntaxes</strong> individually crafted — Java, Kotlin, Scala, C#/.NET, Rust, Go, Python, JS/TS, Ruby, PHP, Dart, Swift, HCL/Terraform, HTML/CSS, SQL, Bash, YAML, JSON, XML, Markdown, and more</li>
+      <li>Built on the official <a href="https://github.com/ayu-theme/ayu-colors">ayu-colors</a> palette — faithful to the original</li>
     </ul>
 
-    <h3>Premium Features</h3>
+    <h3>Free — a complete theme, not a teaser</h3>
     <ul>
-      <li><strong>Per-element accent toggles</strong> — fine-grained control over tabs, scrollbars, links, caret row, and more</li>
-      <li><strong>Neon glow effects</strong> — island borders, active tabs, and focused inputs with 3 glow styles (Soft, Sharp Neon, Pulse animation)</li>
-      <li><strong>Conflict detection</strong> — automatic detection and override for third-party plugin conflicts (Atom Material Icons, CodeGlance Pro)</li>
+      <li>All six themes with full syntax highlighting</li>
+      <li>VCS/diff integration with a 16-color terminal palette</li>
+      <li>Ten accent color presets with per-variant storage and live preview</li>
+      <li>Islands UI plus Classic UI support</li>
     </ul>
 
-    <p>Settings panel under Appearance &gt; Ayu Islands with tabbed Accent/Effects layout.</p>
-    <p><strong>Verified on 12 IDEs</strong> — IntelliJ IDEA, PyCharm, WebStorm, GoLand, RustRover, Rider, PhpStorm, CLion, DataGrip, RubyMine</p>
+    <h3>Premium — optional extras for deeper customization</h3>
+    <ul>
+      <li><strong>Per-element accent controls</strong> — tabs, scrollbars, links, caret row, inlay hints, and more</li>
+      <li><strong>Neon glow effects</strong> — island borders, active tabs, and focused inputs with three glow styles (Soft, Sharp Neon, Pulse)</li>
+      <li><strong>Indent Rainbow integration</strong> — accent-colored indent guides with intensity presets</li>
+      <li><strong>Conflict detection</strong> — automatic override for third-party plugin conflicts (Atom Material Icons, CodeGlance Pro)</li>
+    </ul>
+
+    <p>Settings: Appearance &gt; Ayu Islands. Verified on IntelliJ IDEA, PyCharm, WebStorm, GoLand, RustRover, Rider, PhpStorm, CLion, DataGrip, RubyMine.</p>
+    <p><em>Color palette: <a href="https://github.com/ayu-theme/ayu-colors">ayu-theme</a> (MIT) by dempfi. Ayu Islands adds deep JetBrains integration, Islands UI support, and premium customization tools.</em></p>
   ]]></description>
 
-  <change-notes><![CDATA[
+    <change-notes><![CDATA[
     <h3>2.1.1</h3>
     <ul>
-      <li>[Paid] Add "Highlight indent errors" toggle for Indent Rainbow — disable to blend continuation lines into gradient</li>
+      <li>[Paid] Add the "Highlight indent errors" toggle for Indent Rainbow — disable to blend continuation lines into gradient</li>
       <li>[Paid] Fix write-unsafe EDT context error on startup with Indent Rainbow</li>
     </ul>
     <h3>2.1.0</h3>
     <ul>
-      <li>[Paid] Indent Rainbow integration: accent-colored indent guides with 4 intensity presets</li>
+      <li>[Paid] Indent Rainbow integration: accent-colored indent guides with four intensity presets</li>
       <li>[Paid] Bracket scope gutter highlight for matched braces</li>
       <li>[Free] Accent-colored matched bracket styling</li>
       <li>[Free] New Integrations settings panel for third-party plugin sync</li>
     </ul>
     <h3>2.0.1</h3>
     <ul>
-      <li>Fix crash on theme switch (null attributes in editor scheme revert)</li>
-      <li>Fix crash on theme switch (premature repaint before new theme loaded)</li>
+      <li>Fix crash on theme switch (null attributes in an editor scheme revert)</li>
+      <li>Fix crash on the theme switch (premature repaint before the new theme loaded)</li>
       <li>Replace deprecated platform API calls for Marketplace compatibility</li>
     </ul>
     <h3>2.0.0</h3>
     <ul>
       <li>Accent color customization: 10 Ayu palette presets with per-element toggles and visual preview (premium)</li>
-      <li>Neon glow effects: island borders, active tabs, and focused inputs with 3 glow styles (premium)</li>
+      <li>Neon glow effects: island borders, active tabs, and focused inputs with three glow styles (premium)</li>
       <li>Per-variant accent storage (independent colors for Mirage, Dark, Light)</li>
       <li>Third-party conflict detection (Atom Material Icons, CodeGlance Pro)</li>
       <li>Settings panel under Appearance with tabbed Accent/Effects layout</li>
-      <li>Freemium licensing: all 6 base themes remain free</li>
+      <li>Freemium licensing: all six base themes remain free</li>
     </ul>
     <h3>1.2.1</h3>
     <ul>
-      <li>Add missing Marketplace changelog for v1.2.0 changes</li>
+      <li>Add a missing Marketplace changelog for v1.2.0 changes</li>
     </ul>
     <h3>1.2.0</h3>
     <ul>
@@ -86,83 +95,83 @@
     </ul>
   ]]></change-notes>
 
-  <!-- idea-version patched by Gradle from gradle.properties -->
-  <depends>com.intellij.modules.platform</depends>
+    <!-- idea-version patched by Gradle from gradle.properties -->
+    <depends>com.intellij.modules.platform</depends>
 
-  <product-descriptor
-      code="PAYUISLANDS"
-      release-date="20260307"
-      release-version="21"
-      optional="true"/>
+    <product-descriptor
+            code="PAYUISLANDS"
+            release-date="20260307"
+            release-version="21"
+            optional="true"/>
 
-  <extensionPoints>
-    <extensionPoint
-        name="accentElement"
-        interface="dev.ayuislands.accent.AccentElement"/>
-  </extensionPoints>
+    <extensionPoints>
+        <extensionPoint
+                name="accentElement"
+                interface="dev.ayuislands.accent.AccentElement"/>
+    </extensionPoints>
 
-  <extensions defaultExtensionNs="com.ayuislands.theme">
-    <accentElement implementation="dev.ayuislands.accent.elements.InlayHintsElement"/>
-    <accentElement implementation="dev.ayuislands.accent.elements.CaretRowElement"/>
-    <accentElement implementation="dev.ayuislands.accent.elements.ProgressBarElement"/>
-    <accentElement implementation="dev.ayuislands.accent.elements.ScrollbarElement"/>
-    <accentElement implementation="dev.ayuislands.accent.elements.LinksElement"/>
-    <accentElement implementation="dev.ayuislands.accent.elements.BracketMatchElement"/>
-    <accentElement implementation="dev.ayuislands.accent.elements.SearchResultsElement"/>
-    <accentElement implementation="dev.ayuislands.accent.elements.CheckboxElement"/>
-  </extensions>
+    <extensions defaultExtensionNs="com.ayuislands.theme">
+        <accentElement implementation="dev.ayuislands.accent.elements.InlayHintsElement"/>
+        <accentElement implementation="dev.ayuislands.accent.elements.CaretRowElement"/>
+        <accentElement implementation="dev.ayuislands.accent.elements.ProgressBarElement"/>
+        <accentElement implementation="dev.ayuislands.accent.elements.ScrollbarElement"/>
+        <accentElement implementation="dev.ayuislands.accent.elements.LinksElement"/>
+        <accentElement implementation="dev.ayuislands.accent.elements.BracketMatchElement"/>
+        <accentElement implementation="dev.ayuislands.accent.elements.SearchResultsElement"/>
+        <accentElement implementation="dev.ayuislands.accent.elements.CheckboxElement"/>
+    </extensions>
 
-  <extensions defaultExtensionNs="com.intellij">
-    <!-- Settings panel under Appearance > Ayu Islands -->
-    <applicationConfigurable
-        parentId="appearance"
-        instance="dev.ayuislands.settings.AyuIslandsConfigurable"
-        id="dev.ayuislands.settings.AyuIslandsConfigurable"
-        displayName="Ayu Islands"/>
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Settings panel under Appearance > Ayu Islands -->
+        <applicationConfigurable
+                parentId="appearance"
+                instance="dev.ayuislands.settings.AyuIslandsConfigurable"
+                id="dev.ayuislands.settings.AyuIslandsConfigurable"
+                displayName="Ayu Islands"/>
 
-    <!-- Persistent accent color state -->
-    <applicationService
-        serviceImplementation="dev.ayuislands.settings.AyuIslandsSettings"/>
+        <!-- Persistent accent color state -->
+        <applicationService
+                serviceImplementation="dev.ayuislands.settings.AyuIslandsSettings"/>
 
-    <!-- Appearance sync (follow system Light/Dark mode) -->
-    <applicationService
-        serviceImplementation="dev.ayuislands.AppearanceSyncService"/>
+        <!-- Appearance sync (follow system Light/Dark mode) -->
+        <applicationService
+                serviceImplementation="dev.ayuislands.AppearanceSyncService"/>
 
-    <!-- Glow overlay manager (per-project lifecycle) -->
-    <projectService
-        serviceImplementation="dev.ayuislands.glow.GlowOverlayManager"/>
+        <!-- Glow overlay manager (per-project lifecycle) -->
+        <projectService
+                serviceImplementation="dev.ayuislands.glow.GlowOverlayManager"/>
 
-    <!-- Plugin lifecycle -->
-    <postStartupActivity
-        implementation="dev.ayuislands.AyuIslandsStartupActivity"/>
+        <!-- Plugin lifecycle -->
+        <postStartupActivity
+                implementation="dev.ayuislands.AyuIslandsStartupActivity"/>
 
-    <!-- Trial expiry notifications -->
-    <notificationGroup id="Ayu Islands"
-                       displayType="BALLOON"/>
+        <!-- Trial expiry notifications -->
+        <notificationGroup id="Ayu Islands"
+                           displayType="BALLOON"/>
 
-    <!-- Mirage variants -->
-    <themeProvider id="com.ayuislands.theme.mirage"
-                   path="/themes/ayu-islands-mirage.theme.json"/>
-    <themeProvider id="com.ayuislands.theme.mirage.islands"
-                   path="/themes/ayu-islands-mirage-islands.theme.json"/>
-    <!-- Dark variants -->
-    <themeProvider id="com.ayuislands.theme.dark"
-                   path="/themes/ayu-islands-dark.theme.json"/>
-    <themeProvider id="com.ayuislands.theme.dark.islands"
-                   path="/themes/ayu-islands-dark-islands.theme.json"/>
-    <!-- Light variants -->
-    <themeProvider id="com.ayuislands.theme.light"
-                   path="/themes/ayu-islands-light.theme.json"/>
-    <themeProvider id="com.ayuislands.theme.light.islands"
-                   path="/themes/ayu-islands-light-islands.theme.json"/>
-  </extensions>
+        <!-- Mirage variants -->
+        <themeProvider id="com.ayuislands.theme.mirage"
+                       path="/themes/ayu-islands-mirage.theme.json"/>
+        <themeProvider id="com.ayuislands.theme.mirage.islands"
+                       path="/themes/ayu-islands-mirage-islands.theme.json"/>
+        <!-- Dark variants -->
+        <themeProvider id="com.ayuislands.theme.dark"
+                       path="/themes/ayu-islands-dark.theme.json"/>
+        <themeProvider id="com.ayuislands.theme.dark.islands"
+                       path="/themes/ayu-islands-dark-islands.theme.json"/>
+        <!-- Light variants -->
+        <themeProvider id="com.ayuislands.theme.light"
+                       path="/themes/ayu-islands-light.theme.json"/>
+        <themeProvider id="com.ayuislands.theme.light.islands"
+                       path="/themes/ayu-islands-light-islands.theme.json"/>
+    </extensions>
 
-  <applicationListeners>
-    <listener
-        class="dev.ayuislands.AyuIslandsLafListener"
-        topic="com.intellij.ide.ui.LafManagerListener"/>
-    <listener
-        class="dev.ayuislands.AppearanceSyncListener"
-        topic="com.intellij.openapi.application.ApplicationActivationListener"/>
-  </applicationListeners>
+    <applicationListeners>
+        <listener
+                class="dev.ayuislands.AyuIslandsLafListener"
+                topic="com.intellij.ide.ui.LafManagerListener"/>
+        <listener
+                class="dev.ayuislands.AppearanceSyncListener"
+                topic="com.intellij.openapi.application.ApplicationActivationListener"/>
+    </applicationListeners>
 </idea-plugin>
