@@ -12,6 +12,7 @@ import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.ui.ColorUtil
 import dev.ayuislands.accent.conflict.ConflictRegistry
+import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.GlowTabMode
 import dev.ayuislands.indent.IndentRainbowSync
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -33,6 +34,7 @@ object AccentApplicator {
     private val DARK_FOREGROUND = Color(DARK_FOREGROUND_HEX)
     private const val TAB_ACCENT_BG_ALPHA = 50
     private const val KEY_TAB_BACKGROUND = "EditorTabs.underlinedTabBackground"
+    private const val DEFAULT_UNDERLINE_ARC = 8
     private const val CGP_RESOLUTION_FAILED = "method resolution failed"
     private const val CGP_SYNC_FAILED = "sync failed"
     private val EMPTY_TEXT_ATTRIBUTES = TextAttributes()
@@ -75,6 +77,7 @@ object AccentApplicator {
         listOf(
             ColorKey.find("BUTTON_BACKGROUND"),
             ColorKey.find("WARNING_FOREGROUND"),
+            ColorKey.find("TAB_UNDERLINE"),
         )
 
     private data class AttrOverride(
@@ -115,6 +118,8 @@ object AccentApplicator {
                     IndentRainbowSync.apply(variant)
                 }
                 applyAlwaysOnEditorKeys(accent)
+                overrideTabUnderlineForOffMode(state, variant)
+                applyTabUnderlineStyle(state)
                 repaintAllWindows(Window.getWindows())
             }
 
@@ -139,6 +144,8 @@ object AccentApplicator {
                 UIManager.put("Button.default.startBorderColor", null)
                 UIManager.put("Button.default.endBorderColor", null)
                 UIManager.put(KEY_TAB_BACKGROUND, null)
+                UIManager.put("EditorTabs.underlineHeight", null)
+                UIManager.put("EditorTabs.underlineArc", null)
 
                 for (element in EP_NAME.extensionList) {
                     try {
@@ -250,6 +257,17 @@ object AccentApplicator {
         }
     }
 
+    fun resolveUnderlineHeight(state: AyuIslandsState): Int {
+        val tabMode = GlowTabMode.fromName(state.glowTabMode ?: "MINIMAL")
+        if (tabMode == GlowTabMode.OFF) return state.tabUnderlineHeight
+
+        if (state.tabUnderlineGlowSync && state.glowEnabled) {
+            val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
+            return state.getWidthForStyle(style)
+        }
+        return state.tabUnderlineHeight
+    }
+
     private fun applyAlwaysOnEditorKeys(accent: Color) {
         val scheme = EditorColorsManager.getInstance().globalScheme
 
@@ -279,6 +297,26 @@ object AccentApplicator {
                 .syncPublisher(EditorColorsManager.TOPIC)
                 .globalSchemeChange(null)
         }
+    }
+
+    private fun applyTabUnderlineStyle(state: AyuIslandsState) {
+        val height = resolveUnderlineHeight(state)
+        UIManager.put("EditorTabs.underlineHeight", Integer.valueOf(height))
+
+        val arc = UIManager.getInt("Island.arc").let { if (it > 0) it else DEFAULT_UNDERLINE_ARC }
+        UIManager.put("EditorTabs.underlineArc", Integer.valueOf(arc))
+
+        log.info("Tab underline: height=${height}px, arc=${arc}px")
+    }
+
+    private fun overrideTabUnderlineForOffMode(
+        state: AyuIslandsState,
+        variant: AyuVariant?,
+    ) {
+        val tabMode = GlowTabMode.fromName(state.glowTabMode ?: "MINIMAL")
+        if (tabMode != GlowTabMode.OFF || variant == null) return
+        val scheme = EditorColorsManager.getInstance().globalScheme
+        scheme.setColor(ColorKey.find("TAB_UNDERLINE"), Color.decode(variant.neutralGray))
     }
 
     private fun revertAlwaysOnEditorKeys() {
@@ -376,8 +414,7 @@ object AccentApplicator {
             // CGP panels repaint via globalSchemeChange notification (no manual walk needed)
             log.info("CodeGlance Pro viewport color synced to $hexWithoutHash")
         } catch (exception: java.lang.reflect.InvocationTargetException) {
-            val cause = exception.cause
-            logCgpWarning(CGP_SYNC_FAILED, cause ?: exception)
+            logCgpWarning(CGP_SYNC_FAILED, exception.cause ?: exception)
         } catch (exception: ReflectiveOperationException) {
             logCgpWarning(CGP_SYNC_FAILED, exception)
         } catch (exception: RuntimeException) {
