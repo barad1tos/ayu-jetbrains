@@ -83,7 +83,7 @@ class AppearanceSyncServiceTest {
     fun `syncIfNeeded does nothing when target theme name is null`() {
         every { SystemAppearanceProvider.resolve() } returns Appearance.DARK
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-        state.lastDarkThemeName = null
+        state.lastDarkAppearanceTheme = null
 
         service.syncIfNeeded()
 
@@ -93,16 +93,16 @@ class AppearanceSyncServiceTest {
     @Test
     fun `syncIfNeeded does nothing when appearance unchanged from last sync`() {
         val currentThemeLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
-        every { currentThemeLaf.name } returns "Ayu Islands Mirage"
+        every { currentThemeLaf.name } returns "Ayu Mirage"
         every { lafManager.currentUIThemeLookAndFeel } returns currentThemeLaf
 
         val targetThemeLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
-        every { targetThemeLaf.name } returns "Ayu Islands Dark"
+        every { targetThemeLaf.name } returns "Ayu Dark"
         every { lafManager.installedThemes } returns sequenceOf(targetThemeLaf)
 
         every { SystemAppearanceProvider.resolve() } returns Appearance.DARK
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-        state.lastDarkThemeName = "Ayu Islands Dark"
+        state.lastDarkAppearanceTheme = "Ayu Dark"
 
         // The first call syncs successfully
         service.syncIfNeeded()
@@ -119,12 +119,12 @@ class AppearanceSyncServiceTest {
     // -- syncIfNeeded: light appearance branch --
 
     @Test
-    fun `syncIfNeeded uses lastLightThemeName for LIGHT appearance`() {
-        val lightThemeName = "Ayu Islands Light (Islands UI)"
-        state.lastLightThemeName = lightThemeName
+    fun `syncIfNeeded uses lastLightAppearanceTheme for LIGHT appearance`() {
+        val lightThemeName = "Ayu Light (Islands UI)"
+        state.lastLightAppearanceTheme = lightThemeName
 
         val currentThemeLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
-        every { currentThemeLaf.name } returns "Ayu Islands Mirage"
+        every { currentThemeLaf.name } returns "Ayu Mirage"
         every { lafManager.currentUIThemeLookAndFeel } returns currentThemeLaf
 
         val targetThemeLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
@@ -141,8 +141,8 @@ class AppearanceSyncServiceTest {
     }
 
     @Test
-    fun `syncIfNeeded returns when lastLightThemeName is null`() {
-        state.lastLightThemeName = null
+    fun `syncIfNeeded returns when lastLightAppearanceTheme is null`() {
+        state.lastLightAppearanceTheme = null
 
         every { SystemAppearanceProvider.resolve() } returns Appearance.LIGHT
         every { AyuVariant.detect() } returns AyuVariant.LIGHT
@@ -156,11 +156,11 @@ class AppearanceSyncServiceTest {
 
     @Test
     fun `syncIfNeeded switches theme when all conditions met`() {
-        val targetName = "Ayu Islands Dark (Islands UI)"
-        state.lastDarkThemeName = targetName
+        val targetName = "Ayu Dark (Islands UI)"
+        state.lastDarkAppearanceTheme = targetName
 
         val currentThemeLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
-        every { currentThemeLaf.name } returns "Ayu Islands Mirage"
+        every { currentThemeLaf.name } returns "Ayu Mirage"
         every { lafManager.currentUIThemeLookAndFeel } returns currentThemeLaf
 
         val targetThemeLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
@@ -181,8 +181,8 @@ class AppearanceSyncServiceTest {
 
     @Test
     fun `switchToTheme does nothing when current theme matches target`() {
-        val themeName = "Ayu Islands Mirage"
-        state.lastDarkThemeName = themeName
+        val themeName = "Ayu Mirage"
+        state.lastDarkAppearanceTheme = themeName
 
         val currentThemeLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
         every { currentThemeLaf.name } returns themeName
@@ -202,11 +202,11 @@ class AppearanceSyncServiceTest {
 
     @Test
     fun `switchToTheme logs warning when target theme not installed`() {
-        val targetName = "Ayu Islands Mirage (Islands UI)"
-        state.lastDarkThemeName = targetName
+        val targetName = "Ayu Mirage (Islands UI)"
+        state.lastDarkAppearanceTheme = targetName
 
         val currentThemeLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
-        every { currentThemeLaf.name } returns "Ayu Islands Dark"
+        every { currentThemeLaf.name } returns "Ayu Dark"
         every { lafManager.currentUIThemeLookAndFeel } returns currentThemeLaf
 
         // No matching theme in the installed list
@@ -226,10 +226,10 @@ class AppearanceSyncServiceTest {
 
     @Test
     fun `switchToTheme logs warning when installed themes list is empty`() {
-        state.lastDarkThemeName = "Ayu Islands Mirage"
+        state.lastDarkAppearanceTheme = "Ayu Mirage"
 
         val currentThemeLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
-        every { currentThemeLaf.name } returns "Ayu Islands Dark"
+        every { currentThemeLaf.name } returns "Ayu Dark"
         every { lafManager.currentUIThemeLookAndFeel } returns currentThemeLaf
         every { lafManager.installedThemes } returns emptySequence()
 
@@ -246,76 +246,76 @@ class AppearanceSyncServiceTest {
 
     @Test
     fun `recordManualChoice stores dark theme name for Mirage`() {
-        val themeName = "Ayu Islands Mirage"
+        val themeName = "Ayu Mirage"
 
         service.recordManualChoice(themeName)
 
-        assertEquals(themeName, state.lastDarkThemeName)
+        assertEquals(themeName, state.lastDarkAppearanceTheme)
     }
 
     @Test
     fun `recordManualChoice stores dark theme name for Dark variant`() {
-        val themeName = "Ayu Islands Dark"
+        val themeName = "Ayu Dark"
 
         service.recordManualChoice(themeName)
 
-        assertEquals(themeName, state.lastDarkThemeName)
+        assertEquals(themeName, state.lastDarkAppearanceTheme)
     }
 
     @Test
     fun `recordManualChoice stores dark theme name for Dark Islands UI variant`() {
-        val themeName = "Ayu Islands Dark (Islands UI)"
+        val themeName = "Ayu Dark (Islands UI)"
 
         service.recordManualChoice(themeName)
 
-        assertEquals(themeName, state.lastDarkThemeName)
+        assertEquals(themeName, state.lastDarkAppearanceTheme)
     }
 
     @Test
     fun `recordManualChoice stores light theme name`() {
-        val themeName = "Ayu Islands Light"
+        val themeName = "Ayu Light"
 
         service.recordManualChoice(themeName)
 
-        assertEquals(themeName, state.lastLightThemeName)
+        assertEquals(themeName, state.lastLightAppearanceTheme)
     }
 
     @Test
     fun `recordManualChoice stores light Islands UI theme name`() {
-        val themeName = "Ayu Islands Light (Islands UI)"
+        val themeName = "Ayu Light (Islands UI)"
 
         service.recordManualChoice(themeName)
 
-        assertEquals(themeName, state.lastLightThemeName)
+        assertEquals(themeName, state.lastLightAppearanceTheme)
     }
 
     @Test
     fun `recordManualChoice ignores non-Ayu themes`() {
-        val originalDark = state.lastDarkThemeName
-        val originalLight = state.lastLightThemeName
+        val originalDark = state.lastDarkAppearanceTheme
+        val originalLight = state.lastLightAppearanceTheme
 
         service.recordManualChoice("Darcula")
 
-        assertEquals(originalDark, state.lastDarkThemeName)
-        assertEquals(originalLight, state.lastLightThemeName)
+        assertEquals(originalDark, state.lastDarkAppearanceTheme)
+        assertEquals(originalLight, state.lastLightAppearanceTheme)
     }
 
     @Test
     fun `recordManualChoice does not modify light slot when storing dark theme`() {
-        val originalLight = state.lastLightThemeName
+        val originalLight = state.lastLightAppearanceTheme
 
-        service.recordManualChoice("Ayu Islands Mirage (Islands UI)")
+        service.recordManualChoice("Ayu Mirage (Islands UI)")
 
-        assertEquals(originalLight, state.lastLightThemeName)
+        assertEquals(originalLight, state.lastLightAppearanceTheme)
     }
 
     @Test
     fun `recordManualChoice does not modify dark slot when storing light theme`() {
-        val originalDark = state.lastDarkThemeName
+        val originalDark = state.lastDarkAppearanceTheme
 
-        service.recordManualChoice("Ayu Islands Light")
+        service.recordManualChoice("Ayu Light")
 
-        assertEquals(originalDark, state.lastDarkThemeName)
+        assertEquals(originalDark, state.lastDarkAppearanceTheme)
     }
 
     // -- clearProgrammaticSwitch --
@@ -329,11 +329,11 @@ class AppearanceSyncServiceTest {
 
     @Test
     fun `clearProgrammaticSwitch resets flag after it was set by theme switch`() {
-        val targetName = "Ayu Islands Dark"
-        state.lastDarkThemeName = targetName
+        val targetName = "Ayu Dark"
+        state.lastDarkAppearanceTheme = targetName
 
         val currentThemeLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
-        every { currentThemeLaf.name } returns "Ayu Islands Mirage"
+        every { currentThemeLaf.name } returns "Ayu Mirage"
         every { lafManager.currentUIThemeLookAndFeel } returns currentThemeLaf
 
         val targetThemeLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
@@ -374,11 +374,11 @@ class AppearanceSyncServiceTest {
 
     @Test
     fun `syncIfNeeded updates lastSyncedAppearance on successful sync`() {
-        val targetName = "Ayu Islands Dark"
-        state.lastDarkThemeName = targetName
+        val targetName = "Ayu Dark"
+        state.lastDarkAppearanceTheme = targetName
 
         val currentThemeLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
-        every { currentThemeLaf.name } returns "Ayu Islands Mirage"
+        every { currentThemeLaf.name } returns "Ayu Mirage"
         every { lafManager.currentUIThemeLookAndFeel } returns currentThemeLaf
 
         val targetThemeLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)

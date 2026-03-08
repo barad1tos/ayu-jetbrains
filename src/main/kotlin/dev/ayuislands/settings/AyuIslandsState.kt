@@ -14,8 +14,8 @@ class AyuIslandsState : BaseState() {
     var lightAccent by string("#F29718")
     var followSystemAccent by property(false)
     var followSystemAppearance by property(false)
-    var lastDarkThemeName by string("Ayu Islands Mirage (Islands UI)")
-    var lastLightThemeName by string("Ayu Islands Light (Islands UI)")
+    var lastDarkAppearanceTheme by string("Ayu Mirage (Islands UI)")
+    var lastLightAppearanceTheme by string("Ayu Light (Islands UI)")
     var trialExpiredNotified by property(false)
     var proDefaultsApplied by property(false)
 
@@ -62,6 +62,12 @@ class AyuIslandsState : BaseState() {
 
     // Tab glow mode: MINIMAL (underline only), FULL (underline + tinted bg), OFF
     var glowTabMode by string("MINIMAL")
+
+    // Tab underline height (pixels): 2, 4, 6, or 8
+    var tabUnderlineHeight by property(DEFAULT_TAB_UNDERLINE_HEIGHT)
+
+    // Sync underline height with glow width (1:1)
+    var tabUnderlineGlowSync by property(false)
 
     // Focused input focus-ring glow (subtle, less intense than an island glow)
     var glowFocusRing by property(true)
@@ -188,6 +194,7 @@ class AyuIslandsState : BaseState() {
     }
 
     companion object {
+        const val DEFAULT_TAB_UNDERLINE_HEIGHT = 4
         private const val DEFAULT_SOFT_INTENSITY = 20
         private const val DEFAULT_SHARP_NEON_INTENSITY = 50
         private const val DEFAULT_GRADIENT_INTENSITY = 30
