@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.1.2] - 2026-03-08
+
+### Added
+- [Free] Reintroduce non-Islands (Classic UI) theme variants for Mirage, Dark, and Light
+- [Free] Glow overlay now renders below tab strip for visual harmony with underline
+- [Free] Settings controls adapt to active theme type (Islands UI vs Classic)
+- [Free] Tab underline thickness and glow-sync controls for Classic UI
+
+### Changed
+- [Free] Updated plugin description with clearer free/premium feature breakdown
+- Raised detekt object function threshold to 20
+
+### Fixed
+- [Free] License enforcement in dynamic settings state updates
+
 ## [2.1.1] - 2026-03-07
 
 ### Added

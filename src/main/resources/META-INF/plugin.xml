@@ -39,6 +39,14 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.1.2</h3>
+    <ul>
+      <li>[Free] Reintroduce non-Islands (Classic UI) theme variants for Mirage, Dark, and Light</li>
+      <li>[Free] Glow overlay now renders below tab strip for visual harmony with underline</li>
+      <li>[Free] Settings controls adapt to active theme type (Islands UI vs Classic)</li>
+      <li>[Free] Tab underline thickness and glow-sync controls for Classic UI</li>
+      <li>[Free] Updated plugin description with clearer feature breakdown</li>
+    </ul>
     <h3>2.1.1</h3>
     <ul>
       <li>[Paid] Add the "Highlight indent errors" toggle for Indent Rainbow — disable to blend continuation lines into gradient</li>
@@ -100,7 +108,7 @@
 
     <product-descriptor
             code="PAYUISLANDS"
-            release-date="20260307"
+            release-date="20260308"
             release-version="21"
             optional="true"/>
 
