@@ -39,6 +39,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
     private var thicknessRow: Row? = null
     private var syncRow: Row? = null
     private var syncCheckbox: JCheckBox? = null
+    private var licensed: Boolean = false
     private var variant: AyuVariant? = null
     private var elementPreview: AyuIslandsPreviewPanel? = null
 
@@ -55,7 +56,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
     ) {
         this.variant = variant
         val state = AyuIslandsSettings.getInstance().state
-        val licensed = LicenseChecker.isLicensedOrGrace()
+        licensed = LicenseChecker.isLicensedOrGrace()
 
         // Initialize toggle state from persisted settings
         for (id in AccentElementId.entries) {
@@ -146,13 +147,10 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
             }
         }
 
-        buildActiveTabRow(panel, licensed)
+        buildActiveTabRow(panel)
     }
 
-    private fun buildActiveTabRow(
-        panel: Panel,
-        licensed: Boolean,
-    ) {
+    private fun buildActiveTabRow(panel: Panel) {
         val state = AyuIslandsSettings.getInstance().state
         val glowEnabled = state.glowEnabled
 
@@ -229,8 +227,8 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
     }
 
     private fun updateThicknessEnabledState() {
-        thicknessSegmented?.enabled(!pendingTabUnderlineGlowSync)
-        syncCheckbox?.isEnabled = AyuIslandsSettings.getInstance().state.glowEnabled
+        thicknessSegmented?.enabled(licensed && !pendingTabUnderlineGlowSync)
+        syncCheckbox?.isEnabled = licensed && AyuIslandsSettings.getInstance().state.glowEnabled
     }
 
     private fun buildToggleRow(
