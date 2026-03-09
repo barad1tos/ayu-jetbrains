@@ -1,8 +1,9 @@
 package dev.ayuislands.font
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.colors.EditorColorsManager
-import com.intellij.openapi.editor.ex.EditorSettingsExternalizable
+import com.intellij.openapi.editor.colors.ModifiableFontPreferences
 
 /** Applies and reverts font presets to the IDE editor (and optionally console). */
 object FontPresetApplicator {
@@ -20,25 +21,28 @@ object FontPresetApplicator {
         val resolvedFamily = FontDetector.resolveFamily(preset) ?: preset.fontFamily
         val scheme = EditorColorsManager.getInstance().globalScheme
 
-        scheme.fontPreferences.apply {
+        (scheme.fontPreferences as? ModifiableFontPreferences)?.apply {
             clearFonts()
             addFontFamily(resolvedFamily)
         }
-        scheme.editorFontSize2D = preset.fontSize
+        scheme.setEditorFontSize(preset.fontSize)
         scheme.lineSpacing = preset.lineSpacing
-
-        EditorSettingsExternalizable.getInstance().isUseLigatures = preset.enableLigatures
+        scheme.isUseLigatures = preset.enableLigatures
 
         if (applyToConsole) {
-            scheme.consoleFontPreferences.apply {
+            (scheme.consoleFontPreferences as? ModifiableFontPreferences)?.apply {
                 clearFonts()
                 addFontFamily(resolvedFamily)
             }
-            scheme.consoleFontSize2D = preset.fontSize
+            scheme.setConsoleFontSize(preset.fontSize)
             scheme.consoleLineSpacing = preset.lineSpacing
         }
 
-        EditorColorsManager.getInstance().schemeChangedOrSwitched(scheme)
+        ApplicationManager
+            .getApplication()
+            .messageBus
+            .syncPublisher(EditorColorsManager.TOPIC)
+            .globalSchemeChange(null)
         LOG.info("Font preset applied: ${preset.displayName} ($resolvedFamily)")
     }
 
@@ -46,14 +50,18 @@ object FontPresetApplicator {
     fun revert() {
         val scheme = EditorColorsManager.getInstance().globalScheme
 
-        scheme.fontPreferences.apply {
+        (scheme.fontPreferences as? ModifiableFontPreferences)?.apply {
             clearFonts()
             addFontFamily(DEFAULT_FONT_FAMILY)
         }
-        scheme.editorFontSize2D = DEFAULT_FONT_SIZE
+        scheme.setEditorFontSize(DEFAULT_FONT_SIZE)
         scheme.lineSpacing = DEFAULT_LINE_SPACING
 
-        EditorColorsManager.getInstance().schemeChangedOrSwitched(scheme)
+        ApplicationManager
+            .getApplication()
+            .messageBus
+            .syncPublisher(EditorColorsManager.TOPIC)
+            .globalSchemeChange(null)
         LOG.info("Font preset reverted to defaults")
     }
 }
