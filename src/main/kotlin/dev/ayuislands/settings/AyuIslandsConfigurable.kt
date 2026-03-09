@@ -31,6 +31,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
     private val accentPanel = AyuIslandsAccentPanel()
     private val elementsPanel = AyuIslandsElementsPanel()
     private val integrationsPanel = IntegrationsPanel()
+    private val fontPresetPanel = FontPresetPanel()
     private val effectsPanel = AyuIslandsEffectsPanel()
 
     private val panels: List<AyuIslandsSettingsPanel> =
@@ -39,6 +40,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
             accentPanel,
             elementsPanel,
             integrationsPanel,
+            fontPresetPanel,
             effectsPanel,
         )
 
@@ -70,6 +72,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                 accentPanel.buildPanel(this@panel, variant)
                 elementsPanel.buildPanel(this@panel, variant)
                 integrationsPanel.buildPanel(this@panel, variant)
+                fontPresetPanel.buildPanel(this@panel, variant)
 
                 // "Reset all settings..." link at the bottom of the Accent tab
                 row {
@@ -146,6 +149,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
     private fun resetAllSettings(variant: AyuVariant) {
         accentPanel.resetToDefault(variant)
         elementsPanel.reset()
+        fontPresetPanel.reset()
         effectsPanel.reset()
     }
 
