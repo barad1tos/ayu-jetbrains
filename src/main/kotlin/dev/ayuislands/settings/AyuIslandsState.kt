@@ -93,6 +93,11 @@ class AyuIslandsState : BaseState() {
     // IR version that failed reflection (suppresses repeated notifications)
     var irFailedVersion by string(null)
 
+    // Font preset
+    var fontPresetEnabled by property(false)
+    var fontPresetName by string("CLEAN")
+    var fontApplyToConsole by property(false)
+
     // Settings tab selection (persisted across settings opens)
     var settingsSelectedTab by property(0)
 
