@@ -9,7 +9,6 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
-import com.intellij.openapi.wm.ToolWindowType
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
@@ -160,6 +159,7 @@ class GlowOverlayManager(
                         val activeId = toolWindowManager.activeToolWindowId ?: return@invokeLater
                         val tw = toolWindowManager.getToolWindow(activeId) ?: return@invokeLater
                         if (tw.isVisible) {
+                            reattachToolWindowOverlayIfNeeded(tw)
                             attachToolWindowOverlay(tw)
                         }
                     }
@@ -396,13 +396,40 @@ class GlowOverlayManager(
         log.info("Glow overlay attached: $id (host: ${host.javaClass.simpleName})")
     }
 
+    private fun removeOverlay(id: String) {
+        val entry = overlays.remove(id) ?: return
+        entry.glassPane.stopAnimation()
+        entry.componentListener?.let { entry.host.removeComponentListener(it) }
+        entry.hierarchyBoundsListener?.let { entry.host.removeHierarchyBoundsListener(it) }
+        entry.layeredPane.remove(entry.glassPane)
+        entry.layeredPane.repaint(
+            entry.glassPane.x,
+            entry.glassPane.y,
+            entry.glassPane.width,
+            entry.glassPane.height,
+        )
+        if (activeGlowId == id) activeGlowId = null
+        log.info("Glow overlay removed: $id")
+    }
+
+    private fun reattachToolWindowOverlayIfNeeded(toolWindow: ToolWindow) {
+        val id = toolWindow.id
+        val existing = overlays[id] ?: return
+
+        val rootPane = SwingUtilities.getRootPane(existing.host)
+        if (rootPane == null || rootPane.layeredPane !== existing.layeredPane) {
+            // Host moved to a different window (dock↔float transition)
+            removeOverlay(id)
+            attachToolWindowOverlay(toolWindow)
+        }
+    }
+
     private fun attachToolWindowOverlay(toolWindow: ToolWindow) {
         val id = toolWindow.id
         if (overlays.containsKey(id)) return
 
         val state = AyuIslandsSettings.getInstance().state
         if (!state.isIslandEnabled(id)) return
-        if (!state.glowFloatingPanels && toolWindow.type == ToolWindowType.FLOATING) return
 
         val component = toolWindow.component
         if (!component.isDisplayable) return

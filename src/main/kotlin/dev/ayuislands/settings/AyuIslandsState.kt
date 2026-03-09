@@ -72,9 +72,6 @@ class AyuIslandsState : BaseState() {
     // Focused input focus-ring glow (subtle, less intense than an island glow)
     var glowFocusRing by property(true)
 
-    // Floating panels — controls whether floating (undocked) tool windows get the glow
-    var glowFloatingPanels by property(false)
-
     // CodeGlancePro integration (opt-in, default OFF)
     var cgpIntegrationEnabled by property(false)
 
