@@ -8,8 +8,7 @@ enum class FontPreset(
     val fontSize: Float,
     val lineSpacing: Float,
     val enableLigatures: Boolean,
-    val brewCask: String,
-    val downloadUrl: String,
+    val downloadUrl: String = NERD_FONTS_DOWNLOAD_URL,
 ) {
     GLOW_WRITER(
         displayName = "Glow Writer",
@@ -18,8 +17,6 @@ enum class FontPreset(
         fontSize = 14f,
         lineSpacing = 1.4f,
         enableLigatures = true,
-        brewCask = "font-victor-mono-nerd-font",
-        downloadUrl = "https://www.nerdfonts.com/font-downloads",
     ),
     CLEAN(
         displayName = "Clean",
@@ -28,8 +25,6 @@ enum class FontPreset(
         fontSize = 13f,
         lineSpacing = 1.2f,
         enableLigatures = true,
-        brewCask = "font-jetbrains-mono-nerd-font",
-        downloadUrl = "https://www.nerdfonts.com/font-downloads",
     ),
     MODERN(
         displayName = "Modern",
@@ -38,8 +33,6 @@ enum class FontPreset(
         fontSize = 13f,
         lineSpacing = 1.3f,
         enableLigatures = true,
-        brewCask = "font-maple-mono-nerd-font",
-        downloadUrl = "https://www.nerdfonts.com/font-downloads",
     ),
     COMPACT(
         displayName = "Compact",
@@ -48,8 +41,6 @@ enum class FontPreset(
         fontSize = 13f,
         lineSpacing = 1.1f,
         enableLigatures = true,
-        brewCask = "font-iosevka-nerd-font",
-        downloadUrl = "https://www.nerdfonts.com/font-downloads",
     ),
     MINIMAL(
         displayName = "Minimal",
@@ -58,8 +49,6 @@ enum class FontPreset(
         fontSize = 13f,
         lineSpacing = 1.2f,
         enableLigatures = false,
-        brewCask = "font-geist-mono-nerd-font",
-        downloadUrl = "https://www.nerdfonts.com/font-downloads",
     ),
     TEXTURE(
         displayName = "Texture",
@@ -68,12 +57,12 @@ enum class FontPreset(
         fontSize = 13f,
         lineSpacing = 1.3f,
         enableLigatures = true,
-        brewCask = "font-monaspace-nerd-font",
-        downloadUrl = "https://www.nerdfonts.com/font-downloads",
     ),
     ;
 
     companion object {
+        const val NERD_FONTS_DOWNLOAD_URL = "https://www.nerdfonts.com/font-downloads"
+
         fun fromName(name: String?): FontPreset = entries.firstOrNull { it.name == name } ?: CLEAN
     }
 }

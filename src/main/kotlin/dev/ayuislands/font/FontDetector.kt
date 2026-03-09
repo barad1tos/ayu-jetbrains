@@ -32,9 +32,4 @@ object FontDetector {
 
     /** Check all presets at once — used by the settings panel. */
     fun detectAll(): Map<FontPreset, Boolean> = FontPreset.entries.associateWith { isInstalled(it) }
-
-    /** Invalidate cache — called after font installation (BAR-115). */
-    fun refresh() {
-        cache = null
-    }
 }
