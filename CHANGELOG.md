@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.1.3] - 2026-03-09
+
+### Fixed
+- [Free] Improve Light theme surface colors: separator, hover, and folded text backgrounds for better contrast
+- [Paid] Glow now renders on floating (detached) tool windows — overlay re-attaches on dock↔float transitions
+
+### Added
+- [Free] Six theme preview screenshots (Classic + Islands UI for Mirage, Dark, Light)
+
 ## [2.1.2] - 2026-03-08
 
 ### Added
