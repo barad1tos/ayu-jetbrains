@@ -164,7 +164,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2 # v5
       - name: Verify plugin (group ${{ matrix.group }})
         run: ./gradlew verifyPlugin -DverifyGroup=${{ matrix.group }}
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: matrix.group == 'A'
         with:
           name: ayu-islands-plugin
