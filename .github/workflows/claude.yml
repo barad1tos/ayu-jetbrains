@@ -23,6 +23,7 @@ jobs:
         (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) &&
         github.event.issue.author_association == 'OWNER')
     runs-on: ubuntu-latest
+    environment: claude-code
     permissions:
       contents: write
       pull-requests: write
