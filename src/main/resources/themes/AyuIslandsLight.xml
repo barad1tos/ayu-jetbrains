@@ -16,11 +16,11 @@
         <option name="INDENT_GUIDE" value="828E9F2E" />
         <option name="SELECTED_INDENT_GUIDE" value="828E9F59" />
         <option name="VISUAL_INDENT_GUIDE" value="828E9F2E" />
-        <option name="RIGHT_MARGIN_COLOR" value="E7E5DC" />
+        <option name="RIGHT_MARGIN_COLOR" value="E8E7E3" />
         <option name="WHITESPACES" value="D9D7CE" />
         <option name="WHITESPACES_MODIFIED_LINES_COLOR" value="E7E0C8" />
         <option name="MATCHED_BRACES_INDENT_GUIDE_COLOR" value="D9D7CE" />
-        <option name="METHOD_SEPARATORS_COLOR" value="E7E5DC" />
+        <option name="METHOD_SEPARATORS_COLOR" value="E8E7E3" />
         <option name="TEARLINE_COLOR" value="EBEEF0" />
 
         <!-- Selection & hover -->
@@ -28,11 +28,11 @@
         <option name="INACTIVE_SELECTION_BACKGROUND" value="035BD612" />
         <option name="SELECTED_BACKGROUND" value="035BD626" />
         <option name="SELECTED_FOREGROUND" value="5C6166" />
-        <option name="HOVER_BACKGROUND" value="E7E5DC" />
+        <option name="HOVER_BACKGROUND" value="E8E7E3" />
         <option name="SEARCH_RESULT_BACKGROUND" value="FFE294" />
         <option name="TEXT_SEARCH_RESULT_BACKGROUND" value="FFE294" />
         <option name="IDENTIFIER_UNDER_CARET_BACKGROUND" value="FFE29480" />
-        <option name="MATCHED_BRACE_BACKGROUND" value="E7E5DC" />
+        <option name="MATCHED_BRACE_BACKGROUND" value="E8E7E3" />
         <option name="MATCHED_TEXT" value="F29718" />
 
         <!-- Surfaces -->
@@ -47,10 +47,10 @@
         <option name="AUTOCOMPLETE_BACKGROUND" value="FCFCFC" />
         <option name="INFORMATION_HINT" value="FCFCFC" />
         <option name="LOOKUP_COLOR" value="FCFCFC" />
-        <option name="FOLDED_TEXT_BACKGROUND" value="F0EEE4" />
+        <option name="FOLDED_TEXT_BACKGROUND" value="F2F1ED" />
         <option name="FOLDED_TEXT_BORDER_COLOR" value="EBEEF0" />
-        <option name="INPUT_BACKGROUND" value="F0EEE4" />
-        <option name="COMBOBOX_BACKGROUND" value="F0EEE4" />
+        <option name="INPUT_BACKGROUND" value="F2F1ED" />
+        <option name="COMBOBOX_BACKGROUND" value="F2F1ED" />
 
         <!-- Foregrounds -->
         <option name="ACTIVITY_BAR_FOREGROUND" value="828E9F" />
@@ -120,8 +120,8 @@
         <option name="DIFF_SEPARATORS_BACKGROUND" value="EBEEF0" />
 
         <!-- Borders & misc -->
-        <option name="SEPARATOR_ABOVE_COLOR" value="E7E5DC" />
-        <option name="SEPARATOR_BELOW_COLOR" value="E7E5DC" />
+        <option name="SEPARATOR_ABOVE_COLOR" value="E8E7E3" />
+        <option name="SEPARATOR_BELOW_COLOR" value="E8E7E3" />
         <option name="HINT_BORDER" value="D9D7CE" />
         <option name="DOC_COMMENT_GUIDE" value="D0E8D0" />
         <option name="DOC_COMMENT_LINK" value="55B4D4" />
@@ -895,14 +895,14 @@
         <option name="DOC_CODE_BLOCK">
             <value>
                 <option name="FOREGROUND" value="5C6166" />
-                <option name="BACKGROUND" value="F0EEE4" />
+                <option name="BACKGROUND" value="F2F1ED" />
                 <option name="EFFECT_COLOR" value="D9D7CE" />
             </value>
         </option>
         <option name="DOC_CODE_INLINE">
             <value>
                 <option name="FOREGROUND" value="5C6166" />
-                <option name="BACKGROUND" value="E0DDD5" />
+                <option name="BACKGROUND" value="E2E1DC" />
             </value>
         </option>
         <option name="DOC_TIPS_SHORTCUT">
@@ -953,7 +953,7 @@
         <option name="FOLDED_TEXT_ATTRIBUTES">
             <value>
                 <option name="FOREGROUND" value="828E9F" />
-                <option name="BACKGROUND" value="F0EEE4" />
+                <option name="BACKGROUND" value="F2F1ED" />
             </value>
         </option>
 
@@ -1364,7 +1364,7 @@
         <!-- Injected language -->
         <option name="INJECTED_LANGUAGE_FRAGMENT">
             <value>
-                <option name="BACKGROUND" value="F0EEE4" />
+                <option name="BACKGROUND" value="F2F1ED" />
             </value>
         </option>
 
@@ -1372,7 +1372,7 @@
         <option name="INLAY_DEFAULT">
             <value>
                 <option name="FOREGROUND" value="828E9F" />
-                <option name="BACKGROUND" value="E7E5DC" />
+                <option name="BACKGROUND" value="E8E7E3" />
             </value>
         </option>
         <option name="INLAY_TEXT_WITHOUT_BACKGROUND">
@@ -1383,13 +1383,13 @@
         <option name="INLINE_PARAMETER_HINT">
             <value>
                 <option name="FOREGROUND" value="828E9F" />
-                <option name="BACKGROUND" value="E7E5DC" />
+                <option name="BACKGROUND" value="E8E7E3" />
             </value>
         </option>
         <option name="INLINE_PARAMETER_HINT_CURRENT">
             <value>
                 <option name="FOREGROUND" value="5C6166" />
-                <option name="BACKGROUND" value="F0EEE4" />
+                <option name="BACKGROUND" value="F2F1ED" />
             </value>
         </option>
         <option name="INLINE_PARAMETER_HINT_HIGHLIGHTED">
@@ -1956,7 +1956,7 @@
         </option>
         <option name="MARKDOWN_CODE_BLOCK">
             <value>
-                <option name="BACKGROUND" value="F0EEE4" />
+                <option name="BACKGROUND" value="F2F1ED" />
             </value>
         </option>
         <option name="MARKDOWN_HEADER_LEVEL_1">
@@ -2304,7 +2304,7 @@
         <!-- Qute -->
         <option name="QUTE_BACKGROUND">
             <value>
-                <option name="BACKGROUND" value="F0EEE4" />
+                <option name="BACKGROUND" value="F2F1ED" />
             </value>
         </option>
 
