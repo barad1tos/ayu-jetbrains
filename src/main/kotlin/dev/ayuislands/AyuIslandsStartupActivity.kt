@@ -8,6 +8,8 @@ import com.intellij.openapi.startup.ProjectActivity
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.conflict.ConflictRegistry
+import dev.ayuislands.font.FontPreset
+import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -26,6 +28,12 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         val accentHex = settings.getAccentForVariant(variant)
         AccentApplicator.apply(accentHex)
         LOG.info("Ayu Islands accent applied: $accentHex for variant ${variant.name}")
+
+        // Apply persisted font preset
+        if (settings.state.fontPresetEnabled) {
+            val fontPreset = FontPreset.fromName(settings.state.fontPresetName)
+            FontPresetApplicator.apply(fontPreset, settings.state.fontApplyToConsole)
+        }
 
         // Log detected third-party plugin conflicts
         val conflicts = ConflictRegistry.detectConflicts()
