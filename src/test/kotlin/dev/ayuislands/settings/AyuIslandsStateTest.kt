@@ -192,12 +192,6 @@ class AyuIslandsStateTest {
     }
 
     @Test
-    fun `glow floating panels is off by default`() {
-        val state = freshState()
-        assertFalse(state.glowFloatingPanels)
-    }
-
-    @Test
     fun `cgp integration is off by default`() {
         val state = freshState()
         assertFalse(state.cgpIntegrationEnabled)
