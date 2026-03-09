@@ -8,6 +8,7 @@ import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.font.FontPreset
 import dev.ayuislands.font.FontPresetApplicator
+import dev.ayuislands.font.FontSettings
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.settings.AyuIslandsSettings
 
@@ -32,7 +33,11 @@ class AyuIslandsLafListener : LafManagerListener {
         // Re-apply font preset if enabled
         if (settings.state.fontPresetEnabled) {
             val fontPreset = FontPreset.fromName(settings.state.fontPresetName)
-            FontPresetApplicator.apply(fontPreset, settings.state.fontApplyToConsole)
+            val encoded = settings.state.fontPresetCustomizations[fontPreset.name]
+            val fontSettings = FontSettings.decode(encoded, fontPreset)
+            FontPresetApplicator.apply(
+                fontSettings.copy(applyToConsole = settings.state.fontApplyToConsole),
+            )
         }
 
         // Track manual sub-variant choices for appearance sync

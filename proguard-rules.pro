@@ -28,6 +28,8 @@
 -keep enum dev.ayuislands.glow.GlowAnimation { *; }
 -keep enum dev.ayuislands.glow.GlowTabMode { *; }
 -keep enum dev.ayuislands.glow.GlowPreset { *; }
+-keep enum dev.ayuislands.font.FontWeight { *; }
+-keep enum dev.ayuislands.font.FontPreset { *; }
 
 # Public API singletons (called from kept classes)
 -keep class dev.ayuislands.accent.AccentApplicator { *; }
@@ -50,8 +52,9 @@
     public static final ** INSTANCE;
 }
 
-# Suppress warnings for IDE platform APIs
+# Suppress warnings for IDE platform APIs and JDK modules
 -dontwarn com.intellij.**
 -dontwarn org.jetbrains.**
 -dontwarn kotlin.**
 -dontwarn kotlinx.**
+-dontwarn java.awt.datatransfer.**

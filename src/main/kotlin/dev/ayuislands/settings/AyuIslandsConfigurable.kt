@@ -72,7 +72,6 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                 accentPanel.buildPanel(this@panel, variant)
                 elementsPanel.buildPanel(this@panel, variant)
                 integrationsPanel.buildPanel(this@panel, variant)
-                fontPresetPanel.buildPanel(this@panel, variant)
 
                 // "Reset all settings..." link at the bottom of the Accent tab
                 row {
@@ -91,6 +90,13 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                 }
             }
 
+        fontPresetPanel.initState()
+
+        val fontTab =
+            panel {
+                fontPresetPanel.buildFontTab(this@panel)
+            }
+
         val glowTab =
             panel {
                 effectsPanel.buildGlowPanel(this@panel)
@@ -100,6 +106,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         val state = AyuIslandsSettings.getInstance().state
         val tabs = JBTabbedPane()
         tabs.addTab("Accent", accentTab)
+        tabs.addTab("Font", fontTab)
         tabs.addTab("Glow", glowTab)
         tabs.selectedIndex = state.settingsSelectedTab.coerceIn(0, tabs.tabCount - 1)
         tabs.addChangeListener { pendingSelectedTab = tabs.selectedIndex }

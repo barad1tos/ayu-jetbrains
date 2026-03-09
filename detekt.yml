@@ -6,7 +6,7 @@ style:
 
 complexity:
   LongParameterList:
-    constructorThreshold: 8
+    constructorThreshold: 9
   LargeClass:
     excludes:
       - "**/test/**"

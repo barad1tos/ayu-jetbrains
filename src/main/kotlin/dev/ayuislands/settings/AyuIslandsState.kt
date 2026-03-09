@@ -95,8 +95,12 @@ class AyuIslandsState : BaseState() {
 
     // Font preset
     var fontPresetEnabled by property(false)
-    var fontPresetName by string("CLEAN")
+    var fontPresetName by string("AMBIENT")
     var fontApplyToConsole by property(false)
+    var fontInstallTerminal by string("BUILTIN")
+
+    // Per-preset custom settings: key = preset name, value = "size|spacing|ligatures|weight"
+    var fontPresetCustomizations by map<String, String>()
 
     // Settings tab selection (persisted across settings opens)
     var settingsSelectedTab by property(0)
