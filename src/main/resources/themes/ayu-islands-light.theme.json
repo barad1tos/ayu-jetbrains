@@ -6,11 +6,11 @@
   "editorScheme": "/themes/AyuIslandsLight.xml",
   "colors": {
     "Gray3": "#D9D7CE",
-    "Gray2.5": "#E0DDD5",
-    "Gray2.25": "#E7E5DC",
+    "Gray2.5": "#E2E1DC",
+    "Gray2.25": "#E8E7E3",
     "Gray2": "#EBEEF0",
-    "Gray1.5": "#F0EEE4",
-    "Gray1.25": "#F5F5F0",
+    "Gray1.5": "#F2F1ED",
+    "Gray1.25": "#F5F4F1",
     "Gray1": "#F8F9FA",
     "Gray0.75": "#F8F9FA",
     "Gray0.5": "#FAFAFA",
@@ -31,7 +31,7 @@
     "BackgroundLight": "Gray2",
     "BackgroundLightest": "Gray2",
 
-    "AltBackgroundLight": "#EDE9E0",
+    "AltBackgroundLight": "#EEEDEA",
 
     "BorderDark": "Gray4",
     "BorderLight": "Gray2.25",
@@ -122,7 +122,7 @@
       "background": "#FCFCFC",
       "selectedBackground": "ToolWindowBackground",
       "hoverBackground": "#00000012",
-      "separatorColor": "#00000016",
+      "separatorColor": "#96928A1A",
       "foreground": "Gray8"
     },
 
@@ -201,8 +201,8 @@
 
     "Editor": {
       "SearchField": {
-        "background": "#F0EEE4",
-        "borderColor": "#E7E5DC"
+        "background": "Gray1.5",
+        "borderColor": "Gray2.25"
       },
       "Toolbar.borderColor": "BorderDark",
       "ToolTip": {
@@ -642,7 +642,7 @@
     },
 
     "TrialWidget": {
-      "Default.background": "#F0EEE4",
+      "Default.background": "Gray1.5",
       "Active.background": "#E8F5E0",
       "Alert.background": "#FFF8E0",
       "Expiring.background": "#FFE8EC",
@@ -685,7 +685,7 @@
 
     "PackageSearch": {
       "SearchResult.background": "#E0F0FF",
-      "SearchResult.PackageTag.background": "#EDE9E0",
+      "SearchResult.PackageTag.background": "AltBackgroundLight",
       "PackageTag.background": "Gray4",
       "PackageTag.foreground": "#828E9F",
       "PackageTagSelected.background": "Blue4",
@@ -760,7 +760,7 @@
 
     "Table": {
       "foreground": "#575F66",
-      "background": "#F0EEE4",
+      "background": "Gray1.5",
       "lightSelectionForeground": "ForegroundBright",
       "stripeColor": "#EBEEF0"
     },
@@ -791,13 +791,13 @@
       "ToolWindow.Stripe.background": "AltBackgroundLight",
       "StatusBar.background": "AltBackgroundLight",
 
-      "ToolWindow.Header.inactiveBackground": "#F0EEE4",
-      "ToolWindow.background": "#F0EEE4",
+      "ToolWindow.Header.inactiveBackground": "Gray1.5",
+      "ToolWindow.background": "Gray1.5",
       "ToolWindow.Button.DragAndDrop.stripeBackground": "AltBackgroundLight",
 
-      "Borders.color": "#E7E5DC",
-      "Borders.ContrastBorderColor": "#E7E5DC",
-      "ToolWindow.Header.borderColor": "#E7E5DC"
+      "Borders.color": "Gray2.25",
+      "Borders.ContrastBorderColor": "Gray2.25",
+      "ToolWindow.Header.borderColor": "Gray2.25"
     },
 
     "AlertDialog.background": "PopupBackground",
@@ -810,8 +810,8 @@
       "cardHeaderLinkBackground": "#EBEEF0",
       "cardHeaderSubtitle": "#828E9F",
       "cardFooterForeground": "#828E9F",
-      "chroniclesBackground": "#F0EEE4",
-      "chroniclesBorderColor": "#F0EEE4",
+      "chroniclesBackground": "Gray1.5",
+      "chroniclesBorderColor": "Gray1.5",
       "chroniclesBackgroundHovered": "#D9D7CE",
       "chroniclesForeground": "ForegroundBright",
       "chroniclesForegroundGreyed": "#828E9F",

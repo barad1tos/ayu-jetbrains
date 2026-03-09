@@ -28,24 +28,28 @@
 
 ## Preview
 
-<!-- Add screenshots after installing the themes in an IDE -->
-
 <details open>
 <summary><strong>Mirage</strong> — warm blue-gray</summary>
 <br>
 <img src="assets/preview-mirage.png" alt="Ayu Islands Mirage preview" width="100%">
+<br><br>
+<img src="assets/preview-mirage-islands.png" alt="Ayu Islands Mirage (Islands UI) preview" width="100%">
 </details>
 
 <details>
 <summary><strong>Dark</strong> — deep midnight</summary>
 <br>
 <img src="assets/preview-dark.png" alt="Ayu Islands Dark preview" width="100%">
+<br><br>
+<img src="assets/preview-dark-islands.png" alt="Ayu Islands Dark (Islands UI) preview" width="100%">
 </details>
 
 <details>
 <summary><strong>Light</strong> — warm daylight</summary>
 <br>
 <img src="assets/preview-light.png" alt="Ayu Islands Light preview" width="100%">
+<br><br>
+<img src="assets/preview-light-islands.png" alt="Ayu Islands Light (Islands UI) preview" width="100%">
 </details>
 
 ## Palettes
