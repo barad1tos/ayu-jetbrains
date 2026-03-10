@@ -1,7 +1,6 @@
 package dev.ayuislands.accent
 
 import com.intellij.openapi.util.SystemInfo
-import javax.swing.SwingUtilities
 
 class CachedMacReader<T>(
     private val ttlMs: Long = 5_000L,
@@ -17,7 +16,6 @@ class CachedMacReader<T>(
         if (!SystemInfo.isMac) return null
         val now = System.currentTimeMillis()
         if (now - timestamp < ttlMs) return cached
-        if (SwingUtilities.isEventDispatchThread()) return cached
         val result = reader()
         cached = result
         timestamp = now

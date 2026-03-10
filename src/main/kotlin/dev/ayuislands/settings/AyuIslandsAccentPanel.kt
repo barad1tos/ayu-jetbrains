@@ -174,9 +174,11 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         onAccentChanged?.invoke("")
     }
 
-    override fun isModified(): Boolean =
-        pendingAccent != storedAccent ||
-            pendingFollowSystem != storedFollowSystem
+    override fun isModified(): Boolean {
+        if (pendingFollowSystem != storedFollowSystem) return true
+        if (pendingFollowSystem) return false
+        return pendingAccent != storedAccent
+    }
 
     override fun apply() {
         val currentVariant = variant ?: return
