@@ -10,7 +10,6 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.font.FontPreset
 import dev.ayuislands.font.FontPresetApplicator
-import dev.ayuislands.font.FontSettings
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -38,13 +37,7 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         }
         FontPreset.migrateCustomizations(settings.state.fontPresetCustomizations)
 
-        if (settings.state.fontPresetEnabled) {
-            val encoded = settings.state.fontPresetCustomizations[fontPreset.name]
-            val fontSettings = FontSettings.decode(encoded, fontPreset)
-            FontPresetApplicator.apply(
-                fontSettings.copy(applyToConsole = settings.state.fontApplyToConsole),
-            )
-        }
+        FontPresetApplicator.applyFromState()
 
         // Log detected third-party plugin conflicts
         val conflicts = ConflictRegistry.detectConflicts()

@@ -6,9 +6,7 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.ProjectManager
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
-import dev.ayuislands.font.FontPreset
 import dev.ayuislands.font.FontPresetApplicator
-import dev.ayuislands.font.FontSettings
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.settings.AyuIslandsSettings
 
@@ -31,14 +29,7 @@ class AyuIslandsLafListener : LafManagerListener {
         LOG.info("Ayu Islands accent re-applied on theme change: $accentHex")
 
         // Re-apply font preset if enabled
-        if (settings.state.fontPresetEnabled) {
-            val fontPreset = FontPreset.fromName(settings.state.fontPresetName)
-            val encoded = settings.state.fontPresetCustomizations[fontPreset.name]
-            val fontSettings = FontSettings.decode(encoded, fontPreset)
-            FontPresetApplicator.apply(
-                fontSettings.copy(applyToConsole = settings.state.fontApplyToConsole),
-            )
-        }
+        FontPresetApplicator.applyFromState()
 
         // Track manual sub-variant choices for appearance sync
         val syncService = AppearanceSyncService.getInstance()

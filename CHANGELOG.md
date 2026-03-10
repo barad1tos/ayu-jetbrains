@@ -18,7 +18,7 @@
 - [Free] Reintroduce non-Islands (Classic UI) theme variants for Mirage, Dark, and Light
 - [Free] Settings controls adapt to the active theme type (Islands UI vs. Classic)
 - [Paid] Glow overlay now renders below the tab strip for visual harmony with underline
-- [Paid] Tab underlines thickness and glow-sync controls for Classic UI
+- [Paid] Tab underline thickness and glow-sync controls for Classic UI
 
 ### Changed
 

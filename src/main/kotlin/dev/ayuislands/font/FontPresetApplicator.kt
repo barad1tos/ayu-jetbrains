@@ -4,6 +4,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.ModifiableFontPreferences
+import dev.ayuislands.settings.AyuIslandsSettings
 import javax.swing.SwingUtilities
 
 /** Resolved font settings ready for application. */
@@ -72,6 +73,16 @@ object FontPresetApplicator {
     private const val DEFAULT_FONT_SIZE = 13f
     private const val DEFAULT_LINE_SPACING = 1.2f
 
+    /** Resolve and apply the font preset from persisted settings state. */
+    fun applyFromState() {
+        val state = AyuIslandsSettings.getInstance().state
+        if (!state.fontPresetEnabled) return
+        val preset = FontPreset.fromName(state.fontPresetName)
+        val encoded = state.fontPresetCustomizations[preset.name]
+        val settings = FontSettings.decode(encoded, preset)
+        apply(settings.copy(applyToConsole = state.fontApplyToConsole))
+    }
+
     /** Apply the given font settings to the editor (and console if opted in). */
     fun apply(settings: FontSettings) {
         ensureEdt {
@@ -116,7 +127,7 @@ object FontPresetApplicator {
         }
     }
 
-    /** Revert to IDE default font (JetBrains Mono 13pt). */
+    /** Revert editor and console to IDE default font (JetBrains Mono 13pt). */
     fun revert() {
         ensureEdt {
             val scheme = EditorColorsManager.getInstance().globalScheme
@@ -127,6 +138,13 @@ object FontPresetApplicator {
             }
             scheme.setEditorFontSize(DEFAULT_FONT_SIZE)
             scheme.lineSpacing = DEFAULT_LINE_SPACING
+
+            (scheme.consoleFontPreferences as? ModifiableFontPreferences)?.apply {
+                clearFonts()
+                addFontFamily(DEFAULT_FONT_FAMILY)
+            }
+            scheme.setConsoleFontSize(DEFAULT_FONT_SIZE)
+            scheme.consoleLineSpacing = DEFAULT_LINE_SPACING
 
             ApplicationManager
                 .getApplication()
