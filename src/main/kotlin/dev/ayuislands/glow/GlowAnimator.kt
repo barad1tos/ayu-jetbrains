@@ -1,13 +1,11 @@
 package dev.ayuislands.glow
 
-import com.intellij.notification.NotificationGroupManager
-import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.logger
 import javax.swing.Timer
 import kotlin.math.sin
 
-/** Timer-based animation controller with 3 animation types and performance monitoring. */
+/** Timer-based animation controller with 3 animation types. */
 class GlowAnimator : Disposable {
     private val log = logger<GlowAnimator>()
 
@@ -16,21 +14,12 @@ class GlowAnimator : Disposable {
     private var currentAnimation: GlowAnimation = GlowAnimation.NONE
     private var onFrame: ((alpha: Float) -> Unit)? = null
 
-    // Performance monitoring
-    private var slowFrameCount = 0
-    private var lastFrameTimeNanos: Long = 0
-    private var startTimeNanos: Long = 0
-
     // Reactive animation state
     internal var reactiveBoost: Float = 0.0f
     private val reactiveDecayRate: Float = REACTIVE_DECAY
 
     companion object {
         private const val FRAME_INTERVAL_MS = 16
-        private const val SLOW_FRAME_THRESHOLD_MS = 32.0
-        private const val GRACE_PERIOD_MS = 180_000L
-        private const val MAX_SLOW_FRAMES = 30
-
         private const val PULSE_CYCLE_FRAMES = 120
         private const val PULSE_ATTACK_RATIO = 0.15
         private const val PULSE_RELEASE_DIVISOR = 0.85
@@ -45,9 +34,6 @@ class GlowAnimator : Disposable {
         private const val REACTIVE_RANGE = 0.6f
         private const val REACTIVE_THRESHOLD = 0.01f
         private const val REACTIVE_DECAY = 0.92f
-
-        private const val NANOS_PER_MS = 1_000_000.0
-        private const val NANOS_PER_MS_LONG = 1_000_000L
     }
 
     fun start(
@@ -61,15 +47,11 @@ class GlowAnimator : Disposable {
         currentAnimation = animation
         onFrame = callback
         frame = 0
-        slowFrameCount = 0
-        lastFrameTimeNanos = 0
-        startTimeNanos = System.nanoTime()
         reactiveBoost = 0.0f
 
         timer =
             Timer(FRAME_INTERVAL_MS) {
                 if (!isVisible()) return@Timer
-                if (!shouldContinueAnimation(System.nanoTime())) return@Timer
 
                 val alpha = calculateAlpha(animation)
                 frame++
@@ -80,27 +62,6 @@ class GlowAnimator : Disposable {
             }
 
         log.info("Glow animation started: ${animation.displayName}")
-    }
-
-    private fun shouldContinueAnimation(now: Long): Boolean {
-        if (lastFrameTimeNanos > 0) {
-            val elapsedMs = (now - lastFrameTimeNanos) / NANOS_PER_MS
-            val elapsedSinceStart = (now - startTimeNanos) / NANOS_PER_MS_LONG
-            if (elapsedSinceStart > GRACE_PERIOD_MS) {
-                if (elapsedMs > SLOW_FRAME_THRESHOLD_MS) {
-                    slowFrameCount++
-                    if (slowFrameCount > MAX_SLOW_FRAMES) {
-                        stop()
-                        notifyPerformanceDegradation()
-                        return false
-                    }
-                } else {
-                    slowFrameCount = (slowFrameCount - 1).coerceAtLeast(0)
-                }
-            }
-        }
-        lastFrameTimeNanos = now
-        return true
     }
 
     internal fun calculateAlpha(animation: GlowAnimation): Float =
@@ -137,23 +98,6 @@ class GlowAnimator : Disposable {
         onFrame = null
         currentAnimation = GlowAnimation.NONE
         reactiveBoost = 0.0f
-    }
-
-    private fun notifyPerformanceDegradation() {
-        log.warn("Glow animation auto-disabled due to sustained poor performance")
-        try {
-            NotificationGroupManager
-                .getInstance()
-                .getNotificationGroup("Ayu Islands")
-                .createNotification(
-                    "Glow animation disabled",
-                    "Animation was automatically disabled due to rendering performance issues. " +
-                        "Static glow will continue to work normally.",
-                    NotificationType.WARNING,
-                ).notify(null)
-        } catch (exception: RuntimeException) {
-            log.warn("Failed to show performance degradation notification: ${exception.message}")
-        }
     }
 
     override fun dispose() {
