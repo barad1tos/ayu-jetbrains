@@ -3,6 +3,7 @@ package dev.ayuislands.settings
 import dev.ayuislands.accent.AccentColor
 import java.awt.Cursor
 import java.awt.event.MouseEvent
+import javax.swing.JPanel
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -19,6 +20,15 @@ class AccentColorPanelTest {
     private fun createMouseEvent(source: java.awt.Component): MouseEvent =
         MouseEvent(source, MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(), 0, 5, 5, 1, false)
 
+    private fun findPresetGrid(panel: AccentColorPanel): JPanel = panel.components.last() as JPanel
+
+    private fun findLeftColumn(panel: AccentColorPanel): JPanel = panel.components[0] as JPanel
+
+    private fun findLinksRow(panel: AccentColorPanel): JPanel {
+        val leftColumn = findLeftColumn(panel)
+        return leftColumn.getComponent(2) as JPanel
+    }
+
     @Test
     fun `click on preset fires onPresetSelected`() {
         var selectedColor: AccentColor? = null
@@ -30,8 +40,7 @@ class AccentColorPanelTest {
                 onReset = {},
             )
 
-        val presetGrid = panel.components.last()
-        val firstPreset = (presetGrid as javax.swing.JPanel).getComponent(0)
+        val firstPreset = findPresetGrid(panel).getComponent(0)
         assertTrue(firstPreset.isEnabled, "Preset should be enabled by default")
 
         val event = createMouseEvent(firstPreset)
@@ -52,8 +61,7 @@ class AccentColorPanelTest {
                 onReset = {},
             )
 
-        val presetGrid = panel.components.last()
-        val firstPreset = (presetGrid as javax.swing.JPanel).getComponent(0)
+        val firstPreset = findPresetGrid(panel).getComponent(0)
         firstPreset.isEnabled = false
 
         val event = createMouseEvent(firstPreset)
@@ -106,8 +114,7 @@ class AccentColorPanelTest {
                 onReset = {},
             )
 
-        val presetGrid = panel.components.last()
-        val firstPreset = (presetGrid as javax.swing.JPanel).getComponent(0)
+        val firstPreset = findPresetGrid(panel).getComponent(0)
         firstPreset.isEnabled = false
 
         assertEquals(
@@ -127,8 +134,7 @@ class AccentColorPanelTest {
                 onReset = {},
             )
 
-        val presetGrid = panel.components.last()
-        val firstPreset = (presetGrid as javax.swing.JPanel).getComponent(0)
+        val firstPreset = findPresetGrid(panel).getComponent(0)
         firstPreset.isEnabled = true
 
         assertEquals(
@@ -149,10 +155,8 @@ class AccentColorPanelTest {
                 onReset = { resetFired = true },
             )
 
-        val leftWithSeparator = panel.components[0] as javax.swing.JPanel
-        val leftColumn = leftWithSeparator.components[0] as javax.swing.JPanel
-        val resetWrapper = leftColumn.getComponent(2) as javax.swing.JPanel
-        val resetLabel = resetWrapper.getComponent(0)
+        val linksRow = findLinksRow(panel)
+        val resetLabel = linksRow.getComponent(2)
 
         val event = createMouseEvent(resetLabel)
         resetLabel.mouseListeners.forEach { listener -> listener.mouseClicked(event) }
@@ -171,12 +175,11 @@ class AccentColorPanelTest {
                 onReset = {},
             )
 
-        val leftWithSeparator = panel.components[0] as javax.swing.JPanel
-        val leftColumn = leftWithSeparator.components[0] as javax.swing.JPanel
-        val customTrigger = leftColumn.getComponent(0)
+        val linksRow = findLinksRow(panel)
+        val customLink = linksRow.getComponent(0)
 
-        val event = createMouseEvent(customTrigger)
-        customTrigger.mouseListeners.forEach { listener -> listener.mouseClicked(event) }
+        val event = createMouseEvent(customLink)
+        customLink.mouseListeners.forEach { listener -> listener.mouseClicked(event) }
 
         assertTrue(triggerFired, "Custom trigger callback should fire")
     }

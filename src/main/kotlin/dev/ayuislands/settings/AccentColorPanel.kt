@@ -1,6 +1,6 @@
 package dev.ayuislands.settings
 
-import com.intellij.ui.ColorUtil
+import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentColor
 import java.awt.AlphaComposite
@@ -25,20 +25,25 @@ import javax.swing.JPanel
 import javax.swing.UIManager
 
 /**
- * Accent color selection panel with rectangular preset grid, custom-color trigger, and reset link.
+ * Accent color selection panel with two visual groups: action links (left) + preset grid (right).
  *
  * Layout:
  * ```
- * [  +  ]  |  [1] [2] [3] [4] [5] [6]
- *  Reset   |  [7] [8] [9] [10][11][12]
+ *   Lavender              [█][█][█][█][█][█]
+ *   Custom…    Reset      [█][█][█][█][█][█]
  * ```
+ *
+ * Left column shows the shade name in accent color (row 1) and action links (row 2).
+ * Right side is the 2×6 preset color grid.
  */
 class AccentColorPanel(
     presets: List<AccentColor>,
     private val onPresetSelected: (AccentColor) -> Unit,
     private val onCustomTrigger: () -> Unit,
     private val onReset: () -> Unit,
-) : JPanel(BorderLayout(0, 0)) {
+) : JPanel(BorderLayout(COLUMN_GAP, 0)) {
+    private val presetList: List<AccentColor> = presets
+
     var selectedPreset: String? = null
         set(value) {
             field = value
@@ -52,7 +57,8 @@ class AccentColorPanel(
         }
 
     private val presetPanels: List<PresetComponent>
-    private val customTriggerPanel: CustomTriggerComponent
+    private val shadeNameLabel: ShadeNameLabel
+    private val customLink: CustomLink
     private val resetLabel: ResetLabel
     private val presetGrid: JPanel
 
@@ -60,7 +66,8 @@ class AccentColorPanel(
         isOpaque = false
 
         presetPanels = presets.map { PresetComponent(it) }
-        customTriggerPanel = CustomTriggerComponent()
+        shadeNameLabel = ShadeNameLabel()
+        customLink = CustomLink()
         resetLabel = ResetLabel()
 
         presetGrid = JPanel(GridLayout(GRID_ROWS, GRID_COLUMNS, GRID_GAP, GRID_GAP))
@@ -69,41 +76,52 @@ class AccentColorPanel(
             presetGrid.add(panel)
         }
 
+        val linksRow = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0))
+        linksRow.isOpaque = false
+        linksRow.add(customLink)
+        linksRow.add(Box.createHorizontalStrut(LINKS_GAP))
+        linksRow.add(resetLabel)
+
         val leftColumn = JPanel()
         leftColumn.layout = BoxLayout(leftColumn, BoxLayout.Y_AXIS)
         leftColumn.isOpaque = false
-        leftColumn.add(customTriggerPanel)
-        leftColumn.add(Box.createVerticalStrut(GRID_GAP))
+        leftColumn.add(shadeNameLabel)
+        leftColumn.add(Box.createVerticalStrut(LEFT_COLUMN_GAP))
+        leftColumn.add(linksRow)
 
-        val resetWrapper = JPanel(FlowLayout(FlowLayout.CENTER, 0, 0))
-        resetWrapper.isOpaque = false
-        resetWrapper.add(resetLabel)
-        leftColumn.add(resetWrapper)
-
-        val separator = SeparatorLine()
-
-        val leftWithSeparator = JPanel(BorderLayout(SEPARATOR_GAP, 0))
-        leftWithSeparator.isOpaque = false
-        leftWithSeparator.add(leftColumn, BorderLayout.CENTER)
-        leftWithSeparator.add(separator, BorderLayout.EAST)
-
-        add(leftWithSeparator, BorderLayout.WEST)
-        add(Box.createHorizontalStrut(SEPARATOR_GAP), BorderLayout.CENTER)
-        add(presetGrid, BorderLayout.EAST)
+        add(leftColumn, BorderLayout.WEST)
+        add(presetGrid, BorderLayout.CENTER)
     }
 
-    override fun doLayout() {
-        val gridHeight = PANEL_HEIGHT * GRID_ROWS + GRID_GAP
-        val triggerHeight = gridHeight
-        customTriggerPanel.preferredSize = Dimension(customTriggerPanel.preferredSize.width, triggerHeight)
-        super.doLayout()
+    private fun getSelectedAccentHex(): String? = selectedPreset ?: customColor
+
+    private fun getSelectedShadeName(): String {
+        val presetHex = selectedPreset
+        if (presetHex != null) {
+            val preset = presetList.firstOrNull { it.hex.equals(presetHex, ignoreCase = true) }
+            return preset?.name ?: presetHex
+        }
+        val custom = customColor
+        if (custom != null) return custom.uppercase()
+        return ""
     }
+
+    private fun resolveEditorFontFamily(): String =
+        try {
+            EditorColorsManager
+                .getInstance()
+                .globalScheme
+                .fontPreferences
+                .fontFamily
+        } catch (_: Exception) {
+            Font.MONOSPACED
+        }
 
     private inner class PresetComponent(
         private val accent: AccentColor,
     ) : JComponent() {
         init {
-            preferredSize = Dimension(PRESET_WIDTH, PANEL_HEIGHT)
+            preferredSize = Dimension(0, PANEL_HEIGHT)
             toolTipText = accent.name
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
             addMouseListener(
@@ -135,13 +153,14 @@ class AccentColorPanel(
 
                 val color = Color.decode(accent.hex)
                 val isSelected = accent.hex.equals(selectedPreset, ignoreCase = true)
+                val borderColor = Color(BORDER_RGB)
 
                 val shape =
                     RoundRectangle2D.Float(
-                        0f,
-                        0f,
-                        width.toFloat(),
-                        height.toFloat(),
+                        BORDER_INSET,
+                        BORDER_INSET,
+                        width.toFloat() - BORDER_INSET * 2,
+                        height.toFloat() - BORDER_INSET * 2,
                         PANEL_ARC,
                         PANEL_ARC,
                     )
@@ -154,108 +173,64 @@ class AccentColorPanel(
                 }
 
                 if (isSelected) {
-                    drawCheckmark(g2, color, width, height)
+                    g2.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, SELECTED_OVERLAY_ALPHA)
+                    g2.color = borderColor
+                    g2.fill(shape)
+                    g2.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 1f)
                 }
+
+                g2.color = borderColor
+                g2.stroke = BasicStroke(1f)
+                g2.draw(shape)
             } finally {
                 g2.dispose()
             }
         }
     }
 
-    private inner class CustomTriggerComponent : JComponent() {
+    private inner class ShadeNameLabel : JComponent() {
         init {
-            preferredSize = Dimension(PRESET_WIDTH, PANEL_HEIGHT * GRID_ROWS + GRID_GAP)
-            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            toolTipText = "Custom color"
-            addMouseListener(
-                object : MouseAdapter() {
-                    override fun mouseClicked(event: MouseEvent) {
-                        if (!isEnabled) return
-                        onCustomTrigger()
-                    }
-                },
-            )
-        }
-
-        override fun setEnabled(enabled: Boolean) {
-            super.setEnabled(enabled)
-            cursor =
-                if (enabled) {
-                    Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-                } else {
-                    Cursor.getDefaultCursor()
-                }
-            repaint()
+            preferredSize = Dimension(LEFT_COLUMN_WIDTH, PANEL_HEIGHT)
         }
 
         override fun paintComponent(graphics: Graphics) {
+            val shadeName = getSelectedShadeName()
+            if (shadeName.isEmpty()) return
+
+            val accentHex = getSelectedAccentHex() ?: return
+
             val g2 = graphics.create() as Graphics2D
             try {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
 
-                val shape =
-                    RoundRectangle2D.Float(
-                        0f,
-                        0f,
-                        width.toFloat(),
-                        height.toFloat(),
-                        PANEL_ARC,
-                        PANEL_ARC,
-                    )
+                val accentColor = Color.decode(accentHex)
+                val editorFamily = resolveEditorFontFamily()
+                g2.font = Font(editorFamily, Font.ITALIC, SPECIMEN_FONT_SIZE)
+                g2.color = accentColor
 
-                val currentCustom = customColor
-                val isCustomActive = currentCustom != null && selectedPreset == null
-
-                if (isCustomActive) {
-                    val color = Color.decode(currentCustom)
-                    g2.color = color
-                    g2.fill(shape)
-
-                    if (!isEnabled) {
-                        paintDisabledOverlay(g2, shape)
-                    }
-
-                    drawCheckmark(g2, color, width, height)
-                } else {
-                    val borderColor =
-                        UIManager.getColor("Component.borderColor")
-                            ?: UIManager.getColor("Separator.foreground")
-                            ?: Color.GRAY
-                    g2.color = borderColor
-                    g2.stroke = BasicStroke(1f)
-                    g2.draw(shape)
-
-                    if (!isEnabled) {
-                        paintDisabledOverlay(g2, shape)
-                    }
-
-                    val foreground =
-                        UIManager.getColor("Label.foreground") ?: Color.GRAY
-                    g2.color = foreground
-                    g2.font = g2.font.deriveFont(Font.PLAIN, PLUS_FONT_SIZE)
-                    val metrics = g2.fontMetrics
-                    val plusText = "+"
-                    val textX = (width - metrics.stringWidth(plusText)) / 2
-                    val textY = (height - metrics.height) / 2 + metrics.ascent
-                    g2.drawString(plusText, textX, textY)
-                }
+                val metrics = g2.fontMetrics
+                val textY = (height - metrics.height) / 2 + metrics.ascent
+                g2.drawString(shadeName, 0, textY)
             } finally {
                 g2.dispose()
             }
         }
     }
 
-    private inner class ResetLabel : JComponent() {
+    private abstract inner class LinkLabel(
+        private val text: String,
+        private val onClick: () -> Unit,
+    ) : JComponent() {
         private var isHovered = false
 
         init {
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            preferredSize = Dimension(PRESET_WIDTH, PANEL_HEIGHT)
             addMouseListener(
                 object : MouseAdapter() {
                     override fun mouseClicked(event: MouseEvent) {
                         if (!isEnabled) return
-                        onReset()
+                        onClick()
                     }
 
                     override fun mouseEntered(event: MouseEvent) {
@@ -282,30 +257,32 @@ class AccentColorPanel(
             repaint()
         }
 
+        override fun getPreferredSize(): Dimension {
+            val metrics = getFontMetrics(font.deriveFont(Font.PLAIN, LINK_FONT_SIZE))
+            return Dimension(metrics.stringWidth(text) + 1, PANEL_HEIGHT)
+        }
+
         override fun paintComponent(graphics: Graphics) {
             val g2 = graphics.create() as Graphics2D
             try {
                 g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
 
-                val linkColor =
-                    JBUI.CurrentTheme.Link.Foreground.ENABLED
+                val linkColor = JBUI.CurrentTheme.Link.Foreground.ENABLED
                 g2.color =
                     if (isEnabled) {
                         linkColor
                     } else {
                         UIManager.getColor("Label.disabledForeground") ?: Color.GRAY
                     }
-                g2.font = g2.font.deriveFont(Font.PLAIN, RESET_FONT_SIZE)
+                g2.font = g2.font.deriveFont(Font.PLAIN, LINK_FONT_SIZE)
 
                 val metrics = g2.fontMetrics
-                val resetText = "Reset"
-                val textX = (width - metrics.stringWidth(resetText)) / 2
                 val textY = (height - metrics.height) / 2 + metrics.ascent
-                g2.drawString(resetText, textX, textY)
+                g2.drawString(text, 0, textY)
 
                 if (isHovered && isEnabled) {
                     val lineY = textY + 1
-                    g2.drawLine(textX, lineY, textX + metrics.stringWidth(resetText), lineY)
+                    g2.drawLine(0, lineY, metrics.stringWidth(text), lineY)
                 }
             } finally {
                 g2.dispose()
@@ -313,25 +290,9 @@ class AccentColorPanel(
         }
     }
 
-    private inner class SeparatorLine : JComponent() {
-        init {
-            preferredSize = Dimension(1, 0)
-        }
+    private inner class CustomLink : LinkLabel("Custom\u2026", onCustomTrigger)
 
-        override fun paintComponent(graphics: Graphics) {
-            val g2 = graphics.create() as Graphics2D
-            try {
-                val separatorColor =
-                    UIManager.getColor("Separator.foreground")
-                        ?: UIManager.getColor("Component.borderColor")
-                        ?: Color.GRAY
-                g2.color = separatorColor
-                g2.drawLine(0, 0, 0, height)
-            } finally {
-                g2.dispose()
-            }
-        }
-    }
+    private inner class ResetLabel : LinkLabel("Reset", onReset)
 
     private fun paintDisabledOverlay(
         g2: Graphics2D,
@@ -343,42 +304,21 @@ class AccentColorPanel(
         g2.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 1f)
     }
 
-    private fun drawCheckmark(
-        g2: Graphics2D,
-        background: Color,
-        componentWidth: Int,
-        componentHeight: Int,
-    ) {
-        val checkColor =
-            if (ColorUtil.isDark(background)) {
-                Color.WHITE
-            } else {
-                Color(DARK_TEXT_RGB)
-            }
-        g2.color = checkColor
-        g2.stroke = BasicStroke(CHECKMARK_STROKE, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
-
-        val centerX = componentWidth / 2
-        val centerY = componentHeight / 2
-        val size = CHECKMARK_SIZE
-
-        g2.drawLine(centerX - size, centerY, centerX - 1, centerY + size)
-        g2.drawLine(centerX - 1, centerY + size, centerX + size, centerY - size + 1)
-    }
-
     companion object {
-        private const val PANEL_HEIGHT = 28
-        private const val PRESET_WIDTH = 56
+        private const val PANEL_HEIGHT = 26
         private const val PANEL_ARC = 8f
-        private const val GRID_GAP = 6
+        private const val GRID_GAP = 2
+        private const val LEFT_COLUMN_GAP = 4
+        private const val LINKS_GAP = 12
+        private const val COLUMN_GAP = 16
+        private const val LEFT_COLUMN_WIDTH = 120
         private const val GRID_ROWS = 2
         private const val GRID_COLUMNS = 6
-        private const val SEPARATOR_GAP = 12
-        private const val CHECKMARK_STROKE = 2f
-        private const val CHECKMARK_SIZE = 4
-        private const val DARK_TEXT_RGB = 0x1F2430
+        private const val SPECIMEN_FONT_SIZE = 15
+        private const val BORDER_RGB = 0x4E5A6E
+        private const val BORDER_INSET = 0.5f
+        private const val SELECTED_OVERLAY_ALPHA = 0.55f
         private const val DISABLED_OVERLAY_ALPHA = 0.45f
-        private const val PLUS_FONT_SIZE = 16f
-        private const val RESET_FONT_SIZE = 12f
+        private const val LINK_FONT_SIZE = 12f
     }
 }
