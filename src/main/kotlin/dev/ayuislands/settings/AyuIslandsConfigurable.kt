@@ -84,7 +84,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                                 Messages.getWarningIcon(),
                             )
                         if (result == Messages.YES) {
-                            resetAllSettings(variant)
+                            resetAllSettings()
                         }
                     }
                 }
@@ -153,8 +153,8 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         return ImageIcon(scaledImage)
     }
 
-    private fun resetAllSettings(variant: AyuVariant) {
-        accentPanel.resetToDefault(variant)
+    private fun resetAllSettings() {
+        accentPanel.resetToDefault()
         elementsPanel.reset()
         fontPresetPanel.reset()
         effectsPanel.reset()

@@ -1,6 +1,7 @@
 package dev.ayuislands.settings
 
 import com.intellij.openapi.util.SystemInfo
+import com.intellij.ui.ColorPicker
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
@@ -8,13 +9,15 @@ import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.SystemAccentProvider
+import java.awt.Color
 
 /** Accent color section for the Ayu Islands settings panel. */
 class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
     private var variant: AyuVariant? = null
     private var pendingAccent: String = ""
     private var storedAccent: String = ""
-    private var swatchPanel: ColorSwatchPanel? = null
+    private var pendingCustomColor: String? = null
+    private var accentPanel: AccentColorPanel? = null
     var onAccentChanged: ((String) -> Unit)? = null
 
     private var pendingFollowSystem: Boolean = false
@@ -32,22 +35,24 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         storedFollowSystem = settings.state.followSystemAccent
         pendingFollowSystem = storedFollowSystem
 
-        val swatch =
-            ColorSwatchPanel(AYU_ACCENT_PRESETS) { accent ->
-                pendingAccent = accent.hex
-                onAccentChanged?.invoke(accent.hex)
-            }
-        swatch.selectedColor = storedAccent
-        swatchPanel = swatch
+        val colorPanel =
+            AccentColorPanel(
+                presets = AYU_ACCENT_PRESETS,
+                onPresetSelected = { accent ->
+                    pendingAccent = accent.hex
+                    accentPanel?.selectedPreset = accent.hex
+                    onAccentChanged?.invoke(accent.hex)
+                },
+                onCustomTrigger = { handleCustomTrigger() },
+                onReset = { handleReset() },
+            )
+        accentPanel = colorPanel
+
+        applyInitialSelection(colorPanel, storedAccent)
 
         panel.group("Accent Color") {
             row {
                 comment("Choose your accent color. Swatches are shared across all variants.")
-                link("Reset") {
-                    pendingAccent = variant.defaultAccent
-                    swatch.selectedColor = variant.defaultAccent
-                    onAccentChanged?.invoke(variant.defaultAccent)
-                }
             }
             if (SystemInfo.isMac) {
                 row {
@@ -57,26 +62,91 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                     checkbox.isSelected = pendingFollowSystem
                     checkbox.addActionListener {
                         pendingFollowSystem = checkbox.isSelected
-                        updateSwatchEnabled()
+                        updatePanelEnabled()
                         if (pendingFollowSystem) {
                             SystemAccentProvider.resolve()?.let { hex ->
-                                swatch.selectedColor = hex
+                                applyInitialSelection(colorPanel, hex)
                                 onAccentChanged?.invoke(hex)
                             }
                         } else {
                             val manualAccent = getManualAccent(variant, settings)
-                            swatch.selectedColor = manualAccent
                             pendingAccent = manualAccent
+                            applyInitialSelection(colorPanel, manualAccent)
                             onAccentChanged?.invoke(manualAccent)
                         }
                     }
                     followSystemCheckbox = checkbox
                 }
             }
-            row { cell(swatch).resizableColumn().align(Align.FILL) }
+            row { cell(colorPanel).resizableColumn().align(Align.FILL) }
         }
 
-        updateSwatchEnabled()
+        updatePanelEnabled()
+    }
+
+    private fun handleCustomTrigger() {
+        val panel = accentPanel ?: return
+        val existingCustom = pendingCustomColor
+
+        if (existingCustom != null && selectedPreset != null) {
+            pendingAccent = existingCustom
+            panel.selectedPreset = null
+            panel.customColor = existingCustom
+            onAccentChanged?.invoke(existingCustom)
+            return
+        }
+
+        val parent = panel.topLevelAncestor ?: panel
+        val chosen =
+            ColorPicker.showDialog(
+                parent,
+                "Choose Accent Color",
+                null,
+                true,
+                emptyList(),
+                false,
+            )
+        if (chosen != null) {
+            val hex = colorToHex(chosen)
+            pendingAccent = hex
+            pendingCustomColor = hex
+            panel.customColor = hex
+            panel.selectedPreset = null
+            onAccentChanged?.invoke(hex)
+        }
+    }
+
+    private fun handleReset() {
+        val panel = accentPanel ?: return
+        pendingAccent = ""
+        pendingCustomColor = null
+        panel.selectedPreset = null
+        panel.customColor = null
+        onAccentChanged?.invoke("")
+    }
+
+    private val selectedPreset: String?
+        get() = accentPanel?.selectedPreset
+
+    private fun applyInitialSelection(
+        colorPanel: AccentColorPanel,
+        accent: String,
+    ) {
+        if (accent.isEmpty()) {
+            colorPanel.selectedPreset = null
+            colorPanel.customColor = null
+            pendingCustomColor = null
+            return
+        }
+
+        val matchesPreset = AYU_ACCENT_PRESETS.any { it.hex.equals(accent, ignoreCase = true) }
+        if (matchesPreset) {
+            colorPanel.selectedPreset = accent
+        } else {
+            colorPanel.selectedPreset = null
+            colorPanel.customColor = accent
+            pendingCustomColor = accent
+        }
     }
 
     private fun getManualAccent(
@@ -89,17 +159,19 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
             AyuVariant.LIGHT -> settings.state.lightAccent ?: variant.defaultAccent
         }
 
-    private fun updateSwatchEnabled() {
+    private fun updatePanelEnabled() {
         val following = pendingFollowSystem
-        swatchPanel?.let { panel ->
+        accentPanel?.let { panel ->
             panel.components.forEach { it.isEnabled = !following }
         }
     }
 
-    fun resetToDefault(variant: AyuVariant) {
-        pendingAccent = variant.defaultAccent
-        swatchPanel?.selectedColor = variant.defaultAccent
-        onAccentChanged?.invoke(variant.defaultAccent)
+    fun resetToDefault() {
+        pendingAccent = ""
+        pendingCustomColor = null
+        accentPanel?.selectedPreset = null
+        accentPanel?.customColor = null
+        onAccentChanged?.invoke("")
     }
 
     override fun isModified(): Boolean =
@@ -124,15 +196,24 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                 pendingAccent
             }
 
-        AccentApplicator.apply(effectiveAccent)
+        if (effectiveAccent.isEmpty()) {
+            settings.setAccentForVariant(currentVariant, "")
+            AccentApplicator.revertAll()
+        } else {
+            AccentApplicator.apply(effectiveAccent)
+        }
         storedAccent = effectiveAccent
     }
 
     override fun reset() {
         pendingAccent = storedAccent
         pendingFollowSystem = storedFollowSystem
-        swatchPanel?.selectedColor = storedAccent
         followSystemCheckbox?.isSelected = storedFollowSystem
-        updateSwatchEnabled()
+        accentPanel?.let { applyInitialSelection(it, storedAccent) }
+        updatePanelEnabled()
+    }
+
+    companion object {
+        private fun colorToHex(color: Color): String = "#%02X%02X%02X".format(color.red, color.green, color.blue)
     }
 }
