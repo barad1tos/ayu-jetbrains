@@ -27,7 +27,7 @@ class AyuIslandsState : BaseState() {
     var links by property(true)
     var bracketMatch by property(true)
     var searchResults by property(true)
-    var checkboxes by property(true)
+    var matchingTag by property(true)
 
     // Glow effect
     var glowEnabled by property(false)
@@ -93,6 +93,15 @@ class AyuIslandsState : BaseState() {
     // IR version that failed reflection (suppresses repeated notifications)
     var irFailedVersion by string(null)
 
+    // Font preset
+    var fontPresetEnabled by property(false)
+    var fontPresetName by string("AMBIENT")
+    var fontApplyToConsole by property(false)
+    var fontInstallTerminal by string("BUILTIN")
+
+    // Per-preset custom settings: key = preset name, value = "size|spacing|ligatures|weight"
+    var fontPresetCustomizations by map<String, String>()
+
     // Settings tab selection (persisted across settings opens)
     var settingsSelectedTab by property(0)
 
@@ -108,7 +117,7 @@ class AyuIslandsState : BaseState() {
             AccentElementId.LINKS -> links
             AccentElementId.BRACKET_MATCH -> bracketMatch
             AccentElementId.SEARCH_RESULTS -> searchResults
-            AccentElementId.CHECKBOXES -> checkboxes
+            AccentElementId.MATCHING_TAG -> matchingTag
         }
 
     fun setToggle(
@@ -123,7 +132,7 @@ class AyuIslandsState : BaseState() {
             AccentElementId.LINKS -> links = enabled
             AccentElementId.BRACKET_MATCH -> bracketMatch = enabled
             AccentElementId.SEARCH_RESULTS -> searchResults = enabled
-            AccentElementId.CHECKBOXES -> checkboxes = enabled
+            AccentElementId.MATCHING_TAG -> matchingTag = enabled
         }
     }
 

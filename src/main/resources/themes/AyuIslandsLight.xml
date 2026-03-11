@@ -16,23 +16,23 @@
         <option name="INDENT_GUIDE" value="828E9F2E" />
         <option name="SELECTED_INDENT_GUIDE" value="828E9F59" />
         <option name="VISUAL_INDENT_GUIDE" value="828E9F2E" />
-        <option name="RIGHT_MARGIN_COLOR" value="E8E7E3" />
-        <option name="WHITESPACES" value="D9D7CE" />
-        <option name="WHITESPACES_MODIFIED_LINES_COLOR" value="E7E0C8" />
-        <option name="MATCHED_BRACES_INDENT_GUIDE_COLOR" value="D9D7CE" />
-        <option name="METHOD_SEPARATORS_COLOR" value="E8E7E3" />
-        <option name="TEARLINE_COLOR" value="EBEEF0" />
+        <option name="RIGHT_MARGIN_COLOR" value="E6E8E9" />
+        <option name="WHITESPACES" value="D6D9DC" />
+        <option name="WHITESPACES_MODIFIED_LINES_COLOR" value="ECEDEE" />
+        <option name="MATCHED_BRACES_INDENT_GUIDE_COLOR" value="D6D9DC" />
+        <option name="METHOD_SEPARATORS_COLOR" value="E6E8E9" />
+        <option name="TEARLINE_COLOR" value="EBECED" />
 
         <!-- Selection & hover -->
         <option name="SELECTION_BACKGROUND" value="035BD626" />
         <option name="INACTIVE_SELECTION_BACKGROUND" value="035BD612" />
         <option name="SELECTED_BACKGROUND" value="035BD626" />
         <option name="SELECTED_FOREGROUND" value="5C6166" />
-        <option name="HOVER_BACKGROUND" value="E8E7E3" />
+        <option name="HOVER_BACKGROUND" value="E6E8E9" />
         <option name="SEARCH_RESULT_BACKGROUND" value="FFE294" />
         <option name="TEXT_SEARCH_RESULT_BACKGROUND" value="FFE294" />
         <option name="IDENTIFIER_UNDER_CARET_BACKGROUND" value="FFE29480" />
-        <option name="MATCHED_BRACE_BACKGROUND" value="E8E7E3" />
+        <option name="MATCHED_BRACE_BACKGROUND" value="E6E8E9" />
         <option name="MATCHED_TEXT" value="F29718" />
 
         <!-- Surfaces -->
@@ -47,10 +47,10 @@
         <option name="AUTOCOMPLETE_BACKGROUND" value="FCFCFC" />
         <option name="INFORMATION_HINT" value="FCFCFC" />
         <option name="LOOKUP_COLOR" value="FCFCFC" />
-        <option name="FOLDED_TEXT_BACKGROUND" value="F2F1ED" />
-        <option name="FOLDED_TEXT_BORDER_COLOR" value="EBEEF0" />
-        <option name="INPUT_BACKGROUND" value="F2F1ED" />
-        <option name="COMBOBOX_BACKGROUND" value="F2F1ED" />
+        <option name="FOLDED_TEXT_BACKGROUND" value="F0F1F2" />
+        <option name="FOLDED_TEXT_BORDER_COLOR" value="EBECED" />
+        <option name="INPUT_BACKGROUND" value="F0F1F2" />
+        <option name="COMBOBOX_BACKGROUND" value="F0F1F2" />
 
         <!-- Foregrounds -->
         <option name="ACTIVITY_BAR_FOREGROUND" value="828E9F" />
@@ -94,7 +94,7 @@
         <option name="FILESTATUS_DELETED" value="F07171" />
         <option name="FILESTATUS_HIJACKED" value="FA8532" />
         <option name="FILESTATUS_IDEA_FILESTATUS_DELETED_FROM_FILE_SYSTEM" value="F07171" />
-        <option name="FILESTATUS_IDEA_FILESTATUS_IGNORED" value="A5A198" />
+        <option name="FILESTATUS_IDEA_FILESTATUS_IGNORED" value="9EA3A9" />
         <option name="FILESTATUS_IDEA_FILESTATUS_MERGED_WITH_BOTH_CONFLICTS" value="FF7383" />
         <option name="FILESTATUS_IDEA_FILESTATUS_MERGED_WITH_CONFLICTS" value="FF7383" />
         <option name="FILESTATUS_IDEA_FILESTATUS_MERGED_WITH_PROPERTY_CONFLICTS" value="FF7383" />
@@ -105,7 +105,7 @@
         <option name="FILESTATUS_NOT_CHANGED_RECURSIVE" value="478ACC" />
         <option name="FILESTATUS_OBSOLETE" value="FA8532" />
         <option name="FILESTATUS_RENAMED" value="478ACC" />
-        <option name="FILESTATUS_SUPPRESSED" value="A5A198" />
+        <option name="FILESTATUS_SUPPRESSED" value="9EA3A9" />
         <option name="FILESTATUS_SWITCHED" value="F07171" />
         <option name="FILESTATUS_UNKNOWN" value="F07171" />
         <option name="FILESTATUS_addedOutside" value="86B300" />
@@ -117,21 +117,21 @@
         <option name="DIFF_DELETED" value="FF7383" />
         <option name="DIFF_INSERTED" value="6CBF43" />
         <option name="DIFF_MODIFIED" value="478ACC" />
-        <option name="DIFF_SEPARATORS_BACKGROUND" value="EBEEF0" />
+        <option name="DIFF_SEPARATORS_BACKGROUND" value="EBECED" />
 
         <!-- Borders & misc -->
-        <option name="SEPARATOR_ABOVE_COLOR" value="E8E7E3" />
-        <option name="SEPARATOR_BELOW_COLOR" value="E8E7E3" />
-        <option name="HINT_BORDER" value="D9D7CE" />
+        <option name="SEPARATOR_ABOVE_COLOR" value="E6E8E9" />
+        <option name="SEPARATOR_BELOW_COLOR" value="E6E8E9" />
+        <option name="HINT_BORDER" value="D6D9DC" />
         <option name="DOC_COMMENT_GUIDE" value="D0E8D0" />
         <option name="DOC_COMMENT_LINK" value="55B4D4" />
-        <option name="INLINE_REFACTORING_SETTINGS_DEFAULT" value="D9D7CE" />
-        <option name="INLINE_REFACTORING_SETTINGS_FOCUSED" value="D9D7CE" />
-        <option name="INLINE_REFACTORING_SETTINGS_HOVERED" value="D9D7CE" />
+        <option name="INLINE_REFACTORING_SETTINGS_DEFAULT" value="D6D9DC" />
+        <option name="INLINE_REFACTORING_SETTINGS_FOCUSED" value="D6D9DC" />
+        <option name="INLINE_REFACTORING_SETTINGS_HOVERED" value="D6D9DC" />
         <option name="NOTIFICATION_BACKGROUND" value="D6E6F5" />
         <option name="PROMOTION_PANE" value="D6E6F5" />
         <option name="QUESTION_HINT" value="D6E6F5" />
-        <option name="RECENT_LOCATIONS_SELECTION" value="EBEEF0" />
+        <option name="RECENT_LOCATIONS_SELECTION" value="EBECED" />
 
         <!-- Scrollbar (Mac) -->
         <option name="SCROLLBAR_THUMB" value="828E9F" />
@@ -700,7 +700,7 @@
         </option>
         <option name="DEFAULT_HIGHLIGHTED_REFERENCE">
             <value>
-                <option name="EFFECT_COLOR" value="A5A198" />
+                <option name="EFFECT_COLOR" value="9EA3A9" />
                 <option name="EFFECT_TYPE" value="1" />
             </value>
         </option>
@@ -820,7 +820,7 @@
         </option>
         <option name="DEFAULT_TEMPLATE_LANGUAGE_COLOR">
             <value>
-                <option name="BACKGROUND" value="EBEEF0" />
+                <option name="BACKGROUND" value="EBECED" />
             </value>
         </option>
         <option name="DEFAULT_VALID_STRING_ESCAPE">
@@ -895,14 +895,14 @@
         <option name="DOC_CODE_BLOCK">
             <value>
                 <option name="FOREGROUND" value="5C6166" />
-                <option name="BACKGROUND" value="F2F1ED" />
-                <option name="EFFECT_COLOR" value="D9D7CE" />
+                <option name="BACKGROUND" value="F0F1F2" />
+                <option name="EFFECT_COLOR" value="D6D9DC" />
             </value>
         </option>
         <option name="DOC_CODE_INLINE">
             <value>
                 <option name="FOREGROUND" value="5C6166" />
-                <option name="BACKGROUND" value="E2E1DC" />
+                <option name="BACKGROUND" value="E0E2E4" />
             </value>
         </option>
         <option name="DOC_TIPS_SHORTCUT">
@@ -953,7 +953,7 @@
         <option name="FOLDED_TEXT_ATTRIBUTES">
             <value>
                 <option name="FOREGROUND" value="828E9F" />
-                <option name="BACKGROUND" value="F2F1ED" />
+                <option name="BACKGROUND" value="F0F1F2" />
             </value>
         </option>
 
@@ -1364,7 +1364,7 @@
         <!-- Injected language -->
         <option name="INJECTED_LANGUAGE_FRAGMENT">
             <value>
-                <option name="BACKGROUND" value="F2F1ED" />
+                <option name="BACKGROUND" value="F0F1F2" />
             </value>
         </option>
 
@@ -1372,30 +1372,30 @@
         <option name="INLAY_DEFAULT">
             <value>
                 <option name="FOREGROUND" value="828E9F" />
-                <option name="BACKGROUND" value="E8E7E3" />
+                <option name="BACKGROUND" value="E6E8E9" />
             </value>
         </option>
         <option name="INLAY_TEXT_WITHOUT_BACKGROUND">
             <value>
-                <option name="FOREGROUND" value="A5A198" />
+                <option name="FOREGROUND" value="9EA3A9" />
             </value>
         </option>
         <option name="INLINE_PARAMETER_HINT">
             <value>
                 <option name="FOREGROUND" value="828E9F" />
-                <option name="BACKGROUND" value="E8E7E3" />
+                <option name="BACKGROUND" value="E6E8E9" />
             </value>
         </option>
         <option name="INLINE_PARAMETER_HINT_CURRENT">
             <value>
                 <option name="FOREGROUND" value="5C6166" />
-                <option name="BACKGROUND" value="F2F1ED" />
+                <option name="BACKGROUND" value="F0F1F2" />
             </value>
         </option>
         <option name="INLINE_PARAMETER_HINT_HIGHLIGHTED">
             <value>
                 <option name="FOREGROUND" value="5C6166" />
-                <option name="BACKGROUND" value="D9D7CE" />
+                <option name="BACKGROUND" value="D6D9DC" />
             </value>
         </option>
 
@@ -1822,7 +1822,7 @@
         <option name="KOTLIN_LINE_COMMENT" baseAttributes="DEFAULT_LINE_COMMENT" />
         <option name="KOTLIN_MUTABLE_VARIABLE">
             <value>
-                <option name="EFFECT_COLOR" value="A5A198" />
+                <option name="EFFECT_COLOR" value="9EA3A9" />
                 <option name="EFFECT_TYPE" value="1" />
             </value>
         </option>
@@ -1956,7 +1956,7 @@
         </option>
         <option name="MARKDOWN_CODE_BLOCK">
             <value>
-                <option name="BACKGROUND" value="F2F1ED" />
+                <option name="BACKGROUND" value="F0F1F2" />
             </value>
         </option>
         <option name="MARKDOWN_HEADER_LEVEL_1">
@@ -2304,7 +2304,7 @@
         <!-- Qute -->
         <option name="QUTE_BACKGROUND">
             <value>
-                <option name="BACKGROUND" value="F2F1ED" />
+                <option name="BACKGROUND" value="F0F1F2" />
             </value>
         </option>
 
@@ -2350,7 +2350,7 @@
         </option>
         <option name="REGEXP.REDUNDANT_ESCAPE">
             <value>
-                <option name="FOREGROUND" value="A5A198" />
+                <option name="FOREGROUND" value="9EA3A9" />
                 <option name="FONT_TYPE" value="1" />
             </value>
         </option>
@@ -3144,8 +3144,8 @@
         </option>
         <option name="Unresolved reference access">
             <value>
-                <option name="FOREGROUND" value="A5A198" />
-                <option name="EFFECT_COLOR" value="A5A198" />
+                <option name="FOREGROUND" value="9EA3A9" />
+                <option name="EFFECT_COLOR" value="9EA3A9" />
                 <option name="EFFECT_TYPE" value="5" />
             </value>
         </option>

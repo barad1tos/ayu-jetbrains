@@ -566,10 +566,8 @@ class AccentApplicatorTest {
         val accent = Color.decode("#FFCC66")
         invokePrivate("applyAlwaysOnEditorKeys", accent)
 
-        // The attributes should be cloned (not the same reference)
-        val capturedAttrs = mutableListOf<TextAttributes>()
-        verify { mockScheme.setAttributes(any(), capture(capturedAttrs)) }
-        assertTrue(capturedAttrs.isNotEmpty(), "setAttributes should have been called")
+        // Verify that setAttributes was called with cloned attributes
+        verify(atLeast = 1) { mockScheme.setAttributes(any(), any()) }
     }
 
     @Test
@@ -890,7 +888,7 @@ class AccentApplicatorTest {
 
         AccentApplicator.apply("#FFCC66")
 
-        // If on EDT, work runs synchronously so UIManager.put should be called
+        // If on EDT, work runs synchronously, so UIManager.put should be called.
         verify(atLeast = 1) { UIManager.put(any<String>(), any()) }
     }
 
@@ -1036,16 +1034,16 @@ class AccentApplicatorTest {
     @Test
     fun `applyElements with conflict and no force override neutralizes`() {
         val mockElement = mockk<AccentElement>(relaxed = true)
-        every { mockElement.id } returns AccentElementId.CHECKBOXES
-        every { mockElement.displayName } returns "Checkboxes"
+        every { mockElement.id } returns AccentElementId.MATCHING_TAG
+        every { mockElement.displayName } returns "Matching Tag"
         val conflict =
             ConflictEntry(
                 pluginDisplayName = "Atom Material Icons",
                 pluginId = "com.mallowigi",
-                affectedElements = setOf(AccentElementId.CHECKBOXES),
+                affectedElements = setOf(AccentElementId.MATCHING_TAG),
                 type = ConflictType.BLOCK,
             )
-        every { ConflictRegistry.getConflictFor(AccentElementId.CHECKBOXES) } returns conflict
+        every { ConflictRegistry.getConflictFor(AccentElementId.MATCHING_TAG) } returns conflict
         mockEpExtensionList(listOf(mockElement))
 
         val accent = Color.decode("#FFCC66")
@@ -1058,17 +1056,17 @@ class AccentApplicatorTest {
     @Test
     fun `applyElements with conflict and force override applies anyway`() {
         val mockElement = mockk<AccentElement>(relaxed = true)
-        every { mockElement.id } returns AccentElementId.CHECKBOXES
-        every { mockElement.displayName } returns "Checkboxes"
+        every { mockElement.id } returns AccentElementId.MATCHING_TAG
+        every { mockElement.displayName } returns "Matching Tag"
         val conflict =
             ConflictEntry(
                 pluginDisplayName = "Atom Material Icons",
                 pluginId = "com.mallowigi",
-                affectedElements = setOf(AccentElementId.CHECKBOXES),
+                affectedElements = setOf(AccentElementId.MATCHING_TAG),
                 type = ConflictType.BLOCK,
             )
-        every { ConflictRegistry.getConflictFor(AccentElementId.CHECKBOXES) } returns conflict
-        state.forceOverrides = mutableSetOf(AccentElementId.CHECKBOXES.name)
+        every { ConflictRegistry.getConflictFor(AccentElementId.MATCHING_TAG) } returns conflict
+        state.forceOverrides = mutableSetOf(AccentElementId.MATCHING_TAG.name)
         mockEpExtensionList(listOf(mockElement))
 
         val accent = Color.decode("#FFCC66")
@@ -1138,8 +1136,8 @@ class AccentApplicatorTest {
         invokePrivate("syncCodeGlanceProViewport", "#FFCC66")
 
         verify { mockGetState.invoke(mockService) }
-        verify { mockSetColor.invoke(mockConfig, "FFCC66") }
-        verify { mockSetBorderColor.invoke(mockConfig, "FFCC66") }
+        verify { mockSetColor.invoke(mockConfig, ACCENT_HEX_STRIPPED) }
+        verify { mockSetBorderColor.invoke(mockConfig, ACCENT_HEX_STRIPPED) }
         verify { mockSetBorderThickness.invoke(mockConfig, 1) }
     }
 
@@ -1251,28 +1249,17 @@ class AccentApplicatorTest {
     // Helpers
 
     /**
-     * Mocks `EP_NAME.extensionList` by reading the real EP_NAME instance and
-     * wrapping it with a `spyk`. Since the field is `static final` and can't be
-     * replaced, we instead mock the `getExtensionList` call at class level using
-     * `mockkClass` on `ExtensionPointName`.
-     *
-     * Uses `mockkStatic` on the `ExtensionPointName` Kotlin file to intercept
-     * the `extensionList` property getter.
+     * Mocks `EP_NAME.extensionList` by swapping the static final field with a mock.
+     * Since the field cannot be replaced via standard reflection on Java 21+,
+     * we use `sun.misc.Unsafe` to write to it directly.
      */
     @Suppress("UNCHECKED_CAST")
     private fun mockEpExtensionList(elements: List<AccentElement>) {
         val epField = AccentApplicator::class.java.getDeclaredField("EP_NAME")
         epField.isAccessible = true
-        // Use mockkClass to create a mock replacement, then use Unsafe to swap the field
         val mockEp = mockk<ExtensionPointName<AccentElement>>(relaxed = true)
         every { mockEp.extensionList } returns elements
-
-        // Use sun.misc.Unsafe to write to the static final field
-        val unsafe = sun.misc.Unsafe::class.java.getDeclaredField("theUnsafe")
-        unsafe.isAccessible = true
-        val unsafeInstance = unsafe.get(null) as sun.misc.Unsafe
-        val fieldOffset = unsafeInstance.staticFieldOffset(epField)
-        unsafeInstance.putObject(AccentApplicator::class.java, fieldOffset, mockEp)
+        unsafeWriteStaticField(epField, mockEp)
     }
 
     /**
@@ -1293,12 +1280,20 @@ class AccentApplicatorTest {
         val original = originalEpName ?: return
         val epField = AccentApplicator::class.java.getDeclaredField("EP_NAME")
         epField.isAccessible = true
-        val unsafe = sun.misc.Unsafe::class.java.getDeclaredField("theUnsafe")
-        unsafe.isAccessible = true
-        val unsafeInstance = unsafe.get(null) as sun.misc.Unsafe
-        val fieldOffset = unsafeInstance.staticFieldOffset(epField)
-        unsafeInstance.putObject(AccentApplicator::class.java, fieldOffset, original)
+        unsafeWriteStaticField(epField, original)
         originalEpName = null
+    }
+
+    @Suppress("DEPRECATION")
+    private fun unsafeWriteStaticField(
+        field: java.lang.reflect.Field,
+        value: Any?,
+    ) {
+        val unsafeField = sun.misc.Unsafe::class.java.getDeclaredField("theUnsafe")
+        unsafeField.isAccessible = true
+        val unsafe = unsafeField.get(null) as sun.misc.Unsafe
+        val offset = unsafe.staticFieldOffset(field)
+        unsafe.putObject(field.declaringClass, offset, value)
     }
 
     /**
@@ -1445,5 +1440,9 @@ class AccentApplicatorTest {
         val resolvedField = AccentApplicator::class.java.getDeclaredField("cgpMethodsResolved")
         resolvedField.isAccessible = true
         resolvedField.set(AccentApplicator, false)
+    }
+
+    companion object {
+        private const val ACCENT_HEX_STRIPPED = "FFCC66"
     }
 }

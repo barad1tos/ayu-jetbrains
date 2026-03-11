@@ -71,11 +71,11 @@ class GlowGlassPane(
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             g2.composite = AlphaComposite.SrcOver.derive(effectiveAlpha)
 
-            val arcRadius = UIManager.getInt("Island.arc").let { if (it > 0) it else DEFAULT_ARC_FALLBACK }
+            val arcWidth = UIManager.getInt("Island.arc").let { if (it > 0) it else DEFAULT_ARC_FALLBACK }
             val bounds = Rectangle(0, 0, width, height)
 
             renderer.ensureCache(glowColor, glowStyle, glowIntensity, glowWidth)
-            renderer.paintGlow(g2, bounds, glowWidth, arcRadius)
+            renderer.paintGlow(g2, bounds, glowWidth, arcWidth)
         } finally {
             g2.dispose()
         }

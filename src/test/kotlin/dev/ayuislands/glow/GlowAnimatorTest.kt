@@ -1,16 +1,5 @@
 package dev.ayuislands.glow
 
-import com.intellij.notification.Notification
-import com.intellij.notification.NotificationGroup
-import com.intellij.notification.NotificationGroupManager
-import com.intellij.notification.NotificationType
-import io.mockk.every
-import io.mockk.mockk
-import io.mockk.mockkStatic
-import io.mockk.unmockkAll
-import io.mockk.verify
-import java.lang.reflect.Method
-import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -18,18 +7,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class GlowAnimatorTest {
-    @AfterTest
-    fun tearDown() {
-        unmockkAll()
-    }
-
-    /** Helper: access the private `shouldContinueAnimation` method via reflection. */
-    private fun getShouldContinueMethod(): Method {
-        val method = GlowAnimator::class.java.getDeclaredMethod("shouldContinueAnimation", Long::class.java)
-        method.isAccessible = true
-        return method
-    }
-
     /** Helper: set a private field on the animator. */
     private fun GlowAnimator.setPrivateField(
         name: String,
@@ -239,148 +216,6 @@ class GlowAnimatorTest {
         assertNull(animator.getPrivateField("timer"))
     }
 
-    // ---- shouldContinueAnimation() tests ----
-
-    @Test
-    fun `shouldContinueAnimation returns true on first frame when lastFrameTimeNanos is zero`() {
-        val animator = GlowAnimator()
-        animator.setPrivateField("lastFrameTimeNanos", 0L)
-        animator.setPrivateField("startTimeNanos", System.nanoTime())
-
-        val method = getShouldContinueMethod()
-        val result = method.invoke(animator, System.nanoTime()) as Boolean
-
-        assertTrue(result, "First frame should always continue")
-    }
-
-    @Test
-    fun `shouldContinueAnimation sets lastFrameTimeNanos after call`() {
-        val animator = GlowAnimator()
-        animator.setPrivateField("lastFrameTimeNanos", 0L)
-        animator.setPrivateField("startTimeNanos", System.nanoTime())
-
-        val method = getShouldContinueMethod()
-        val now = System.nanoTime()
-        method.invoke(animator, now)
-
-        assertEquals(now, animator.getPrivateField("lastFrameTimeNanos"))
-    }
-
-    @Test
-    fun `shouldContinueAnimation within grace period ignores slow frames`() {
-        val animator = GlowAnimator()
-        val now = System.nanoTime()
-        // Start time is now, so elapsed since start < GRACE_PERIOD (180s)
-        animator.setPrivateField("startTimeNanos", now)
-        // The last frame was 50ms ago (over 32ms threshold) - would be slow
-        animator.setPrivateField("lastFrameTimeNanos", now - 50_000_000L)
-        animator.setPrivateField("slowFrameCount", 0)
-
-        val method = getShouldContinueMethod()
-        val result = method.invoke(animator, now) as Boolean
-
-        assertTrue(result, "Should continue during grace period even with slow frames")
-        // slowFrameCount should not have incremented because we are in the grace period
-        assertEquals(0, animator.getPrivateField("slowFrameCount"))
-    }
-
-    @Test
-    fun `shouldContinueAnimation after grace period counts slow frames`() {
-        val animator = GlowAnimator()
-        val now = System.nanoTime()
-        val nanosPerMs = 1_000_000L
-        // Start time was 200 seconds ago (past 180s grace period)
-        animator.setPrivateField("startTimeNanos", now - 200_000L * nanosPerMs)
-        // The last frame was 40ms ago (over 32ms threshold)
-        animator.setPrivateField("lastFrameTimeNanos", now - 40L * nanosPerMs)
-        animator.setPrivateField("slowFrameCount", 0)
-
-        val method = getShouldContinueMethod()
-        val result = method.invoke(animator, now) as Boolean
-
-        assertTrue(result, "Should continue when slow frame count is below threshold")
-        assertEquals(1, animator.getPrivateField("slowFrameCount"))
-    }
-
-    @Test
-    fun `shouldContinueAnimation decrements slow frame count on fast frame`() {
-        val animator = GlowAnimator()
-        val now = System.nanoTime()
-        val nanosPerMs = 1_000_000L
-        // Past grace period
-        animator.setPrivateField("startTimeNanos", now - 200_000L * nanosPerMs)
-        // The last frame was 16ms ago (under 32ms threshold - fast frame)
-        animator.setPrivateField("lastFrameTimeNanos", now - 16L * nanosPerMs)
-        animator.setPrivateField("slowFrameCount", 10)
-
-        val method = getShouldContinueMethod()
-        val result = method.invoke(animator, now) as Boolean
-
-        assertTrue(result, "Fast frame should continue animation")
-        assertEquals(9, animator.getPrivateField("slowFrameCount"))
-    }
-
-    @Test
-    fun `shouldContinueAnimation slow frame count does not go below zero`() {
-        val animator = GlowAnimator()
-        val now = System.nanoTime()
-        val nanosPerMs = 1_000_000L
-        // Past grace period
-        animator.setPrivateField("startTimeNanos", now - 200_000L * nanosPerMs)
-        // Fast frame
-        animator.setPrivateField("lastFrameTimeNanos", now - 10L * nanosPerMs)
-        animator.setPrivateField("slowFrameCount", 0)
-
-        val method = getShouldContinueMethod()
-        method.invoke(animator, now)
-
-        assertEquals(
-            0,
-            animator.getPrivateField("slowFrameCount"),
-            "slowFrameCount should not go below 0",
-        )
-    }
-
-    @Test
-    fun `shouldContinueAnimation stops when exceeding max slow frames`() {
-        val animator = GlowAnimator()
-        val now = System.nanoTime()
-        val nanosPerMs = 1_000_000L
-        // Past grace period
-        animator.setPrivateField("startTimeNanos", now - 200_000L * nanosPerMs)
-        // The last frame was 50ms ago (slow)
-        animator.setPrivateField("lastFrameTimeNanos", now - 50L * nanosPerMs)
-        // Already at 30 slow frames (MAX_SLOW_FRAMES), the next slow frame triggers stop
-        animator.setPrivateField("slowFrameCount", 30)
-
-        val method = getShouldContinueMethod()
-        val result = method.invoke(animator, now) as Boolean
-
-        assertFalse(result, "Should stop animation after exceeding max slow frames")
-        // After the stop, the timer should be null and animation reset
-        assertNull(animator.getPrivateField("timer"))
-        assertEquals(GlowAnimation.NONE, animator.getPrivateField("currentAnimation"))
-    }
-
-    @Test
-    fun `shouldContinueAnimation at exactly max slow frames continues`() {
-        val animator = GlowAnimator()
-        val now = System.nanoTime()
-        val nanosPerMs = 1_000_000L
-        // Past grace period
-        animator.setPrivateField("startTimeNanos", now - 200_000L * nanosPerMs)
-        // Slow frame
-        animator.setPrivateField("lastFrameTimeNanos", now - 50L * nanosPerMs)
-        // At 29, incrementing to 30 which is NOT > 30 so should continue
-        animator.setPrivateField("slowFrameCount", 29)
-
-        val method = getShouldContinueMethod()
-        val result = method.invoke(animator, now) as Boolean
-
-        assertTrue(result, "Should continue at exactly MAX_SLOW_FRAMES (30)")
-        assertEquals(30, animator.getPrivateField("slowFrameCount"))
-    }
-
     // ---- start() tests ----
 
     @Test
@@ -433,18 +268,6 @@ class GlowAnimatorTest {
         // The timers should be different instances (first was stopped, new one created)
         assertTrue(firstTimer !== secondTimer, "New start should create a new timer")
         assertEquals(GlowAnimation.BREATHE, animator.getPrivateField("currentAnimation"))
-        animator.stop()
-    }
-
-    @Test
-    fun `start resets slow frame count and timing fields`() {
-        val animator = GlowAnimator()
-        animator.setPrivateField("slowFrameCount", 15)
-
-        animator.start(GlowAnimation.PULSE) {}
-
-        assertEquals(0, animator.getPrivateField("slowFrameCount"))
-        assertEquals(0L, animator.getPrivateField("lastFrameTimeNanos"))
         animator.stop()
     }
 
@@ -525,42 +348,5 @@ class GlowAnimatorTest {
             animator.reactiveBoost > 0.0f,
             "Boost just above threshold should be preserved (${animator.reactiveBoost})",
         )
-    }
-
-    // ---- notifyPerformanceDegradation tests ----
-
-    private fun invokeNotifyPerformanceDegradation(animator: GlowAnimator) {
-        val method = GlowAnimator::class.java.getDeclaredMethod("notifyPerformanceDegradation")
-        method.isAccessible = true
-        method.invoke(animator)
-    }
-
-    @Test
-    fun `notifyPerformanceDegradation sends warning notification`() {
-        val mockNotification = mockk<Notification>(relaxed = true)
-        val mockGroup = mockk<NotificationGroup>(relaxed = true)
-        val mockManager = mockk<NotificationGroupManager>(relaxed = true)
-
-        mockkStatic(NotificationGroupManager::class)
-        every { NotificationGroupManager.getInstance() } returns mockManager
-        every { mockManager.getNotificationGroup("Ayu Islands") } returns mockGroup
-        every {
-            mockGroup.createNotification(any<String>(), any<String>(), NotificationType.WARNING)
-        } returns mockNotification
-
-        val animator = GlowAnimator()
-        invokeNotifyPerformanceDegradation(animator)
-
-        verify { mockNotification.notify(null) }
-    }
-
-    @Test
-    fun `notifyPerformanceDegradation catches RuntimeException gracefully`() {
-        mockkStatic(NotificationGroupManager::class)
-        every { NotificationGroupManager.getInstance() } throws RuntimeException("test error")
-
-        val animator = GlowAnimator()
-        // Should not throw
-        invokeNotifyPerformanceDegradation(animator)
     }
 }

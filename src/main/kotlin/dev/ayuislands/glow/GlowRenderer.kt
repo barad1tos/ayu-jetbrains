@@ -6,6 +6,7 @@ import java.awt.Color
 import java.awt.Graphics2D
 import java.awt.Rectangle
 import java.awt.RenderingHints
+import java.awt.geom.Area
 import java.awt.geom.RoundRectangle2D
 import java.awt.image.BufferedImage
 import javax.swing.UIManager
@@ -45,7 +46,7 @@ class GlowRenderer {
     private data class FrameKey(
         val width: Int,
         val height: Int,
-        val arcRadius: Int,
+        val arcWidth: Int,
         val style: GlowStyle,
         val color: Color,
         val baseAlpha: Int,
@@ -91,7 +92,7 @@ class GlowRenderer {
         graphics: Graphics2D,
         bounds: Rectangle,
         glowWidth: Int = DEFAULT_GLOW_WIDTH,
-        arcRadius: Int = 0,
+        arcWidth: Int = 0,
     ) {
         if (bounds.width <= 0 || bounds.height <= 0) return
 
@@ -99,7 +100,7 @@ class GlowRenderer {
             FrameKey(
                 bounds.width,
                 bounds.height,
-                arcRadius,
+                arcWidth,
                 cachedStyle,
                 cachedColor,
                 cachedBaseAlpha,
@@ -108,7 +109,7 @@ class GlowRenderer {
 
         if (fKey != frameKey || cachedFrame == null) {
             val startNanos = System.nanoTime()
-            cachedFrame = renderFrame(bounds.width, bounds.height, arcRadius, glowWidth)
+            cachedFrame = renderFrame(bounds.width, bounds.height, arcWidth, glowWidth)
             frameKey = fKey
             val elapsedMs = (System.nanoTime() - startNanos) / NANOS_PER_MS
             if (elapsedMs > FRAME_RENDER_BUDGET_MS) {
@@ -122,7 +123,7 @@ class GlowRenderer {
     private fun renderFrame(
         width: Int,
         height: Int,
-        arcRadius: Int,
+        arcWidth: Int,
         glowWidth: Int,
     ): BufferedImage {
         val image = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
@@ -138,17 +139,25 @@ class GlowRenderer {
                 g2.color = Color(cachedColor.red, cachedColor.green, cachedColor.blue, alpha)
 
                 val inset = i.toDouble()
-                val w = (width - 2.0 * inset - 1).coerceAtLeast(0.0)
-                val h = (height - 2.0 * inset - 1).coerceAtLeast(0.0)
-                if (w <= 0 || h <= 0) break
+                val outerW = (width - 2.0 * inset).coerceAtLeast(0.0)
+                val outerH = (height - 2.0 * inset).coerceAtLeast(0.0)
+                if (outerW <= 0 || outerH <= 0) break
 
-                if (arcRadius > 0) {
-                    val arc = (arcRadius.toDouble() - 2.0 * i).coerceAtLeast(0.0)
-                    g2.draw(
-                        RoundRectangle2D.Double(inset, inset, w, h, arc, arc),
-                    )
+                val outerArc = if (arcWidth > 0) (arcWidth.toDouble() - 2.0 * i).coerceAtLeast(0.0) else 0.0
+                val outer = RoundRectangle2D.Double(inset, inset, outerW, outerH, outerArc, outerArc)
+
+                val nextInset = inset + 1.0
+                val innerW = (width - 2.0 * nextInset).coerceAtLeast(0.0)
+                val innerH = (height - 2.0 * nextInset).coerceAtLeast(0.0)
+
+                if (innerW > 0 && innerH > 0) {
+                    val innerArc = if (arcWidth > 0) (arcWidth.toDouble() - 2.0 * (i + 1)).coerceAtLeast(0.0) else 0.0
+                    val inner = RoundRectangle2D.Double(nextInset, nextInset, innerW, innerH, innerArc, innerArc)
+                    val ring = Area(outer)
+                    ring.subtract(Area(inner))
+                    g2.fill(ring)
                 } else {
-                    g2.drawRect(inset.toInt(), inset.toInt(), w.toInt(), h.toInt())
+                    g2.fill(outer)
                 }
             }
         } finally {

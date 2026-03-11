@@ -27,7 +27,7 @@ class AccentElementIdTest {
         assertTrue(AccentElementId.LINKS in interactive)
         assertTrue(AccentElementId.BRACKET_MATCH in interactive)
         assertTrue(AccentElementId.SEARCH_RESULTS in interactive)
-        assertTrue(AccentElementId.CHECKBOXES in interactive)
+        assertTrue(AccentElementId.MATCHING_TAG in interactive)
     }
 
     @Test
@@ -46,7 +46,7 @@ class AccentElementIdTest {
         assertEquals("Links", AccentElementId.LINKS.displayName)
         assertEquals("Bracket match", AccentElementId.BRACKET_MATCH.displayName)
         assertEquals("Search results", AccentElementId.SEARCH_RESULTS.displayName)
-        assertEquals("Checkboxes", AccentElementId.CHECKBOXES.displayName)
+        assertEquals("Matching tag", AccentElementId.MATCHING_TAG.displayName)
     }
 
     @Test

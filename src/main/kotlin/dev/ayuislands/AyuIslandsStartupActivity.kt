@@ -8,6 +8,8 @@ import com.intellij.openapi.startup.ProjectActivity
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.conflict.ConflictRegistry
+import dev.ayuislands.font.FontPreset
+import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -20,12 +22,23 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         LOG.info("Ayu Islands loaded — active theme: $themeName, project: ${project.name}")
 
         val variant = AyuVariant.fromThemeName(themeName) ?: return
-
-        // Apply persisted accent color
         val settings = AyuIslandsSettings.getInstance()
+
+        // Belt-and-suspenders: accent is pre-applied in appFrameCreated() (no gold flash),
+        // but project-dependent features (BracketFadeManager, editor TextAttributesKey overrides)
+        // need this second idempotent call once a project context exists.
         val accentHex = settings.getAccentForVariant(variant)
         AccentApplicator.apply(accentHex)
-        LOG.info("Ayu Islands accent applied: $accentHex for variant ${variant.name}")
+
+        // Apply persisted font preset (FontPresetApplicator ensures EDT internally)
+        // Migrate legacy preset names (GLOW_WRITER→WHISPER, CLEAN→AMBIENT, etc.)
+        val fontPreset = FontPreset.fromName(settings.state.fontPresetName)
+        if (fontPreset.name != settings.state.fontPresetName) {
+            settings.state.fontPresetName = fontPreset.name
+        }
+        FontPreset.migrateCustomizations(settings.state.fontPresetCustomizations)
+
+        FontPresetApplicator.applyFromState()
 
         // Log detected third-party plugin conflicts
         val conflicts = ConflictRegistry.detectConflicts()

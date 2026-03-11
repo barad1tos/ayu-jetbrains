@@ -5,6 +5,8 @@ style:
     maxJumpCount: 3
 
 complexity:
+  LongParameterList:
+    constructorThreshold: 9
   LargeClass:
     excludes:
       - "**/test/**"

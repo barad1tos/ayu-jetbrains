@@ -26,7 +26,7 @@ class ConflictEntryTest {
 
     @Test
     fun `ConflictEntry preserves all fields`() {
-        val elements = setOf(AccentElementId.CHECKBOXES, AccentElementId.SCROLLBAR)
+        val elements = setOf(AccentElementId.MATCHING_TAG, AccentElementId.SCROLLBAR)
         val entry = ConflictEntry("My Plugin", "com.example.myplugin", elements, ConflictType.INTEGRATE)
 
         assertEquals("My Plugin", entry.pluginDisplayName)

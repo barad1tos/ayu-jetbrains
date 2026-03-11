@@ -17,12 +17,6 @@ object ConflictRegistry {
     private val entries =
         listOf(
             ConflictEntry(
-                pluginDisplayName = "Atom Material Icons",
-                pluginId = "com.mallowigi",
-                affectedElements = setOf(AccentElementId.CHECKBOXES),
-                type = ConflictType.BLOCK,
-            ),
-            ConflictEntry(
                 pluginDisplayName = "CodeGlance Pro",
                 pluginId = "com.nasller.CodeGlancePro",
                 affectedElements = emptySet(),

@@ -7,7 +7,6 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowRenderer
 import dev.ayuislands.glow.GlowStyle
 import java.awt.AlphaComposite
-import java.awt.BasicStroke
 import java.awt.Color
 import java.awt.Dimension
 import java.awt.FlowLayout
@@ -219,19 +218,29 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
                     )
                 }
 
-                // Line 3: "  println(link)  checkbox"
-                val line3Prefix = "  println("
+                // Line 3: "  <div>  link  </div>"
+                val line3TagOpen = "  <div> "
+                val line3LinkText = "link"
+                val line3TagClose = " </div>"
+
+                // Matching tag highlights on "<div>" and "</div>"
+                val tagColor =
+                    elementColor(AccentElementId.MATCHING_TAG, accent, dimmedAccent, mutedForeground)
+                val tagOpenX = codeIndent + fm.stringWidth("  ")
+                val tagOpenWidth = fm.stringWidth("<div>")
+                paintTagHighlight(g2, Rectangle(tagOpenX, line3Y, tagOpenWidth, lineHeight), tagColor)
+
                 g2.color = mutedForeground
                 g2.font = codeFont
-                g2.drawString(line3Prefix, codeIndent, line3Y + textOffsetY)
+                g2.drawString(line3TagOpen, codeIndent, line3Y + textOffsetY)
 
                 // "link" text in accent color (underlined like a real link)
-                val linkX = codeIndent + fm.stringWidth(line3Prefix)
+                val linkX = codeIndent + fm.stringWidth(line3TagOpen)
                 drawWithAlpha(g2, AccentElementId.LINKS) {
                     val linkColor = elementColor(AccentElementId.LINKS, accent, dimmedAccent, mutedForeground)
                     g2.color = linkColor
-                    g2.drawString("link", linkX, line3Y + textOffsetY)
-                    val linkTextWidth = fm.stringWidth("link")
+                    g2.drawString(line3LinkText, linkX, line3Y + textOffsetY)
+                    val linkTextWidth = fm.stringWidth(line3LinkText)
                     g2.fillRect(
                         linkX,
                         line3Y + textOffsetY + JBUI.scale(LINK_UNDERLINE_OFFSET),
@@ -240,34 +249,15 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
                     )
                 }
 
-                // ")" after the link
-                val afterLinkX = linkX + fm.stringWidth("link")
+                // "</div>" after the link
+                val afterLinkX = linkX + fm.stringWidth(line3LinkText)
                 g2.color = mutedForeground
-                g2.drawString(")", afterLinkX, line3Y + textOffsetY)
+                g2.drawString(line3TagClose, afterLinkX, line3Y + textOffsetY)
 
-                // Mini checkbox glyph
-                val checkboxX = afterLinkX + fm.stringWidth(")") + JBUI.scale(CHECKBOX_MARGIN)
-                drawWithAlpha(g2, AccentElementId.CHECKBOXES) {
-                    val checkColor = elementColor(AccentElementId.CHECKBOXES, accent, dimmedAccent, mutedForeground)
-                    g2.color = checkColor
-                    val cbSize = JBUI.scale(CHECKBOX_SIZE)
-                    val cbY = line3Y + JBUI.scale(CHECKBOX_TOP)
-                    g2.stroke = BasicStroke(JBUI.scale(1).toFloat() + CHECKBOX_STROKE_EXTRA)
-                    g2.drawRoundRect(checkboxX, cbY, cbSize, cbSize, CHECKBOX_ARC, CHECKBOX_ARC)
-                    // Checkmark
-                    g2.drawLine(
-                        checkboxX + JBUI.scale(CHECKMARK_X1),
-                        cbY + JBUI.scale(CHECKMARK_Y1),
-                        checkboxX + JBUI.scale(CHECKMARK_X2),
-                        cbY + JBUI.scale(CHECKMARK_Y2),
-                    )
-                    g2.drawLine(
-                        checkboxX + JBUI.scale(CHECKMARK_X2),
-                        cbY + JBUI.scale(CHECKMARK_Y2),
-                        checkboxX + JBUI.scale(CHECKMARK_X3),
-                        cbY + JBUI.scale(CHECKMARK_Y3),
-                    )
-                }
+                // Matching tag highlight on "</div>"
+                val tagCloseTextX = afterLinkX + fm.stringWidth(" ")
+                val tagCloseWidth = fm.stringWidth("</div>")
+                paintTagHighlight(g2, Rectangle(tagCloseTextX, line3Y, tagCloseWidth, lineHeight), tagColor)
 
                 // Line 4: "}"
                 g2.color = mutedForeground
@@ -323,7 +313,7 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
                 if (previewGlowEnabled) {
                     val editorBounds = Rectangle(0, editorTop, width, editorBottom - editorTop)
                     glowRenderer.ensureCache(accent, previewGlowStyle, previewGlowIntensity, previewGlowWidth)
-                    glowRenderer.paintGlow(g2, editorBounds, previewGlowWidth, GLOW_ARC_RADIUS)
+                    glowRenderer.paintGlow(g2, editorBounds, previewGlowWidth, GLOW_ARC_RADIUS * 2)
                 }
             } finally {
                 g2.dispose()
@@ -357,6 +347,17 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
                 clampedX + JBUI.scale(LABEL_TEXT_OFFSET_X),
                 clampedY + labelFm.ascent + JBUI.scale(LABEL_TEXT_OFFSET_Y),
             )
+        }
+
+        private fun paintTagHighlight(
+            g2: Graphics2D,
+            bounds: Rectangle,
+            tagColor: Color,
+        ) {
+            drawWithAlpha(g2, AccentElementId.MATCHING_TAG) {
+                g2.color = Color(tagColor.red, tagColor.green, tagColor.blue, TAG_HIGHLIGHT_ALPHA)
+                g2.fillRect(bounds.x, bounds.y, bounds.width + JBUI.scale(TAG_PADDING), bounds.height)
+            }
         }
 
         private inline fun drawWithAlpha(
@@ -407,8 +408,8 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
                     Pair(JBUI.scale(LABEL_BRACKET_X), layout.line2Y - JBUI.scale(LABEL_LINE_Y_OFFSET))
                 AccentElementId.LINKS ->
                     Pair(JBUI.scale(LABEL_LINKS_X), layout.line3Y - JBUI.scale(LABEL_LINE_Y_OFFSET))
-                AccentElementId.CHECKBOXES ->
-                    Pair(JBUI.scale(LABEL_CHECKBOXES_X), layout.line3Y - JBUI.scale(LABEL_LINE_Y_OFFSET))
+                AccentElementId.MATCHING_TAG ->
+                    Pair(JBUI.scale(LABEL_MATCHING_TAG_X), layout.line3Y - JBUI.scale(LABEL_LINE_Y_OFFSET))
                 AccentElementId.SCROLLBAR ->
                     Pair(
                         layout.width - layout.scrollbarWidth - JBUI.scale(LABEL_SCROLLBAR_X_OFFSET),
@@ -493,17 +494,9 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
         const val SCROLL_THUMB_HEIGHT = 36
         const val SCROLL_THUMB_OFFSET = 6
 
-        // Checkbox
-        const val CHECKBOX_SIZE = 12
-        const val CHECKBOX_MARGIN = 12
-        const val CHECKBOX_TOP = 4
-        const val CHECKBOX_ARC = 3
-        const val CHECKMARK_X1 = 3
-        const val CHECKMARK_Y1 = 6
-        const val CHECKMARK_X2 = 5
-        const val CHECKMARK_Y2 = 9
-        const val CHECKMARK_X3 = 9
-        const val CHECKMARK_Y3 = 3
+        // Matching tag highlight
+        const val TAG_HIGHLIGHT_ALPHA = 48
+        const val TAG_PADDING = 2
 
         // Annotation label
         const val LABEL_PADDING_H = 10
@@ -525,7 +518,7 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
         const val LABEL_LINE_Y_OFFSET = 16
         const val LABEL_BRACKET_X = 130
         const val LABEL_LINKS_X = 100
-        const val LABEL_CHECKBOXES_X = 180
+        const val LABEL_MATCHING_TAG_X = 180
         const val LABEL_SCROLLBAR_X_OFFSET = 80
         const val LABEL_SCROLLBAR_Y_OFFSET = 4
         const val LABEL_PROGRESS_X = 10
@@ -565,7 +558,6 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
         const val DIMMED_ELEMENT_ALPHA = 0.25f
 
         // Stroke
-        const val CHECKBOX_STROKE_EXTRA = 0.5f
         const val LINK_UNDERLINE_OFFSET = 1
         const val LINK_UNDERLINE_HEIGHT = 1
         const val SEARCH_PADDING = 4

@@ -24,13 +24,11 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         const val LOGO_HEIGHT = 28
     }
 
-    private var pendingSelectedTab: Int =
-        AyuIslandsSettings.getInstance().state.settingsSelectedTab
-
     private val appearancePanel = AyuIslandsAppearancePanel()
     private val accentPanel = AyuIslandsAccentPanel()
     private val elementsPanel = AyuIslandsElementsPanel()
     private val integrationsPanel = IntegrationsPanel()
+    private val fontPresetPanel = FontPresetPanel()
     private val effectsPanel = AyuIslandsEffectsPanel()
 
     private val panels: List<AyuIslandsSettingsPanel> =
@@ -39,6 +37,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
             accentPanel,
             elementsPanel,
             integrationsPanel,
+            fontPresetPanel,
             effectsPanel,
         )
 
@@ -73,7 +72,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
 
                 // "Reset all settings..." link at the bottom of the Accent tab
                 row {
-                    link("Reset all settings\u2026") {
+                    link("Reset all Ayu settings\u2026") {
                         val result =
                             Messages.showYesNoDialog(
                                 "Reset all Ayu Islands settings to defaults?\n\n" +
@@ -82,10 +81,17 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                                 Messages.getWarningIcon(),
                             )
                         if (result == Messages.YES) {
-                            resetAllSettings(variant)
+                            resetAllSettings()
                         }
                     }
                 }
+            }
+
+        fontPresetPanel.initState()
+
+        val fontTab =
+            panel {
+                fontPresetPanel.buildFontTab(this@panel)
             }
 
         val glowTab =
@@ -97,9 +103,12 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         val state = AyuIslandsSettings.getInstance().state
         val tabs = JBTabbedPane()
         tabs.addTab("Accent", accentTab)
+        tabs.addTab("Font", fontTab)
         tabs.addTab("Glow", glowTab)
         tabs.selectedIndex = state.settingsSelectedTab.coerceIn(0, tabs.tabCount - 1)
-        tabs.addChangeListener { pendingSelectedTab = tabs.selectedIndex }
+        tabs.addChangeListener {
+            AyuIslandsSettings.getInstance().state.settingsSelectedTab = tabs.selectedIndex
+        }
 
         return panel {
             // Header
@@ -143,9 +152,10 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         return ImageIcon(scaledImage)
     }
 
-    private fun resetAllSettings(variant: AyuVariant) {
-        accentPanel.resetToDefault(variant)
+    private fun resetAllSettings() {
+        accentPanel.resetToDefault()
         elementsPanel.reset()
+        fontPresetPanel.reset()
         effectsPanel.reset()
     }
 
@@ -153,9 +163,6 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
 
     override fun apply() {
         super.apply()
-
-        // Persist tab selection only on Apply/OK (not on Cancel)
-        AyuIslandsSettings.getInstance().state.settingsSelectedTab = pendingSelectedTab
 
         for (section in panels) {
             section.apply()

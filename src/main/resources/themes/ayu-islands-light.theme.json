@@ -5,22 +5,22 @@
   "parentTheme": "IntelliJ",
   "editorScheme": "/themes/AyuIslandsLight.xml",
   "colors": {
-    "Gray3": "#D9D7CE",
-    "Gray2.5": "#E2E1DC",
-    "Gray2.25": "#E8E7E3",
-    "Gray2": "#EBEEF0",
-    "Gray1.5": "#F2F1ED",
-    "Gray1.25": "#F5F4F1",
+    "Gray3": "#D6D9DC",
+    "Gray2.5": "#E0E2E4",
+    "Gray2.25": "#E6E8E9",
+    "Gray2": "#EBECED",
+    "Gray1.5": "#F0F1F2",
+    "Gray1.25": "#F4F5F6",
     "Gray1": "#F8F9FA",
     "Gray0.75": "#F8F9FA",
     "Gray0.5": "#FAFAFA",
     "Gray0.25": "#FCFCFC",
     "Gray0": "#FFFFFF",
 
-    "Gray4": "#CCC8B8",
-    "Gray5": "#B8B4A6",
-    "Gray6": "#A5A198",
-    "Gray7": "#96928A",
+    "Gray4": "#C6C9CE",
+    "Gray5": "#B3B7BC",
+    "Gray6": "#9EA3A9",
+    "Gray7": "#919599",
     "Gray8": "#828E9F",
 
     "ForegroundDefault": "#575F66",
@@ -31,7 +31,7 @@
     "BackgroundLight": "Gray2",
     "BackgroundLightest": "Gray2",
 
-    "AltBackgroundLight": "#EEEDEA",
+    "AltBackgroundLight": "#ECEDEE",
 
     "BorderDark": "Gray4",
     "BorderLight": "Gray2.25",
@@ -83,8 +83,8 @@
       "Checkbox.Foreground.Selected": "#FFFFFF",
       "Checkbox.Focus.Wide": "#F29718",
       "Checkbox.Background.Disabled": "#FFFFFF",
-      "Checkbox.Border.Disabled": "#D9D7CE",
-      "Checkbox.Foreground.Disabled": "#D9D7CE"
+      "Checkbox.Border.Disabled": "#D6D9DC",
+      "Checkbox.Foreground.Disabled": "#D6D9DC"
     }
   },
 
@@ -116,13 +116,13 @@
 
     "Borders.color": "BorderDark",
     "Borders.ContrastBorderColor": "BorderDark",
-    "MainWindow.FullScreeControl.Background": "#B8B4A6",
+    "MainWindow.FullScreeControl.Background": "Gray5",
 
     "MainWindow.Tab": {
       "background": "#FCFCFC",
       "selectedBackground": "ToolWindowBackground",
       "hoverBackground": "#00000012",
-      "separatorColor": "#96928A1A",
+      "separatorColor": "#9195991A",
       "foreground": "Gray8"
     },
 
@@ -243,7 +243,7 @@
     "CompletionPopup": {
       "foreground": "ForegroundBright",
       "Advertiser.background": "PopupBackgroundLight",
-      "Advertiser.foreground": "#96928A"
+      "Advertiser.foreground": "Gray7"
     },
 
     "Menu": {
@@ -374,14 +374,14 @@
     "NewUiOnboarding.Dialog.background": "PanelBackground",
     "WelcomeScreen.Details.background": "BackgroundDark",
     "WelcomeScreen.Banner.background": "BackgroundLight",
-    "WelcomeScreen.Projects.actions.background": "#EBEEF0",
+    "WelcomeScreen.Projects.actions.background": "#EBECED",
 
     "Bookmark.MnemonicAssigned.foreground": "#FFFFFF",
 
     "LineProfiler": {
       "HotLine.foreground": "#FF7383",
-      "IgnoredLine.foreground": "#CCC8B8",
-      "Line.foreground": "#96928A"
+      "IgnoredLine.foreground": "Gray4",
+      "Line.foreground": "Gray7"
     },
 
     "PresentationAssistant": {
@@ -395,7 +395,7 @@
         "Snippet": {
           "MoreLines": {
             "background": "BackgroundMid",
-            "foreground": "#828E9F"
+            "foreground": "Gray8"
           }
         }
       },
@@ -403,7 +403,7 @@
         "Snippet": {
           "MoreLines": {
             "background": "BackgroundMid",
-            "foreground": "#828E9F"
+            "foreground": "Gray8"
           }
         }
       }
@@ -759,15 +759,15 @@
     },
 
     "Table": {
-      "foreground": "#575F66",
+      "foreground": "ForegroundDefault",
       "background": "Gray1.5",
       "lightSelectionForeground": "ForegroundBright",
-      "stripeColor": "#EBEEF0"
+      "stripeColor": "Gray2"
     },
 
     "VersionControl": {
       "MarkerPopup.borderColor": "Gray4",
-      "Log.Commit.currentBranchBackground": "#EBEEF0",
+      "Log.Commit.currentBranchBackground": "#EBECED",
       "Log.Commit.Reference.foreground": "#828E9F",
       "Log.Commit.unmatchedForeground": "#828E9F",
       "Merge.Status.NoConflicts.foreground": "#6CBF43"
@@ -804,19 +804,19 @@
 
     "Recap": {
       "ijnext": "#D6E6F5",
-      "cardBackground": "#F5F5F0",
+      "cardBackground": "#F3F5F8",
       "cardBorderColor": "#F8F9FA",
       "cardHeaderTitle": "ForegroundBright",
-      "cardHeaderLinkBackground": "#EBEEF0",
+      "cardHeaderLinkBackground": "Gray2",
       "cardHeaderSubtitle": "#828E9F",
       "cardFooterForeground": "#828E9F",
       "chroniclesBackground": "Gray1.5",
       "chroniclesBorderColor": "Gray1.5",
-      "chroniclesBackgroundHovered": "#D9D7CE",
+      "chroniclesBackgroundHovered": "Gray3",
       "chroniclesForeground": "ForegroundBright",
       "chroniclesForegroundGreyed": "#828E9F",
       "errorBackground": "#FFF8E0",
-      "errorBorder": "#E7E0C8",
+      "errorBorder": "#ECEDEE",
       "errorForeground": "ForegroundBright"
     }
   }
