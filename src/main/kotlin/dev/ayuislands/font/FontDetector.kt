@@ -3,6 +3,7 @@ package dev.ayuislands.font
 import java.awt.Font
 import java.awt.GraphicsEnvironment
 import java.awt.font.FontRenderContext
+import kotlin.math.abs
 
 /** Detects installed Nerd Fonts via GraphicsEnvironment. Caches results for the session. */
 object FontDetector {
@@ -36,7 +37,7 @@ object FontDetector {
                     val font = Font(name, Font.PLAIN, MONOSPACE_PROBE_SIZE)
                     val narrowWidth = font.getStringBounds("i", frc).width
                     val wideWidth = font.getStringBounds("M", frc).width
-                    narrowWidth > 0 && Math.abs(narrowWidth - wideWidth) < MONOSPACE_WIDTH_TOLERANCE
+                    narrowWidth > 0 && abs(narrowWidth - wideWidth) < MONOSPACE_WIDTH_TOLERANCE
                 }.sorted()
         monospaceCache = result
         return result
