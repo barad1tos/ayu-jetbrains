@@ -24,6 +24,13 @@ repos:
   # Local hooks
   - repo: local
     hooks:
+      - id: guard-linter-configs
+        name: guard linter configs
+        entry: ./scripts/guard-linter-configs.sh
+        language: system
+        files: ^(detekt\.yml|\.editorconfig|codecov\.yml)$
+        pass_filenames: true
+
       - id: ktlint-check
         name: ktlint
         entry: ./gradlew ktlintCheck
