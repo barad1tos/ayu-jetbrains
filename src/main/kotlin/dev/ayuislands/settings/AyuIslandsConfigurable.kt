@@ -75,7 +75,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
 
                 // "Reset all settings..." link at the bottom of the Accent tab
                 row {
-                    link("Reset all settings\u2026") {
+                    link("Reset all Ayu settings\u2026") {
                         val result =
                             Messages.showYesNoDialog(
                                 "Reset all Ayu Islands settings to defaults?\n\n" +

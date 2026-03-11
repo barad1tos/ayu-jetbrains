@@ -124,9 +124,9 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
                     )
                 }
 
-                // Preset row (visible when IR integration enabled)
+                // Preset row (visible when IR integration is enabled)
                 row {
-                    label("Opacity")
+                    label("Preset")
                     val segmented =
                         segmentedButton(IndentPreset.entries) { preset ->
                             text = preset.displayName

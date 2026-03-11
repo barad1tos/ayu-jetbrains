@@ -135,10 +135,9 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
     }
 
     private fun Panel.buildEnableRow() {
+        row { comment("Set editor font, size, line spacing, and ligatures from a curated preset") }
         row {
-            val cb =
-                checkBox("Apply font preset")
-                    .comment("Set editor font, size, line spacing, and ligatures from a curated preset")
+            val cb = checkBox("Apply font preset")
             cb.component.isSelected = pendingEnabled
             cb.component.addActionListener {
                 pendingEnabled = cb.component.isSelected
@@ -147,12 +146,32 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
                 updateFontMissing()
             }
             enabledCheckbox = cb.component
+
+            link("Reset defaults") {
+                pendingPreset = FontPreset.AMBIENT.name
+                pendingConsole = false
+
+                customizations.clear()
+                for (preset in FontPreset.entries) {
+                    customizations[preset.name] = FontSettings.fromPreset(preset)
+                }
+
+                suppressListeners = true
+                presetSegmented?.selectedItem = FontPreset.AMBIENT
+                consoleCheckbox?.isSelected = false
+                isCustomSelected.set(false)
+                refreshCustomFontVisible()
+                loadControlsFromPreset()
+                updateFontMissing()
+                suppressListeners = false
+            }
         }
     }
 
     @Suppress("UnstableApiUsage")
     private fun Panel.buildPresetSelectorRow() {
         row {
+            label("Preset")
             val segmented = segmentedButton(FontPreset.entries) { preset -> text = preset.displayName }
             segmented.maxButtonsCount(FontPreset.entries.size)
             segmented.selectedItem = FontPreset.fromName(pendingPreset)

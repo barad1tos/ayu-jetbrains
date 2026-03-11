@@ -22,12 +22,13 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         LOG.info("Ayu Islands loaded — active theme: $themeName, project: ${project.name}")
 
         val variant = AyuVariant.fromThemeName(themeName) ?: return
-
-        // Apply persisted accent color
         val settings = AyuIslandsSettings.getInstance()
+
+        // Belt-and-suspenders: accent is pre-applied in appFrameCreated() (no gold flash),
+        // but project-dependent features (BracketFadeManager, editor TextAttributesKey overrides)
+        // need this second idempotent call once a project context exists.
         val accentHex = settings.getAccentForVariant(variant)
         AccentApplicator.apply(accentHex)
-        LOG.info("Ayu Islands accent applied: $accentHex for variant ${variant.name}")
 
         // Apply persisted font preset (FontPresetApplicator ensures EDT internally)
         // Migrate legacy preset names (GLOW_WRITER→WHISPER, CLEAN→AMBIENT, etc.)

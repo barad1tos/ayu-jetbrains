@@ -181,6 +181,9 @@
 
     <applicationListeners>
         <listener
+                class="dev.ayuislands.AyuIslandsAppListener"
+                topic="com.intellij.ide.AppLifecycleListener"/>
+        <listener
                 class="dev.ayuislands.AyuIslandsLafListener"
                 topic="com.intellij.ide.ui.LafManagerListener"/>
         <listener
