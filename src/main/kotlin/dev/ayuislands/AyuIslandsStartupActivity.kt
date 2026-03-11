@@ -54,6 +54,9 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
             AppearanceSyncService.getInstance().syncIfNeeded()
         }
 
+        // Show a one-time update notification if the plugin version changed
+        SwingUtilities.invokeLater { UpdateNotifier.showIfUpdated(project) }
+
         // Initialize the glow overlay system if the glow is enabled
         // Uses ApplicationManager.invokeLater with project.disposed condition to skip
         // if the project closes before the EDT processes this (execute() runs on a background coroutine)
