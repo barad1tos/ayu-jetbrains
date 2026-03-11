@@ -7,38 +7,53 @@
     </vendor>
 
     <description><![CDATA[
-    <p>Ayu colors, reimagined for modern JetBrains IDEs. Warm, refined palettes purpose-built for Islands UI with deep IDE integration that goes beyond simple color mapping.</p>
+    <p><i>Ayu meets Islands UI — warmth meets beauty in every JetBrains IDE.</i></p>
+
+    <p>Warm, refined palettes purpose-built for Islands UI with deep IDE integration.
+    Not just a color port — a unified aesthetic system.</p>
 
     <h3>What makes this different</h3>
     <ul>
-      <li><strong>6 variants</strong> covering all lighting preferences — Mirage, Dark, and Light, each in Classic UI and Islands UI</li>
-      <li><strong>500+ UI properties</strong> hand-tuned per variant (not auto-generated from a base)</li>
-      <li><strong>Native Islands UI support</strong> with rounded panels, island gaps, and compact mode</li>
-      <li><strong>30+ language syntaxes</strong> individually crafted — Java, Kotlin, Scala, C#/.NET, Rust, Go, Python, JS/TS, Ruby, PHP, Dart, Swift, HCL/Terraform, HTML/CSS, SQL, Bash, YAML, JSON, XML, Markdown, and more</li>
-      <li>Built on the official <a href="https://github.com/ayu-theme/ayu-colors">ayu-colors</a> palette — faithful to the original</li>
+      <li><b>Unified aesthetic system</b> — Whisper, Ambient, Neon, and Cyberpunk
+          presets that synchronize font, glow, and indent intensity into one
+          cohesive look</li>
+      <li><b>4 curated font presets</b> — Victor Mono, Maple Mono, Monaspace Neon,
+          Monaspace Xenon with one-click apply, live preview, and brew install</li>
+      <li><b>6 theme variants</b> — Mirage, Dark, Light in Classic UI and Islands UI</li>
+      <li><b>500+ UI properties</b> hand-tuned per variant</li>
+      <li><b>30+ language syntaxes</b> individually crafted</li>
+      <li>Built on <a href="https://github.com/ayu-theme/ayu-colors">ayu-colors</a>
+          (MIT) — endorsed by the original author</li>
     </ul>
 
     <h3>Free — a complete theme, not a teaser</h3>
     <ul>
-      <li>All six themes with full syntax highlighting</li>
-      <li>VCS/diff integration with a 16-color terminal palette</li>
-      <li>Ten accent color presets with per-variant storage and live preview</li>
-      <li>Islands UI plus Classic UI support</li>
+      <li>All 6 themes with full syntax highlighting</li>
+      <li>12 accent color presets + custom color picker + macOS system accent sync</li>
+      <li>Font presets with size, weight, spacing, and ligature customization</li>
+      <li>VCS/diff integration with 16-color terminal palette</li>
     </ul>
 
     <h3>Premium — optional extras for deeper customization</h3>
     <ul>
-      <li><strong>Per-element accent controls</strong> — tabs, scrollbars, links, caret row, inlay hints, and more</li>
-      <li><strong>Neon glow effects</strong> — island borders, active tabs, and focused inputs with three glow styles (Soft, Sharp Neon, Pulse)</li>
-      <li><strong>Indent Rainbow integration</strong> — accent-colored indent guides with intensity presets</li>
-      <li><strong>Conflict detection</strong> — automatic override for third-party plugin conflicts (Atom Material Icons, CodeGlance Pro)</li>
+      <li><b>Neon glow effects</b> — 3 styles, 4 animations, 8+ tool window targets</li>
+      <li><b>Per-element accent controls</b> — scrollbar, caret, links, tabs, and more</li>
+      <li><b>Indent Rainbow integration</b> — accent-colored guides with intensity presets</li>
+      <li><b>Plugin conflict detection</b> — auto-override for Atom Material Icons, CodeGlance Pro</li>
     </ul>
-
-    <p>Settings: Appearance &gt; Ayu Islands. Verified on IntelliJ IDEA, PyCharm, WebStorm, GoLand, RustRover, Rider, PhpStorm, CLion, DataGrip, RubyMine.</p>
-    <p><em>Color palette: <a href="https://github.com/ayu-theme/ayu-colors">ayu-theme</a> (MIT) by dempfi. Ayu Islands adds deep JetBrains integration, Islands UI support, and premium customization tools.</em></p>
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.2.0</h3>
+    <ul>
+      <li>[Free] Font presets: 4 curated Nerd Fonts (Whisper, Ambient, Neon, Cyberpunk)
+          with one-click apply, live preview, and per-preset customization</li>
+      <li>[Free] Custom accent color picker — choose any color beyond the 12 presets</li>
+      <li>[Free] 12 accent presets (added Rose and Slate)</li>
+      <li>[Free] Follow system accent color on macOS</li>
+      <li>[Free] Redesigned accent panel with shade name display</li>
+      <li>[Free] Follow system appearance (auto Light/Dark switching)</li>
+    </ul>
     <h3>2.1.3</h3>
     <ul>
       <li>[Free] Improve Light theme surface colors for better contrast (separators, hover, folded text)</li>
@@ -113,8 +128,8 @@
 
     <product-descriptor
             code="PAYUISLANDS"
-            release-date="20260307"
-            release-version="21"
+            release-date="20260311"
+            release-version="22"
             optional="true"/>
 
     <extensionPoints>
