@@ -4,6 +4,7 @@ import com.intellij.codeInsight.highlighting.BraceMatchingUtil
 import com.intellij.codeInsight.highlighting.BraceMatchingUtil.BraceHighlightingAndNavigationContext
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
@@ -82,6 +83,13 @@ class BracketFadeManagerTest {
         every { PsiDocumentManager.getInstance(any()) } returns mockPsiDocumentManager
         every { mockPsiDocumentManager.getPsiFile(any()) } returns mockPsiFile
 
+        mockkStatic(ReadAction::class)
+        every {
+            ReadAction.compute<Any?, RuntimeException>(any())
+        } answers {
+            firstArg<com.intellij.openapi.util.ThrowableComputable<Any?, RuntimeException>>().compute()
+        }
+
         mockkStatic(BraceMatchingUtil::class)
 
         every { mockEditor.project } returns mockProject
@@ -157,7 +165,7 @@ class BracketFadeManagerTest {
     }
 
     @Test
-    fun `activate twice is idempotent for disposable creation`() {
+    fun `activate twice disposes first and creates fresh disposable`() {
         val color1 = Color(255, 204, 102)
         val color2 = Color(100, 150, 200)
 
@@ -167,8 +175,9 @@ class BracketFadeManagerTest {
         BracketFadeManager.activate(color2)
         val secondDisposable = getPrivateField<Disposable?>("disposable")
 
-        // Disposable should be same reference (not re-created)
-        assertTrue(firstDisposable === secondDisposable)
+        // Old disposable was disposed and a new one created
+        verify { Disposer.dispose(firstDisposable!!) }
+        assertNotNull(secondDisposable)
         // Color should be updated to the second value
         assertEquals(color2, getPrivateField<Color?>("currentColor"))
     }
@@ -463,7 +472,7 @@ class BracketFadeManagerTest {
         val highlighters = getPrivateField<MutableMap<Editor, List<RangeHighlighter>>>("activeHighlighters")
         highlighters[mockEditor] = listOf(existingHighlighter)
 
-        // Set up for early return (unlicensed) so we can verify removal without new creation
+        // Set up for early return (unlicensed) so we can verify removal without a new creation
         every { LicenseChecker.isLicensedOrGrace() } returns false
         setPrivateField("currentColor", Color.RED)
 
@@ -610,7 +619,7 @@ class BracketFadeManagerTest {
         assertTrue(highlighters.isEmpty())
     }
 
-    // installListeners (tested indirectly via activate)
+    // installListeners (tested indirectly via activating)
 
     @Test
     fun `activate registers both caret and editor factory listeners`() {
@@ -638,7 +647,7 @@ class BracketFadeManagerTest {
     }
 
     @Test
-    fun `activate with existing disposable only updates color`() {
+    fun `activate with existing disposable disposes old and reinstalls listeners`() {
         val mockDisposable = mockk<Disposable>(relaxed = true)
         setPrivateField("disposable", mockDisposable)
         setPrivateField("currentColor", Color.RED)
@@ -647,9 +656,12 @@ class BracketFadeManagerTest {
 
         // Color updated
         assertEquals(Color.BLUE, getPrivateField<Color?>("currentColor"))
-        // Disposable unchanged — no new listeners installed
-        assertTrue(mockDisposable === getPrivateField<Disposable?>("disposable"))
-        // installListeners not called (no new EditorFactory interaction)
-        verify(exactly = 0) { mockEditorFactory.addEditorFactoryListener(any(), any()) }
+        // Old disposable was disposed
+        verify { Disposer.dispose(mockDisposable) }
+        // New disposable created (different from old)
+        assertNotNull(getPrivateField<Disposable?>("disposable"))
+        // Listeners reinstalled
+        verify { mockMulticaster.addCaretListener(any(), any()) }
+        verify { mockEditorFactory.addEditorFactoryListener(any(), any()) }
     }
 }

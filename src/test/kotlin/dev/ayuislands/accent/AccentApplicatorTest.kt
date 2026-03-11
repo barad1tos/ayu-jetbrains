@@ -16,7 +16,6 @@ import dev.ayuislands.accent.conflict.ConflictType
 import dev.ayuislands.indent.IndentRainbowSync
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
-import io.mockk.answers
 import io.mockk.clearAllMocks
 import io.mockk.every
 import io.mockk.mockk
