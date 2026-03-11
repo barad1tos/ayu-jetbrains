@@ -15,7 +15,7 @@ enum class AccentElementId(
     LINKS(AccentGroup.INTERACTIVE, "Links"),
     BRACKET_MATCH(AccentGroup.INTERACTIVE, "Bracket match"),
     SEARCH_RESULTS(AccentGroup.INTERACTIVE, "Search results"),
-    CHECKBOXES(AccentGroup.INTERACTIVE, "Checkboxes"),
+    MATCHING_TAG(AccentGroup.INTERACTIVE, "Matching tag"),
 }
 
 interface AccentElement {

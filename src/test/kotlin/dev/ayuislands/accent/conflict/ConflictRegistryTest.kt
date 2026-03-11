@@ -30,18 +30,8 @@ class ConflictRegistryTest {
     }
 
     @Test
-    fun `entries has exactly 3 known conflict plugins`() {
-        assertEquals(3, getEntries().size)
-    }
-
-    @Test
-    fun `entries contain Atom Material Icons with BLOCK type`() {
-        val entries = getEntries()
-        val atom = entries.first { it.pluginId == "com.mallowigi" }
-
-        assertEquals("Atom Material Icons", atom.pluginDisplayName)
-        assertEquals(ConflictType.BLOCK, atom.type)
-        assertEquals(setOf(AccentElementId.CHECKBOXES), atom.affectedElements)
+    fun `entries has exactly 2 known conflict plugins`() {
+        assertEquals(2, getEntries().size)
     }
 
     @Test
@@ -52,15 +42,6 @@ class ConflictRegistryTest {
         assertEquals("CodeGlance Pro", cgp.pluginDisplayName)
         assertEquals(ConflictType.INTEGRATE, cgp.type)
         assertTrue(cgp.affectedElements.isEmpty())
-    }
-
-    @Test
-    fun `Atom Material Icons only blocks CHECKBOXES element`() {
-        val entries = getEntries()
-        val atom = entries.first { it.pluginId == "com.mallowigi" }
-
-        assertEquals(1, atom.affectedElements.size)
-        assertTrue(AccentElementId.CHECKBOXES in atom.affectedElements)
     }
 
     @Test

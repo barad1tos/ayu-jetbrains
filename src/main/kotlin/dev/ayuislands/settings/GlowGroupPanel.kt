@@ -69,7 +69,7 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
             g2.clip(outer)
 
             renderer.ensureCache(glowColor, glowStyle, glowIntensity, glowWidth)
-            renderer.paintGlow(g2, Rectangle(0, 0, width, height), glowWidth, ARC_RADIUS)
+            renderer.paintGlow(g2, Rectangle(0, 0, width, height), glowWidth, ARC_F.toInt())
         } finally {
             g2.dispose()
         }
@@ -108,7 +108,6 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
     }
 
     companion object {
-        private const val ARC_RADIUS = 12
         private const val ARC_F = 24f
         private const val INNER_ARC_F = 16f
         private const val INNER_ARC_RADIUS = 8

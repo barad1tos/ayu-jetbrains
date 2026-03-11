@@ -131,7 +131,7 @@
         <accentElement implementation="dev.ayuislands.accent.elements.LinksElement"/>
         <accentElement implementation="dev.ayuislands.accent.elements.BracketMatchElement"/>
         <accentElement implementation="dev.ayuislands.accent.elements.SearchResultsElement"/>
-        <accentElement implementation="dev.ayuislands.accent.elements.CheckboxElement"/>
+        <accentElement implementation="dev.ayuislands.accent.elements.MatchingTagElement"/>
     </extensions>
 
     <extensions defaultExtensionNs="com.intellij">

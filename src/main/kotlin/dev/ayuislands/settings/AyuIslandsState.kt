@@ -27,7 +27,7 @@ class AyuIslandsState : BaseState() {
     var links by property(true)
     var bracketMatch by property(true)
     var searchResults by property(true)
-    var checkboxes by property(true)
+    var matchingTag by property(true)
 
     // Glow effect
     var glowEnabled by property(false)
@@ -117,7 +117,7 @@ class AyuIslandsState : BaseState() {
             AccentElementId.LINKS -> links
             AccentElementId.BRACKET_MATCH -> bracketMatch
             AccentElementId.SEARCH_RESULTS -> searchResults
-            AccentElementId.CHECKBOXES -> checkboxes
+            AccentElementId.MATCHING_TAG -> matchingTag
         }
 
     fun setToggle(
@@ -132,7 +132,7 @@ class AyuIslandsState : BaseState() {
             AccentElementId.LINKS -> links = enabled
             AccentElementId.BRACKET_MATCH -> bracketMatch = enabled
             AccentElementId.SEARCH_RESULTS -> searchResults = enabled
-            AccentElementId.CHECKBOXES -> checkboxes = enabled
+            AccentElementId.MATCHING_TAG -> matchingTag = enabled
         }
     }
 

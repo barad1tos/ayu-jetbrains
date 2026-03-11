@@ -26,6 +26,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class AccentElementsTest {
@@ -74,7 +75,7 @@ class AccentElementsTest {
             InlayHintsElement(),
             CaretRowElement(),
             BracketMatchElement(),
-            CheckboxElement(),
+            MatchingTagElement(),
         )
 
     @Test
@@ -132,6 +133,7 @@ class AccentElementsTest {
                 InlayHintsElement(),
                 CaretRowElement(),
                 BracketMatchElement(),
+                MatchingTagElement(),
             )
         for (element in editorElements) {
             element.apply(testColor)
@@ -148,6 +150,7 @@ class AccentElementsTest {
                 InlayHintsElement(),
                 CaretRowElement(),
                 BracketMatchElement(),
+                MatchingTagElement(),
             )
         for (element in editorElements) {
             element.revert()
@@ -186,10 +189,19 @@ class AccentElementsTest {
     }
 
     @Test
-    fun `CheckboxElement apply and revert do not throw`() {
-        val element = CheckboxElement()
+    fun `MatchingTagElement apply sets backgroundColor on MATCHED_TAG_NAME`() {
+        val attributesSlot = slot<TextAttributes>()
+        every { mockScheme.getAttributes(any<TextAttributesKey>()) } returns null
+        every { mockScheme.setAttributes(any<TextAttributesKey>(), capture(attributesSlot)) } just Runs
+
+        val element = MatchingTagElement()
         element.apply(testColor)
-        element.revert()
+
+        assertTrue(attributesSlot.isCaptured, "setAttributes should have been called")
+        val captured = attributesSlot.captured
+        assertNotNull(captured.backgroundColor, "backgroundColor should be set")
+        assertEquals(0x30, captured.backgroundColor.alpha, "backgroundColor alpha should be 0x30")
+        assertNull(captured.foregroundColor, "foregroundColor should remain null")
     }
 
     @Test
@@ -212,10 +224,13 @@ class AccentElementsTest {
     }
 
     @Test
-    fun `CheckboxElement applyNeutral uses default which calls revert`() {
-        val element = CheckboxElement()
-        // Should not throw; the default applyNeutral calls revert()
+    fun `MatchingTagElement applyNeutral restores from parent scheme`() {
+        every { mockScheme.setAttributes(any<TextAttributesKey>(), any()) } just Runs
+
+        val element = MatchingTagElement()
         element.applyNeutral(AyuVariant.DARK)
+
+        verify { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
     }
 
     // ProgressBarElement coverage
@@ -623,7 +638,7 @@ class AccentElementsTest {
         assertEquals(AccentGroup.INTERACTIVE, AccentElementId.LINKS.group)
         assertEquals(AccentGroup.INTERACTIVE, AccentElementId.BRACKET_MATCH.group)
         assertEquals(AccentGroup.INTERACTIVE, AccentElementId.SEARCH_RESULTS.group)
-        assertEquals(AccentGroup.INTERACTIVE, AccentElementId.CHECKBOXES.group)
+        assertEquals(AccentGroup.INTERACTIVE, AccentElementId.MATCHING_TAG.group)
     }
 
     // AyuVariant coverage for applyNeutral with different variants
