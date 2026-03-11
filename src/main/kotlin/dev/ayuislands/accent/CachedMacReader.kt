@@ -12,6 +12,7 @@ class CachedMacReader<T>(
     @Volatile
     private var timestamp: Long = 0L
 
+    @Synchronized
     fun read(): T? {
         if (!SystemInfo.isMac) return null
         val now = System.currentTimeMillis()

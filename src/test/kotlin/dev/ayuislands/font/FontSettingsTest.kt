@@ -155,14 +155,14 @@ class FontSettingsTest {
                 applyToConsole = false,
             )
 
-        assertEquals("13|1.3|true|REGULAR", settings.encode())
+        assertEquals("13.0|1.3|true|REGULAR", settings.encode())
     }
 
     @Test
-    fun `encode truncates fontSize to int`() {
+    fun `encode preserves fontSize decimal`() {
         val settings = FontSettings.fromPreset(FontPreset.WHISPER).copy(fontSize = 14.7f)
         val encoded = settings.encode()
-        assertTrue(encoded.startsWith("14|"), "fontSize should be truncated to int: $encoded")
+        assertTrue(encoded.startsWith("14.7|"), "fontSize should preserve decimal: $encoded")
     }
 
     // ---- applyToConsole is not encoded ----

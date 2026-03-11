@@ -113,7 +113,7 @@ class AccentColorPanel(
                 .globalScheme
                 .fontPreferences
                 .fontFamily
-        } catch (_: Exception) {
+        } catch (_: IllegalStateException) {
             Font.MONOSPACED
         }
 

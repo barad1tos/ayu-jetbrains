@@ -12,7 +12,7 @@ data class FontSettings(
 ) {
     /** Encode customizable fields (excluding preset and console) for state persistence. */
     fun encode(): String {
-        val base = "${fontSize.toInt()}|$lineSpacing|$enableLigatures|${weight.name}"
+        val base = "$fontSize|$lineSpacing|$enableLigatures|${weight.name}"
         if (!preset.isCurated) return "$base|$fontFamily"
         return base
     }

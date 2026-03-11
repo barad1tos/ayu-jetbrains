@@ -261,7 +261,7 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
                 CopyPasteManager.getInstance().setContents(StringSelection(command))
                 val state = AyuIslandsSettings.getInstance().state
                 if (state.fontInstallTerminal == "SYSTEM") {
-                    Runtime.getRuntime().exec(arrayOf("open", "-a", "Terminal"))
+                    ProcessBuilder("open", "-a", "Terminal").start()
                 } else {
                     val project = ProjectManager.getInstance().openProjects.firstOrNull() ?: return@link
                     ToolWindowManager.getInstance(project).getToolWindow("Terminal")?.activate(null)

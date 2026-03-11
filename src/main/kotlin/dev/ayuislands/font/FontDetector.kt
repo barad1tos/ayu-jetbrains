@@ -9,22 +9,23 @@ object FontDetector {
     private const val MONOSPACE_PROBE_SIZE = 12
     private const val MONOSPACE_WIDTH_TOLERANCE = 0.01
 
+    @Volatile
     private var cache: Set<String>? = null
+
+    @Volatile
     private var monospaceCache: List<String>? = null
 
+    @Synchronized
     private fun installedFonts(): Set<String> {
-        if (cache == null) {
-            val environment = GraphicsEnvironment.getLocalGraphicsEnvironment()
-            val names = mutableSetOf<String>()
-            for (name in environment.availableFontFamilyNames) {
-                names.add(name.lowercase())
-            }
-            cache = names
-        }
-        return cache!!
+        cache?.let { return it }
+        val environment = GraphicsEnvironment.getLocalGraphicsEnvironment()
+        val names = environment.availableFontFamilyNames.mapTo(mutableSetOf()) { it.lowercase() }
+        cache = names
+        return names
     }
 
     /** Return all monospace font families installed on the system (sorted). */
+    @Synchronized
     fun listMonospaceFonts(): List<String> {
         monospaceCache?.let { return it }
         val environment = GraphicsEnvironment.getLocalGraphicsEnvironment()
