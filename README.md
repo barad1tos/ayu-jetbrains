@@ -7,6 +7,12 @@
 </p>
 
 <p align="center">
+  <a href="https://plugins.jetbrains.com/plugin/30373-ayu-islands">
+    <img src="https://img.shields.io/badge/Install-JetBrains%20Marketplace-FFCC66?style=for-the-badge&logo=jetbrains&logoColor=white&colorA=1F2430" alt="Install from Marketplace">
+  </a>
+</p>
+
+<p align="center">
   <a href="https://github.com/barad1tos/ayu-jetbrains/actions/workflows/build.yml">
     <img src="https://github.com/barad1tos/ayu-jetbrains/actions/workflows/build.yml/badge.svg" alt="Build">
   </a>
