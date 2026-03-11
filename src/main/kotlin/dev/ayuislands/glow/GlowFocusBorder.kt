@@ -46,11 +46,11 @@ class GlowFocusBorder(
         try {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
 
-            val arcRadius = UIManager.getInt("Component.arc").let { if (it > 0) it else DEFAULT_ARC }
+            val arcWidth = UIManager.getInt("Component.arc").let { if (it > 0) it else DEFAULT_ARC }
             val bounds = Rectangle(x, y, width, height)
 
             renderer.ensureCache(glowColor, glowStyle, focusIntensity, focusRingWidth)
-            renderer.paintGlow(g2, bounds, focusRingWidth, arcRadius)
+            renderer.paintGlow(g2, bounds, focusRingWidth, arcWidth)
         } finally {
             g2.dispose()
         }
