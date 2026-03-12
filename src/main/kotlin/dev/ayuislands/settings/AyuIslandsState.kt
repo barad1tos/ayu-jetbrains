@@ -102,6 +102,9 @@ class AyuIslandsState : BaseState() {
     // Per-preset custom settings: key = preset name, value = "size|spacing|ligatures|weight"
     var fontPresetCustomizations by map<String, String>()
 
+    // Update notification (shown once per version upgrade)
+    var lastSeenVersion by string(null)
+
     // Settings tab selection (persisted across settings opens)
     var settingsSelectedTab by property(0)
 
