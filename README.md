@@ -111,29 +111,15 @@ Then activate: **Settings** → **Appearance & Behavior** → **Appearance** →
 
 ## Supported Languages
 
-Ayu Islands provides hand-tuned syntax highlighting for 21 languages and formats:
+Ayu Islands provides hand-tuned syntax highlighting for 40+ languages and formats:
 
-- Java
-- Kotlin
-- Scala
-- C# / .NET (Rider / ReSharper)
-- Rust
-- Go
-- Python
-- JavaScript / TypeScript
-- Ruby
-- PHP
-- Dart
-- HCL / Terraform
-- HTML
-- CSS
-- XML
-- JSON
-- YAML
-- Bash / Shell
-- Markdown
-- Django Templates
-- Regular Expressions
+- Java, Kotlin, Scala, C# / .NET (Rider / ReSharper), Swift
+- Rust, Go, Erlang, Lua
+- Python, Ruby, PHP, Dart
+- JavaScript / TypeScript, CoffeeScript
+- HTML, CSS, HAML, SLIM, JSP, Qute, Django Templates
+- GraphQL, JSON, XML, YAML, Properties, Puppet
+- Bash / Shell, Markdown, Regular Expressions
 
 Languages without explicit overrides (SQL, TOML, and others) inherit from `DEFAULT_*` attributes, which are also themed — so every language benefits from the Ayu palette.
 
