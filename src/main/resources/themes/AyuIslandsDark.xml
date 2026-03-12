@@ -82,10 +82,10 @@
 
         <!-- VCS lines -->
         <option name="ADDED_LINES_COLOR" value="70BF56" />
-        <option name="MODIFIED_LINES_COLOR" value="73B8FF" />
+        <option name="MODIFIED_LINES_COLOR" value="59C2FF" />
         <option name="DELETED_LINES_COLOR" value="F26D78" />
         <option name="IGNORED_ADDED_LINES_BORDER_COLOR" value="70BF56" />
-        <option name="IGNORED_MODIFIED_LINES_BORDER_COLOR" value="73B8FF" />
+        <option name="IGNORED_MODIFIED_LINES_BORDER_COLOR" value="59C2FF" />
         <option name="IGNORED_DELETED_LINES_BORDER_COLOR" value="F26D78" />
 
         <!-- File status -->
@@ -116,7 +116,7 @@
         <option name="DIFF_CONFLICT" value="D95757" />
         <option name="DIFF_DELETED" value="F26D78" />
         <option name="DIFF_INSERTED" value="70BF56" />
-        <option name="DIFF_MODIFIED" value="73B8FF" />
+        <option name="DIFF_MODIFIED" value="59C2FF" />
         <option name="DIFF_SEPARATORS_BACKGROUND" value="141821" />
 
         <!-- Borders & misc -->
@@ -886,8 +886,8 @@
         </option>
         <option name="DIFF_MODIFIED">
             <value>
-                <option name="FOREGROUND" value="365273" />
-                <option name="BACKGROUND" value="73B8FF" />
+                <option name="FOREGROUND" value="2A4670" />
+                <option name="BACKGROUND" value="0F1E30" />
             </value>
         </option>
 

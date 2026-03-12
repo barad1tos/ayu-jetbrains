@@ -82,10 +82,10 @@
 
         <!-- VCS lines -->
         <option name="ADDED_LINES_COLOR" value="87D96C" />
-        <option name="MODIFIED_LINES_COLOR" value="80BFFF" />
+        <option name="MODIFIED_LINES_COLOR" value="73D0FF" />
         <option name="DELETED_LINES_COLOR" value="F27983" />
         <option name="IGNORED_ADDED_LINES_BORDER_COLOR" value="87D96C" />
-        <option name="IGNORED_MODIFIED_LINES_BORDER_COLOR" value="80BFFF" />
+        <option name="IGNORED_MODIFIED_LINES_BORDER_COLOR" value="73D0FF" />
         <option name="IGNORED_DELETED_LINES_BORDER_COLOR" value="F27983" />
 
         <!-- File status (matches Ayu Mirage Complete) -->
@@ -116,7 +116,7 @@
         <option name="DIFF_CONFLICT" value="FF6666" />
         <option name="DIFF_DELETED" value="F27983" />
         <option name="DIFF_INSERTED" value="87D96C" />
-        <option name="DIFF_MODIFIED" value="80BFFF" />
+        <option name="DIFF_MODIFIED" value="73D0FF" />
         <option name="DIFF_SEPARATORS_BACKGROUND" value="282E3B" />
 
         <!-- Borders & misc -->
@@ -797,8 +797,8 @@
         </option>
         <option name="DIFF_MODIFIED">
             <value>
-                <option name="FOREGROUND" value="466283" />
-                <option name="BACKGROUND" value="80BFFF" />
+                <option name="FOREGROUND" value="3A6080" />
+                <option name="BACKGROUND" value="1A2E40" />
             </value>
         </option>
 

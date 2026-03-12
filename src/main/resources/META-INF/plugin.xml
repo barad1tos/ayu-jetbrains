@@ -21,7 +21,7 @@
           Monaspace Xenon with one-click apply, live preview, and brew install</li>
       <li><b>6 theme variants</b> — Mirage, Dark, Light in Classic UI and Islands UI</li>
       <li><b>500+ UI properties</b> hand-tuned per variant</li>
-      <li><b>30+ language syntaxes</b> individually crafted</li>
+      <li><b>40+ language syntaxes</b> individually crafted</li>
       <li>Built on <a href="https://github.com/ayu-theme/ayu-colors">ayu-colors</a>
           (MIT) — endorsed by the original author</li>
     </ul>
@@ -44,6 +44,11 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.2.1</h3>
+    <ul>
+      <li>[Free] VCS modified-line colors corrected to canonical ayu palette (Mirage, Dark)</li>
+      <li>[Free] Plugin description: 40+ languages (was 30+)</li>
+    </ul>
     <h3>2.2.0</h3>
     <ul>
       <li>[Free] Font presets: 4 curated Nerd Fonts (Whisper, Ambient, Neon, Cyberpunk)
@@ -108,7 +113,7 @@
     <ul>
       <li>C#/.NET syntax highlighting (Rider/ReSharper) for all three variants</li>
       <li>Dart, Ruby, PHP, Scala, Kotlin, Rust, Bash, SQL, RegExp language-specific highlights</li>
-      <li>20+ languages with hand-tuned syntax tokens</li>
+      <li>40+ languages with hand-tuned syntax tokens</li>
     </ul>
     <h3>1.0.3</h3>
     <ul>
