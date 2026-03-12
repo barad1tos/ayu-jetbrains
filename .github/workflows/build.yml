@@ -80,6 +80,22 @@ jobs:
       - name: Scan workflows for vulnerabilities
         run: uvx zizmor --min-severity medium .
 
+  theme-consistency:
+    name: Theme consistency
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Check XML cross-variant consistency
+        run: python3 scripts/check-consistency.py
+      - name: Check JSON pair consistency
+        run: python3 scripts/check-json-consistency.py
+
   # ── Tier 2: Gradle compilation ─────────────────────────
   build:
     name: Build
@@ -177,6 +193,7 @@ jobs:
     needs:
       - lint-files
       - gha-security
+      - theme-consistency
       - build
       - analyze
       - test
@@ -188,6 +205,7 @@ jobs:
           results=(
             "lint-files=${{ needs.lint-files.result }}"
             "gha-security=${{ needs.gha-security.result }}"
+            "theme-consistency=${{ needs.theme-consistency.result }}"
             "build=${{ needs.build.result }}"
             "analyze=${{ needs.analyze.result }}"
             "test=${{ needs.test.result }}"

@@ -134,6 +134,10 @@ Languages without explicit overrides (SQL, TOML, and others) inherit from `DEFAU
 
 # Verify against 12 IDE targets
 ./gradlew verifyPlugin
+
+# Check theme file consistency (runs in CI)
+python3 scripts/check-consistency.py      # XML cross-variant
+python3 scripts/check-json-consistency.py  # JSON pair consistency
 ```
 
 Output: `build/distributions/ayu-jetbrains-<version>.zip`
