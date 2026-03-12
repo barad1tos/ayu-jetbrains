@@ -40,7 +40,7 @@ internal object UpdateNotifier {
                 NotificationType.INFORMATION,
             ).addAction(
                 NotificationAction.createSimpleExpiring(
-                    "What's New",
+                    "What's new",
                 ) {
                     BrowserUtil.browse(MARKETPLACE_URL)
                 },
@@ -51,6 +51,9 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.2.1" to
+                "VCS modified-line colors corrected to canonical ayu palette " +
+                "for Mirage and Dark variants.",
             "2.2.0" to
                 "4 font presets (Whisper, Ambient, Neon, Cyberpunk) " +
                 "with one-click apply. " +
