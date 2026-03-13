@@ -93,6 +93,14 @@ class AyuIslandsState : BaseState() {
     // IR version that failed reflection (suppresses repeated notifications)
     var irFailedVersion by string(null)
 
+    // Project View tweaks
+    var hideProjectRootPath by property(false)
+    var hideRootVcsAnnotations by property(false)
+    var hideProjectViewHScrollbar by property(false)
+
+    // Migration: existing users with hideProjectRootPath=true expect VCS hidden too
+    var projectViewMigrated by property(false)
+
     // Font preset
     var fontPresetEnabled by property(false)
     var fontPresetName by string("AMBIENT")

@@ -2,7 +2,9 @@
 
 package dev.ayuislands.settings
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.SegmentedButton
@@ -11,12 +13,22 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.indent.IndentPreset
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import javax.swing.JCheckBox
 import javax.swing.JLabel
 import javax.swing.JSlider
 
-/** Third-party integrations: bracket scope, CodeGlance Pro, and Indent Rainbow. */
+/** Integrations tab: Project View tweaks and third-party editor integrations. */
 class IntegrationsPanel : AyuIslandsSettingsPanel {
+    // Project View toggles
+    private var pendingHideRootPath: Boolean = false
+    private var storedHideRootPath: Boolean = false
+    private var pendingHideRootVcs: Boolean = false
+    private var storedHideRootVcs: Boolean = false
+    private var pendingHideHScrollbar: Boolean = false
+    private var storedHideHScrollbar: Boolean = false
+
+    // Editor integrations
     private var pendingEnabled: Boolean = false
     private var storedEnabled: Boolean = false
     private var pendingPreset: String = IndentPreset.AMBIENT.name
@@ -31,6 +43,9 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
     private var storedErrorHighlight: Boolean = true
 
     private var variant: AyuVariant? = null
+    private var hideRootPathCheckbox: JCheckBox? = null
+    private var hideRootVcsCheckbox: JCheckBox? = null
+    private var hideHScrollbarCheckbox: JCheckBox? = null
     private var enabledCheckbox: JCheckBox? = null
     private var cgpCheckbox: JCheckBox? = null
     private var errorHighlightCheckbox: JCheckBox? = null
@@ -49,21 +64,25 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
         val state = AyuIslandsSettings.getInstance().state
         val licensed = LicenseChecker.isLicensedOrGrace()
 
+        // Project View state
+        storedHideRootPath = state.hideProjectRootPath
+        pendingHideRootPath = storedHideRootPath
+        storedHideRootVcs = state.hideRootVcsAnnotations
+        pendingHideRootVcs = storedHideRootVcs
+        storedHideHScrollbar = state.hideProjectViewHScrollbar
+        pendingHideHScrollbar = storedHideHScrollbar
+
+        // Editor integrations state
         storedBracketScope = state.bracketScopeEnabled
         pendingBracketScope = storedBracketScope
-
         storedCgpIntegration = state.cgpIntegrationEnabled
         pendingCgpIntegration = storedCgpIntegration
-
         storedEnabled = state.irIntegrationEnabled
         pendingEnabled = storedEnabled
-
         storedErrorHighlight = state.irErrorHighlightEnabled
         pendingErrorHighlight = storedErrorHighlight
-
         storedPreset = state.indentPresetName ?: IndentPreset.AMBIENT.name
         pendingPreset = storedPreset
-
         storedCustomAlpha = state.indentCustomAlpha
         pendingCustomAlpha = storedCustomAlpha
 
@@ -73,7 +92,40 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
 
         val irEnabled = AtomicBooleanProperty(pendingEnabled)
 
-        panel.group("Integrations") {
+        panel.group("Project View") {
+            row {
+                val cb =
+                    checkBox("Hide filesystem path")
+                        .comment("Remove the directory path shown next to the project name")
+                cb.component.isSelected = pendingHideRootPath
+                cb.component.addActionListener {
+                    pendingHideRootPath = cb.component.isSelected
+                }
+                hideRootPathCheckbox = cb.component
+            }
+            row {
+                val cb =
+                    checkBox("Hide VCS annotations")
+                        .comment("Remove branch name and changed file count from the project root")
+                cb.component.isSelected = pendingHideRootVcs
+                cb.component.addActionListener {
+                    pendingHideRootVcs = cb.component.isSelected
+                }
+                hideRootVcsCheckbox = cb.component
+            }
+            row {
+                val cb =
+                    checkBox("Hide horizontal scrollbar")
+                        .comment("Remove the bottom scrollbar from the Project tool window")
+                cb.component.isSelected = pendingHideHScrollbar
+                cb.component.addActionListener {
+                    pendingHideHScrollbar = cb.component.isSelected
+                }
+                hideHScrollbarCheckbox = cb.component
+            }
+        }
+
+        panel.group("Editor") {
             // Bracket scope — always visible (independent of third-party plugins)
             row {
                 val scopeCb =
@@ -180,7 +232,10 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
     }
 
     override fun isModified(): Boolean =
-        pendingEnabled != storedEnabled ||
+        pendingHideRootPath != storedHideRootPath ||
+            pendingHideRootVcs != storedHideRootVcs ||
+            pendingHideHScrollbar != storedHideHScrollbar ||
+            pendingEnabled != storedEnabled ||
             pendingPreset != storedPreset ||
             pendingCustomAlpha != storedCustomAlpha ||
             pendingBracketScope != storedBracketScope ||
@@ -191,6 +246,19 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
         if (!isModified()) return
         val state = AyuIslandsSettings.getInstance().state
 
+        val rootPathChanged = pendingHideRootPath != storedHideRootPath
+        val vcsAnnotationsChanged = pendingHideRootVcs != storedHideRootVcs
+        val hScrollbarChanged = pendingHideHScrollbar != storedHideHScrollbar
+
+        // Project View settings
+        state.hideProjectRootPath = pendingHideRootPath
+        state.hideRootVcsAnnotations = pendingHideRootVcs
+        state.hideProjectViewHScrollbar = pendingHideHScrollbar
+        storedHideRootPath = pendingHideRootPath
+        storedHideRootVcs = pendingHideRootVcs
+        storedHideHScrollbar = pendingHideHScrollbar
+
+        // Editor integrations
         state.irIntegrationEnabled = pendingEnabled
         state.indentPresetName = pendingPreset
         state.indentCustomAlpha = pendingCustomAlpha
@@ -205,6 +273,16 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
         storedCgpIntegration = pendingCgpIntegration
         storedErrorHighlight = pendingErrorHighlight
 
+        // Apply Project View changes to all open projects
+        if (rootPathChanged || vcsAnnotationsChanged || hScrollbarChanged) {
+            for (openProject in ProjectManager.getInstance().openProjects) {
+                ApplicationManager.getApplication().invokeLater(
+                    { ProjectViewScrollbarManager.getInstance(openProject).apply() },
+                    openProject.disposed,
+                )
+            }
+        }
+
         // Trigger IR sync immediately
         val currentVariant = variant ?: return
         val accentHex = AyuIslandsSettings.getInstance().getAccentForVariant(currentVariant)
@@ -212,6 +290,9 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
     }
 
     override fun reset() {
+        pendingHideRootPath = storedHideRootPath
+        pendingHideRootVcs = storedHideRootVcs
+        pendingHideHScrollbar = storedHideHScrollbar
         pendingEnabled = storedEnabled
         pendingPreset = storedPreset
         pendingCustomAlpha = storedCustomAlpha
@@ -220,6 +301,9 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
         pendingErrorHighlight = storedErrorHighlight
 
         suppressListeners = true
+        hideRootPathCheckbox?.isSelected = storedHideRootPath
+        hideRootVcsCheckbox?.isSelected = storedHideRootVcs
+        hideHScrollbarCheckbox?.isSelected = storedHideHScrollbar
         enabledCheckbox?.isSelected = storedEnabled
         cgpCheckbox?.isSelected = storedCgpIntegration
         errorHighlightCheckbox?.isSelected = storedErrorHighlight

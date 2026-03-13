@@ -31,6 +31,15 @@
 -keep enum dev.ayuislands.font.FontWeight { *; }
 -keep enum dev.ayuislands.font.FontPreset { *; }
 
+# plugin.xml: projectService (Project View tweaks)
+-keep class dev.ayuislands.projectview.ProjectViewScrollbarManager { *; }
+-keep class dev.ayuislands.projectview.ProjectViewScrollbarManager$Companion { *; }
+
+# plugin.xml: applicationListeners
+-keep class dev.ayuislands.AyuIslandsAppListener { *; }
+-keep class dev.ayuislands.AppearanceSyncListener { *; }
+-keep class dev.ayuislands.AppearanceSyncService { *; }
+
 # Public API singletons (called from kept classes)
 -keep class dev.ayuislands.accent.AccentApplicator { *; }
 -keep class dev.ayuislands.accent.AccentColor { *; }

@@ -8,6 +8,7 @@ import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.glow.GlowOverlayManager
+import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
 
 /** Re-applies accent color on theme change. */
@@ -39,8 +40,22 @@ class AyuIslandsLafListener : LafManagerListener {
         }
         syncService.clearProgrammaticSwitch()
 
+        // Re-apply Project View scrollbar setting
+        reapplyProjectViewScrollbar()
+
         // Update glow overlays with new accent color
         updateGlowForAllProjects()
+    }
+
+    private fun reapplyProjectViewScrollbar() {
+        if (!AyuIslandsSettings.getInstance().state.hideProjectViewHScrollbar) return
+        for (openProject in ProjectManager.getInstance().openProjects) {
+            try {
+                ProjectViewScrollbarManager.getInstance(openProject).apply()
+            } catch (exception: RuntimeException) {
+                LOG.warn("Failed to re-apply scrollbar for project ${openProject.name}: ${exception.message}")
+            }
+        }
     }
 
     private fun updateGlowForAllProjects() {

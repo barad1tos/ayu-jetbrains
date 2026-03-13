@@ -180,6 +180,10 @@
         <projectService
                 serviceImplementation="dev.ayuislands.glow.GlowOverlayManager"/>
 
+        <!-- Project View scrollbar manager (per-project lifecycle) -->
+        <projectService
+                serviceImplementation="dev.ayuislands.projectview.ProjectViewScrollbarManager"/>
+
         <!-- Plugin lifecycle -->
         <postStartupActivity
                 implementation="dev.ayuislands.AyuIslandsStartupActivity"/>

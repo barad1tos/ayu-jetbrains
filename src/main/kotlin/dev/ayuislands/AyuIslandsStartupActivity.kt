@@ -12,6 +12,7 @@ import dev.ayuislands.font.FontPreset
 import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
 import javax.swing.SwingUtilities
 
@@ -56,6 +57,22 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
 
         // Show a one-time update notification if the plugin version changed
         SwingUtilities.invokeLater { UpdateNotifier.showIfUpdated(project) }
+
+        // Migrate: users with old hideProjectRootPath=true expect VCS also hidden
+        if (settings.state.hideProjectRootPath && !settings.state.projectViewMigrated) {
+            settings.state.hideRootVcsAnnotations = true
+            settings.state.projectViewMigrated = true
+        }
+
+        // Eagerly initialize Project View customizer — its init block subscribes
+        // to ToolWindowManagerListener, which will apply() when the tree is ready.
+        val pvState = settings.state
+        if (pvState.hideProjectViewHScrollbar ||
+            pvState.hideProjectRootPath ||
+            pvState.hideRootVcsAnnotations
+        ) {
+            ProjectViewScrollbarManager.getInstance(project)
+        }
 
         // Initialize the glow overlay system if the glow is enabled
         // Uses ApplicationManager.invokeLater with project.disposed condition to skip
