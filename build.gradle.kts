@@ -96,7 +96,7 @@ intellijPlatform {
             }
             if (group != "A") {
                 // Group B: Language-specific IDEs
-                create(IntelliJPlatformType.RustRover, "2025.1.3")
+                // RustRover 2025.1.3 excluded: corrupted CDN artifact (InvalidIdeException: missing Core plugin)
                 create(IntelliJPlatformType.GoLand, "2025.1.3")
                 create(IntelliJPlatformType.PyCharm, "2025.1.3")
                 create(IntelliJPlatformType.DataGrip, "2025.1.3")
