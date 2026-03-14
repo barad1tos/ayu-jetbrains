@@ -840,25 +840,26 @@
         <!-- Diff -->
         <option name="DIFF_CONFLICT">
             <value>
-                <option name="FOREGROUND" value="FFF0E0" />
+                <option name="BACKGROUND" value="E6505020" />
+                <option name="ERROR_STRIPE_COLOR" value="E65050" />
             </value>
         </option>
         <option name="DIFF_DELETED">
             <value>
-                <option name="FOREGROUND" value="FFE8EC" />
                 <option name="BACKGROUND" value="FF738320" />
+                <option name="ERROR_STRIPE_COLOR" value="FF7383" />
             </value>
         </option>
         <option name="DIFF_INSERTED">
             <value>
-                <option name="FOREGROUND" value="E8F5E0" />
                 <option name="BACKGROUND" value="6CBF4320" />
+                <option name="ERROR_STRIPE_COLOR" value="6CBF43" />
             </value>
         </option>
         <option name="DIFF_MODIFIED">
             <value>
-                <option name="FOREGROUND" value="E0ECFF" />
-                <option name="BACKGROUND" value="478ACC20" />
+                <option name="BACKGROUND" value="478ACC30" />
+                <option name="ERROR_STRIPE_COLOR" value="478ACC" />
             </value>
         </option>
 
