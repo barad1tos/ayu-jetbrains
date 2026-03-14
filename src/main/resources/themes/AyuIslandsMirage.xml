@@ -780,25 +780,26 @@
         <!-- Diff -->
         <option name="DIFF_CONFLICT">
             <value>
-                <option name="FOREGROUND" value="222734" />
+                <option name="BACKGROUND" value="80202A" />
+                <option name="ERROR_STRIPE_COLOR" value="FF6666" />
             </value>
         </option>
         <option name="DIFF_DELETED">
             <value>
-                <option name="FOREGROUND" value="481F29" />
                 <option name="BACKGROUND" value="86171E" />
+                <option name="ERROR_STRIPE_COLOR" value="F27983" />
             </value>
         </option>
         <option name="DIFF_INSERTED">
             <value>
-                <option name="FOREGROUND" value="1F431D" />
                 <option name="BACKGROUND" value="1F7201" />
+                <option name="ERROR_STRIPE_COLOR" value="87D96C" />
             </value>
         </option>
         <option name="DIFF_MODIFIED">
             <value>
-                <option name="FOREGROUND" value="3A6080" />
-                <option name="BACKGROUND" value="1A2E40" />
+                <option name="BACKGROUND" value="253D58" />
+                <option name="ERROR_STRIPE_COLOR" value="73D0FF" />
             </value>
         </option>
 

@@ -786,6 +786,7 @@
 
     "VersionControl": {
       "MarkerPopup.borderColor": "Gray4",
+      "MarkerPopup.Toolbar.background": "PanelBackground",
       "Log.Commit.Reference.foreground": "#8A9199",
       "Merge.Status.NoConflicts.foreground": "#87D96C"
     },
