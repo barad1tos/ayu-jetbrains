@@ -767,6 +767,7 @@
 
     "VersionControl": {
       "MarkerPopup.borderColor": "Gray4",
+      "MarkerPopup.Toolbar.background": "PanelBackground",
       "Log.Commit.currentBranchBackground": "#EBECED",
       "Log.Commit.Reference.foreground": "#828E9F",
       "Log.Commit.unmatchedForeground": "#828E9F",

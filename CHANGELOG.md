@@ -1,5 +1,30 @@
 # Changelog
 
+## [2.2.2] - 2026-03-14
+
+### Fixed
+
+- [Free] Fix diff/merge viewer using wrong default colors instead of theme palette
+- [Free] Fix black toolbar in merge conflict gutter on light themes
+- [Free] Improve diff modified-line background visibility across all variants
+
+## [2.2.1] - 2026-03-11
+
+### Fixed
+
+- [Free] VCS modified-line colors corrected to canonical ayu palette (Mirage, Dark)
+
+## [2.2.0] - 2026-03-11
+
+### Added
+
+- [Free] Font presets: 4 curated Nerd Fonts (Whisper, Ambient, Neon, Cyberpunk) with one-click apply, live preview, and per-preset customization
+- [Free] Custom accent color picker — choose any color beyond the 12 presets
+- [Free] 12 accent presets (added Rose and Slate)
+- [Free] Follow system accent color on macOS
+- [Free] Redesigned accent panel with shade name display
+- [Free] Follow system appearance (auto Light/Dark switching)
+
 ## [2.1.3] - 2026-03-09
 
 ### Fixed
