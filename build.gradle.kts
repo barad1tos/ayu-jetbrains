@@ -9,7 +9,7 @@ buildscript {
 
 plugins {
     id("org.jetbrains.intellij.platform") version "2.12.0"
-    kotlin("jvm") version "2.3.10"
+    kotlin("jvm") version "2.3.20"
     id("org.jetbrains.kotlinx.kover") version "0.9.7"
     id("org.jlleitschuh.gradle.ktlint") version "14.1.0"
     id("io.gitlab.arturbosch.detekt") version "1.23.8"
