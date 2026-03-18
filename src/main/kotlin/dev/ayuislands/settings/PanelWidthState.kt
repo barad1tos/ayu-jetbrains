@@ -6,7 +6,7 @@ import dev.ayuislands.settings.AyuIslandsState.Companion.DEFAULT_GIT_AUTO_FIT_MI
 
 /**
  * Pure state machine for tool window width mode tracking.
- * Extracted from WorkspacePanel for testability — no Swing dependencies.
+ * Extracted from the WorkspacePanel for testability — no Swing dependencies.
  */
 class PanelWidthState {
     var pendingMode = PanelWidthMode.DEFAULT

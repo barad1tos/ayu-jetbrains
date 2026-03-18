@@ -51,6 +51,9 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.3.0" to
+                "Workspace controls: auto-fit Project View, Commit, and Git panels. " +
+                "30-day premium trial \u2014 all features unlocked on first install.",
             "2.2.1" to
                 "VCS modified-line colors corrected to canonical ayu palette " +
                 "for Mirage and Dark variants.",

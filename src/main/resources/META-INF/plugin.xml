@@ -10,7 +10,8 @@
     <p><i>Ayu meets Islands UI — warmth meets beauty in every JetBrains IDE.</i></p>
 
     <p>Warm, refined palettes purpose-built for Islands UI with deep IDE integration.
-    Not just a color port — a unified aesthetic system.</p>
+    Not just a color port — a unified aesthetic system.
+    Free to install — 30-day premium trial included.</p>
 
     <h3>What makes this different</h3>
     <ul>
@@ -21,25 +22,36 @@
           Monaspace Xenon with one-click apply, live preview, and brew install</li>
       <li><b>6 theme variants</b> — Mirage, Dark, Light in Classic UI and Islands UI</li>
       <li><b>Hundreds of UI properties</b> hand-tuned per variant</li>
-      <li><b>40+ language syntaxes</b> individually crafted</li>
+      <li><b>40+ language syntaxes</b> — individually crafted per language:
+          Kotlin, Rust, Go, Python, TypeScript, C#, HCL, and more</li>
       <li>Built on <a href="https://github.com/ayu-theme/ayu-colors">ayu-colors</a>
           (MIT) — endorsed by the original author</li>
     </ul>
 
     <h3>Free — a complete theme, not a teaser</h3>
     <ul>
-      <li>All 6 themes with full syntax highlighting</li>
-      <li>12 accent color presets + custom color picker + macOS system accent sync</li>
-      <li>Font presets with size, weight, spacing, and ligature customization</li>
-      <li>VCS/diff integration with 16-color terminal palette</li>
+      <li><b>6 themes</b> — Mirage, Dark, Light in Classic and Islands UI with full syntax highlighting</li>
+      <li><b>12 accent presets</b> + custom color picker + macOS system accent sync</li>
+      <li><b>4 font presets</b> — Whisper, Ambient, Neon, Cyberpunk with one-click apply and per-preset customization</li>
+      <li><b>VCS/diff colors</b> hand-matched to the palette, 16-color terminal scheme</li>
     </ul>
 
+    <p>Every premium feature is unlocked free for 30 days — no credit card,
+    no time-limited nag screens. Use it, decide later.</p>
+
     <h3>Premium — make the IDE feel yours</h3>
+
+    <p><b>Try everything free for 30 days.</b> No credit card. Install, explore, decide later.</p>
 
     <p><b>Glow</b> — a soft light beneath active tabs and editor panels,
     like a backlit desk in a dark room. Pick from Soft, Sharp Neon, or Gradient styles.
     Add animation — Pulse, Breathe, or Reactive — or keep it still.
     Control intensity, width, and exactly which panels glow.</p>
+
+    <p><b>Workspace</b> — take control of your tool window layout.
+    Auto-fit or set a fixed width for Project View, Commit, and Git panels.
+    Hide the filesystem path, VCS annotations, and horizontal scrollbar
+    from the Project View. Three panels, one settings tab, zero wasted space.</p>
 
     <p><b>Accent control</b> — your accent color, your rules.
     Decide exactly where it appears: scrollbars, links, the caret line,
@@ -50,29 +62,26 @@
     a subtle underline, a full accent bar, or nothing at all.
     In Classic UI, set the underline thickness from hairline to bold.</p>
 
-    <p><b>Bracket scope</b> — when your cursor lands on a bracket,
-    a colored stripe appears in the gutter showing the full scope at a glance.</p>
-
-    <p><b>Project View</b> — declutter the project panel: hide the filesystem path,
-    VCS annotations, horizontal scrollbar, or let auto-fit resize the panel
-    to match your longest filename. Small tweaks, big difference.</p>
-
     <p><b>Plugin sync</b> — your accent color follows you into CodeGlance Pro
     (minimap viewport) and Indent Rainbow (indent guides with 3 Ayu presets).
     One palette, everywhere. More integrations in active development.</p>
+
+    <p><b>Bracket scope</b> — when your cursor lands on a bracket,
+    a colored stripe appears in the gutter showing the full scope at a glance.</p>
   ]]></description>
 
     <change-notes><![CDATA[
     <h3>2.3.0</h3>
     <ul>
-      <li>[Paid] Auto-fit Project panel width — panel automatically resizes to fit the longest visible filename</li>
+      <li>[Paid] Auto-fit Project panel width — the panel automatically resizes to fit the longest visible filename</li>
       <li>[Paid] Project View tweaks now require a license (hide path, VCS annotations, scrollbar)</li>
+      <li>[Free] 30-day premium trial — every premium feature unlocked on the first install, no credit card</li>
       <li>[Free] Improved Marketplace description with clearer premium feature explanations</li>
     </ul>
     <h3>2.2.2</h3>
     <ul>
-      <li>[Free] Fix diff/merge viewer using wrong default colors instead of theme palette</li>
-      <li>[Free] Fix black toolbar in merge conflict gutter on light themes</li>
+      <li>[Free] Fix diff/merge viewer using wrong default colors instead of the theme palette</li>
+      <li>[Free] Fix the black toolbar in the merge conflict gutter on light themes</li>
       <li>[Free] Improve diff modified-line background visibility across all variants</li>
     </ul>
     <h3>2.2.1</h3>
@@ -164,8 +173,8 @@
 
     <product-descriptor
             code="PAYUISLANDS"
-            release-date="20260311"
-            release-version="22"
+            release-date="20260318"
+            release-version="23"
             optional="true"/>
 
     <extensionPoints>

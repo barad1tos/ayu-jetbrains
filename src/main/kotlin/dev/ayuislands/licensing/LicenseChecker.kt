@@ -18,6 +18,9 @@ import com.intellij.ui.LicensingFacade
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.glow.GlowAnimation
+import dev.ayuislands.glow.GlowPreset
+import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.io.ByteArrayInputStream
 import java.nio.charset.StandardCharsets
@@ -33,6 +36,7 @@ object LicenseChecker {
     const val PRODUCT_CODE = "PAYUISLANDS"
 
     private val LOG = logger<LicenseChecker>()
+    private const val NOTIFICATION_GROUP = "Ayu Islands"
     private const val TIMESTAMP_VALIDITY_PERIOD_MS = 3_600_000L // 1 hour
 
     // JetBrains public root CAs for license verification.
@@ -154,14 +158,39 @@ object LicenseChecker {
         }, ModalityState.nonModal())
     }
 
-    /** Show one-time balloon notification after trial expiry. */
+    /** Show one-time conversion-oriented notification after trial expiry. */
     fun notifyTrialExpired(project: Project?) {
         NotificationGroupManager
             .getInstance()
-            .getNotificationGroup("Ayu Islands")
+            .getNotificationGroup(NOTIFICATION_GROUP)
             .createNotification(
-                "Ayu Islands trial has expired",
-                "Free features remain available. Paid features have been reverted to defaults.",
+                "Your Ayu Islands trial has ended",
+                "Glow, accent control, workspace tweaks, and plugin sync " +
+                    "have been reverted to free defaults. " +
+                    "Get a license to bring them back \u2014 yours forever.",
+                NotificationType.INFORMATION,
+            ).addAction(
+                object : com.intellij.notification.NotificationAction("Buy license") {
+                    override fun actionPerformed(
+                        e: AnActionEvent,
+                        notification: com.intellij.notification.Notification,
+                    ) {
+                        notification.expire()
+                        requestLicense(NOTIFICATION_GROUP)
+                    }
+                },
+            ).notify(project)
+    }
+
+    /** Show one-time welcome notification for new trial/license activations. */
+    fun notifyTrialWelcome(project: Project?) {
+        NotificationGroupManager
+            .getInstance()
+            .getNotificationGroup(NOTIFICATION_GROUP)
+            .createNotification(
+                "Welcome to Ayu Islands premium",
+                "All premium features are unlocked for 30 days. " +
+                    "Try a mood preset \u2014 open Settings \u2192 Ayu Islands.",
                 NotificationType.INFORMATION,
             ).notify(project)
     }
@@ -170,6 +199,11 @@ object LicenseChecker {
     fun enableProDefaults() {
         val state = AyuIslandsSettings.getInstance().state
         state.glowEnabled = true
+        state.glowStyle = GlowStyle.SHARP_NEON.name
+        state.glowPreset = GlowPreset.CUSTOM.name
+        state.sharpNeonIntensity = PRO_DEFAULT_NEON_INTENSITY
+        state.sharpNeonWidth = PRO_DEFAULT_NEON_WIDTH
+        state.glowAnimation = GlowAnimation.BREATHE.name
         state.glowEditor = true
         state.glowProject = true
         state.glowTerminal = true
@@ -213,6 +247,8 @@ object LicenseChecker {
     private const val STAMP_SIGNATURE_INDEX = 3
     private const val STAMP_CERT_INDEX = 4
     private const val STAMP_INTERMEDIATE_START_INDEX = 5
+    private const val PRO_DEFAULT_NEON_INTENSITY = 100
+    private const val PRO_DEFAULT_NEON_WIDTH = 2
 
     /** Dev mode: requires BOTH system property AND Gradle sandbox environment. */
     private fun isDevBuild(): Boolean {
