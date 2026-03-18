@@ -80,6 +80,8 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
             state.gitPanelFixedWidth,
         )
 
+        panel.row { comment("Customize tool window width and Project View display options.") }
+
         projectViewGroup =
             panel.collapsibleGroup("Project View") {
                 row {

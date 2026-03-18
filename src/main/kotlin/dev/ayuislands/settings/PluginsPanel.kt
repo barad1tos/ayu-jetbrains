@@ -78,6 +78,8 @@ class PluginsPanel : AyuIslandsSettingsPanel {
             return
         }
 
+        panel.row { comment("Sync Ayu accent colors with compatible plugins.") }
+
         if (cgpDetected) {
             panel.group("CodeGlance Pro") {
                 row {
