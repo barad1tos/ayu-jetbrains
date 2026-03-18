@@ -15,16 +15,14 @@ import javax.swing.JCheckBox
 import javax.swing.JLabel
 import javax.swing.JSlider
 
-/** Third-party integrations: bracket scope, CodeGlance Pro, and Indent Rainbow. */
-class IntegrationsPanel : AyuIslandsSettingsPanel {
+/** Plugins tab: third-party plugin integrations (CodeGlance Pro, Indent Rainbow). */
+class PluginsPanel : AyuIslandsSettingsPanel {
     private var pendingEnabled: Boolean = false
     private var storedEnabled: Boolean = false
     private var pendingPreset: String = IndentPreset.AMBIENT.name
     private var storedPreset: String = IndentPreset.AMBIENT.name
     private var pendingCustomAlpha: Int = IndentPreset.DEFAULT_ALPHA
     private var storedCustomAlpha: Int = IndentPreset.DEFAULT_ALPHA
-    private var pendingBracketScope: Boolean = true
-    private var storedBracketScope: Boolean = true
     private var pendingCgpIntegration: Boolean = false
     private var storedCgpIntegration: Boolean = false
     private var pendingErrorHighlight: Boolean = true
@@ -37,7 +35,6 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
     private var alphaSlider: JSlider? = null
     private var alphaValueLabel: JLabel? = null
     private var presetSegmented: SegmentedButton<IndentPreset>? = null
-    private var bracketScopeCheckbox: JCheckBox? = null
     private val customModeVisible = AtomicBooleanProperty(false)
     private var suppressListeners = false
 
@@ -49,21 +46,14 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
         val state = AyuIslandsSettings.getInstance().state
         val licensed = LicenseChecker.isLicensedOrGrace()
 
-        storedBracketScope = state.bracketScopeEnabled
-        pendingBracketScope = storedBracketScope
-
         storedCgpIntegration = state.cgpIntegrationEnabled
         pendingCgpIntegration = storedCgpIntegration
-
         storedEnabled = state.irIntegrationEnabled
         pendingEnabled = storedEnabled
-
         storedErrorHighlight = state.irErrorHighlightEnabled
         pendingErrorHighlight = storedErrorHighlight
-
         storedPreset = state.indentPresetName ?: IndentPreset.AMBIENT.name
         pendingPreset = storedPreset
-
         storedCustomAlpha = state.indentCustomAlpha
         pendingCustomAlpha = storedCustomAlpha
 
@@ -73,22 +63,25 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
 
         val irEnabled = AtomicBooleanProperty(pendingEnabled)
 
-        panel.group("Integrations") {
-            // Bracket scope — always visible (independent of third-party plugins)
-            row {
-                val scopeCb =
-                    checkBox("Highlight bracket scope on gutter")
-                        .comment("Show accent-colored scope stripe when caret is on a bracket")
-                scopeCb.component.isSelected = pendingBracketScope
-                scopeCb.component.isEnabled = licensed
-                scopeCb.component.addActionListener {
-                    pendingBracketScope = scopeCb.component.isSelected
-                }
-                bracketScopeCheckbox = scopeCb.component
-            }
+        val cgpDetected = ConflictRegistry.isCodeGlanceProDetected()
+        val irDetected = ConflictRegistry.isIndentRainbowDetected()
 
-            // CGP section — only when CodeGlance Pro detected
-            if (ConflictRegistry.isCodeGlanceProDetected()) {
+        if (!cgpDetected && !irDetected) {
+            panel.group("Plugins") {
+                row {
+                    comment(
+                        "No supported plugins detected." +
+                            " Install CodeGlance Pro or Indent Rainbow for accent color sync.",
+                    )
+                }
+            }
+            return
+        }
+
+        panel.row { comment("Sync Ayu accent colors with compatible plugins.") }
+
+        if (cgpDetected) {
+            panel.group("CodeGlance Pro") {
                 row {
                     val cb =
                         checkBox("Sync color with CodeGlance")
@@ -103,9 +96,10 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
                     browserLink("Plugin page", "https://plugins.jetbrains.com/plugin/18824-codeglance-pro")
                 }
             }
+        }
 
-            // IR section — only when IR plugin detected
-            if (ConflictRegistry.isIndentRainbowDetected()) {
+        if (irDetected) {
+            panel.group("Indent Rainbow") {
                 row {
                     val cb =
                         checkBox("Sync colors with Indent Rainbow")
@@ -124,7 +118,6 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
                     )
                 }
 
-                // Preset row (visible when IR integration is enabled)
                 row {
                     label("Preset")
                     val segmented =
@@ -143,7 +136,6 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
                     presetSegmented = segmented
                 }.visibleIf(irEnabled)
 
-                // Error highlight toggle (visible when IR enabled)
                 row {
                     val cb =
                         checkBox("Highlight indent errors")
@@ -156,7 +148,6 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
                     errorHighlightCheckbox = cb.component
                 }.visibleIf(irEnabled)
 
-                // Custom alpha slider (visible only in CUSTOM mode AND IR enabled)
                 row {
                     label("Alpha")
                     val slider = JSlider(MIN_ALPHA, MAX_ALPHA, pendingCustomAlpha)
@@ -183,7 +174,6 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
         pendingEnabled != storedEnabled ||
             pendingPreset != storedPreset ||
             pendingCustomAlpha != storedCustomAlpha ||
-            pendingBracketScope != storedBracketScope ||
             pendingCgpIntegration != storedCgpIntegration ||
             pendingErrorHighlight != storedErrorHighlight
 
@@ -194,18 +184,15 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
         state.irIntegrationEnabled = pendingEnabled
         state.indentPresetName = pendingPreset
         state.indentCustomAlpha = pendingCustomAlpha
-        state.bracketScopeEnabled = pendingBracketScope
         state.cgpIntegrationEnabled = pendingCgpIntegration
         state.irErrorHighlightEnabled = pendingErrorHighlight
 
         storedEnabled = pendingEnabled
         storedPreset = pendingPreset
         storedCustomAlpha = pendingCustomAlpha
-        storedBracketScope = pendingBracketScope
         storedCgpIntegration = pendingCgpIntegration
         storedErrorHighlight = pendingErrorHighlight
 
-        // Trigger IR sync immediately
         val currentVariant = variant ?: return
         val accentHex = AyuIslandsSettings.getInstance().getAccentForVariant(currentVariant)
         AccentApplicator.apply(accentHex)
@@ -215,7 +202,6 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
         pendingEnabled = storedEnabled
         pendingPreset = storedPreset
         pendingCustomAlpha = storedCustomAlpha
-        pendingBracketScope = storedBracketScope
         pendingCgpIntegration = storedCgpIntegration
         pendingErrorHighlight = storedErrorHighlight
 
@@ -226,7 +212,6 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
         presetSegmented?.selectedItem = IndentPreset.fromName(storedPreset)
         alphaSlider?.value = storedCustomAlpha
         alphaValueLabel?.text = "$storedCustomAlpha"
-        bracketScopeCheckbox?.isSelected = storedBracketScope
         customModeVisible.set(
             IndentPreset.fromName(pendingPreset) == IndentPreset.CUSTOM,
         )

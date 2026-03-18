@@ -150,6 +150,16 @@ kover {
                     "dev.ayuislands.AppearanceSyncListener*",
                     // LicenseChecker: public API tested, private crypto is JetBrains boilerplate
                     "dev.ayuislands.licensing.LicenseChecker*",
+                    // IDE glue: Swing UI DSL panel (pure rendering, no extractable logic)
+                    "dev.ayuislands.settings.WorkspacePanel*",
+                    "dev.ayuislands.settings.PluginsPanel*",
+                    // IDE glue: thin ToolWindowManagerListener wrappers delegating to ToolWindowAutoFitter
+                    "dev.ayuislands.commitpanel.CommitPanelAutoFitManager*",
+                    "dev.ayuislands.gitpanel.GitPanelAutoFitManager*",
+                    // IDE glue: Project service (ToolWindowManager, Registry, ProjectView singletons)
+                    "dev.ayuislands.projectview.ProjectViewScrollbarManager*",
+                    // IDE glue: JTree traversal, ToolWindowManager, Timer, expansion listeners
+                    "dev.ayuislands.toolwindow.ToolWindowAutoFitter*",
                 )
             }
         }

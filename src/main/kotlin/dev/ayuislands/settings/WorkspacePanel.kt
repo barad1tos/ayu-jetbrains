@@ -1,0 +1,386 @@
+@file:Suppress("DialogTitleCapitalization")
+
+package dev.ayuislands.settings
+
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.observable.properties.AtomicBooleanProperty
+import com.intellij.openapi.project.ProjectManager
+import com.intellij.ui.dsl.builder.CollapsibleRow
+import com.intellij.ui.dsl.builder.Panel
+import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
+import dev.ayuislands.gitpanel.GitPanelAutoFitManager
+import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.projectview.ProjectViewScrollbarManager
+import dev.ayuislands.toolwindow.AutoFitCalculator
+import java.awt.Color
+import java.awt.Component
+import java.util.Locale
+import javax.swing.DefaultComboBoxModel
+import javax.swing.DefaultListCellRenderer
+import javax.swing.JCheckBox
+import javax.swing.JComboBox
+import javax.swing.JLabel
+import javax.swing.JList
+import javax.swing.JSpinner
+import javax.swing.SpinnerNumberModel
+import javax.swing.UIManager
+
+/** Workspace tab: tool window layout tweaks (Project View, Commit Panel, Git Panel). */
+class WorkspacePanel : AyuIslandsSettingsPanel {
+    private var pendingHideRootPath = false
+    private var storedHideRootPath = false
+    private var pendingHideRootVcs = false
+    private var storedHideRootVcs = false
+    private var pendingHideHScrollbar = false
+    private var storedHideHScrollbar = false
+
+    private var hideRootPathCheckbox: JCheckBox? = null
+    private var hideRootVcsCheckbox: JCheckBox? = null
+    private var hideHScrollbarCheckbox: JCheckBox? = null
+
+    private val projectWidth = WidthModeUiState()
+    private val commitWidth = WidthModeUiState()
+    private val gitWidth = WidthModeUiState()
+
+    private var projectViewGroup: CollapsibleRow? = null
+    private var commitPanelGroup: CollapsibleRow? = null
+    private var gitPanelGroup: CollapsibleRow? = null
+
+    private var suppressListeners = false
+
+    override fun buildPanel(
+        panel: Panel,
+        variant: AyuVariant,
+    ) {
+        val state = AyuIslandsSettings.getInstance().state
+        val licensed = LicenseChecker.isLicensedOrGrace()
+
+        storedHideRootPath = state.hideProjectRootPath
+        pendingHideRootPath = storedHideRootPath
+        storedHideRootVcs = state.hideRootVcsAnnotations
+        pendingHideRootVcs = storedHideRootVcs
+        storedHideHScrollbar = state.hideProjectViewHScrollbar
+        pendingHideHScrollbar = storedHideHScrollbar
+
+        projectWidth.state.load(
+            PanelWidthMode.fromString(state.projectPanelWidthMode),
+            state.autoFitMaxWidth,
+            state.projectPanelFixedWidth,
+        )
+        commitWidth.state.load(
+            PanelWidthMode.fromString(state.commitPanelWidthMode),
+            state.autoFitCommitMaxWidth,
+            state.commitPanelFixedWidth,
+        )
+        gitWidth.state.load(
+            PanelWidthMode.fromString(state.gitPanelWidthMode),
+            state.gitPanelAutoFitMaxWidth,
+            state.gitPanelFixedWidth,
+        )
+
+        panel.row { comment("Customize tool window width and Project View display options.") }
+
+        projectViewGroup =
+            panel.collapsibleGroup("Project View") {
+                row {
+                    val cb =
+                        checkBox("Hide filesystem path")
+                            .comment("Remove the directory path shown next to the project name")
+                    cb.component.isSelected = pendingHideRootPath
+                    cb.component.isEnabled = licensed
+                    cb.component.addActionListener {
+                        pendingHideRootPath = cb.component.isSelected
+                    }
+                    hideRootPathCheckbox = cb.component
+                }
+                row {
+                    val cb =
+                        checkBox("Hide VCS annotations")
+                            .comment("Remove branch name and changed file count from the project root")
+                    cb.component.isSelected = pendingHideRootVcs
+                    cb.component.isEnabled = licensed
+                    cb.component.addActionListener {
+                        pendingHideRootVcs = cb.component.isSelected
+                    }
+                    hideRootVcsCheckbox = cb.component
+                }
+                row {
+                    val cb =
+                        checkBox("Hide horizontal scrollbar")
+                            .comment("Remove the bottom scrollbar from the Project tool window")
+                    cb.component.isSelected = pendingHideHScrollbar
+                    cb.component.isEnabled = licensed
+                    cb.component.addActionListener {
+                        pendingHideHScrollbar = cb.component.isSelected
+                    }
+                    hideHScrollbarCheckbox = cb.component
+                }
+                separator()
+                buildWidthModeGroup(this, projectWidth, AutoFitCalculator.MIN_PROJECT_AUTOFIT_WIDTH, licensed) {
+                    updateGroupTitle(projectViewGroup, "Project View", projectWidth.state)
+                }
+            }
+        projectViewGroup?.expanded = state.workspaceProjectViewExpanded
+        projectViewGroup?.addExpandedListener { state.workspaceProjectViewExpanded = it }
+        updateGroupTitle(projectViewGroup, "Project View", projectWidth.state)
+
+        commitPanelGroup =
+            panel.collapsibleGroup("Commit Panel") {
+                buildWidthModeGroup(this, commitWidth, AutoFitCalculator.MIN_COMMIT_AUTOFIT_WIDTH, licensed) {
+                    updateGroupTitle(commitPanelGroup, "Commit Panel", commitWidth.state)
+                }
+            }
+        commitPanelGroup?.expanded = state.workspaceCommitPanelExpanded
+        commitPanelGroup?.addExpandedListener { state.workspaceCommitPanelExpanded = it }
+        updateGroupTitle(commitPanelGroup, "Commit Panel", commitWidth.state)
+
+        gitPanelGroup =
+            panel.collapsibleGroup("Git Panel") {
+                buildWidthModeGroup(this, gitWidth, AutoFitCalculator.MIN_GIT_AUTOFIT_WIDTH, licensed) {
+                    updateGroupTitle(gitPanelGroup, "Git Panel", gitWidth.state)
+                }
+            }
+        gitPanelGroup?.expanded = state.workspaceGitPanelExpanded
+        gitPanelGroup?.addExpandedListener { state.workspaceGitPanelExpanded = it }
+        updateGroupTitle(gitPanelGroup, "Git Panel", gitWidth.state)
+    }
+
+    private fun updateGroupTitle(
+        group: CollapsibleRow?,
+        baseName: String,
+        widthState: PanelWidthState,
+    ) {
+        val summary = PanelWidthState.widthSummary(widthState)
+        val mutedHex = mutedColorHex()
+        group?.setTitle("<html>$baseName <font color='$mutedHex'>\u00B7 $summary</font></html>")
+    }
+
+    private fun mutedColorHex(): String {
+        val color =
+            UIManager.getColor("Label.disabledForeground")
+                ?: Color(FALLBACK_MUTED_RED, FALLBACK_MUTED_GREEN, FALLBACK_MUTED_BLUE)
+        return String.format(
+            Locale.ROOT,
+            "#%02x%02x%02x",
+            color.red,
+            color.green,
+            color.blue,
+        )
+    }
+
+    private fun buildWidthModeGroup(
+        panel: Panel,
+        uiState: WidthModeUiState,
+        minAutoFitWidth: Int,
+        licensed: Boolean,
+        onModeChanged: () -> Unit = {},
+    ) {
+        val autoFitVisible = uiState.autoFitVisible
+        val fixedVisible = uiState.fixedVisible
+        autoFitVisible.set(uiState.state.pendingMode == PanelWidthMode.AUTO_FIT)
+        fixedVisible.set(uiState.state.pendingMode == PanelWidthMode.FIXED)
+
+        val autoFitSpinner =
+            JSpinner(
+                SpinnerNumberModel(
+                    uiState.state.pendingAutoFitMaxWidth,
+                    minAutoFitWidth,
+                    MAX_AUTOFIT_WIDTH,
+                    AUTOFIT_WIDTH_STEP,
+                ),
+            )
+        autoFitSpinner.addChangeListener {
+            if (!suppressListeners) {
+                uiState.state.pendingAutoFitMaxWidth = autoFitSpinner.value as Int
+                onModeChanged()
+            }
+        }
+        uiState.autoFitSpinner = autoFitSpinner
+
+        val fixedSpinner =
+            JSpinner(
+                SpinnerNumberModel(
+                    uiState.state.pendingFixedWidth,
+                    AutoFitCalculator.MIN_FIXED_WIDTH,
+                    MAX_AUTOFIT_WIDTH,
+                    AUTOFIT_WIDTH_STEP,
+                ),
+            )
+        fixedSpinner.addChangeListener {
+            if (!suppressListeners) {
+                uiState.state.pendingFixedWidth = fixedSpinner.value as Int
+                onModeChanged()
+            }
+        }
+        uiState.fixedSpinner = fixedSpinner
+
+        val comboBox = JComboBox(DefaultComboBoxModel(PanelWidthMode.entries.toTypedArray()))
+        comboBox.selectedItem = uiState.state.pendingMode
+        comboBox.isEnabled = licensed
+        comboBox.renderer =
+            object : DefaultListCellRenderer() {
+                override fun getListCellRendererComponent(
+                    list: JList<*>?,
+                    value: Any?,
+                    index: Int,
+                    isSelected: Boolean,
+                    cellHasFocus: Boolean,
+                ): Component {
+                    val label =
+                        super.getListCellRendererComponent(
+                            list,
+                            value,
+                            index,
+                            isSelected,
+                            cellHasFocus,
+                        ) as JLabel
+                    label.text =
+                        when (value as? PanelWidthMode) {
+                            PanelWidthMode.DEFAULT -> "Default"
+                            PanelWidthMode.AUTO_FIT -> "Auto-fit"
+                            PanelWidthMode.FIXED -> "Fixed"
+                            null -> ""
+                        }
+                    return label
+                }
+            }
+        uiState.modeComboBox = comboBox
+
+        comboBox.addActionListener {
+            if (!suppressListeners) {
+                uiState.state.pendingMode = comboBox.selectedItem as PanelWidthMode
+                autoFitVisible.set(uiState.state.pendingMode == PanelWidthMode.AUTO_FIT)
+                fixedVisible.set(uiState.state.pendingMode == PanelWidthMode.FIXED)
+                onModeChanged()
+            }
+        }
+
+        panel.row {
+            cell(comboBox)
+            label("max").visibleIf(autoFitVisible)
+            cell(autoFitSpinner).visibleIf(autoFitVisible)
+            label("px").visibleIf(autoFitVisible)
+            cell(fixedSpinner).visibleIf(fixedVisible)
+            label("px").visibleIf(fixedVisible)
+        }
+    }
+
+    override fun isModified(): Boolean =
+        pendingHideRootPath != storedHideRootPath ||
+            pendingHideRootVcs != storedHideRootVcs ||
+            pendingHideHScrollbar != storedHideHScrollbar ||
+            projectWidth.state.isModified() ||
+            commitWidth.state.isModified() ||
+            gitWidth.state.isModified()
+
+    override fun apply() {
+        if (!isModified()) return
+        val state = AyuIslandsSettings.getInstance().state
+
+        val displayChanged =
+            pendingHideRootPath != storedHideRootPath ||
+                pendingHideRootVcs != storedHideRootVcs ||
+                pendingHideHScrollbar != storedHideHScrollbar
+        val projectWidthChanged = projectWidth.state.isModified()
+        val commitWidthChanged = commitWidth.state.isModified()
+        val gitWidthChanged = gitWidth.state.isModified()
+
+        state.hideProjectRootPath = pendingHideRootPath
+        state.hideRootVcsAnnotations = pendingHideRootVcs
+        state.hideProjectViewHScrollbar = pendingHideHScrollbar
+        storedHideRootPath = pendingHideRootPath
+        storedHideRootVcs = pendingHideRootVcs
+        storedHideHScrollbar = pendingHideHScrollbar
+
+        state.projectPanelWidthMode = projectWidth.state.pendingMode.name
+        state.autoFitMaxWidth = projectWidth.state.pendingAutoFitMaxWidth
+        state.projectPanelFixedWidth = projectWidth.state.pendingFixedWidth
+        state.autoFitProjectPanelWidth = projectWidth.state.pendingMode == PanelWidthMode.AUTO_FIT
+        projectWidth.state.commitStored()
+
+        state.commitPanelWidthMode = commitWidth.state.pendingMode.name
+        state.autoFitCommitMaxWidth = commitWidth.state.pendingAutoFitMaxWidth
+        state.commitPanelFixedWidth = commitWidth.state.pendingFixedWidth
+        state.autoFitCommitPanelWidth = commitWidth.state.pendingMode == PanelWidthMode.AUTO_FIT
+        commitWidth.state.commitStored()
+
+        state.gitPanelWidthMode = gitWidth.state.pendingMode.name
+        state.gitPanelAutoFitMaxWidth = gitWidth.state.pendingAutoFitMaxWidth
+        state.gitPanelFixedWidth = gitWidth.state.pendingFixedWidth
+        gitWidth.state.commitStored()
+
+        if (displayChanged || projectWidthChanged) {
+            for (openProject in ProjectManager.getInstance().openProjects) {
+                ApplicationManager.getApplication().invokeLater(
+                    { ProjectViewScrollbarManager.getInstance(openProject).apply() },
+                    openProject.disposed,
+                )
+            }
+        }
+
+        if (commitWidthChanged) {
+            for (openProject in ProjectManager.getInstance().openProjects) {
+                ApplicationManager.getApplication().invokeLater(
+                    { CommitPanelAutoFitManager.getInstance(openProject).apply() },
+                    openProject.disposed,
+                )
+            }
+        }
+
+        if (gitWidthChanged) {
+            for (openProject in ProjectManager.getInstance().openProjects) {
+                ApplicationManager.getApplication().invokeLater(
+                    { GitPanelAutoFitManager.getInstance(openProject).apply() },
+                    openProject.disposed,
+                )
+            }
+        }
+    }
+
+    override fun reset() {
+        pendingHideRootPath = storedHideRootPath
+        pendingHideRootVcs = storedHideRootVcs
+        pendingHideHScrollbar = storedHideHScrollbar
+
+        suppressListeners = true
+        hideRootPathCheckbox?.isSelected = storedHideRootPath
+        hideRootVcsCheckbox?.isSelected = storedHideRootVcs
+        hideHScrollbarCheckbox?.isSelected = storedHideHScrollbar
+        projectWidth.reset()
+        commitWidth.reset()
+        gitWidth.reset()
+        updateGroupTitle(projectViewGroup, "Project View", projectWidth.state)
+        updateGroupTitle(commitPanelGroup, "Commit Panel", commitWidth.state)
+        updateGroupTitle(gitPanelGroup, "Git Panel", gitWidth.state)
+        suppressListeners = false
+    }
+
+    private class WidthModeUiState(
+        val state: PanelWidthState = PanelWidthState(),
+    ) {
+        val autoFitVisible = AtomicBooleanProperty(false)
+        val fixedVisible = AtomicBooleanProperty(false)
+
+        var modeComboBox: JComboBox<PanelWidthMode>? = null
+        var autoFitSpinner: JSpinner? = null
+        var fixedSpinner: JSpinner? = null
+
+        fun reset() {
+            state.reset()
+            modeComboBox?.selectedItem = state.storedMode
+            autoFitSpinner?.value = state.storedAutoFitMaxWidth
+            fixedSpinner?.value = state.storedFixedWidth
+            autoFitVisible.set(state.storedMode == PanelWidthMode.AUTO_FIT)
+            fixedVisible.set(state.storedMode == PanelWidthMode.FIXED)
+        }
+    }
+
+    companion object {
+        private const val MAX_AUTOFIT_WIDTH = 800
+        private const val AUTOFIT_WIDTH_STEP = 50
+        private const val FALLBACK_MUTED_RED = 0x6C
+        private const val FALLBACK_MUTED_GREEN = 0x73
+        private const val FALLBACK_MUTED_BLUE = 0x80
+    }
+}

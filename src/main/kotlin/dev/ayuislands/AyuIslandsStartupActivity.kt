@@ -8,11 +8,15 @@ import com.intellij.openapi.startup.ProjectActivity
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.conflict.ConflictRegistry
+import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.font.FontPreset
 import dev.ayuislands.font.FontPresetApplicator
+import dev.ayuislands.gitpanel.GitPanelAutoFitManager
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.PanelWidthMode
 import javax.swing.SwingUtilities
 
 internal class AyuIslandsStartupActivity : ProjectActivity {
@@ -56,6 +60,36 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
 
         // Show a one-time update notification if the plugin version changed
         SwingUtilities.invokeLater { UpdateNotifier.showIfUpdated(project) }
+
+        // Migrate: users with old hideProjectRootPath=true expect VCS also hidden
+        if (settings.state.hideProjectRootPath && !settings.state.projectViewMigrated) {
+            settings.state.hideRootVcsAnnotations = true
+            settings.state.projectViewMigrated = true
+        }
+
+        // Migrate old boolean auto-fit fields to new PanelWidthMode enum
+        settings.state.migrateWidthModes()
+
+        // Eagerly initialize Project View customizer — its init block subscribes
+        // to ToolWindowManagerListener, which will apply() when the tree is ready.
+        val pvState = settings.state
+        val hasProjectViewCustomizations =
+            pvState.hideProjectViewHScrollbar ||
+                pvState.hideProjectRootPath ||
+                pvState.hideRootVcsAnnotations
+        if (hasProjectViewCustomizations ||
+            PanelWidthMode.fromString(pvState.projectPanelWidthMode) != PanelWidthMode.DEFAULT
+        ) {
+            ProjectViewScrollbarManager.getInstance(project)
+        }
+
+        if (PanelWidthMode.fromString(pvState.commitPanelWidthMode) != PanelWidthMode.DEFAULT) {
+            CommitPanelAutoFitManager.getInstance(project)
+        }
+
+        if (PanelWidthMode.fromString(pvState.gitPanelWidthMode) != PanelWidthMode.DEFAULT) {
+            GitPanelAutoFitManager.getInstance(project)
+        }
 
         // Initialize the glow overlay system if the glow is enabled
         // Uses ApplicationManager.invokeLater with project.disposed condition to skip

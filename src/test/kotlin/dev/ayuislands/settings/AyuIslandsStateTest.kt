@@ -237,4 +237,21 @@ class AyuIslandsStateTest {
         assertFalse(state.trialExpiredNotified)
         assertFalse(state.proDefaultsApplied)
     }
+
+    @Test
+    fun `PanelWidthMode fromString parses valid names`() {
+        assertEquals(PanelWidthMode.DEFAULT, PanelWidthMode.fromString("DEFAULT"))
+        assertEquals(PanelWidthMode.AUTO_FIT, PanelWidthMode.fromString("AUTO_FIT"))
+        assertEquals(PanelWidthMode.FIXED, PanelWidthMode.fromString("FIXED"))
+    }
+
+    @Test
+    fun `PanelWidthMode fromString returns DEFAULT for null`() {
+        assertEquals(PanelWidthMode.DEFAULT, PanelWidthMode.fromString(null))
+    }
+
+    @Test
+    fun `PanelWidthMode fromString returns DEFAULT for unknown`() {
+        assertEquals(PanelWidthMode.DEFAULT, PanelWidthMode.fromString("NONEXISTENT"))
+    }
 }

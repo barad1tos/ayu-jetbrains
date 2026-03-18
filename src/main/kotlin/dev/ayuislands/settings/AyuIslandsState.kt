@@ -7,6 +7,17 @@ import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.indent.IndentPreset
 
+enum class PanelWidthMode {
+    DEFAULT,
+    AUTO_FIT,
+    FIXED,
+    ;
+
+    companion object {
+        fun fromString(value: String?): PanelWidthMode = entries.firstOrNull { it.name == value } ?: DEFAULT
+    }
+}
+
 class AyuIslandsState : BaseState() {
     // Per-variant accent colors
     var mirageAccent by string("#FFCC66")
@@ -93,6 +104,29 @@ class AyuIslandsState : BaseState() {
     // IR version that failed reflection (suppresses repeated notifications)
     var irFailedVersion by string(null)
 
+    // Project View tweaks
+    var hideProjectRootPath by property(false)
+    var hideRootVcsAnnotations by property(false)
+    var hideProjectViewHScrollbar by property(false)
+    var autoFitProjectPanelWidth by property(false)
+    var autoFitMaxWidth by property(DEFAULT_AUTO_FIT_MAX_WIDTH)
+
+    // Commit panel auto-fit
+    var autoFitCommitPanelWidth by property(false)
+    var autoFitCommitMaxWidth by property(DEFAULT_AUTO_FIT_MAX_WIDTH)
+
+    // Panel width mode (3-state: DEFAULT / AUTO_FIT / FIXED)
+    var projectPanelWidthMode by string(PanelWidthMode.DEFAULT.name)
+    var projectPanelFixedWidth by property(DEFAULT_FIXED_WIDTH)
+    var commitPanelWidthMode by string(PanelWidthMode.DEFAULT.name)
+    var commitPanelFixedWidth by property(DEFAULT_FIXED_WIDTH)
+    var gitPanelWidthMode by string(PanelWidthMode.DEFAULT.name)
+    var gitPanelAutoFitMaxWidth by property(DEFAULT_AUTO_FIT_MAX_WIDTH)
+    var gitPanelFixedWidth by property(DEFAULT_FIXED_WIDTH)
+
+    // Migration: existing users with hideProjectRootPath=true expect VCS hidden too
+    var projectViewMigrated by property(false)
+
     // Font preset
     var fontPresetEnabled by property(false)
     var fontPresetName by string("AMBIENT")
@@ -107,6 +141,11 @@ class AyuIslandsState : BaseState() {
 
     // Settings tab selection (persisted across settings opens)
     var settingsSelectedTab by property(0)
+
+    // Workspace tab: collapsible group expanded states
+    var workspaceProjectViewExpanded by property(true)
+    var workspaceCommitPanelExpanded by property(false)
+    var workspaceGitPanelExpanded by property(false)
 
     // Force overrides for conflicting elements (element ID names)
     var forceOverrides by stringSet()
@@ -202,8 +241,19 @@ class AyuIslandsState : BaseState() {
         }
     }
 
+    fun migrateWidthModes() {
+        if (autoFitProjectPanelWidth && projectPanelWidthMode == PanelWidthMode.DEFAULT.name) {
+            projectPanelWidthMode = PanelWidthMode.AUTO_FIT.name
+        }
+        if (autoFitCommitPanelWidth && commitPanelWidthMode == PanelWidthMode.DEFAULT.name) {
+            commitPanelWidthMode = PanelWidthMode.AUTO_FIT.name
+        }
+    }
+
     companion object {
         const val DEFAULT_TAB_UNDERLINE_HEIGHT = 4
+        const val DEFAULT_AUTO_FIT_MAX_WIDTH = 400
+        const val DEFAULT_FIXED_WIDTH = 300
         private const val DEFAULT_SOFT_INTENSITY = 20
         private const val DEFAULT_SHARP_NEON_INTENSITY = 50
         private const val DEFAULT_GRADIENT_INTENSITY = 30

@@ -1,0 +1,56 @@
+package dev.ayuislands.settings
+
+import dev.ayuislands.settings.AyuIslandsState.Companion.DEFAULT_AUTO_FIT_MAX_WIDTH
+import dev.ayuislands.settings.AyuIslandsState.Companion.DEFAULT_FIXED_WIDTH
+
+/**
+ * Pure state machine for tool window width mode tracking.
+ * Extracted from WorkspacePanel for testability — no Swing dependencies.
+ */
+class PanelWidthState {
+    var pendingMode = PanelWidthMode.DEFAULT
+    var storedMode = PanelWidthMode.DEFAULT
+    var pendingAutoFitMaxWidth = DEFAULT_AUTO_FIT_MAX_WIDTH
+    var storedAutoFitMaxWidth = DEFAULT_AUTO_FIT_MAX_WIDTH
+    var pendingFixedWidth = DEFAULT_FIXED_WIDTH
+    var storedFixedWidth = DEFAULT_FIXED_WIDTH
+
+    fun load(
+        mode: PanelWidthMode,
+        autoFitMaxWidth: Int,
+        fixedWidth: Int,
+    ) {
+        storedMode = mode
+        pendingMode = mode
+        storedAutoFitMaxWidth = autoFitMaxWidth
+        pendingAutoFitMaxWidth = autoFitMaxWidth
+        storedFixedWidth = fixedWidth
+        pendingFixedWidth = fixedWidth
+    }
+
+    fun isModified(): Boolean =
+        pendingMode != storedMode ||
+            pendingAutoFitMaxWidth != storedAutoFitMaxWidth ||
+            pendingFixedWidth != storedFixedWidth
+
+    fun commitStored() {
+        storedMode = pendingMode
+        storedAutoFitMaxWidth = pendingAutoFitMaxWidth
+        storedFixedWidth = pendingFixedWidth
+    }
+
+    fun reset() {
+        pendingMode = storedMode
+        pendingAutoFitMaxWidth = storedAutoFitMaxWidth
+        pendingFixedWidth = storedFixedWidth
+    }
+
+    companion object {
+        fun widthSummary(state: PanelWidthState): String =
+            when (state.pendingMode) {
+                PanelWidthMode.DEFAULT -> "Default"
+                PanelWidthMode.AUTO_FIT -> "Auto-fit \u00B7 max ${state.pendingAutoFitMaxWidth}px"
+                PanelWidthMode.FIXED -> "Fixed \u00B7 ${state.pendingFixedWidth}px"
+            }
+    }
+}
