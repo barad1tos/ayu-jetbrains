@@ -41,4 +41,26 @@ object AutoFitCalculator {
         }
         return null
     }
+
+    fun findAllOfType(
+        component: Component,
+        type: Class<*>,
+    ): List<Component> {
+        val results = mutableListOf<Component>()
+        collectOfType(component, type, results)
+        return results
+    }
+
+    private fun collectOfType(
+        component: Component,
+        type: Class<*>,
+        results: MutableList<Component>,
+    ) {
+        if (type.isInstance(component)) results.add(component)
+        if (component is Container) {
+            for (child in component.components) {
+                collectOfType(child, type, results)
+            }
+        }
+    }
 }
