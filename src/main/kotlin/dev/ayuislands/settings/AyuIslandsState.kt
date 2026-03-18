@@ -118,11 +118,13 @@ class AyuIslandsState : BaseState() {
 
     // Panel width mode (3-state: DEFAULT / AUTO_FIT / FIXED)
     var projectPanelWidthMode by string(PanelWidthMode.DEFAULT.name)
+    var projectPanelAutoFitMinWidth by property(DEFAULT_PROJECT_AUTO_FIT_MIN_WIDTH)
     var projectPanelFixedWidth by property(DEFAULT_FIXED_WIDTH)
     var commitPanelWidthMode by string(PanelWidthMode.DEFAULT.name)
+    var commitPanelAutoFitMinWidth by property(DEFAULT_COMMIT_AUTO_FIT_MIN_WIDTH)
     var commitPanelFixedWidth by property(DEFAULT_FIXED_WIDTH)
     var gitPanelWidthMode by string(PanelWidthMode.DEFAULT.name)
-    var gitPanelAutoFitMaxWidth by property(DEFAULT_AUTO_FIT_MAX_WIDTH)
+    var gitPanelAutoFitMaxWidth by property(DEFAULT_GIT_AUTO_FIT_MAX_WIDTH)
     var gitPanelAutoFitMinWidth by property(DEFAULT_GIT_AUTO_FIT_MIN_WIDTH)
     var gitPanelFixedWidth by property(DEFAULT_FIXED_WIDTH)
 
@@ -255,7 +257,10 @@ class AyuIslandsState : BaseState() {
     companion object {
         const val DEFAULT_TAB_UNDERLINE_HEIGHT = 4
         const val DEFAULT_AUTO_FIT_MAX_WIDTH = 400
-        const val DEFAULT_GIT_AUTO_FIT_MIN_WIDTH = 200
+        const val DEFAULT_PROJECT_AUTO_FIT_MIN_WIDTH = 250
+        const val DEFAULT_COMMIT_AUTO_FIT_MIN_WIDTH = 250
+        const val DEFAULT_GIT_AUTO_FIT_MIN_WIDTH = 400
+        const val DEFAULT_GIT_AUTO_FIT_MAX_WIDTH = 500
         const val DEFAULT_FIXED_WIDTH = 300
         private const val DEFAULT_SOFT_INTENSITY = 20
         private const val DEFAULT_SHARP_NEON_INTENSITY = 50

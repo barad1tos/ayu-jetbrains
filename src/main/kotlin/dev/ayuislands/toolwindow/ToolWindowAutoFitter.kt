@@ -30,6 +30,9 @@ class ToolWindowAutoFitter(
     /** Lambda to get the current max width from settings (called at fit time, not init time). */
     var maxWidthProvider: () -> Int = { DEFAULT_MAX_WIDTH }
 
+    /** Lambda to get the current min width from settings (called at fit time, not init time). */
+    var minWidthProvider: () -> Int = { minWidth }
+
     fun applyAutoFitWidth(maxWidth: Int) {
         val tree = findTree() ?: return
         val toolWindow =
@@ -47,7 +50,7 @@ class ToolWindowAutoFitter(
             }
         }
 
-        val desiredWidth = AutoFitCalculator.calculateDesiredWidth(maxRowWidth, maxWidth, minWidth)
+        val desiredWidth = AutoFitCalculator.calculateDesiredWidth(maxRowWidth, maxWidth, minWidthProvider())
         applyWidth(toolWindow, desiredWidth)
     }
 

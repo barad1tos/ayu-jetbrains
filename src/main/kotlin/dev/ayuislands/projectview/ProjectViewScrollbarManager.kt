@@ -37,6 +37,7 @@ class ProjectViewScrollbarManager(
             minWidth = AutoFitCalculator.MIN_PROJECT_AUTOFIT_WIDTH,
         ).apply {
             maxWidthProvider = { AyuIslandsSettings.getInstance().state.autoFitMaxWidth }
+            minWidthProvider = { AyuIslandsSettings.getInstance().state.projectPanelAutoFitMinWidth }
         }
 
     init {
