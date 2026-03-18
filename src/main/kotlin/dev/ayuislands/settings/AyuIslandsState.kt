@@ -29,6 +29,7 @@ class AyuIslandsState : BaseState() {
     var lastLightAppearanceTheme by string("Ayu Light (Islands UI)")
     var trialExpiredNotified by property(false)
     var proDefaultsApplied by property(false)
+    var trialWelcomeShown by property(false)
 
     // Per-element accent toggles (all ON by default)
     var inlayHints by property(true)
@@ -122,6 +123,7 @@ class AyuIslandsState : BaseState() {
     var commitPanelFixedWidth by property(DEFAULT_FIXED_WIDTH)
     var gitPanelWidthMode by string(PanelWidthMode.DEFAULT.name)
     var gitPanelAutoFitMaxWidth by property(DEFAULT_AUTO_FIT_MAX_WIDTH)
+    var gitPanelAutoFitMinWidth by property(DEFAULT_GIT_AUTO_FIT_MIN_WIDTH)
     var gitPanelFixedWidth by property(DEFAULT_FIXED_WIDTH)
 
     // Migration: existing users with hideProjectRootPath=true expect VCS hidden too
@@ -253,6 +255,7 @@ class AyuIslandsState : BaseState() {
     companion object {
         const val DEFAULT_TAB_UNDERLINE_HEIGHT = 4
         const val DEFAULT_AUTO_FIT_MAX_WIDTH = 400
+        const val DEFAULT_GIT_AUTO_FIT_MIN_WIDTH = 200
         const val DEFAULT_FIXED_WIDTH = 300
         private const val DEFAULT_SOFT_INTENSITY = 20
         private const val DEFAULT_SHARP_NEON_INTENSITY = 50
