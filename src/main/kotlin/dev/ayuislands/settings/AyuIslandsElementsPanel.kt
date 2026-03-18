@@ -31,6 +31,8 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
     private var storedTabUnderlineHeight: Int = AyuIslandsState.DEFAULT_TAB_UNDERLINE_HEIGHT
     private var pendingTabUnderlineGlowSync: Boolean = false
     private var storedTabUnderlineGlowSync: Boolean = false
+    private var pendingBracketScope: Boolean = true
+    private var storedBracketScope: Boolean = true
     private val checkboxes: MutableMap<AccentElementId, JCheckBox> = mutableMapOf()
     private var tabModeSegmented: SegmentedButton<GlowTabMode>? = null
     private var tabModeCommentRow: Row? = null
@@ -39,6 +41,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
     private var thicknessRow: Row? = null
     private var syncRow: Row? = null
     private var syncCheckbox: JCheckBox? = null
+    private var bracketScopeCheckbox: JCheckBox? = null
     private var licensed: Boolean = false
     private var variant: AyuVariant? = null
     private var elementPreview: AyuIslandsPreviewPanel? = null
@@ -75,6 +78,8 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
         pendingTabUnderlineHeight = storedTabUnderlineHeight
         storedTabUnderlineGlowSync = state.tabUnderlineGlowSync
         pendingTabUnderlineGlowSync = storedTabUnderlineGlowSync
+        storedBracketScope = state.bracketScopeEnabled
+        pendingBracketScope = storedBracketScope
 
         // Detect conflicts on panel open and clean stale overrides for blocked elements
         ConflictRegistry.detectConflicts()
@@ -144,6 +149,20 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
 
                 // Right: hover preview mockup
                 cell(previewComponent).align(AlignY.CENTER)
+            }
+        }
+
+        panel.group("Bracket Scope") {
+            row {
+                val scopeCb =
+                    checkBox("Highlight bracket scope on gutter")
+                        .comment("Show accent-colored scope stripe when caret is on a bracket")
+                scopeCb.component.isSelected = pendingBracketScope
+                scopeCb.component.isEnabled = licensed
+                scopeCb.component.addActionListener {
+                    pendingBracketScope = scopeCb.component.isSelected
+                }
+                bracketScopeCheckbox = scopeCb.component
             }
         }
 
@@ -288,6 +307,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
         if (pendingTabMode != storedTabMode) return true
         if (pendingTabUnderlineHeight != storedTabUnderlineHeight) return true
         if (pendingTabUnderlineGlowSync != storedTabUnderlineGlowSync) return true
+        if (pendingBracketScope != storedBracketScope) return true
         return false
     }
 
@@ -302,12 +322,14 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
         state.glowTabMode = pendingTabMode
         state.tabUnderlineHeight = pendingTabUnderlineHeight
         state.tabUnderlineGlowSync = pendingTabUnderlineGlowSync
+        state.bracketScopeEnabled = pendingBracketScope
 
         storedToggles = pendingToggles.toMap()
         storedForceOverrides = pendingForceOverrides.toSet()
         storedTabMode = pendingTabMode
         storedTabUnderlineHeight = pendingTabUnderlineHeight
         storedTabUnderlineGlowSync = pendingTabUnderlineGlowSync
+        storedBracketScope = pendingBracketScope
 
         // Re-apply accent with new toggle states
         val currentVariant = variant ?: return
@@ -322,7 +344,9 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
         pendingTabMode = storedTabMode
         pendingTabUnderlineHeight = storedTabUnderlineHeight
         pendingTabUnderlineGlowSync = storedTabUnderlineGlowSync
+        pendingBracketScope = storedBracketScope
         refreshCheckboxes()
+        bracketScopeCheckbox?.isSelected = storedBracketScope
         syncPreviewToggles()
         tabModeSegmented?.selectedItem = GlowTabMode.fromName(pendingTabMode)
         thicknessSegmented?.selectedItem = pendingTabUnderlineHeight

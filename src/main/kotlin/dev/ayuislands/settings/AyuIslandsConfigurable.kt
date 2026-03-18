@@ -22,12 +22,14 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
 
     private companion object {
         const val LOGO_HEIGHT = 28
+        const val MIN_TABS_WIDTH = 600
     }
 
     private val appearancePanel = AyuIslandsAppearancePanel()
     private val accentPanel = AyuIslandsAccentPanel()
     private val elementsPanel = AyuIslandsElementsPanel()
-    private val integrationsPanel = IntegrationsPanel()
+    private val workspacePanel = WorkspacePanel()
+    private val pluginsPanel = PluginsPanel()
     private val fontPresetPanel = FontPresetPanel()
     private val effectsPanel = AyuIslandsEffectsPanel()
 
@@ -36,9 +38,10 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
             appearancePanel,
             accentPanel,
             elementsPanel,
-            integrationsPanel,
             fontPresetPanel,
             effectsPanel,
+            workspacePanel,
+            pluginsPanel,
         )
 
     override fun createPanel(): com.intellij.openapi.ui.DialogPanel {
@@ -93,23 +96,30 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                 fontPresetPanel.buildFontTab(this@panel)
             }
 
-        val integrationsTab =
-            panel {
-                integrationsPanel.buildPanel(this@panel, variant)
-            }
-
         val glowTab =
             panel {
                 effectsPanel.buildGlowPanel(this@panel)
             }
 
+        val workspaceTab =
+            panel {
+                workspacePanel.buildPanel(this@panel, variant)
+            }
+
+        val pluginsTab =
+            panel {
+                pluginsPanel.buildPanel(this@panel, variant)
+            }
+
         // Single-level tab container
         val state = AyuIslandsSettings.getInstance().state
         val tabs = JBTabbedPane()
+        tabs.minimumSize = java.awt.Dimension(MIN_TABS_WIDTH, 0)
         tabs.addTab("Accent", accentTab)
         tabs.addTab("Font", fontTab)
-        tabs.addTab("Integrations", integrationsTab)
         tabs.addTab("Glow", glowTab)
+        tabs.addTab("Workspace", workspaceTab)
+        tabs.addTab("Plugins", pluginsTab)
         tabs.selectedIndex = state.settingsSelectedTab.coerceIn(0, tabs.tabCount - 1)
         tabs.addChangeListener {
             AyuIslandsSettings.getInstance().state.settingsSelectedTab = tabs.selectedIndex
@@ -160,9 +170,10 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
     private fun resetAllSettings() {
         accentPanel.resetToDefault()
         elementsPanel.reset()
-        integrationsPanel.reset()
         fontPresetPanel.reset()
         effectsPanel.reset()
+        workspacePanel.reset()
+        pluginsPanel.reset()
     }
 
     override fun isModified(): Boolean = super.isModified() || panels.any { it.isModified() }

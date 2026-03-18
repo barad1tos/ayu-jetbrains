@@ -9,7 +9,10 @@ import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import com.intellij.ui.SimpleColoredComponent
 import com.intellij.ui.SimpleTextAttributes
+import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.PanelWidthMode
+import dev.ayuislands.toolwindow.ToolWindowAutoFitter
 import java.awt.Component
 import java.awt.Container
 import java.beans.PropertyChangeListener
@@ -27,6 +30,14 @@ class ProjectViewScrollbarManager(
     private var registryKeyModified = false
     private var trackedTree: JTree? = null
     private var rendererListener: PropertyChangeListener? = null
+    private val autoFitter =
+        ToolWindowAutoFitter(
+            project = project,
+            toolWindowId = "Project",
+            minWidth = MIN_AUTOFIT_WIDTH,
+        ).apply {
+            maxWidthProvider = { AyuIslandsSettings.getInstance().state.autoFitMaxWidth }
+        }
 
     init {
         project.messageBus.connect(this).subscribe(
@@ -38,10 +49,12 @@ class ProjectViewScrollbarManager(
                 ) {
                     val state =
                         AyuIslandsSettings.getInstance().state
-                    if (!state.hideProjectRootPath &&
-                        !state.hideRootVcsAnnotations &&
-                        !state.hideProjectViewHScrollbar
-                    ) {
+                    val widthMode = PanelWidthMode.fromString(state.projectPanelWidthMode)
+                    val allFeaturesDisabled =
+                        !state.hideProjectRootPath &&
+                            !state.hideRootVcsAnnotations &&
+                            !state.hideProjectViewHScrollbar
+                    if (allFeaturesDisabled && widthMode == PanelWidthMode.DEFAULT) {
                         return
                     }
                     apply()
@@ -51,8 +64,10 @@ class ProjectViewScrollbarManager(
     }
 
     fun apply() {
+        if (!LicenseChecker.isLicensedOrGrace()) return
         applyScrollbar()
         applyRootDisplay()
+        manageAutoFit()
     }
 
     private fun applyScrollbar() {
@@ -71,6 +86,21 @@ class ProjectViewScrollbarManager(
             scrollPane.horizontalScrollBarPolicy =
                 originalScrollbarPolicy!!
             originalScrollbarPolicy = null
+        }
+    }
+
+    private fun manageAutoFit() {
+        val state = AyuIslandsSettings.getInstance().state
+        when (PanelWidthMode.fromString(state.projectPanelWidthMode)) {
+            PanelWidthMode.DEFAULT -> autoFitter.removeExpansionListener()
+            PanelWidthMode.AUTO_FIT -> {
+                autoFitter.installExpansionListener()
+                autoFitter.applyAutoFitWidth(state.autoFitMaxWidth)
+            }
+            PanelWidthMode.FIXED -> {
+                autoFitter.removeExpansionListener()
+                autoFitter.applyFixedWidth(state.projectPanelFixedWidth)
+            }
         }
     }
 
@@ -208,6 +238,7 @@ class ProjectViewScrollbarManager(
 
     override fun dispose() {
         removeRendererGuard()
+        autoFitter.removeExpansionListener()
         val scrollPane = findProjectScrollPane()
         if (scrollPane != null && originalScrollbarPolicy != null) {
             scrollPane.horizontalScrollBarPolicy =
@@ -227,6 +258,7 @@ class ProjectViewScrollbarManager(
     companion object {
         private const val SHOW_URL_KEY =
             "project.tree.structure.show.url"
+        const val MIN_AUTOFIT_WIDTH = 253
 
         fun getInstance(project: Project): ProjectViewScrollbarManager =
             project.getService(

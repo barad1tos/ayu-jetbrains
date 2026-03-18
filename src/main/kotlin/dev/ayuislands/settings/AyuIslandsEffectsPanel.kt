@@ -189,7 +189,6 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
             }
 
         glowPanel.add(innerContent, BorderLayout.CENTER)
-        glowPanel.minimumSize = java.awt.Dimension(MIN_PANEL_WIDTH, 0)
         updateGlowGroupPanel()
 
         panel.row {
@@ -590,7 +589,6 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         private const val DEFAULT_WIDTH = 4
         private const val WIDTH_MAJOR_TICK = 2
         private const val FALLBACK_COLOR_HEX = "#FFCC66"
-        private const val MIN_PANEL_WIDTH = 450
         private val ISLAND_IDS = listOf("Editor", "Project", "Terminal", "Run", "Debug", "Git", "Services")
     }
 }

@@ -2,9 +2,7 @@
 
 package dev.ayuislands.settings
 
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
-import com.intellij.openapi.project.ProjectManager
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.SegmentedButton
@@ -13,46 +11,30 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.indent.IndentPreset
 import dev.ayuislands.licensing.LicenseChecker
-import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import javax.swing.JCheckBox
 import javax.swing.JLabel
 import javax.swing.JSlider
 
-/** Integrations tab: Project View tweaks and third-party editor integrations. */
-class IntegrationsPanel : AyuIslandsSettingsPanel {
-    // Project View toggles
-    private var pendingHideRootPath: Boolean = false
-    private var storedHideRootPath: Boolean = false
-    private var pendingHideRootVcs: Boolean = false
-    private var storedHideRootVcs: Boolean = false
-    private var pendingHideHScrollbar: Boolean = false
-    private var storedHideHScrollbar: Boolean = false
-
-    // Editor integrations
+/** Plugins tab: third-party plugin integrations (CodeGlance Pro, Indent Rainbow). */
+class PluginsPanel : AyuIslandsSettingsPanel {
     private var pendingEnabled: Boolean = false
     private var storedEnabled: Boolean = false
     private var pendingPreset: String = IndentPreset.AMBIENT.name
     private var storedPreset: String = IndentPreset.AMBIENT.name
     private var pendingCustomAlpha: Int = IndentPreset.DEFAULT_ALPHA
     private var storedCustomAlpha: Int = IndentPreset.DEFAULT_ALPHA
-    private var pendingBracketScope: Boolean = true
-    private var storedBracketScope: Boolean = true
     private var pendingCgpIntegration: Boolean = false
     private var storedCgpIntegration: Boolean = false
     private var pendingErrorHighlight: Boolean = true
     private var storedErrorHighlight: Boolean = true
 
     private var variant: AyuVariant? = null
-    private var hideRootPathCheckbox: JCheckBox? = null
-    private var hideRootVcsCheckbox: JCheckBox? = null
-    private var hideHScrollbarCheckbox: JCheckBox? = null
     private var enabledCheckbox: JCheckBox? = null
     private var cgpCheckbox: JCheckBox? = null
     private var errorHighlightCheckbox: JCheckBox? = null
     private var alphaSlider: JSlider? = null
     private var alphaValueLabel: JLabel? = null
     private var presetSegmented: SegmentedButton<IndentPreset>? = null
-    private var bracketScopeCheckbox: JCheckBox? = null
     private val customModeVisible = AtomicBooleanProperty(false)
     private var suppressListeners = false
 
@@ -64,17 +46,6 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
         val state = AyuIslandsSettings.getInstance().state
         val licensed = LicenseChecker.isLicensedOrGrace()
 
-        // Project View state
-        storedHideRootPath = state.hideProjectRootPath
-        pendingHideRootPath = storedHideRootPath
-        storedHideRootVcs = state.hideRootVcsAnnotations
-        pendingHideRootVcs = storedHideRootVcs
-        storedHideHScrollbar = state.hideProjectViewHScrollbar
-        pendingHideHScrollbar = storedHideHScrollbar
-
-        // Editor integrations state
-        storedBracketScope = state.bracketScopeEnabled
-        pendingBracketScope = storedBracketScope
         storedCgpIntegration = state.cgpIntegrationEnabled
         pendingCgpIntegration = storedCgpIntegration
         storedEnabled = state.irIntegrationEnabled
@@ -92,55 +63,23 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
 
         val irEnabled = AtomicBooleanProperty(pendingEnabled)
 
-        panel.group("Project View") {
-            row {
-                val cb =
-                    checkBox("Hide filesystem path")
-                        .comment("Remove the directory path shown next to the project name")
-                cb.component.isSelected = pendingHideRootPath
-                cb.component.addActionListener {
-                    pendingHideRootPath = cb.component.isSelected
+        val cgpDetected = ConflictRegistry.isCodeGlanceProDetected()
+        val irDetected = ConflictRegistry.isIndentRainbowDetected()
+
+        if (!cgpDetected && !irDetected) {
+            panel.group("Plugins") {
+                row {
+                    comment(
+                        "No supported plugins detected." +
+                            " Install CodeGlance Pro or Indent Rainbow for accent color sync.",
+                    )
                 }
-                hideRootPathCheckbox = cb.component
             }
-            row {
-                val cb =
-                    checkBox("Hide VCS annotations")
-                        .comment("Remove branch name and changed file count from the project root")
-                cb.component.isSelected = pendingHideRootVcs
-                cb.component.addActionListener {
-                    pendingHideRootVcs = cb.component.isSelected
-                }
-                hideRootVcsCheckbox = cb.component
-            }
-            row {
-                val cb =
-                    checkBox("Hide horizontal scrollbar")
-                        .comment("Remove the bottom scrollbar from the Project tool window")
-                cb.component.isSelected = pendingHideHScrollbar
-                cb.component.addActionListener {
-                    pendingHideHScrollbar = cb.component.isSelected
-                }
-                hideHScrollbarCheckbox = cb.component
-            }
+            return
         }
 
-        panel.group("Editor") {
-            // Bracket scope — always visible (independent of third-party plugins)
-            row {
-                val scopeCb =
-                    checkBox("Highlight bracket scope on gutter")
-                        .comment("Show accent-colored scope stripe when caret is on a bracket")
-                scopeCb.component.isSelected = pendingBracketScope
-                scopeCb.component.isEnabled = licensed
-                scopeCb.component.addActionListener {
-                    pendingBracketScope = scopeCb.component.isSelected
-                }
-                bracketScopeCheckbox = scopeCb.component
-            }
-
-            // CGP section — only when CodeGlance Pro detected
-            if (ConflictRegistry.isCodeGlanceProDetected()) {
+        if (cgpDetected) {
+            panel.group("CodeGlance Pro") {
                 row {
                     val cb =
                         checkBox("Sync color with CodeGlance")
@@ -155,9 +94,10 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
                     browserLink("Plugin page", "https://plugins.jetbrains.com/plugin/18824-codeglance-pro")
                 }
             }
+        }
 
-            // IR section — only when IR plugin detected
-            if (ConflictRegistry.isIndentRainbowDetected()) {
+        if (irDetected) {
+            panel.group("Indent Rainbow") {
                 row {
                     val cb =
                         checkBox("Sync colors with Indent Rainbow")
@@ -176,7 +116,6 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
                     )
                 }
 
-                // Preset row (visible when IR integration is enabled)
                 row {
                     label("Preset")
                     val segmented =
@@ -195,7 +134,6 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
                     presetSegmented = segmented
                 }.visibleIf(irEnabled)
 
-                // Error highlight toggle (visible when IR enabled)
                 row {
                     val cb =
                         checkBox("Highlight indent errors")
@@ -208,7 +146,6 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
                     errorHighlightCheckbox = cb.component
                 }.visibleIf(irEnabled)
 
-                // Custom alpha slider (visible only in CUSTOM mode AND IR enabled)
                 row {
                     label("Alpha")
                     val slider = JSlider(MIN_ALPHA, MAX_ALPHA, pendingCustomAlpha)
@@ -232,13 +169,9 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
     }
 
     override fun isModified(): Boolean =
-        pendingHideRootPath != storedHideRootPath ||
-            pendingHideRootVcs != storedHideRootVcs ||
-            pendingHideHScrollbar != storedHideHScrollbar ||
-            pendingEnabled != storedEnabled ||
+        pendingEnabled != storedEnabled ||
             pendingPreset != storedPreset ||
             pendingCustomAlpha != storedCustomAlpha ||
-            pendingBracketScope != storedBracketScope ||
             pendingCgpIntegration != storedCgpIntegration ||
             pendingErrorHighlight != storedErrorHighlight
 
@@ -246,71 +179,37 @@ class IntegrationsPanel : AyuIslandsSettingsPanel {
         if (!isModified()) return
         val state = AyuIslandsSettings.getInstance().state
 
-        val rootPathChanged = pendingHideRootPath != storedHideRootPath
-        val vcsAnnotationsChanged = pendingHideRootVcs != storedHideRootVcs
-        val hScrollbarChanged = pendingHideHScrollbar != storedHideHScrollbar
-
-        // Project View settings
-        state.hideProjectRootPath = pendingHideRootPath
-        state.hideRootVcsAnnotations = pendingHideRootVcs
-        state.hideProjectViewHScrollbar = pendingHideHScrollbar
-        storedHideRootPath = pendingHideRootPath
-        storedHideRootVcs = pendingHideRootVcs
-        storedHideHScrollbar = pendingHideHScrollbar
-
-        // Editor integrations
         state.irIntegrationEnabled = pendingEnabled
         state.indentPresetName = pendingPreset
         state.indentCustomAlpha = pendingCustomAlpha
-        state.bracketScopeEnabled = pendingBracketScope
         state.cgpIntegrationEnabled = pendingCgpIntegration
         state.irErrorHighlightEnabled = pendingErrorHighlight
 
         storedEnabled = pendingEnabled
         storedPreset = pendingPreset
         storedCustomAlpha = pendingCustomAlpha
-        storedBracketScope = pendingBracketScope
         storedCgpIntegration = pendingCgpIntegration
         storedErrorHighlight = pendingErrorHighlight
 
-        // Apply Project View changes to all open projects
-        if (rootPathChanged || vcsAnnotationsChanged || hScrollbarChanged) {
-            for (openProject in ProjectManager.getInstance().openProjects) {
-                ApplicationManager.getApplication().invokeLater(
-                    { ProjectViewScrollbarManager.getInstance(openProject).apply() },
-                    openProject.disposed,
-                )
-            }
-        }
-
-        // Trigger IR sync immediately
         val currentVariant = variant ?: return
         val accentHex = AyuIslandsSettings.getInstance().getAccentForVariant(currentVariant)
         AccentApplicator.apply(accentHex)
     }
 
     override fun reset() {
-        pendingHideRootPath = storedHideRootPath
-        pendingHideRootVcs = storedHideRootVcs
-        pendingHideHScrollbar = storedHideHScrollbar
         pendingEnabled = storedEnabled
         pendingPreset = storedPreset
         pendingCustomAlpha = storedCustomAlpha
-        pendingBracketScope = storedBracketScope
         pendingCgpIntegration = storedCgpIntegration
         pendingErrorHighlight = storedErrorHighlight
 
         suppressListeners = true
-        hideRootPathCheckbox?.isSelected = storedHideRootPath
-        hideRootVcsCheckbox?.isSelected = storedHideRootVcs
-        hideHScrollbarCheckbox?.isSelected = storedHideHScrollbar
         enabledCheckbox?.isSelected = storedEnabled
         cgpCheckbox?.isSelected = storedCgpIntegration
         errorHighlightCheckbox?.isSelected = storedErrorHighlight
         presetSegmented?.selectedItem = IndentPreset.fromName(storedPreset)
         alphaSlider?.value = storedCustomAlpha
         alphaValueLabel?.text = "$storedCustomAlpha"
-        bracketScopeCheckbox?.isSelected = storedBracketScope
         customModeVisible.set(
             IndentPreset.fromName(pendingPreset) == IndentPreset.CUSTOM,
         )

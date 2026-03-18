@@ -20,7 +20,7 @@
       <li><b>4 curated font presets</b> — Victor Mono, Maple Mono, Monaspace Neon,
           Monaspace Xenon with one-click apply, live preview, and brew install</li>
       <li><b>6 theme variants</b> — Mirage, Dark, Light in Classic UI and Islands UI</li>
-      <li><b>500+ UI properties</b> hand-tuned per variant</li>
+      <li><b>Hundreds of UI properties</b> hand-tuned per variant</li>
       <li><b>40+ language syntaxes</b> individually crafted</li>
       <li>Built on <a href="https://github.com/ayu-theme/ayu-colors">ayu-colors</a>
           (MIT) — endorsed by the original author</li>
@@ -34,16 +34,41 @@
       <li>VCS/diff integration with 16-color terminal palette</li>
     </ul>
 
-    <h3>Premium — optional extras for deeper customization</h3>
-    <ul>
-      <li><b>Neon glow effects</b> — 3 styles, 4 animations, 8+ tool window targets</li>
-      <li><b>Per-element accent controls</b> — scrollbar, caret, links, tabs, and more</li>
-      <li><b>Indent Rainbow integration</b> — accent-colored guides with intensity presets</li>
-      <li><b>Plugin conflict detection</b> — auto-override for Atom Material Icons, CodeGlance Pro</li>
-    </ul>
+    <h3>Premium — make the IDE feel yours</h3>
+
+    <p><b>Glow</b> — a soft light beneath active tabs and editor panels,
+    like a backlit desk in a dark room. Pick from Soft, Sharp Neon, or Gradient styles.
+    Add animation — Pulse, Breathe, or Reactive — or keep it still.
+    Control intensity, width, and exactly which panels glow.</p>
+
+    <p><b>Accent control</b> — your accent color, your rules.
+    Decide exactly where it appears: scrollbars, links, the caret line,
+    search highlights, progress bars, bracket matches, inlay hints, tag matches.
+    Eight switches, each independent. Want accent on scrollbars but not links? Done.</p>
+
+    <p><b>Tab styling</b> — in Islands UI, choose how active tabs stand out:
+    a subtle underline, a full accent bar, or nothing at all.
+    In Classic UI, set the underline thickness from hairline to bold.</p>
+
+    <p><b>Bracket scope</b> — when your cursor lands on a bracket,
+    a colored stripe appears in the gutter showing the full scope at a glance.</p>
+
+    <p><b>Project View</b> — declutter the project panel: hide the filesystem path,
+    VCS annotations, horizontal scrollbar, or let auto-fit resize the panel
+    to match your longest filename. Small tweaks, big difference.</p>
+
+    <p><b>Plugin sync</b> — your accent color follows you into CodeGlance Pro
+    (minimap viewport) and Indent Rainbow (indent guides with 3 Ayu presets).
+    One palette, everywhere. More integrations in active development.</p>
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.3.0</h3>
+    <ul>
+      <li>[Paid] Auto-fit Project panel width — panel automatically resizes to fit the longest visible filename</li>
+      <li>[Paid] Project View tweaks now require a license (hide path, VCS annotations, scrollbar)</li>
+      <li>[Free] Improved Marketplace description with clearer premium feature explanations</li>
+    </ul>
     <h3>2.2.2</h3>
     <ul>
       <li>[Free] Fix diff/merge viewer using wrong default colors instead of theme palette</li>
@@ -183,6 +208,14 @@
         <!-- Project View scrollbar manager (per-project lifecycle) -->
         <projectService
                 serviceImplementation="dev.ayuislands.projectview.ProjectViewScrollbarManager"/>
+
+        <!-- Commit panel auto-fit manager (per-project lifecycle) -->
+        <projectService
+                serviceImplementation="dev.ayuislands.commitpanel.CommitPanelAutoFitManager"/>
+
+        <!-- Git panel auto-fit manager (per-project lifecycle) -->
+        <projectService
+                serviceImplementation="dev.ayuislands.gitpanel.GitPanelAutoFitManager"/>
 
         <!-- Plugin lifecycle -->
         <postStartupActivity
