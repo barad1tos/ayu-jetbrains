@@ -316,7 +316,7 @@ private class RootLocationHidingRenderer(
             iter.next()
             val text = iter.fragment
             val trimmed = text.trim()
-            if (isKeptFragment(trimmed, projectName, basePath, tildeBasePath)) {
+            if (RootFragmentFilter.isKeptFragment(trimmed, projectName, basePath, tildeBasePath)) {
                 kept.add(text to iter.textAttributes)
             }
         }
@@ -324,24 +324,5 @@ private class RootLocationHidingRenderer(
         for ((text, attrs) in kept) {
             component.append(text, attrs)
         }
-    }
-
-    private fun isKeptFragment(
-        trimmed: String,
-        projectName: String,
-        basePath: String?,
-        tildeBasePath: String?,
-    ): Boolean {
-        if (trimmed.isEmpty()) return false
-        if (trimmed == projectName) return true
-        if (basePath != null && trimmed.contains(basePath)) {
-            return true
-        }
-        if (tildeBasePath != null &&
-            trimmed.contains(tildeBasePath)
-        ) {
-            return true
-        }
-        return false
     }
 }

@@ -11,7 +11,6 @@ import javax.swing.SwingUtilities
 import javax.swing.Timer
 import javax.swing.event.TreeExpansionEvent
 import javax.swing.event.TreeExpansionListener
-import kotlin.math.abs
 
 /**
  * Reusable auto-fit logic for any tool window containing a JTree.
@@ -49,10 +48,7 @@ class ToolWindowAutoFitter(
             }
         }
 
-        val desiredWidth =
-            (maxRowWidth + AUTOFIT_PADDING)
-                .coerceAtMost(maxWidth)
-                .coerceAtLeast(minWidth)
+        val desiredWidth = AutoFitCalculator.calculateDesiredWidth(maxRowWidth, maxWidth, minWidth)
         applyWidth(toolWindow, desiredWidth)
     }
 
@@ -70,8 +66,8 @@ class ToolWindowAutoFitter(
         desiredWidth: Int,
     ) {
         val currentWidth = toolWindow.component.width
+        if (AutoFitCalculator.isJitterOnly(currentWidth, desiredWidth)) return
         val delta = desiredWidth - currentWidth
-        if (abs(delta) <= JITTER_THRESHOLD) return
 
         when (toolWindow.type) {
             ToolWindowType.FLOATING, ToolWindowType.WINDOWED -> {
@@ -132,8 +128,6 @@ class ToolWindowAutoFitter(
 
     companion object {
         private const val DEBOUNCE_DELAY_MS = 150
-        private const val AUTOFIT_PADDING = 20
-        private const val JITTER_THRESHOLD = 8
         private const val DEFAULT_MAX_WIDTH = 400
     }
 }
