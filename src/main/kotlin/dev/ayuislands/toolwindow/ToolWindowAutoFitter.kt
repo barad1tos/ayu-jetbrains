@@ -4,8 +4,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ToolWindowType
 import com.intellij.openapi.wm.ex.ToolWindowEx
-import java.awt.Component
-import java.awt.Container
+import dev.ayuislands.settings.PanelWidthMode
 import javax.swing.JTree
 import javax.swing.SwingUtilities
 import javax.swing.Timer
@@ -28,7 +27,7 @@ class ToolWindowAutoFitter(
         Timer(DEBOUNCE_DELAY_MS) { applyAutoFitWidth(maxWidthProvider()) }
             .apply { isRepeats = false }
 
-    /** Lambda to get current max width from settings (called at fit time, not init time). */
+    /** Lambda to get the current max width from settings (called at fit time, not init time). */
     var maxWidthProvider: () -> Int = { DEFAULT_MAX_WIDTH }
 
     fun applyAutoFitWidth(maxWidth: Int) {
@@ -78,6 +77,24 @@ class ToolWindowAutoFitter(
         }
     }
 
+    fun applyWidthMode(
+        mode: PanelWidthMode,
+        autoFitMaxWidth: Int,
+        fixedWidth: Int,
+    ) {
+        when (mode) {
+            PanelWidthMode.DEFAULT -> removeExpansionListener()
+            PanelWidthMode.AUTO_FIT -> {
+                installExpansionListener()
+                applyAutoFitWidth(autoFitMaxWidth)
+            }
+            PanelWidthMode.FIXED -> {
+                removeExpansionListener()
+                applyFixedWidth(fixedWidth)
+            }
+        }
+    }
+
     fun installExpansionListener() {
         val tree = findTree() ?: return
         if (expansionTree === tree && expansionListener != null) return
@@ -123,25 +140,11 @@ class ToolWindowAutoFitter(
                 .firstOrNull()
                 ?.component
                 ?: return null
-        return findFirstOfType(content, JTree::class.java) as? JTree
+        return AutoFitCalculator.findFirstOfType(content, JTree::class.java) as? JTree
     }
 
     companion object {
         private const val DEBOUNCE_DELAY_MS = 150
         private const val DEFAULT_MAX_WIDTH = 400
     }
-}
-
-private fun findFirstOfType(
-    component: Component,
-    type: Class<*>,
-): Component? {
-    if (type.isInstance(component)) return component
-    if (component is Container) {
-        for (child in component.components) {
-            val found = findFirstOfType(child, type)
-            if (found != null) return found
-        }
-    }
-    return null
 }

@@ -12,6 +12,7 @@ import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.gitpanel.GitPanelAutoFitManager
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
+import dev.ayuislands.toolwindow.AutoFitCalculator
 import java.awt.Color
 import java.awt.Component
 import java.util.Locale
@@ -116,7 +117,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
                     hideHScrollbarCheckbox = cb.component
                 }
                 separator()
-                buildWidthModeGroup(this, projectWidth, MIN_PROJECT_AUTOFIT_WIDTH, licensed) {
+                buildWidthModeGroup(this, projectWidth, AutoFitCalculator.MIN_PROJECT_AUTOFIT_WIDTH, licensed) {
                     updateGroupTitle(projectViewGroup, "Project View", projectWidth.state)
                 }
             }
@@ -126,7 +127,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
 
         commitPanelGroup =
             panel.collapsibleGroup("Commit Panel") {
-                buildWidthModeGroup(this, commitWidth, MIN_COMMIT_AUTOFIT_WIDTH, licensed) {
+                buildWidthModeGroup(this, commitWidth, AutoFitCalculator.MIN_COMMIT_AUTOFIT_WIDTH, licensed) {
                     updateGroupTitle(commitPanelGroup, "Commit Panel", commitWidth.state)
                 }
             }
@@ -136,7 +137,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
 
         gitPanelGroup =
             panel.collapsibleGroup("Git Panel") {
-                buildWidthModeGroup(this, gitWidth, MIN_GIT_AUTOFIT_WIDTH, licensed) {
+                buildWidthModeGroup(this, gitWidth, AutoFitCalculator.MIN_GIT_AUTOFIT_WIDTH, licensed) {
                     updateGroupTitle(gitPanelGroup, "Git Panel", gitWidth.state)
                 }
             }
@@ -201,7 +202,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
             JSpinner(
                 SpinnerNumberModel(
                     uiState.state.pendingFixedWidth,
-                    MIN_FIXED_WIDTH,
+                    AutoFitCalculator.MIN_FIXED_WIDTH,
                     MAX_AUTOFIT_WIDTH,
                     AUTOFIT_WIDTH_STEP,
                 ),
@@ -376,10 +377,6 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
     }
 
     companion object {
-        private const val MIN_PROJECT_AUTOFIT_WIDTH = 200
-        private const val MIN_COMMIT_AUTOFIT_WIDTH = 269
-        private const val MIN_GIT_AUTOFIT_WIDTH = 200
-        private const val MIN_FIXED_WIDTH = 100
         private const val MAX_AUTOFIT_WIDTH = 800
         private const val AUTOFIT_WIDTH_STEP = 50
         private const val FALLBACK_MUTED_RED = 0x6C

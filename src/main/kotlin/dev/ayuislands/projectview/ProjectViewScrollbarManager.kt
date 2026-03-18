@@ -12,9 +12,9 @@ import com.intellij.ui.SimpleTextAttributes
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.PanelWidthMode
+import dev.ayuislands.toolwindow.AutoFitCalculator
 import dev.ayuislands.toolwindow.ToolWindowAutoFitter
 import java.awt.Component
-import java.awt.Container
 import java.beans.PropertyChangeListener
 import javax.swing.JScrollPane
 import javax.swing.JTree
@@ -34,7 +34,7 @@ class ProjectViewScrollbarManager(
         ToolWindowAutoFitter(
             project = project,
             toolWindowId = "Project",
-            minWidth = MIN_AUTOFIT_WIDTH,
+            minWidth = AutoFitCalculator.MIN_PROJECT_AUTOFIT_WIDTH,
         ).apply {
             maxWidthProvider = { AyuIslandsSettings.getInstance().state.autoFitMaxWidth }
         }
@@ -195,7 +195,7 @@ class ProjectViewScrollbarManager(
 
     private fun findProjectScrollPane(): JScrollPane? {
         val content = findProjectContent() ?: return null
-        return findFirstOfType(
+        return AutoFitCalculator.findFirstOfType(
             content,
             JScrollPane::class.java,
         ) as? JScrollPane
@@ -203,7 +203,7 @@ class ProjectViewScrollbarManager(
 
     private fun findProjectTree(): JTree? {
         val content = findProjectContent() ?: return null
-        return findFirstOfType(
+        return AutoFitCalculator.findFirstOfType(
             content,
             JTree::class.java,
         ) as? JTree
@@ -220,20 +220,6 @@ class ProjectViewScrollbarManager(
             .contents
             .firstOrNull()
             ?.component
-    }
-
-    private fun findFirstOfType(
-        component: Component,
-        type: Class<*>,
-    ): Component? {
-        if (type.isInstance(component)) return component
-        if (component is Container) {
-            for (child in component.components) {
-                val found = findFirstOfType(child, type)
-                if (found != null) return found
-            }
-        }
-        return null
     }
 
     override fun dispose() {
@@ -258,7 +244,6 @@ class ProjectViewScrollbarManager(
     companion object {
         private const val SHOW_URL_KEY =
             "project.tree.structure.show.url"
-        const val MIN_AUTOFIT_WIDTH = 253
 
         fun getInstance(project: Project): ProjectViewScrollbarManager =
             project.getService(

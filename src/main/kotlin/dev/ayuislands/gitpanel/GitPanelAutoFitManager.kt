@@ -8,6 +8,7 @@ import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.PanelWidthMode
+import dev.ayuislands.toolwindow.AutoFitCalculator
 import dev.ayuislands.toolwindow.ToolWindowAutoFitter
 
 /** Per-project service that manages Git tool window width (auto-fit or fixed). */
@@ -19,7 +20,7 @@ class GitPanelAutoFitManager(
         ToolWindowAutoFitter(
             project = project,
             toolWindowId = "Git",
-            minWidth = MIN_AUTOFIT_WIDTH,
+            minWidth = AutoFitCalculator.MIN_GIT_AUTOFIT_WIDTH,
         ).apply {
             maxWidthProvider = { AyuIslandsSettings.getInstance().state.gitPanelAutoFitMaxWidth }
         }
@@ -46,17 +47,11 @@ class GitPanelAutoFitManager(
     fun apply() {
         if (!LicenseChecker.isLicensedOrGrace()) return
         val state = AyuIslandsSettings.getInstance().state
-        when (PanelWidthMode.fromString(state.gitPanelWidthMode)) {
-            PanelWidthMode.DEFAULT -> autoFitter.removeExpansionListener()
-            PanelWidthMode.AUTO_FIT -> {
-                autoFitter.installExpansionListener()
-                autoFitter.applyAutoFitWidth(state.gitPanelAutoFitMaxWidth)
-            }
-            PanelWidthMode.FIXED -> {
-                autoFitter.removeExpansionListener()
-                autoFitter.applyFixedWidth(state.gitPanelFixedWidth)
-            }
-        }
+        autoFitter.applyWidthMode(
+            PanelWidthMode.fromString(state.gitPanelWidthMode),
+            state.gitPanelAutoFitMaxWidth,
+            state.gitPanelFixedWidth,
+        )
     }
 
     override fun dispose() {
@@ -64,8 +59,9 @@ class GitPanelAutoFitManager(
     }
 
     companion object {
-        const val MIN_AUTOFIT_WIDTH = 200
-
-        fun getInstance(project: Project) = project.getService(GitPanelAutoFitManager::class.java)
+        fun getInstance(project: Project): GitPanelAutoFitManager =
+            project.getService(
+                GitPanelAutoFitManager::class.java,
+            )
     }
 }
