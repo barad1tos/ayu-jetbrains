@@ -1,8 +1,6 @@
 package dev.ayuislands
 
-import com.intellij.ide.BrowserUtil
 import com.intellij.ide.plugins.PluginManagerCore
-import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.extensions.PluginId
@@ -11,8 +9,6 @@ import dev.ayuislands.settings.AyuIslandsSettings
 
 internal object UpdateNotifier {
     private const val PLUGIN_ID = "com.ayuislands.theme"
-    private const val MARKETPLACE_URL =
-        "https://plugins.jetbrains.com/plugin/30373-ayu-islands"
 
     fun showIfUpdated(project: Project) {
         val descriptor =
@@ -38,12 +34,6 @@ internal object UpdateNotifier {
                 "Ayu Islands updated to $currentVersion",
                 notes,
                 NotificationType.INFORMATION,
-            ).addAction(
-                NotificationAction.createSimpleExpiring(
-                    "What's new",
-                ) {
-                    BrowserUtil.browse(MARKETPLACE_URL)
-                },
             ).notify(project)
     }
 
@@ -52,8 +42,11 @@ internal object UpdateNotifier {
     private val RELEASE_NOTES =
         mapOf(
             "2.3.0" to
-                "Workspace controls: auto-fit Project View, Commit, and Git panels. " +
-                "30-day premium trial \u2014 all features unlocked on first install.",
+                "<ul>" +
+                "<li>Auto-fit with min/max for Project, Commit, and Git panels</li>" +
+                "<li>Git panel: branches and file changes auto-resize</li>" +
+                "<li>30-day premium trial \u2014 all features unlocked</li>" +
+                "</ul>",
             "2.2.1" to
                 "VCS modified-line colors corrected to canonical ayu palette " +
                 "for Mirage and Dark variants.",

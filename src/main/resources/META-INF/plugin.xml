@@ -11,7 +11,7 @@
 
     <p>Warm, refined palettes purpose-built for Islands UI with deep IDE integration.
     Not just a color port — a unified aesthetic system.
-    Free to install — 30-day premium trial included.</p>
+    Free to install — all premium features unlocked for 30 days, no credit card.</p>
 
     <h3>What makes this different</h3>
     <ul>
@@ -36,9 +36,6 @@
       <li><b>VCS/diff colors</b> hand-matched to the palette, 16-color terminal scheme</li>
     </ul>
 
-    <p>Every premium feature is unlocked free for 30 days — no credit card,
-    no time-limited nag screens. Use it, decide later.</p>
-
     <h3>Premium — make the IDE feel yours</h3>
 
     <p><b>Try everything free for 30 days.</b> No credit card. Install, explore, decide later.</p>
@@ -49,7 +46,10 @@
     Control intensity, width, and exactly which panels glow.</p>
 
     <p><b>Workspace</b> — take control of your tool window layout.
-    Auto-fit or set a fixed width for Project View, Commit, and Git panels.
+    Auto-fit or set a fixed width for Project View, Commit, and Git panels —
+    each with configurable min and max bounds.
+    The Git panel goes deeper: auto-resize the branches tree and file changes
+    tree independently.
     Hide the filesystem path, VCS annotations, and horizontal scrollbar
     from the Project View. Three panels, one settings tab, zero wasted space.</p>
 
@@ -64,7 +64,7 @@
 
     <p><b>Plugin sync</b> — your accent color follows you into CodeGlance Pro
     (minimap viewport) and Indent Rainbow (indent guides with 3 Ayu presets).
-    One palette, everywhere. More integrations in active development.</p>
+    One palette, everywhere.</p>
 
     <p><b>Bracket scope</b> — when your cursor lands on a bracket,
     a colored stripe appears in the gutter showing the full scope at a glance.</p>
@@ -73,10 +73,11 @@
     <change-notes><![CDATA[
     <h3>2.3.0</h3>
     <ul>
-      <li>[Paid] Auto-fit Project panel width — the panel automatically resizes to fit the longest visible filename</li>
+      <li>[Paid] Auto-fit with configurable min/max width for Project View, Commit, and Git panels</li>
+      <li>[Paid] Git panel internal splitter control — auto-resize branches tree and file changes tree</li>
       <li>[Paid] Project View tweaks now require a license (hide path, VCS annotations, scrollbar)</li>
-      <li>[Free] 30-day premium trial — every premium feature unlocked on the first install, no credit card</li>
-      <li>[Free] Improved Marketplace description with clearer premium feature explanations</li>
+      <li>[Free] 30-day premium trial — every premium feature unlocked on first install, no credit card</li>
+      <li>[Free] Returning users get a fresh trial with premium defaults re-applied</li>
     </ul>
     <h3>2.2.2</h3>
     <ul>

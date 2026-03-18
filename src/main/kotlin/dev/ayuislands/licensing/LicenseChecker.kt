@@ -164,13 +164,13 @@ object LicenseChecker {
             .getInstance()
             .getNotificationGroup(NOTIFICATION_GROUP)
             .createNotification(
-                "Your Ayu Islands trial has ended",
-                "Glow, accent control, workspace tweaks, and plugin sync " +
-                    "have been reverted to free defaults. " +
-                    "Get a license to bring them back \u2014 yours forever.",
+                "Ayu Islands trial ended",
+                "Glow, accent toggles, auto-fit, and plugin sync " +
+                    "reverted to defaults. " +
+                    "A license brings them back \u2014 one-time, forever.",
                 NotificationType.INFORMATION,
             ).addAction(
-                object : com.intellij.notification.NotificationAction("Buy license") {
+                object : com.intellij.notification.NotificationAction("Get license") {
                     override fun actionPerformed(
                         e: AnActionEvent,
                         notification: com.intellij.notification.Notification,
@@ -188,9 +188,9 @@ object LicenseChecker {
             .getInstance()
             .getNotificationGroup(NOTIFICATION_GROUP)
             .createNotification(
-                "Welcome to Ayu Islands premium",
-                "All premium features are unlocked for 30 days. " +
-                    "Try a mood preset \u2014 open Settings \u2192 Ayu Islands.",
+                "Ayu Islands Premium is unlocked",
+                "30 days of glow, auto-fit, accent control, and plugin sync. " +
+                    "Open Settings \u2192 Ayu Islands to explore.",
                 NotificationType.INFORMATION,
             ).notify(project)
     }
