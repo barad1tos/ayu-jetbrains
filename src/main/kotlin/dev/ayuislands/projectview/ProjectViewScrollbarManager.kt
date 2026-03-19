@@ -3,6 +3,7 @@ package dev.ayuislands.projectview
 import com.intellij.ide.projectView.ProjectView
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.wm.ToolWindowManager
@@ -16,9 +17,11 @@ import dev.ayuislands.toolwindow.AutoFitCalculator
 import dev.ayuislands.toolwindow.ToolWindowAutoFitter
 import java.awt.Component
 import java.beans.PropertyChangeListener
+import java.util.MissingResourceException
 import javax.swing.JScrollPane
 import javax.swing.JTree
 import javax.swing.ScrollPaneConstants
+import javax.swing.SwingUtilities
 import javax.swing.tree.TreeCellRenderer
 
 /** Per-project service that manages Project tool window tweaks (scrollbar, root path). */
@@ -53,7 +56,6 @@ class ProjectViewScrollbarManager(
                     val widthMode = PanelWidthMode.fromString(state.projectPanelWidthMode)
                     val allFeaturesDisabled =
                         !state.hideProjectRootPath &&
-                            !state.hideRootVcsAnnotations &&
                             !state.hideProjectViewHScrollbar
                     if (allFeaturesDisabled && widthMode == PanelWidthMode.DEFAULT) {
                         return
@@ -62,6 +64,11 @@ class ProjectViewScrollbarManager(
                 }
             },
         )
+
+        // Initial apply: a tool window may already be open when this service is created.
+        SwingUtilities.invokeLater {
+            if (!project.isDisposed) apply()
+        }
     }
 
     fun apply() {
@@ -106,48 +113,51 @@ class ProjectViewScrollbarManager(
     }
 
     private fun applyRootDisplay() {
-        applyFilesystemPathVisibility()
-        applyVcsAnnotationVisibility()
-        ProjectView.getInstance(project).refresh()
-    }
+        val hidePath = AyuIslandsSettings.getInstance().state.hideProjectRootPath
 
-    private fun applyFilesystemPathVisibility() {
-        val shouldHide =
-            AyuIslandsSettings.getInstance().state.hideProjectRootPath
-        val registryKey = Registry.get(SHOW_URL_KEY)
-        if (shouldHide) {
+        // ProjectViewImpl.isShowURL() reads directly from this Registry key.
+        // Only resetToDefault when WE changed it — don't override the user's choice.
+        val registryKey =
+            try {
+                Registry.get(SHOW_URL_KEY)
+            } catch (_: MissingResourceException) {
+                LOG.warn(
+                    "Registry key '$SHOW_URL_KEY' not " +
+                        "found — the IDE may have removed it",
+                )
+                return
+            }
+        if (hidePath) {
             registryKey.setValue(false)
             registryKeyModified = true
         } else if (registryKeyModified) {
             registryKey.resetToDefault()
             registryKeyModified = false
         }
-    }
 
-    private fun applyVcsAnnotationVisibility() {
-        val shouldHideVcs =
-            AyuIslandsSettings.getInstance().state.hideRootVcsAnnotations
         val tree = findProjectTree() ?: return
-        if (shouldHideVcs) {
+
+        if (hidePath) {
             installRendererWrapper(tree)
             installRendererGuard(tree)
         } else {
             removeRendererGuard()
             unwrapRenderer(tree)
         }
+
+        // Force full tree rebuild to pick up Registry change
+        ProjectView.getInstance(project).currentProjectViewPane?.updateFromRoot(true)
     }
 
     private fun installRendererWrapper(tree: JTree) {
         val current = tree.cellRenderer
-        if (current !is RootLocationHidingRenderer) {
-            tree.cellRenderer =
-                RootLocationHidingRenderer(current, project)
-        }
+        if (current is RootFilteringRenderer) return
+        tree.cellRenderer = RootFilteringRenderer(current, project)
     }
 
     private fun unwrapRenderer(tree: JTree) {
         val current = tree.cellRenderer
-        if (current is RootLocationHidingRenderer) {
+        if (current is RootFilteringRenderer) {
             tree.cellRenderer = current.delegate
         }
     }
@@ -163,17 +173,11 @@ class ProjectViewScrollbarManager(
                     val newRenderer =
                         event.newValue as? TreeCellRenderer
                             ?: return@PropertyChangeListener
-                    if (newRenderer !is RootLocationHidingRenderer &&
-                        AyuIslandsSettings
-                            .getInstance()
-                            .state
-                            .hideRootVcsAnnotations
+                    if (newRenderer !is RootFilteringRenderer &&
+                        AyuIslandsSettings.getInstance().state.hideProjectRootPath
                     ) {
                         tree.cellRenderer =
-                            RootLocationHidingRenderer(
-                                newRenderer,
-                                project,
-                            )
+                            RootFilteringRenderer(newRenderer, project)
                     }
                 }
             }
@@ -233,7 +237,14 @@ class ProjectViewScrollbarManager(
             originalScrollbarPolicy = null
         }
         if (registryKeyModified) {
-            Registry.get(SHOW_URL_KEY).resetToDefault()
+            try {
+                Registry.get(SHOW_URL_KEY).resetToDefault()
+            } catch (_: MissingResourceException) {
+                LOG.warn(
+                    "Registry key '$SHOW_URL_KEY' not " +
+                        "found during dispose",
+                )
+            }
             registryKeyModified = false
         }
         val tree = findProjectTree()
@@ -243,8 +254,8 @@ class ProjectViewScrollbarManager(
     }
 
     companion object {
-        private const val SHOW_URL_KEY =
-            "project.tree.structure.show.url"
+        private val LOG = logger<ProjectViewScrollbarManager>()
+        private const val SHOW_URL_KEY = "project.tree.structure.show.url"
 
         fun getInstance(project: Project): ProjectViewScrollbarManager =
             project.getService(
@@ -254,11 +265,10 @@ class ProjectViewScrollbarManager(
 }
 
 /**
- * Strips VCS annotations (branch name, changed file count)
- * from the project root node. Rebuilds the component keeping
- * only the project name and filesystem path fragments.
+ * Filters root node path fragments.
+ * Reads settings LIVE on every render — no state caching needed.
  */
-private class RootLocationHidingRenderer(
+private class RootFilteringRenderer(
     val delegate: TreeCellRenderer,
     private val project: Project,
 ) : TreeCellRenderer {
@@ -282,18 +292,22 @@ private class RootLocationHidingRenderer(
                 hasFocus,
             )
         if (row == 0 && component is SimpleColoredComponent) {
-            stripVcsFragments(component)
+            filterRootFragments(component)
         }
         return component
     }
 
-    private fun stripVcsFragments(component: SimpleColoredComponent) {
-        val projectName = project.name
+    private fun filterRootFragments(component: SimpleColoredComponent) {
+        if (!AyuIslandsSettings.getInstance().state.hideProjectRootPath) return
+
         val basePath = project.basePath
         val tildeBasePath =
-            basePath?.replace(
-                System.getProperty("user.home"),
-                "~",
+            basePath?.replace(System.getProperty("user.home"), "~")
+        val context =
+            RootNodeContext(
+                projectName = project.name,
+                basePath = basePath,
+                tildeBasePath = tildeBasePath,
             )
         val kept =
             mutableListOf<Pair<String, SimpleTextAttributes>>()
@@ -302,11 +316,14 @@ private class RootLocationHidingRenderer(
             iter.next()
             val text = iter.fragment
             val trimmed = text.trim()
-            if (RootFragmentFilter.isKeptFragment(trimmed, projectName, basePath, tildeBasePath)) {
+            if (!RootFragmentFilter.isPathFragment(trimmed, context)) {
                 kept.add(text to iter.textAttributes)
             }
         }
+
+        val savedIcon = component.icon
         component.clear()
+        component.icon = savedIcon
         for ((text, attrs) in kept) {
             component.append(text, attrs)
         }

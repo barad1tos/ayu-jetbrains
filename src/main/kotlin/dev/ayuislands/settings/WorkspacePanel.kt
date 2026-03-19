@@ -34,13 +34,10 @@ private const val GIT_PANEL_TITLE = "Git Panel"
 class WorkspacePanel : AyuIslandsSettingsPanel {
     private var pendingHideRootPath = false
     private var storedHideRootPath = false
-    private var pendingHideRootVcs = false
-    private var storedHideRootVcs = false
     private var pendingHideHScrollbar = false
     private var storedHideHScrollbar = false
 
     private var hideRootPathCheckbox: JCheckBox? = null
-    private var hideRootVcsCheckbox: JCheckBox? = null
     private var hideHScrollbarCheckbox: JCheckBox? = null
 
     private val projectWidth = WidthModeUiState()
@@ -62,8 +59,6 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
 
         storedHideRootPath = state.hideProjectRootPath
         pendingHideRootPath = storedHideRootPath
-        storedHideRootVcs = state.hideRootVcsAnnotations
-        pendingHideRootVcs = storedHideRootVcs
         storedHideHScrollbar = state.hideProjectViewHScrollbar
         pendingHideHScrollbar = storedHideHScrollbar
 
@@ -100,17 +95,6 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
                         pendingHideRootPath = cb.component.isSelected
                     }
                     hideRootPathCheckbox = cb.component
-                }
-                row {
-                    val cb =
-                        checkBox("Hide VCS annotations")
-                            .comment("Remove branch name and changed file count from the project root")
-                    cb.component.isSelected = pendingHideRootVcs
-                    cb.component.isEnabled = licensed
-                    cb.component.addActionListener {
-                        pendingHideRootVcs = cb.component.isSelected
-                    }
-                    hideRootVcsCheckbox = cb.component
                 }
                 row {
                     val cb =
@@ -327,7 +311,6 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
 
     override fun isModified(): Boolean =
         pendingHideRootPath != storedHideRootPath ||
-            pendingHideRootVcs != storedHideRootVcs ||
             pendingHideHScrollbar != storedHideHScrollbar ||
             projectWidth.state.isModified() ||
             commitWidth.state.isModified() ||
@@ -339,38 +322,19 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
 
         val displayChanged =
             pendingHideRootPath != storedHideRootPath ||
-                pendingHideRootVcs != storedHideRootVcs ||
                 pendingHideHScrollbar != storedHideHScrollbar
         val projectWidthChanged = projectWidth.state.isModified()
         val commitWidthChanged = commitWidth.state.isModified()
         val gitWidthChanged = gitWidth.state.isModified()
 
         state.hideProjectRootPath = pendingHideRootPath
-        state.hideRootVcsAnnotations = pendingHideRootVcs
         state.hideProjectViewHScrollbar = pendingHideHScrollbar
         storedHideRootPath = pendingHideRootPath
-        storedHideRootVcs = pendingHideRootVcs
         storedHideHScrollbar = pendingHideHScrollbar
 
-        state.projectPanelWidthMode = projectWidth.state.pendingMode.name
-        state.autoFitMaxWidth = projectWidth.state.pendingAutoFitMaxWidth
-        state.projectPanelAutoFitMinWidth = projectWidth.state.pendingAutoFitMinWidth
-        state.projectPanelFixedWidth = projectWidth.state.pendingFixedWidth
-        state.autoFitProjectPanelWidth = projectWidth.state.pendingMode == PanelWidthMode.AUTO_FIT
-        projectWidth.state.commitStored()
-
-        state.commitPanelWidthMode = commitWidth.state.pendingMode.name
-        state.autoFitCommitMaxWidth = commitWidth.state.pendingAutoFitMaxWidth
-        state.commitPanelAutoFitMinWidth = commitWidth.state.pendingAutoFitMinWidth
-        state.commitPanelFixedWidth = commitWidth.state.pendingFixedWidth
-        state.autoFitCommitPanelWidth = commitWidth.state.pendingMode == PanelWidthMode.AUTO_FIT
-        commitWidth.state.commitStored()
-
-        state.gitPanelWidthMode = gitWidth.state.pendingMode.name
-        state.gitPanelAutoFitMaxWidth = gitWidth.state.pendingAutoFitMaxWidth
-        state.gitPanelAutoFitMinWidth = gitWidth.state.pendingAutoFitMinWidth
-        state.gitPanelFixedWidth = gitWidth.state.pendingFixedWidth
-        gitWidth.state.commitStored()
+        applyWidthState(projectWidth, state.projectWidthTarget())
+        applyWidthState(commitWidth, state.commitWidthTarget())
+        applyWidthState(gitWidth, state.gitWidthTarget())
 
         if (displayChanged || projectWidthChanged) {
             for (openProject in ProjectManager.getInstance().openProjects) {
@@ -402,12 +366,10 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
 
     override fun reset() {
         pendingHideRootPath = storedHideRootPath
-        pendingHideRootVcs = storedHideRootVcs
         pendingHideHScrollbar = storedHideHScrollbar
 
         suppressListeners = true
         hideRootPathCheckbox?.isSelected = storedHideRootPath
-        hideRootVcsCheckbox?.isSelected = storedHideRootVcs
         hideHScrollbarCheckbox?.isSelected = storedHideHScrollbar
         projectWidth.reset()
         commitWidth.reset()
@@ -417,6 +379,58 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
         updateGroupTitle(gitPanelGroup, GIT_PANEL_TITLE, gitWidth.state)
         suppressListeners = false
     }
+
+    private fun applyWidthState(
+        uiState: WidthModeUiState,
+        target: WidthTarget,
+    ) {
+        val pending = uiState.state
+        target.setMode(pending.pendingMode.name)
+        target.setMaxWidth(pending.pendingAutoFitMaxWidth)
+        target.setMinWidth(pending.pendingAutoFitMinWidth)
+        target.setFixedWidth(pending.pendingFixedWidth)
+        target.setLegacyAutoFit?.invoke(pending.pendingMode == PanelWidthMode.AUTO_FIT)
+        pending.commitStored()
+    }
+
+    /**
+     * Setter bundle for writing [PanelWidthState] values to the corresponding
+     * [AyuIslandsState] properties. Each panel (project/commit/git) provides
+     * its own instance via the extension functions below.
+     */
+    private class WidthTarget(
+        val setMode: (String) -> Unit,
+        val setMaxWidth: (Int) -> Unit,
+        val setMinWidth: (Int) -> Unit,
+        val setFixedWidth: (Int) -> Unit,
+        val setLegacyAutoFit: ((Boolean) -> Unit)? = null,
+    )
+
+    private fun AyuIslandsState.projectWidthTarget(): WidthTarget =
+        WidthTarget(
+            setMode = { projectPanelWidthMode = it },
+            setMaxWidth = { autoFitMaxWidth = it },
+            setMinWidth = { projectPanelAutoFitMinWidth = it },
+            setFixedWidth = { projectPanelFixedWidth = it },
+            setLegacyAutoFit = { autoFitProjectPanelWidth = it },
+        )
+
+    private fun AyuIslandsState.commitWidthTarget(): WidthTarget =
+        WidthTarget(
+            setMode = { commitPanelWidthMode = it },
+            setMaxWidth = { autoFitCommitMaxWidth = it },
+            setMinWidth = { commitPanelAutoFitMinWidth = it },
+            setFixedWidth = { commitPanelFixedWidth = it },
+            setLegacyAutoFit = { autoFitCommitPanelWidth = it },
+        )
+
+    private fun AyuIslandsState.gitWidthTarget(): WidthTarget =
+        WidthTarget(
+            setMode = { gitPanelWidthMode = it },
+            setMaxWidth = { gitPanelAutoFitMaxWidth = it },
+            setMinWidth = { gitPanelAutoFitMinWidth = it },
+            setFixedWidth = { gitPanelFixedWidth = it },
+        )
 
     private class WidthModeUiState(
         val state: PanelWidthState = PanelWidthState(),

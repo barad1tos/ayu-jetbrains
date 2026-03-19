@@ -29,6 +29,7 @@ class AyuIslandsState : BaseState() {
     var lastLightAppearanceTheme by string("Ayu Light (Islands UI)")
     var trialExpiredNotified by property(false)
     var proDefaultsApplied by property(false)
+    var workspaceDefaultsApplied by property(false)
     var trialWelcomeShown by property(false)
 
     // Per-element accent toggles (all ON by default)
@@ -63,14 +64,14 @@ class AyuIslandsState : BaseState() {
     // Animation
     var glowAnimation by string(GlowAnimation.NONE.name)
 
-    // Per-island toggles (editor ON by default, others OFF)
+    // Per-island toggles (all ON by default — glow visibility is controlled by glowEnabled)
     var glowEditor by property(true)
-    var glowProject by property(false)
-    var glowTerminal by property(false)
-    var glowRun by property(false)
-    var glowDebug by property(false)
-    var glowGit by property(false)
-    var glowServices by property(false)
+    var glowProject by property(true)
+    var glowTerminal by property(true)
+    var glowRun by property(true)
+    var glowDebug by property(true)
+    var glowGit by property(true)
+    var glowServices by property(true)
 
     // Tab glow mode: MINIMAL (underline only), FULL (underline + tinted bg), OFF
     var glowTabMode by string("MINIMAL")
@@ -107,7 +108,6 @@ class AyuIslandsState : BaseState() {
 
     // Project View tweaks
     var hideProjectRootPath by property(false)
-    var hideRootVcsAnnotations by property(false)
     var hideProjectViewHScrollbar by property(false)
     var autoFitProjectPanelWidth by property(false)
     var autoFitMaxWidth by property(DEFAULT_AUTO_FIT_MAX_WIDTH)
@@ -127,9 +127,6 @@ class AyuIslandsState : BaseState() {
     var gitPanelAutoFitMaxWidth by property(DEFAULT_GIT_AUTO_FIT_MAX_WIDTH)
     var gitPanelAutoFitMinWidth by property(DEFAULT_GIT_AUTO_FIT_MIN_WIDTH)
     var gitPanelFixedWidth by property(DEFAULT_FIXED_WIDTH)
-
-    // Migration: existing users with hideProjectRootPath=true expect VCS hidden too
-    var projectViewMigrated by property(false)
 
     // Font preset
     var fontPresetEnabled by property(false)

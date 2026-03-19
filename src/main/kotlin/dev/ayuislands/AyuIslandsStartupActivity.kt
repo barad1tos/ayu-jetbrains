@@ -50,7 +50,7 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
             LOG.info("Ayu Islands detected third-party plugins: ${conflicts.joinToString { it.pluginDisplayName }}")
         }
 
-        // Check license state
+        // Check license state and initialize workspace services (inside EDT callback)
         checkLicenseState(project, variant, settings)
 
         // Auto-switch theme to match macOS Light/Dark mode
@@ -60,36 +60,6 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
 
         // Show a one-time update notification if the plugin version changed
         SwingUtilities.invokeLater { UpdateNotifier.showIfUpdated(project) }
-
-        // Migrate: users with old hideProjectRootPath=true expect VCS also hidden
-        if (settings.state.hideProjectRootPath && !settings.state.projectViewMigrated) {
-            settings.state.hideRootVcsAnnotations = true
-            settings.state.projectViewMigrated = true
-        }
-
-        // Migrate old boolean auto-fit fields to the new PanelWidthMode enum
-        settings.state.migrateWidthModes()
-
-        // Eagerly initialize Project View customizer — its init block subscribes
-        // to ToolWindowManagerListener, which will apply() when the tree is ready.
-        val pvState = settings.state
-        val hasProjectViewCustomizations =
-            pvState.hideProjectViewHScrollbar ||
-                pvState.hideProjectRootPath ||
-                pvState.hideRootVcsAnnotations
-        if (hasProjectViewCustomizations ||
-            PanelWidthMode.fromString(pvState.projectPanelWidthMode) != PanelWidthMode.DEFAULT
-        ) {
-            ProjectViewScrollbarManager.getInstance(project)
-        }
-
-        if (PanelWidthMode.fromString(pvState.commitPanelWidthMode) != PanelWidthMode.DEFAULT) {
-            CommitPanelAutoFitManager.getInstance(project)
-        }
-
-        if (PanelWidthMode.fromString(pvState.gitPanelWidthMode) != PanelWidthMode.DEFAULT) {
-            GitPanelAutoFitManager.getInstance(project)
-        }
 
         // Initialize the glow overlay system if the glow is enabled
         // Uses ApplicationManager.invokeLater with project.disposed condition to skip
@@ -111,37 +81,82 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         LOG.info("Ayu Islands license check: ${licenseStateLabel(licenseState)}")
 
         SwingUtilities.invokeLater {
-            // Reset flags if the license becomes valid again (user purchased or new eval period)
-            if (licenseState == true && settings.state.trialExpiredNotified) {
-                settings.state.trialExpiredNotified = false
-                settings.state.proDefaultsApplied = false
-                settings.state.trialWelcomeShown = false
+            if (licenseState != false) {
+                applyLicensedDefaults(project, settings)
+            } else {
+                applyUnlicensedDefaults(project, variant, settings)
             }
 
-            // One-time: enable all Pro features when the license first activates
-            if (licenseState == true && !settings.state.proDefaultsApplied) {
-                LicenseChecker.enableProDefaults()
-                LOG.info("Ayu Islands Pro defaults enabled (first-time license activation)")
+            // Migrate width modes before service init reads them
+            settings.state.migrateWidthModes()
 
-                if (!settings.state.trialWelcomeShown) {
-                    LicenseChecker.notifyTrialWelcome(project)
-                    settings.state.trialWelcomeShown = true
-                }
+            // Initialize workspace services after defaults are applied (no race)
+            initWorkspaceServices(project, settings)
+        }
+    }
+
+    private fun applyLicensedDefaults(
+        project: Project,
+        settings: AyuIslandsSettings,
+    ) {
+        if (settings.state.trialExpiredNotified) {
+            settings.state.trialExpiredNotified = false
+            settings.state.proDefaultsApplied = false
+            settings.state.trialWelcomeShown = false
+        }
+
+        if (!settings.state.proDefaultsApplied) {
+            LicenseChecker.enableProDefaults()
+            LOG.info("Ayu Islands Pro defaults enabled (first-time license activation)")
+
+            if (!settings.state.trialWelcomeShown) {
+                LicenseChecker.notifyTrialWelcome(project)
+                settings.state.trialWelcomeShown = true
             }
+        }
 
-            // null = facade not initialized (grace period, treat as licensed)
-            // true = licensed or trial active
-            // false = not licensed (trial expired or never purchased)
-            if (licenseState == false) {
-                LicenseChecker.revertToFreeDefaults(variant)
-                LOG.info("Ayu Islands reverted to free defaults for ${variant.name}")
+        // Migration: workspace defaults for existing users upgrading to 2.3.0
+        if (!settings.state.workspaceDefaultsApplied) {
+            LicenseChecker.applyWorkspaceDefaults()
+            LOG.info("Ayu Islands workspace defaults migrated for existing user")
+        }
+    }
 
-                // One-time balloon notification
-                if (!settings.state.trialExpiredNotified) {
-                    LicenseChecker.notifyTrialExpired(project)
-                    settings.state.trialExpiredNotified = true
-                }
-            }
+    private fun applyUnlicensedDefaults(
+        project: Project,
+        variant: AyuVariant,
+        settings: AyuIslandsSettings,
+    ) {
+        LicenseChecker.revertToFreeDefaults(variant)
+        LOG.info("Ayu Islands reverted to free defaults for ${variant.name}")
+
+        if (!settings.state.trialExpiredNotified) {
+            LicenseChecker.notifyTrialExpired(project)
+            settings.state.trialExpiredNotified = true
+        }
+    }
+
+    private fun initWorkspaceServices(
+        project: Project,
+        settings: AyuIslandsSettings,
+    ) {
+        if (project.isDisposed) return
+        val pvState = settings.state
+        val hasProjectViewCustomizations =
+            pvState.hideProjectViewHScrollbar ||
+                pvState.hideProjectRootPath
+        if (hasProjectViewCustomizations ||
+            PanelWidthMode.fromString(pvState.projectPanelWidthMode) != PanelWidthMode.DEFAULT
+        ) {
+            ProjectViewScrollbarManager.getInstance(project)
+        }
+
+        if (PanelWidthMode.fromString(pvState.commitPanelWidthMode) != PanelWidthMode.DEFAULT) {
+            CommitPanelAutoFitManager.getInstance(project)
+        }
+
+        if (PanelWidthMode.fromString(pvState.gitPanelWidthMode) != PanelWidthMode.DEFAULT) {
+            GitPanelAutoFitManager.getInstance(project)
         }
     }
 

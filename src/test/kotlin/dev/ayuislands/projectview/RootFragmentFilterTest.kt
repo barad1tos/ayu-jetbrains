@@ -9,83 +9,56 @@ class RootFragmentFilterTest {
     private val basePath = "/Users/cloud/Developer/my-project"
     private val tildeBasePath = "~/Developer/my-project"
 
-    @Test
-    fun `empty string is not kept`() {
-        assertFalse(RootFragmentFilter.isKeptFragment("", projectName, basePath, tildeBasePath))
-    }
-
-    @Test
-    fun `project name is kept`() {
-        assertTrue(RootFragmentFilter.isKeptFragment("my-project", projectName, basePath, tildeBasePath))
-    }
-
-    @Test
-    fun `absolute base path fragment is kept`() {
-        assertTrue(
-            RootFragmentFilter.isKeptFragment(
-                "[/Users/cloud/Developer/my-project]",
-                projectName,
-                basePath,
-                tildeBasePath,
-            ),
+    private fun context() =
+        RootNodeContext(
+            projectName = projectName,
+            basePath = basePath,
+            tildeBasePath = tildeBasePath,
         )
-    }
 
-    @Test
-    fun `tilde base path fragment is kept`() {
-        assertTrue(
-            RootFragmentFilter.isKeptFragment(
-                "[~/Developer/my-project]",
-                projectName,
-                basePath,
-                tildeBasePath,
-            ),
+    private fun isPath(trimmed: String): Boolean =
+        RootFragmentFilter.isPathFragment(
+            trimmed,
+            context(),
         )
+
+    @Test
+    fun `empty string is not a path fragment`() {
+        assertFalse(isPath(""))
     }
 
     @Test
-    fun `VCS branch annotation is not kept`() {
-        assertFalse(
-            RootFragmentFilter.isKeptFragment(
-                "main",
-                projectName,
-                basePath,
-                tildeBasePath,
-            ),
-        )
+    fun `project name is not a path fragment`() {
+        assertFalse(isPath("my-project"))
     }
 
     @Test
-    fun `changed file count annotation is not kept`() {
-        assertFalse(
-            RootFragmentFilter.isKeptFragment(
-                "3 files",
-                projectName,
-                basePath,
-                tildeBasePath,
-            ),
-        )
+    fun `tilde basePath is a path fragment`() {
+        assertTrue(isPath("[~/Developer/my-project]"))
     }
 
     @Test
-    fun `null basePath still matches project name`() {
-        assertTrue(RootFragmentFilter.isKeptFragment("my-project", projectName, null, null))
+    fun `absolute basePath is a path fragment`() {
+        assertTrue(isPath("[/Users/cloud/Developer/my-project]"))
     }
 
     @Test
-    fun `null basePath rejects unrelated text`() {
-        assertFalse(RootFragmentFilter.isKeptFragment("feat/feature", projectName, null, null))
+    fun `exact basePath is a path fragment`() {
+        assertTrue(isPath(basePath))
     }
 
     @Test
-    fun `whitespace-only after trim is not kept`() {
-        assertFalse(RootFragmentFilter.isKeptFragment("", projectName, basePath, tildeBasePath))
+    fun `unrelated text is not a path fragment`() {
+        assertFalse(isPath("main"))
+        assertFalse(isPath("3 files"))
+        assertFalse(isPath("feat/feature"))
     }
 
     @Test
-    fun `exact basePath match is kept`() {
-        assertTrue(
-            RootFragmentFilter.isKeptFragment(basePath, projectName, basePath, tildeBasePath),
-        )
+    fun `null basePath never matches path`() {
+        val ctx = RootNodeContext(projectName, null, null)
+        assertFalse(RootFragmentFilter.isPathFragment("anything", ctx))
+        assertFalse(RootFragmentFilter.isPathFragment(projectName, ctx))
+        assertFalse(RootFragmentFilter.isPathFragment("", ctx))
     }
 }

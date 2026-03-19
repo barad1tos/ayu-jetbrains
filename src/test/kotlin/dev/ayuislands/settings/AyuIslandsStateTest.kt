@@ -174,15 +174,15 @@ class AyuIslandsStateTest {
     }
 
     @Test
-    fun `glowEditor is on by default, other islands are off`() {
+    fun `all island toggles are on by default`() {
         val state = freshState()
         assertTrue(state.glowEditor)
-        assertFalse(state.glowProject)
-        assertFalse(state.glowTerminal)
-        assertFalse(state.glowRun)
-        assertFalse(state.glowDebug)
-        assertFalse(state.glowGit)
-        assertFalse(state.glowServices)
+        assertTrue(state.glowProject)
+        assertTrue(state.glowTerminal)
+        assertTrue(state.glowRun)
+        assertTrue(state.glowDebug)
+        assertTrue(state.glowGit)
+        assertTrue(state.glowServices)
     }
 
     @Test

@@ -22,6 +22,7 @@ import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.PanelWidthMode
 import java.io.ByteArrayInputStream
 import java.nio.charset.StandardCharsets
 import java.security.Signature
@@ -212,7 +213,19 @@ object LicenseChecker {
         state.glowGit = true
         state.glowServices = true
         state.glowFocusRing = true
+        applyWorkspaceDefaults()
         state.proDefaultsApplied = true
+    }
+
+    /** Apply workspace defaults (auto-fit, hide path/VCS). Callers must guard with workspaceDefaultsApplied flag. */
+    fun applyWorkspaceDefaults() {
+        val state = AyuIslandsSettings.getInstance().state
+        state.projectPanelWidthMode = PanelWidthMode.AUTO_FIT.name
+        state.commitPanelWidthMode = PanelWidthMode.AUTO_FIT.name
+        state.gitPanelWidthMode = PanelWidthMode.AUTO_FIT.name
+        state.hideProjectRootPath = true
+        state.hideProjectViewHScrollbar = true
+        state.workspaceDefaultsApplied = true
     }
 
     /** Revert paid features to free defaults for the given variant. */
@@ -230,12 +243,28 @@ object LicenseChecker {
             state.setToggle(id, true)
         }
 
+        // Reset workspace settings to free defaults
+        state.projectPanelWidthMode = PanelWidthMode.DEFAULT.name
+        state.commitPanelWidthMode = PanelWidthMode.DEFAULT.name
+        state.gitPanelWidthMode = PanelWidthMode.DEFAULT.name
+        state.hideProjectRootPath = false
+        state.hideProjectViewHScrollbar = false
+
         // Re-apply accent with reset toggles (accent color itself stays — it's free)
         try {
             val accentHex = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
             AccentApplicator.apply(accentHex)
         } catch (exception: RuntimeException) {
             LOG.warn("Revert to free defaults failed", exception)
+            NotificationGroupManager
+                .getInstance()
+                .getNotificationGroup(NOTIFICATION_GROUP)
+                .createNotification(
+                    "Accent revert incomplete",
+                    "Some accent colors could not be reverted. " +
+                        "Restart your IDE to complete the reset.",
+                    NotificationType.WARNING,
+                ).notify(null)
         }
     }
 

@@ -1,17 +1,21 @@
 package dev.ayuislands.projectview
 
-/** Pure logic for filtering VCS annotation fragments from project root node. */
+/** Context needed to classify root node fragments. */
+data class RootNodeContext(
+    val projectName: String,
+    val basePath: String?,
+    val tildeBasePath: String?,
+)
+
+/** Pure logic for filtering root node path fragments. */
 object RootFragmentFilter {
-    fun isKeptFragment(
+    fun isPathFragment(
         trimmed: String,
-        projectName: String,
-        basePath: String?,
-        tildeBasePath: String?,
+        context: RootNodeContext,
     ): Boolean {
         if (trimmed.isEmpty()) return false
-        if (trimmed == projectName) return true
-        if (basePath != null && trimmed.contains(basePath)) return true
-        if (tildeBasePath != null && trimmed.contains(tildeBasePath)) return true
-        return false
+        if (trimmed == context.projectName) return false
+        return (context.basePath != null && trimmed.contains(context.basePath)) ||
+            (context.tildeBasePath != null && trimmed.contains(context.tildeBasePath))
     }
 }
