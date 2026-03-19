@@ -34,24 +34,25 @@ class ToolWindowAutoFitter(
     var minWidthProvider: () -> Int = { minWidth }
 
     fun applyAutoFitWidth(maxWidth: Int) {
-        val tree = findTree() ?: return
-        val toolWindow =
-            ToolWindowManager
-                .getInstance(project)
-                .getToolWindow(toolWindowId) as? ToolWindowEx
-                ?: return
+        findTreeWithRetry { tree ->
+            val toolWindow =
+                ToolWindowManager
+                    .getInstance(project)
+                    .getToolWindow(toolWindowId) as? ToolWindowEx
+                    ?: return@findTreeWithRetry
 
-        var maxRowWidth = 0
-        for (row in 0 until tree.rowCount) {
-            val bounds = tree.getRowBounds(row) ?: continue
-            val rowRight = bounds.x + bounds.width
-            if (rowRight > maxRowWidth) {
-                maxRowWidth = rowRight
+            var maxRowWidth = 0
+            for (row in 0 until tree.rowCount) {
+                val bounds = tree.getRowBounds(row) ?: continue
+                val rowRight = bounds.x + bounds.width
+                if (rowRight > maxRowWidth) {
+                    maxRowWidth = rowRight
+                }
             }
-        }
 
-        val desiredWidth = AutoFitCalculator.calculateDesiredWidth(maxRowWidth, maxWidth, minWidthProvider())
-        applyWidth(toolWindow, desiredWidth)
+            val desiredWidth = AutoFitCalculator.calculateDesiredWidth(maxRowWidth, maxWidth, minWidthProvider())
+            applyWidth(toolWindow, desiredWidth)
+        }
     }
 
     fun applyFixedWidth(targetWidth: Int) {
@@ -99,22 +100,23 @@ class ToolWindowAutoFitter(
     }
 
     fun installExpansionListener() {
-        val tree = findTree() ?: return
-        if (expansionTree === tree && expansionListener != null) return
+        findTreeWithRetry { tree ->
+            if (expansionTree === tree && expansionListener != null) return@findTreeWithRetry
 
-        removeExpansionListener()
-        expansionTree = tree
-        expansionListener =
-            object : TreeExpansionListener {
-                override fun treeExpanded(event: TreeExpansionEvent) {
-                    scheduleAutoFit()
-                }
+            removeExpansionListener()
+            expansionTree = tree
+            expansionListener =
+                object : TreeExpansionListener {
+                    override fun treeExpanded(event: TreeExpansionEvent) {
+                        scheduleAutoFit()
+                    }
 
-                override fun treeCollapsed(event: TreeExpansionEvent) {
-                    scheduleAutoFit()
+                    override fun treeCollapsed(event: TreeExpansionEvent) {
+                        scheduleAutoFit()
+                    }
                 }
-            }
-        tree.addTreeExpansionListener(expansionListener)
+            tree.addTreeExpansionListener(expansionListener)
+        }
     }
 
     fun removeExpansionListener() {
@@ -128,6 +130,25 @@ class ToolWindowAutoFitter(
 
     fun scheduleAutoFit() {
         debounceTimer.restart()
+    }
+
+    private fun findTreeWithRetry(
+        retriesLeft: Int = MAX_RETRIES,
+        onFound: (JTree) -> Unit,
+    ) {
+        val tree = findTree()
+        if (tree != null) {
+            onFound(tree)
+            return
+        }
+        if (retriesLeft > 0) {
+            Timer((MAX_RETRIES - retriesLeft + 1) * RETRY_DELAY_MS) {
+                findTreeWithRetry(retriesLeft - 1, onFound)
+            }.apply {
+                isRepeats = false
+                start()
+            }
+        }
     }
 
     fun findTree(): JTree? {
@@ -149,5 +170,7 @@ class ToolWindowAutoFitter(
     companion object {
         private const val DEBOUNCE_DELAY_MS = 150
         private const val DEFAULT_MAX_WIDTH = 400
+        private const val MAX_RETRIES = 3
+        private const val RETRY_DELAY_MS = 200
     }
 }
