@@ -116,7 +116,7 @@ class ProjectViewScrollbarManager(
         val hidePath = AyuIslandsSettings.getInstance().state.hideProjectRootPath
 
         // ProjectViewImpl.isShowURL() reads directly from this Registry key.
-        // Only resetToDefault when WE changed it — don't override user's choice.
+        // Only resetToDefault when WE changed it — don't override the user's choice.
         val registryKey =
             try {
                 Registry.get(SHOW_URL_KEY)
