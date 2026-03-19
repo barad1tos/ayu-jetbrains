@@ -50,7 +50,7 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
             LOG.info("Ayu Islands detected third-party plugins: ${conflicts.joinToString { it.pluginDisplayName }}")
         }
 
-        // Check license state
+        // Check license state and initialize workspace services (inside EDT callback)
         checkLicenseState(project, variant, settings)
 
         // Auto-switch theme to match macOS Light/Dark mode
@@ -60,29 +60,6 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
 
         // Show a one-time update notification if the plugin version changed
         SwingUtilities.invokeLater { UpdateNotifier.showIfUpdated(project) }
-
-        // Migrate old boolean auto-fit fields to the new PanelWidthMode enum
-        settings.state.migrateWidthModes()
-
-        // Eagerly initialize Project View customizer — its init block subscribes
-        // to ToolWindowManagerListener, which will apply() when the tree is ready.
-        val pvState = settings.state
-        val hasProjectViewCustomizations =
-            pvState.hideProjectViewHScrollbar ||
-                pvState.hideProjectRootPath
-        if (hasProjectViewCustomizations ||
-            PanelWidthMode.fromString(pvState.projectPanelWidthMode) != PanelWidthMode.DEFAULT
-        ) {
-            ProjectViewScrollbarManager.getInstance(project)
-        }
-
-        if (PanelWidthMode.fromString(pvState.commitPanelWidthMode) != PanelWidthMode.DEFAULT) {
-            CommitPanelAutoFitManager.getInstance(project)
-        }
-
-        if (PanelWidthMode.fromString(pvState.gitPanelWidthMode) != PanelWidthMode.DEFAULT) {
-            GitPanelAutoFitManager.getInstance(project)
-        }
 
         // Initialize the glow overlay system if the glow is enabled
         // Uses ApplicationManager.invokeLater with project.disposed condition to skip
@@ -109,6 +86,12 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
             } else {
                 applyUnlicensedDefaults(project, variant, settings)
             }
+
+            // Migrate width modes before service init reads them
+            settings.state.migrateWidthModes()
+
+            // Initialize workspace services after defaults are applied (no race)
+            initWorkspaceServices(project, settings)
         }
     }
 
@@ -137,10 +120,6 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
             LicenseChecker.applyWorkspaceDefaults()
             LOG.info("Ayu Islands workspace defaults migrated for existing user")
         }
-
-        // Workspace services (ProjectView, Commit, Git panels) are initialized
-        // via eager service creation + ToolWindowManagerListener in execute() above.
-        // ProjectViewState API is persistent — no deferred re-apply needed.
     }
 
     private fun applyUnlicensedDefaults(
@@ -154,6 +133,30 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         if (!settings.state.trialExpiredNotified) {
             LicenseChecker.notifyTrialExpired(project)
             settings.state.trialExpiredNotified = true
+        }
+    }
+
+    private fun initWorkspaceServices(
+        project: Project,
+        settings: AyuIslandsSettings,
+    ) {
+        if (project.isDisposed) return
+        val pvState = settings.state
+        val hasProjectViewCustomizations =
+            pvState.hideProjectViewHScrollbar ||
+                pvState.hideProjectRootPath
+        if (hasProjectViewCustomizations ||
+            PanelWidthMode.fromString(pvState.projectPanelWidthMode) != PanelWidthMode.DEFAULT
+        ) {
+            ProjectViewScrollbarManager.getInstance(project)
+        }
+
+        if (PanelWidthMode.fromString(pvState.commitPanelWidthMode) != PanelWidthMode.DEFAULT) {
+            CommitPanelAutoFitManager.getInstance(project)
+        }
+
+        if (PanelWidthMode.fromString(pvState.gitPanelWidthMode) != PanelWidthMode.DEFAULT) {
+            GitPanelAutoFitManager.getInstance(project)
         }
     }
 

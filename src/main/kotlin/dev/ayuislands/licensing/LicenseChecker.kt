@@ -217,7 +217,7 @@ object LicenseChecker {
         state.proDefaultsApplied = true
     }
 
-    /** Apply workspace defaults (auto-fit, hide path/VCS). Idempotent via the flag. */
+    /** Apply workspace defaults (auto-fit, hide path/VCS). Callers must guard with workspaceDefaultsApplied flag. */
     fun applyWorkspaceDefaults() {
         val state = AyuIslandsSettings.getInstance().state
         state.projectPanelWidthMode = PanelWidthMode.AUTO_FIT.name
@@ -256,6 +256,15 @@ object LicenseChecker {
             AccentApplicator.apply(accentHex)
         } catch (exception: RuntimeException) {
             LOG.warn("Revert to free defaults failed", exception)
+            NotificationGroupManager
+                .getInstance()
+                .getNotificationGroup(NOTIFICATION_GROUP)
+                .createNotification(
+                    "Accent revert incomplete",
+                    "Some accent colors could not be reverted. " +
+                        "Restart your IDE to complete the reset.",
+                    NotificationType.WARNING,
+                ).notify(null)
         }
     }
 
