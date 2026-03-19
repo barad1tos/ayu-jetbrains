@@ -123,6 +123,13 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
                 LicenseChecker.enableProDefaults()
                 LOG.info("Ayu Islands Pro defaults enabled (first-time license activation)")
 
+                // Initialize services that depend on pro defaults (auto-fit, project view, glow).
+                // These were skipped during early init because state was still at free defaults.
+                ProjectViewScrollbarManager.getInstance(project).apply()
+                CommitPanelAutoFitManager.getInstance(project).apply()
+                GitPanelAutoFitManager.getInstance(project).apply()
+                GlowOverlayManager.getInstance(project).initialize()
+
                 if (!settings.state.trialWelcomeShown) {
                     LicenseChecker.notifyTrialWelcome(project)
                     settings.state.trialWelcomeShown = true
