@@ -63,14 +63,14 @@ class AyuIslandsState : BaseState() {
     // Animation
     var glowAnimation by string(GlowAnimation.NONE.name)
 
-    // Per-island toggles (editor ON by default, others OFF)
+    // Per-island toggles (all ON by default — glow visibility is controlled by glowEnabled)
     var glowEditor by property(true)
-    var glowProject by property(false)
-    var glowTerminal by property(false)
-    var glowRun by property(false)
-    var glowDebug by property(false)
-    var glowGit by property(false)
-    var glowServices by property(false)
+    var glowProject by property(true)
+    var glowTerminal by property(true)
+    var glowRun by property(true)
+    var glowDebug by property(true)
+    var glowGit by property(true)
+    var glowServices by property(true)
 
     // Tab glow mode: MINIMAL (underline only), FULL (underline + tinted bg), OFF
     var glowTabMode by string("MINIMAL")

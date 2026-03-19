@@ -22,6 +22,7 @@ import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.PanelWidthMode
 import java.io.ByteArrayInputStream
 import java.nio.charset.StandardCharsets
 import java.security.Signature
@@ -212,6 +213,12 @@ object LicenseChecker {
         state.glowGit = true
         state.glowServices = true
         state.glowFocusRing = true
+        state.projectPanelWidthMode = PanelWidthMode.AUTO_FIT.name
+        state.commitPanelWidthMode = PanelWidthMode.AUTO_FIT.name
+        state.gitPanelWidthMode = PanelWidthMode.AUTO_FIT.name
+        state.hideProjectRootPath = true
+        state.hideRootVcsAnnotations = true
+        state.hideProjectViewHScrollbar = true
         state.proDefaultsApplied = true
     }
 
@@ -229,6 +236,14 @@ object LicenseChecker {
         for (id in AccentElementId.entries) {
             state.setToggle(id, true)
         }
+
+        // Reset workspace settings to free defaults
+        state.projectPanelWidthMode = PanelWidthMode.DEFAULT.name
+        state.commitPanelWidthMode = PanelWidthMode.DEFAULT.name
+        state.gitPanelWidthMode = PanelWidthMode.DEFAULT.name
+        state.hideProjectRootPath = false
+        state.hideRootVcsAnnotations = false
+        state.hideProjectViewHScrollbar = false
 
         // Re-apply accent with reset toggles (accent color itself stays — it's free)
         try {

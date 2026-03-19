@@ -112,14 +112,14 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
 
         SwingUtilities.invokeLater {
             // Reset flags if the license becomes valid again (user purchased or new eval period)
-            if (licenseState == true && settings.state.trialExpiredNotified) {
+            if (licenseState != false && settings.state.trialExpiredNotified) {
                 settings.state.trialExpiredNotified = false
                 settings.state.proDefaultsApplied = false
                 settings.state.trialWelcomeShown = false
             }
 
             // One-time: enable all Pro features when the license first activates
-            if (licenseState == true && !settings.state.proDefaultsApplied) {
+            if (licenseState != false && !settings.state.proDefaultsApplied) {
                 LicenseChecker.enableProDefaults()
                 LOG.info("Ayu Islands Pro defaults enabled (first-time license activation)")
 
