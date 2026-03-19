@@ -196,15 +196,7 @@ class GitPanelAutoFitManager(
             ?.component
     }
 
-    private fun measureTreeMaxRowWidth(tree: JTree): Int {
-        var maxRowWidth = 0
-        for (row in 0 until tree.rowCount) {
-            val bounds = tree.getRowBounds(row) ?: continue
-            val rowRight = bounds.x + bounds.width
-            if (rowRight > maxRowWidth) maxRowWidth = rowRight
-        }
-        return maxRowWidth
-    }
+    private fun measureTreeMaxRowWidth(tree: JTree): Int = AutoFitCalculator.measureTreeMaxRowWidth(tree)
 
     override fun dispose() {
         removeExpansionListeners()

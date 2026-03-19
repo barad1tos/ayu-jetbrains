@@ -44,15 +44,8 @@ class ToolWindowAutoFitter(
                 resolveToolWindowEx("Auto-fit")
                     ?: return@findTreeWithRetry
 
-            var maxRowWidth = 0
-            for (row in 0 until tree.rowCount) {
-                val bounds = tree.getRowBounds(row) ?: continue
-                val rowRight = bounds.x + bounds.width
-                if (rowRight > maxRowWidth) {
-                    maxRowWidth = rowRight
-                }
-            }
-
+            val maxRowWidth =
+                AutoFitCalculator.measureTreeMaxRowWidth(tree)
             val desiredWidth =
                 AutoFitCalculator.calculateDesiredWidth(
                     maxRowWidth,

@@ -2,6 +2,7 @@ package dev.ayuislands.toolwindow
 
 import java.awt.Component
 import java.awt.Container
+import javax.swing.JTree
 import kotlin.math.abs
 
 /** Pure calculation utilities for tool window auto-fit, extracted for testability. */
@@ -22,6 +23,16 @@ object AutoFitCalculator {
         (maxRowWidth + AUTOFIT_PADDING)
             .coerceAtMost(maxWidth)
             .coerceAtLeast(minWidth)
+
+    fun measureTreeMaxRowWidth(tree: JTree): Int {
+        var maxRowWidth = 0
+        for (row in 0 until tree.rowCount) {
+            val bounds = tree.getRowBounds(row) ?: continue
+            val rowRight = bounds.x + bounds.width
+            if (rowRight > maxRowWidth) maxRowWidth = rowRight
+        }
+        return maxRowWidth
+    }
 
     fun isJitterOnly(
         currentWidth: Int,
