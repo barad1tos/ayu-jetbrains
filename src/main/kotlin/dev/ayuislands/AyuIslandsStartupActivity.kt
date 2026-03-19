@@ -111,53 +111,84 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         LOG.info("Ayu Islands license check: ${licenseStateLabel(licenseState)}")
 
         SwingUtilities.invokeLater {
-            // Reset flags if the license becomes valid again (user purchased or new eval period)
-            if (licenseState != false && settings.state.trialExpiredNotified) {
-                settings.state.trialExpiredNotified = false
-                settings.state.proDefaultsApplied = false
-                settings.state.trialWelcomeShown = false
+            if (licenseState != false) {
+                applyLicensedDefaults(project, settings)
+            } else {
+                applyUnlicensedDefaults(project, variant, settings)
             }
+        }
+    }
 
-            // One-time: enable all Pro features when the license first activates
-            if (licenseState != false && !settings.state.proDefaultsApplied) {
-                LicenseChecker.enableProDefaults()
-                LOG.info("Ayu Islands Pro defaults enabled (first-time license activation)")
+    private fun applyLicensedDefaults(
+        project: Project,
+        settings: AyuIslandsSettings,
+    ) {
+        if (settings.state.trialExpiredNotified) {
+            settings.state.trialExpiredNotified = false
+            settings.state.proDefaultsApplied = false
+            settings.state.trialWelcomeShown = false
+        }
 
-                // Initialize services that depend on pro-defaults (auto-fit, project view, glow).
-                // These were skipped during early init because the state was still at free defaults.
+        if (!settings.state.proDefaultsApplied) {
+            LicenseChecker.enableProDefaults()
+            LOG.info("Ayu Islands Pro defaults enabled (first-time license activation)")
+
+            if (!settings.state.trialWelcomeShown) {
+                LicenseChecker.notifyTrialWelcome(project)
+                settings.state.trialWelcomeShown = true
+            }
+        }
+
+        // Migration: workspace defaults for existing users upgrading to 2.3.0
+        if (!settings.state.workspaceDefaultsApplied) {
+            LicenseChecker.applyWorkspaceDefaults()
+            LOG.info("Ayu Islands workspace defaults migrated for existing user")
+        }
+
+        scheduleWorkspaceApply(project)
+    }
+
+    private fun applyUnlicensedDefaults(
+        project: Project,
+        variant: AyuVariant,
+        settings: AyuIslandsSettings,
+    ) {
+        LicenseChecker.revertToFreeDefaults(variant)
+        LOG.info("Ayu Islands reverted to free defaults for ${variant.name}")
+
+        if (!settings.state.trialExpiredNotified) {
+            LicenseChecker.notifyTrialExpired(project)
+            settings.state.trialExpiredNotified = true
+        }
+    }
+
+    /**
+     * Schedule workspace service initialization after tool windows are ready.
+     * Tool windows are lazily created — they may not exist when checkLicenseState
+     * runs on the EDT. A single invokeLater defers until the current EDT queue drains.
+     */
+    private fun scheduleWorkspaceApply(project: Project) {
+        SwingUtilities.invokeLater {
+            if (project.isDisposed) return@invokeLater
+            val state = AyuIslandsSettings.getInstance().state
+            val hasProjectViewTweaks =
+                state.hideProjectViewHScrollbar ||
+                    state.hideProjectRootPath ||
+                    state.hideRootVcsAnnotations
+            val pvMode = PanelWidthMode.fromString(state.projectPanelWidthMode)
+            if (hasProjectViewTweaks || pvMode != PanelWidthMode.DEFAULT) {
                 ProjectViewScrollbarManager.getInstance(project).apply()
+            }
+            if (PanelWidthMode.fromString(state.commitPanelWidthMode) != PanelWidthMode.DEFAULT) {
                 CommitPanelAutoFitManager.getInstance(project).apply()
+            }
+            if (PanelWidthMode.fromString(state.gitPanelWidthMode) != PanelWidthMode.DEFAULT) {
                 GitPanelAutoFitManager.getInstance(project).apply()
+            }
+            if (state.glowEnabled) {
                 GlowOverlayManager.getInstance(project).initialize()
-
-                if (!settings.state.trialWelcomeShown) {
-                    LicenseChecker.notifyTrialWelcome(project)
-                    settings.state.trialWelcomeShown = true
-                }
             }
-
-            // Migration: apply workspace defaults for existing licensed users upgrading to 2.3.0
-            if (licenseState != false && !settings.state.workspaceDefaultsApplied) {
-                LicenseChecker.applyWorkspaceDefaults()
-                ProjectViewScrollbarManager.getInstance(project).apply()
-                CommitPanelAutoFitManager.getInstance(project).apply()
-                GitPanelAutoFitManager.getInstance(project).apply()
-                LOG.info("Ayu Islands workspace defaults migrated for existing user")
-            }
-
-            // null = facade not initialized (grace period, treat as licensed)
-            // true = licensed or trial active
-            // false = not licensed (trial expired or never purchased)
-            if (licenseState == false) {
-                LicenseChecker.revertToFreeDefaults(variant)
-                LOG.info("Ayu Islands reverted to free defaults for ${variant.name}")
-
-                // One-time balloon notification
-                if (!settings.state.trialExpiredNotified) {
-                    LicenseChecker.notifyTrialExpired(project)
-                    settings.state.trialExpiredNotified = true
-                }
-            }
+            LOG.info("Ayu Islands workspace services applied (deferred)")
         }
     }
 
