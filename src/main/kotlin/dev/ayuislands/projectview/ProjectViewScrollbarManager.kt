@@ -19,6 +19,7 @@ import java.beans.PropertyChangeListener
 import javax.swing.JScrollPane
 import javax.swing.JTree
 import javax.swing.ScrollPaneConstants
+import javax.swing.SwingUtilities
 import javax.swing.tree.TreeCellRenderer
 
 /** Per-project service that manages Project tool window tweaks (scrollbar, root path). */
@@ -61,6 +62,19 @@ class ProjectViewScrollbarManager(
                     apply()
                 }
             },
+        )
+
+        // Initial apply: tool window may already be open when this service is created.
+        // Timer ensures Project View content is fully rendered before we touch it.
+        java.util.Timer().schedule(
+            object : java.util.TimerTask() {
+                override fun run() {
+                    SwingUtilities.invokeLater {
+                        if (!project.isDisposed) apply()
+                    }
+                }
+            },
+            INITIAL_APPLY_DELAY_MS,
         )
     }
 
@@ -245,6 +259,7 @@ class ProjectViewScrollbarManager(
     companion object {
         private const val SHOW_URL_KEY =
             "project.tree.structure.show.url"
+        private const val INITIAL_APPLY_DELAY_MS = 2000L
 
         fun getInstance(project: Project): ProjectViewScrollbarManager =
             project.getService(
