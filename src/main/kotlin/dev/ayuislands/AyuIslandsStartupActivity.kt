@@ -61,12 +61,6 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         // Show a one-time update notification if the plugin version changed
         SwingUtilities.invokeLater { UpdateNotifier.showIfUpdated(project) }
 
-        // Migrate: users with old hideProjectRootPath=true expect VCS also hidden
-        if (settings.state.hideProjectRootPath && !settings.state.projectViewMigrated) {
-            settings.state.hideRootVcsAnnotations = true
-            settings.state.projectViewMigrated = true
-        }
-
         // Migrate old boolean auto-fit fields to the new PanelWidthMode enum
         settings.state.migrateWidthModes()
 
@@ -75,8 +69,7 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         val pvState = settings.state
         val hasProjectViewCustomizations =
             pvState.hideProjectViewHScrollbar ||
-                pvState.hideProjectRootPath ||
-                pvState.hideRootVcsAnnotations
+                pvState.hideProjectRootPath
         if (hasProjectViewCustomizations ||
             PanelWidthMode.fromString(pvState.projectPanelWidthMode) != PanelWidthMode.DEFAULT
         ) {
@@ -145,7 +138,9 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
             LOG.info("Ayu Islands workspace defaults migrated for existing user")
         }
 
-        scheduleWorkspaceApply(project)
+        // Workspace services (ProjectView, Commit, Git panels) are initialized
+        // via eager service creation + ToolWindowManagerListener in execute() above.
+        // ProjectViewState API is persistent — no deferred re-apply needed.
     }
 
     private fun applyUnlicensedDefaults(
@@ -159,36 +154,6 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         if (!settings.state.trialExpiredNotified) {
             LicenseChecker.notifyTrialExpired(project)
             settings.state.trialExpiredNotified = true
-        }
-    }
-
-    /**
-     * Schedule workspace service initialization after tool windows are ready.
-     * Tool windows are lazily created — they may not exist when checkLicenseState
-     * runs on the EDT. A single invokeLater defers until the current EDT queue drains.
-     */
-    private fun scheduleWorkspaceApply(project: Project) {
-        SwingUtilities.invokeLater {
-            if (project.isDisposed) return@invokeLater
-            val state = AyuIslandsSettings.getInstance().state
-            val hasProjectViewTweaks =
-                state.hideProjectViewHScrollbar ||
-                    state.hideProjectRootPath ||
-                    state.hideRootVcsAnnotations
-            val pvMode = PanelWidthMode.fromString(state.projectPanelWidthMode)
-            if (hasProjectViewTweaks || pvMode != PanelWidthMode.DEFAULT) {
-                ProjectViewScrollbarManager.getInstance(project).apply()
-            }
-            if (PanelWidthMode.fromString(state.commitPanelWidthMode) != PanelWidthMode.DEFAULT) {
-                CommitPanelAutoFitManager.getInstance(project).apply()
-            }
-            if (PanelWidthMode.fromString(state.gitPanelWidthMode) != PanelWidthMode.DEFAULT) {
-                GitPanelAutoFitManager.getInstance(project).apply()
-            }
-            if (state.glowEnabled) {
-                GlowOverlayManager.getInstance(project).initialize()
-            }
-            LOG.info("Ayu Islands workspace services applied (deferred)")
         }
     }
 

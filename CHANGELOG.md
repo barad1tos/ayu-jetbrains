@@ -1,11 +1,22 @@
 # Changelog
 
+## [2.3.0] - 2026-03-19
+
+### Added
+- [Paid] Auto-fit with configurable min/max width for Project View, Commit, and Git panels
+- [Paid] Git panel internal splitter control — auto-resize branches tree and file changes tree
+- [Free] 30-day premium trial — every premium feature unlocked on the first install, no credit card
+- [Free] Returning users get a fresh trial with premium defaults re-applied
+
+### Changed
+- [Paid] Project View cleanup — hide filesystem path and horizontal scrollbar
+
 ## [2.2.2] - 2026-03-14
 
 ### Fixed
 
 - [Free] Fix diff/merge viewer using wrong default colors instead of theme palette
-- [Free] Fix black toolbar in merge conflict gutter on light themes
+- [Free] Fix black toolbar in the merge conflict gutter on light themes
 - [Free] Improve diff modified-line background visibility across all variants
 
 ## [2.2.1] - 2026-03-11

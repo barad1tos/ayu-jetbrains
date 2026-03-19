@@ -217,14 +217,13 @@ object LicenseChecker {
         state.proDefaultsApplied = true
     }
 
-    /** Apply workspace defaults (auto-fit, hide path/VCS). Idempotent via flag. */
+    /** Apply workspace defaults (auto-fit, hide path/VCS). Idempotent via the flag. */
     fun applyWorkspaceDefaults() {
         val state = AyuIslandsSettings.getInstance().state
         state.projectPanelWidthMode = PanelWidthMode.AUTO_FIT.name
         state.commitPanelWidthMode = PanelWidthMode.AUTO_FIT.name
         state.gitPanelWidthMode = PanelWidthMode.AUTO_FIT.name
         state.hideProjectRootPath = true
-        state.hideRootVcsAnnotations = true
         state.hideProjectViewHScrollbar = true
         state.workspaceDefaultsApplied = true
     }
@@ -249,7 +248,6 @@ object LicenseChecker {
         state.commitPanelWidthMode = PanelWidthMode.DEFAULT.name
         state.gitPanelWidthMode = PanelWidthMode.DEFAULT.name
         state.hideProjectRootPath = false
-        state.hideRootVcsAnnotations = false
         state.hideProjectViewHScrollbar = false
 
         // Re-apply accent with reset toggles (accent color itself stays — it's free)

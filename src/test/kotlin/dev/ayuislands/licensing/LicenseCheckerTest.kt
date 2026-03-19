@@ -139,14 +139,16 @@ class LicenseCheckerTest {
         every { AyuIslandsSettings.getInstance() } returns settingsMock
         every { settingsMock.state } returns realState
 
-        // Verify defaults before — most glow island flags start as false
+        // Verify defaults before — glowEnabled and proDefaultsApplied start false,
+        // but all island toggles default to true (visibility controlled by glowEnabled)
         assertFalse(realState.glowEnabled)
-        assertFalse(realState.glowProject)
-        assertFalse(realState.glowTerminal)
-        assertFalse(realState.glowRun)
-        assertFalse(realState.glowDebug)
-        assertFalse(realState.glowGit)
-        assertFalse(realState.glowServices)
+        assertTrue(realState.glowEditor)
+        assertTrue(realState.glowProject)
+        assertTrue(realState.glowTerminal)
+        assertTrue(realState.glowRun)
+        assertTrue(realState.glowDebug)
+        assertTrue(realState.glowGit)
+        assertTrue(realState.glowServices)
         assertFalse(realState.proDefaultsApplied)
 
         LicenseChecker.enableProDefaults()

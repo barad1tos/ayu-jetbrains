@@ -108,7 +108,6 @@ class AyuIslandsState : BaseState() {
 
     // Project View tweaks
     var hideProjectRootPath by property(false)
-    var hideRootVcsAnnotations by property(false)
     var hideProjectViewHScrollbar by property(false)
     var autoFitProjectPanelWidth by property(false)
     var autoFitMaxWidth by property(DEFAULT_AUTO_FIT_MAX_WIDTH)
@@ -128,9 +127,6 @@ class AyuIslandsState : BaseState() {
     var gitPanelAutoFitMaxWidth by property(DEFAULT_GIT_AUTO_FIT_MAX_WIDTH)
     var gitPanelAutoFitMinWidth by property(DEFAULT_GIT_AUTO_FIT_MIN_WIDTH)
     var gitPanelFixedWidth by property(DEFAULT_FIXED_WIDTH)
-
-    // Migration: existing users with hideProjectRootPath=true expect VCS hidden too
-    var projectViewMigrated by property(false)
 
     // Font preset
     var fontPresetEnabled by property(false)

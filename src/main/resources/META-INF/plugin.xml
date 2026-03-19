@@ -50,7 +50,7 @@
     each with configurable min and max bounds.
     The Git panel goes deeper: auto-resize the branches tree and file changes
     tree independently.
-    Hide the filesystem path, VCS annotations, and horizontal scrollbar
+    Hide the filesystem path and horizontal scrollbar
     from the Project View. Three panels, one settings tab, zero wasted space.</p>
 
     <p><b>Accent control</b> — your accent color, your rules.
@@ -75,7 +75,7 @@
     <ul>
       <li>[Paid] Auto-fit with configurable min/max width for Project View, Commit, and Git panels</li>
       <li>[Paid] Git panel internal splitter control — auto-resize branches tree and file changes tree</li>
-      <li>[Paid] Project View tweaks now require a license (hide path, VCS annotations, scrollbar)</li>
+      <li>[Paid] Project View cleanup — hide the filesystem path and horizontal scrollbar</li>
       <li>[Free] 30-day premium trial — every premium feature unlocked on the first install, no credit card</li>
       <li>[Free] Returning users get a fresh trial with premium defaults re-applied</li>
     </ul>
