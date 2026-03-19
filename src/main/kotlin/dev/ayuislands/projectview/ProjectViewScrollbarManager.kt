@@ -120,10 +120,10 @@ class ProjectViewScrollbarManager(
         val registryKey =
             try {
                 Registry.get(SHOW_URL_KEY)
-            } catch (ignored: MissingResourceException) {
+            } catch (_: MissingResourceException) {
                 LOG.warn(
                     "Registry key '$SHOW_URL_KEY' not " +
-                        "found — IDE may have removed it",
+                        "found — the IDE may have removed it",
                 )
                 return
             }
@@ -239,7 +239,7 @@ class ProjectViewScrollbarManager(
         if (registryKeyModified) {
             try {
                 Registry.get(SHOW_URL_KEY).resetToDefault()
-            } catch (ignored: MissingResourceException) {
+            } catch (_: MissingResourceException) {
                 LOG.warn(
                     "Registry key '$SHOW_URL_KEY' not " +
                         "found during dispose",

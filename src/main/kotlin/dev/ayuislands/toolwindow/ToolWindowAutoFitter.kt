@@ -40,19 +40,9 @@ class ToolWindowAutoFitter(
             "applyAutoFitWidth must be called on EDT"
         }
         findTreeWithRetry { tree ->
-            val toolWindow =
-                ToolWindowManager
-                    .getInstance(project)
-                    .getToolWindow(toolWindowId)
-            val toolWindowEx = toolWindow as? ToolWindowEx
-            if (toolWindowEx == null) {
-                LOG.warn(
-                    "Auto-fit: '$toolWindowId' is not " +
-                        "ToolWindowEx (type: " +
-                        "${toolWindow?.javaClass?.name})",
-                )
-                return@findTreeWithRetry
-            }
+            val toolWindowEx =
+                resolveToolWindowEx("Auto-fit")
+                    ?: return@findTreeWithRetry
 
             var maxRowWidth = 0
             for (row in 0 until tree.rowCount) {
@@ -77,6 +67,11 @@ class ToolWindowAutoFitter(
         assert(SwingUtilities.isEventDispatchThread()) {
             "applyFixedWidth must be called on EDT"
         }
+        val toolWindowEx = resolveToolWindowEx("Fixed-width") ?: return
+        applyWidth(toolWindowEx, targetWidth)
+    }
+
+    private fun resolveToolWindowEx(context: String): ToolWindowEx? {
         val toolWindow =
             ToolWindowManager
                 .getInstance(project)
@@ -84,13 +79,12 @@ class ToolWindowAutoFitter(
         val toolWindowEx = toolWindow as? ToolWindowEx
         if (toolWindowEx == null) {
             LOG.warn(
-                "Fixed-width: '$toolWindowId' is not " +
+                "$context: '$toolWindowId' is not " +
                     "ToolWindowEx (type: " +
                     "${toolWindow?.javaClass?.name})",
             )
-            return
         }
-        applyWidth(toolWindowEx, targetWidth)
+        return toolWindowEx
     }
 
     private fun applyWidth(
