@@ -213,13 +213,20 @@ object LicenseChecker {
         state.glowGit = true
         state.glowServices = true
         state.glowFocusRing = true
+        applyWorkspaceDefaults()
+        state.proDefaultsApplied = true
+    }
+
+    /** Apply workspace defaults (auto-fit, hide path/VCS). Idempotent via flag. */
+    fun applyWorkspaceDefaults() {
+        val state = AyuIslandsSettings.getInstance().state
         state.projectPanelWidthMode = PanelWidthMode.AUTO_FIT.name
         state.commitPanelWidthMode = PanelWidthMode.AUTO_FIT.name
         state.gitPanelWidthMode = PanelWidthMode.AUTO_FIT.name
         state.hideProjectRootPath = true
         state.hideRootVcsAnnotations = true
         state.hideProjectViewHScrollbar = true
-        state.proDefaultsApplied = true
+        state.workspaceDefaultsApplied = true
     }
 
     /** Revert paid features to free defaults for the given variant. */

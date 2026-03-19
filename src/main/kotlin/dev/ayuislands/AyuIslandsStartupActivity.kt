@@ -123,8 +123,8 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
                 LicenseChecker.enableProDefaults()
                 LOG.info("Ayu Islands Pro defaults enabled (first-time license activation)")
 
-                // Initialize services that depend on pro defaults (auto-fit, project view, glow).
-                // These were skipped during early init because state was still at free defaults.
+                // Initialize services that depend on pro-defaults (auto-fit, project view, glow).
+                // These were skipped during early init because the state was still at free defaults.
                 ProjectViewScrollbarManager.getInstance(project).apply()
                 CommitPanelAutoFitManager.getInstance(project).apply()
                 GitPanelAutoFitManager.getInstance(project).apply()
@@ -134,6 +134,15 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
                     LicenseChecker.notifyTrialWelcome(project)
                     settings.state.trialWelcomeShown = true
                 }
+            }
+
+            // Migration: apply workspace defaults for existing licensed users upgrading to 2.3.0
+            if (licenseState != false && !settings.state.workspaceDefaultsApplied) {
+                LicenseChecker.applyWorkspaceDefaults()
+                ProjectViewScrollbarManager.getInstance(project).apply()
+                CommitPanelAutoFitManager.getInstance(project).apply()
+                GitPanelAutoFitManager.getInstance(project).apply()
+                LOG.info("Ayu Islands workspace defaults migrated for existing user")
             }
 
             // null = facade not initialized (grace period, treat as licensed)

@@ -29,6 +29,7 @@ class AyuIslandsState : BaseState() {
     var lastLightAppearanceTheme by string("Ayu Light (Islands UI)")
     var trialExpiredNotified by property(false)
     var proDefaultsApplied by property(false)
+    var workspaceDefaultsApplied by property(false)
     var trialWelcomeShown by property(false)
 
     // Per-element accent toggles (all ON by default)
