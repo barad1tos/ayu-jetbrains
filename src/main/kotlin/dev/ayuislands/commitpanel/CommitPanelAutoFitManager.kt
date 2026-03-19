@@ -23,6 +23,7 @@ class CommitPanelAutoFitManager(
             minWidth = AutoFitCalculator.MIN_COMMIT_AUTOFIT_WIDTH,
         ).apply {
             maxWidthProvider = { AyuIslandsSettings.getInstance().state.autoFitCommitMaxWidth }
+            minWidthProvider = { AyuIslandsSettings.getInstance().state.commitPanelAutoFitMinWidth }
         }
 
     init {

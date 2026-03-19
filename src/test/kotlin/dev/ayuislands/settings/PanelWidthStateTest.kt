@@ -21,15 +21,25 @@ class PanelWidthStateTest {
 
     @Test
     fun `load sets both pending and stored`() {
-        state.load(PanelWidthMode.AUTO_FIT, 500, 300)
+        state.load(PanelWidthMode.AUTO_FIT, 500, 300, 200)
 
         assertEquals(PanelWidthMode.AUTO_FIT, state.pendingMode)
         assertEquals(PanelWidthMode.AUTO_FIT, state.storedMode)
         assertEquals(500, state.pendingAutoFitMaxWidth)
         assertEquals(500, state.storedAutoFitMaxWidth)
+        assertEquals(200, state.pendingAutoFitMinWidth)
+        assertEquals(200, state.storedAutoFitMinWidth)
         assertEquals(300, state.pendingFixedWidth)
         assertEquals(300, state.storedFixedWidth)
         assertFalse(state.isModified())
+    }
+
+    @Test
+    fun `changing pending min width marks as modified`() {
+        state.load(PanelWidthMode.AUTO_FIT, 400, 200, 250)
+        state.pendingAutoFitMinWidth = 300
+
+        assertTrue(state.isModified())
     }
 
     @Test
@@ -94,11 +104,12 @@ class PanelWidthStateTest {
     }
 
     @Test
-    fun `widthSummary formats auto-fit mode with max width`() {
+    fun `widthSummary formats auto-fit mode with min and max width`() {
         state.pendingMode = PanelWidthMode.AUTO_FIT
+        state.pendingAutoFitMinWidth = 250
         state.pendingAutoFitMaxWidth = 500
 
-        assertEquals("Auto-fit \u00B7 max 500px", PanelWidthState.widthSummary(state))
+        assertEquals("Auto-fit \u00B7 min 250 \u00B7 max 500px", PanelWidthState.widthSummary(state))
     }
 
     @Test

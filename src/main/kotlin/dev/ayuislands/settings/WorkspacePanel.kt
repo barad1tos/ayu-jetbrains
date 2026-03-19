@@ -26,6 +26,10 @@ import javax.swing.JSpinner
 import javax.swing.SpinnerNumberModel
 import javax.swing.UIManager
 
+private const val PROJECT_VIEW_TITLE = "Project View"
+private const val COMMIT_PANEL_TITLE = "Commit Panel"
+private const val GIT_PANEL_TITLE = "Git Panel"
+
 /** Workspace tab: tool window layout tweaks (Project View, Commit Panel, Git Panel). */
 class WorkspacePanel : AyuIslandsSettingsPanel {
     private var pendingHideRootPath = false
@@ -67,22 +71,25 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
             PanelWidthMode.fromString(state.projectPanelWidthMode),
             state.autoFitMaxWidth,
             state.projectPanelFixedWidth,
+            state.projectPanelAutoFitMinWidth,
         )
         commitWidth.state.load(
             PanelWidthMode.fromString(state.commitPanelWidthMode),
             state.autoFitCommitMaxWidth,
             state.commitPanelFixedWidth,
+            state.commitPanelAutoFitMinWidth,
         )
         gitWidth.state.load(
             PanelWidthMode.fromString(state.gitPanelWidthMode),
             state.gitPanelAutoFitMaxWidth,
             state.gitPanelFixedWidth,
+            state.gitPanelAutoFitMinWidth,
         )
 
         panel.row { comment("Customize tool window width and Project View display options.") }
 
         projectViewGroup =
-            panel.collapsibleGroup("Project View") {
+            panel.collapsibleGroup(PROJECT_VIEW_TITLE) {
                 row {
                     val cb =
                         checkBox("Hide filesystem path")
@@ -117,33 +124,57 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
                     hideHScrollbarCheckbox = cb.component
                 }
                 separator()
-                buildWidthModeGroup(this, projectWidth, AutoFitCalculator.MIN_PROJECT_AUTOFIT_WIDTH, licensed) {
-                    updateGroupTitle(projectViewGroup, "Project View", projectWidth.state)
-                }
+                buildWidthModeGroup(
+                    this,
+                    WidthModeGroupConfig(
+                        projectWidth,
+                        AutoFitCalculator.MIN_PROJECT_AUTOFIT_WIDTH,
+                        licensed,
+                        showMinSpinner = true,
+                    ) {
+                        updateGroupTitle(projectViewGroup, PROJECT_VIEW_TITLE, projectWidth.state)
+                    },
+                )
             }
         projectViewGroup?.expanded = state.workspaceProjectViewExpanded
         projectViewGroup?.addExpandedListener { state.workspaceProjectViewExpanded = it }
-        updateGroupTitle(projectViewGroup, "Project View", projectWidth.state)
+        updateGroupTitle(projectViewGroup, PROJECT_VIEW_TITLE, projectWidth.state)
 
         commitPanelGroup =
-            panel.collapsibleGroup("Commit Panel") {
-                buildWidthModeGroup(this, commitWidth, AutoFitCalculator.MIN_COMMIT_AUTOFIT_WIDTH, licensed) {
-                    updateGroupTitle(commitPanelGroup, "Commit Panel", commitWidth.state)
-                }
+            panel.collapsibleGroup(COMMIT_PANEL_TITLE) {
+                buildWidthModeGroup(
+                    this,
+                    WidthModeGroupConfig(
+                        commitWidth,
+                        AutoFitCalculator.MIN_COMMIT_AUTOFIT_WIDTH,
+                        licensed,
+                        showMinSpinner = true,
+                    ) {
+                        updateGroupTitle(commitPanelGroup, COMMIT_PANEL_TITLE, commitWidth.state)
+                    },
+                )
             }
         commitPanelGroup?.expanded = state.workspaceCommitPanelExpanded
         commitPanelGroup?.addExpandedListener { state.workspaceCommitPanelExpanded = it }
-        updateGroupTitle(commitPanelGroup, "Commit Panel", commitWidth.state)
+        updateGroupTitle(commitPanelGroup, COMMIT_PANEL_TITLE, commitWidth.state)
 
         gitPanelGroup =
-            panel.collapsibleGroup("Git Panel") {
-                buildWidthModeGroup(this, gitWidth, AutoFitCalculator.MIN_GIT_AUTOFIT_WIDTH, licensed) {
-                    updateGroupTitle(gitPanelGroup, "Git Panel", gitWidth.state)
-                }
+            panel.collapsibleGroup(GIT_PANEL_TITLE) {
+                buildWidthModeGroup(
+                    this,
+                    WidthModeGroupConfig(
+                        gitWidth,
+                        AutoFitCalculator.MIN_GIT_AUTOFIT_WIDTH,
+                        licensed,
+                        showMinSpinner = true,
+                    ) {
+                        updateGroupTitle(gitPanelGroup, GIT_PANEL_TITLE, gitWidth.state)
+                    },
+                )
             }
         gitPanelGroup?.expanded = state.workspaceGitPanelExpanded
         gitPanelGroup?.addExpandedListener { state.workspaceGitPanelExpanded = it }
-        updateGroupTitle(gitPanelGroup, "Git Panel", gitWidth.state)
+        updateGroupTitle(gitPanelGroup, GIT_PANEL_TITLE, gitWidth.state)
     }
 
     private fun updateGroupTitle(
@@ -169,55 +200,32 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
         )
     }
 
-    private fun buildWidthModeGroup(
-        panel: Panel,
-        uiState: WidthModeUiState,
-        minAutoFitWidth: Int,
-        licensed: Boolean,
-        onModeChanged: () -> Unit = {},
-    ) {
-        val autoFitVisible = uiState.autoFitVisible
-        val fixedVisible = uiState.fixedVisible
-        autoFitVisible.set(uiState.state.pendingMode == PanelWidthMode.AUTO_FIT)
-        fixedVisible.set(uiState.state.pendingMode == PanelWidthMode.FIXED)
+    private data class WidthModeGroupConfig(
+        val uiState: WidthModeUiState,
+        val minAutoFitWidth: Int,
+        val licensed: Boolean,
+        val showMinSpinner: Boolean = false,
+        val onModeChanged: () -> Unit = {},
+    )
 
-        val autoFitSpinner =
-            JSpinner(
-                SpinnerNumberModel(
-                    uiState.state.pendingAutoFitMaxWidth,
-                    minAutoFitWidth,
-                    MAX_AUTOFIT_WIDTH,
-                    AUTOFIT_WIDTH_STEP,
-                ),
-            )
-        autoFitSpinner.addChangeListener {
-            if (!suppressListeners) {
-                uiState.state.pendingAutoFitMaxWidth = autoFitSpinner.value as Int
-                onModeChanged()
+    private fun createSpinner(
+        value: Int,
+        min: Int,
+        onChange: (Int) -> Unit,
+    ): JSpinner =
+        JSpinner(SpinnerNumberModel(value, min, MAX_AUTOFIT_WIDTH, AUTOFIT_WIDTH_STEP)).also { spinner ->
+            spinner.addChangeListener {
+                if (!suppressListeners) onChange(spinner.value as Int)
             }
         }
-        uiState.autoFitSpinner = autoFitSpinner
 
-        val fixedSpinner =
-            JSpinner(
-                SpinnerNumberModel(
-                    uiState.state.pendingFixedWidth,
-                    AutoFitCalculator.MIN_FIXED_WIDTH,
-                    MAX_AUTOFIT_WIDTH,
-                    AUTOFIT_WIDTH_STEP,
-                ),
-            )
-        fixedSpinner.addChangeListener {
-            if (!suppressListeners) {
-                uiState.state.pendingFixedWidth = fixedSpinner.value as Int
-                onModeChanged()
-            }
-        }
-        uiState.fixedSpinner = fixedSpinner
-
+    private fun createModeComboBox(
+        selectedMode: PanelWidthMode,
+        enabled: Boolean,
+    ): JComboBox<PanelWidthMode> {
         val comboBox = JComboBox(DefaultComboBoxModel(PanelWidthMode.entries.toTypedArray()))
-        comboBox.selectedItem = uiState.state.pendingMode
-        comboBox.isEnabled = licensed
+        comboBox.selectedItem = selectedMode
+        comboBox.isEnabled = enabled
         comboBox.renderer =
             object : DefaultListCellRenderer() {
                 override fun getListCellRendererComponent(
@@ -245,6 +253,53 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
                     return label
                 }
             }
+        return comboBox
+    }
+
+    private fun buildWidthModeGroup(
+        panel: Panel,
+        config: WidthModeGroupConfig,
+    ) {
+        val uiState = config.uiState
+        val autoFitVisible = uiState.autoFitVisible
+        val fixedVisible = uiState.fixedVisible
+        autoFitVisible.set(uiState.state.pendingMode == PanelWidthMode.AUTO_FIT)
+        fixedVisible.set(uiState.state.pendingMode == PanelWidthMode.FIXED)
+
+        val autoFitSpinner =
+            createSpinner(uiState.state.pendingAutoFitMaxWidth, config.minAutoFitWidth) {
+                uiState.state.pendingAutoFitMaxWidth = it
+                val currentMin = uiState.minSpinner
+                if (currentMin != null && it < uiState.state.pendingAutoFitMinWidth) {
+                    uiState.state.pendingAutoFitMinWidth = it
+                    currentMin.value = it
+                }
+                config.onModeChanged()
+            }
+        uiState.autoFitSpinner = autoFitSpinner
+
+        val minSpinner =
+            if (config.showMinSpinner) {
+                createSpinner(uiState.state.pendingAutoFitMinWidth, MIN_AUTOFIT_MIN_WIDTH) {
+                    uiState.state.pendingAutoFitMinWidth = it
+                    if (it > uiState.state.pendingAutoFitMaxWidth) {
+                        uiState.state.pendingAutoFitMaxWidth = it
+                        autoFitSpinner.value = it
+                    }
+                    config.onModeChanged()
+                }.also { uiState.minSpinner = it }
+            } else {
+                null
+            }
+
+        val fixedSpinner =
+            createSpinner(uiState.state.pendingFixedWidth, AutoFitCalculator.MIN_FIXED_WIDTH) {
+                uiState.state.pendingFixedWidth = it
+                config.onModeChanged()
+            }
+        uiState.fixedSpinner = fixedSpinner
+
+        val comboBox = createModeComboBox(uiState.state.pendingMode, config.licensed)
         uiState.modeComboBox = comboBox
 
         comboBox.addActionListener {
@@ -252,12 +307,16 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
                 uiState.state.pendingMode = comboBox.selectedItem as PanelWidthMode
                 autoFitVisible.set(uiState.state.pendingMode == PanelWidthMode.AUTO_FIT)
                 fixedVisible.set(uiState.state.pendingMode == PanelWidthMode.FIXED)
-                onModeChanged()
+                config.onModeChanged()
             }
         }
 
         panel.row {
             cell(comboBox)
+            if (minSpinner != null) {
+                label("min").visibleIf(autoFitVisible)
+                cell(minSpinner).visibleIf(autoFitVisible)
+            }
             label("max").visibleIf(autoFitVisible)
             cell(autoFitSpinner).visibleIf(autoFitVisible)
             label("px").visibleIf(autoFitVisible)
@@ -295,18 +354,21 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
 
         state.projectPanelWidthMode = projectWidth.state.pendingMode.name
         state.autoFitMaxWidth = projectWidth.state.pendingAutoFitMaxWidth
+        state.projectPanelAutoFitMinWidth = projectWidth.state.pendingAutoFitMinWidth
         state.projectPanelFixedWidth = projectWidth.state.pendingFixedWidth
         state.autoFitProjectPanelWidth = projectWidth.state.pendingMode == PanelWidthMode.AUTO_FIT
         projectWidth.state.commitStored()
 
         state.commitPanelWidthMode = commitWidth.state.pendingMode.name
         state.autoFitCommitMaxWidth = commitWidth.state.pendingAutoFitMaxWidth
+        state.commitPanelAutoFitMinWidth = commitWidth.state.pendingAutoFitMinWidth
         state.commitPanelFixedWidth = commitWidth.state.pendingFixedWidth
         state.autoFitCommitPanelWidth = commitWidth.state.pendingMode == PanelWidthMode.AUTO_FIT
         commitWidth.state.commitStored()
 
         state.gitPanelWidthMode = gitWidth.state.pendingMode.name
         state.gitPanelAutoFitMaxWidth = gitWidth.state.pendingAutoFitMaxWidth
+        state.gitPanelAutoFitMinWidth = gitWidth.state.pendingAutoFitMinWidth
         state.gitPanelFixedWidth = gitWidth.state.pendingFixedWidth
         gitWidth.state.commitStored()
 
@@ -350,9 +412,9 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
         projectWidth.reset()
         commitWidth.reset()
         gitWidth.reset()
-        updateGroupTitle(projectViewGroup, "Project View", projectWidth.state)
-        updateGroupTitle(commitPanelGroup, "Commit Panel", commitWidth.state)
-        updateGroupTitle(gitPanelGroup, "Git Panel", gitWidth.state)
+        updateGroupTitle(projectViewGroup, PROJECT_VIEW_TITLE, projectWidth.state)
+        updateGroupTitle(commitPanelGroup, COMMIT_PANEL_TITLE, commitWidth.state)
+        updateGroupTitle(gitPanelGroup, GIT_PANEL_TITLE, gitWidth.state)
         suppressListeners = false
     }
 
@@ -364,12 +426,14 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
 
         var modeComboBox: JComboBox<PanelWidthMode>? = null
         var autoFitSpinner: JSpinner? = null
+        var minSpinner: JSpinner? = null
         var fixedSpinner: JSpinner? = null
 
         fun reset() {
             state.reset()
             modeComboBox?.selectedItem = state.storedMode
             autoFitSpinner?.value = state.storedAutoFitMaxWidth
+            minSpinner?.value = state.storedAutoFitMinWidth
             fixedSpinner?.value = state.storedFixedWidth
             autoFitVisible.set(state.storedMode == PanelWidthMode.AUTO_FIT)
             fixedVisible.set(state.storedMode == PanelWidthMode.FIXED)
@@ -378,6 +442,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
 
     companion object {
         private const val MAX_AUTOFIT_WIDTH = 800
+        private const val MIN_AUTOFIT_MIN_WIDTH = 50
         private const val AUTOFIT_WIDTH_STEP = 50
         private const val FALLBACK_MUTED_RED = 0x6C
         private const val FALLBACK_MUTED_GREEN = 0x73

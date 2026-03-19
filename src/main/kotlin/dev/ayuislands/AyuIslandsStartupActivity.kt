@@ -67,7 +67,7 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
             settings.state.projectViewMigrated = true
         }
 
-        // Migrate old boolean auto-fit fields to new PanelWidthMode enum
+        // Migrate old boolean auto-fit fields to the new PanelWidthMode enum
         settings.state.migrateWidthModes()
 
         // Eagerly initialize Project View customizer — its init block subscribes
@@ -111,15 +111,22 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         LOG.info("Ayu Islands license check: ${licenseStateLabel(licenseState)}")
 
         SwingUtilities.invokeLater {
-            // Reset the notification flag if the license becomes valid again (user purchased)
+            // Reset flags if the license becomes valid again (user purchased or new eval period)
             if (licenseState == true && settings.state.trialExpiredNotified) {
                 settings.state.trialExpiredNotified = false
+                settings.state.proDefaultsApplied = false
+                settings.state.trialWelcomeShown = false
             }
 
             // One-time: enable all Pro features when the license first activates
             if (licenseState == true && !settings.state.proDefaultsApplied) {
                 LicenseChecker.enableProDefaults()
                 LOG.info("Ayu Islands Pro defaults enabled (first-time license activation)")
+
+                if (!settings.state.trialWelcomeShown) {
+                    LicenseChecker.notifyTrialWelcome(project)
+                    settings.state.trialWelcomeShown = true
+                }
             }
 
             // null = facade not initialized (grace period, treat as licensed)
