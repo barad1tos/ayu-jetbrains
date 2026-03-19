@@ -8,6 +8,7 @@ import com.intellij.openapi.actionSystem.ActionUiKind
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.Presentation
+import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.PathManager
@@ -154,7 +155,7 @@ object LicenseChecker {
                     ActionUiKind.NONE,
                     null,
                 )
-            action.actionPerformed(event)
+            ActionUtil.invokeAction(action, event, null)
         }, ModalityState.nonModal())
     }
 
