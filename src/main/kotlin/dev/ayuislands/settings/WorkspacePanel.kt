@@ -269,6 +269,11 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
         val autoFitSpinner =
             createSpinner(uiState.state.pendingAutoFitMaxWidth, config.minAutoFitWidth) {
                 uiState.state.pendingAutoFitMaxWidth = it
+                val currentMin = uiState.minSpinner
+                if (currentMin != null && it < uiState.state.pendingAutoFitMinWidth) {
+                    uiState.state.pendingAutoFitMinWidth = it
+                    currentMin.value = it
+                }
                 config.onModeChanged()
             }
         uiState.autoFitSpinner = autoFitSpinner
@@ -277,6 +282,10 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
             if (config.showMinSpinner) {
                 createSpinner(uiState.state.pendingAutoFitMinWidth, MIN_AUTOFIT_MIN_WIDTH) {
                     uiState.state.pendingAutoFitMinWidth = it
+                    if (it > uiState.state.pendingAutoFitMaxWidth) {
+                        uiState.state.pendingAutoFitMaxWidth = it
+                        autoFitSpinner.value = it
+                    }
                     config.onModeChanged()
                 }.also { uiState.minSpinner = it }
             } else {
