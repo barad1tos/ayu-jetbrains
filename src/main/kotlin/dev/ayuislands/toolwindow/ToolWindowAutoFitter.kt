@@ -1,5 +1,6 @@
 package dev.ayuislands.toolwindow
 
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ToolWindowType
@@ -23,6 +24,7 @@ class ToolWindowAutoFitter(
 ) {
     private var expansionListener: TreeExpansionListener? = null
     private var expansionTree: JTree? = null
+    private var retryTimer: Timer? = null
     private val debounceTimer =
         Timer(DEBOUNCE_DELAY_MS) { applyAutoFitWidth(maxWidthProvider()) }
             .apply { isRepeats = false }
@@ -34,12 +36,23 @@ class ToolWindowAutoFitter(
     var minWidthProvider: () -> Int = { minWidth }
 
     fun applyAutoFitWidth(maxWidth: Int) {
+        assert(SwingUtilities.isEventDispatchThread()) {
+            "applyAutoFitWidth must be called on EDT"
+        }
         findTreeWithRetry { tree ->
             val toolWindow =
                 ToolWindowManager
                     .getInstance(project)
-                    .getToolWindow(toolWindowId) as? ToolWindowEx
-                    ?: return@findTreeWithRetry
+                    .getToolWindow(toolWindowId)
+            val toolWindowEx = toolWindow as? ToolWindowEx
+            if (toolWindowEx == null) {
+                LOG.warn(
+                    "Auto-fit: '$toolWindowId' is not " +
+                        "ToolWindowEx (type: " +
+                        "${toolWindow?.javaClass?.name})",
+                )
+                return@findTreeWithRetry
+            }
 
             var maxRowWidth = 0
             for (row in 0 until tree.rowCount) {
@@ -50,18 +63,34 @@ class ToolWindowAutoFitter(
                 }
             }
 
-            val desiredWidth = AutoFitCalculator.calculateDesiredWidth(maxRowWidth, maxWidth, minWidthProvider())
-            applyWidth(toolWindow, desiredWidth)
+            val desiredWidth =
+                AutoFitCalculator.calculateDesiredWidth(
+                    maxRowWidth,
+                    maxWidth,
+                    minWidthProvider(),
+                )
+            applyWidth(toolWindowEx, desiredWidth)
         }
     }
 
     fun applyFixedWidth(targetWidth: Int) {
+        assert(SwingUtilities.isEventDispatchThread()) {
+            "applyFixedWidth must be called on EDT"
+        }
         val toolWindow =
             ToolWindowManager
                 .getInstance(project)
-                .getToolWindow(toolWindowId) as? ToolWindowEx
-                ?: return
-        applyWidth(toolWindow, targetWidth)
+                .getToolWindow(toolWindowId)
+        val toolWindowEx = toolWindow as? ToolWindowEx
+        if (toolWindowEx == null) {
+            LOG.warn(
+                "Fixed-width: '$toolWindowId' is not " +
+                    "ToolWindowEx (type: " +
+                    "${toolWindow?.javaClass?.name})",
+            )
+            return
+        }
+        applyWidth(toolWindowEx, targetWidth)
     }
 
     private fun applyWidth(
@@ -120,6 +149,8 @@ class ToolWindowAutoFitter(
     }
 
     fun removeExpansionListener() {
+        retryTimer?.stop()
+        retryTimer = null
         val tree = expansionTree ?: return
         val listener = expansionListener ?: return
         tree.removeTreeExpansionListener(listener)
@@ -143,14 +174,25 @@ class ToolWindowAutoFitter(
             return
         }
         if (retriesLeft > 0) {
-            Timer((MAX_RETRIES - retriesLeft + 1) * RETRY_DELAY_MS) {
-                if (!project.isDisposed) {
-                    findTreeWithRetry(retriesLeft - 1, onFound)
+            retryTimer?.stop()
+            retryTimer =
+                Timer(
+                    (MAX_RETRIES - retriesLeft + 1) *
+                        RETRY_DELAY_MS,
+                ) {
+                    if (!project.isDisposed) {
+                        findTreeWithRetry(retriesLeft - 1, onFound)
+                    }
+                }.apply {
+                    isRepeats = false
+                    start()
                 }
-            }.apply {
-                isRepeats = false
-                start()
-            }
+        } else {
+            LOG.info(
+                "Auto-fit: tree not found for " +
+                    "'$toolWindowId' after " +
+                    "$MAX_RETRIES retries",
+            )
         }
     }
 
@@ -171,6 +213,7 @@ class ToolWindowAutoFitter(
     }
 
     companion object {
+        private val LOG = logger<ToolWindowAutoFitter>()
         private const val DEBOUNCE_DELAY_MS = 150
         private const val DEFAULT_MAX_WIDTH = 400
         private const val MAX_RETRIES = 3

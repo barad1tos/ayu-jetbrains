@@ -3,6 +3,7 @@ package dev.ayuislands.projectview
 import com.intellij.ide.projectView.ProjectView
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.wm.ToolWindowManager
@@ -16,6 +17,7 @@ import dev.ayuislands.toolwindow.AutoFitCalculator
 import dev.ayuislands.toolwindow.ToolWindowAutoFitter
 import java.awt.Component
 import java.beans.PropertyChangeListener
+import java.util.MissingResourceException
 import javax.swing.JScrollPane
 import javax.swing.JTree
 import javax.swing.ScrollPaneConstants
@@ -115,7 +117,16 @@ class ProjectViewScrollbarManager(
 
         // ProjectViewImpl.isShowURL() reads directly from this Registry key.
         // Only resetToDefault when WE changed it — don't override user's choice.
-        val registryKey = Registry.get(SHOW_URL_KEY)
+        val registryKey =
+            try {
+                Registry.get(SHOW_URL_KEY)
+            } catch (ignored: MissingResourceException) {
+                LOG.warn(
+                    "Registry key '$SHOW_URL_KEY' not " +
+                        "found — IDE may have removed it",
+                )
+                return
+            }
         if (hidePath) {
             registryKey.setValue(false)
             registryKeyModified = true
@@ -226,7 +237,14 @@ class ProjectViewScrollbarManager(
             originalScrollbarPolicy = null
         }
         if (registryKeyModified) {
-            Registry.get(SHOW_URL_KEY).resetToDefault()
+            try {
+                Registry.get(SHOW_URL_KEY).resetToDefault()
+            } catch (ignored: MissingResourceException) {
+                LOG.warn(
+                    "Registry key '$SHOW_URL_KEY' not " +
+                        "found during dispose",
+                )
+            }
             registryKeyModified = false
         }
         val tree = findProjectTree()
@@ -236,6 +254,7 @@ class ProjectViewScrollbarManager(
     }
 
     companion object {
+        private val LOG = logger<ProjectViewScrollbarManager>()
         private const val SHOW_URL_KEY = "project.tree.structure.show.url"
 
         fun getInstance(project: Project): ProjectViewScrollbarManager =
