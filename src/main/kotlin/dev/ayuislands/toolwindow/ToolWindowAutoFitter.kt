@@ -136,6 +136,7 @@ class ToolWindowAutoFitter(
         retriesLeft: Int = MAX_RETRIES,
         onFound: (JTree) -> Unit,
     ) {
+        if (project.isDisposed) return
         val tree = findTree()
         if (tree != null) {
             onFound(tree)
@@ -143,7 +144,9 @@ class ToolWindowAutoFitter(
         }
         if (retriesLeft > 0) {
             Timer((MAX_RETRIES - retriesLeft + 1) * RETRY_DELAY_MS) {
-                findTreeWithRetry(retriesLeft - 1, onFound)
+                if (!project.isDisposed) {
+                    findTreeWithRetry(retriesLeft - 1, onFound)
+                }
             }.apply {
                 isRepeats = false
                 start()

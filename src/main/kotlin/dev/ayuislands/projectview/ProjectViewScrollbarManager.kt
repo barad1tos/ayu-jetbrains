@@ -28,6 +28,7 @@ class ProjectViewScrollbarManager(
     private val project: Project,
 ) : Disposable {
     private var originalScrollbarPolicy: Int? = null
+    private var registryKeyModified = false
     private var trackedTree: JTree? = null
     private var rendererListener: PropertyChangeListener? = null
     private val autoFitter =
@@ -113,11 +114,14 @@ class ProjectViewScrollbarManager(
         val hidePath = AyuIslandsSettings.getInstance().state.hideProjectRootPath
 
         // ProjectViewImpl.isShowURL() reads directly from this Registry key.
+        // Only resetToDefault when WE changed it — don't override user's choice.
         val registryKey = Registry.get(SHOW_URL_KEY)
         if (hidePath) {
             registryKey.setValue(false)
-        } else {
+            registryKeyModified = true
+        } else if (registryKeyModified) {
             registryKey.resetToDefault()
+            registryKeyModified = false
         }
 
         val tree = findProjectTree() ?: return
@@ -221,7 +225,10 @@ class ProjectViewScrollbarManager(
                 originalScrollbarPolicy!!
             originalScrollbarPolicy = null
         }
-        Registry.get(SHOW_URL_KEY).resetToDefault()
+        if (registryKeyModified) {
+            Registry.get(SHOW_URL_KEY).resetToDefault()
+            registryKeyModified = false
+        }
         val tree = findProjectTree()
         if (tree != null) {
             unwrapRenderer(tree)

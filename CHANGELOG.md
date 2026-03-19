@@ -4,7 +4,7 @@
 
 ### Added
 - [Paid] Auto-fit with configurable min/max width for Project View, Commit, and Git panels
-- [Paid] Git panel internal splitter control — auto-resize branches tree and file changes tree
+- [Paid] Git panel internal splitter control — auto-resizes the branches tree and file changes tree
 - [Free] 30-day premium trial — every premium feature unlocked on the first install, no credit card
 - [Free] Returning users get a fresh trial with premium defaults re-applied
 
