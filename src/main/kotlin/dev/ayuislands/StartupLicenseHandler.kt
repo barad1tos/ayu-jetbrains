@@ -11,7 +11,7 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.PanelWidthMode
 
 /**
- * Pure license-state branching logic, extracted from
+ * License-state dispatch logic, extracted from
  * [AyuIslandsStartupActivity] for testability.
  */
 internal object StartupLicenseHandler {
@@ -70,7 +70,10 @@ internal object StartupLicenseHandler {
         project: Project,
         settings: AyuIslandsSettings,
     ) {
-        if (project.isDisposed) return
+        if (project.isDisposed) {
+            LOG.info("Skipping workspace services — project disposed")
+            return
+        }
         val state = settings.state
         val hasProjectViewCustomizations =
             state.hideProjectViewHScrollbar ||

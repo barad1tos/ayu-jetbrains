@@ -77,17 +77,19 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         LOG.info("Ayu Islands license check: ${licenseStateLabel(licenseState)}")
 
         SwingUtilities.invokeLater {
-            if (licenseState != false) {
-                StartupLicenseHandler.applyLicensedDefaults(project, settings)
-            } else {
-                StartupLicenseHandler.applyUnlicensedDefaults(project, variant, settings)
+            if (project.isDisposed) return@invokeLater
+            try {
+                if (licenseState != false) {
+                    StartupLicenseHandler.applyLicensedDefaults(project, settings)
+                } else {
+                    StartupLicenseHandler.applyUnlicensedDefaults(project, variant, settings)
+                }
+
+                settings.state.migrateWidthModes()
+                StartupLicenseHandler.initWorkspaceServices(project, settings)
+            } catch (e: RuntimeException) {
+                LOG.error("License defaults failed", e)
             }
-
-            // Migrate width modes before service init reads them
-            settings.state.migrateWidthModes()
-
-            // Initialize workspace services after defaults are applied (no race)
-            StartupLicenseHandler.initWorkspaceServices(project, settings)
         }
     }
 
