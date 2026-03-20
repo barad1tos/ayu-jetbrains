@@ -3,18 +3,14 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore:
+    paths-ignore: &skip-paths
       - '**/*.md'
       - 'LICENSE'
       - '.gitignore'
       - '.sourcery.yaml'
   pull_request:
     branches: [main]
-    paths-ignore:
-      - '**/*.md'
-      - 'LICENSE'
-      - '.gitignore'
-      - '.sourcery.yaml'
+    paths-ignore: *skip-paths
   workflow_dispatch:
 
 permissions:
