@@ -95,7 +95,7 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         }
     }
 
-    private fun applyLicensedDefaults(
+    internal fun applyLicensedDefaults(
         project: Project,
         settings: AyuIslandsSettings,
     ) {
@@ -122,7 +122,7 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         }
     }
 
-    private fun applyUnlicensedDefaults(
+    internal fun applyUnlicensedDefaults(
         project: Project,
         variant: AyuVariant,
         settings: AyuIslandsSettings,
@@ -136,7 +136,7 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         }
     }
 
-    private fun initWorkspaceServices(
+    internal fun initWorkspaceServices(
         project: Project,
         settings: AyuIslandsSettings,
     ) {

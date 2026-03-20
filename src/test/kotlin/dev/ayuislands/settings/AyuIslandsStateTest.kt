@@ -238,6 +238,69 @@ class AyuIslandsStateTest {
         assertFalse(state.proDefaultsApplied)
     }
 
+    // migrateWidthModes (BAR-142)
+
+    @Test
+    fun `migrateWidthModes converts legacy autoFitProjectPanelWidth to AUTO_FIT mode`() {
+        val state = freshState()
+        state.autoFitProjectPanelWidth = true
+        state.projectPanelWidthMode = PanelWidthMode.DEFAULT.name
+
+        state.migrateWidthModes()
+
+        assertEquals(PanelWidthMode.AUTO_FIT.name, state.projectPanelWidthMode)
+    }
+
+    @Test
+    fun `migrateWidthModes converts legacy autoFitCommitPanelWidth to AUTO_FIT mode`() {
+        val state = freshState()
+        state.autoFitCommitPanelWidth = true
+        state.commitPanelWidthMode = PanelWidthMode.DEFAULT.name
+
+        state.migrateWidthModes()
+
+        assertEquals(PanelWidthMode.AUTO_FIT.name, state.commitPanelWidthMode)
+    }
+
+    @Test
+    fun `migrateWidthModes skips project when mode already set to non-DEFAULT`() {
+        val state = freshState()
+        state.autoFitProjectPanelWidth = true
+        state.projectPanelWidthMode = PanelWidthMode.FIXED.name
+
+        state.migrateWidthModes()
+
+        assertEquals(PanelWidthMode.FIXED.name, state.projectPanelWidthMode)
+    }
+
+    @Test
+    fun `migrateWidthModes skips when legacy flags are false`() {
+        val state = freshState()
+        state.autoFitProjectPanelWidth = false
+        state.autoFitCommitPanelWidth = false
+        state.projectPanelWidthMode = PanelWidthMode.DEFAULT.name
+        state.commitPanelWidthMode = PanelWidthMode.DEFAULT.name
+
+        state.migrateWidthModes()
+
+        assertEquals(PanelWidthMode.DEFAULT.name, state.projectPanelWidthMode)
+        assertEquals(PanelWidthMode.DEFAULT.name, state.commitPanelWidthMode)
+    }
+
+    @Test
+    fun `migrateWidthModes handles both panels simultaneously`() {
+        val state = freshState()
+        state.autoFitProjectPanelWidth = true
+        state.autoFitCommitPanelWidth = true
+        state.projectPanelWidthMode = PanelWidthMode.DEFAULT.name
+        state.commitPanelWidthMode = PanelWidthMode.DEFAULT.name
+
+        state.migrateWidthModes()
+
+        assertEquals(PanelWidthMode.AUTO_FIT.name, state.projectPanelWidthMode)
+        assertEquals(PanelWidthMode.AUTO_FIT.name, state.commitPanelWidthMode)
+    }
+
     @Test
     fun `PanelWidthMode fromString parses valid names`() {
         assertEquals(PanelWidthMode.DEFAULT, PanelWidthMode.fromString("DEFAULT"))
