@@ -8,6 +8,7 @@ import com.intellij.openapi.wm.ex.ToolWindowEx
 import com.intellij.ui.content.Content
 import com.intellij.ui.content.ContentManager
 import dev.ayuislands.settings.PanelWidthMode
+import io.mockk.answers
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -73,7 +74,7 @@ class ToolWindowAutoFitterTest {
                 400,
                 300,
             )
-            // DEFAULT mode should not look up tree
+            // DEFAULT mode should not look up a tree
             // (no crash = listener removal path hit)
         }
     }
@@ -114,7 +115,7 @@ class ToolWindowAutoFitterTest {
                 400,
                 300,
             )
-            // Should reach applyAutoFitWidth without crash
+            // Should reach applyAutoFitWidth without a crash
         }
     }
 
@@ -393,7 +394,7 @@ class ToolWindowAutoFitterTest {
                     "Project",
                     253,
                 )
-            // Should return early without crash
+            // Should return early without a crash
             fitter.applyAutoFitWidth(400)
         }
     }
@@ -404,7 +405,7 @@ class ToolWindowAutoFitterTest {
      * Mocks AutoFitCalculator measurement methods
      * so headless JTree (no row bounds) can be used.
      * findFirstOfType is left unmocked (works on
-     * real Swing components without display).
+     * real Swing components without a display).
      */
     private fun mockCalculatorForWidth(targetWidth: Int) {
         mockkObject(AutoFitCalculator)

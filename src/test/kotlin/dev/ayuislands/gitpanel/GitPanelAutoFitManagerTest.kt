@@ -165,7 +165,7 @@ class GitPanelAutoFitManagerTest {
             manager.apply()
 
             // Inner splitter (firstHasTable=true):
-            // proportion = 1.0 - desired/total
+            // a proportion = 1.0 - desired/total
             // desired = (250+20).coerceAtMost(500)
             //                   .coerceAtLeast(200) = 270
             // expected ≈ 1.0 - 270/1000 = 0.73
