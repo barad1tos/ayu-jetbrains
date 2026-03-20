@@ -2,7 +2,10 @@ package dev.ayuislands
 
 import com.intellij.openapi.project.Project
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
+import dev.ayuislands.gitpanel.GitPanelAutoFitManager
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.PanelWidthMode
@@ -205,5 +208,67 @@ class StartupLicenseStateTest {
         state.gitPanelWidthMode = PanelWidthMode.DEFAULT.name
 
         StartupLicenseHandler.initWorkspaceServices(project, settings)
+    }
+
+    @Test
+    fun `initWorkspaceServices inits ProjectView when hideRootPath enabled`() {
+        every { project.isDisposed } returns false
+        mockkObject(ProjectViewScrollbarManager.Companion)
+        every {
+            ProjectViewScrollbarManager.getInstance(project)
+        } returns mockk(relaxed = true)
+
+        state.hideProjectRootPath = true
+        state.projectPanelWidthMode = PanelWidthMode.DEFAULT.name
+        state.commitPanelWidthMode = PanelWidthMode.DEFAULT.name
+        state.gitPanelWidthMode = PanelWidthMode.DEFAULT.name
+
+        StartupLicenseHandler.initWorkspaceServices(project, settings)
+
+        verify(exactly = 1) {
+            ProjectViewScrollbarManager.getInstance(project)
+        }
+    }
+
+    @Test
+    fun `initWorkspaceServices inits CommitPanel when mode is AUTO_FIT`() {
+        every { project.isDisposed } returns false
+        mockkObject(CommitPanelAutoFitManager.Companion)
+        every {
+            CommitPanelAutoFitManager.getInstance(project)
+        } returns mockk(relaxed = true)
+
+        state.hideProjectViewHScrollbar = false
+        state.hideProjectRootPath = false
+        state.projectPanelWidthMode = PanelWidthMode.DEFAULT.name
+        state.commitPanelWidthMode = PanelWidthMode.AUTO_FIT.name
+        state.gitPanelWidthMode = PanelWidthMode.DEFAULT.name
+
+        StartupLicenseHandler.initWorkspaceServices(project, settings)
+
+        verify(exactly = 1) {
+            CommitPanelAutoFitManager.getInstance(project)
+        }
+    }
+
+    @Test
+    fun `initWorkspaceServices inits GitPanel when mode is FIXED`() {
+        every { project.isDisposed } returns false
+        mockkObject(GitPanelAutoFitManager.Companion)
+        every {
+            GitPanelAutoFitManager.getInstance(project)
+        } returns mockk(relaxed = true)
+
+        state.hideProjectViewHScrollbar = false
+        state.hideProjectRootPath = false
+        state.projectPanelWidthMode = PanelWidthMode.DEFAULT.name
+        state.commitPanelWidthMode = PanelWidthMode.DEFAULT.name
+        state.gitPanelWidthMode = PanelWidthMode.FIXED.name
+
+        StartupLicenseHandler.initWorkspaceServices(project, settings)
+
+        verify(exactly = 1) {
+            GitPanelAutoFitManager.getInstance(project)
+        }
     }
 }
