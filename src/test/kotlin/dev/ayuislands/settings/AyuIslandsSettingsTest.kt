@@ -75,6 +75,73 @@ class AyuIslandsSettingsTest {
     }
 
     @Test
+    fun `getAccentForVariant returns default for empty string`() {
+        val state =
+            AyuIslandsState().apply {
+                mirageAccent = ""
+            }
+        val settings = createSettings(state)
+
+        // BaseState's `by string()` coerces empty to default
+        assertEquals(
+            AyuVariant.MIRAGE.defaultAccent,
+            settings.getAccentForVariant(AyuVariant.MIRAGE),
+        )
+    }
+
+    @Test
+    fun `getAccentForVariant uses default per variant`() {
+        for (variant in AyuVariant.entries) {
+            val state =
+                AyuIslandsState().apply {
+                    mirageAccent = null
+                    darkAccent = null
+                    lightAccent = null
+                }
+            val settings = createSettings(state)
+
+            assertEquals(
+                variant.defaultAccent,
+                settings.getAccentForVariant(variant),
+                "${variant.name} should return its default accent",
+            )
+        }
+    }
+
+    @Test
+    fun `getAccentForVariant prefers system accent for all variants`() {
+        mockkObject(SystemAccentProvider)
+        every { SystemAccentProvider.resolve() } returns "#SYSTEM"
+
+        val state =
+            AyuIslandsState().apply {
+                followSystemAccent = true
+            }
+        val settings = createSettings(state)
+
+        for (variant in AyuVariant.entries) {
+            assertEquals(
+                "#SYSTEM",
+                settings.getAccentForVariant(variant),
+                "${variant.name} should use system accent",
+            )
+        }
+    }
+
+    @Test
+    fun `getState returns same state after loadState`() {
+        val state =
+            AyuIslandsState().apply {
+                mirageAccent = "#CUSTOM"
+                glowEnabled = true
+            }
+        val settings = createSettings(state)
+
+        assertEquals("#CUSTOM", settings.state.mirageAccent)
+        assertEquals(true, settings.state.glowEnabled)
+    }
+
+    @Test
     fun `setAccentForVariant stores value per variant`() {
         val settings = createSettings(AyuIslandsState())
 

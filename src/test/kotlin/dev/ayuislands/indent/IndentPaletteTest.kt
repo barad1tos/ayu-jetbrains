@@ -143,4 +143,30 @@ class IndentPaletteTest {
             "error alpha should match first indent step alpha",
         )
     }
+
+    @Test
+    fun `toColorStrings with minimum alpha produces valid colors`() {
+        val palette = IndentPalette.forAccent(testAccent, AyuVariant.MIRAGE)
+        val colors = palette.toColorStrings(1)
+        for (color in colors) {
+            assertTrue(aarrggbbPattern.matches(color))
+        }
+    }
+
+    @Test
+    fun `toColorStrings with maximum alpha produces valid colors`() {
+        val palette = IndentPalette.forAccent(testAccent, AyuVariant.MIRAGE)
+        val colors = palette.toColorStrings(255)
+        for (color in colors) {
+            assertTrue(aarrggbbPattern.matches(color))
+        }
+    }
+
+    @Test
+    fun `toColorStrings pyramid has correct count`() {
+        val palette = IndentPalette.forAccent(testAccent, AyuVariant.DARK)
+        val colors = palette.toColorStrings(128)
+        // 1 error + (1..6) + (5 downTo 2) = 1 + 6 + 4 = 11
+        assertEquals(11, colors.size)
+    }
 }
