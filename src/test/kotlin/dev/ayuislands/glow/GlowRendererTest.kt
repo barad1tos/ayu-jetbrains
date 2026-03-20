@@ -92,26 +92,36 @@ class GlowRendererTest {
     @Test
     fun `ensureCache boosts alpha for light theme`() {
         val renderer = GlowRenderer()
-        javax.swing.UIManager.put(
-            "Panel.background",
-            Color(240, 240, 240),
-        )
-        renderer.ensureCache(Color.RED, GlowStyle.SOFT, 40, 12)
-        val lightAlpha = renderer.cachedBaseAlpha
+        val uiMgr = javax.swing.UIManager.getDefaults()
+        val original = uiMgr.getColor("Panel.background")
+        try {
+            uiMgr.put("Panel.background", Color(240, 240, 240))
+            renderer.ensureCache(
+                Color.RED,
+                GlowStyle.SOFT,
+                40,
+                12,
+            )
+            val lightAlpha = renderer.cachedBaseAlpha
 
-        javax.swing.UIManager.put(
-            "Panel.background",
-            Color(30, 30, 30),
-        )
-        renderer.invalidateCache()
-        renderer.ensureCache(Color.RED, GlowStyle.SOFT, 40, 12)
-        val darkAlpha = renderer.cachedBaseAlpha
+            uiMgr.put("Panel.background", Color(30, 30, 30))
+            renderer.invalidateCache()
+            renderer.ensureCache(
+                Color.RED,
+                GlowStyle.SOFT,
+                40,
+                12,
+            )
+            val darkAlpha = renderer.cachedBaseAlpha
 
-        assertTrue(
-            lightAlpha > darkAlpha,
-            "Light theme alpha ($lightAlpha) should be " +
-                "higher than dark ($darkAlpha)",
-        )
+            assertTrue(
+                lightAlpha > darkAlpha,
+                "Light theme alpha ($lightAlpha) should " +
+                    "be higher than dark ($darkAlpha)",
+            )
+        } finally {
+            uiMgr.put("Panel.background", original)
+        }
     }
 
     @Test

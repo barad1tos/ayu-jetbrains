@@ -63,7 +63,7 @@ class AyuIslandsAppListenerTest {
         listener.appFrameCreated(mutableListOf())
 
         verify(exactly = 1) {
-            AccentApplicator.apply("#FFCC66")
+            AccentApplicator.apply(AyuVariant.MIRAGE.defaultAccent)
         }
     }
 
