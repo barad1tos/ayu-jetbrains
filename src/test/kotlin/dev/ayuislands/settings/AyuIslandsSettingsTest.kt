@@ -75,6 +75,21 @@ class AyuIslandsSettingsTest {
     }
 
     @Test
+    fun `getAccentForVariant returns default for empty string`() {
+        val state =
+            AyuIslandsState().apply {
+                mirageAccent = ""
+            }
+        val settings = createSettings(state)
+
+        // BaseState's `by string()` coerces empty to default
+        assertEquals(
+            AyuVariant.MIRAGE.defaultAccent,
+            settings.getAccentForVariant(AyuVariant.MIRAGE),
+        )
+    }
+
+    @Test
     fun `setAccentForVariant stores value per variant`() {
         val settings = createSettings(AyuIslandsState())
 

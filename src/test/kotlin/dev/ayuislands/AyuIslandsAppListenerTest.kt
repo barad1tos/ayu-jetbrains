@@ -27,12 +27,16 @@ class AyuIslandsAppListenerTest {
         state = AyuIslandsState()
         val settings = mockk<AyuIslandsSettings>()
         every { settings.state } returns state
+        state.mirageAccent = "#FF0000"
         every {
-            settings.getAccentForVariant(any())
-        } answers {
-            val variant = firstArg<AyuVariant>()
-            variant.defaultAccent
-        }
+            settings.getAccentForVariant(AyuVariant.MIRAGE)
+        } returns "#FF0000"
+        every {
+            settings.getAccentForVariant(AyuVariant.DARK)
+        } returns "#00FF00"
+        every {
+            settings.getAccentForVariant(AyuVariant.LIGHT)
+        } returns "#0000FF"
 
         mockkObject(AyuIslandsSettings.Companion)
         every {
@@ -63,7 +67,7 @@ class AyuIslandsAppListenerTest {
         listener.appFrameCreated(mutableListOf())
 
         verify(exactly = 1) {
-            AccentApplicator.apply(AyuVariant.MIRAGE.defaultAccent)
+            AccentApplicator.apply("#FF0000")
         }
     }
 

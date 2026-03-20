@@ -301,6 +301,58 @@ class AyuIslandsStateTest {
         assertEquals(PanelWidthMode.AUTO_FIT.name, state.commitPanelWidthMode)
     }
 
+    // Workspace defaults flags
+
+    @Test
+    fun `workspaceDefaultsApplied is false by default`() {
+        val state = freshState()
+        assertFalse(state.workspaceDefaultsApplied)
+    }
+
+    @Test
+    fun `panel width modes default to DEFAULT`() {
+        val state = freshState()
+        assertEquals(
+            PanelWidthMode.DEFAULT.name,
+            state.projectPanelWidthMode,
+        )
+        assertEquals(
+            PanelWidthMode.DEFAULT.name,
+            state.commitPanelWidthMode,
+        )
+        assertEquals(
+            PanelWidthMode.DEFAULT.name,
+            state.gitPanelWidthMode,
+        )
+    }
+
+    @Test
+    fun `hideProjectRootPath and hideHScrollbar default to false`() {
+        val state = freshState()
+        assertFalse(state.hideProjectRootPath)
+        assertFalse(state.hideProjectViewHScrollbar)
+    }
+
+    // Font preset defaults
+
+    @Test
+    fun `font preset defaults`() {
+        val state = freshState()
+        assertFalse(state.fontPresetEnabled)
+        assertEquals("AMBIENT", state.fontPresetName)
+        assertFalse(state.fontApplyToConsole)
+    }
+
+    // Integration defaults
+
+    @Test
+    fun `indent rainbow integration defaults`() {
+        val state = freshState()
+        assertFalse(state.irIntegrationEnabled)
+        assertEquals("AMBIENT", state.indentPresetName)
+        assertTrue(state.irErrorHighlightEnabled)
+    }
+
     @Test
     fun `PanelWidthMode fromString parses valid names`() {
         assertEquals(PanelWidthMode.DEFAULT, PanelWidthMode.fromString("DEFAULT"))
