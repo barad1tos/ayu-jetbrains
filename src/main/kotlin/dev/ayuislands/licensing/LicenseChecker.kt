@@ -217,7 +217,10 @@ object LicenseChecker {
         state.proDefaultsApplied = true
     }
 
-    /** Apply workspace defaults (auto-fit, hide path/VCS). Callers must guard with workspaceDefaultsApplied flag. */
+    /**
+     * Apply workspace defaults (auto-fit, hide path/VCS).
+     * Callers must guard with the workspaceDefaultsApplied flag.
+     */
     fun applyWorkspaceDefaults() {
         val state = AyuIslandsSettings.getInstance().state
         state.projectPanelWidthMode = PanelWidthMode.AUTO_FIT.name
