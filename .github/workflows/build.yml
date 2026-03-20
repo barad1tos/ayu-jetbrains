@@ -70,6 +70,13 @@ jobs:
           ! git grep -rIl '<<<<<<<\|>>>>>>>' -- \
             ':!*.md' ':!.github/workflows/*' \
             || { echo "::error::Merge conflict markers found"; exit 1; }
+      - name: Detect private keys
+        run: |
+          pattern="BEGIN.*(RSA |DSA |EC |OPENSSH )?PRIVATE KEY"
+          ! git grep -rIlE "$pattern" \
+            -- ':!*.md' ':!.pre-commit-config.yaml' \
+            ':!.github/workflows/*' \
+            || { echo "::error::Private key detected"; exit 1; }
 
   gha-security:
     name: GHA security (zizmor)
