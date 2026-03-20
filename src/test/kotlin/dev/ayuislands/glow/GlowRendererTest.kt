@@ -90,6 +90,65 @@ class GlowRendererTest {
     }
 
     @Test
+    fun `ensureCache boosts alpha for light theme`() {
+        val renderer = GlowRenderer()
+        javax.swing.UIManager.put(
+            "Panel.background",
+            Color(240, 240, 240),
+        )
+        renderer.ensureCache(Color.RED, GlowStyle.SOFT, 40, 12)
+        val lightAlpha = renderer.cachedBaseAlpha
+
+        javax.swing.UIManager.put(
+            "Panel.background",
+            Color(30, 30, 30),
+        )
+        renderer.invalidateCache()
+        renderer.ensureCache(Color.RED, GlowStyle.SOFT, 40, 12)
+        val darkAlpha = renderer.cachedBaseAlpha
+
+        assertTrue(
+            lightAlpha > darkAlpha,
+            "Light theme alpha ($lightAlpha) should be " +
+                "higher than dark ($darkAlpha)",
+        )
+    }
+
+    @Test
+    fun `ensureCache is idempotent for same params`() {
+        val renderer = GlowRenderer()
+        renderer.ensureCache(Color.RED, GlowStyle.SOFT, 40, 12)
+        val alpha1 = renderer.cachedBaseAlpha
+        renderer.ensureCache(Color.RED, GlowStyle.SOFT, 40, 12)
+        val alpha2 = renderer.cachedBaseAlpha
+        assertEquals(alpha1, alpha2)
+    }
+
+    @Test
+    fun `paintGlow uses cached frame on second call`() {
+        val renderer = GlowRenderer()
+        renderer.ensureCache(Color.CYAN, GlowStyle.SOFT, 50, 8)
+
+        val image = BufferedImage(80, 80, BufferedImage.TYPE_INT_ARGB)
+        val g2 = image.createGraphics()
+        // First paint: renders + caches
+        renderer.paintGlow(
+            g2,
+            Rectangle(0, 0, 80, 80),
+            8,
+            6,
+        )
+        // Second paint: should reuse cache (no error)
+        renderer.paintGlow(
+            g2,
+            Rectangle(0, 0, 80, 80),
+            8,
+            6,
+        )
+        g2.dispose()
+    }
+
+    @Test
     fun `paintGlow skips rendering for zero-size bounds`() {
         val renderer = GlowRenderer()
         renderer.ensureCache(Color.RED, GlowStyle.SOFT, 40, 12)
