@@ -24,6 +24,11 @@ import kotlin.test.Test
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
+// EDT note: tests use SwingUtilities.invokeAndWait because
+// ToolWindowAutoFitter asserts EDT in applyAutoFitWidth/applyFixedWidth.
+// Pure calculation logic is already extracted into AutoFitCalculator
+// (tested without EDT in AutoFitCalculatorTest). If these tests flake
+// on CI, the EDT assertion can be relaxed — but so far it hasn't.
 class ToolWindowAutoFitterTest {
     private lateinit var project: Project
     private lateinit var toolWindowManager: ToolWindowManager

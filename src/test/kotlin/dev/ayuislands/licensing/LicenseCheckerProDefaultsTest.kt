@@ -233,6 +233,11 @@ class LicenseCheckerProDefaultsTest {
         assertEquals("#CUSTOM1", state.mirageAccent)
     }
 
+    // Fragile: this test mocks a 4-deep notification chain
+    // (NotificationGroupManager→NotificationGroup→Notification→notify).
+    // If the notification path in revertToFreeDefaults changes, update
+    // the mock setup below rather than deleting the test — it covers
+    // an important error-handling path (AccentApplicator crash recovery).
     @Test
     fun `revertToFreeDefaults handles AccentApplicator failure gracefully`() {
         val settingsMock = mockk<AyuIslandsSettings>()

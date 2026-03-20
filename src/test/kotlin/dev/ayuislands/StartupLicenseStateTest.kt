@@ -1,5 +1,6 @@
 package dev.ayuislands
 
+import com.intellij.openapi.project.Project
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -21,8 +22,7 @@ import kotlin.test.assertTrue
 class StartupLicenseStateTest {
     private lateinit var state: AyuIslandsState
     private lateinit var settings: AyuIslandsSettings
-    private val activity = AyuIslandsStartupActivity()
-    private val project = mockk<com.intellij.openapi.project.Project>(relaxed = true)
+    private val project = mockk<Project>(relaxed = true)
 
     @BeforeTest
     fun setUp() {
@@ -52,7 +52,7 @@ class StartupLicenseStateTest {
     fun `licensed state calls enableProDefaults when not yet applied`() {
         state.proDefaultsApplied = false
 
-        activity.applyLicensedDefaults(project, settings)
+        StartupLicenseHandler.applyLicensedDefaults(project, settings)
 
         verify(exactly = 1) { LicenseChecker.enableProDefaults() }
     }
@@ -61,7 +61,7 @@ class StartupLicenseStateTest {
     fun `licensed state skips enableProDefaults when already applied`() {
         state.proDefaultsApplied = true
 
-        activity.applyLicensedDefaults(project, settings)
+        StartupLicenseHandler.applyLicensedDefaults(project, settings)
 
         verify(exactly = 0) { LicenseChecker.enableProDefaults() }
     }
@@ -71,7 +71,7 @@ class StartupLicenseStateTest {
         state.trialExpiredNotified = true
         state.proDefaultsApplied = true
 
-        activity.applyLicensedDefaults(project, settings)
+        StartupLicenseHandler.applyLicensedDefaults(project, settings)
 
         assertFalse(state.trialExpiredNotified)
     }
@@ -81,9 +81,8 @@ class StartupLicenseStateTest {
         state.trialExpiredNotified = true
         state.proDefaultsApplied = true
 
-        activity.applyLicensedDefaults(project, settings)
+        StartupLicenseHandler.applyLicensedDefaults(project, settings)
 
-        // proDefaultsApplied was reset to false, so enableProDefaults should be called
         verify(exactly = 1) { LicenseChecker.enableProDefaults() }
     }
 
@@ -93,10 +92,11 @@ class StartupLicenseStateTest {
         state.proDefaultsApplied = true
         state.trialWelcomeShown = true
 
-        activity.applyLicensedDefaults(project, settings)
+        StartupLicenseHandler.applyLicensedDefaults(project, settings)
 
-        // trialWelcomeShown was reset, so the welcome notification should be shown again
-        verify(exactly = 1) { LicenseChecker.notifyTrialWelcome(project) }
+        verify(exactly = 1) {
+            LicenseChecker.notifyTrialWelcome(project)
+        }
     }
 
     @Test
@@ -104,9 +104,11 @@ class StartupLicenseStateTest {
         state.proDefaultsApplied = false
         state.trialWelcomeShown = false
 
-        activity.applyLicensedDefaults(project, settings)
+        StartupLicenseHandler.applyLicensedDefaults(project, settings)
 
-        verify(exactly = 1) { LicenseChecker.notifyTrialWelcome(project) }
+        verify(exactly = 1) {
+            LicenseChecker.notifyTrialWelcome(project)
+        }
         assertTrue(state.trialWelcomeShown)
     }
 
@@ -115,7 +117,7 @@ class StartupLicenseStateTest {
         state.proDefaultsApplied = false
         state.trialWelcomeShown = true
 
-        activity.applyLicensedDefaults(project, settings)
+        StartupLicenseHandler.applyLicensedDefaults(project, settings)
 
         verify(exactly = 0) { LicenseChecker.notifyTrialWelcome(any()) }
     }
@@ -125,7 +127,7 @@ class StartupLicenseStateTest {
         state.proDefaultsApplied = true
         state.workspaceDefaultsApplied = false
 
-        activity.applyLicensedDefaults(project, settings)
+        StartupLicenseHandler.applyLicensedDefaults(project, settings)
 
         verify(exactly = 1) { LicenseChecker.applyWorkspaceDefaults() }
     }
@@ -135,7 +137,7 @@ class StartupLicenseStateTest {
         state.proDefaultsApplied = true
         state.workspaceDefaultsApplied = true
 
-        activity.applyLicensedDefaults(project, settings)
+        StartupLicenseHandler.applyLicensedDefaults(project, settings)
 
         verify(exactly = 0) { LicenseChecker.applyWorkspaceDefaults() }
     }
@@ -144,26 +146,42 @@ class StartupLicenseStateTest {
 
     @Test
     fun `unlicensed state calls revertToFreeDefaults`() {
-        activity.applyUnlicensedDefaults(project, AyuVariant.MIRAGE, settings)
+        StartupLicenseHandler.applyUnlicensedDefaults(
+            project,
+            AyuVariant.MIRAGE,
+            settings,
+        )
 
-        verify(exactly = 1) { LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE) }
+        verify(exactly = 1) {
+            LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
+        }
     }
 
     @Test
     fun `unlicensed state sets trialExpiredNotified flag`() {
         state.trialExpiredNotified = false
 
-        activity.applyUnlicensedDefaults(project, AyuVariant.DARK, settings)
+        StartupLicenseHandler.applyUnlicensedDefaults(
+            project,
+            AyuVariant.DARK,
+            settings,
+        )
 
         assertTrue(state.trialExpiredNotified)
-        verify(exactly = 1) { LicenseChecker.notifyTrialExpired(project) }
+        verify(exactly = 1) {
+            LicenseChecker.notifyTrialExpired(project)
+        }
     }
 
     @Test
     fun `unlicensed state skips notification when already notified`() {
         state.trialExpiredNotified = true
 
-        activity.applyUnlicensedDefaults(project, AyuVariant.LIGHT, settings)
+        StartupLicenseHandler.applyUnlicensedDefaults(
+            project,
+            AyuVariant.LIGHT,
+            settings,
+        )
 
         verify(exactly = 0) { LicenseChecker.notifyTrialExpired(any()) }
     }
@@ -174,8 +192,7 @@ class StartupLicenseStateTest {
     fun `initWorkspaceServices skips when project is disposed`() {
         every { project.isDisposed } returns true
 
-        // Should return immediately without error
-        activity.initWorkspaceServices(project, settings)
+        StartupLicenseHandler.initWorkspaceServices(project, settings)
     }
 
     @Test
@@ -187,7 +204,6 @@ class StartupLicenseStateTest {
         state.commitPanelWidthMode = PanelWidthMode.DEFAULT.name
         state.gitPanelWidthMode = PanelWidthMode.DEFAULT.name
 
-        // Should not throw — no services initialized
-        activity.initWorkspaceServices(project, settings)
+        StartupLicenseHandler.initWorkspaceServices(project, settings)
     }
 }

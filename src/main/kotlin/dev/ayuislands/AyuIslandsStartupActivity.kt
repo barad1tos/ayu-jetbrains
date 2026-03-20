@@ -8,15 +8,11 @@ import com.intellij.openapi.startup.ProjectActivity
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.conflict.ConflictRegistry
-import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.font.FontPreset
 import dev.ayuislands.font.FontPresetApplicator
-import dev.ayuislands.gitpanel.GitPanelAutoFitManager
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
-import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
-import dev.ayuislands.settings.PanelWidthMode
 import javax.swing.SwingUtilities
 
 internal class AyuIslandsStartupActivity : ProjectActivity {
@@ -82,81 +78,16 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
 
         SwingUtilities.invokeLater {
             if (licenseState != false) {
-                applyLicensedDefaults(project, settings)
+                StartupLicenseHandler.applyLicensedDefaults(project, settings)
             } else {
-                applyUnlicensedDefaults(project, variant, settings)
+                StartupLicenseHandler.applyUnlicensedDefaults(project, variant, settings)
             }
 
             // Migrate width modes before service init reads them
             settings.state.migrateWidthModes()
 
             // Initialize workspace services after defaults are applied (no race)
-            initWorkspaceServices(project, settings)
-        }
-    }
-
-    internal fun applyLicensedDefaults(
-        project: Project,
-        settings: AyuIslandsSettings,
-    ) {
-        if (settings.state.trialExpiredNotified) {
-            settings.state.trialExpiredNotified = false
-            settings.state.proDefaultsApplied = false
-            settings.state.trialWelcomeShown = false
-        }
-
-        if (!settings.state.proDefaultsApplied) {
-            LicenseChecker.enableProDefaults()
-            LOG.info("Ayu Islands Pro defaults enabled (first-time license activation)")
-
-            if (!settings.state.trialWelcomeShown) {
-                LicenseChecker.notifyTrialWelcome(project)
-                settings.state.trialWelcomeShown = true
-            }
-        }
-
-        // Migration: workspace defaults for existing users upgrading to 2.3.0
-        if (!settings.state.workspaceDefaultsApplied) {
-            LicenseChecker.applyWorkspaceDefaults()
-            LOG.info("Ayu Islands workspace defaults migrated for existing user")
-        }
-    }
-
-    internal fun applyUnlicensedDefaults(
-        project: Project,
-        variant: AyuVariant,
-        settings: AyuIslandsSettings,
-    ) {
-        LicenseChecker.revertToFreeDefaults(variant)
-        LOG.info("Ayu Islands reverted to free defaults for ${variant.name}")
-
-        if (!settings.state.trialExpiredNotified) {
-            LicenseChecker.notifyTrialExpired(project)
-            settings.state.trialExpiredNotified = true
-        }
-    }
-
-    internal fun initWorkspaceServices(
-        project: Project,
-        settings: AyuIslandsSettings,
-    ) {
-        if (project.isDisposed) return
-        val pvState = settings.state
-        val hasProjectViewCustomizations =
-            pvState.hideProjectViewHScrollbar ||
-                pvState.hideProjectRootPath
-        if (hasProjectViewCustomizations ||
-            PanelWidthMode.fromString(pvState.projectPanelWidthMode) != PanelWidthMode.DEFAULT
-        ) {
-            ProjectViewScrollbarManager.getInstance(project)
-        }
-
-        if (PanelWidthMode.fromString(pvState.commitPanelWidthMode) != PanelWidthMode.DEFAULT) {
-            CommitPanelAutoFitManager.getInstance(project)
-        }
-
-        if (PanelWidthMode.fromString(pvState.gitPanelWidthMode) != PanelWidthMode.DEFAULT) {
-            GitPanelAutoFitManager.getInstance(project)
+            StartupLicenseHandler.initWorkspaceServices(project, settings)
         }
     }
 

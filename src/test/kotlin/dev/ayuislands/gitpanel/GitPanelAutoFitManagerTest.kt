@@ -164,13 +164,16 @@ class GitPanelAutoFitManagerTest {
             val manager = GitPanelAutoFitManager(project)
             manager.apply()
 
-            // Splitter proportion should have been set
-            // (inner splitter: firstHasTable=true)
+            // Inner splitter (firstHasTable=true):
+            // proportion = 1.0 - desired/total
+            // desired = (250+20).coerceAtMost(500)
+            //                   .coerceAtLeast(200) = 270
+            // expected ≈ 1.0 - 270/1000 = 0.73
             val proportion = splitter.proportion
             assertTrue(
-                proportion in 0.5f..0.95f,
-                "Expected inner proportion in " +
-                    "[0.5, 0.95] but got $proportion",
+                proportion in 0.7f..0.76f,
+                "Expected inner proportion ~0.73 " +
+                    "but got $proportion",
             )
         }
     }
