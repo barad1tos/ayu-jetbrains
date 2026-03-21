@@ -70,6 +70,13 @@ jobs:
           ! git grep -rIl '<<<<<<<\|>>>>>>>' -- \
             ':!*.md' ':!.github/workflows/*' \
             || { echo "::error::Merge conflict markers found"; exit 1; }
+      - name: Detect private keys
+        run: |
+          pattern="BEGIN.*(RSA |DSA |EC |OPENSSH )?PRIVATE KEY"
+          ! git grep -rIlE "$pattern" \
+            -- ':!*.md' ':!.pre-commit-config.yaml' \
+            ':!.github/workflows/*' \
+            || { echo "::error::Private key detected"; exit 1; }
 
   gha-security:
     name: GHA security (zizmor)
@@ -116,9 +123,10 @@ jobs:
       - name: Compile and build plugin
         run: ./gradlew buildPlugin
 
-  # ── Tier 3: Parallel analysis (after build) ────────────
+  # ── Tier 3: Parallel analysis (after build, PRs only) ──
   analyze:
     name: Analyze
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     needs: build
     timeout-minutes: 10
@@ -162,9 +170,10 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
-  # ── Tier 4: Full IDE verification (2 parallel groups) ──
+  # ── Tier 4: Full IDE verification (PRs only) ──────────
   verify:
     name: Verify (${{ matrix.group }})
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     needs: build
     timeout-minutes: 20
@@ -218,11 +227,11 @@ jobs:
           for r in "${results[@]}"; do
             name="${r%%=*}"
             status="${r##*=}"
-            if [[ "$status" != "success" ]]; then
+            if [[ "$status" == "success" || "$status" == "skipped" ]]; then
+              echo "✓ $name ($status)"
+            else
               echo "::error::$name: $status"
               failed=1
-            else
-              echo "✓ $name"
             fi
           done
           if [[ "$failed" -eq 1 ]]; then
