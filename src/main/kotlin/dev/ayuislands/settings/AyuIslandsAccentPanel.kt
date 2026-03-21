@@ -70,6 +70,14 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                 },
                 onCustomTrigger = { handleCustomTrigger() },
                 onReset = { handleReset() },
+                onShuffleTrigger = {
+                    pendingRotationEnabled = true
+                    pendingRotationMode = AccentRotationMode.PRESET.name
+                    rotationEnabledCheckbox?.isSelected = true
+                    val service = AccentRotationService.getInstance()
+                    service.rotateNow()
+                    updateHeroGlow()
+                },
             )
         accentPanel = colorPanel
 

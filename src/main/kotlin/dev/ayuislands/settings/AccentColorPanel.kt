@@ -3,6 +3,8 @@ package dev.ayuislands.settings
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentColor
+import dev.ayuislands.glow.GlowRenderer
+import dev.ayuislands.glow.GlowStyle
 import java.awt.AlphaComposite
 import java.awt.BasicStroke
 import java.awt.BorderLayout
@@ -14,6 +16,7 @@ import java.awt.Font
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.GridLayout
+import java.awt.Rectangle
 import java.awt.RenderingHints
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
@@ -22,6 +25,7 @@ import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JPanel
+import javax.swing.Timer
 import javax.swing.UIManager
 
 /**
@@ -41,8 +45,10 @@ class AccentColorPanel(
     private val onPresetSelected: (AccentColor) -> Unit,
     private val onCustomTrigger: () -> Unit,
     private val onReset: () -> Unit,
+    private val onShuffleTrigger: (() -> Unit)? = null,
 ) : JPanel(BorderLayout(COLUMN_GAP, 0)) {
     private val presetList: List<AccentColor> = presets
+    private val heroGlowRenderer = GlowRenderer()
 
     var selectedPreset: String? = null
         set(value) {
@@ -74,6 +80,7 @@ class AccentColorPanel(
     private val shadeNameLabel: ShadeNameLabel
     private val customLink: CustomLink
     private val resetLabel: ResetLabel
+    private val shuffleButton: ShuffleButton?
     private val presetGrid: JPanel
 
     init {
@@ -83,6 +90,8 @@ class AccentColorPanel(
         shadeNameLabel = ShadeNameLabel()
         customLink = CustomLink()
         resetLabel = ResetLabel()
+        shuffleButton =
+            if (onShuffleTrigger != null) ShuffleButton() else null
 
         presetGrid = JPanel(GridLayout(GRID_ROWS, GRID_COLUMNS, GRID_GAP, GRID_GAP))
         presetGrid.isOpaque = false
@@ -95,6 +104,10 @@ class AccentColorPanel(
         linksRow.add(customLink)
         linksRow.add(Box.createHorizontalStrut(LINKS_GAP))
         linksRow.add(resetLabel)
+        if (shuffleButton != null) {
+            linksRow.add(Box.createHorizontalStrut(LINKS_GAP))
+            linksRow.add(shuffleButton)
+        }
 
         val leftColumn = JPanel()
         leftColumn.layout = BoxLayout(leftColumn, BoxLayout.Y_AXIS)
@@ -168,6 +181,11 @@ class AccentColorPanel(
                 val color = Color.decode(accent.hex)
                 val isSelected = accent.hex.equals(selectedPreset, ignoreCase = true)
                 val borderColor = Color(BORDER_RGB)
+
+                if (heroGlowActive && accent.hex.equals(heroGlowHex, ignoreCase = true)) {
+                    heroGlowRenderer.ensureCache(color, GlowStyle.SOFT, HERO_GLOW_INTENSITY, HERO_GLOW_WIDTH)
+                    heroGlowRenderer.paintGlow(g2, Rectangle(0, 0, width, height), HERO_GLOW_WIDTH, PANEL_ARC.toInt())
+                }
 
                 val shape =
                     RoundRectangle2D.Float(
@@ -308,6 +326,102 @@ class AccentColorPanel(
 
     private inner class ResetLabel : LinkLabel("Reset", onReset)
 
+    private inner class ShuffleButton : JComponent() {
+        private var glowAlpha = BREATHE_MIN_ALPHA
+        private var breathePhase = 0.0
+        private val breatheTimer =
+            Timer(BREATHE_INTERVAL_MS) { updateBreathe() }
+
+        init {
+            isOpaque = false
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            addMouseListener(
+                object : MouseAdapter() {
+                    override fun mouseClicked(event: MouseEvent) {
+                        if (!isEnabled) return
+                        onShuffleTrigger?.invoke()
+                    }
+                },
+            )
+            breatheTimer.start()
+        }
+
+        private fun updateBreathe() {
+            breathePhase += BREATHE_STEP
+            val sinNormalized =
+                (Math.sin(breathePhase).toFloat() + 1f) / 2f
+            glowAlpha = BREATHE_MIN_ALPHA + BREATHE_RANGE * sinNormalized
+            repaint()
+        }
+
+        override fun getPreferredSize(): Dimension {
+            val metrics =
+                getFontMetrics(
+                    font.deriveFont(Font.PLAIN, LINK_FONT_SIZE),
+                )
+            return Dimension(
+                metrics.stringWidth(SHUFFLE_LABEL) + SHUFFLE_DOT_TOTAL_WIDTH,
+                PANEL_HEIGHT,
+            )
+        }
+
+        override fun paintComponent(graphics: Graphics) {
+            val g2 = graphics.create() as Graphics2D
+            try {
+                g2.setRenderingHint(
+                    RenderingHints.KEY_ANTIALIASING,
+                    RenderingHints.VALUE_ANTIALIAS_ON,
+                )
+                g2.setRenderingHint(
+                    RenderingHints.KEY_TEXT_ANTIALIASING,
+                    RenderingHints.VALUE_TEXT_ANTIALIAS_ON,
+                )
+
+                val accentHex =
+                    selectedPreset ?: heroGlowHex ?: DEFAULT_ACCENT_HEX
+                val dotColor =
+                    try {
+                        Color.decode(accentHex)
+                    } catch (_: NumberFormatException) {
+                        Color(DEFAULT_ACCENT_RGB)
+                    }
+
+                g2.composite =
+                    AlphaComposite.SrcOver.derive(glowAlpha)
+                val dotY = (height - SHUFFLE_DOT_SIZE) / 2
+                g2.color = dotColor
+                g2.fillOval(0, dotY, SHUFFLE_DOT_SIZE, SHUFFLE_DOT_SIZE)
+
+                g2.composite =
+                    AlphaComposite.SrcOver.derive(1f)
+                val linkColor =
+                    JBUI.CurrentTheme.Link.Foreground.ENABLED
+                g2.color = linkColor
+                g2.font =
+                    g2.font.deriveFont(Font.PLAIN, LINK_FONT_SIZE)
+                val metrics = g2.fontMetrics
+                val textY =
+                    (height - metrics.height) / 2 + metrics.ascent
+                g2.drawString(
+                    SHUFFLE_LABEL,
+                    SHUFFLE_DOT_TOTAL_WIDTH,
+                    textY,
+                )
+            } finally {
+                g2.dispose()
+            }
+        }
+
+        fun dispose() {
+            breatheTimer.stop()
+        }
+    }
+
+    override fun removeNotify() {
+        super.removeNotify()
+        shuffleButton?.dispose()
+    }
+
     private fun paintDisabledOverlay(
         g2: Graphics2D,
         shape: RoundRectangle2D.Float,
@@ -334,5 +448,20 @@ class AccentColorPanel(
         private const val SELECTED_OVERLAY_ALPHA = 0.55f
         private const val DISABLED_OVERLAY_ALPHA = 0.45f
         private const val LINK_FONT_SIZE = 12f
+
+        private const val HERO_GLOW_INTENSITY = 30
+        private const val HERO_GLOW_WIDTH = 4
+
+        private const val BREATHE_INTERVAL_MS = 50
+        private const val BREATHE_STEP = 0.05
+        private const val BREATHE_MIN_ALPHA = 0.4f
+        private const val BREATHE_RANGE = 0.6f
+        private const val SHUFFLE_DOT_SIZE = 8
+        private const val SHUFFLE_DOT_GAP = 4
+        private const val SHUFFLE_DOT_TOTAL_WIDTH =
+            SHUFFLE_DOT_SIZE + SHUFFLE_DOT_GAP
+        private const val SHUFFLE_LABEL = "Shuffle"
+        private const val DEFAULT_ACCENT_HEX = "#73D0FF"
+        private const val DEFAULT_ACCENT_RGB = 0x73D0FF
     }
 }
