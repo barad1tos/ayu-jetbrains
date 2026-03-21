@@ -368,30 +368,22 @@ class AccentColorPanel(
         private val breatheTimer =
             Timer(BREATHE_INTERVAL_MS) { updateBreathe() }
         private val diceIcon = DiceIcon()
-        private val shuffleLabel = ShuffleLabel()
-        private val row: JPanel
 
         init {
             layout = null
             isOpaque = false
-            preferredSize = Dimension(SHUFFLE_COLUMN_WIDTH, 0)
+            preferredSize = Dimension(diceIcon.preferredSize.width, 0)
 
-            row = JPanel()
-            row.layout = BoxLayout(row, BoxLayout.X_AXIS)
-            row.isOpaque = false
-            row.maximumSize = Dimension(SHUFFLE_COLUMN_WIDTH, DICE_ICON_SIZE + BOUNCE_MAX_PIXELS * 2)
-            row.add(diceIcon)
-            row.add(Box.createHorizontalStrut(DICE_LABEL_GAP))
-            row.add(shuffleLabel)
-
-            add(row)
+            add(diceIcon)
 
             breatheTimer.start()
         }
 
         override fun doLayout() {
-            val rowHeight = row.preferredSize.height
-            row.setBounds(0, customLink.y, width, rowHeight)
+            val iconPref = diceIcon.preferredSize
+            val customCenterY = customLink.y + customLink.height / 2
+            val targetY = customCenterY - iconPref.height / 2
+            diceIcon.setBounds(0, targetY, iconPref.width, iconPref.height)
         }
 
         private fun updateBreathe() {
@@ -414,6 +406,7 @@ class AccentColorPanel(
         private inner class DiceIcon : JComponent() {
             private var bounceOffset = 0f
             private var bounceFrame = 0
+            private val shuffleTextWidth: Int
             private val bounceTimer =
                 Timer(ANIMATION_FRAME_MS) {
                     bounceFrame++
@@ -432,9 +425,15 @@ class AccentColorPanel(
             init {
                 cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
                 alignmentY = CENTER_ALIGNMENT
+
+                val labelFont = Font(Font.DIALOG, Font.PLAIN, LINK_FONT_SIZE.toInt())
+                val labelMetrics = getFontMetrics(labelFont)
+                shuffleTextWidth = labelMetrics.stringWidth(SHUFFLE_LABEL)
+
+                val totalWidth = DICE_ICON_SIZE + DICE_LABEL_GAP + shuffleTextWidth + 1
                 val diceHeight = DICE_ICON_SIZE + BOUNCE_MAX_PIXELS * 2
-                preferredSize = Dimension(DICE_ICON_SIZE, diceHeight)
-                maximumSize = Dimension(DICE_ICON_SIZE, diceHeight)
+                preferredSize = Dimension(totalWidth, diceHeight)
+                maximumSize = Dimension(totalWidth, diceHeight)
                 addMouseListener(
                     object : MouseAdapter() {
                         override fun mouseClicked(event: MouseEvent) {
@@ -470,52 +469,27 @@ class AccentColorPanel(
                             Color(DEFAULT_ACCENT_RGB)
                         }
 
+                    // Draw dice emoji with breathe glow
                     g2.composite = AlphaComposite.SrcOver.derive(glowAlpha)
                     g2.font = Font(Font.DIALOG, Font.PLAIN, DICE_FONT_SIZE)
                     g2.color = diceColor
 
                     val gv = g2.font.createGlyphVector(g2.fontRenderContext, DICE_TEXT)
                     val vb = gv.visualBounds
-                    val textX = ((width - vb.width) / 2.0 - vb.x).toFloat() + 2
-                    val textY = ((height - vb.height) / 2.0 - vb.y).toFloat() + bounceOffset
-                    g2.drawGlyphVector(gv, textX, textY)
-                } finally {
-                    g2.dispose()
-                }
-            }
-        }
+                    val emojiX = ((DICE_ICON_SIZE - vb.width) / 2.0 - vb.x).toFloat() + 2
+                    val emojiY = ((height - vb.height) / 2.0 - vb.y).toFloat() + bounceOffset
+                    g2.drawGlyphVector(gv, emojiX, emojiY)
 
-        private inner class ShuffleLabel : JComponent() {
-            init {
-                cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-                alignmentY = CENTER_ALIGNMENT
-                val baseFont = font ?: Font(Font.DIALOG, Font.PLAIN, LINK_FONT_SIZE.toInt())
-                val metrics = getFontMetrics(baseFont.deriveFont(Font.PLAIN, LINK_FONT_SIZE))
-                preferredSize = Dimension(metrics.stringWidth(SHUFFLE_LABEL) + 1, PANEL_HEIGHT)
-                maximumSize = Dimension(metrics.stringWidth(SHUFFLE_LABEL) + 1, PANEL_HEIGHT)
-                addMouseListener(
-                    object : MouseAdapter() {
-                        override fun mouseClicked(event: MouseEvent) {
-                            if (!isEnabled) return
-                            diceIcon.triggerBounce()
-                            onShuffleTrigger?.invoke()
-                        }
-                    },
-                )
-            }
-
-            override fun paintComponent(graphics: Graphics) {
-                val g2 = graphics.create() as Graphics2D
-                try {
-                    g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
-
+                    // Draw "Shuffle" text at full opacity with link color
+                    g2.composite = AlphaComposite.SrcOver.derive(1f)
                     val linkColor = JBUI.CurrentTheme.Link.Foreground.ENABLED
                     g2.color = linkColor
-                    g2.font = g2.font.deriveFont(Font.PLAIN, LINK_FONT_SIZE)
+                    g2.font = Font(Font.DIALOG, Font.PLAIN, LINK_FONT_SIZE.toInt())
 
-                    val metrics = g2.fontMetrics
-                    val textY = (height - metrics.height) / 2 + metrics.ascent
-                    g2.drawString(SHUFFLE_LABEL, 0, textY)
+                    val labelMetrics = g2.fontMetrics
+                    val labelX = DICE_ICON_SIZE + DICE_LABEL_GAP
+                    val labelY = (height - labelMetrics.height) / 2 + labelMetrics.ascent
+                    g2.drawString(SHUFFLE_LABEL, labelX, labelY)
                 } finally {
                     g2.dispose()
                 }
@@ -698,7 +672,6 @@ class AccentColorPanel(
         private const val DEFAULT_ACCENT_RGB = 0x73D0FF
 
         private const val SHUFFLE_COLUMN_GAP = 4
-        private const val SHUFFLE_COLUMN_WIDTH = 86
         private const val DICE_FONT_SIZE = 20
         private const val DICE_ICON_SIZE = 40
         private const val DICE_LABEL_GAP = 2
