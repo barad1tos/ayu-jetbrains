@@ -14,6 +14,7 @@ import dev.ayuislands.accent.SystemAccentProvider
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.rotation.AccentRotationMode
 import dev.ayuislands.rotation.AccentRotationService
+import dev.ayuislands.rotation.ContrastAwareColorGenerator
 import java.awt.Color
 
 /** Accent color section for the Ayu Islands settings panel. */
@@ -81,19 +82,39 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                         rotationEnabledCheckbox?.isSelected = false
                         updateHeroGlow()
                     }
+                    accentPanel?.hideThirteenthSwatch()
+                    val settings = AyuIslandsSettings.getInstance()
+                    settings.state.lastShuffleColor = null
                 },
                 onCustomTrigger = { handleCustomTrigger() },
                 onReset = { handleReset() },
                 onShuffleTrigger = {
-                    pendingRotationEnabled = true
-                    pendingRotationMode = AccentRotationMode.PRESET.name
-                    rotationEnabledCheckbox?.isSelected = true
-                    val service = AccentRotationService.getInstance()
-                    service.rotateNow()
-                    updateHeroGlow()
+                    val currentVariant = variant ?: return@AccentColorPanel
+                    val randomHex = ContrastAwareColorGenerator.generate(currentVariant)
+                    val settings = AyuIslandsSettings.getInstance()
+                    settings.state.lastShuffleColor = randomHex
+                    accentPanel?.showThirteenthSwatch(randomHex)
+                },
+                onThirteenthSwatchClicked = { hex ->
+                    pendingAccent = hex
+                    accentPanel?.selectedPreset = null
+                    accentPanel?.customColor = hex
+                    pendingCustomColor = hex
+                    onAccentChanged?.invoke(hex)
+                    if (pendingRotationEnabled) {
+                        pendingRotationEnabled = false
+                        rotationEnabledCheckbox?.isSelected = false
+                        updateHeroGlow()
+                    }
                 },
             )
         accentPanel = colorPanel
+
+        val lastShuffle = AyuIslandsSettings.getInstance().state.lastShuffleColor
+        if (lastShuffle != null) {
+            colorPanel.showThirteenthSwatchImmediate(lastShuffle)
+        }
+
         return colorPanel
     }
 
@@ -254,6 +275,8 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                 rotationEnabledCheckbox?.isSelected = false
                 updateHeroGlow()
             }
+            accentPanel?.hideThirteenthSwatch()
+            AyuIslandsSettings.getInstance().state.lastShuffleColor = null
         }
     }
 
@@ -264,6 +287,8 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         panel.selectedPreset = null
         panel.customColor = null
         onAccentChanged?.invoke("")
+        accentPanel?.hideThirteenthSwatch()
+        AyuIslandsSettings.getInstance().state.lastShuffleColor = null
     }
 
     private val selectedPreset: String?
