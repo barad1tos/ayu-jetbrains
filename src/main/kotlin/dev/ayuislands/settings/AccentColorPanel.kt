@@ -372,7 +372,7 @@ class AccentColorPanel(
         init {
             layout = null
             isOpaque = false
-            preferredSize = Dimension(diceIcon.preferredSize.width, 0)
+            preferredSize = Dimension(diceIcon.preferredSize.width + SHUFFLE_SIDE_PAD * 2, 0)
 
             add(diceIcon)
 
@@ -383,7 +383,8 @@ class AccentColorPanel(
             val iconPref = diceIcon.preferredSize
             val customCenterY = customLink.y + customLink.height / 2
             val targetY = customCenterY - iconPref.height / 2
-            diceIcon.setBounds(0, targetY, iconPref.width, iconPref.height)
+            val targetX = (width - iconPref.width) / 2
+            diceIcon.setBounds(targetX, targetY, iconPref.width, iconPref.height)
         }
 
         private fun updateBreathe() {
@@ -677,6 +678,7 @@ class AccentColorPanel(
         private const val DICE_LABEL_GAP = 2
         private const val DICE_TEXT = "\uD83C\uDFB2"
 
+        private const val SHUFFLE_SIDE_PAD = 6
         private const val ANIMATION_FRAME_MS = 16
         private const val SLIDE_TOTAL_FRAMES = 18
         private const val BOUNCE_MAX_PIXELS = 8
