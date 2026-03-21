@@ -56,6 +56,20 @@ class AccentColorPanel(
             repaint()
         }
 
+    /** Hex color of the swatch that should have a hero glow border (set by rotation). */
+    var heroGlowHex: String? = null
+        set(value) {
+            field = value
+            repaint()
+        }
+
+    /** Whether hero glow is active (only during preset rotation mode). */
+    var heroGlowActive: Boolean = false
+        set(value) {
+            field = value
+            repaint()
+        }
+
     private val presetPanels: List<PresetComponent>
     private val shadeNameLabel: ShadeNameLabel
     private val customLink: CustomLink

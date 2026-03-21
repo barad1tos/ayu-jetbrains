@@ -4,11 +4,16 @@ import com.intellij.openapi.util.SystemInfo
 import com.intellij.ui.ColorPicker
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.dsl.builder.Align
+import com.intellij.ui.dsl.builder.Cell
 import com.intellij.ui.dsl.builder.Panel
+import com.intellij.ui.dsl.builder.selected
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.SystemAccentProvider
+import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.rotation.AccentRotationMode
+import dev.ayuislands.rotation.AccentRotationService
 import java.awt.Color
 
 /** Accent color section for the Ayu Islands settings panel. */
@@ -24,6 +29,14 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
     private var storedFollowSystem: Boolean = false
     private var followSystemCheckbox: JBCheckBox? = null
 
+    private var pendingRotationEnabled: Boolean = false
+    private var storedRotationEnabled: Boolean = false
+    private var pendingRotationMode: String = AccentRotationMode.PRESET.name
+    private var storedRotationMode: String = AccentRotationMode.PRESET.name
+    private var pendingRotationInterval: Int = AyuIslandsState.DEFAULT_ROTATION_INTERVAL_HOURS
+    private var storedRotationInterval: Int = AyuIslandsState.DEFAULT_ROTATION_INTERVAL_HOURS
+    private var rotationEnabledCheckbox: JBCheckBox? = null
+
     override fun buildPanel(
         panel: Panel,
         variant: AyuVariant,
@@ -35,6 +48,13 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         storedFollowSystem = settings.state.followSystemAccent
         pendingFollowSystem = storedFollowSystem
 
+        storedRotationEnabled = settings.state.accentRotationEnabled
+        pendingRotationEnabled = storedRotationEnabled
+        storedRotationMode = settings.state.accentRotationMode ?: AccentRotationMode.PRESET.name
+        pendingRotationMode = storedRotationMode
+        storedRotationInterval = settings.state.accentRotationIntervalHours
+        pendingRotationInterval = storedRotationInterval
+
         val colorPanel =
             AccentColorPanel(
                 presets = AYU_ACCENT_PRESETS,
@@ -42,6 +62,11 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                     pendingAccent = accent.hex
                     accentPanel?.selectedPreset = accent.hex
                     onAccentChanged?.invoke(accent.hex)
+                    if (pendingRotationEnabled) {
+                        pendingRotationEnabled = false
+                        rotationEnabledCheckbox?.isSelected = false
+                        updateHeroGlow()
+                    }
                 },
                 onCustomTrigger = { handleCustomTrigger() },
                 onReset = { handleReset() },
@@ -49,6 +74,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         accentPanel = colorPanel
 
         applyInitialSelection(colorPanel, storedAccent)
+        updateHeroGlow()
 
         panel.group("Accent Color") {
             row {
@@ -63,6 +89,10 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                     checkbox.addActionListener {
                         pendingFollowSystem = checkbox.isSelected
                         updatePanelEnabled()
+                        if (pendingFollowSystem && pendingRotationEnabled) {
+                            pendingRotationEnabled = false
+                            rotationEnabledCheckbox?.isSelected = false
+                        }
                         if (pendingFollowSystem) {
                             SystemAccentProvider.resolve()?.let { hex ->
                                 applyInitialSelection(colorPanel, hex)
@@ -79,6 +109,69 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                 }
             }
             row { cell(colorPanel).resizableColumn().align(Align.FILL) }
+        }
+
+        panel.group("Accent Rotation") {
+            row { comment("Automatically change your accent color on a schedule.") }
+            lateinit var rotationCheckboxCell: Cell<JBCheckBox>
+            row {
+                rotationCheckboxCell =
+                    checkBox("Enable accent rotation")
+                val checkbox = rotationCheckboxCell.component
+                checkbox.isSelected = pendingRotationEnabled
+                checkbox.isEnabled = LicenseChecker.isLicensedOrGrace()
+                checkbox.addActionListener {
+                    pendingRotationEnabled = checkbox.isSelected
+                    if (pendingRotationEnabled && pendingFollowSystem) {
+                        pendingFollowSystem = false
+                        followSystemCheckbox?.isSelected = false
+                        updatePanelEnabled()
+                    }
+                }
+                rotationEnabledCheckbox = checkbox
+                if (!LicenseChecker.isLicensedOrGrace()) {
+                    comment("Pro feature")
+                }
+            }
+            row {
+                label("Mode:")
+                val modeCombo =
+                    comboBox(listOf("Preset cycle", "Random color"))
+                        .component
+                modeCombo.selectedIndex =
+                    if (pendingRotationMode == AccentRotationMode.RANDOM.name) 1 else 0
+                modeCombo.addActionListener {
+                    pendingRotationMode =
+                        if (modeCombo.selectedIndex == 1) {
+                            AccentRotationMode.RANDOM.name
+                        } else {
+                            AccentRotationMode.PRESET.name
+                        }
+                }
+            }.visibleIf(rotationCheckboxCell.selected)
+            row {
+                label("Interval:")
+                val intervalCombo =
+                    comboBox(
+                        listOf(
+                            "1 hour",
+                            "3 hours",
+                            "6 hours",
+                            "12 hours",
+                            "24 hours",
+                        ),
+                    ).component
+                intervalCombo.selectedIndex =
+                    INTERVAL_VALUES
+                        .indexOf(pendingRotationInterval)
+                        .coerceAtLeast(0)
+                intervalCombo.addActionListener {
+                    pendingRotationInterval =
+                        INTERVAL_VALUES.getOrElse(
+                            intervalCombo.selectedIndex,
+                        ) { AyuIslandsState.DEFAULT_ROTATION_INTERVAL_HOURS }
+                }
+            }.visibleIf(rotationCheckboxCell.selected)
         }
 
         updatePanelEnabled()
@@ -113,6 +206,11 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
             panel.customColor = hex
             panel.selectedPreset = null
             onAccentChanged?.invoke(hex)
+            if (pendingRotationEnabled) {
+                pendingRotationEnabled = false
+                rotationEnabledCheckbox?.isSelected = false
+                updateHeroGlow()
+            }
         }
     }
 
@@ -176,6 +274,9 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
 
     override fun isModified(): Boolean {
         if (pendingFollowSystem != storedFollowSystem) return true
+        if (pendingRotationEnabled != storedRotationEnabled) return true
+        if (pendingRotationMode != storedRotationMode) return true
+        if (pendingRotationInterval != storedRotationInterval) return true
         if (pendingFollowSystem) return false
         return pendingAccent != storedAccent
     }
@@ -205,17 +306,76 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
             AccentApplicator.apply(effectiveAccent)
         }
         storedAccent = effectiveAccent
+
+        val rotationChanged =
+            pendingRotationEnabled != storedRotationEnabled ||
+                pendingRotationMode != storedRotationMode ||
+                pendingRotationInterval != storedRotationInterval
+
+        if (rotationChanged) {
+            settings.state.accentRotationEnabled = pendingRotationEnabled
+            settings.state.accentRotationMode = pendingRotationMode
+            settings.state.accentRotationIntervalHours = pendingRotationInterval
+            storedRotationEnabled = pendingRotationEnabled
+            storedRotationMode = pendingRotationMode
+            storedRotationInterval = pendingRotationInterval
+
+            val service = AccentRotationService.getInstance()
+            if (pendingRotationEnabled) {
+                service.rotateNow()
+            } else {
+                service.stopRotation()
+            }
+        }
     }
 
     override fun reset() {
         pendingAccent = storedAccent
         pendingFollowSystem = storedFollowSystem
         followSystemCheckbox?.isSelected = storedFollowSystem
+        pendingRotationEnabled = storedRotationEnabled
+        pendingRotationMode = storedRotationMode
+        pendingRotationInterval = storedRotationInterval
+        rotationEnabledCheckbox?.isSelected = storedRotationEnabled
         accentPanel?.let { applyInitialSelection(it, storedAccent) }
+        updateHeroGlow()
         updatePanelEnabled()
     }
 
+    private fun updateHeroGlow() {
+        val panel = accentPanel ?: return
+        val settings = AyuIslandsSettings.getInstance()
+        val enabled = pendingRotationEnabled
+        val isPresetMode =
+            pendingRotationMode == AccentRotationMode.PRESET.name
+        if (enabled && isPresetMode) {
+            val index =
+                settings.state.accentRotationPresetIndex
+                    .coerceIn(0, AYU_ACCENT_PRESETS.size - 1)
+            panel.heroGlowHex = AYU_ACCENT_PRESETS[index].hex
+            panel.heroGlowActive = true
+        } else {
+            panel.heroGlowHex = null
+            panel.heroGlowActive = false
+        }
+    }
+
     companion object {
+        private const val INTERVAL_1H = 1
+        private const val INTERVAL_3H = 3
+        private const val INTERVAL_6H = 6
+        private const val INTERVAL_12H = 12
+        private const val INTERVAL_24H = 24
+
+        private val INTERVAL_VALUES =
+            listOf(
+                INTERVAL_1H,
+                INTERVAL_3H,
+                INTERVAL_6H,
+                INTERVAL_12H,
+                INTERVAL_24H,
+            )
+
         private fun colorToHex(color: Color): String = "#%02X%02X%02X".format(color.red, color.green, color.blue)
     }
 }
