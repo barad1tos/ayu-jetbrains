@@ -369,26 +369,29 @@ class AccentColorPanel(
             Timer(BREATHE_INTERVAL_MS) { updateBreathe() }
         private val diceIcon = DiceIcon()
         private val shuffleLabel = ShuffleLabel()
+        private val row: JPanel
 
         init {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            layout = null
             isOpaque = false
             preferredSize = Dimension(SHUFFLE_COLUMN_WIDTH, 0)
 
-            val row = JPanel()
+            row = JPanel()
             row.layout = BoxLayout(row, BoxLayout.X_AXIS)
             row.isOpaque = false
-            row.alignmentX = CENTER_ALIGNMENT
-            row.maximumSize = Dimension(SHUFFLE_COLUMN_WIDTH, DICE_ICON_SIZE)
+            row.maximumSize = Dimension(SHUFFLE_COLUMN_WIDTH, DICE_ICON_SIZE + BOUNCE_MAX_PIXELS * 2)
             row.add(diceIcon)
             row.add(Box.createHorizontalStrut(DICE_LABEL_GAP))
             row.add(shuffleLabel)
 
-            add(Box.createVerticalStrut(PANEL_HEIGHT + LEFT_COLUMN_GAP))
             add(row)
-            add(Box.createVerticalGlue())
 
             breatheTimer.start()
+        }
+
+        override fun doLayout() {
+            val rowHeight = row.preferredSize.height
+            row.setBounds(0, customLink.y, width, rowHeight)
         }
 
         private fun updateBreathe() {
@@ -429,8 +432,9 @@ class AccentColorPanel(
             init {
                 cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
                 alignmentY = CENTER_ALIGNMENT
-                preferredSize = Dimension(DICE_ICON_SIZE, DICE_ICON_SIZE)
-                maximumSize = Dimension(DICE_ICON_SIZE, DICE_ICON_SIZE)
+                val diceHeight = DICE_ICON_SIZE + BOUNCE_MAX_PIXELS * 2
+                preferredSize = Dimension(DICE_ICON_SIZE, diceHeight)
+                maximumSize = Dimension(DICE_ICON_SIZE, diceHeight)
                 addMouseListener(
                     object : MouseAdapter() {
                         override fun mouseClicked(event: MouseEvent) {
@@ -466,15 +470,14 @@ class AccentColorPanel(
                             Color(DEFAULT_ACCENT_RGB)
                         }
 
-                    g2.translate(0, bounceOffset.toInt())
                     g2.composite = AlphaComposite.SrcOver.derive(glowAlpha)
                     g2.font = Font(Font.DIALOG, Font.PLAIN, DICE_FONT_SIZE)
                     g2.color = diceColor
 
                     val gv = g2.font.createGlyphVector(g2.fontRenderContext, DICE_TEXT)
                     val vb = gv.visualBounds
-                    val textX = ((width - vb.width) / 2.0 - vb.x).toFloat()
-                    val textY = ((height - vb.height) / 2.0 - vb.y).toFloat()
+                    val textX = ((width - vb.width) / 2.0 - vb.x).toFloat() + 2
+                    val textY = ((height - vb.height) / 2.0 - vb.y).toFloat() + bounceOffset
                     g2.drawGlyphVector(gv, textX, textY)
                 } finally {
                     g2.dispose()
@@ -695,9 +698,9 @@ class AccentColorPanel(
         private const val DEFAULT_ACCENT_RGB = 0x73D0FF
 
         private const val SHUFFLE_COLUMN_GAP = 4
-        private const val SHUFFLE_COLUMN_WIDTH = 80
+        private const val SHUFFLE_COLUMN_WIDTH = 86
         private const val DICE_FONT_SIZE = 20
-        private const val DICE_ICON_SIZE = 34
+        private const val DICE_ICON_SIZE = 40
         private const val DICE_LABEL_GAP = 2
         private const val DICE_TEXT = "\uD83C\uDFB2"
 
