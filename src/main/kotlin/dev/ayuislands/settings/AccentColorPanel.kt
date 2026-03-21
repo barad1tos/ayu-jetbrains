@@ -26,6 +26,7 @@ import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.Timer
 import javax.swing.UIManager
+import kotlin.math.exp
 import kotlin.math.sin
 
 /**
@@ -48,6 +49,7 @@ class AccentColorPanel(
     private val onCustomTrigger: () -> Unit,
     private val onReset: () -> Unit,
     private val onShuffleTrigger: (() -> Unit)? = null,
+    private val onThirteenthSwatchClicked: ((String) -> Unit)? = null,
 ) : JPanel(BorderLayout(COLUMN_GAP, 0)) {
     private val presetList: List<AccentColor> = presets
     private val heroGlowRenderer = GlowRenderer()
@@ -83,7 +85,12 @@ class AccentColorPanel(
     private val customLink: CustomLink
     private val resetLabel: ResetLabel
     private val shuffleColumn: ShuffleColumn?
+    private val thirteenthSwatch: ThirteenthSwatch?
     private val presetGrid: JPanel
+
+    /** Hex color currently shown in the 13th swatch, or null if hidden. */
+    val thirteenthSwatchColor: String?
+        get() = thirteenthSwatch?.colorHex
 
     init {
         isOpaque = false
@@ -94,6 +101,8 @@ class AccentColorPanel(
         resetLabel = ResetLabel()
         shuffleColumn =
             if (onShuffleTrigger != null) ShuffleColumn() else null
+        thirteenthSwatch =
+            if (onShuffleTrigger != null) ThirteenthSwatch() else null
 
         presetGrid = JPanel(GridLayout(GRID_ROWS, GRID_COLUMNS, GRID_GAP, GRID_GAP))
         presetGrid.isOpaque = false
@@ -115,12 +124,32 @@ class AccentColorPanel(
         if (shuffleColumn != null) {
             val contentWrapper = JPanel(BorderLayout(SHUFFLE_COLUMN_GAP, 0))
             contentWrapper.isOpaque = false
-            contentWrapper.add(shuffleColumn, BorderLayout.WEST)
+
+            val shuffleAndSwatch = JPanel(BorderLayout(GRID_GAP, 0))
+            shuffleAndSwatch.isOpaque = false
+            shuffleAndSwatch.add(shuffleColumn, BorderLayout.WEST)
+            if (thirteenthSwatch != null) {
+                shuffleAndSwatch.add(thirteenthSwatch, BorderLayout.CENTER)
+            }
+
+            contentWrapper.add(shuffleAndSwatch, BorderLayout.WEST)
             contentWrapper.add(presetGrid, BorderLayout.CENTER)
             add(contentWrapper, BorderLayout.CENTER)
         } else {
             add(presetGrid, BorderLayout.CENTER)
         }
+    }
+
+    fun showThirteenthSwatch(hex: String) {
+        thirteenthSwatch?.slideIn(hex)
+    }
+
+    fun showThirteenthSwatchImmediate(hex: String) {
+        thirteenthSwatch?.showImmediate(hex)
+    }
+
+    fun hideThirteenthSwatch() {
+        thirteenthSwatch?.hideSwatch()
     }
 
     private fun getSelectedAccentHex(): String? = selectedPreset ?: customColor
@@ -334,17 +363,17 @@ class AccentColorPanel(
         private var breathePhase = 0.0
         private val breatheTimer =
             Timer(BREATHE_INTERVAL_MS) { updateBreathe() }
+        private val diceIcon = DiceIcon()
 
         init {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             isOpaque = false
             preferredSize = Dimension(SHUFFLE_COLUMN_WIDTH, 0)
 
-            val diceLabel = DiceIcon()
             val shuffleLabel = ShuffleLabel()
 
             add(Box.createVerticalGlue())
-            add(diceLabel)
+            add(diceIcon)
             add(Box.createVerticalStrut(DICE_LABEL_GAP))
             add(shuffleLabel)
             add(Box.createVerticalGlue())
@@ -360,11 +389,33 @@ class AccentColorPanel(
             repaint()
         }
 
+        fun triggerBounce() {
+            diceIcon.triggerBounce()
+        }
+
         fun dispose() {
             breatheTimer.stop()
+            diceIcon.disposeBounce()
         }
 
         private inner class DiceIcon : JComponent() {
+            private var bounceOffset = 0f
+            private var bounceFrame = 0
+            private val bounceTimer =
+                Timer(ANIMATION_FRAME_MS) {
+                    bounceFrame++
+                    if (bounceFrame > BOUNCE_TOTAL_FRAMES) {
+                        (it.source as Timer).stop()
+                        bounceOffset = 0f
+                    } else {
+                        val t = bounceFrame / BOUNCE_TOTAL_FRAMES.toFloat()
+                        val decay = exp(-BOUNCE_DECAY_RATE * t)
+                        val oscillation = sin(t * Math.PI * BOUNCE_OSCILLATIONS)
+                        bounceOffset = (-BOUNCE_MAX_PIXELS * decay * oscillation).toFloat()
+                    }
+                    repaint()
+                }
+
             init {
                 cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
                 alignmentX = CENTER_ALIGNMENT
@@ -374,10 +425,21 @@ class AccentColorPanel(
                     object : MouseAdapter() {
                         override fun mouseClicked(event: MouseEvent) {
                             if (!isEnabled) return
+                            triggerBounce()
                             onShuffleTrigger?.invoke()
                         }
                     },
                 )
+            }
+
+            fun triggerBounce() {
+                bounceFrame = 0
+                bounceOffset = 0f
+                bounceTimer.restart()
+            }
+
+            fun disposeBounce() {
+                bounceTimer.stop()
             }
 
             override fun paintComponent(graphics: Graphics) {
@@ -394,6 +456,7 @@ class AccentColorPanel(
                             Color(DEFAULT_ACCENT_RGB)
                         }
 
+                    g2.translate(0, bounceOffset.toInt())
                     g2.composite = AlphaComposite.SrcOver.derive(glowAlpha)
                     g2.font = Font(Font.DIALOG, Font.PLAIN, DICE_FONT_SIZE)
                     g2.color = diceColor
@@ -419,6 +482,7 @@ class AccentColorPanel(
                     object : MouseAdapter() {
                         override fun mouseClicked(event: MouseEvent) {
                             if (!isEnabled) return
+                            diceIcon.triggerBounce()
                             onShuffleTrigger?.invoke()
                         }
                     },
@@ -445,9 +509,132 @@ class AccentColorPanel(
         }
     }
 
+    private inner class ThirteenthSwatch : JComponent() {
+        var colorHex: String? = null
+        private var slideProgress = 0f
+        private val swatchGlowRenderer = GlowRenderer()
+        private val slideTimer =
+            Timer(ANIMATION_FRAME_MS) {
+                slideProgress += 1f / SLIDE_TOTAL_FRAMES
+                if (slideProgress >= 1f) {
+                    slideProgress = 1f
+                    (it.source as Timer).stop()
+                }
+                revalidate()
+                repaint()
+            }
+
+        init {
+            isOpaque = false
+            isVisible = false
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            addMouseListener(
+                object : MouseAdapter() {
+                    override fun mouseClicked(event: MouseEvent) {
+                        if (!isEnabled) return
+                        val hex = colorHex ?: return
+                        onThirteenthSwatchClicked?.invoke(hex)
+                    }
+                },
+            )
+        }
+
+        override fun getPreferredSize(): Dimension {
+            if (colorHex == null || slideProgress <= 0f) {
+                return Dimension(0, PANEL_HEIGHT)
+            }
+            val targetWidth = THIRTEENTH_SWATCH_WIDTH + GRID_GAP
+            val animatedWidth = (targetWidth * easeOut(slideProgress)).toInt()
+            return Dimension(animatedWidth, PANEL_HEIGHT)
+        }
+
+        override fun getMinimumSize(): Dimension = preferredSize
+
+        override fun getMaximumSize(): Dimension =
+            Dimension(
+                THIRTEENTH_SWATCH_WIDTH + GRID_GAP,
+                Short.MAX_VALUE.toInt(),
+            )
+
+        fun slideIn(hex: String) {
+            colorHex = hex
+            slideProgress = 0f
+            isVisible = true
+            slideTimer.restart()
+        }
+
+        fun showImmediate(hex: String) {
+            colorHex = hex
+            slideProgress = 1f
+            isVisible = true
+            slideTimer.stop()
+            revalidate()
+            repaint()
+        }
+
+        fun hideSwatch() {
+            slideTimer.stop()
+            colorHex = null
+            slideProgress = 0f
+            isVisible = false
+            revalidate()
+            parent?.repaint()
+        }
+
+        fun disposeTimers() {
+            slideTimer.stop()
+        }
+
+        override fun paintComponent(graphics: Graphics) {
+            val hex = colorHex ?: return
+            if (slideProgress <= 0f) return
+
+            val g2 = graphics.create() as Graphics2D
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+
+                val color = Color.decode(hex)
+                val borderColor = Color(BORDER_RGB)
+
+                val swatchWidth = THIRTEENTH_SWATCH_WIDTH.coerceAtMost(width)
+                val swatchX = (width - swatchWidth).coerceAtLeast(0)
+                val swatchHeight = height.coerceAtMost(PANEL_HEIGHT)
+
+                // Hero glow
+                swatchGlowRenderer.ensureCache(color, GlowStyle.SOFT, HERO_GLOW_INTENSITY, HERO_GLOW_WIDTH)
+                swatchGlowRenderer.paintGlow(
+                    g2,
+                    Rectangle(swatchX, 0, swatchWidth, swatchHeight),
+                    HERO_GLOW_WIDTH,
+                    PANEL_ARC.toInt(),
+                )
+
+                val shape =
+                    RoundRectangle2D.Float(
+                        swatchX + BORDER_INSET,
+                        BORDER_INSET,
+                        swatchWidth.toFloat() - BORDER_INSET * 2,
+                        swatchHeight.toFloat() - BORDER_INSET * 2,
+                        PANEL_ARC,
+                        PANEL_ARC,
+                    )
+
+                g2.color = color
+                g2.fill(shape)
+
+                g2.color = borderColor
+                g2.stroke = BasicStroke(1f)
+                g2.draw(shape)
+            } finally {
+                g2.dispose()
+            }
+        }
+    }
+
     override fun removeNotify() {
         super.removeNotify()
         shuffleColumn?.dispose()
+        thirteenthSwatch?.disposeTimers()
     }
 
     private fun paintDisabledOverlay(
@@ -493,5 +680,18 @@ class AccentColorPanel(
         private const val DICE_ICON_SIZE = 24
         private const val DICE_LABEL_GAP = 2
         private const val DICE_TEXT = "\uD83C\uDFB2"
+
+        private const val ANIMATION_FRAME_MS = 16
+        private const val SLIDE_TOTAL_FRAMES = 18
+        private const val BOUNCE_MAX_PIXELS = 8
+        private const val BOUNCE_TOTAL_FRAMES = 25
+        private const val BOUNCE_DECAY_RATE = 4.0
+        private const val BOUNCE_OSCILLATIONS = 3.0
+        private const val THIRTEENTH_SWATCH_WIDTH = 32
+
+        private fun easeOut(t: Float): Float {
+            val complement = 1f - t
+            return 1f - complement * complement * complement
+        }
     }
 }
