@@ -18,7 +18,7 @@ import javax.swing.SwingUtilities
 private const val MS_PER_HOUR = 3_600_000L
 
 /**
- * Returns the next preset index and hex color, wrapping at list end.
+ * Returns the next preset index and hex color, wrapping at the list end.
  * Extracted as internal for unit testing without IDE singletons.
  */
 internal fun nextPresetHex(

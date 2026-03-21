@@ -124,16 +124,20 @@ class AccentColorPanel(
         if (shuffleColumn != null) {
             val contentWrapper = JPanel(BorderLayout(SHUFFLE_COLUMN_GAP, 0))
             contentWrapper.isOpaque = false
+            contentWrapper.add(shuffleColumn, BorderLayout.WEST)
 
-            val shuffleAndSwatch = JPanel(BorderLayout(GRID_GAP, 0))
-            shuffleAndSwatch.isOpaque = false
-            shuffleAndSwatch.add(shuffleColumn, BorderLayout.WEST)
             if (thirteenthSwatch != null) {
-                shuffleAndSwatch.add(thirteenthSwatch, BorderLayout.CENTER)
+                thirteenthSwatch.isVisible = false
+
+                val gridArea = JPanel(BorderLayout(GRID_GAP, 0))
+                gridArea.isOpaque = false
+                gridArea.add(thirteenthSwatch, BorderLayout.WEST)
+                gridArea.add(presetGrid, BorderLayout.CENTER)
+                contentWrapper.add(gridArea, BorderLayout.CENTER)
+            } else {
+                contentWrapper.add(presetGrid, BorderLayout.CENTER)
             }
 
-            contentWrapper.add(shuffleAndSwatch, BorderLayout.WEST)
-            contentWrapper.add(presetGrid, BorderLayout.CENTER)
             add(contentWrapper, BorderLayout.CENTER)
         } else {
             add(presetGrid, BorderLayout.CENTER)
@@ -364,18 +368,24 @@ class AccentColorPanel(
         private val breatheTimer =
             Timer(BREATHE_INTERVAL_MS) { updateBreathe() }
         private val diceIcon = DiceIcon()
+        private val shuffleLabel = ShuffleLabel()
 
         init {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             isOpaque = false
             preferredSize = Dimension(SHUFFLE_COLUMN_WIDTH, 0)
 
-            val shuffleLabel = ShuffleLabel()
+            val row = JPanel()
+            row.layout = BoxLayout(row, BoxLayout.X_AXIS)
+            row.isOpaque = false
+            row.alignmentX = CENTER_ALIGNMENT
+            row.maximumSize = Dimension(SHUFFLE_COLUMN_WIDTH, DICE_ICON_SIZE)
+            row.add(diceIcon)
+            row.add(Box.createHorizontalStrut(DICE_LABEL_GAP))
+            row.add(shuffleLabel)
 
-            add(Box.createVerticalGlue())
-            add(diceIcon)
-            add(Box.createVerticalStrut(DICE_LABEL_GAP))
-            add(shuffleLabel)
+            add(Box.createVerticalStrut(PANEL_HEIGHT + LEFT_COLUMN_GAP))
+            add(row)
             add(Box.createVerticalGlue())
 
             breatheTimer.start()
@@ -418,9 +428,9 @@ class AccentColorPanel(
 
             init {
                 cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-                alignmentX = CENTER_ALIGNMENT
-                preferredSize = Dimension(SHUFFLE_COLUMN_WIDTH, DICE_ICON_SIZE)
-                maximumSize = Dimension(SHUFFLE_COLUMN_WIDTH, DICE_ICON_SIZE)
+                alignmentY = CENTER_ALIGNMENT
+                preferredSize = Dimension(DICE_ICON_SIZE + DICE_PAD, DICE_ICON_SIZE)
+                maximumSize = Dimension(DICE_ICON_SIZE + DICE_PAD, DICE_ICON_SIZE)
                 addMouseListener(
                     object : MouseAdapter() {
                         override fun mouseClicked(event: MouseEvent) {
@@ -462,7 +472,7 @@ class AccentColorPanel(
                     g2.color = diceColor
 
                     val metrics = g2.fontMetrics
-                    val textX = (width - metrics.stringWidth(DICE_TEXT)) / 2
+                    val textX = (width - metrics.stringWidth(DICE_TEXT)) / 2 + DICE_PAD / 2
                     val textY = (height - metrics.height) / 2 + metrics.ascent
                     g2.drawString(DICE_TEXT, textX, textY)
                 } finally {
@@ -474,10 +484,11 @@ class AccentColorPanel(
         private inner class ShuffleLabel : JComponent() {
             init {
                 cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-                alignmentX = CENTER_ALIGNMENT
-                val metrics = getFontMetrics(font.deriveFont(Font.PLAIN, LINK_FONT_SIZE))
-                preferredSize = Dimension(SHUFFLE_COLUMN_WIDTH, metrics.height)
-                maximumSize = Dimension(SHUFFLE_COLUMN_WIDTH, metrics.height)
+                alignmentY = CENTER_ALIGNMENT
+                val baseFont = font ?: Font(Font.DIALOG, Font.PLAIN, LINK_FONT_SIZE.toInt())
+                val metrics = getFontMetrics(baseFont.deriveFont(Font.PLAIN, LINK_FONT_SIZE))
+                preferredSize = Dimension(metrics.stringWidth(SHUFFLE_LABEL) + 1, PANEL_HEIGHT)
+                maximumSize = Dimension(metrics.stringWidth(SHUFFLE_LABEL) + 1, PANEL_HEIGHT)
                 addMouseListener(
                     object : MouseAdapter() {
                         override fun mouseClicked(event: MouseEvent) {
@@ -499,9 +510,8 @@ class AccentColorPanel(
                     g2.font = g2.font.deriveFont(Font.PLAIN, LINK_FONT_SIZE)
 
                     val metrics = g2.fontMetrics
-                    val textX = (width - metrics.stringWidth(SHUFFLE_LABEL)) / 2
                     val textY = (height - metrics.height) / 2 + metrics.ascent
-                    g2.drawString(SHUFFLE_LABEL, textX, textY)
+                    g2.drawString(SHUFFLE_LABEL, 0, textY)
                 } finally {
                     g2.dispose()
                 }
@@ -510,6 +520,8 @@ class AccentColorPanel(
     }
 
     private inner class ThirteenthSwatch : JComponent() {
+        private var targetSwatchWidth = PANEL_HEIGHT
+
         var colorHex: String? = null
         private var slideProgress = 0f
         private val swatchGlowRenderer = GlowRenderer()
@@ -543,30 +555,30 @@ class AccentColorPanel(
             if (colorHex == null || slideProgress <= 0f) {
                 return Dimension(0, PANEL_HEIGHT)
             }
-            val targetWidth = THIRTEENTH_SWATCH_WIDTH + GRID_GAP
+            val targetWidth = targetSwatchWidth
             val animatedWidth = (targetWidth * easeOut(slideProgress)).toInt()
             return Dimension(animatedWidth, PANEL_HEIGHT)
         }
 
-        override fun getMinimumSize(): Dimension = preferredSize
+        override fun getMinimumSize(): Dimension = Dimension(0, PANEL_HEIGHT)
 
-        override fun getMaximumSize(): Dimension =
-            Dimension(
-                THIRTEENTH_SWATCH_WIDTH + GRID_GAP,
-                Short.MAX_VALUE.toInt(),
-            )
+        override fun getMaximumSize(): Dimension = Dimension(targetSwatchWidth, PANEL_HEIGHT)
 
         fun slideIn(hex: String) {
             colorHex = hex
+            targetSwatchWidth = presetPanels.firstOrNull()?.width ?: PANEL_HEIGHT
             slideProgress = 0f
             isVisible = true
+
             slideTimer.restart()
         }
 
         fun showImmediate(hex: String) {
             colorHex = hex
+            targetSwatchWidth = presetPanels.firstOrNull()?.width ?: PANEL_HEIGHT
             slideProgress = 1f
             isVisible = true
+
             slideTimer.stop()
             revalidate()
             repaint()
@@ -577,6 +589,7 @@ class AccentColorPanel(
             colorHex = null
             slideProgress = 0f
             isVisible = false
+
             revalidate()
             parent?.repaint()
         }
@@ -596,15 +609,17 @@ class AccentColorPanel(
                 val color = Color.decode(hex)
                 val borderColor = Color(BORDER_RGB)
 
-                val swatchWidth = THIRTEENTH_SWATCH_WIDTH.coerceAtMost(width)
+                val swatchWidth = targetSwatchWidth.coerceAtMost(width)
                 val swatchX = (width - swatchWidth).coerceAtLeast(0)
-                val swatchHeight = height.coerceAtMost(PANEL_HEIGHT)
+                val row2Swatch = presetPanels.getOrNull(GRID_COLUMNS)
+                val swatchY = row2Swatch?.y ?: (PANEL_HEIGHT + GRID_GAP)
+                val swatchHeight = row2Swatch?.height ?: PANEL_HEIGHT
 
                 // Hero glow
                 swatchGlowRenderer.ensureCache(color, GlowStyle.SOFT, HERO_GLOW_INTENSITY, HERO_GLOW_WIDTH)
                 swatchGlowRenderer.paintGlow(
                     g2,
-                    Rectangle(swatchX, 0, swatchWidth, swatchHeight),
+                    Rectangle(swatchX, swatchY, swatchWidth, swatchHeight),
                     HERO_GLOW_WIDTH,
                     PANEL_ARC.toInt(),
                 )
@@ -612,7 +627,7 @@ class AccentColorPanel(
                 val shape =
                     RoundRectangle2D.Float(
                         swatchX + BORDER_INSET,
-                        BORDER_INSET,
+                        swatchY + BORDER_INSET,
                         swatchWidth.toFloat() - BORDER_INSET * 2,
                         swatchHeight.toFloat() - BORDER_INSET * 2,
                         PANEL_ARC,
@@ -652,7 +667,7 @@ class AccentColorPanel(
         private const val PANEL_ARC = 8f
         private const val GRID_GAP = 2
         private const val LEFT_COLUMN_GAP = 4
-        private const val COLUMN_GAP = 16
+        private const val COLUMN_GAP = 6
         private const val LEFT_COLUMN_WIDTH = 120
         private const val GRID_ROWS = 3
         private const val GRID_COLUMNS = 4
@@ -668,16 +683,17 @@ class AccentColorPanel(
 
         private const val BREATHE_INTERVAL_MS = 50
         private const val BREATHE_STEP = 0.05
-        private const val BREATHE_MIN_ALPHA = 0.4f
-        private const val BREATHE_RANGE = 0.6f
+        private const val BREATHE_MIN_ALPHA = 0.7f
+        private const val BREATHE_RANGE = 0.3f
         private const val SHUFFLE_LABEL = "Shuffle"
         private const val DEFAULT_ACCENT_HEX = "#73D0FF"
         private const val DEFAULT_ACCENT_RGB = 0x73D0FF
 
-        private const val SHUFFLE_COLUMN_GAP = 12
-        private const val SHUFFLE_COLUMN_WIDTH = 56
+        private const val SHUFFLE_COLUMN_GAP = 4
+        private const val SHUFFLE_COLUMN_WIDTH = 80
         private const val DICE_FONT_SIZE = 20
-        private const val DICE_ICON_SIZE = 24
+        private const val DICE_ICON_SIZE = 28
+        private const val DICE_PAD = 6
         private const val DICE_LABEL_GAP = 2
         private const val DICE_TEXT = "\uD83C\uDFB2"
 
@@ -687,7 +703,6 @@ class AccentColorPanel(
         private const val BOUNCE_TOTAL_FRAMES = 25
         private const val BOUNCE_DECAY_RATE = 4.0
         private const val BOUNCE_OSCILLATIONS = 3.0
-        private const val THIRTEENTH_SWATCH_WIDTH = 32
 
         private fun easeOut(t: Float): Float {
             val complement = 1f - t
