@@ -89,10 +89,6 @@ class AccentColorPanel(
     private val thirteenthSwatch: ThirteenthSwatch?
     private val presetGrid: JPanel
 
-    /** Hex color currently shown in the 13th swatch, or null if hidden. */
-    val thirteenthSwatchColor: String?
-        get() = thirteenthSwatch?.colorHex
-
     init {
         isOpaque = false
 
@@ -135,10 +131,6 @@ class AccentColorPanel(
         } else {
             add(presetGrid, BorderLayout.CENTER)
         }
-    }
-
-    fun triggerBounce() {
-        shuffleLink?.triggerBounce()
     }
 
     fun showThirteenthSwatch(hex: String) {
