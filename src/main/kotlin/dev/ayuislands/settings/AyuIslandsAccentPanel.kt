@@ -150,79 +150,74 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                     "Automatically change your accent color on a schedule.",
                 )
             }
-            lateinit var rotationCheckboxCell: Cell<JBCheckBox>
-            row {
-                rotationCheckboxCell =
-                    checkBox("Enable accent rotation")
-                val checkbox = rotationCheckboxCell.component
-                checkbox.isSelected = pendingRotationEnabled
-                checkbox.isEnabled =
-                    LicenseChecker.isLicensedOrGrace()
-                checkbox.addActionListener {
-                    pendingRotationEnabled = checkbox.isSelected
-                    if (pendingRotationEnabled &&
-                        pendingFollowSystem
-                    ) {
-                        pendingFollowSystem = false
-                        followSystemCheckbox?.isSelected = false
-                        updatePanelEnabled()
-                    }
-                }
-                rotationEnabledCheckbox = checkbox
-                if (!LicenseChecker.isLicensedOrGrace()) {
-                    comment("Pro feature")
+            val rotationCheckboxCell = buildRotationEnableRow()
+            buildRotationModeRow(rotationCheckboxCell)
+            buildRotationIntervalRow(rotationCheckboxCell)
+        }
+    }
+
+    private fun Panel.buildRotationEnableRow(): Cell<JBCheckBox> {
+        lateinit var cell: Cell<JBCheckBox>
+        row {
+            cell = checkBox("Enable accent rotation")
+            val checkbox = cell.component
+            checkbox.isSelected = pendingRotationEnabled
+            checkbox.isEnabled =
+                LicenseChecker.isLicensedOrGrace()
+            checkbox.addActionListener {
+                pendingRotationEnabled = checkbox.isSelected
+                if (pendingRotationEnabled && pendingFollowSystem) {
+                    pendingFollowSystem = false
+                    followSystemCheckbox?.isSelected = false
+                    updatePanelEnabled()
                 }
             }
-            row {
-                label("Mode:")
-                val modeCombo =
-                    comboBox(
-                        listOf("Preset cycle", "Random color"),
-                    ).component
-                modeCombo.selectedIndex =
-                    if (pendingRotationMode ==
-                        AccentRotationMode.RANDOM.name
-                    ) {
-                        1
-                    } else {
-                        0
-                    }
-                modeCombo.addActionListener {
-                    pendingRotationMode =
-                        if (modeCombo.selectedIndex == 1) {
-                            AccentRotationMode.RANDOM.name
-                        } else {
-                            AccentRotationMode.PRESET.name
-                        }
-                }
-            }.visibleIf(rotationCheckboxCell.selected)
-            row {
-                label("Interval:")
-                val intervalCombo =
-                    comboBox(
-                        listOf(
-                            "1 hour",
-                            "3 hours",
-                            "6 hours",
-                            "12 hours",
-                            "24 hours",
-                        ),
-                    ).component
-                intervalCombo.selectedIndex =
-                    INTERVAL_VALUES
-                        .indexOf(pendingRotationInterval)
-                        .coerceAtLeast(0)
-                intervalCombo.addActionListener {
-                    pendingRotationInterval =
-                        INTERVAL_VALUES.getOrElse(
-                            intervalCombo.selectedIndex,
-                        ) {
-                            AyuIslandsState
-                                .DEFAULT_ROTATION_INTERVAL_HOURS
-                        }
-                }
-            }.visibleIf(rotationCheckboxCell.selected)
+            rotationEnabledCheckbox = checkbox
+            if (!LicenseChecker.isLicensedOrGrace()) {
+                comment("Pro feature")
+            }
         }
+        return cell
+    }
+
+    private fun Panel.buildRotationModeRow(rotationCheckboxCell: Cell<JBCheckBox>) {
+        row {
+            label("Mode:")
+            val modeCombo =
+                comboBox(
+                    listOf("Preset cycle", "Random color"),
+                ).component
+            modeCombo.selectedIndex =
+                if (pendingRotationMode == AccentRotationMode.RANDOM.name) 1 else 0
+            modeCombo.addActionListener {
+                pendingRotationMode =
+                    if (modeCombo.selectedIndex == 1) {
+                        AccentRotationMode.RANDOM.name
+                    } else {
+                        AccentRotationMode.PRESET.name
+                    }
+            }
+        }.visibleIf(rotationCheckboxCell.selected)
+    }
+
+    private fun Panel.buildRotationIntervalRow(rotationCheckboxCell: Cell<JBCheckBox>) {
+        row {
+            label("Interval:")
+            val intervalCombo =
+                comboBox(
+                    listOf("1 hour", "3 hours", "6 hours", "12 hours", "24 hours"),
+                ).component
+            intervalCombo.selectedIndex =
+                INTERVAL_VALUES
+                    .indexOf(pendingRotationInterval)
+                    .coerceAtLeast(0)
+            intervalCombo.addActionListener {
+                pendingRotationInterval =
+                    INTERVAL_VALUES.getOrElse(intervalCombo.selectedIndex) {
+                        AyuIslandsState.DEFAULT_ROTATION_INTERVAL_HOURS
+                    }
+            }
+        }.visibleIf(rotationCheckboxCell.selected)
     }
 
     private fun handleCustomTrigger() {

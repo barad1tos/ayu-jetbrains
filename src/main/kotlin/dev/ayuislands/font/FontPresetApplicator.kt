@@ -1,7 +1,6 @@
 package dev.ayuislands.font
 
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.ModifiableFontPreferences
@@ -16,7 +15,7 @@ object FontPresetApplicator {
     private const val DEFAULT_FONT_SIZE = 13f
     private const val DEFAULT_LINE_SPACING = 1.2f
 
-    /** Resolve and apply the font preset from persisted settings state. */
+    /** Resolve and apply the font preset from the persisted settings state. */
     fun applyFromState() {
         val state = AyuIslandsSettings.getInstance().state
         if (!state.fontPresetEnabled) return
@@ -57,13 +56,11 @@ object FontPresetApplicator {
                 scheme.consoleLineSpacing = settings.lineSpacing
             }
 
-            ReadAction.run<Nothing> {
-                ApplicationManager
-                    .getApplication()
-                    .messageBus
-                    .syncPublisher(EditorColorsManager.TOPIC)
-                    .globalSchemeChange(null)
-            }
+            ApplicationManager
+                .getApplication()
+                .messageBus
+                .syncPublisher(EditorColorsManager.TOPIC)
+                .globalSchemeChange(null)
             LOG.info(
                 "Font preset applied: ${settings.preset.displayName} " +
                     "($resolvedFamily, subFamily=$subFamily, " +
@@ -91,13 +88,11 @@ object FontPresetApplicator {
             scheme.setConsoleFontSize(DEFAULT_FONT_SIZE)
             scheme.consoleLineSpacing = DEFAULT_LINE_SPACING
 
-            ReadAction.run<Nothing> {
-                ApplicationManager
-                    .getApplication()
-                    .messageBus
-                    .syncPublisher(EditorColorsManager.TOPIC)
-                    .globalSchemeChange(null)
-            }
+            ApplicationManager
+                .getApplication()
+                .messageBus
+                .syncPublisher(EditorColorsManager.TOPIC)
+                .globalSchemeChange(null)
             LOG.info("Font preset reverted to defaults")
         }
     }

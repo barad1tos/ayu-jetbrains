@@ -26,7 +26,7 @@ import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.Timer
-import javax.swing.UIManager
+import kotlin.math.sin
 
 /**
  * Accent color selection panel with two visual groups: action links (left) + preset grid (right).
@@ -38,7 +38,7 @@ import javax.swing.UIManager
  * ```
  *
  * Left column shows the shade name in accent color (row 1) and action links (row 2).
- * Right side is the 2×6 preset color grid.
+ * The right side is the 2×6 preset color grid.
  */
 class AccentColorPanel(
     presets: List<AccentColor>,
@@ -69,7 +69,7 @@ class AccentColorPanel(
             repaint()
         }
 
-    /** Whether hero glow is active (only during preset rotation mode). */
+    /** Whether the hero glow is active (only during preset rotation mode). */
     var heroGlowActive: Boolean = false
         set(value) {
             field = value
@@ -349,7 +349,7 @@ class AccentColorPanel(
         private fun updateBreathe() {
             breathePhase += BREATHE_STEP
             val sinNormalized =
-                (Math.sin(breathePhase).toFloat() + 1f) / 2f
+                (sin(breathePhase).toFloat() + 1f) / 2f
             glowAlpha = BREATHE_MIN_ALPHA + BREATHE_RANGE * sinNormalized
             repaint()
         }
