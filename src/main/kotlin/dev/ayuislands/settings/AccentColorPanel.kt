@@ -26,6 +26,7 @@ import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.Timer
+import javax.swing.UIManager
 import kotlin.math.sin
 
 /**

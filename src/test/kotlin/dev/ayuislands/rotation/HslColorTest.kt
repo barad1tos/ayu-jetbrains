@@ -57,7 +57,7 @@ class HslColorTest {
 
     @Test
     fun `fromColor round-trips grey`() {
-        val (hue, saturation, lightness) = HslColor.fromColor(Color(128, 128, 128))
+        val (_, saturation, lightness) = HslColor.fromColor(Color(128, 128, 128))
         assertEquals(0f, saturation, 0.01f)
         assertEquals(0.5f, lightness, 0.02f)
     }
