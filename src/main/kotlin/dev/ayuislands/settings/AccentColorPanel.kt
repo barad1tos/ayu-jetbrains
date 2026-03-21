@@ -429,8 +429,8 @@ class AccentColorPanel(
             init {
                 cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
                 alignmentY = CENTER_ALIGNMENT
-                preferredSize = Dimension(DICE_ICON_SIZE + DICE_PAD, DICE_ICON_SIZE)
-                maximumSize = Dimension(DICE_ICON_SIZE + DICE_PAD, DICE_ICON_SIZE)
+                preferredSize = Dimension(DICE_ICON_SIZE, DICE_ICON_SIZE)
+                maximumSize = Dimension(DICE_ICON_SIZE, DICE_ICON_SIZE)
                 addMouseListener(
                     object : MouseAdapter() {
                         override fun mouseClicked(event: MouseEvent) {
@@ -471,10 +471,11 @@ class AccentColorPanel(
                     g2.font = Font(Font.DIALOG, Font.PLAIN, DICE_FONT_SIZE)
                     g2.color = diceColor
 
-                    val metrics = g2.fontMetrics
-                    val textX = (width - metrics.stringWidth(DICE_TEXT)) / 2 + DICE_PAD / 2
-                    val textY = (height - metrics.height) / 2 + metrics.ascent
-                    g2.drawString(DICE_TEXT, textX, textY)
+                    val gv = g2.font.createGlyphVector(g2.fontRenderContext, DICE_TEXT)
+                    val vb = gv.visualBounds
+                    val textX = ((width - vb.width) / 2.0 - vb.x).toFloat()
+                    val textY = ((height - vb.height) / 2.0 - vb.y).toFloat()
+                    g2.drawGlyphVector(gv, textX, textY)
                 } finally {
                     g2.dispose()
                 }
@@ -520,7 +521,11 @@ class AccentColorPanel(
     }
 
     private inner class ThirteenthSwatch : JComponent() {
-        private var targetSwatchWidth = PANEL_HEIGHT
+        private fun computeEqualSwatchWidth(): Int {
+            val gridAreaWidth = presetGrid.parent?.width ?: return PANEL_HEIGHT
+            if (gridAreaWidth <= 0) return PANEL_HEIGHT
+            return (gridAreaWidth - GRID_COLUMNS * GRID_GAP) / (GRID_COLUMNS + 1)
+        }
 
         var colorHex: String? = null
         private var slideProgress = 0f
@@ -555,18 +560,18 @@ class AccentColorPanel(
             if (colorHex == null || slideProgress <= 0f) {
                 return Dimension(0, PANEL_HEIGHT)
             }
-            val targetWidth = targetSwatchWidth
+            val targetWidth = computeEqualSwatchWidth()
             val animatedWidth = (targetWidth * easeOut(slideProgress)).toInt()
             return Dimension(animatedWidth, PANEL_HEIGHT)
         }
 
         override fun getMinimumSize(): Dimension = Dimension(0, PANEL_HEIGHT)
 
-        override fun getMaximumSize(): Dimension = Dimension(targetSwatchWidth, PANEL_HEIGHT)
+        override fun getMaximumSize(): Dimension = Dimension(computeEqualSwatchWidth(), PANEL_HEIGHT)
 
         fun slideIn(hex: String) {
             colorHex = hex
-            targetSwatchWidth = presetPanels.firstOrNull()?.width ?: PANEL_HEIGHT
+
             slideProgress = 0f
             isVisible = true
 
@@ -575,7 +580,7 @@ class AccentColorPanel(
 
         fun showImmediate(hex: String) {
             colorHex = hex
-            targetSwatchWidth = presetPanels.firstOrNull()?.width ?: PANEL_HEIGHT
+
             slideProgress = 1f
             isVisible = true
 
@@ -609,7 +614,7 @@ class AccentColorPanel(
                 val color = Color.decode(hex)
                 val borderColor = Color(BORDER_RGB)
 
-                val swatchWidth = targetSwatchWidth.coerceAtMost(width)
+                val swatchWidth = computeEqualSwatchWidth().coerceAtMost(width)
                 val swatchX = (width - swatchWidth).coerceAtLeast(0)
                 val row2Swatch = presetPanels.getOrNull(GRID_COLUMNS)
                 val swatchY = row2Swatch?.y ?: (PANEL_HEIGHT + GRID_GAP)
@@ -692,8 +697,7 @@ class AccentColorPanel(
         private const val SHUFFLE_COLUMN_GAP = 4
         private const val SHUFFLE_COLUMN_WIDTH = 80
         private const val DICE_FONT_SIZE = 20
-        private const val DICE_ICON_SIZE = 28
-        private const val DICE_PAD = 6
+        private const val DICE_ICON_SIZE = 34
         private const val DICE_LABEL_GAP = 2
         private const val DICE_TEXT = "\uD83C\uDFB2"
 
