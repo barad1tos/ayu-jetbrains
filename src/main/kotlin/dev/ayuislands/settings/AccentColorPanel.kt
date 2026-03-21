@@ -11,7 +11,6 @@ import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Cursor
 import java.awt.Dimension
-import java.awt.FlowLayout
 import java.awt.Font
 import java.awt.Graphics
 import java.awt.Graphics2D
@@ -30,16 +29,18 @@ import javax.swing.UIManager
 import kotlin.math.sin
 
 /**
- * Accent color selection panel with two visual groups: action links (left) + preset grid (right).
+ * Accent color selection panel with three visual columns: links (left), shuffle (center), preset grid (right).
  *
  * Layout:
  * ```
- *   Lavender              [█][█][█][█][█][█]
- *   Custom…    Reset      [█][█][█][█][█][█]
+ *   Lavender                    [swatch][swatch][swatch][swatch]
+ *   Custom     🎲 Shuffle       [swatch][swatch][swatch][swatch]
+ *   Reset                       [swatch][swatch][swatch][swatch]
  * ```
  *
- * Left column shows the shade name in accent color (row 1) and action links (row 2).
- * The right side is the 2×6 preset color grid.
+ * Left column stacks vertically: shade name (row 1), Custom link (row 2), Reset link (row 3).
+ * Shuffle column contains a dice icon and "Shuffle" text, both clickable.
+ * The right side is the 4x3 preset color grid.
  */
 class AccentColorPanel(
     presets: List<AccentColor>,
@@ -81,7 +82,7 @@ class AccentColorPanel(
     private val shadeNameLabel: ShadeNameLabel
     private val customLink: CustomLink
     private val resetLabel: ResetLabel
-    private val shuffleButton: ShuffleButton?
+    private val shuffleColumn: ShuffleColumn?
     private val presetGrid: JPanel
 
     init {
@@ -91,8 +92,8 @@ class AccentColorPanel(
         shadeNameLabel = ShadeNameLabel()
         customLink = CustomLink()
         resetLabel = ResetLabel()
-        shuffleButton =
-            if (onShuffleTrigger != null) ShuffleButton() else null
+        shuffleColumn =
+            if (onShuffleTrigger != null) ShuffleColumn() else null
 
         presetGrid = JPanel(GridLayout(GRID_ROWS, GRID_COLUMNS, GRID_GAP, GRID_GAP))
         presetGrid.isOpaque = false
@@ -100,25 +101,26 @@ class AccentColorPanel(
             presetGrid.add(panel)
         }
 
-        val linksRow = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0))
-        linksRow.isOpaque = false
-        linksRow.add(customLink)
-        linksRow.add(Box.createHorizontalStrut(LINKS_GAP))
-        linksRow.add(resetLabel)
-        if (shuffleButton != null) {
-            linksRow.add(Box.createHorizontalStrut(LINKS_GAP))
-            linksRow.add(shuffleButton)
-        }
-
         val leftColumn = JPanel()
         leftColumn.layout = BoxLayout(leftColumn, BoxLayout.Y_AXIS)
         leftColumn.isOpaque = false
         leftColumn.add(shadeNameLabel)
         leftColumn.add(Box.createVerticalStrut(LEFT_COLUMN_GAP))
-        leftColumn.add(linksRow)
+        leftColumn.add(customLink)
+        leftColumn.add(Box.createVerticalStrut(LEFT_COLUMN_GAP))
+        leftColumn.add(resetLabel)
 
         add(leftColumn, BorderLayout.WEST)
-        add(presetGrid, BorderLayout.CENTER)
+
+        if (shuffleColumn != null) {
+            val contentWrapper = JPanel(BorderLayout(SHUFFLE_COLUMN_GAP, 0))
+            contentWrapper.isOpaque = false
+            contentWrapper.add(shuffleColumn, BorderLayout.WEST)
+            contentWrapper.add(presetGrid, BorderLayout.CENTER)
+            add(contentWrapper, BorderLayout.CENTER)
+        } else {
+            add(presetGrid, BorderLayout.CENTER)
+        }
     }
 
     private fun getSelectedAccentHex(): String? = selectedPreset ?: customColor
@@ -323,27 +325,30 @@ class AccentColorPanel(
         }
     }
 
-    private inner class CustomLink : LinkLabel("Custom\u2026", onCustomTrigger)
+    private inner class CustomLink : LinkLabel("Custom", onCustomTrigger)
 
     private inner class ResetLabel : LinkLabel("Reset", onReset)
 
-    private inner class ShuffleButton : JComponent() {
+    private inner class ShuffleColumn : JComponent() {
         private var glowAlpha = BREATHE_MIN_ALPHA
         private var breathePhase = 0.0
         private val breatheTimer =
             Timer(BREATHE_INTERVAL_MS) { updateBreathe() }
 
         init {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
             isOpaque = false
-            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            addMouseListener(
-                object : MouseAdapter() {
-                    override fun mouseClicked(event: MouseEvent) {
-                        if (!isEnabled) return
-                        onShuffleTrigger?.invoke()
-                    }
-                },
-            )
+            preferredSize = Dimension(SHUFFLE_COLUMN_WIDTH, 0)
+
+            val diceLabel = DiceIcon()
+            val shuffleLabel = ShuffleLabel()
+
+            add(Box.createVerticalGlue())
+            add(diceLabel)
+            add(Box.createVerticalStrut(DICE_LABEL_GAP))
+            add(shuffleLabel)
+            add(Box.createVerticalGlue())
+
             breatheTimer.start()
         }
 
@@ -355,72 +360,94 @@ class AccentColorPanel(
             repaint()
         }
 
-        override fun getPreferredSize(): Dimension {
-            val metrics =
-                getFontMetrics(
-                    font.deriveFont(Font.PLAIN, LINK_FONT_SIZE),
-                )
-            return Dimension(
-                metrics.stringWidth(SHUFFLE_LABEL) + SHUFFLE_DOT_TOTAL_WIDTH,
-                PANEL_HEIGHT,
-            )
+        fun dispose() {
+            breatheTimer.stop()
         }
 
-        override fun paintComponent(graphics: Graphics) {
-            val g2 = graphics.create() as Graphics2D
-            try {
-                g2.setRenderingHint(
-                    RenderingHints.KEY_ANTIALIASING,
-                    RenderingHints.VALUE_ANTIALIAS_ON,
+        private inner class DiceIcon : JComponent() {
+            init {
+                cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                alignmentX = CENTER_ALIGNMENT
+                preferredSize = Dimension(SHUFFLE_COLUMN_WIDTH, DICE_ICON_SIZE)
+                maximumSize = Dimension(SHUFFLE_COLUMN_WIDTH, DICE_ICON_SIZE)
+                addMouseListener(
+                    object : MouseAdapter() {
+                        override fun mouseClicked(event: MouseEvent) {
+                            if (!isEnabled) return
+                            onShuffleTrigger?.invoke()
+                        }
+                    },
                 )
-                g2.setRenderingHint(
-                    RenderingHints.KEY_TEXT_ANTIALIASING,
-                    RenderingHints.VALUE_TEXT_ANTIALIAS_ON,
-                )
+            }
 
-                val accentHex =
-                    selectedPreset ?: heroGlowHex ?: DEFAULT_ACCENT_HEX
-                val dotColor =
-                    try {
-                        Color.decode(accentHex)
-                    } catch (_: NumberFormatException) {
-                        Color(DEFAULT_ACCENT_RGB)
-                    }
+            override fun paintComponent(graphics: Graphics) {
+                val g2 = graphics.create() as Graphics2D
+                try {
+                    g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
 
-                g2.composite =
-                    AlphaComposite.SrcOver.derive(glowAlpha)
-                val dotY = (height - SHUFFLE_DOT_SIZE) / 2
-                g2.color = dotColor
-                g2.fillOval(0, dotY, SHUFFLE_DOT_SIZE, SHUFFLE_DOT_SIZE)
+                    val accentHex =
+                        selectedPreset ?: heroGlowHex ?: DEFAULT_ACCENT_HEX
+                    val diceColor =
+                        try {
+                            Color.decode(accentHex)
+                        } catch (_: NumberFormatException) {
+                            Color(DEFAULT_ACCENT_RGB)
+                        }
 
-                g2.composite =
-                    AlphaComposite.SrcOver.derive(1f)
-                val linkColor =
-                    JBUI.CurrentTheme.Link.Foreground.ENABLED
-                g2.color = linkColor
-                g2.font =
-                    g2.font.deriveFont(Font.PLAIN, LINK_FONT_SIZE)
-                val metrics = g2.fontMetrics
-                val textY =
-                    (height - metrics.height) / 2 + metrics.ascent
-                g2.drawString(
-                    SHUFFLE_LABEL,
-                    SHUFFLE_DOT_TOTAL_WIDTH,
-                    textY,
-                )
-            } finally {
-                g2.dispose()
+                    g2.composite = AlphaComposite.SrcOver.derive(glowAlpha)
+                    g2.font = Font(Font.DIALOG, Font.PLAIN, DICE_FONT_SIZE)
+                    g2.color = diceColor
+
+                    val metrics = g2.fontMetrics
+                    val textX = (width - metrics.stringWidth(DICE_TEXT)) / 2
+                    val textY = (height - metrics.height) / 2 + metrics.ascent
+                    g2.drawString(DICE_TEXT, textX, textY)
+                } finally {
+                    g2.dispose()
+                }
             }
         }
 
-        fun dispose() {
-            breatheTimer.stop()
+        private inner class ShuffleLabel : JComponent() {
+            init {
+                cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                alignmentX = CENTER_ALIGNMENT
+                val metrics = getFontMetrics(font.deriveFont(Font.PLAIN, LINK_FONT_SIZE))
+                preferredSize = Dimension(SHUFFLE_COLUMN_WIDTH, metrics.height)
+                maximumSize = Dimension(SHUFFLE_COLUMN_WIDTH, metrics.height)
+                addMouseListener(
+                    object : MouseAdapter() {
+                        override fun mouseClicked(event: MouseEvent) {
+                            if (!isEnabled) return
+                            onShuffleTrigger?.invoke()
+                        }
+                    },
+                )
+            }
+
+            override fun paintComponent(graphics: Graphics) {
+                val g2 = graphics.create() as Graphics2D
+                try {
+                    g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
+
+                    val linkColor = JBUI.CurrentTheme.Link.Foreground.ENABLED
+                    g2.color = linkColor
+                    g2.font = g2.font.deriveFont(Font.PLAIN, LINK_FONT_SIZE)
+
+                    val metrics = g2.fontMetrics
+                    val textX = (width - metrics.stringWidth(SHUFFLE_LABEL)) / 2
+                    val textY = (height - metrics.height) / 2 + metrics.ascent
+                    g2.drawString(SHUFFLE_LABEL, textX, textY)
+                } finally {
+                    g2.dispose()
+                }
+            }
         }
     }
 
     override fun removeNotify() {
         super.removeNotify()
-        shuffleButton?.dispose()
+        shuffleColumn?.dispose()
     }
 
     private fun paintDisabledOverlay(
@@ -438,11 +465,10 @@ class AccentColorPanel(
         private const val PANEL_ARC = 8f
         private const val GRID_GAP = 2
         private const val LEFT_COLUMN_GAP = 4
-        private const val LINKS_GAP = 12
         private const val COLUMN_GAP = 16
         private const val LEFT_COLUMN_WIDTH = 120
-        private const val GRID_ROWS = 2
-        private const val GRID_COLUMNS = 6
+        private const val GRID_ROWS = 3
+        private const val GRID_COLUMNS = 4
         private const val SPECIMEN_FONT_SIZE = 15
         private const val BORDER_RGB = 0x4E5A6E
         private const val BORDER_INSET = 0.5f
@@ -457,12 +483,15 @@ class AccentColorPanel(
         private const val BREATHE_STEP = 0.05
         private const val BREATHE_MIN_ALPHA = 0.4f
         private const val BREATHE_RANGE = 0.6f
-        private const val SHUFFLE_DOT_SIZE = 8
-        private const val SHUFFLE_DOT_GAP = 4
-        private const val SHUFFLE_DOT_TOTAL_WIDTH =
-            SHUFFLE_DOT_SIZE + SHUFFLE_DOT_GAP
         private const val SHUFFLE_LABEL = "Shuffle"
         private const val DEFAULT_ACCENT_HEX = "#73D0FF"
         private const val DEFAULT_ACCENT_RGB = 0x73D0FF
+
+        private const val SHUFFLE_COLUMN_GAP = 12
+        private const val SHUFFLE_COLUMN_WIDTH = 56
+        private const val DICE_FONT_SIZE = 20
+        private const val DICE_ICON_SIZE = 24
+        private const val DICE_LABEL_GAP = 2
+        private const val DICE_TEXT = "\uD83C\uDFB2"
     }
 }

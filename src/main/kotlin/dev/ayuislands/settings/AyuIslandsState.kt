@@ -145,6 +145,9 @@ class AyuIslandsState : BaseState() {
     var accentRotationLastSwitchMs by property(0L)
     var accentRotationPresetIndex by property(0)
 
+    // Last shuffle random color (13th swatch persistence)
+    var lastShuffleColor by string(null)
+
     // Update notification (shown once per version upgrade)
     var lastSeenVersion by string(null)
 
