@@ -41,20 +41,34 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         panel: Panel,
         variant: AyuVariant,
     ) {
+        initializeState(variant)
+        val colorPanel = createAccentColorPanel()
+        applyInitialSelection(colorPanel, storedAccent)
+        updateHeroGlow()
+        panel.buildAccentColorGroup(colorPanel)
+        panel.buildAccentRotationGroup()
+        updatePanelEnabled()
+    }
+
+    private fun initializeState(variant: AyuVariant) {
         this.variant = variant
         val settings = AyuIslandsSettings.getInstance()
         storedAccent = settings.getAccentForVariant(variant)
         pendingAccent = storedAccent
         storedFollowSystem = settings.state.followSystemAccent
         pendingFollowSystem = storedFollowSystem
-
         storedRotationEnabled = settings.state.accentRotationEnabled
         pendingRotationEnabled = storedRotationEnabled
-        storedRotationMode = settings.state.accentRotationMode ?: AccentRotationMode.PRESET.name
+        storedRotationMode =
+            settings.state.accentRotationMode
+                ?: AccentRotationMode.PRESET.name
         pendingRotationMode = storedRotationMode
-        storedRotationInterval = settings.state.accentRotationIntervalHours
+        storedRotationInterval =
+            settings.state.accentRotationIntervalHours
         pendingRotationInterval = storedRotationInterval
+    }
 
+    private fun createAccentColorPanel(): AccentColorPanel {
         val colorPanel =
             AccentColorPanel(
                 presets = AYU_ACCENT_PRESETS,
@@ -80,11 +94,11 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                 },
             )
         accentPanel = colorPanel
+        return colorPanel
+    }
 
-        applyInitialSelection(colorPanel, storedAccent)
-        updateHeroGlow()
-
-        panel.group("Accent Color") {
+    private fun Panel.buildAccentColorGroup(colorPanel: AccentColorPanel) {
+        group("Accent Color") {
             row {
                 comment("Choose your accent color. Swatches are shared across all variants.")
             }
@@ -107,9 +121,18 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                                 onAccentChanged?.invoke(hex)
                             }
                         } else {
-                            val manualAccent = getManualAccent(variant, settings)
+                            val settings =
+                                AyuIslandsSettings.getInstance()
+                            val manualAccent =
+                                getManualAccent(
+                                    variant ?: return@addActionListener,
+                                    settings,
+                                )
                             pendingAccent = manualAccent
-                            applyInitialSelection(colorPanel, manualAccent)
+                            applyInitialSelection(
+                                colorPanel,
+                                manualAccent,
+                            )
                             onAccentChanged?.invoke(manualAccent)
                         }
                     }
@@ -118,19 +141,28 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
             }
             row { cell(colorPanel).resizableColumn().align(Align.FILL) }
         }
+    }
 
-        panel.group("Accent Rotation") {
-            row { comment("Automatically change your accent color on a schedule.") }
+    private fun Panel.buildAccentRotationGroup() {
+        group("Accent Rotation") {
+            row {
+                comment(
+                    "Automatically change your accent color on a schedule.",
+                )
+            }
             lateinit var rotationCheckboxCell: Cell<JBCheckBox>
             row {
                 rotationCheckboxCell =
                     checkBox("Enable accent rotation")
                 val checkbox = rotationCheckboxCell.component
                 checkbox.isSelected = pendingRotationEnabled
-                checkbox.isEnabled = LicenseChecker.isLicensedOrGrace()
+                checkbox.isEnabled =
+                    LicenseChecker.isLicensedOrGrace()
                 checkbox.addActionListener {
                     pendingRotationEnabled = checkbox.isSelected
-                    if (pendingRotationEnabled && pendingFollowSystem) {
+                    if (pendingRotationEnabled &&
+                        pendingFollowSystem
+                    ) {
                         pendingFollowSystem = false
                         followSystemCheckbox?.isSelected = false
                         updatePanelEnabled()
@@ -144,10 +176,17 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
             row {
                 label("Mode:")
                 val modeCombo =
-                    comboBox(listOf("Preset cycle", "Random color"))
-                        .component
+                    comboBox(
+                        listOf("Preset cycle", "Random color"),
+                    ).component
                 modeCombo.selectedIndex =
-                    if (pendingRotationMode == AccentRotationMode.RANDOM.name) 1 else 0
+                    if (pendingRotationMode ==
+                        AccentRotationMode.RANDOM.name
+                    ) {
+                        1
+                    } else {
+                        0
+                    }
                 modeCombo.addActionListener {
                     pendingRotationMode =
                         if (modeCombo.selectedIndex == 1) {
@@ -177,12 +216,13 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                     pendingRotationInterval =
                         INTERVAL_VALUES.getOrElse(
                             intervalCombo.selectedIndex,
-                        ) { AyuIslandsState.DEFAULT_ROTATION_INTERVAL_HOURS }
+                        ) {
+                            AyuIslandsState
+                                .DEFAULT_ROTATION_INTERVAL_HOURS
+                        }
                 }
             }.visibleIf(rotationCheckboxCell.selected)
         }
-
-        updatePanelEnabled()
     }
 
     private fun handleCustomTrigger() {
