@@ -3,7 +3,7 @@ import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 buildscript {
     repositories { mavenCentral() }
     dependencies {
-        classpath("com.guardsquare:proguard-gradle:7.8.2")
+        classpath("com.guardsquare:proguard-gradle:7.9.0")
     }
 }
 
