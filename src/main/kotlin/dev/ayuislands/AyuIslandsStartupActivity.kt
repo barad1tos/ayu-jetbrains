@@ -60,8 +60,7 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
             if (settings.state.accentRotationEnabled && LicenseChecker.isLicensedOrGrace()) {
                 val rotationService = AccentRotationService.getInstance()
                 val lastSwitch = settings.state.accentRotationLastSwitchMs
-                val msPerHour = 3_600_000L
-                val intervalMs = settings.state.accentRotationIntervalHours * msPerHour
+                val intervalMs = settings.state.accentRotationIntervalHours * MS_PER_HOUR
                 val elapsed = System.currentTimeMillis() - lastSwitch
                 if (lastSwitch == 0L || elapsed >= intervalMs) {
                     rotationService.rotateNow()
@@ -122,5 +121,6 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
 
     companion object {
         private val LOG = logger<AyuIslandsStartupActivity>()
+        private const val MS_PER_HOUR = 3_600_000L
     }
 }
