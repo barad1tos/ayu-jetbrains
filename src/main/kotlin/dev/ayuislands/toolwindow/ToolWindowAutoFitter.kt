@@ -86,7 +86,6 @@ class ToolWindowAutoFitter(
     ) {
         val currentWidth = toolWindow.component.width
         if (AutoFitCalculator.isJitterOnly(currentWidth, desiredWidth)) return
-        if (isSharingSidebar()) return
         val delta = desiredWidth - currentWidth
 
         when (toolWindow.type) {
@@ -95,23 +94,6 @@ class ToolWindowAutoFitter(
                 window.setSize(desiredWidth, window.height)
             }
             else -> toolWindow.stretchWidth(delta)
-        }
-    }
-
-    private fun isSharingSidebar(): Boolean {
-        val manager = ToolWindowManager.getInstance(project)
-        val ourWindow = manager.getToolWindow(toolWindowId) ?: return false
-        if (!ourWindow.isVisible) return false
-        val ourAnchor = ourWindow.anchor
-
-        return manager.toolWindowIdSet.any { id ->
-            id != toolWindowId &&
-                manager.getToolWindow(id)?.let { other ->
-                    other.isVisible &&
-                        other.anchor == ourAnchor &&
-                        other.type == ToolWindowType.DOCKED ||
-                        other.type == ToolWindowType.SLIDING
-                } == true
         }
     }
 

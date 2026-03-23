@@ -215,10 +215,6 @@
         <applicationService
                 serviceImplementation="dev.ayuislands.AppearanceSyncService"/>
 
-        <!-- Accent rotation service (timer-based accent switching) -->
-        <applicationService
-                serviceImplementation="dev.ayuislands.rotation.AccentRotationService"/>
-
         <!-- Glow overlay manager (per-project lifecycle) -->
         <projectService
                 serviceImplementation="dev.ayuislands.glow.GlowOverlayManager"/>

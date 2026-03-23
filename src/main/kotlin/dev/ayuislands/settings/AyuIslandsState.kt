@@ -6,7 +6,6 @@ import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.indent.IndentPreset
-import dev.ayuislands.rotation.AccentRotationMode
 
 enum class PanelWidthMode {
     DEFAULT,
@@ -138,16 +137,6 @@ class AyuIslandsState : BaseState() {
     // Per-preset custom settings: key = preset name, value = "size|spacing|ligatures|weight"
     var fontPresetCustomizations by map<String, String>()
 
-    // Accent rotation
-    var accentRotationEnabled by property(false)
-    var accentRotationMode by string(AccentRotationMode.PRESET.name)
-    var accentRotationIntervalHours by property(DEFAULT_ROTATION_INTERVAL_HOURS)
-    var accentRotationLastSwitchMs by property(0L)
-    var accentRotationPresetIndex by property(0)
-
-    // Last shuffle random color (13th swatch persistence)
-    var lastShuffleColor by string(null)
-
     // Update notification (shown once per version upgrade)
     var lastSeenVersion by string(null)
 
@@ -270,7 +259,6 @@ class AyuIslandsState : BaseState() {
         const val DEFAULT_GIT_AUTO_FIT_MIN_WIDTH = 400
         const val DEFAULT_GIT_AUTO_FIT_MAX_WIDTH = 500
         const val DEFAULT_FIXED_WIDTH = 300
-        const val DEFAULT_ROTATION_INTERVAL_HOURS = 6
         private const val DEFAULT_SOFT_INTENSITY = 20
         private const val DEFAULT_SHARP_NEON_INTENSITY = 50
         private const val DEFAULT_GRADIENT_INTENSITY = 30

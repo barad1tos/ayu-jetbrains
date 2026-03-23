@@ -21,7 +21,6 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
-import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.PanelWidthMode
 import java.io.ByteArrayInputStream
@@ -253,14 +252,6 @@ object LicenseChecker {
         state.gitPanelWidthMode = PanelWidthMode.DEFAULT.name
         state.hideProjectRootPath = false
         state.hideProjectViewHScrollbar = false
-
-        // Disable plugin integrations (premium features)
-        state.cgpIntegrationEnabled = false
-        state.irIntegrationEnabled = false
-
-        // Stop accent rotation (premium feature)
-        state.accentRotationEnabled = false
-        ApplicationManager.getApplication().getService(AccentRotationService::class.java)?.stopRotation()
 
         // Re-apply accent with reset toggles (accent color itself stays — it's free)
         try {

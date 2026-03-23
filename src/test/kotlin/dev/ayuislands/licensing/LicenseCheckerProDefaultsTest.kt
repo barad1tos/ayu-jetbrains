@@ -11,9 +11,6 @@ import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.PanelWidthMode
-import com.intellij.openapi.application.Application
-import com.intellij.openapi.application.ApplicationManager
-import dev.ayuislands.rotation.AccentRotationService
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -21,7 +18,6 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.runs
 import io.mockk.unmockkAll
-import io.mockk.verify
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -237,49 +233,6 @@ class LicenseCheckerProDefaultsTest {
         assertEquals("#CUSTOM1", state.mirageAccent)
     }
 
-    @Test
-    fun `revertToFreeDefaults resets cgpIntegrationEnabled to false`() {
-        state.cgpIntegrationEnabled = true
-        mockAccentApplicator()
-
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-
-        assertFalse(state.cgpIntegrationEnabled)
-    }
-
-    @Test
-    fun `revertToFreeDefaults resets irIntegrationEnabled to false`() {
-        state.irIntegrationEnabled = true
-        mockAccentApplicator()
-
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-
-        assertFalse(state.irIntegrationEnabled)
-    }
-
-    @Test
-    fun `revertToFreeDefaults resets accentRotationEnabled to false`() {
-        state.accentRotationEnabled = true
-        mockAccentApplicator()
-
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-
-        assertFalse(state.accentRotationEnabled)
-    }
-
-    @Test
-    fun `revertToFreeDefaults stops accent rotation service`() {
-        mockAccentApplicator()
-        val rotationService = mockk<AccentRotationService>(relaxed = true)
-        val app = mockk<Application>()
-        every { ApplicationManager.getApplication() } returns app
-        every { app.getService(AccentRotationService::class.java) } returns rotationService
-
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-
-        verify { rotationService.stopRotation() }
-    }
-
     // Fragile: this test mocks a 4-deep notification chain
     // (NotificationGroupManager→NotificationGroup→Notification→notify).
     // If the notification path in revertToFreeDefaults changes, update
@@ -293,12 +246,6 @@ class LicenseCheckerProDefaultsTest {
         every { settingsMock.getAccentForVariant(any()) } returns "#FFCC66"
         mockkObject(AccentApplicator)
         every { AccentApplicator.apply(any()) } throws RuntimeException("Test failure")
-
-        // Mock ApplicationManager for AccentRotationService.stopRotation() call
-        mockkStatic(ApplicationManager::class)
-        val app = mockk<Application>()
-        every { ApplicationManager.getApplication() } returns app
-        every { app.getService(AccentRotationService::class.java) } returns null
 
         // Mock NotificationGroupManager for the catch block's warning notification
         mockkStatic(NotificationGroupManager::class)
@@ -330,11 +277,5 @@ class LicenseCheckerProDefaultsTest {
         every { settingsMock.getAccentForVariant(any()) } returns "#FFCC66"
         mockkObject(AccentApplicator)
         every { AccentApplicator.apply(any()) } just runs
-
-        // Mock ApplicationManager for AccentRotationService.stopRotation() call
-        mockkStatic(ApplicationManager::class)
-        val app = mockk<Application>()
-        every { ApplicationManager.getApplication() } returns app
-        every { app.getService(AccentRotationService::class.java) } returns null
     }
 }

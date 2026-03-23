@@ -24,13 +24,9 @@ class AccentColorPanelTest {
 
     private fun findLeftColumn(panel: AccentColorPanel): JPanel = panel.components[0] as JPanel
 
-    /** Left column children: [0]=shadeNameLabel, [1]=strut, [2]=customLink, [3]=strut, [4]=resetLabel/shuffleLink. */
-    private fun findLeftColumnChild(
-        panel: AccentColorPanel,
-        index: Int,
-    ): java.awt.Component {
+    private fun findLinksRow(panel: AccentColorPanel): JPanel {
         val leftColumn = findLeftColumn(panel)
-        return leftColumn.getComponent(index)
+        return leftColumn.getComponent(2) as JPanel
     }
 
     @Test
@@ -159,7 +155,8 @@ class AccentColorPanelTest {
                 onReset = { resetFired = true },
             )
 
-        val resetLabel = findLeftColumnChild(panel, 4)
+        val linksRow = findLinksRow(panel)
+        val resetLabel = linksRow.getComponent(2)
 
         val event = createMouseEvent(resetLabel)
         resetLabel.mouseListeners.forEach { listener -> listener.mouseClicked(event) }
@@ -178,7 +175,8 @@ class AccentColorPanelTest {
                 onReset = {},
             )
 
-        val customLink = findLeftColumnChild(panel, 2)
+        val linksRow = findLinksRow(panel)
+        val customLink = linksRow.getComponent(0)
 
         val event = createMouseEvent(customLink)
         customLink.mouseListeners.forEach { listener -> listener.mouseClicked(event) }
