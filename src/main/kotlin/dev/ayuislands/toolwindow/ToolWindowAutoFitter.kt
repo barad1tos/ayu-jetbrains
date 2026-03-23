@@ -110,8 +110,10 @@ class ToolWindowAutoFitter(
                 manager.getToolWindow(id)?.let { other ->
                     other.isVisible &&
                         other.anchor == ourAnchor &&
-                        (other.type == ToolWindowType.DOCKED ||
-                            other.type == ToolWindowType.SLIDING)
+                        (
+                            other.type == ToolWindowType.DOCKED ||
+                                other.type == ToolWindowType.SLIDING
+                        )
                 } == true
         }
     }

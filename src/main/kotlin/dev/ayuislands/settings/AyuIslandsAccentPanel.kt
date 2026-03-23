@@ -401,9 +401,10 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                 val mode = AccentRotationMode.fromName(pendingRotationMode)
                 when (mode) {
                     AccentRotationMode.RANDOM -> {
-                        val rotationHex = ContrastAwareColorGenerator.generate(
-                            variant ?: return,
-                        )
+                        val rotationHex =
+                            ContrastAwareColorGenerator.generate(
+                                variant ?: return,
+                            )
                         settings.setAccentForVariant(currentVariant, rotationHex)
                         settings.state.accentRotationLastSwitchMs = System.currentTimeMillis()
                         AccentApplicator.apply(rotationHex)

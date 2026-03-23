@@ -40,9 +40,10 @@ class AccentRotationService : Disposable {
         if (!canRotate()) return
 
         val state = AyuIslandsSettings.getInstance().state
-        val intervalHours = state.accentRotationIntervalHours
-            .toLong()
-            .coerceAtLeast(MIN_INTERVAL_HOURS)
+        val intervalHours =
+            state.accentRotationIntervalHours
+                .toLong()
+                .coerceAtLeast(MIN_INTERVAL_HOURS)
         scheduledFuture =
             AppExecutorUtil
                 .getAppScheduledExecutorService()
@@ -64,9 +65,10 @@ class AccentRotationService : Disposable {
         if (!canRotate()) return
 
         val state = AyuIslandsSettings.getInstance().state
-        val intervalMs = state.accentRotationIntervalHours
-            .toLong()
-            .coerceAtLeast(MIN_INTERVAL_HOURS) * MS_PER_HOUR
+        val intervalMs =
+            state.accentRotationIntervalHours
+                .toLong()
+                .coerceAtLeast(MIN_INTERVAL_HOURS) * MS_PER_HOUR
         scheduledFuture =
             AppExecutorUtil
                 .getAppScheduledExecutorService()
@@ -117,21 +119,24 @@ class AccentRotationService : Disposable {
 
         val settings = AyuIslandsSettings.getInstance()
         val state = settings.state
-        val mode = AccentRotationMode.fromName(
-            state.accentRotationMode,
-        )
+        val mode =
+            AccentRotationMode.fromName(
+                state.accentRotationMode,
+            )
 
         val newHex =
             when (mode) {
                 AccentRotationMode.PRESET -> {
-                    val (nextIndex, hex) = nextPresetHex(
-                        state.accentRotationPresetIndex,
-                    )
+                    val (nextIndex, hex) =
+                        nextPresetHex(
+                            state.accentRotationPresetIndex,
+                        )
                     nextIndex to hex
                 }
                 AccentRotationMode.RANDOM ->
-                    -1 to ContrastAwareColorGenerator
-                        .generate(variant)
+                    -1 to
+                        ContrastAwareColorGenerator
+                            .generate(variant)
             }
 
         SwingUtilities.invokeLater {
