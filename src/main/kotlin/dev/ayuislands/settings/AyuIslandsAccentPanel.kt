@@ -94,6 +94,13 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                     val settings = AyuIslandsSettings.getInstance()
                     settings.state.lastShuffleColor = randomHex
                     accentPanel?.showThirteenthSwatch(randomHex)
+                    // Auto-apply the shuffled color immediately
+                    pendingAccent = randomHex
+                    pendingCustomColor = randomHex
+                    accentPanel?.selectedPreset = null
+                    accentPanel?.customColor = randomHex
+                    // Trigger preview refresh
+                    onAccentChanged?.invoke(randomHex)
                 },
                 onThirteenthSwatchClicked = { hex ->
                     pendingAccent = hex
