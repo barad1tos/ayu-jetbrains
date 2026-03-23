@@ -82,9 +82,8 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                         rotationEnabledCheckbox?.isSelected = false
                         updateHeroGlow()
                     }
-                    accentPanel?.hideThirteenthSwatch()
-                    val settings = AyuIslandsSettings.getInstance()
-                    settings.state.lastShuffleColor = null
+                    accentPanel?.showThirteenthSwatchImmediate(accent.hex)
+                    AyuIslandsSettings.getInstance().state.lastShuffleColor = null
                 },
                 onCustomTrigger = { handleCustomTrigger() },
                 onReset = { handleReset() },
@@ -120,6 +119,8 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         val lastShuffle = AyuIslandsSettings.getInstance().state.lastShuffleColor
         if (lastShuffle != null) {
             colorPanel.showThirteenthSwatchImmediate(lastShuffle)
+        } else if (storedAccent.isNotEmpty()) {
+            colorPanel.showThirteenthSwatchImmediate(storedAccent)
         }
 
         return colorPanel
@@ -282,7 +283,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                 rotationEnabledCheckbox?.isSelected = false
                 updateHeroGlow()
             }
-            accentPanel?.hideThirteenthSwatch()
+            accentPanel?.showThirteenthSwatchImmediate(hex)
             AyuIslandsSettings.getInstance().state.lastShuffleColor = null
         }
     }
@@ -400,12 +401,9 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                 val mode = AccentRotationMode.fromName(pendingRotationMode)
                 when (mode) {
                     AccentRotationMode.RANDOM -> {
-                        // Use 13th swatch color if visible, otherwise generate new
-                        val thirteenthColor = accentPanel?.thirteenthSwatchColor
-                        val rotationHex = thirteenthColor
-                            ?: ContrastAwareColorGenerator.generate(
-                                variant ?: return,
-                            )
+                        val rotationHex = ContrastAwareColorGenerator.generate(
+                            variant ?: return,
+                        )
                         settings.setAccentForVariant(currentVariant, rotationHex)
                         settings.state.accentRotationLastSwitchMs = System.currentTimeMillis()
                         AccentApplicator.apply(rotationHex)
@@ -420,19 +418,23 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                         service.startRotation()
                     }
                     AccentRotationMode.PRESET -> {
-                        service.rotateNow()
-                        val presetIndex = settings.state.accentRotationPresetIndex
-                            .coerceIn(0, AYU_ACCENT_PRESETS.size - 1)
-                        val presetHex = AYU_ACCENT_PRESETS[presetIndex].hex
+                        val currentIndex = settings.state.accentRotationPresetIndex
+                        val nextIndex = (currentIndex + 1) % AYU_ACCENT_PRESETS.size
+                        settings.state.accentRotationPresetIndex = nextIndex
+                        val presetHex = AYU_ACCENT_PRESETS[nextIndex].hex
+                        settings.setAccentForVariant(currentVariant, presetHex)
+                        settings.state.accentRotationLastSwitchMs = System.currentTimeMillis()
+                        AccentApplicator.apply(presetHex)
                         storedAccent = presetHex
                         pendingAccent = presetHex
                         pendingCustomColor = null
                         accentPanel?.selectedPreset = presetHex
                         accentPanel?.customColor = null
-                        accentPanel?.hideThirteenthSwatch()
+                        accentPanel?.showThirteenthSwatchImmediate(presetHex)
                         settings.state.lastShuffleColor = null
                         updateHeroGlow()
                         onAccentChanged?.invoke(presetHex)
+                        service.startRotation()
                     }
                 }
             } else {
