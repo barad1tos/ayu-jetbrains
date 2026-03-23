@@ -61,4 +61,27 @@ class HslColorTest {
         assertEquals(0f, saturation, 0.01f)
         assertEquals(0.5f, lightness, 0.02f)
     }
+
+    @Test
+    fun `fromColor round-trips pure green`() {
+        val (hue, saturation, lightness) = HslColor.fromColor(Color(0, 255, 0))
+        assertEquals(120f, hue, 0.5f)
+        assertEquals(1f, saturation, 0.01f)
+        assertEquals(0.5f, lightness, 0.01f)
+    }
+
+    @Test
+    fun `fromColor round-trips pure blue`() {
+        val (hue, saturation, lightness) = HslColor.fromColor(Color(0, 0, 255))
+        assertEquals(240f, hue, 0.5f)
+        assertEquals(1f, saturation, 0.01f)
+        assertEquals(0.5f, lightness, 0.01f)
+    }
+
+    @Test
+    fun `fromColor normalizes negative hue`() {
+        val (hue, _, _) = HslColor.fromColor(Color(255, 0, 128))
+        assert(hue >= 0f) { "hue must be non-negative: $hue" }
+        assert(hue < 360f) { "hue must be < 360: $hue" }
+    }
 }

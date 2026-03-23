@@ -99,6 +99,7 @@ class ToolWindowAutoFitter(
     }
 
     private fun isSharingSidebar(): Boolean {
+        if (project.isDisposed) return false
         val manager = ToolWindowManager.getInstance(project)
         val ourWindow = manager.getToolWindow(toolWindowId) ?: return false
         if (!ourWindow.isVisible) return false

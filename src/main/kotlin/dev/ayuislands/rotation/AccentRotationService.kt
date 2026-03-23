@@ -15,7 +15,8 @@ import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import javax.swing.SwingUtilities
 
-internal const val MS_PER_HOUR = 3_600_000L
+private const val MS_PER_HOUR = 3_600_000L
+private const val MIN_INTERVAL_HOURS = 1L
 
 /**
  * Returns the next preset index and hex color, wrapping at the list end.
@@ -31,15 +32,17 @@ internal fun nextPresetHex(
 
 @Service
 class AccentRotationService : Disposable {
+    @Volatile
     private var scheduledFuture: ScheduledFuture<*>? = null
 
     fun startRotation() {
         stopRotation()
-        val state = AyuIslandsSettings.getInstance().state
-        if (!state.accentRotationEnabled) return
-        if (!LicenseChecker.isLicensedOrGrace()) return
+        if (!canRotate()) return
 
-        val intervalHours = state.accentRotationIntervalHours.toLong()
+        val state = AyuIslandsSettings.getInstance().state
+        val intervalHours = state.accentRotationIntervalHours
+            .toLong()
+            .coerceAtLeast(MIN_INTERVAL_HOURS)
         scheduledFuture =
             AppExecutorUtil
                 .getAppScheduledExecutorService()
@@ -49,19 +52,21 @@ class AccentRotationService : Disposable {
                     intervalHours,
                     TimeUnit.HOURS,
                 )
-        LOG.info("Accent rotation started: interval=${intervalHours}h, mode=${state.accentRotationMode}")
+        LOG.info(
+            "Accent rotation started: " +
+                "interval=${intervalHours}h, " +
+                "mode=${state.accentRotationMode}",
+        )
     }
 
-    /**
-     * Start rotation with a custom initial delay (used after restart to schedule remaining time).
-     */
     fun startRotationWithDelay(initialDelayMs: Long) {
         stopRotation()
-        val state = AyuIslandsSettings.getInstance().state
-        if (!state.accentRotationEnabled) return
-        if (!LicenseChecker.isLicensedOrGrace()) return
+        if (!canRotate()) return
 
-        val intervalMs = state.accentRotationIntervalHours * MS_PER_HOUR
+        val state = AyuIslandsSettings.getInstance().state
+        val intervalMs = state.accentRotationIntervalHours
+            .toLong()
+            .coerceAtLeast(MIN_INTERVAL_HOURS) * MS_PER_HOUR
         scheduledFuture =
             AppExecutorUtil
                 .getAppScheduledExecutorService()
@@ -72,7 +77,9 @@ class AccentRotationService : Disposable {
                     TimeUnit.MILLISECONDS,
                 )
         LOG.info(
-            "Accent rotation started: initialDelay=${initialDelayMs}ms, interval=${state.accentRotationIntervalHours}h",
+            "Accent rotation started: " +
+                "initialDelay=${initialDelayMs}ms, " +
+                "interval=${state.accentRotationIntervalHours}h",
         )
     }
 
@@ -86,30 +93,71 @@ class AccentRotationService : Disposable {
         scheduledFuture = null
     }
 
+    private fun canRotate(): Boolean {
+        val state = AyuIslandsSettings.getInstance().state
+        if (!state.accentRotationEnabled) {
+            LOG.debug("Rotation skipped: disabled")
+            return false
+        }
+        if (!LicenseChecker.isLicensedOrGrace()) {
+            LOG.debug("Rotation skipped: no license")
+            return false
+        }
+        return true
+    }
+
     private fun rotateAccent() {
+        if (!canRotate()) return
+
+        val variant = AyuVariant.detect()
+        if (variant == null) {
+            LOG.debug("Rotation skipped: non-Ayu theme")
+            return
+        }
+
         val settings = AyuIslandsSettings.getInstance()
         val state = settings.state
-        if (!state.accentRotationEnabled) return
-        if (!LicenseChecker.isLicensedOrGrace()) return
-
-        val variant = AyuVariant.detect() ?: return
-        val mode = AccentRotationMode.fromName(state.accentRotationMode)
+        val mode = AccentRotationMode.fromName(
+            state.accentRotationMode,
+        )
 
         val newHex =
             when (mode) {
                 AccentRotationMode.PRESET -> {
-                    val (nextIndex, hex) = nextPresetHex(state.accentRotationPresetIndex)
-                    state.accentRotationPresetIndex = nextIndex
-                    hex
+                    val (nextIndex, hex) = nextPresetHex(
+                        state.accentRotationPresetIndex,
+                    )
+                    nextIndex to hex
                 }
-                AccentRotationMode.RANDOM -> ContrastAwareColorGenerator.generate(variant)
+                AccentRotationMode.RANDOM ->
+                    -1 to ContrastAwareColorGenerator
+                        .generate(variant)
             }
 
         SwingUtilities.invokeLater {
-            settings.setAccentForVariant(variant, newHex)
-            state.accentRotationLastSwitchMs = System.currentTimeMillis()
-            AccentApplicator.apply(newHex)
-            LOG.info("Accent rotated: mode=$mode, color=$newHex")
+            try {
+                if (mode == AccentRotationMode.PRESET) {
+                    state.accentRotationPresetIndex =
+                        newHex.first
+                }
+                settings.setAccentForVariant(
+                    variant,
+                    newHex.second,
+                )
+                state.accentRotationLastSwitchMs =
+                    System.currentTimeMillis()
+                AccentApplicator.apply(newHex.second)
+                LOG.info(
+                    "Accent rotated: " +
+                        "mode=$mode, color=${newHex.second}",
+                )
+            } catch (exception: RuntimeException) {
+                LOG.error(
+                    "Accent rotation failed: " +
+                        "mode=$mode, color=${newHex.second}",
+                    exception,
+                )
+            }
         }
     }
 

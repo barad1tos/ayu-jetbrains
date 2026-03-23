@@ -207,7 +207,7 @@ class AccentColorPanel(
             try {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
 
-                val color = Color.decode(accent.hex)
+                val color = safeDecodeColor(accent.hex) ?: return
                 val isSelected = accent.hex.equals(selectedPreset, ignoreCase = true)
                 val borderColor = Color(BORDER_RGB)
 
@@ -267,7 +267,7 @@ class AccentColorPanel(
                 val iconY = (height - PALETTE_ICON.iconHeight) / 2
                 PALETTE_ICON.paintIcon(this, g2, 0, iconY)
 
-                val accentColor = Color.decode(accentHex)
+                val accentColor = safeDecodeColor(accentHex) ?: return
                 val editorFamily = resolveEditorFontFamily()
                 g2.font = Font(editorFamily, Font.ITALIC, SPECIMEN_FONT_SIZE)
                 g2.color = accentColor
@@ -515,7 +515,7 @@ class AccentColorPanel(
             try {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
 
-                val color = Color.decode(hex)
+                val color = safeDecodeColor(hex) ?: return
                 val borderColor = Color(BORDER_RGB)
 
                 // Paint relative to this component's own bounds (0,0 = top-left of ThirteenthSwatch)
@@ -605,5 +605,12 @@ class AccentColorPanel(
             val complement = 1f - t
             return 1f - complement * complement * complement
         }
+
+        private fun safeDecodeColor(hex: String): Color? =
+            try {
+                Color.decode(hex)
+            } catch (_: NumberFormatException) {
+                null
+            }
     }
 }
