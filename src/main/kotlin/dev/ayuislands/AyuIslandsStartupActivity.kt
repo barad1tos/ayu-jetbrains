@@ -13,6 +13,7 @@ import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.rotation.AccentRotationService
+import dev.ayuislands.rotation.MS_PER_HOUR
 import dev.ayuislands.settings.AyuIslandsSettings
 import javax.swing.SwingUtilities
 
@@ -117,6 +118,5 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
 
     companion object {
         private val LOG = logger<AyuIslandsStartupActivity>()
-        private const val MS_PER_HOUR = 3_600_000L
     }
 }

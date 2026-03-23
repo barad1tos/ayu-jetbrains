@@ -15,7 +15,7 @@ import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import javax.swing.SwingUtilities
 
-private const val MS_PER_HOUR = 3_600_000L
+internal const val MS_PER_HOUR = 3_600_000L
 
 /**
  * Returns the next preset index and hex color, wrapping at the list end.
@@ -87,9 +87,12 @@ class AccentRotationService : Disposable {
     }
 
     private fun rotateAccent() {
-        val variant = AyuVariant.detect() ?: return
         val settings = AyuIslandsSettings.getInstance()
         val state = settings.state
+        if (!state.accentRotationEnabled) return
+        if (!LicenseChecker.isLicensedOrGrace()) return
+
+        val variant = AyuVariant.detect() ?: return
         val mode = AccentRotationMode.fromName(state.accentRotationMode)
 
         val newHex =
