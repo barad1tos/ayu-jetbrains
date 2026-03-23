@@ -71,6 +71,12 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.3.2</h3>
+    <ul>
+      <li>[Paid] Accent rotation — automatic preset cycling or contrast-aware random</li>
+      <li>[Paid] Shuffle UI redesign with heroic accent indicator</li>
+      <li>Fix trial</li>
+    </ul>
     <h3>2.3.1</h3>
     <ul>
       <li>Bug fixes</li>
@@ -178,8 +184,8 @@
 
     <product-descriptor
             code="PAYUISLANDS"
-            release-date="20260319"
-            release-version="23"
+            release-date="20260323"
+            release-version="24"
             optional="true"/>
 
     <extensionPoints>

@@ -41,6 +41,12 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.3.2" to
+                "<ul>" +
+                "<li>[Paid] Accent rotation \u2014 automatic preset cycling or contrast-aware random</li>" +
+                "<li>[Paid] Shuffle UI redesign with heroic accent indicator</li>" +
+                "<li>Fix trial</li>" +
+                "</ul>",
             "2.3.0" to
                 "<ul>" +
                 "<li>Auto-fit with min/max for Project, Commit, and Git panels</li>" +
