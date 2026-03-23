@@ -514,24 +514,22 @@ class AccentColorPanel(
                 val color = Color.decode(hex)
                 val borderColor = Color(BORDER_RGB)
 
-                val swatchWidth = computeEqualSwatchWidth().coerceAtMost(width)
-                val swatchX = (width - swatchWidth).coerceAtLeast(0)
-                val row2Swatch = presetPanels.getOrNull(GRID_COLUMNS)
-                val swatchY = row2Swatch?.y ?: (PANEL_HEIGHT + GRID_GAP)
-                val swatchHeight = row2Swatch?.height ?: PANEL_HEIGHT
+                // Paint relative to this component's own bounds (0,0 = top-left of ThirteenthSwatch)
+                val swatchWidth = width
+                val swatchHeight = height
 
                 swatchGlowRenderer.ensureCache(color, GlowStyle.SOFT, HERO_GLOW_INTENSITY, HERO_GLOW_WIDTH)
                 swatchGlowRenderer.paintGlow(
                     g2,
-                    Rectangle(swatchX, swatchY, swatchWidth, swatchHeight),
+                    Rectangle(0, 0, swatchWidth, swatchHeight),
                     HERO_GLOW_WIDTH,
                     PANEL_ARC.toInt(),
                 )
 
                 val shape =
                     RoundRectangle2D.Float(
-                        swatchX + BORDER_INSET,
-                        swatchY + BORDER_INSET,
+                        BORDER_INSET,
+                        BORDER_INSET,
                         swatchWidth.toFloat() - BORDER_INSET * 2,
                         swatchHeight.toFloat() - BORDER_INSET * 2,
                         PANEL_ARC,
