@@ -12,6 +12,7 @@ import dev.ayuislands.font.FontPreset
 import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
 import javax.swing.SwingUtilities
 
@@ -52,6 +53,24 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         // Auto-switch theme to match macOS Light/Dark mode
         if (settings.state.followSystemAppearance) {
             AppearanceSyncService.getInstance().syncIfNeeded()
+        }
+
+        // Start accent rotation if enabled (premium feature)
+        try {
+            if (settings.state.accentRotationEnabled && LicenseChecker.isLicensedOrGrace()) {
+                val rotationService = AccentRotationService.getInstance()
+                val lastSwitch = settings.state.accentRotationLastSwitchMs
+                val intervalMs = settings.state.accentRotationIntervalHours * MS_PER_HOUR
+                val elapsed = System.currentTimeMillis() - lastSwitch
+                if (lastSwitch == 0L || elapsed >= intervalMs) {
+                    rotationService.rotateNow()
+                } else {
+                    val remainingMs = intervalMs - elapsed
+                    rotationService.startRotationWithDelay(remainingMs)
+                }
+            }
+        } catch (exception: RuntimeException) {
+            LOG.error("Accent rotation startup failed", exception)
         }
 
         // Show a one-time update notification if the plugin version changed
@@ -102,5 +121,6 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
 
     companion object {
         private val LOG = logger<AyuIslandsStartupActivity>()
+        private const val MS_PER_HOUR = 3_600_000L
     }
 }
