@@ -82,10 +82,6 @@ class AccentColorPanel(
             repaint()
         }
 
-    /** The current color hex of the 13th swatch, or null if hidden. */
-    val thirteenthSwatchColor: String?
-        get() = thirteenthSwatch?.colorHex
-
     private val presetPanels: List<PresetComponent>
     private val shadeNameLabel: ShadeNameLabel
     private val customLink: CustomLink
