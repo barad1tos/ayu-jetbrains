@@ -94,6 +94,13 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                     val settings = AyuIslandsSettings.getInstance()
                     settings.state.lastShuffleColor = randomHex
                     accentPanel?.showThirteenthSwatch(randomHex)
+                    // Auto-apply the shuffled color immediately
+                    pendingAccent = randomHex
+                    pendingCustomColor = randomHex
+                    accentPanel?.selectedPreset = null
+                    accentPanel?.customColor = randomHex
+                    // Trigger preview refresh
+                    onAccentChanged?.invoke(randomHex)
                 },
                 onThirteenthSwatchClicked = { hex ->
                     pendingAccent = hex
@@ -390,7 +397,44 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
 
             val service = AccentRotationService.getInstance()
             if (pendingRotationEnabled) {
-                service.rotateNow()
+                val mode = AccentRotationMode.fromName(pendingRotationMode)
+                when (mode) {
+                    AccentRotationMode.RANDOM -> {
+                        // Use 13th swatch color if visible, otherwise generate new
+                        val thirteenthColor = accentPanel?.thirteenthSwatchColor
+                        val rotationHex = thirteenthColor
+                            ?: ContrastAwareColorGenerator.generate(
+                                variant ?: return,
+                            )
+                        settings.setAccentForVariant(currentVariant, rotationHex)
+                        settings.state.accentRotationLastSwitchMs = System.currentTimeMillis()
+                        AccentApplicator.apply(rotationHex)
+                        storedAccent = rotationHex
+                        pendingAccent = rotationHex
+                        accentPanel?.selectedPreset = null
+                        accentPanel?.customColor = rotationHex
+                        pendingCustomColor = rotationHex
+                        settings.state.lastShuffleColor = rotationHex
+                        accentPanel?.showThirteenthSwatchImmediate(rotationHex)
+                        onAccentChanged?.invoke(rotationHex)
+                        service.startRotation()
+                    }
+                    AccentRotationMode.PRESET -> {
+                        service.rotateNow()
+                        val presetIndex = settings.state.accentRotationPresetIndex
+                            .coerceIn(0, AYU_ACCENT_PRESETS.size - 1)
+                        val presetHex = AYU_ACCENT_PRESETS[presetIndex].hex
+                        storedAccent = presetHex
+                        pendingAccent = presetHex
+                        pendingCustomColor = null
+                        accentPanel?.selectedPreset = presetHex
+                        accentPanel?.customColor = null
+                        accentPanel?.hideThirteenthSwatch()
+                        settings.state.lastShuffleColor = null
+                        updateHeroGlow()
+                        onAccentChanged?.invoke(presetHex)
+                    }
+                }
             } else {
                 service.stopRotation()
             }
