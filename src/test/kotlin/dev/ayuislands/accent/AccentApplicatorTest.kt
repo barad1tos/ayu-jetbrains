@@ -3,6 +3,7 @@ package dev.ayuislands.accent
 import com.intellij.ide.plugins.IdeaPluginDescriptor
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.editor.colors.ColorKey
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
@@ -899,13 +900,13 @@ class AccentApplicatorTest {
         every { IndentRainbowSync.apply(any()) } returns Unit
         state.cgpIntegrationEnabled = false
         every { SwingUtilities.isEventDispatchThread() } returns false
-        every { mockApplication.invokeLater(any()) } answers {
+        every { mockApplication.invokeLater(any(), any<ModalityState>()) } answers {
             firstArg<Runnable>().run()
         }
 
         AccentApplicator.apply("#FFCC66")
 
-        verify { mockApplication.invokeLater(any()) }
+        verify { mockApplication.invokeLater(any(), any<ModalityState>()) }
         verify(exactly = 0) { SwingUtilities.invokeLater(any()) }
         verify(atLeast = 1) { UIManager.put(any<String>(), any()) }
     }
@@ -975,13 +976,13 @@ class AccentApplicatorTest {
     fun `revertAll posts to invokeLater when not on EDT`() {
         mockEpExtensionList(emptyList())
         every { SwingUtilities.isEventDispatchThread() } returns false
-        every { mockApplication.invokeLater(any()) } answers {
+        every { mockApplication.invokeLater(any(), any<ModalityState>()) } answers {
             firstArg<Runnable>().run()
         }
 
         AccentApplicator.revertAll()
 
-        verify { mockApplication.invokeLater(any()) }
+        verify { mockApplication.invokeLater(any(), any<ModalityState>()) }
         verify(exactly = 0) { SwingUtilities.invokeLater(any()) }
         verify(atLeast = 13) { UIManager.put(any<String>(), null) }
     }
