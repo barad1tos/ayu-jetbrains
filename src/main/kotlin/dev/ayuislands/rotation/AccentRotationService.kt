@@ -4,9 +4,9 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.Service
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.Condition
 import com.intellij.openapi.util.Disposer
-import com.intellij.openapi.diagnostic.logger
 import com.intellij.util.concurrency.AppExecutorUtil
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentApplicator
@@ -116,6 +116,10 @@ class AccentRotationService : Disposable {
 
     private fun rotateAccent() {
         if (!canRotate()) return
+        if (Disposer.isDisposed(this)) {
+            LOG.debug("Rotation skipped: service disposed")
+            return
+        }
 
         val variant = AyuVariant.detect()
         if (variant == null) {
@@ -145,7 +149,14 @@ class AccentRotationService : Disposable {
                             .generate(variant)
             }
 
-        ApplicationManager.getApplication().invokeLater(
+        val app = ApplicationManager.getApplication()
+            ?: run {
+                LOG.debug(
+                    "Rotation skipped: app shutting down",
+                )
+                return
+            }
+        app.invokeLater(
             {
                 try {
                     if (mode == AccentRotationMode.PRESET) {
@@ -163,7 +174,7 @@ class AccentRotationService : Disposable {
                         "Accent rotated: " +
                             "mode=$mode, color=${newHex.second}",
                     )
-                } catch (exception: RuntimeException) {
+                } catch (exception: Exception) {
                     LOG.error(
                         "Accent rotation failed: " +
                             "mode=$mode, color=${newHex.second}",

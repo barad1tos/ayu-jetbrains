@@ -349,6 +349,10 @@ object AccentApplicator {
         if (app != null) {
             app.invokeLater(work, ModalityState.nonModal())
         } else {
+            log.warn(
+                "Application not available, " +
+                    "falling back to SwingUtilities",
+            )
             SwingUtilities.invokeLater(work)
         }
     }
