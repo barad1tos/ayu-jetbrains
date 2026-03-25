@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.3.3] - 2026-03-25
+
+### Fixed
+- Fix "Write-unsafe context" crash during accent rotation with Indent Rainbow
+- Harden rotation lifecycle: dispose guard, wider exception catch, null-safe Application access
+
+### Changed
+- Rewrite Marketplace description with benefit-led copy
+- Trim embedded changelog to last 3 releases with GitHub link
+- Fix Shuffle UI label: Paid → Free in changelog and update notifier
+
 ## [2.3.0] - 2026-03-19
 
 ### Added

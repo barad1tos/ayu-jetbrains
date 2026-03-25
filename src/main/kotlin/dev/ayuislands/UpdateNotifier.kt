@@ -41,6 +41,11 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.3.3" to
+                "<ul>" +
+                "<li>Fix \u201CWrite-unsafe context\u201D crash during accent rotation with Indent Rainbow</li>" +
+                "<li>Rewrite Marketplace description</li>" +
+                "</ul>",
             "2.3.2" to
                 "<ul>" +
                 "<li>[Paid] Accent rotation \u2014 automatic preset cycling or contrast-aware random</li>" +
