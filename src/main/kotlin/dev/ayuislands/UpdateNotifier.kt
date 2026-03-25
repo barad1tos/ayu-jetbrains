@@ -44,7 +44,7 @@ internal object UpdateNotifier {
             "2.3.2" to
                 "<ul>" +
                 "<li>[Paid] Accent rotation \u2014 automatic preset cycling or contrast-aware random</li>" +
-                "<li>[Paid] Shuffle UI redesign with heroic accent indicator</li>" +
+                "<li>[Free] Shuffle UI redesign with heroic accent indicator</li>" +
                 "<li>Fix trial</li>" +
                 "</ul>",
             "2.3.0" to
