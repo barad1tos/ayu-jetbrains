@@ -4,6 +4,8 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.Service
+import com.intellij.openapi.util.Condition
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.util.concurrency.AppExecutorUtil
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
@@ -32,6 +34,10 @@ internal fun nextPresetHex(
 
 @Service
 class AccentRotationService : Disposable {
+    private val disposed = Condition<Any?> {
+        Disposer.isDisposed(this)
+    }
+
     @Volatile
     private var scheduledFuture: ScheduledFuture<*>? = null
 
@@ -166,6 +172,7 @@ class AccentRotationService : Disposable {
                 }
             },
             ModalityState.nonModal(),
+            disposed,
         )
     }
 
