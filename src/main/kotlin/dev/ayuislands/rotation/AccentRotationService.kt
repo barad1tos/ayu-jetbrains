@@ -5,6 +5,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.util.CheckedDisposable
 import com.intellij.openapi.util.Condition
 import com.intellij.openapi.util.Disposer
 import com.intellij.util.concurrency.AppExecutorUtil
@@ -34,8 +35,10 @@ internal fun nextPresetHex(
 
 @Service
 class AccentRotationService : Disposable {
+    private val checkedDisposable: CheckedDisposable =
+        Disposer.newCheckedDisposable(this)
     private val disposed = Condition<Any?> {
-        Disposer.isDisposed(this)
+        checkedDisposable.isDisposed
     }
 
     @Volatile
@@ -116,7 +119,7 @@ class AccentRotationService : Disposable {
 
     private fun rotateAccent() {
         if (!canRotate()) return
-        if (Disposer.isDisposed(this)) {
+        if (checkedDisposable.isDisposed) {
             LOG.debug("Rotation skipped: service disposed")
             return
         }
