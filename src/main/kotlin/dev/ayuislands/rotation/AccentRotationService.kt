@@ -2,6 +2,7 @@ package dev.ayuislands.rotation
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.util.concurrency.AppExecutorUtil
@@ -13,7 +14,6 @@ import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
-import javax.swing.SwingUtilities
 
 private const val MS_PER_HOUR = 3_600_000L
 private const val MIN_INTERVAL_HOURS = 1L
@@ -139,31 +139,34 @@ class AccentRotationService : Disposable {
                             .generate(variant)
             }
 
-        SwingUtilities.invokeLater {
-            try {
-                if (mode == AccentRotationMode.PRESET) {
-                    state.accentRotationPresetIndex =
-                        newHex.first
+        ApplicationManager.getApplication().invokeLater(
+            {
+                try {
+                    if (mode == AccentRotationMode.PRESET) {
+                        state.accentRotationPresetIndex =
+                            newHex.first
+                    }
+                    settings.setAccentForVariant(
+                        variant,
+                        newHex.second,
+                    )
+                    state.accentRotationLastSwitchMs =
+                        System.currentTimeMillis()
+                    AccentApplicator.apply(newHex.second)
+                    LOG.info(
+                        "Accent rotated: " +
+                            "mode=$mode, color=${newHex.second}",
+                    )
+                } catch (exception: RuntimeException) {
+                    LOG.error(
+                        "Accent rotation failed: " +
+                            "mode=$mode, color=${newHex.second}",
+                        exception,
+                    )
                 }
-                settings.setAccentForVariant(
-                    variant,
-                    newHex.second,
-                )
-                state.accentRotationLastSwitchMs =
-                    System.currentTimeMillis()
-                AccentApplicator.apply(newHex.second)
-                LOG.info(
-                    "Accent rotated: " +
-                        "mode=$mode, color=${newHex.second}",
-                )
-            } catch (exception: RuntimeException) {
-                LOG.error(
-                    "Accent rotation failed: " +
-                        "mode=$mode, color=${newHex.second}",
-                    exception,
-                )
-            }
-        }
+            },
+            ModalityState.nonModal(),
+        )
     }
 
     override fun dispose() {

@@ -2,6 +2,7 @@ package dev.ayuislands.accent
 
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.colors.ColorKey
@@ -346,7 +347,7 @@ object AccentApplicator {
     private fun invokeLaterSafe(work: Runnable) {
         val app = ApplicationManager.getApplication()
         if (app != null) {
-            app.invokeLater(work)
+            app.invokeLater(work, ModalityState.nonModal())
         } else {
             SwingUtilities.invokeLater(work)
         }
