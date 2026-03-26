@@ -301,7 +301,7 @@ class LicenseCheckerProDefaultsTest {
         every { ApplicationManager.getApplication() } returns app
         every { app.getService(AccentRotationService::class.java) } returns null
 
-        // Mock GlowOverlayManager.syncGlowForAllProjects() (static companion method)
+        // Mock GlowOverlayManager.syncGlowForAllProjects()
         mockkObject(GlowOverlayManager.Companion)
         every { GlowOverlayManager.syncGlowForAllProjects() } just runs
 
@@ -342,7 +342,7 @@ class LicenseCheckerProDefaultsTest {
         every { ApplicationManager.getApplication() } returns app
         every { app.getService(AccentRotationService::class.java) } returns null
 
-        // Mock GlowOverlayManager.syncGlowForAllProjects() (static companion method)
+        // Mock GlowOverlayManager.syncGlowForAllProjects()
         mockkObject(GlowOverlayManager.Companion)
         every { GlowOverlayManager.syncGlowForAllProjects() } just runs
     }

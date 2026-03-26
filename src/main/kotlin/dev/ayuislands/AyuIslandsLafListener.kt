@@ -11,7 +11,6 @@ import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
 
-
 /** Re-applies accent color on theme change. */
 class AyuIslandsLafListener : LafManagerListener {
     @Suppress("UnstableApiUsage")

@@ -174,7 +174,6 @@ class AccentRotationService : Disposable {
                     state.accentRotationLastSwitchMs =
                         System.currentTimeMillis()
                     AccentApplicator.apply(newHex.second)
-                    GlowOverlayManager.syncGlowForAllProjects()
                     LOG.info(
                         "Accent rotated: " +
                             "mode=$mode, color=${newHex.second}",
@@ -183,6 +182,15 @@ class AccentRotationService : Disposable {
                     LOG.error(
                         "Accent rotation failed: " +
                             "mode=$mode, color=${newHex.second}",
+                        exception,
+                    )
+                }
+
+                try {
+                    GlowOverlayManager.syncGlowForAllProjects()
+                } catch (exception: RuntimeException) {
+                    LOG.warn(
+                        "Glow sync after accent rotation failed",
                         exception,
                     )
                 }

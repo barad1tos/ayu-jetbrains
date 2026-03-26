@@ -3,10 +3,10 @@ package dev.ayuislands.glow
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
-import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
@@ -82,7 +82,8 @@ class GlowOverlayManager(
                     getInstance(project).updateGlow()
                 } catch (exception: RuntimeException) {
                     logger<GlowOverlayManager>().warn(
-                        "Failed to sync glow for project ${project.name}: ${exception.message}",
+                        "Failed to sync glow for project ${project.name}",
+                        exception,
                     )
                 }
             }
