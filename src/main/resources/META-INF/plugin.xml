@@ -72,6 +72,10 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.3.4</h3>
+    <ul>
+      <li>Fix glow color desyncing from accent after rotation</li>
+    </ul>
     <h3>2.3.3</h3>
     <ul>
       <li>Fix "Write-unsafe context" crash during accent rotation with Indent Rainbow</li>

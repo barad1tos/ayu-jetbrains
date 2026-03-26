@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.3.4] - 2026-03-26
+
+### Fixed
+- Fix glow color desyncing from accent after rotation
+
 ## [2.3.3] - 2026-03-25
 
 ### Fixed
