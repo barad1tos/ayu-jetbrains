@@ -27,6 +27,8 @@ class SearchResultsElement : AccentElement {
     companion object {
         private const val ACTIVE_ALPHA = 0x26
         private const val INACTIVE_ALPHA = 0x1A
+        private const val MAX_CHANNEL_VALUE = 255
+        private const val ROUNDING_BIAS = 0.5f
     }
 
     override fun apply(color: Color) {
@@ -36,15 +38,20 @@ class SearchResultsElement : AccentElement {
         }
     }
 
-    private fun blendWithBackground(accent: Color, alpha: Int, backgroundKey: String): Color {
-        val bg = UIManager.getColor(backgroundKey)
-            ?: UIManager.getColor("Panel.background")
-            ?: accent
-        val ratio = alpha / 255f
+    private fun blendWithBackground(
+        accent: Color,
+        alpha: Int,
+        backgroundKey: String,
+    ): Color {
+        val bg =
+            UIManager.getColor(backgroundKey)
+                ?: UIManager.getColor("Panel.background")
+                ?: accent
+        val ratio = alpha.toFloat() / MAX_CHANNEL_VALUE
         return Color(
-            (bg.red + (accent.red - bg.red) * ratio + 0.5f).toInt().coerceIn(0, 255),
-            (bg.green + (accent.green - bg.green) * ratio + 0.5f).toInt().coerceIn(0, 255),
-            (bg.blue + (accent.blue - bg.blue) * ratio + 0.5f).toInt().coerceIn(0, 255),
+            (bg.red + (accent.red - bg.red) * ratio + ROUNDING_BIAS).toInt().coerceIn(0, MAX_CHANNEL_VALUE),
+            (bg.green + (accent.green - bg.green) * ratio + ROUNDING_BIAS).toInt().coerceIn(0, MAX_CHANNEL_VALUE),
+            (bg.blue + (accent.blue - bg.blue) * ratio + ROUNDING_BIAS).toInt().coerceIn(0, MAX_CHANNEL_VALUE),
         )
     }
 
