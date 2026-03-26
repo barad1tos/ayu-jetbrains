@@ -1,5 +1,3 @@
-@file:Suppress("DialogTitleCapitalization")
-
 package dev.ayuislands.settings
 
 import com.intellij.ui.dsl.builder.AlignY

@@ -1,5 +1,3 @@
-@file:Suppress("DialogTitleCapitalization")
-
 package dev.ayuislands.settings
 
 import com.intellij.ide.BrowserUtil
@@ -366,7 +364,7 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
         }
     }
 
-    /** Update the custom font family selection and refresh preview. */
+    /** Update the custom font family selection and refresh the preview. */
     private fun updateCustomFontFamily(family: String) {
         customizations[pendingPreset] = currentSettings.copy(fontFamily = family)
         summaryLabel?.let { updateSummaryText(it) }
