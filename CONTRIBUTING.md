@@ -2,6 +2,8 @@
 
 Thanks for your interest in contributing! Whether it's a bug fix, a new language highlight, or a color tweak — all contributions are welcome.
 
+By participating, you agree to uphold our [Code of Conduct](.github/CODE_OF_CONDUCT.md).
+
 ## Getting Started
 
 1. Fork the repository and clone it locally
