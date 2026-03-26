@@ -4,6 +4,7 @@ import com.intellij.notification.NotificationGroup
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.project.ProjectManager
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
@@ -275,6 +276,8 @@ class LicenseCheckerProDefaultsTest {
         every { ApplicationManager.getApplication() } returns app
         every { app.getService(AccentRotationService::class.java) } returns rotationService
 
+        // ProjectManager already mocked by mockAccentApplicator()
+
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
 
         verify { rotationService.stopRotation() }
@@ -299,6 +302,12 @@ class LicenseCheckerProDefaultsTest {
         val app = mockk<Application>()
         every { ApplicationManager.getApplication() } returns app
         every { app.getService(AccentRotationService::class.java) } returns null
+
+        // Mock ProjectManager so glow sync loop finds no open projects
+        mockkStatic(ProjectManager::class)
+        val projectManager = mockk<ProjectManager>()
+        every { ProjectManager.getInstance() } returns projectManager
+        every { projectManager.openProjects } returns emptyArray()
 
         // Mock NotificationGroupManager for the catch block's warning notification
         mockkStatic(NotificationGroupManager::class)
@@ -336,5 +345,11 @@ class LicenseCheckerProDefaultsTest {
         val app = mockk<Application>()
         every { ApplicationManager.getApplication() } returns app
         every { app.getService(AccentRotationService::class.java) } returns null
+
+        // Mock ProjectManager so glow sync loop finds no open projects
+        mockkStatic(ProjectManager::class)
+        val projectManager = mockk<ProjectManager>()
+        every { ProjectManager.getInstance() } returns projectManager
+        every { projectManager.openProjects } returns emptyArray()
     }
 }

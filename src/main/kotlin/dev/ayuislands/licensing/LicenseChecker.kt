@@ -18,7 +18,9 @@ import com.intellij.ui.LicensingFacade
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
+import com.intellij.openapi.project.ProjectManager
 import dev.ayuislands.glow.GlowAnimation
+import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.rotation.AccentRotationService
@@ -266,6 +268,9 @@ object LicenseChecker {
         try {
             val accentHex = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
             AccentApplicator.apply(accentHex)
+            for (project in ProjectManager.getInstance().openProjects) {
+                GlowOverlayManager.getInstance(project).updateGlow()
+            }
         } catch (exception: RuntimeException) {
             LOG.warn("Revert to free defaults failed", exception)
             NotificationGroupManager
