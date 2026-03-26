@@ -41,6 +41,10 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.3.4" to
+                "<ul>" +
+                "<li>Fix glow color desyncing from accent after rotation</li>" +
+                "</ul>",
             "2.3.3" to
                 "<ul>" +
                 "<li>Fix \u201CWrite-unsafe context\u201D crash during accent rotation with Indent Rainbow</li>" +
