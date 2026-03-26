@@ -627,6 +627,69 @@ class AccentElementsTest {
         verify { BracketFadeManager.deactivate() }
     }
 
+    // SearchResultsElement blend coverage
+
+    @Test
+    fun `SearchResultsElement apply produces opaque blended colors`() {
+        val treeBg = Color(31, 36, 48) // typical dark theme Tree.background
+        every { UIManager.getColor("Tree.background") } returns treeBg
+        every { UIManager.getColor("List.background") } returns treeBg
+        every { UIManager.getColor("Table.background") } returns treeBg
+
+        val colorSlots = mutableListOf<Any?>()
+        every { UIManager.put(any<String>(), captureNullable(colorSlots)) } returns null
+
+        val element = SearchResultsElement()
+        element.apply(testColor)
+
+        val colors = colorSlots.filterIsInstance<Color>()
+        assertTrue(colors.isNotEmpty(), "Should have put Color values into UIManager")
+        for (color in colors) {
+            assertEquals(
+                255,
+                color.alpha,
+                "Selection color must be opaque (alpha=255), got ${color.alpha}",
+            )
+        }
+    }
+
+    @Test
+    fun `SearchResultsElement apply falls back to Panel background`() {
+        every { UIManager.getColor("Tree.background") } returns null
+        every { UIManager.getColor("List.background") } returns null
+        every { UIManager.getColor("Table.background") } returns null
+        every { UIManager.getColor("Panel.background") } returns Color(30, 30, 30)
+
+        val colorSlots = mutableListOf<Any?>()
+        every { UIManager.put(any<String>(), captureNullable(colorSlots)) } returns null
+
+        val element = SearchResultsElement()
+        element.apply(testColor)
+
+        val colors = colorSlots.filterIsInstance<Color>()
+        assertTrue(colors.isNotEmpty(), "Should produce colors even with fallback")
+        for (color in colors) {
+            assertEquals(255, color.alpha, "Fallback colors must be opaque")
+        }
+    }
+
+    @Test
+    fun `SearchResultsElement apply falls back to accent when no background available`() {
+        every { UIManager.getColor(any<String>()) } returns null
+
+        val colorSlots = mutableListOf<Any?>()
+        every { UIManager.put(any<String>(), captureNullable(colorSlots)) } returns null
+
+        val element = SearchResultsElement()
+        element.apply(testColor)
+
+        val colors = colorSlots.filterIsInstance<Color>()
+        assertTrue(colors.isNotEmpty(), "Should produce colors with accent fallback")
+        for (color in colors) {
+            assertEquals(255, color.alpha, "Accent-fallback colors must be opaque")
+        }
+    }
+
     // AccentElementId enum coverage
 
     @Test
