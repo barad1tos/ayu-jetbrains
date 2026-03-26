@@ -16,7 +16,6 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
-import com.intellij.openapi.project.ProjectManager
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 
@@ -175,9 +174,7 @@ class AccentRotationService : Disposable {
                     state.accentRotationLastSwitchMs =
                         System.currentTimeMillis()
                     AccentApplicator.apply(newHex.second)
-                    for (project in ProjectManager.getInstance().openProjects) {
-                        GlowOverlayManager.getInstance(project).updateGlow()
-                    }
+                    GlowOverlayManager.syncGlowForAllProjects()
                     LOG.info(
                         "Accent rotated: " +
                             "mode=$mode, color=${newHex.second}",

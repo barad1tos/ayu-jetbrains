@@ -3,6 +3,7 @@ package dev.ayuislands.glow
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.project.Project
@@ -74,6 +75,18 @@ class GlowOverlayManager(
         private const val KEY_TAB_BACKGROUND = "EditorTabs.underlinedTabBackground"
 
         fun getInstance(project: Project): GlowOverlayManager = project.getService(GlowOverlayManager::class.java)
+
+        fun syncGlowForAllProjects() {
+            for (project in ProjectManager.getInstance().openProjects) {
+                try {
+                    getInstance(project).updateGlow()
+                } catch (exception: RuntimeException) {
+                    logger<GlowOverlayManager>().warn(
+                        "Failed to sync glow for project ${project.name}: ${exception.message}",
+                    )
+                }
+            }
+        }
 
         private fun safeDecodeColor(hex: String): Color =
             try {
@@ -309,7 +322,7 @@ class GlowOverlayManager(
 
     private fun findTabBarHeight(host: JComponent): Int {
         // EditorsSplitters has one child: EditorTabs (full JBTabsImpl tabbed pane).
-        // EditorTabs.height = entire editor area — NOT the tab strip.
+        // EditorTabs.height = the entire editor area — NOT the tab strip.
         // Walk into EditorTabs and find a TabLabel — its (y + height) is the strip height.
         val editorTabs =
             host.components.firstOrNull {
@@ -396,8 +409,7 @@ class GlowOverlayManager(
         log.info("Glow overlay attached: $id (host: ${host.javaClass.simpleName})")
     }
 
-    private fun removeOverlay(id: String) {
-        val entry = overlays.remove(id) ?: return
+    private fun detachOverlayEntry(entry: OverlayEntry) {
         entry.glassPane.stopAnimation()
         entry.componentListener?.let { entry.host.removeComponentListener(it) }
         entry.hierarchyBoundsListener?.let { entry.host.removeHierarchyBoundsListener(it) }
@@ -408,6 +420,11 @@ class GlowOverlayManager(
             entry.glassPane.width,
             entry.glassPane.height,
         )
+    }
+
+    private fun removeOverlay(id: String) {
+        val entry = overlays.remove(id) ?: return
+        detachOverlayEntry(entry)
         if (activeGlowId == id) activeGlowId = null
         log.info("Glow overlay removed: $id")
     }
@@ -601,16 +618,7 @@ class GlowOverlayManager(
 
     private fun removeAllOverlays() {
         for ((_, entry) in overlays) {
-            entry.glassPane.stopAnimation()
-            entry.componentListener?.let { entry.host.removeComponentListener(it) }
-            entry.hierarchyBoundsListener?.let { entry.host.removeHierarchyBoundsListener(it) }
-            entry.layeredPane.remove(entry.glassPane)
-            entry.layeredPane.repaint(
-                entry.glassPane.x,
-                entry.glassPane.y,
-                entry.glassPane.width,
-                entry.glassPane.height,
-            )
+            detachOverlayEntry(entry)
         }
         overlays.clear()
 
