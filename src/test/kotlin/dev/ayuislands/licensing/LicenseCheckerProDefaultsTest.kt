@@ -7,8 +7,8 @@ import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
-import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.glow.GlowAnimation
+import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.rotation.AccentRotationService
