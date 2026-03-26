@@ -11,16 +11,16 @@ import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
 
-/** Re-applies accent color on theme change. */
+/** Re-applies accent, font, glow, and scrollbar settings on theme change. */
 class AyuIslandsLafListener : LafManagerListener {
     @Suppress("UnstableApiUsage")
     override fun lookAndFeelChanged(source: LafManager) {
         val variant = AyuVariant.detect()
         if (variant == null) {
-            // Switched away from the Ayu theme -- clean up accent overrides and glow overlays
+            // Switched away from the Ayu theme -- clean up accent, font, and glow overrides
             AccentApplicator.revertAll()
             FontPresetApplicator.revert()
-            updateGlowForAllProjects()
+            GlowOverlayManager.syncGlowForAllProjects()
             return
         }
 
@@ -44,7 +44,7 @@ class AyuIslandsLafListener : LafManagerListener {
         reapplyProjectViewScrollbar()
 
         // Update glow overlays with new accent color
-        updateGlowForAllProjects()
+        GlowOverlayManager.syncGlowForAllProjects()
     }
 
     private fun reapplyProjectViewScrollbar() {
@@ -54,16 +54,6 @@ class AyuIslandsLafListener : LafManagerListener {
                 ProjectViewScrollbarManager.getInstance(openProject).apply()
             } catch (exception: RuntimeException) {
                 LOG.warn("Failed to re-apply scrollbar for project ${openProject.name}: ${exception.message}")
-            }
-        }
-    }
-
-    private fun updateGlowForAllProjects() {
-        for (openProject in ProjectManager.getInstance().openProjects) {
-            try {
-                GlowOverlayManager.getInstance(openProject).updateGlow()
-            } catch (exception: RuntimeException) {
-                LOG.warn("Failed to update glow for project ${openProject.name}: ${exception.message}")
             }
         }
     }

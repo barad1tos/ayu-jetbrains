@@ -6,6 +6,7 @@ import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
@@ -43,7 +44,7 @@ import javax.swing.UIManager
  * GlowIslandBorder (border-based island glow) was evaluated and removed: the GlassPane approach
  * is more robust (independent of component border chains, no layout interference).
  * GlowPanel (standalone glow JPanel) was removed: preview uses GlowRenderer directly.
- * GlowPreset (named configurations) was removed: deferred feature, flat state properties suffice.
+ * GlowPreset (named configurations) was simplified to an enum selecting flat state properties.
  */
 @Suppress("TooManyFunctions") // Overlay lifecycle requires many small helpers
 class GlowOverlayManager(
@@ -74,6 +75,19 @@ class GlowOverlayManager(
         private const val KEY_TAB_BACKGROUND = "EditorTabs.underlinedTabBackground"
 
         fun getInstance(project: Project): GlowOverlayManager = project.getService(GlowOverlayManager::class.java)
+
+        fun syncGlowForAllProjects() {
+            for (project in ProjectManager.getInstance().openProjects) {
+                try {
+                    getInstance(project).updateGlow()
+                } catch (exception: RuntimeException) {
+                    logger<GlowOverlayManager>().warn(
+                        "Failed to sync glow for project ${project.name}",
+                        exception,
+                    )
+                }
+            }
+        }
 
         private fun safeDecodeColor(hex: String): Color =
             try {
@@ -309,7 +323,7 @@ class GlowOverlayManager(
 
     private fun findTabBarHeight(host: JComponent): Int {
         // EditorsSplitters has one child: EditorTabs (full JBTabsImpl tabbed pane).
-        // EditorTabs.height = entire editor area — NOT the tab strip.
+        // EditorTabs.height = the entire editor area — NOT the tab strip.
         // Walk into EditorTabs and find a TabLabel — its (y + height) is the strip height.
         val editorTabs =
             host.components.firstOrNull {
@@ -396,8 +410,7 @@ class GlowOverlayManager(
         log.info("Glow overlay attached: $id (host: ${host.javaClass.simpleName})")
     }
 
-    private fun removeOverlay(id: String) {
-        val entry = overlays.remove(id) ?: return
+    private fun detachOverlayEntry(entry: OverlayEntry) {
         entry.glassPane.stopAnimation()
         entry.componentListener?.let { entry.host.removeComponentListener(it) }
         entry.hierarchyBoundsListener?.let { entry.host.removeHierarchyBoundsListener(it) }
@@ -408,6 +421,11 @@ class GlowOverlayManager(
             entry.glassPane.width,
             entry.glassPane.height,
         )
+    }
+
+    private fun removeOverlay(id: String) {
+        val entry = overlays.remove(id) ?: return
+        detachOverlayEntry(entry)
         if (activeGlowId == id) activeGlowId = null
         log.info("Glow overlay removed: $id")
     }
@@ -601,16 +619,7 @@ class GlowOverlayManager(
 
     private fun removeAllOverlays() {
         for ((_, entry) in overlays) {
-            entry.glassPane.stopAnimation()
-            entry.componentListener?.let { entry.host.removeComponentListener(it) }
-            entry.hierarchyBoundsListener?.let { entry.host.removeHierarchyBoundsListener(it) }
-            entry.layeredPane.remove(entry.glassPane)
-            entry.layeredPane.repaint(
-                entry.glassPane.x,
-                entry.glassPane.y,
-                entry.glassPane.width,
-                entry.glassPane.height,
-            )
+            detachOverlayEntry(entry)
         }
         overlays.clear()
 

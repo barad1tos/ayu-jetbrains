@@ -19,6 +19,7 @@ import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowAnimation
+import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.rotation.AccentRotationService
@@ -277,6 +278,12 @@ object LicenseChecker {
                         "Restart your IDE to complete the reset.",
                     NotificationType.WARNING,
                 ).notify(null)
+        }
+
+        try {
+            GlowOverlayManager.syncGlowForAllProjects()
+        } catch (exception: RuntimeException) {
+            LOG.warn("Glow sync after license revert failed", exception)
         }
     }
 

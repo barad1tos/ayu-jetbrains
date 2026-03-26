@@ -8,6 +8,7 @@ import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowAnimation
+import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.rotation.AccentRotationService
@@ -300,6 +301,10 @@ class LicenseCheckerProDefaultsTest {
         every { ApplicationManager.getApplication() } returns app
         every { app.getService(AccentRotationService::class.java) } returns null
 
+        // Mock GlowOverlayManager.syncGlowForAllProjects()
+        mockkObject(GlowOverlayManager.Companion)
+        every { GlowOverlayManager.syncGlowForAllProjects() } just runs
+
         // Mock NotificationGroupManager for the catch block's warning notification
         mockkStatic(NotificationGroupManager::class)
         val notificationManager = mockk<NotificationGroupManager>()
@@ -336,5 +341,9 @@ class LicenseCheckerProDefaultsTest {
         val app = mockk<Application>()
         every { ApplicationManager.getApplication() } returns app
         every { app.getService(AccentRotationService::class.java) } returns null
+
+        // Mock GlowOverlayManager.syncGlowForAllProjects()
+        mockkObject(GlowOverlayManager.Companion)
+        every { GlowOverlayManager.syncGlowForAllProjects() } just runs
     }
 }

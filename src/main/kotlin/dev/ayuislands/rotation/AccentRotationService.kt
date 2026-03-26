@@ -13,6 +13,7 @@ import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentColor
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.util.concurrent.ScheduledFuture
@@ -37,9 +38,10 @@ internal fun nextPresetHex(
 class AccentRotationService : Disposable {
     private val checkedDisposable: CheckedDisposable =
         Disposer.newCheckedDisposable(this)
-    private val disposed = Condition<Any?> {
-        checkedDisposable.isDisposed
-    }
+    private val disposed =
+        Condition<Any?> {
+            checkedDisposable.isDisposed
+        }
 
     @Volatile
     private var scheduledFuture: ScheduledFuture<*>? = null
@@ -152,13 +154,14 @@ class AccentRotationService : Disposable {
                             .generate(variant)
             }
 
-        val app = ApplicationManager.getApplication()
-            ?: run {
-                LOG.debug(
-                    "Rotation skipped: app shutting down",
-                )
-                return
-            }
+        val app =
+            ApplicationManager.getApplication()
+                ?: run {
+                    LOG.debug(
+                        "Rotation skipped: app shutting down",
+                    )
+                    return
+                }
         app.invokeLater(
             {
                 try {
@@ -177,10 +180,19 @@ class AccentRotationService : Disposable {
                         "Accent rotated: " +
                             "mode=$mode, color=${newHex.second}",
                     )
-                } catch (exception: Exception) {
+                } catch (exception: RuntimeException) {
                     LOG.error(
                         "Accent rotation failed: " +
                             "mode=$mode, color=${newHex.second}",
+                        exception,
+                    )
+                }
+
+                try {
+                    GlowOverlayManager.syncGlowForAllProjects()
+                } catch (exception: RuntimeException) {
+                    LOG.warn(
+                        "Glow sync after accent rotation failed",
                         exception,
                     )
                 }
