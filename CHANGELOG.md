@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.3.5] - 2026-03-26
+
+### Fixed
+- Fix selection overlap bands when accent color is active on multi-row selections
+
 ## [2.3.4] - 2026-03-26
 
 ### Fixed
