@@ -1,5 +1,3 @@
-@file:Suppress("DialogTitleCapitalization")
-
 package dev.ayuislands.settings
 
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
@@ -15,7 +13,7 @@ import javax.swing.JCheckBox
 import javax.swing.JLabel
 import javax.swing.JSlider
 
-/** Plugins tab: third-party plugin integrations (CodeGlance Pro, Indent Rainbow). */
+/** Plugin's tab: third-party plugin integrations (CodeGlance Pro, Indent Rainbow). */
 class PluginsPanel : AyuIslandsSettingsPanel {
     private var pendingEnabled: Boolean = false
     private var storedEnabled: Boolean = false
