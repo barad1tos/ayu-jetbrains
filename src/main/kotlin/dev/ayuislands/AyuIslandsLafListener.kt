@@ -11,13 +11,13 @@ import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
 
-/** Re-applies accent color on theme change. */
+/** Re-applies accent, font, glow, and scrollbar settings on theme change. */
 class AyuIslandsLafListener : LafManagerListener {
     @Suppress("UnstableApiUsage")
     override fun lookAndFeelChanged(source: LafManager) {
         val variant = AyuVariant.detect()
         if (variant == null) {
-            // Switched away from the Ayu theme -- clean up accent overrides and glow overlays
+            // Switched away from the Ayu theme -- clean up accent, font, and glow overrides
             AccentApplicator.revertAll()
             FontPresetApplicator.revert()
             GlowOverlayManager.syncGlowForAllProjects()

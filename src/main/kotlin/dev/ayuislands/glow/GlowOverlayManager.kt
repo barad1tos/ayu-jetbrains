@@ -44,7 +44,7 @@ import javax.swing.UIManager
  * GlowIslandBorder (border-based island glow) was evaluated and removed: the GlassPane approach
  * is more robust (independent of component border chains, no layout interference).
  * GlowPanel (standalone glow JPanel) was removed: preview uses GlowRenderer directly.
- * GlowPreset (named configurations) was removed: deferred feature, flat state properties suffice.
+ * GlowPreset (named configurations) was simplified to an enum selecting flat state properties.
  */
 @Suppress("TooManyFunctions") // Overlay lifecycle requires many small helpers
 class GlowOverlayManager(

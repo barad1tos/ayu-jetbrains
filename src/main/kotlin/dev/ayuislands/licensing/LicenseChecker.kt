@@ -280,7 +280,11 @@ object LicenseChecker {
                 ).notify(null)
         }
 
-        GlowOverlayManager.syncGlowForAllProjects()
+        try {
+            GlowOverlayManager.syncGlowForAllProjects()
+        } catch (exception: RuntimeException) {
+            LOG.warn("Glow sync after license revert failed", exception)
+        }
     }
 
     private const val KEY_PREFIX_LENGTH = 4
