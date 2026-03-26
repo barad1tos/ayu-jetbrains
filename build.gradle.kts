@@ -161,13 +161,13 @@ kover {
                     // IDE glue: JTree traversal, ToolWindowManager, Timer, expansion listeners
                     "dev.ayuislands.toolwindow.ToolWindowAutoFitter*",
                     // Pure Swing rendering: Graphics2D paint, mouse handlers, animation timers
-                    "dev.ayuislands.settings.AccentColorPanel\$ThirteenthSwatch*",
-                    "dev.ayuislands.settings.AccentColorPanel\$ShuffleLink*",
-                    "dev.ayuislands.settings.AccentColorPanel\$ShadeNameLabel*",
-                    "dev.ayuislands.settings.AccentColorPanel\$LinkLabel*",
-                    "dev.ayuislands.settings.AccentColorPanel\$PresetComponent*",
-                    "dev.ayuislands.settings.AccentColorPanel\$CustomLink*",
-                    "dev.ayuislands.settings.AccentColorPanel\$ResetLabel*",
+                    $$"dev.ayuislands.settings.AccentColorPanel$ThirteenthSwatch*",
+                    $$"dev.ayuislands.settings.AccentColorPanel$ShuffleLink*",
+                    $$"dev.ayuislands.settings.AccentColorPanel$ShadeNameLabel*",
+                    $$"dev.ayuislands.settings.AccentColorPanel$LinkLabel*",
+                    $$"dev.ayuislands.settings.AccentColorPanel$PresetComponent*",
+                    $$"dev.ayuislands.settings.AccentColorPanel$CustomLink*",
+                    $$"dev.ayuislands.settings.AccentColorPanel$ResetLabel*",
                     // IDE scheduling glue: AppExecutorUtil, AyuIslandsSettings, AccentApplicator singletons
                     "dev.ayuislands.rotation.AccentRotationService*",
                 )
