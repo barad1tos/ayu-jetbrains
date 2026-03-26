@@ -38,9 +38,10 @@ internal fun nextPresetHex(
 class AccentRotationService : Disposable {
     private val checkedDisposable: CheckedDisposable =
         Disposer.newCheckedDisposable(this)
-    private val disposed = Condition<Any?> {
-        checkedDisposable.isDisposed
-    }
+    private val disposed =
+        Condition<Any?> {
+            checkedDisposable.isDisposed
+        }
 
     @Volatile
     private var scheduledFuture: ScheduledFuture<*>? = null
@@ -153,13 +154,14 @@ class AccentRotationService : Disposable {
                             .generate(variant)
             }
 
-        val app = ApplicationManager.getApplication()
-            ?: run {
-                LOG.debug(
-                    "Rotation skipped: app shutting down",
-                )
-                return
-            }
+        val app =
+            ApplicationManager.getApplication()
+                ?: run {
+                    LOG.debug(
+                        "Rotation skipped: app shutting down",
+                    )
+                    return
+                }
         app.invokeLater(
             {
                 try {
