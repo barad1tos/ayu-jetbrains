@@ -178,7 +178,7 @@ class AccentRotationService : Disposable {
                         "Accent rotated: " +
                             "mode=$mode, color=${newHex.second}",
                     )
-                } catch (exception: Exception) {
+                } catch (exception: RuntimeException) {
                     LOG.error(
                         "Accent rotation failed: " +
                             "mode=$mode, color=${newHex.second}",
