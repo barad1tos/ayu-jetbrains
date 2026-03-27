@@ -130,7 +130,6 @@ kover {
                     // Data class in EffectsPanel file, pure UI config
                     "dev.ayuislands.settings.SliderConfig*",
                     // Glow rendering (Graphics2D paint, animation overlay)
-                    "dev.ayuislands.glow.GlowOverlayManager*",
                     "dev.ayuislands.glow.GlowGlassPane*",
                     "dev.ayuislands.glow.GlowFocusBorder*",
                     // macOS-only (SystemInfo.isMac guard, untestable on Linux CI)
