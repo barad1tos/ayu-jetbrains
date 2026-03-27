@@ -9,6 +9,7 @@ repos:
       - id: check-xml
       - id: check-added-large-files
         args: ['--maxkb=500']
+        exclude: '^assets/'
       - id: check-merge-conflict
       - id: no-commit-to-branch
         args: ['--branch', 'main']
