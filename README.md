@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  Warm, refined color themes for JetBrains IDEs — three Ayu palettes with modern Islands UI.
+  <strong>Not another color swap</strong> — a unified aesthetic engine for every JetBrains IDE.
 </p>
 
 <p align="center">
@@ -30,67 +30,58 @@
   </a>
 </p>
 
+<br>
+
+<p align="center">
+  <img src="assets/Hero.gif" alt="Ayu Islands preset switching — Whisper, Ambient, Neon, Cyberpunk" width="100%">
+</p>
+
 ---
 
-## Preview
+Ayu Islands synchronizes palette, font, glow, and accent color into a cohesive look — one click, entire mood shift. Built on [ayu-colors](https://github.com/ayu-theme/ayu-colors) (MIT) and **endorsed by [Ike Ku](https://github.com/dempfi)**, the original Ayu author, who called the project *"brilliant"* and invited it to [ayutheme.com](https://ayutheme.com).
+
+> **30-day premium trial included.** All premium features unlocked on install, no credit card. The free tier is a complete theme — not a teaser.
+
+## What sets it apart
+
+- **Aesthetic engine, not a skin** — 500+ hand-tuned UI properties, 1,400+ editor attributes, and 5 settings tabs to shape how the IDE looks and feels
+- **4 curated presets** — Whisper, Ambient, Neon, Cyberpunk — each synchronizes font, glow intensity, and indent colors into one cohesive mood
+- **Plugin ecosystem** — accent color propagates into CodeGlance Pro and Indent Rainbow. As far as I know, no other JetBrains theme does this
+- **Creator-endorsed** — the original Ayu author endorsed this project and invited it to the official Ayu site
+
+## Premium — make the IDE feel yours
+
+|                                                         |                                                                                                                                                                                                                                                                                       |
+|---------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ![Glow settings](assets/feature-glow.png)               | **Glow** — a soft light beneath tabs and panels: Soft, Sharp Neon, or Gradient. Add Pulse, Breathe, or Reactive animation. Control intensity, width, and which of the 7 panels glow.                                                                                                  |
+| ![Accent settings](assets/feature-accent.png)           | **Accent control** — decide exactly where your accent color appears: scrollbars, links, caret line, search highlights, progress bars, bracket matches, inlay hints, tag matches. Eight independent switches. **Accent rotation** — automatic preset cycling or contrast-aware random. |
+| ![Font presets](assets/feature-font.png)                | **Font presets** — 4 curated Nerd Fonts (Whisper, Ambient, Neon, Cyberpunk) with one-click apply, live preview, and per-preset fine-tuning.                                                                                                                                           |
+| ![Workspace settings](assets/feature-workspace.png)     | **Workspace** — auto-fit or fixed width for Project View, Commit, and Git panels with min/max bounds. Hide the filesystem path and scrollbar from Project View.                                                                                                                       |
+| ![Plugin integrations](assets/feature-integrations.png) | **Plugin sync** — accent into CodeGlance Pro minimap and Indent Rainbow guides. More integrations in development. **Bracket scope** — a colored gutter stripe showing the full scope on bracket hover.                                                                                |
+
+## Free — a complete theme, not a teaser
+
+6 theme variants (Mirage, Dark, Light — Classic & Islands UI). 40+ individually crafted language syntaxes. 12 accent presets + custom picker + macOS system sync. 4 font presets with one-click apply and live preview. Full VCS/diff colors and a 16-color terminal scheme. All free. No time limit. No feature degradation.
+
+## Theme variants
 
 <details open>
 <summary><strong>Mirage</strong> — warm blue-gray</summary>
 <br>
-<img src="assets/preview-mirage.png" alt="Ayu Islands Mirage preview" width="100%">
-<br><br>
-<img src="assets/preview-mirage-islands.png" alt="Ayu Islands Mirage (Islands UI) preview" width="100%">
+<img src="assets/preview-mirage-islands.png" alt="Ayu Islands Mirage preview" width="100%">
 </details>
 
 <details>
 <summary><strong>Dark</strong> — deep midnight</summary>
 <br>
-<img src="assets/preview-dark.png" alt="Ayu Islands Dark preview" width="100%">
-<br><br>
-<img src="assets/preview-dark-islands.png" alt="Ayu Islands Dark (Islands UI) preview" width="100%">
+<img src="assets/preview-dark-islands.png" alt="Ayu Islands Dark preview" width="100%">
 </details>
 
 <details>
 <summary><strong>Light</strong> — warm daylight</summary>
 <br>
-<img src="assets/preview-light.png" alt="Ayu Islands Light preview" width="100%">
-<br><br>
-<img src="assets/preview-light-islands.png" alt="Ayu Islands Light (Islands UI) preview" width="100%">
+<img src="assets/preview-light-islands.png" alt="Ayu Islands Light preview" width="100%">
 </details>
-
-## Palettes
-
-Each variant uses canonical colors from [ayu-colors](https://github.com/ayu-theme/ayu-colors).
-
-| | Background | Foreground | Accent | Keyword | String | Entity |
-|---|---|---|---|---|---|---|
-| **Mirage** | ![](https://placehold.co/16x16/1F2430/1F2430) `#1F2430` | ![](https://placehold.co/16x16/CCCAC2/CCCAC2) `#CCCAC2` | ![](https://placehold.co/16x16/FFCC66/FFCC66) `#FFCC66` | ![](https://placehold.co/16x16/FFAD66/FFAD66) `#FFAD66` | ![](https://placehold.co/16x16/D5FF80/D5FF80) `#D5FF80` | ![](https://placehold.co/16x16/73D0FF/73D0FF) `#73D0FF` |
-| **Dark** | ![](https://placehold.co/16x16/0D1017/0D1017) `#0D1017` | ![](https://placehold.co/16x16/BFBDB6/BFBDB6) `#BFBDB6` | ![](https://placehold.co/16x16/E6B450/E6B450) `#E6B450` | ![](https://placehold.co/16x16/FF8F40/FF8F40) `#FF8F40` | ![](https://placehold.co/16x16/AAD94C/AAD94C) `#AAD94C` | ![](https://placehold.co/16x16/59C2FF/59C2FF) `#59C2FF` |
-| **Light** | ![](https://placehold.co/16x16/FAFAFA/FAFAFA) `#FAFAFA` | ![](https://placehold.co/16x16/5C6166/5C6166) `#5C6166` | ![](https://placehold.co/16x16/F29718/F29718) `#F29718` | ![](https://placehold.co/16x16/FA8532/FA8532) `#FA8532` | ![](https://placehold.co/16x16/86B300/86B300) `#86B300` | ![](https://placehold.co/16x16/22A4E6/22A4E6) `#22A4E6` |
-
-## Features
-
-### Free
-
-- **6 themes** — Mirage, Dark, and Light, each in classic and Islands UI variants
-- **Islands UI** — rounded panels, island gaps, and compact mode support
-- **40+ language-specific highlights** — carefully tuned per-language tokens, not just defaults
-- **Canonical ayu-colors** — syntax palettes from [ayu-theme/ayu-colors](https://github.com/ayu-theme/ayu-colors)
-- **Accent color customization** — 12 Ayu palette presets + custom color picker with live preview
-- **Full VCS integration** — diff gutters, file status colors, merge indicators, blame annotations
-- **16-color terminal palette** — per-variant terminal colors that feel native
-- **Project color gradients** — 9 color groups in Ayu hues
-- **macOS sync** — follows system accent color and appearance (Light/Dark)
-- **Verified on 12 IDEs** — IntelliJ IDEA, PyCharm, WebStorm, GoLand, RustRover, Rider, PhpStorm, CLion, DataGrip, RubyMine, and more
-
-### Premium
-
-- **Per-element accent toggles** — fine-grained control over tabs, scrollbars, links, caret row, and more
-- **Neon glow effects** — island borders, active tabs, and focused inputs with 4 styles (Whisper, Ambient, Neon, Cyberpunk) plus custom mode and animations
-- **Plugin integrations** — accent colors in CodeGlance Pro, planning for more in the future
-- **Conflict detection** — detects conflicting theme settings and points out the source
-
-> 30-day free trial included. All 6 base themes remain free forever.
 
 ## Installation
 
@@ -106,53 +97,30 @@ Then activate: **Settings** → **Appearance & Behavior** → **Appearance** →
 2. **Settings** → **Plugins** → **⚙** → **Install Plugin from Disk...**
 3. Select the downloaded `.zip` and restart the IDE
 
-> The release archive is the same artifact published to the Marketplace —
-> just a different install path.
-
-## Supported Languages
+## Supported languages
 
 Ayu Islands provides hand-tuned syntax highlighting for 40+ languages and formats:
 
-- Java, Kotlin, Scala, C# / .NET (Rider / ReSharper), Swift
-- Rust, Go, Erlang, Lua
-- Python, Ruby, PHP, Dart
-- JavaScript / TypeScript, CoffeeScript
-- HTML, CSS, HAML, SLIM, JSP, Qute, Django Templates
-- GraphQL, JSON, XML, YAML, Properties, Puppet
-- Bash / Shell, Markdown, Regular Expressions
+Java, Kotlin, Scala, C# / .NET (Rider / ReSharper), Swift, Rust, Go, Erlang, Lua, Python, Ruby, PHP, Dart, JavaScript / TypeScript, CoffeeScript, HTML, CSS, HAML, SLIM, JSP, Qute, Django Templates, GraphQL, JSON, XML, YAML, Properties, Puppet, Bash / Shell, Markdown, Regular Expressions, and more.
 
-Languages without explicit overrides (SQL, TOML, and others) inherit from `DEFAULT_*` attributes, which are also themed — so every language benefits from the Ayu palette.
+Languages without explicit overrides inherit from themed `DEFAULT_*` attributes — so every language benefits from the Ayu palette.
 
-## Building from Source
+## Building from source
 
 ```bash
-# Build the distribution ZIP
-./gradlew buildPlugin
-
-# Launch a sandboxed IDE with the plugin loaded
-./gradlew runIde
-
-# Verify against 12 IDE targets
-./gradlew verifyPlugin
-
-# Check theme file consistency (runs in CI)
-python3 scripts/check-consistency.py      # XML cross-variant
-python3 scripts/check-json-consistency.py  # JSON pair consistency
+./gradlew buildPlugin        # Build the distribution ZIP
+./gradlew runIde             # Launch a sandboxed IDE with the plugin
+./gradlew verifyPlugin       # Verify against 12 IDE targets
 ```
 
 Output: `build/distributions/ayu-jetbrains-<version>.zip`
-
-## Contributing
-
-Contributions are welcome! Whether it's a bug report, a new language highlight, or a color tweak — open an [issue](https://github.com/barad1tos/ayu-jetbrains/issues) or submit a pull request.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and [CHANGELOG.md](CHANGELOG.md) for the release history.
 
 ## Credits
 
-- Inspired by [Ayu](https://ayutheme.com) by Ike Ku ([@dempfi](https://github.com/dempfi))
-- Color palettes from [ayu-theme/ayu-colors](https://github.com/ayu-theme/ayu-colors)
-- Built on the [IntelliJ Platform](https://plugins.jetbrains.com/docs/intellij/welcome.html) by JetBrains
+- Built on [Ayu](https://ayutheme.com) by Ike Ku ([@dempfi](https://github.com/dempfi)) — color palettes from [ayu-theme/ayu-colors](https://github.com/ayu-theme/ayu-colors) (MIT)
+- [IntelliJ Platform SDK](https://plugins.jetbrains.com/docs/intellij/welcome.html) by JetBrains
 
 ## License
 
