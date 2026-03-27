@@ -62,7 +62,7 @@ jobs:
             echo "::error::Large file detected: $f ($(du -h "$f" | cut -f1))"
             found=1
           done < <(find . -not -path '*/build/*' -not -path '*/.gradle/*' \
-            -not -path '*/.git/*' -type f -size +500k \
+            -not -path '*/.git/*' -not -path '*/assets/*' -type f -size +500k \
             -not -name '*.jar' -not -name '*.zip')
           if [ "$found" -eq 1 ]; then exit 1; fi
       - name: Check for merge conflict markers

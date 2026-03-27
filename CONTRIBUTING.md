@@ -19,19 +19,19 @@ By participating, you agree to uphold our [Code of Conduct](.github/CODE_OF_COND
 
 ## Project Structure
 
-| Path | What it does |
-|------|-------------|
-| `src/main/resources/themes/*.theme.json` | UI themes (colors, Islands UI config, component styling) |
-| `src/main/resources/themes/*.xml` | Editor color schemes (syntax highlighting, terminal, VCS) |
-| `src/main/resources/META-INF/plugin.xml` | Plugin descriptor and theme registration |
-| `src/main/kotlin/dev/ayuislands/` | Kotlin runtime code (accent colors, settings, glow effects) |
-| `build.gradle.kts` | Gradle build configuration |
+| Path                                     | What it does                                                |
+|------------------------------------------|-------------------------------------------------------------|
+| `src/main/resources/themes/*.theme.json` | UI themes (colors, Islands UI config, component styling)    |
+| `src/main/resources/themes/*.xml`        | Editor color schemes (syntax highlighting, terminal, VCS)   |
+| `src/main/resources/META-INF/plugin.xml` | Plugin descriptor and theme registration                    |
+| `src/main/kotlin/dev/ayuislands/`        | Kotlin runtime code (accent colors, settings, glow effects) |
+| `build.gradle.kts`                       | Gradle build configuration                                  |
 
 ## Theme File Conventions
 
 Each color variant (Mirage, Dark, Light) has **two** `.theme.json` files:
 - Base variant (e.g. `ayu-islands-mirage.theme.json`)
-- Islands UI variant (e.g. `ayu-islands-mirage-islands.theme.json`)
+- Island UI variant (e.g. `ayu-islands-mirage-islands.theme.json`)
 
 **Always edit both files** when making color changes — users may have either variant active.
 
