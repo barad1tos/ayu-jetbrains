@@ -1,5 +1,6 @@
 package dev.ayuislands.glow
 
+import java.awt.Color
 import javax.swing.JLabel
 import javax.swing.JPanel
 import kotlin.test.Test
@@ -29,6 +30,18 @@ class EditorTabGeometryTest {
     }
 
     // Positive path (EditorTabs + TabLabel present) requires IDE component classes -- tested via runIde
+
+    @Test
+    fun `safeDecodeColor returns decoded color for valid hex`() {
+        val color = GlowOverlayManager.safeDecodeColor("#FF0000")
+        assertEquals(Color.RED, color)
+    }
+
+    @Test
+    fun `safeDecodeColor returns fallback for invalid hex`() {
+        val fallback = GlowOverlayManager.safeDecodeColor("not-a-color")
+        assertEquals(Color.decode("#FFCC66"), fallback)
+    }
 
     @Test
     fun `findEditorTabsComponent returns null when no matching ancestor`() {
