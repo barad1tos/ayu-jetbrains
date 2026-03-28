@@ -291,11 +291,6 @@ class LicenseVerifierTest {
         return "$timestamp:$machineId:0:$signatureBase64:$certBase64"
     }
 
-    private fun base64(text: String): String =
-        Base64.getEncoder().encodeToString(
-            text.toByteArray(StandardCharsets.UTF_8),
-        )
-
     companion object {
         private val caKeyPair: KeyPair = generateKeyPair()
         private val leafKeyPair: KeyPair = generateKeyPair()
