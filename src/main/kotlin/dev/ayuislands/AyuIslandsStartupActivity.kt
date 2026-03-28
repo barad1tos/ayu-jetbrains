@@ -1,6 +1,5 @@
 package dev.ayuislands
 
-import com.intellij.ide.ui.LafManager
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
@@ -17,9 +16,8 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import javax.swing.SwingUtilities
 
 internal class AyuIslandsStartupActivity : ProjectActivity {
-    @Suppress("UnstableApiUsage")
     override suspend fun execute(project: Project) {
-        val themeName = LafManager.getInstance().currentUIThemeLookAndFeel.name
+        val themeName = AyuVariant.currentThemeName()
         LOG.info("Ayu Islands loaded — active theme: $themeName, project: ${project.name}")
 
         val variant = AyuVariant.fromThemeName(themeName) ?: return
