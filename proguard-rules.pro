@@ -40,6 +40,13 @@
 -keep class dev.ayuislands.AppearanceSyncListener { *; }
 -keep class dev.ayuislands.AppearanceSyncService { *; }
 
+# plugin.xml: applicationService (accent rotation)
+-keep class dev.ayuislands.rotation.AccentRotationService { *; }
+
+# plugin.xml: projectService (workspace panel managers)
+-keep class dev.ayuislands.commitpanel.CommitPanelAutoFitManager { *; }
+-keep class dev.ayuislands.gitpanel.GitPanelAutoFitManager { *; }
+
 # Public API singletons (called from kept classes)
 -keep class dev.ayuislands.accent.AccentApplicator { *; }
 -keep class dev.ayuislands.accent.AccentColor { *; }
