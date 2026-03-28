@@ -39,8 +39,10 @@ object ComponentHierarchyUtils {
      * Search immediate children of [container] for the first component
      * whose class name contains [className].
      */
-    fun findChildByClassName(container: Container, className: String): Component? =
-        container.components.firstOrNull { it.javaClass.name.contains(className) }
+    fun findChildByClassName(
+        container: Container,
+        className: String,
+    ): Component? = container.components.firstOrNull { it.javaClass.name.contains(className) }
 
     /**
      * Locate the glow host for a tool window component.
@@ -48,7 +50,10 @@ object ComponentHierarchyUtils {
      * Tries InternalDecoratorImpl first, then IslandHolder. If neither is found,
      * logs a warning and returns the original [component] as a safe fallback.
      */
-    fun findGlowHost(component: JComponent, maxDepth: Int = 6): JComponent {
+    fun findGlowHost(
+        component: JComponent,
+        maxDepth: Int = 6,
+    ): JComponent {
         val decorator = findAncestorByClassName(component, "InternalDecoratorImpl", maxDepth)
         if (decorator != null) return decorator as JComponent
 

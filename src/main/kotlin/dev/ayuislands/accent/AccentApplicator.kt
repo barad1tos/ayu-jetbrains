@@ -42,10 +42,15 @@ object AccentApplicator {
 
     // Cached CodeGlance Pro reflection objects (resolved once per session)
     @Volatile private var cgpService: Any? = null
+
     @Volatile private var cgpGetState: Method? = null
+
     @Volatile private var cgpSetViewportColor: Method? = null
+
     @Volatile private var cgpSetViewportBorderColor: Method? = null
+
     @Volatile private var cgpSetViewportBorderThickness: Method? = null
+
     @Volatile private var cgpMethodsResolved = false
 
     // Always-on UIManager keys (not per-element toggleable)

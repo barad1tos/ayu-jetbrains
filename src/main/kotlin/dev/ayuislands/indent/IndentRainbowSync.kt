@@ -21,15 +21,25 @@ object IndentRainbowSync {
 
     // Cached reflection objects (resolved once per session)
     @Volatile private var irConfig: Any? = null
+
     @Volatile private var paletteTypeField: Field? = null
+
     @Volatile private var customPaletteField: Field? = null
+
     @Volatile private var customPaletteNumberColorsField: Field? = null
+
     @Volatile private var customEnumValue: Any? = null
+
     @Volatile private var defaultEnumValue: Any? = null
+
     @Volatile private var cachedDataUpdateMethod: Method? = null
+
     @Volatile private var cachedDataCompanion: Any? = null
+
     @Volatile private var refreshMethod: Method? = null
+
     @Volatile private var irColorsInstance: Any? = null
+
     @Volatile private var methodsResolved = false
 
     fun apply(variant: AyuVariant) {

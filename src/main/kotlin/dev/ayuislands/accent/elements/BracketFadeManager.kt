@@ -21,7 +21,9 @@ import java.awt.Color
 
 object BracketFadeManager {
     private val LOG = logger<BracketFadeManager>()
+
     @Volatile private var disposable: Disposable? = null
+
     @Volatile private var currentColor: Color? = null
     private val activeHighlighters = mutableMapOf<Editor, List<RangeHighlighter>>()
 

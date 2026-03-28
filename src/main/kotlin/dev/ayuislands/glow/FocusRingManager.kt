@@ -35,7 +35,11 @@ class FocusRingManager {
      *
      * Windows already in [processedWindows] are skipped for performance.
      */
-    fun initializeFocusRingGlow(accent: Color, style: GlowStyle, intensity: Int) {
+    fun initializeFocusRingGlow(
+        accent: Color,
+        style: GlowStyle,
+        intensity: Int,
+    ) {
         for (window in Window.getWindows()) {
             if (processedWindows.containsKey(window)) continue
             installFocusListenersRecursively(window, accent, style, intensity)
@@ -50,7 +54,12 @@ class FocusRingManager {
      * Removes all existing listeners first, then walks windows.
      * Newly seen windows are tracked in [processedWindows].
      */
-    fun updateFocusRingGlow(accent: Color, style: GlowStyle, intensity: Int, enabled: Boolean) {
+    fun updateFocusRingGlow(
+        accent: Color,
+        style: GlowStyle,
+        intensity: Int,
+        enabled: Boolean,
+    ) {
         removeFocusListeners()
         if (enabled) {
             for (window in Window.getWindows()) {

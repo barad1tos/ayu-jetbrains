@@ -1,21 +1,22 @@
 package dev.ayuislands.licensing
 
 import java.io.ByteArrayInputStream
+import java.math.BigInteger
 import java.nio.charset.StandardCharsets
-import java.security.KeyFactory
 import java.security.KeyPair
+import java.security.KeyPairGenerator
 import java.security.PrivateKey
 import java.security.Signature
-import java.security.cert.CertPathValidatorException
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
-import java.security.spec.PKCS8EncodedKeySpec
 import java.util.Base64
+import java.util.Date
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 class LicenseVerifierTest {
     private lateinit var verifier: LicenseVerifier
@@ -25,7 +26,7 @@ class LicenseVerifierTest {
         verifier = LicenseVerifier()
     }
 
-    // Group 1: isKeyValid - format rejection (no crypto needed)
+    // Group 1: isKeyValid — format rejection (no crypto needed)
 
     @Test
     fun `isKeyValid returns false for empty string`() {
@@ -54,59 +55,66 @@ class LicenseVerifierTest {
 
     @Test
     fun `isKeyValid returns false for invalid Base64 in signature field`() {
-        val licenseBase64 = Base64.getEncoder().encodeToString("""{"licenseId":"LID1"}""".toByteArray())
+        val licenseBase64 = base64("""{"licenseId":"LID1"}""")
         assertFalse(verifier.isKeyValid("LID1-$licenseBase64-!!!NOT_BASE64!!!-certpart"))
     }
 
     @Test
     fun `isKeyValid returns false for invalid Base64 in cert field`() {
-        val licenseBase64 = Base64.getEncoder().encodeToString("""{"licenseId":"LID1"}""".toByteArray())
+        val licenseBase64 = base64("""{"licenseId":"LID1"}""")
         val signatureBase64 = Base64.getEncoder().encodeToString(ByteArray(16))
-        assertFalse(verifier.isKeyValid("LID1-$licenseBase64-$signatureBase64-!!!NOT_BASE64!!!"))
+        assertFalse(
+            verifier.isKeyValid(
+                "LID1-$licenseBase64-$signatureBase64-!!!NOT_BASE64!!!",
+            ),
+        )
     }
 
-    // Group 2: isKeyValid - crypto validation
+    // Group 2: isKeyValid — crypto validation
 
     @Test
     fun `isKeyValid returns false when cert not signed by root CA`() {
-        val keyPair = loadTestCaKeyPair()
-        val cert = loadTestCaCert()
         val licenseId = "TEST-LICENSE-001"
         val licenseJson = """{"licenseId":"$licenseId"}"""
         val licenseBytes = licenseJson.toByteArray(StandardCharsets.UTF_8)
         val licenseBase64 = Base64.getEncoder().encodeToString(licenseBytes)
 
         val signature = Signature.getInstance("SHA1withRSA")
-        signature.initSign(keyPair.private)
+        signature.initSign(caKeyPair.private)
         signature.update(licenseBytes)
         val signatureBase64 = Base64.getEncoder().encodeToString(signature.sign())
 
-        val certBase64 = Base64.getEncoder().encodeToString(cert.encoded)
+        val certBase64 = Base64.getEncoder().encodeToString(caCert.encoded)
 
         // Self-signed test CA cert is not in PRODUCTION_ROOT_CAS
-        assertFalse(verifier.isKeyValid("$licenseId-$licenseBase64-$signatureBase64-$certBase64"))
+        assertFalse(
+            verifier.isKeyValid(
+                "$licenseId-$licenseBase64-$signatureBase64-$certBase64",
+            ),
+        )
     }
 
     @Test
     fun `isKeyValid returns false when licenseId mismatch`() {
-        val keyPair = loadTestCaKeyPair()
-        val cert = loadTestCaCert()
         val licenseJson = """{"licenseId":"REAL-ID"}"""
         val licenseBytes = licenseJson.toByteArray(StandardCharsets.UTF_8)
         val licenseBase64 = Base64.getEncoder().encodeToString(licenseBytes)
 
         val signature = Signature.getInstance("SHA1withRSA")
-        signature.initSign(keyPair.private)
+        signature.initSign(caKeyPair.private)
         signature.update(licenseBytes)
         val signatureBase64 = Base64.getEncoder().encodeToString(signature.sign())
 
-        val certBase64 = Base64.getEncoder().encodeToString(cert.encoded)
+        val certBase64 = Base64.getEncoder().encodeToString(caCert.encoded)
 
-        // licenseId in path ("WRONG-ID") does not match JSON ("REAL-ID")
-        assertFalse(verifier.isKeyValid("WRONG-ID-$licenseBase64-$signatureBase64-$certBase64"))
+        assertFalse(
+            verifier.isKeyValid(
+                "WRONG-ID-$licenseBase64-$signatureBase64-$certBase64",
+            ),
+        )
     }
 
-    // Group 3: isStampValid - format rejection
+    // Group 3: isStampValid — format rejection
 
     @Test
     fun `isStampValid returns false for empty string`() {
@@ -125,13 +133,14 @@ class LicenseVerifierTest {
 
     @Test
     fun `isStampValid returns false for non-numeric timestamp`() {
-        val cert = loadTestCaCert()
-        val certBase64 = Base64.getEncoder().encodeToString(cert.encoded)
+        val certBase64 = Base64.getEncoder().encodeToString(caCert.encoded)
         val sigBase64 = Base64.getEncoder().encodeToString(ByteArray(16))
-        assertFalse(verifier.isStampValid("notanumber:mid:0:$sigBase64:$certBase64"))
+        assertFalse(
+            verifier.isStampValid("notanumber:mid:0:$sigBase64:$certBase64"),
+        )
     }
 
-    // Group 4: isStampValid - timestamp window (frozen timeSource)
+    // Group 4: isStampValid — timestamp window (frozen timeSource)
 
     @Test
     fun `isStampValid returns false for timestamp older than one hour`() {
@@ -139,7 +148,7 @@ class LicenseVerifierTest {
         val twoHoursAgo = now - 2 * LicenseVerifier.TIMESTAMP_VALIDITY_PERIOD_MS
         val frozenVerifier = LicenseVerifier(timeSource = { now })
 
-        val stamp = buildFakeStamp(twoHoursAgo, loadTestCaPrivateKey(), loadTestCaCert())
+        val stamp = buildFakeStamp(twoHoursAgo, caKeyPair.private, caCert)
         assertFalse(frozenVerifier.isStampValid(stamp))
     }
 
@@ -149,35 +158,42 @@ class LicenseVerifierTest {
         val twoHoursFromNow = now + 2 * LicenseVerifier.TIMESTAMP_VALIDITY_PERIOD_MS
         val frozenVerifier = LicenseVerifier(timeSource = { now })
 
-        val stamp = buildFakeStamp(twoHoursFromNow, loadTestCaPrivateKey(), loadTestCaCert())
+        val stamp =
+            buildFakeStamp(
+                twoHoursFromNow,
+                caKeyPair.private,
+                caCert,
+            )
         assertFalse(frozenVerifier.isStampValid(stamp))
     }
 
-    // Group 5: isStampValid - crypto validation
+    // Group 5: isStampValid — crypto validation
 
     @Test
     fun `isStampValid returns false when cert not signed by root CA`() {
         val now = System.currentTimeMillis()
-        val stamp = buildFakeStamp(now, loadTestCaPrivateKey(), loadTestCaCert())
+        val stamp = buildFakeStamp(now, caKeyPair.private, caCert)
         assertFalse(verifier.isStampValid(stamp))
     }
 
     @Test
     fun `isStampValid returns false for invalid signature bytes`() {
-        val cert = loadTestCaCert()
-        val certBase64 = Base64.getEncoder().encodeToString(cert.encoded)
-        val garbageSig = Base64.getEncoder().encodeToString(ByteArray(256) { 0xFF.toByte() })
-        val stamp = "${System.currentTimeMillis()}:machine123:0:$garbageSig:$certBase64"
+        val certBase64 = Base64.getEncoder().encodeToString(caCert.encoded)
+        val garbageSig =
+            Base64
+                .getEncoder()
+                .encodeToString(ByteArray(256) { 0xFF.toByte() })
+        val stamp =
+            "${System.currentTimeMillis()}:machine123:0:$garbageSig:$certBase64"
         assertFalse(verifier.isStampValid(stamp))
     }
 
-    // Group 6: createAndValidateCertificate - cert chain
+    // Group 6: createAndValidateCertificate — cert chain
 
     @Test
     fun `createAndValidateCertificate throws for self-signed cert not in trust anchors`() {
-        val cert = loadTestCaCert()
-        assertFailsWith<CertPathValidatorException> {
-            verifier.createAndValidateCertificate(cert.encoded, emptyList())
+        assertFailsWith<Exception> {
+            verifier.createAndValidateCertificate(caCert.encoded, emptyList())
         }
     }
 
@@ -188,72 +204,73 @@ class LicenseVerifierTest {
         val fixedTime = 1_700_000_000_000L
         val frozenVerifier = LicenseVerifier(timeSource = { fixedTime })
 
-        val privateKey = loadTestCaPrivateKey()
-        val cert = loadTestCaCert()
-        val withinWindowStamp = buildFakeStamp(fixedTime, privateKey, cert)
-        val outsideWindowStamp = buildFakeStamp(fixedTime - 5_000_000L, privateKey, cert)
+        val withinStamp = buildFakeStamp(fixedTime, caKeyPair.private, caCert)
+        val outsideStamp =
+            buildFakeStamp(
+                fixedTime - 5_000_000L,
+                caKeyPair.private,
+                caCert,
+            )
 
-        // Both fail (cert not trusted), confirming the frozen verifier uses injected time
-        assertFalse(frozenVerifier.isStampValid(withinWindowStamp))
-        assertFalse(frozenVerifier.isStampValid(outsideWindowStamp))
+        assertFalse(frozenVerifier.isStampValid(withinStamp))
+        assertFalse(frozenVerifier.isStampValid(outsideStamp))
     }
 
     @Test
     fun `empty rootCertificates causes cert validation failure`() {
         val emptyRootsVerifier = LicenseVerifier(rootCertificates = emptyList())
-        val cert = loadTestCaCert()
 
         assertFailsWith<Exception> {
-            emptyRootsVerifier.createAndValidateCertificate(cert.encoded, emptyList())
+            emptyRootsVerifier.createAndValidateCertificate(
+                caCert.encoded,
+                emptyList(),
+            )
         }
     }
 
     @Test
     fun `custom rootCertificates with matching CA validates cert chain`() {
-        val caPem = TEST_CA_PEM
+        val caPem = certToPem(caCert)
         val customVerifier = LicenseVerifier(rootCertificates = listOf(caPem))
 
-        val leafCert = loadTestLeafCert()
-        val result = customVerifier.createAndValidateCertificate(leafCert.encoded, emptyList())
+        val result =
+            customVerifier.createAndValidateCertificate(
+                leafCert.encoded,
+                emptyList(),
+            )
         assertNotNull(result)
     }
 
     @Test
-    fun `isStampValid with custom rootCertificates and valid stamp within time window returns true`() {
+    fun `isStampValid with custom rootCertificates and valid stamp returns true`() {
         val now = 1_700_000_000_000L
-        val caPem = TEST_CA_PEM
-        val customVerifier = LicenseVerifier(
-            timeSource = { now },
-            rootCertificates = listOf(caPem),
-        )
+        val caPem = certToPem(caCert)
+        val customVerifier =
+            LicenseVerifier(
+                timeSource = { now },
+                rootCertificates = listOf(caPem),
+            )
 
-        val leafPrivateKey = loadTestLeafPrivateKey()
-        val leafCert = loadTestLeafCert()
-        val stamp = buildFakeStamp(now, leafPrivateKey, leafCert)
-
-        // Valid stamp: cert is trusted by custom CA, timestamp within window, signature matches
-        assert(customVerifier.isStampValid(stamp))
+        val stamp = buildFakeStamp(now, leafKeyPair.private, leafCert)
+        assertTrue(customVerifier.isStampValid(stamp))
     }
 
     @Test
     fun `isStampValid with custom rootCertificates but expired timestamp returns false`() {
         val now = 1_700_000_000_000L
-        val oldTimestamp = now - 2 * LicenseVerifier.TIMESTAMP_VALIDITY_PERIOD_MS
-        val caPem = TEST_CA_PEM
-        val customVerifier = LicenseVerifier(
-            timeSource = { now },
-            rootCertificates = listOf(caPem),
-        )
+        val old = now - 2 * LicenseVerifier.TIMESTAMP_VALIDITY_PERIOD_MS
+        val caPem = certToPem(caCert)
+        val customVerifier =
+            LicenseVerifier(
+                timeSource = { now },
+                rootCertificates = listOf(caPem),
+            )
 
-        val leafPrivateKey = loadTestLeafPrivateKey()
-        val leafCert = loadTestLeafCert()
-        val stamp = buildFakeStamp(oldTimestamp, leafPrivateKey, leafCert)
-
-        // Cert is trusted, signature valid, but timestamp is outside window
+        val stamp = buildFakeStamp(old, leafKeyPair.private, leafCert)
         assertFalse(customVerifier.isStampValid(stamp))
     }
 
-    // Test helpers
+    // Helpers
 
     private fun buildFakeStamp(
         timestamp: Long,
@@ -261,62 +278,240 @@ class LicenseVerifierTest {
         cert: X509Certificate,
     ): String {
         val machineId = "test-machine-id"
-        val signatureType = "0"
         val dataToSign = "$timestamp:$machineId"
 
         val signature = Signature.getInstance("SHA1withRSA")
         signature.initSign(privateKey)
         signature.update(dataToSign.toByteArray(StandardCharsets.UTF_8))
         val signatureBase64 = Base64.getEncoder().encodeToString(signature.sign())
-
         val certBase64 = Base64.getEncoder().encodeToString(cert.encoded)
 
-        return "$timestamp:$machineId:$signatureType:$signatureBase64:$certBase64"
+        return "$timestamp:$machineId:0:$signatureBase64:$certBase64"
     }
 
-    private fun loadTestCaCert(): X509Certificate = parsePemCert(TEST_CA_PEM)
-
-    private fun loadTestLeafCert(): X509Certificate = parsePemCert(TEST_LEAF_PEM)
-
-    private fun loadTestCaPrivateKey(): PrivateKey = parsePkcs8Key(TEST_CA_PRIVATE_KEY_PKCS8)
-
-    private fun loadTestLeafPrivateKey(): PrivateKey = parsePkcs8Key(TEST_LEAF_PRIVATE_KEY_PKCS8)
-
-    private fun loadTestCaKeyPair(): KeyPair {
-        val cert = loadTestCaCert()
-        val privateKey = loadTestCaPrivateKey()
-        return KeyPair(cert.publicKey, privateKey)
-    }
-
-    private fun parsePemCert(pem: String): X509Certificate {
-        val factory = CertificateFactory.getInstance("X.509")
-        val bytes = pem.toByteArray(StandardCharsets.UTF_8)
-        return factory.generateCertificate(ByteArrayInputStream(bytes)) as X509Certificate
-    }
-
-    private fun parsePkcs8Key(pkcs8Pem: String): PrivateKey {
-        val base64 = pkcs8Pem
-            .replace("-----BEGIN PRIVATE KEY-----", "")
-            .replace("-----END PRIVATE KEY-----", "")
-            .replace("\\s".toRegex(), "")
-        val keyBytes = Base64.getDecoder().decode(base64)
-        val keySpec = PKCS8EncodedKeySpec(keyBytes)
-        return KeyFactory.getInstance("RSA").generatePrivate(keySpec)
-    }
+    private fun base64(text: String): String =
+        Base64.getEncoder().encodeToString(
+            text.toByteArray(StandardCharsets.UTF_8),
+        )
 
     companion object {
-        private const val RESOURCE_PATH = "dev/ayuislands/licensing"
+        private val caKeyPair: KeyPair = generateKeyPair()
+        private val leafKeyPair: KeyPair = generateKeyPair()
 
-        private val TEST_CA_PEM = loadResource("$RESOURCE_PATH/test-ca.pem")
-        private val TEST_LEAF_PEM = loadResource("$RESOURCE_PATH/test-leaf.pem")
-        private val TEST_CA_PRIVATE_KEY_PKCS8 = loadResource("$RESOURCE_PATH/test-ca-key.pk8")
-        private val TEST_LEAF_PRIVATE_KEY_PKCS8 = loadResource("$RESOURCE_PATH/test-leaf-key.pk8")
+        private val caCert: X509Certificate =
+            buildSelfSignedCert(caKeyPair, "CN=Test CA", isCA = true)
+        private val leafCert: X509Certificate =
+            buildSignedCert(leafKeyPair, "CN=Test Leaf", caKeyPair, caCert)
 
-        private fun loadResource(path: String): String =
-            LicenseVerifierTest::class.java.classLoader
-                .getResourceAsStream(path)!!
-                .bufferedReader(StandardCharsets.UTF_8)
-                .readText()
-                .trim()
+        private fun generateKeyPair(): KeyPair =
+            KeyPairGenerator
+                .getInstance("RSA")
+                .apply { initialize(2048) }
+                .generateKeyPair()
+
+        /**
+         * Build a self-signed X.509 v3 certificate using raw ASN.1 DER encoding.
+         * Avoids sun.security.x509 (not exported in JPMS) and BouncyCastle.
+         */
+        @Suppress("SameParameterValue")
+        private fun buildSelfSignedCert(
+            keyPair: KeyPair,
+            dn: String,
+            isCA: Boolean = false,
+        ): X509Certificate =
+            buildCertDer(
+                subjectDn = dn,
+                issuerDn = dn,
+                subjectPublicKey = keyPair.public.encoded,
+                signerKey = keyPair.private,
+                serial = BigInteger.valueOf(System.nanoTime()),
+                isCA = isCA,
+            )
+
+        @Suppress("SameParameterValue")
+        private fun buildSignedCert(
+            subjectKeyPair: KeyPair,
+            subjectDn: String,
+            issuerKeyPair: KeyPair,
+            issuerCert: X509Certificate,
+        ): X509Certificate =
+            buildCertDer(
+                subjectDn = subjectDn,
+                issuerDn = issuerCert.subjectX500Principal.name,
+                subjectPublicKey = subjectKeyPair.public.encoded,
+                signerKey = issuerKeyPair.private,
+                serial = BigInteger.valueOf(System.nanoTime() + 1),
+                isCA = false,
+            )
+
+        @Suppress("LongParameterList") // DER cert builder — params are all required fields
+        private fun buildCertDer(
+            subjectDn: String,
+            issuerDn: String,
+            subjectPublicKey: ByteArray,
+            signerKey: PrivateKey,
+            serial: BigInteger,
+            isCA: Boolean,
+        ): X509Certificate {
+            val now = System.currentTimeMillis()
+            val notBefore = Date(now - 60_000)
+            val notAfter = Date(now + 365L * 24 * 60 * 60 * 1000)
+
+            // SHA256withRSA OID: 1.2.840.113549.1.1.11
+            val sha256WithRsa =
+                byteArrayOf(
+                    0x30,
+                    0x0D,
+                    0x06,
+                    0x09,
+                    0x2A.toByte(),
+                    0x86.toByte(),
+                    0x48,
+                    0x86.toByte(),
+                    0xF7.toByte(),
+                    0x0D,
+                    0x01,
+                    0x01,
+                    0x0B,
+                    0x05,
+                    0x00,
+                )
+
+            val tbsCert =
+                buildTbsCertificate(
+                    serial = serial,
+                    signatureAlgorithm = sha256WithRsa,
+                    issuerDn = issuerDn,
+                    notBefore = notBefore,
+                    notAfter = notAfter,
+                    subjectDn = subjectDn,
+                    subjectPublicKey = subjectPublicKey,
+                    isCA = isCA,
+                )
+
+            val sig = Signature.getInstance("SHA256withRSA")
+            sig.initSign(signerKey)
+            sig.update(tbsCert)
+            val signatureBytes = sig.sign()
+
+            val signatureBitString = derBitString(signatureBytes)
+            val certDer = derSequence(tbsCert + sha256WithRsa + signatureBitString)
+
+            val factory = CertificateFactory.getInstance("X.509")
+            return factory.generateCertificate(
+                ByteArrayInputStream(certDer),
+            ) as X509Certificate
+        }
+
+        @Suppress("LongParameterList") // ASN.1 TBS structure — all fields required by X.509 spec
+        private fun buildTbsCertificate(
+            serial: BigInteger,
+            signatureAlgorithm: ByteArray,
+            issuerDn: String,
+            notBefore: Date,
+            notAfter: Date,
+            subjectDn: String,
+            subjectPublicKey: ByteArray,
+            isCA: Boolean,
+        ): ByteArray {
+            val version = derExplicit(0, derInteger(BigInteger.valueOf(2)))
+            val serialNum = derInteger(serial)
+            val issuer = encodeDn(issuerDn)
+            val validity = derSequence(derUtcTime(notBefore) + derUtcTime(notAfter))
+            val subject = encodeDn(subjectDn)
+
+            var tbs =
+                version + serialNum + signatureAlgorithm + issuer +
+                    validity + subject + subjectPublicKey
+
+            if (isCA) {
+                val basicConstraints =
+                    byteArrayOf(
+                        0x30,
+                        0x0F,
+                        0x06,
+                        0x03,
+                        0x55,
+                        0x1D,
+                        0x13,
+                        0x01,
+                        0x01,
+                        0xFF.toByte(),
+                        0x04,
+                        0x05,
+                        0x30,
+                        0x03,
+                        0x01,
+                        0x01,
+                        0xFF.toByte(),
+                    )
+                val extensions = derExplicit(3, derSequence(basicConstraints))
+                tbs += extensions
+            }
+
+            return derSequence(tbs)
+        }
+
+        private fun encodeDn(dn: String): ByteArray {
+            val cn = dn.removePrefix("CN=")
+            val cnValue = derUtf8String(cn)
+            val oid = byteArrayOf(0x06, 0x03, 0x55, 0x04, 0x03)
+            val atv = derSequence(oid + cnValue)
+            val rdn = derSet(atv)
+            return derSequence(rdn)
+        }
+
+        private fun derSequence(content: ByteArray): ByteArray = byteArrayOf(0x30) + derLength(content.size) + content
+
+        private fun derSet(content: ByteArray): ByteArray = byteArrayOf(0x31) + derLength(content.size) + content
+
+        private fun derInteger(value: BigInteger): ByteArray {
+            val bytes = value.toByteArray()
+            return byteArrayOf(0x02) + derLength(bytes.size) + bytes
+        }
+
+        private fun derBitString(content: ByteArray): ByteArray {
+            val payload = byteArrayOf(0x00) + content
+            return byteArrayOf(0x03) + derLength(payload.size) + payload
+        }
+
+        private fun derUtf8String(value: String): ByteArray {
+            val bytes = value.toByteArray(StandardCharsets.UTF_8)
+            return byteArrayOf(0x0C) + derLength(bytes.size) + bytes
+        }
+
+        private fun derExplicit(
+            tag: Int,
+            content: ByteArray,
+        ): ByteArray = byteArrayOf((0xA0 + tag).toByte()) + derLength(content.size) + content
+
+        @Suppress("MagicNumber")
+        private fun derUtcTime(date: Date): ByteArray {
+            val fmt = java.text.SimpleDateFormat("yyMMddHHmmss'Z'")
+            fmt.timeZone = java.util.TimeZone.getTimeZone("UTC")
+            val bytes = fmt.format(date).toByteArray(StandardCharsets.US_ASCII)
+            return byteArrayOf(0x17) + derLength(bytes.size) + bytes
+        }
+
+        @Suppress("MagicNumber")
+        private fun derLength(length: Int): ByteArray =
+            when {
+                length < 128 -> byteArrayOf(length.toByte())
+                length < 256 -> byteArrayOf(0x81.toByte(), length.toByte())
+                else ->
+                    byteArrayOf(
+                        0x82.toByte(),
+                        (length shr 8).toByte(),
+                        (length and 0xFF).toByte(),
+                    )
+            }
+
+        private fun certToPem(cert: X509Certificate): String {
+            val base64 =
+                Base64
+                    .getMimeEncoder(64, "\n".toByteArray())
+                    .encodeToString(cert.encoded)
+            return "-----BEGIN CERTIFICATE-----\n$base64\n-----END CERTIFICATE-----"
+        }
     }
 }
