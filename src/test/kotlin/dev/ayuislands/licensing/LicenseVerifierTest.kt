@@ -55,13 +55,15 @@ class LicenseVerifierTest {
 
     @Test
     fun `isKeyValid returns false for invalid Base64 in signature field`() {
-        val licenseBase64 = base64("""{"licenseId":"LID1"}""")
+        val json = """{"licenseId":"LID1"}"""
+        val licenseBase64 = Base64.getEncoder().encodeToString(json.toByteArray(StandardCharsets.UTF_8))
         assertFalse(verifier.isKeyValid("LID1-$licenseBase64-!!!NOT_BASE64!!!-certpart"))
     }
 
     @Test
     fun `isKeyValid returns false for invalid Base64 in cert field`() {
-        val licenseBase64 = base64("""{"licenseId":"LID1"}""")
+        val json = """{"licenseId":"LID1"}"""
+        val licenseBase64 = Base64.getEncoder().encodeToString(json.toByteArray(StandardCharsets.UTF_8))
         val signatureBase64 = Base64.getEncoder().encodeToString(ByteArray(16))
         assertFalse(
             verifier.isKeyValid(
@@ -136,7 +138,7 @@ class LicenseVerifierTest {
         val certBase64 = Base64.getEncoder().encodeToString(caCert.encoded)
         val sigBase64 = Base64.getEncoder().encodeToString(ByteArray(16))
         assertFalse(
-            verifier.isStampValid("notanumber:mid:0:$sigBase64:$certBase64"),
+            verifier.isStampValid("not-a-number:mid:0:$sigBase64:$certBase64"),
         )
     }
 
@@ -230,7 +232,7 @@ class LicenseVerifierTest {
 
     @Test
     fun `custom rootCertificates with matching CA validates cert chain`() {
-        val caPem = certToPem(caCert)
+        val caPem = caCertPem()
         val customVerifier = LicenseVerifier(rootCertificates = listOf(caPem))
 
         val result =
@@ -244,7 +246,7 @@ class LicenseVerifierTest {
     @Test
     fun `isStampValid with custom rootCertificates and valid stamp returns true`() {
         val now = 1_700_000_000_000L
-        val caPem = certToPem(caCert)
+        val caPem = caCertPem()
         val customVerifier =
             LicenseVerifier(
                 timeSource = { now },
@@ -259,7 +261,7 @@ class LicenseVerifierTest {
     fun `isStampValid with custom rootCertificates but expired timestamp returns false`() {
         val now = 1_700_000_000_000L
         val old = now - 2 * LicenseVerifier.TIMESTAMP_VALIDITY_PERIOD_MS
-        val caPem = certToPem(caCert)
+        val caPem = caCertPem()
         val customVerifier =
             LicenseVerifier(
                 timeSource = { now },
@@ -506,11 +508,11 @@ class LicenseVerifierTest {
                     )
             }
 
-        private fun certToPem(cert: X509Certificate): String {
+        private fun caCertPem(): String {
             val base64 =
                 Base64
                     .getMimeEncoder(64, "\n".toByteArray())
-                    .encodeToString(cert.encoded)
+                    .encodeToString(caCert.encoded)
             return "-----BEGIN CERTIFICATE-----\n$base64\n-----END CERTIFICATE-----"
         }
     }
