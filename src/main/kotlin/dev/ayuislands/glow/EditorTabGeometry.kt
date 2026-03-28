@@ -20,17 +20,24 @@ object EditorTabGeometry {
     /** Fallback tab strip height when TabLabel cannot be located. */
     const val DEFAULT_TAB_HEIGHT = 28
 
+    private val warnedHosts: MutableSet<String> =
+        java.util.concurrent
+            .ConcurrentHashMap
+            .newKeySet()
+
     /**
      * Calculate the pixel height of the tab strip inside [host] (typically EditorsSplitters).
      *
      * Looks for an EditorTabs child, then finds a TabLabel within it and returns
      * `tabLabel.y + tabLabel.height`. Returns [DEFAULT_TAB_HEIGHT] if either
-     * component is missing.
+     * component is missing (logs warning once per host class).
      */
     fun calculateTabStripHeight(host: JComponent): Int {
         val editorTabs = ComponentHierarchyUtils.findChildByClassName(host, "EditorTabs") as? Container
         if (editorTabs == null) {
-            log.warn("EditorTabs component not found in ${host.javaClass.name}, using DEFAULT_TAB_HEIGHT")
+            if (warnedHosts.add("EditorTabs:${host.javaClass.name}")) {
+                log.warn("EditorTabs component not found in ${host.javaClass.name}, using DEFAULT_TAB_HEIGHT")
+            }
             return DEFAULT_TAB_HEIGHT
         }
 
@@ -40,7 +47,9 @@ object EditorTabGeometry {
             }
         }
 
-        log.warn("TabLabel not found in EditorTabs, using DEFAULT_TAB_HEIGHT")
+        if (warnedHosts.add("TabLabel:${editorTabs.javaClass.name}")) {
+            log.warn("TabLabel not found in EditorTabs, using DEFAULT_TAB_HEIGHT")
+        }
         return DEFAULT_TAB_HEIGHT
     }
 

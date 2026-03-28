@@ -51,8 +51,9 @@ class FocusRingManager {
     /**
      * Re-install focus-ring listeners after a settings change.
      *
-     * Removes all existing listeners first, then walks windows.
-     * Newly seen windows are tracked in [processedWindows].
+     * Removes all existing listeners, clears the processed-windows cache,
+     * and re-walks all windows with the new parameters. Self-contained —
+     * callers don't need to clear the cache separately.
      */
     fun updateFocusRingGlow(
         accent: Color,
@@ -61,21 +62,13 @@ class FocusRingManager {
         enabled: Boolean,
     ) {
         removeFocusListeners()
+        processedWindows.clear()
         if (enabled) {
             for (window in Window.getWindows()) {
-                if (processedWindows.containsKey(window)) continue
                 installFocusListenersRecursively(window, accent, style, intensity)
                 processedWindows[window] = Unit
             }
         }
-    }
-
-    /**
-     * Clear the processed-windows cache so the next initialize/update
-     * re-walks all windows. Call this on accent color or style changes.
-     */
-    fun clearProcessedWindowsCache() {
-        processedWindows.clear()
     }
 
     fun removeFocusListeners() {

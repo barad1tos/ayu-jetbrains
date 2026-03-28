@@ -411,7 +411,6 @@ class GlowOverlayManager(
         updateOverlayStyles(state, accent, style)
         updateTabGlow(state, accent)
 
-        focusRingManager.clearProcessedWindowsCache()
         val intensity = state.getIntensityForStyle(style)
         focusRingManager.updateFocusRingGlow(accent, style, intensity, state.glowFocusRing)
 

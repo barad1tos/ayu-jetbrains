@@ -53,11 +53,4 @@ class FocusRingManagerTest {
         manager.dispose()
         // No exception thrown -- clears empty maps
     }
-
-    @Test
-    fun `clearProcessedWindowsCache is safe on fresh instance`() {
-        val manager = FocusRingManager()
-        manager.clearProcessedWindowsCache()
-        // No exception thrown -- clears empty WeakHashMap
-    }
 }
