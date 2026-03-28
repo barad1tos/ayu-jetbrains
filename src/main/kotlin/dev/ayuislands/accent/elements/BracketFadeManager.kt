@@ -85,7 +85,7 @@ object BracketFadeManager {
 
         val project = editor.project ?: return
 
-        // PSI access requires ReadAction (EDT alone is insufficient since 2025.1 threading model)
+        // PSI access requires ReadAction (EDT alone is not enough since 2025.1 threading model)
         val bracketRange =
             try {
                 ReadAction.compute<IntArray?, RuntimeException> {

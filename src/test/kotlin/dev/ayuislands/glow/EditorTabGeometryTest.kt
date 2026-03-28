@@ -1,10 +1,12 @@
 package dev.ayuislands.glow
 
 import java.awt.Color
+import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class EditorTabGeometryTest {
     @Test
@@ -14,9 +16,7 @@ class EditorTabGeometryTest {
 
     @Test
     fun `calculateTabStripHeight returns default for empty host`() {
-        val emptyHost = JPanel()
-
-        val height = EditorTabGeometry.calculateTabStripHeight(emptyHost)
+        val height = EditorTabGeometry.calculateTabStripHeight(JPanel())
         assertEquals(EditorTabGeometry.DEFAULT_TAB_HEIGHT, height)
     }
 
@@ -29,7 +29,31 @@ class EditorTabGeometryTest {
         assertEquals(EditorTabGeometry.DEFAULT_TAB_HEIGHT, height)
     }
 
-    // Positive path (EditorTabs + TabLabel present) requires IDE component classes -- tested via runIde
+    @Test
+    fun `calculateTabStripHeight returns child y plus height when TabLabel found`() {
+        val host = JPanel()
+        // Class name contains "EditorTabs" for findChildByClassName match
+        val editorTabs = MockEditorTabs()
+        // Class name contains "TabLabel" for inner loop match
+        val tabLabel = MockTabLabel()
+        tabLabel.setBounds(0, 5, 100, 30)
+        editorTabs.add(tabLabel)
+        host.add(editorTabs)
+
+        val height = EditorTabGeometry.calculateTabStripHeight(host)
+        assertEquals(35, height) // y=5 + height=30
+    }
+
+    @Test
+    fun `calculateTabStripHeight returns default when EditorTabs present but no TabLabel child`() {
+        val host = JPanel()
+        val editorTabs = MockEditorTabs()
+        editorTabs.add(JLabel("not a tab label"))
+        host.add(editorTabs)
+
+        val height = EditorTabGeometry.calculateTabStripHeight(host)
+        assertEquals(EditorTabGeometry.DEFAULT_TAB_HEIGHT, height)
+    }
 
     @Test
     fun `safeDecodeColor returns decoded color for valid hex`() {
@@ -49,7 +73,14 @@ class EditorTabGeometryTest {
         val child = JLabel("test")
         panel.add(child)
 
-        val result = EditorTabGeometry.findEditorTabsComponent(child)
-        assertEquals(null, result)
+        assertNull(EditorTabGeometry.findEditorTabsComponent(child))
     }
+
+    // Mock classes — javaClass.name contains the substrings that
+    // ComponentHierarchyUtils.findChildByClassName matches against
+    @Suppress("unused") // Name matched via javaClass.name.contains("EditorTabs")
+    private class MockEditorTabs : JPanel()
+
+    @Suppress("unused") // Name matched via javaClass.name.contains("TabLabel")
+    private class MockTabLabel : JComponent()
 }

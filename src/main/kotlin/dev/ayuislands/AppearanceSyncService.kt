@@ -53,6 +53,7 @@ class AppearanceSyncService {
         LOG.info("Recorded manual appearance choice: $themeName")
     }
 
+    @Suppress("UnstableApiUsage") // installedThemes, UIThemeLookAndFeelInfo — no stable alternative
     private fun switchToTheme(targetThemeName: String) {
         val lafManager = LafManager.getInstance()
         val currentThemeName = AyuVariant.currentThemeName()
