@@ -147,7 +147,7 @@ kover {
                     "dev.ayuislands.AyuIslandsStartupActivity*",
                     "dev.ayuislands.AyuIslandsLafListener*",
                     "dev.ayuislands.AppearanceSyncListener*",
-                    // LicenseChecker: public API tested; private crypto is JetBrains boilerplate
+                    // LicenseChecker: thin IDE wrapper; crypto logic tested via LicenseVerifier
                     "dev.ayuislands.licensing.LicenseChecker*",
                     // IDE glue: Swing UI DSL panel (pure rendering, no extractable logic)
                     "dev.ayuislands.settings.WorkspacePanel*",
