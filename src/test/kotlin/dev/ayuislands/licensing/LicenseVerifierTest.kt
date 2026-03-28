@@ -290,7 +290,8 @@ class LicenseVerifierTest {
 
     private fun parsePemCert(pem: String): X509Certificate {
         val factory = CertificateFactory.getInstance("X.509")
-        return factory.generateCertificate(ByteArrayInputStream(pem.toByteArray(StandardCharsets.UTF_8))) as X509Certificate
+        val bytes = pem.toByteArray(StandardCharsets.UTF_8)
+        return factory.generateCertificate(ByteArrayInputStream(bytes)) as X509Certificate
     }
 
     private fun parsePkcs8Key(pkcs8Pem: String): PrivateKey {
@@ -304,112 +305,18 @@ class LicenseVerifierTest {
     }
 
     companion object {
-        // Pre-generated test CA certificate (self-signed, valid 10 years from 2026-03-28)
-        private val TEST_CA_PEM = """
-            |-----BEGIN CERTIFICATE-----
-            |MIIC2DCCAcCgAwIBAgIIbdoiB93En4QwDQYJKoZIhvcNAQELBQAwEjEQMA4GA1UE
-            |AxMHVGVzdCBDQTAeFw0yNjAzMjgwODMxMzVaFw0zNjAzMjUwODMxMzVaMBIxEDAO
-            |BgNVBAMTB1Rlc3QgQ0EwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCz
-            |xM1jZde5mYUfEnlox8OW2clYU/Dt8hlx9PwWiFJ8Hpf5ymfD2CLmZBCZfDZt/VjX
-            |3GI+w1hFAwzgCbky0O3Lo+hZHhhZ+mWBYNPfoOEV/SL1cZ6vsRAcHUL1n+H2hdTz
-            |cToI/ZsD8bAV+EgDo1HP+irIWo5Hp9wkHSXmsVm9eTYeYfMba7QMB1LogZfojA/s
-            |x9VHX/JmkKfIos8yQH2mN0BZ5p88sNDngu6ehSqwymtu1VLEyT+jKCjko59mT+Pv
-            |YA/LfnNwyP9B84a+Ic0GHCMd9BC8DwQC4Ld406jspxJfgKhs+LwNuC9R8hNwaJ6S
-            |yQG4E8nYeV2XcACgFvufAgMBAAGjMjAwMB0GA1UdDgQWBBTA6dsuDyfyWdATNF/m
-            |P/w9WqeoaTAPBgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBAQBDBw0C
-            |zXGmLER6hGTG2njet8weYg9RBJRvUuxnzk1S3P7L2iyBHSasXGnf1sASGeFQ59vc
-            |/s68zth302GBJSebIztOmcMsQr3sq0IksLeLE87y+dkHu6IlLLPy04143KrFzwlW
-            |Pb4rrbsUF+HRl2+uYk9XC2AwmpxT5QuUcrU16w3udmUcdrG0cPUj2sgTA9duJC5b
-            |C7ZJI8ba6sP8u/iRHJ5D77tbUwLyL4lXjdyDfoRblYJWdUNaOzRMF/uZK9+wn5OZ
-            |nlamHjCJNy696IxFYlHUA2zN4rO1X0Od0igLQBsPJGW4d3/H0zkxCc1mh+kBkXRk
-            |smzXN0TQEyB+JhFQ
-            |-----END CERTIFICATE-----
-        """.trimMargin().trim()
+        private const val RESOURCE_PATH = "dev/ayuislands/licensing"
 
-        // Pre-generated test leaf certificate (signed by TEST_CA, valid 10 years)
-        private val TEST_LEAF_PEM = """
-            |-----BEGIN CERTIFICATE-----
-            |MIIC6zCCAdOgAwIBAgIJAI+YSuB4qupOMA0GCSqGSIb3DQEBCwUAMBIxEDAOBgNV
-            |BAMTB1Rlc3QgQ0EwHhcNMjYwMzI4MDgzMTM3WhcNMzYwMzI1MDgzMTM3WjAUMRIw
-            |EAYDVQQDEwlUZXN0IExlYWYwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIB
-            |AQCZqTdjCGvo7dWS8lLEp4YXDp5KPECZLg4a944VeCG+zQoO3/HtLW7d4gVI8awn
-            |9Yg2K9/FhVNmftFUzBT0BJnaQ49C5+hI4DIRD5SWRGxlqSiAt+NKjN8HuUfXllLp
-            |3KQkAwqP1WJ3TB2w7GCvMt08EQYxgzCvOzwvL8Esie0+eyoGTTha/yD5LHjsj672
-            |V9yAdiFeq8NwFYctDc/W/wVdmSniFrWktuE5cA7CcjhY/xhfFSoqnVivjf7cpmhH
-            |034Ibhtd7FX4fTzeA7Kx0A1KOtH/DyL19RTmonIKK8iihMSUvMTuig3no6+SgZAR
-            |30B7U0yngeyI1lqnQH8EkcFxAgMBAAGjQjBAMB0GA1UdDgQWBBTuMHfFC+2pvLi0
-            |MAMMj4mMFB/uRjAfBgNVHSMEGDAWgBTA6dsuDyfyWdATNF/mP/w9WqeoaTANBgkq
-            |hkiG9w0BAQsFAAOCAQEABZYwhCzkzoldi5Il2paU3F09g+jZxTy1JKLfb+ChTzai
-            |anuJk2Qj1RohMQYUsOW2trXjRxOxyxKIwMF/xjdomwAWfP3aWLHKGIMklnNmgmS2
-            |afuc9xze6tM1S+ysOTVeBz5zpn1vx0HaYQrCqA+qGsLgSUw6v4M4ueLPg8dsnCVk
-            |cLM1ds45jSrPfNeXh+4G75LGUgV+kwrJx8tBW59GlyQhnGEikZCafVbjRTqfS1Nq
-            |vNAC5PWubUVqMEz65QMQk2k2g+cxD0GyYBMGmQCeG0UCh3F49xcof595uOQqoADh
-            |bZOW3dVm+5g8xVavcubCHXlvDSMebx+44sYvpua9xA==
-            |-----END CERTIFICATE-----
-        """.trimMargin().trim()
+        private val TEST_CA_PEM = loadResource("$RESOURCE_PATH/test-ca.pem")
+        private val TEST_LEAF_PEM = loadResource("$RESOURCE_PATH/test-leaf.pem")
+        private val TEST_CA_PRIVATE_KEY_PKCS8 = loadResource("$RESOURCE_PATH/test-ca-key.pk8")
+        private val TEST_LEAF_PRIVATE_KEY_PKCS8 = loadResource("$RESOURCE_PATH/test-leaf-key.pk8")
 
-        // CA private key in PKCS#8 PEM format (for signing test data)
-        private val TEST_CA_PRIVATE_KEY_PKCS8 = """
-            |-----BEGIN PRIVATE KEY-----
-            |MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCzxM1jZde5mYUf
-            |Enlox8OW2clYU/Dt8hlx9PwWiFJ8Hpf5ymfD2CLmZBCZfDZt/VjX3GI+w1hFAwzg
-            |Cbky0O3Lo+hZHhhZ+mWBYNPfoOEV/SL1cZ6vsRAcHUL1n+H2hdTzcToI/ZsD8bAV
-            |+EgDo1HP+irIWo5Hp9wkHSXmsVm9eTYeYfMba7QMB1LogZfojA/sx9VHX/JmkKfI
-            |os8yQH2mN0BZ5p88sNDngu6ehSqwymtu1VLEyT+jKCjko59mT+PvYA/LfnNwyP9B
-            |84a+Ic0GHCMd9BC8DwQC4Ld406jspxJfgKhs+LwNuC9R8hNwaJ6SyQG4E8nYeV2X
-            |cACgFvufAgMBAAECggEAFJ8a8m/bKb1scbk0TSqRNguV7GMgrE2ie+80QGod5YK6
-            |60VmgXxDMKDs7eEQ+1gIaiar7HLgfCDSnXFFbzNb+965sgi2QWgXCcWE4yPOKNq+
-            |DmAcvx8KxTbZbgS2WTRWo8sVcwo9zzDZLVlVpXkwKDE/Lswt2GwZ4C3/IYdZpIGC
-            |sbxOEjUywtXJZ+bhY5Jh3jlVwneo752Q/SimIV03rWCY0SGvnWTHVUAUrz4I2tVk
-            |mECeAide5LeZ0d5T7kkgQ2lI8/IZAp4MnTXOFJIRUqsYTrQ2v0fGrArAkgP2cY/G
-            |yTpDq0JUgwkGKy8ZBGPXM4DX8XnVhv7Gh2+N64dZyQKBgQDv51MEtqOQqJB83ksV
-            |V7BryE2DduBej9Y4BtIraaiPzNNT+vgbVOe78bTNNde8LmyWl1iko+wyzbQ7XsN4
-            |voKODZSss2b/sSS2fg9S1Xq64dmZ23+0Jf9Qi2psZDDzHh74UKquywxDDUUvYMZ0
-            |4Yb61GmEMwbDqC9r7NLXb2E2twKBgQC/1JQzpPeNMZqvXfR4+1MmZohQz5q4c+WZ
-            |nHL92gQ1YmEbfdQVDQfyOFixGU+bwgqsHDQCXVyTGt5oht0fGnRX+CMJbScW3/Mh
-            |WiONj8JyaTaLfb6hrEYnAzRHaS5JWtZAYMlst6S7bOv7GvAZr6xJrjJVQNcYsjvU
-            |FyidrMa6WQKBgFamT7b5HLToHV/sjmQECyWy8ERWkI23GCGeXRTvEcH2sjG4CRse
-            |HKEmmS4xj11Zy0DNI2g8CNkEsV9sR9/5t4AFabjDB6W83szHVVOO5chQQN8wh7yS
-            |qNf3sxW5TnDRZVA9GpkNn70sMtv88VFQEAfS5tWn9H6A5bfujuzfPtabAoGBALFw
-            |JJWQphrII1jLA3NUpZkDhluZbHfpXBs2h3cfznzCvyf6v82o/Ayk6gUGcIiWd+Cz
-            |RbhaO2Mmm0r8VFSM18j3ERGLEXkrNW1IP1KWAzpo77cfXNGW1F0JrbXQKKxZhYyO
-            |+kHBrHJhUfY2+JgJ0sdkhdIt48hINOb9dOhEBJ4hAoGAOGMTQxPMD2yysu5cw2e6
-            |zGUSNsTjc0EThmq1NtdImwcpMI6rf+p4IIRg2OolVY1KtHgWkFIOu7tWrOHch8Qd
-            |8BNReL3T72ljrEArjy/isrQf9G17DaWupkSibx3OPPABOsvdZq4lpFROrwtiOyN7
-            |9NQ1R1IwIT5b0GsHLbmr24o=
-            |-----END PRIVATE KEY-----
-        """.trimMargin().trim()
-
-        // Leaf private key in PKCS#8 PEM format (for signing stamp data)
-        private val TEST_LEAF_PRIVATE_KEY_PKCS8 = """
-            |-----BEGIN PRIVATE KEY-----
-            |MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCZqTdjCGvo7dWS
-            |8lLEp4YXDp5KPECZLg4a944VeCG+zQoO3/HtLW7d4gVI8awn9Yg2K9/FhVNmftFU
-            |zBT0BJnaQ49C5+hI4DIRD5SWRGxlqSiAt+NKjN8HuUfXllLp3KQkAwqP1WJ3TB2w
-            |7GCvMt08EQYxgzCvOzwvL8Esie0+eyoGTTha/yD5LHjsj672V9yAdiFeq8NwFYct
-            |Dc/W/wVdmSniFrWktuE5cA7CcjhY/xhfFSoqnVivjf7cpmhH034Ibhtd7FX4fTze
-            |A7Kx0A1KOtH/DyL19RTmonIKK8iihMSUvMTuig3no6+SgZAR30B7U0yngeyI1lqn
-            |QH8EkcFxAgMBAAECggEAAMNMr3jPW1fR8YGzPD92LJdhnQ39Rp1qS8M6oPvok/tN
-            |31rIh1RMSnz4qH7tq0GecGFpoiAKNNYwmR6NxJPgxSsEczE2T6VQTlIg21mh3aPY
-            |PAJdtiUqps3KT+VSyk8yf+zFcMcfDudRdutHhBspKscNXDHR7C7LutK+f2d8Zmzh
-            |ZGx4I3cnOz+wwElqYlveJhWcBLNEONOHPW5LIJuJeSKAnR1Fz1WCsoA1biPm5nUq
-            |Dl1vYo63yKUfxpyruO85/lY0b78zp8bRxgwvJ8NvynPGdLfEZpoFtF1ahlMPDYzF
-            |zxlO5irCxY+NUtENAjof7yRAgenbFNnYY8Cm4nOlGQKBgQC52yzcx9qcYH1azZnA
-            |e1Blk4Pde1AwZuJsml0h4SXs4fZrjc+FP0OgQpeg4U0zKgzoDxjampOC7yMGFEp1
-            |QQbrxoxcuf95vHSBhI+m1IxdPuNr/5hpwhdrFjV5eskEbT4D80tb7A1AKSKXgNXF
-            |ehadRF3k2TXAVJZMKReq7qzR2QKBgQDTp3LrzewCde4oqYATC/4dkJdPi2g5XiwR
-            |p88F9hyyENlT7FCwqBMkoY2j/cwuG7epKMBqtmlbg7YS2xZZ0NigXqPdj0L94vNZ
-            |y1+ggmqwbT59gjCCCMBo5SGgAU41tvAe2c13MPqKavLgHS2mYP9KZL2fiY+95ECn
-            |cges9bYVWQKBgQCzz12W+HADLML6j8G53FQLAe3o4L3TJibXpXyHI5malX7fzaJB
-            |KtTVfrfN+UvEPWGhPcHw9O3UFmJPJmBnEpOMlloD+Bs3/uDE0ahdYnOuXwKN4Qnm
-            |/9XCUAlKT0Wd18bQ8ZguBbFIKsQBya6IULcCTjt9BbygJ/YFFxiD0kg2+QKBgQDI
-            |y+C0I11XjEhQnVYbO9JufAGA/pH3cwc+DMTUNARPTrrP6q82mY3nv7jfruVpjPQ1
-            |8Kpz0vCrWI6A3wcaWI9bvc2aYdK9iPUz6ESlw3SyQkH50mxwwRrBqTe4U+S+AvtV
-            |WW6bOIVIkmQvCJ+JbBZmnqJjW59aGNTZxs3PYiDHqQKBgFupnlrud4K5pbqqV78t
-            |Xb4BBGYJ5EvUYE+IRCJ5WagWfFcRyw6cxib5tEfuKw7BMSC/v0zE8OMeuWtG9a8+
-            |umv7fxPV7Q86xLOwHNWlw0FmqqZLBznrrv9PjijESqCrSXv6bZfM8AIuNyVQbm32
-            |nXmzp9nOyfbF+z2zpY5d1ZeD
-            |-----END PRIVATE KEY-----
-        """.trimMargin().trim()
+        private fun loadResource(path: String): String =
+            LicenseVerifierTest::class.java.classLoader
+                .getResourceAsStream(path)!!
+                .bufferedReader(StandardCharsets.UTF_8)
+                .readText()
+                .trim()
     }
 }
