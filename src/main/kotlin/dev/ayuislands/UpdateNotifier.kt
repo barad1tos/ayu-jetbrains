@@ -41,6 +41,10 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.3.6" to
+                "<ul>" +
+                "<li>Bug fixes</li>" +
+                "</ul>",
             "2.3.4" to
                 "<ul>" +
                 "<li>Fix glow color desyncing from accent after rotation</li>" +
