@@ -41,12 +41,17 @@ object AccentApplicator {
     private val EMPTY_TEXT_ATTRIBUTES = TextAttributes()
 
     // Cached CodeGlance Pro reflection objects (resolved once per session)
-    private var cgpService: Any? = null
-    private var cgpGetState: Method? = null
-    private var cgpSetViewportColor: Method? = null
-    private var cgpSetViewportBorderColor: Method? = null
-    private var cgpSetViewportBorderThickness: Method? = null
-    private var cgpMethodsResolved = false
+    @Volatile private var cgpService: Any? = null
+
+    @Volatile private var cgpGetState: Method? = null
+
+    @Volatile private var cgpSetViewportColor: Method? = null
+
+    @Volatile private var cgpSetViewportBorderColor: Method? = null
+
+    @Volatile private var cgpSetViewportBorderThickness: Method? = null
+
+    @Volatile private var cgpMethodsResolved = false
 
     // Always-on UIManager keys (not per-element toggleable)
     private val ALWAYS_ON_UI_KEYS =

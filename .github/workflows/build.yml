@@ -170,6 +170,28 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
+  jar-integrity:
+    name: JAR integrity
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@0f4528296b4bc09e8ae0fc7be30185a4ab435545 # v6.0.0
+      - name: Build plugin JAR
+        run: ./gradlew buildPlugin
+      - name: Verify bytecode freshness
+        run: bash scripts/verify-bytecode.sh
+      - name: Verify ProGuard keep rules
+        run: bash scripts/verify-proguard-keeps.sh
+
   # ── Tier 4: Full IDE verification (PRs only) ──────────
   verify:
     name: Verify (${{ matrix.group }})
@@ -209,6 +231,7 @@ jobs:
       - build
       - analyze
       - test
+      - jar-integrity
       - verify
     if: always()
     steps:
@@ -221,6 +244,7 @@ jobs:
             "build=${{ needs.build.result }}"
             "analyze=${{ needs.analyze.result }}"
             "test=${{ needs.test.result }}"
+            "jar-integrity=${{ needs.jar-integrity.result }}"
             "verify=${{ needs.verify.result }}"
           )
           failed=0

@@ -19,16 +19,10 @@ enum class AyuVariant(
         fun fromThemeName(name: String): AyuVariant? = entries.firstOrNull { name in it.themeNames }
 
         @Suppress("UnstableApiUsage")
-        fun detect(): AyuVariant? {
-            val themeName = LafManager.getInstance().currentUIThemeLookAndFeel.name
-            return fromThemeName(themeName)
-        }
+        fun currentThemeName(): String = LafManager.getInstance().currentUIThemeLookAndFeel.name
 
-        @Suppress("UnstableApiUsage")
-        fun isIslandsUi(): Boolean =
-            LafManager
-                .getInstance()
-                .currentUIThemeLookAndFeel.name
-                .contains(ISLANDS_UI_SUFFIX)
+        fun detect(): AyuVariant? = fromThemeName(currentThemeName())
+
+        fun isIslandsUi(): Boolean = currentThemeName().contains(ISLANDS_UI_SUFFIX)
     }
 }

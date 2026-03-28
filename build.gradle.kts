@@ -129,7 +129,7 @@ kover {
                     "dev.ayuislands.settings.GlowGroupPanel*",
                     // Data class in EffectsPanel file, pure UI config
                     "dev.ayuislands.settings.SliderConfig*",
-                    // Glow rendering (Graphics2D paint, animation overlay)
+                    // Glow rendering (Graphics2D paint, animation overlay, Swing lifecycle)
                     "dev.ayuislands.glow.GlowOverlayManager*",
                     "dev.ayuislands.glow.GlowGlassPane*",
                     "dev.ayuislands.glow.GlowFocusBorder*",
@@ -148,7 +148,7 @@ kover {
                     "dev.ayuislands.AyuIslandsStartupActivity*",
                     "dev.ayuislands.AyuIslandsLafListener*",
                     "dev.ayuislands.AppearanceSyncListener*",
-                    // LicenseChecker: public API tested; private crypto is JetBrains boilerplate
+                    // LicenseChecker: thin IDE wrapper; crypto logic tested via LicenseVerifier
                     "dev.ayuislands.licensing.LicenseChecker*",
                     // IDE glue: Swing UI DSL panel (pure rendering, no extractable logic)
                     "dev.ayuislands.settings.WorkspacePanel*",

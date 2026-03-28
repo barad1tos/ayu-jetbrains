@@ -110,10 +110,20 @@ class AyuIslandsState : BaseState() {
     // Project View tweaks
     var hideProjectRootPath by property(false)
     var hideProjectViewHScrollbar by property(false)
+
+    /**
+     * Legacy migration field — migrated to [projectPanelWidthMode] in v2.0.
+     * Retained for [migrateWidthModes] to upgrade pre-v2.0 settings.
+     * Safe to remove after v4.0+ (2027) when pre-v2.0 installs are negligible.
+     */
     var autoFitProjectPanelWidth by property(false)
     var autoFitMaxWidth by property(DEFAULT_AUTO_FIT_MAX_WIDTH)
 
-    // Commit panel auto-fit
+    /**
+     * Legacy migration field — migrated to [commitPanelWidthMode] in v2.0.
+     * Retained for [migrateWidthModes] to upgrade pre-v2.0 settings.
+     * Safe to remove after v4.0+ (2027) when pre-v2.0 installs are negligible.
+     */
     var autoFitCommitPanelWidth by property(false)
     var autoFitCommitMaxWidth by property(DEFAULT_AUTO_FIT_MAX_WIDTH)
 

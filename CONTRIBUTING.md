@@ -31,7 +31,7 @@ By participating, you agree to uphold our [Code of Conduct](.github/CODE_OF_COND
 
 Each color variant (Mirage, Dark, Light) has **two** `.theme.json` files:
 - Base variant (e.g. `ayu-islands-mirage.theme.json`)
-- Island UI variant (e.g. `ayu-islands-mirage-islands.theme.json`)
+- Islands UI variant (e.g. `ayu-islands-mirage-islands.theme.json`)
 
 **Always edit both files** when making color changes — users may have either variant active.
 

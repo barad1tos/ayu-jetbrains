@@ -18,35 +18,18 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import java.awt.Color
 import java.awt.Component
-import java.awt.Container
 import java.awt.KeyboardFocusManager
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
-import java.awt.event.FocusListener
 import java.awt.event.HierarchyBoundsAdapter
 import java.awt.event.HierarchyEvent
 import java.beans.PropertyChangeListener
-import javax.swing.JComboBox
 import javax.swing.JComponent
 import javax.swing.JLayeredPane
-import javax.swing.JTextField
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
 
-/**
- * Manages glow overlays for tool windows, editor, tabs, and focus rings.
- *
- * Glow rendering uses three approaches:
- * - GlowGlassPane: overlay positioned in JLayeredPane for an island glow (tool windows, editor)
- * - UIManager keys: EditorTabs underline/background colors for tab accent modes
- * - GlowFocusBorder: transient border swap on focus events for the text input glow
- *
- * GlowIslandBorder (border-based island glow) was evaluated and removed: the GlassPane approach
- * is more robust (independent of component border chains, no layout interference).
- * GlowPanel (standalone glow JPanel) was removed: preview uses GlowRenderer directly.
- * GlowPreset (named configurations) was simplified to an enum selecting flat state properties.
- */
-@Suppress("TooManyFunctions") // Overlay lifecycle requires many small helpers
+/** Manages glow overlays for tool windows, editor, tabs, and focus rings. */
 class GlowOverlayManager(
     private val project: Project,
 ) : Disposable {
@@ -57,8 +40,7 @@ class GlowOverlayManager(
     @Volatile
     private var disposed = false
 
-    // Focus-ring glow
-    private val focusListeners = mutableMapOf<JComponent, FocusListener>()
+    private val focusRingManager = FocusRingManager()
 
     // Global focus listener
     private var focusChangeListener: PropertyChangeListener? = null
@@ -68,7 +50,6 @@ class GlowOverlayManager(
 
     companion object {
         private const val EDITOR_ID = "Editor"
-        private const val HOST_SEARCH_MAX_DEPTH = 6
         private const val DEFAULT_ACCENT_HEX = "#FFCC66"
         private const val TAB_ACCENT_BG_ALPHA = 50
         private const val KEY_TAB_UNDERLINE = "EditorTabs.underlinedBorderColor"
@@ -89,7 +70,7 @@ class GlowOverlayManager(
             }
         }
 
-        private fun safeDecodeColor(hex: String): Color =
+        fun safeDecodeColor(hex: String): Color =
             try {
                 Color.decode(hex)
             } catch (_: NumberFormatException) {
@@ -240,102 +221,7 @@ class GlowOverlayManager(
         val accent = safeDecodeColor(accentHex)
         val intensity = state.getIntensityForStyle(style)
 
-        for (window in java.awt.Window.getWindows()) {
-            installFocusListenersRecursively(window, accent, style, intensity)
-        }
-
-        log.info("Focus-ring glow initialized")
-    }
-
-    private fun isTextInputComponent(component: Component): Boolean =
-        component is JTextField ||
-            component is JComboBox<*> ||
-            (component is JComponent && component.javaClass.simpleName.contains("SearchTextField"))
-
-    private fun installFocusListenersRecursively(
-        component: Component,
-        accent: Color,
-        style: GlowStyle,
-        intensity: Int,
-    ) {
-        if (isTextInputComponent(component) && component is JComponent && !focusListeners.containsKey(component)) {
-            val listener = GlowFocusBorder.createFocusListener(accent, style, intensity)
-            component.addFocusListener(listener)
-            focusListeners[component] = listener
-
-            // Auto-remove focus listener when the component becomes undisplayable
-            component.addHierarchyListener { event ->
-                val displayabilityChanged =
-                    (event.changeFlags and HierarchyEvent.DISPLAYABILITY_CHANGED.toLong()) != 0L
-                if (displayabilityChanged && !component.isDisplayable) {
-                    component.removeFocusListener(listener)
-                    focusListeners.remove(component)
-                }
-            }
-        }
-        if (component is Container) {
-            for (child in component.components) {
-                installFocusListenersRecursively(child, accent, style, intensity)
-            }
-        }
-    }
-
-    private fun findGlowHost(component: JComponent): JComponent {
-        var current: Component? = component.parent
-        var depth = 0
-        while (current != null && depth < HOST_SEARCH_MAX_DEPTH) {
-            val name = current.javaClass.name
-            if (name.contains("InternalDecoratorImpl")) {
-                return current as JComponent
-            }
-            current = current.parent
-            depth++
-        }
-        current = component.parent
-        depth = 0
-        while (current != null && depth < HOST_SEARCH_MAX_DEPTH) {
-            val name = current.javaClass.name
-            if (name.contains("IslandHolder")) {
-                return current as JComponent
-            }
-            current = current.parent
-            depth++
-        }
-        return component
-    }
-
-    private fun findEditorHost(): JComponent? {
-        val fileEditorManager = FileEditorManager.getInstance(project)
-        val editorComponent = fileEditorManager.selectedEditor?.component ?: return null
-        if (!editorComponent.isDisplayable) return null
-
-        // Walk up to find EditorsSplitters or the editor area island container
-        var current: Component? = editorComponent
-        while (current != null) {
-            val name = current.javaClass.name
-            if (name.contains("EditorsSplitters")) {
-                return current as JComponent
-            }
-            current = current.parent
-        }
-        return null
-    }
-
-    private fun findTabBarHeight(host: JComponent): Int {
-        // EditorsSplitters has one child: EditorTabs (full JBTabsImpl tabbed pane).
-        // EditorTabs.height = the entire editor area — NOT the tab strip.
-        // Walk into EditorTabs and find a TabLabel — its (y + height) is the strip height.
-        val editorTabs =
-            host.components.firstOrNull {
-                it.javaClass.name.contains("EditorTabs")
-            } as? Container ?: return 0
-
-        for (child in editorTabs.components) {
-            if (child.javaClass.name.contains("TabLabel")) {
-                return child.y + child.height
-            }
-        }
-        return 0
+        focusRingManager.initializeFocusRingGlow(accent, style, intensity)
     }
 
     private fun updateOverlayBounds(
@@ -347,7 +233,7 @@ class GlowOverlayManager(
         try {
             val point = SwingUtilities.convertPoint(host, 0, 0, layeredPane)
             if (glassPane.isEditorOverlay) {
-                val tabHeight = findTabBarHeight(host)
+                val tabHeight = EditorTabGeometry.calculateTabStripHeight(host)
                 glassPane.setBounds(point.x, point.y + tabHeight, host.width, host.height - tabHeight)
             } else {
                 glassPane.setBounds(point.x, point.y, host.width, host.height)
@@ -436,7 +322,6 @@ class GlowOverlayManager(
 
         val rootPane = SwingUtilities.getRootPane(existing.host)
         if (rootPane == null || rootPane.layeredPane !== existing.layeredPane) {
-            // Host moved to a different window (dock↔float transition)
             removeOverlay(id)
             attachToolWindowOverlay(toolWindow)
         }
@@ -452,7 +337,7 @@ class GlowOverlayManager(
         val component = toolWindow.component
         if (!component.isDisplayable) return
 
-        val host = findGlowHost(component)
+        val host = ComponentHierarchyUtils.findGlowHost(component)
         attachOverlay(id, host)
     }
 
@@ -462,7 +347,9 @@ class GlowOverlayManager(
         val state = AyuIslandsSettings.getInstance().state
         if (!state.isIslandEnabled(EDITOR_ID)) return
 
-        val host = findEditorHost() ?: return
+        val editorComponent = FileEditorManager.getInstance(project).selectedEditor?.component ?: return
+        if (!editorComponent.isDisplayable) return
+        val host = ComponentHierarchyUtils.findEditorHost(editorComponent) ?: return
         attachOverlay(EDITOR_ID, host, isEditorOverlay = true)
     }
 
@@ -487,7 +374,6 @@ class GlowOverlayManager(
             return
         }
 
-        // Dispose any previous animator (not just stop — unregisters from Disposer)
         animator?.let { Disposer.dispose(it) }
         animator =
             GlowAnimator().also { anim ->
@@ -524,7 +410,9 @@ class GlowOverlayManager(
 
         updateOverlayStyles(state, accent, style)
         updateTabGlow(state, accent)
-        updateFocusRingGlow(state, accent, style)
+
+        val intensity = state.getIntensityForStyle(style)
+        focusRingManager.updateFocusRingGlow(accent, style, intensity, state.glowFocusRing)
 
         val activeEntry = activeGlowId?.let { overlays[it] }
         if (activeEntry != null) {
@@ -557,12 +445,10 @@ class GlowOverlayManager(
 
         when (tabMode) {
             GlowTabMode.MINIMAL -> {
-                // Accent underline, no background tint
                 UIManager.put(KEY_TAB_UNDERLINE, accent)
                 UIManager.put(KEY_TAB_BACKGROUND, Color(0, 0, 0, 0))
             }
             GlowTabMode.FULL -> {
-                // Accent underline + accent background tint
                 UIManager.put(KEY_TAB_UNDERLINE, accent)
                 UIManager.put(
                     KEY_TAB_BACKGROUND,
@@ -570,7 +456,6 @@ class GlowOverlayManager(
                 )
             }
             GlowTabMode.OFF -> {
-                // Neutral underline, no background
                 val variant = AyuVariant.detect()
                 if (variant != null) {
                     UIManager.put(KEY_TAB_UNDERLINE, Color.decode(variant.neutralGray))
@@ -579,42 +464,9 @@ class GlowOverlayManager(
             }
         }
 
-        // Sync underline height (ensures glow width changes propagate when sync is on)
         UIManager.put("EditorTabs.underlineHeight", AccentApplicator.resolveUnderlineHeight(state))
 
-        repaintEditorTabs()
-    }
-
-    private fun repaintEditorTabs() {
-        try {
-            val fileEditorManager = FileEditorManager.getInstance(project)
-            val editorComponent = fileEditorManager.selectedEditor?.component ?: return
-            var current: Component? = editorComponent.parent
-            while (current != null) {
-                val name = current.javaClass.name
-                if (name.contains("EditorTabs") || name.contains("JBEditorTabs")) {
-                    current.repaint()
-                    return
-                }
-                current = current.parent
-            }
-        } catch (exception: RuntimeException) {
-            log.debug("Could not repaint editor tabs", exception)
-        }
-    }
-
-    private fun updateFocusRingGlow(
-        state: AyuIslandsState,
-        accent: Color,
-        style: GlowStyle,
-    ) {
-        removeFocusListeners()
-        if (state.glowFocusRing) {
-            val intensity = state.getIntensityForStyle(style)
-            for (window in java.awt.Window.getWindows()) {
-                installFocusListenersRecursively(window, accent, style, intensity)
-            }
-        }
+        EditorTabGeometry.repaintEditorTabs(project)
     }
 
     private fun removeAllOverlays() {
@@ -622,18 +474,8 @@ class GlowOverlayManager(
             detachOverlayEntry(entry)
         }
         overlays.clear()
-
-        // Tab accent keys are now managed by AccentApplicator (always-on, not glow-gated)
-        removeFocusListeners()
-
+        focusRingManager.removeFocusListeners()
         log.info("All glow overlays removed")
-    }
-
-    private fun removeFocusListeners() {
-        for ((component, listener) in focusListeners) {
-            component.removeFocusListener(listener)
-        }
-        focusListeners.clear()
     }
 
     override fun dispose() {
@@ -651,6 +493,7 @@ class GlowOverlayManager(
 
         SwingUtilities.invokeLater {
             removeAllOverlays()
+            focusRingManager.dispose()
         }
     }
 }
