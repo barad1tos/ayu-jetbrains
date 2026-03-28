@@ -44,7 +44,7 @@ class LicenseVerifier(
             val licenseData = String(licenseBytes, StandardCharsets.UTF_8)
             val json = JsonParser.parseString(licenseData).asJsonObject
             return json["licenseId"]?.asString == licenseId
-        } catch (exception: Exception) {
+        } catch (_: Exception) {
             return false
         }
     }
@@ -87,7 +87,7 @@ class LicenseVerifier(
             // Timestamp must be within the validity period (allow negative clock drift)
             val timeDiff = timeSource() - timestamp
             return timeDiff in -TIMESTAMP_VALIDITY_PERIOD_MS..TIMESTAMP_VALIDITY_PERIOD_MS
-        } catch (exception: Exception) {
+        } catch (_: Exception) {
             return false
         }
     }
