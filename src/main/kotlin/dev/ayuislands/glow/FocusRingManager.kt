@@ -16,7 +16,7 @@ import javax.swing.JTextField
  * Manages focus-ring glow borders on text input components.
  *
  * Uses a [WeakHashMap] to track already-processed windows so that
- * repeated calls (e.g. on settings change) skip windows whose
+ * repeated calls (e.g., on settings change) skip windows whose
  * components already have listeners installed, improving performance
  * on projects with many open windows.
  */
@@ -31,7 +31,7 @@ class FocusRingManager {
             (component is JComponent && component.javaClass.simpleName.contains("SearchTextField"))
 
     /**
-     * Install focus-ring glow on all text inputs across all open windows.
+     * Install a focus-ring glow on all text inputs across all open windows.
      *
      * Windows already in [processedWindows] are skipped for performance.
      */

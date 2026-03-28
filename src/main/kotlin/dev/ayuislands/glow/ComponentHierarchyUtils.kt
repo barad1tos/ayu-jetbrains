@@ -8,7 +8,7 @@ import javax.swing.JComponent
 /**
  * Swing component hierarchy walking utilities with defensive fallbacks.
  *
- * All lookups use class name substring matching (not exact class references)
+ * All lookups use class name substring matching (not exact class references),
  * so glow rendering survives internal Swing/IDE class renames across versions.
  */
 object ComponentHierarchyUtils {

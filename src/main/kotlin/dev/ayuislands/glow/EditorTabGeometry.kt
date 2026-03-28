@@ -65,7 +65,7 @@ object EditorTabGeometry {
      * Repaint the editor tabs component for the given [project].
      *
      * Locates the active editor's tab container and triggers a repaint.
-     * Logs a warning if the tabs component cannot be found.
+     * Logs a warning if the tab component cannot be found.
      */
     fun repaintEditorTabs(project: Project) {
         try {
