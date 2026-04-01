@@ -9,6 +9,7 @@ import com.intellij.ui.dsl.builder.CollapsibleRow
 import com.intellij.ui.dsl.builder.Panel
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
+import dev.ayuislands.editor.EditorScrollbarManager
 import dev.ayuislands.gitpanel.GitPanelAutoFitManager
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
@@ -26,12 +27,21 @@ import javax.swing.JSpinner
 import javax.swing.SpinnerNumberModel
 import javax.swing.UIManager
 
+private const val EDITOR_TITLE = "Editor"
 private const val PROJECT_VIEW_TITLE = "Project View"
 private const val COMMIT_PANEL_TITLE = "Commit Panel"
 private const val GIT_PANEL_TITLE = "Git Panel"
 
 /** Workspace tab: tool window layout tweaks (Project View, Commit Panel, Git Panel). */
 class WorkspacePanel : AyuIslandsSettingsPanel {
+    private var pendingHideEditorVScrollbar = false
+    private var storedHideEditorVScrollbar = false
+    private var pendingHideEditorHScrollbar = false
+    private var storedHideEditorHScrollbar = false
+
+    private var hideEditorVScrollbarCheckbox: JCheckBox? = null
+    private var hideEditorHScrollbarCheckbox: JCheckBox? = null
+
     private var pendingHideRootPath = false
     private var storedHideRootPath = false
     private var pendingHideHScrollbar = false
@@ -44,6 +54,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
     private val commitWidth = WidthModeUiState()
     private val gitWidth = WidthModeUiState()
 
+    private var editorGroup: CollapsibleRow? = null
     private var projectViewGroup: CollapsibleRow? = null
     private var commitPanelGroup: CollapsibleRow? = null
     private var gitPanelGroup: CollapsibleRow? = null
@@ -56,6 +67,11 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
     ) {
         val state = AyuIslandsSettings.getInstance().state
         val licensed = LicenseChecker.isLicensedOrGrace()
+
+        storedHideEditorVScrollbar = state.hideEditorVScrollbar
+        pendingHideEditorVScrollbar = storedHideEditorVScrollbar
+        storedHideEditorHScrollbar = state.hideEditorHScrollbar
+        pendingHideEditorHScrollbar = storedHideEditorHScrollbar
 
         storedHideRootPath = state.hideProjectRootPath
         pendingHideRootPath = storedHideRootPath
@@ -82,6 +98,34 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
         )
 
         panel.row { comment("Customize tool window width and Project View display options.") }
+
+        editorGroup =
+            panel.collapsibleGroup(EDITOR_TITLE) {
+                row {
+                    val cb =
+                        checkBox("Hide vertical scrollbar")
+                            .comment("Remove the vertical scrollbar from the editor gutter")
+                    cb.component.isSelected = pendingHideEditorVScrollbar
+                    cb.component.isEnabled = licensed
+                    cb.component.addActionListener {
+                        pendingHideEditorVScrollbar = cb.component.isSelected
+                    }
+                    hideEditorVScrollbarCheckbox = cb.component
+                }
+                row {
+                    val cb =
+                        checkBox("Hide horizontal scrollbar")
+                            .comment("Remove the bottom scrollbar from the editor")
+                    cb.component.isSelected = pendingHideEditorHScrollbar
+                    cb.component.isEnabled = licensed
+                    cb.component.addActionListener {
+                        pendingHideEditorHScrollbar = cb.component.isSelected
+                    }
+                    hideEditorHScrollbarCheckbox = cb.component
+                }
+            }
+        editorGroup?.expanded = state.workspaceEditorExpanded
+        editorGroup?.addExpandedListener { state.workspaceEditorExpanded = it }
 
         projectViewGroup =
             panel.collapsibleGroup(PROJECT_VIEW_TITLE) {
@@ -310,7 +354,9 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
     }
 
     override fun isModified(): Boolean =
-        pendingHideRootPath != storedHideRootPath ||
+        pendingHideEditorVScrollbar != storedHideEditorVScrollbar ||
+            pendingHideEditorHScrollbar != storedHideEditorHScrollbar ||
+            pendingHideRootPath != storedHideRootPath ||
             pendingHideHScrollbar != storedHideHScrollbar ||
             projectWidth.state.isModified() ||
             commitWidth.state.isModified() ||
@@ -320,12 +366,20 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
         if (!isModified()) return
         val state = AyuIslandsSettings.getInstance().state
 
+        val editorChanged =
+            pendingHideEditorVScrollbar != storedHideEditorVScrollbar ||
+                pendingHideEditorHScrollbar != storedHideEditorHScrollbar
         val displayChanged =
             pendingHideRootPath != storedHideRootPath ||
                 pendingHideHScrollbar != storedHideHScrollbar
         val projectWidthChanged = projectWidth.state.isModified()
         val commitWidthChanged = commitWidth.state.isModified()
         val gitWidthChanged = gitWidth.state.isModified()
+
+        state.hideEditorVScrollbar = pendingHideEditorVScrollbar
+        state.hideEditorHScrollbar = pendingHideEditorHScrollbar
+        storedHideEditorVScrollbar = pendingHideEditorVScrollbar
+        storedHideEditorHScrollbar = pendingHideEditorHScrollbar
 
         state.hideProjectRootPath = pendingHideRootPath
         state.hideProjectViewHScrollbar = pendingHideHScrollbar
@@ -362,13 +416,26 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
                 )
             }
         }
+
+        if (editorChanged) {
+            for (openProject in ProjectManager.getInstance().openProjects) {
+                ApplicationManager.getApplication().invokeLater(
+                    { EditorScrollbarManager.getInstance(openProject).apply() },
+                    openProject.disposed,
+                )
+            }
+        }
     }
 
     override fun reset() {
+        pendingHideEditorVScrollbar = storedHideEditorVScrollbar
+        pendingHideEditorHScrollbar = storedHideEditorHScrollbar
         pendingHideRootPath = storedHideRootPath
         pendingHideHScrollbar = storedHideHScrollbar
 
         suppressListeners = true
+        hideEditorVScrollbarCheckbox?.isSelected = storedHideEditorVScrollbar
+        hideEditorHScrollbarCheckbox?.isSelected = storedHideEditorHScrollbar
         hideRootPathCheckbox?.isSelected = storedHideRootPath
         hideHScrollbarCheckbox?.isSelected = storedHideHScrollbar
         projectWidth.reset()
