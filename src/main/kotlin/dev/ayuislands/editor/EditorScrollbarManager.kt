@@ -9,17 +9,25 @@ import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.project.Project
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
+import java.awt.Dimension
 import java.util.WeakHashMap
+import javax.swing.JScrollBar
 import javax.swing.JScrollPane
-import javax.swing.ScrollPaneConstants
 
-/** Per-project service that manages editor scrollbar visibility. */
+/**
+ * Per-project service that manages editor scrollbar visibility.
+ *
+ * Instead of setting the scroll policy to NEVER (which disables scrolling entirely),
+ * we override the scrollbar's [JScrollBar.getPreferredSize] to return zero dimensions.
+ * This hides the scrollbar visually while preserving mouse wheel, trackpad, and
+ * keyboard scrolling.
+ */
 @Service(Service.Level.PROJECT)
 class EditorScrollbarManager(
     private val project: Project,
 ) : Disposable {
-    /** Original (vertical, horizontal) scrollbar policies keyed by scroll pane. */
-    private val originalPolicies = WeakHashMap<JScrollPane, Pair<Int, Int>>()
+    /** Scroll panes whose scrollbars have been patched, so we can restore them. */
+    private val patchedScrollPanes = WeakHashMap<JScrollPane, PatchedState>()
 
     init {
         EditorFactory.getInstance().addEditorFactoryListener(
@@ -50,41 +58,70 @@ class EditorScrollbarManager(
         val hideHorizontal = state.hideEditorHScrollbar
 
         if (hideVertical || hideHorizontal) {
-            if (scrollPane !in originalPolicies) {
-                originalPolicies[scrollPane] =
-                    Pair(
-                        scrollPane.verticalScrollBarPolicy,
-                        scrollPane.horizontalScrollBarPolicy,
-                    )
+            val patched = patchedScrollPanes.getOrPut(scrollPane) { PatchedState() }
+            if (hideVertical && !patched.verticalHidden) {
+                hideScrollBar(scrollPane.verticalScrollBar)
+                patched.verticalHidden = true
+            } else if (!hideVertical && patched.verticalHidden) {
+                restoreScrollBar(scrollPane.verticalScrollBar)
+                patched.verticalHidden = false
             }
-            if (hideVertical) {
-                scrollPane.verticalScrollBarPolicy =
-                    ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER
-            }
-            if (hideHorizontal) {
-                scrollPane.horizontalScrollBarPolicy =
-                    ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+            if (hideHorizontal && !patched.horizontalHidden) {
+                hideScrollBar(scrollPane.horizontalScrollBar)
+                patched.horizontalHidden = true
+            } else if (!hideHorizontal && patched.horizontalHidden) {
+                restoreScrollBar(scrollPane.horizontalScrollBar)
+                patched.horizontalHidden = false
             }
         } else {
             restoreEditor(scrollPane)
         }
     }
 
+    private fun hideScrollBar(scrollBar: JScrollBar) {
+        scrollBar.putClientProperty(ORIGINAL_PREFERRED_SIZE_KEY, scrollBar.preferredSize)
+        scrollBar.preferredSize = ZERO_SIZE
+    }
+
+    private fun restoreScrollBar(scrollBar: JScrollBar) {
+        val originalSize = scrollBar.getClientProperty(ORIGINAL_PREFERRED_SIZE_KEY) as? Dimension
+        if (originalSize != null) {
+            scrollBar.preferredSize = originalSize
+            scrollBar.putClientProperty(ORIGINAL_PREFERRED_SIZE_KEY, null)
+        }
+    }
+
     private fun restoreEditor(scrollPane: JScrollPane) {
-        val original = originalPolicies.remove(scrollPane) ?: return
-        scrollPane.verticalScrollBarPolicy = original.first
-        scrollPane.horizontalScrollBarPolicy = original.second
+        val patched = patchedScrollPanes.remove(scrollPane) ?: return
+        if (patched.verticalHidden) {
+            restoreScrollBar(scrollPane.verticalScrollBar)
+        }
+        if (patched.horizontalHidden) {
+            restoreScrollBar(scrollPane.horizontalScrollBar)
+        }
     }
 
     override fun dispose() {
-        for ((scrollPane, original) in originalPolicies) {
-            scrollPane.verticalScrollBarPolicy = original.first
-            scrollPane.horizontalScrollBarPolicy = original.second
+        for ((scrollPane, patched) in patchedScrollPanes) {
+            if (patched.verticalHidden) {
+                restoreScrollBar(scrollPane.verticalScrollBar)
+            }
+            if (patched.horizontalHidden) {
+                restoreScrollBar(scrollPane.horizontalScrollBar)
+            }
         }
-        originalPolicies.clear()
+        patchedScrollPanes.clear()
     }
 
+    private data class PatchedState(
+        var verticalHidden: Boolean = false,
+        var horizontalHidden: Boolean = false,
+    )
+
     companion object {
+        private const val ORIGINAL_PREFERRED_SIZE_KEY = "ayuIslands.originalPreferredSize"
+        private val ZERO_SIZE = Dimension(0, 0)
+
         fun getInstance(project: Project): EditorScrollbarManager =
             project.getService(
                 EditorScrollbarManager::class.java,
