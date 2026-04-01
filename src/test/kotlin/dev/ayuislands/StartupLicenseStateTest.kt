@@ -5,6 +5,7 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.gitpanel.GitPanelAutoFitManager
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.onboarding.OnboardingNotifier
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -40,8 +41,10 @@ class StartupLicenseStateTest {
         every { LicenseChecker.enableProDefaults() } just runs
         every { LicenseChecker.applyWorkspaceDefaults() } just runs
         every { LicenseChecker.revertToFreeDefaults(any()) } just runs
-        every { LicenseChecker.notifyTrialWelcome(any()) } just runs
         every { LicenseChecker.notifyTrialExpired(any()) } just runs
+
+        mockkObject(OnboardingNotifier)
+        every { OnboardingNotifier.showWelcome(any()) } just runs
     }
 
     @AfterTest
@@ -98,7 +101,7 @@ class StartupLicenseStateTest {
         StartupLicenseHandler.applyLicensedDefaults(project, settings)
 
         verify(exactly = 1) {
-            LicenseChecker.notifyTrialWelcome(project)
+            OnboardingNotifier.showWelcome(project)
         }
     }
 
@@ -110,7 +113,7 @@ class StartupLicenseStateTest {
         StartupLicenseHandler.applyLicensedDefaults(project, settings)
 
         verify(exactly = 1) {
-            LicenseChecker.notifyTrialWelcome(project)
+            OnboardingNotifier.showWelcome(project)
         }
         assertTrue(state.trialWelcomeShown)
     }
@@ -122,7 +125,7 @@ class StartupLicenseStateTest {
 
         StartupLicenseHandler.applyLicensedDefaults(project, settings)
 
-        verify(exactly = 0) { LicenseChecker.notifyTrialWelcome(any()) }
+        verify(exactly = 0) { OnboardingNotifier.showWelcome(any()) }
     }
 
     @Test

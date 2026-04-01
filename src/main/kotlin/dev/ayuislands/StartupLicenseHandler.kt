@@ -7,6 +7,7 @@ import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.editor.EditorScrollbarManager
 import dev.ayuislands.gitpanel.GitPanelAutoFitManager
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.onboarding.OnboardingNotifier
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.PanelWidthMode
@@ -36,7 +37,7 @@ internal object StartupLicenseHandler {
             )
 
             if (!settings.state.trialWelcomeShown) {
-                LicenseChecker.notifyTrialWelcome(project)
+                OnboardingNotifier.showWelcome(project)
                 settings.state.trialWelcomeShown = true
             }
         }

@@ -1,3 +1,5 @@
+@file:Suppress("DialogTitleCapitalization")
+
 package dev.ayuislands.onboarding
 
 import com.intellij.notification.Notification
@@ -72,14 +74,18 @@ object OnboardingNotifier {
         glowPreset: GlowPreset,
         fontPreset: FontPreset,
     ) {
+        val style = glowPreset.style ?: return
+        val intensity = glowPreset.intensity ?: return
+        val width = glowPreset.width ?: return
+        val animation = glowPreset.animation ?: return
         val state = AyuIslandsSettings.getInstance().state
 
         state.glowEnabled = true
-        state.glowStyle = glowPreset.style!!.name
+        state.glowStyle = style.name
         state.glowPreset = glowPreset.name
-        state.setIntensityForStyle(glowPreset.style!!, glowPreset.intensity!!)
-        state.setWidthForStyle(glowPreset.style!!, glowPreset.width!!)
-        state.glowAnimation = glowPreset.animation!!.name
+        state.setIntensityForStyle(style, intensity)
+        state.setWidthForStyle(style, width)
+        state.glowAnimation = animation.name
 
         state.fontPresetEnabled = true
         state.fontPresetName = fontPreset.name
