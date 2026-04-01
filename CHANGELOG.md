@@ -6,7 +6,7 @@
 - [Free] Fix tool window width oscillation when switching between panels (Commit, Notifications, AI Chat)
 
 ### Added
-- [Paid] Editor section in Workspace settings with scrollbar visibility controls (hide vertical/horizontal)
+- [Paid] Editor section in Workspace settings with scrollbar visibility controls (hide vertical/horizontal scrollbars)
 
 ## [2.3.6] - 2026-03-28
 
