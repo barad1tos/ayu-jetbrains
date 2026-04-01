@@ -111,6 +111,10 @@ class AyuIslandsState : BaseState() {
     var hideProjectRootPath by property(false)
     var hideProjectViewHScrollbar by property(false)
 
+    // Editor scrollbar visibility
+    var hideEditorVScrollbar by property(false)
+    var hideEditorHScrollbar by property(false)
+
     /**
      * Legacy migration field — migrated to [projectPanelWidthMode] in v2.0.
      * Retained for [migrateWidthModes] to upgrade pre-v2.0 settings.
@@ -167,6 +171,7 @@ class AyuIslandsState : BaseState() {
     // Workspace tab: collapsible group expanded states
     var workspaceProjectViewExpanded by property(true)
     var workspaceCommitPanelExpanded by property(false)
+    var workspaceEditorExpanded by property(false)
     var workspaceGitPanelExpanded by property(false)
 
     // Force overrides for conflicting elements (element ID names)

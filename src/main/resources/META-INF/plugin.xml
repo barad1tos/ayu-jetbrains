@@ -164,6 +164,10 @@
         <projectService
                 serviceImplementation="dev.ayuislands.projectview.ProjectViewScrollbarManager"/>
 
+        <!-- Editor scrollbar manager (per-project lifecycle) -->
+        <projectService
+                serviceImplementation="dev.ayuislands.editor.EditorScrollbarManager"/>
+
         <!-- Commit panel auto-fit manager (per-project lifecycle) -->
         <projectService
                 serviceImplementation="dev.ayuislands.commitpanel.CommitPanelAutoFitManager"/>

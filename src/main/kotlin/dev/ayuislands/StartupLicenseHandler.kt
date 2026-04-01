@@ -4,6 +4,7 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
+import dev.ayuislands.editor.EditorScrollbarManager
 import dev.ayuislands.gitpanel.GitPanelAutoFitManager
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
@@ -84,6 +85,10 @@ internal object StartupLicenseHandler {
             ) != PanelWidthMode.DEFAULT
         ) {
             ProjectViewScrollbarManager.getInstance(project)
+        }
+
+        if (state.hideEditorVScrollbar || state.hideEditorHScrollbar) {
+            EditorScrollbarManager.getInstance(project)
         }
 
         if (PanelWidthMode.fromString(
