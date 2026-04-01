@@ -33,6 +33,7 @@ class EditorScrollbarManager(
         EditorFactory.getInstance().addEditorFactoryListener(
             object : EditorFactoryListener {
                 override fun editorCreated(event: EditorFactoryEvent) {
+                    if (!LicenseChecker.isLicensedOrGrace()) return
                     val editor = event.editor
                     if (editor.project != project) return
                     applyToEditor(editor as? EditorEx ?: return)
@@ -43,11 +44,16 @@ class EditorScrollbarManager(
     }
 
     fun apply() {
-        if (!LicenseChecker.isLicensedOrGrace()) return
+        val licensed = LicenseChecker.isLicensedOrGrace()
         val editors = EditorFactory.getInstance().allEditors
         for (editor in editors) {
             if (editor.project != project) continue
-            applyToEditor(editor as? EditorEx ?: continue)
+            val editorEx = editor as? EditorEx ?: continue
+            if (licensed) {
+                applyToEditor(editorEx)
+            } else {
+                restoreEditor(editorEx.scrollPane)
+            }
         }
     }
 
@@ -79,7 +85,8 @@ class EditorScrollbarManager(
     }
 
     private fun hideScrollBar(scrollBar: JScrollBar) {
-        scrollBar.putClientProperty(ORIGINAL_PREFERRED_SIZE_KEY, scrollBar.preferredSize)
+        val originalSize = scrollBar.preferredSize?.let { Dimension(it) }
+        scrollBar.putClientProperty(ORIGINAL_PREFERRED_SIZE_KEY, originalSize)
         scrollBar.preferredSize = ZERO_SIZE
     }
 
