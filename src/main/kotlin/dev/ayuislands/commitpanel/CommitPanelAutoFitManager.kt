@@ -34,6 +34,9 @@ class CommitPanelAutoFitManager(
                     toolWindowManager: ToolWindowManager,
                     changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
                 ) {
+                    if (changeType == ToolWindowManagerListener.ToolWindowManagerEventType.MovedOrResized) return
+                    val tw = toolWindowManager.getToolWindow("Commit") ?: return
+                    if (!tw.isVisible) return
                     val mode =
                         PanelWidthMode.fromString(
                             AyuIslandsSettings.getInstance().state.commitPanelWidthMode,

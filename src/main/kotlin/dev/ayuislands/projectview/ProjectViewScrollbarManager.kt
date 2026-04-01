@@ -32,6 +32,7 @@ class ProjectViewScrollbarManager(
     private var originalScrollbarPolicy: Int? = null
     private var registryKeyModified = false
     private var trackedTree: JTree? = null
+    private var lastAppliedHidePath: Boolean? = null
     private var rendererListener: PropertyChangeListener? = null
     private val autoFitter =
         ToolWindowAutoFitter(
@@ -51,6 +52,9 @@ class ProjectViewScrollbarManager(
                     toolWindowManager: ToolWindowManager,
                     changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
                 ) {
+                    if (changeType == ToolWindowManagerListener.ToolWindowManagerEventType.MovedOrResized) return
+                    val tw = toolWindowManager.getToolWindow("Project") ?: return
+                    if (!tw.isVisible) return
                     val state =
                         AyuIslandsSettings.getInstance().state
                     val widthMode = PanelWidthMode.fromString(state.projectPanelWidthMode)
@@ -114,6 +118,8 @@ class ProjectViewScrollbarManager(
 
     private fun applyRootDisplay() {
         val hidePath = AyuIslandsSettings.getInstance().state.hideProjectRootPath
+        if (hidePath == lastAppliedHidePath) return
+        lastAppliedHidePath = hidePath
 
         // ProjectViewImpl.isShowURL() reads directly from this Registry key.
         // Only resetToDefault when WE changed it — don't override the user's choice.
