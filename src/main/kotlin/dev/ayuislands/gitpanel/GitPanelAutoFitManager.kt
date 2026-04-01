@@ -36,12 +36,14 @@ class GitPanelAutoFitManager(
                     toolWindowManager: ToolWindowManager,
                     changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
                 ) {
+                    val tw = toolWindowManager.getToolWindow("Version Control") ?: return
+                    if (!tw.isVisible) return
                     val mode =
                         PanelWidthMode.fromString(
                             AyuIslandsSettings.getInstance().state.gitPanelWidthMode,
                         )
                     if (mode == PanelWidthMode.DEFAULT) return
-                    apply()
+                    debounceTimer.restart()
                 }
             },
         )

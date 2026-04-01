@@ -25,6 +25,7 @@ class ToolWindowAutoFitter(
     private var expansionListener: TreeExpansionListener? = null
     private var expansionTree: JTree? = null
     private var retryTimer: Timer? = null
+    private var isApplying = false
     private val debounceTimer =
         Timer(DEBOUNCE_DELAY_MS) { applyAutoFitWidth(maxWidthProvider()) }
             .apply { isRepeats = false }
@@ -84,17 +85,22 @@ class ToolWindowAutoFitter(
         toolWindow: ToolWindowEx,
         desiredWidth: Int,
     ) {
+        if (isApplying) return
         val currentWidth = toolWindow.component.width
         if (AutoFitCalculator.isJitterOnly(currentWidth, desiredWidth)) return
         if (isSharingSidebar()) return
-        val delta = desiredWidth - currentWidth
-
-        when (toolWindow.type) {
-            ToolWindowType.FLOATING, ToolWindowType.WINDOWED -> {
-                val window = SwingUtilities.getWindowAncestor(toolWindow.component) ?: return
-                window.setSize(desiredWidth, window.height)
+        isApplying = true
+        try {
+            val delta = desiredWidth - currentWidth
+            when (toolWindow.type) {
+                ToolWindowType.FLOATING, ToolWindowType.WINDOWED -> {
+                    val window = SwingUtilities.getWindowAncestor(toolWindow.component) ?: return
+                    window.setSize(desiredWidth, window.height)
+                }
+                else -> toolWindow.stretchWidth(delta)
             }
-            else -> toolWindow.stretchWidth(delta)
+        } finally {
+            isApplying = false
         }
     }
 
