@@ -41,6 +41,11 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.3.7" to
+                "<ul>" +
+                "<li>Fix tool window width jumping when switching panels</li>" +
+                "<li>Editor scrollbar visibility controls in Workspace settings</li>" +
+                "</ul>",
             "2.3.6" to
                 "<ul>" +
                 "<li>Bug fixes</li>" +
