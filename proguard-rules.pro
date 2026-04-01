@@ -35,6 +35,10 @@
 -keep class dev.ayuislands.projectview.ProjectViewScrollbarManager { *; }
 -keep class dev.ayuislands.projectview.ProjectViewScrollbarManager$Companion { *; }
 
+# plugin.xml: projectService (Editor scrollbar tweaks)
+-keep class dev.ayuislands.editor.EditorScrollbarManager { *; }
+-keep class dev.ayuislands.editor.EditorScrollbarManager$Companion { *; }
+
 # plugin.xml: applicationListeners
 -keep class dev.ayuislands.AyuIslandsAppListener { *; }
 -keep class dev.ayuislands.AppearanceSyncListener { *; }
