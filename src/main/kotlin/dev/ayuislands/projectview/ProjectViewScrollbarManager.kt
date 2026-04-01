@@ -52,6 +52,7 @@ class ProjectViewScrollbarManager(
                     toolWindowManager: ToolWindowManager,
                     changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
                 ) {
+                    if (changeType == ToolWindowManagerListener.ToolWindowManagerEventType.MovedOrResized) return
                     val tw = toolWindowManager.getToolWindow("Project") ?: return
                     if (!tw.isVisible) return
                     val state =

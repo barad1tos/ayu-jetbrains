@@ -36,6 +36,7 @@ class GitPanelAutoFitManager(
                     toolWindowManager: ToolWindowManager,
                     changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
                 ) {
+                    if (changeType == ToolWindowManagerListener.ToolWindowManagerEventType.MovedOrResized) return
                     val tw = toolWindowManager.getToolWindow("Version Control") ?: return
                     if (!tw.isVisible) return
                     val mode =
