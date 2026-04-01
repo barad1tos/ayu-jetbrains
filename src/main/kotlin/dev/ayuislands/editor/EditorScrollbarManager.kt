@@ -51,10 +51,11 @@ class EditorScrollbarManager(
 
         if (hideVertical || hideHorizontal) {
             if (scrollPane !in originalPolicies) {
-                originalPolicies[scrollPane] = Pair(
-                    scrollPane.verticalScrollBarPolicy,
-                    scrollPane.horizontalScrollBarPolicy,
-                )
+                originalPolicies[scrollPane] =
+                    Pair(
+                        scrollPane.verticalScrollBarPolicy,
+                        scrollPane.horizontalScrollBarPolicy,
+                    )
             }
             if (hideVertical) {
                 scrollPane.verticalScrollBarPolicy =
@@ -85,6 +86,8 @@ class EditorScrollbarManager(
 
     companion object {
         fun getInstance(project: Project): EditorScrollbarManager =
-            project.getService(EditorScrollbarManager::class.java)
+            project.getService(
+                EditorScrollbarManager::class.java,
+            )
     }
 }

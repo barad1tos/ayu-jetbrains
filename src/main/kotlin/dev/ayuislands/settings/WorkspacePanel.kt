@@ -68,15 +68,22 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
         val state = AyuIslandsSettings.getInstance().state
         val licensed = LicenseChecker.isLicensedOrGrace()
 
-        storedHideEditorVScrollbar = state.hideEditorVScrollbar
-        pendingHideEditorVScrollbar = storedHideEditorVScrollbar
-        storedHideEditorHScrollbar = state.hideEditorHScrollbar
-        pendingHideEditorHScrollbar = storedHideEditorHScrollbar
-
-        storedHideRootPath = state.hideProjectRootPath
-        pendingHideRootPath = storedHideRootPath
-        storedHideHScrollbar = state.hideProjectViewHScrollbar
-        pendingHideHScrollbar = storedHideHScrollbar
+        loadCheckboxPair(state.hideEditorVScrollbar) { s, p ->
+            storedHideEditorVScrollbar = s
+            pendingHideEditorVScrollbar = p
+        }
+        loadCheckboxPair(state.hideEditorHScrollbar) { s, p ->
+            storedHideEditorHScrollbar = s
+            pendingHideEditorHScrollbar = p
+        }
+        loadCheckboxPair(state.hideProjectRootPath) { s, p ->
+            storedHideRootPath = s
+            pendingHideRootPath = p
+        }
+        loadCheckboxPair(state.hideProjectViewHScrollbar) { s, p ->
+            storedHideHScrollbar = s
+            pendingHideHScrollbar = p
+        }
 
         projectWidth.state.load(
             PanelWidthMode.fromString(state.projectPanelWidthMode),
@@ -101,56 +108,40 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
 
         editorGroup =
             panel.collapsibleGroup(EDITOR_TITLE) {
-                row {
-                    val cb =
-                        checkBox("Hide vertical scrollbar")
-                            .comment("Remove the vertical scrollbar from the editor gutter")
-                    cb.component.isSelected = pendingHideEditorVScrollbar
-                    cb.component.isEnabled = licensed
-                    cb.component.addActionListener {
-                        pendingHideEditorVScrollbar = cb.component.isSelected
-                    }
-                    hideEditorVScrollbarCheckbox = cb.component
-                }
-                row {
-                    val cb =
-                        checkBox("Hide horizontal scrollbar")
-                            .comment("Remove the bottom scrollbar from the editor")
-                    cb.component.isSelected = pendingHideEditorHScrollbar
-                    cb.component.isEnabled = licensed
-                    cb.component.addActionListener {
-                        pendingHideEditorHScrollbar = cb.component.isSelected
-                    }
-                    hideEditorHScrollbarCheckbox = cb.component
-                }
+                hideEditorVScrollbarCheckbox =
+                    buildCheckboxRow(
+                        "Hide vertical scrollbar",
+                        "Remove the vertical scrollbar from the editor gutter",
+                        pendingHideEditorVScrollbar,
+                        licensed,
+                    ) { pendingHideEditorVScrollbar = it }
+                hideEditorHScrollbarCheckbox =
+                    buildCheckboxRow(
+                        "Hide horizontal scrollbar",
+                        "Remove the bottom scrollbar from the editor",
+                        pendingHideEditorHScrollbar,
+                        licensed,
+                    ) { pendingHideEditorHScrollbar = it }
             }
         editorGroup?.expanded = state.workspaceEditorExpanded
         editorGroup?.addExpandedListener { state.workspaceEditorExpanded = it }
 
         projectViewGroup =
             panel.collapsibleGroup(PROJECT_VIEW_TITLE) {
-                row {
-                    val cb =
-                        checkBox("Hide filesystem path")
-                            .comment("Remove the directory path shown next to the project name")
-                    cb.component.isSelected = pendingHideRootPath
-                    cb.component.isEnabled = licensed
-                    cb.component.addActionListener {
-                        pendingHideRootPath = cb.component.isSelected
-                    }
-                    hideRootPathCheckbox = cb.component
-                }
-                row {
-                    val cb =
-                        checkBox("Hide horizontal scrollbar")
-                            .comment("Remove the bottom scrollbar from the Project tool window")
-                    cb.component.isSelected = pendingHideHScrollbar
-                    cb.component.isEnabled = licensed
-                    cb.component.addActionListener {
-                        pendingHideHScrollbar = cb.component.isSelected
-                    }
-                    hideHScrollbarCheckbox = cb.component
-                }
+                hideRootPathCheckbox =
+                    buildCheckboxRow(
+                        "Hide filesystem path",
+                        "Remove the directory path shown next to the project name",
+                        pendingHideRootPath,
+                        licensed,
+                    ) { pendingHideRootPath = it }
+                hideHScrollbarCheckbox =
+                    buildCheckboxRow(
+                        "Hide horizontal scrollbar",
+                        "Remove the bottom scrollbar from the Project tool window",
+                        pendingHideHScrollbar,
+                        licensed,
+                    ) { pendingHideHScrollbar = it }
                 separator()
                 buildWidthModeGroup(
                     this,
@@ -391,39 +382,16 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
         applyWidthState(gitWidth, state.gitWidthTarget())
 
         if (displayChanged || projectWidthChanged) {
-            for (openProject in ProjectManager.getInstance().openProjects) {
-                ApplicationManager.getApplication().invokeLater(
-                    { ProjectViewScrollbarManager.getInstance(openProject).apply() },
-                    openProject.disposed,
-                )
-            }
+            dispatchToOpenProjects { ProjectViewScrollbarManager.getInstance(it).apply() }
         }
-
         if (commitWidthChanged) {
-            for (openProject in ProjectManager.getInstance().openProjects) {
-                ApplicationManager.getApplication().invokeLater(
-                    { CommitPanelAutoFitManager.getInstance(openProject).apply() },
-                    openProject.disposed,
-                )
-            }
+            dispatchToOpenProjects { CommitPanelAutoFitManager.getInstance(it).apply() }
         }
-
         if (gitWidthChanged) {
-            for (openProject in ProjectManager.getInstance().openProjects) {
-                ApplicationManager.getApplication().invokeLater(
-                    { GitPanelAutoFitManager.getInstance(openProject).apply() },
-                    openProject.disposed,
-                )
-            }
+            dispatchToOpenProjects { GitPanelAutoFitManager.getInstance(it).apply() }
         }
-
         if (editorChanged) {
-            for (openProject in ProjectManager.getInstance().openProjects) {
-                ApplicationManager.getApplication().invokeLater(
-                    { EditorScrollbarManager.getInstance(openProject).apply() },
-                    openProject.disposed,
-                )
-            }
+            dispatchToOpenProjects { EditorScrollbarManager.getInstance(it).apply() }
         }
     }
 
@@ -445,6 +413,40 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
         updateGroupTitle(commitPanelGroup, COMMIT_PANEL_TITLE, commitWidth.state)
         updateGroupTitle(gitPanelGroup, GIT_PANEL_TITLE, gitWidth.state)
         suppressListeners = false
+    }
+
+    private inline fun loadCheckboxPair(
+        stateValue: Boolean,
+        assign: (stored: Boolean, pending: Boolean) -> Unit,
+    ) {
+        assign(stateValue, stateValue)
+    }
+
+    private fun Panel.buildCheckboxRow(
+        label: String,
+        comment: String,
+        initialValue: Boolean,
+        enabled: Boolean,
+        onChange: (Boolean) -> Unit,
+    ): JCheckBox {
+        lateinit var checkbox: JCheckBox
+        row {
+            val cb = checkBox(label).comment(comment)
+            cb.component.isSelected = initialValue
+            cb.component.isEnabled = enabled
+            cb.component.addActionListener { onChange(cb.component.isSelected) }
+            checkbox = cb.component
+        }
+        return checkbox
+    }
+
+    private fun dispatchToOpenProjects(action: (com.intellij.openapi.project.Project) -> Unit) {
+        for (openProject in ProjectManager.getInstance().openProjects) {
+            ApplicationManager.getApplication().invokeLater(
+                { action(openProject) },
+                openProject.disposed,
+            )
+        }
     }
 
     private fun applyWidthState(
