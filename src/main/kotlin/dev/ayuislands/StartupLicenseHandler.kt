@@ -3,7 +3,6 @@ package dev.ayuislands
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.startup.StartupManager
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.editor.EditorScrollbarManager
@@ -82,20 +81,16 @@ internal object StartupLicenseHandler {
         project: Project,
         delayMs: Int,
     ) {
-        StartupManager
-            .getInstance(project)
-            .runAfterOpened {
-                javax.swing
-                    .Timer(delayMs) {
-                        if (!project.isDisposed) {
-                            FileEditorManager
-                                .getInstance(project)
-                                .openFile(OnboardingVirtualFile(), true)
-                        }
-                    }.apply {
-                        isRepeats = false
-                        start()
-                    }
+        javax.swing
+            .Timer(delayMs) {
+                if (!project.isDisposed) {
+                    FileEditorManager
+                        .getInstance(project)
+                        .openFile(OnboardingVirtualFile(), true)
+                }
+            }.apply {
+                isRepeats = false
+                start()
             }
     }
 
