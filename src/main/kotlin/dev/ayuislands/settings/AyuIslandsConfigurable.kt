@@ -1,5 +1,6 @@
 package dev.ayuislands.settings
 
+import com.intellij.ide.BrowserUtil
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.PluginId
@@ -23,6 +24,12 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
     private companion object {
         const val LOGO_HEIGHT = 28
         const val MIN_TABS_WIDTH = 600
+        const val EXPAND_FRAME_MS = 12
+        const val EXPAND_MS_PER_CHAR = 35
+        const val DISCUSSIONS_SHOW_SETUP =
+            "https://github.com/barad1tos/ayu-jetbrains/discussions/categories/show-your-setup"
+        const val DISCUSSIONS_FEATURE_REQUESTS =
+            "https://github.com/barad1tos/ayu-jetbrains/discussions/categories/feature-requests"
     }
 
     private val appearancePanel = AyuIslandsAppearancePanel()
@@ -62,7 +69,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                 }
             }
 
-        // Wire accent color changes to elements preview
+        // Wire accent color changes to element's preview
         accentPanel.onAccentChanged = { hex -> elementsPanel.updatePreviewAccent(hex) }
 
         // Build tab content panels eagerly via DSL
@@ -112,7 +119,15 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
             }
 
         // Single-level tab container
-        val state = AyuIslandsSettings.getInstance().state
+        val settings = AyuIslandsSettings.getInstance()
+        val state = settings.state
+        val accentColor =
+            try {
+                java.awt.Color.decode(settings.getAccentForVariant(variant))
+            } catch (_: NumberFormatException) {
+                JBUI.CurrentTheme.Link.Foreground.ENABLED
+            }
+
         val tabs = JBTabbedPane()
         tabs.minimumSize = java.awt.Dimension(MIN_TABS_WIDTH, 0)
         tabs.addTab("Accent", accentTab)
@@ -120,9 +135,31 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         tabs.addTab("Glow", glowTab)
         tabs.addTab("Workspace", workspaceTab)
         tabs.addTab("Plugins", pluginsTab)
-        tabs.selectedIndex = state.settingsSelectedTab.coerceIn(0, tabs.tabCount - 1)
+
+        val contentTabCount = tabs.tabCount
+
+        // Community link tabs — click opens browser, hover expands label
+        tabs.addTab("", javax.swing.JPanel())
+        tabs.setTabComponentAt(
+            contentTabCount,
+            createLinkTab("Share", "Share Your Setup", accentColor, DISCUSSIONS_SHOW_SETUP),
+        )
+        tabs.addTab("", javax.swing.JPanel())
+        tabs.setTabComponentAt(
+            contentTabCount + 1,
+            createLinkTab("Feature", "Request a Feature", accentColor, DISCUSSIONS_FEATURE_REQUESTS),
+        )
+
+        var previousTab = state.settingsSelectedTab.coerceIn(0, contentTabCount - 1)
+        tabs.selectedIndex = previousTab
         tabs.addChangeListener {
-            AyuIslandsSettings.getInstance().state.settingsSelectedTab = tabs.selectedIndex
+            val selected = tabs.selectedIndex
+            if (selected >= contentTabCount) {
+                tabs.selectedIndex = previousTab
+            } else {
+                previousTab = selected
+                AyuIslandsSettings.getInstance().state.settingsSelectedTab = selected
+            }
         }
 
         return panel {
@@ -154,6 +191,74 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                     .align(Align.FILL)
             }
         }
+    }
+
+    private fun createLinkTab(
+        shortText: String,
+        fullText: String,
+        accentColor: java.awt.Color,
+        url: String,
+    ): javax.swing.JLabel {
+        val label = javax.swing.JLabel(shortText)
+        label.font = JBUI.Fonts.label()
+        label.cursor =
+            java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+        val defaultColor = label.foreground
+        var expandTimer: javax.swing.Timer? = null
+        var collapseTimer: javax.swing.Timer? = null
+
+        label.addMouseListener(
+            object : java.awt.event.MouseAdapter() {
+                override fun mouseEntered(event: java.awt.event.MouseEvent) {
+                    collapseTimer?.stop()
+                    label.foreground = accentColor
+                    val startLength = label.text.length
+                    val targetLength = fullText.length
+                    if (startLength >= targetLength) return
+                    val startTime = System.currentTimeMillis()
+                    val duration = ((targetLength - startLength) * EXPAND_MS_PER_CHAR).toLong()
+                    expandTimer =
+                        javax.swing.Timer(EXPAND_FRAME_MS) {
+                            val elapsed = System.currentTimeMillis() - startTime
+                            val progress = (elapsed.toFloat() / duration).coerceIn(0f, 1f)
+                            val chars = startLength + ((targetLength - startLength) * progress).toInt()
+                            label.text = fullText.substring(0, chars)
+                            if (progress >= 1f) {
+                                label.text = fullText
+                                expandTimer?.stop()
+                            }
+                        }
+                    expandTimer.start()
+                }
+
+                override fun mouseExited(event: java.awt.event.MouseEvent) {
+                    expandTimer?.stop()
+                    label.foreground = defaultColor
+                    val startLength = label.text.length
+                    val targetLength = shortText.length
+                    if (startLength <= targetLength) return
+                    val startTime = System.currentTimeMillis()
+                    val duration = ((startLength - targetLength) * EXPAND_MS_PER_CHAR).toLong()
+                    collapseTimer =
+                        javax.swing.Timer(EXPAND_FRAME_MS) {
+                            val elapsed = System.currentTimeMillis() - startTime
+                            val progress = (elapsed.toFloat() / duration).coerceIn(0f, 1f)
+                            val chars = startLength - ((startLength - targetLength) * progress).toInt()
+                            label.text = fullText.substring(0, chars)
+                            if (progress >= 1f) {
+                                label.text = shortText
+                                collapseTimer?.stop()
+                            }
+                        }
+                    collapseTimer.start()
+                }
+
+                override fun mouseClicked(event: java.awt.event.MouseEvent) {
+                    BrowserUtil.browse(url)
+                }
+            },
+        )
+        return label
     }
 
     private fun scaleIcon(): ImageIcon? {
