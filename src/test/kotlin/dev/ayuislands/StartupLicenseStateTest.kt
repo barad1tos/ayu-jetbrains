@@ -1,11 +1,11 @@
 package dev.ayuislands
 
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.startup.StartupManager
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.gitpanel.GitPanelAutoFitManager
 import dev.ayuislands.licensing.LicenseChecker
-import dev.ayuislands.onboarding.OnboardingNotifier
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -14,6 +14,7 @@ import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkObject
+import io.mockk.mockkStatic
 import io.mockk.runs
 import io.mockk.unmockkAll
 import io.mockk.verify
@@ -27,6 +28,10 @@ class StartupLicenseStateTest {
     private lateinit var state: AyuIslandsState
     private lateinit var settings: AyuIslandsSettings
     private val project = mockk<Project>(relaxed = true)
+    private val startupManager = mockk<StartupManager>()
+
+    /** Delay value used in tests (arbitrary, not benchmarked). */
+    private val testDelayMs = 5_000
 
     @BeforeTest
     fun setUp() {
@@ -41,10 +46,13 @@ class StartupLicenseStateTest {
         every { LicenseChecker.enableProDefaults() } just runs
         every { LicenseChecker.applyWorkspaceDefaults() } just runs
         every { LicenseChecker.revertToFreeDefaults(any()) } just runs
+        every { LicenseChecker.notifyTrialWelcome(any()) } just runs
         every { LicenseChecker.notifyTrialExpired(any()) } just runs
 
-        mockkObject(OnboardingNotifier)
-        every { OnboardingNotifier.showWelcome(any()) } just runs
+        mockkStatic(StartupManager::class)
+        every { StartupManager.getInstance(any()) } returns startupManager
+        // Capture but don't execute: avoids undisposed Swing Timer in tests
+        every { startupManager.runAfterOpened(any()) } just runs
     }
 
     @AfterTest
@@ -58,7 +66,7 @@ class StartupLicenseStateTest {
     fun `licensed state calls enableProDefaults when not yet applied`() {
         state.proDefaultsApplied = false
 
-        StartupLicenseHandler.applyLicensedDefaults(project, settings)
+        StartupLicenseHandler.applyLicensedDefaults(project, settings, testDelayMs)
 
         verify(exactly = 1) { LicenseChecker.enableProDefaults() }
     }
@@ -67,7 +75,7 @@ class StartupLicenseStateTest {
     fun `licensed state skips enableProDefaults when already applied`() {
         state.proDefaultsApplied = true
 
-        StartupLicenseHandler.applyLicensedDefaults(project, settings)
+        StartupLicenseHandler.applyLicensedDefaults(project, settings, testDelayMs)
 
         verify(exactly = 0) { LicenseChecker.enableProDefaults() }
     }
@@ -77,7 +85,7 @@ class StartupLicenseStateTest {
         state.trialExpiredNotified = true
         state.proDefaultsApplied = true
 
-        StartupLicenseHandler.applyLicensedDefaults(project, settings)
+        StartupLicenseHandler.applyLicensedDefaults(project, settings, testDelayMs)
 
         assertFalse(state.trialExpiredNotified)
     }
@@ -87,7 +95,7 @@ class StartupLicenseStateTest {
         state.trialExpiredNotified = true
         state.proDefaultsApplied = true
 
-        StartupLicenseHandler.applyLicensedDefaults(project, settings)
+        StartupLicenseHandler.applyLicensedDefaults(project, settings, testDelayMs)
 
         verify(exactly = 1) { LicenseChecker.enableProDefaults() }
     }
@@ -98,34 +106,33 @@ class StartupLicenseStateTest {
         state.proDefaultsApplied = true
         state.trialWelcomeShown = true
 
-        StartupLicenseHandler.applyLicensedDefaults(project, settings)
+        StartupLicenseHandler.applyLicensedDefaults(project, settings, testDelayMs)
 
-        verify(exactly = 1) {
-            OnboardingNotifier.showWelcome(project)
-        }
-    }
-
-    @Test
-    fun `first activation shows trial welcome notification`() {
-        state.proDefaultsApplied = false
-        state.trialWelcomeShown = false
-
-        StartupLicenseHandler.applyLicensedDefaults(project, settings)
-
-        verify(exactly = 1) {
-            OnboardingNotifier.showWelcome(project)
-        }
+        // Trial welcome is now deferred via runAfterOpened + Timer
+        verify(exactly = 1) { startupManager.runAfterOpened(any()) }
         assertTrue(state.trialWelcomeShown)
     }
 
     @Test
-    fun `subsequent activation skips trial welcome notification`() {
+    fun `first activation schedules trial welcome via runAfterOpened`() {
+        state.proDefaultsApplied = false
+        state.trialWelcomeShown = false
+
+        StartupLicenseHandler.applyLicensedDefaults(project, settings, testDelayMs)
+
+        // Trial welcome is deferred: runAfterOpened + hardware-scaled Timer
+        verify(exactly = 1) { startupManager.runAfterOpened(any()) }
+        assertTrue(state.trialWelcomeShown)
+    }
+
+    @Test
+    fun `subsequent activation skips trial welcome scheduling`() {
         state.proDefaultsApplied = false
         state.trialWelcomeShown = true
 
-        StartupLicenseHandler.applyLicensedDefaults(project, settings)
+        StartupLicenseHandler.applyLicensedDefaults(project, settings, testDelayMs)
 
-        verify(exactly = 0) { OnboardingNotifier.showWelcome(any()) }
+        verify(exactly = 0) { startupManager.runAfterOpened(any()) }
     }
 
     @Test
@@ -133,7 +140,7 @@ class StartupLicenseStateTest {
         state.proDefaultsApplied = true
         state.workspaceDefaultsApplied = false
 
-        StartupLicenseHandler.applyLicensedDefaults(project, settings)
+        StartupLicenseHandler.applyLicensedDefaults(project, settings, testDelayMs)
 
         verify(exactly = 1) { LicenseChecker.applyWorkspaceDefaults() }
     }
@@ -143,7 +150,7 @@ class StartupLicenseStateTest {
         state.proDefaultsApplied = true
         state.workspaceDefaultsApplied = true
 
-        StartupLicenseHandler.applyLicensedDefaults(project, settings)
+        StartupLicenseHandler.applyLicensedDefaults(project, settings, testDelayMs)
 
         verify(exactly = 0) { LicenseChecker.applyWorkspaceDefaults() }
     }
