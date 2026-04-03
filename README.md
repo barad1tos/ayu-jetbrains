@@ -117,6 +117,16 @@ Output: `build/distributions/ayu-jetbrains-<version>.zip`
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and [CHANGELOG.md](CHANGELOG.md) for the release history.
 
+## Community
+
+Got ideas, questions, or a setup you're proud of?
+
+- [**Feature Requests**](https://github.com/barad1tos/ayu-jetbrains/discussions/categories/feature-requests) — suggest and vote on what's next
+- [**Show Your Setup**](https://github.com/barad1tos/ayu-jetbrains/discussions/categories/show-your-setup) — share your config and screenshots
+- [**Q&A**](https://github.com/barad1tos/ayu-jetbrains/discussions/categories/q-a) — ask anything about Ayu Islands
+
+Found a bug? [Open an issue](https://github.com/barad1tos/ayu-jetbrains/issues/new?template=bug_report.yml) with our bug report template.
+
 ## Credits
 
 - Built on [Ayu](https://ayutheme.com) by Ike Ku ([@dempfi](https://github.com/dempfi)) — color palettes from [ayu-theme/ayu-colors](https://github.com/ayu-theme/ayu-colors) (MIT)
