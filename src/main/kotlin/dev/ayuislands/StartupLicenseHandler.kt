@@ -1,13 +1,14 @@
 package dev.ayuislands
 
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.editor.EditorScrollbarManager
 import dev.ayuislands.gitpanel.GitPanelAutoFitManager
 import dev.ayuislands.licensing.LicenseChecker
-import dev.ayuislands.onboarding.OnboardingNotifier
+import dev.ayuislands.onboarding.OnboardingVirtualFile
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.PanelWidthMode
@@ -37,8 +38,18 @@ internal object StartupLicenseHandler {
             )
 
             if (!settings.state.trialWelcomeShown) {
-                OnboardingNotifier.showWelcome(project)
                 settings.state.trialWelcomeShown = true
+                javax.swing
+                    .Timer(ONBOARDING_OPEN_DELAY_MS) {
+                        if (!project.isDisposed) {
+                            FileEditorManager
+                                .getInstance(project)
+                                .openFile(OnboardingVirtualFile(), true)
+                        }
+                    }.apply {
+                        isRepeats = false
+                        start()
+                    }
             }
         }
 
@@ -106,4 +117,6 @@ internal object StartupLicenseHandler {
             GitPanelAutoFitManager.getInstance(project)
         }
     }
+
+    private const val ONBOARDING_OPEN_DELAY_MS = 30_000
 }
