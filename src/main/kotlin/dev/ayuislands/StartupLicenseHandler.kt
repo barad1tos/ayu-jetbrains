@@ -3,7 +3,6 @@ package dev.ayuislands
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.startup.StartupManager
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.editor.EditorScrollbarManager
@@ -40,19 +39,17 @@ internal object StartupLicenseHandler {
 
             if (!settings.state.trialWelcomeShown) {
                 settings.state.trialWelcomeShown = true
-                StartupManager.getInstance(project).runAfterOpened {
-                    javax.swing
-                        .Timer(POST_STARTUP_SAFETY_MARGIN_MS) {
-                            if (!project.isDisposed) {
-                                FileEditorManager
-                                    .getInstance(project)
-                                    .openFile(OnboardingVirtualFile(), true)
-                            }
-                        }.apply {
-                            isRepeats = false
-                            start()
+                javax.swing
+                    .Timer(ONBOARDING_OPEN_DELAY_MS) {
+                        if (!project.isDisposed) {
+                            FileEditorManager
+                                .getInstance(project)
+                                .openFile(OnboardingVirtualFile(), true)
                         }
-                }
+                    }.apply {
+                        isRepeats = false
+                        start()
+                    }
             }
         }
 
@@ -121,5 +118,5 @@ internal object StartupLicenseHandler {
         }
     }
 
-    private const val POST_STARTUP_SAFETY_MARGIN_MS = 3_000
+    private const val ONBOARDING_OPEN_DELAY_MS = 30_000
 }
