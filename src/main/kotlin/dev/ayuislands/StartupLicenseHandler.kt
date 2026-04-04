@@ -8,7 +8,9 @@ import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.editor.EditorScrollbarManager
 import dev.ayuislands.gitpanel.GitPanelAutoFitManager
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.onboarding.OnboardingOrchestrator
 import dev.ayuislands.onboarding.OnboardingVirtualFile
+import dev.ayuislands.onboarding.WizardAction
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.PanelWidthMode
@@ -44,15 +46,12 @@ internal object StartupLicenseHandler {
         }
     }
 
-    fun applyLicensedDefaults(
-        project: Project,
-        settings: AyuIslandsSettings,
-        delayMs: Int,
-    ) {
+    fun applyLicensedDefaults(settings: AyuIslandsSettings) {
         if (settings.state.trialExpiredNotified) {
             settings.state.trialExpiredNotified = false
             settings.state.proDefaultsApplied = false
-            settings.state.trialWelcomeShown = false
+            // Reset premium onboarding so re-purchase shows premium wizard again
+            settings.state.premiumOnboardingShown = false
         }
 
         if (!settings.state.proDefaultsApplied) {
@@ -61,11 +60,6 @@ internal object StartupLicenseHandler {
                 "Ayu Islands Pro defaults enabled " +
                     "(first-time license activation)",
             )
-
-            if (!settings.state.trialWelcomeShown) {
-                settings.state.trialWelcomeShown = true
-                scheduleTrialWelcome(project, delayMs)
-            }
         }
 
         if (!settings.state.workspaceDefaultsApplied) {
@@ -74,6 +68,67 @@ internal object StartupLicenseHandler {
                 "Ayu Islands workspace defaults " +
                     "migrated for existing user",
             )
+        }
+    }
+
+    /** Migrate legacy `trialWelcomeShown` flag to the new `premiumOnboardingShown` flag. */
+    fun runOnboardingMigration(settings: AyuIslandsSettings) {
+        val state = settings.state
+        if (state.trialWelcomeShown && !state.premiumOnboardingShown) {
+            state.premiumOnboardingShown = true
+            LOG.info("Ayu onboarding: migrated trialWelcomeShown -> premiumOnboardingShown")
+        }
+    }
+
+    /** Delegate to [OnboardingOrchestrator.resolve], applying returning-user skip logic first. */
+    fun resolveOnboarding(
+        isLicensedOrGrace: Boolean,
+        settings: AyuIslandsSettings,
+        isReturningUser: Boolean,
+    ): WizardAction {
+        val state = settings.state
+        // Returning users auto-skip free wizard (they already know the plugin)
+        if (isReturningUser && !state.freeOnboardingShown) {
+            state.freeOnboardingShown = true
+            LOG.info("Ayu onboarding: returning user — skipping free wizard")
+        }
+        return OnboardingOrchestrator.resolve(
+            isLicensedOrGrace = isLicensedOrGrace,
+            freeOnboardingShown = state.freeOnboardingShown,
+            premiumOnboardingShown = state.premiumOnboardingShown,
+            isReturningUser = isReturningUser,
+        )
+    }
+
+    /** Schedule wizard display based on orchestrator decision, guarded by [OnboardingOrchestrator.tryAcquire]. */
+    fun handleWizardAction(
+        action: WizardAction,
+        project: Project,
+        delayMs: Int,
+        settings: AyuIslandsSettings,
+    ) {
+        if (action is WizardAction.NoWizard) return
+
+        if (!OnboardingOrchestrator.tryAcquire()) {
+            LOG.info("Ayu onboarding: wizard already showing in another window")
+            return
+        }
+
+        when (action) {
+            is WizardAction.ShowFreeWizard -> {
+                LOG.info("Ayu onboarding: scheduling free wizard (delay: ${delayMs}ms)")
+                // Phase 22 will implement the actual free wizard UI here
+                settings.state.freeOnboardingShown = true
+                OnboardingOrchestrator.release()
+            }
+            is WizardAction.ShowPremiumWizard -> {
+                LOG.info("Ayu onboarding: scheduling premium wizard (delay: ${delayMs}ms)")
+                settings.state.premiumOnboardingShown = true
+                scheduleTrialWelcome(project, delayMs)
+                // Release immediately since scheduleTrialWelcome handles its own lifecycle
+                OnboardingOrchestrator.release()
+            }
+            is WizardAction.NoWizard -> {}
         }
     }
 
