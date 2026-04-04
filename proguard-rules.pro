@@ -51,6 +51,9 @@
 -keep class dev.ayuislands.commitpanel.CommitPanelAutoFitManager { *; }
 -keep class dev.ayuislands.gitpanel.GitPanelAutoFitManager { *; }
 
+# plugin.xml: fileEditorProvider (onboarding wizard)
+-keep class dev.ayuislands.onboarding.OnboardingEditorProvider { *; }
+
 # Public API singletons (called from kept classes)
 -keep class dev.ayuislands.accent.AccentApplicator { *; }
 -keep class dev.ayuislands.accent.AccentColor { *; }
