@@ -540,6 +540,7 @@ internal class OnboardingPanel(
     }
 
     private fun closeWizard() {
+        if (project.isDisposed) return
         FileEditorManager.getInstance(project).closeFile(virtualFile)
     }
 
