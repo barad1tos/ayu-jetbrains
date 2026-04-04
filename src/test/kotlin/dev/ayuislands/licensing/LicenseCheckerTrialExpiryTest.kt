@@ -8,11 +8,9 @@ import com.intellij.ui.LicensingFacade
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.every
-import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
-import io.mockk.runs
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.time.LocalDate
