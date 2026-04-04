@@ -46,11 +46,7 @@ internal object StartupLicenseHandler {
         }
     }
 
-    fun applyLicensedDefaults(
-        project: Project,
-        settings: AyuIslandsSettings,
-        delayMs: Int,
-    ) {
+    fun applyLicensedDefaults(settings: AyuIslandsSettings) {
         if (settings.state.trialExpiredNotified) {
             settings.state.trialExpiredNotified = false
             settings.state.proDefaultsApplied = false

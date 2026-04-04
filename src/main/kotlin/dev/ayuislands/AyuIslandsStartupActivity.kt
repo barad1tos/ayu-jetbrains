@@ -105,14 +105,15 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
             try {
                 // Run migration and orchestrator before license defaults
                 StartupLicenseHandler.runOnboardingMigration(settings)
-                val wizardAction = StartupLicenseHandler.resolveOnboarding(
-                    licenseState != false,
-                    settings,
-                    isReturningUser,
-                )
+                val wizardAction =
+                    StartupLicenseHandler.resolveOnboarding(
+                        licenseState != false,
+                        settings,
+                        isReturningUser,
+                    )
 
                 if (licenseState != false) {
-                    StartupLicenseHandler.applyLicensedDefaults(project, settings, adaptiveDelayMs)
+                    StartupLicenseHandler.applyLicensedDefaults(settings)
                 } else {
                     StartupLicenseHandler.applyUnlicensedDefaults(project, variant, settings)
                 }
