@@ -3,6 +3,7 @@ package dev.ayuislands
 import com.intellij.openapi.project.Project
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
+import dev.ayuislands.editor.EditorScrollbarManager
 import dev.ayuislands.gitpanel.GitPanelAutoFitManager
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
@@ -191,7 +192,36 @@ class StartupLicenseStateTest {
         verify(exactly = 0) { LicenseChecker.notifyTrialExpired(any()) }
     }
 
+    // computeAdaptiveDelay
+
+    @Test
+    fun `computeAdaptiveDelay returns value within bounds`() {
+        val delay = StartupLicenseHandler.computeAdaptiveDelay()
+        assertTrue(delay >= 3_000, "Delay should be at least 3000ms, got $delay")
+        assertTrue(delay <= 45_000, "Delay should be at most 45000ms, got $delay")
+    }
+
     // initWorkspaceServices
+
+    @Test
+    fun `initWorkspaceServices inits EditorScrollbar when hide enabled`() {
+        every { project.isDisposed } returns false
+        mockkObject(EditorScrollbarManager.Companion)
+        every {
+            EditorScrollbarManager.getInstance(project)
+        } returns mockk(relaxed = true)
+
+        state.hideEditorVScrollbar = true
+        state.projectPanelWidthMode = PanelWidthMode.DEFAULT.name
+        state.commitPanelWidthMode = PanelWidthMode.DEFAULT.name
+        state.gitPanelWidthMode = PanelWidthMode.DEFAULT.name
+
+        StartupLicenseHandler.initWorkspaceServices(project, settings)
+
+        verify(exactly = 1) {
+            EditorScrollbarManager.getInstance(project)
+        }
+    }
 
     @Test
     fun `initWorkspaceServices skips when project is disposed`() {
