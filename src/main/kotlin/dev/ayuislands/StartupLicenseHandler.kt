@@ -8,6 +8,7 @@ import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.editor.EditorScrollbarManager
 import dev.ayuislands.gitpanel.GitPanelAutoFitManager
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.onboarding.FreeOnboardingVirtualFile
 import dev.ayuislands.onboarding.OnboardingOrchestrator
 import dev.ayuislands.onboarding.OnboardingVirtualFile
 import dev.ayuislands.onboarding.WizardAction
@@ -116,9 +117,7 @@ internal object StartupLicenseHandler {
 
         when (action) {
             is WizardAction.ShowFreeWizard -> {
-                LOG.info("Ayu onboarding: scheduling free wizard (delay: ${delayMs}ms)")
-                // Phase 22 will implement the actual free wizard UI here
-                settings.state.freeOnboardingShown = true
+                scheduleFreeWizard(project, delayMs)
                 OnboardingOrchestrator.release()
             }
             is WizardAction.ShowPremiumWizard -> {
@@ -141,6 +140,31 @@ internal object StartupLicenseHandler {
                     FileEditorManager
                         .getInstance(project)
                         .openFile(OnboardingVirtualFile(), true)
+                }
+            }.apply {
+                isRepeats = false
+                start()
+            }
+    }
+
+    /**
+     * Opens the free onboarding wizard tab after [delayMs].
+     * Sets [AyuIslandsState.freeOnboardingShown] before scheduling to prevent
+     * re-triggering if the IDE restarts before the timer fires.
+     */
+    internal fun scheduleFreeWizard(
+        project: Project,
+        delayMs: Int,
+    ) {
+        val settings = AyuIslandsSettings.getInstance()
+        settings.state.freeOnboardingShown = true
+        LOG.info("Ayu onboarding: scheduling free wizard (delay: ${delayMs}ms)")
+        javax.swing
+            .Timer(delayMs) {
+                if (!project.isDisposed) {
+                    FileEditorManager
+                        .getInstance(project)
+                        .openFile(FreeOnboardingVirtualFile(), true)
                 }
             }.apply {
                 isRepeats = false

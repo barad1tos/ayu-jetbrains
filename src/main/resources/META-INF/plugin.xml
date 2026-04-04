@@ -193,6 +193,10 @@
         <fileEditorProvider
                 implementation="dev.ayuislands.onboarding.OnboardingEditorProvider"/>
 
+        <!-- Free onboarding wizard editor tab -->
+        <fileEditorProvider
+                implementation="dev.ayuislands.onboarding.FreeOnboardingEditorProvider"/>
+
         <!-- Mirage variants -->
         <themeProvider id="com.ayuislands.theme.mirage"
                        path="/themes/ayu-islands-mirage.theme.json"/>

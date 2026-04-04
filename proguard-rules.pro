@@ -54,6 +54,9 @@
 # plugin.xml: fileEditorProvider (onboarding wizard)
 -keep class dev.ayuislands.onboarding.OnboardingEditorProvider { *; }
 
+# plugin.xml: fileEditorProvider (free onboarding wizard)
+-keep class dev.ayuislands.onboarding.FreeOnboardingEditorProvider { *; }
+
 # Public API singletons (called from kept classes)
 -keep class dev.ayuislands.accent.AccentApplicator { *; }
 -keep class dev.ayuislands.accent.AccentColor { *; }
