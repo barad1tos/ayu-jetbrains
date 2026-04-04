@@ -29,6 +29,8 @@ class AyuIslandsState : BaseState() {
     var lastDarkAppearanceTheme by string("Ayu Mirage (Islands UI)")
     var lastLightAppearanceTheme by string("Ayu Light (Islands UI)")
     var trialExpiredNotified by property(false)
+    var trialExpiryWarningShown by property(false)
+    var trialExpiry3DayWarningShown by property(false)
     var proDefaultsApplied by property(false)
     var workspaceDefaultsApplied by property(false)
     var trialWelcomeShown by property(false)
