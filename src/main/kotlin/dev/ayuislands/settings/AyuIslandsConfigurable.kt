@@ -1,5 +1,6 @@
 package dev.ayuislands.settings
 
+import com.intellij.ide.BrowserUtil
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.PluginId
@@ -13,8 +14,15 @@ import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
+import java.awt.Color
+import java.awt.Cursor
 import java.awt.Image
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import javax.swing.ImageIcon
+import javax.swing.JLabel
+import javax.swing.JPanel
+import javax.swing.Timer
 
 /** Settings page at Appearance > Ayu Islands with Accent / Glow tabs. */
 class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
@@ -23,7 +31,15 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
     private companion object {
         const val LOGO_HEIGHT = 28
         const val MIN_TABS_WIDTH = 600
+        const val EXPAND_FRAME_MS = 12
+        const val EXPAND_MS_PER_CHAR = 35
+        const val DISCUSSIONS_SHOW_SETUP =
+            "https://github.com/barad1tos/ayu-jetbrains/discussions/categories/show-your-setup"
+        const val DISCUSSIONS_FEATURE_REQUESTS =
+            "https://github.com/barad1tos/ayu-jetbrains/discussions/categories/feature-requests"
     }
+
+    private val activeTimers = mutableListOf<Timer>()
 
     private val appearancePanel = AyuIslandsAppearancePanel()
     private val accentPanel = AyuIslandsAccentPanel()
@@ -62,7 +78,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                 }
             }
 
-        // Wire accent color changes to elements preview
+        // Wire accent color changes to the element preview
         accentPanel.onAccentChanged = { hex -> elementsPanel.updatePreviewAccent(hex) }
 
         // Build tab content panels eagerly via DSL
@@ -112,7 +128,16 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
             }
 
         // Single-level tab container
-        val state = AyuIslandsSettings.getInstance().state
+        val settings = AyuIslandsSettings.getInstance()
+        val state = settings.state
+        val accentColor =
+            try {
+                Color.decode(settings.getAccentForVariant(variant))
+            } catch (exception: NumberFormatException) {
+                log.warn("Invalid accent color for ${variant.name}, using theme default", exception)
+                JBUI.CurrentTheme.Link.Foreground.ENABLED
+            }
+
         val tabs = JBTabbedPane()
         tabs.minimumSize = java.awt.Dimension(MIN_TABS_WIDTH, 0)
         tabs.addTab("Accent", accentTab)
@@ -120,7 +145,24 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         tabs.addTab("Glow", glowTab)
         tabs.addTab("Workspace", workspaceTab)
         tabs.addTab("Plugins", pluginsTab)
-        tabs.selectedIndex = state.settingsSelectedTab.coerceIn(0, tabs.tabCount - 1)
+
+        val contentTabCount = tabs.tabCount
+
+        // Community link tabs — disabled for selection, click opens browser via label
+        tabs.addTab("", JPanel())
+        tabs.setTabComponentAt(
+            contentTabCount,
+            createLinkTab("Share", "Share Your Setup", accentColor, DISCUSSIONS_SHOW_SETUP),
+        )
+        tabs.setEnabledAt(contentTabCount, false)
+        tabs.addTab("", JPanel())
+        tabs.setTabComponentAt(
+            contentTabCount + 1,
+            createLinkTab("Feature", "Request a Feature", accentColor, DISCUSSIONS_FEATURE_REQUESTS),
+        )
+        tabs.setEnabledAt(contentTabCount + 1, false)
+
+        tabs.selectedIndex = state.settingsSelectedTab.coerceIn(0, contentTabCount - 1)
         tabs.addChangeListener {
             AyuIslandsSettings.getInstance().state.settingsSelectedTab = tabs.selectedIndex
         }
@@ -156,6 +198,70 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         }
     }
 
+    private fun createLinkTab(
+        shortText: String,
+        fullText: String,
+        accentColor: Color,
+        url: String,
+    ): JLabel {
+        val label = JLabel(shortText)
+        label.font = JBUI.Fonts.label()
+        label.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+        val defaultColor = label.foreground
+        val timerHolder = arrayOfNulls<Timer>(1)
+
+        label.addMouseListener(
+            object : MouseAdapter() {
+                override fun mouseEntered(event: MouseEvent) {
+                    timerHolder[0]?.stop()
+                    label.foreground = accentColor
+                    timerHolder[0] = animateText(label, label.text.length, fullText.length, fullText)
+                }
+
+                override fun mouseExited(event: MouseEvent) {
+                    timerHolder[0]?.stop()
+                    label.foreground = defaultColor
+                    timerHolder[0] = animateText(label, label.text.length, shortText.length, fullText)
+                }
+
+                override fun mouseClicked(event: MouseEvent) {
+                    BrowserUtil.browse(url)
+                }
+            },
+        )
+        return label
+    }
+
+    private fun animateText(
+        label: JLabel,
+        startLength: Int,
+        targetLength: Int,
+        fullText: String,
+    ): Timer? {
+        if (startLength == targetLength) return null
+        val startTime = System.currentTimeMillis()
+        val charDelta = kotlin.math.abs(targetLength - startLength)
+        val duration = (charDelta * EXPAND_MS_PER_CHAR).toLong()
+        val timer =
+            Timer(EXPAND_FRAME_MS) {
+                if (!label.isDisplayable) {
+                    (it.source as Timer).stop()
+                    return@Timer
+                }
+                val elapsed = System.currentTimeMillis() - startTime
+                val progress = (elapsed.toFloat() / duration).coerceIn(0f, 1f)
+                val chars = startLength + ((targetLength - startLength) * progress).toInt()
+                label.text = fullText.substring(0, chars)
+                if (progress >= 1f) {
+                    label.text = fullText.substring(0, targetLength)
+                    (it.source as Timer).stop()
+                }
+            }
+        activeTimers.add(timer)
+        timer.start()
+        return timer
+    }
+
     private fun scaleIcon(): ImageIcon? {
         val logoUrl = AyuIslandsConfigurable::class.java.getResource("/assets/logo.png") ?: return null
         val originalIcon = ImageIcon(logoUrl)
@@ -174,6 +280,12 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         effectsPanel.reset()
         workspacePanel.reset()
         pluginsPanel.reset()
+    }
+
+    override fun disposeUIResources() {
+        activeTimers.forEach { it.stop() }
+        activeTimers.clear()
+        super.disposeUIResources()
     }
 
     override fun isModified(): Boolean = super.isModified() || panels.any { it.isModified() }

@@ -1,12 +1,14 @@
 package dev.ayuislands
 
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.editor.EditorScrollbarManager
 import dev.ayuislands.gitpanel.GitPanelAutoFitManager
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.onboarding.OnboardingVirtualFile
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.PanelWidthMode
@@ -18,9 +20,34 @@ import dev.ayuislands.settings.PanelWidthMode
 internal object StartupLicenseHandler {
     private val LOG = logger<StartupLicenseHandler>()
 
+    // Calibrated on MacBook Pro M1 Pro (measured 17ms for 10K SHA-256 iterations)
+    private const val BASELINE_MS = 17L
+    private const val BASE_DELAY_MS = 15_000
+    private const val MIN_DELAY_MS = 3_000
+    private const val MAX_DELAY_MS = 45_000
+
+    /**
+     * Computes an adaptive onboarding delay based on CPU speed.
+     * Faster machines get shorter delays, slower machines get longer.
+     *
+     * Must be called from a background thread (runs the benchmark).
+     */
+    fun computeAdaptiveDelay(): Int {
+        val measuredMs = StartupBenchmark.measureCpuSpeed()
+        val coefficient = measuredMs.toDouble() / BASELINE_MS
+        val delay = (BASE_DELAY_MS * coefficient).toInt()
+        return delay.coerceIn(MIN_DELAY_MS, MAX_DELAY_MS).also {
+            LOG.info(
+                "Ayu onboarding delay: ${it}ms " +
+                    "(coefficient: ${"%.2f".format(coefficient)})",
+            )
+        }
+    }
+
     fun applyLicensedDefaults(
         project: Project,
         settings: AyuIslandsSettings,
+        delayMs: Int,
     ) {
         if (settings.state.trialExpiredNotified) {
             settings.state.trialExpiredNotified = false
@@ -36,8 +63,8 @@ internal object StartupLicenseHandler {
             )
 
             if (!settings.state.trialWelcomeShown) {
-                LicenseChecker.notifyTrialWelcome(project)
                 settings.state.trialWelcomeShown = true
+                scheduleTrialWelcome(project, delayMs)
             }
         }
 
@@ -48,6 +75,23 @@ internal object StartupLicenseHandler {
                     "migrated for existing user",
             )
         }
+    }
+
+    internal fun scheduleTrialWelcome(
+        project: Project,
+        delayMs: Int,
+    ) {
+        javax.swing
+            .Timer(delayMs) {
+                if (!project.isDisposed) {
+                    FileEditorManager
+                        .getInstance(project)
+                        .openFile(OnboardingVirtualFile(), true)
+                }
+            }.apply {
+                isRepeats = false
+                start()
+            }
     }
 
     fun applyUnlicensedDefaults(

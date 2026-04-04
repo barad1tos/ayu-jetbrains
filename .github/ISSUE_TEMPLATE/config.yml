@@ -1,5 +1,14 @@
-blank_issues_enabled: false
+blank_issues_enabled: true
 contact_links:
+  - name: Feature Requests & Voting
+    url: https://github.com/barad1tos/ayu-jetbrains/discussions/categories/feature-requests
+    about: Suggest and vote on features in Discussions
+  - name: Q&A
+    url: https://github.com/barad1tos/ayu-jetbrains/discussions/categories/q-a
+    about: Ask questions about setup and configuration
+  - name: Show Your Setup
+    url: https://github.com/barad1tos/ayu-jetbrains/discussions/categories/show-your-setup
+    about: Share your Ayu Islands screenshots and config
   - name: Plugin reviews
     url: https://plugins.jetbrains.com/plugin/30373-ayu-islands/reviews
     about: Leave a review or read feedback on JetBrains Marketplace

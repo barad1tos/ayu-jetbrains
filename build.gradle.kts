@@ -170,6 +170,9 @@ kover {
                     $$"dev.ayuislands.settings.AccentColorPanel$ResetLabel*",
                     // IDE scheduling glue: AppExecutorUtil, AyuIslandsSettings, AccentApplicator singletons
                     "dev.ayuislands.rotation.AccentRotationService*",
+                    // Pure Swing rendering: Graphics2D paint, mouse handlers, Timer animations
+                    "dev.ayuislands.onboarding.OnboardingPanel*",
+                    "dev.ayuislands.onboarding.OnboardingEditor*",
                 )
             }
         }

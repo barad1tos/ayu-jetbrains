@@ -106,19 +106,6 @@ object LicenseChecker {
             ).notify(project)
     }
 
-    /** Show one-time welcome notification for new trial/license activations. */
-    fun notifyTrialWelcome(project: Project?) {
-        NotificationGroupManager
-            .getInstance()
-            .getNotificationGroup(NOTIFICATION_GROUP)
-            .createNotification(
-                "Ayu Islands Premium is unlocked",
-                "30 days of glow, auto-fit, accent control, and plugin sync. " +
-                    "Open Settings \u2192 Ayu Islands to explore.",
-                NotificationType.INFORMATION,
-            ).notify(project)
-    }
-
     /** Enable all Pro features on the first license activation (one-time). */
     fun enableProDefaults() {
         val state = AyuIslandsSettings.getInstance().state

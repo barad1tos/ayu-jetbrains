@@ -93,11 +93,14 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         val licenseState = LicenseChecker.isLicensed()
         LOG.info("Ayu Islands license check: ${licenseStateLabel(licenseState)}")
 
+        // Compute adaptive delay on background thread (execute() coroutine)
+        val adaptiveDelayMs = StartupLicenseHandler.computeAdaptiveDelay()
+
         SwingUtilities.invokeLater {
             if (project.isDisposed) return@invokeLater
             try {
                 if (licenseState != false) {
-                    StartupLicenseHandler.applyLicensedDefaults(project, settings)
+                    StartupLicenseHandler.applyLicensedDefaults(project, settings, adaptiveDelayMs)
                 } else {
                     StartupLicenseHandler.applyUnlicensedDefaults(project, variant, settings)
                 }

@@ -3,6 +3,7 @@ package dev.ayuislands
 import com.intellij.openapi.project.Project
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
+import dev.ayuislands.editor.EditorScrollbarManager
 import dev.ayuislands.gitpanel.GitPanelAutoFitManager
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
@@ -27,6 +28,9 @@ class StartupLicenseStateTest {
     private lateinit var settings: AyuIslandsSettings
     private val project = mockk<Project>(relaxed = true)
 
+    /** Delay value used in tests (arbitrary, not benchmarked). */
+    private val testDelayMs = 5_000
+
     @BeforeTest
     fun setUp() {
         state = AyuIslandsState()
@@ -40,8 +44,10 @@ class StartupLicenseStateTest {
         every { LicenseChecker.enableProDefaults() } just runs
         every { LicenseChecker.applyWorkspaceDefaults() } just runs
         every { LicenseChecker.revertToFreeDefaults(any()) } just runs
-        every { LicenseChecker.notifyTrialWelcome(any()) } just runs
         every { LicenseChecker.notifyTrialExpired(any()) } just runs
+
+        mockkObject(StartupLicenseHandler)
+        every { StartupLicenseHandler.scheduleTrialWelcome(any(), any()) } just runs
     }
 
     @AfterTest
@@ -55,7 +61,7 @@ class StartupLicenseStateTest {
     fun `licensed state calls enableProDefaults when not yet applied`() {
         state.proDefaultsApplied = false
 
-        StartupLicenseHandler.applyLicensedDefaults(project, settings)
+        StartupLicenseHandler.applyLicensedDefaults(project, settings, testDelayMs)
 
         verify(exactly = 1) { LicenseChecker.enableProDefaults() }
     }
@@ -64,7 +70,7 @@ class StartupLicenseStateTest {
     fun `licensed state skips enableProDefaults when already applied`() {
         state.proDefaultsApplied = true
 
-        StartupLicenseHandler.applyLicensedDefaults(project, settings)
+        StartupLicenseHandler.applyLicensedDefaults(project, settings, testDelayMs)
 
         verify(exactly = 0) { LicenseChecker.enableProDefaults() }
     }
@@ -74,7 +80,7 @@ class StartupLicenseStateTest {
         state.trialExpiredNotified = true
         state.proDefaultsApplied = true
 
-        StartupLicenseHandler.applyLicensedDefaults(project, settings)
+        StartupLicenseHandler.applyLicensedDefaults(project, settings, testDelayMs)
 
         assertFalse(state.trialExpiredNotified)
     }
@@ -84,45 +90,42 @@ class StartupLicenseStateTest {
         state.trialExpiredNotified = true
         state.proDefaultsApplied = true
 
-        StartupLicenseHandler.applyLicensedDefaults(project, settings)
+        StartupLicenseHandler.applyLicensedDefaults(project, settings, testDelayMs)
 
         verify(exactly = 1) { LicenseChecker.enableProDefaults() }
     }
 
     @Test
-    fun `re-license after expiry resets trialWelcomeShown`() {
+    fun `re-license after expiry resets trialWelcomeShown and re-schedules`() {
         state.trialExpiredNotified = true
         state.proDefaultsApplied = true
         state.trialWelcomeShown = true
 
-        StartupLicenseHandler.applyLicensedDefaults(project, settings)
+        StartupLicenseHandler.applyLicensedDefaults(project, settings, testDelayMs)
 
-        verify(exactly = 1) {
-            LicenseChecker.notifyTrialWelcome(project)
-        }
-    }
-
-    @Test
-    fun `first activation shows trial welcome notification`() {
-        state.proDefaultsApplied = false
-        state.trialWelcomeShown = false
-
-        StartupLicenseHandler.applyLicensedDefaults(project, settings)
-
-        verify(exactly = 1) {
-            LicenseChecker.notifyTrialWelcome(project)
-        }
+        verify(exactly = 1) { StartupLicenseHandler.scheduleTrialWelcome(project, testDelayMs) }
         assertTrue(state.trialWelcomeShown)
     }
 
     @Test
-    fun `subsequent activation skips trial welcome notification`() {
+    fun `first activation schedules trial welcome`() {
+        state.proDefaultsApplied = false
+        state.trialWelcomeShown = false
+
+        StartupLicenseHandler.applyLicensedDefaults(project, settings, testDelayMs)
+
+        verify(exactly = 1) { StartupLicenseHandler.scheduleTrialWelcome(project, testDelayMs) }
+        assertTrue(state.trialWelcomeShown)
+    }
+
+    @Test
+    fun `subsequent activation skips trial welcome scheduling`() {
         state.proDefaultsApplied = false
         state.trialWelcomeShown = true
 
-        StartupLicenseHandler.applyLicensedDefaults(project, settings)
+        StartupLicenseHandler.applyLicensedDefaults(project, settings, testDelayMs)
 
-        verify(exactly = 0) { LicenseChecker.notifyTrialWelcome(any()) }
+        verify(exactly = 0) { StartupLicenseHandler.scheduleTrialWelcome(any(), any()) }
     }
 
     @Test
@@ -130,7 +133,7 @@ class StartupLicenseStateTest {
         state.proDefaultsApplied = true
         state.workspaceDefaultsApplied = false
 
-        StartupLicenseHandler.applyLicensedDefaults(project, settings)
+        StartupLicenseHandler.applyLicensedDefaults(project, settings, testDelayMs)
 
         verify(exactly = 1) { LicenseChecker.applyWorkspaceDefaults() }
     }
@@ -140,7 +143,7 @@ class StartupLicenseStateTest {
         state.proDefaultsApplied = true
         state.workspaceDefaultsApplied = true
 
-        StartupLicenseHandler.applyLicensedDefaults(project, settings)
+        StartupLicenseHandler.applyLicensedDefaults(project, settings, testDelayMs)
 
         verify(exactly = 0) { LicenseChecker.applyWorkspaceDefaults() }
     }
@@ -189,7 +192,36 @@ class StartupLicenseStateTest {
         verify(exactly = 0) { LicenseChecker.notifyTrialExpired(any()) }
     }
 
+    // computeAdaptiveDelay
+
+    @Test
+    fun `computeAdaptiveDelay returns value within bounds`() {
+        val delay = StartupLicenseHandler.computeAdaptiveDelay()
+        assertTrue(delay >= 3_000, "Delay should be at least 3000ms, got $delay")
+        assertTrue(delay <= 45_000, "Delay should be at most 45000ms, got $delay")
+    }
+
     // initWorkspaceServices
+
+    @Test
+    fun `initWorkspaceServices inits EditorScrollbar when hide enabled`() {
+        every { project.isDisposed } returns false
+        mockkObject(EditorScrollbarManager.Companion)
+        every {
+            EditorScrollbarManager.getInstance(project)
+        } returns mockk(relaxed = true)
+
+        state.hideEditorVScrollbar = true
+        state.projectPanelWidthMode = PanelWidthMode.DEFAULT.name
+        state.commitPanelWidthMode = PanelWidthMode.DEFAULT.name
+        state.gitPanelWidthMode = PanelWidthMode.DEFAULT.name
+
+        StartupLicenseHandler.initWorkspaceServices(project, settings)
+
+        verify(exactly = 1) {
+            EditorScrollbarManager.getInstance(project)
+        }
+    }
 
     @Test
     fun `initWorkspaceServices skips when project is disposed`() {

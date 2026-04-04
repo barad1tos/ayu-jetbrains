@@ -189,6 +189,10 @@
         <notificationGroup id="Ayu Islands"
                            displayType="BALLOON"/>
 
+        <!-- Onboarding wizard editor tab -->
+        <fileEditorProvider
+                implementation="dev.ayuislands.onboarding.OnboardingEditorProvider"/>
+
         <!-- Mirage variants -->
         <themeProvider id="com.ayuislands.theme.mirage"
                        path="/themes/ayu-islands-mirage.theme.json"/>
