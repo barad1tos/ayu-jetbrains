@@ -32,6 +32,8 @@ class AyuIslandsState : BaseState() {
     var proDefaultsApplied by property(false)
     var workspaceDefaultsApplied by property(false)
     var trialWelcomeShown by property(false)
+    var freeOnboardingShown by property(false)
+    var premiumOnboardingShown by property(false)
 
     // Per-element accent toggles (all ON by default)
     var inlayHints by property(true)
