@@ -133,7 +133,8 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         val accentColor =
             try {
                 Color.decode(settings.getAccentForVariant(variant))
-            } catch (_: NumberFormatException) {
+            } catch (exception: NumberFormatException) {
+                log.warn("Invalid accent color for ${variant.name}, using theme default", exception)
                 JBUI.CurrentTheme.Link.Foreground.ENABLED
             }
 
@@ -207,20 +208,20 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         label.font = JBUI.Fonts.label()
         label.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
         val defaultColor = label.foreground
-        var currentTimer: Timer? = null
+        val timerHolder = arrayOfNulls<Timer>(1)
 
         label.addMouseListener(
             object : MouseAdapter() {
                 override fun mouseEntered(event: MouseEvent) {
-                    currentTimer?.stop()
+                    timerHolder[0]?.stop()
                     label.foreground = accentColor
-                    currentTimer = animateText(label, label.text.length, fullText.length, fullText)
+                    timerHolder[0] = animateText(label, label.text.length, fullText.length, fullText)
                 }
 
                 override fun mouseExited(event: MouseEvent) {
-                    currentTimer?.stop()
+                    timerHolder[0]?.stop()
                     label.foreground = defaultColor
-                    currentTimer = animateText(label, label.text.length, shortText.length, fullText)
+                    timerHolder[0] = animateText(label, label.text.length, shortText.length, fullText)
                 }
 
                 override fun mouseClicked(event: MouseEvent) {

@@ -1,7 +1,6 @@
 package dev.ayuislands
 
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.startup.StartupManager
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.gitpanel.GitPanelAutoFitManager
@@ -14,7 +13,6 @@ import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkObject
-import io.mockk.mockkStatic
 import io.mockk.runs
 import io.mockk.unmockkAll
 import io.mockk.verify
@@ -28,7 +26,6 @@ class StartupLicenseStateTest {
     private lateinit var state: AyuIslandsState
     private lateinit var settings: AyuIslandsSettings
     private val project = mockk<Project>(relaxed = true)
-    private val startupManager = mockk<StartupManager>()
 
     /** Delay value used in tests (arbitrary, not benchmarked). */
     private val testDelayMs = 5_000
@@ -46,13 +43,10 @@ class StartupLicenseStateTest {
         every { LicenseChecker.enableProDefaults() } just runs
         every { LicenseChecker.applyWorkspaceDefaults() } just runs
         every { LicenseChecker.revertToFreeDefaults(any()) } just runs
-        every { LicenseChecker.notifyTrialWelcome(any()) } just runs
         every { LicenseChecker.notifyTrialExpired(any()) } just runs
 
-        mockkStatic(StartupManager::class)
-        every { StartupManager.getInstance(any()) } returns startupManager
-        // Capture but don't execute: avoids undisposed Swing Timer in tests
-        every { startupManager.runAfterOpened(any()) } just runs
+        mockkObject(StartupLicenseHandler)
+        every { StartupLicenseHandler.scheduleTrialWelcome(any(), any()) } just runs
     }
 
     @AfterTest
@@ -101,27 +95,25 @@ class StartupLicenseStateTest {
     }
 
     @Test
-    fun `re-license after expiry resets trialWelcomeShown`() {
+    fun `re-license after expiry resets trialWelcomeShown and re-schedules`() {
         state.trialExpiredNotified = true
         state.proDefaultsApplied = true
         state.trialWelcomeShown = true
 
         StartupLicenseHandler.applyLicensedDefaults(project, settings, testDelayMs)
 
-        // Trial welcome is now deferred via runAfterOpened + Timer
-        verify(exactly = 1) { startupManager.runAfterOpened(any()) }
+        verify(exactly = 1) { StartupLicenseHandler.scheduleTrialWelcome(project, testDelayMs) }
         assertTrue(state.trialWelcomeShown)
     }
 
     @Test
-    fun `first activation schedules trial welcome via runAfterOpened`() {
+    fun `first activation schedules trial welcome`() {
         state.proDefaultsApplied = false
         state.trialWelcomeShown = false
 
         StartupLicenseHandler.applyLicensedDefaults(project, settings, testDelayMs)
 
-        // Trial welcome is deferred: runAfterOpened + hardware-scaled Timer
-        verify(exactly = 1) { startupManager.runAfterOpened(any()) }
+        verify(exactly = 1) { StartupLicenseHandler.scheduleTrialWelcome(project, testDelayMs) }
         assertTrue(state.trialWelcomeShown)
     }
 
@@ -132,7 +124,7 @@ class StartupLicenseStateTest {
 
         StartupLicenseHandler.applyLicensedDefaults(project, settings, testDelayMs)
 
-        verify(exactly = 0) { startupManager.runAfterOpened(any()) }
+        verify(exactly = 0) { StartupLicenseHandler.scheduleTrialWelcome(any(), any()) }
     }
 
     @Test

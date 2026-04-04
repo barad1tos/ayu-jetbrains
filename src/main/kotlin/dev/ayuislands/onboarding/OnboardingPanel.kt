@@ -573,16 +573,24 @@ internal class OnboardingPanel(
 
         state.fontPresetEnabled = true
         state.fontPresetName = fontPreset.name
-        FontPresetApplicator.apply(
-            FontSettings
-                .decode(null, fontPreset)
-                .copy(applyToConsole = state.fontApplyToConsole),
-        )
+        try {
+            FontPresetApplicator.apply(
+                FontSettings
+                    .decode(null, fontPreset)
+                    .copy(applyToConsole = state.fontApplyToConsole),
+            )
+        } catch (exception: RuntimeException) {
+            LOG.warn("Failed to apply font preset ${fontPreset.name}", exception)
+        }
 
         ApplicationManager.getApplication().invokeLater {
             if (!project.isDisposed) {
-                GlowOverlayManager.getInstance(project).initialize()
-                GlowOverlayManager.syncGlowForAllProjects()
+                try {
+                    GlowOverlayManager.getInstance(project).initialize()
+                    GlowOverlayManager.syncGlowForAllProjects()
+                } catch (exception: RuntimeException) {
+                    LOG.warn("Failed to sync glow after onboarding preset", exception)
+                }
             }
         }
 

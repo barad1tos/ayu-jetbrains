@@ -77,7 +77,7 @@ internal object StartupLicenseHandler {
         }
     }
 
-    private fun scheduleTrialWelcome(
+    internal fun scheduleTrialWelcome(
         project: Project,
         delayMs: Int,
     ) {
