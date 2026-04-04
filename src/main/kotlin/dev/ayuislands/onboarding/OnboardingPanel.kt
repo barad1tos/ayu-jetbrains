@@ -56,7 +56,8 @@ internal class OnboardingPanel(
     private val heroIcon: Icon? =
         try {
             IconLoader.getIcon("/onboarding/welcome_board.svg", OnboardingPanel::class.java)
-        } catch (_: Exception) {
+        } catch (exception: RuntimeException) {
+            LOG.warn("Failed to load onboarding hero image", exception)
             null
         }
 
@@ -66,6 +67,7 @@ internal class OnboardingPanel(
     init {
         isOpaque = false
         Timer(CONTENT_LOAD_DELAY_MS) {
+            if (!isDisplayable || project.isDisposed) return@Timer
             loadContent()
             revalidate()
             repaint()
@@ -544,14 +546,22 @@ internal class OnboardingPanel(
         FileEditorManager.getInstance(project).closeFile(virtualFile)
     }
 
+    private fun logIncompletePreset(
+        presetName: String,
+        field: String,
+    ) {
+        LOG.warn("Preset $presetName missing $field, skipping apply")
+    }
+
     private fun applyPreset(
         glowPreset: GlowPreset,
         fontPreset: FontPreset,
     ) {
-        val style = glowPreset.style ?: return
-        val intensity = glowPreset.intensity ?: return
-        val width = glowPreset.width ?: return
-        val animation = glowPreset.animation ?: return
+        val presetName = glowPreset.name
+        val style = glowPreset.style ?: return logIncompletePreset(presetName, "style")
+        val intensity = glowPreset.intensity ?: return logIncompletePreset(presetName, "intensity")
+        val width = glowPreset.width ?: return logIncompletePreset(presetName, "width")
+        val animation = glowPreset.animation ?: return logIncompletePreset(presetName, "animation")
         val state = AyuIslandsSettings.getInstance().state
 
         state.glowEnabled = true
