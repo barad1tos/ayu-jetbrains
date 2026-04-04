@@ -92,7 +92,7 @@ internal class OnboardingPanel(
         super.paintComponent(graphics)
     }
 
-    /** Render SVG as full-tab background with "cover" scaling. */
+    /** Render SVG as a full-tab background with "cover" scaling. */
     private fun paintBackground(g2: Graphics2D) {
         val icon = heroIcon ?: return
         val currentSize = Dimension(width, height)

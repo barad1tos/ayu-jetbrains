@@ -128,7 +128,6 @@ internal object StartupLicenseHandler {
                 // Release immediately since scheduleTrialWelcome handles its own lifecycle
                 OnboardingOrchestrator.release()
             }
-            is WizardAction.NoWizard -> {}
         }
     }
 
