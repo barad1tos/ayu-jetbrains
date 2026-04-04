@@ -78,7 +78,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                 }
             }
 
-        // Wire accent color changes to elements preview
+        // Wire accent color changes to the element preview
         accentPanel.onAccentChanged = { hex -> elementsPanel.updatePreviewAccent(hex) }
 
         // Build tab content panels eagerly via DSL
@@ -207,21 +207,20 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         label.font = JBUI.Fonts.label()
         label.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
         val defaultColor = label.foreground
-        var expandTimer: Timer? = null
-        var collapseTimer: Timer? = null
+        var currentTimer: Timer? = null
 
         label.addMouseListener(
             object : MouseAdapter() {
                 override fun mouseEntered(event: MouseEvent) {
-                    collapseTimer?.stop()
+                    currentTimer?.stop()
                     label.foreground = accentColor
-                    expandTimer = animateText(label, label.text.length, fullText.length, fullText)
+                    currentTimer = animateText(label, label.text.length, fullText.length, fullText)
                 }
 
                 override fun mouseExited(event: MouseEvent) {
-                    expandTimer?.stop()
+                    currentTimer?.stop()
                     label.foreground = defaultColor
-                    collapseTimer = animateText(label, label.text.length, shortText.length, fullText)
+                    currentTimer = animateText(label, label.text.length, shortText.length, fullText)
                 }
 
                 override fun mouseClicked(event: MouseEvent) {
