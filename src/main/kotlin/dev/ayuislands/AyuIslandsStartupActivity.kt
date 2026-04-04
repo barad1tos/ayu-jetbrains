@@ -45,8 +45,11 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
             LOG.info("Ayu Islands detected third-party plugins: ${conflicts.joinToString { it.pluginDisplayName }}")
         }
 
+        // Snapshot BEFORE UpdateNotifier can mutate it (prevents fresh-install false positive)
+        val isReturningUser = settings.state.lastSeenVersion != null
+
         // Check license state and initialize workspace services (inside EDT callback)
-        checkLicenseState(project, variant, settings)
+        checkLicenseState(project, variant, settings, isReturningUser)
 
         // Auto-switch theme to match macOS Light/Dark mode
         if (settings.state.followSystemAppearance) {
@@ -89,6 +92,7 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         project: Project,
         variant: AyuVariant,
         settings: AyuIslandsSettings,
+        isReturningUser: Boolean,
     ) {
         val licenseState = LicenseChecker.isLicensed()
         LOG.info("Ayu Islands license check: ${licenseStateLabel(licenseState)}")
@@ -99,6 +103,14 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         SwingUtilities.invokeLater {
             if (project.isDisposed) return@invokeLater
             try {
+                // Run migration and orchestrator before license defaults
+                StartupLicenseHandler.runOnboardingMigration(settings)
+                val wizardAction = StartupLicenseHandler.resolveOnboarding(
+                    licenseState != false,
+                    settings,
+                    isReturningUser,
+                )
+
                 if (licenseState != false) {
                     StartupLicenseHandler.applyLicensedDefaults(project, settings, adaptiveDelayMs)
                 } else {
@@ -107,6 +119,14 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
 
                 settings.state.migrateWidthModes()
                 StartupLicenseHandler.initWorkspaceServices(project, settings)
+
+                // Schedule wizard based on orchestrator decision
+                StartupLicenseHandler.handleWizardAction(wizardAction, project, adaptiveDelayMs, settings)
+
+                // Check trial expiry warning (only runs for trial users)
+                if (licenseState != false) {
+                    LicenseChecker.checkTrialExpiryWarning(project)
+                }
             } catch (e: RuntimeException) {
                 LOG.error("License defaults failed", e)
             }

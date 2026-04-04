@@ -1,5 +1,7 @@
 package dev.ayuislands.licensing
 
+import com.intellij.notification.Notification
+import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.ActionManager
@@ -24,6 +26,9 @@ import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.PanelWidthMode
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 
 object LicenseChecker {
     const val PRODUCT_CODE = "PAYUISLANDS"
@@ -94,10 +99,10 @@ object LicenseChecker {
                     "A license brings them back \u2014 one-time, forever.",
                 NotificationType.INFORMATION,
             ).addAction(
-                object : com.intellij.notification.NotificationAction("Get license") {
+                object : NotificationAction("Get license") {
                     override fun actionPerformed(
                         e: AnActionEvent,
-                        notification: com.intellij.notification.Notification,
+                        notification: Notification,
                     ) {
                         notification.expire()
                         requestLicense(NOTIFICATION_GROUP)
@@ -195,10 +200,62 @@ object LicenseChecker {
         }
     }
 
+    /**
+     * Calculate remaining trial days from [LicensingFacade] expiration date.
+     *
+     * @return days remaining (>= 0), or null if not on trial / facade unavailable / already expired.
+     */
+    fun getTrialDaysRemaining(): Long? {
+        val facade = LicensingFacade.getInstance() ?: return null
+        if (!facade.isEvaluationLicense) return null
+        val expirationDate = facade.getExpirationDate(PRODUCT_CODE) ?: return null
+        val expLocal = expirationDate.toInstant().atZone(ZoneId.systemDefault()).toLocalDate()
+        val today = LocalDate.now()
+        val days = ChronoUnit.DAYS.between(today, expLocal)
+        return if (days >= 0) days else null
+    }
+
+    /** Show a two-stage trial expiry warning (7-day and 3-day thresholds). */
+    fun checkTrialExpiryWarning(project: Project?) {
+        val daysRemaining = getTrialDaysRemaining() ?: return
+        val state = AyuIslandsSettings.getInstance().state
+
+        val shouldWarn7Day = daysRemaining <= TRIAL_WARNING_7_DAY_THRESHOLD && !state.trialExpiryWarningShown
+        val shouldWarn3Day = daysRemaining <= TRIAL_WARNING_3_DAY_THRESHOLD && !state.trialExpiry3DayWarningShown
+
+        if (!shouldWarn7Day && !shouldWarn3Day) return
+
+        if (shouldWarn3Day) state.trialExpiry3DayWarningShown = true
+        if (shouldWarn7Day) state.trialExpiryWarningShown = true
+
+        NotificationGroupManager
+            .getInstance()
+            .getNotificationGroup(NOTIFICATION_GROUP)
+            .createNotification(
+                "Ayu Islands trial: $daysRemaining days remaining",
+                "Glow, accent toggles, auto-fit, and plugin sync " +
+                    "will revert to defaults when your trial ends. " +
+                    "A license keeps them \u2014 one-time, forever.",
+                NotificationType.INFORMATION,
+            ).addAction(
+                object : NotificationAction("Get license") {
+                    override fun actionPerformed(
+                        e: AnActionEvent,
+                        notification: Notification,
+                    ) {
+                        notification.expire()
+                        requestLicense(NOTIFICATION_GROUP)
+                    }
+                },
+            ).notify(project)
+    }
+
     private const val KEY_PREFIX_LENGTH = 4
     private const val STAMP_PREFIX_LENGTH = 6
     private const val PRO_DEFAULT_NEON_INTENSITY = 100
     private const val PRO_DEFAULT_NEON_WIDTH = 2
+    private const val TRIAL_WARNING_7_DAY_THRESHOLD = 7L
+    private const val TRIAL_WARNING_3_DAY_THRESHOLD = 3L
 
     /** Dev mode: requires BOTH system property AND Gradle sandbox environment. */
     private fun isDevBuild(): Boolean {
