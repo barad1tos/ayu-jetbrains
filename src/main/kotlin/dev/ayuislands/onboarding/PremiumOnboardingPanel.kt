@@ -212,7 +212,7 @@ internal class PremiumOnboardingPanel(
 
     @Suppress("LongMethod")
     private fun createCardPanel(card: PresetCard): JPanel {
-        val glowColor = PRESET_GLOW_COLORS[card.glowPreset] ?: ACCENT_COLOR
+        val glowColor = PRESET_GLOW_COLORS[card.glowPreset] ?: OnboardingColors.ACCENT
         val outerPanel = this
 
         val cardPanel =
@@ -406,141 +406,6 @@ internal class PremiumOnboardingPanel(
         return row
     }
 
-    private fun createStyledButton(
-        text: String,
-        isAccent: Boolean,
-        onClick: () -> Unit,
-    ): JPanel {
-        val button =
-            object : JPanel() {
-                private var hovered = false
-                private var pressed = false
-
-                init {
-                    layout = BorderLayout()
-                    isOpaque = false
-                    cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-                    border = JBUI.Borders.empty(BTN_PADDING_V, BTN_PADDING_H)
-                    val btnSize = Dimension(JBUI.scale(BTN_WIDTH), JBUI.scale(BTN_HEIGHT))
-                    preferredSize = btnSize
-                    maximumSize = btnSize
-                    minimumSize = btnSize
-                    val label = JBLabel(text)
-                    label.horizontalAlignment = JBLabel.CENTER
-                    label.foreground = if (isAccent) ACCENT_TEXT_COLOR else BTN_SECONDARY_TEXT
-                    label.font =
-                        label.font.deriveFont(
-                            if (isAccent) Font.BOLD else Font.PLAIN,
-                            JBUI.scale(BTN_FONT_SIZE).toFloat(),
-                        )
-                    add(label, BorderLayout.CENTER)
-
-                    addMouseListener(
-                        object : MouseAdapter() {
-                            override fun mouseEntered(event: MouseEvent) {
-                                hovered = true
-                                repaint()
-                            }
-
-                            override fun mouseExited(event: MouseEvent) {
-                                hovered = false
-                                pressed = false
-                                repaint()
-                            }
-
-                            override fun mousePressed(event: MouseEvent) {
-                                pressed = true
-                                repaint()
-                            }
-
-                            override fun mouseReleased(event: MouseEvent) {
-                                pressed = false
-                                repaint()
-                            }
-
-                            override fun mouseClicked(event: MouseEvent) {
-                                onClick()
-                            }
-                        },
-                    )
-                }
-
-                override fun paintComponent(graphics: Graphics) {
-                    val g2 = graphics as Graphics2D
-                    g2.setRenderingHint(
-                        RenderingHints.KEY_ANTIALIASING,
-                        RenderingHints.VALUE_ANTIALIAS_ON,
-                    )
-                    val arc = JBUI.scale(BTN_ARC)
-
-                    if (isAccent) {
-                        paintAccentButton(g2, arc)
-                    } else {
-                        paintSecondaryButton(g2, arc)
-                    }
-                }
-
-                private fun paintAccentButton(
-                    g2: Graphics2D,
-                    arc: Int,
-                ) {
-                    val fill =
-                        when {
-                            pressed -> BTN_ACCENT_PRESSED
-                            hovered -> ACCENT_HOVER_COLOR
-                            else -> ACCENT_COLOR
-                        }
-                    g2.color = fill
-                    g2.fillRoundRect(0, 0, width, height, arc, arc)
-                    g2.color = BTN_ACCENT_BORDER
-                    g2.drawRoundRect(0, 0, width - 1, height - 1, arc, arc)
-
-                    val oldClip = g2.clip
-                    g2.clipRect(1, 1, width - 2, arc)
-                    g2.color = BTN_ACCENT_HIGHLIGHT
-                    g2.drawRoundRect(
-                        HIGHLIGHT_INSET,
-                        HIGHLIGHT_INSET,
-                        width - HIGHLIGHT_INSET * 2 - 1,
-                        height - HIGHLIGHT_INSET * 2 - 1,
-                        arc - HIGHLIGHT_INSET,
-                        arc - HIGHLIGHT_INSET,
-                    )
-                    g2.clip = oldClip
-                }
-
-                private fun paintSecondaryButton(
-                    g2: Graphics2D,
-                    arc: Int,
-                ) {
-                    val fill =
-                        when {
-                            pressed -> BTN_SECONDARY_PRESSED
-                            hovered -> BTN_SECONDARY_HOVER
-                            else -> BTN_SECONDARY_BG
-                        }
-                    g2.color = fill
-                    g2.fillRoundRect(0, 0, width, height, arc, arc)
-                    g2.color = BTN_SECONDARY_BORDER
-                    g2.drawRoundRect(0, 0, width - 1, height - 1, arc, arc)
-
-                    val oldClip = g2.clip
-                    g2.clipRect(1, 1, width - 2, arc)
-                    g2.color = BTN_SECONDARY_HIGHLIGHT
-                    g2.drawRoundRect(
-                        HIGHLIGHT_INSET,
-                        HIGHLIGHT_INSET,
-                        width - HIGHLIGHT_INSET * 2 - 1,
-                        height - HIGHLIGHT_INSET * 2 - 1,
-                        arc - HIGHLIGHT_INSET,
-                        arc - HIGHLIGHT_INSET,
-                    )
-                    g2.clip = oldClip
-                }
-            }
-        return button
-    }
-
     private fun closeWizard() {
         if (project.isDisposed) return
         FileEditorManager.getInstance(project).closeFile(virtualFile)
@@ -611,13 +476,9 @@ internal class PremiumOnboardingPanel(
         // Timing
         private const val CONTENT_LOAD_DELAY_MS = 100
 
-        // Button highlight
-        private const val HIGHLIGHT_INSET = 1
-
         // Typography
         private const val CARD_NAME_SIZE = 15
         private const val CARD_DESC_SIZE = 11
-        private const val BTN_FONT_SIZE = 13
 
         // Cards
         private const val CARD_ARC = 14
@@ -640,13 +501,8 @@ internal class PremiumOnboardingPanel(
         private val HIGHLIGHT_TOP_COLOR = Color(255, 255, 255, 8)
         private val HIGHLIGHT_BOTTOM_COLOR = Color(255, 255, 255, 0)
 
-        // Buttons
-        private const val BTN_ARC = 10
-        private const val BTN_PADDING_V = 8
-        private const val BTN_PADDING_H = 20
+        // Button row
         private const val BTN_GAP = 16
-        private const val BTN_WIDTH = 160
-        private const val BTN_HEIGHT = 36
 
         // Scrim
         private const val SCRIM_FRACTION = 0.65
@@ -675,10 +531,7 @@ internal class PremiumOnboardingPanel(
                 GlowPreset.CYBERPUNK to (14 to 140f),
             )
 
-        // Colors (Ayu Mirage palette)
-        private val ACCENT_COLOR = Color(0xFF, 0xCC, 0x66)
-        private val ACCENT_HOVER_COLOR = Color(0xFF, 0xD8, 0x80)
-        private val ACCENT_TEXT_COLOR = Color(0x0B, 0x0E, 0x14)
+        // Card colors (panel-local)
         private val CARD_BG_COLOR = Color(0x17, 0x1B, 0x24)
         private val CARD_BORDER_COLOR = Color(0x2A, 0x2F, 0x3A)
         private val CARD_DESC_COLOR = Color(0x70, 0x76, 0x80)
@@ -687,19 +540,6 @@ internal class PremiumOnboardingPanel(
         private const val CARD_HOVER_TOP_ALPHA = 40
         private const val CARD_HOVER_BOTTOM_ALPHA = 10
         private const val CARD_BORDER_HOVER_ALPHA = 100
-
-        // Accent button
-        private val BTN_ACCENT_BORDER = Color(0xC0, 0x96, 0x30)
-        private val BTN_ACCENT_HIGHLIGHT = Color(0xFF, 0xE0, 0x99, 60)
-        private val BTN_ACCENT_PRESSED = Color(0xD9, 0xAD, 0x50)
-
-        // Secondary button
-        private val BTN_SECONDARY_BG = Color(0x18, 0x1C, 0x25)
-        private val BTN_SECONDARY_HOVER = Color(0x1E, 0x23, 0x2E)
-        private val BTN_SECONDARY_PRESSED = Color(0x14, 0x18, 0x20)
-        private val BTN_SECONDARY_BORDER = Color(0x3A, 0x40, 0x4C)
-        private val BTN_SECONDARY_HIGHLIGHT = Color(0xFF, 0xFF, 0xFF, 10)
-        private val BTN_SECONDARY_TEXT = Color(0xB0, 0xB8, 0xC4)
 
         // Preset glow colors
         private val PRESET_GLOW_COLORS =
