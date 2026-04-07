@@ -14,6 +14,7 @@ import dev.ayuislands.onboarding.OnboardingVirtualFile
 import dev.ayuislands.onboarding.WizardAction
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.PanelWidthMode
 
 /**
@@ -118,14 +119,13 @@ internal object StartupLicenseHandler {
         when (action) {
             is WizardAction.ShowFreeWizard -> {
                 scheduleFreeWizard(project, delayMs)
-                OnboardingOrchestrator.release()
+                // guard released inside scheduleFreeWizard Timer callback (try/finally)
             }
             is WizardAction.ShowPremiumWizard -> {
                 LOG.info("Ayu onboarding: scheduling premium wizard (delay: ${delayMs}ms)")
                 settings.state.premiumOnboardingShown = true
                 scheduleTrialWelcome(project, delayMs)
-                // Release immediately since scheduleTrialWelcome handles its own lifecycle
-                OnboardingOrchestrator.release()
+                // one-shot per IDE session: never released after acquire
             }
         }
     }
@@ -149,22 +149,26 @@ internal object StartupLicenseHandler {
 
     /**
      * Opens the free onboarding wizard tab after [delayMs].
-     * Sets [AyuIslandsState.freeOnboardingShown] before scheduling to prevent
-     * re-triggering if the IDE restarts before the timer fires.
+     * Sets [AyuIslandsState.freeOnboardingShown] after openFile succeeds inside
+     * the Timer callback; releases the orchestrator guard in finally.
      */
     internal fun scheduleFreeWizard(
         project: Project,
         delayMs: Int,
     ) {
         val settings = AyuIslandsSettings.getInstance()
-        settings.state.freeOnboardingShown = true
         LOG.info("Ayu onboarding: scheduling free wizard (delay: ${delayMs}ms)")
         javax.swing
             .Timer(delayMs) {
-                if (!project.isDisposed) {
-                    FileEditorManager
-                        .getInstance(project)
-                        .openFile(FreeOnboardingVirtualFile(), true)
+                try {
+                    if (!project.isDisposed) {
+                        FileEditorManager
+                            .getInstance(project)
+                            .openFile(FreeOnboardingVirtualFile(), true)
+                        settings.state.freeOnboardingShown = true
+                    }
+                } finally {
+                    OnboardingOrchestrator.release()
                 }
             }.apply {
                 isRepeats = false
