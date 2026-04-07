@@ -31,14 +31,16 @@ import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
-import javax.swing.Timer
+import javax.swing.event.AncestorEvent
+import javax.swing.event.AncestorListener
 
 /**
  * Free onboarding wizard panel with theme variant cards, accent preset
  * swatches, community links, and free-vs-premium messaging.
  *
- * Constructor is intentionally lightweight -- content loads via [Timer]
- * after the editor tab opens, avoiding the EDT freeze from
+ * Constructor is intentionally lightweight -- content loads via an
+ * AncestorListener attach hook that fires when the panel joins a showing
+ * hierarchy, with an invokeLater to unwind any nested EDT pump from
  * FileEditorManager.openFile's internal `waitBlockingAndPumpEdt`.
  */
 internal class FreeOnboardingPanel(
@@ -49,15 +51,22 @@ internal class FreeOnboardingPanel(
 
     init {
         isOpaque = false
-        Timer(CONTENT_LOAD_DELAY_MS) {
-            if (!isDisplayable || project.isDisposed) return@Timer
-            loadContent()
-            revalidate()
-            repaint()
-        }.apply {
-            isRepeats = false
-            start()
-        }
+        addAncestorListener(
+            object : AncestorListener {
+                override fun ancestorAdded(event: AncestorEvent) {
+                    SwingUtilities.invokeLater {
+                        if (project.isDisposed) return@invokeLater
+                        loadContent()
+                        revalidate()
+                        repaint()
+                    }
+                }
+
+                override fun ancestorRemoved(event: AncestorEvent) = Unit
+
+                override fun ancestorMoved(event: AncestorEvent) = Unit
+            },
+        )
     }
 
     private fun resolveCurrentAccent(): String? {
@@ -572,9 +581,6 @@ internal class FreeOnboardingPanel(
     }
 
     companion object {
-        // Timing
-        private const val CONTENT_LOAD_DELAY_MS = 100
-
         // Layout margins
         private const val MARGIN_V = 40
         private const val MARGIN_H = 40
