@@ -2,6 +2,7 @@
 
 package dev.ayuislands.onboarding
 
+import com.intellij.icons.AllIcons
 import com.intellij.ide.BrowserUtil
 import com.intellij.ide.ui.LafManager
 import com.intellij.openapi.project.Project
@@ -13,6 +14,7 @@ import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentColor
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.BasicStroke
 import java.awt.BorderLayout
@@ -77,6 +79,8 @@ internal class FreeOnboardingPanel(
         column.add(buildAccentSwatchesSection())
         column.add(Box.createVerticalStrut(JBUI.scale(GAP_SECTION)))
         column.add(buildCommunityLinksSection())
+        column.add(Box.createVerticalStrut(JBUI.scale(GAP_SECTION)))
+        column.add(buildPremiumTeasersSection())
         column.add(Box.createVerticalStrut(JBUI.scale(GAP_SECTION)))
         column.add(buildMessagingSection())
 
@@ -203,6 +207,40 @@ internal class FreeOnboardingPanel(
             createLinkButton("Feature Requests") {
                 BrowserUtil.browse(OnboardingUrls.DISCUSSIONS_FEATURE_REQUESTS)
             },
+        )
+
+        section.add(row)
+        return section
+    }
+
+    // -- Premium Teasers --
+
+    private fun buildPremiumTeasersSection(): JPanel {
+        val section = createSection()
+
+        val label = createSectionLabel("Try Premium")
+        section.add(label)
+        section.add(Box.createVerticalStrut(JBUI.scale(GAP_SMALL)))
+
+        val row = JPanel()
+        row.layout = BoxLayout(row, BoxLayout.X_AXIS)
+        row.isOpaque = false
+        row.alignmentX = LEFT_ALIGNMENT
+
+        row.add(
+            PremiumTeaserCard(
+                title = "Glow effects",
+                subtitle = "Soft / Sharp / Gradient",
+                message = "Unlock glow effects",
+            ),
+        )
+        row.add(Box.createHorizontalStrut(JBUI.scale(CARD_GAP)))
+        row.add(
+            PremiumTeaserCard(
+                title = "Font presets",
+                subtitle = "Whisper / Ambient / Neon / Cyberpunk",
+                message = "Unlock font presets",
+            ),
         )
 
         section.add(row)
@@ -394,6 +432,89 @@ internal class FreeOnboardingPanel(
         }
     }
 
+    // -- Inner component: Premium Teaser Card --
+
+    private inner class PremiumTeaserCard(
+        private val title: String,
+        private val subtitle: String,
+        private val message: String,
+    ) : JPanel() {
+        private var hovered = false
+
+        init {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = false
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            border = JBUI.Borders.empty(CARD_PADDING)
+            val size = Dimension(JBUI.scale(CARD_WIDTH), JBUI.scale(CARD_HEIGHT))
+            preferredSize = size
+            minimumSize = size
+            maximumSize = size
+
+            val titleLabel = JBLabel(title)
+            titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, JBUI.scale(CARD_NAME_SIZE).toFloat())
+            titleLabel.foreground = JBColor(TEASER_TITLE_LIGHT, TEASER_TITLE_DARK)
+            titleLabel.alignmentX = LEFT_ALIGNMENT
+            add(titleLabel)
+            add(Box.createVerticalStrut(JBUI.scale(TEASER_TEXT_GAP)))
+
+            val subtitleLabel = JBLabel(subtitle)
+            subtitleLabel.font = subtitleLabel.font.deriveFont(Font.PLAIN, JBUI.scale(TEASER_SUBTITLE_SIZE).toFloat())
+            subtitleLabel.foreground = JBColor(TEASER_SUBTITLE_LIGHT, TEASER_SUBTITLE_DARK)
+            subtitleLabel.alignmentX = LEFT_ALIGNMENT
+            add(subtitleLabel)
+            add(Box.createVerticalGlue())
+
+            addMouseListener(
+                object : MouseAdapter() {
+                    override fun mouseEntered(event: MouseEvent) {
+                        hovered = true
+                        repaint()
+                    }
+
+                    override fun mouseExited(event: MouseEvent) {
+                        hovered = false
+                        repaint()
+                    }
+
+                    override fun mouseClicked(event: MouseEvent) {
+                        LicenseChecker.requestLicense(message)
+                    }
+                },
+            )
+        }
+
+        override fun paintComponent(graphics: Graphics) {
+            val g2 = graphics as Graphics2D
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            val arc = JBUI.scale(CARD_ARC)
+
+            // Greyed fill
+            val fill = JBColor(TEASER_BG_LIGHT, TEASER_BG_DARK)
+            g2.color = Color(fill.red, fill.green, fill.blue, TEASER_BG_ALPHA)
+            g2.fillRoundRect(0, 0, width, height, arc, arc)
+
+            // Border
+            val borderColor =
+                if (hovered) {
+                    JBColor(TEASER_BORDER_HOVER_LIGHT, TEASER_BORDER_HOVER_DARK)
+                } else {
+                    JBColor(CARD_BORDER_LIGHT, CARD_BORDER_DARK)
+                }
+            g2.color = borderColor
+            g2.stroke = BasicStroke(1f)
+            g2.drawRoundRect(0, 0, width - 1, height - 1, arc, arc)
+
+            super.paintComponent(graphics)
+
+            // Lock icon in top-right corner
+            val lockIcon = AllIcons.Nodes.Padlock
+            val iconX = width - lockIcon.iconWidth - JBUI.scale(TEASER_LOCK_INSET)
+            val iconY = JBUI.scale(TEASER_LOCK_INSET)
+            lockIcon.paintIcon(this, g2, iconX, iconY)
+        }
+    }
+
     // -- Inner component: Swatch Row --
 
     private inner class SwatchRow : JPanel() {
@@ -504,5 +625,19 @@ internal class FreeOnboardingPanel(
         private val FREE_TEXT_DARK = Color(0x7E, 0xC9, 0x8B)
         private val PREMIUM_TEXT_LIGHT = Color(0x99, 0x99, 0x99)
         private val PREMIUM_TEXT_DARK = Color(0x5C, 0x63, 0x6E)
+
+        // Premium teaser card colors
+        private const val TEASER_BG_ALPHA = 40
+        private const val TEASER_TEXT_GAP = 4
+        private const val TEASER_SUBTITLE_SIZE = 11
+        private const val TEASER_LOCK_INSET = 8
+        private val TEASER_BG_LIGHT = Color(0xB0, 0xB0, 0xB0)
+        private val TEASER_BG_DARK = Color(0x55, 0x5C, 0x68)
+        private val TEASER_TITLE_LIGHT = Color(0x80, 0x80, 0x80)
+        private val TEASER_TITLE_DARK = Color(0x9A, 0xA0, 0xAA)
+        private val TEASER_SUBTITLE_LIGHT = Color(0xA0, 0xA0, 0xA0)
+        private val TEASER_SUBTITLE_DARK = Color(0x70, 0x77, 0x82)
+        private val TEASER_BORDER_HOVER_LIGHT = Color(0x99, 0x99, 0x99)
+        private val TEASER_BORDER_HOVER_DARK = Color(0x5A, 0x60, 0x6C)
     }
 }
