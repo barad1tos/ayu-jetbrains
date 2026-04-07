@@ -44,7 +44,7 @@ import javax.swing.Timer
  * after the editor tab opens, avoiding the EDT freeze from
  * [FileEditorManager.openFile]'s internal `waitBlockingAndPumpEdt`.
  */
-internal class OnboardingPanel(
+internal class PremiumOnboardingPanel(
     private val project: Project,
     private val virtualFile: VirtualFile,
 ) : JPanel(BorderLayout()) {
@@ -55,7 +55,7 @@ internal class OnboardingPanel(
     /** Background SVG — loaded once, rescaled on resize. */
     private val heroIcon: Icon? =
         try {
-            IconLoader.getIcon("/onboarding/welcome_board.svg", OnboardingPanel::class.java)
+            IconLoader.getIcon("/onboarding/welcome_board.svg", PremiumOnboardingPanel::class.java)
         } catch (exception: RuntimeException) {
             LOG.warn("Failed to load onboarding hero image", exception)
             null
@@ -606,7 +606,7 @@ internal class OnboardingPanel(
     )
 
     companion object {
-        private val LOG = logger<OnboardingPanel>()
+        private val LOG = logger<PremiumOnboardingPanel>()
 
         // Timing
         private const val CONTENT_LOAD_DELAY_MS = 100

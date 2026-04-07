@@ -9,13 +9,13 @@ import com.intellij.ui.components.JBScrollPane
 import java.beans.PropertyChangeListener
 import javax.swing.JComponent
 
-/** Editor wrapper that displays the [OnboardingPanel] wizard. */
+/** Editor wrapper that displays the [PremiumOnboardingPanel] wizard. */
 internal class OnboardingEditor(
     project: Project,
     private val virtualFile: VirtualFile,
 ) : UserDataHolderBase(),
     FileEditor {
-    private val panel = OnboardingPanel(project, virtualFile)
+    private val panel = PremiumOnboardingPanel(project, virtualFile)
     private val scrollPane = JBScrollPane(panel)
 
     override fun getComponent(): JComponent = scrollPane
