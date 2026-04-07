@@ -444,8 +444,8 @@ internal class FreeOnboardingPanel(
     // -- Inner component: Premium Teaser Card --
 
     private inner class PremiumTeaserCard(
-        private val title: String,
-        private val subtitle: String,
+        title: String,
+        subtitle: String,
         private val message: String,
     ) : JPanel() {
         private var hovered = false
