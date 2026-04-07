@@ -62,6 +62,9 @@
 -keep class dev.ayuislands.accent.AccentColor { *; }
 -keep class dev.ayuislands.glow.GlowOverlayManager { *; }
 
+# plugin.xml: applicationListeners (license transition)
+-keep class dev.ayuislands.licensing.LicenseTransitionListener { *; }
+
 # LicenseChecker — keep class name + public API, obfuscate private crypto internals
 # Kotlin `object` compiles to instance methods (public final), not static
 -keep class dev.ayuislands.licensing.LicenseChecker {

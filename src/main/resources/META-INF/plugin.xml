@@ -224,5 +224,8 @@
         <listener
                 class="dev.ayuislands.AppearanceSyncListener"
                 topic="com.intellij.openapi.application.ApplicationActivationListener"/>
+        <listener
+                class="dev.ayuislands.licensing.LicenseTransitionListener"
+                topic="com.intellij.ui.LicensingFacade$LicenseStateListener"/>
     </applicationListeners>
 </idea-plugin>
