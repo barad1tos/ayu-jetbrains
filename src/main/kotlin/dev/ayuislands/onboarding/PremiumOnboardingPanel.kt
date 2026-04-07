@@ -34,14 +34,17 @@ import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.Icon
 import javax.swing.JPanel
-import javax.swing.Timer
+import javax.swing.SwingUtilities
+import javax.swing.event.AncestorEvent
+import javax.swing.event.AncestorListener
 
 /**
  * Onboarding wizard panel with full-tab SVG background, preset cards, and
  * action buttons on a frosted glass backdrop.
  *
- * Constructor is intentionally lightweight — content loads via [Timer]
- * after the editor tab opens, avoiding the EDT freeze from
+ * Constructor is intentionally lightweight — content loads via an
+ * AncestorListener attach hook that fires when the panel joins a showing
+ * hierarchy, with an invokeLater to unwind any nested EDT pump from
  * [FileEditorManager.openFile]'s internal `waitBlockingAndPumpEdt`.
  */
 internal class PremiumOnboardingPanel(
@@ -66,15 +69,22 @@ internal class PremiumOnboardingPanel(
 
     init {
         isOpaque = false
-        Timer(CONTENT_LOAD_DELAY_MS) {
-            if (!isDisplayable || project.isDisposed) return@Timer
-            loadContent()
-            revalidate()
-            repaint()
-        }.apply {
-            isRepeats = false
-            start()
-        }
+        addAncestorListener(
+            object : AncestorListener {
+                override fun ancestorAdded(event: AncestorEvent) {
+                    SwingUtilities.invokeLater {
+                        if (project.isDisposed) return@invokeLater
+                        loadContent()
+                        revalidate()
+                        repaint()
+                    }
+                }
+
+                override fun ancestorRemoved(event: AncestorEvent) = Unit
+
+                override fun ancestorMoved(event: AncestorEvent) = Unit
+            },
+        )
     }
 
     override fun paintComponent(graphics: Graphics) {
@@ -472,9 +482,6 @@ internal class PremiumOnboardingPanel(
 
     companion object {
         private val LOG = logger<PremiumOnboardingPanel>()
-
-        // Timing
-        private const val CONTENT_LOAD_DELAY_MS = 100
 
         // Typography
         private const val CARD_NAME_SIZE = 15
