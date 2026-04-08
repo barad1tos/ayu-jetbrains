@@ -58,7 +58,7 @@ internal class PremiumOnboardingPanel(
     /** Background SVG — loaded once, rescaled on resize. */
     private val heroIcon: Icon? =
         try {
-            IconLoader.getIcon("/onboarding/welcome_board.svg", PremiumOnboardingPanel::class.java)
+            IconLoader.getIcon("/onboarding/welcome_board_dark.svg", PremiumOnboardingPanel::class.java)
         } catch (exception: RuntimeException) {
             LOG.warn("Failed to load onboarding hero image", exception)
             null

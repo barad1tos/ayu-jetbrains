@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 680 580" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#7DBCE8"/>
+      <stop offset="25%" stop-color="#96CBF0"/>
+      <stop offset="50%" stop-color="#B5DDEF"/>
+      <stop offset="70%" stop-color="#D4ECF5"/>
+      <stop offset="85%" stop-color="#E8F2F0"/>
+      <stop offset="100%" stop-color="#F5EDE0"/>
+    </linearGradient>
+    <linearGradient id="waterDeep" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#A8D4E8"/>
+      <stop offset="20%" stop-color="#8EC8E0"/>
+      <stop offset="50%" stop-color="#6EB8D8"/>
+      <stop offset="80%" stop-color="#5AADCC"/>
+      <stop offset="100%" stop-color="#4A9EBE"/>
+    </linearGradient>
+    <radialGradient id="moonGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#FFDD88" stop-opacity="1"/>
+      <stop offset="15%" stop-color="#FFE8A8" stop-opacity="0.7"/>
+      <stop offset="35%" stop-color="#FFEECC" stop-opacity="0.3"/>
+      <stop offset="60%" stop-color="#FFF5DD" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="moonHalo" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#FFEECC" stop-opacity="0.25"/>
+      <stop offset="40%" stop-color="#FFF5DD" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="horizonMist" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFE8C0" stop-opacity="0.2"/>
+      <stop offset="50%" stop-color="#E8F0F0" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#D4ECF5" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="islandBase" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#6A8070"/>
+      <stop offset="100%" stop-color="#506858"/>
+    </linearGradient>
+    <linearGradient id="islandTop" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#7A9080"/>
+      <stop offset="100%" stop-color="#607868"/>
+    </linearGradient>
+    <linearGradient id="vegGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#6AAA6E"/>
+      <stop offset="100%" stop-color="#4A8850"/>
+    </linearGradient>
+    <linearGradient id="vegDark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#558A5A"/>
+      <stop offset="100%" stop-color="#3A6E40"/>
+    </linearGradient>
+    <linearGradient id="moonPillar" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#FFDD88" stop-opacity="0.25"/>
+      <stop offset="30%" stop-color="#FFEEAA" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="goldText" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#D08A10"/>
+      <stop offset="50%" stop-color="#B87508"/>
+      <stop offset="100%" stop-color="#A06500"/>
+    </linearGradient>
+    <clipPath id="sceneClip">
+      <rect x="0" y="0" width="680" height="580" rx="12"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#sceneClip)">
+    <rect width="680" height="220" fill="url(#sky)"/>
+    <rect x="0" y="220" width="680" height="360" fill="url(#waterDeep)"/>
+
+    <ellipse cx="180" cy="60" rx="120" ry="8" fill="#FFFFFF" opacity="0.25"/>
+    <ellipse cx="450" cy="45" rx="100" ry="6" fill="#FFFFFF" opacity="0.2"/>
+    <ellipse cx="550" cy="80" rx="80" ry="5" fill="#FFFFFF" opacity="0.18"/>
+    <ellipse cx="100" cy="95" rx="60" ry="4" fill="#FFFFFF" opacity="0.15"/>
+
+    <circle cx="340" cy="75" r="120" fill="url(#moonHalo)"/>
+    <circle cx="340" cy="75" r="60" fill="url(#moonGlow)"/>
+    <circle cx="340" cy="75" r="18" fill="#FFE8A8"/>
+    <circle cx="340" cy="75" r="13" fill="#FFF2CC"/>
+    <circle cx="337" cy="72" r="8" fill="#FFFAE6" opacity="0.7"/>
+
+    <rect x="0" y="200" width="680" height="60" fill="url(#horizonMist)"/>
+
+    <ellipse cx="120" cy="195" rx="80" ry="6" fill="#FFFFFF" opacity="0.3"/>
+    <ellipse cx="320" cy="205" rx="100" ry="5" fill="#FFFFFF" opacity="0.22"/>
+    <ellipse cx="540" cy="198" rx="70" ry="5" fill="#FFFFFF" opacity="0.25"/>
+    <ellipse cx="450" cy="210" rx="60" ry="4" fill="#F0E8D8" opacity="0.2"/>
+    <ellipse cx="180" cy="212" rx="55" ry="4" fill="#F0E8D8" opacity="0.15"/>
+
+    <ellipse cx="340" cy="225" rx="50" ry="8" fill="#FFDD88" opacity="0.2"/>
+    <rect x="315" y="225" width="50" height="340" fill="url(#moonPillar)" opacity="0.5"/>
+
+    <path d="M0 232 Q60 230 120 233 Q180 236 240 232 Q300 228 340 231 Q380 234 440 230 Q500 228 560 232 Q620 235 680 231" fill="none" stroke="#FFDD88" stroke-width="0.6" opacity="0.15"/>
+    <path d="M0 240 Q80 237 160 241 Q240 244 320 239 Q400 236 480 240 Q560 243 680 238" fill="none" stroke="#88C8E0" stroke-width="0.4" opacity="0.2"/>
+    <path d="M0 248 Q70 246 140 249 Q210 252 280 248 Q350 245 420 249 Q490 252 560 248 Q630 245 680 248" fill="none" stroke="#FFDD88" stroke-width="0.5" opacity="0.12"/>
+    <path d="M0 262 Q50 259 100 263 Q150 266 200 261 Q250 258 300 262 Q350 265 400 260 Q450 257 500 262 Q550 266 600 261 Q650 258 680 261" fill="none" stroke="#78B8D0" stroke-width="0.5" opacity="0.25"/>
+    <path d="M0 272 Q80 269 160 273 Q240 276 320 271 Q360 268 400 271 Q480 275 560 270 Q640 267 680 270" fill="none" stroke="#68AAC4" stroke-width="0.4" opacity="0.2"/>
+    <path d="M0 284 Q60 281 120 285 Q180 288 240 283 Q300 280 360 284 Q420 287 480 282 Q540 279 600 283 Q660 286 680 284" fill="none" stroke="#78B8D0" stroke-width="0.4" opacity="0.18"/>
+
+    <line x1="305" y1="245" x2="340" y2="245" stroke="#FFDD88" stroke-width="1.2" opacity="0.3" stroke-linecap="round"/>
+    <line x1="330" y1="252" x2="355" y2="252" stroke="#FFDD88" stroke-width="0.9" opacity="0.22" stroke-linecap="round"/>
+    <line x1="315" y1="260" x2="365" y2="260" stroke="#FFEEAA" stroke-width="0.7" opacity="0.18" stroke-linecap="round"/>
+    <line x1="325" y1="270" x2="358" y2="270" stroke="#FFDD88" stroke-width="0.6" opacity="0.14" stroke-linecap="round"/>
+    <line x1="320" y1="282" x2="362" y2="282" stroke="#FFEEAA" stroke-width="0.5" opacity="0.1" stroke-linecap="round"/>
+    <line x1="328" y1="295" x2="354" y2="295" stroke="#FFDD88" stroke-width="0.4" opacity="0.07" stroke-linecap="round"/>
+    <line x1="333" y1="310" x2="348" y2="310" stroke="#FFDD88" stroke-width="0.3" opacity="0.05" stroke-linecap="round"/>
+
+    <path d="M0 300 Q70 297 140 301 Q210 304 280 299 Q350 296 420 300 Q490 303 560 298 Q630 295 680 299" fill="none" stroke="#5EA8C0" stroke-width="0.3" opacity="0.2"/>
+    <path d="M0 318 Q90 315 180 319 Q270 322 360 317 Q450 314 540 318 Q630 321 680 317" fill="none" stroke="#5EA8C0" stroke-width="0.3" opacity="0.15"/>
+    <path d="M0 340 Q80 337 160 341 Q240 344 320 339 Q400 336 480 340 Q560 343 640 338 Q680 336 680 338" fill="none" stroke="#4E98B0" stroke-width="0.25" opacity="0.12"/>
+
+    <path d="M30 220 Q45 170 70 155 Q90 145 115 148 Q140 142 165 150 Q185 144 205 155 Q225 148 245 160 Q265 155 280 168 Q300 180 320 195 Q335 208 345 220 Z" fill="#446050"/>
+    <path d="M50 220 Q60 180 85 168 Q105 158 130 162 Q155 155 178 165 Q198 158 218 170 Q240 164 260 178 Q278 188 295 200 Q310 212 325 220 Z" fill="url(#islandBase)"/>
+    <path d="M70 220 Q80 192 100 182 Q120 174 145 178 Q165 172 185 180 Q205 175 225 185 Q245 180 262 192 Q278 202 290 220 Z" fill="url(#islandTop)"/>
+    <path d="M100 200 Q115 195 130 198" fill="none" stroke="#8AA890" stroke-width="0.5" opacity="0.4"/>
+    <path d="M155 190 Q170 187 190 192" fill="none" stroke="#8AA890" stroke-width="0.4" opacity="0.35"/>
+    <path d="M220 198 Q235 195 250 200" fill="none" stroke="#8AA890" stroke-width="0.4" opacity="0.3"/>
+    <path d="M85 208 Q100 204 115 207" fill="none" stroke="#8AA890" stroke-width="0.3" opacity="0.3"/>
+    <ellipse cx="110" cy="165" rx="22" ry="18" fill="url(#vegDark)"/>
+    <ellipse cx="145" cy="158" rx="25" ry="20" fill="url(#vegDark)"/>
+    <ellipse cx="185" cy="162" rx="20" ry="16" fill="url(#vegDark)"/>
+    <ellipse cx="220" cy="168" rx="18" ry="14" fill="url(#vegDark)"/>
+    <ellipse cx="125" cy="168" rx="20" ry="16" fill="url(#vegGrad)"/>
+    <ellipse cx="160" cy="160" rx="24" ry="18" fill="url(#vegGrad)"/>
+    <ellipse cx="200" cy="166" rx="18" ry="14" fill="url(#vegGrad)"/>
+    <path d="M138 152 Q150 148 162 152" fill="none" stroke="#88CC88" stroke-width="0.8" opacity="0.45"/>
+    <path d="M108 158 Q118 154 128 157" fill="none" stroke="#88CC88" stroke-width="0.6" opacity="0.4"/>
+    <path d="M182 156 Q192 153 202 157" fill="none" stroke="#88CC88" stroke-width="0.5" opacity="0.35"/>
+    <line x1="140" y1="175" x2="138" y2="142" stroke="#3A5838" stroke-width="1.8" stroke-linecap="round"/>
+    <path d="M138 142 Q128 138 122 145" fill="none" stroke="#5A8A5E" stroke-width="1.2" opacity="0.7"/>
+    <path d="M138 142 Q148 136 155 142" fill="none" stroke="#5A8A5E" stroke-width="1" opacity="0.6"/>
+    <path d="M138 144 Q130 140 126 148" fill="none" stroke="#6A9A6E" stroke-width="0.8" opacity="0.5"/>
+    <line x1="195" y1="178" x2="197" y2="150" stroke="#3A5838" stroke-width="1.5" stroke-linecap="round"/>
+    <path d="M197 150 Q188 146 183 153" fill="none" stroke="#5A8A5E" stroke-width="1" opacity="0.6"/>
+    <path d="M197 150 Q206 145 212 151" fill="none" stroke="#5A8A5E" stroke-width="0.9" opacity="0.55"/>
+    <path d="M55 220 Q80 218 110 220 Q140 222 170 219 Q200 217 230 220 Q260 222 290 219 Q310 218 330 220" fill="none" stroke="#88A890" stroke-width="1.2" opacity="0.35"/>
+    <path d="M50 220 Q100 228 175 225 Q250 222 325 228 Q340 230 345 220" fill="#7ABCC0" opacity="0.2"/>
+
+    <path d="M440 220 Q455 190 475 182 Q500 175 525 180 Q545 176 560 185 Q575 192 585 205 Q595 215 600 220 Z" fill="#446050"/>
+    <path d="M455 220 Q465 198 485 190 Q505 184 525 188 Q540 185 555 194 Q568 203 578 220 Z" fill="url(#islandBase)"/>
+    <path d="M468 220 Q475 205 495 198 Q515 193 530 196 Q545 194 555 204 Q565 214 570 220 Z" fill="url(#islandTop)"/>
+    <ellipse cx="500" cy="190" rx="18" ry="14" fill="url(#vegDark)"/>
+    <ellipse cx="525" cy="186" rx="20" ry="16" fill="url(#vegGrad)"/>
+    <ellipse cx="545" cy="192" rx="14" ry="11" fill="url(#vegDark)"/>
+    <path d="M512 178 Q522 174 532 178" fill="none" stroke="#88CC88" stroke-width="0.6" opacity="0.4"/>
+    <line x1="520" y1="195" x2="518" y2="170" stroke="#3A5838" stroke-width="1.5" stroke-linecap="round"/>
+    <path d="M518 170 Q508 166 504 173" fill="none" stroke="#5A8A5E" stroke-width="1" opacity="0.6"/>
+    <path d="M518 170 Q528 165 534 172" fill="none" stroke="#5A8A5E" stroke-width="0.9" opacity="0.55"/>
+    <path d="M490 208 Q505 205 518 209" fill="none" stroke="#8AA890" stroke-width="0.4" opacity="0.3"/>
+    <path d="M455 220 Q500 218 540 220 Q570 222 590 220" fill="none" stroke="#88A890" stroke-width="1" opacity="0.3"/>
+    <path d="M455 220 Q510 226 560 223 Q590 221 600 220" fill="#7ABCC0" opacity="0.15"/>
+
+    <path d="M355 220 Q365 208 380 204 Q395 200 410 205 Q420 210 428 220 Z" fill="#6A9080" opacity="0.45"/>
+    <ellipse cx="393" cy="204" rx="10" ry="6" fill="#5A8A5E" opacity="0.3"/>
+    <path d="M0 220 Q5 214 12 212 Q20 210 28 215 Q32 218 35 220 Z" fill="#6A9080" opacity="0.3"/>
+
+    <circle cx="165" cy="145" r="2" fill="#FFFFFF" opacity="0.5"/>
+    <circle cx="145" cy="138" r="1.3" fill="#FFEECC" opacity="0.4"/>
+    <circle cx="195" cy="148" r="1.5" fill="#FFFFFF" opacity="0.45"/>
+    <circle cx="230" cy="160" r="1" fill="#FFEECC" opacity="0.35"/>
+    <circle cx="110" cy="152" r="1.2" fill="#FFFFFF" opacity="0.3"/>
+    <circle cx="510" cy="172" r="1.5" fill="#FFFFFF" opacity="0.4"/>
+    <circle cx="540" cy="180" r="1" fill="#FFEECC" opacity="0.3"/>
+    <circle cx="490" cy="178" r="1.3" fill="#FFFFFF" opacity="0.35"/>
+    <circle cx="385" cy="195" r="0.8" fill="#FFFFFF" opacity="0.25"/>
+    <circle cx="270" cy="172" r="1" fill="#FFEECC" opacity="0.25"/>
+
+    <text x="340" y="280" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="500" fill="#1A3A4A" letter-spacing="3" opacity="0.65">WELCOME TO</text>
+    <text x="340" y="325" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="36" font-weight="700" letter-spacing="4">
+      <tspan fill="url(#goldText)">Ayu</tspan><tspan fill="#1A3040"> Islands</tspan>
+    </text>
+    <text x="340" y="355" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="13" fill="#1A3A4A" letter-spacing="0.5" opacity="0.7">
+      <tspan>Unified </tspan><tspan font-style="italic" fill="url(#goldText)" opacity="1">aesthetic</tspan><tspan> engine for every JetBrains IDE</tspan>
+    </text>
+    <line x1="290" y1="373" x2="390" y2="373" stroke="#1A3A4A" stroke-width="0.4" opacity="0.2"/>
+  </g>
+</svg>
