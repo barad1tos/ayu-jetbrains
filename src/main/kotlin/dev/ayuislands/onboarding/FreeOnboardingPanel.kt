@@ -10,10 +10,10 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.components.JBLabel
-import com.intellij.util.IconUtil
+import com.intellij.ui.scale.ScaleContext
+import com.intellij.util.SVGLoader
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentApplicator
@@ -66,18 +66,17 @@ internal class FreeOnboardingPanel(
     /** Variant cards kept in sync with [selectedAccentHex] and committed variant. */
     private val variantCards = mutableListOf<JComponent>()
 
-    /** Hero SVG icon per variant — loaded once at init, rescaled on resize. */
-    private val variantHeroIcons: Map<AyuVariant, Icon> =
+    /** Hero SVG resource path per variant — loaded on demand via SVGLoader. */
+    private val variantHeroPaths: Map<AyuVariant, String> =
         AyuVariant.entries
-            .mapNotNull { variant -> loadVariantHero(variant)?.let { variant to it } }
+            .mapNotNull { variant -> variantHeroPath(variant)?.let { variant to it } }
             .toMap()
 
     /** Variant whose hero is currently displayed. Tracks hover/commit independently of LAF. */
     private var currentHeroVariant: AyuVariant = committedVariant ?: AyuVariant.MIRAGE
 
-    private var cachedBackgroundIcon: Icon? = null
-    private var cachedBackgroundSize: Dimension? = null
-    private var cachedBackgroundVariant: AyuVariant? = null
+    private var cachedBackgroundImage: java.awt.Image? = null
+    private var cachedBackgroundKey: Triple<AyuVariant, Int, Int>? = null
 
     private var topStrut: Component? = null
     private var contentWrapper: JPanel? = null
@@ -113,8 +112,8 @@ internal class FreeOnboardingPanel(
         super.paintComponent(graphics)
     }
 
-    /** Load the hero SVG for a variant. Returns null if the resource is missing. */
-    private fun loadVariantHero(variant: AyuVariant): Icon? {
+    /** Resolve the hero SVG classpath for a variant, or null if the resource is missing. */
+    private fun variantHeroPath(variant: AyuVariant): String? {
         val path =
             when (variant) {
                 AyuVariant.MIRAGE -> "/onboarding/welcome_board_mirage.svg"
@@ -125,37 +124,60 @@ internal class FreeOnboardingPanel(
             LOG.info("Variant hero $path not present — variant will use fallback")
             return null
         }
-        return try {
-            IconLoader.getIcon(path, FreeOnboardingPanel::class.java)
-        } catch (exception: RuntimeException) {
-            LOG.info("Failed to load $path, using fallback", exception)
-            null
-        }
+        return path
     }
 
-    /** Render SVG as a full-tab background with "cover" scaling. */
+    /**
+     * Render SVG as a full-tab background with "cover" scaling using [SVGLoader.load].
+     *
+     * We bypass [com.intellij.openapi.util.IconLoader] + `IconUtil.scale` here because
+     * their scaling interacts with HiDPI in ways that under-size the rendered bitmap on
+     * non-trivial aspect ratios, leaving visible gaps around the hero. `SVGLoader.load`
+     * returns an [java.awt.Image] whose pixel dimensions match the requested scale
+     * deterministically, and we draw with explicit destination dimensions so async image
+     * observers cannot short-circuit the paint.
+     */
     private fun paintBackground(g2: Graphics2D) {
-        val icon = variantHeroIcons[currentHeroVariant] ?: variantHeroIcons.values.firstOrNull() ?: return
-        val currentSize = Dimension(width, height)
+        val path = variantHeroPaths[currentHeroVariant] ?: variantHeroPaths.values.firstOrNull() ?: return
+        if (width <= 0 || height <= 0) return
 
-        if (cachedBackgroundIcon == null ||
-            cachedBackgroundSize != currentSize ||
-            cachedBackgroundVariant != currentHeroVariant
-        ) {
-            val scale =
-                maxOf(
-                    width.toDouble() / icon.iconWidth,
-                    height.toDouble() / icon.iconHeight,
-                )
-            cachedBackgroundIcon = IconUtil.scale(icon, null, scale.toFloat())
-            cachedBackgroundSize = currentSize
-            cachedBackgroundVariant = currentHeroVariant
+        val scale = maxOf(width / SVG_VIEWBOX_WIDTH, height / SVG_VIEWBOX_HEIGHT)
+        val scaledW = (SVG_VIEWBOX_WIDTH * scale).toInt()
+        val scaledH = (SVG_VIEWBOX_HEIGHT * scale).toInt()
+
+        val key = Triple(currentHeroVariant, scaledW, scaledH)
+        if (cachedBackgroundKey != key) {
+            cachedBackgroundImage = loadScaledHero(path, scaledW, scaledH)
+            cachedBackgroundKey = key
         }
 
-        val scaled = cachedBackgroundIcon ?: return
-        val drawX = (width - scaled.iconWidth) / 2
-        val drawY = (height - scaled.iconHeight) / 2
-        scaled.paintIcon(this, g2, drawX, drawY)
+        val image = cachedBackgroundImage ?: return
+        val drawX = (width - scaledW) / 2
+        val drawY = (height - scaledH) / 2
+        g2.drawImage(image, drawX, drawY, scaledW, scaledH, null)
+    }
+
+    private fun loadScaledHero(
+        path: String,
+        targetW: Int,
+        targetH: Int,
+    ): java.awt.Image? {
+        val url = FreeOnboardingPanel::class.java.getResource(path) ?: return null
+        val stream = FreeOnboardingPanel::class.java.getResourceAsStream(path) ?: return null
+        return try {
+            stream.use {
+                SVGLoader.load(
+                    url,
+                    it,
+                    ScaleContext.create(this),
+                    targetW.toDouble(),
+                    targetH.toDouble(),
+                )
+            }
+        } catch (exception: java.io.IOException) {
+            LOG.info("Failed to load hero SVG $path", exception)
+            null
+        }
     }
 
     /** Bottom gradient scrim for text readability over the image. */
