@@ -16,7 +16,11 @@ internal class OnboardingEditor(
 ) : UserDataHolderBase(),
     FileEditor {
     private val panel = PremiumOnboardingPanel(project, virtualFile)
-    private val scrollPane = JBScrollPane(panel)
+    private val scrollPane =
+        JBScrollPane(panel).apply {
+            border = null
+            viewportBorder = null
+        }
 
     override fun getComponent(): JComponent = scrollPane
 
