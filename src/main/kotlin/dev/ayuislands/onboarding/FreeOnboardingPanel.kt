@@ -141,9 +141,9 @@ internal class FreeOnboardingPanel(
         val path = variantHeroPaths[currentHeroVariant] ?: variantHeroPaths.values.firstOrNull() ?: return
         if (width <= 0 || height <= 0) return
 
-        val scale = maxOf(width / SVG_VIEWBOX_WIDTH, height / SVG_VIEWBOX_HEIGHT)
-        val scaledW = (SVG_VIEWBOX_WIDTH * scale).toInt()
-        val scaledH = (SVG_VIEWBOX_HEIGHT * scale).toInt()
+        val scale = maxOf(width / SVG_VIEW_BOX_WIDTH, height / SVG_VIEW_BOX_HEIGHT)
+        val scaledW = (SVG_VIEW_BOX_WIDTH * scale).toInt()
+        val scaledH = (SVG_VIEW_BOX_HEIGHT * scale).toInt()
 
         val key = Triple(currentHeroVariant, scaledW, scaledH)
         if (cachedBackgroundKey != key) {
@@ -157,6 +157,7 @@ internal class FreeOnboardingPanel(
         g2.drawImage(image, drawX, drawY, scaledW, scaledH, null)
     }
 
+    @Suppress("UnstableApiUsage")
     private fun loadScaledHero(
         path: String,
         targetW: Int,
@@ -272,8 +273,8 @@ internal class FreeOnboardingPanel(
         val h = height.toDouble()
         if (w <= 0 || h <= 0) return
 
-        val scale = maxOf(w / SVG_VIEWBOX_WIDTH, h / SVG_VIEWBOX_HEIGHT)
-        val svgHeightOnScreen = SVG_VIEWBOX_HEIGHT * scale
+        val scale = maxOf(w / SVG_VIEW_BOX_WIDTH, h / SVG_VIEW_BOX_HEIGHT)
+        val svgHeightOnScreen = SVG_VIEW_BOX_HEIGHT * scale
         val svgTopY = (h - svgHeightOnScreen) / 2
         val taglineBottomY = svgTopY + SVG_TAGLINE_BOTTOM_Y * scale
         val topPadding = (taglineBottomY + JBUI.scale(GAP_SMALL)).toInt().coerceAtLeast(0)
@@ -304,20 +305,10 @@ internal class FreeOnboardingPanel(
     }
 
     @Suppress("UNUSED_PARAMETER")
-    private fun buildTrialHeadlineHtml(accentHex: String): String {
-        val baseColor = trialTextColorForVariant(currentHeroVariant)
-        return "<html><body style='margin:0;padding:0;font-family:sans-serif;color:$baseColor'>" +
+    private fun buildTrialHeadlineHtml(accentHex: String): String =
+        "<html><body style='margin:0;padding:0;font-family:sans-serif;color:$TRIAL_TEXT_BASE'>" +
             "All features <i><span style='color:$TRIAL_UNLOCKED_HEX'>unlocked</span></i> for 30 days" +
             "</body></html>"
-    }
-
-    /** Base text color for the trial headline, per variant (needs to read on the hero SVG). */
-    private fun trialTextColorForVariant(variant: AyuVariant): String =
-        when (variant) {
-            AyuVariant.MIRAGE -> TRIAL_TEXT_MIRAGE
-            AyuVariant.DARK -> TRIAL_TEXT_DARK
-            AyuVariant.LIGHT -> TRIAL_TEXT_LIGHT
-        }
 
     /** Current accent color as a CSS hex string — uses selected swatch if set, else variant default. */
     private fun resolveCurrentAccentHex(): String {
@@ -455,7 +446,6 @@ internal class FreeOnboardingPanel(
     }
 
     /** Click path — actually applies the LAF and marks it as committed. */
-    @Suppress("UnstableApiUsage")
     private fun commitVariant(variant: AyuVariant) {
         committedVariant = variant
         currentHeroVariant = variant
@@ -938,8 +928,8 @@ internal class FreeOnboardingPanel(
         // The welcome_board SVGs share a viewBox of 680x590. The tagline
         // "Unified aesthetic engine..." baseline is at y=650 with a ~10px descender
         // in the SVG's font, so y=660 is the safe visual bottom.
-        private const val SVG_VIEWBOX_WIDTH = 1600.0
-        private const val SVG_VIEWBOX_HEIGHT = 1000.0
+        private const val SVG_VIEW_BOX_WIDTH = 1600.0
+        private const val SVG_VIEW_BOX_HEIGHT = 1000.0
         private const val SVG_TAGLINE_BOTTOM_Y = 660.0
 
         // SVG tagline "Unified aesthetic engine..." font-size in viewBox units.
@@ -953,14 +943,11 @@ internal class FreeOnboardingPanel(
         private const val TRIAL_FONT_MIN = 14
         private const val TRIAL_FONT_MAX = 34
 
-        // Trial headline text colors — per-variant base color (readable on each hero SVG),
-        // plus the shared "unlocked" highlight color used across all variants.
-        // Dark/Mirage use a cool muted slate (~6:1 contrast on navy sky).
-        // Light uses a warm espresso that ties to the #886428 highlight family.
-        private const val TRIAL_TEXT_DARK = "#9fa9ba"
-        private const val TRIAL_TEXT_MIRAGE = "#9fa9ba"
-        private const val TRIAL_TEXT_LIGHT = "#9fa9ba"
+        // Trial headline: single muted slate base color readable on every hero SVG,
+        // plus the shared warm amber "unlocked" highlight used across all variants.
+        private const val TRIAL_TEXT_BASE = "#9fa9ba"
         private const val TRIAL_UNLOCKED_HEX = "#886428"
+        private const val TRIAL_DAYS_LEFT_LABEL = "30 days left"
 
         // Accent swatch strip (new)
         private const val SWATCH_DIAMETER = 28
@@ -1033,7 +1020,7 @@ internal class FreeOnboardingPanel(
         private val RAIL_GLOW_TEASER =
             RailCardSpec(
                 title = "Glow",
-                subtitle = "30 days left",
+                subtitle = TRIAL_DAYS_LEFT_LABEL,
                 tooltip = "Included in your 30-day trial",
                 hoverColor = GLOW_TEASER_TINT,
                 cornerIcon = null,
@@ -1044,7 +1031,7 @@ internal class FreeOnboardingPanel(
         private val RAIL_FONT_TEASER =
             RailCardSpec(
                 title = "Fonts",
-                subtitle = "30 days left",
+                subtitle = TRIAL_DAYS_LEFT_LABEL,
                 tooltip = "Included in your 30-day trial",
                 hoverColor = FONT_TEASER_TINT,
                 cornerIcon = null,
@@ -1055,7 +1042,7 @@ internal class FreeOnboardingPanel(
         private val RAIL_ROTATE_TEASER =
             RailCardSpec(
                 title = "Auto-Rotate",
-                subtitle = "30 days left",
+                subtitle = TRIAL_DAYS_LEFT_LABEL,
                 tooltip = "Rotate accent colors on a schedule — included in your 30-day trial",
                 hoverColor = ROTATE_TEASER_TINT,
                 cornerIcon = null,
@@ -1066,7 +1053,7 @@ internal class FreeOnboardingPanel(
         private val RAIL_PLUGINS_TEASER =
             RailCardSpec(
                 title = "Plugin Sync",
-                subtitle = "30 days left",
+                subtitle = TRIAL_DAYS_LEFT_LABEL,
                 tooltip = "Propagate accent to CodeGlance Pro and Indent Rainbow — included in your 30-day trial",
                 hoverColor = PLUGINS_TEASER_TINT,
                 cornerIcon = null,
