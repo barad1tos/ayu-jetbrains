@@ -50,8 +50,7 @@ class StartupLicenseStateTest {
         every { LicenseChecker.notifyTrialExpired(any()) } just runs
 
         mockkObject(OnboardingOrchestrator)
-        every { OnboardingOrchestrator.tryAcquire() } returns true
-        every { OnboardingOrchestrator.release() } just runs
+        every { OnboardingOrchestrator.tryPick() } returns true
 
         mockkObject(StartupLicenseHandler)
         every { StartupLicenseHandler.scheduleTrialWelcome(any(), any()) } just runs
@@ -367,19 +366,5 @@ class StartupLicenseStateTest {
         val result = StartupLicenseHandler.resolveOnboarding(false, settings, isReturningUser = false)
 
         assertEquals(WizardAction.ShowFreeWizard, result)
-    }
-
-    @Test
-    fun `handleWizardAction skips when guard already acquired`() {
-        every { OnboardingOrchestrator.tryAcquire() } returns false
-
-        StartupLicenseHandler.handleWizardAction(
-            WizardAction.ShowFreeWizard,
-            project,
-            testDelayMs,
-            settings,
-        )
-
-        assertFalse(state.freeOnboardingShown)
     }
 }

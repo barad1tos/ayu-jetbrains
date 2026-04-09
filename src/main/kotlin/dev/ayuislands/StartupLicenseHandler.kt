@@ -7,6 +7,7 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.wm.WindowManager
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.editor.EditorScrollbarManager
@@ -111,30 +112,24 @@ internal object StartupLicenseHandler {
         )
     }
 
-    /** Schedule wizard display based on orchestrator decision, guarded by [OnboardingOrchestrator.tryAcquire]. */
+    /**
+     * Schedule a wizard display. Every project running the startup activity schedules
+     * its own coroutine. When the coroutines fire after the delay, only the project
+     * whose frame is currently active will actually open the wizard — see
+     * [scheduleFreeWizard] / [scheduleTrialWelcome] for the focus-aware claim logic.
+     */
     fun handleWizardAction(
         action: WizardAction,
         project: Project,
         delayMs: Int,
-        settings: AyuIslandsSettings,
+        @Suppress("UNUSED_PARAMETER") settings: AyuIslandsSettings,
     ) {
-        if (action is WizardAction.NoWizard) return
-
-        if (!OnboardingOrchestrator.tryAcquire()) {
-            LOG.info("Ayu onboarding: wizard already showing in another window")
-            return
-        }
-
         when (action) {
-            is WizardAction.ShowFreeWizard -> {
-                scheduleFreeWizard(project, delayMs)
-                // guard released inside scheduleFreeWizard coroutine finally block
-            }
+            is WizardAction.NoWizard -> return
+            is WizardAction.ShowFreeWizard -> scheduleFreeWizard(project, delayMs)
             is WizardAction.ShowPremiumWizard -> {
                 LOG.info("Ayu onboarding: scheduling premium wizard (delay: ${delayMs}ms)")
-                settings.state.premiumOnboardingShown = true
                 scheduleTrialWelcome(project, delayMs)
-                // one-shot per IDE session: never released after acquire
             }
         }
     }
@@ -143,18 +138,22 @@ internal object StartupLicenseHandler {
         project: Project,
         delayMs: Int,
     ) {
+        val settings = AyuIslandsSettings.getInstance()
         val scope = OnboardingSchedulerService.getInstance(project).scope()
         scope.launch {
             delay(delayMs.toLong())
             if (project.isDisposed) return@launch
-            openWizardTab(project, OnboardingVirtualFile())
+            openWizardIfThisProjectWins(project, OnboardingVirtualFile()) {
+                settings.state.premiumOnboardingShown = true
+            }
         }
     }
 
     /**
      * Opens the free onboarding wizard tab after [delayMs].
-     * Sets [AyuIslandsState.freeOnboardingShown] after openFile succeeds inside
-     * the coroutine body; releases the orchestrator guard in the finally block.
+     * Sets [AyuIslandsState.freeOnboardingShown] only after `openFile` succeeds inside
+     * the coroutine body, so a project that loses the focus-aware race does not
+     * incorrectly mark the wizard as shown.
      */
     internal fun scheduleFreeWizard(
         project: Project,
@@ -164,35 +163,46 @@ internal object StartupLicenseHandler {
         LOG.info("Ayu onboarding: scheduling free wizard (delay: ${delayMs}ms)")
         val scope = OnboardingSchedulerService.getInstance(project).scope()
         scope.launch {
-            try {
-                delay(delayMs.toLong())
-                if (project.isDisposed) return@launch
-                openWizardTab(project, FreeOnboardingVirtualFile())
+            delay(delayMs.toLong())
+            if (project.isDisposed) return@launch
+            openWizardIfThisProjectWins(project, FreeOnboardingVirtualFile()) {
                 settings.state.freeOnboardingShown = true
-            } finally {
-                OnboardingOrchestrator.release()
             }
         }
     }
 
     /**
-     * Opens a wizard tab from a coroutine via [Dispatchers.EDT].
+     * Hop to EDT, check whether this project's frame is currently active, and if so
+     * atomically claim the wizard slot via [OnboardingOrchestrator.tryPick]. Only the
+     * winning project actually opens the wizard tab and runs [onSuccess]. Every other
+     * project bails out silently.
      *
-     * Uses the stable [FileEditorManager.openFile] interface call rather than
-     * `FileEditorManagerEx` + `FileEditorOpenOptions`, because the latter has
-     * a binary-incompatible constructor signature between IntelliJ Platform
-     * 2025.1 (build target) and 2026.1 (runtime). The coroutine refactor still
-     * eliminates the prior `javax.swing.Timer`-on-EDT chain that caused the
-     * 15-second freeze, since the delay no longer occupies EDT and the EDT hop
-     * happens cooperatively through the coroutine dispatcher.
+     * If no IDE frame is active when the coroutines fire (user minimized the IDE or
+     * switched apps during the delay), no wizard opens this session and the state
+     * flag stays unset, so the next startup will try again.
      */
-    private suspend fun openWizardTab(
+    private suspend fun openWizardIfThisProjectWins(
         project: Project,
         file: VirtualFile,
+        onSuccess: () -> Unit,
     ) {
         withContext(Dispatchers.EDT + ModalityState.nonModal().asContextElement()) {
             if (project.isDisposed) return@withContext
+
+            val frame = WindowManager.getInstance().getFrame(project)
+            if (frame?.isActive != true) {
+                LOG.info("Ayu onboarding: project ${project.name} frame not active — skipping wizard")
+                return@withContext
+            }
+
+            if (!OnboardingOrchestrator.tryPick()) {
+                LOG.info("Ayu onboarding: another project already claimed the wizard slot")
+                return@withContext
+            }
+
+            LOG.info("Ayu onboarding: opening wizard in ${project.name}")
             FileEditorManager.getInstance(project).openFile(file, true)
+            onSuccess()
         }
     }
 

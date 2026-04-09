@@ -15,17 +15,26 @@ sealed class WizardAction {
  * Pure-logic state machine that resolves which onboarding wizard to display.
  *
  * No platform dependencies — all inputs are plain booleans, making this trivially testable.
- * The [AtomicBoolean] guard prevents concurrent wizard display across multiple project windows.
+ * The [AtomicBoolean] guard ensures at most one project window actually opens the wizard
+ * in a JVM session, even when several project windows race to claim it after their
+ * individual coroutine delays elapse. Unlike a simple acquire-on-schedule lock, the
+ * pick happens *after* the delay so the currently-focused project window wins, not
+ * whichever project happened to start first.
  */
 internal object OnboardingOrchestrator {
-    private val wizardShowing = AtomicBoolean(false)
+    private val wizardShown = AtomicBoolean(false)
 
-    /** Atomically acquires the wizard display lock. Returns `true` if acquired, `false` if already held. */
-    fun tryAcquire(): Boolean = wizardShowing.compareAndSet(false, true)
+    /**
+     * Atomically claims the right to open the wizard. Returns `true` only to the
+     * first caller; subsequent callers get `false` and must bail without showing.
+     * One-shot for the lifetime of the JVM session.
+     */
+    fun tryPick(): Boolean = wizardShown.compareAndSet(false, true)
 
-    /** Releases the wizard display lock so another project window can show a wizard. */
-    fun release() {
-        wizardShowing.set(false)
+    /** Test-only hook: reset the one-shot pick flag between test cases. */
+    @org.jetbrains.annotations.TestOnly
+    fun resetForTesting() {
+        wizardShown.set(false)
     }
 
     /**

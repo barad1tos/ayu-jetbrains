@@ -10,12 +10,12 @@ import kotlin.test.assertTrue
 class OnboardingOrchestratorTest {
     @BeforeTest
     fun setUp() {
-        OnboardingOrchestrator.release()
+        OnboardingOrchestrator.resetForTesting()
     }
 
     @AfterTest
     fun tearDown() {
-        OnboardingOrchestrator.release()
+        OnboardingOrchestrator.resetForTesting()
     }
 
     // resolve() — all input combinations
@@ -116,23 +116,23 @@ class OnboardingOrchestratorTest {
         assertEquals(WizardAction.NoWizard, result)
     }
 
-    // tryAcquire / release — AtomicBoolean guard
+    // tryPick — one-shot claim guard
 
     @Test
-    fun `tryAcquire returns true on first call`() {
-        assertTrue(OnboardingOrchestrator.tryAcquire())
+    fun `tryPick returns true on first call`() {
+        assertTrue(OnboardingOrchestrator.tryPick())
     }
 
     @Test
-    fun `tryAcquire returns false when already acquired`() {
-        OnboardingOrchestrator.tryAcquire()
-        assertFalse(OnboardingOrchestrator.tryAcquire())
+    fun `tryPick returns false on subsequent calls`() {
+        OnboardingOrchestrator.tryPick()
+        assertFalse(OnboardingOrchestrator.tryPick())
     }
 
     @Test
-    fun `release resets guard for next tryAcquire`() {
-        OnboardingOrchestrator.tryAcquire()
-        OnboardingOrchestrator.release()
-        assertTrue(OnboardingOrchestrator.tryAcquire())
+    fun `resetForTesting re-enables tryPick`() {
+        OnboardingOrchestrator.tryPick()
+        OnboardingOrchestrator.resetForTesting()
+        assertTrue(OnboardingOrchestrator.tryPick())
     }
 }
