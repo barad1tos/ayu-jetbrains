@@ -5,7 +5,6 @@ import com.intellij.openapi.fileEditor.FileEditorState
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.ui.components.JBScrollPane
 import java.beans.PropertyChangeListener
 import javax.swing.JComponent
 
@@ -16,13 +15,8 @@ internal class FreeOnboardingEditor(
 ) : UserDataHolderBase(),
     FileEditor {
     private val panel = FreeOnboardingPanel(project, virtualFile)
-    private val scrollPane =
-        JBScrollPane(panel).apply {
-            border = null
-            viewportBorder = null
-        }
 
-    override fun getComponent(): JComponent = scrollPane
+    override fun getComponent(): JComponent = panel
 
     override fun getPreferredFocusedComponent(): JComponent = panel
 
