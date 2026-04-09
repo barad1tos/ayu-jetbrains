@@ -1,8 +1,13 @@
 package dev.ayuislands
 
+import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
+import com.intellij.openapi.fileEditor.impl.FileEditorOpenOptions
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.VirtualFile
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.editor.EditorScrollbarManager
@@ -10,12 +15,17 @@ import dev.ayuislands.gitpanel.GitPanelAutoFitManager
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.onboarding.FreeOnboardingVirtualFile
 import dev.ayuislands.onboarding.OnboardingOrchestrator
+import dev.ayuislands.onboarding.OnboardingSchedulerService
 import dev.ayuislands.onboarding.OnboardingVirtualFile
 import dev.ayuislands.onboarding.WizardAction
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.PanelWidthMode
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * License-state dispatch logic, extracted from
@@ -119,7 +129,7 @@ internal object StartupLicenseHandler {
         when (action) {
             is WizardAction.ShowFreeWizard -> {
                 scheduleFreeWizard(project, delayMs)
-                // guard released inside scheduleFreeWizard Timer callback (try/finally)
+                // guard released inside scheduleFreeWizard coroutine finally block
             }
             is WizardAction.ShowPremiumWizard -> {
                 LOG.info("Ayu onboarding: scheduling premium wizard (delay: ${delayMs}ms)")
@@ -134,23 +144,18 @@ internal object StartupLicenseHandler {
         project: Project,
         delayMs: Int,
     ) {
-        javax.swing
-            .Timer(delayMs) {
-                if (!project.isDisposed) {
-                    FileEditorManager
-                        .getInstance(project)
-                        .openFile(OnboardingVirtualFile(), true)
-                }
-            }.apply {
-                isRepeats = false
-                start()
-            }
+        val scope = OnboardingSchedulerService.getInstance(project).scope()
+        scope.launch {
+            delay(delayMs.toLong())
+            if (project.isDisposed) return@launch
+            openWizardTab(project, OnboardingVirtualFile())
+        }
     }
 
     /**
      * Opens the free onboarding wizard tab after [delayMs].
      * Sets [AyuIslandsState.freeOnboardingShown] after openFile succeeds inside
-     * the Timer callback; releases the orchestrator guard in finally.
+     * the coroutine body; releases the orchestrator guard in the finally block.
      */
     internal fun scheduleFreeWizard(
         project: Project,
@@ -158,22 +163,34 @@ internal object StartupLicenseHandler {
     ) {
         val settings = AyuIslandsSettings.getInstance()
         LOG.info("Ayu onboarding: scheduling free wizard (delay: ${delayMs}ms)")
-        javax.swing
-            .Timer(delayMs) {
-                try {
-                    if (!project.isDisposed) {
-                        FileEditorManager
-                            .getInstance(project)
-                            .openFile(FreeOnboardingVirtualFile(), true)
-                        settings.state.freeOnboardingShown = true
-                    }
-                } finally {
-                    OnboardingOrchestrator.release()
-                }
-            }.apply {
-                isRepeats = false
-                start()
+        val scope = OnboardingSchedulerService.getInstance(project).scope()
+        scope.launch {
+            try {
+                delay(delayMs.toLong())
+                if (project.isDisposed) return@launch
+                openWizardTab(project, FreeOnboardingVirtualFile())
+                settings.state.freeOnboardingShown = true
+            } finally {
+                OnboardingOrchestrator.release()
             }
+        }
+    }
+
+    /**
+     * Opens a wizard tab using the non-blocking suspend variant of
+     * [FileEditorManagerEx.openFile]. This avoids the 15-second EDT freeze
+     * caused by the sync overload's `waitBlockingAndPumpEdt` call path.
+     */
+    private suspend fun openWizardTab(
+        project: Project,
+        file: VirtualFile,
+    ) {
+        withContext(Dispatchers.EDT + ModalityState.nonModal().asContextElement()) {
+            if (project.isDisposed) return@withContext
+            val fem = FileEditorManagerEx.getInstanceEx(project)
+            val options = FileEditorOpenOptions().withSelectAsCurrent().withRequestFocus()
+            fem.openFile(file, options)
+        }
     }
 
     fun applyUnlicensedDefaults(
