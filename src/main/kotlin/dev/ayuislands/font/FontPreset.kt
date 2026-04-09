@@ -1,15 +1,14 @@
 package dev.ayuislands.font
 
-private const val NERD_FONTS_GITHUB = "https://github.com/ryanoasis/nerd-fonts/releases/latest/download"
 private const val DEFAULT_CUSTOM_FONT = "JetBrains Mono"
 
-/** Download and install metadata for a curated font preset. */
-data class InstallInfo(
-    val downloadUrl: String,
-    val brewCask: String,
-)
-
-/** Curated Nerd Font presets aligned with the Ayu Islands aesthetic system. */
+/**
+ * Curated font presets aligned with the Ayu Islands aesthetic system.
+ *
+ * Installable presets (Whisper/Ambient/Neon/Cyberpunk) have no hard-coded download
+ * metadata here — runtime install URLs live in [FontCatalog] and are resolved by
+ * [FontInstaller]. Keep this enum focused on pure preset identity + typography.
+ */
 enum class FontPreset(
     val displayName: String,
     val fontFamily: String,
@@ -18,47 +17,42 @@ enum class FontPreset(
     val lineSpacing: Float,
     val enableLigatures: Boolean,
     val defaultWeight: FontWeight,
-    val installInfo: InstallInfo?,
 ) {
     WHISPER(
         displayName = "Whisper",
-        fontFamily = "VictorMono Nerd Font",
-        fontAliases = listOf("VictorMono Nerd Font", "VictorMono NF", "Victor Mono Nerd Font"),
+        fontFamily = "Victor Mono",
+        fontAliases = listOf("Victor Mono", "VictorMono Nerd Font", "VictorMono NF"),
         fontSize = 14f,
         lineSpacing = 1.4f,
         enableLigatures = true,
         defaultWeight = FontWeight.LIGHT,
-        installInfo = InstallInfo("$NERD_FONTS_GITHUB/VictorMono.zip", "font-victor-mono-nerd-font"),
     ),
     AMBIENT(
         displayName = "Ambient",
-        fontFamily = "Maple Mono NF",
-        fontAliases = listOf("Maple Mono NF", "MapleMono Nerd Font", "Maple Mono"),
+        fontFamily = "Maple Mono",
+        fontAliases = listOf("Maple Mono", "Maple Mono NF", "MapleMono Nerd Font"),
         fontSize = 13f,
         lineSpacing = 1.3f,
         enableLigatures = true,
         defaultWeight = FontWeight.REGULAR,
-        installInfo = InstallInfo("$NERD_FONTS_GITHUB/MapleMono.zip", "font-maple-mono-nf"),
     ),
     NEON(
         displayName = "Neon",
-        fontFamily = "MonaspiceNe Nerd Font",
-        fontAliases = listOf("MonaspiceNe Nerd Font", "MonaspiceNe NF", "Monaspace Neon"),
+        fontFamily = "Monaspace Neon",
+        fontAliases = listOf("Monaspace Neon", "MonaspiceNe Nerd Font", "MonaspiceNe NF"),
         fontSize = 13f,
         lineSpacing = 1.2f,
         enableLigatures = true,
         defaultWeight = FontWeight.REGULAR,
-        installInfo = InstallInfo("$NERD_FONTS_GITHUB/Monaspace.zip", "font-monaspice-nerd-font"),
     ),
     CYBERPUNK(
         displayName = "Cyberpunk",
-        fontFamily = "MonaspiceXe Nerd Font",
-        fontAliases = listOf("MonaspiceXe Nerd Font", "MonaspiceXe NF", "Monaspace Xenon"),
+        fontFamily = "Monaspace Xenon",
+        fontAliases = listOf("Monaspace Xenon", "MonaspiceXe Nerd Font", "MonaspiceXe NF"),
         fontSize = 13f,
         lineSpacing = 1.2f,
         enableLigatures = true,
         defaultWeight = FontWeight.MEDIUM,
-        installInfo = InstallInfo("$NERD_FONTS_GITHUB/Monaspace.zip", "font-monaspice-nerd-font"),
     ),
     CUSTOM(
         displayName = "Custom",
@@ -68,7 +62,6 @@ enum class FontPreset(
         lineSpacing = 1.2f,
         enableLigatures = true,
         defaultWeight = FontWeight.REGULAR,
-        installInfo = null,
     ),
     ;
 

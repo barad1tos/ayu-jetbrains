@@ -37,6 +37,10 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         }
         FontPreset.migrateCustomizations(settings.state.fontPresetCustomizations)
 
+        // Seed installedFonts from the JVM font registry on first run so returning
+        // users who pre-installed via the Settings panel aren't re-prompted by the wizard.
+        settings.seedInstalledFontsFromDiskIfNeeded()
+
         FontPresetApplicator.applyFromState()
 
         // Log detected third-party plugin conflicts

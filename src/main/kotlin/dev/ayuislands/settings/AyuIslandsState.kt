@@ -159,6 +159,11 @@ class AyuIslandsState : BaseState() {
     // Font families installed via the runtime FontInstaller (family name, e.g. "Maple Mono")
     var installedFonts by stringSet()
 
+    // One-shot flag: installedFonts has been seeded from a filesystem/GraphicsEnvironment
+    // probe so returning users who pre-installed fonts via the Settings panel aren't
+    // re-prompted. Set to true after the first successful seed.
+    var installedFontsSeeded by property(false)
+
     // Accent rotation
     var accentRotationEnabled by property(false)
     var accentRotationMode by string(AccentRotationMode.PRESET.name)
