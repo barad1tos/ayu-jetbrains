@@ -4,8 +4,7 @@ import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
-import com.intellij.openapi.fileEditor.impl.FileEditorOpenOptions
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import dev.ayuislands.accent.AyuVariant
@@ -177,9 +176,15 @@ internal object StartupLicenseHandler {
     }
 
     /**
-     * Opens a wizard tab using the non-blocking suspend variant of
-     * [FileEditorManagerEx.openFile]. This avoids the 15-second EDT freeze
-     * caused by the sync overload's `waitBlockingAndPumpEdt` call path.
+     * Opens a wizard tab from a coroutine via [Dispatchers.EDT].
+     *
+     * Uses the stable [FileEditorManager.openFile] interface call rather than
+     * `FileEditorManagerEx` + `FileEditorOpenOptions`, because the latter has
+     * a binary-incompatible constructor signature between IntelliJ Platform
+     * 2025.1 (build target) and 2026.1 (runtime). The coroutine refactor still
+     * eliminates the prior `javax.swing.Timer`-on-EDT chain that caused the
+     * 15-second freeze, since the delay no longer occupies EDT and the EDT hop
+     * happens cooperatively through the coroutine dispatcher.
      */
     private suspend fun openWizardTab(
         project: Project,
@@ -187,9 +192,7 @@ internal object StartupLicenseHandler {
     ) {
         withContext(Dispatchers.EDT + ModalityState.nonModal().asContextElement()) {
             if (project.isDisposed) return@withContext
-            val fem = FileEditorManagerEx.getInstanceEx(project)
-            val options = FileEditorOpenOptions().withSelectAsCurrent().withRequestFocus()
-            fem.openFile(file, options)
+            FileEditorManager.getInstance(project).openFile(file, true)
         }
     }
 
