@@ -865,7 +865,7 @@ internal class FreeOnboardingPanel(
         // Variant cards (reused from premium)
         private const val CARD_ARC = 14
         private const val CARD_PADDING = 12
-        private const val CARD_WIDTH = 118
+        private const val CARD_WIDTH = 140
         private const val CARD_HEIGHT = 96
         private const val CARD_GAP = 10
         private const val CARD_DOT_SIZE = 8
@@ -914,15 +914,15 @@ internal class FreeOnboardingPanel(
 
         // SVG geometry — used to position content below the tagline at any tab size.
         // The welcome_board SVGs share a viewBox of 680x590. The tagline
-        // "Unified aesthetic engine..." baseline is at y=355 with a ~16px descender
-        // in the SVG's font, so y=372 is the safe visual bottom.
-        private const val SVG_VIEWBOX_WIDTH = 680.0
-        private const val SVG_VIEWBOX_HEIGHT = 590.0
-        private const val SVG_TAGLINE_BOTTOM_Y = 372.0
+        // "Unified aesthetic engine..." baseline is at y=650 with a ~10px descender
+        // in the SVG's font, so y=660 is the safe visual bottom.
+        private const val SVG_VIEWBOX_WIDTH = 1600.0
+        private const val SVG_VIEWBOX_HEIGHT = 1000.0
+        private const val SVG_TAGLINE_BOTTOM_Y = 660.0
 
         // SVG tagline "Unified aesthetic engine..." font-size in viewBox units.
         // Multiplied by cover scale to match the on-screen rendered size.
-        private const val SVG_TAGLINE_FONT_PX = 13.0
+        private const val SVG_TAGLINE_FONT_PX = 26.0
 
         // Fallback font size used at construction time before updateDynamicLayout runs.
         private const val TRIAL_HEADLINE_SIZE = 15

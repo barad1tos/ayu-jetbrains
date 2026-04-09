@@ -1,209 +1,217 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg viewBox="0 0 680 580" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<svg viewBox="0 0 1600 1000" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#060A10"/>
-      <stop offset="25%" stop-color="#0D1520"/>
-      <stop offset="50%" stop-color="#141E2C"/>
-      <stop offset="70%" stop-color="#1A2536"/>
-      <stop offset="85%" stop-color="#1F2A3A"/>
-      <stop offset="100%" stop-color="#232D3D"/>
+      <stop offset="30%" stop-color="#0D1520"/>
+      <stop offset="60%" stop-color="#141E2C"/>
+      <stop offset="80%" stop-color="#1A2536"/>
+      <stop offset="100%" stop-color="#0F141C"/>
     </linearGradient>
     <linearGradient id="waterDeep" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#182430"/>
-      <stop offset="30%" stop-color="#121C28"/>
-      <stop offset="100%" stop-color="#080E16"/>
+      <stop offset="0%" stop-color="#0A0E14"/>
+      <stop offset="40%" stop-color="#080C12"/>
+      <stop offset="100%" stop-color="#060A10"/>
     </linearGradient>
-    <linearGradient id="bottomFade" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#080E16"/>
+    <linearGradient id="uiZone" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#060A10"/>
       <stop offset="100%" stop-color="#060A10"/>
     </linearGradient>
     <radialGradient id="moonGlow" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0%" stop-color="#FFCC66" stop-opacity="1"/>
-      <stop offset="15%" stop-color="#FFCC66" stop-opacity="0.8"/>
-      <stop offset="35%" stop-color="#FFB840" stop-opacity="0.25"/>
-      <stop offset="60%" stop-color="#FF9F30" stop-opacity="0.08"/>
-      <stop offset="100%" stop-color="#FF9F30" stop-opacity="0"/>
+      <stop offset="0%" stop-color="#C8D8E8" stop-opacity="0.9"/>
+      <stop offset="15%" stop-color="#B0C4D8" stop-opacity="0.6"/>
+      <stop offset="35%" stop-color="#8AA0B8" stop-opacity="0.2"/>
+      <stop offset="60%" stop-color="#6080A0" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#406080" stop-opacity="0"/>
     </radialGradient>
     <radialGradient id="moonHalo" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0%" stop-color="#FFCC66" stop-opacity="0.12"/>
-      <stop offset="40%" stop-color="#FFCC66" stop-opacity="0.05"/>
-      <stop offset="100%" stop-color="#FFCC66" stop-opacity="0"/>
+      <stop offset="0%" stop-color="#C8D8E8" stop-opacity="0.1"/>
+      <stop offset="40%" stop-color="#A0B8CC" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#6080A0" stop-opacity="0"/>
     </radialGradient>
     <linearGradient id="horizonMist" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#FFCC66" stop-opacity="0.06"/>
-      <stop offset="50%" stop-color="#73D0FF" stop-opacity="0.03"/>
-      <stop offset="100%" stop-color="#1F2430" stop-opacity="0"/>
-    </linearGradient>
-    <linearGradient id="islandBase" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#2E3544"/>
-      <stop offset="100%" stop-color="#1A2030"/>
-    </linearGradient>
-    <linearGradient id="islandTop" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#3A4255"/>
-      <stop offset="100%" stop-color="#2A3244"/>
-    </linearGradient>
-    <linearGradient id="vegGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#5C8A5E"/>
-      <stop offset="100%" stop-color="#3A5C40"/>
-    </linearGradient>
-    <linearGradient id="vegDark" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#4A7050"/>
-      <stop offset="100%" stop-color="#2E4A34"/>
+      <stop offset="0%" stop-color="#C8D8E8" stop-opacity="0.04"/>
+      <stop offset="50%" stop-color="#73D0FF" stop-opacity="0.02"/>
+      <stop offset="100%" stop-color="#0A0E14" stop-opacity="0"/>
     </linearGradient>
     <linearGradient id="moonPillar" x1="0.5" y1="0" x2="0.5" y2="1">
-      <stop offset="0%" stop-color="#FFCC66" stop-opacity="0.18"/>
-      <stop offset="30%" stop-color="#FFCC66" stop-opacity="0.08"/>
-      <stop offset="100%" stop-color="#FFCC66" stop-opacity="0"/>
+      <stop offset="0%" stop-color="#C8D8E8" stop-opacity="0.14"/>
+      <stop offset="30%" stop-color="#A0B8CC" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#6080A0" stop-opacity="0"/>
     </linearGradient>
-    <linearGradient id="goldText" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#FFCC66"/>
-      <stop offset="50%" stop-color="#F0A830"/>
-      <stop offset="100%" stop-color="#E09520"/>
-    </linearGradient>
-    <clipPath id="sceneClip">
-      <rect x="0" y="0" width="680" height="580" rx="12"/>
-    </clipPath>
   </defs>
 
-  <g clip-path="url(#sceneClip)">
-    <rect width="680" height="480" fill="url(#sky)"/>
-    <rect x="0" y="380" width="680" height="200" fill="url(#bottomFade)"/>
+  <!-- FULL BLEED background -->
+  <rect width="1600" height="1000" fill="#060A10"/>
 
-    <ellipse cx="280" cy="100" rx="300" ry="40" fill="#8899AA" opacity="0.02" transform="rotate(-15 280 100)"/>
-    <ellipse cx="300" cy="95" rx="200" ry="20" fill="#9AB" opacity="0.025" transform="rotate(-15 300 95)"/>
+  <!-- SKY (y=0..301) -->
+  <rect width="1600" height="301" fill="url(#sky)"/>
 
-    <circle cx="52" cy="28" r="1.4" fill="#E0D8C8" opacity="0.8"/>
-    <circle cx="175" cy="15" r="1.2" fill="#E0D8C8" opacity="0.7"/>
-    <circle cx="425" cy="22" r="1.5" fill="#E0D8C8" opacity="0.75"/>
-    <circle cx="598" cy="35" r="1.3" fill="#E0D8C8" opacity="0.7"/>
-    <circle cx="310" cy="48" r="1.1" fill="#D4BFFF" opacity="0.6"/>
-    <circle cx="520" cy="55" r="1.3" fill="#E0D8C8" opacity="0.65"/>
-    <circle cx="95" cy="60" r="0.9" fill="#B8CFE6" opacity="0.5"/>
-    <circle cx="220" cy="42" r="0.8" fill="#B8CFE6" opacity="0.45"/>
-    <circle cx="370" cy="30" r="0.9" fill="#B8CFE6" opacity="0.5"/>
-    <circle cx="480" cy="18" r="0.7" fill="#B8CFE6" opacity="0.4"/>
-    <circle cx="560" cy="72" r="0.8" fill="#B8CFE6" opacity="0.45"/>
-    <circle cx="130" cy="90" r="0.7" fill="#B8CFE6" opacity="0.4"/>
-    <circle cx="640" cy="58" r="0.9" fill="#B8CFE6" opacity="0.5"/>
-    <circle cx="30" cy="75" r="0.8" fill="#B8CFE6" opacity="0.35"/>
-    <circle cx="65" cy="110" r="0.5" fill="#8899AA" opacity="0.3"/>
-    <circle cx="145" cy="48" r="0.5" fill="#8899AA" opacity="0.25"/>
-    <circle cx="260" cy="70" r="0.6" fill="#8899AA" opacity="0.3"/>
-    <circle cx="340" cy="12" r="0.5" fill="#8899AA" opacity="0.25"/>
-    <circle cx="450" cy="65" r="0.5" fill="#8899AA" opacity="0.28"/>
-    <circle cx="540" cy="38" r="0.4" fill="#8899AA" opacity="0.22"/>
-    <circle cx="610" cy="90" r="0.5" fill="#8899AA" opacity="0.25"/>
-    <circle cx="200" cy="95" r="0.4" fill="#8899AA" opacity="0.2"/>
-    <circle cx="390" cy="80" r="0.55" fill="#8899AA" opacity="0.27"/>
-    <circle cx="500" cy="95" r="0.45" fill="#8899AA" opacity="0.22"/>
-    <circle cx="660" cy="15" r="0.6" fill="#8899AA" opacity="0.3"/>
-    <circle cx="15" cy="52" r="0.4" fill="#8899AA" opacity="0.2"/>
+  <!-- Milky way hint -->
+  <ellipse cx="660" cy="137" rx="706" ry="55" fill="#8899AA" opacity="0.02" transform="rotate(-15 660 137)"/>
+  <ellipse cx="706" cy="130" rx="470" ry="27" fill="#8899AA" opacity="0.025" transform="rotate(-15 706 130)"/>
 
-    <circle cx="340" cy="105" r="120" fill="url(#moonHalo)"/>
-    <circle cx="340" cy="105" r="60" fill="url(#moonGlow)"/>
-    <circle cx="340" cy="105" r="14" fill="#FFDD88"/>
-    <circle cx="340" cy="105" r="10" fill="#FFE8A8"/>
-    <circle cx="337" cy="102" r="7" fill="#FFF2CC" opacity="0.5"/>
+  <!-- Stars (y < 450 only) -->
+  <circle cx="122" cy="38" r="3.3" fill="#FFFFFF" opacity="0.8"/>
+  <circle cx="412" cy="21" r="2.8" fill="#FFFFFF" opacity="0.7"/>
+  <circle cx="1000" cy="30" r="3.5" fill="#FFFFFF" opacity="0.75"/>
+  <circle cx="1407" cy="48" r="3.1" fill="#FFFFFF" opacity="0.7"/>
+  <circle cx="729" cy="66" r="2.6" fill="#D4BFFF" opacity="0.6"/>
+  <circle cx="1223" cy="75" r="3.1" fill="#FFFFFF" opacity="0.65"/>
+  <circle cx="224" cy="82" r="2.1" fill="#B8CFE6" opacity="0.5"/>
+  <circle cx="518" cy="57" r="1.9" fill="#B8CFE6" opacity="0.45"/>
+  <circle cx="871" cy="41" r="2.1" fill="#B8CFE6" opacity="0.5"/>
+  <circle cx="1130" cy="25" r="1.6" fill="#B8CFE6" opacity="0.4"/>
+  <circle cx="1318" cy="99" r="1.9" fill="#B8CFE6" opacity="0.45"/>
+  <circle cx="306" cy="123" r="1.6" fill="#B8CFE6" opacity="0.4"/>
+  <circle cx="1506" cy="79" r="2.1" fill="#B8CFE6" opacity="0.5"/>
+  <circle cx="71" cy="103" r="1.9" fill="#B8CFE6" opacity="0.35"/>
+  <circle cx="153" cy="150" r="1.2" fill="#8899AA" opacity="0.3"/>
+  <circle cx="341" cy="66" r="1.2" fill="#8899AA" opacity="0.25"/>
+  <circle cx="612" cy="96" r="1.4" fill="#8899AA" opacity="0.3"/>
+  <circle cx="800" cy="16" r="1.2" fill="#8899AA" opacity="0.25"/>
+  <circle cx="1059" cy="89" r="1.2" fill="#8899AA" opacity="0.28"/>
+  <circle cx="1271" cy="52" r="0.9" fill="#8899AA" opacity="0.22"/>
+  <circle cx="1435" cy="123" r="1.2" fill="#8899AA" opacity="0.25"/>
+  <circle cx="471" cy="130" r="0.9" fill="#8899AA" opacity="0.2"/>
+  <circle cx="918" cy="109" r="1.3" fill="#8899AA" opacity="0.27"/>
+  <circle cx="1176" cy="130" r="1.1" fill="#8899AA" opacity="0.22"/>
+  <circle cx="1553" cy="21" r="1.4" fill="#8899AA" opacity="0.3"/>
+  <circle cx="35" cy="71" r="0.9" fill="#8899AA" opacity="0.2"/>
+  <!-- Extra stars for wider canvas -->
+  <circle cx="50" cy="180" r="1.8" fill="#B8CFE6" opacity="0.35"/>
+  <circle cx="1550" cy="160" r="2.0" fill="#B8CFE6" opacity="0.4"/>
+  <circle cx="250" cy="200" r="1.0" fill="#8899AA" opacity="0.2"/>
+  <circle cx="1400" cy="190" r="1.3" fill="#8899AA" opacity="0.25"/>
 
-    <rect x="0" y="200" width="680" height="60" fill="url(#horizonMist)"/>
+  <!-- Moon (silver) — centered at x=800, y=144 -->
+  <circle cx="800" cy="144" r="282" fill="url(#moonHalo)"/>
+  <circle cx="800" cy="144" r="141" fill="url(#moonGlow)"/>
+  <circle cx="800" cy="144" r="33" fill="#D8E4EE"/>
+  <circle cx="800" cy="144" r="24" fill="#E4EEF4"/>
+  <circle cx="793" cy="140" r="16" fill="#F0F4F8" opacity="0.5"/>
 
-    <ellipse cx="120" cy="195" rx="80" ry="6" fill="#283444" opacity="0.4"/>
-    <ellipse cx="320" cy="205" rx="100" ry="5" fill="#283444" opacity="0.3"/>
-    <ellipse cx="540" cy="198" rx="70" ry="5" fill="#283444" opacity="0.35"/>
-    <ellipse cx="450" cy="210" rx="60" ry="4" fill="#253040" opacity="0.25"/>
-    <ellipse cx="180" cy="212" rx="55" ry="4" fill="#253040" opacity="0.2"/>
+  <!-- Horizon mist -->
+  <rect x="0" y="274" width="1600" height="82" fill="url(#horizonMist)"/>
 
-    <rect x="0" y="220" width="680" height="160" fill="url(#waterDeep)"/>
+  <!-- Cloud wisps -->
+  <ellipse cx="282" cy="267" rx="188" ry="8" fill="#283444" opacity="0.4"/>
+  <ellipse cx="753" cy="280" rx="235" ry="7" fill="#283444" opacity="0.3"/>
+  <ellipse cx="1271" cy="271" rx="165" ry="7" fill="#283444" opacity="0.35"/>
+  <ellipse cx="1059" cy="287" rx="141" ry="5" fill="#253040" opacity="0.25"/>
+  <ellipse cx="424" cy="290" rx="129" ry="5" fill="#253040" opacity="0.2"/>
 
-    <ellipse cx="340" cy="225" rx="50" ry="8" fill="#FFCC66" opacity="0.12"/>
-    <rect x="315" y="225" width="50" height="160" fill="url(#moonPillar)" opacity="0.5"/>
+  <!-- WATER (y=301..520) -->
+  <rect x="0" y="301" width="1600" height="219" fill="url(#waterDeep)"/>
 
-    <path d="M0 232 Q60 230 120 233 Q180 236 240 232 Q300 228 340 231 Q380 234 440 230 Q500 228 560 232 Q620 235 680 231" fill="none" stroke="#FFCC66" stroke-width="0.6" opacity="0.1"/>
-    <path d="M0 240 Q80 237 160 241 Q240 244 320 239 Q400 236 480 240 Q560 243 680 238" fill="none" stroke="#73D0FF" stroke-width="0.4" opacity="0.06"/>
-    <path d="M0 248 Q70 246 140 249 Q210 252 280 248 Q350 245 420 249 Q490 252 560 248 Q630 245 680 248" fill="none" stroke="#FFCC66" stroke-width="0.5" opacity="0.08"/>
-    <path d="M0 262 Q50 259 100 263 Q150 266 200 261 Q250 258 300 262 Q350 265 400 260 Q450 257 500 262 Q550 266 600 261 Q650 258 680 261" fill="none" stroke="#405570" stroke-width="0.5" opacity="0.3"/>
-    <path d="M0 272 Q80 269 160 273 Q240 276 320 271 Q360 268 400 271 Q480 275 560 270 Q640 267 680 270" fill="none" stroke="#3A4E66" stroke-width="0.4" opacity="0.25"/>
-    <path d="M0 284 Q60 281 120 285 Q180 288 240 283 Q300 280 360 284 Q420 287 480 282 Q540 279 600 283 Q660 286 680 284" fill="none" stroke="#405570" stroke-width="0.4" opacity="0.2"/>
+  <!-- Moon pillar (silver trail) -->
+  <ellipse cx="800" cy="308" rx="118" ry="11" fill="#C8D8E8" opacity="0.09"/>
+  <rect x="741" y="308" width="118" height="212" fill="url(#moonPillar)" opacity="0.5"/>
 
-    <line x1="305" y1="245" x2="340" y2="245" stroke="#FFCC66" stroke-width="1.2" opacity="0.2" stroke-linecap="round"/>
-    <line x1="330" y1="252" x2="355" y2="252" stroke="#FFCC66" stroke-width="0.9" opacity="0.15" stroke-linecap="round"/>
-    <line x1="315" y1="260" x2="365" y2="260" stroke="#FFD580" stroke-width="0.7" opacity="0.12" stroke-linecap="round"/>
-    <line x1="325" y1="270" x2="358" y2="270" stroke="#FFCC66" stroke-width="0.6" opacity="0.09" stroke-linecap="round"/>
-    <line x1="320" y1="282" x2="362" y2="282" stroke="#FFD580" stroke-width="0.5" opacity="0.07" stroke-linecap="round"/>
-    <line x1="328" y1="295" x2="354" y2="295" stroke="#FFCC66" stroke-width="0.4" opacity="0.05" stroke-linecap="round"/>
-    <line x1="333" y1="310" x2="348" y2="310" stroke="#FFCC66" stroke-width="0.3" opacity="0.04" stroke-linecap="round"/>
+  <!-- Water waves near horizon -->
+  <path d="M0 317 Q141 314 282 319 Q424 325 565 317 Q706 311 800 316 Q894 321 1035 314 Q1176 311 1318 317 Q1459 322 1600 316" fill="none" stroke="#C8D8E8" stroke-width="1.4" opacity="0.08"/>
+  <path d="M0 328 Q188 323 376 330 Q565 335 753 326 Q941 321 1130 328 Q1318 333 1600 325" fill="none" stroke="#73D0FF" stroke-width="0.9" opacity="0.04"/>
+  <path d="M0 339 Q165 335 329 341 Q494 348 659 339 Q824 333 988 341 Q1153 348 1318 339 Q1482 333 1600 339" fill="none" stroke="#C8D8E8" stroke-width="1.2" opacity="0.06"/>
 
-    <path d="M0 300 Q70 297 140 301 Q210 304 280 299 Q350 296 420 300 Q490 303 560 298 Q630 295 680 299" fill="none" stroke="#354A60" stroke-width="0.3" opacity="0.2"/>
-    <path d="M0 318 Q90 315 180 319 Q270 322 360 317 Q450 314 540 318 Q630 321 680 317" fill="none" stroke="#354A60" stroke-width="0.3" opacity="0.15"/>
-    <path d="M0 340 Q80 337 160 341 Q240 344 320 339 Q400 336 480 340 Q560 343 640 338 Q680 336 680 338" fill="none" stroke="#2A3E54" stroke-width="0.25" opacity="0.12"/>
+  <!-- Water waves mid -->
+  <path d="M0 358 Q118 354 235 360 Q353 365 471 356 Q588 351 706 358 Q824 363 941 355 Q1059 350 1176 358 Q1294 365 1412 356 Q1529 351 1600 355" fill="none" stroke="#405570" stroke-width="1.2" opacity="0.3"/>
+  <path d="M0 372 Q188 367 376 374 Q565 379 753 370 Q847 366 941 370 Q1130 376 1318 368 Q1506 363 1600 368" fill="none" stroke="#3A4E66" stroke-width="0.9" opacity="0.25"/>
+  <path d="M0 388 Q141 384 282 390 Q424 395 565 387 Q706 383 847 390 Q988 395 1130 386 Q1271 381 1412 388 Q1553 393 1600 389" fill="none" stroke="#405570" stroke-width="0.9" opacity="0.2"/>
 
-    <path d="M30 220 Q45 170 70 155 Q90 145 115 148 Q140 142 165 150 Q185 144 205 155 Q225 148 245 160 Q265 155 280 168 Q300 180 320 195 Q335 208 345 220 Z" fill="#1C2535"/>
-    <path d="M50 220 Q60 180 85 168 Q105 158 130 162 Q155 155 178 165 Q198 158 218 170 Q240 164 260 178 Q278 188 295 200 Q310 212 325 220 Z" fill="url(#islandBase)"/>
-    <path d="M70 220 Q80 192 100 182 Q120 174 145 178 Q165 172 185 180 Q205 175 225 185 Q245 180 262 192 Q278 202 290 220 Z" fill="url(#islandTop)"/>
-    <path d="M100 200 Q115 195 130 198" fill="none" stroke="#48556A" stroke-width="0.5" opacity="0.4"/>
-    <path d="M155 190 Q170 187 190 192" fill="none" stroke="#48556A" stroke-width="0.4" opacity="0.35"/>
-    <path d="M220 198 Q235 195 250 200" fill="none" stroke="#48556A" stroke-width="0.4" opacity="0.3"/>
-    <path d="M85 208 Q100 204 115 207" fill="none" stroke="#48556A" stroke-width="0.3" opacity="0.3"/>
-    <ellipse cx="110" cy="165" rx="22" ry="18" fill="url(#vegDark)"/>
-    <ellipse cx="145" cy="158" rx="25" ry="20" fill="url(#vegDark)"/>
-    <ellipse cx="185" cy="162" rx="20" ry="16" fill="url(#vegDark)"/>
-    <ellipse cx="220" cy="168" rx="18" ry="14" fill="url(#vegDark)"/>
-    <ellipse cx="125" cy="168" rx="20" ry="16" fill="url(#vegGrad)"/>
-    <ellipse cx="160" cy="160" rx="24" ry="18" fill="url(#vegGrad)"/>
-    <ellipse cx="200" cy="166" rx="18" ry="14" fill="url(#vegGrad)"/>
-    <path d="M138 152 Q150 148 162 152" fill="none" stroke="#7AAE78" stroke-width="0.8" opacity="0.35"/>
-    <path d="M108 158 Q118 154 128 157" fill="none" stroke="#7AAE78" stroke-width="0.6" opacity="0.3"/>
-    <path d="M182 156 Q192 153 202 157" fill="none" stroke="#7AAE78" stroke-width="0.5" opacity="0.25"/>
-    <line x1="140" y1="175" x2="138" y2="142" stroke="#2A3A30" stroke-width="1.8" stroke-linecap="round"/>
-    <path d="M138 142 Q128 138 122 145" fill="none" stroke="#4A6A4E" stroke-width="1.2" opacity="0.7"/>
-    <path d="M138 142 Q148 136 155 142" fill="none" stroke="#4A6A4E" stroke-width="1" opacity="0.6"/>
-    <path d="M138 144 Q130 140 126 148" fill="none" stroke="#5A7A5E" stroke-width="0.8" opacity="0.5"/>
-    <line x1="195" y1="178" x2="197" y2="150" stroke="#2A3A30" stroke-width="1.5" stroke-linecap="round"/>
-    <path d="M197 150 Q188 146 183 153" fill="none" stroke="#4A6A4E" stroke-width="1" opacity="0.6"/>
-    <path d="M197 150 Q206 145 212 151" fill="none" stroke="#4A6A4E" stroke-width="0.9" opacity="0.55"/>
-    <path d="M55 220 Q80 218 110 220 Q140 222 170 219 Q200 217 230 220 Q260 222 290 219 Q310 218 330 220" fill="none" stroke="#3E4D62" stroke-width="1.2" opacity="0.4"/>
-    <path d="M50 220 Q100 228 175 225 Q250 222 325 228 Q340 230 345 220" fill="#151E2A" opacity="0.3"/>
+  <!-- Moon shimmer on water (silver) -->
+  <line x1="718" y1="335" x2="800" y2="335" stroke="#C8D8E8" stroke-width="2.8" opacity="0.15" stroke-linecap="round"/>
+  <line x1="776" y1="345" x2="835" y2="345" stroke="#C8D8E8" stroke-width="2.1" opacity="0.11" stroke-linecap="round"/>
+  <line x1="741" y1="356" x2="859" y2="356" stroke="#D8E8F4" stroke-width="1.6" opacity="0.09" stroke-linecap="round"/>
+  <line x1="765" y1="369" x2="843" y2="369" stroke="#C8D8E8" stroke-width="1.4" opacity="0.07" stroke-linecap="round"/>
+  <line x1="753" y1="386" x2="853" y2="386" stroke="#D8E8F4" stroke-width="1.2" opacity="0.05" stroke-linecap="round"/>
+  <line x1="771" y1="403" x2="835" y2="403" stroke="#C8D8E8" stroke-width="0.9" opacity="0.04" stroke-linecap="round"/>
+  <line x1="784" y1="424" x2="818" y2="424" stroke="#C8D8E8" stroke-width="0.7" opacity="0.03" stroke-linecap="round"/>
 
-    <path d="M440 220 Q455 190 475 182 Q500 175 525 180 Q545 176 560 185 Q575 192 585 205 Q595 215 600 220 Z" fill="#1C2535"/>
-    <path d="M455 220 Q465 198 485 190 Q505 184 525 188 Q540 185 555 194 Q568 203 578 220 Z" fill="url(#islandBase)"/>
-    <path d="M468 220 Q475 205 495 198 Q515 193 530 196 Q545 194 555 204 Q565 214 570 220 Z" fill="url(#islandTop)"/>
-    <ellipse cx="500" cy="190" rx="18" ry="14" fill="url(#vegDark)"/>
-    <ellipse cx="525" cy="186" rx="20" ry="16" fill="url(#vegGrad)"/>
-    <ellipse cx="545" cy="192" rx="14" ry="11" fill="url(#vegDark)"/>
-    <path d="M512 178 Q522 174 532 178" fill="none" stroke="#7AAE78" stroke-width="0.6" opacity="0.3"/>
-    <line x1="520" y1="195" x2="518" y2="170" stroke="#2A3A30" stroke-width="1.5" stroke-linecap="round"/>
-    <path d="M518 170 Q508 166 504 173" fill="none" stroke="#4A6A4E" stroke-width="1" opacity="0.6"/>
-    <path d="M518 170 Q528 165 534 172" fill="none" stroke="#4A6A4E" stroke-width="0.9" opacity="0.55"/>
-    <path d="M490 208 Q505 205 518 209" fill="none" stroke="#48556A" stroke-width="0.4" opacity="0.3"/>
-    <path d="M455 220 Q500 218 540 220 Q570 222 590 220" fill="none" stroke="#3E4D62" stroke-width="1" opacity="0.35"/>
-    <path d="M455 220 Q510 226 560 223 Q590 221 600 220" fill="#151E2A" opacity="0.25"/>
+  <!-- Water far -->
+  <path d="M0 410 Q165 405 329 413 Q494 419 659 409 Q824 404 988 412 Q1153 418 1318 408 Q1482 403 1600 409" fill="none" stroke="#354A60" stroke-width="0.7" opacity="0.2"/>
+  <path d="M0 435 Q212 430 424 437 Q635 443 847 433 Q1059 428 1271 436 Q1482 441 1600 434" fill="none" stroke="#354A60" stroke-width="0.7" opacity="0.15"/>
+  <path d="M0 465 Q188 460 376 467 Q565 472 753 463 Q941 458 1130 466 Q1318 471 1506 462 Q1600 458 1600 462" fill="none" stroke="#2A3E54" stroke-width="0.6" opacity="0.12"/>
 
-    <path d="M355 220 Q365 208 380 204 Q395 200 410 205 Q420 210 428 220 Z" fill="#18222E" opacity="0.6"/>
-    <ellipse cx="393" cy="204" rx="10" ry="6" fill="#2E4235" opacity="0.4"/>
-    <path d="M0 220 Q5 214 12 212 Q20 210 28 215 Q32 218 35 220 Z" fill="#18222E" opacity="0.4"/>
+  <!-- MAIN ISLAND — left (centered in safe zone) -->
+  <path d="M371 301 Q406 233 447 212 Q494 199 541 202 Q588 195 659 205 Q706 197 753 212 Q800 205 847 226 Q894 233 941 246 Q988 260 1035 274 Q1059 288 1082 301 Z" fill="#1A1F28"/>
+  <path d="M418 301 Q441 247 494 230 Q541 217 612 222 Q659 213 718 226 Q753 217 800 233 Q847 226 894 243 Q929 256 965 274 Q988 288 1012 301 Z" fill="#1C2535"/>
+  <path d="M465 301 Q488 263 541 249 Q588 238 641 243 Q688 235 729 247 Q776 241 824 253 Q859 247 882 263 Q918 277 941 301 Z" fill="#222A3A"/>
 
-    <circle cx="165" cy="145" r="2" fill="#FFD580" opacity="0.55"/>
-    <circle cx="145" cy="138" r="1.3" fill="#FFCC66" opacity="0.35"/>
-    <circle cx="195" cy="148" r="1.5" fill="#FFD580" opacity="0.4"/>
-    <circle cx="230" cy="160" r="1" fill="#F28779" opacity="0.3"/>
-    <circle cx="110" cy="152" r="1.2" fill="#73D0FF" opacity="0.25"/>
-    <circle cx="510" cy="172" r="1.5" fill="#73D0FF" opacity="0.35"/>
-    <circle cx="540" cy="180" r="1" fill="#D4BFFF" opacity="0.25"/>
-    <circle cx="490" cy="178" r="1.3" fill="#FFD580" opacity="0.3"/>
-    <circle cx="385" cy="195" r="0.8" fill="#BAE67A" opacity="0.2"/>
-    <circle cx="270" cy="172" r="1" fill="#D4BFFF" opacity="0.2"/>
+  <!-- Rock texture -->
+  <path d="M541 274 Q576 267 612 271" fill="none" stroke="#48556A" stroke-width="1.2" opacity="0.4"/>
+  <path d="M671 260 Q706 255 741 263" fill="none" stroke="#48556A" stroke-width="0.9" opacity="0.35"/>
+  <path d="M812 271 Q847 267 882 274" fill="none" stroke="#48556A" stroke-width="0.9" opacity="0.3"/>
+  <path d="M494 284 Q529 279 565 283" fill="none" stroke="#48556A" stroke-width="0.7" opacity="0.3"/>
 
-    <text x="340" y="280" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="400" fill="#707A8C" letter-spacing="3" opacity="0.7">WELCOME TO</text>
+  <!-- Trees back -->
+  <ellipse cx="559" cy="226" rx="52" ry="25" fill="#1E4228"/>
+  <ellipse cx="641" cy="216" rx="59" ry="27" fill="#1E4228"/>
+  <ellipse cx="735" cy="222" rx="47" ry="22" fill="#1E4228"/>
+  <ellipse cx="818" cy="230" rx="42" ry="19" fill="#1E4228"/>
+  <!-- Trees front -->
+  <ellipse cx="594" cy="230" rx="47" ry="22" fill="#28502E"/>
+  <ellipse cx="676" cy="219" rx="56" ry="25" fill="#28502E"/>
+  <ellipse cx="765" cy="227" rx="42" ry="19" fill="#28502E"/>
+  <!-- Highlight edges -->
+  <path d="M629 208 Q653 203 676 208" fill="none" stroke="#3A7A40" stroke-width="1.9" opacity="0.3"/>
+  <path d="M559 216 Q576 211 594 215" fill="none" stroke="#3A7A40" stroke-width="1.4" opacity="0.25"/>
+  <path d="M729 213 Q747 209 765 214" fill="none" stroke="#3A7A40" stroke-width="1.2" opacity="0.2"/>
 
-    <text x="340" y="325" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="36" font-weight="700" letter-spacing="4">
-      <tspan fill="url(#goldText)">Ayu</tspan><tspan fill="#B3B1A8"> Islands</tspan>
-    </text>
+  <!-- Palm trunks -->
+  <line x1="659" y1="240" x2="653" y2="194" stroke="#0C1810" stroke-width="4.2" stroke-linecap="round"/>
+  <path d="M653 194 Q629 188 618 198" fill="none" stroke="#264830" stroke-width="2.8" opacity="0.7"/>
+  <path d="M653 194 Q676 185 694 194" fill="none" stroke="#264830" stroke-width="2.4" opacity="0.6"/>
+  <path d="M653 197 Q635 192 624 202" fill="none" stroke="#305838" stroke-width="1.9" opacity="0.5"/>
+  <line x1="788" y1="243" x2="794" y2="205" stroke="#0C1810" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M794 205 Q776 200 765 209" fill="none" stroke="#264830" stroke-width="2.4" opacity="0.6"/>
+  <path d="M794 205 Q812 198 824 207" fill="none" stroke="#264830" stroke-width="2.1" opacity="0.55"/>
 
-    <text x="340" y="355" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="13" fill="#707A8C" letter-spacing="0.5" opacity="0.8">
-      <tspan>Unified </tspan><tspan font-style="italic" fill="url(#goldText)" opacity="1">aesthetic</tspan><tspan> engine for every JetBrains IDE</tspan>
-    </text>
+  <!-- Shore -->
+  <path d="M400 301 Q459 297 541 301 Q624 304 706 296 Q776 293 847 301 Q918 304 988 296 Q1035 294 1059 301" fill="none" stroke="#1E2838" stroke-width="2.8" opacity="0.4"/>
+  <!-- Island reflection -->
+  <path d="M418 301 Q588 312 741 307 Q882 303 1035 311 Q1059 314 1082 301" fill="#060A10" opacity="0.3"/>
 
-    <line x1="290" y1="373" x2="390" y2="373" stroke="#707A8C" stroke-width="0.4" opacity="0.25"/>
-  </g>
+  <!-- SMALL ISLAND — right -->
+  <path d="M1035 301 Q1071 260 1118 249 Q1176 241 1235 246 Q1282 241 1318 253 Q1353 263 1376 280 Q1400 295 1412 301 Z" fill="#1A1F28"/>
+  <path d="M1071 301 Q1094 271 1141 260 Q1188 252 1235 257 Q1271 253 1306 265 Q1341 277 1365 301 Z" fill="#1C2535"/>
+  <path d="M1100 301 Q1118 280 1165 271 Q1212 264 1247 268 Q1282 265 1306 279 Q1329 292 1341 301 Z" fill="#222A3A"/>
+  <ellipse cx="1176" cy="260" rx="42" ry="19" fill="#1E4228"/>
+  <ellipse cx="1235" cy="254" rx="47" ry="22" fill="#28502E"/>
+  <ellipse cx="1282" cy="263" rx="33" ry="15" fill="#1E4228"/>
+  <path d="M1206 244 Q1218 238 1235 243" fill="none" stroke="#3A7A40" stroke-width="1.4" opacity="0.25"/>
+  <line x1="1224" y1="267" x2="1218" y2="233" stroke="#0C1810" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M1218 233 Q1200 227 1194 236" fill="none" stroke="#264830" stroke-width="2.4" opacity="0.6"/>
+  <path d="M1218 233 Q1235 226 1247 234" fill="none" stroke="#264830" stroke-width="2.1" opacity="0.55"/>
+  <path d="M1153 284 Q1188 280 1218 286" fill="none" stroke="#48556A" stroke-width="0.9" opacity="0.3"/>
+  <path d="M1071 301 Q1176 297 1271 301 Q1341 305 1394 301" fill="none" stroke="#1E2838" stroke-width="2.4" opacity="0.35"/>
+  <path d="M1071 301 Q1200 308 1318 305 Q1388 302 1412 301" fill="#060A10" opacity="0.25"/>
+
+  <!-- Distant island -->
+  <path d="M835 301 Q859 284 894 280 Q929 274 965 280 Q988 287 1006 301 Z" fill="#0F141C" opacity="0.6"/>
+  <ellipse cx="924" cy="279" rx="24" ry="8" fill="#1A2A20" opacity="0.4"/>
+  <!-- Tiny rock left -->
+  <path d="M300 301 Q312 290 324 287 Q341 285 359 292 Q371 297 376 301 Z" fill="#0F141C" opacity="0.4"/>
+
+  <!-- Fireflies -->
+  <circle cx="618" cy="198" r="4.7" fill="#C8D8E8" opacity="0.4"/>
+  <circle cx="571" cy="189" r="3.1" fill="#A0B8CC" opacity="0.25"/>
+  <circle cx="729" cy="202" r="3.5" fill="#C8D8E8" opacity="0.3"/>
+  <circle cx="812" cy="219" r="2.4" fill="#73D0FF" opacity="0.2"/>
+  <circle cx="494" cy="208" r="2.8" fill="#73D0FF" opacity="0.2"/>
+  <circle cx="1200" cy="235" r="3.5" fill="#73D0FF" opacity="0.25"/>
+  <circle cx="1271" cy="246" r="2.4" fill="#D4BFFF" opacity="0.18"/>
+  <circle cx="1153" cy="243" r="3.1" fill="#C8D8E8" opacity="0.2"/>
+  <circle cx="906" cy="267" r="1.9" fill="#BAE67A" opacity="0.15"/>
+  <circle cx="635" cy="235" r="2.4" fill="#D4BFFF" opacity="0.15"/>
+
+  <!-- TEXT ZONE (y=520..670) — bg already covered by full bleed rect -->
+
+  <!-- Text elements per spec -->
+  <text x="800" y="460" text-anchor="middle" font-family="sans-serif" font-size="20" font-weight="normal" fill="#565B66" letter-spacing="8">WELCOME TO</text>
+  <text x="800" y="580" text-anchor="middle" font-family="sans-serif" font-size="110" font-weight="700">
+    <tspan fill="#FFCC66">Ayu</tspan><tspan fill="#BFBDB6"> Islands</tspan>
+  </text>
+  <text x="800" y="650" text-anchor="middle" font-family="sans-serif" font-size="26" font-weight="normal" fill="#707380">Unified <tspan font-style="italic" fill="#FFCC66">aesthetic</tspan> engine for every JetBrains IDE</text>
+
+  <!-- UI OVERLAY ZONE (y=670..1000) — clean, only bg rect already present -->
 </svg>
