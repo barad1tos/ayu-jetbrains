@@ -156,6 +156,9 @@ class AyuIslandsState : BaseState() {
     // Per-preset custom settings: key = preset name, value = "size|spacing|ligatures|weight"
     var fontPresetCustomizations by map<String, String>()
 
+    // Font families installed via the runtime FontInstaller (family name, e.g. "Maple Mono")
+    var installedFonts by stringSet()
+
     // Accent rotation
     var accentRotationEnabled by property(false)
     var accentRotationMode by string(AccentRotationMode.PRESET.name)
