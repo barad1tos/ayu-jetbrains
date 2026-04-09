@@ -26,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * License-state dispatch logic, extracted from
@@ -141,7 +142,7 @@ internal object StartupLicenseHandler {
         val settings = AyuIslandsSettings.getInstance()
         val scope = OnboardingSchedulerService.getInstance(project).scope()
         scope.launch {
-            delay(delayMs.toLong())
+            delay(delayMs.milliseconds)
             if (project.isDisposed) return@launch
             openWizardIfThisProjectWins(project, OnboardingVirtualFile()) {
                 settings.state.premiumOnboardingShown = true
@@ -163,7 +164,7 @@ internal object StartupLicenseHandler {
         LOG.info("Ayu onboarding: scheduling free wizard (delay: ${delayMs}ms)")
         val scope = OnboardingSchedulerService.getInstance(project).scope()
         scope.launch {
-            delay(delayMs.toLong())
+            delay(delayMs.milliseconds)
             if (project.isDisposed) return@launch
             openWizardIfThisProjectWins(project, FreeOnboardingVirtualFile()) {
                 settings.state.freeOnboardingShown = true

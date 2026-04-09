@@ -23,6 +23,7 @@ import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.font.FontSettings
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.glow.GlowPreset
+import dev.ayuislands.onboarding.OnboardingCardChrome.CARD_BORDER_COLOR
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.BorderLayout
 import java.awt.Color
@@ -267,8 +268,8 @@ internal class PremiumOnboardingPanel(
         val h = height.toDouble()
         if (w <= 0 || h <= 0) return
 
-        val scale = maxOf(w / SVG_VIEWBOX_WIDTH, h / SVG_VIEWBOX_HEIGHT)
-        val svgHeightOnScreen = SVG_VIEWBOX_HEIGHT * scale
+        val scale = maxOf(w / SVG_VIEW_BOX_WIDTH, h / SVG_VIEW_BOX_HEIGHT)
+        val svgHeightOnScreen = SVG_VIEW_BOX_HEIGHT * scale
         val svgTopY = (h - svgHeightOnScreen) / 2
         val taglineBottomY = svgTopY + SVG_TAGLINE_BOTTOM_Y * scale
         val topPadding = (taglineBottomY + JBUI.scale(GAP_SMALL)).toInt().coerceAtLeast(0)
@@ -292,12 +293,6 @@ internal class PremiumOnboardingPanel(
         label.font = label.font.deriveFont(Font.PLAIN, fontPx)
         label.text = TRIAL_HEADLINE_HTML
         clampLabelToPreferred(label)
-    }
-
-    private fun clampLabelToPreferred(label: JBLabel) {
-        val pref = label.preferredSize
-        label.maximumSize = Dimension(pref.width, pref.height)
-        label.minimumSize = Dimension(pref.width, pref.height)
     }
 
     private fun buildTrialMessage(): JPanel {
@@ -466,7 +461,7 @@ internal class PremiumOnboardingPanel(
                         RenderingHints.KEY_ANTIALIASING,
                         RenderingHints.VALUE_ANTIALIAS_ON,
                     )
-                    paintRailCardChrome(g2, width, height, hovered, spec.hoverColor)
+                    paintCardChrome(g2, width, height, hovered, spec.hoverColor)
 
                     spec.cornerIcon?.let { icon ->
                         val iconMargin = JBUI.scale(CARD_DOT_MARGIN)
@@ -494,75 +489,6 @@ internal class PremiumOnboardingPanel(
 
         cardPanel.add(Box.createVerticalGlue())
         return cardPanel
-    }
-
-    /** Shadow + fill + glass highlight + border for rail cards. */
-    private fun paintRailCardChrome(
-        g2: Graphics2D,
-        width: Int,
-        height: Int,
-        hovered: Boolean,
-        tintColor: Color,
-    ) {
-        val arc = JBUI.scale(CARD_ARC)
-
-        // Drop shadow
-        val shadowOffset = JBUI.scale(SHADOW_OFFSET_Y)
-        for (i in SHADOW_LAYERS downTo 1) {
-            g2.color = Color(0, 0, 0, SHADOW_BASE_ALPHA * i)
-            g2.fillRoundRect(
-                i,
-                i + shadowOffset,
-                width - 2 * i,
-                height - 2 * i,
-                arc,
-                arc,
-            )
-        }
-
-        // Fill
-        if (hovered) {
-            val topColor = Color(tintColor.red, tintColor.green, tintColor.blue, CARD_HOVER_TOP_ALPHA)
-            val bottomColor = Color(tintColor.red, tintColor.green, tintColor.blue, CARD_HOVER_BOTTOM_ALPHA)
-            g2.paint = GradientPaint(0f, 0f, topColor, 0f, height.toFloat(), bottomColor)
-        } else {
-            g2.color = CARD_BG_COLOR
-        }
-        g2.fillRoundRect(0, 0, width, height, arc, arc)
-
-        // Glass highlight
-        val highlightHeight = JBUI.scale(HIGHLIGHT_HEIGHT)
-        val clip =
-            RoundRectangle2D.Float(
-                1f,
-                1f,
-                (width - 2).toFloat(),
-                (height - 2).toFloat(),
-                arc.toFloat(),
-                arc.toFloat(),
-            )
-        val oldClip = g2.clip
-        g2.clip(clip)
-        g2.paint =
-            GradientPaint(
-                0f,
-                1f,
-                HIGHLIGHT_TOP_COLOR,
-                0f,
-                highlightHeight.toFloat(),
-                HIGHLIGHT_BOTTOM_COLOR,
-            )
-        g2.fillRect(0, 0, width, highlightHeight)
-        g2.clip = oldClip
-
-        // Border
-        g2.color =
-            if (hovered) {
-                Color(tintColor.red, tintColor.green, tintColor.blue, CARD_BORDER_HOVER_ALPHA)
-            } else {
-                CARD_BORDER_COLOR
-            }
-        g2.drawRoundRect(0, 0, width - 1, height - 1, arc, arc)
     }
 
     private fun openSettings() {
@@ -633,90 +559,7 @@ internal class PremiumOnboardingPanel(
                         RenderingHints.KEY_ANTIALIASING,
                         RenderingHints.VALUE_ANTIALIAS_ON,
                     )
-                    val arc = JBUI.scale(CARD_ARC)
-
-                    // Drop shadow
-                    val shadowOffset = JBUI.scale(SHADOW_OFFSET_Y)
-                    for (i in SHADOW_LAYERS downTo 1) {
-                        g2.color = Color(0, 0, 0, SHADOW_BASE_ALPHA * i)
-                        g2.fillRoundRect(
-                            i,
-                            i + shadowOffset,
-                            width - 2 * i,
-                            height - 2 * i,
-                            arc,
-                            arc,
-                        )
-                    }
-
-                    // Card fill
-                    if (hovered) {
-                        val topColor =
-                            Color(
-                                glowColor.red,
-                                glowColor.green,
-                                glowColor.blue,
-                                CARD_HOVER_TOP_ALPHA,
-                            )
-                        val bottomColor =
-                            Color(
-                                glowColor.red,
-                                glowColor.green,
-                                glowColor.blue,
-                                CARD_HOVER_BOTTOM_ALPHA,
-                            )
-                        g2.paint =
-                            GradientPaint(
-                                0f,
-                                0f,
-                                topColor,
-                                0f,
-                                height.toFloat(),
-                                bottomColor,
-                            )
-                    } else {
-                        g2.color = CARD_BG_COLOR
-                    }
-                    g2.fillRoundRect(0, 0, width, height, arc, arc)
-
-                    // Glass highlight
-                    val highlightHeight = JBUI.scale(HIGHLIGHT_HEIGHT)
-                    val clip =
-                        RoundRectangle2D.Float(
-                            1f,
-                            1f,
-                            (width - 2).toFloat(),
-                            (height - 2).toFloat(),
-                            arc.toFloat(),
-                            arc.toFloat(),
-                        )
-                    val oldClip = g2.clip
-                    g2.clip(clip)
-                    g2.paint =
-                        GradientPaint(
-                            0f,
-                            1f,
-                            HIGHLIGHT_TOP_COLOR,
-                            0f,
-                            highlightHeight.toFloat(),
-                            HIGHLIGHT_BOTTOM_COLOR,
-                        )
-                    g2.fillRect(0, 0, width, highlightHeight)
-                    g2.clip = oldClip
-
-                    // Border
-                    g2.color =
-                        if (hovered) {
-                            Color(
-                                glowColor.red,
-                                glowColor.green,
-                                glowColor.blue,
-                                CARD_BORDER_HOVER_ALPHA,
-                            )
-                        } else {
-                            CARD_BORDER_COLOR
-                        }
-                    g2.drawRoundRect(0, 0, width - 1, height - 1, arc, arc)
+                    paintCardChrome(g2, width, height, hovered, glowColor)
 
                     // Color dot
                     g2.color = glowColor
@@ -852,7 +695,7 @@ internal class PremiumOnboardingPanel(
                         RenderingHints.KEY_ANTIALIASING,
                         RenderingHints.VALUE_ANTIALIAS_ON,
                     )
-                    paintRailCardChrome(g2, width, height, hovered && !installing, tint)
+                    paintCardChrome(g2, width, height, hovered && !installing, tint)
                     super.paintComponent(graphics)
                 }
             }
@@ -1040,7 +883,6 @@ internal class PremiumOnboardingPanel(
         private const val RAIL_TITLE_SIZE = 12
 
         // Cards
-        private const val CARD_ARC = 14
         private const val CARD_PADDING = 16
         private const val CARD_WIDTH = 155
         private const val CARD_HEIGHT = 130
@@ -1066,16 +908,6 @@ internal class PremiumOnboardingPanel(
         private const val CARD_DOT_SIZE = 8
         private const val CARD_DOT_MARGIN = 12
 
-        // Card shadow
-        private const val SHADOW_LAYERS = 4
-        private const val SHADOW_OFFSET_Y = 2
-        private const val SHADOW_BASE_ALPHA = 12
-
-        // Card glass highlight
-        private const val HIGHLIGHT_HEIGHT = 3
-        private val HIGHLIGHT_TOP_COLOR = Color(255, 255, 255, 8)
-        private val HIGHLIGHT_BOTTOM_COLOR = Color(255, 255, 255, 0)
-
         // Button row
         private const val BTN_GAP = 16
 
@@ -1094,8 +926,8 @@ internal class PremiumOnboardingPanel(
         private const val GAP_MICRO = 2
 
         // SVG geometry for dynamic tagline tracking (mirrors FreeOnboardingPanel)
-        private const val SVG_VIEWBOX_WIDTH = 680.0
-        private const val SVG_VIEWBOX_HEIGHT = 590.0
+        private const val SVG_VIEW_BOX_WIDTH = 680.0
+        private const val SVG_VIEW_BOX_HEIGHT = 590.0
         private const val SVG_TAGLINE_BOTTOM_Y = 372.0
         private const val SVG_TAGLINE_FONT_PX = 13.0
 
@@ -1126,15 +958,8 @@ internal class PremiumOnboardingPanel(
                 GlowPreset.CYBERPUNK to (14 to 140f),
             )
 
-        // Card colors (panel-local)
-        private val CARD_BG_COLOR = Color(0x17, 0x1B, 0x24)
-        private val CARD_BORDER_COLOR = Color(0x2A, 0x2F, 0x3A)
+        // Card description text color (panel-local)
         private val CARD_DESC_COLOR = Color(0x70, 0x76, 0x80)
-
-        // Card hover alpha
-        private const val CARD_HOVER_TOP_ALPHA = 40
-        private const val CARD_HOVER_BOTTOM_ALPHA = 10
-        private const val CARD_BORDER_HOVER_ALPHA = 100
 
         // Rail tints
         private val TRIAL_CUE_COLOR = Color(0xFF, 0xCC, 0x66)

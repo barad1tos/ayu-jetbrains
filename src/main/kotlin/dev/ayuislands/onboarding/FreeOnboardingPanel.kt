@@ -19,6 +19,7 @@ import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentColor
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.onboarding.OnboardingCardChrome.CARD_BORDER_COLOR
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.BorderLayout
 import java.awt.Color
@@ -34,7 +35,6 @@ import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
-import java.awt.geom.RoundRectangle2D
 import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.Icon
@@ -715,80 +715,6 @@ internal class FreeOnboardingPanel(
         return cardPanel
     }
 
-    /** Shared card chrome: shadow + fill + glass highlight + border. */
-    @Suppress("LongParameterList")
-    private fun paintCardChrome(
-        g2: Graphics2D,
-        width: Int,
-        height: Int,
-        hovered: Boolean,
-        tintColor: Color,
-        baseFill: Color = CARD_BG_COLOR,
-    ) {
-        val arc = JBUI.scale(CARD_ARC)
-
-        // Drop shadow
-        val shadowOffset = JBUI.scale(SHADOW_OFFSET_Y)
-        for (i in SHADOW_LAYERS downTo 1) {
-            g2.color = Color(0, 0, 0, SHADOW_BASE_ALPHA * i)
-            g2.fillRoundRect(
-                i,
-                i + shadowOffset,
-                width - 2 * i,
-                height - 2 * i,
-                arc,
-                arc,
-            )
-        }
-
-        // Fill
-        if (hovered) {
-            val topColor =
-                Color(tintColor.red, tintColor.green, tintColor.blue, CARD_HOVER_TOP_ALPHA)
-            val bottomColor =
-                Color(tintColor.red, tintColor.green, tintColor.blue, CARD_HOVER_BOTTOM_ALPHA)
-            g2.paint =
-                GradientPaint(0f, 0f, topColor, 0f, height.toFloat(), bottomColor)
-        } else {
-            g2.color = baseFill
-        }
-        g2.fillRoundRect(0, 0, width, height, arc, arc)
-
-        // Glass highlight
-        val highlightHeight = JBUI.scale(HIGHLIGHT_HEIGHT)
-        val clip =
-            RoundRectangle2D.Float(
-                1f,
-                1f,
-                (width - 2).toFloat(),
-                (height - 2).toFloat(),
-                arc.toFloat(),
-                arc.toFloat(),
-            )
-        val oldClip = g2.clip
-        g2.clip(clip)
-        g2.paint =
-            GradientPaint(
-                0f,
-                1f,
-                HIGHLIGHT_TOP_COLOR,
-                0f,
-                highlightHeight.toFloat(),
-                HIGHLIGHT_BOTTOM_COLOR,
-            )
-        g2.fillRect(0, 0, width, highlightHeight)
-        g2.clip = oldClip
-
-        // Border
-        g2.color =
-            if (hovered) {
-                Color(tintColor.red, tintColor.green, tintColor.blue, CARD_BORDER_HOVER_ALPHA)
-            } else {
-                CARD_BORDER_COLOR
-            }
-        g2.drawRoundRect(0, 0, width - 1, height - 1, arc, arc)
-    }
-
     // -- Trial messaging --
 
     private fun buildTrialMessage(): JPanel {
@@ -807,18 +733,6 @@ internal class FreeOnboardingPanel(
         row.add(Box.createHorizontalGlue())
 
         return row
-    }
-
-    /**
-     * Lock the label to its intrinsic preferred size on both axes. Without this,
-     * BoxLayout.Y_AXIS lets JLabel stretch horizontally (pushing text to the left)
-     * and BoxLayout.X_AXIS with glue+label+glue can't center it reliably. Limiting
-     * the max size makes glue absorb the slack and the label sit at its natural size.
-     */
-    private fun clampLabelToPreferred(label: JBLabel) {
-        val pref = label.preferredSize
-        label.maximumSize = Dimension(pref.width, pref.height)
-        label.minimumSize = Dimension(pref.width, pref.height)
     }
 
     // -- Row D: Bottom buttons --
@@ -875,7 +789,6 @@ internal class FreeOnboardingPanel(
         private const val RAIL_TITLE_SIZE = 12
 
         // Variant cards (reused from premium)
-        private const val CARD_ARC = 14
         private const val CARD_PADDING = 12
         private const val CARD_WIDTH = 140
         private const val CARD_HEIGHT = 96
@@ -883,24 +796,7 @@ internal class FreeOnboardingPanel(
         private const val CARD_DOT_SIZE = 8
         private const val CARD_DOT_MARGIN = 12
 
-        // Card shadow (reused)
-        private const val SHADOW_LAYERS = 4
-        private const val SHADOW_OFFSET_Y = 2
-        private const val SHADOW_BASE_ALPHA = 12
-
-        // Card glass highlight (reused)
-        private const val HIGHLIGHT_HEIGHT = 3
-        private val HIGHLIGHT_TOP_COLOR = Color(255, 255, 255, 8)
-        private val HIGHLIGHT_BOTTOM_COLOR = Color(255, 255, 255, 0)
-
-        // Card hover alpha (reused)
-        private const val CARD_HOVER_TOP_ALPHA = 40
-        private const val CARD_HOVER_BOTTOM_ALPHA = 10
-        private const val CARD_BORDER_HOVER_ALPHA = 100
-
-        // Card colors (reused)
-        private val CARD_BG_COLOR = Color(0x17, 0x1B, 0x24)
-        private val CARD_BORDER_COLOR = Color(0x2A, 0x2F, 0x3A)
+        // Card description text color (kept per-panel — font/text styling)
         private val CARD_DESC_COLOR = Color(0x70, 0x76, 0x80)
 
         // Button row (reused)
