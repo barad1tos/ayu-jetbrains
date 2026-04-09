@@ -1047,7 +1047,7 @@ internal class PremiumOnboardingPanel(
         private const val CARD_GAP = 10
 
         // Font cards (pinned to Free variant card dimensions)
-        private const val FONT_CARD_WIDTH = 118
+        private const val FONT_CARD_WIDTH = 155
         private const val FONT_CARD_HEIGHT = 96
         private const val FONT_CARD_PADDING = 12
         private const val FONT_TITLE_SIZE = 14
