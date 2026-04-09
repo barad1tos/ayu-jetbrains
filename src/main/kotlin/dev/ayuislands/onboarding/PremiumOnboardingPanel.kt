@@ -9,11 +9,15 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.util.IconLoader
+import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.IconUtil
 import com.intellij.util.ui.JBUI
+import dev.ayuislands.font.FontCatalog
+import dev.ayuislands.font.FontInstaller
 import dev.ayuislands.font.FontPreset
 import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.font.FontSettings
@@ -76,6 +80,8 @@ internal class PremiumOnboardingPanel(
     private var topStrut: Component? = null
     private var contentWrapper: JPanel? = null
     private var trialHeadlineLabel: JBLabel? = null
+    private var fontRowContainer: JPanel? = null
+    private val installingFonts: MutableSet<FontPreset> = mutableSetOf()
 
     init {
         isOpaque = false
@@ -195,6 +201,12 @@ internal class PremiumOnboardingPanel(
         content.isOpaque = false
 
         content.add(buildPresetCardsRow())
+
+        // Font preset cards row (still Section A)
+        content.add(Box.createVerticalStrut(JBUI.scale(GAP_MEDIUM)))
+        val fontRow = buildFontRow()
+        fontRowContainer = fontRow
+        content.add(fontRow)
 
         // Section gap A -> B
         content.add(Box.createVerticalStrut(JBUI.scale(GAP_SECTION_ABOVE_TRIAL)))
@@ -752,6 +764,180 @@ internal class PremiumOnboardingPanel(
         return cardPanel
     }
 
+    // -- Font row --
+
+    private fun buildFontRow(): JPanel {
+        val row = JPanel()
+        row.layout = BoxLayout(row, BoxLayout.X_AXIS)
+        row.isOpaque = false
+        row.alignmentX = CENTER_ALIGNMENT
+        populateFontRow(row)
+        return row
+    }
+
+    private fun populateFontRow(row: JPanel) {
+        row.removeAll()
+        row.add(Box.createHorizontalGlue())
+        for ((index, preset) in FONT_PRESETS.withIndex()) {
+            row.add(createFontCard(preset))
+            if (index < FONT_PRESETS.lastIndex) {
+                row.add(Box.createHorizontalStrut(JBUI.scale(CARD_GAP)))
+            }
+        }
+        row.add(Box.createHorizontalGlue())
+    }
+
+    private fun refreshFontRow() {
+        val row = fontRowContainer ?: return
+        populateFontRow(row)
+        row.revalidate()
+        row.repaint()
+    }
+
+    @Suppress("LongMethod")
+    private fun createFontCard(preset: FontPreset): JPanel {
+        val entry = FontCatalog.forPreset(preset)
+        val state = AyuIslandsSettings.getInstance().state
+        val installed = state.installedFonts.contains(entry.familyName)
+        val installing = installingFonts.contains(preset)
+        val tint = FONT_CARD_TINT
+
+        val cardPanel =
+            object : JPanel() {
+                private var hovered = false
+
+                init {
+                    layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                    border = JBUI.Borders.empty(FONT_CARD_PADDING)
+                    cursor =
+                        if (installing) {
+                            Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR)
+                        } else {
+                            Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                        }
+                    val size = Dimension(JBUI.scale(FONT_CARD_WIDTH), JBUI.scale(FONT_CARD_HEIGHT))
+                    preferredSize = size
+                    minimumSize = size
+                    maximumSize = size
+                    toolTipText =
+                        if (installed) {
+                            "${entry.displayName} — installed. Click to apply."
+                        } else {
+                            "Download and install ${entry.displayName} (~${entry.approxSizeMb} MB)"
+                        }
+                    isEnabled = !installing
+
+                    addMouseListener(
+                        object : MouseAdapter() {
+                            override fun mouseEntered(event: MouseEvent) {
+                                hovered = true
+                                repaint()
+                            }
+
+                            override fun mouseExited(event: MouseEvent) {
+                                hovered = false
+                                repaint()
+                            }
+
+                            override fun mouseClicked(event: MouseEvent) {
+                                handleFontCardClick(preset)
+                            }
+                        },
+                    )
+                }
+
+                override fun paintComponent(graphics: Graphics) {
+                    val g2 = graphics as Graphics2D
+                    g2.setRenderingHint(
+                        RenderingHints.KEY_ANTIALIASING,
+                        RenderingHints.VALUE_ANTIALIAS_ON,
+                    )
+                    paintRailCardChrome(g2, width, height, hovered && !installing, tint)
+                    super.paintComponent(graphics)
+                }
+            }
+        cardPanel.isOpaque = false
+
+        val titleLabel = JBLabel(entry.displayName)
+        val titleBaseFont =
+            if (installed) {
+                Font(entry.familyName, Font.PLAIN, JBUI.scale(FONT_TITLE_SIZE))
+            } else {
+                titleLabel.font.deriveFont(Font.BOLD, JBUI.scale(FONT_TITLE_SIZE).toFloat())
+            }
+        titleLabel.font = titleBaseFont
+        titleLabel.foreground = if (installing) CARD_DESC_COLOR else Color.WHITE
+        titleLabel.alignmentX = LEFT_ALIGNMENT
+        cardPanel.add(titleLabel)
+
+        cardPanel.add(Box.createVerticalStrut(JBUI.scale(GAP_TINY)))
+
+        val subtitleText: String
+        val subtitleColor: Color
+        when {
+            installing -> {
+                subtitleText = "Installing…"
+                subtitleColor = CARD_DESC_COLOR
+            }
+            installed -> {
+                subtitleText = "✓ Installed"
+                subtitleColor = TRIAL_CUE_COLOR
+            }
+            else -> {
+                subtitleText = "~${entry.approxSizeMb} MB"
+                subtitleColor = CARD_DESC_COLOR
+            }
+        }
+        val subtitleLabel = JBLabel(subtitleText)
+        subtitleLabel.font = subtitleLabel.font.deriveFont(JBUI.scale(CARD_DESC_SIZE).toFloat())
+        subtitleLabel.foreground = subtitleColor
+        subtitleLabel.alignmentX = LEFT_ALIGNMENT
+        cardPanel.add(subtitleLabel)
+
+        cardPanel.add(Box.createVerticalGlue())
+        return cardPanel
+    }
+
+    private fun handleFontCardClick(preset: FontPreset) {
+        if (preset in installingFonts) return
+        val entry = FontCatalog.forPreset(preset)
+        val state = AyuIslandsSettings.getInstance().state
+        if (state.installedFonts.contains(entry.familyName)) {
+            FontInstaller.applyOnly(preset, project)
+            return
+        }
+        if (!confirmFontInstall(entry)) return
+        installingFonts.add(preset)
+        refreshFontRow()
+        FontInstaller.install(preset, project) {
+            installingFonts.remove(preset)
+            ApplicationManager.getApplication().invokeLater {
+                if (!project.isDisposed) refreshFontRow()
+            }
+        }
+    }
+
+    private fun confirmFontInstall(entry: FontCatalog.Entry): Boolean {
+        val message =
+            "Ayu Islands will download ${entry.displayName} (~${entry.approxSizeMb} MB, " +
+                "SIL Open Font License) from GitHub and install it to:\n\n" +
+                "    ${platformFontDirLabel()}\n\n" +
+                "This is a user-level install — no admin rights required.\n" +
+                "You can remove it anytime from that folder."
+        return MessageDialogBuilder
+            .yesNo("Install ${entry.displayName}?", message)
+            .yesText("Install")
+            .noText("Cancel")
+            .ask(project)
+    }
+
+    private fun platformFontDirLabel(): String =
+        when {
+            SystemInfo.isMac -> "~/Library/Fonts"
+            SystemInfo.isWindows -> "%LOCALAPPDATA%\\Microsoft\\Windows\\Fonts"
+            else -> "~/.local/share/fonts"
+        }
+
     private fun buildBottomButtons(): JPanel {
         val row = JPanel()
         row.layout = BoxLayout(row, BoxLayout.X_AXIS)
@@ -859,6 +1045,15 @@ internal class PremiumOnboardingPanel(
         private const val CARD_WIDTH = 155
         private const val CARD_HEIGHT = 130
         private const val CARD_GAP = 10
+
+        // Font cards (pinned to Free variant card dimensions)
+        private const val FONT_CARD_WIDTH = 118
+        private const val FONT_CARD_HEIGHT = 96
+        private const val FONT_CARD_PADDING = 12
+        private const val FONT_TITLE_SIZE = 14
+        private val FONT_CARD_TINT = Color(0x95, 0xE6, 0xCB)
+        private val FONT_PRESETS =
+            listOf(FontPreset.WHISPER, FontPreset.AMBIENT, FontPreset.NEON, FontPreset.CYBERPUNK)
 
         // Footer rail
         private const val RAIL_CARD_WIDTH = 112
