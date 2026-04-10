@@ -41,6 +41,10 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.4.1" to
+                "<ul>" +
+                "<li>Fix font install retry on corrupted cache</li>" +
+                "</ul>",
             "2.4.0" to
                 "<ul>" +
                 "<li>Onboarding wizard with preset cards and accent picker</li>" +
