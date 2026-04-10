@@ -98,8 +98,13 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         settings: AyuIslandsSettings,
         isReturningUser: Boolean,
     ) {
-        val licenseState = LicenseChecker.isLicensed()
-        LOG.info("Ayu Islands license check: ${licenseStateLabel(licenseState)}")
+        val isLicensed = LicenseChecker.isLicensedOrGrace()
+        LOG.info("Ayu Islands license check: ${if (isLicensed) "licensed" else "not licensed"}")
+
+        val trialDays = LicenseChecker.getTrialDaysRemaining()
+        if (trialDays != null) {
+            LOG.info("Ayu Islands trial: $trialDays days remaining")
+        }
 
         // Compute adaptive delay on background thread (execute() coroutine)
         val adaptiveDelayMs = StartupLicenseHandler.computeAdaptiveDelay()
@@ -111,12 +116,12 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
                 StartupLicenseHandler.runOnboardingMigration(settings)
                 val wizardAction =
                     StartupLicenseHandler.resolveOnboarding(
-                        licenseState != false,
+                        isLicensed,
                         settings,
                         isReturningUser,
                     )
 
-                if (licenseState != false) {
+                if (isLicensed) {
                     StartupLicenseHandler.applyLicensedDefaults(settings)
                 } else {
                     StartupLicenseHandler.applyUnlicensedDefaults(project, variant, settings)
@@ -129,7 +134,7 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
                 StartupLicenseHandler.handleWizardAction(wizardAction, project, adaptiveDelayMs, settings)
 
                 // Check trial expiry warning (only runs for trial users)
-                if (licenseState != false) {
+                if (isLicensed) {
                     LicenseChecker.checkTrialExpiryWarning(project)
                 }
             } catch (e: RuntimeException) {
@@ -137,13 +142,6 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
             }
         }
     }
-
-    private fun licenseStateLabel(state: Boolean?): String =
-        when (state) {
-            true -> "licensed"
-            false -> "not licensed"
-            null -> "facade not initialized (grace period)"
-        }
 
     companion object {
         private val LOG = logger<AyuIslandsStartupActivity>()

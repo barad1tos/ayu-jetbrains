@@ -46,17 +46,50 @@ object LicenseChecker {
     fun isLicensed(): Boolean? {
         if (isDevBuild()) return true
         val facade = LicensingFacade.getInstance() ?: return null
-        val stamp = facade.getConfirmationStamp(PRODUCT_CODE) ?: return false
-        return when {
-            stamp.startsWith("key:") -> verifier.isKeyValid(stamp.substring(KEY_PREFIX_LENGTH))
-            stamp.startsWith("stamp:") -> verifier.isStampValid(stamp.substring(STAMP_PREFIX_LENGTH))
-            stamp.startsWith("eval:") -> true
-            else -> false
+        val stamp = facade.getConfirmationStamp(PRODUCT_CODE)
+        if (stamp == null) {
+            LOG.info("License stamp: null (no confirmation from Marketplace)")
+            return false
         }
+        val result =
+            when {
+                stamp.startsWith("key:") -> verifier.isKeyValid(stamp.substring(KEY_PREFIX_LENGTH))
+                stamp.startsWith("stamp:") -> verifier.isStampValid(stamp.substring(STAMP_PREFIX_LENGTH))
+                stamp.startsWith("eval:") -> true
+                else -> false
+            }
+        if (!result) {
+            LOG.info("License stamp validation failed: ${stamp.take(STAMP_LOG_PREFIX_LENGTH)}...")
+        }
+        return result
     }
 
-    /** Treat null (not initialized) as licensed per grace-period policy. */
-    fun isLicensedOrGrace(): Boolean = isLicensed() != false
+    /**
+     * Treat null (not initialized) as licensed per grace-period policy.
+     *
+     * Also provides a 48-hour offline grace window: if the license was confirmed
+     * within the last 48 hours but the current check returns false (e.g. offline,
+     * server unreachable), the user keeps pro features until the grace window
+     * expires. This prevents a single offline restart from locking out a paid user.
+     */
+    fun isLicensedOrGrace(): Boolean {
+        val licensed = isLicensed()
+        val state = AyuIslandsSettings.getInstance().state
+        if (licensed == true) {
+            state.lastKnownLicensedMs = System.currentTimeMillis()
+            return true
+        }
+        if (licensed == null) return true
+        val elapsed = System.currentTimeMillis() - state.lastKnownLicensedMs
+        if (state.lastKnownLicensedMs > 0 && elapsed < OFFLINE_GRACE_MS) {
+            LOG.info(
+                "License check returned false but within ${elapsed / MS_PER_HOUR}h " +
+                    "offline grace (${OFFLINE_GRACE_HOURS}h window) — treating as licensed",
+            )
+            return true
+        }
+        return false
+    }
 
     /** Open the JetBrains registration / purchase dialog. */
     fun requestLicense(message: String) {
@@ -213,15 +246,20 @@ object LicenseChecker {
     /**
      * Calculate remaining trial days from [LicensingFacade] expiration date.
      *
+     * JetBrains Marketplace stores the expiration as UTC midnight. Converting to
+     * [ZoneId.systemDefault] before extracting the date shifts it 1 day backward
+     * for timezones west of UTC, causing premature trial lockout. We extract the
+     * date in UTC instead so the day boundary matches the Marketplace's intent.
+     *
      * @return days remaining (>= 0), or null if not on trial / facade unavailable / already expired.
      */
     fun getTrialDaysRemaining(): Long? {
         val facade = LicensingFacade.getInstance() ?: return null
         if (!facade.isEvaluationLicense) return null
         val expirationDate = facade.getExpirationDate(PRODUCT_CODE) ?: return null
-        val expLocal = expirationDate.toInstant().atZone(ZoneId.systemDefault()).toLocalDate()
-        val today = LocalDate.now()
-        val days = ChronoUnit.DAYS.between(today, expLocal)
+        val expirationDay = expirationDate.toInstant().atZone(ZoneId.of("UTC")).toLocalDate()
+        val today = LocalDate.now(ZoneId.of("UTC"))
+        val days = ChronoUnit.DAYS.between(today, expirationDay)
         return if (days >= 0) days else null
     }
 
@@ -262,10 +300,14 @@ object LicenseChecker {
 
     private const val KEY_PREFIX_LENGTH = 4
     private const val STAMP_PREFIX_LENGTH = 6
+    private const val STAMP_LOG_PREFIX_LENGTH = 10
     private const val PRO_DEFAULT_NEON_INTENSITY = 100
     private const val PRO_DEFAULT_NEON_WIDTH = 2
     private const val TRIAL_WARNING_7_DAY_THRESHOLD = 7L
     private const val TRIAL_WARNING_3_DAY_THRESHOLD = 3L
+    private const val MS_PER_HOUR = 3_600_000L
+    private const val OFFLINE_GRACE_HOURS = 48L
+    private const val OFFLINE_GRACE_MS = OFFLINE_GRACE_HOURS * MS_PER_HOUR
 
     /** Dev mode: requires BOTH system property AND Gradle sandbox environment. */
     private fun isDevBuild(): Boolean {
