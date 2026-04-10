@@ -95,7 +95,10 @@ internal class ContentScaler {
         hideables += HideableEntry(component, hideBelow)
     }
 
-    fun apply(scale: Float) {
+    fun apply(
+        scale: Float,
+        forceHideCompact: Boolean = false,
+    ) {
         currentScale = scale
         for (entry in cards) {
             val w = JBUI.scale((entry.baseWidth * scale).toInt())
@@ -124,7 +127,7 @@ internal class ContentScaler {
             }
         }
         for (entry in hideables) {
-            entry.component.isVisible = scale >= entry.hideBelow
+            entry.component.isVisible = !forceHideCompact && scale >= entry.hideBelow
         }
     }
 
@@ -632,6 +635,7 @@ internal fun attachCardLabels(
 internal data class SectionEntry(
     val component: JComponent,
     val gapBeforePx: Int,
+    val hideBelow: Float = 0f,
 )
 
 /**
@@ -651,7 +655,13 @@ internal fun buildWizardSection(
         if (entry.gapBeforePx > 0) {
             val strut = Box.createVerticalStrut(JBUI.scale(entry.gapBeforePx))
             scaler?.registerGap(strut, entry.gapBeforePx)
+            if (entry.hideBelow > 0f) {
+                scaler?.registerHideable(strut as JComponent, entry.hideBelow)
+            }
             content.add(strut)
+        }
+        if (entry.hideBelow > 0f) {
+            scaler?.registerHideable(entry.component, entry.hideBelow)
         }
         content.add(entry.component)
     }

@@ -232,15 +232,13 @@ internal class PremiumOnboardingPanel(
         // Section C: footer rail + action buttons
         val fontRow = buildFontRow()
         fontRowContainer = fontRow
-        val footerRail = buildFooterRail()
-        scaler.registerHideable(footerRail, RAIL_HIDE_BELOW)
         val content =
             buildWizardSection(
                 listOf(
                     SectionEntry(buildPresetCardsRow(), gapBeforePx = 0),
-                    SectionEntry(fontRow, gapBeforePx = GAP_MEDIUM),
+                    SectionEntry(fontRow, gapBeforePx = GAP_MEDIUM, hideBelow = COMPACT_THRESHOLD),
                     SectionEntry(buildTrialMessage(), gapBeforePx = GAP_SECTION_ABOVE_TRIAL),
-                    SectionEntry(footerRail, gapBeforePx = GAP_SECTION),
+                    SectionEntry(buildFooterRail(), gapBeforePx = GAP_SECTION, hideBelow = COMPACT_THRESHOLD),
                     SectionEntry(buildBottomButtons(), gapBeforePx = GAP_MEDIUM),
                 ),
                 scaler = scaler,
@@ -282,10 +280,19 @@ internal class PremiumOnboardingPanel(
         if (width <= 0 || height <= 0) return
         val topStrutHeight = topStrut?.preferredSize?.height ?: 0
         val available = height - topStrutHeight - JBUI.scale(BOTTOM_MARGIN)
-        val heightScale = available.toFloat() / JBUI.scale(DESIGN_CONTENT_HEIGHT).toFloat()
         val widthScale = width.toFloat() / JBUI.scale(DESIGN_WIDTH).toFloat()
+
+        val fullScale =
+            minOf(
+                available.toFloat() / JBUI.scale(DESIGN_CONTENT_HEIGHT).toFloat(),
+                widthScale,
+            )
+        val compact = fullScale < COMPACT_THRESHOLD
+
+        val designHeight = if (compact) DESIGN_CONTENT_HEIGHT_COMPACT else DESIGN_CONTENT_HEIGHT
+        val heightScale = available.toFloat() / JBUI.scale(designHeight).toFloat()
         val contentScale = minOf(heightScale, widthScale).coerceIn(MIN_SCALE, MAX_SCALE)
-        scaler.apply(contentScale)
+        scaler.apply(contentScale, forceHideCompact = compact)
     }
 
     private fun updateTrialHeadline(fontPx: Float) {
@@ -913,12 +920,15 @@ internal class PremiumOnboardingPanel(
                 titleSubtitleGapPx = GAP_MICRO,
             )
 
-        // Content scaling reference dimensions (px before JBUI.scale)
+        // Content scaling — full layout (all sections visible)
         private const val DESIGN_CONTENT_HEIGHT = 370
+
+        // Compact layout (rail + font row hidden): cards(96) + trial gap(26) + trial(20) + btn gap(14) + btn(36)
+        private const val DESIGN_CONTENT_HEIGHT_COMPACT = 192
         private const val DESIGN_WIDTH = 750
         private const val MIN_SCALE = 0.5f
         private const val MAX_SCALE = 1.0f
-        private const val RAIL_HIDE_BELOW = 0.6f
+        private const val COMPACT_THRESHOLD = 0.75f
 
         // Glow border
         private const val GLOW_INSET = 4
