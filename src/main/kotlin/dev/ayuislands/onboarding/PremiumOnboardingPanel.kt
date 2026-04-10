@@ -10,12 +10,13 @@ import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.MessageDialogBuilder
-import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.components.JBLabel
-import com.intellij.util.IconUtil
+import com.intellij.ui.scale.ScaleContext
+import com.intellij.util.SVGLoader
 import com.intellij.util.ui.JBUI
+import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.font.FontCatalog
 import dev.ayuislands.font.FontInstaller
 import dev.ayuislands.font.FontPreset
@@ -66,17 +67,11 @@ internal class PremiumOnboardingPanel(
     private var activeGlowWidth: Int = 0
     private var activeGlowAlpha: Float = 0f
 
-    /** Background SVG — loaded once, rescaled on resize. */
-    private val heroIcon: Icon? =
-        try {
-            IconLoader.getIcon("/onboarding/welcome_board_dark.svg", PremiumOnboardingPanel::class.java)
-        } catch (exception: RuntimeException) {
-            LOG.warn("Failed to load onboarding hero image", exception)
-            null
-        }
+    /** Hero SVG classpath — resolved from current variant at init. */
+    private val heroPath: String? = resolveHeroPath()
 
-    private var cachedBackgroundIcon: Icon? = null
-    private var cachedBackgroundSize: Dimension? = null
+    private var cachedBackgroundImage: java.awt.Image? = null
+    private var cachedBackgroundKey: Triple<String?, Int, Int>? = null
 
     private var topStrut: Component? = null
     private var contentWrapper: JPanel? = null
@@ -119,25 +114,60 @@ internal class PremiumOnboardingPanel(
         super.paintComponent(graphics)
     }
 
-    /** Render SVG as a full-tab background with "cover" scaling. */
+    /** Render SVG as a full-tab background with "cover" scaling via [SVGLoader]. */
     private fun paintBackground(g2: Graphics2D) {
-        val icon = heroIcon ?: return
-        val currentSize = Dimension(width, height)
+        val path = heroPath ?: return
+        if (width <= 0 || height <= 0) return
 
-        if (cachedBackgroundIcon == null || cachedBackgroundSize != currentSize) {
-            val scale =
-                maxOf(
-                    width.toDouble() / icon.iconWidth,
-                    height.toDouble() / icon.iconHeight,
-                )
-            cachedBackgroundIcon = IconUtil.scale(icon, null, scale.toFloat())
-            cachedBackgroundSize = currentSize
+        val scale = maxOf(width / SVG_VIEW_BOX_WIDTH, height / SVG_VIEW_BOX_HEIGHT)
+        val scaledW = (SVG_VIEW_BOX_WIDTH * scale).toInt()
+        val scaledH = (SVG_VIEW_BOX_HEIGHT * scale).toInt()
+
+        val key = Triple(path, scaledW, scaledH)
+        if (cachedBackgroundKey != key) {
+            cachedBackgroundImage = loadScaledHero(path, scaledW, scaledH)
+            cachedBackgroundKey = key
         }
 
-        val scaled = cachedBackgroundIcon ?: return
-        val drawX = (width - scaled.iconWidth) / 2
-        val drawY = (height - scaled.iconHeight) / 2
-        scaled.paintIcon(this, g2, drawX, drawY)
+        val image = cachedBackgroundImage ?: return
+        val drawX = (width - scaledW) / 2
+        val drawY = (height - scaledH) / 2
+        g2.drawImage(image, drawX, drawY, scaledW, scaledH, null)
+    }
+
+    private fun resolveHeroPath(): String? {
+        val variant = AyuVariant.detect() ?: AyuVariant.MIRAGE
+        val path =
+            when (variant) {
+                AyuVariant.MIRAGE -> "/onboarding/welcome_board_mirage.svg"
+                AyuVariant.DARK -> "/onboarding/welcome_board_dark.svg"
+                AyuVariant.LIGHT -> "/onboarding/welcome_board_light.svg"
+            }
+        return if (PremiumOnboardingPanel::class.java.getResource(path) != null) path else null
+    }
+
+    @Suppress("UnstableApiUsage")
+    private fun loadScaledHero(
+        path: String,
+        targetW: Int,
+        targetH: Int,
+    ): java.awt.Image? {
+        val url = PremiumOnboardingPanel::class.java.getResource(path) ?: return null
+        val stream = PremiumOnboardingPanel::class.java.getResourceAsStream(path) ?: return null
+        return try {
+            stream.use {
+                SVGLoader.load(
+                    url,
+                    it,
+                    ScaleContext.create(this),
+                    targetW.toDouble(),
+                    targetH.toDouble(),
+                )
+            }
+        } catch (exception: java.io.IOException) {
+            LOG.info("Failed to load hero SVG $path", exception)
+            null
+        }
     }
 
     /** Bottom gradient scrim for text readability over the image. */
@@ -818,10 +848,10 @@ internal class PremiumOnboardingPanel(
         private const val GAP_MICRO = 2
 
         // SVG geometry for dynamic tagline tracking (mirrors FreeOnboardingPanel)
-        private const val SVG_VIEW_BOX_WIDTH = 680.0
-        private const val SVG_VIEW_BOX_HEIGHT = 590.0
-        private const val SVG_TAGLINE_BOTTOM_Y = 372.0
-        private const val SVG_TAGLINE_FONT_PX = 13.0
+        private const val SVG_VIEW_BOX_WIDTH = 1600.0
+        private const val SVG_VIEW_BOX_HEIGHT = 1000.0
+        private const val SVG_TAGLINE_BOTTOM_Y = 660.0
+        private const val SVG_TAGLINE_FONT_PX = 26.0
 
         // Trial headline
         private const val TRIAL_HEADLINE_SIZE = 15
