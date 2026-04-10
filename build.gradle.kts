@@ -173,9 +173,21 @@ kover {
                     $$"dev.ayuislands.settings.AccentColorPanel$ResetLabel*",
                     // IDE scheduling glue: AppExecutorUtil, AyuIslandsSettings, AccentApplicator singletons
                     "dev.ayuislands.rotation.AccentRotationService*",
-                    // Pure Swing rendering: Graphics2D paint, mouse handlers, Timer animations
-                    "dev.ayuislands.onboarding.OnboardingPanel*",
-                    "dev.ayuislands.onboarding.OnboardingEditor*",
+                    // Onboarding Swing panels (Graphics2D paint, mouse handlers, SVG rendering)
+                    "dev.ayuislands.onboarding.PremiumOnboardingPanel*",
+                    "dev.ayuislands.onboarding.FreeOnboardingPanel*",
+                    // Onboarding Swing factories and rendering helpers (createStyledButton, createRailCard, paintScrim etc.)
+                    "dev.ayuislands.onboarding.OnboardingComponentsKt*",
+                    "dev.ayuislands.onboarding.OnboardingSharedRenderingKt*",
+                    // Onboarding IDE glue (thin editor providers, virtual files, coroutine scheduler)
+                    "dev.ayuislands.onboarding.*EditorProvider*",
+                    "dev.ayuislands.onboarding.*Editor",
+                    "dev.ayuislands.onboarding.*VirtualFile*",
+                    "dev.ayuislands.onboarding.OnboardingSchedulerService*",
+                    // Font download/install pipeline (IO, network, platform filesystem)
+                    "dev.ayuislands.font.FontInstaller*",
+                    // Startup lifecycle (coroutine scheduling, project service init)
+                    "dev.ayuislands.StartupLicenseHandler*",
                 )
             }
         }
