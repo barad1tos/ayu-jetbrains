@@ -41,6 +41,13 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.4.0" to
+                "<ul>" +
+                "<li>Onboarding wizard with preset cards and accent picker</li>" +
+                "<li>Font installation from the wizard</li>" +
+                "<li>Responsive scaling for small windows</li>" +
+                "<li>License and trial fixes</li>" +
+                "</ul>",
             "2.3.7" to
                 "<ul>" +
                 "<li>Fix tool window width jumping when switching panels</li>" +

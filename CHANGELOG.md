@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.4.0] - 2026-04-10
+
+### Added
+- Onboarding wizard — full-tab welcome experience with preset cards, theme variant picker, and accent swatches
+- [Paid] Font installation — download and apply curated coding fonts directly from the wizard
+- Responsive scaling — wizard adapts to split editors and small windows
+- [Paid] License transition listener — mid-session license changes apply immediately
+
+### Fixed
+- Fix trial day calculation timezone drift (UTC instead of system default)
+- Renewing a license preserves your existing settings
+- 48-hour offline grace window for license checks
+
 ## [2.3.7] - 2026-04-01
 
 ### Fixed
