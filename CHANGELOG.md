@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.4.1] - 2026-04-11
+
+### Fixed
+- Fix font install retry getting stuck on corrupted download cache
+
 ## [2.4.0] - 2026-04-10
 
 ### Added
