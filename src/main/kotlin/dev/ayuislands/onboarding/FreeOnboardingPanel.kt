@@ -27,7 +27,6 @@ import java.awt.Component
 import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.Font
-import java.awt.GradientPaint
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.RenderingHints
@@ -37,7 +36,6 @@ import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.Box
 import javax.swing.BoxLayout
-import javax.swing.Icon
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
@@ -142,20 +140,16 @@ internal class FreeOnboardingPanel(
         val path = variantHeroPaths[currentHeroVariant] ?: variantHeroPaths.values.firstOrNull() ?: return
         if (width <= 0 || height <= 0) return
 
-        val scale = maxOf(width / SVG_VIEW_BOX_WIDTH, height / SVG_VIEW_BOX_HEIGHT)
-        val scaledW = (SVG_VIEW_BOX_WIDTH * scale).toInt()
-        val scaledH = (SVG_VIEW_BOX_HEIGHT * scale).toInt()
+        val coverSize = computeCoverDimensions(width, height, SVG_VIEW_BOX_WIDTH, SVG_VIEW_BOX_HEIGHT)
 
-        val key = Triple(currentHeroVariant, scaledW, scaledH)
+        val key = Triple(currentHeroVariant, coverSize.first, coverSize.second)
         if (cachedBackgroundKey != key) {
-            cachedBackgroundImage = loadScaledHero(path, scaledW, scaledH)
+            cachedBackgroundImage = loadScaledHero(path, coverSize.first, coverSize.second)
             cachedBackgroundKey = key
         }
 
         val image = cachedBackgroundImage ?: return
-        val drawX = (width - scaledW) / 2
-        val drawY = (height - scaledH) / 2
-        g2.drawImage(image, drawX, drawY, scaledW, scaledH, null)
+        drawCoveredImage(g2, image, width, height, coverSize)
     }
 
     @Suppress("UnstableApiUsage")
@@ -184,17 +178,7 @@ internal class FreeOnboardingPanel(
 
     /** Bottom gradient scrim for text readability over the image. */
     private fun paintScrim(g2: Graphics2D) {
-        val scrimHeight = (height * SCRIM_FRACTION).toInt()
-        g2.paint =
-            GradientPaint(
-                0f,
-                (height - scrimHeight).toFloat(),
-                SCRIM_TOP_COLOR,
-                0f,
-                height.toFloat(),
-                SCRIM_BOTTOM_COLOR,
-            )
-        g2.fillRect(0, height - scrimHeight, width, scrimHeight)
+        paintScrim(g2, width, height, SCRIM_CONFIG)
     }
 
     private fun loadContent() {
@@ -259,22 +243,7 @@ internal class FreeOnboardingPanel(
     }
 
     private fun updateContentScale() {
-        if (width <= 0 || height <= 0) return
-        val topStrutHeight = topStrut?.preferredSize?.height ?: 0
-        val available = height - topStrutHeight - JBUI.scale(BOTTOM_MARGIN)
-        val widthScale = width.toFloat() / JBUI.scale(DESIGN_WIDTH).toFloat()
-
-        val fullScale =
-            minOf(
-                available.toFloat() / JBUI.scale(DESIGN_CONTENT_HEIGHT).toFloat(),
-                widthScale,
-            )
-        val compact = fullScale < COMPACT_THRESHOLD
-
-        val designHeight = if (compact) DESIGN_CONTENT_HEIGHT_COMPACT else DESIGN_CONTENT_HEIGHT
-        val heightScale = available.toFloat() / JBUI.scale(designHeight).toFloat()
-        val contentScale = minOf(heightScale, widthScale).coerceIn(MIN_SCALE, MAX_SCALE)
-        scaler.apply(contentScale, forceHideCompact = compact)
+        updateContentScale(width, height, topStrut?.preferredSize?.height ?: 0, SCALE_CONFIG, scaler)
     }
 
     /** Rebuild the trial headline HTML with the current accent color and font size. */
@@ -558,110 +527,26 @@ internal class FreeOnboardingPanel(
         row.alignmentX = CENTER_ALIGNMENT
 
         row.add(Box.createHorizontalGlue())
-        row.add(createRailCard(RAIL_GLOW_TEASER))
+        row.add(createRailCard(railGlowTeaser()))
         row.add(Box.createHorizontalStrut(JBUI.scale(CARD_GAP)))
-        row.add(createRailCard(RAIL_FONT_TEASER))
+        row.add(createRailCard(railFontTeaser()))
         row.add(Box.createHorizontalStrut(JBUI.scale(CARD_GAP)))
-        row.add(createRailCard(RAIL_ROTATE_TEASER))
+        row.add(createRailCard(railRotateTeaser()))
         row.add(Box.createHorizontalStrut(JBUI.scale(CARD_GAP)))
-        row.add(createRailCard(RAIL_PLUGINS_TEASER))
+        row.add(createRailCard(railPluginsTeaser()))
         row.add(Box.createHorizontalStrut(JBUI.scale(RAIL_DIVIDER_GAP)))
         row.add(createRailDivider())
         row.add(Box.createHorizontalStrut(JBUI.scale(RAIL_DIVIDER_GAP)))
-        row.add(createRailCard(RAIL_SHARE_LINK))
+        row.add(createRailCard(railShareLink()))
         row.add(Box.createHorizontalStrut(JBUI.scale(CARD_GAP)))
-        row.add(createRailCard(RAIL_FEATURE_LINK))
+        row.add(createRailCard(railFeatureLink()))
         row.add(Box.createHorizontalGlue())
         return row
     }
 
-    private fun createRailDivider(): JComponent {
-        val divider =
-            object : JPanel() {
-                override fun paintComponent(graphics: Graphics) {
-                    val g2 = graphics as Graphics2D
-                    g2.color = CARD_BORDER_COLOR
-                    val margin = (height - JBUI.scale(RAIL_DIVIDER_HEIGHT)) / 2
-                    g2.fillRect(0, margin, 1, JBUI.scale(RAIL_DIVIDER_HEIGHT))
-                }
-            }
-        divider.isOpaque = false
-        val size = Dimension(1, JBUI.scale(RAIL_CARD_HEIGHT))
-        divider.preferredSize = size
-        divider.minimumSize = size
-        divider.maximumSize = size
-        return divider
-    }
+    private fun createRailDivider(): JComponent = createRailDivider(RAIL_DIVIDER_HEIGHT, RAIL_CARD_HEIGHT)
 
-    @Suppress("LongMethod")
-    private fun createRailCard(spec: RailCardSpec): JPanel {
-        val cardPanel =
-            object : JPanel() {
-                private var hovered = false
-
-                init {
-                    configureCardPanel(this, RAIL_CARD_PADDING, RAIL_CARD_WIDTH, RAIL_CARD_HEIGHT, scaler)
-                    toolTipText = spec.tooltip
-
-                    addMouseListener(
-                        object : MouseAdapter() {
-                            override fun mouseEntered(event: MouseEvent) {
-                                hovered = true
-                                repaint()
-                            }
-
-                            override fun mouseExited(event: MouseEvent) {
-                                hovered = false
-                                repaint()
-                            }
-
-                            override fun mouseClicked(event: MouseEvent) {
-                                spec.onClick(this@FreeOnboardingPanel)
-                            }
-                        },
-                    )
-                }
-
-                override fun paintComponent(graphics: Graphics) {
-                    val g2 = graphics as Graphics2D
-                    g2.setRenderingHint(
-                        RenderingHints.KEY_ANTIALIASING,
-                        RenderingHints.VALUE_ANTIALIAS_ON,
-                    )
-                    paintCardChrome(
-                        g2,
-                        width,
-                        height,
-                        hovered,
-                        spec.hoverColor,
-                        contentScale = scaler.currentScale,
-                    )
-
-                    // Corner icon (optional — null for trial-cue cards)
-                    spec.cornerIcon?.let { icon ->
-                        val iconMargin = JBUI.scale(CARD_DOT_MARGIN)
-                        icon.paintIcon(this, g2, width - iconMargin - icon.iconWidth, iconMargin)
-                    }
-
-                    super.paintComponent(graphics)
-                }
-            }
-        cardPanel.isOpaque = false
-
-        attachCardLabels(
-            card = cardPanel,
-            content =
-                CardLabelContent(
-                    title = spec.title,
-                    subtitle = spec.subtitle,
-                    subtitleColor = spec.subtitleColor,
-                ),
-            style = RAIL_CARD_LABEL_STYLE,
-            scaler = scaler,
-        )
-
-        return cardPanel
-    }
+    private fun createRailCard(spec: RailCardSpec): JPanel = createRailCard(spec, RAIL_CARD_LAYOUT, scaler)
 
     // -- Trial messaging --
 
@@ -700,16 +585,6 @@ internal class FreeOnboardingPanel(
         val baseFill: Color,
     )
 
-    private data class RailCardSpec(
-        val title: String,
-        val subtitle: String,
-        val tooltip: String,
-        val hoverColor: Color,
-        val cornerIcon: Icon?,
-        val subtitleColor: Color = CARD_DESC_COLOR,
-        val onClick: (FreeOnboardingPanel) -> Unit,
-    )
-
     companion object {
         private val LOG = logger<FreeOnboardingPanel>()
 
@@ -732,10 +607,13 @@ internal class FreeOnboardingPanel(
         // Button row (reused)
         private const val BTN_GAP = 16
 
-        // Scrim (reused)
-        private const val SCRIM_FRACTION = 0.65
-        private val SCRIM_TOP_COLOR = Color(0x0B, 0x0E, 0x14, 0)
-        private val SCRIM_BOTTOM_COLOR = Color(0x0B, 0x0E, 0x14, 220)
+        // Scrim
+        private val SCRIM_CONFIG =
+            ScrimConfig(
+                fraction = 0.65,
+                topColor = Color(0x0B, 0x0E, 0x14, 0),
+                bottomColor = Color(0x0B, 0x0E, 0x14, 220),
+            )
 
         // Gaps (reused)
         private const val BOTTOM_MARGIN = 26
@@ -793,20 +671,32 @@ internal class FreeOnboardingPanel(
                 titleSubtitleGapPx = GAP_MICRO,
             )
 
+        private val RAIL_CARD_LAYOUT =
+            RailCardLayout(
+                paddingPx = RAIL_CARD_PADDING,
+                widthPx = RAIL_CARD_WIDTH,
+                heightPx = RAIL_CARD_HEIGHT,
+                dotMarginPx = CARD_DOT_MARGIN,
+                labelStyle = RAIL_CARD_LABEL_STYLE,
+            )
+
         // Trial headline: single muted slate base color readable on every hero SVG,
         // plus the shared warm amber "unlocked" highlight used across all variants.
         private const val TRIAL_TEXT_BASE = "#9fa9ba"
         private const val TRIAL_UNLOCKED_HEX = "#886428"
         private const val TRIAL_DAYS_LEFT_LABEL = "30 days left"
 
-        // Content scaling — full layout (all sections visible)
-        private const val DESIGN_CONTENT_HEIGHT = 360
-
-        // Compact layout (rail + trial hidden): cards(96) + swatch gap(10) + swatches(32) + btn gap(14) + btn(36)
-        private const val DESIGN_CONTENT_HEIGHT_COMPACT = 188
-        private const val DESIGN_WIDTH = 750
-        private const val MIN_SCALE = 0.5f
-        private const val MAX_SCALE = 1.0f
+        // Content scaling (compact hides rail + trial)
+        private val SCALE_CONFIG =
+            ContentScaleConfig(
+                bottomMarginPx = BOTTOM_MARGIN,
+                designWidth = 750,
+                designContentHeight = 360,
+                designContentHeightCompact = 188,
+                compactThreshold = 0.75f,
+                minScale = 0.5f,
+                maxScale = 1.0f,
+            )
         private const val COMPACT_THRESHOLD = 0.75f
 
         // Accent swatch strip (new)
@@ -870,71 +760,71 @@ internal class FreeOnboardingPanel(
                     LIGHT_BASE_FILL,
                 ),
             )
-
-        private val RAIL_GLOW_TEASER =
-            RailCardSpec(
-                title = "Glow",
-                subtitle = TRIAL_DAYS_LEFT_LABEL,
-                tooltip = "Included in your 30-day trial",
-                hoverColor = GLOW_TEASER_TINT,
-                cornerIcon = null,
-                subtitleColor = TRIAL_CUE_COLOR,
-                onClick = { panel -> panel.openSettings() },
-            )
-
-        private val RAIL_FONT_TEASER =
-            RailCardSpec(
-                title = "Fonts",
-                subtitle = TRIAL_DAYS_LEFT_LABEL,
-                tooltip = "Included in your 30-day trial",
-                hoverColor = FONT_TEASER_TINT,
-                cornerIcon = null,
-                subtitleColor = TRIAL_CUE_COLOR,
-                onClick = { panel -> panel.openSettings() },
-            )
-
-        private val RAIL_ROTATE_TEASER =
-            RailCardSpec(
-                title = "Auto-Rotate",
-                subtitle = TRIAL_DAYS_LEFT_LABEL,
-                tooltip = "Rotate accent colors on a schedule — included in your 30-day trial",
-                hoverColor = ROTATE_TEASER_TINT,
-                cornerIcon = null,
-                subtitleColor = TRIAL_CUE_COLOR,
-                onClick = { panel -> panel.openSettings() },
-            )
-
-        private val RAIL_PLUGINS_TEASER =
-            RailCardSpec(
-                title = "Plugin Sync",
-                subtitle = TRIAL_DAYS_LEFT_LABEL,
-                tooltip = "Propagate accent to CodeGlance Pro and Indent Rainbow — included in your 30-day trial",
-                hoverColor = PLUGINS_TEASER_TINT,
-                cornerIcon = null,
-                subtitleColor = TRIAL_CUE_COLOR,
-                onClick = { panel -> panel.openSettings() },
-            )
-
-        private val RAIL_SHARE_LINK =
-            RailCardSpec(
-                title = "Share setup",
-                subtitle = "Discussions",
-                tooltip = "Share your Ayu Islands setup on GitHub Discussions",
-                hoverColor = COMMUNITY_COLOR,
-                cornerIcon = AllIcons.Actions.Share,
-                onClick = { BrowserUtil.browse(OnboardingUrls.DISCUSSIONS_SHOW_SETUP) },
-            )
-
-        private val RAIL_FEATURE_LINK =
-            RailCardSpec(
-                title = "Feedback",
-                subtitle = "Discussions",
-                tooltip = "Suggest a feature on GitHub Discussions",
-                hoverColor = COMMUNITY_COLOR,
-                cornerIcon = AllIcons.General.BalloonInformation,
-                onClick = { BrowserUtil.browse(OnboardingUrls.DISCUSSIONS_FEATURE_REQUESTS) },
-            )
     }
+
+    private fun railGlowTeaser(): RailCardSpec =
+        RailCardSpec(
+            title = "Glow",
+            subtitle = TRIAL_DAYS_LEFT_LABEL,
+            tooltip = "Included in your 30-day trial",
+            hoverColor = GLOW_TEASER_TINT,
+            cornerIcon = null,
+            subtitleColor = TRIAL_CUE_COLOR,
+            onClick = { openSettings() },
+        )
+
+    private fun railFontTeaser(): RailCardSpec =
+        RailCardSpec(
+            title = "Fonts",
+            subtitle = TRIAL_DAYS_LEFT_LABEL,
+            tooltip = "Included in your 30-day trial",
+            hoverColor = FONT_TEASER_TINT,
+            cornerIcon = null,
+            subtitleColor = TRIAL_CUE_COLOR,
+            onClick = { openSettings() },
+        )
+
+    private fun railRotateTeaser(): RailCardSpec =
+        RailCardSpec(
+            title = "Auto-Rotate",
+            subtitle = TRIAL_DAYS_LEFT_LABEL,
+            tooltip = "Rotate accent colors on a schedule — included in your 30-day trial",
+            hoverColor = ROTATE_TEASER_TINT,
+            cornerIcon = null,
+            subtitleColor = TRIAL_CUE_COLOR,
+            onClick = { openSettings() },
+        )
+
+    private fun railPluginsTeaser(): RailCardSpec =
+        RailCardSpec(
+            title = "Plugin Sync",
+            subtitle = TRIAL_DAYS_LEFT_LABEL,
+            tooltip = "Propagate accent to CodeGlance Pro and Indent Rainbow — included in your 30-day trial",
+            hoverColor = PLUGINS_TEASER_TINT,
+            cornerIcon = null,
+            subtitleColor = TRIAL_CUE_COLOR,
+            onClick = { openSettings() },
+        )
+
+    private fun railShareLink(): RailCardSpec =
+        RailCardSpec(
+            title = "Share setup",
+            subtitle = "Discussions",
+            tooltip = "Share your Ayu Islands setup on GitHub Discussions",
+            hoverColor = COMMUNITY_COLOR,
+            cornerIcon = AllIcons.Actions.Share,
+            onClick = { BrowserUtil.browse(OnboardingUrls.DISCUSSIONS_SHOW_SETUP) },
+        )
+
+    private fun railFeatureLink(): RailCardSpec =
+        RailCardSpec(
+            title = "Feedback",
+            subtitle = "Discussions",
+            tooltip = "Suggest a feature on GitHub Discussions",
+            hoverColor = COMMUNITY_COLOR,
+            cornerIcon = AllIcons.General.BalloonInformation,
+            onClick = { BrowserUtil.browse(OnboardingUrls.DISCUSSIONS_FEATURE_REQUESTS) },
+        )
 
     private fun openSettings() {
         ShowSettingsUtil.getInstance().showSettingsDialog(project, "Ayu Islands")

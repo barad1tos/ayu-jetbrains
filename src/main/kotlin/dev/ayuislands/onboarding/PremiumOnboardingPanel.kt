@@ -24,7 +24,6 @@ import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.font.FontSettings
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.glow.GlowPreset
-import dev.ayuislands.onboarding.OnboardingCardChrome.CARD_BORDER_COLOR
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.BorderLayout
 import java.awt.Color
@@ -32,7 +31,6 @@ import java.awt.Component
 import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.Font
-import java.awt.GradientPaint
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.RenderingHints
@@ -43,7 +41,6 @@ import java.awt.event.MouseEvent
 import java.awt.geom.RoundRectangle2D
 import javax.swing.Box
 import javax.swing.BoxLayout
-import javax.swing.Icon
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
@@ -120,20 +117,16 @@ internal class PremiumOnboardingPanel(
         val path = heroPath ?: return
         if (width <= 0 || height <= 0) return
 
-        val scale = maxOf(width / SVG_VIEW_BOX_WIDTH, height / SVG_VIEW_BOX_HEIGHT)
-        val scaledW = (SVG_VIEW_BOX_WIDTH * scale).toInt()
-        val scaledH = (SVG_VIEW_BOX_HEIGHT * scale).toInt()
+        val coverSize = computeCoverDimensions(width, height, SVG_VIEW_BOX_WIDTH, SVG_VIEW_BOX_HEIGHT)
 
-        val key = Triple(path, scaledW, scaledH)
+        val key = Triple(path, coverSize.first, coverSize.second)
         if (cachedBackgroundKey != key) {
-            cachedBackgroundImage = loadScaledHero(path, scaledW, scaledH)
+            cachedBackgroundImage = loadScaledHero(path, coverSize.first, coverSize.second)
             cachedBackgroundKey = key
         }
 
         val image = cachedBackgroundImage ?: return
-        val drawX = (width - scaledW) / 2
-        val drawY = (height - scaledH) / 2
-        g2.drawImage(image, drawX, drawY, scaledW, scaledH, null)
+        drawCoveredImage(g2, image, width, height, coverSize)
     }
 
     private fun resolveHeroPath(): String? {
@@ -173,17 +166,7 @@ internal class PremiumOnboardingPanel(
 
     /** Bottom gradient scrim for text readability over the image. */
     private fun paintScrim(g2: Graphics2D) {
-        val scrimHeight = (height * SCRIM_FRACTION).toInt()
-        g2.paint =
-            GradientPaint(
-                0f,
-                (height - scrimHeight).toFloat(),
-                SCRIM_TOP_COLOR,
-                0f,
-                height.toFloat(),
-                SCRIM_BOTTOM_COLOR,
-            )
-        g2.fillRect(0, height - scrimHeight, width, scrimHeight)
+        paintScrim(g2, width, height, SCRIM_CONFIG)
     }
 
     private fun paintGlowBorder(
@@ -277,22 +260,7 @@ internal class PremiumOnboardingPanel(
     }
 
     private fun updateContentScale() {
-        if (width <= 0 || height <= 0) return
-        val topStrutHeight = topStrut?.preferredSize?.height ?: 0
-        val available = height - topStrutHeight - JBUI.scale(BOTTOM_MARGIN)
-        val widthScale = width.toFloat() / JBUI.scale(DESIGN_WIDTH).toFloat()
-
-        val fullScale =
-            minOf(
-                available.toFloat() / JBUI.scale(DESIGN_CONTENT_HEIGHT).toFloat(),
-                widthScale,
-            )
-        val compact = fullScale < COMPACT_THRESHOLD
-
-        val designHeight = if (compact) DESIGN_CONTENT_HEIGHT_COMPACT else DESIGN_CONTENT_HEIGHT
-        val heightScale = available.toFloat() / JBUI.scale(designHeight).toFloat()
-        val contentScale = minOf(heightScale, widthScale).coerceIn(MIN_SCALE, MAX_SCALE)
-        scaler.apply(contentScale, forceHideCompact = compact)
+        updateContentScale(width, height, topStrut?.preferredSize?.height ?: 0, SCALE_CONFIG, scaler)
     }
 
     private fun updateTrialHeadline(fontPx: Float) {
@@ -338,23 +306,7 @@ internal class PremiumOnboardingPanel(
         return row
     }
 
-    private fun createRailDivider(): JComponent {
-        val divider =
-            object : JPanel() {
-                override fun paintComponent(graphics: Graphics) {
-                    val g2 = graphics as Graphics2D
-                    g2.color = CARD_BORDER_COLOR
-                    val margin = (height - JBUI.scale(RAIL_DIVIDER_HEIGHT)) / 2
-                    g2.fillRect(0, margin, 1, JBUI.scale(RAIL_DIVIDER_HEIGHT))
-                }
-            }
-        divider.isOpaque = false
-        val size = Dimension(1, JBUI.scale(RAIL_CARD_HEIGHT))
-        divider.preferredSize = size
-        divider.minimumSize = size
-        divider.maximumSize = size
-        return divider
-    }
+    private fun createRailDivider(): JComponent = createRailDivider(RAIL_DIVIDER_HEIGHT, RAIL_CARD_HEIGHT)
 
     private fun railAutoRotate(): RailCardSpec =
         RailCardSpec(
@@ -420,66 +372,7 @@ internal class PremiumOnboardingPanel(
             onClick = { BrowserUtil.browse(OnboardingUrls.DISCUSSIONS_FEATURE_REQUESTS) },
         )
 
-    @Suppress("LongMethod")
-    private fun createRailCard(spec: RailCardSpec): JPanel {
-        val cardPanel =
-            object : JPanel() {
-                private var hovered = false
-
-                init {
-                    configureCardPanel(this, RAIL_CARD_PADDING, RAIL_CARD_WIDTH, RAIL_CARD_HEIGHT, scaler)
-                    toolTipText = spec.tooltip
-
-                    addMouseListener(
-                        object : MouseAdapter() {
-                            override fun mouseEntered(event: MouseEvent) {
-                                hovered = true
-                                repaint()
-                            }
-
-                            override fun mouseExited(event: MouseEvent) {
-                                hovered = false
-                                repaint()
-                            }
-
-                            override fun mouseClicked(event: MouseEvent) {
-                                spec.onClick()
-                            }
-                        },
-                    )
-                }
-
-                override fun paintComponent(graphics: Graphics) {
-                    val g2 = graphics as Graphics2D
-                    g2.setRenderingHint(
-                        RenderingHints.KEY_ANTIALIASING,
-                        RenderingHints.VALUE_ANTIALIAS_ON,
-                    )
-                    paintCardChrome(g2, width, height, hovered, spec.hoverColor, contentScale = scaler.currentScale)
-
-                    spec.cornerIcon?.let { icon ->
-                        val iconMargin = JBUI.scale(CARD_DOT_MARGIN)
-                        icon.paintIcon(this, g2, width - iconMargin - icon.iconWidth, iconMargin)
-                    }
-
-                    super.paintComponent(graphics)
-                }
-            }
-        cardPanel.isOpaque = false
-
-        attachCardLabels(
-            card = cardPanel,
-            content =
-                CardLabelContent(
-                    title = spec.title,
-                    subtitle = spec.subtitle,
-                    subtitleColor = spec.subtitleColor,
-                ),
-            style = RAIL_CARD_LABEL_STYLE,
-            scaler = scaler,
-        )
-        return cardPanel
-    }
+    private fun createRailCard(spec: RailCardSpec): JPanel = createRailCard(spec, RAIL_CARD_LAYOUT, scaler)
 
     private fun openSettings() {
         ShowSettingsUtil.getInstance().showSettingsDialog(project, "Ayu Islands")
@@ -811,16 +704,6 @@ internal class PremiumOnboardingPanel(
         val fontPreset: FontPreset,
     )
 
-    private data class RailCardSpec(
-        val title: String,
-        val subtitle: String,
-        val tooltip: String,
-        val hoverColor: Color,
-        val cornerIcon: Icon?,
-        val subtitleColor: Color = CARD_DESC_COLOR,
-        val onClick: () -> Unit,
-    )
-
     companion object {
         private val LOG = logger<PremiumOnboardingPanel>()
 
@@ -859,9 +742,12 @@ internal class PremiumOnboardingPanel(
         private const val BTN_GAP = 16
 
         // Scrim
-        private const val SCRIM_FRACTION = 0.65
-        private val SCRIM_TOP_COLOR = Color(0x0B, 0x0E, 0x14, 0)
-        private val SCRIM_BOTTOM_COLOR = Color(0x0B, 0x0E, 0x14, 220)
+        private val SCRIM_CONFIG =
+            ScrimConfig(
+                fraction = 0.65,
+                topColor = Color(0x0B, 0x0E, 0x14, 0),
+                bottomColor = Color(0x0B, 0x0E, 0x14, 220),
+            )
 
         // Gaps
         private const val BOTTOM_MARGIN = 26
@@ -920,14 +806,26 @@ internal class PremiumOnboardingPanel(
                 titleSubtitleGapPx = GAP_MICRO,
             )
 
-        // Content scaling — full layout (all sections visible)
-        private const val DESIGN_CONTENT_HEIGHT = 370
+        private val RAIL_CARD_LAYOUT =
+            RailCardLayout(
+                paddingPx = RAIL_CARD_PADDING,
+                widthPx = RAIL_CARD_WIDTH,
+                heightPx = RAIL_CARD_HEIGHT,
+                dotMarginPx = CARD_DOT_MARGIN,
+                labelStyle = RAIL_CARD_LABEL_STYLE,
+            )
 
-        // Compact layout (rail + font row hidden): cards(96) + trial gap(26) + trial(20) + btn gap(14) + btn(36)
-        private const val DESIGN_CONTENT_HEIGHT_COMPACT = 192
-        private const val DESIGN_WIDTH = 750
-        private const val MIN_SCALE = 0.5f
-        private const val MAX_SCALE = 1.0f
+        // Content scaling (compact hides rail + font row)
+        private val SCALE_CONFIG =
+            ContentScaleConfig(
+                bottomMarginPx = BOTTOM_MARGIN,
+                designWidth = 750,
+                designContentHeight = 370,
+                designContentHeightCompact = 192,
+                compactThreshold = 0.75f,
+                minScale = 0.5f,
+                maxScale = 1.0f,
+            )
         private const val COMPACT_THRESHOLD = 0.75f
 
         // Glow border

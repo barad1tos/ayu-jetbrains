@@ -143,6 +143,48 @@ internal class ContentScaler {
     }
 }
 
+/** Design dimensions and thresholds for two-pass content scaling. */
+internal data class ContentScaleConfig(
+    val bottomMarginPx: Int,
+    val designWidth: Int,
+    val designContentHeight: Int,
+    val designContentHeightCompact: Int,
+    val compactThreshold: Float,
+    val minScale: Float,
+    val maxScale: Float,
+)
+
+/**
+ * Shared two-pass content scale calculation used by both wizard panels.
+ *
+ * Full layout is tried first; if the resulting scale falls below the compact threshold,
+ * the compact design height is used instead and [ContentScaler.apply] is called with
+ * `forceHideCompact = true` to collapse secondary sections (rail, trial, font row).
+ */
+internal fun updateContentScale(
+    panelWidth: Int,
+    panelHeight: Int,
+    topStrutHeight: Int,
+    config: ContentScaleConfig,
+    scaler: ContentScaler,
+) {
+    if (panelWidth <= 0 || panelHeight <= 0) return
+    val available = panelHeight - topStrutHeight - JBUI.scale(config.bottomMarginPx)
+    val widthScale = panelWidth.toFloat() / JBUI.scale(config.designWidth).toFloat()
+
+    val fullScale =
+        minOf(
+            available.toFloat() / JBUI.scale(config.designContentHeight).toFloat(),
+            widthScale,
+        )
+    val compact = fullScale < config.compactThreshold
+
+    val designHeight = if (compact) config.designContentHeightCompact else config.designContentHeight
+    val heightScale = available.toFloat() / JBUI.scale(designHeight).toFloat()
+    val contentScale = minOf(heightScale, widthScale).coerceIn(config.minScale, config.maxScale)
+    scaler.apply(contentScale, forceHideCompact = compact)
+}
+
 @Suppress("MagicNumber")
 internal object OnboardingCardChrome {
     const val CARD_ARC = 14
@@ -665,29 +707,4 @@ internal fun buildWizardSection(
     }
     content.alignmentX = Component.CENTER_ALIGNMENT
     return content
-}
-
-/**
- * Build the standard bottom button row for both wizards: centered pair of
- * "Keep defaults" (secondary) and "Open Settings" (accent) buttons with a gap.
- */
-internal fun buildWizardBottomButtons(
-    gapPx: Int,
-    onKeepDefaults: () -> Unit,
-    onOpenSettings: () -> Unit,
-    scaler: ContentScaler? = null,
-): JPanel {
-    val row = JPanel()
-    row.layout = BoxLayout(row, BoxLayout.X_AXIS)
-    row.isOpaque = false
-    row.alignmentX = Component.CENTER_ALIGNMENT
-
-    row.add(Box.createHorizontalGlue())
-    row.add(createStyledButton("Keep defaults", isAccent = false, onClick = onKeepDefaults, scaler = scaler))
-    val gap = Box.createHorizontalStrut(JBUI.scale(gapPx))
-    scaler?.registerGap(gap, gapPx, horizontal = true)
-    row.add(gap)
-    row.add(createStyledButton("Open Settings", isAccent = true, onClick = onOpenSettings, scaler = scaler))
-    row.add(Box.createHorizontalGlue())
-    return row
 }

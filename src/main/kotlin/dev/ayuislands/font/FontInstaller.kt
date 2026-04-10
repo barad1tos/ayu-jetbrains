@@ -98,7 +98,6 @@ object FontInstaller {
         }
     }
 
-    @Suppress("LongMethod", "ReturnCount", "ComplexMethod")
     private fun runPipeline(
         entry: FontCatalog.Entry,
         preset: FontPreset,
@@ -106,147 +105,205 @@ object FontInstaller {
         indicator: ProgressIndicator,
         onComplete: (InstallResult) -> Unit,
     ) {
-        // Step 1 — resolve URL
         indicator.text = "Resolving download URL…"
-        val url =
-            try {
-                FontAssetResolver().resolve(entry)
-            } catch (e: RuntimeException) {
-                LOG.warn("FontAssetResolver threw unexpectedly", e)
-                entry.fallbackUrl
-            }
+        val url = resolveDownloadUrl(entry)
 
-        // Step 2 — download (or reuse cached zip)
         indicator.text = "Downloading ${entry.displayName}…"
         indicator.isIndeterminate = false
-        val cacheDir = File(PathManager.getTempPath(), "ayu-fonts").apply { mkdirs() }
-        val zipFile = File(cacheDir, url.substringAfterLast('/').ifBlank { "${preset.name}.zip" })
+        val zipFile = cachedZipFile(url, preset)
         try {
-            if (!zipFile.exists() || zipFile.length() == 0L) {
-                HttpRequests
-                    .request(url)
-                    .productNameAsUserAgent()
-                    .connect<Any?> { request ->
-                        request.saveToFile(zipFile, indicator)
-                        null
-                    }
-            }
-        } catch (e: UnknownHostException) {
-            return fail(entry, project, FailureKind.OFFLINE, onComplete, e)
-        } catch (e: SocketException) {
-            return fail(entry, project, FailureKind.OFFLINE, onComplete, e)
-        } catch (e: SSLException) {
-            return fail(entry, project, FailureKind.OFFLINE, onComplete, e)
-        } catch (e: HttpRequests.HttpStatusException) {
-            return fail(entry, project, FailureKind.HTTP_ERROR, onComplete, e)
+            downloadZip(url, zipFile, indicator)
         } catch (e: IOException) {
-            return fail(entry, project, FailureKind.HTTP_ERROR, onComplete, e)
+            return fail(entry, project, downloadFailureKind(e), onComplete, e)
         }
 
-        // Step 3 — extract
         indicator.text = "Unpacking…"
         val extractDir =
             File(PathManager.getTempPath(), "ayu-fonts/extracted-${preset.name}").apply { mkdirs() }
-        val extracted: List<File> =
-            try {
-                FontArchiveExtractor.extract(zipFile, extractDir, entry.filesToKeep)
-            } catch (e: FontArchiveException) {
-                val kind =
-                    if (e.message?.contains("No matching files") == true) {
-                        FailureKind.ASSET_NOT_FOUND
-                    } else {
-                        FailureKind.EXTRACTION_FAILED
-                    }
-                return fail(entry, project, kind, onComplete, e)
-            } catch (e: ZipException) {
-                if (!zipFile.delete()) LOG.warn("Failed to delete corrupt cache: $zipFile")
-                return fail(entry, project, FailureKind.EXTRACTION_FAILED, onComplete, e)
-            } catch (e: IOException) {
-                return fail(entry, project, FailureKind.EXTRACTION_FAILED, onComplete, e)
-            }
+        val extracted: List<File>
+        try {
+            extracted = extractFonts(zipFile, extractDir, entry)
+        } catch (e: IOException) {
+            return fail(entry, project, extractionFailureKind(e, zipFile), onComplete, e)
+        }
 
-        // Step 4 — copy to platform font dir
         indicator.text = "Installing…"
+        val installedFiles: List<File>
+        try {
+            installedFiles = copyToPlatformFontDir(extracted)
+        } catch (e: IOException) {
+            return fail(entry, project, FailureKind.PERMISSION_DENIED, onComplete, e)
+        }
+
+        cleanupQuietly(extractDir)
+
+        val canonicalFamily: String
+        try {
+            canonicalFamily = registerFont(installedFiles)
+        } catch (e: java.awt.FontFormatException) {
+            return fail(entry, project, FailureKind.REGISTER_FAILED, onComplete, e)
+        } catch (e: IOException) {
+            return fail(entry, project, FailureKind.REGISTER_FAILED, onComplete, e)
+        }
+
+        LOG.info("Font installed: $canonicalFamily (preset=${preset.name})")
+        persistAndApply(entry, preset, project, canonicalFamily, onComplete)
+    }
+
+    private fun resolveDownloadUrl(entry: FontCatalog.Entry): String =
+        try {
+            FontAssetResolver().resolve(entry)
+        } catch (e: RuntimeException) {
+            LOG.warn("FontAssetResolver threw unexpectedly", e)
+            entry.fallbackUrl
+        }
+
+    private fun cachedZipFile(
+        url: String,
+        preset: FontPreset,
+    ): File {
+        val cacheDir = File(PathManager.getTempPath(), "ayu-fonts").apply { mkdirs() }
+        return File(cacheDir, url.substringAfterLast('/').ifBlank { "${preset.name}.zip" })
+    }
+
+    /** Downloads the zip unless a valid cached copy already exists. */
+    @Throws(IOException::class)
+    private fun downloadZip(
+        url: String,
+        zipFile: File,
+        indicator: ProgressIndicator,
+    ) {
+        if (!zipFile.exists() || zipFile.length() == 0L) {
+            HttpRequests
+                .request(url)
+                .productNameAsUserAgent()
+                .connect<Any?> { request ->
+                    request.saveToFile(zipFile, indicator)
+                    null
+                }
+        }
+    }
+
+    private fun downloadFailureKind(exception: IOException): FailureKind =
+        when (exception) {
+            is UnknownHostException, is SocketException, is SSLException -> FailureKind.OFFLINE
+            else -> FailureKind.HTTP_ERROR
+        }
+
+    /** Extracts font files from the archive. */
+    @Throws(IOException::class)
+    private fun extractFonts(
+        zipFile: File,
+        extractDir: File,
+        entry: FontCatalog.Entry,
+    ): List<File> =
+        try {
+            FontArchiveExtractor.extract(zipFile, extractDir, entry.filesToKeep)
+        } catch (e: FontArchiveException) {
+            throw IOException(e.message, e)
+        }
+
+    private fun extractionFailureKind(
+        exception: IOException,
+        zipFile: File,
+    ): FailureKind {
+        val archiveCause = exception.cause
+        if (archiveCause is FontArchiveException &&
+            archiveCause.message?.contains("No matching files") == true
+        ) {
+            return FailureKind.ASSET_NOT_FOUND
+        }
+        if ((exception is ZipException || exception.cause is ZipException) && !zipFile.delete()) {
+            LOG.warn("Failed to delete corrupt cache: $zipFile")
+        }
+        return FailureKind.EXTRACTION_FAILED
+    }
+
+    /** Copies extracted font files into the platform user-level font directory. */
+    @Throws(IOException::class)
+    private fun copyToPlatformFontDir(extracted: List<File>): List<File> {
         val platformDir = platformFontDir()
         if (!platformDir.exists()) platformDir.mkdirs()
         if (!platformDir.canWrite()) {
-            return fail(entry, project, FailureKind.PERMISSION_DENIED, onComplete, null)
+            throw AccessDeniedException(platformDir.absolutePath)
         }
-        val installedFiles: List<File> =
-            try {
-                extracted.map { src ->
-                    val target = File(platformDir, src.name)
-                    Files.copy(src.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
-                    target
-                }
-            } catch (e: AccessDeniedException) {
-                return fail(entry, project, FailureKind.PERMISSION_DENIED, onComplete, e)
-            } catch (e: IOException) {
-                return fail(entry, project, FailureKind.PERMISSION_DENIED, onComplete, e)
-            }
+        return extracted.map { source ->
+            val target = File(platformDir, source.name)
+            Files.copy(source.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            target
+        }
+    }
 
+    /** Registers the first installed font file with the JVM's graphics environment. */
+    @Throws(java.awt.FontFormatException::class, IOException::class)
+    private fun registerFont(installedFiles: List<File>): String {
+        val first = installedFiles.first()
+        val font = Font.createFont(Font.TRUETYPE_FONT, first)
+        GraphicsEnvironment.getLocalGraphicsEnvironment().registerFont(font)
+        return font.family
+    }
+
+    private fun cleanupQuietly(directory: File) {
         try {
-            extractDir.deleteRecursively()
+            directory.deleteRecursively()
         } catch (_: IOException) {
             // best-effort
         }
+    }
 
-        // Step 5 — JVM register
-        val canonicalFamily: String =
-            try {
-                val first = installedFiles.first()
-                val font = Font.createFont(Font.TRUETYPE_FONT, first)
-                GraphicsEnvironment.getLocalGraphicsEnvironment().registerFont(font)
-                font.family
-            } catch (e: java.awt.FontFormatException) {
-                return fail(entry, project, FailureKind.REGISTER_FAILED, onComplete, e)
-            } catch (e: IOException) {
-                return fail(entry, project, FailureKind.REGISTER_FAILED, onComplete, e)
-            }
-
-        LOG.info("Font installed: $canonicalFamily (preset=${preset.name})")
-
-        // Step 6 — dropdown stale probe (warning, still success)
+    private fun persistAndApply(
+        entry: FontCatalog.Entry,
+        preset: FontPreset,
+        project: Project?,
+        canonicalFamily: String,
+        onComplete: (InstallResult) -> Unit,
+    ) {
         val ge = GraphicsEnvironment.getLocalGraphicsEnvironment()
-        if (!ge.availableFontFamilyNames.contains(entry.familyName) &&
-            !ge.availableFontFamilyNames.contains(canonicalFamily)
-        ) {
-            notify(
-                entry,
-                project,
-                FailureKind.DROPDOWN_STALE,
-                NotificationType.WARNING,
-            )
+        val dropdownStale =
+            !ge.availableFontFamilyNames.contains(entry.familyName) &&
+                !ge.availableFontFamilyNames.contains(canonicalFamily)
+
+        if (dropdownStale) {
+            notify(entry, project, FailureKind.DROPDOWN_STALE, NotificationType.WARNING)
             ApplicationManager.getApplication().invokeLater {
-                val state = AyuIslandsSettings.getInstance().state
-                state.installedFonts.add(canonicalFamily)
-                FontDetector.invalidateCache()
+                persistFontState(canonicalFamily)
                 onComplete(InstallResult.Success(canonicalFamily))
             }
             return
         }
 
-        // Step 7 — persist + apply + verify
         ApplicationManager.getApplication().invokeLater {
             try {
-                val state = AyuIslandsSettings.getInstance().state
-                state.installedFonts.add(canonicalFamily)
-                FontDetector.invalidateCache()
+                persistFontState(canonicalFamily)
                 FontPresetApplicator.apply(FontSettings.decode(null, preset))
-                val active =
-                    com.intellij.openapi.editor.colors.EditorColorsManager
-                        .getInstance()
-                        .globalScheme
-                        .editorFontName
-                if (active != entry.familyName && active != canonicalFamily) {
-                    notify(entry, project, FailureKind.APPLY_FAILED, NotificationType.WARNING)
-                }
+                verifyApplied(entry, canonicalFamily, project)
                 onComplete(InstallResult.Success(canonicalFamily))
             } catch (e: RuntimeException) {
                 LOG.warn("FontPresetApplicator.apply failed", e)
                 notify(entry, project, FailureKind.APPLY_FAILED, NotificationType.WARNING)
                 onComplete(InstallResult.Success(canonicalFamily))
             }
+        }
+    }
+
+    private fun persistFontState(canonicalFamily: String) {
+        val state = AyuIslandsSettings.getInstance().state
+        state.installedFonts.add(canonicalFamily)
+        FontDetector.invalidateCache()
+    }
+
+    private fun verifyApplied(
+        entry: FontCatalog.Entry,
+        canonicalFamily: String,
+        project: Project?,
+    ) {
+        val active =
+            com.intellij.openapi.editor.colors.EditorColorsManager
+                .getInstance()
+                .globalScheme
+                .editorFontName
+        if (active != entry.familyName && active != canonicalFamily) {
+            notify(entry, project, FailureKind.APPLY_FAILED, NotificationType.WARNING)
         }
     }
 
