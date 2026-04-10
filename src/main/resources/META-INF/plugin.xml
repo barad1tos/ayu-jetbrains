@@ -72,6 +72,15 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.4.0</h3>
+    <ul>
+      <li>Onboarding wizard — full-tab welcome experience with preset cards, theme variant picker, and accent swatches</li>
+      <li>[Paid] Font installation — download and apply curated coding fonts directly from the wizard</li>
+      <li>Responsive scaling — wizard adapts to split editors and small windows</li>
+      <li>Fix trial day calculation timezone drift (UTC instead of system default)</li>
+      <li>Renewing a license preserves your existing settings</li>
+      <li>Mid-session license changes apply immediately</li>
+    </ul>
     <h3>2.3.7</h3>
     <ul>
       <li>[Free] Fix tool window width jumping when switching between panels</li>
@@ -120,8 +129,8 @@
 
     <product-descriptor
             code="PAYUISLANDS"
-            release-date="20260319"
-            release-version="23"
+            release-date="20260410"
+            release-version="24"
             optional="true"/>
 
     <extensionPoints>
@@ -193,6 +202,10 @@
         <fileEditorProvider
                 implementation="dev.ayuislands.onboarding.OnboardingEditorProvider"/>
 
+        <!-- Free onboarding wizard editor tab -->
+        <fileEditorProvider
+                implementation="dev.ayuislands.onboarding.FreeOnboardingEditorProvider"/>
+
         <!-- Mirage variants -->
         <themeProvider id="com.ayuislands.theme.mirage"
                        path="/themes/ayu-islands-mirage.theme.json"/>
@@ -220,5 +233,8 @@
         <listener
                 class="dev.ayuislands.AppearanceSyncListener"
                 topic="com.intellij.openapi.application.ApplicationActivationListener"/>
+        <listener
+                class="dev.ayuislands.licensing.LicenseTransitionListener"
+                topic="com.intellij.ui.LicensingFacade$LicenseStateListener"/>
     </applicationListeners>
 </idea-plugin>

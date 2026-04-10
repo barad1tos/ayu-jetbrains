@@ -29,9 +29,15 @@ class AyuIslandsState : BaseState() {
     var lastDarkAppearanceTheme by string("Ayu Mirage (Islands UI)")
     var lastLightAppearanceTheme by string("Ayu Light (Islands UI)")
     var trialExpiredNotified by property(false)
+    var trialExpiryWarningShown by property(false)
+    var trialExpiry3DayWarningShown by property(false)
     var proDefaultsApplied by property(false)
+    var everBeenPro by property(false)
+    var lastKnownLicensedMs by property(0L)
     var workspaceDefaultsApplied by property(false)
     var trialWelcomeShown by property(false)
+    var freeOnboardingShown by property(false)
+    var premiumOnboardingShown by property(false)
 
     // Per-element accent toggles (all ON by default)
     var inlayHints by property(true)
@@ -151,6 +157,14 @@ class AyuIslandsState : BaseState() {
 
     // Per-preset custom settings: key = preset name, value = "size|spacing|ligatures|weight"
     var fontPresetCustomizations by map<String, String>()
+
+    // Font families installed via the runtime FontInstaller (family name, e.g. "Maple Mono")
+    var installedFonts by stringSet()
+
+    // One-shot flag: installedFonts has been seeded from a filesystem/GraphicsEnvironment
+    // probe so returning users who pre-installed fonts via the Settings panel aren't
+    // re-prompted. Set to true after the first successful seed.
+    var installedFontsSeeded by property(false)
 
     // Accent rotation
     var accentRotationEnabled by property(false)

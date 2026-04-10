@@ -1,4 +1,5 @@
 import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
+import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 
 buildscript {
     repositories { mavenCentral() }
@@ -33,25 +34,27 @@ dependencies {
     intellijPlatform {
         intellijIdeaCommunity(providers.gradleProperty("platformVersion"))
         pluginVerifier()
+        testFramework(TestFrameworkType.Platform)
     }
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testImplementation("io.mockk:mockk:${providers.gradleProperty("mockkVersion").get()}")
+    testImplementation("io.kotest:kotest-property-jvm:${providers.gradleProperty("kotestVersion").get()}")
+    testImplementation("junit:junit:4.13.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testRuntimeOnly("org.junit.vintage:junit-vintage-engine")
 }
 
 tasks.test {
-    useJUnitPlatform {
-        excludeTags("integration")
-    }
+    useJUnitPlatform()
+    exclude("**/integration/**")
 }
 
 tasks.register<Test>("integrationTest") {
-    useJUnitPlatform {
-        includeTags("integration")
-    }
+    useJUnitPlatform()
+    include("**/integration/**")
     group = "verification"
     description = "Run integration tests with IDE fixtures"
+    dependsOn("prepareTestSandbox")
 }
 
 tasks {

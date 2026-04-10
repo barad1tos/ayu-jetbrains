@@ -17,11 +17,17 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class LicenseCheckerTest {
+    private val defaultSettings =
+        io.mockk.mockk<AyuIslandsSettings>(relaxed = true).also {
+            every { it.state } returns AyuIslandsState()
+        }
+
     @BeforeTest
     fun setUp() {
         mockkStatic(PathManager::class)
         mockkStatic(LicensingFacade::class)
         mockkObject(AyuIslandsSettings.Companion)
+        every { AyuIslandsSettings.getInstance() } returns defaultSettings
     }
 
     @AfterTest

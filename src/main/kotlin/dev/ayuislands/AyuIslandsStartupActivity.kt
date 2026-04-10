@@ -37,6 +37,10 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         }
         FontPreset.migrateCustomizations(settings.state.fontPresetCustomizations)
 
+        // Seed installedFonts from the JVM font registry on first run so returning
+        // users who pre-installed via the Settings panel aren't re-prompted by the wizard.
+        settings.seedInstalledFontsFromDiskIfNeeded()
+
         FontPresetApplicator.applyFromState()
 
         // Log detected third-party plugin conflicts
@@ -45,8 +49,11 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
             LOG.info("Ayu Islands detected third-party plugins: ${conflicts.joinToString { it.pluginDisplayName }}")
         }
 
+        // Snapshot BEFORE UpdateNotifier can mutate it (prevents fresh-install false positive)
+        val isReturningUser = settings.state.lastSeenVersion != null
+
         // Check license state and initialize workspace services (inside EDT callback)
-        checkLicenseState(project, variant, settings)
+        checkLicenseState(project, variant, settings, isReturningUser)
 
         // Auto-switch theme to match macOS Light/Dark mode
         if (settings.state.followSystemAppearance) {
@@ -89,9 +96,15 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         project: Project,
         variant: AyuVariant,
         settings: AyuIslandsSettings,
+        isReturningUser: Boolean,
     ) {
-        val licenseState = LicenseChecker.isLicensed()
-        LOG.info("Ayu Islands license check: ${licenseStateLabel(licenseState)}")
+        val isLicensed = LicenseChecker.isLicensedOrGrace()
+        LOG.info("Ayu Islands license check: ${if (isLicensed) "licensed" else "not licensed"}")
+
+        val trialDays = LicenseChecker.getTrialDaysRemaining()
+        if (trialDays != null) {
+            LOG.info("Ayu Islands trial: $trialDays days remaining")
+        }
 
         // Compute adaptive delay on background thread (execute() coroutine)
         val adaptiveDelayMs = StartupLicenseHandler.computeAdaptiveDelay()
@@ -99,26 +112,36 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         SwingUtilities.invokeLater {
             if (project.isDisposed) return@invokeLater
             try {
-                if (licenseState != false) {
-                    StartupLicenseHandler.applyLicensedDefaults(project, settings, adaptiveDelayMs)
+                // Run migration and orchestrator before license defaults
+                StartupLicenseHandler.runOnboardingMigration(settings)
+                val wizardAction =
+                    StartupLicenseHandler.resolveOnboarding(
+                        isLicensed,
+                        settings,
+                        isReturningUser,
+                    )
+
+                if (isLicensed) {
+                    StartupLicenseHandler.applyLicensedDefaults(settings)
                 } else {
                     StartupLicenseHandler.applyUnlicensedDefaults(project, variant, settings)
                 }
 
                 settings.state.migrateWidthModes()
                 StartupLicenseHandler.initWorkspaceServices(project, settings)
+
+                // Schedule wizard based on orchestrator decision
+                StartupLicenseHandler.handleWizardAction(wizardAction, project, adaptiveDelayMs, settings)
+
+                // Check trial expiry warning (only runs for trial users)
+                if (isLicensed) {
+                    LicenseChecker.checkTrialExpiryWarning(project)
+                }
             } catch (e: RuntimeException) {
                 LOG.error("License defaults failed", e)
             }
         }
     }
-
-    private fun licenseStateLabel(state: Boolean?): String =
-        when (state) {
-            true -> "licensed"
-            false -> "not licensed"
-            null -> "facade not initialized (grace period)"
-        }
 
     companion object {
         private val LOG = logger<AyuIslandsStartupActivity>()

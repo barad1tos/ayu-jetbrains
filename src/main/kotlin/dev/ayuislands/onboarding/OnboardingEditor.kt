@@ -5,20 +5,18 @@ import com.intellij.openapi.fileEditor.FileEditorState
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.ui.components.JBScrollPane
 import java.beans.PropertyChangeListener
 import javax.swing.JComponent
 
-/** Editor wrapper that displays the [OnboardingPanel] wizard. */
+/** Editor wrapper that displays the [PremiumOnboardingPanel] wizard. */
 internal class OnboardingEditor(
     project: Project,
     private val virtualFile: VirtualFile,
 ) : UserDataHolderBase(),
     FileEditor {
-    private val panel = OnboardingPanel(project, virtualFile)
-    private val scrollPane = JBScrollPane(panel)
+    private val panel = PremiumOnboardingPanel(project, virtualFile)
 
-    override fun getComponent(): JComponent = scrollPane
+    override fun getComponent(): JComponent = panel
 
     override fun getPreferredFocusedComponent(): JComponent = panel
 

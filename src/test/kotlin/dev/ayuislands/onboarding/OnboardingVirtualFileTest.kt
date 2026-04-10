@@ -6,9 +6,9 @@ import kotlin.test.assertFalse
 
 class OnboardingVirtualFileTest {
     @Test
-    fun `file name is Ayu Islands`() {
+    fun `file name is Ayu Islands Premium`() {
         val file = OnboardingVirtualFile()
-        assertEquals("Ayu Islands", file.name)
+        assertEquals("Ayu Islands Premium", file.name)
     }
 
     @Test

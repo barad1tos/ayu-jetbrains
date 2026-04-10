@@ -14,6 +14,7 @@ import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.onboarding.OnboardingUrls
 import java.awt.Color
 import java.awt.Cursor
 import java.awt.Image
@@ -33,10 +34,8 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         const val MIN_TABS_WIDTH = 600
         const val EXPAND_FRAME_MS = 12
         const val EXPAND_MS_PER_CHAR = 35
-        const val DISCUSSIONS_SHOW_SETUP =
-            "https://github.com/barad1tos/ayu-jetbrains/discussions/categories/show-your-setup"
-        const val DISCUSSIONS_FEATURE_REQUESTS =
-            "https://github.com/barad1tos/ayu-jetbrains/discussions/categories/feature-requests"
+        const val DISCUSSIONS_SHOW_SETUP = OnboardingUrls.DISCUSSIONS_SHOW_SETUP
+        const val DISCUSSIONS_FEATURE_REQUESTS = OnboardingUrls.DISCUSSIONS_FEATURE_REQUESTS
     }
 
     private val activeTimers = mutableListOf<Timer>()

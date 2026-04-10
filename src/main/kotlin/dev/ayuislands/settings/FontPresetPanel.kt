@@ -1,6 +1,6 @@
 package dev.ayuislands.settings
 
-import com.intellij.ide.BrowserUtil
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.openapi.project.ProjectManager
@@ -10,7 +10,9 @@ import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.SegmentedButton
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.font.FontCatalog
 import dev.ayuislands.font.FontDetector
+import dev.ayuislands.font.FontInstaller
 import dev.ayuislands.font.FontPreset
 import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.font.FontSettings
@@ -127,7 +129,6 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
             buildPreviewRow()
             buildWarningRow()
             buildInstallHintRow()
-            buildDownloadRow()
             buildCustomizeGroup()
         }
     }
@@ -238,11 +239,30 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
     }
 
     private fun Panel.buildInstallHintRow() {
+        // Universal one-click installer (downloads, extracts, copies, registers, applies).
+        // Replaces the previous Mac-only brew flow + non-Mac "Download ZIP" link with a
+        // single path through FontInstaller, available on all platforms.
+        row {
+            link("Install automatically") {
+                val preset = FontPreset.fromName(pendingPreset)
+                val project = ProjectManager.getInstance().openProjects.firstOrNull()
+                FontInstaller.install(preset, project) {
+                    ApplicationManager.getApplication().invokeLater {
+                        FontDetector.invalidateCache()
+                        availability = FontDetector.detectAll()
+                        updateFontMissing()
+                    }
+                }
+            }
+            comment("Downloads, installs, and registers the font with no restart")
+        }.visibleIf(fontMissing)
+
         if (!IS_MAC) return
 
         row {
             val label = JLabel()
-            label.text = "brew install --cask ${FontPreset.fromName(pendingPreset).installInfo?.brewCask}"
+            val slug = FontCatalog.forPreset(FontPreset.fromName(pendingPreset)).brewCaskSlug
+            label.text = "Or via Homebrew: brew install --cask $slug"
             installHintLabel = label
             cell(label)
         }.visibleIf(fontMissing)
@@ -250,12 +270,12 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
         row {
             link("Copy") {
                 val preset = FontPreset.fromName(pendingPreset)
-                val command = "brew install --cask ${preset.installInfo?.brewCask}"
+                val command = "brew install --cask ${FontCatalog.forPreset(preset).brewCaskSlug}"
                 CopyPasteManager.getInstance().setContents(StringSelection(command))
             }
             link("Run in Terminal") {
                 val preset = FontPreset.fromName(pendingPreset)
-                val command = "brew install --cask ${preset.installInfo?.brewCask}"
+                val command = "brew install --cask ${FontCatalog.forPreset(preset).brewCaskSlug}"
                 CopyPasteManager.getInstance().setContents(StringSelection(command))
                 val state = AyuIslandsSettings.getInstance().state
                 if (state.fontInstallTerminal == "SYSTEM") {
@@ -273,16 +293,6 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
                     if (combo.selectedIndex == 1) "SYSTEM" else "BUILTIN"
             }
             cell(combo)
-        }.visibleIf(fontMissing)
-    }
-
-    private fun Panel.buildDownloadRow() {
-        if (IS_MAC) return
-        row {
-            link("Download ZIP") {
-                FontPreset.fromName(pendingPreset).installInfo?.let { BrowserUtil.browse(it.downloadUrl) }
-            }
-            comment("Extract and install .ttf files, then restart IDE")
         }.visibleIf(fontMissing)
     }
 
@@ -426,7 +436,10 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
         val missing = preset.isCurated && availability[preset] != true && pendingEnabled
         fontMissing.set(missing)
         warningLabel?.let { it.text = "\u26A0 Requires ${preset.fontFamily}" }
-        installHintLabel?.let { it.text = "brew install --cask ${preset.installInfo?.brewCask}" }
+        installHintLabel?.let {
+            val slug = FontCatalog.forPreset(preset).brewCaskSlug
+            it.text = "Or via Homebrew: brew install --cask $slug"
+        }
         previewComponent?.updatePreset(preset, availability[preset] == true)
     }
 

@@ -1,5 +1,6 @@
 package dev.ayuislands.font
 
+import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.Font
 import java.awt.GraphicsEnvironment
 import java.awt.font.FontRenderContext
@@ -43,11 +44,27 @@ object FontDetector {
         return result
     }
 
-    /** Check if any alias of the preset's font is installed on the system. */
-    fun isInstalled(preset: FontPreset): Boolean =
-        preset.fontAliases.any {
-            installedFonts().contains(it.lowercase())
-        }
+    /**
+     * Check if any alias of the preset's font is installed on the system OR has been
+     * recorded as installed via the runtime [FontInstaller] (state.installedFonts).
+     *
+     * The state-side check covers the window between FontInstaller registering a font
+     * and `GraphicsEnvironment.availableFontFamilyNames` reflecting the new family —
+     * the JVM occasionally lags here, especially on the first IDE launch after install.
+     */
+    fun isInstalled(preset: FontPreset): Boolean {
+        if (preset.fontAliases.any { installedFonts().contains(it.lowercase()) }) return true
+        val recorded =
+            try {
+                AyuIslandsSettings.getInstance().state.installedFonts
+            } catch (_: IllegalStateException) {
+                return false
+            } catch (_: NullPointerException) {
+                // Unit test / no Application — fall through to "not installed" rather than crash.
+                return false
+            }
+        return preset.fontAliases.any { recorded.contains(it) }
+    }
 
     /** Return the actual installed font family name (first matching alias), or null. */
     fun resolveFamily(preset: FontPreset): String? =

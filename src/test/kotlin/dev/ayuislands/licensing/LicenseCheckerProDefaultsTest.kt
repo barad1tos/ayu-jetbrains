@@ -116,37 +116,29 @@ class LicenseCheckerProDefaultsTest {
         assertTrue(state.proDefaultsApplied)
     }
 
-    // enableProDefaults — workspace defaults (BAR-140 regression #2)
+    // enableProDefaults does NOT set workspace defaults (b22c629: prevent overwriting customizations)
 
     @Test
-    fun `enableProDefaults sets all panel width modes to AUTO_FIT`() {
+    fun `enableProDefaults does not change panel width modes`() {
         assertEquals(PanelWidthMode.DEFAULT.name, state.projectPanelWidthMode)
-        assertEquals(PanelWidthMode.DEFAULT.name, state.commitPanelWidthMode)
-        assertEquals(PanelWidthMode.DEFAULT.name, state.gitPanelWidthMode)
-
         LicenseChecker.enableProDefaults()
-
-        assertEquals(PanelWidthMode.AUTO_FIT.name, state.projectPanelWidthMode)
-        assertEquals(PanelWidthMode.AUTO_FIT.name, state.commitPanelWidthMode)
-        assertEquals(PanelWidthMode.AUTO_FIT.name, state.gitPanelWidthMode)
+        assertEquals(PanelWidthMode.DEFAULT.name, state.projectPanelWidthMode)
     }
 
     @Test
-    fun `enableProDefaults hides project root path and horizontal scrollbar`() {
+    fun `enableProDefaults does not change project root path or scrollbar`() {
         assertFalse(state.hideProjectRootPath)
         assertFalse(state.hideProjectViewHScrollbar)
-
         LicenseChecker.enableProDefaults()
-
-        assertTrue(state.hideProjectRootPath)
-        assertTrue(state.hideProjectViewHScrollbar)
+        assertFalse(state.hideProjectRootPath)
+        assertFalse(state.hideProjectViewHScrollbar)
     }
 
     @Test
-    fun `enableProDefaults sets workspaceDefaultsApplied flag`() {
+    fun `enableProDefaults does not set workspaceDefaultsApplied`() {
         assertFalse(state.workspaceDefaultsApplied)
         LicenseChecker.enableProDefaults()
-        assertTrue(state.workspaceDefaultsApplied)
+        assertFalse(state.workspaceDefaultsApplied)
     }
 
     // applyWorkspaceDefaults (standalone)

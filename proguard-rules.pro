@@ -54,10 +54,16 @@
 # plugin.xml: fileEditorProvider (onboarding wizard)
 -keep class dev.ayuislands.onboarding.OnboardingEditorProvider { *; }
 
+# plugin.xml: fileEditorProvider (free onboarding wizard)
+-keep class dev.ayuislands.onboarding.FreeOnboardingEditorProvider { *; }
+
 # Public API singletons (called from kept classes)
 -keep class dev.ayuislands.accent.AccentApplicator { *; }
 -keep class dev.ayuislands.accent.AccentColor { *; }
 -keep class dev.ayuislands.glow.GlowOverlayManager { *; }
+
+# plugin.xml: applicationListeners (license transition)
+-keep class dev.ayuislands.licensing.LicenseTransitionListener { *; }
 
 # LicenseChecker — keep class name + public API, obfuscate private crypto internals
 # Kotlin `object` compiles to instance methods (public final), not static

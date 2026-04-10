@@ -138,20 +138,6 @@ class FontPresetTest {
     }
 
     @Test
-    fun `all curated presets have installInfo`() {
-        for (preset in FontPreset.entries) {
-            if (preset.isCurated) {
-                assertTrue(preset.installInfo != null, "${preset.name} should have installInfo")
-            }
-        }
-    }
-
-    @Test
-    fun `CUSTOM has null installInfo`() {
-        assertEquals(null, FontPreset.CUSTOM.installInfo)
-    }
-
-    @Test
     fun `all presets have positive fontSize`() {
         for (preset in FontPreset.entries) {
             assertTrue(preset.fontSize > 0f, "${preset.name} fontSize should be positive")
