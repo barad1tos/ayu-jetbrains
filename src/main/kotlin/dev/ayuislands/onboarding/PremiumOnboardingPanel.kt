@@ -78,6 +78,7 @@ internal class PremiumOnboardingPanel(
     private var trialHeadlineLabel: JBLabel? = null
     private var fontRowContainer: JPanel? = null
     private val installingFonts: MutableSet<FontPreset> = mutableSetOf()
+    private val scaler = ContentScaler()
 
     init {
         isOpaque = false
@@ -231,15 +232,18 @@ internal class PremiumOnboardingPanel(
         // Section C: footer rail + action buttons
         val fontRow = buildFontRow()
         fontRowContainer = fontRow
+        val footerRail = buildFooterRail()
+        scaler.registerHideable(footerRail, RAIL_HIDE_BELOW)
         val content =
             buildWizardSection(
                 listOf(
                     SectionEntry(buildPresetCardsRow(), gapBeforePx = 0),
                     SectionEntry(fontRow, gapBeforePx = GAP_MEDIUM),
                     SectionEntry(buildTrialMessage(), gapBeforePx = GAP_SECTION_ABOVE_TRIAL),
-                    SectionEntry(buildFooterRail(), gapBeforePx = GAP_SECTION),
+                    SectionEntry(footerRail, gapBeforePx = GAP_SECTION),
                     SectionEntry(buildBottomButtons(), gapBeforePx = GAP_MEDIUM),
                 ),
+                scaler = scaler,
             )
 
         val handle = installWizardContent(this, content, BOTTOM_MARGIN)
@@ -271,6 +275,17 @@ internal class PremiumOnboardingPanel(
             geometry = SVG_GEOMETRY,
             onTrialFontChange = ::updateTrialHeadline,
         )
+        updateContentScale()
+    }
+
+    private fun updateContentScale() {
+        if (width <= 0 || height <= 0) return
+        val topStrutHeight = topStrut?.preferredSize?.height ?: 0
+        val available = height - topStrutHeight - JBUI.scale(BOTTOM_MARGIN)
+        val heightScale = available.toFloat() / JBUI.scale(DESIGN_CONTENT_HEIGHT).toFloat()
+        val widthScale = width.toFloat() / JBUI.scale(DESIGN_WIDTH).toFloat()
+        val contentScale = minOf(heightScale, widthScale).coerceIn(MIN_SCALE, MAX_SCALE)
+        scaler.apply(contentScale)
     }
 
     private fun updateTrialHeadline(fontPx: Float) {
@@ -405,7 +420,7 @@ internal class PremiumOnboardingPanel(
                 private var hovered = false
 
                 init {
-                    configureCardPanel(this, RAIL_CARD_PADDING, RAIL_CARD_WIDTH, RAIL_CARD_HEIGHT)
+                    configureCardPanel(this, RAIL_CARD_PADDING, RAIL_CARD_WIDTH, RAIL_CARD_HEIGHT, scaler)
                     toolTipText = spec.tooltip
 
                     addMouseListener(
@@ -433,7 +448,7 @@ internal class PremiumOnboardingPanel(
                         RenderingHints.KEY_ANTIALIASING,
                         RenderingHints.VALUE_ANTIALIAS_ON,
                     )
-                    paintCardChrome(g2, width, height, hovered, spec.hoverColor)
+                    paintCardChrome(g2, width, height, hovered, spec.hoverColor, contentScale = scaler.currentScale)
 
                     spec.cornerIcon?.let { icon ->
                         val iconMargin = JBUI.scale(CARD_DOT_MARGIN)
@@ -454,6 +469,7 @@ internal class PremiumOnboardingPanel(
                     subtitleColor = spec.subtitleColor,
                 ),
             style = RAIL_CARD_LABEL_STYLE,
+            scaler = scaler,
         )
         return cardPanel
     }
@@ -490,7 +506,7 @@ internal class PremiumOnboardingPanel(
                 private var hovered = false
 
                 init {
-                    configureCardPanel(this, CARD_PADDING, CARD_WIDTH, CARD_HEIGHT)
+                    configureCardPanel(this, CARD_PADDING, CARD_WIDTH, CARD_HEIGHT, scaler)
                     addMouseListener(
                         object : MouseAdapter() {
                             override fun mouseEntered(event: MouseEvent) {
@@ -519,7 +535,7 @@ internal class PremiumOnboardingPanel(
                         RenderingHints.KEY_ANTIALIASING,
                         RenderingHints.VALUE_ANTIALIAS_ON,
                     )
-                    paintCardChrome(g2, width, height, hovered, glowColor)
+                    paintCardChrome(g2, width, height, hovered, glowColor, contentScale = scaler.currentScale)
 
                     // Color dot
                     g2.color = glowColor
@@ -541,6 +557,7 @@ internal class PremiumOnboardingPanel(
                     footnote = card.fontName,
                 ),
             style = PRESET_CARD_LABEL_STYLE,
+            scaler = scaler,
         )
 
         return cardPanel
@@ -589,7 +606,7 @@ internal class PremiumOnboardingPanel(
                 private var hovered = false
 
                 init {
-                    configureCardPanel(this, FONT_CARD_PADDING, FONT_CARD_WIDTH, FONT_CARD_HEIGHT)
+                    configureCardPanel(this, FONT_CARD_PADDING, FONT_CARD_WIDTH, FONT_CARD_HEIGHT, scaler)
                     if (installing) {
                         cursor = Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR)
                     }
@@ -626,7 +643,7 @@ internal class PremiumOnboardingPanel(
                         RenderingHints.KEY_ANTIALIASING,
                         RenderingHints.VALUE_ANTIALIAS_ON,
                     )
-                    paintCardChrome(g2, width, height, hovered && !installing, tint)
+                    paintCardChrome(g2, width, height, hovered && !installing, tint, contentScale = scaler.currentScale)
                     super.paintComponent(graphics)
                 }
             }
@@ -720,6 +737,7 @@ internal class PremiumOnboardingPanel(
                 ShowSettingsUtil.getInstance().showSettingsDialog(project, "Ayu Islands")
                 closeWizard()
             },
+            scaler = scaler,
         )
 
     private fun closeWizard() {
@@ -894,6 +912,13 @@ internal class PremiumOnboardingPanel(
                 descColor = CARD_DESC_COLOR,
                 titleSubtitleGapPx = GAP_MICRO,
             )
+
+        // Content scaling reference dimensions (px before JBUI.scale)
+        private const val DESIGN_CONTENT_HEIGHT = 370
+        private const val DESIGN_WIDTH = 750
+        private const val MIN_SCALE = 0.5f
+        private const val MAX_SCALE = 1.0f
+        private const val RAIL_HIDE_BELOW = 0.6f
 
         // Glow border
         private const val GLOW_INSET = 4

@@ -23,12 +23,122 @@ import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JPanel
 
+// Shared visual primitives for onboarding wizard panels (free and premium).
+// Card painting stays panel-local because the free wizard's variant cards
+// and the premium wizard's preset cards share almost no paint code.
+
 /**
- * Shared visual primitives for onboarding wizard panels (free and premium).
- *
- * Card painting stays panel-local because the free wizard's variant cards
- * and the premium wizard's preset cards share almost no paint code.
+ * Tracks components whose sizes, fonts, and visibility adapt to the panel's
+ * content scale factor. Components register during [loadContent] and get
+ * rescaled on every [apply] call triggered by the resize handler.
  */
+internal class ContentScaler {
+    private data class CardEntry(
+        val component: JComponent,
+        val baseWidth: Int,
+        val baseHeight: Int,
+    )
+
+    private data class LabelEntry(
+        val label: JBLabel,
+        val baseFontPx: Int,
+        val fontStyle: Int,
+    )
+
+    private data class GapEntry(
+        val strut: Component,
+        val basePx: Int,
+        val horizontal: Boolean,
+    )
+
+    private data class HideableEntry(
+        val component: JComponent,
+        val hideBelow: Float,
+    )
+
+    var currentScale: Float = 1.0f
+        private set
+
+    private val cards = mutableListOf<CardEntry>()
+    private val labels = mutableListOf<LabelEntry>()
+    private val gaps = mutableListOf<GapEntry>()
+    private val hideables = mutableListOf<HideableEntry>()
+
+    fun registerCard(
+        component: JComponent,
+        baseWidth: Int,
+        baseHeight: Int,
+    ) {
+        cards += CardEntry(component, baseWidth, baseHeight)
+    }
+
+    fun registerLabel(
+        label: JBLabel,
+        baseFontPx: Int,
+        fontStyle: Int,
+    ) {
+        labels += LabelEntry(label, baseFontPx, fontStyle)
+    }
+
+    fun registerGap(
+        strut: Component,
+        basePx: Int,
+        horizontal: Boolean = false,
+    ) {
+        gaps += GapEntry(strut, basePx, horizontal)
+    }
+
+    fun registerHideable(
+        component: JComponent,
+        hideBelow: Float,
+    ) {
+        hideables += HideableEntry(component, hideBelow)
+    }
+
+    fun apply(scale: Float) {
+        currentScale = scale
+        for (entry in cards) {
+            val w = JBUI.scale((entry.baseWidth * scale).toInt())
+            val h = JBUI.scale((entry.baseHeight * scale).toInt())
+            val dim = Dimension(w, h)
+            entry.component.preferredSize = dim
+            entry.component.minimumSize = dim
+            entry.component.maximumSize = dim
+        }
+        for (entry in labels) {
+            val px = (entry.baseFontPx * scale).toInt().coerceAtLeast(MIN_FONT_PX)
+            entry.label.font = entry.label.font.deriveFont(entry.fontStyle, JBUI.scale(px).toFloat())
+        }
+        for (entry in gaps) {
+            val px = JBUI.scale((entry.basePx * scale).toInt())
+            if (entry.horizontal) {
+                val dim = Dimension(px, 0)
+                entry.strut.preferredSize = dim
+                entry.strut.minimumSize = dim
+                entry.strut.maximumSize = Dimension(px, Short.MAX_VALUE.toInt())
+            } else {
+                val dim = Dimension(0, px)
+                entry.strut.preferredSize = dim
+                entry.strut.minimumSize = dim
+                entry.strut.maximumSize = Dimension(Short.MAX_VALUE.toInt(), px)
+            }
+        }
+        for (entry in hideables) {
+            entry.component.isVisible = scale >= entry.hideBelow
+        }
+    }
+
+    fun clear() {
+        cards.clear()
+        labels.clear()
+        gaps.clear()
+        hideables.clear()
+    }
+
+    companion object {
+        private const val MIN_FONT_PX = 6
+    }
+}
 
 @Suppress("MagicNumber")
 internal object OnboardingCardChrome {
@@ -59,11 +169,12 @@ internal fun paintCardChrome(
     hovered: Boolean,
     tintColor: Color,
     baseFill: Color = OnboardingCardChrome.CARD_BG_COLOR,
+    contentScale: Float = 1.0f,
 ) {
-    val arc = JBUI.scale(OnboardingCardChrome.CARD_ARC)
+    val arc = JBUI.scale((OnboardingCardChrome.CARD_ARC * contentScale).toInt().coerceAtLeast(1))
 
     // Drop shadow
-    val shadowOffset = JBUI.scale(OnboardingCardChrome.SHADOW_OFFSET_Y)
+    val shadowOffset = JBUI.scale((OnboardingCardChrome.SHADOW_OFFSET_Y * contentScale).toInt().coerceAtLeast(1))
     for (i in OnboardingCardChrome.SHADOW_LAYERS downTo 1) {
         g2.color = Color(0, 0, 0, OnboardingCardChrome.SHADOW_BASE_ALPHA * i)
         g2.fillRoundRect(
@@ -89,7 +200,7 @@ internal fun paintCardChrome(
     g2.fillRoundRect(0, 0, width, height, arc, arc)
 
     // Glass highlight
-    val highlightHeight = JBUI.scale(OnboardingCardChrome.HIGHLIGHT_HEIGHT)
+    val highlightHeight = JBUI.scale((OnboardingCardChrome.HIGHLIGHT_HEIGHT * contentScale).toInt().coerceAtLeast(1))
     val clip =
         RoundRectangle2D.Float(
             1f,
@@ -212,6 +323,7 @@ internal fun createStyledButton(
     text: String,
     isAccent: Boolean,
     onClick: () -> Unit,
+    scaler: ContentScaler? = null,
 ): JPanel {
     val palette = if (isAccent) ACCENT_PALETTE else SECONDARY_PALETTE
 
@@ -238,6 +350,8 @@ internal fun createStyledButton(
                         JBUI.scale(BTN_FONT_SIZE).toFloat(),
                     )
                 add(label, BorderLayout.CENTER)
+                scaler?.registerCard(this, BTN_WIDTH, BTN_HEIGHT)
+                scaler?.registerLabel(label, BTN_FONT_SIZE, palette.textWeight)
 
                 addMouseListener(
                     object : MouseAdapter() {
@@ -413,6 +527,7 @@ internal fun configureCardPanel(
     paddingPx: Int,
     widthPx: Int,
     heightPx: Int,
+    scaler: ContentScaler? = null,
 ) {
     panel.layout = BoxLayout(panel, BoxLayout.Y_AXIS)
     panel.border = JBUI.Borders.empty(paddingPx)
@@ -421,6 +536,7 @@ internal fun configureCardPanel(
     panel.preferredSize = size
     panel.minimumSize = size
     panel.maximumSize = size
+    scaler?.registerCard(panel, widthPx, heightPx)
 }
 
 /**
@@ -472,29 +588,38 @@ internal fun attachCardLabels(
     card: JPanel,
     content: CardLabelContent,
     style: CardLabelStyle,
+    scaler: ContentScaler? = null,
 ) {
     val titleLabel = JBLabel(content.title)
     titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, JBUI.scale(style.titleSizePx).toFloat())
     titleLabel.foreground = Color.WHITE
     titleLabel.alignmentX = Component.LEFT_ALIGNMENT
     card.add(titleLabel)
+    scaler?.registerLabel(titleLabel, style.titleSizePx, Font.BOLD)
 
-    card.add(Box.createVerticalStrut(JBUI.scale(style.titleSubtitleGapPx)))
+    val gap1 = Box.createVerticalStrut(JBUI.scale(style.titleSubtitleGapPx))
+    card.add(gap1)
+    scaler?.registerGap(gap1, style.titleSubtitleGapPx)
 
     val subtitleLabel = JBLabel(content.subtitle)
     subtitleLabel.font = subtitleLabel.font.deriveFont(JBUI.scale(style.descSizePx).toFloat())
     subtitleLabel.foreground = content.subtitleColor ?: style.descColor
     subtitleLabel.alignmentX = Component.LEFT_ALIGNMENT
     card.add(subtitleLabel)
+    scaler?.registerLabel(subtitleLabel, style.descSizePx, Font.PLAIN)
 
     content.footnote?.let { footnote ->
-        card.add(Box.createVerticalStrut(JBUI.scale(style.subtitleFootnoteGapPx)))
+        val gap2 = Box.createVerticalStrut(JBUI.scale(style.subtitleFootnoteGapPx))
+        card.add(gap2)
+        scaler?.registerGap(gap2, style.subtitleFootnoteGapPx)
+
         val footnoteLabel = JBLabel(footnote)
         footnoteLabel.font =
             footnoteLabel.font.deriveFont(Font.ITALIC, JBUI.scale(style.descSizePx).toFloat())
         footnoteLabel.foreground = style.descColor
         footnoteLabel.alignmentX = Component.LEFT_ALIGNMENT
         card.add(footnoteLabel)
+        scaler?.registerLabel(footnoteLabel, style.descSizePx, Font.ITALIC)
     }
 
     card.add(Box.createVerticalGlue())
@@ -515,13 +640,18 @@ internal data class SectionEntry(
  * uses BoxLayout.Y_AXIS and is center-aligned, ready to be wrapped by
  * [installWizardContent].
  */
-internal fun buildWizardSection(entries: List<SectionEntry>): JPanel {
+internal fun buildWizardSection(
+    entries: List<SectionEntry>,
+    scaler: ContentScaler? = null,
+): JPanel {
     val content = JPanel()
     content.layout = BoxLayout(content, BoxLayout.Y_AXIS)
     content.isOpaque = false
     for (entry in entries) {
         if (entry.gapBeforePx > 0) {
-            content.add(Box.createVerticalStrut(JBUI.scale(entry.gapBeforePx)))
+            val strut = Box.createVerticalStrut(JBUI.scale(entry.gapBeforePx))
+            scaler?.registerGap(strut, entry.gapBeforePx)
+            content.add(strut)
         }
         content.add(entry.component)
     }
@@ -537,6 +667,7 @@ internal fun buildWizardBottomButtons(
     gapPx: Int,
     onKeepDefaults: () -> Unit,
     onOpenSettings: () -> Unit,
+    scaler: ContentScaler? = null,
 ): JPanel {
     val row = JPanel()
     row.layout = BoxLayout(row, BoxLayout.X_AXIS)
@@ -544,9 +675,11 @@ internal fun buildWizardBottomButtons(
     row.alignmentX = Component.CENTER_ALIGNMENT
 
     row.add(Box.createHorizontalGlue())
-    row.add(createStyledButton("Keep defaults", isAccent = false, onClick = onKeepDefaults))
-    row.add(Box.createHorizontalStrut(JBUI.scale(gapPx)))
-    row.add(createStyledButton("Open Settings", isAccent = true, onClick = onOpenSettings))
+    row.add(createStyledButton("Keep defaults", isAccent = false, onClick = onKeepDefaults, scaler = scaler))
+    val gap = Box.createHorizontalStrut(JBUI.scale(gapPx))
+    scaler?.registerGap(gap, gapPx, horizontal = true)
+    row.add(gap)
+    row.add(createStyledButton("Open Settings", isAccent = true, onClick = onOpenSettings, scaler = scaler))
     row.add(Box.createHorizontalGlue())
     return row
 }

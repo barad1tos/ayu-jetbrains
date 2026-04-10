@@ -81,6 +81,7 @@ internal class FreeOnboardingPanel(
     private var topStrut: Component? = null
     private var contentWrapper: JPanel? = null
     private var trialHeadlineLabel: JBLabel? = null
+    private val scaler = ContentScaler()
 
     init {
         isOpaque = false
@@ -200,15 +201,20 @@ internal class FreeOnboardingPanel(
         // Section A: variant cards + accent swatches (tight cluster)
         // Section B: trial headline (standalone)
         // Section C: feature rail + action buttons
+        val footerRail = buildFooterRail()
+        val trialMessage = buildTrialMessage()
+        scaler.registerHideable(footerRail, RAIL_HIDE_BELOW)
+        scaler.registerHideable(trialMessage, RAIL_HIDE_BELOW)
         val content =
             buildWizardSection(
                 listOf(
                     SectionEntry(buildVariantCardsRow(), gapBeforePx = 0),
                     SectionEntry(buildAccentStrip(), gapBeforePx = GAP_SMALL),
-                    SectionEntry(buildTrialMessage(), gapBeforePx = GAP_SECTION_ABOVE_TRIAL),
-                    SectionEntry(buildFooterRail(), gapBeforePx = GAP_SECTION),
+                    SectionEntry(trialMessage, gapBeforePx = GAP_SECTION_ABOVE_TRIAL),
+                    SectionEntry(footerRail, gapBeforePx = GAP_SECTION),
                     SectionEntry(buildBottomButtons(), gapBeforePx = GAP_MEDIUM),
                 ),
+                scaler = scaler,
             )
 
         val handle = installWizardContent(this, content, BOTTOM_MARGIN)
@@ -245,6 +251,17 @@ internal class FreeOnboardingPanel(
             geometry = SVG_GEOMETRY,
             onTrialFontChange = ::updateTrialHeadline,
         )
+        updateContentScale()
+    }
+
+    private fun updateContentScale() {
+        if (width <= 0 || height <= 0) return
+        val topStrutHeight = topStrut?.preferredSize?.height ?: 0
+        val available = height - topStrutHeight - JBUI.scale(BOTTOM_MARGIN)
+        val heightScale = available.toFloat() / JBUI.scale(DESIGN_CONTENT_HEIGHT).toFloat()
+        val widthScale = width.toFloat() / JBUI.scale(DESIGN_WIDTH).toFloat()
+        val contentScale = minOf(heightScale, widthScale).coerceIn(MIN_SCALE, MAX_SCALE)
+        scaler.apply(contentScale)
     }
 
     /** Rebuild the trial headline HTML with the current accent color and font size. */
@@ -300,7 +317,7 @@ internal class FreeOnboardingPanel(
                 private var hovered = false
 
                 init {
-                    configureCardPanel(this, CARD_PADDING, CARD_WIDTH, CARD_HEIGHT)
+                    configureCardPanel(this, CARD_PADDING, CARD_WIDTH, CARD_HEIGHT, scaler)
                     addMouseListener(
                         object : MouseAdapter() {
                             override fun mouseEntered(event: MouseEvent) {
@@ -335,6 +352,7 @@ internal class FreeOnboardingPanel(
                         hovered,
                         spec.tintColor,
                         baseFill = spec.baseFill,
+                        contentScale = scaler.currentScale,
                     )
 
                     // Color dot indicator — follows selected accent or variant default
@@ -358,6 +376,7 @@ internal class FreeOnboardingPanel(
                     footnote = spec.footnote,
                 ),
             style = VARIANT_CARD_LABEL_STYLE,
+            scaler = scaler,
         )
 
         variantCards.add(cardPanel)
@@ -442,13 +461,15 @@ internal class FreeOnboardingPanel(
 
         init {
             isOpaque = false
-            val diameter = JBUI.scale(SWATCH_DIAMETER) + JBUI.scale(SWATCH_HOVER_LIFT) * 2
+            val totalDiameter = SWATCH_DIAMETER + SWATCH_HOVER_LIFT * 2
+            val diameter = JBUI.scale(totalDiameter)
             val size = Dimension(diameter, diameter)
             preferredSize = size
             minimumSize = size
             maximumSize = size
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
             toolTipText = preset.name
+            scaler.registerCard(this, totalDiameter, totalDiameter)
 
             addMouseListener(
                 object : MouseAdapter() {
@@ -575,7 +596,7 @@ internal class FreeOnboardingPanel(
                 private var hovered = false
 
                 init {
-                    configureCardPanel(this, RAIL_CARD_PADDING, RAIL_CARD_WIDTH, RAIL_CARD_HEIGHT)
+                    configureCardPanel(this, RAIL_CARD_PADDING, RAIL_CARD_WIDTH, RAIL_CARD_HEIGHT, scaler)
                     toolTipText = spec.tooltip
 
                     addMouseListener(
@@ -609,6 +630,7 @@ internal class FreeOnboardingPanel(
                         height,
                         hovered,
                         spec.hoverColor,
+                        contentScale = scaler.currentScale,
                     )
 
                     // Corner icon (optional — null for trial-cue cards)
@@ -631,6 +653,7 @@ internal class FreeOnboardingPanel(
                     subtitleColor = spec.subtitleColor,
                 ),
             style = RAIL_CARD_LABEL_STYLE,
+            scaler = scaler,
         )
 
         return cardPanel
@@ -656,6 +679,7 @@ internal class FreeOnboardingPanel(
                 ShowSettingsUtil.getInstance().showSettingsDialog(project, "Ayu Islands")
                 closeWizard()
             },
+            scaler = scaler,
         )
 
     private fun closeWizard() {
@@ -770,6 +794,13 @@ internal class FreeOnboardingPanel(
         private const val TRIAL_TEXT_BASE = "#9fa9ba"
         private const val TRIAL_UNLOCKED_HEX = "#886428"
         private const val TRIAL_DAYS_LEFT_LABEL = "30 days left"
+
+        // Content scaling reference dimensions (px before JBUI.scale)
+        private const val DESIGN_CONTENT_HEIGHT = 360
+        private const val DESIGN_WIDTH = 750
+        private const val MIN_SCALE = 0.5f
+        private const val MAX_SCALE = 1.0f
+        private const val RAIL_HIDE_BELOW = 0.6f
 
         // Accent swatch strip (new)
         private const val SWATCH_DIAMETER = 28
