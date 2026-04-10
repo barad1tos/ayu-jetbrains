@@ -29,7 +29,7 @@ import javax.swing.JPanel
 
 /**
  * Tracks components whose sizes, fonts, and visibility adapt to the panel's
- * content scale factor. Components register during [loadContent] and get
+ * content scale factor. Components register during the panel's `loadContent` phase and get
  * rescaled on every [apply] call triggered by the resize handler.
  */
 internal class ContentScaler {
@@ -422,9 +422,7 @@ internal fun createStyledButton(
     return button
 }
 
-// --------------------------------------------------------------------------
 // Wizard layout scaffolding — shared between free and premium onboarding panels.
-// --------------------------------------------------------------------------
 
 /** Handle returned by [installWizardContent] — holds references needed by updateDynamicLayout. */
 internal data class WizardContentHandle(

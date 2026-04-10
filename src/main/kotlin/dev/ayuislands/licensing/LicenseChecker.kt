@@ -240,6 +240,15 @@ object LicenseChecker {
             GlowOverlayManager.syncGlowForAllProjects()
         } catch (exception: RuntimeException) {
             LOG.warn("Glow sync after license revert failed", exception)
+            NotificationGroupManager
+                .getInstance()
+                .getNotificationGroup(NOTIFICATION_GROUP)
+                .createNotification(
+                    "Glow sync incomplete",
+                    "Glow overlays could not be updated after license change. " +
+                        "Restart your IDE to complete the reset.",
+                    NotificationType.WARNING,
+                ).notify(null)
         }
     }
 

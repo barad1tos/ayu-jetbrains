@@ -11,11 +11,12 @@ class FontArchiveException(
 
 /**
  * Pure zip extractor that only writes entries whose name matches one of the
- * provided [filesToKeep] regexes. Guards against path-traversal (`..`) and
+ * provided `filesToKeep` regexes. Guards against path-traversal (`..`) and
  * canonical-path escape attempts.
  */
 object FontArchiveExtractor {
     private const val BUFFER_SIZE = 8 * 1024
+    private const val MAX_ENTRY_SIZE = 100L * 1024 * 1024
 
     fun extract(
         zipFile: File,
@@ -57,8 +58,13 @@ object FontArchiveExtractor {
         target.parentFile?.mkdirs()
         target.outputStream().use { out ->
             val buffer = ByteArray(BUFFER_SIZE)
+            var totalWritten = 0L
             var read = zip.read(buffer)
             while (read >= 0) {
+                totalWritten += read
+                if (totalWritten > MAX_ENTRY_SIZE) {
+                    throw FontArchiveException("Archive entry exceeds $MAX_ENTRY_SIZE bytes: ${entry.name}")
+                }
                 out.write(buffer, 0, read)
                 read = zip.read(buffer)
             }

@@ -159,6 +159,7 @@ object FontInstaller {
                     }
                 return fail(entry, project, kind, onComplete, e)
             } catch (e: ZipException) {
+                if (!zipFile.delete()) LOG.warn("Failed to delete corrupt cache: $zipFile")
                 return fail(entry, project, FailureKind.EXTRACTION_FAILED, onComplete, e)
             } catch (e: IOException) {
                 return fail(entry, project, FailureKind.EXTRACTION_FAILED, onComplete, e)
@@ -184,6 +185,12 @@ object FontInstaller {
                 return fail(entry, project, FailureKind.PERMISSION_DENIED, onComplete, e)
             }
 
+        try {
+            extractDir.deleteRecursively()
+        } catch (_: IOException) {
+            // best-effort
+        }
+
         // Step 5 — JVM register
         val canonicalFamily: String =
             try {
@@ -197,13 +204,9 @@ object FontInstaller {
                 return fail(entry, project, FailureKind.REGISTER_FAILED, onComplete, e)
             }
 
-        // Step 6 — persist
-        val state = AyuIslandsSettings.getInstance().state
-        state.installedFonts.add(canonicalFamily)
-        FontDetector.invalidateCache()
         LOG.info("Font installed: $canonicalFamily (preset=${preset.name})")
 
-        // Step 7 — dropdown stale probe (warning, still success)
+        // Step 6 — dropdown stale probe (warning, still success)
         val ge = GraphicsEnvironment.getLocalGraphicsEnvironment()
         if (!ge.availableFontFamilyNames.contains(entry.familyName) &&
             !ge.availableFontFamilyNames.contains(canonicalFamily)
@@ -215,14 +218,20 @@ object FontInstaller {
                 NotificationType.WARNING,
             )
             ApplicationManager.getApplication().invokeLater {
+                val state = AyuIslandsSettings.getInstance().state
+                state.installedFonts.add(canonicalFamily)
+                FontDetector.invalidateCache()
                 onComplete(InstallResult.Success(canonicalFamily))
             }
             return
         }
 
-        // Step 8 — apply + verify
+        // Step 7 — persist + apply + verify
         ApplicationManager.getApplication().invokeLater {
             try {
+                val state = AyuIslandsSettings.getInstance().state
+                state.installedFonts.add(canonicalFamily)
+                FontDetector.invalidateCache()
                 FontPresetApplicator.apply(FontSettings.decode(null, preset))
                 val active =
                     com.intellij.openapi.editor.colors.EditorColorsManager

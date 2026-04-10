@@ -175,8 +175,8 @@ internal object StartupLicenseHandler {
     /**
      * Hop to EDT and open the wizard in the user's active project tab.
      *
-     * In IntelliJ 2026.1 merged-window mode (project tabs), all projects share one OS
-     * frame. [IdeFocusManager.getGlobalInstance] `.lastFocusedFrame.project` identifies
+     * In merged-window mode (project tabs), all projects share one OS frame.
+     * [IdeFocusManager.getGlobalInstance] `.lastFocusedFrame.project` identifies
      * which project tab the user is currently viewing — even when the IDE itself is in
      * the background. Only the matching project opens the wizard; the rest bail out.
      * If no frame is focused (cold start, or IDE minimized), the first project to call
@@ -202,8 +202,12 @@ internal object StartupLicenseHandler {
             }
 
             LOG.info("Ayu onboarding: opening wizard in ${project.name}")
-            FileEditorManager.getInstance(project).openFile(file, true)
-            onSuccess()
+            try {
+                FileEditorManager.getInstance(project).openFile(file, true)
+                onSuccess()
+            } catch (exception: RuntimeException) {
+                LOG.error("Ayu onboarding: failed to open wizard in ${project.name}", exception)
+            }
         }
     }
 

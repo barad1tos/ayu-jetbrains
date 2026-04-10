@@ -240,8 +240,8 @@ internal class FreeOnboardingPanel(
      * - Top strut height so content sits just below the SVG tagline.
      * - Trial headline font size so it visually matches the SVG tagline on any tab size.
      *
-     * The SVG uses "cover" scaling (see [paintBackground]): scale = `max(w/680, h/590)`.
-     * The tagline "Unified aesthetic engine..." lives at [SVG_TAGLINE_BOTTOM_Y] in
+     * The SVG uses "cover" scaling (see [paintBackground]): scale = `max(w/1600, h/1000)`.
+     * The tagline "Unified aesthetic engine..." lives at `SVG_TAGLINE_BOTTOM_Y` in
      * viewBox coordinates and is rendered at 13 SVG units, so screen size and screen-y
      * of the tagline are both derivable from the cover scale factor.
      */
@@ -284,23 +284,14 @@ internal class FreeOnboardingPanel(
         label.maximumSize = Dimension(Int.MAX_VALUE, Int.MAX_VALUE)
         label.minimumSize = Dimension(0, 0)
         label.font = label.font.deriveFont(Font.PLAIN, fontPx)
-        val accentHex = resolveCurrentAccentHex()
-        label.text = buildTrialHeadlineHtml(accentHex)
+        label.text = buildTrialHeadlineHtml()
         clampLabelToPreferred(label)
     }
 
-    @Suppress("UNUSED_PARAMETER")
-    private fun buildTrialHeadlineHtml(accentHex: String): String =
+    private fun buildTrialHeadlineHtml(): String =
         "<html><body style='margin:0;padding:0;font-family:sans-serif;color:$TRIAL_TEXT_BASE'>" +
             "All features <i><span style='color:$TRIAL_UNLOCKED_HEX'>unlocked</span></i> for 30 days" +
             "</body></html>"
-
-    /** Current accent color as a CSS hex string — uses selected swatch if set, else variant default. */
-    private fun resolveCurrentAccentHex(): String {
-        selectedAccentHex?.let { return it }
-        val variant = committedVariant ?: AyuVariant.MIRAGE
-        return variant.defaultAccent
-    }
 
     // -- Row A: Variant Cards --
 
@@ -675,7 +666,7 @@ internal class FreeOnboardingPanel(
     // -- Trial messaging --
 
     private fun buildTrialMessage(): JPanel {
-        val headline = JBLabel(buildTrialHeadlineHtml(resolveCurrentAccentHex()))
+        val headline = JBLabel(buildTrialHeadlineHtml())
         headline.font = headline.font.deriveFont(Font.PLAIN, JBUI.scale(TRIAL_HEADLINE_SIZE).toFloat())
         clampLabelToPreferred(headline)
         trialHeadlineLabel = headline
@@ -852,12 +843,6 @@ internal class FreeOnboardingPanel(
         private val PLUGINS_TEASER_TINT = Color(0xD5, 0xFF, 0x80)
         private val COMMUNITY_COLOR = Color(0x36, 0xA3, 0xD9)
 
-        // Discussions URLs
-        private const val DISCUSSIONS_SHOW_SETUP =
-            "https://github.com/barad1tos/ayu-jetbrains/discussions/categories/show-your-setup"
-        private const val DISCUSSIONS_FEATURE_REQUESTS =
-            "https://github.com/barad1tos/ayu-jetbrains/discussions/categories/feature-requests"
-
         private val VARIANT_CARDS =
             listOf(
                 VariantCardSpec(
@@ -937,7 +922,7 @@ internal class FreeOnboardingPanel(
                 tooltip = "Share your Ayu Islands setup on GitHub Discussions",
                 hoverColor = COMMUNITY_COLOR,
                 cornerIcon = AllIcons.Actions.Share,
-                onClick = { BrowserUtil.browse(DISCUSSIONS_SHOW_SETUP) },
+                onClick = { BrowserUtil.browse(OnboardingUrls.DISCUSSIONS_SHOW_SETUP) },
             )
 
         private val RAIL_FEATURE_LINK =
@@ -947,7 +932,7 @@ internal class FreeOnboardingPanel(
                 tooltip = "Suggest a feature on GitHub Discussions",
                 hoverColor = COMMUNITY_COLOR,
                 cornerIcon = AllIcons.General.BalloonInformation,
-                onClick = { BrowserUtil.browse(DISCUSSIONS_FEATURE_REQUESTS) },
+                onClick = { BrowserUtil.browse(OnboardingUrls.DISCUSSIONS_FEATURE_REQUESTS) },
             )
     }
 
