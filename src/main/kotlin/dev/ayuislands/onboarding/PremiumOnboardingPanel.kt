@@ -13,8 +13,7 @@ import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.components.JBLabel
-import com.intellij.ui.scale.ScaleContext
-import com.intellij.util.SVGLoader
+import com.intellij.util.ImageLoader
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.font.FontCatalog
@@ -111,7 +110,7 @@ internal class PremiumOnboardingPanel(
         super.paintComponent(graphics)
     }
 
-    /** Render SVG as a full-tab background with "cover" scaling via [SVGLoader]. */
+    /** Render SVG as a full-tab background with "cover" scaling via [ImageLoader]. */
     private fun paintBackground(g2: Graphics2D) {
         val path = heroPath ?: return
         if (width <= 0 || height <= 0) return
@@ -135,29 +134,18 @@ internal class PremiumOnboardingPanel(
         return if (PremiumOnboardingPanel::class.java.getResource(path) != null) path else null
     }
 
-    @Suppress("UnstableApiUsage")
     private fun loadScaledHero(
         path: String,
         targetW: Int,
         targetH: Int,
-    ): java.awt.Image? {
-        val url = PremiumOnboardingPanel::class.java.getResource(path) ?: return null
-        val stream = PremiumOnboardingPanel::class.java.getResourceAsStream(path) ?: return null
-        return try {
-            stream.use {
-                SVGLoader.load(
-                    url,
-                    it,
-                    ScaleContext.create(this),
-                    targetW.toDouble(),
-                    targetH.toDouble(),
-                )
-            }
+    ): java.awt.Image? =
+        try {
+            val raw = ImageLoader.loadFromResource(path, PremiumOnboardingPanel::class.java)
+            raw?.let { ImageLoader.scaleImage(it, targetW, targetH) }
         } catch (exception: java.io.IOException) {
-            LOG.info("Failed to load hero SVG $path", exception)
+            LOG.warn("Failed to load hero SVG $path", exception)
             null
         }
-    }
 
     /** Bottom gradient scrim for text readability over the image. */
     private fun paintScrim(g2: Graphics2D) {

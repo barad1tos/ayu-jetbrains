@@ -12,8 +12,7 @@ import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.components.JBLabel
-import com.intellij.ui.scale.ScaleContext
-import com.intellij.util.SVGLoader
+import com.intellij.util.ImageLoader
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentApplicator
@@ -64,7 +63,7 @@ internal class FreeOnboardingPanel(
     /** Variant cards kept in sync with [selectedAccentHex] and committed variant. */
     private val variantCards = mutableListOf<JComponent>()
 
-    /** Hero SVG resource path per variant — loaded on demand via SVGLoader. */
+    /** Hero SVG resource path per variant — loaded on demand via ImageLoader. */
     private val variantHeroPaths: Map<AyuVariant, String> =
         AyuVariant.entries
             .mapNotNull { variant -> variantHeroPath(variant)?.let { variant to it } }
@@ -125,16 +124,7 @@ internal class FreeOnboardingPanel(
         return path
     }
 
-    /**
-     * Render SVG as a full-tab background with "cover" scaling using [SVGLoader.load].
-     *
-     * We bypass [com.intellij.openapi.util.IconLoader] + `IconUtil.scale` here because
-     * their scaling interacts with HiDPI in ways that under-size the rendered bitmap on
-     * non-trivial aspect ratios, leaving visible gaps around the hero. `SVGLoader.load`
-     * returns an [java.awt.Image] whose pixel dimensions match the requested scale
-     * deterministically, and we draw with explicit destination dimensions so async image
-     * observers cannot short-circuit the paint.
-     */
+    /** Render SVG as a full-tab background with "cover" scaling via [ImageLoader]. */
     private fun paintBackground(g2: Graphics2D) {
         val path = variantHeroPaths[currentHeroVariant] ?: variantHeroPaths.values.firstOrNull() ?: return
         if (width <= 0 || height <= 0) return
@@ -147,29 +137,18 @@ internal class FreeOnboardingPanel(
         drawCoveredImage(g2, image, width, height, coverSize)
     }
 
-    @Suppress("UnstableApiUsage")
     private fun loadScaledHero(
         path: String,
         targetW: Int,
         targetH: Int,
-    ): java.awt.Image? {
-        val url = FreeOnboardingPanel::class.java.getResource(path) ?: return null
-        val stream = FreeOnboardingPanel::class.java.getResourceAsStream(path) ?: return null
-        return try {
-            stream.use {
-                SVGLoader.load(
-                    url,
-                    it,
-                    ScaleContext.create(this),
-                    targetW.toDouble(),
-                    targetH.toDouble(),
-                )
-            }
+    ): java.awt.Image? =
+        try {
+            val raw = ImageLoader.loadFromResource(path, FreeOnboardingPanel::class.java)
+            raw?.let { ImageLoader.scaleImage(it, targetW, targetH) }
         } catch (exception: java.io.IOException) {
-            LOG.info("Failed to load hero SVG $path", exception)
+            LOG.warn("Failed to load hero SVG $path", exception)
             null
         }
-    }
 
     /** Bottom gradient scrim for text readability over the image. */
     private fun paintScrim(g2: Graphics2D) {
