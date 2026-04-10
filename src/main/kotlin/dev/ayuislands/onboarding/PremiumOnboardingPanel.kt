@@ -805,16 +805,16 @@ internal class PremiumOnboardingPanel(
         private const val RAIL_TITLE_SIZE = 12
 
         // Cards
-        private const val CARD_PADDING = 16
-        private const val CARD_WIDTH = 155
-        private const val CARD_HEIGHT = 130
+        private const val CARD_PADDING = 12
+        private const val CARD_WIDTH = 140
+        private const val CARD_HEIGHT = 96
         private const val CARD_GAP = 10
 
         // Font cards (pinned to Free variant card dimensions)
-        private const val FONT_CARD_WIDTH = 155
-        private const val FONT_CARD_HEIGHT = 96
+        private const val FONT_CARD_WIDTH = 130
+        private const val FONT_CARD_HEIGHT = 64
         private const val FONT_CARD_PADDING = 12
-        private const val FONT_TITLE_SIZE = 14
+        private const val FONT_TITLE_SIZE = 11
         private val FONT_CARD_TINT = Color(0x95, 0xE6, 0xCB)
         private val FONT_PRESETS =
             listOf(FontPreset.WHISPER, FontPreset.AMBIENT, FontPreset.NEON, FontPreset.CYBERPUNK)

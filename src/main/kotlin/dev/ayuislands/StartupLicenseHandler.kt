@@ -7,7 +7,7 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.openapi.wm.WindowManager
+import com.intellij.openapi.wm.IdeFocusManager
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.editor.EditorScrollbarManager
@@ -173,14 +173,14 @@ internal object StartupLicenseHandler {
     }
 
     /**
-     * Hop to EDT, check whether this project's frame is currently active, and if so
-     * atomically claim the wizard slot via [OnboardingOrchestrator.tryPick]. Only the
-     * winning project actually opens the wizard tab and runs [onSuccess]. Every other
-     * project bails out silently.
+     * Hop to EDT and open the wizard in the user's active project tab.
      *
-     * If no IDE frame is active when the coroutines fire (user minimized the IDE or
-     * switched apps during the delay), no wizard opens this session and the state
-     * flag stays unset, so the next startup will try again.
+     * In IntelliJ 2026.1 merged-window mode (project tabs), all projects share one OS
+     * frame. [IdeFocusManager.getGlobalInstance] `.lastFocusedFrame.project` identifies
+     * which project tab the user is currently viewing — even when the IDE itself is in
+     * the background. Only the matching project opens the wizard; the rest bail out.
+     * If no frame is focused (cold start, or IDE minimized), the first project to call
+     * [OnboardingOrchestrator.tryPick] wins as a fallback.
      */
     private suspend fun openWizardIfThisProjectWins(
         project: Project,
@@ -190,9 +190,9 @@ internal object StartupLicenseHandler {
         withContext(Dispatchers.EDT + ModalityState.nonModal().asContextElement()) {
             if (project.isDisposed) return@withContext
 
-            val frame = WindowManager.getInstance().getFrame(project)
-            if (frame?.isActive != true) {
-                LOG.info("Ayu onboarding: project ${project.name} frame not active — skipping wizard")
+            val activeProject = IdeFocusManager.getGlobalInstance().lastFocusedFrame?.project
+            if (activeProject != null && activeProject != project) {
+                LOG.info("Ayu onboarding: project ${project.name} is not the active tab — deferring")
                 return@withContext
             }
 

@@ -111,9 +111,19 @@ object LicenseChecker {
             ).notify(project)
     }
 
-    /** Enable all Pro features on the first license activation (one-time). */
+    /**
+     * Enable all Pro features on genuine first-time license activation.
+     *
+     * Guarded by [AyuIslandsState.everBeenPro] which survives trial expiry, so a
+     * re-purchase does NOT overwrite user customizations. The [proDefaultsApplied]
+     * flag is still set to prevent redundant calls within the same license period.
+     */
     fun enableProDefaults() {
         val state = AyuIslandsSettings.getInstance().state
+        if (state.everBeenPro) {
+            state.proDefaultsApplied = true
+            return
+        }
         state.glowEnabled = true
         state.glowStyle = GlowStyle.SHARP_NEON.name
         state.glowPreset = GlowPreset.CUSTOM.name
@@ -128,7 +138,7 @@ object LicenseChecker {
         state.glowGit = true
         state.glowServices = true
         state.glowFocusRing = true
-        applyWorkspaceDefaults()
+        state.everBeenPro = true
         state.proDefaultsApplied = true
     }
 
