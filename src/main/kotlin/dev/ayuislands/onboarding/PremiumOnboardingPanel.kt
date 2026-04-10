@@ -67,8 +67,7 @@ internal class PremiumOnboardingPanel(
     /** Hero SVG classpath — resolved from current variant at init. */
     private val heroPath: String? = resolveHeroPath()
 
-    private var cachedBackgroundImage: java.awt.Image? = null
-    private var cachedBackgroundKey: Triple<String?, Int, Int>? = null
+    private var heroCache: Pair<Triple<String?, Int, Int>?, java.awt.Image?> = null to null
 
     private var topStrut: Component? = null
     private var contentWrapper: JPanel? = null
@@ -116,16 +115,12 @@ internal class PremiumOnboardingPanel(
     private fun paintBackground(g2: Graphics2D) {
         val path = heroPath ?: return
         if (width <= 0 || height <= 0) return
-
         val coverSize = computeCoverDimensions(width, height, SVG_VIEW_BOX_WIDTH, SVG_VIEW_BOX_HEIGHT)
-
         val key = Triple(path, coverSize.first, coverSize.second)
-        if (cachedBackgroundKey != key) {
-            cachedBackgroundImage = loadScaledHero(path, coverSize.first, coverSize.second)
-            cachedBackgroundKey = key
+        if (heroCache.first != key) {
+            heroCache = key to loadScaledHero(path, coverSize.first, coverSize.second)
         }
-
-        val image = cachedBackgroundImage ?: return
+        val image = heroCache.second ?: return
         drawCoveredImage(g2, image, width, height, coverSize)
     }
 

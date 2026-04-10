@@ -73,8 +73,7 @@ internal class FreeOnboardingPanel(
     /** Variant whose hero is currently displayed. Tracks hover/commit independently of LAF. */
     private var currentHeroVariant: AyuVariant = committedVariant ?: AyuVariant.MIRAGE
 
-    private var cachedBackgroundImage: java.awt.Image? = null
-    private var cachedBackgroundKey: Triple<AyuVariant, Int, Int>? = null
+    private var heroCache: Pair<Triple<AyuVariant, Int, Int>?, java.awt.Image?> = null to null
 
     private var topStrut: Component? = null
     private var contentWrapper: JPanel? = null
@@ -139,16 +138,12 @@ internal class FreeOnboardingPanel(
     private fun paintBackground(g2: Graphics2D) {
         val path = variantHeroPaths[currentHeroVariant] ?: variantHeroPaths.values.firstOrNull() ?: return
         if (width <= 0 || height <= 0) return
-
         val coverSize = computeCoverDimensions(width, height, SVG_VIEW_BOX_WIDTH, SVG_VIEW_BOX_HEIGHT)
-
         val key = Triple(currentHeroVariant, coverSize.first, coverSize.second)
-        if (cachedBackgroundKey != key) {
-            cachedBackgroundImage = loadScaledHero(path, coverSize.first, coverSize.second)
-            cachedBackgroundKey = key
+        if (heroCache.first != key) {
+            heroCache = key to loadScaledHero(path, coverSize.first, coverSize.second)
         }
-
-        val image = cachedBackgroundImage ?: return
+        val image = heroCache.second ?: return
         drawCoveredImage(g2, image, width, height, coverSize)
     }
 
