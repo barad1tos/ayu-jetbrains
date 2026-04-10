@@ -11,7 +11,7 @@ import kotlin.test.assertTrue
 
 class OnboardingOrchestratorPropertyTest {
     @Test
-    fun `resolve returns exactly one variant for every boolean combination`() =
+    fun `resolve returns exactly one variant for every boolean combination`(): Unit =
         runBlocking {
             checkAll(
                 Exhaustive.boolean(),
@@ -36,7 +36,7 @@ class OnboardingOrchestratorPropertyTest {
         }
 
     @Test
-    fun `free wizard only when effective free not shown and not returning`() =
+    fun `free wizard only when effective free not shown and not returning`(): Unit =
         runBlocking {
             checkAll(
                 Exhaustive.boolean(),
@@ -70,7 +70,7 @@ class OnboardingOrchestratorPropertyTest {
         }
 
     @Test
-    fun `premium wizard never shown when not licensed`() =
+    fun `premium wizard never shown when not licensed`(): Unit =
         runBlocking {
             checkAll(
                 Exhaustive.boolean(),
@@ -94,7 +94,7 @@ class OnboardingOrchestratorPropertyTest {
         }
 
     @Test
-    fun `premium wizard requires licensed and effective free shown and premium not shown`() =
+    fun `premium wizard requires licensed and effective free shown and premium not shown`(): Unit =
         runBlocking {
             checkAll(
                 Exhaustive.boolean(),
@@ -119,7 +119,7 @@ class OnboardingOrchestratorPropertyTest {
         }
 
     @Test
-    fun `no wizard when all onboarding already completed`() =
+    fun `no wizard when all onboarding already completed`(): Unit =
         runBlocking {
             checkAll(
                 Exhaustive.boolean(),

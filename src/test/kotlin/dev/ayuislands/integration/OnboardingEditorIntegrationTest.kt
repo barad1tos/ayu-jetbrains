@@ -40,7 +40,6 @@ class OnboardingEditorIntegrationTest : BasePlatformTestCase() {
             assertNotNull("Editor component must not be null", editor.component)
             assertEquals("Ayu Islands", editor.name)
         } finally {
-            @Suppress("SSBasedInspection")
             com.intellij.openapi.util.Disposer
                 .dispose(editor)
         }

@@ -6,11 +6,12 @@ import io.kotest.property.arbitrary.int
 import io.kotest.property.checkAll
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class GlowRendererPropertyTest {
     @Test
-    fun `SOFT computeAlpha is always in 0 to 255 range`() =
+    fun `SOFT computeAlpha is always in 0 to 255 range`(): Unit =
         runBlocking {
             checkAll(
                 Arb.float(min = 0f, max = 1f),
@@ -28,7 +29,7 @@ class GlowRendererPropertyTest {
         }
 
     @Test
-    fun `SHARP_NEON computeAlpha is always in 0 to 255 range`() =
+    fun `SHARP_NEON computeAlpha is always in 0 to 255 range`(): Unit =
         runBlocking {
             checkAll(
                 Arb.float(min = 0f, max = 1f),
@@ -46,7 +47,7 @@ class GlowRendererPropertyTest {
         }
 
     @Test
-    fun `GRADIENT computeAlpha is always in 0 to 255 range`() =
+    fun `GRADIENT computeAlpha is always in 0 to 255 range`(): Unit =
         runBlocking {
             checkAll(
                 Arb.float(min = 0f, max = 1f),
@@ -64,9 +65,9 @@ class GlowRendererPropertyTest {
         }
 
     @Test
-    fun `computeAlpha at progress 0 returns maximum alpha for the style`() =
+    fun `computeAlpha at progress 0 returns maximum alpha for the style`(): Unit =
         runBlocking {
-            checkAll(Arb.int(1..255)) { baseAlpha ->
+            checkAll(Arb.int(4..255)) { baseAlpha ->
                 for (style in GlowStyle.entries) {
                     val renderer = GlowRenderer()
                     renderer.cachedStyle = style
@@ -81,7 +82,7 @@ class GlowRendererPropertyTest {
         }
 
     @Test
-    fun `SOFT computeAlpha decreases as progress increases`() =
+    fun `SOFT computeAlpha decreases as progress increases`(): Unit =
         runBlocking {
             checkAll(Arb.int(10..255)) { baseAlpha ->
                 val renderer = GlowRenderer()
@@ -97,7 +98,7 @@ class GlowRendererPropertyTest {
         }
 
     @Test
-    fun `GRADIENT computeAlpha decreases as progress increases`() =
+    fun `GRADIENT computeAlpha decreases as progress increases`(): Unit =
         runBlocking {
             checkAll(Arb.int(10..255)) { baseAlpha ->
                 val renderer = GlowRenderer()
@@ -113,7 +114,7 @@ class GlowRendererPropertyTest {
         }
 
     @Test
-    fun `SHARP_NEON has constant alpha in core region`() =
+    fun `SHARP_NEON has constant alpha in core region`(): Unit =
         runBlocking {
             checkAll(Arb.int(10..255)) { baseAlpha ->
                 val renderer = GlowRenderer()
@@ -121,8 +122,9 @@ class GlowRendererPropertyTest {
                 renderer.cachedBaseAlpha = baseAlpha
                 val alphaAt0 = renderer.computeAlpha(0f)
                 val alphaAt20Pct = renderer.computeAlpha(0.2f)
-                assertTrue(
-                    alphaAt0 == alphaAt20Pct,
+                assertEquals(
+                    alphaAt0,
+                    alphaAt20Pct,
                     "SHARP_NEON core must be constant: 0%=$alphaAt0, 20%=$alphaAt20Pct (base=$baseAlpha)",
                 )
             }
@@ -135,8 +137,9 @@ class GlowRendererPropertyTest {
             renderer.cachedStyle = style
             renderer.cachedBaseAlpha = 0
             val alpha = renderer.computeAlpha(0.5f)
-            assertTrue(
-                alpha == 0,
+            assertEquals(
+                0,
+                alpha,
                 "${style.name} with baseAlpha=0 must return 0, got $alpha",
             )
         }

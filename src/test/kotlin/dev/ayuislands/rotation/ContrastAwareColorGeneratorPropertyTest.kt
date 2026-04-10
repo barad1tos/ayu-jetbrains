@@ -19,7 +19,7 @@ class ContrastAwareColorGeneratorPropertyTest {
     }
 
     @Test
-    fun `generate always returns valid hex color for all variants`() =
+    fun `generate always returns valid hex color for all variants`(): Unit =
         runBlocking {
             checkAll(iterations = 200, Exhaustive.collection(AyuVariant.entries)) { variant ->
                 val hex = ContrastAwareColorGenerator.generate(variant)
@@ -31,7 +31,7 @@ class ContrastAwareColorGeneratorPropertyTest {
         }
 
     @Test
-    fun `generate always produces colors with saturation above 0 point 65`() =
+    fun `generate always produces colors with saturation above 0 point 65`(): Unit =
         runBlocking {
             checkAll(iterations = 200, Exhaustive.collection(AyuVariant.entries)) { variant ->
                 val hex = ContrastAwareColorGenerator.generate(variant)
@@ -46,7 +46,7 @@ class ContrastAwareColorGeneratorPropertyTest {
         }
 
     @Test
-    fun `generate produces colors with appropriate lightness for dark variants`() =
+    fun `generate produces colors with appropriate lightness for dark variants`(): Unit =
         runBlocking {
             val darkVariants = listOf(AyuVariant.MIRAGE, AyuVariant.DARK)
             checkAll(iterations = 200, Exhaustive.collection(darkVariants)) { variant ->
@@ -67,7 +67,7 @@ class ContrastAwareColorGeneratorPropertyTest {
         }
 
     @Test
-    fun `generate produces colors with appropriate lightness for light variant`() =
+    fun `generate produces colors with appropriate lightness for light variant`(): Unit =
         runBlocking {
             checkAll(iterations = 200, Exhaustive.collection(listOf(AyuVariant.LIGHT))) { variant ->
                 val hex = ContrastAwareColorGenerator.generate(variant)

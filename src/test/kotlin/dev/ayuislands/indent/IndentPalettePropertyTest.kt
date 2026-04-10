@@ -12,7 +12,7 @@ import kotlin.test.assertTrue
 
 class IndentPalettePropertyTest {
     @Test
-    fun `toColorStrings always returns exactly 11 elements`() =
+    fun `toColorStrings always returns exactly 11 elements`(): Unit =
         runBlocking {
             checkAll(Arb.int(1..255)) { alpha ->
                 val palette = IndentPalette(errorColor = "F27983", accentColor = "FFCC66")
@@ -26,7 +26,7 @@ class IndentPalettePropertyTest {
         }
 
     @Test
-    fun `toColorStrings elements are always 8-char hex strings`() =
+    fun `toColorStrings elements are always 8-char hex strings`(): Unit =
         runBlocking {
             checkAll(Arb.int(1..255)) { alpha ->
                 val palette = IndentPalette(errorColor = "F27983", accentColor = "FFCC66")
@@ -41,7 +41,7 @@ class IndentPalettePropertyTest {
         }
 
     @Test
-    fun `toColorStrings with error highlight disabled uses accent color for first element`() =
+    fun `toColorStrings with error highlight disabled uses accent color for first element`(): Unit =
         runBlocking {
             checkAll(Arb.int(1..255)) { alpha ->
                 val accentColor = "FFCC66"
@@ -55,7 +55,7 @@ class IndentPalettePropertyTest {
         }
 
     @Test
-    fun `toColorStrings with error highlight enabled uses error color for first element`() =
+    fun `toColorStrings with error highlight enabled uses error color for first element`(): Unit =
         runBlocking {
             checkAll(Arb.int(1..255)) { alpha ->
                 val errorColor = "F27983"
@@ -111,18 +111,19 @@ class IndentPalettePropertyTest {
     }
 
     @Test
-    fun `toColorStrings pyramid pattern has symmetric alpha progression`() =
+    fun `toColorStrings pyramid pattern has symmetric alpha progression`(): Unit =
         runBlocking {
             checkAll(Arb.int(30..255)) { alpha ->
                 val palette = IndentPalette(errorColor = "F27983", accentColor = "FFCC66")
                 val colors = palette.toColorStrings(alpha)
-                // Elements 1-10 are the indent colors (pyramid 1,2,3,4,5,6,5,4,3,2)
-                // Elements at symmetric positions should have equal alpha bytes
+                // Elements 1-10 are the indent colors (pyramid: steps 1,2,3,4,5,6,5,4,3,2)
+                // Indices: 0=step1, 1=step2, 2=step3, 3=step4, 4=step5, 5=step6, 6=step5, 7=step4, 8=step3, 9=step2
+                // Symmetric pairs with equal step values:
                 val indentColors = colors.drop(1)
-                assertEquals(indentColors[0], indentColors[8], "Position 1 and 9 must match (step 1 and 2)")
-                assertEquals(indentColors[1], indentColors[7], "Position 2 and 8 must match (step 2 and 3)")
-                assertEquals(indentColors[2], indentColors[6], "Position 3 and 7 must match (step 3 and 4)")
-                assertEquals(indentColors[3], indentColors[5], "Position 4 and 6 must match (step 4 and 5)")
+                assertEquals(indentColors[1], indentColors[9], "Indices 1 and 9 must match (both step 2)")
+                assertEquals(indentColors[2], indentColors[8], "Indices 2 and 8 must match (both step 3)")
+                assertEquals(indentColors[3], indentColors[7], "Indices 3 and 7 must match (both step 4)")
+                assertEquals(indentColors[4], indentColors[6], "Indices 4 and 6 must match (both step 5)")
             }
         }
 }

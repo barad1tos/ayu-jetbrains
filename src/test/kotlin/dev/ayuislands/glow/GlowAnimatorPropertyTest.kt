@@ -10,7 +10,7 @@ import kotlin.test.assertTrue
 
 class GlowAnimatorPropertyTest {
     @Test
-    fun `NONE always returns 1 for any frame`() =
+    fun `NONE always returns 1 for any frame`(): Unit =
         runBlocking {
             val animator = GlowAnimator()
             checkAll(Arb.long(0L..10_000L)) { frame ->
@@ -24,7 +24,7 @@ class GlowAnimatorPropertyTest {
         }
 
     @Test
-    fun `PULSE alpha is always within bounds for any frame`() =
+    fun `PULSE alpha is always within bounds for any frame`(): Unit =
         runBlocking {
             val animator = GlowAnimator()
             checkAll(Arb.long(0L..50_000L)) { frame ->
@@ -42,7 +42,7 @@ class GlowAnimatorPropertyTest {
         }
 
     @Test
-    fun `BREATHE alpha is always within bounds for any frame`() =
+    fun `BREATHE alpha is always within bounds for any frame`(): Unit =
         runBlocking {
             val animator = GlowAnimator()
             checkAll(Arb.long(0L..50_000L)) { frame ->
@@ -60,7 +60,7 @@ class GlowAnimatorPropertyTest {
         }
 
     @Test
-    fun `PULSE is periodic with cycle length 120`() =
+    fun `PULSE is periodic with cycle length 120`(): Unit =
         runBlocking {
             val animator = GlowAnimator()
             checkAll(Arb.long(0L..10_000L)) { frame ->
@@ -77,7 +77,7 @@ class GlowAnimatorPropertyTest {
         }
 
     @Test
-    fun `BREATHE is periodic with cycle length 240`() =
+    fun `BREATHE is periodic with cycle length 240`(): Unit =
         runBlocking {
             val animator = GlowAnimator()
             checkAll(Arb.long(0L..10_000L)) { frame ->
@@ -94,7 +94,7 @@ class GlowAnimatorPropertyTest {
         }
 
     @Test
-    fun `REACTIVE alpha is always in 0 to 1 range regardless of boost`() =
+    fun `REACTIVE alpha is always in 0 to 1 range regardless of boost`(): Unit =
         runBlocking {
             val animator = GlowAnimator()
             checkAll(Arb.long(0L..1_000L)) { frame ->
@@ -109,7 +109,7 @@ class GlowAnimatorPropertyTest {
         }
 
     @Test
-    fun `all animation types produce alpha in 0 to 1 for any frame`() =
+    fun `all animation types produce alpha in 0 to 1 for any frame`(): Unit =
         runBlocking {
             checkAll(Arb.long(0L..10_000L)) { frame ->
                 for (animation in GlowAnimation.entries) {

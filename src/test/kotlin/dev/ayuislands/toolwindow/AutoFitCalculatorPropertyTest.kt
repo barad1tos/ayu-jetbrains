@@ -13,7 +13,7 @@ import kotlin.test.assertTrue
 
 class AutoFitCalculatorPropertyTest {
     @Test
-    fun `calculateDesiredWidth result is between minWidth and max of minWidth and maxWidth`() =
+    fun `calculateDesiredWidth result is between minWidth and max of minWidth and maxWidth`(): Unit =
         runBlocking {
             checkAll(
                 Arb.int(0..2000),
@@ -36,7 +36,7 @@ class AutoFitCalculatorPropertyTest {
         }
 
     @Test
-    fun `calculateDesiredWidth adds padding to maxRowWidth`() =
+    fun `calculateDesiredWidth adds padding to maxRowWidth`(): Unit =
         runBlocking {
             checkAll(
                 Arb.int(0..500),
@@ -54,7 +54,7 @@ class AutoFitCalculatorPropertyTest {
         }
 
     @Test
-    fun `isJitterOnly is symmetric`() =
+    fun `isJitterOnly is symmetric`(): Unit =
         runBlocking {
             checkAll(
                 Arb.int(0..2000),
@@ -71,7 +71,7 @@ class AutoFitCalculatorPropertyTest {
         }
 
     @Test
-    fun `isJitterOnly returns true when diff is within threshold`() =
+    fun `isJitterOnly returns true when diff is within threshold`(): Unit =
         runBlocking {
             checkAll(Arb.int(0..2000)) { baseWidth ->
                 for (delta in 0..AutoFitCalculator.JITTER_THRESHOLD) {
@@ -88,7 +88,7 @@ class AutoFitCalculatorPropertyTest {
         }
 
     @Test
-    fun `isJitterOnly returns false when diff exceeds threshold`() =
+    fun `isJitterOnly returns false when diff exceeds threshold`(): Unit =
         runBlocking {
             checkAll(
                 Arb.int(0..2000),
@@ -102,7 +102,7 @@ class AutoFitCalculatorPropertyTest {
         }
 
     @Test
-    fun `isJitterOnly matches abs diff against JITTER_THRESHOLD`() =
+    fun `isJitterOnly matches abs diff against JITTER_THRESHOLD`(): Unit =
         runBlocking {
             checkAll(
                 Arb.int(0..2000),

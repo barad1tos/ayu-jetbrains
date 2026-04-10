@@ -18,6 +18,7 @@ import java.util.Date
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -53,7 +54,7 @@ class LicenseCheckerPropertyTest {
     }
 
     @Test
-    fun `future expiration dates always yield non-null positive remaining days`() =
+    fun `future expiration dates always yield non-null positive remaining days`(): Unit =
         runBlocking {
             checkAll(Arb.int(1..30)) { offset ->
                 every { facade.getExpirationDate(LicenseChecker.PRODUCT_CODE) } returns dateFromNow(offset)
@@ -64,7 +65,7 @@ class LicenseCheckerPropertyTest {
         }
 
     @Test
-    fun `past expiration dates always yield null`() =
+    fun `past expiration dates always yield null`(): Unit =
         runBlocking {
             checkAll(Arb.int(-30..-1)) { offset ->
                 every { facade.getExpirationDate(LicenseChecker.PRODUCT_CODE) } returns dateFromNow(offset)
@@ -74,7 +75,7 @@ class LicenseCheckerPropertyTest {
         }
 
     @Test
-    fun `trial days remaining is never negative`() =
+    fun `trial days remaining is never negative`(): Unit =
         runBlocking {
             checkAll(Arb.int(-30..30)) { offset ->
                 every { facade.getExpirationDate(LicenseChecker.PRODUCT_CODE) } returns dateFromNow(offset)
@@ -91,6 +92,6 @@ class LicenseCheckerPropertyTest {
             every { facade.getExpirationDate(LicenseChecker.PRODUCT_CODE) } returns dateFromNow(0)
             val result = LicenseChecker.getTrialDaysRemaining()
             assertNotNull(result, "Today expiration must return non-null")
-            assertTrue(result == 0L, "Today expiration must yield 0, got $result")
+            assertEquals(0L, result, "Today expiration must yield 0, got $result")
         }
 }
