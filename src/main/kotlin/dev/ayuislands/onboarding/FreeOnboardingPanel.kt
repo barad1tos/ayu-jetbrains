@@ -197,54 +197,23 @@ internal class FreeOnboardingPanel(
     }
 
     private fun loadContent() {
-        // Section A: variant picker + accent swatches (tight cluster)
-        val content = JPanel()
-        content.layout = BoxLayout(content, BoxLayout.Y_AXIS)
-        content.isOpaque = false
-
-        content.add(buildVariantCardsRow())
-        content.add(Box.createVerticalStrut(JBUI.scale(GAP_SMALL)))
-        content.add(buildAccentStrip())
-
-        // Section gap A -> B. Compensates for font-metric leading at the top of the
-        // trial label so the visible gap above matches the visible gap below.
-        content.add(Box.createVerticalStrut(JBUI.scale(GAP_SECTION_ABOVE_TRIAL)))
-
+        // Section A: variant cards + accent swatches (tight cluster)
         // Section B: trial headline (standalone)
-        content.add(buildTrialMessage())
-
-        // Section gap B -> C
-        content.add(Box.createVerticalStrut(JBUI.scale(GAP_SECTION)))
-
         // Section C: feature rail + action buttons
-        content.add(buildFooterRail())
-        content.add(Box.createVerticalStrut(JBUI.scale(GAP_MEDIUM)))
-        content.add(buildBottomButtons())
+        val content =
+            buildWizardSection(
+                listOf(
+                    SectionEntry(buildVariantCardsRow(), gapBeforePx = 0),
+                    SectionEntry(buildAccentStrip(), gapBeforePx = GAP_SMALL),
+                    SectionEntry(buildTrialMessage(), gapBeforePx = GAP_SECTION_ABOVE_TRIAL),
+                    SectionEntry(buildFooterRail(), gapBeforePx = GAP_SECTION),
+                    SectionEntry(buildBottomButtons(), gapBeforePx = GAP_MEDIUM),
+                ),
+            )
 
-        content.alignmentX = CENTER_ALIGNMENT
-
-        val centeredRow = JPanel()
-        centeredRow.layout = BoxLayout(centeredRow, BoxLayout.X_AXIS)
-        centeredRow.isOpaque = false
-        centeredRow.add(Box.createHorizontalGlue())
-        centeredRow.add(content)
-        centeredRow.add(Box.createHorizontalGlue())
-        centeredRow.alignmentX = CENTER_ALIGNMENT
-
-        // Wrapper: dynamic top strut (recomputed on resize, pins content to just below
-        // the SVG tagline), content sticks to top, single glue absorbs any excess slack,
-        // fixed BOTTOM_MARGIN gives an exact gap to the tab bottom edge.
-        val wrapper = JPanel()
-        wrapper.layout = BoxLayout(wrapper, BoxLayout.Y_AXIS)
-        wrapper.isOpaque = false
-        val strut = Box.createVerticalStrut(0)
-        topStrut = strut
-        contentWrapper = wrapper
-        wrapper.add(strut)
-        wrapper.add(centeredRow)
-        wrapper.add(Box.createVerticalGlue())
-        wrapper.add(Box.createVerticalStrut(JBUI.scale(BOTTOM_MARGIN)))
-        add(wrapper, BorderLayout.CENTER)
+        val handle = installWizardContent(this, content, BOTTOM_MARGIN)
+        topStrut = handle.topStrut
+        contentWrapper = handle.wrapper
 
         addComponentListener(
             object : ComponentAdapter() {
@@ -269,27 +238,13 @@ internal class FreeOnboardingPanel(
     private fun updateDynamicLayout() {
         val strut = topStrut ?: return
         val wrapper = contentWrapper ?: return
-        val w = width.toDouble()
-        val h = height.toDouble()
-        if (w <= 0 || h <= 0) return
-
-        val scale = maxOf(w / SVG_VIEW_BOX_WIDTH, h / SVG_VIEW_BOX_HEIGHT)
-        val svgHeightOnScreen = SVG_VIEW_BOX_HEIGHT * scale
-        val svgTopY = (h - svgHeightOnScreen) / 2
-        val taglineBottomY = svgTopY + SVG_TAGLINE_BOTTOM_Y * scale
-        val topPadding = (taglineBottomY + JBUI.scale(GAP_SMALL)).toInt().coerceAtLeast(0)
-
-        val size = Dimension(0, topPadding)
-        strut.preferredSize = size
-        strut.maximumSize = Dimension(Int.MAX_VALUE, topPadding)
-        strut.minimumSize = size
-
-        // Match trial headline font size to the SVG tagline's render at the current scale.
-        val trialFontPx =
-            (SVG_TAGLINE_FONT_PX * scale).toInt().coerceIn(TRIAL_FONT_MIN, TRIAL_FONT_MAX)
-        updateTrialHeadline(trialFontPx.toFloat())
-
-        wrapper.revalidate()
+        updateWizardDynamicLayout(
+            panelWidth = width,
+            panelHeight = height,
+            handle = WizardContentHandle(strut, wrapper),
+            geometry = SVG_GEOMETRY,
+            onTrialFontChange = ::updateTrialHeadline,
+        )
     }
 
     /** Rebuild the trial headline HTML with the current accent color and font size. */
@@ -345,14 +300,7 @@ internal class FreeOnboardingPanel(
                 private var hovered = false
 
                 init {
-                    layout = BoxLayout(this, BoxLayout.Y_AXIS)
-                    border = JBUI.Borders.empty(CARD_PADDING)
-                    cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-                    val size = Dimension(JBUI.scale(CARD_WIDTH), JBUI.scale(CARD_HEIGHT))
-                    preferredSize = size
-                    minimumSize = size
-                    maximumSize = size
-
+                    configureCardPanel(this, CARD_PADDING, CARD_WIDTH, CARD_HEIGHT)
                     addMouseListener(
                         object : MouseAdapter() {
                             override fun mouseEntered(event: MouseEvent) {
@@ -401,31 +349,16 @@ internal class FreeOnboardingPanel(
             }
         cardPanel.isOpaque = false
 
-        val titleLabel = JBLabel(spec.title)
-        titleLabel.font =
-            titleLabel.font.deriveFont(Font.BOLD, JBUI.scale(CARD_NAME_SIZE).toFloat())
-        titleLabel.foreground = Color.WHITE
-        titleLabel.alignmentX = LEFT_ALIGNMENT
-        cardPanel.add(titleLabel)
-
-        cardPanel.add(Box.createVerticalStrut(JBUI.scale(GAP_TINY)))
-
-        val subtitleLabel = JBLabel(spec.subtitle)
-        subtitleLabel.font = subtitleLabel.font.deriveFont(JBUI.scale(CARD_DESC_SIZE).toFloat())
-        subtitleLabel.foreground = CARD_DESC_COLOR
-        subtitleLabel.alignmentX = LEFT_ALIGNMENT
-        cardPanel.add(subtitleLabel)
-
-        cardPanel.add(Box.createVerticalStrut(JBUI.scale(GAP_MICRO)))
-
-        val footnoteLabel = JBLabel(spec.footnote)
-        footnoteLabel.font =
-            footnoteLabel.font.deriveFont(Font.ITALIC, JBUI.scale(CARD_DESC_SIZE).toFloat())
-        footnoteLabel.foreground = CARD_DESC_COLOR
-        footnoteLabel.alignmentX = LEFT_ALIGNMENT
-        cardPanel.add(footnoteLabel)
-
-        cardPanel.add(Box.createVerticalGlue())
+        attachCardLabels(
+            card = cardPanel,
+            content =
+                CardLabelContent(
+                    title = spec.title,
+                    subtitle = spec.subtitle,
+                    footnote = spec.footnote,
+                ),
+            style = VARIANT_CARD_LABEL_STYLE,
+        )
 
         variantCards.add(cardPanel)
         return cardPanel
@@ -642,13 +575,7 @@ internal class FreeOnboardingPanel(
                 private var hovered = false
 
                 init {
-                    layout = BoxLayout(this, BoxLayout.Y_AXIS)
-                    border = JBUI.Borders.empty(RAIL_CARD_PADDING)
-                    cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-                    val size = Dimension(JBUI.scale(RAIL_CARD_WIDTH), JBUI.scale(RAIL_CARD_HEIGHT))
-                    preferredSize = size
-                    minimumSize = size
-                    maximumSize = size
+                    configureCardPanel(this, RAIL_CARD_PADDING, RAIL_CARD_WIDTH, RAIL_CARD_HEIGHT)
                     toolTipText = spec.tooltip
 
                     addMouseListener(
@@ -695,22 +622,16 @@ internal class FreeOnboardingPanel(
             }
         cardPanel.isOpaque = false
 
-        val titleLabel = JBLabel(spec.title)
-        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, JBUI.scale(RAIL_TITLE_SIZE).toFloat())
-        titleLabel.foreground = Color.WHITE
-        titleLabel.alignmentX = LEFT_ALIGNMENT
-        cardPanel.add(titleLabel)
-
-        cardPanel.add(Box.createVerticalStrut(JBUI.scale(GAP_MICRO)))
-
-        val subtitleLabel = JBLabel(spec.subtitle)
-        subtitleLabel.font =
-            subtitleLabel.font.deriveFont(JBUI.scale(CARD_DESC_SIZE).toFloat())
-        subtitleLabel.foreground = spec.subtitleColor
-        subtitleLabel.alignmentX = LEFT_ALIGNMENT
-        cardPanel.add(subtitleLabel)
-
-        cardPanel.add(Box.createVerticalGlue())
+        attachCardLabels(
+            card = cardPanel,
+            content =
+                CardLabelContent(
+                    title = spec.title,
+                    subtitle = spec.subtitle,
+                    subtitleColor = spec.subtitleColor,
+                ),
+            style = RAIL_CARD_LABEL_STYLE,
+        )
 
         return cardPanel
     }
@@ -718,43 +639,24 @@ internal class FreeOnboardingPanel(
     // -- Trial messaging --
 
     private fun buildTrialMessage(): JPanel {
-        val row = JPanel()
-        row.layout = BoxLayout(row, BoxLayout.X_AXIS)
-        row.isOpaque = false
-        row.alignmentX = CENTER_ALIGNMENT
-
         val headline = JBLabel(buildTrialHeadlineHtml(resolveCurrentAccentHex()))
         headline.font = headline.font.deriveFont(Font.PLAIN, JBUI.scale(TRIAL_HEADLINE_SIZE).toFloat())
         clampLabelToPreferred(headline)
         trialHeadlineLabel = headline
-
-        row.add(Box.createHorizontalGlue())
-        row.add(headline)
-        row.add(Box.createHorizontalGlue())
-
-        return row
+        return centeredHorizontalRow(headline)
     }
 
     // -- Row D: Bottom buttons --
 
-    private fun buildBottomButtons(): JPanel {
-        val row = JPanel()
-        row.layout = BoxLayout(row, BoxLayout.X_AXIS)
-        row.isOpaque = false
-        row.alignmentX = CENTER_ALIGNMENT
-
-        row.add(Box.createHorizontalGlue())
-        row.add(createStyledButton("Keep defaults", isAccent = false) { closeWizard() })
-        row.add(Box.createHorizontalStrut(JBUI.scale(BTN_GAP)))
-        row.add(
-            createStyledButton("Open Settings", isAccent = true) {
+    private fun buildBottomButtons(): JPanel =
+        buildWizardBottomButtons(
+            gapPx = BTN_GAP,
+            onKeepDefaults = { closeWizard() },
+            onOpenSettings = {
                 ShowSettingsUtil.getInstance().showSettingsDialog(project, "Ayu Islands")
                 closeWizard()
             },
         )
-        row.add(Box.createHorizontalGlue())
-        return row
-    }
 
     private fun closeWizard() {
         if (project.isDisposed) return
@@ -821,15 +723,11 @@ internal class FreeOnboardingPanel(
         private const val GAP_MICRO = 2
 
         // SVG geometry — used to position content below the tagline at any tab size.
-        // The welcome_board SVGs share a viewBox of 680x590. The tagline
-        // "Unified aesthetic engine..." baseline is at y=650 with a ~10px descender
-        // in the SVG's font, so y=660 is the safe visual bottom.
+        // welcome_board SVGs share a viewBox of 1600x1000. Tagline baseline at y=650
+        // with a ~10px descender, so y=660 is the safe visual bottom.
         private const val SVG_VIEW_BOX_WIDTH = 1600.0
         private const val SVG_VIEW_BOX_HEIGHT = 1000.0
         private const val SVG_TAGLINE_BOTTOM_Y = 660.0
-
-        // SVG tagline "Unified aesthetic engine..." font-size in viewBox units.
-        // Multiplied by cover scale to match the on-screen rendered size.
         private const val SVG_TAGLINE_FONT_PX = 26.0
 
         // Fallback font size used at construction time before updateDynamicLayout runs.
@@ -838,6 +736,34 @@ internal class FreeOnboardingPanel(
         // Trial headline dynamic font clamp to avoid extremes at very small/large tabs.
         private const val TRIAL_FONT_MIN = 14
         private const val TRIAL_FONT_MAX = 34
+
+        private val SVG_GEOMETRY =
+            WizardSvgGeometry(
+                viewBoxWidth = SVG_VIEW_BOX_WIDTH,
+                viewBoxHeight = SVG_VIEW_BOX_HEIGHT,
+                taglineBottomY = SVG_TAGLINE_BOTTOM_Y,
+                taglineFontPx = SVG_TAGLINE_FONT_PX,
+                topGapPx = GAP_SMALL,
+                trialFontMin = TRIAL_FONT_MIN,
+                trialFontMax = TRIAL_FONT_MAX,
+            )
+
+        private val VARIANT_CARD_LABEL_STYLE =
+            CardLabelStyle(
+                titleSizePx = CARD_NAME_SIZE,
+                descSizePx = CARD_DESC_SIZE,
+                descColor = CARD_DESC_COLOR,
+                titleSubtitleGapPx = GAP_TINY,
+                subtitleFootnoteGapPx = GAP_MICRO,
+            )
+
+        private val RAIL_CARD_LABEL_STYLE =
+            CardLabelStyle(
+                titleSizePx = RAIL_TITLE_SIZE,
+                descSizePx = CARD_DESC_SIZE,
+                descColor = CARD_DESC_COLOR,
+                titleSubtitleGapPx = GAP_MICRO,
+            )
 
         // Trial headline: single muted slate base color readable on every hero SVG,
         // plus the shared warm amber "unlocked" highlight used across all variants.

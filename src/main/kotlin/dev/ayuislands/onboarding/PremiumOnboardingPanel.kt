@@ -196,55 +196,25 @@ internal class PremiumOnboardingPanel(
     }
 
     private fun loadContent() {
-        // Section A: glow preset cards (content)
-        val content = JPanel()
-        content.layout = BoxLayout(content, BoxLayout.Y_AXIS)
-        content.isOpaque = false
-
-        content.add(buildPresetCardsRow())
-
-        // Font preset cards row (still Section A)
-        content.add(Box.createVerticalStrut(JBUI.scale(GAP_MEDIUM)))
+        // Section A: glow preset cards + font preset cards
+        // Section B: trial headline (standalone, centered)
+        // Section C: footer rail + action buttons
         val fontRow = buildFontRow()
         fontRowContainer = fontRow
-        content.add(fontRow)
+        val content =
+            buildWizardSection(
+                listOf(
+                    SectionEntry(buildPresetCardsRow(), gapBeforePx = 0),
+                    SectionEntry(fontRow, gapBeforePx = GAP_MEDIUM),
+                    SectionEntry(buildTrialMessage(), gapBeforePx = GAP_SECTION_ABOVE_TRIAL),
+                    SectionEntry(buildFooterRail(), gapBeforePx = GAP_SECTION),
+                    SectionEntry(buildBottomButtons(), gapBeforePx = GAP_MEDIUM),
+                ),
+            )
 
-        // Section gap A -> B
-        content.add(Box.createVerticalStrut(JBUI.scale(GAP_SECTION_ABOVE_TRIAL)))
-
-        // Section B: trial headline (standalone, centered)
-        content.add(buildTrialMessage())
-
-        // Section gap B -> C
-        content.add(Box.createVerticalStrut(JBUI.scale(GAP_SECTION)))
-
-        // Section C: footer rail + action buttons
-        content.add(buildFooterRail())
-        content.add(Box.createVerticalStrut(JBUI.scale(GAP_MEDIUM)))
-        content.add(buildBottomButtons())
-
-        content.alignmentX = CENTER_ALIGNMENT
-
-        val centeredRow = JPanel()
-        centeredRow.layout = BoxLayout(centeredRow, BoxLayout.X_AXIS)
-        centeredRow.isOpaque = false
-        centeredRow.add(Box.createHorizontalGlue())
-        centeredRow.add(content)
-        centeredRow.add(Box.createHorizontalGlue())
-        centeredRow.alignmentX = CENTER_ALIGNMENT
-
-        // Wrapper with dynamic top strut that tracks the SVG tagline at any tab size.
-        val wrapper = JPanel()
-        wrapper.layout = BoxLayout(wrapper, BoxLayout.Y_AXIS)
-        wrapper.isOpaque = false
-        val strut = Box.createVerticalStrut(0)
-        topStrut = strut
-        contentWrapper = wrapper
-        wrapper.add(strut)
-        wrapper.add(centeredRow)
-        wrapper.add(Box.createVerticalGlue())
-        wrapper.add(Box.createVerticalStrut(JBUI.scale(BOTTOM_MARGIN)))
-        add(wrapper, BorderLayout.CENTER)
+        val handle = installWizardContent(this, content, BOTTOM_MARGIN)
+        topStrut = handle.topStrut
+        contentWrapper = handle.wrapper
 
         addComponentListener(
             object : ComponentAdapter() {
@@ -264,26 +234,13 @@ internal class PremiumOnboardingPanel(
     private fun updateDynamicLayout() {
         val strut = topStrut ?: return
         val wrapper = contentWrapper ?: return
-        val w = width.toDouble()
-        val h = height.toDouble()
-        if (w <= 0 || h <= 0) return
-
-        val scale = maxOf(w / SVG_VIEW_BOX_WIDTH, h / SVG_VIEW_BOX_HEIGHT)
-        val svgHeightOnScreen = SVG_VIEW_BOX_HEIGHT * scale
-        val svgTopY = (h - svgHeightOnScreen) / 2
-        val taglineBottomY = svgTopY + SVG_TAGLINE_BOTTOM_Y * scale
-        val topPadding = (taglineBottomY + JBUI.scale(GAP_SMALL)).toInt().coerceAtLeast(0)
-
-        val size = Dimension(0, topPadding)
-        strut.preferredSize = size
-        strut.maximumSize = Dimension(Int.MAX_VALUE, topPadding)
-        strut.minimumSize = size
-
-        val trialFontPx =
-            (SVG_TAGLINE_FONT_PX * scale).toInt().coerceIn(TRIAL_FONT_MIN, TRIAL_FONT_MAX)
-        updateTrialHeadline(trialFontPx.toFloat())
-
-        wrapper.revalidate()
+        updateWizardDynamicLayout(
+            panelWidth = width,
+            panelHeight = height,
+            handle = WizardContentHandle(strut, wrapper),
+            geometry = SVG_GEOMETRY,
+            onTrialFontChange = ::updateTrialHeadline,
+        )
     }
 
     private fun updateTrialHeadline(fontPx: Float) {
@@ -296,20 +253,11 @@ internal class PremiumOnboardingPanel(
     }
 
     private fun buildTrialMessage(): JPanel {
-        val row = JPanel()
-        row.layout = BoxLayout(row, BoxLayout.X_AXIS)
-        row.isOpaque = false
-        row.alignmentX = CENTER_ALIGNMENT
-
         val headline = JBLabel(TRIAL_HEADLINE_HTML)
         headline.font = headline.font.deriveFont(Font.PLAIN, JBUI.scale(TRIAL_HEADLINE_SIZE).toFloat())
         clampLabelToPreferred(headline)
         trialHeadlineLabel = headline
-
-        row.add(Box.createHorizontalGlue())
-        row.add(headline)
-        row.add(Box.createHorizontalGlue())
-        return row
+        return centeredHorizontalRow(headline)
     }
 
     // -- Footer Rail --
@@ -427,13 +375,7 @@ internal class PremiumOnboardingPanel(
                 private var hovered = false
 
                 init {
-                    layout = BoxLayout(this, BoxLayout.Y_AXIS)
-                    border = JBUI.Borders.empty(RAIL_CARD_PADDING)
-                    cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-                    val size = Dimension(JBUI.scale(RAIL_CARD_WIDTH), JBUI.scale(RAIL_CARD_HEIGHT))
-                    preferredSize = size
-                    minimumSize = size
-                    maximumSize = size
+                    configureCardPanel(this, RAIL_CARD_PADDING, RAIL_CARD_WIDTH, RAIL_CARD_HEIGHT)
                     toolTipText = spec.tooltip
 
                     addMouseListener(
@@ -473,21 +415,16 @@ internal class PremiumOnboardingPanel(
             }
         cardPanel.isOpaque = false
 
-        val titleLabel = JBLabel(spec.title)
-        titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, JBUI.scale(RAIL_TITLE_SIZE).toFloat())
-        titleLabel.foreground = Color.WHITE
-        titleLabel.alignmentX = LEFT_ALIGNMENT
-        cardPanel.add(titleLabel)
-
-        cardPanel.add(Box.createVerticalStrut(JBUI.scale(GAP_MICRO)))
-
-        val subtitleLabel = JBLabel(spec.subtitle)
-        subtitleLabel.font = subtitleLabel.font.deriveFont(JBUI.scale(CARD_DESC_SIZE).toFloat())
-        subtitleLabel.foreground = spec.subtitleColor
-        subtitleLabel.alignmentX = LEFT_ALIGNMENT
-        cardPanel.add(subtitleLabel)
-
-        cardPanel.add(Box.createVerticalGlue())
+        attachCardLabels(
+            card = cardPanel,
+            content =
+                CardLabelContent(
+                    title = spec.title,
+                    subtitle = spec.subtitle,
+                    subtitleColor = spec.subtitleColor,
+                ),
+            style = RAIL_CARD_LABEL_STYLE,
+        )
         return cardPanel
     }
 
@@ -523,14 +460,7 @@ internal class PremiumOnboardingPanel(
                 private var hovered = false
 
                 init {
-                    layout = BoxLayout(this, BoxLayout.Y_AXIS)
-                    border = JBUI.Borders.empty(CARD_PADDING)
-                    cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-                    val size = Dimension(JBUI.scale(CARD_WIDTH), JBUI.scale(CARD_HEIGHT))
-                    preferredSize = size
-                    minimumSize = size
-                    maximumSize = size
-
+                    configureCardPanel(this, CARD_PADDING, CARD_WIDTH, CARD_HEIGHT)
                     addMouseListener(
                         object : MouseAdapter() {
                             override fun mouseEntered(event: MouseEvent) {
@@ -572,37 +502,16 @@ internal class PremiumOnboardingPanel(
             }
         cardPanel.isOpaque = false
 
-        val nameLabel = JBLabel(card.name)
-        nameLabel.font =
-            nameLabel.font.deriveFont(
-                Font.BOLD,
-                JBUI.scale(CARD_NAME_SIZE).toFloat(),
-            )
-        nameLabel.foreground = Color.WHITE
-        nameLabel.alignmentX = LEFT_ALIGNMENT
-        cardPanel.add(nameLabel)
-
-        cardPanel.add(Box.createVerticalStrut(JBUI.scale(GAP_TINY)))
-
-        val glowLabel = JBLabel(card.glowDescription)
-        glowLabel.font = glowLabel.font.deriveFont(JBUI.scale(CARD_DESC_SIZE).toFloat())
-        glowLabel.foreground = CARD_DESC_COLOR
-        glowLabel.alignmentX = LEFT_ALIGNMENT
-        cardPanel.add(glowLabel)
-
-        cardPanel.add(Box.createVerticalStrut(JBUI.scale(GAP_MICRO)))
-
-        val fontLabel = JBLabel(card.fontName)
-        fontLabel.font =
-            fontLabel.font.deriveFont(
-                Font.ITALIC,
-                JBUI.scale(CARD_DESC_SIZE).toFloat(),
-            )
-        fontLabel.foreground = CARD_DESC_COLOR
-        fontLabel.alignmentX = LEFT_ALIGNMENT
-        cardPanel.add(fontLabel)
-
-        cardPanel.add(Box.createVerticalGlue())
+        attachCardLabels(
+            card = cardPanel,
+            content =
+                CardLabelContent(
+                    title = card.name,
+                    subtitle = card.glowDescription,
+                    footnote = card.fontName,
+                ),
+            style = PRESET_CARD_LABEL_STYLE,
+        )
 
         return cardPanel
     }
@@ -650,18 +559,10 @@ internal class PremiumOnboardingPanel(
                 private var hovered = false
 
                 init {
-                    layout = BoxLayout(this, BoxLayout.Y_AXIS)
-                    border = JBUI.Borders.empty(FONT_CARD_PADDING)
-                    cursor =
-                        if (installing) {
-                            Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR)
-                        } else {
-                            Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-                        }
-                    val size = Dimension(JBUI.scale(FONT_CARD_WIDTH), JBUI.scale(FONT_CARD_HEIGHT))
-                    preferredSize = size
-                    minimumSize = size
-                    maximumSize = size
+                    configureCardPanel(this, FONT_CARD_PADDING, FONT_CARD_WIDTH, FONT_CARD_HEIGHT)
+                    if (installing) {
+                        cursor = Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR)
+                    }
                     toolTipText =
                         if (installed) {
                             "${entry.displayName} — installed. Click to apply."
@@ -781,24 +682,15 @@ internal class PremiumOnboardingPanel(
             else -> "~/.local/share/fonts"
         }
 
-    private fun buildBottomButtons(): JPanel {
-        val row = JPanel()
-        row.layout = BoxLayout(row, BoxLayout.X_AXIS)
-        row.isOpaque = false
-        row.alignmentX = CENTER_ALIGNMENT
-
-        row.add(Box.createHorizontalGlue())
-        row.add(createStyledButton("Keep defaults", isAccent = false) { closeWizard() })
-        row.add(Box.createHorizontalStrut(JBUI.scale(BTN_GAP)))
-        row.add(
-            createStyledButton("Open Settings", isAccent = true) {
+    private fun buildBottomButtons(): JPanel =
+        buildWizardBottomButtons(
+            gapPx = BTN_GAP,
+            onKeepDefaults = { closeWizard() },
+            onOpenSettings = {
                 ShowSettingsUtil.getInstance().showSettingsDialog(project, "Ayu Islands")
                 closeWizard()
             },
         )
-        row.add(Box.createHorizontalGlue())
-        return row
-    }
 
     private fun closeWizard() {
         if (project.isDisposed) return
@@ -942,6 +834,37 @@ internal class PremiumOnboardingPanel(
                 "All features <i><span style='color:$TRIAL_UNLOCKED_HEX'>unlocked</span></i> for 30 days" +
                 "</body></html>"
 
+        // Card description text color (panel-local)
+        private val CARD_DESC_COLOR = Color(0x70, 0x76, 0x80)
+
+        private val SVG_GEOMETRY =
+            WizardSvgGeometry(
+                viewBoxWidth = SVG_VIEW_BOX_WIDTH,
+                viewBoxHeight = SVG_VIEW_BOX_HEIGHT,
+                taglineBottomY = SVG_TAGLINE_BOTTOM_Y,
+                taglineFontPx = SVG_TAGLINE_FONT_PX,
+                topGapPx = GAP_SMALL,
+                trialFontMin = TRIAL_FONT_MIN,
+                trialFontMax = TRIAL_FONT_MAX,
+            )
+
+        private val PRESET_CARD_LABEL_STYLE =
+            CardLabelStyle(
+                titleSizePx = CARD_NAME_SIZE,
+                descSizePx = CARD_DESC_SIZE,
+                descColor = CARD_DESC_COLOR,
+                titleSubtitleGapPx = GAP_TINY,
+                subtitleFootnoteGapPx = GAP_MICRO,
+            )
+
+        private val RAIL_CARD_LABEL_STYLE =
+            CardLabelStyle(
+                titleSizePx = RAIL_TITLE_SIZE,
+                descSizePx = CARD_DESC_SIZE,
+                descColor = CARD_DESC_COLOR,
+                titleSubtitleGapPx = GAP_MICRO,
+            )
+
         // Glow border
         private const val GLOW_INSET = 4
         private const val GLOW_ARC = 16
@@ -957,9 +880,6 @@ internal class PremiumOnboardingPanel(
                 GlowPreset.NEON to (10 to 110f),
                 GlowPreset.CYBERPUNK to (14 to 140f),
             )
-
-        // Card description text color (panel-local)
-        private val CARD_DESC_COLOR = Color(0x70, 0x76, 0x80)
 
         // Rail tints
         private val TRIAL_CUE_COLOR = Color(0xFF, 0xCC, 0x66)

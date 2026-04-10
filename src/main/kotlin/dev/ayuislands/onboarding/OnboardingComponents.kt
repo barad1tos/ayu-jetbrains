@@ -6,6 +6,8 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.Color
+import java.awt.Component
+import java.awt.Container
 import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.Font
@@ -16,6 +18,9 @@ import java.awt.RenderingHints
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.awt.geom.RoundRectangle2D
+import javax.swing.Box
+import javax.swing.BoxLayout
+import javax.swing.JComponent
 import javax.swing.JPanel
 
 /**
@@ -166,6 +171,39 @@ private const val BTN_HEIGHT = 36
 private const val BTN_FONT_SIZE = 13
 private const val HIGHLIGHT_INSET = 1
 
+/** Visual palette for one styled-button variant — drives fill, border, highlight colors. */
+private data class StyledButtonPalette(
+    val fillDefault: Color,
+    val fillHover: Color,
+    val fillPressed: Color,
+    val border: Color,
+    val highlight: Color,
+    val textColor: Color,
+    val textWeight: Int,
+)
+
+private val ACCENT_PALETTE =
+    StyledButtonPalette(
+        fillDefault = OnboardingColors.ACCENT,
+        fillHover = OnboardingColors.ACCENT_HOVER,
+        fillPressed = OnboardingColors.ACCENT_PRESSED,
+        border = OnboardingColors.ACCENT_BORDER,
+        highlight = OnboardingColors.ACCENT_HIGHLIGHT,
+        textColor = OnboardingColors.ACCENT_TEXT,
+        textWeight = Font.BOLD,
+    )
+
+private val SECONDARY_PALETTE =
+    StyledButtonPalette(
+        fillDefault = OnboardingColors.SECONDARY_BG,
+        fillHover = OnboardingColors.SECONDARY_HOVER,
+        fillPressed = OnboardingColors.SECONDARY_PRESSED,
+        border = OnboardingColors.SECONDARY_BORDER,
+        highlight = OnboardingColors.SECONDARY_HIGHLIGHT,
+        textColor = OnboardingColors.SECONDARY_TEXT,
+        textWeight = Font.PLAIN,
+    )
+
 /**
  * Builds a styled wizard button with accent or secondary visual variant.
  * Used by both free and premium onboarding panels.
@@ -175,6 +213,8 @@ internal fun createStyledButton(
     isAccent: Boolean,
     onClick: () -> Unit,
 ): JPanel {
+    val palette = if (isAccent) ACCENT_PALETTE else SECONDARY_PALETTE
+
     val button =
         object : JPanel() {
             private var hovered = false
@@ -191,11 +231,10 @@ internal fun createStyledButton(
                 minimumSize = btnSize
                 val label = JBLabel(text)
                 label.horizontalAlignment = JBLabel.CENTER
-                label.foreground =
-                    if (isAccent) OnboardingColors.ACCENT_TEXT else OnboardingColors.SECONDARY_TEXT
+                label.foreground = palette.textColor
                 label.font =
                     label.font.deriveFont(
-                        if (isAccent) Font.BOLD else Font.PLAIN,
+                        palette.textWeight,
                         JBUI.scale(BTN_FONT_SIZE).toFloat(),
                     )
                 add(label, BorderLayout.CENTER)
@@ -237,75 +276,277 @@ internal fun createStyledButton(
                     RenderingHints.VALUE_ANTIALIAS_ON,
                 )
                 val arc = JBUI.scale(BTN_ARC)
+                val fill =
+                    when {
+                        pressed -> palette.fillPressed
+                        hovered -> palette.fillHover
+                        else -> palette.fillDefault
+                    }
 
-                if (isAccent) {
-                    paintAccentButton(g2, arc, hovered, pressed)
-                } else {
-                    paintSecondaryButton(g2, arc, hovered, pressed)
-                }
+                g2.color = fill
+                g2.fillRoundRect(0, 0, width, height, arc, arc)
+                g2.color = palette.border
+                g2.drawRoundRect(0, 0, width - 1, height - 1, arc, arc)
+
+                val oldClip = g2.clip
+                g2.clipRect(1, 1, width - 2, arc)
+                g2.color = palette.highlight
+                g2.drawRoundRect(
+                    HIGHLIGHT_INSET,
+                    HIGHLIGHT_INSET,
+                    width - HIGHLIGHT_INSET * 2 - 1,
+                    height - HIGHLIGHT_INSET * 2 - 1,
+                    arc - HIGHLIGHT_INSET,
+                    arc - HIGHLIGHT_INSET,
+                )
+                g2.clip = oldClip
             }
         }
     return button
 }
 
-private fun JPanel.paintAccentButton(
-    g2: Graphics2D,
-    arc: Int,
-    hovered: Boolean,
-    pressed: Boolean,
-) {
-    val fill =
-        when {
-            pressed -> OnboardingColors.ACCENT_PRESSED
-            hovered -> OnboardingColors.ACCENT_HOVER
-            else -> OnboardingColors.ACCENT
-        }
-    g2.color = fill
-    g2.fillRoundRect(0, 0, width, height, arc, arc)
-    g2.color = OnboardingColors.ACCENT_BORDER
-    g2.drawRoundRect(0, 0, width - 1, height - 1, arc, arc)
+// --------------------------------------------------------------------------
+// Wizard layout scaffolding — shared between free and premium onboarding panels.
+// --------------------------------------------------------------------------
 
-    val oldClip = g2.clip
-    g2.clipRect(1, 1, width - 2, arc)
-    g2.color = OnboardingColors.ACCENT_HIGHLIGHT
-    g2.drawRoundRect(
-        HIGHLIGHT_INSET,
-        HIGHLIGHT_INSET,
-        width - HIGHLIGHT_INSET * 2 - 1,
-        height - HIGHLIGHT_INSET * 2 - 1,
-        arc - HIGHLIGHT_INSET,
-        arc - HIGHLIGHT_INSET,
-    )
-    g2.clip = oldClip
+/** Handle returned by [installWizardContent] — holds references needed by updateDynamicLayout. */
+internal data class WizardContentHandle(
+    val topStrut: Component,
+    val wrapper: JPanel,
+)
+
+/**
+ * Wraps [content] in the standard wizard layout scaffolding:
+ *  - A centered row (glue + content + glue) so the column sits in the middle horizontally.
+ *  - A wrapper column: dynamic top strut + centered row + vertical glue + fixed bottom strut.
+ *  - Installs the wrapper at [BorderLayout.CENTER] of [host].
+ *
+ * Returns a [WizardContentHandle] whose `topStrut` should be resized on component resize to
+ * track the SVG tagline position, and whose `wrapper` needs `revalidate()` after strut updates.
+ */
+internal fun installWizardContent(
+    host: Container,
+    content: JPanel,
+    bottomMarginPx: Int,
+): WizardContentHandle {
+    val centeredRow = JPanel()
+    centeredRow.layout = BoxLayout(centeredRow, BoxLayout.X_AXIS)
+    centeredRow.isOpaque = false
+    centeredRow.add(Box.createHorizontalGlue())
+    centeredRow.add(content)
+    centeredRow.add(Box.createHorizontalGlue())
+    centeredRow.alignmentX = Component.CENTER_ALIGNMENT
+
+    val wrapper = JPanel()
+    wrapper.layout = BoxLayout(wrapper, BoxLayout.Y_AXIS)
+    wrapper.isOpaque = false
+    val strut = Box.createVerticalStrut(0)
+    wrapper.add(strut)
+    wrapper.add(centeredRow)
+    wrapper.add(Box.createVerticalGlue())
+    wrapper.add(Box.createVerticalStrut(JBUI.scale(bottomMarginPx)))
+
+    host.add(wrapper, BorderLayout.CENTER)
+    return WizardContentHandle(strut, wrapper)
 }
 
-private fun JPanel.paintSecondaryButton(
-    g2: Graphics2D,
-    arc: Int,
-    hovered: Boolean,
-    pressed: Boolean,
-) {
-    val fill =
-        when {
-            pressed -> OnboardingColors.SECONDARY_PRESSED
-            hovered -> OnboardingColors.SECONDARY_HOVER
-            else -> OnboardingColors.SECONDARY_BG
-        }
-    g2.color = fill
-    g2.fillRoundRect(0, 0, width, height, arc, arc)
-    g2.color = OnboardingColors.SECONDARY_BORDER
-    g2.drawRoundRect(0, 0, width - 1, height - 1, arc, arc)
+/**
+ * Static SVG geometry and trial-font constraints — single source of truth per wizard panel
+ * so the dynamic-layout math has one data-class parameter instead of eight individual ones.
+ */
+internal data class WizardSvgGeometry(
+    val viewBoxWidth: Double,
+    val viewBoxHeight: Double,
+    val taglineBottomY: Double,
+    val taglineFontPx: Double,
+    val topGapPx: Int,
+    val trialFontMin: Int,
+    val trialFontMax: Int,
+)
 
-    val oldClip = g2.clip
-    g2.clipRect(1, 1, width - 2, arc)
-    g2.color = OnboardingColors.SECONDARY_HIGHLIGHT
-    g2.drawRoundRect(
-        HIGHLIGHT_INSET,
-        HIGHLIGHT_INSET,
-        width - HIGHLIGHT_INSET * 2 - 1,
-        height - HIGHLIGHT_INSET * 2 - 1,
-        arc - HIGHLIGHT_INSET,
-        arc - HIGHLIGHT_INSET,
-    )
-    g2.clip = oldClip
+/**
+ * Shared dynamic layout math for the free and premium wizards.
+ *
+ * Computes the top strut padding so content sits just below the SVG hero tagline,
+ * and derives a scale-matched font size for the trial headline from the same cover
+ * scale factor the hero SVG uses. Calls [onTrialFontChange] with the final font size
+ * so the caller can push it into its trial headline label.
+ */
+internal fun updateWizardDynamicLayout(
+    panelWidth: Int,
+    panelHeight: Int,
+    handle: WizardContentHandle,
+    geometry: WizardSvgGeometry,
+    onTrialFontChange: (Float) -> Unit,
+) {
+    val w = panelWidth.toDouble()
+    val h = panelHeight.toDouble()
+    if (w <= 0 || h <= 0) return
+
+    val scale = maxOf(w / geometry.viewBoxWidth, h / geometry.viewBoxHeight)
+    val svgHeightOnScreen = geometry.viewBoxHeight * scale
+    val svgTopY = (h - svgHeightOnScreen) / 2
+    val taglineBottomScreenY = svgTopY + geometry.taglineBottomY * scale
+    val topPadding =
+        (taglineBottomScreenY + JBUI.scale(geometry.topGapPx)).toInt().coerceAtLeast(0)
+
+    val size = Dimension(0, topPadding)
+    handle.topStrut.preferredSize = size
+    handle.topStrut.maximumSize = Dimension(Int.MAX_VALUE, topPadding)
+    handle.topStrut.minimumSize = size
+
+    val trialFontPx =
+        (geometry.taglineFontPx * scale)
+            .toInt()
+            .coerceIn(geometry.trialFontMin, geometry.trialFontMax)
+    onTrialFontChange(trialFontPx.toFloat())
+
+    handle.wrapper.revalidate()
+}
+
+/**
+ * Apply the standard wizard-card panel configuration: Y-axis BoxLayout, empty padding
+ * border, hand cursor, and a locked pixel size (JBUI.scale applied to both dimensions).
+ */
+internal fun configureCardPanel(
+    panel: JComponent,
+    paddingPx: Int,
+    widthPx: Int,
+    heightPx: Int,
+) {
+    panel.layout = BoxLayout(panel, BoxLayout.Y_AXIS)
+    panel.border = JBUI.Borders.empty(paddingPx)
+    panel.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+    val size = Dimension(JBUI.scale(widthPx), JBUI.scale(heightPx))
+    panel.preferredSize = size
+    panel.minimumSize = size
+    panel.maximumSize = size
+}
+
+/**
+ * Wrap [component] in a horizontally-centered BoxLayout row (glue + component + glue).
+ * Used for single-element centered rows in both wizard panels (trial headline, etc.).
+ */
+internal fun centeredHorizontalRow(component: JComponent): JPanel {
+    val row = JPanel()
+    row.layout = BoxLayout(row, BoxLayout.X_AXIS)
+    row.isOpaque = false
+    row.alignmentX = Component.CENTER_ALIGNMENT
+    row.add(Box.createHorizontalGlue())
+    row.add(component)
+    row.add(Box.createHorizontalGlue())
+    return row
+}
+
+/**
+ * Text content for a card's label stack. [footnote] is optional — null means the
+ * card has only title + subtitle. [subtitleColor] overrides the default description
+ * color when non-null (used for amber trial cues on rail cards).
+ */
+internal data class CardLabelContent(
+    val title: String,
+    val subtitle: String,
+    val footnote: String? = null,
+    val subtitleColor: Color? = null,
+)
+
+/**
+ * Typography and spacing for a card's label stack. [subtitleFootnoteGapPx] is only
+ * consulted when the corresponding content has a non-null footnote.
+ */
+internal data class CardLabelStyle(
+    val titleSizePx: Int,
+    val descSizePx: Int,
+    val descColor: Color,
+    val titleSubtitleGapPx: Int,
+    val subtitleFootnoteGapPx: Int = 0,
+)
+
+/**
+ * Attach a title + subtitle (+ optional footnote) label stack to a wizard [card]:
+ * bold white title, normal subtitle (in `content.subtitleColor` or `style.descColor`),
+ * italic footnote in description color. Trailing vertical glue lets the card's
+ * fixed height push extras to the top.
+ */
+internal fun attachCardLabels(
+    card: JPanel,
+    content: CardLabelContent,
+    style: CardLabelStyle,
+) {
+    val titleLabel = JBLabel(content.title)
+    titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, JBUI.scale(style.titleSizePx).toFloat())
+    titleLabel.foreground = Color.WHITE
+    titleLabel.alignmentX = Component.LEFT_ALIGNMENT
+    card.add(titleLabel)
+
+    card.add(Box.createVerticalStrut(JBUI.scale(style.titleSubtitleGapPx)))
+
+    val subtitleLabel = JBLabel(content.subtitle)
+    subtitleLabel.font = subtitleLabel.font.deriveFont(JBUI.scale(style.descSizePx).toFloat())
+    subtitleLabel.foreground = content.subtitleColor ?: style.descColor
+    subtitleLabel.alignmentX = Component.LEFT_ALIGNMENT
+    card.add(subtitleLabel)
+
+    content.footnote?.let { footnote ->
+        card.add(Box.createVerticalStrut(JBUI.scale(style.subtitleFootnoteGapPx)))
+        val footnoteLabel = JBLabel(footnote)
+        footnoteLabel.font =
+            footnoteLabel.font.deriveFont(Font.ITALIC, JBUI.scale(style.descSizePx).toFloat())
+        footnoteLabel.foreground = style.descColor
+        footnoteLabel.alignmentX = Component.LEFT_ALIGNMENT
+        card.add(footnoteLabel)
+    }
+
+    card.add(Box.createVerticalGlue())
+}
+
+/**
+ * One vertical entry in a wizard section content column. [gapBeforePx] is the
+ * scaled strut inserted immediately before [component]; zero means no strut.
+ */
+internal data class SectionEntry(
+    val component: JComponent,
+    val gapBeforePx: Int,
+)
+
+/**
+ * Build the shared section content column for a wizard panel. Every entry is
+ * stacked vertically with an optional pre-strut, in order. The returned panel
+ * uses BoxLayout.Y_AXIS and is center-aligned, ready to be wrapped by
+ * [installWizardContent].
+ */
+internal fun buildWizardSection(entries: List<SectionEntry>): JPanel {
+    val content = JPanel()
+    content.layout = BoxLayout(content, BoxLayout.Y_AXIS)
+    content.isOpaque = false
+    for (entry in entries) {
+        if (entry.gapBeforePx > 0) {
+            content.add(Box.createVerticalStrut(JBUI.scale(entry.gapBeforePx)))
+        }
+        content.add(entry.component)
+    }
+    content.alignmentX = Component.CENTER_ALIGNMENT
+    return content
+}
+
+/**
+ * Build the standard bottom button row for both wizards: centered pair of
+ * "Keep defaults" (secondary) and "Open Settings" (accent) buttons with a gap.
+ */
+internal fun buildWizardBottomButtons(
+    gapPx: Int,
+    onKeepDefaults: () -> Unit,
+    onOpenSettings: () -> Unit,
+): JPanel {
+    val row = JPanel()
+    row.layout = BoxLayout(row, BoxLayout.X_AXIS)
+    row.isOpaque = false
+    row.alignmentX = Component.CENTER_ALIGNMENT
+
+    row.add(Box.createHorizontalGlue())
+    row.add(createStyledButton("Keep defaults", isAccent = false, onClick = onKeepDefaults))
+    row.add(Box.createHorizontalStrut(JBUI.scale(gapPx)))
+    row.add(createStyledButton("Open Settings", isAccent = true, onClick = onOpenSettings))
+    row.add(Box.createHorizontalGlue())
+    return row
 }
