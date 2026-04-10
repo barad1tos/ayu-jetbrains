@@ -42,7 +42,11 @@ class FontAssetResolver(
                 return entry.fallbackUrl
             }
 
-        return parseFirstMatchingAsset(body, entry.assetPattern) ?: entry.fallbackUrl
+        val resolved = parseFirstMatchingAsset(body, entry.assetPattern)
+        if (resolved == null) {
+            log.warn("No matching asset for ${entry.githubOwner}/${entry.githubRepo}, using fallback")
+        }
+        return resolved ?: entry.fallbackUrl
     }
 
     /**

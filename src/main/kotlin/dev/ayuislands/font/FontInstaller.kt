@@ -94,7 +94,11 @@ object FontInstaller {
         @Suppress("UNUSED_PARAMETER") project: Project?,
     ) {
         ApplicationManager.getApplication().invokeLater {
-            FontPresetApplicator.apply(FontSettings.decode(null, preset))
+            try {
+                FontPresetApplicator.apply(FontSettings.decode(null, preset))
+            } catch (exception: RuntimeException) {
+                LOG.warn("FontPresetApplicator.apply failed (applyOnly)", exception)
+            }
         }
     }
 
@@ -246,8 +250,8 @@ object FontInstaller {
     private fun cleanupQuietly(directory: File) {
         try {
             directory.deleteRecursively()
-        } catch (_: IOException) {
-            // best-effort
+        } catch (exception: IOException) {
+            LOG.debug("Failed to clean up extraction directory: $directory", exception)
         }
     }
 
