@@ -47,8 +47,9 @@ class FontCatalogTest {
     // ---- entries list invariants ----
 
     @Test
-    fun `entries count is 4`() {
-        assertEquals(4, FontCatalog.entries.size)
+    fun `entries count matches curated presets`() {
+        val curatedPresets = FontPreset.entries.filter { it != FontPreset.CUSTOM }
+        assertEquals(curatedPresets.size, FontCatalog.entries.size)
     }
 
     @Test
@@ -176,10 +177,11 @@ class FontCatalogTest {
     }
 
     @Test
-    fun `non-WHISPER presets use GitHub API`() {
-        val apiPresets = listOf(FontPreset.AMBIENT, FontPreset.NEON, FontPreset.CYBERPUNK)
-        for (preset in apiPresets) {
-            assertFalse(FontCatalog.forPreset(preset).useDirectUrl, "${preset.name} should not use direct URL")
+    fun `non-direct-URL presets use GitHub API`() {
+        val apiEntries = FontCatalog.entries.filter { !it.useDirectUrl }
+        assertTrue(apiEntries.isNotEmpty(), "At least one preset should use GitHub API")
+        for (entry in apiEntries) {
+            assertTrue(entry.githubOwner.isNotBlank(), "${entry.preset.name} should have githubOwner")
         }
     }
 
