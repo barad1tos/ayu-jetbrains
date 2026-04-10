@@ -147,9 +147,9 @@ object LicenseChecker {
     /**
      * Enable all Pro features on genuine first-time license activation.
      *
-     * Guarded by [AyuIslandsState.everBeenPro] which survives trial expiry, so a
-     * re-purchase does NOT overwrite user customizations. The [proDefaultsApplied]
-     * flag is still set to prevent redundant calls within the same license period.
+     * Guarded by `everBeenPro` which survives trial expiry, so a re-purchase does
+     * NOT overwrite user customizations. `proDefaultsApplied` is still set to
+     * prevent redundant calls within the same license period.
      */
     fun enableProDefaults() {
         val state = AyuIslandsSettings.getInstance().state
