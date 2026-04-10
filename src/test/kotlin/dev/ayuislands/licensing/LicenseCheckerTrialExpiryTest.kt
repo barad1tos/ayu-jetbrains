@@ -222,7 +222,7 @@ class LicenseCheckerTrialExpiryTest {
     /** Create a [Date] representing [daysFromNow] days in the future (or past if negative). */
     private fun dateFromNow(daysFromNow: Long): Date {
         val localDate = LocalDate.now().plusDays(daysFromNow)
-        val instant = localDate.atStartOfDay(ZoneId.systemDefault()).toInstant()
+        val instant = localDate.atStartOfDay(ZoneId.of("UTC")).toInstant()
         return Date.from(instant)
     }
 }
