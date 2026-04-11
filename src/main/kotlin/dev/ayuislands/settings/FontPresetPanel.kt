@@ -12,10 +12,13 @@ import com.intellij.ui.dsl.builder.SegmentedButton
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.font.FontCatalog
 import dev.ayuislands.font.FontDetector
+import dev.ayuislands.font.FontInstallConsent
 import dev.ayuislands.font.FontInstaller
 import dev.ayuislands.font.FontPreset
 import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.font.FontSettings
+import dev.ayuislands.font.FontStatus
+import dev.ayuislands.font.FontUninstaller
 import dev.ayuislands.font.FontWeight
 import java.awt.datatransfer.StringSelection
 import javax.swing.JCheckBox
@@ -70,6 +73,8 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
 
     private val presetEnabled = AtomicBooleanProperty(false)
     private val fontMissing = AtomicBooleanProperty(false)
+    private val fontInstalled = AtomicBooleanProperty(false)
+    private val fontCorrupted = AtomicBooleanProperty(false)
     private val isCustomSelected = AtomicBooleanProperty(false)
     private val customFontVisible = AtomicBooleanProperty(false)
 
@@ -238,24 +243,65 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
         }.visibleIf(fontMissing)
     }
 
-    private fun Panel.buildInstallHintRow() {
-        // Universal one-click installer (downloads, extracts, copies, registers, applies).
-        // Replaces the previous Mac-only brew flow + non-Mac "Download ZIP" link with a
-        // single path through FontInstaller, available on all platforms.
-        row {
-            link("Install automatically") {
-                val preset = FontPreset.fromName(pendingPreset)
-                val project = ProjectManager.getInstance().openProjects.firstOrNull()
-                FontInstaller.install(preset, project) {
-                    ApplicationManager.getApplication().invokeLater {
-                        FontDetector.invalidateCache()
-                        availability = FontDetector.detectAll()
-                        updateFontMissing()
-                    }
-                }
+    /**
+     * Consent-gated lifecycle action (D-04 fix + D-07 + D-12).
+     *
+     * Handles both install and uninstall paths because both (a) share the same
+     * post-action refresh boilerplate and (b) both must run through FontInstallConsent
+     * synchronously BEFORE touching the filesystem. Collapsing into one helper keeps
+     * FontPresetPanel under the detekt TooManyFunctions threshold.
+     *
+     * Install path is used by "Install automatically" on the missing row and by
+     * "Reinstall" on both the healthy and corrupted rows — D-12 requires every
+     * reinstall to be user-triggered through this same consent helper.
+     */
+    private fun triggerLifecycleAction(uninstall: Boolean) {
+        val preset = FontPreset.fromName(pendingPreset)
+        val project = ProjectManager.getInstance().openProjects.firstOrNull()
+        val entry = FontCatalog.forPreset(preset)
+        val refresh = {
+            ApplicationManager.getApplication().invokeLater {
+                FontDetector.invalidateCache()
+                availability = FontDetector.detectAll()
+                updateFontMissing()
             }
+            Unit
+        }
+        if (uninstall) {
+            val absPath = FontInstaller.platformFontDir().absolutePath
+            if (!FontInstallConsent.confirmUninstall(entry, project, absPath)) return
+            FontUninstaller.uninstall(preset, project) { refresh() }
+        } else {
+            if (!FontInstallConsent.confirmInstall(entry, project, compact = true)) return
+            FontInstaller.install(preset, project) { refresh() }
+        }
+    }
+
+    private fun Panel.buildInstallHintRow() {
+        // D-04 fix: install path is consent-gated via FontInstallConsent.
+        // Previous behavior called FontInstaller.install() directly with no dialog,
+        // violating "never touch userspace without consent".
+        row {
+            link("Install automatically") { triggerLifecycleAction(uninstall = false) }
             comment("Downloads, installs, and registers the font with no restart")
         }.visibleIf(fontMissing)
+
+        // D-02: installed-healthy row with Reinstall + Delete actions (mutually exclusive
+        // with fontMissing via the three-way status() snapshot in updateFontMissing).
+        row {
+            label("Installed ✓")
+            link("Reinstall") { triggerLifecycleAction(uninstall = false) }
+            link("Delete") { triggerLifecycleAction(uninstall = true) }
+            comment("Reinstall re-downloads the font; Delete removes the installed files (restart required)")
+        }.visibleIf(fontInstalled)
+
+        // D-02: corrupted row — state says installed, but the file is gone from disk
+        // and the JVM no longer sees the family. User-triggered repair only (D-12).
+        row {
+            label("\u26A0 Installed file missing")
+            link("Reinstall") { triggerLifecycleAction(uninstall = false) }
+            comment("Your plugin state records this font as installed, but the files are gone from disk")
+        }.visibleIf(fontCorrupted)
 
         if (!IS_MAC) return
 
@@ -433,14 +479,25 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
 
     private fun updateFontMissing() {
         val preset = FontPreset.fromName(pendingPreset)
-        val missing = preset.isCurated && availability[preset] != true && pendingEnabled
-        fontMissing.set(missing)
+        // D-01/D-03: compute all three booleans atomically from a SINGLE status snapshot
+        // so the three .visibleIf() rows are always mutually exclusive — no race window.
+        // Non-curated presets and disabled state collapse to NOT_INSTALLED.
+        val status =
+            if (preset.isCurated && pendingEnabled) FontDetector.status(preset) else FontStatus.NOT_INSTALLED
+        val isMissing = preset.isCurated && status == FontStatus.NOT_INSTALLED && pendingEnabled
+        val isHealthy = preset.isCurated && status == FontStatus.HEALTHY && pendingEnabled
+        val isCorrupted = preset.isCurated && status == FontStatus.CORRUPTED && pendingEnabled
+
+        fontMissing.set(isMissing)
+        fontInstalled.set(isHealthy)
+        fontCorrupted.set(isCorrupted)
+
         warningLabel?.let { it.text = "\u26A0 Requires ${preset.fontFamily}" }
         installHintLabel?.let {
             val slug = FontCatalog.forPreset(preset).brewCaskSlug
             it.text = "Or via Homebrew: brew install --cask $slug"
         }
-        previewComponent?.updatePreset(preset, availability[preset] == true)
+        previewComponent?.updatePreset(preset, status == FontStatus.HEALTHY)
     }
 
     override fun isModified(): Boolean {
