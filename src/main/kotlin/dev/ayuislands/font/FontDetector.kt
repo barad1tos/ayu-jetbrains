@@ -96,6 +96,13 @@ object FontDetector {
      * Settings panel can call [status] from the EDT without blocking on
      * repeated filesystem stat syscalls (D-11, RESEARCH Pitfall 4).
      *
+     * **Runtime note (macOS):** on JBR 25 / macOS, deleting a font file from
+     * `~/Library/Fonts` does NOT propagate to `availableFontFamilyNames` within
+     * the same JVM session. As a result, CORRUPTED is usually only reachable on
+     * the next IDE launch — the "file gone but JVM still sees it" branch is
+     * hit first during the current session (returns HEALTHY). Verified in
+     * Phase 25 smoke test.
+     *
      * **Security note (T-25-05):** this function reads paths from
      * `state.installedFontFiles` and probes them with `File.exists()`. It
      * assumes trusted state input — an attacker with write access to
