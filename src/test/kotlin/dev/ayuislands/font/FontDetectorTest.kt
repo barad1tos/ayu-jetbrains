@@ -1,9 +1,15 @@
 package dev.ayuislands.font
 
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.every
 import io.mockk.mockkObject
+import io.mockk.mockkStatic
 import io.mockk.unmockkAll
+import io.mockk.verify
+import java.awt.GraphicsEnvironment
+import java.io.File
+import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -192,5 +198,108 @@ class FontDetectorTest {
                 }
             }
         }
+    }
+
+    // ---- status (three-tier health check, D-10) ----
+
+    private fun stubSettingsAndGraphicsEnv(
+        state: AyuIslandsState,
+        availableFonts: Array<String>,
+    ) {
+        mockkObject(AyuIslandsSettings.Companion)
+        val settings = AyuIslandsSettings().apply { loadState(state) }
+        every { AyuIslandsSettings.getInstance() } returns settings
+
+        mockkStatic(GraphicsEnvironment::class)
+        val ge = io.mockk.mockk<GraphicsEnvironment>()
+        every { GraphicsEnvironment.getLocalGraphicsEnvironment() } returns ge
+        every { ge.availableFontFamilyNames } returns availableFonts
+        FontDetector.invalidateCache()
+    }
+
+    @Test
+    fun `status returnsNotInstalled when no record and no system font`() {
+        stubSettingsAndGraphicsEnv(AyuIslandsState(), arrayOf("JetBrains Mono", "Helvetica"))
+        assertEquals(FontStatus.NOT_INSTALLED, FontDetector.status(FontPreset.AMBIENT))
+    }
+
+    @Test
+    fun `status returnsHealthy when installedFonts has family but no file paths recorded`() {
+        val state = AyuIslandsState().apply { installedFonts.add("Maple Mono") }
+        stubSettingsAndGraphicsEnv(state, arrayOf("JetBrains Mono", "Helvetica"))
+        assertEquals(FontStatus.HEALTHY, FontDetector.status(FontPreset.AMBIENT))
+    }
+
+    @Test
+    fun `status returnsHealthy when all recorded files exist`() {
+        val tmpDir = createTempDirectory("fontdet-ok").toFile()
+        try {
+            val realFile = File(tmpDir, "MapleMono-Regular.ttf").apply { writeText("") }
+            val state =
+                AyuIslandsState().apply {
+                    installedFonts.add("Maple Mono")
+                    installedFontFiles["Maple Mono"] = realFile.absolutePath
+                }
+            stubSettingsAndGraphicsEnv(state, arrayOf("JetBrains Mono", "Helvetica"))
+            assertEquals(FontStatus.HEALTHY, FontDetector.status(FontPreset.AMBIENT))
+        } finally {
+            tmpDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `status returnsCorrupted when file missing and JVM does not see family`() {
+        val tmpDir = createTempDirectory("fontdet-corrupt").toFile()
+        try {
+            val missing = File(tmpDir, "does-not-exist.ttf")
+            val state =
+                AyuIslandsState().apply {
+                    installedFonts.add("Maple Mono")
+                    installedFontFiles["Maple Mono"] = missing.absolutePath
+                }
+            stubSettingsAndGraphicsEnv(state, arrayOf("JetBrains Mono", "Helvetica"))
+            assertEquals(FontStatus.CORRUPTED, FontDetector.status(FontPreset.AMBIENT))
+        } finally {
+            tmpDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `status returnsHealthy when file missing but JVM still sees family`() {
+        val tmpDir = createTempDirectory("fontdet-jvm-cached").toFile()
+        try {
+            val missing = File(tmpDir, "gone.ttf")
+            val state =
+                AyuIslandsState().apply {
+                    installedFonts.add("Maple Mono")
+                    installedFontFiles["Maple Mono"] = missing.absolutePath
+                }
+            stubSettingsAndGraphicsEnv(state, arrayOf("Maple Mono", "JetBrains Mono"))
+            assertEquals(FontStatus.HEALTHY, FontDetector.status(FontPreset.AMBIENT))
+        } finally {
+            tmpDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `isInstalled backwardsCompat returnsTrue when status is HEALTHY`() {
+        val state = AyuIslandsState().apply { installedFonts.add("Maple Mono") }
+        stubSettingsAndGraphicsEnv(state, arrayOf("JetBrains Mono", "Helvetica"))
+        assertEquals(FontStatus.HEALTHY, FontDetector.status(FontPreset.AMBIENT))
+        assertTrue(FontDetector.isInstalled(FontPreset.AMBIENT))
+    }
+
+    @Test
+    fun `status cachesResults until invalidate`() {
+        val state = AyuIslandsState().apply { installedFonts.add("Maple Mono") }
+        stubSettingsAndGraphicsEnv(state, arrayOf("JetBrains Mono", "Helvetica"))
+        FontDetector.status(FontPreset.AMBIENT)
+        FontDetector.status(FontPreset.AMBIENT)
+        FontDetector.status(FontPreset.AMBIENT)
+        // GraphicsEnvironment.getLocalGraphicsEnvironment() is called at most
+        // twice per epoch: once to build the installedFonts() cache and at most
+        // once more for status() edge cases. Critically, it is NOT called 3
+        // times even though status() was invoked 3 times.
+        verify(atMost = 2) { GraphicsEnvironment.getLocalGraphicsEnvironment() }
     }
 }
