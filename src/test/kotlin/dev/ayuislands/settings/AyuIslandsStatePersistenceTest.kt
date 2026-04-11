@@ -154,6 +154,66 @@ class AyuIslandsStatePersistenceTest {
         assertEquals(EXPECTED_LICENSED_MS, reloaded.state.lastKnownLicensedMs)
     }
 
+    @Test
+    fun `installedFontFiles defaults to empty map`() {
+        val settings = AyuIslandsSettings()
+        assertTrue(settings.state.installedFontFiles.isEmpty())
+    }
+
+    @Test
+    fun `installedFontFiles survives save reload cycle`() {
+        val reloaded =
+            roundTrip { state ->
+                state.installedFontFiles["Maple Mono"] =
+                    "/Users/test/Library/Fonts/MapleMono-Regular.ttf\n" +
+                    "/Users/test/Library/Fonts/MapleMono-Italic.ttf"
+                state.installedFontFiles["Victor Mono"] =
+                    "/Users/test/Library/Fonts/VictorMono-Light.ttf"
+            }
+
+        assertEquals(
+            "/Users/test/Library/Fonts/MapleMono-Regular.ttf\n" +
+                "/Users/test/Library/Fonts/MapleMono-Italic.ttf",
+            reloaded.state.installedFontFiles["Maple Mono"],
+        )
+        assertEquals(
+            "/Users/test/Library/Fonts/VictorMono-Light.ttf",
+            reloaded.state.installedFontFiles["Victor Mono"],
+        )
+    }
+
+    @Test
+    fun `installedFontFiles entries can be removed across reload`() {
+        val reloaded =
+            roundTrip { state ->
+                state.installedFontFiles["Maple Mono"] = "/a/MapleMono-Regular.ttf"
+                state.installedFontFiles["Victor Mono"] = "/b/VictorMono-Light.ttf"
+                state.installedFontFiles.remove("Victor Mono")
+            }
+
+        assertEquals("/a/MapleMono-Regular.ttf", reloaded.state.installedFontFiles["Maple Mono"])
+        assertFalse(reloaded.state.installedFontFiles.containsKey("Victor Mono"))
+    }
+
+    @Test
+    fun `explicitlyUninstalledFonts defaults to empty set`() {
+        val settings = AyuIslandsSettings()
+        assertTrue(settings.state.explicitlyUninstalledFonts.isEmpty())
+    }
+
+    @Test
+    fun `explicitlyUninstalledFonts survives save reload cycle`() {
+        val reloaded =
+            roundTrip { state ->
+                state.explicitlyUninstalledFonts.add("Monaspace Neon")
+                state.explicitlyUninstalledFonts.add("Victor Mono")
+            }
+
+        assertTrue(reloaded.state.explicitlyUninstalledFonts.contains("Monaspace Neon"))
+        assertTrue(reloaded.state.explicitlyUninstalledFonts.contains("Victor Mono"))
+        assertEquals(2, reloaded.state.explicitlyUninstalledFonts.size)
+    }
+
     companion object {
         private const val EXPECTED_SHARP_NEON_INTENSITY = 80
         private const val EXPECTED_SHARP_NEON_WIDTH = 6

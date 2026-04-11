@@ -166,6 +166,20 @@ class AyuIslandsState : BaseState() {
     // re-prompted. Set to true after the first successful seed.
     var installedFontsSeeded by property(false)
 
+    // Authoritative list of absolute file paths per installed family (D-08).
+    // Values are "\n"-joined absolute paths. Flat map<String, String> shape matches
+    // the existing fontPresetCustomizations encoding precedent (line 159) and avoids
+    // nested-collection XML serialization risk (see RESEARCH.md Pitfall 2 / A1).
+    // The uninstall pipeline reads this to delete exactly the files it installed —
+    // never re-derive paths from entry.filesToKeep regex (risks collision with
+    // user-installed fonts of similar name).
+    var installedFontFiles by map<String, String>()
+
+    // Families the user has explicitly deleted via the Settings lifecycle UI (D-09).
+    // seedInstalledFontsFromDiskIfNeeded() must skip any family in this set so the
+    // plugin never re-adds a user-deleted font on a subsequent startup.
+    var explicitlyUninstalledFonts by stringSet()
+
     // Accent rotation
     var accentRotationEnabled by property(false)
     var accentRotationMode by string(AccentRotationMode.PRESET.name)
