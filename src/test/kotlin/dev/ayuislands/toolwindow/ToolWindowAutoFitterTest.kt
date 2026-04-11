@@ -18,6 +18,7 @@ import java.awt.FlowLayout
 import javax.swing.JPanel
 import javax.swing.JTree
 import javax.swing.SwingUtilities
+import javax.swing.tree.DefaultTreeModel
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -400,9 +401,171 @@ class ToolWindowAutoFitterTest {
 
     // endregion
 
+    // region debounce + listener lifecycle
+
+    @Test
+    fun `rapid tree expansions coalesce into single apply via debounce`() {
+        SwingUtilities.invokeAndWait {
+            // Tree width 280 + padding 20 = 300, current = 200 -> delta = 100
+            mockCalculatorForWidth(280)
+            val tree = JTree()
+            val panel = JPanel(FlowLayout())
+            panel.add(tree)
+            panel.setSize(200, 400)
+
+            val content =
+                mockk<Content>(relaxed = true) {
+                    every { component } returns panel
+                }
+            val contentManager =
+                mockk<ContentManager>(relaxed = true) {
+                    every { contents } returns arrayOf(content)
+                }
+            every {
+                toolWindowManager.getToolWindow("Project")
+            } returns toolWindowEx
+            every {
+                toolWindowEx.contentManager
+            } returns contentManager
+            every { toolWindowEx.component } returns panel
+            every {
+                toolWindowEx.type
+            } returns ToolWindowType.DOCKED
+
+            val fitter =
+                ToolWindowAutoFitter(
+                    project,
+                    "Project",
+                    100,
+                )
+            fitter.maxWidthProvider = { 500 }
+
+            // Fire scheduleAutoFit 5 times rapidly — the debounce timer
+            // (non-repeating) restarts on each call, so only ONE pending
+            // apply should exist when we flush.
+            repeat(5) { fitter.scheduleAutoFit() }
+
+            // Verify the debounce deferred all 5 calls — no apply yet.
+            verify(exactly = 0) { toolWindowEx.stretchWidth(any()) }
+
+            // Drive the pending timer directly instead of Thread.sleep.
+            fitter.flushDebounceForTesting()
+
+            verify(exactly = 1) { toolWindowEx.stretchWidth(any()) }
+        }
+    }
+
+    @Test
+    fun `AUTO_FIT to FIXED to AUTO_FIT reinstalls listener correctly`() {
+        SwingUtilities.invokeAndWait {
+            mockCalculatorForWidth(180)
+            val tree = JTree()
+            val panel = JPanel(FlowLayout())
+            panel.add(tree)
+            panel.setSize(200, 400)
+
+            val content =
+                mockk<Content>(relaxed = true) {
+                    every { component } returns panel
+                }
+            val contentManager =
+                mockk<ContentManager>(relaxed = true) {
+                    every { contents } returns arrayOf(content)
+                }
+            every {
+                toolWindowManager.getToolWindow("Project")
+            } returns toolWindowEx
+            every {
+                toolWindowEx.contentManager
+            } returns contentManager
+            every { toolWindowEx.component } returns panel
+            every {
+                toolWindowEx.type
+            } returns ToolWindowType.DOCKED
+
+            val fitter =
+                ToolWindowAutoFitter(
+                    project,
+                    "Project",
+                    100,
+                )
+
+            val before = tree.treeExpansionListeners.size
+
+            // AUTO_FIT -> listener installed
+            fitter.applyWidthMode(PanelWidthMode.AUTO_FIT, 500, 300)
+            assert(tree.treeExpansionListeners.size > before) {
+                "Expected listener installed after AUTO_FIT"
+            }
+
+            // FIXED -> listener removed
+            fitter.applyWidthMode(PanelWidthMode.FIXED, 500, 300)
+            assert(tree.treeExpansionListeners.size == before) {
+                "Expected listener removed after FIXED"
+            }
+
+            // AUTO_FIT -> listener re-installed
+            fitter.applyWidthMode(PanelWidthMode.AUTO_FIT, 500, 300)
+            assert(tree.treeExpansionListeners.size > before) {
+                "Expected listener re-installed after AUTO_FIT"
+            }
+        }
+    }
+
+    @Test
+    fun `applyAutoFitWidth with empty tree gracefully no-ops`() {
+        SwingUtilities.invokeAndWait {
+            // Real (non-mocked) calculator so an empty `JTree`
+            // measures to rowCount=0 -> maxRowWidth=0 naturally.
+            val emptyModel = DefaultTreeModel(null)
+            val tree = JTree(emptyModel)
+            assert(tree.rowCount == 0) {
+                "Empty tree precondition failed"
+            }
+            val panel = JPanel(FlowLayout())
+            panel.add(tree)
+            panel.setSize(150, 400)
+
+            val content =
+                mockk<Content>(relaxed = true) {
+                    every { component } returns panel
+                }
+            val contentManager =
+                mockk<ContentManager>(relaxed = true) {
+                    every { contents } returns arrayOf(content)
+                }
+            every {
+                toolWindowManager.getToolWindow("Project")
+            } returns toolWindowEx
+            every {
+                toolWindowEx.contentManager
+            } returns contentManager
+            every { toolWindowEx.component } returns panel
+            every {
+                toolWindowEx.type
+            } returns ToolWindowType.DOCKED
+
+            val fitter =
+                ToolWindowAutoFitter(
+                    project,
+                    "Project",
+                    253,
+                )
+            // Should not throw.
+            fitter.applyAutoFitWidth(500)
+
+            // With empty tree: maxRowWidth=0, desiredWidth clamps to
+            // minWidth(253). currentWidth=150, delta=103 -> stretch
+            // with min-width delta is acceptable per spec.
+            verify { toolWindowEx.stretchWidth(103) }
+        }
+    }
+
+    // endregion
+
     /**
      * Mocks AutoFitCalculator measurement methods
-     * so headless JTree (no row bounds) can be used.
+     * so headless [JTree] (no row bounds) can be used.
      * findFirstOfType is left unmocked (works on
      * real Swing components without a display).
      */

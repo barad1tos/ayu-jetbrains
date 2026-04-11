@@ -367,4 +367,171 @@ class StartupLicenseStateTest {
 
         assertEquals(WizardAction.ShowFreeWizard, result)
     }
+
+    // Multi-session user journeys — simulated by calling handlers multiple times
+    // on the SAME state instance (the state is what persists to disk across restarts).
+
+    @Test
+    fun `trial expiry notification fires only once across multiple restarts`() {
+        // Session 1: trial expires, user sees the notification
+        StartupLicenseHandler.applyUnlicensedDefaults(project, AyuVariant.MIRAGE, settings)
+        // Session 2: IDE restart, same persisted state — notification must NOT re-fire
+        StartupLicenseHandler.applyUnlicensedDefaults(project, AyuVariant.MIRAGE, settings)
+        // Session 3: another restart — still silent
+        StartupLicenseHandler.applyUnlicensedDefaults(project, AyuVariant.MIRAGE, settings)
+
+        verify(exactly = 1) { LicenseChecker.notifyTrialExpired(project) }
+        assertTrue(state.trialExpiredNotified)
+    }
+
+    @Test
+    fun `full cycle from unlicensed to licensed to expire to re-license preserves user customizations`() {
+        // Session 1: fresh unlicensed install, trial already expired
+        StartupLicenseHandler.applyUnlicensedDefaults(project, AyuVariant.MIRAGE, settings)
+        assertTrue(state.trialExpiredNotified)
+
+        // Session 2: user buys a license — first activation triggers pro defaults.
+        // everBeenPro is set by the real enableProDefaults, but since it is mocked we
+        // simulate the flag transition manually to mirror production behavior.
+        StartupLicenseHandler.applyLicensedDefaults(settings)
+        state.everBeenPro = true
+        state.proDefaultsApplied = true
+        assertFalse(state.trialExpiredNotified)
+        assertFalse(state.premiumOnboardingShown)
+
+        // User customizes glow: enables it with a non-default intensity.
+        state.glowEnabled = true
+        state.sharpNeonIntensity = 85
+        // User dismisses the premium wizard.
+        state.premiumOnboardingShown = true
+
+        // Session 3: IDE restart, still licensed — defaults already applied, no-op path
+        StartupLicenseHandler.applyLicensedDefaults(settings)
+        assertTrue(state.glowEnabled)
+        assertEquals(85, state.sharpNeonIntensity)
+        assertTrue(state.premiumOnboardingShown)
+
+        // Session 4: license expires
+        StartupLicenseHandler.applyUnlicensedDefaults(project, AyuVariant.MIRAGE, settings)
+        assertTrue(state.trialExpiredNotified)
+
+        // Session 5: user re-purchases. Because everBeenPro is true, the real
+        // enableProDefaults is a no-op for customizations — verify the handler does
+        // not wipe glowEnabled / sharpNeonIntensity itself.
+        StartupLicenseHandler.applyLicensedDefaults(settings)
+        assertTrue(state.glowEnabled, "re-license must not wipe user's glow customization")
+        assertEquals(85, state.sharpNeonIntensity, "re-license must not wipe user's intensity")
+        assertFalse(state.trialExpiredNotified)
+
+        // enableProDefaults called three times total: session 2 (first activation),
+        // session 3 (still licensed — skipped because proDefaultsApplied),
+        // session 5 (re-license — handler reset proDefaultsApplied so it runs again,
+        // but the real implementation is a no-op thanks to everBeenPro).
+        verify(exactly = 2) { LicenseChecker.enableProDefaults() }
+    }
+
+    @Test
+    fun `re-purchase after trial expiry re-arms premium wizard across restarts`() {
+        // Session 1: user is licensed and has already seen the premium wizard
+        state.proDefaultsApplied = true
+        state.everBeenPro = true
+        state.premiumOnboardingShown = true
+        state.freeOnboardingShown = true
+
+        // Session 2: trial/license expires
+        StartupLicenseHandler.applyUnlicensedDefaults(project, AyuVariant.DARK, settings)
+        assertTrue(state.trialExpiredNotified)
+        // Premium wizard flag is untouched by unlicensed path
+        assertTrue(state.premiumOnboardingShown)
+
+        // Session 3: user re-purchases — handler must re-arm the premium wizard
+        StartupLicenseHandler.applyLicensedDefaults(settings)
+        assertFalse(
+            state.premiumOnboardingShown,
+            "re-license must reset premiumOnboardingShown so the wizard can fire again",
+        )
+
+        // Session 4: orchestrator resolves with the reset flags — should pick premium wizard
+        val action =
+            StartupLicenseHandler.resolveOnboarding(
+                isLicensedOrGrace = true,
+                settings = settings,
+                isReturningUser = true,
+            )
+        assertEquals(WizardAction.ShowPremiumWizard, action)
+    }
+
+    @Test
+    fun `returning user never sees free wizard across restarts`() {
+        // Returning user — lastSeenVersion non-null, isReturningUser = true
+        state.lastSeenVersion = "2.3.0"
+        state.freeOnboardingShown = false
+        state.premiumOnboardingShown = false
+
+        // Session 1: first resolve auto-marks freeOnboardingShown for returning users
+        val firstAction =
+            StartupLicenseHandler.resolveOnboarding(
+                isLicensedOrGrace = true,
+                settings = settings,
+                isReturningUser = true,
+            )
+        assertTrue(state.freeOnboardingShown)
+        // Licensed + premium wizard not yet shown → premium wizard
+        assertEquals(WizardAction.ShowPremiumWizard, firstAction)
+
+        // Simulate user closing the premium wizard
+        state.premiumOnboardingShown = true
+
+        // Session 2: another restart — free wizard must still be skipped,
+        // and premium wizard must not re-fire either
+        val secondAction =
+            StartupLicenseHandler.resolveOnboarding(
+                isLicensedOrGrace = true,
+                settings = settings,
+                isReturningUser = true,
+            )
+        assertEquals(WizardAction.NoWizard, secondAction)
+    }
+
+    @Test
+    fun `runOnboardingMigration is idempotent across restarts`() {
+        // Legacy state: trialWelcomeShown set, new flag not yet migrated
+        state.trialWelcomeShown = true
+        state.premiumOnboardingShown = false
+
+        // Session 1: migration copies the flag
+        StartupLicenseHandler.runOnboardingMigration(settings)
+        assertTrue(state.premiumOnboardingShown)
+
+        // User then dismisses the (already-shown) premium wizard — flag stays true.
+        // Session 2: migration runs again, must not toggle or reset anything
+        StartupLicenseHandler.runOnboardingMigration(settings)
+        assertTrue(state.premiumOnboardingShown)
+
+        // Session 3: one more restart for good measure
+        StartupLicenseHandler.runOnboardingMigration(settings)
+        assertTrue(state.premiumOnboardingShown)
+    }
+
+    @Test
+    fun `applyLicensedDefaults skips redundant work across restarts`() {
+        // Session 1: first activation — both defaults should run
+        state.proDefaultsApplied = false
+        state.workspaceDefaultsApplied = false
+        StartupLicenseHandler.applyLicensedDefaults(settings)
+
+        // Simulate what real enableProDefaults / applyWorkspaceDefaults would set
+        state.proDefaultsApplied = true
+        state.workspaceDefaultsApplied = true
+        state.everBeenPro = true
+
+        // Session 2: IDE restart, still licensed — no work to do
+        StartupLicenseHandler.applyLicensedDefaults(settings)
+        // Session 3: another restart — still no work
+        StartupLicenseHandler.applyLicensedDefaults(settings)
+
+        // Each default applicator should have run exactly once across all three sessions
+        verify(exactly = 1) { LicenseChecker.enableProDefaults() }
+        verify(exactly = 1) { LicenseChecker.applyWorkspaceDefaults() }
+    }
 }

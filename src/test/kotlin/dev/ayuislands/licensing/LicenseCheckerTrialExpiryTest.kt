@@ -219,6 +219,121 @@ class LicenseCheckerTrialExpiryTest {
         }
     }
 
+    // Multi-session user journeys for the two-stage trial warning.
+    // Each "day" is one user-visible session. State persists across sessions
+    // (it is what would live on disk), the clock is mocked day by day.
+
+    @Test
+    fun `two-stage warning progression over the final week of trial`() {
+        every { LicensingFacade.getInstance() } returns facade
+        every { facade.isEvaluationLicense } returns true
+
+        // Day 8: outside the window, no notification
+        every { facade.getExpirationDate(LicenseChecker.PRODUCT_CODE) } returns dateFromNow(8)
+        LicenseChecker.checkTrialExpiryWarning(null)
+
+        // Day 7: first warning fires and the 7-day flag is latched
+        every { facade.getExpirationDate(LicenseChecker.PRODUCT_CODE) } returns dateFromNow(7)
+        LicenseChecker.checkTrialExpiryWarning(null)
+
+        // Days 6, 5, 4: still within the 7-day window but flag prevents re-firing
+        for (daysRemaining in listOf(6L, 5L, 4L)) {
+            every { facade.getExpirationDate(LicenseChecker.PRODUCT_CODE) } returns dateFromNow(daysRemaining)
+            LicenseChecker.checkTrialExpiryWarning(null)
+        }
+
+        // Day 3: second (3-day) warning fires
+        every { facade.getExpirationDate(LicenseChecker.PRODUCT_CODE) } returns dateFromNow(3)
+        LicenseChecker.checkTrialExpiryWarning(null)
+
+        // Days 2, 1: both flags latched, silence
+        for (daysRemaining in listOf(2L, 1L)) {
+            every { facade.getExpirationDate(LicenseChecker.PRODUCT_CODE) } returns dateFromNow(daysRemaining)
+            LicenseChecker.checkTrialExpiryWarning(null)
+        }
+
+        // Exactly two notifications total across the whole week
+        verify(exactly = 2) {
+            notificationGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
+        }
+        // Both latches set
+        assertEquals(true, state.trialExpiryWarningShown)
+        assertEquals(true, state.trialExpiry3DayWarningShown)
+        // Each threshold surfaced its own message
+        verify(exactly = 1) {
+            notificationGroup.createNotification(
+                match { it.contains("7 days remaining") },
+                any<String>(),
+                NotificationType.INFORMATION,
+            )
+        }
+        verify(exactly = 1) {
+            notificationGroup.createNotification(
+                match { it.contains("3 days remaining") },
+                any<String>(),
+                NotificationType.INFORMATION,
+            )
+        }
+    }
+
+    @Test
+    fun `7-day latch does not block the later 3-day warning`() {
+        every { LicensingFacade.getInstance() } returns facade
+        every { facade.isEvaluationLicense } returns true
+        // User already saw the 7-day warning in a previous session
+        state.trialExpiryWarningShown = true
+        state.trialExpiry3DayWarningShown = false
+
+        // Session resumes on day 3 — 3-day warning must still fire
+        every { facade.getExpirationDate(LicenseChecker.PRODUCT_CODE) } returns dateFromNow(3)
+        LicenseChecker.checkTrialExpiryWarning(null)
+
+        verify(exactly = 1) {
+            notificationGroup.createNotification(
+                match { it.contains("3 days remaining") },
+                any<String>(),
+                NotificationType.INFORMATION,
+            )
+        }
+        assertEquals(true, state.trialExpiry3DayWarningShown)
+    }
+
+    @Test
+    fun `both latches set means silence regardless of day`() {
+        every { LicensingFacade.getInstance() } returns facade
+        every { facade.isEvaluationLicense } returns true
+        state.trialExpiryWarningShown = true
+        state.trialExpiry3DayWarningShown = true
+
+        for (daysRemaining in listOf(7L, 5L, 3L, 1L, 0L)) {
+            every { facade.getExpirationDate(LicenseChecker.PRODUCT_CODE) } returns dateFromNow(daysRemaining)
+            LicenseChecker.checkTrialExpiryWarning(null)
+        }
+
+        verify(exactly = 0) {
+            notificationGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
+        }
+    }
+
+    @Test
+    fun `trial warning stays idempotent across restarts on the same day`() {
+        every { LicensingFacade.getInstance() } returns facade
+        every { facade.isEvaluationLicense } returns true
+        every { facade.getExpirationDate(LicenseChecker.PRODUCT_CODE) } returns dateFromNow(7)
+
+        // Session 1: day 7, warning fires
+        LicenseChecker.checkTrialExpiryWarning(null)
+        // Session 2: same persisted state, same day — must stay silent
+        LicenseChecker.checkTrialExpiryWarning(null)
+        // Session 3: one more restart, still the same day
+        LicenseChecker.checkTrialExpiryWarning(null)
+
+        verify(exactly = 1) {
+            notificationGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
+        }
+        assertEquals(true, state.trialExpiryWarningShown)
+    }
+
     /** Create a [Date] representing [daysFromNow] days in the future (or past if negative). */
     private fun dateFromNow(daysFromNow: Long): Date {
         val localDate = LocalDate.now().plusDays(daysFromNow)

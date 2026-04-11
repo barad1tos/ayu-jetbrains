@@ -394,6 +394,88 @@ class AppearanceSyncServiceTest {
         assertEquals(Appearance.DARK, lastSynced)
     }
 
+    // -- Multi-call state transitions --
+
+    @Test
+    fun `appearance sync across system mode changes triggers distinct switches`() {
+        // Regression guard: three alternating sync calls must result in three distinct switches.
+        // The LicenseTransitionListener bug class was "listener locks in first-call state" —
+        // this test verifies that repeated sync calls with changing appearance all propagate.
+        val lightName = "Ayu Light (Islands UI)"
+        val darkName = "Ayu Dark (Islands UI)"
+        state.lastLightAppearanceTheme = lightName
+        state.lastDarkAppearanceTheme = darkName
+
+        // Mutable current-theme tracker — mirrors what LafManager does after setCurrentLookAndFeel.
+        var currentName = "Ayu Mirage"
+        val currentThemeLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
+        every { currentThemeLaf.name } answers { currentName }
+        every { lafManager.currentUIThemeLookAndFeel } returns currentThemeLaf
+
+        val lightLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
+        every { lightLaf.name } returns lightName
+        val darkLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
+        every { darkLaf.name } returns darkName
+        every { lafManager.installedThemes } returns sequenceOf(lightLaf, darkLaf)
+
+        // Advance the mock "current theme" whenever the production code flips the LAF so the
+        // next switchToTheme doesn't short-circuit on "already equal".
+        every { lafManager.setCurrentLookAndFeel(lightLaf, any()) } answers {
+            currentName = lightName
+        }
+        every { lafManager.setCurrentLookAndFeel(darkLaf, any()) } answers {
+            currentName = darkName
+        }
+
+        every { AyuVariant.detect() } answers { AyuVariant.fromThemeName(currentName) }
+
+        // Sync 1: LIGHT
+        every { SystemAppearanceProvider.resolve() } returns Appearance.LIGHT
+        service.syncIfNeeded()
+
+        // Sync 2: DARK
+        every { SystemAppearanceProvider.resolve() } returns Appearance.DARK
+        service.syncIfNeeded()
+
+        // Sync 3: LIGHT again
+        every { SystemAppearanceProvider.resolve() } returns Appearance.LIGHT
+        service.syncIfNeeded()
+
+        verify(exactly = 2) { lafManager.setCurrentLookAndFeel(lightLaf, true) }
+        verify(exactly = 1) { lafManager.setCurrentLookAndFeel(darkLaf, true) }
+        verify(exactly = 3) { lafManager.setCurrentLookAndFeel(any(), any<Boolean>()) }
+    }
+
+    @Test
+    fun `appearance sync with same appearance twice only switches once`() {
+        // Counterpart to the "alternating" test: the same appearance repeated must be idempotent.
+        // This is the exact bug class that bit LicenseTransitionListener — repeated events
+        // reaching a listener that didn't guard against redundant calls.
+        val lightName = "Ayu Light (Islands UI)"
+        state.lastLightAppearanceTheme = lightName
+
+        var currentName = "Ayu Mirage"
+        val currentThemeLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
+        every { currentThemeLaf.name } answers { currentName }
+        every { lafManager.currentUIThemeLookAndFeel } returns currentThemeLaf
+
+        val lightLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
+        every { lightLaf.name } returns lightName
+        every { lafManager.installedThemes } returns sequenceOf(lightLaf)
+        every { lafManager.setCurrentLookAndFeel(lightLaf, any()) } answers {
+            currentName = lightName
+        }
+
+        every { SystemAppearanceProvider.resolve() } returns Appearance.LIGHT
+        every { AyuVariant.detect() } answers { AyuVariant.fromThemeName(currentName) }
+
+        service.syncIfNeeded()
+        service.syncIfNeeded()
+        service.syncIfNeeded()
+
+        verify(exactly = 1) { lafManager.setCurrentLookAndFeel(lightLaf, true) }
+    }
+
     // -- Helpers --
 
     private fun getLastSyncedAppearance(): Appearance? {

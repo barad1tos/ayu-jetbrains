@@ -3,6 +3,7 @@ package dev.ayuislands.accent.conflict
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.extensions.PluginId
 import dev.ayuislands.accent.AccentElementId
+import org.jetbrains.annotations.TestOnly
 
 enum class ConflictType { BLOCK, INTEGRATE }
 
@@ -30,21 +31,35 @@ object ConflictRegistry {
             ),
         )
 
-    // Cached: installed plugins don't change during a session
-    private val cachedConflicts: List<ConflictEntry> by lazy {
+    // Installed plugins don't change during a session, so the first detection is cached.
+    // Volatile nullable `var` instead of `by lazy` to let tests reset the cache via
+    // `resetCachedConflictsForTesting()` without reflection or Unsafe tricks.
+    @Volatile
+    private var cachedConflicts: List<ConflictEntry>? = null
+
+    private fun getCachedConflicts(): List<ConflictEntry> =
+        cachedConflicts ?: synchronized(this) {
+            cachedConflicts ?: computeConflicts().also { cachedConflicts = it }
+        }
+
+    private fun computeConflicts(): List<ConflictEntry> =
         entries.filter { entry ->
             val pluginId = PluginId.getId(entry.pluginId)
             PluginManagerCore.getPlugin(pluginId) != null && !PluginManagerCore.isDisabled(pluginId)
         }
-    }
 
-    fun detectConflicts(): List<ConflictEntry> = cachedConflicts
+    fun detectConflicts(): List<ConflictEntry> = getCachedConflicts()
 
     fun getConflictFor(elementId: AccentElementId): ConflictEntry? =
-        cachedConflicts
+        getCachedConflicts()
             .firstOrNull { elementId in it.affectedElements }
 
-    fun isCodeGlanceProDetected(): Boolean = cachedConflicts.any { it.pluginId == "com.nasller.CodeGlancePro" }
+    fun isCodeGlanceProDetected(): Boolean = getCachedConflicts().any { it.pluginId == "com.nasller.CodeGlancePro" }
 
-    fun isIndentRainbowDetected(): Boolean = cachedConflicts.any { it.pluginId == "indent-rainbow.indent-rainbow" }
+    fun isIndentRainbowDetected(): Boolean = getCachedConflicts().any { it.pluginId == "indent-rainbow.indent-rainbow" }
+
+    @TestOnly
+    internal fun resetCachedConflictsForTesting() {
+        cachedConflicts = null
+    }
 }
