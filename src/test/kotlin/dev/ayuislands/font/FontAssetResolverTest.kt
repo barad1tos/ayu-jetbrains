@@ -75,6 +75,12 @@ class FontAssetResolverTest {
     }
 
     @Test
+    fun `http client RuntimeException falls back to hardcoded url`() {
+        val resolver = FontAssetResolver { _ -> throw IllegalStateException("unexpected") }
+        assertEquals(mapleEntry.fallbackUrl, resolver.resolve(mapleEntry))
+    }
+
+    @Test
     fun `monaspace variable pattern matches versioned asset name`() {
         val expectedUrl =
             "https://github.com/githubnext/monaspace/releases/download/" +

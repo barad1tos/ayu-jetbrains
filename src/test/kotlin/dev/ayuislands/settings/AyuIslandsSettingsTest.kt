@@ -2,12 +2,14 @@ package dev.ayuislands.settings
 
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.SystemAccentProvider
+import dev.ayuislands.font.FontPreset
 import io.mockk.every
 import io.mockk.mockkObject
 import io.mockk.unmockkAll
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class AyuIslandsSettingsTest {
     private fun createSettings(state: AyuIslandsState): AyuIslandsSettings {
@@ -100,5 +102,40 @@ class AyuIslandsSettingsTest {
         assertEquals("#AA1111", settings.state.mirageAccent)
         assertEquals("#BB2222", settings.state.darkAccent)
         assertEquals("#CC3333", settings.state.lightAccent)
+    }
+
+    @Test
+    fun `seedInstalledFontsFromDiskIfNeeded is no-op when already seeded`() {
+        val state = AyuIslandsState().apply { installedFontsSeeded = true }
+        val settings = createSettings(state)
+
+        settings.seedInstalledFontsFromDiskIfNeeded()
+
+        assertTrue(state.installedFontsSeeded)
+        assertEquals(0, state.installedFonts.size)
+    }
+
+    @Test
+    fun `seedInstalledFontsFromDiskIfNeeded sets seeded flag on first run`() {
+        val settings = createSettings(AyuIslandsState())
+
+        settings.seedInstalledFontsFromDiskIfNeeded()
+
+        assertTrue(settings.state.installedFontsSeeded)
+    }
+
+    @Test
+    fun `seedInstalledFontsFromDiskIfNeeded does not re-add already installed fonts`() {
+        val fontFamily = FontPreset.WHISPER.fontFamily
+        val state =
+            AyuIslandsState().apply {
+                installedFonts.add(fontFamily)
+            }
+        val settings = createSettings(state)
+
+        settings.seedInstalledFontsFromDiskIfNeeded()
+
+        // Recorded font should only appear once, not duplicated
+        assertEquals(1, state.installedFonts.count { it == fontFamily })
     }
 }

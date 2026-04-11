@@ -1,5 +1,10 @@
 package dev.ayuislands.font
 
+import dev.ayuislands.settings.AyuIslandsSettings
+import io.mockk.every
+import io.mockk.mockkObject
+import io.mockk.unmockkAll
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -8,6 +13,12 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class FontDetectorTest {
+    @AfterTest
+    fun tearDown() {
+        unmockkAll()
+        FontDetector.invalidateCache()
+    }
+
     // ---- invalidateCache ----
 
     @Test
@@ -51,6 +62,55 @@ class FontDetectorTest {
         FontDetector.invalidateCache()
         // CUSTOM has empty fontAliases, so any() returns false
         assertFalse(FontDetector.isInstalled(FontPreset.CUSTOM))
+    }
+
+    /**
+     * Helper: find a curated preset whose aliases are NOT installed on the current system.
+     * Required because tests run on real JVM — any of Victor Mono / Maple Mono / Monaspace
+     * may or may not be installed locally.
+     */
+    private fun findUninstalledPreset(): FontPreset? {
+        val environment = java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment()
+        val systemFonts = environment.availableFontFamilyNames.map { it.lowercase() }.toSet()
+        return FontPreset.entries.firstOrNull { preset ->
+            preset.isCurated && preset.fontAliases.none { systemFonts.contains(it.lowercase()) }
+        }
+    }
+
+    @Test
+    fun `isInstalled returns false when settings throws IllegalStateException`() {
+        val preset = findUninstalledPreset() ?: return // all curated fonts installed locally
+        FontDetector.invalidateCache()
+        mockkObject(AyuIslandsSettings.Companion)
+        every { AyuIslandsSettings.getInstance() } throws IllegalStateException("no app")
+
+        assertFalse(FontDetector.isInstalled(preset))
+    }
+
+    @Test
+    fun `isInstalled returns false when settings throws NullPointerException`() {
+        val preset = findUninstalledPreset() ?: return
+        FontDetector.invalidateCache()
+        mockkObject(AyuIslandsSettings.Companion)
+        every { AyuIslandsSettings.getInstance() } throws NullPointerException("no state")
+
+        assertFalse(FontDetector.isInstalled(preset))
+    }
+
+    @Test
+    fun `isInstalled returns true when state has recorded font alias`() {
+        val preset = findUninstalledPreset() ?: return
+        FontDetector.invalidateCache()
+        val aliasToRecord = preset.fontAliases.first()
+        val state =
+            dev.ayuislands.settings.AyuIslandsState().apply {
+                installedFonts.add(aliasToRecord)
+            }
+        val settings = AyuIslandsSettings().apply { loadState(state) }
+        mockkObject(AyuIslandsSettings.Companion)
+        every { AyuIslandsSettings.getInstance() } returns settings
+
+        assertTrue(FontDetector.isInstalled(preset))
     }
 
     // ---- resolveFamily ----
