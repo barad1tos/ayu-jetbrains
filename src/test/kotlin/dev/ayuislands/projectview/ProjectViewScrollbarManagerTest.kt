@@ -283,6 +283,44 @@ class ProjectViewScrollbarManagerTest {
         }
     }
 
+    @Test
+    fun `apply is idempotent when called multiple times with same state`() {
+        realState.hideProjectViewHScrollbar = true
+        realState.hideProjectRootPath = false
+
+        val tree = JTree()
+        val scrollPane = JScrollPane(tree)
+        val originalPolicy = scrollPane.horizontalScrollBarPolicy
+        val wrapper = JPanel(FlowLayout())
+        wrapper.add(scrollPane)
+
+        setupToolWindowContent(wrapper)
+
+        val manager = createAndDrain()
+
+        // Three consecutive applies with unchanged state
+        SwingUtilities.invokeAndWait {
+            manager.apply()
+            manager.apply()
+            manager.apply()
+        }
+
+        // Final state: horizontal scrollbar hidden
+        assertEquals(
+            ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER,
+            scrollPane.horizontalScrollBarPolicy,
+        )
+
+        // Flipping the setting off must restore the ORIGINAL policy,
+        // not a stale value captured from a previous hidden-state apply.
+        // This proves originalScrollbarPolicy was captured exactly once.
+        realState.hideProjectViewHScrollbar = false
+        SwingUtilities.invokeAndWait {
+            manager.apply()
+        }
+        assertEquals(originalPolicy, scrollPane.horizontalScrollBarPolicy)
+    }
+
     private fun setupToolWindowContent(component: JPanel) {
         val content =
             mockk<Content>(relaxed = true) {

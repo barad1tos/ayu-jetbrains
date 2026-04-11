@@ -302,4 +302,73 @@ class GitPanelAutoFitManagerTest {
             )
         }
     }
+
+    @Test
+    fun `listener is removed when mode switches from AUTO_FIT to DEFAULT`() {
+        SwingUtilities.invokeAndWait {
+            every {
+                LicenseChecker.isLicensedOrGrace()
+            } returns true
+            realState.gitPanelWidthMode =
+                PanelWidthMode.AUTO_FIT.name
+            realState.gitPanelAutoFitMaxWidth = 500
+            realState.gitPanelAutoFitMinWidth = 200
+
+            mockkObject(AutoFitCalculator)
+            every {
+                AutoFitCalculator.measureTreeMaxRowWidth(any())
+            } returns 250
+
+            val tree = JTree()
+            val table = JTable()
+            val innerFirst = JPanel(FlowLayout())
+            innerFirst.add(table)
+            val innerSecond = JPanel(FlowLayout())
+            innerSecond.add(tree)
+
+            val splitter = Splitter()
+            splitter.setSize(1000, 400)
+            splitter.firstComponent = innerFirst
+            splitter.secondComponent = innerSecond
+
+            val logContent =
+                mockk<Content>(relaxed = true) {
+                    every { tabName } returns "Log"
+                    every { component } returns splitter
+                }
+            val contentManager =
+                mockk<ContentManager>(relaxed = true) {
+                    every {
+                        contents
+                    } returns arrayOf(logContent)
+                }
+            val toolWindow =
+                mockk<ToolWindow>(relaxed = true) {
+                    every {
+                        this@mockk.contentManager
+                    } returns contentManager
+                }
+            every {
+                toolWindowManager
+                    .getToolWindow("Version Control")
+            } returns toolWindow
+
+            val listenersBefore = tree.treeExpansionListeners.size
+            val manager = GitPanelAutoFitManager(project)
+
+            // AUTO_FIT: expansion listener attached to inner tree
+            manager.apply()
+            assert(tree.treeExpansionListeners.size > listenersBefore) {
+                "Expected expansion listener installed after AUTO_FIT"
+            }
+
+            // Switch to DEFAULT: listener must be removed
+            realState.gitPanelWidthMode =
+                PanelWidthMode.DEFAULT.name
+            manager.apply()
+            assert(tree.treeExpansionListeners.size == listenersBefore) {
+                "Expected expansion listener removed after DEFAULT"
+            }
+        }
+    }
 }

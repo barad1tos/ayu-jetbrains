@@ -1108,6 +1108,166 @@ class AccentApplicatorTest {
         verify { element2.apply(accent) }
     }
 
+    // Defensive dispatch regression tests — capture try-catch isolation.
+    // If a refactor removes the per-element try-catch in applyElements,
+    // revertAll, or neutralizeOrRevert, these tests must fail.
+
+    /**
+     * Regression guard for the per-element try-catch at line 220-227 of
+     * [AccentApplicator.applyElements]. If removed, the middle element's
+     * exception would propagate and the third element would never receive
+     * `apply`, breaking isolation between unrelated accent elements.
+     */
+    @Test
+    fun `applyElements continues dispatch when one element throws RuntimeException`() {
+        val first = createFakeAccentElement(AccentElementId.CARET_ROW, "Caret Row")
+        val second = createFakeAccentElement(AccentElementId.SCROLLBAR, "Scrollbar")
+        every { second.apply(any()) } throws IllegalStateException("simulated")
+        val third = createFakeAccentElement(AccentElementId.LINKS, "Links")
+        mockEpExtensionList(listOf(first, second, third))
+
+        val accent = Color.decode("#FFCC66")
+        // Must not propagate the simulated exception
+        invokeApplyElements(state, accent, AyuVariant.MIRAGE)
+
+        // Loop must have continued past the failing middle element
+        verify { first.apply(accent) }
+        verify { second.apply(accent) }
+        verify { third.apply(accent) }
+    }
+
+    /**
+     * Regression guard for the per-element try-catch at line 157-164 of
+     * [AccentApplicator.revertAll]. Revert failures on one element must
+     * not block revert for the rest.
+     */
+    @Test
+    fun `revertAll continues loop when one element throws`() {
+        val first = createFakeAccentElement(AccentElementId.CARET_ROW, "Caret Row")
+        val second = createFakeAccentElement(AccentElementId.SCROLLBAR, "Scrollbar")
+        every { second.revert() } throws IllegalStateException("revert failed")
+        val third = createFakeAccentElement(AccentElementId.LINKS, "Links")
+        mockEpExtensionList(listOf(first, second, third))
+
+        AccentApplicator.revertAll()
+
+        verify { first.revert() }
+        verify { second.revert() }
+        verify { third.revert() }
+    }
+
+    /**
+     * Regression guard for the try-catch at line 187-195 of
+     * [AccentApplicator.neutralizeOrRevert]. When an element is disabled,
+     * the neutral path runs — and its failure must not propagate out of
+     * [AccentApplicator.applyElements].
+     */
+    @Test
+    fun `neutralizeOrRevert catches exceptions from disabled elements`() {
+        val failing = createFakeAccentElement(AccentElementId.CARET_ROW, "Caret Row")
+        every { failing.applyNeutral(any()) } throws IllegalStateException("neutralize failed")
+        val trailing = createFakeAccentElement(AccentElementId.SCROLLBAR, "Scrollbar")
+        state.caretRow = false
+        mockEpExtensionList(listOf(failing, trailing))
+
+        val accent = Color.decode("#FFCC66")
+        // Must not throw despite failing.applyNeutral exploding
+        invokeApplyElements(state, accent, AyuVariant.MIRAGE)
+
+        // Loop continued and the trailing element was processed normally
+        verify { failing.applyNeutral(AyuVariant.MIRAGE) }
+        verify { trailing.apply(accent) }
+    }
+
+    /**
+     * Behaviour check for the disabled branch of
+     * [AccentApplicator.applyElements]: `apply` must not be called and
+     * the neutral path (applyNeutral on non-null variant) must run.
+     */
+    @Test
+    fun `applyElements skips disabled element without calling apply`() {
+        val element = createFakeAccentElement(AccentElementId.CARET_ROW, "Caret Row")
+        state.setToggle(AccentElementId.CARET_ROW, false)
+        mockEpExtensionList(listOf(element))
+
+        val accent = Color.decode("#FFCC66")
+        invokeApplyElements(state, accent, AyuVariant.MIRAGE)
+
+        verify(exactly = 0) { element.apply(any()) }
+        verify { element.applyNeutral(AyuVariant.MIRAGE) }
+    }
+
+    /**
+     * Behaviour check for the conflict branch of
+     * [AccentApplicator.applyElements]: when [ConflictRegistry] reports a
+     * conflict and the user has NOT opted into force-override, the element
+     * must be neutralized instead of applied.
+     */
+    @Test
+    fun `applyElements skips element when ConflictRegistry reports a conflict`() {
+        val element = createFakeAccentElement(AccentElementId.MATCHING_TAG, "Matching Tag")
+        val conflict =
+            ConflictEntry(
+                pluginDisplayName = "Atom Material Icons",
+                pluginId = "com.mallowigi",
+                affectedElements = setOf(AccentElementId.MATCHING_TAG),
+                type = ConflictType.BLOCK,
+            )
+        every { ConflictRegistry.getConflictFor(AccentElementId.MATCHING_TAG) } returns conflict
+        // forceOverrides does NOT contain the element id name
+        state.forceOverrides = mutableSetOf()
+        mockEpExtensionList(listOf(element))
+
+        val accent = Color.decode("#FFCC66")
+        invokeApplyElements(state, accent, AyuVariant.MIRAGE)
+
+        verify(exactly = 0) { element.apply(any()) }
+        verify { element.applyNeutral(AyuVariant.MIRAGE) }
+    }
+
+    /**
+     * Behaviour check for the force-override escape hatch in
+     * [AccentApplicator.applyElements]: if the user opts in via
+     * `forceOverrides`, the conflict is bypassed and the element applies
+     * normally.
+     */
+    @Test
+    fun `applyElements force-overrides conflict when user opted in`() {
+        val element = createFakeAccentElement(AccentElementId.MATCHING_TAG, "Matching Tag")
+        val conflict =
+            ConflictEntry(
+                pluginDisplayName = "Atom Material Icons",
+                pluginId = "com.mallowigi",
+                affectedElements = setOf(AccentElementId.MATCHING_TAG),
+                type = ConflictType.BLOCK,
+            )
+        every { ConflictRegistry.getConflictFor(AccentElementId.MATCHING_TAG) } returns conflict
+        state.forceOverrides = mutableSetOf(AccentElementId.MATCHING_TAG.name)
+        mockEpExtensionList(listOf(element))
+
+        val accent = Color.decode("#FFCC66")
+        invokeApplyElements(state, accent, AyuVariant.MIRAGE)
+
+        // Force override wins — apply called, neutralize path not taken
+        verify { element.apply(accent) }
+        verify(exactly = 0) { element.applyNeutral(any()) }
+    }
+
+    /**
+     * Builds a relaxed [AccentElement] mock with the given id and display
+     * name. Used by the defensive dispatch regression tests to assemble
+     * multi-element scenarios quickly and consistently.
+     */
+    private fun createFakeAccentElement(
+        id: AccentElementId,
+        displayName: String,
+    ): AccentElement {
+        val element = mockk<AccentElement>(relaxed = true)
+        every { element.id } returns id
+        every { element.displayName } returns displayName
+        return element
+    }
+
     // Tests for syncCodeGlanceProViewport full flow
 
     @Test

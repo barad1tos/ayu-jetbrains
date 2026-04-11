@@ -172,4 +172,37 @@ class AyuVariantTest {
 
         assertFalse(AyuVariant.isIslandsUi())
     }
+
+    @Test
+    fun `fromThemeName is case-sensitive`() {
+        // Platform theme-name lookup is exact-match; case folding would cause false positives
+        // against third-party themes that happen to share a prefix.
+        assertNull(AyuVariant.fromThemeName("ayu mirage"))
+        assertNull(AyuVariant.fromThemeName("AYU MIRAGE"))
+        assertNull(AyuVariant.fromThemeName("Ayu MIRAGE"))
+        assertNull(AyuVariant.fromThemeName("ayu dark"))
+        assertNull(AyuVariant.fromThemeName("AYU LIGHT (ISLANDS UI)"))
+    }
+
+    @Test
+    fun `fromThemeName rejects partial matches`() {
+        // Prefix/substring matching would collide with plugins that ship "Ayu Vim" or similar.
+        assertNull(AyuVariant.fromThemeName("Ayu"))
+        assertNull(AyuVariant.fromThemeName("Mirage"))
+        assertNull(AyuVariant.fromThemeName("Ayu Mirage Extended"))
+        assertNull(AyuVariant.fromThemeName("Ayu Mirage+"))
+        assertNull(AyuVariant.fromThemeName("Custom Ayu Mirage"))
+        assertNull(AyuVariant.fromThemeName("(Islands UI)"))
+    }
+
+    @Test
+    fun `fromThemeName with whitespace variations returns null`() {
+        // LafManager theme names are whitespace-exact; trimming or collapsing would mask typos
+        // in third-party theme definitions.
+        assertNull(AyuVariant.fromThemeName("  Ayu Mirage  "))
+        assertNull(AyuVariant.fromThemeName("Ayu  Mirage"))
+        assertNull(AyuVariant.fromThemeName("Ayu\tMirage"))
+        assertNull(AyuVariant.fromThemeName("Ayu Mirage "))
+        assertNull(AyuVariant.fromThemeName(" Ayu Mirage"))
+    }
 }

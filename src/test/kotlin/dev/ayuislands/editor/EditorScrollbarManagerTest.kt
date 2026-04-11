@@ -296,4 +296,50 @@ class EditorScrollbarManagerTest {
         // No crash
         manager.dispose()
     }
+
+    @Test
+    fun `multiple editors opened sequentially all have consistent scrollbar state`() {
+        realState.hideEditorHScrollbar = true
+
+        val scrollPane1 = JScrollPane()
+        val scrollPane2 = JScrollPane()
+        val scrollPane3 = JScrollPane()
+
+        val originalH1 = Dimension(scrollPane1.horizontalScrollBar.preferredSize)
+        val originalH2 = Dimension(scrollPane2.horizontalScrollBar.preferredSize)
+        val originalH3 = Dimension(scrollPane3.horizontalScrollBar.preferredSize)
+
+        val editor1 =
+            mockk<EditorEx>(relaxed = true) {
+                every { project } returns this@EditorScrollbarManagerTest.project
+                every { scrollPane } returns scrollPane1
+            }
+        val editor2 =
+            mockk<EditorEx>(relaxed = true) {
+                every { project } returns this@EditorScrollbarManagerTest.project
+                every { scrollPane } returns scrollPane2
+            }
+        val editor3 =
+            mockk<EditorEx>(relaxed = true) {
+                every { project } returns this@EditorScrollbarManagerTest.project
+                every { scrollPane } returns scrollPane3
+            }
+
+        every { editorFactory.allEditors } returns arrayOf(editor1, editor2, editor3)
+
+        val manager = createManager()
+        manager.apply()
+
+        // All three scrollbars must be hidden with zero preferred size
+        assertEquals(Dimension(0, 0), scrollPane1.horizontalScrollBar.preferredSize)
+        assertEquals(Dimension(0, 0), scrollPane2.horizontalScrollBar.preferredSize)
+        assertEquals(Dimension(0, 0), scrollPane3.horizontalScrollBar.preferredSize)
+
+        // Disposing the manager must restore every scrollbar to its original size
+        manager.dispose()
+
+        assertEquals(originalH1, scrollPane1.horizontalScrollBar.preferredSize)
+        assertEquals(originalH2, scrollPane2.horizontalScrollBar.preferredSize)
+        assertEquals(originalH3, scrollPane3.horizontalScrollBar.preferredSize)
+    }
 }

@@ -664,4 +664,105 @@ class BracketFadeManagerTest {
         verify { mockMulticaster.addCaretListener(any(), any()) }
         verify { mockEditorFactory.addEditorFactoryListener(any(), any()) }
     }
+
+    // State-machine regression tests — capture that rapid caret moves and
+    // activate/deactivate/activate cycles do not leak highlighters or
+    // reuse stale disposables.
+
+    /**
+     * Regression guard for highlighter leaks: every caret move must dispose
+     * the previous highlighter before adding a new one, leaving exactly one
+     * entry in `activeHighlighters` for the editor.
+     */
+    @Test
+    fun `rapid caret moves cancel previous highlighter and keep only latest`() {
+        setPrivateField("currentColor", Color.ORANGE)
+
+        val mockContext = mockk<BraceHighlightingAndNavigationContext>(relaxed = true)
+        every {
+            BraceMatchingUtil.computeHighlightingAndNavigationContext(any(), any())
+        } returns mockContext
+        every { mockDocument.getLineNumber(any()) } returns 0
+
+        val highlighter1 = mockk<RangeHighlighter>(relaxed = true)
+        val highlighter2 = mockk<RangeHighlighter>(relaxed = true)
+        val highlighter3 = mockk<RangeHighlighter>(relaxed = true)
+        every { highlighter1.isValid } returns true
+        every { highlighter2.isValid } returns true
+        every { highlighter3.isValid } returns true
+
+        // Each call returns a distinct highlighter so we can assert which
+        // one the map ends up holding.
+        every {
+            mockMarkupModel.addRangeHighlighter(
+                any<Int>(),
+                any<Int>(),
+                any<Int>(),
+                any(),
+                any<HighlighterTargetArea>(),
+            )
+        } returnsMany listOf(highlighter1, highlighter2, highlighter3)
+
+        every { mockContext.currentBraceOffset() } returns 10
+        every { mockContext.navigationOffset() } returns 20
+        invokePrivate("handleCaretMove", mockEditor)
+
+        every { mockContext.currentBraceOffset() } returns 30
+        every { mockContext.navigationOffset() } returns 40
+        invokePrivate("handleCaretMove", mockEditor)
+
+        every { mockContext.currentBraceOffset() } returns 100
+        every { mockContext.navigationOffset() } returns 200
+        invokePrivate("handleCaretMove", mockEditor)
+
+        // Previous highlighters must have been removed from the markup model
+        verify { mockMarkupModel.removeHighlighter(highlighter1) }
+        verify { mockMarkupModel.removeHighlighter(highlighter2) }
+        // The latest highlighter should still be live (not removed)
+        verify(exactly = 0) { mockMarkupModel.removeHighlighter(highlighter3) }
+
+        // activeHighlighters map holds only the latest entry for this editor
+        val highlighters = getPrivateField<Map<Editor, List<RangeHighlighter>>>("activeHighlighters")
+        assertEquals(1, highlighters.size, "Expected exactly one editor tracked")
+        assertEquals(listOf(highlighter3), highlighters[mockEditor])
+
+        // And the latest call used the coordinates we asked for (100..200)
+        verify {
+            mockMarkupModel.addRangeHighlighter(
+                100,
+                201,
+                any<Int>(),
+                null,
+                HighlighterTargetArea.LINES_IN_RANGE,
+            )
+        }
+    }
+
+    /**
+     * Regression guard for deactivate/activate cycles: a fresh activate
+     * must produce a new disposable and the new colour — never reuse the
+     * disposed one.
+     */
+    @Test
+    fun `activate then deactivate then activate recreates state cleanly`() {
+        val firstDisposable = mockk<Disposable>(relaxed = true)
+        val secondDisposable = mockk<Disposable>(relaxed = true)
+        every { Disposer.newDisposable(any<String>()) } returnsMany
+            listOf(firstDisposable, secondDisposable)
+
+        BracketFadeManager.activate(Color.RED)
+        assertEquals(firstDisposable, getPrivateField<Disposable?>("disposable"))
+
+        BracketFadeManager.deactivate()
+        assertNull(getPrivateField<Disposable?>("disposable"))
+        assertNull(getPrivateField<Color?>("currentColor"))
+
+        BracketFadeManager.activate(Color.BLUE)
+
+        val refreshed = getPrivateField<Disposable?>("disposable")
+        assertNotNull(refreshed)
+        assertEquals(secondDisposable, refreshed)
+        assertTrue(refreshed !== firstDisposable, "New disposable must not be the disposed one")
+        assertEquals(Color.BLUE, getPrivateField<Color?>("currentColor"))
+    }
 }
