@@ -39,7 +39,47 @@ class LicenseTransitionListenerTest {
     }
 
     @Test
-    fun `unlicensed transition does not flip premiumOnboardingShown`() {
+    fun `first licensed notification does not flip flag (initial state)`() {
+        state.premiumOnboardingShown = true
+        every { LicenseChecker.isLicensed() } returns true
+
+        // First call establishes the baseline — should NOT reset flag
+        LicenseTransitionListener().licenseStateChanged(facade)
+
+        assertTrue(state.premiumOnboardingShown)
+    }
+
+    @Test
+    fun `unlicensed to licensed transition flips flag to false`() {
+        state.premiumOnboardingShown = true
+        val listener = LicenseTransitionListener()
+
+        // First: unlicensed (records baseline)
+        every { LicenseChecker.isLicensed() } returns false
+        listener.licenseStateChanged(facade)
+        assertTrue(state.premiumOnboardingShown)
+
+        // Then: licensed (actual transition)
+        every { LicenseChecker.isLicensed() } returns true
+        listener.licenseStateChanged(facade)
+
+        assertFalse(state.premiumOnboardingShown)
+    }
+
+    @Test
+    fun `licensed to licensed refresh does not flip flag`() {
+        state.premiumOnboardingShown = true
+        val listener = LicenseTransitionListener()
+
+        every { LicenseChecker.isLicensed() } returns true
+        listener.licenseStateChanged(facade) // first call: records baseline
+        listener.licenseStateChanged(facade) // second call: refresh, same state
+
+        assertTrue(state.premiumOnboardingShown)
+    }
+
+    @Test
+    fun `unlicensed notifications do not flip flag`() {
         state.premiumOnboardingShown = true
         every { LicenseChecker.isLicensed() } returns false
 
@@ -49,21 +89,14 @@ class LicenseTransitionListenerTest {
     }
 
     @Test
-    fun `licensed transition flips premiumOnboardingShown to false`() {
-        state.premiumOnboardingShown = true
-        every { LicenseChecker.isLicensed() } returns true
-
-        LicenseTransitionListener().licenseStateChanged(facade)
-
-        assertFalse(state.premiumOnboardingShown)
-    }
-
-    @Test
-    fun `licensed transition with flag already false is a no-op`() {
+    fun `transition with flag already false is a no-op`() {
         state.premiumOnboardingShown = false
-        every { LicenseChecker.isLicensed() } returns true
+        val listener = LicenseTransitionListener()
 
-        LicenseTransitionListener().licenseStateChanged(facade)
+        every { LicenseChecker.isLicensed() } returns false
+        listener.licenseStateChanged(facade)
+        every { LicenseChecker.isLicensed() } returns true
+        listener.licenseStateChanged(facade)
 
         assertFalse(state.premiumOnboardingShown)
     }
