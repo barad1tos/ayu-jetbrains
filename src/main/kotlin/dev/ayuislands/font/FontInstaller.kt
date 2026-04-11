@@ -154,7 +154,8 @@ object FontInstaller {
         persistAndApply(entry, preset, project, canonicalFamily, onComplete)
     }
 
-    private fun resolveDownloadUrl(entry: FontCatalog.Entry): String =
+    // @VisibleForTesting — extracted helpers for unit testing
+    internal fun resolveDownloadUrl(entry: FontCatalog.Entry): String =
         try {
             FontAssetResolver().resolve(entry)
         } catch (e: RuntimeException) {
@@ -162,7 +163,8 @@ object FontInstaller {
             entry.fallbackUrl
         }
 
-    private fun cachedZipFile(
+    // @VisibleForTesting — extracted helpers for unit testing
+    internal fun cachedZipFile(
         url: String,
         preset: FontPreset,
     ): File {
@@ -170,9 +172,13 @@ object FontInstaller {
         return File(cacheDir, url.substringAfterLast('/').ifBlank { "${preset.name}.zip" })
     }
 
-    /** Downloads the zip unless a valid cached copy already exists. */
+    /**
+     * Downloads the zip unless a valid cached copy already exists.
+     *
+     * `internal` for unit testing (see `FontInstallerTest`).
+     */
     @Throws(IOException::class)
-    private fun downloadZip(
+    internal fun downloadZip(
         url: String,
         zipFile: File,
         indicator: ProgressIndicator,
@@ -188,15 +194,20 @@ object FontInstaller {
         }
     }
 
-    private fun downloadFailureKind(exception: IOException): FailureKind =
+    // @VisibleForTesting — extracted helpers for unit testing
+    internal fun downloadFailureKind(exception: IOException): FailureKind =
         when (exception) {
             is UnknownHostException, is SocketException, is SSLException -> FailureKind.OFFLINE
             else -> FailureKind.HTTP_ERROR
         }
 
-    /** Extracts font files from the archive. */
+    /**
+     * Extracts font files from the archive.
+     *
+     * `internal` for unit testing (see `FontInstallerTest`).
+     */
     @Throws(IOException::class)
-    private fun extractFonts(
+    internal fun extractFonts(
         zipFile: File,
         extractDir: File,
         entry: FontCatalog.Entry,
@@ -207,7 +218,8 @@ object FontInstaller {
             throw IOException(e.message, e)
         }
 
-    private fun extractionFailureKind(
+    // @VisibleForTesting — extracted helpers for unit testing
+    internal fun extractionFailureKind(
         exception: IOException,
         zipFile: File,
     ): FailureKind {
@@ -223,9 +235,13 @@ object FontInstaller {
         return FailureKind.EXTRACTION_FAILED
     }
 
-    /** Copies extracted font files into the platform user-level font directory. */
+    /**
+     * Copies extracted font files into the platform user-level font directory.
+     *
+     * `internal` for unit testing (see `FontInstallerTest`).
+     */
     @Throws(IOException::class)
-    private fun copyToPlatformFontDir(extracted: List<File>): List<File> {
+    internal fun copyToPlatformFontDir(extracted: List<File>): List<File> {
         val platformDir = platformFontDir()
         if (!platformDir.exists()) platformDir.mkdirs()
         if (!platformDir.canWrite()) {
@@ -238,16 +254,21 @@ object FontInstaller {
         }
     }
 
-    /** Registers the first installed font file with the JVM's graphics environment. */
+    /**
+     * Registers the first installed font file with the JVM's graphics environment.
+     *
+     * `internal` for unit testing (see `FontInstallerTest`).
+     */
     @Throws(java.awt.FontFormatException::class, IOException::class)
-    private fun registerFont(installedFiles: List<File>): String {
+    internal fun registerFont(installedFiles: List<File>): String {
         val first = installedFiles.first()
         val font = Font.createFont(Font.TRUETYPE_FONT, first)
         GraphicsEnvironment.getLocalGraphicsEnvironment().registerFont(font)
         return font.family
     }
 
-    private fun cleanupQuietly(directory: File) {
+    // @VisibleForTesting — extracted helpers for unit testing
+    internal fun cleanupQuietly(directory: File) {
         try {
             directory.deleteRecursively()
         } catch (exception: IOException) {
@@ -290,7 +311,8 @@ object FontInstaller {
         }
     }
 
-    private fun persistFontState(canonicalFamily: String) {
+    // @VisibleForTesting — extracted helpers for unit testing
+    internal fun persistFontState(canonicalFamily: String) {
         val state = AyuIslandsSettings.getInstance().state
         state.installedFonts.add(canonicalFamily)
         FontDetector.invalidateCache()
@@ -381,7 +403,8 @@ object FontInstaller {
             FailureKind.EXTRACTION_FAILED,
         )
 
-    private fun platformFontDir(): File {
+    // @VisibleForTesting — extracted helpers for unit testing
+    internal fun platformFontDir(): File {
         val home = System.getProperty("user.home")
         return when {
             SystemInfo.isMac -> File(home, "Library/Fonts")

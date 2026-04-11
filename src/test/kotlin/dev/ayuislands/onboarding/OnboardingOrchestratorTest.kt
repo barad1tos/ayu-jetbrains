@@ -1,5 +1,9 @@
 package dev.ayuislands.onboarding
 
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -292,6 +296,47 @@ class OnboardingOrchestratorTest {
         OnboardingOrchestrator.tryPick()
         OnboardingOrchestrator.resetForTesting()
         assertTrue(OnboardingOrchestrator.tryPick())
+    }
+
+    @Test
+    fun `tryPick is thread-safe under concurrent access from 100 threads`() {
+        OnboardingOrchestrator.resetForTesting()
+        val threadCount = 100
+        val startLatch = CountDownLatch(1)
+        val doneLatch = CountDownLatch(threadCount)
+        val trueCount = AtomicInteger(0)
+        val executor = Executors.newFixedThreadPool(threadCount)
+        try {
+            repeat(threadCount) {
+                executor.submit {
+                    try {
+                        // Block all worker threads until the main thread releases them,
+                        // so they race on tryPick() instead of running serialized.
+                        startLatch.await()
+                        if (OnboardingOrchestrator.tryPick()) {
+                            trueCount.incrementAndGet()
+                        }
+                    } finally {
+                        doneLatch.countDown()
+                    }
+                }
+            }
+            startLatch.countDown()
+            assertTrue(
+                doneLatch.await(5, TimeUnit.SECONDS),
+                "Worker threads did not finish within 5 seconds",
+            )
+        } finally {
+            executor.shutdownNow()
+        }
+
+        assertEquals(
+            1,
+            trueCount.get(),
+            "Exactly one of $threadCount concurrent callers must win tryPick()",
+        )
+        // Subsequent call must still return false — the one-shot is latched.
+        assertFalse(OnboardingOrchestrator.tryPick())
     }
 
     // -----------------------------------------------------------------------

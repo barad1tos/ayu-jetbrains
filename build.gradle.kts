@@ -186,8 +186,6 @@ kover {
                     "dev.ayuislands.onboarding.*Editor",
                     "dev.ayuislands.onboarding.*VirtualFile*",
                     "dev.ayuislands.onboarding.OnboardingSchedulerService*",
-                    // Font download/install pipeline (IO, network, platform filesystem)
-                    "dev.ayuislands.font.FontInstaller*",
                     // Startup lifecycle (coroutine scheduling, project service init)
                     "dev.ayuislands.StartupLicenseHandler*",
                     // Onboarding data-class holders (generated constructors + getters only)
