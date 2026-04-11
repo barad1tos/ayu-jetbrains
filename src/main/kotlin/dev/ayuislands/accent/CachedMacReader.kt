@@ -4,6 +4,7 @@ import com.intellij.openapi.util.SystemInfo
 
 class CachedMacReader<T>(
     private val ttlMs: Long = 5_000L,
+    private val clock: () -> Long = System::currentTimeMillis,
     private val reader: () -> T?,
 ) {
     @Volatile
@@ -15,7 +16,7 @@ class CachedMacReader<T>(
     @Synchronized
     fun read(): T? {
         if (!SystemInfo.isMac) return null
-        val now = System.currentTimeMillis()
+        val now = clock()
         if (now - timestamp < ttlMs) return cached
         val result = reader()
         cached = result

@@ -16,6 +16,7 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
+import org.jetbrains.annotations.TestOnly
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 
@@ -106,7 +107,7 @@ class AccentRotationService : Disposable {
         scheduledFuture = null
     }
 
-    // @VisibleForTesting
+    @TestOnly
     internal fun canRotate(): Boolean {
         val state = AyuIslandsSettings.getInstance().state
         if (!state.accentRotationEnabled) {
@@ -120,7 +121,7 @@ class AccentRotationService : Disposable {
         return true
     }
 
-    // @VisibleForTesting
+    @TestOnly
     internal fun rotateAccent() {
         if (!canRotate()) return
         if (checkedDisposable.isDisposed) {

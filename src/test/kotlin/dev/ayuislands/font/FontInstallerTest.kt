@@ -1,5 +1,7 @@
 package dev.ayuislands.font
 
+import com.intellij.notification.Notification
+import com.intellij.notification.Notifications
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.PathManager
@@ -55,8 +57,6 @@ class FontInstallerTest {
         return file
     }
 
-    // ---- platformFontDir ----
-
     @Test
     fun `platformFontDir returns OS-specific path for current platform`() {
         val dir = FontInstaller.platformFontDir()
@@ -83,8 +83,6 @@ class FontInstallerTest {
         }
     }
 
-    // ---- cachedZipFile ----
-
     @Test
     fun `cachedZipFile derives filename from URL`() {
         mockkStatic(PathManager::class)
@@ -107,8 +105,6 @@ class FontInstallerTest {
 
         assertEquals("WHISPER.zip", file.name)
     }
-
-    // ---- downloadFailureKind ----
 
     @Test
     fun `downloadFailureKind maps UnknownHostException to OFFLINE`() {
@@ -133,8 +129,6 @@ class FontInstallerTest {
         val kind = FontInstaller.downloadFailureKind(IOException("500 server error"))
         assertEquals(FontInstaller.FailureKind.HTTP_ERROR, kind)
     }
-
-    // ---- extractionFailureKind ----
 
     @Test
     fun `extractionFailureKind maps No matching files cause to ASSET_NOT_FOUND`() {
@@ -171,8 +165,6 @@ class FontInstallerTest {
         assertEquals(FontInstaller.FailureKind.EXTRACTION_FAILED, kind)
         assertTrue(zipFile.exists(), "Non-zip IOException should not delete cache")
     }
-
-    // ---- extractFonts (integration through real zip) ----
 
     @Test
     fun `extractFonts extracts only matching font files`() {
@@ -221,42 +213,41 @@ class FontInstallerTest {
         )
     }
 
-    // ---- copyToPlatformFontDir ----
-    //
-    // NOTE: copyToPlatformFontDir() internally calls platformFontDir() which
-    // reads real system paths. We cannot mock the private helper in isolation,
-    // so instead we verify the copy logic by creating a real source file and
-    // letting the real platformFontDir() receive the copy. To avoid polluting
-    // the user's actual font directory, we skip if the real font dir is not
-    // writable AND we clean up the file afterwards. If running on CI without
-    // a writable font dir, the test gracefully no-ops.
-
     @Test
-    fun `copyToPlatformFontDir copies source files into real platform dir`() {
-        val platformDir = FontInstaller.platformFontDir()
-        if (!platformDir.exists()) platformDir.mkdirs()
-        if (!platformDir.canWrite()) {
-            // No writable platform font dir available (sandboxed CI). Skip gracefully.
-            return
-        }
+    fun `copyToPlatformFontDir copies source files into dest dir`() {
+        val destDir = File(tmpRoot, "fake-platform-fonts").apply { mkdirs() }
+        val source = File(tmpRoot, "test-font.ttf").apply { writeBytes(ByteArray(16) { it.toByte() }) }
 
-        val uniqueName = "ayu-islands-copy-test-${System.nanoTime()}.ttf"
-        val source = File(tmpRoot, uniqueName).apply { writeBytes(ByteArray(16) { it.toByte() }) }
+        val copied = FontInstaller.copyToPlatformFontDir(listOf(source), destDir = destDir)
 
-        try {
-            val copied = FontInstaller.copyToPlatformFontDir(listOf(source))
-
-            assertEquals(1, copied.size)
-            assertEquals(uniqueName, copied[0].name)
-            assertTrue(copied[0].exists(), "Copied file must exist in platform dir")
-            assertEquals(source.length(), copied[0].length())
-        } finally {
-            // Remove the sentinel file so we don't litter the user's font dir.
-            File(platformDir, uniqueName).delete()
-        }
+        assertEquals(1, copied.size)
+        assertEquals("test-font.ttf", copied[0].name)
+        assertEquals(destDir.absolutePath, copied[0].parentFile.absolutePath)
+        assertTrue(copied[0].exists(), "Copied file must exist in dest dir")
+        assertEquals(source.length(), copied[0].length())
     }
 
-    // ---- cleanupQuietly ----
+    @Test
+    fun `copyToPlatformFontDir throws AccessDeniedException when dest not writable`() {
+        val destDir =
+            File(tmpRoot, "readonly-dest").apply {
+                mkdirs()
+                setWritable(false)
+            }
+        val source = File(tmpRoot, "src.ttf").apply { writeBytes(ByteArray(4)) }
+
+        try {
+            val thrown =
+                runCatching { FontInstaller.copyToPlatformFontDir(listOf(source), destDir = destDir) }
+                    .exceptionOrNull()
+            assertTrue(
+                thrown is java.nio.file.AccessDeniedException,
+                "Expected AccessDeniedException, got: $thrown",
+            )
+        } finally {
+            destDir.setWritable(true)
+        }
+    }
 
     @Test
     fun `cleanupQuietly removes directory recursively`() {
@@ -272,20 +263,38 @@ class FontInstallerTest {
         assertFalse(dir.exists(), "Directory should be removed")
     }
 
-    // ---- applyOnly ----
-
     @Test
     fun `applyOnly invokes FontPresetApplicator inside invokeLater`() {
         mockkStatic(ApplicationManager::class)
         mockkObject(FontPresetApplicator)
         val appMock = mockk<Application>(relaxed = true)
         every { ApplicationManager.getApplication() } returns appMock
-        // Run the Runnable synchronously so we can verify apply() was called.
         every { appMock.invokeLater(any()) } answers { firstArg<Runnable>().run() }
         every { FontPresetApplicator.apply(any()) } answers { /* no-op */ }
 
         FontInstaller.applyOnly(FontPreset.AMBIENT, project = null)
 
         verify(exactly = 1) { FontPresetApplicator.apply(any()) }
+    }
+
+    @Test
+    fun `applyOnly notifies user when apply fails (regression for silent warn)`() {
+        mockkStatic(ApplicationManager::class)
+        mockkStatic(Notifications.Bus::class)
+        mockkObject(FontPresetApplicator)
+        val appMock = mockk<Application>(relaxed = true)
+        every { ApplicationManager.getApplication() } returns appMock
+        every { appMock.invokeLater(any()) } answers { firstArg<Runnable>().run() }
+        every { FontPresetApplicator.apply(any()) } throws RuntimeException("boom")
+        every { Notifications.Bus.notify(any(), null) } answers { }
+
+        FontInstaller.applyOnly(FontPreset.AMBIENT, project = null)
+
+        verify(exactly = 1) {
+            Notifications.Bus.notify(
+                match<Notification> { it.content.contains("Editor → Font") },
+                null,
+            )
+        }
     }
 }

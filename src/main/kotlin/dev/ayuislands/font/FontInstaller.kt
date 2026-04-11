@@ -13,6 +13,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.util.io.HttpRequests
 import dev.ayuislands.settings.AyuIslandsSettings
+import org.jetbrains.annotations.TestOnly
 import java.awt.Font
 import java.awt.GraphicsEnvironment
 import java.io.File
@@ -91,13 +92,15 @@ object FontInstaller {
     /** Apply a preset without any download work — used when the font is already installed. */
     fun applyOnly(
         preset: FontPreset,
-        @Suppress("UNUSED_PARAMETER") project: Project?,
+        project: Project?,
     ) {
+        val entry = FontCatalog.forPreset(preset)
         ApplicationManager.getApplication().invokeLater {
             try {
                 FontPresetApplicator.apply(FontSettings.decode(null, preset))
             } catch (exception: RuntimeException) {
                 LOG.warn("FontPresetApplicator.apply failed (applyOnly)", exception)
+                notify(entry, project, FailureKind.APPLY_FAILED, NotificationType.WARNING)
             }
         }
     }
@@ -154,7 +157,7 @@ object FontInstaller {
         persistAndApply(entry, preset, project, canonicalFamily, onComplete)
     }
 
-    // @VisibleForTesting — extracted helpers for unit testing
+    @TestOnly
     internal fun resolveDownloadUrl(entry: FontCatalog.Entry): String =
         try {
             FontAssetResolver().resolve(entry)
@@ -163,7 +166,7 @@ object FontInstaller {
             entry.fallbackUrl
         }
 
-    // @VisibleForTesting — extracted helpers for unit testing
+    @TestOnly
     internal fun cachedZipFile(
         url: String,
         preset: FontPreset,
@@ -172,11 +175,8 @@ object FontInstaller {
         return File(cacheDir, url.substringAfterLast('/').ifBlank { "${preset.name}.zip" })
     }
 
-    /**
-     * Downloads the zip unless a valid cached copy already exists.
-     *
-     * `internal` for unit testing (see `FontInstallerTest`).
-     */
+    /** Downloads the zip unless a valid cached copy already exists. */
+    @TestOnly
     @Throws(IOException::class)
     internal fun downloadZip(
         url: String,
@@ -194,18 +194,15 @@ object FontInstaller {
         }
     }
 
-    // @VisibleForTesting — extracted helpers for unit testing
+    @TestOnly
     internal fun downloadFailureKind(exception: IOException): FailureKind =
         when (exception) {
             is UnknownHostException, is SocketException, is SSLException -> FailureKind.OFFLINE
             else -> FailureKind.HTTP_ERROR
         }
 
-    /**
-     * Extracts font files from the archive.
-     *
-     * `internal` for unit testing (see `FontInstallerTest`).
-     */
+    /** Extracts font files from the archive. */
+    @TestOnly
     @Throws(IOException::class)
     internal fun extractFonts(
         zipFile: File,
@@ -218,7 +215,7 @@ object FontInstaller {
             throw IOException(e.message, e)
         }
 
-    // @VisibleForTesting — extracted helpers for unit testing
+    @TestOnly
     internal fun extractionFailureKind(
         exception: IOException,
         zipFile: File,
@@ -236,29 +233,29 @@ object FontInstaller {
     }
 
     /**
-     * Copies extracted font files into the platform user-level font directory.
-     *
-     * `internal` for unit testing (see `FontInstallerTest`).
+     * Copies extracted font files into a destination directory.
+     * Defaults to the platform user-level font directory; tests pass a temp dir
+     * to avoid polluting the user's real font folder.
      */
+    @TestOnly
     @Throws(IOException::class)
-    internal fun copyToPlatformFontDir(extracted: List<File>): List<File> {
-        val platformDir = platformFontDir()
-        if (!platformDir.exists()) platformDir.mkdirs()
-        if (!platformDir.canWrite()) {
-            throw AccessDeniedException(platformDir.absolutePath)
+    internal fun copyToPlatformFontDir(
+        extracted: List<File>,
+        destDir: File = platformFontDir(),
+    ): List<File> {
+        if (!destDir.exists()) destDir.mkdirs()
+        if (!destDir.canWrite()) {
+            throw AccessDeniedException(destDir.absolutePath)
         }
         return extracted.map { source ->
-            val target = File(platformDir, source.name)
+            val target = File(destDir, source.name)
             Files.copy(source.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
             target
         }
     }
 
-    /**
-     * Registers the first installed font file with the JVM's graphics environment.
-     *
-     * `internal` for unit testing (see `FontInstallerTest`).
-     */
+    /** Registers the first installed font file with the JVM's graphics environment. */
+    @TestOnly
     @Throws(java.awt.FontFormatException::class, IOException::class)
     internal fun registerFont(installedFiles: List<File>): String {
         val first = installedFiles.first()
@@ -267,7 +264,7 @@ object FontInstaller {
         return font.family
     }
 
-    // @VisibleForTesting — extracted helpers for unit testing
+    @TestOnly
     internal fun cleanupQuietly(directory: File) {
         try {
             directory.deleteRecursively()
@@ -311,7 +308,7 @@ object FontInstaller {
         }
     }
 
-    // @VisibleForTesting — extracted helpers for unit testing
+    @TestOnly
     internal fun persistFontState(canonicalFamily: String) {
         val state = AyuIslandsSettings.getInstance().state
         state.installedFonts.add(canonicalFamily)
@@ -403,7 +400,7 @@ object FontInstaller {
             FailureKind.EXTRACTION_FAILED,
         )
 
-    // @VisibleForTesting — extracted helpers for unit testing
+    @TestOnly
     internal fun platformFontDir(): File {
         val home = System.getProperty("user.home")
         return when {

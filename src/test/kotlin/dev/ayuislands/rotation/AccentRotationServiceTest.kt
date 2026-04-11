@@ -24,7 +24,6 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.util.EnumSet
 import kotlin.test.AfterTest
-import kotlin.test.BeforeTest
 import kotlin.test.assertFalse
 
 class AccentRotationServiceTest {
@@ -84,13 +83,9 @@ class AccentRotationServiceTest {
         }
     }
 
-    // ---------------------------------------------------------------------
-    // Scheduler lifecycle — canRotate() + rotateAccent() logic
-    //
-    // We do NOT test startRotation()/stopRotation() through a real
-    // ScheduledExecutorService (too flaky). Instead we drive rotateAccent()
-    // directly by invoking the scheduled-task body synchronously.
-    // ---------------------------------------------------------------------
+    // Scheduler lifecycle tests drive rotateAccent() directly rather than
+    // going through a real ScheduledExecutorService — the 1-hour interval
+    // makes timer-based testing impractical and flaky.
 
     private lateinit var state: AyuIslandsState
     private lateinit var settingsMock: AyuIslandsSettings
@@ -132,12 +127,6 @@ class AccentRotationServiceTest {
     @AfterTest
     fun tearDown() {
         unmockkAll()
-    }
-
-    @BeforeTest
-    fun setUp() {
-        // Each scheduler test calls mockRotationEnvironment() itself so the pure-logic
-        // tests above (nextPresetHex, fromName) stay dependency-free.
     }
 
     @Test

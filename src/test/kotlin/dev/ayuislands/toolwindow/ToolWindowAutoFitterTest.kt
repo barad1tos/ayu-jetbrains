@@ -440,20 +440,19 @@ class ToolWindowAutoFitterTest {
                 )
             fitter.maxWidthProvider = { 500 }
 
-            // Fire scheduleAutoFit 5 times rapidly — debounce timer
-            // (150ms, non-repeating) restarts on each call, so only
-            // one applyAutoFitWidth should ultimately run.
+            // Fire scheduleAutoFit 5 times rapidly — the debounce timer
+            // (non-repeating) restarts on each call, so only ONE pending
+            // apply should exist when we flush.
             repeat(5) { fitter.scheduleAutoFit() }
+
+            // Verify the debounce deferred all 5 calls — no apply yet.
+            verify(exactly = 0) { toolWindowEx.stretchWidth(any()) }
+
+            // Drive the pending timer directly instead of Thread.sleep.
+            fitter.flushDebounceForTesting()
+
+            verify(exactly = 1) { toolWindowEx.stretchWidth(any()) }
         }
-
-        // Wait for the debounce timer to elapse and fire on the EDT.
-        // Debounce is 150ms; give generous margin to avoid CI flakes.
-        Thread.sleep(400)
-
-        // Drain any pending EDT events so the Timer callback has run.
-        SwingUtilities.invokeAndWait { /* flush */ }
-
-        verify(exactly = 1) { toolWindowEx.stretchWidth(any()) }
     }
 
     @Test

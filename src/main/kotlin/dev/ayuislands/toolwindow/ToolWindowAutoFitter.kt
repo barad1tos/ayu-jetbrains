@@ -6,6 +6,7 @@ import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ToolWindowType
 import com.intellij.openapi.wm.ex.ToolWindowEx
 import dev.ayuislands.settings.PanelWidthMode
+import org.jetbrains.annotations.TestOnly
 import javax.swing.JTree
 import javax.swing.SwingUtilities
 import javax.swing.Timer
@@ -175,6 +176,19 @@ class ToolWindowAutoFitter(
 
     fun scheduleAutoFit() {
         debounceTimer.restart()
+    }
+
+    /**
+     * Stops the pending debounce timer (if any) and fires the fit immediately.
+     * Used by tests to avoid wall-clock waits for the 150 ms debounce window.
+     */
+    @TestOnly
+    internal fun flushDebounceForTesting() {
+        val hadPending = debounceTimer.isRunning
+        debounceTimer.stop()
+        if (hadPending) {
+            applyAutoFitWidth(maxWidthProvider())
+        }
     }
 
     private fun findTreeWithRetry(

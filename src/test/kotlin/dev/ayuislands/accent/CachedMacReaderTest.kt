@@ -52,22 +52,30 @@ class CachedMacReaderTest {
     }
 
     @Test
-    fun `cache expires after real ttlMs elapsed`() {
+    fun `cache expires after ttlMs elapsed (mocked clock)`() {
+        // Drive the clock manually instead of Thread.sleep — keeps the test
+        // deterministic on slow CI machines.
+        var nowMs = 1_000L
         var callCount = 0
         val reader =
-            CachedMacReader(ttlMs = 50L) {
+            CachedMacReader(
+                ttlMs = 50L,
+                clock = { nowMs },
+            ) {
                 callCount++
                 "fresh-$callCount"
             }
 
-        // First read is a fresh fetch
         assertEquals("fresh-1", reader.read())
         assertEquals(1, callCount)
 
-        // Sleep past the TTL boundary
-        Thread.sleep(100)
+        // Still inside TTL window — cache hit
+        nowMs += 49L
+        assertEquals("fresh-1", reader.read())
+        assertEquals(1, callCount)
 
-        // Should re-invoke the reader because the cache expired
+        // Cross the TTL boundary — cache must refresh
+        nowMs += 2L
         assertEquals("fresh-2", reader.read())
         assertEquals(2, callCount)
     }
