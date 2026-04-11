@@ -101,4 +101,38 @@ class AyuIslandsSettingsTest {
         assertEquals("#BB2222", settings.state.darkAccent)
         assertEquals("#CC3333", settings.state.lightAccent)
     }
+
+    @Test
+    fun `seedInstalledFontsFromDiskIfNeeded is no-op when already seeded`() {
+        val state = AyuIslandsState().apply { installedFontsSeeded = true }
+        val settings = createSettings(state)
+
+        settings.seedInstalledFontsFromDiskIfNeeded()
+
+        assertEquals(true, state.installedFontsSeeded)
+        assertEquals(0, state.installedFonts.size)
+    }
+
+    @Test
+    fun `seedInstalledFontsFromDiskIfNeeded sets seeded flag on first run`() {
+        val settings = createSettings(AyuIslandsState())
+
+        settings.seedInstalledFontsFromDiskIfNeeded()
+
+        assertEquals(true, settings.state.installedFontsSeeded)
+    }
+
+    @Test
+    fun `seedInstalledFontsFromDiskIfNeeded does not re-add already installed fonts`() {
+        val state =
+            AyuIslandsState().apply {
+                installedFonts.add("Victor Mono")
+            }
+        val settings = createSettings(state)
+
+        settings.seedInstalledFontsFromDiskIfNeeded()
+
+        // "Victor Mono" should only appear once, not duplicated
+        assertEquals(1, state.installedFonts.count { it == "Victor Mono" })
+    }
 }

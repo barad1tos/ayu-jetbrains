@@ -188,6 +188,14 @@ kover {
                     "dev.ayuislands.font.FontInstaller*",
                     // Startup lifecycle (coroutine scheduling, project service init)
                     "dev.ayuislands.StartupLicenseHandler*",
+                    // IR plugin integration: reflection into 3rd-party plugin internals
+                    "dev.ayuislands.indent.IndentRainbowSync*",
+                    // Swing TreeCellRenderer (paintComponent, JTree integration)
+                    "dev.ayuislands.projectview.RootFilteringRenderer*",
+                    // Graphics2D paint rendering (editor highlight overlays)
+                    "dev.ayuislands.accent.elements.BracketScopeRenderer*",
+                    // Swing Border + Component lifecycle (editor focus management)
+                    "dev.ayuislands.glow.FocusRingManager*",
                 )
             }
         }
