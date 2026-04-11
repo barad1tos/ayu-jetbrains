@@ -163,6 +163,8 @@ kover {
                     "dev.ayuislands.projectview.ProjectViewScrollbarManager*",
                     // IDE glue: JTree traversal, ToolWindowManager, Timer, expansion listeners
                     "dev.ayuislands.toolwindow.ToolWindowAutoFitter*",
+                    // Swing animation panel (Timer, Graphics2D, Swing lifecycle, editor font lookup)
+                    "dev.ayuislands.settings.AccentColorPanel",
                     // Pure Swing rendering: Graphics2D paint, mouse handlers, animation timers
                     $$"dev.ayuislands.settings.AccentColorPanel$ThirteenthSwatch*",
                     $$"dev.ayuislands.settings.AccentColorPanel$ShuffleLink*",
@@ -188,6 +190,10 @@ kover {
                     "dev.ayuislands.font.FontInstaller*",
                     // Startup lifecycle (coroutine scheduling, project service init)
                     "dev.ayuislands.StartupLicenseHandler*",
+                    // Onboarding data-class holders (generated constructors + getters only)
+                    "dev.ayuislands.onboarding.WizardSvgGeometry",
+                    "dev.ayuislands.onboarding.RailCardSpec",
+                    "dev.ayuislands.onboarding.RailCardLayout",
                     // IR plugin integration: reflection into 3rd-party plugin internals
                     "dev.ayuislands.indent.IndentRainbowSync*",
                     // Swing TreeCellRenderer (paintComponent, JTree integration)
