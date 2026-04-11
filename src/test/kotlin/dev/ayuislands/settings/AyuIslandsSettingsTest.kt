@@ -2,12 +2,14 @@ package dev.ayuislands.settings
 
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.SystemAccentProvider
+import dev.ayuislands.font.FontPreset
 import io.mockk.every
 import io.mockk.mockkObject
 import io.mockk.unmockkAll
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class AyuIslandsSettingsTest {
     private fun createSettings(state: AyuIslandsState): AyuIslandsSettings {
@@ -109,7 +111,7 @@ class AyuIslandsSettingsTest {
 
         settings.seedInstalledFontsFromDiskIfNeeded()
 
-        assertEquals(true, state.installedFontsSeeded)
+        assertTrue(state.installedFontsSeeded)
         assertEquals(0, state.installedFonts.size)
     }
 
@@ -119,20 +121,21 @@ class AyuIslandsSettingsTest {
 
         settings.seedInstalledFontsFromDiskIfNeeded()
 
-        assertEquals(true, settings.state.installedFontsSeeded)
+        assertTrue(settings.state.installedFontsSeeded)
     }
 
     @Test
     fun `seedInstalledFontsFromDiskIfNeeded does not re-add already installed fonts`() {
+        val fontFamily = FontPreset.WHISPER.fontFamily
         val state =
             AyuIslandsState().apply {
-                installedFonts.add("Victor Mono")
+                installedFonts.add(fontFamily)
             }
         val settings = createSettings(state)
 
         settings.seedInstalledFontsFromDiskIfNeeded()
 
-        // "Victor Mono" should only appear once, not duplicated
-        assertEquals(1, state.installedFonts.count { it == "Victor Mono" })
+        // Recorded font should only appear once, not duplicated
+        assertEquals(1, state.installedFonts.count { it == fontFamily })
     }
 }
