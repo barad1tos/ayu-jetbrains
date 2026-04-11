@@ -414,11 +414,11 @@ class ToolWindowAutoFitterTest {
             panel.setSize(200, 400)
 
             val content =
-                mockk<com.intellij.ui.content.Content>(relaxed = true) {
+                mockk<Content>(relaxed = true) {
                     every { component } returns panel
                 }
             val contentManager =
-                mockk<com.intellij.ui.content.ContentManager>(relaxed = true) {
+                mockk<ContentManager>(relaxed = true) {
                     every { contents } returns arrayOf(content)
                 }
             every {
@@ -465,11 +465,11 @@ class ToolWindowAutoFitterTest {
             panel.setSize(200, 400)
 
             val content =
-                mockk<com.intellij.ui.content.Content>(relaxed = true) {
+                mockk<Content>(relaxed = true) {
                     every { component } returns panel
                 }
             val contentManager =
-                mockk<com.intellij.ui.content.ContentManager>(relaxed = true) {
+                mockk<ContentManager>(relaxed = true) {
                     every { contents } returns arrayOf(content)
                 }
             every {
@@ -515,7 +515,7 @@ class ToolWindowAutoFitterTest {
     @Test
     fun `applyAutoFitWidth with empty tree gracefully no-ops`() {
         SwingUtilities.invokeAndWait {
-            // Real (non-mocked) calculator so an empty JTree
+            // Real (non-mocked) calculator so an empty `JTree`
             // measures to rowCount=0 -> maxRowWidth=0 naturally.
             val emptyModel = DefaultTreeModel(null)
             val tree = JTree(emptyModel)
@@ -527,11 +527,11 @@ class ToolWindowAutoFitterTest {
             panel.setSize(150, 400)
 
             val content =
-                mockk<com.intellij.ui.content.Content>(relaxed = true) {
+                mockk<Content>(relaxed = true) {
                     every { component } returns panel
                 }
             val contentManager =
-                mockk<com.intellij.ui.content.ContentManager>(relaxed = true) {
+                mockk<ContentManager>(relaxed = true) {
                     every { contents } returns arrayOf(content)
                 }
             every {
@@ -565,7 +565,7 @@ class ToolWindowAutoFitterTest {
 
     /**
      * Mocks AutoFitCalculator measurement methods
-     * so headless JTree (no row bounds) can be used.
+     * so headless [JTree] (no row bounds) can be used.
      * findFirstOfType is left unmocked (works on
      * real Swing components without a display).
      */

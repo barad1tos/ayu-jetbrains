@@ -14,6 +14,7 @@ import java.util.EnumSet
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -157,7 +158,7 @@ class LicenseTransitionListenerTest {
             assertFalse(state.premiumOnboardingShown, "transition must still fire after glitch recovery")
         }
 
-        assertTrue(loggedErrors.size == 1, "expected exactly one LOG.error for the glitched call")
-        assertTrue(loggedErrors[0]?.message == "platform glitch")
+        assertEquals(1, loggedErrors.size, "expected exactly one LOG.error for the glitched call")
+        assertEquals("platform glitch", loggedErrors[0]?.message)
     }
 }
