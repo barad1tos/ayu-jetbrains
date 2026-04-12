@@ -302,4 +302,44 @@ class FontDetectorTest {
         // times even though status() was invoked 3 times.
         verify(atMost = 2) { GraphicsEnvironment.getLocalGraphicsEnvironment() }
     }
+
+    // ---- user-related edge cases ----
+
+    @Test
+    fun `status returnsCorrupted when some files missing and JVM blind (partial file loss)`() {
+        val tmpDir = createTempDirectory("fontdet-partial").toFile()
+        try {
+            val existing = File(tmpDir, "MapleMono-Regular.ttf").apply { writeText("") }
+            val gone = File(tmpDir, "MapleMono-Italic.ttf")
+            val state =
+                AyuIslandsState().apply {
+                    installedFonts.add("Maple Mono")
+                    installedFontFiles["Maple Mono"] =
+                        "${existing.absolutePath}\n${gone.absolutePath}"
+                }
+            stubSettingsAndGraphicsEnv(state, arrayOf("JetBrains Mono"))
+            assertEquals(FontStatus.CORRUPTED, FontDetector.status(FontPreset.AMBIENT))
+        } finally {
+            tmpDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `status returnsNotInstalled when settings throws IllegalStateException`() {
+        val state = AyuIslandsState().apply { installedFonts.add("Maple Mono") }
+        stubSettingsAndGraphicsEnv(state, arrayOf("Maple Mono"))
+        // Now override getInstance to throw AFTER isInstalled() succeeds
+        every { AyuIslandsSettings.getInstance() } throws IllegalStateException("disposed")
+
+        assertEquals(FontStatus.NOT_INSTALLED, FontDetector.status(FontPreset.AMBIENT))
+    }
+
+    @Test
+    fun `status returnsNotInstalled when settings throws NullPointerException`() {
+        val state = AyuIslandsState().apply { installedFonts.add("Maple Mono") }
+        stubSettingsAndGraphicsEnv(state, arrayOf("Maple Mono"))
+        every { AyuIslandsSettings.getInstance() } throws NullPointerException("no app")
+
+        assertEquals(FontStatus.NOT_INSTALLED, FontDetector.status(FontPreset.AMBIENT))
+    }
 }

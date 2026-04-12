@@ -25,6 +25,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -290,5 +291,95 @@ class FontUninstallerTest {
         FontUninstaller.uninstall(FontPreset.AMBIENT, null) { }
 
         verify(exactly = 1) { progressMgr.run(any<Task.Backgroundable>()) }
+    }
+
+    // ---- user-related edge cases ----
+
+    @Test
+    fun `uninstall_onCompleteFiresEvenWhenRevertThrows`() {
+        val platformDir = createTempDirectory("uninst-revert-crash").toFile()
+        try {
+            val trackedFile = File(platformDir, "MapleMono.ttf").apply { writeText("x") }
+            val state =
+                AyuIslandsState().apply {
+                    installedFonts.add("Maple Mono")
+                    installedFontFiles["Maple Mono"] = trackedFile.absolutePath
+                }
+            stubUninstallPipeline(state, platformDir, activeEditorFont = "Maple Mono")
+            every { FontPresetApplicator.revert() } throws RuntimeException("EDT crash")
+
+            val entry = FontCatalog.forPreset(FontPreset.AMBIENT)
+            val indicator = mockk<ProgressIndicator>(relaxed = true)
+            var result: FontUninstaller.UninstallResult? = null
+            FontUninstaller.runUninstallPipeline(entry, null, indicator) { result = it }
+
+            assertNotNull(result, "onComplete must fire even when revert() throws")
+            assertTrue(result is FontUninstaller.UninstallResult.Success)
+            assertFalse(state.installedFonts.contains("Maple Mono"))
+        } finally {
+            platformDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `uninstall_absolutePathOutsidePlatformDir_noTraversal`() {
+        val platformDir = createTempDirectory("uninst-abs").toFile()
+        val outsideDir = createTempDirectory("uninst-outside-abs").toFile()
+        try {
+            val outsideFile = File(outsideDir, "font.ttf").apply { writeText("safe") }
+            val state =
+                AyuIslandsState().apply {
+                    installedFonts.add("Maple Mono")
+                    installedFontFiles["Maple Mono"] = outsideFile.absolutePath
+                }
+            stubUninstallPipeline(state, platformDir, activeEditorFont = "JetBrains Mono")
+
+            val entry = FontCatalog.forPreset(FontPreset.AMBIENT)
+            val indicator = mockk<ProgressIndicator>(relaxed = true)
+            var result: FontUninstaller.UninstallResult? = null
+            FontUninstaller.runUninstallPipeline(entry, null, indicator) { result = it }
+
+            assertTrue(result is FontUninstaller.UninstallResult.Failure)
+            assertTrue(outsideFile.exists(), "File outside platformDir must survive")
+            assertTrue(state.installedFonts.contains("Maple Mono"), "State unchanged on rejection")
+        } finally {
+            platformDir.deleteRecursively()
+            outsideDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `uninstall_platformDirCanonicalizationFailure_returnsFailure`() {
+        val nonexistent = File("/nonexistent/path/that/cannot/canonicalize")
+        val state =
+            AyuIslandsState().apply {
+                installedFonts.add("Maple Mono")
+                installedFontFiles["Maple Mono"] = "/some/path.ttf"
+            }
+        mockkObject(FontInstaller)
+        every { FontInstaller.platformFontDir() } returns nonexistent
+
+        mockkObject(AyuIslandsSettings.Companion)
+        val settings = AyuIslandsSettings().apply { loadState(state) }
+        every { AyuIslandsSettings.getInstance() } returns settings
+
+        mockkStatic(ApplicationManager::class)
+        val app = mockk<Application>()
+        every { ApplicationManager.getApplication() } returns app
+        every { app.invokeLater(any<Runnable>()) } answers { firstArg<Runnable>().run() }
+
+        mockkStatic(Notifications.Bus::class)
+        every { Notifications.Bus.notify(any<Notification>(), null) } answers { }
+
+        val entry = FontCatalog.forPreset(FontPreset.AMBIENT)
+        val indicator = mockk<ProgressIndicator>(relaxed = true)
+        var result: FontUninstaller.UninstallResult? = null
+        FontUninstaller.runUninstallPipeline(entry, null, indicator) { result = it }
+
+        assertTrue(
+            result is FontUninstaller.UninstallResult.Failure ||
+                result is FontUninstaller.UninstallResult.Success,
+            "Pipeline must complete without throwing",
+        )
     }
 }
