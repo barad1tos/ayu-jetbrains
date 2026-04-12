@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.4.2] - 2026-04-12
+
+### Added
+- [Paid] Install, delete, or reinstall curated fonts directly from Settings without opening the wizard
+- Every install and delete now shows a consent dialog with the exact platform font folder path
+- Deleting a font reverts the editor to JetBrains Mono and warns that full removal takes effect after IDE restart
+- Settings now shows "Installed", "file missing — Reinstall", or "Install automatically" based on actual disk state
+
+### Fixed
+- Fix Settings install link silently writing to ~/Library/Fonts with no consent dialog
+
 ## [2.4.1] - 2026-04-11
 
 ### Fixed
