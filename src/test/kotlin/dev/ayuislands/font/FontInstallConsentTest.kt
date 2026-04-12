@@ -2,7 +2,7 @@ package dev.ayuislands.font
 
 import io.mockk.every
 import io.mockk.mockkObject
-import io.mockk.unmockkObject
+import io.mockk.unmockkAll
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -20,40 +20,52 @@ class FontInstallConsentTest {
 
     @AfterTest
     fun teardown() {
-        unmockkObject(FontInstallConsent)
+        unmockkAll()
     }
 
     @Test
-    fun `confirmInstall_compactFalse includes full copy`() {
+    fun `install message full copy includes license and path`() {
         val message = FontInstallConsent.buildInstallMessage(mapleEntry, compact = false)
-        assertTrue(message.contains("SIL Open Font License"), "Missing license blurb")
-        assertTrue(message.contains("no admin rights required"), "Missing admin reassurance")
-        assertTrue(message.contains("${mapleEntry.approxSizeMb} MB"), "Missing size")
-        assertTrue(message.contains("~/Library/Fonts"), "Missing path label")
-        assertTrue(message.contains(mapleEntry.displayName), "Missing display name")
+        assertTrue(message.contains("SIL Open Font License"))
+        assertTrue(message.contains("no admin rights required"))
+        assertTrue(message.contains("${mapleEntry.approxSizeMb} MB"))
+        assertTrue(message.contains("~/Library/Fonts"))
+        assertTrue(message.contains(mapleEntry.displayName))
     }
 
     @Test
-    fun `confirmInstall_compactTrue omits license blurb`() {
+    fun `install message compact omits license keeps essentials`() {
         val message = FontInstallConsent.buildInstallMessage(mapleEntry, compact = true)
-        assertFalse(message.contains("SIL Open Font License"), "Compact form must omit license blurb")
-        assertFalse(message.contains("no admin rights required"), "Compact form must omit admin reassurance")
-        assertTrue(message.contains("${mapleEntry.approxSizeMb} MB"), "Compact form must keep size")
-        assertTrue(message.contains(mapleEntry.displayName), "Compact form must keep display name")
-        assertTrue(message.contains("~/Library/Fonts"), "Compact form must keep path label")
+        assertFalse(message.contains("SIL Open Font License"))
+        assertFalse(message.contains("no admin rights required"))
+        assertTrue(message.contains("${mapleEntry.approxSizeMb} MB"))
+        assertTrue(message.contains(mapleEntry.displayName))
+        assertTrue(message.contains("~/Library/Fonts"))
     }
 
     @Test
-    fun `confirmUninstall includes absolute path verbatim`() {
+    fun `uninstall message includes absolute path verbatim`() {
         val absPath = "/Users/tester/Library/Fonts"
         val message = FontInstallConsent.buildUninstallMessage(mapleEntry, absPath)
-        assertTrue(message.contains(absPath), "Absolute path must appear verbatim")
-        assertTrue(message.contains(mapleEntry.displayName), "Display name must appear")
+        assertTrue(message.contains(absPath))
+        assertTrue(message.contains(mapleEntry.displayName))
     }
 
     @Test
-    fun `confirmUninstall includesRestartWarning`() {
+    fun `uninstall message includes restart warning`() {
         val message = FontInstallConsent.buildUninstallMessage(mapleEntry, "/tmp/fonts")
-        assertTrue(message.contains("IDE restart"), "Restart-effective warning is mandatory (RESEARCH A3, D-07)")
+        assertTrue(message.contains("IDE restart"))
+    }
+
+    @Test
+    fun `platformFontDirLabel returns recognizable OS-specific path`() {
+        unmockkAll()
+        val label = FontInstallConsent.platformFontDirLabel()
+        assertTrue(
+            label.contains("Library/Fonts") ||
+                label.contains("LOCALAPPDATA") ||
+                label.contains(".local/share/fonts"),
+            "Label must be a recognizable platform font dir: $label",
+        )
     }
 }
