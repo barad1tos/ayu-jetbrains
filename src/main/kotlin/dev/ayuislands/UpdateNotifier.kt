@@ -41,6 +41,12 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.4.2" to
+                "<ul>" +
+                "<li>Install, delete, or reinstall fonts from Settings</li>" +
+                "<li>Consent dialog before any font file changes</li>" +
+                "<li>Three-state font status detection</li>" +
+                "</ul>",
             "2.4.1" to
                 "<ul>" +
                 "<li>Fix font install retry on corrupted cache</li>" +
