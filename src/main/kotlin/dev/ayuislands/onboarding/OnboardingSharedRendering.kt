@@ -45,6 +45,9 @@ internal fun loadScaledHero(
     } catch (exception: IOException) {
         LOG.warn("Failed to load hero SVG $path", exception)
         null
+    } catch (exception: IllegalArgumentException) {
+        LOG.warn("Failed to load hero SVG $path", exception)
+        null
     }
 
 /**

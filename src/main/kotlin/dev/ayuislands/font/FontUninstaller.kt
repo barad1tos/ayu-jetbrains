@@ -11,6 +11,7 @@ import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
 import org.jetbrains.annotations.TestOnly
 import java.io.File
 import java.io.IOException
@@ -59,9 +60,10 @@ object FontUninstaller {
     private const val GH_ISSUES_URL = "https://github.com/AyuIslands/ayu-jetbrains/issues"
 
     sealed class UninstallResult {
-        /** All persisted files successfully deleted. */
+        abstract val familyName: String
+
         data class Success(
-            val familyName: String,
+            override val familyName: String,
             val filesRemoved: Int,
         ) : UninstallResult()
 
@@ -69,20 +71,23 @@ object FontUninstaller {
          * Some files could not be deleted (file lock, permission denied).
          * State was still mutated — the family is removed from `AyuIslandsState.installedFonts`
          * and added to `AyuIslandsState.explicitlyUninstalledFonts`. The stale file(s) will
-         * be fully released after the next IDE restart (JVM font registry is not reversible
-         * in-session — see RESEARCH.md A3 and D-07).
+         * be fully released after the next IDE restart.
          */
         data class Partial(
-            val familyName: String,
+            override val familyName: String,
             val failedPaths: List<String>,
-        ) : UninstallResult()
+        ) : UninstallResult() {
+            init {
+                require(failedPaths.isNotEmpty()) { "Partial with no failed paths is a Success" }
+            }
+        }
 
         /**
          * Uninstall could not proceed (e.g., path-traversal guard rejected the persisted
-         * paths). State was NOT mutated. The user should report this as a bug.
+         * paths). State was NOT mutated.
          */
         data class Failure(
-            val familyName: String,
+            override val familyName: String,
             val message: String,
         ) : UninstallResult()
     }
@@ -114,8 +119,7 @@ object FontUninstaller {
         val state = AyuIslandsSettings.getInstance().state
         val family = entry.familyName
 
-        val encodedPaths = state.installedFontFiles[family].orEmpty()
-        val rawPaths = encodedPaths.split('\n').filter { it.isNotBlank() }
+        val rawPaths = AyuIslandsState.decodeFontPaths(state.installedFontFiles[family])
 
         // D-08 path-traversal guard (T-25-01): reject any path that escapes
         // platformFontDir. Runs BEFORE any File.delete() call so a malicious
@@ -161,14 +165,17 @@ object FontUninstaller {
             state.explicitlyUninstalledFonts.add(family)
             FontDetector.invalidateCache()
 
-            // D-07 step 6: revert active editor font if it matches the deleted family.
-            val activeEditorFont =
-                EditorColorsManager
-                    .getInstance()
-                    .globalScheme
-                    .editorFontName
-            if (activeEditorFont.equals(family, ignoreCase = true)) {
-                FontPresetApplicator.revert()
+            try {
+                val activeEditorFont =
+                    EditorColorsManager
+                        .getInstance()
+                        .globalScheme
+                        .editorFontName
+                if (activeEditorFont.equals(family, ignoreCase = true)) {
+                    FontPresetApplicator.revert()
+                }
+            } catch (e: RuntimeException) {
+                LOG.warn("FontPresetApplicator.revert() failed during uninstall of $family", e)
             }
 
             val result: UninstallResult =
@@ -198,8 +205,7 @@ object FontUninstaller {
                     LOG.warn("Could not canonicalize $rawPath", e)
                     return@partition false
                 }
-            canonical == platformDirCanonical ||
-                canonical.startsWith(platformDirCanonical + File.separator)
+            canonical.startsWith(platformDirCanonical + File.separator)
         }
 
     private fun deleteSafely(safePaths: List<String>): List<String> {
@@ -224,8 +230,8 @@ object FontUninstaller {
         onComplete: (UninstallResult) -> Unit,
         message: String,
     ) {
-        notifyUninstall(project, message, NotificationType.ERROR)
         ApplicationManager.getApplication().invokeLater {
+            notifyUninstall(project, message, NotificationType.ERROR)
             onComplete(UninstallResult.Failure(entry.familyName, message))
         }
     }

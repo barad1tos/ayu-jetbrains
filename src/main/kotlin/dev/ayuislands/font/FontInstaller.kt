@@ -13,6 +13,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.util.io.HttpRequests
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
 import org.jetbrains.annotations.TestOnly
 import java.awt.Font
 import java.awt.GraphicsEnvironment
@@ -316,7 +317,7 @@ object FontInstaller {
         val state = AyuIslandsSettings.getInstance().state
         state.installedFonts.add(canonicalFamily)
         state.installedFontFiles[canonicalFamily] =
-            installedFiles.joinToString("\n") { it.absolutePath }
+            AyuIslandsState.encodeFontPaths(installedFiles)
         // D-09: reinstalling a previously-deleted font clears the guard so future
         // seeder runs treat this family as first-class again.
         state.explicitlyUninstalledFonts.remove(canonicalFamily)

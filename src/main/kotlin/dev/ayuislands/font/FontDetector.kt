@@ -1,6 +1,7 @@
 package dev.ayuislands.font
 
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
 import java.awt.Font
 import java.awt.GraphicsEnvironment
 import java.awt.font.FontRenderContext
@@ -94,9 +95,12 @@ object FontDetector {
      *   longer contains the family. Settings UI shows "file missing — Reinstall".
      *
      * Call [invalidateCache] before [status] if fresh disk state is needed.
-     * Results are memoized across calls within a single cache epoch so the
-     * Settings panel can call [status] from the EDT without blocking on
-     * repeated filesystem stat syscalls (D-11, RESEARCH Pitfall 4).
+     * The underlying font family list is cached across calls within a single
+     * cache epoch (see [installedFonts]), but filesystem path existence checks
+     * (`File.exists()`) are re-evaluated on each call. In practice this is
+     * fast (typical installs have fewer than 10 files) and
+     * [FontPresetPanel][dev.ayuislands.settings.FontPresetPanel] calls
+     * [status] only once per refresh cycle inside [updateFontMissing].
      *
      * **Runtime note (macOS):** on JBR 25 / macOS, deleting a font file from
      * `~/Library/Fonts` does NOT propagate to `availableFontFamilyNames` within
@@ -119,19 +123,16 @@ object FontDetector {
             try {
                 AyuIslandsSettings.getInstance().state
             } catch (_: IllegalStateException) {
-                return FontStatus.HEALTHY
+                return FontStatus.NOT_INSTALLED
             } catch (_: NullPointerException) {
-                return FontStatus.HEALTHY
+                return FontStatus.NOT_INSTALLED
             }
 
         val family =
             preset.fontAliases.firstOrNull { alias -> state.installedFonts.contains(alias) }
                 ?: return FontStatus.HEALTHY
 
-        val encodedPaths = state.installedFontFiles[family]
-        if (encodedPaths.isNullOrBlank()) return FontStatus.HEALTHY
-
-        val paths = encodedPaths.split('\n').filter { it.isNotBlank() }
+        val paths = AyuIslandsState.decodeFontPaths(state.installedFontFiles[family])
         if (paths.isEmpty()) return FontStatus.HEALTHY
 
         val anyMissing = paths.any { !File(it).exists() }

@@ -1,6 +1,7 @@
 package dev.ayuislands.settings
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.openapi.project.ProjectManager
@@ -29,6 +30,7 @@ import javax.swing.SpinnerNumberModel
 /** Font preset tab — curated Nerd Font presets with one-click apply. */
 class FontPresetPanel : AyuIslandsSettingsPanel {
     private companion object {
+        private val LOG = logger<FontPresetPanel>()
         val IS_MAC: Boolean = System.getProperty("os.name").lowercase().contains("mac")
         const val MIN_FONT_SIZE = 8
         const val MAX_FONT_SIZE = 30
@@ -256,23 +258,27 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
      * reinstall to be user-triggered through this same consent helper.
      */
     private fun triggerLifecycleAction(uninstall: Boolean) {
-        val preset = FontPreset.fromName(pendingPreset)
-        val project = ProjectManager.getInstance().openProjects.firstOrNull()
-        val entry = FontCatalog.forPreset(preset)
-        val refresh = {
-            ApplicationManager.getApplication().invokeLater {
-                FontDetector.invalidateCache()
-                availability = FontDetector.detectAll()
-                updateFontMissing()
+        try {
+            val preset = FontPreset.fromName(pendingPreset)
+            val project = ProjectManager.getInstance().openProjects.firstOrNull()
+            val entry = FontCatalog.forPreset(preset)
+            val refresh = {
+                ApplicationManager.getApplication().invokeLater {
+                    FontDetector.invalidateCache()
+                    availability = FontDetector.detectAll()
+                    updateFontMissing()
+                }
             }
-        }
-        if (uninstall) {
-            val absPath = FontInstaller.platformFontDir().absolutePath
-            if (!FontInstallConsent.confirmUninstall(entry, project, absPath)) return
-            FontUninstaller.uninstall(preset, project) { refresh() }
-        } else {
-            if (!FontInstallConsent.confirmInstall(entry, project, compact = true)) return
-            FontInstaller.install(preset, project) { refresh() }
+            if (uninstall) {
+                val absPath = FontInstaller.platformFontDir().absolutePath
+                if (!FontInstallConsent.confirmUninstall(entry, project, absPath)) return
+                FontUninstaller.uninstall(preset, project) { refresh() }
+            } else {
+                if (!FontInstallConsent.confirmInstall(entry, project, compact = true)) return
+                FontInstaller.install(preset, project) { refresh() }
+            }
+        } catch (e: RuntimeException) {
+            LOG.warn("Font lifecycle action failed (uninstall=$uninstall)", e)
         }
     }
 

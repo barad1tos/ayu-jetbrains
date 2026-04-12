@@ -5,6 +5,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.SimplePersistentStateComponent
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
+import com.intellij.openapi.diagnostic.logger
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.SystemAccentProvider
 import dev.ayuislands.font.FontCatalog
@@ -17,6 +18,8 @@ import java.awt.GraphicsEnvironment
 )
 class AyuIslandsSettings : SimplePersistentStateComponent<AyuIslandsState>(AyuIslandsState()) {
     companion object {
+        private val LOG = logger<AyuIslandsSettings>()
+
         fun getInstance(): AyuIslandsSettings =
             ApplicationManager
                 .getApplication()
@@ -64,6 +67,10 @@ class AyuIslandsSettings : SimplePersistentStateComponent<AyuIslandsState>(AyuIs
                     state.installedFonts.add(entry.familyName)
                 }
             }
+        } catch (e: java.awt.HeadlessException) {
+            LOG.warn("Failed to seed installed fonts (headless environment)", e)
+        } catch (e: RuntimeException) {
+            LOG.warn("Failed to seed installed fonts from GraphicsEnvironment", e)
         } finally {
             state.installedFontsSeeded = true
         }

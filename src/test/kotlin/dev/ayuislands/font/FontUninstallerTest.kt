@@ -181,8 +181,10 @@ class FontUninstallerTest {
     @Test
     fun `uninstall_rejectsPathOutsidePlatformDir`() {
         val platformDir = createTempDirectory("uninst-traversal").toFile()
+        val outsideDir = createTempDirectory("uninst-outside").toFile()
         try {
-            val escapePath = "${platformDir.absolutePath}/../../../../etc/passwd"
+            val outsideFile = File(outsideDir, "should-survive.ttf").apply { writeText("safe") }
+            val escapePath = outsideFile.absolutePath
             val state =
                 AyuIslandsState().apply {
                     installedFonts.add("Maple Mono")
@@ -199,9 +201,7 @@ class FontUninstallerTest {
                 result is FontUninstaller.UninstallResult.Failure,
                 "Expected Failure, got $result",
             )
-            // /etc/passwd must still exist (the guard did NOT delete it).
-            assertTrue(File("/etc/passwd").exists(), "Critical: /etc/passwd was touched")
-            // State must NOT be mutated on rejection (T-25-01 invariant).
+            assertTrue(outsideFile.exists(), "File outside platformDir must not be deleted")
             assertTrue(
                 state.installedFonts.contains("Maple Mono"),
                 "State must not mutate on guard rejection",
@@ -212,6 +212,7 @@ class FontUninstallerTest {
             )
         } finally {
             platformDir.deleteRecursively()
+            outsideDir.deleteRecursively()
         }
     }
 
