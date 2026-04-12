@@ -7,6 +7,7 @@ import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.indent.IndentPreset
 import dev.ayuislands.rotation.AccentRotationMode
+import java.io.File
 
 enum class PanelWidthMode {
     DEFAULT,
@@ -166,6 +167,20 @@ class AyuIslandsState : BaseState() {
     // re-prompted. Set to true after the first successful seed.
     var installedFontsSeeded by property(false)
 
+    // Authoritative list of absolute file paths per installed family (D-08).
+    // Values are "\n"-joined absolute paths. Flat map<String, String> shape matches
+    // the existing `fontPresetCustomizations` encoding precedent and avoids
+    // nested-collection XML serialization risk (BaseState silently drops
+    // Map<String, List<String>> on some platform versions).
+    // Use [encodeFontPaths] / [decodeFontPaths] for encode/decode — never split/join
+    // inline.
+    var installedFontFiles by map<String, String>()
+
+    // Families the user has explicitly deleted via the Settings lifecycle UI (D-09).
+    // seedInstalledFontsFromDiskIfNeeded() must skip any family in this set so the
+    // plugin never re-adds a user-deleted font on a subsequent startup.
+    var explicitlyUninstalledFonts by stringSet()
+
     // Accent rotation
     var accentRotationEnabled by property(false)
     var accentRotationMode by string(AccentRotationMode.PRESET.name)
@@ -292,6 +307,12 @@ class AyuIslandsState : BaseState() {
     }
 
     companion object {
+        private const val PATH_SEP = "\n"
+
+        fun encodeFontPaths(paths: List<File>): String = paths.joinToString(PATH_SEP) { it.absolutePath }
+
+        fun decodeFontPaths(raw: String?): List<String> = raw?.split(PATH_SEP)?.filter { it.isNotBlank() }.orEmpty()
+
         const val DEFAULT_TAB_UNDERLINE_HEIGHT = 4
         const val DEFAULT_AUTO_FIT_MAX_WIDTH = 400
         const val DEFAULT_PROJECT_AUTO_FIT_MIN_WIDTH = 250

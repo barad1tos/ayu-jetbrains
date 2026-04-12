@@ -3,6 +3,7 @@ package dev.ayuislands.settings
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowStyle
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -152,6 +153,104 @@ class AyuIslandsStatePersistenceTest {
         assertTrue(reloaded.state.trialExpiryWarningShown)
         assertTrue(reloaded.state.everBeenPro)
         assertEquals(EXPECTED_LICENSED_MS, reloaded.state.lastKnownLicensedMs)
+    }
+
+    @Test
+    fun `installedFontFiles defaults to empty map`() {
+        val settings = AyuIslandsSettings()
+        assertTrue(settings.state.installedFontFiles.isEmpty())
+    }
+
+    @Test
+    fun `installedFontFiles survives save reload cycle`() {
+        val reloaded =
+            roundTrip { state ->
+                state.installedFontFiles["Maple Mono"] =
+                    "/Users/test/Library/Fonts/MapleMono-Regular.ttf\n" +
+                    "/Users/test/Library/Fonts/MapleMono-Italic.ttf"
+                state.installedFontFiles["Victor Mono"] =
+                    "/Users/test/Library/Fonts/VictorMono-Light.ttf"
+            }
+
+        assertEquals(
+            "/Users/test/Library/Fonts/MapleMono-Regular.ttf\n" +
+                "/Users/test/Library/Fonts/MapleMono-Italic.ttf",
+            reloaded.state.installedFontFiles["Maple Mono"],
+        )
+        assertEquals(
+            "/Users/test/Library/Fonts/VictorMono-Light.ttf",
+            reloaded.state.installedFontFiles["Victor Mono"],
+        )
+    }
+
+    @Test
+    fun `installedFontFiles entries can be removed across reload`() {
+        val reloaded =
+            roundTrip { state ->
+                state.installedFontFiles["Maple Mono"] = "/a/MapleMono-Regular.ttf"
+                state.installedFontFiles["Victor Mono"] = "/b/VictorMono-Light.ttf"
+                state.installedFontFiles.remove("Victor Mono")
+            }
+
+        assertEquals("/a/MapleMono-Regular.ttf", reloaded.state.installedFontFiles["Maple Mono"])
+        assertFalse(reloaded.state.installedFontFiles.containsKey("Victor Mono"))
+    }
+
+    @Test
+    fun `explicitlyUninstalledFonts defaults to empty set`() {
+        val settings = AyuIslandsSettings()
+        assertTrue(settings.state.explicitlyUninstalledFonts.isEmpty())
+    }
+
+    @Test
+    fun `explicitlyUninstalledFonts survives save reload cycle`() {
+        val reloaded =
+            roundTrip { state ->
+                state.explicitlyUninstalledFonts.add("Monaspace Neon")
+                state.explicitlyUninstalledFonts.add("Victor Mono")
+            }
+
+        assertTrue(reloaded.state.explicitlyUninstalledFonts.contains("Monaspace Neon"))
+        assertTrue(reloaded.state.explicitlyUninstalledFonts.contains("Victor Mono"))
+        assertEquals(2, reloaded.state.explicitlyUninstalledFonts.size)
+    }
+
+    // ---- encodeFontPaths / decodeFontPaths helpers ----
+
+    @Test
+    fun `encodeFontPaths joins absolute paths with newline`() {
+        val files = listOf(File("/a/Regular.ttf"), File("/b/Italic.ttf"))
+        assertEquals("/a/Regular.ttf\n/b/Italic.ttf", AyuIslandsState.encodeFontPaths(files))
+    }
+
+    @Test
+    fun `encodeFontPaths returns empty string for empty list`() {
+        assertEquals("", AyuIslandsState.encodeFontPaths(emptyList()))
+    }
+
+    @Test
+    fun `decodeFontPaths returns empty list for null`() {
+        assertTrue(AyuIslandsState.decodeFontPaths(null).isEmpty())
+    }
+
+    @Test
+    fun `decodeFontPaths returns empty list for blank string`() {
+        assertTrue(AyuIslandsState.decodeFontPaths("").isEmpty())
+        assertTrue(AyuIslandsState.decodeFontPaths("  ").isEmpty())
+    }
+
+    @Test
+    fun `decodeFontPaths skips blank lines in middle`() {
+        val result = AyuIslandsState.decodeFontPaths("/a/Regular.ttf\n\n/b/Italic.ttf")
+        assertEquals(listOf("/a/Regular.ttf", "/b/Italic.ttf"), result)
+    }
+
+    @Test
+    fun `encodeFontPaths and decodeFontPaths round-trip`() {
+        val files = listOf(File("/Users/test/Library/Fonts/Mono.ttf"), File("/tmp/Bold.ttf"))
+        val encoded = AyuIslandsState.encodeFontPaths(files)
+        val decoded = AyuIslandsState.decodeFontPaths(encoded)
+        assertEquals(files.map { it.absolutePath }, decoded)
     }
 
     companion object {

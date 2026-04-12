@@ -6,6 +6,8 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.util.SystemInfo
+import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -296,5 +298,70 @@ class FontInstallerTest {
                 null,
             )
         }
+    }
+
+    // ---- persistFontState (Plan 25-03 Task 1) ----
+
+    private fun stubPersistFontStateSettings(state: AyuIslandsState = AyuIslandsState()): AyuIslandsState {
+        mockkObject(AyuIslandsSettings.Companion)
+        val settings = AyuIslandsSettings().apply { loadState(state) }
+        every { AyuIslandsSettings.getInstance() } returns settings
+        return state
+    }
+
+    @Test
+    fun `persistFontState recordsWrittenPaths`() {
+        val state = stubPersistFontStateSettings()
+        val files =
+            listOf(
+                File("/tmp/fonts/MapleMono-Regular.ttf"),
+                File("/tmp/fonts/MapleMono-Italic.ttf"),
+            )
+
+        FontInstaller.persistFontState("Maple Mono", files)
+
+        assertEquals(
+            "/tmp/fonts/MapleMono-Regular.ttf\n/tmp/fonts/MapleMono-Italic.ttf",
+            state.installedFontFiles["Maple Mono"],
+        )
+    }
+
+    @Test
+    fun `persistFontState stillWritesInstalledFonts (D-14 invariant)`() {
+        val state = stubPersistFontStateSettings()
+
+        FontInstaller.persistFontState("Victor Mono", listOf(File("/tmp/victor.ttf")))
+
+        assertTrue(state.installedFonts.contains("Victor Mono"))
+    }
+
+    @Test
+    fun `persistFontState overwritesStaleFilePaths`() {
+        val state = stubPersistFontStateSettings()
+        state.installedFontFiles["Maple Mono"] = "/old/stale/path.ttf"
+
+        FontInstaller.persistFontState("Maple Mono", listOf(File("/new/MapleMono.ttf")))
+
+        assertEquals("/new/MapleMono.ttf", state.installedFontFiles["Maple Mono"])
+        assertFalse(state.installedFontFiles["Maple Mono"]!!.contains("old/stale"))
+    }
+
+    @Test
+    fun `persistFontState emptyFilesList clearsPathEntry`() {
+        val state = stubPersistFontStateSettings()
+
+        FontInstaller.persistFontState("Maple Mono", emptyList())
+
+        assertEquals("", state.installedFontFiles["Maple Mono"])
+    }
+
+    @Test
+    fun `persistFontState removesFromExplicitlyUninstalledFonts`() {
+        val state = stubPersistFontStateSettings()
+        state.explicitlyUninstalledFonts.add("Maple Mono")
+
+        FontInstaller.persistFontState("Maple Mono", listOf(File("/tmp/MapleMono.ttf")))
+
+        assertFalse(state.explicitlyUninstalledFonts.contains("Maple Mono"))
     }
 }

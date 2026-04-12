@@ -5,6 +5,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.SimplePersistentStateComponent
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
+import com.intellij.openapi.diagnostic.logger
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.SystemAccentProvider
 import dev.ayuislands.font.FontCatalog
@@ -17,6 +18,8 @@ import java.awt.GraphicsEnvironment
 )
 class AyuIslandsSettings : SimplePersistentStateComponent<AyuIslandsState>(AyuIslandsState()) {
     companion object {
+        private val LOG = logger<AyuIslandsSettings>()
+
         fun getInstance(): AyuIslandsSettings =
             ApplicationManager
                 .getApplication()
@@ -44,6 +47,11 @@ class AyuIslandsSettings : SimplePersistentStateComponent<AyuIslandsState>(AyuIs
      * canonical family name, and adds matches to state.
      *
      * Gated on [AyuIslandsState.installedFontsSeeded] — runs once per install.
+     *
+     * **D-09 guard:** families recorded in [AyuIslandsState.explicitlyUninstalledFonts]
+     * (i.e. the user explicitly deleted them via the Settings lifecycle UI) are NEVER
+     * re-seeded, even if the JVM still sees them in the font family list. This preserves
+     * the invariant that the plugin never undoes a user-initiated uninstall.
      */
     fun seedInstalledFontsFromDiskIfNeeded() {
         if (state.installedFontsSeeded) return
@@ -54,10 +62,15 @@ class AyuIslandsSettings : SimplePersistentStateComponent<AyuIslandsState>(AyuIs
                     .availableFontFamilyNames
                     .toHashSet()
             for (entry in FontCatalog.entries) {
+                if (state.explicitlyUninstalledFonts.contains(entry.familyName)) continue
                 if (available.contains(entry.familyName) && !state.installedFonts.contains(entry.familyName)) {
                     state.installedFonts.add(entry.familyName)
                 }
             }
+        } catch (e: java.awt.HeadlessException) {
+            LOG.warn("Failed to seed installed fonts (headless environment)", e)
+        } catch (e: RuntimeException) {
+            LOG.warn("Failed to seed installed fonts from GraphicsEnvironment", e)
         } finally {
             state.installedFontsSeeded = true
         }

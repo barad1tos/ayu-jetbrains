@@ -13,6 +13,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.util.io.HttpRequests
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
 import org.jetbrains.annotations.TestOnly
 import java.awt.Font
 import java.awt.GraphicsEnvironment
@@ -154,7 +155,7 @@ object FontInstaller {
         }
 
         LOG.info("Font installed: $canonicalFamily (preset=${preset.name})")
-        persistAndApply(entry, preset, project, canonicalFamily, onComplete)
+        persistAndApply(entry, project, canonicalFamily, installedFiles, onComplete)
     }
 
     @TestOnly
@@ -275,9 +276,9 @@ object FontInstaller {
 
     private fun persistAndApply(
         entry: FontCatalog.Entry,
-        preset: FontPreset,
         project: Project?,
         canonicalFamily: String,
+        installedFiles: List<File>,
         onComplete: (InstallResult) -> Unit,
     ) {
         val ge = GraphicsEnvironment.getLocalGraphicsEnvironment()
@@ -288,7 +289,7 @@ object FontInstaller {
         if (dropdownStale) {
             notify(entry, project, FailureKind.DROPDOWN_STALE, NotificationType.WARNING)
             ApplicationManager.getApplication().invokeLater {
-                persistFontState(canonicalFamily)
+                persistFontState(canonicalFamily, installedFiles)
                 onComplete(InstallResult.Success(canonicalFamily))
             }
             return
@@ -296,8 +297,8 @@ object FontInstaller {
 
         ApplicationManager.getApplication().invokeLater {
             try {
-                persistFontState(canonicalFamily)
-                FontPresetApplicator.apply(FontSettings.decode(null, preset))
+                persistFontState(canonicalFamily, installedFiles)
+                FontPresetApplicator.apply(FontSettings.decode(null, entry.preset))
                 verifyApplied(entry, canonicalFamily, project)
                 onComplete(InstallResult.Success(canonicalFamily))
             } catch (e: RuntimeException) {
@@ -309,9 +310,17 @@ object FontInstaller {
     }
 
     @TestOnly
-    internal fun persistFontState(canonicalFamily: String) {
+    internal fun persistFontState(
+        canonicalFamily: String,
+        installedFiles: List<File>,
+    ) {
         val state = AyuIslandsSettings.getInstance().state
         state.installedFonts.add(canonicalFamily)
+        state.installedFontFiles[canonicalFamily] =
+            AyuIslandsState.encodeFontPaths(installedFiles)
+        // D-09: reinstalling a previously-deleted font clears the guard so future
+        // seeder runs treat this family as first-class again.
+        state.explicitlyUninstalledFonts.remove(canonicalFamily)
         FontDetector.invalidateCache()
     }
 

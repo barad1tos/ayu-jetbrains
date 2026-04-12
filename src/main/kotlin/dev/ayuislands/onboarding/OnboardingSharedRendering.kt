@@ -1,22 +1,54 @@
 package dev.ayuislands.onboarding
 
+import com.intellij.openapi.diagnostic.logger
+import com.intellij.util.ImageLoader
 import com.intellij.util.ui.JBUI
 import java.awt.Color
 import java.awt.Dimension
 import java.awt.GradientPaint
 import java.awt.Graphics
 import java.awt.Graphics2D
+import java.awt.Image
 import java.awt.RenderingHints
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import java.io.IOException
 import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.Icon
 import javax.swing.JComponent
 import javax.swing.JPanel
 
+private val LOG = logger<OnboardingSharedRenderingLog>()
+
 // Shared hero background, scrim, and footer rail helpers extracted from
 // FreeOnboardingPanel and PremiumOnboardingPanel to eliminate duplication.
+
+internal class OnboardingSharedRenderingLog
+
+/**
+ * Load and scale an SVG hero image from plugin resources.
+ *
+ * @param resourceAnchor the class whose classloader resolves the resource path —
+ *   pass the panel's own class so the resource lookup stays correct across both
+ *   [FreeOnboardingPanel] and [PremiumOnboardingPanel]
+ */
+internal fun loadScaledHero(
+    path: String,
+    targetWidth: Int,
+    targetHeight: Int,
+    resourceAnchor: Class<*>,
+): Image? =
+    try {
+        val raw = ImageLoader.loadFromResource(path, resourceAnchor)
+        raw?.let { ImageLoader.scaleImage(it, targetWidth, targetHeight) }
+    } catch (exception: IOException) {
+        LOG.warn("Failed to load hero SVG $path", exception)
+        null
+    } catch (exception: IllegalArgumentException) {
+        LOG.warn("Failed to load hero SVG $path", exception)
+        null
+    }
 
 /**
  * Draw [image] centered on a [panelWidth]x[panelHeight] surface at the
@@ -24,7 +56,7 @@ import javax.swing.JPanel
  */
 internal fun drawCoveredImage(
     g2: Graphics2D,
-    image: java.awt.Image,
+    image: Image,
     panelWidth: Int,
     panelHeight: Int,
     coverSize: Pair<Int, Int>,

@@ -72,6 +72,13 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.4.2</h3>
+    <ul>
+      <li>[Paid] Install, delete, or reinstall curated fonts directly from Settings without opening the wizard</li>
+      <li>Every install and delete now shows a consent dialog with the exact font folder path — no silent filesystem changes</li>
+      <li>Deleting a font reverts the editor to JetBrains Mono and warns that full removal takes effect after IDE restart</li>
+      <li>Settings now shows "Installed ✓", "file missing — Reinstall", or "Install automatically" based on actual disk state</li>
+    </ul>
     <h3>2.4.1</h3>
     <ul>
       <li>Fix font install retry getting stuck on corrupted download cache</li>

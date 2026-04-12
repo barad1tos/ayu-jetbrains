@@ -9,14 +9,12 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.ui.MessageDialogBuilder
-import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.components.JBLabel
-import com.intellij.util.ImageLoader
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.font.FontCatalog
+import dev.ayuislands.font.FontInstallConsent
 import dev.ayuislands.font.FontInstaller
 import dev.ayuislands.font.FontPreset
 import dev.ayuislands.font.FontPresetApplicator
@@ -110,7 +108,7 @@ internal class PremiumOnboardingPanel(
         super.paintComponent(graphics)
     }
 
-    /** Render SVG as a full-tab background with "cover" scaling via [ImageLoader]. */
+    @Suppress("DuplicatedCode") // cache key = path (single hero); Free uses variant as key
     private fun paintBackground(g2: Graphics2D) {
         val path = heroPath ?: return
         if (width <= 0 || height <= 0) return
@@ -138,14 +136,7 @@ internal class PremiumOnboardingPanel(
         path: String,
         targetW: Int,
         targetH: Int,
-    ): java.awt.Image? =
-        try {
-            val raw = ImageLoader.loadFromResource(path, PremiumOnboardingPanel::class.java)
-            raw?.let { ImageLoader.scaleImage(it, targetW, targetH) }
-        } catch (exception: java.io.IOException) {
-            LOG.warn("Failed to load hero SVG $path", exception)
-            null
-        }
+    ): java.awt.Image? = loadScaledHero(path, targetW, targetH, PremiumOnboardingPanel::class.java)
 
     /** Bottom gradient scrim for text readability over the image. */
     private fun paintScrim(g2: Graphics2D) {
@@ -580,7 +571,7 @@ internal class PremiumOnboardingPanel(
             FontInstaller.applyOnly(preset, project)
             return
         }
-        if (!confirmFontInstall(entry)) return
+        if (!FontInstallConsent.confirmInstall(entry, project)) return
         installingFonts.add(preset)
         refreshFontRow()
         FontInstaller.install(preset, project) {
@@ -590,27 +581,6 @@ internal class PremiumOnboardingPanel(
             }
         }
     }
-
-    private fun confirmFontInstall(entry: FontCatalog.Entry): Boolean {
-        val message =
-            "Ayu Islands will download ${entry.displayName} (~${entry.approxSizeMb} MB, " +
-                "SIL Open Font License) from GitHub and install it to:\n\n" +
-                "    ${platformFontDirLabel()}\n\n" +
-                "This is a user-level install — no admin rights required.\n" +
-                "You can remove it anytime from that folder."
-        return MessageDialogBuilder
-            .yesNo("Install ${entry.displayName}?", message)
-            .yesText("Install")
-            .noText("Cancel")
-            .ask(project)
-    }
-
-    private fun platformFontDirLabel(): String =
-        when {
-            SystemInfo.isMac -> "~/Library/Fonts"
-            SystemInfo.isWindows -> "%LOCALAPPDATA%\\Microsoft\\Windows\\Fonts"
-            else -> "~/.local/share/fonts"
-        }
 
     private fun buildBottomButtons(): JPanel =
         buildWizardBottomButtons(

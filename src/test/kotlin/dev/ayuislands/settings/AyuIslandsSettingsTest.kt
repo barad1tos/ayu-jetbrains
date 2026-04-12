@@ -4,11 +4,16 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.SystemAccentProvider
 import dev.ayuislands.font.FontPreset
 import io.mockk.every
+import io.mockk.mockk
 import io.mockk.mockkObject
+import io.mockk.mockkStatic
 import io.mockk.unmockkAll
+import io.mockk.unmockkStatic
+import java.awt.GraphicsEnvironment
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class AyuIslandsSettingsTest {
@@ -137,5 +142,65 @@ class AyuIslandsSettingsTest {
 
         // Recorded font should only appear once, not duplicated
         assertEquals(1, state.installedFonts.count { it == fontFamily })
+    }
+
+    @Test
+    fun `seeder respectsExplicitUninstallGuard`() {
+        mockkStatic(GraphicsEnvironment::class)
+        val ge = mockk<GraphicsEnvironment>()
+        every { GraphicsEnvironment.getLocalGraphicsEnvironment() } returns ge
+        every { ge.availableFontFamilyNames } returns arrayOf("Maple Mono", "Victor Mono")
+
+        val settings = AyuIslandsSettings()
+        settings.state.explicitlyUninstalledFonts.add("Maple Mono")
+        settings.state.installedFontsSeeded = false
+
+        settings.seedInstalledFontsFromDiskIfNeeded()
+
+        assertFalse(settings.state.installedFonts.contains("Maple Mono"))
+        assertTrue(settings.state.installedFontsSeeded)
+
+        unmockkStatic(GraphicsEnvironment::class)
+    }
+
+    @Test
+    fun `seeder addsNonGuardedFamilies`() {
+        mockkStatic(GraphicsEnvironment::class)
+        val ge = mockk<GraphicsEnvironment>()
+        every { GraphicsEnvironment.getLocalGraphicsEnvironment() } returns ge
+        every { ge.availableFontFamilyNames } returns arrayOf("Maple Mono", "Victor Mono")
+
+        val settings = AyuIslandsSettings()
+        settings.state.explicitlyUninstalledFonts.add("Maple Mono")
+        settings.state.installedFontsSeeded = false
+
+        settings.seedInstalledFontsFromDiskIfNeeded()
+
+        assertTrue(settings.state.installedFonts.contains("Victor Mono"))
+        assertFalse(settings.state.installedFonts.contains("Maple Mono"))
+
+        unmockkStatic(GraphicsEnvironment::class)
+    }
+
+    @Test
+    fun `seeder marksSeededFlagEvenWhenGuardBlocksAll`() {
+        mockkStatic(GraphicsEnvironment::class)
+        val ge = mockk<GraphicsEnvironment>()
+        every { GraphicsEnvironment.getLocalGraphicsEnvironment() } returns ge
+        every { ge.availableFontFamilyNames } returns arrayOf("Maple Mono", "Victor Mono")
+
+        val settings = AyuIslandsSettings()
+        settings.state.explicitlyUninstalledFonts.add("Maple Mono")
+        settings.state.explicitlyUninstalledFonts.add("Victor Mono")
+        settings.state.explicitlyUninstalledFonts.add("Monaspace Neon")
+        settings.state.explicitlyUninstalledFonts.add("Monaspace Xenon")
+        settings.state.installedFontsSeeded = false
+
+        settings.seedInstalledFontsFromDiskIfNeeded()
+
+        assertTrue(settings.state.installedFonts.isEmpty())
+        assertTrue(settings.state.installedFontsSeeded)
+
+        unmockkStatic(GraphicsEnvironment::class)
     }
 }
