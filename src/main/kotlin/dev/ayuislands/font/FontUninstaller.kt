@@ -27,19 +27,19 @@ import java.io.IOException
  * Pipeline:
  * 1. Consent dialog via [FontInstallConsent.confirmUninstall] — **caller responsibility**.
  *    This object ASSUMES consent has been obtained. Consent is NOT inside the
- *    pipeline because `Task.Backgroundable.queue` indirection would surface the
+ *    pipeline because [Task.Backgroundable] queue indirection would surface the
  *    dialog from a background thread, which either deadlocks on EDT or silently
  *    skips. See threat T-25-10.
  * 2. Off-EDT filesystem work in [Task.Backgroundable], matching [FontInstaller.install]'s
  *    threading.
- * 3. Reads authoritative paths from [AyuIslandsState.installedFontFiles] — never
+ * 3. Reads authoritative paths from `AyuIslandsState.installedFontFiles` — never
  *    re-derives from regex (D-08).
  * 4. Rejects any persisted path not canonically under [FontInstaller.platformFontDir]
  *    (path-traversal guard, T-25-01). Rejection returns [UninstallResult.Failure]
  *    WITHOUT mutating state.
- * 5. State mutation on EDT: removes from [AyuIslandsState.installedFonts], adds to
- *    [AyuIslandsState.explicitlyUninstalledFonts] (D-09 guard), clears the
- *    [AyuIslandsState.installedFontFiles] entry, calls [FontDetector.invalidateCache].
+ * 5. State mutation on EDT: removes from `AyuIslandsState.installedFonts`, adds to
+ *    `AyuIslandsState.explicitlyUninstalledFonts` (D-09 guard), clears the
+ *    `AyuIslandsState.installedFontFiles` entry, calls [FontDetector.invalidateCache].
  * 6. Conditionally calls [FontPresetApplicator.revert] when the deleted family
  *    matches the active editor font name.
  * 7. Notifies outcome — success, partial (file lock), or failure (path rejection).
@@ -67,8 +67,8 @@ object FontUninstaller {
 
         /**
          * Some files could not be deleted (file lock, permission denied).
-         * State was still mutated — the family is removed from [AyuIslandsState.installedFonts]
-         * and added to [AyuIslandsState.explicitlyUninstalledFonts]. The stale file(s) will
+         * State was still mutated — the family is removed from `AyuIslandsState.installedFonts`
+         * and added to `AyuIslandsState.explicitlyUninstalledFonts`. The stale file(s) will
          * be fully released after the next IDE restart (JVM font registry is not reversible
          * in-session — see RESEARCH.md A3 and D-07).
          */

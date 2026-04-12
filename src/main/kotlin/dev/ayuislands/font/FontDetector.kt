@@ -65,13 +65,15 @@ object FontDetector {
      */
     fun isInstalled(preset: FontPreset): Boolean {
         if (preset.fontAliases.any { installedFonts().contains(it.lowercase()) }) return true
-        val recorded =
+        val recorded: Set<String> =
             try {
-                AyuIslandsSettings.getInstance().state.installedFonts
+                AyuIslandsSettings
+                    .getInstance()
+                    .state.installedFonts
+                    .toSet()
             } catch (_: IllegalStateException) {
                 return false
             } catch (_: NullPointerException) {
-                // Unit test / no Application — fall through to "not installed" rather than crash.
                 return false
             }
         return preset.fontAliases.any { recorded.contains(it) }

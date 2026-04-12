@@ -11,7 +11,6 @@ import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.components.JBLabel
-import com.intellij.util.ImageLoader
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.font.FontCatalog
@@ -109,7 +108,7 @@ internal class PremiumOnboardingPanel(
         super.paintComponent(graphics)
     }
 
-    /** Render SVG as a full-tab background with "cover" scaling via [ImageLoader]. */
+    @Suppress("DuplicatedCode") // cache key = path (single hero); Free uses variant as key
     private fun paintBackground(g2: Graphics2D) {
         val path = heroPath ?: return
         if (width <= 0 || height <= 0) return
@@ -137,14 +136,7 @@ internal class PremiumOnboardingPanel(
         path: String,
         targetW: Int,
         targetH: Int,
-    ): java.awt.Image? =
-        try {
-            val raw = ImageLoader.loadFromResource(path, PremiumOnboardingPanel::class.java)
-            raw?.let { ImageLoader.scaleImage(it, targetW, targetH) }
-        } catch (exception: java.io.IOException) {
-            LOG.warn("Failed to load hero SVG $path", exception)
-            null
-        }
+    ): java.awt.Image? = loadScaledHero(path, targetW, targetH, PremiumOnboardingPanel::class.java)
 
     /** Bottom gradient scrim for text readability over the image. */
     private fun paintScrim(g2: Graphics2D) {

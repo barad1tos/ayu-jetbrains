@@ -265,7 +265,6 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
                 availability = FontDetector.detectAll()
                 updateFontMissing()
             }
-            Unit
         }
         if (uninstall) {
             val absPath = FontInstaller.platformFontDir().absolutePath
