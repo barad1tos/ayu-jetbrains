@@ -278,7 +278,7 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
                 FontInstaller.install(preset, project) { refresh() }
             }
         } catch (e: RuntimeException) {
-            LOG.warn("Font lifecycle action failed (uninstall=$uninstall)", e)
+            LOG.warn("Font lifecycle action failed (uninstall=$uninstall, preset=$pendingPreset)", e)
         }
     }
 
@@ -535,11 +535,15 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
         storedPreset = pendingPreset
         storedConsole = pendingConsole
 
-        if (pendingEnabled) {
-            FontDetector.invalidateCache()
-            FontPresetApplicator.apply(currentSettings.copy(applyToConsole = pendingConsole))
-        } else {
-            FontPresetApplicator.revert()
+        try {
+            if (pendingEnabled) {
+                FontDetector.invalidateCache()
+                FontPresetApplicator.apply(currentSettings.copy(applyToConsole = pendingConsole))
+            } else {
+                FontPresetApplicator.revert()
+            }
+        } catch (e: RuntimeException) {
+            LOG.warn("FontPresetApplicator failed during settings apply (preset=$pendingPreset)", e)
         }
     }
 
