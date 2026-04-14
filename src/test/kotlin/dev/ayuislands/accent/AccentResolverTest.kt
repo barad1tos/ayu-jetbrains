@@ -111,7 +111,7 @@ class AccentResolverTest {
         mappingsState.projectAccents[tmp] = "#111111"
         val project = stubProject(File(tmp))
 
-        assertEquals(AccentResolver.Source.PROJECT_OVERRIDE, AccentResolver.source(project, AyuVariant.MIRAGE))
+        assertEquals(AccentResolver.Source.PROJECT_OVERRIDE, AccentResolver.source(project))
     }
 
     @Test
@@ -120,13 +120,13 @@ class AccentResolverTest {
         val project = stubProject(File(System.getProperty("java.io.tmpdir"), "src-lang"))
         every { ProjectLanguageDetector.dominant(project) } returns "python"
 
-        assertEquals(AccentResolver.Source.LANGUAGE_OVERRIDE, AccentResolver.source(project, AyuVariant.MIRAGE))
+        assertEquals(AccentResolver.Source.LANGUAGE_OVERRIDE, AccentResolver.source(project))
     }
 
     @Test
     fun `source reports GLOBAL when nothing matches`() {
         val project = stubProject(File(System.getProperty("java.io.tmpdir"), "src-global"))
-        assertEquals(AccentResolver.Source.GLOBAL, AccentResolver.source(project, AyuVariant.MIRAGE))
+        assertEquals(AccentResolver.Source.GLOBAL, AccentResolver.source(project))
     }
 
     @Test
@@ -212,7 +212,7 @@ class AccentResolverTest {
         val project = stubProject(File(tmp))
         every { ProjectLanguageDetector.dominant(project) } returns "kotlin"
 
-        assertEquals(AccentResolver.Source.GLOBAL, AccentResolver.source(project, AyuVariant.MIRAGE))
+        assertEquals(AccentResolver.Source.GLOBAL, AccentResolver.source(project))
     }
 
     @Test
@@ -223,7 +223,7 @@ class AccentResolverTest {
         every { ProjectLanguageDetector.dominant(project) } returns "python"
 
         assertEquals(globalMirageAccent, AccentResolver.resolve(project, AyuVariant.MIRAGE))
-        assertEquals(AccentResolver.Source.GLOBAL, AccentResolver.source(project, AyuVariant.MIRAGE))
+        assertEquals(AccentResolver.Source.GLOBAL, AccentResolver.source(project))
     }
 
     private fun stubProject(baseDir: File): Project {
