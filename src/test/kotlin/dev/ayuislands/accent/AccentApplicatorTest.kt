@@ -841,7 +841,11 @@ class AccentApplicatorTest {
     }
 
     @Test
-    fun `apply invokes IndentRainbowSync when variant is non-null`() {
+    fun `apply invokes IndentRainbowSync with the exact accent hex passed in`() {
+        // Regression guard against passthrough drift: a future refactor that dropped the hex
+        // parameter and called AyuIslandsSettings.getInstance().getAccentForVariant(variant)
+        // internally would make IR paint the GLOBAL accent during rotation + override scenarios,
+        // but the old `any()` matcher would still pass. Assert the exact hex flows through.
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
         every { IndentRainbowSync.apply(any(), any()) } returns Unit
@@ -850,7 +854,7 @@ class AccentApplicatorTest {
 
         AccentApplicator.apply("#FFCC66")
 
-        verify { IndentRainbowSync.apply(AyuVariant.MIRAGE, any()) }
+        verify { IndentRainbowSync.apply(AyuVariant.MIRAGE, "#FFCC66") }
     }
 
     @Test
