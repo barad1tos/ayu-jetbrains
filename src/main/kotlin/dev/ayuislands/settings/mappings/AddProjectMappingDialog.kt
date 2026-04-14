@@ -131,7 +131,10 @@ class AddProjectMappingDialog(
 
     private fun loadRecentProjects(excluded: Set<String>): List<RecentProjectRow> =
         runCatching {
-            val actions = RecentProjectListActionProvider.getInstance().getActions(false, false)
+            val actions =
+                RecentProjectListActionProvider
+                    .getInstance()
+                    .getActions(addClearListItem = false, useGroups = false)
             actions
                 .filterIsInstance<ReopenProjectAction>()
                 .mapNotNull { action ->

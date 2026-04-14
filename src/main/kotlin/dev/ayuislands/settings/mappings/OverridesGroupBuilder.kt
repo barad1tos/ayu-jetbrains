@@ -238,7 +238,7 @@ class OverridesGroupBuilder {
         languagesRadio.addActionListener { (cardPanel.layout as CardLayout).show(cardPanel, CARD_LANGUAGES) }
 
         val bar =
-            JPanel(FlowLayout(FlowLayout.LEADING, BAR_HGAP, BAR_VGAP)).apply {
+            JPanel(FlowLayout(FlowLayout.LEADING, BAR_HORIZONTAL_GAP, BAR_VERTICAL_GAP)).apply {
                 isOpaque = false
                 add(projectsRadio)
                 add(languagesRadio)
@@ -284,7 +284,7 @@ class OverridesGroupBuilder {
                 .setEditAction { actions.edit() }
                 .setRemoveAction { actions.remove() }
                 .setAddActionName("Add")
-                .setEditActionName("Edit color")
+                .setEditActionName("Edit Color")
                 .setRemoveActionName("Remove")
                 .setAddActionUpdater { _ -> actions.addEnabled() }
                 .setEditActionUpdater { _ -> actions.editEnabled() }
@@ -320,7 +320,15 @@ class OverridesGroupBuilder {
 
         return TableActions(
             add = { showAddProjectDialog() },
-            edit = { editSelectedProjectColor() },
+            edit = {
+                editSelectedColor(
+                    table = projectTable,
+                    rowAt = projectModel::rowAt,
+                    hex = ProjectMapping::hex,
+                    displayName = ProjectMapping::displayName,
+                    updateHex = projectModel::updateHex,
+                )
+            },
             remove = { removeSelectedProject() },
             addEnabled = { licensed },
             editEnabled = { licensed && projectTable.selectedRow >= 0 },
@@ -332,7 +340,15 @@ class OverridesGroupBuilder {
     private fun languageActions(licensed: Boolean): TableActions =
         TableActions(
             add = { showAddLanguageDialog() },
-            edit = { editSelectedLanguageColor() },
+            edit = {
+                editSelectedColor(
+                    table = languageTable,
+                    rowAt = languageModel::rowAt,
+                    hex = LanguageMapping::hex,
+                    displayName = LanguageMapping::displayName,
+                    updateHex = languageModel::updateHex,
+                )
+            },
             remove = { removeSelectedLanguage() },
             addEnabled = { licensed },
             editEnabled = { licensed && languageTable.selectedRow >= 0 },
@@ -374,15 +390,6 @@ class OverridesGroupBuilder {
         fireChanged()
     }
 
-    private fun editSelectedProjectColor() {
-        val row = projectTable.selectedRow.takeIf { it >= 0 } ?: return
-        val mapping = projectModel.rowAt(row) ?: return
-        val dialog = EditAccentColorDialog(parentProject, mapping.hex, mapping.displayName)
-        if (!dialog.showAndGet()) return
-        projectModel.updateHex(row, dialog.resultHex)
-        fireChanged()
-    }
-
     private fun removeSelectedProject() {
         val row = projectTable.selectedRow.takeIf { it >= 0 } ?: return
         projectModel.remove(row)
@@ -403,12 +410,25 @@ class OverridesGroupBuilder {
         fireChanged()
     }
 
-    private fun editSelectedLanguageColor() {
-        val row = languageTable.selectedRow.takeIf { it >= 0 } ?: return
-        val mapping = languageModel.rowAt(row) ?: return
-        val dialog = EditAccentColorDialog(parentProject, mapping.hex, mapping.displayName)
+    /**
+     * Generic edit-color flow shared by project and language tables. Takes accessors
+     * for the model-specific lookup and update so the Project- and Language- specific
+     * callers collapse to a single call with closures capturing their model/table —
+     * sharing the JBTable selection probe, the modal dialog wiring, and the
+     * pending-change notification.
+     */
+    private inline fun <M> editSelectedColor(
+        table: JBTable,
+        rowAt: (Int) -> M?,
+        hex: (M) -> String,
+        displayName: (M) -> String,
+        updateHex: (Int, String) -> Unit,
+    ) {
+        val row = table.selectedRow.takeIf { it >= 0 } ?: return
+        val mapping = rowAt(row) ?: return
+        val dialog = EditAccentColorDialog(parentProject, hex(mapping), displayName(mapping))
         if (!dialog.showAndGet()) return
-        languageModel.updateHex(row, dialog.resultHex)
+        updateHex(row, dialog.resultHex)
         fireChanged()
     }
 
@@ -434,8 +454,8 @@ class OverridesGroupBuilder {
         private const val CARD_PROJECTS = "projects"
         private const val CARD_LANGUAGES = "languages"
         private const val TABLE_ROW_HEIGHT = 24
-        private const val BAR_HGAP = 4
-        private const val BAR_VGAP = 0
+        private const val BAR_HORIZONTAL_GAP = 4
+        private const val BAR_VERTICAL_GAP = 0
     }
 
     /**
@@ -448,7 +468,7 @@ class OverridesGroupBuilder {
         model: TableModel,
     ) : JBTable(model) {
         init {
-            autoResizeMode = JTable.AUTO_RESIZE_LAST_COLUMN
+            autoResizeMode = AUTO_RESIZE_LAST_COLUMN
             model.addTableModelListener { repack() }
         }
 
@@ -527,7 +547,7 @@ class OverridesGroupBuilder {
         private val orphanProbe: (Int) -> Boolean,
     ) : DefaultTableCellRenderer() {
         override fun getTableCellRendererComponent(
-            table: javax.swing.JTable,
+            table: JTable,
             value: Any?,
             isSelected: Boolean,
             hasFocus: Boolean,

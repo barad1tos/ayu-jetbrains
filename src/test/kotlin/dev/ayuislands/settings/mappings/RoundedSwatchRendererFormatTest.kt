@@ -31,7 +31,7 @@ class RoundedSwatchRendererFormatTest {
     }
 
     @Test
-    fun `formatLabel preset match is case-insensitive on hex — output upper`() {
+    fun `formatLabel preset match is case-insensitive on hex - output upper`() {
         assertEquals("Gold (#FFCD66)", RoundedSwatchRenderer.formatLabel("#ffcd66"))
     }
 

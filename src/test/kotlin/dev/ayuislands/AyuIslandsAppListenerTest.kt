@@ -20,6 +20,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 
+@Suppress("UnstableApiUsage")
 class AyuIslandsAppListenerTest {
     private lateinit var state: AyuIslandsState
     private val listener = AyuIslandsAppListener()
@@ -67,7 +68,6 @@ class AyuIslandsAppListenerTest {
         val laf = mockk<UIThemeLookAndFeelInfo>()
         every { laf.name } returns "Ayu Mirage (Islands UI)"
         val lafManager = mockk<LafManager>()
-        @Suppress("UnstableApiUsage")
         every {
             lafManager.currentUIThemeLookAndFeel
         } returns laf
@@ -85,7 +85,6 @@ class AyuIslandsAppListenerTest {
         val laf = mockk<UIThemeLookAndFeelInfo>()
         every { laf.name } returns "Darcula"
         val lafManager = mockk<LafManager>()
-        @Suppress("UnstableApiUsage")
         every {
             lafManager.currentUIThemeLookAndFeel
         } returns laf
@@ -119,7 +118,6 @@ class AyuIslandsAppListenerTest {
             val laf = mockk<UIThemeLookAndFeelInfo>()
             every { laf.name } returns themeName
             val lafManager = mockk<LafManager>()
-            @Suppress("UnstableApiUsage")
             every { lafManager.currentUIThemeLookAndFeel } returns laf
             every { LafManager.getInstance() } returns lafManager
 
@@ -140,13 +138,11 @@ class AyuIslandsAppListenerTest {
 
         val nonIslandsLaf = mockk<UIThemeLookAndFeelInfo>()
         every { nonIslandsLaf.name } returns "Ayu Mirage"
-        @Suppress("UnstableApiUsage")
         every { lafManager.currentUIThemeLookAndFeel } returns nonIslandsLaf
         listener.appFrameCreated(mutableListOf())
 
         val islandsLaf = mockk<UIThemeLookAndFeelInfo>()
         every { islandsLaf.name } returns "Ayu Mirage (Islands UI)"
-        @Suppress("UnstableApiUsage")
         every { lafManager.currentUIThemeLookAndFeel } returns islandsLaf
         listener.appFrameCreated(mutableListOf())
 

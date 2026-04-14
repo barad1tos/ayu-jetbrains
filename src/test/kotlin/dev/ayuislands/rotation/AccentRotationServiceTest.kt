@@ -122,8 +122,7 @@ class AccentRotationServiceTest {
             }
         }
         every { settingsMock.getAccentForVariant(any()) } answers {
-            val variant = firstArg<AyuVariant>()
-            when (variant) {
+            when (val variant = firstArg<AyuVariant>()) {
                 AyuVariant.MIRAGE -> state.mirageAccent ?: variant.defaultAccent
                 AyuVariant.DARK -> state.darkAccent ?: variant.defaultAccent
                 AyuVariant.LIGHT -> state.lightAccent ?: variant.defaultAccent

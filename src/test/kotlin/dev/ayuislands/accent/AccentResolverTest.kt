@@ -142,7 +142,7 @@ class AccentResolverTest {
         val tmp = File(System.getProperty("java.io.tmpdir"), "default-proj").canonicalPath
         mappingsState.projectAccents[tmp] = "#111111"
 
-        val project = mockk<com.intellij.openapi.project.Project>()
+        val project = mockk<Project>()
         every { project.isDefault } returns true
         every { project.isDisposed } returns false
         every { project.basePath } returns tmp
@@ -156,7 +156,7 @@ class AccentResolverTest {
         val tmp = File(System.getProperty("java.io.tmpdir"), "disposed-proj").canonicalPath
         mappingsState.projectAccents[tmp] = "#111111"
 
-        val project = mockk<com.intellij.openapi.project.Project>()
+        val project = mockk<Project>()
         every { project.isDefault } returns false
         every { project.isDisposed } returns true
         every { project.basePath } returns tmp
@@ -167,7 +167,7 @@ class AccentResolverTest {
 
     @Test
     fun `projectKey returns null when basePath is null`() {
-        val project = mockk<com.intellij.openapi.project.Project>()
+        val project = mockk<Project>()
         every { project.basePath } returns null
         every { project.isDefault } returns false
         every { project.isDisposed } returns false

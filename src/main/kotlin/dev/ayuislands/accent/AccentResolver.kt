@@ -7,12 +7,13 @@ import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import java.io.File
 
 /**
- * Resolves the effective accent hex for a given [project] and [variant] in priority order:
+ * Resolves the effective accent hex for a project + variant pair in priority order:
  *
- *  1. **Project override** — `AccentMappingsState.projectAccents[canonicalPath]`
- *  2. **Language override** — dominant language of the project via [ProjectLanguageDetector]
+ *  1. **Project override** — `AccentMappingsState.projectAccents` keyed by the project's
+ *     canonical base path.
+ *  2. **Language override** — dominant language of the project via [ProjectLanguageDetector].
  *  3. **Global** — [AyuIslandsSettings.getAccentForVariant] (which itself honors
- *     follow-system-accent and per-variant stored hex)
+ *     follow-system-accent and per-variant stored hex).
  *
  * Per-project and per-language overrides are premium features: when the license check
  * fails, the resolver short-circuits to the global accent regardless of stored mappings.

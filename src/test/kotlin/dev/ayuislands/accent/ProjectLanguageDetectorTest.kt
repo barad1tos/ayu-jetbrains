@@ -123,22 +123,22 @@ class ProjectLanguageDetectorTest {
     // ---- Module-name fallback ----
 
     @Test
-    fun `dominant falls back to module name when SDK is absent — kotlin`() {
+    fun `dominant falls back to module name when SDK is absent - kotlin`() {
         assertModuleDetects(moduleNames = listOf("my-kotlin-lib"), expected = "kotlin")
     }
 
     @Test
-    fun `dominant falls back to module name — flutter maps to dart`() {
+    fun `dominant falls back to module name - flutter maps to dart`() {
         assertModuleDetects(moduleNames = listOf("flutter_app"), expected = "dart")
     }
 
     @Test
-    fun `dominant falls back to module name — android maps to kotlin`() {
+    fun `dominant falls back to module name - android maps to kotlin`() {
         assertModuleDetects(moduleNames = listOf("android-core"), expected = "kotlin")
     }
 
     @Test
-    fun `dominant falls back to module name — python`() {
+    fun `dominant falls back to module name - python`() {
         assertModuleDetects(moduleNames = listOf("backend-python-service"), expected = "python")
     }
 
@@ -153,7 +153,7 @@ class ProjectLanguageDetectorTest {
     // ---- Cache behavior ----
 
     @Test
-    fun `dominant caches successful detection — detectInternal called once`() {
+    fun `dominant caches successful detection - detectInternal called once`() {
         val project = stubProject("/tmp/cache-hit-${System.nanoTime()}")
         wireProjectRootManager(project, sdkName = "KotlinSdkType")
         wireModuleManager(project, moduleNames = emptyList())
@@ -166,7 +166,7 @@ class ProjectLanguageDetectorTest {
     }
 
     @Test
-    fun `dominant caches negative detection — detectInternal called once for null`() {
+    fun `dominant caches negative detection - detectInternal called once for null`() {
         val project = stubProject("/tmp/cache-miss-${System.nanoTime()}")
         wireProjectRootManager(project, sdkName = null)
         wireModuleManager(project, moduleNames = emptyList())
@@ -180,7 +180,7 @@ class ProjectLanguageDetectorTest {
     }
 
     @Test
-    fun `invalidate clears cache entry — detectInternal called twice after invalidate`() {
+    fun `invalidate clears cache entry - detectInternal called twice after invalidate`() {
         val project = stubProject("/tmp/invalidate-${System.nanoTime()}")
         wireProjectRootManager(project, sdkName = "Python SDK")
         wireModuleManager(project, moduleNames = emptyList())
