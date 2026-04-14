@@ -30,6 +30,13 @@
 # plugin.xml: applicationService (focus-swap listener)
 -keep class dev.ayuislands.settings.mappings.ProjectAccentSwapService { *; }
 
+# MessageBus pub/sub for component-tree refresh. Topic is accessed reflectively by the
+# platform's message-bus machinery to deserialize listeners; the fun interface is the
+# listener type registered via project.messageBus.connect(this).subscribe(TOPIC, ...).
+-keep class dev.ayuislands.ui.ComponentTreeRefresher { *; }
+-keep class dev.ayuislands.ui.ComponentTreeRefreshedTopic { *; }
+-keep class dev.ayuislands.ui.ComponentTreeRefreshedListener { *; }
+
 # Enums — serialized by name
 -keep enum dev.ayuislands.accent.AyuVariant { *; }
 -keep enum dev.ayuislands.accent.AccentElementId { *; }
