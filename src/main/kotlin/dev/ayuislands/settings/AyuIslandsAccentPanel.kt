@@ -494,7 +494,11 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
             settings.setAccentForVariant(currentVariant, "")
             AccentApplicator.revertAll()
         } else {
-            AccentApplicator.apply(effectiveAccent)
+            // Route through applyForFocusedProject so a per-project/per-language override on the
+            // currently focused project wins over the freshly-stored global accent. Applying
+            // effectiveAccent directly would overwrite the override until the next focus swap or
+            // LAF change — breaking the "per-project override is sticky" invariant.
+            AccentApplicator.applyForFocusedProject(currentVariant)
         }
         storedAccent = effectiveAccent
 
