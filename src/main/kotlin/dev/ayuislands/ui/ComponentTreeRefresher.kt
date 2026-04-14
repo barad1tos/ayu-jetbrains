@@ -32,7 +32,13 @@ object ComponentTreeRefresher {
         try {
             IJSwingUtilities.updateComponentTreeUI(root)
         } catch (exception: RuntimeException) {
-            LOG.warn("Component tree refresh failed for ${project.name}: ${exception.message}")
+            // Pass the exception as the second argument so the stacktrace is preserved in
+            // idea.log — post-mortem on a failed Swing refresh is impossible without it.
+            // Include the root component class so failures on a specific tree node are traceable.
+            LOG.warn(
+                "Component tree refresh failed for ${project.name} (root=${root.javaClass.simpleName})",
+                exception,
+            )
         }
         notifyOnly(project)
     }

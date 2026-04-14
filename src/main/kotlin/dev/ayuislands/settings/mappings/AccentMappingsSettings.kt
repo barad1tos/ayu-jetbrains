@@ -5,6 +5,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.SimplePersistentStateComponent
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
+import com.intellij.openapi.diagnostic.logger
 
 /**
  * Application-level persistent store for per-project and per-language accent overrides.
@@ -35,7 +36,24 @@ class AccentMappingsSettings : SimplePersistentStateComponent<AccentMappingsStat
      * existing users keep their mappings after this fix ships.
      */
     private fun migrateUserHomeMacro(state: AccentMappingsState) {
-        val userHome = System.getProperty("user.home")?.takeIf { it.isNotBlank() } ?: return
+        val userHome = System.getProperty("user.home")?.takeIf { it.isNotBlank() }
+        if (userHome == null) {
+            // Surface the failure so affected users can find a breadcrumb in idea.log. Silent no-op
+            // means stored `$USER_HOME$/...` keys never match the absolute canonical path
+            // AccentResolver hands to the map lookup — overrides become invisible with no trace.
+            val hasLegacyKeys =
+                state.projectAccents.keys.any { it.startsWith(USER_HOME_MACRO) } ||
+                    state.projectDisplayNames.keys.any { it.startsWith(USER_HOME_MACRO) }
+            if (hasLegacyKeys) {
+                LOG.warn(
+                    "Cannot migrate legacy \$USER_HOME\$-prefixed accent-mapping keys: " +
+                        "System.getProperty(\"user.home\") is unavailable. " +
+                        "Affected per-project overrides won't resolve until re-added under " +
+                        "Settings > Ayu Islands > Accent > Overrides.",
+                )
+            }
+            return
+        }
 
         val rewrittenAccents = rewriteKeys(state.projectAccents, userHome)
         if (rewrittenAccents != null) {
@@ -61,6 +79,7 @@ class AccentMappingsSettings : SimplePersistentStateComponent<AccentMappingsStat
     }
 
     companion object {
+        private val LOG = logger<AccentMappingsSettings>()
         private const val USER_HOME_MACRO = "\$USER_HOME\$"
 
         fun getInstance(): AccentMappingsSettings =
