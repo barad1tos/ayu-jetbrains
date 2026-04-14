@@ -9,8 +9,8 @@ import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.glow.GlowOverlayManager
-import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.ui.ComponentTreeRefresher
 
 /** Re-applies accent, font, glow, and scrollbar settings on theme change. */
 class AyuIslandsLafListener : LafManagerListener {
@@ -42,22 +42,16 @@ class AyuIslandsLafListener : LafManagerListener {
         }
         syncService.clearProgrammaticSwitch()
 
-        // Re-apply Project View scrollbar setting
-        reapplyProjectViewScrollbar()
+        // Platform already walked the component tree during the LAF change, resetting component-level
+        // overrides (scrollbar preferredSize, horizontal policy, rendering wrappers). Publish the
+        // refresh event per open project so subscribed managers reapply. No tree walk needed here.
+        for (openProject in ProjectManager.getInstance().openProjects) {
+            if (openProject.isDefault || openProject.isDisposed) continue
+            ComponentTreeRefresher.notifyOnly(openProject)
+        }
 
         // Update glow overlays with new accent color
         GlowOverlayManager.syncGlowForAllProjects()
-    }
-
-    private fun reapplyProjectViewScrollbar() {
-        if (!AyuIslandsSettings.getInstance().state.hideProjectViewHScrollbar) return
-        for (openProject in ProjectManager.getInstance().openProjects) {
-            try {
-                ProjectViewScrollbarManager.getInstance(openProject).apply()
-            } catch (exception: RuntimeException) {
-                LOG.warn("Failed to re-apply scrollbar for project ${openProject.name}: ${exception.message}")
-            }
-        }
     }
 
     companion object {

@@ -5,10 +5,10 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.WindowManager
-import com.intellij.util.IJSwingUtilities
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.ui.ComponentTreeRefresher
 import java.awt.AWTEvent
 import java.awt.Toolkit
 import java.awt.Window
@@ -66,17 +66,13 @@ class ProjectAccentSwapService : Disposable {
         lastAppliedHex = effectiveHex
         AccentApplicator.apply(effectiveHex)
 
-        // AccentApplicator updates UIManager + editor scheme. Editor and CodeGlance Pro refresh via
-        // their own message-bus topics, but UIManager-only components (toolbar, tab underlines,
-        // scrollbar chrome, focus rings) hold cached JBColor resolutions at construction time and
-        // do not re-read from UIManager on plain `repaint()`. Force a component-tree LAF refresh
-        // on the focused window so the accent change propagates to every painted descendant.
-        // IJSwingUtilities skips non-UIResource components — the safe IntelliJ variant.
-        try {
-            IJSwingUtilities.updateComponentTreeUI(window)
-        } catch (exception: RuntimeException) {
-            LOG.warn("Component tree UI refresh failed for ${project.name}", exception)
-        }
+        // AccentApplicator updates UIManager + editor scheme. UIManager-only components
+        // (toolbar, tab underlines, scrollbar chrome, focus rings) hold cached JBColor
+        // resolutions captured at construction time and will not re-read UIManager on a
+        // plain `repaint()`. ComponentTreeRefresher does the component-tree LAF refresh
+        // AND fires ComponentTreeRefreshedTopic so managers whose customizations got
+        // reset by the walk (scrollbar hiders etc.) reapply themselves.
+        ComponentTreeRefresher.walkAndNotify(project, window)
         LOG.info("Project accent swapped to $effectiveHex for ${project.name}")
     }
 

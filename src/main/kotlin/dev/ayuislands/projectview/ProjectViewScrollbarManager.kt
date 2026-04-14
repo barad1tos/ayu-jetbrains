@@ -15,6 +15,8 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.PanelWidthMode
 import dev.ayuislands.toolwindow.AutoFitCalculator
 import dev.ayuislands.toolwindow.ToolWindowAutoFitter
+import dev.ayuislands.ui.ComponentTreeRefreshedListener
+import dev.ayuislands.ui.ComponentTreeRefreshedTopic
 import java.awt.Component
 import java.beans.PropertyChangeListener
 import java.util.MissingResourceException
@@ -73,6 +75,16 @@ class ProjectViewScrollbarManager(
         SwingUtilities.invokeLater {
             if (!project.isDisposed) apply()
         }
+
+        // Self-heal after IJSwingUtilities.updateComponentTreeUI (startup, focus swap,
+        // LAF change) — the walk resets the ScrollPane's horizontal scrollbar policy
+        // and any rendering overrides we patch from apply().
+        project.messageBus
+            .connect(this)
+            .subscribe(
+                ComponentTreeRefreshedTopic.TOPIC,
+                ComponentTreeRefreshedListener { apply() },
+            )
     }
 
     fun apply() {

@@ -9,6 +9,8 @@ import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.project.Project
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.ui.ComponentTreeRefreshedListener
+import dev.ayuislands.ui.ComponentTreeRefreshedTopic
 import java.awt.Dimension
 import java.util.WeakHashMap
 import javax.swing.JScrollBar
@@ -41,6 +43,16 @@ class EditorScrollbarManager(
             },
             this,
         )
+
+        // Self-heal after IJSwingUtilities.updateComponentTreeUI (startup, focus swap,
+        // LAF change) — that walk calls updateUI() on every JScrollBar descendant and
+        // resets the preferredSize=0 trick this manager uses to hide scrollbars.
+        project.messageBus
+            .connect(this)
+            .subscribe(
+                ComponentTreeRefreshedTopic.TOPIC,
+                ComponentTreeRefreshedListener { apply() },
+            )
     }
 
     fun apply() {
@@ -63,31 +75,43 @@ class EditorScrollbarManager(
         val hideVertical = state.hideEditorVScrollbar
         val hideHorizontal = state.hideEditorHScrollbar
 
-        if (hideVertical || hideHorizontal) {
-            val patched = patchedScrollPanes.getOrPut(scrollPane) { PatchedState() }
-            if (hideVertical && !patched.verticalHidden) {
-                hideScrollBar(scrollPane.verticalScrollBar)
-                patched.verticalHidden = true
-            } else if (!hideVertical && patched.verticalHidden) {
-                restoreScrollBar(scrollPane.verticalScrollBar)
-                patched.verticalHidden = false
-            }
-            if (hideHorizontal && !patched.horizontalHidden) {
-                hideScrollBar(scrollPane.horizontalScrollBar)
-                patched.horizontalHidden = true
-            } else if (!hideHorizontal && patched.horizontalHidden) {
-                restoreScrollBar(scrollPane.horizontalScrollBar)
-                patched.horizontalHidden = false
-            }
-        } else {
+        if (!hideVertical && !hideHorizontal) {
             restoreEditor(scrollPane)
+            return
         }
+
+        // Apply is idempotent: we re-apply `hideScrollBar` every call without consulting
+        // `patched.verticalHidden` because the platform can silently restore the default
+        // preferred size during LAF changes and component-tree refreshes. The cached flag
+        // would still read "true" while the scrollbar is visible again, so a flag-gated
+        // call path would skip re-hiding. `hideScrollBar` preserves the original size only
+        // on the first call (client property is never overwritten), so repeated invocations
+        // are safe.
+        val patched = patchedScrollPanes.getOrPut(scrollPane) { PatchedState() }
+        if (hideVertical) {
+            hideScrollBar(scrollPane.verticalScrollBar)
+            patched.verticalHidden = true
+        } else if (patched.verticalHidden) {
+            restoreScrollBar(scrollPane.verticalScrollBar)
+            patched.verticalHidden = false
+        }
+        if (hideHorizontal) {
+            hideScrollBar(scrollPane.horizontalScrollBar)
+            patched.horizontalHidden = true
+        } else if (patched.horizontalHidden) {
+            restoreScrollBar(scrollPane.horizontalScrollBar)
+            patched.horizontalHidden = false
+        }
+        scrollPane.revalidate()
     }
 
     private fun hideScrollBar(scrollBar: JScrollBar) {
-        val originalSize = scrollBar.preferredSize?.let { Dimension(it) }
-        scrollBar.putClientProperty(ORIGINAL_PREFERRED_SIZE_KEY, originalSize)
+        if (scrollBar.getClientProperty(ORIGINAL_PREFERRED_SIZE_KEY) == null) {
+            val originalSize = scrollBar.preferredSize?.let { Dimension(it) }
+            scrollBar.putClientProperty(ORIGINAL_PREFERRED_SIZE_KEY, originalSize)
+        }
         scrollBar.preferredSize = ZERO_SIZE
+        scrollBar.revalidate()
     }
 
     private fun restoreScrollBar(scrollBar: JScrollBar) {

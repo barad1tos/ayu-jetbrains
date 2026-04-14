@@ -5,18 +5,20 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.openapi.wm.WindowManager
-import com.intellij.util.IJSwingUtilities
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.conflict.ConflictRegistry
+import dev.ayuislands.editor.EditorScrollbarManager
 import dev.ayuislands.font.FontPreset
 import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
+import dev.ayuislands.ui.ComponentTreeRefresher
 import javax.swing.SwingUtilities
 
 internal class AyuIslandsStartupActivity : ProjectActivity {
@@ -39,19 +41,24 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         swapService.install()
         swapService.notifyExternalApply(accentHex)
 
+        // Eager-instantiate per-project scrollbar managers BEFORE firing the first refresh event.
+        // Their init{} blocks subscribe to ComponentTreeRefreshedTopic; without this, the
+        // walkAndNotify below publishes into an empty subscriber list and the managers — lazily
+        // created later by StartupLicenseHandler.initWorkspaceServices on a subsequent EDT turn —
+        // miss the initial refresh (plus any editors already opened before they subscribed to
+        // EditorFactoryListener). Services are no-op when their toggles are off and are cheap to
+        // instantiate, so gating on settings would only add complexity.
+        EditorScrollbarManager.getInstance(project)
+        ProjectViewScrollbarManager.getInstance(project)
+
         // Force a component-tree LAF refresh on the project frame so already-rendered toolbar,
         // tab underlines, scrollbar chrome, and focus rings pick up the resolved accent.
         // AccentApplicator only updates UIManager + editor scheme; cached JBColor instances on
         // already-painted components otherwise keep the global-accent values they captured when
         // the frame first rendered.
         SwingUtilities.invokeLater {
-            if (project.isDisposed) return@invokeLater
             val frame = WindowManager.getInstance().getFrame(project) ?: return@invokeLater
-            try {
-                IJSwingUtilities.updateComponentTreeUI(frame)
-            } catch (exception: RuntimeException) {
-                LOG.warn("Startup UI refresh failed for ${project.name}: ${exception.message}")
-            }
+            ComponentTreeRefresher.walkAndNotify(project, frame)
         }
 
         // Apply persisted font preset (FontPresetApplicator ensures EDT internally)
