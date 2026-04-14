@@ -121,7 +121,7 @@ object AccentApplicator {
                 applyElements(state, accent, variant)
                 syncCodeGlanceProViewport(accentHex)
                 if (variant != null) {
-                    IndentRainbowSync.apply(variant)
+                    IndentRainbowSync.apply(variant, accentHex)
                 }
                 applyAlwaysOnEditorKeys(accent)
                 overrideTabUnderlineForOffMode(state, variant)

@@ -42,7 +42,18 @@ object IndentRainbowSync {
 
     @Volatile private var methodsResolved = false
 
-    fun apply(variant: AyuVariant) {
+    /**
+     * Syncs Indent Rainbow's custom palette to [accentHex] for the given [variant].
+     * The caller (typically [dev.ayuislands.accent.AccentApplicator.apply]) passes the
+     * resolved accent — the one that just went through per-project / per-language
+     * override resolution — so IR reflects the SAME color the rest of the plugin just
+     * applied, not the global accent stored in settings (which rotation mutates to a
+     * different value from what the focused project actually shows).
+     */
+    fun apply(
+        variant: AyuVariant,
+        accentHex: String,
+    ) {
         val state = AyuIslandsSettings.getInstance().state
         if (!state.irIntegrationEnabled) {
             revert()
@@ -55,7 +66,6 @@ object IndentRainbowSync {
         val enumValue = customEnumValue ?: return
 
         try {
-            val accentHex = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
             val palette = IndentPalette.forAccent(accentHex, variant)
             val preset =
                 IndentPreset.fromName(

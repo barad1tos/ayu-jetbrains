@@ -39,12 +39,30 @@ class IndentRainbowSyncTest {
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns mockSettings
         every { mockSettings.state } returns state
-        every { mockSettings.getAccentForVariant(any()) } returns "#FFCC66"
+        // getAccentForVariant stub used to be required because IR read the global accent
+        // itself. After the resolver refactor the caller passes the resolved hex in; the
+        // mock becomes dead code. Removed to keep setUp honest.
 
         mockkStatic(PluginManagerCore::class)
         every { PluginManagerCore.getPlugin(any()) } returns null
 
         resetSyncState()
+    }
+
+    /**
+     * Helper that invokes [IndentRainbowSync.apply] with the single test accent hex.
+     * Most tests in this suite verify flow (integration flag, plugin availability,
+     * reflection fallbacks, palette composition) rather than hex-specific behavior —
+     * pulling the hex into one constant removes 20 hardcoded strings and keeps each
+     * test readable as "call apply for variant X".
+     */
+    private fun callApply(variant: AyuVariant = AyuVariant.MIRAGE) {
+        IndentRainbowSync.apply(variant, TEST_ACCENT_HEX)
+    }
+
+    private companion object {
+        /** Fixed accent used by every `callApply(...)` invocation in this suite. */
+        const val TEST_ACCENT_HEX = "#FFCC66"
     }
 
     @AfterTest
@@ -57,7 +75,7 @@ class IndentRainbowSyncTest {
     fun `apply with integration disabled calls revert gracefully`() {
         state.irIntegrationEnabled = false
 
-        IndentRainbowSync.apply(AyuVariant.MIRAGE)
+        callApply()
 
         // Should not throw — revert also gracefully returns when IR not installed
     }
@@ -66,7 +84,7 @@ class IndentRainbowSyncTest {
     fun `apply with integration enabled but no IR plugin does not throw`() {
         state.irIntegrationEnabled = true
 
-        IndentRainbowSync.apply(AyuVariant.MIRAGE)
+        callApply()
 
         // resolveReflection finds no plugin, resolveOrReturn returns null, method exits
     }
@@ -123,7 +141,7 @@ class IndentRainbowSyncTest {
         state.irIntegrationEnabled = true
         for (variant in AyuVariant.entries) {
             resetSyncState()
-            IndentRainbowSync.apply(variant)
+            callApply(variant)
         }
     }
 
@@ -153,7 +171,7 @@ class IndentRainbowSyncTest {
         setPrivateField("refreshMethod", mockRefreshMethod)
         setPrivateField("irColorsInstance", mockColorsInstance)
 
-        IndentRainbowSync.apply(AyuVariant.MIRAGE)
+        callApply()
 
         // Verify a palette type was set to CUSTOM
         verify { mockPaletteTypeField[mockConfig] = "CUSTOM_ENUM" }
@@ -211,7 +229,7 @@ class IndentRainbowSyncTest {
         setPrivateField("refreshMethod", mockRefreshMethod)
         setPrivateField("irColorsInstance", mockColorsInstance)
 
-        IndentRainbowSync.apply(AyuVariant.MIRAGE)
+        callApply()
 
         // Should revert, not apply custom
         verify { mockPaletteTypeField[mockConfig] = "DEFAULT_ENUM" }
@@ -247,7 +265,7 @@ class IndentRainbowSyncTest {
 
         mockNotificationGroup()
 
-        IndentRainbowSync.apply(AyuVariant.MIRAGE)
+        callApply()
         // Should not throw — exception is caught and logged
     }
 
@@ -280,7 +298,7 @@ class IndentRainbowSyncTest {
 
         mockNotificationGroup()
 
-        IndentRainbowSync.apply(AyuVariant.MIRAGE)
+        callApply()
     }
 
     @Test
@@ -373,7 +391,7 @@ class IndentRainbowSyncTest {
         setPrivateField("refreshMethod", mockRefreshMethod)
         setPrivateField("irColorsInstance", mockColorsInstance)
 
-        IndentRainbowSync.apply(AyuVariant.MIRAGE)
+        callApply()
 
         // Verify the palette string was written (contains NEON alpha-based values)
         verify {
@@ -412,7 +430,7 @@ class IndentRainbowSyncTest {
         setPrivateField("refreshMethod", mockRefreshMethod)
         setPrivateField("irColorsInstance", mockColorsInstance)
 
-        IndentRainbowSync.apply(AyuVariant.DARK)
+        callApply(AyuVariant.DARK)
 
         verify { mockCustomPaletteField[mockConfig] = any<String>() }
     }
@@ -472,7 +490,7 @@ class IndentRainbowSyncTest {
         setPrivateField("refreshMethod", mockRefreshMethod)
         setPrivateField("irColorsInstance", mockColorsInstance)
 
-        IndentRainbowSync.apply(AyuVariant.MIRAGE)
+        callApply()
 
         verify(exactly = 0) { mockUpdateMethod.invoke(any(), any()) }
     }
@@ -518,7 +536,7 @@ class IndentRainbowSyncTest {
         setPrivateField("refreshMethod", mockRefreshMethod)
         setPrivateField("irColorsInstance", mockColorsInstance)
 
-        IndentRainbowSync.apply(AyuVariant.MIRAGE)
+        callApply()
 
         verify(exactly = 0) { mockUpdateMethod.invoke(any(), any()) }
     }
@@ -547,7 +565,7 @@ class IndentRainbowSyncTest {
         setPrivateField("refreshMethod", mockRefreshMethod)
         setPrivateField("irColorsInstance", mockColorsInstance)
 
-        IndentRainbowSync.apply(AyuVariant.MIRAGE)
+        callApply()
 
         verify(exactly = 0) { mockUpdateMethod.invoke(any(), any()) }
     }
@@ -581,7 +599,7 @@ class IndentRainbowSyncTest {
 
         mockNotificationGroup()
 
-        IndentRainbowSync.apply(AyuVariant.MIRAGE)
+        callApply()
         // Should not throw — caught by RuntimeException handler
     }
 
@@ -612,7 +630,7 @@ class IndentRainbowSyncTest {
         setPrivateField("refreshMethod", mockRefreshMethod)
         setPrivateField("irColorsInstance", mockColorsInstance)
 
-        IndentRainbowSync.apply(AyuVariant.MIRAGE)
+        callApply()
 
         // Verify palette string: error color (index 0) should use accent, not red
         verify {
