@@ -5,7 +5,7 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.ui.ColorPicker
 import com.intellij.ui.components.JBCheckBox
-import com.intellij.ui.dsl.builder.Align
+import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.Cell
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.selected
@@ -166,7 +166,11 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
             row {
                 comment("Choose your accent color. Swatches are shared across all variants.")
             }
-            row { cell(colorPanel).resizableColumn().align(Align.FILL) }
+            // AlignX.LEFT (not Align.FILL) so the panel uses its natural preferred width.
+            // PresetComponent.preferredSize gives each swatch a fixed width (~80px); without
+            // FILL, expanding the Settings dialog (e.g. opening Overrides with its wide
+            // AutoSizingTable viewport) cannot stretch the swatches horizontally.
+            row { cell(colorPanel).align(AlignX.LEFT) }
             row {
                 currentlyActiveLabel = comment("").component
             }
