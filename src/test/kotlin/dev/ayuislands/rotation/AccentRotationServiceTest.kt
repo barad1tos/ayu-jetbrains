@@ -11,6 +11,9 @@ import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.settings.mappings.AccentMappingsSettings
+import dev.ayuislands.settings.mappings.AccentMappingsState
+import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
@@ -107,7 +110,45 @@ class AccentRotationServiceTest {
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns settingsMock
         every { settingsMock.state } returns state
-        every { settingsMock.setAccentForVariant(any(), any()) } just Runs
+        // setAccentForVariant must persist into the state fields so the subsequent
+        // AccentResolver fallback (which reads getAccentForVariant) sees the rotated value.
+        every { settingsMock.setAccentForVariant(any(), any()) } answers {
+            val variant = firstArg<AyuVariant>()
+            val hex = secondArg<String>()
+            when (variant) {
+                AyuVariant.MIRAGE -> state.mirageAccent = hex
+                AyuVariant.DARK -> state.darkAccent = hex
+                AyuVariant.LIGHT -> state.lightAccent = hex
+            }
+        }
+        every { settingsMock.getAccentForVariant(any()) } answers {
+            val variant = firstArg<AyuVariant>()
+            when (variant) {
+                AyuVariant.MIRAGE -> state.mirageAccent ?: variant.defaultAccent
+                AyuVariant.DARK -> state.darkAccent ?: variant.defaultAccent
+                AyuVariant.LIGHT -> state.lightAccent ?: variant.defaultAccent
+            }
+        }
+
+        // AccentResolver reads AccentMappingsSettings and ProjectManager. Both must be mocked
+        // so rotation's apply path resolves cleanly to the (freshly-set) global hex with no
+        // project overrides in play.
+        val mappingsSettings = mockk<AccentMappingsSettings>()
+        every { mappingsSettings.state } returns AccentMappingsState()
+        mockkObject(AccentMappingsSettings.Companion)
+        every { AccentMappingsSettings.getInstance() } returns mappingsSettings
+
+        val projectManager = mockk<com.intellij.openapi.project.ProjectManager>()
+        every { projectManager.openProjects } returns emptyArray()
+        mockkStatic(com.intellij.openapi.project.ProjectManager::class)
+        every {
+            com.intellij.openapi.project.ProjectManager
+                .getInstance()
+        } returns projectManager
+
+        val swapService = mockk<ProjectAccentSwapService>(relaxed = true)
+        mockkObject(ProjectAccentSwapService.Companion)
+        every { ProjectAccentSwapService.getInstance() } returns swapService
 
         mockkObject(LicenseChecker)
         every { LicenseChecker.isLicensedOrGrace() } returns true

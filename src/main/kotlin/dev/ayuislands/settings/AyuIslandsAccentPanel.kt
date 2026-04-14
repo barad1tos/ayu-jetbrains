@@ -20,6 +20,7 @@ import dev.ayuislands.rotation.AccentRotationMode
 import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.rotation.ContrastAwareColorGenerator
 import dev.ayuislands.settings.mappings.OverridesGroupBuilder
+import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import java.awt.Color
 import javax.swing.JEditorPane
 
@@ -213,6 +214,23 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                 ?: "Custom"
         val sourceText = describeActiveSource(overrides.sourcePending(contextProject))
         label.text = "Currently active: $presetName ($sourceText)"
+    }
+
+    /**
+     * Rotation paths persist the new global accent, then must apply the **resolved** color
+     * so per-project and per-language overrides keep winning during the rotation tick.
+     * Also syncs the focus-swap service cache so the next WINDOW_ACTIVATED comparison
+     * lines up with what's actually on screen.
+     */
+    private fun applyRotationRespectingOverrides(currentVariant: AyuVariant) {
+        val focusedProject =
+            ProjectManager
+                .getInstance()
+                .openProjects
+                .firstOrNull { !it.isDefault && !it.isDisposed }
+        val resolvedHex = AccentResolver.resolve(focusedProject, currentVariant)
+        AccentApplicator.apply(resolvedHex)
+        ProjectAccentSwapService.getInstance().notifyExternalApply(resolvedHex)
     }
 
     private fun resolvePendingGlobalHex(currentVariant: AyuVariant): String {
@@ -477,7 +495,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                             )
                         settings.setAccentForVariant(currentVariant, rotationHex)
                         settings.state.accentRotationLastSwitchMs = System.currentTimeMillis()
-                        AccentApplicator.apply(rotationHex)
+                        applyRotationRespectingOverrides(currentVariant)
                         storedAccent = rotationHex
                         pendingAccent = rotationHex
                         accentPanel?.selectedPreset = null
@@ -495,7 +513,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                         val presetHex = AYU_ACCENT_PRESETS[nextIndex].hex
                         settings.setAccentForVariant(currentVariant, presetHex)
                         settings.state.accentRotationLastSwitchMs = System.currentTimeMillis()
-                        AccentApplicator.apply(presetHex)
+                        applyRotationRespectingOverrides(currentVariant)
                         storedAccent = presetHex
                         pendingAccent = presetHex
                         pendingCustomColor = null
