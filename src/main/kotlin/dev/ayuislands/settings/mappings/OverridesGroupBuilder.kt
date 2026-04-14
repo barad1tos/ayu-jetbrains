@@ -189,6 +189,16 @@ class OverridesGroupBuilder {
 
     // Internals: pending-model resolver + UI wiring helpers
 
+    /**
+     * Populate the pending table models from the persisted [AccentMappingsSettings]. Public
+     * [buildGroup] calls this during UI setup; exposed to tests so `resolvePending` and
+     * `sourcePending` can be exercised without inflating the full Swing tree.
+     */
+    @org.jetbrains.annotations.TestOnly
+    internal fun loadFromStateForTest() {
+        loadFromState()
+    }
+
     private fun loadFromState() {
         val state = AccentMappingsSettingsAccess.stateFor()
         val projects =

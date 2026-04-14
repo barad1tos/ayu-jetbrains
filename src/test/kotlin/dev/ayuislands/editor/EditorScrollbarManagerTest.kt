@@ -215,6 +215,37 @@ class EditorScrollbarManagerTest {
     }
 
     @Test
+    fun `apply re-hides scrollbar after platform reset simulation`() {
+        // Regression guard for the stale-flag bug (commit 64833a0): a previous version of
+        // applyToEditor gated hideScrollBar on `!patched.verticalHidden`. After startup the
+        // flag would read "true", the platform's LAF walk would reset preferredSize back to
+        // the default, and the subsequent apply() — triggered by LafListener via
+        // ComponentTreeRefreshedTopic — would see the true flag and skip re-hiding. Result:
+        // visible scrollbar until the user manually toggled off → on.
+        //
+        // Simulate the exact sequence and assert preferredSize stays at (0,0) after the second
+        // apply, regardless of what the internal state flag looked like before.
+        realState.hideEditorVScrollbar = true
+        val vBar = scrollPane.verticalScrollBar
+
+        val manager = createManager()
+        manager.apply()
+        assertEquals(Dimension(0, 0), vBar.preferredSize)
+
+        // Simulate what IJSwingUtilities.updateComponentTreeUI does to a patched scrollbar
+        // during a LAF change: the UI delegate is reinstalled, and preferredSize reverts to
+        // the default (some non-zero dimension computed by the new UI delegate).
+        vBar.preferredSize = Dimension(12, 100)
+
+        // The LafListener publishes ComponentTreeRefreshedTopic, subscribers call apply().
+        // The real contract: apply() must re-zero the scrollbar regardless of cached state.
+        manager.apply()
+
+        assertEquals(Dimension(0, 0), vBar.preferredSize)
+        manager.dispose()
+    }
+
+    @Test
     fun `editorCreated listener applies to new editors when licensed`() {
         realState.hideEditorVScrollbar = true
         createManager()
