@@ -5,7 +5,6 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.CheckedDisposable
 import com.intellij.openapi.util.Condition
 import com.intellij.openapi.util.Disposer
@@ -13,12 +12,10 @@ import com.intellij.util.concurrency.AppExecutorUtil
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentColor
-import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
-import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import org.jetbrains.annotations.TestOnly
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
@@ -183,15 +180,9 @@ class AccentRotationService : Disposable {
                         System.currentTimeMillis()
                     // Rotation updates the GLOBAL accent layer only. For the currently focused
                     // project we must apply the RESOLVED color so per-project and per-language
-                    // overrides keep winning during rotation ticks.
-                    val focusedProject =
-                        ProjectManager
-                            .getInstance()
-                            .openProjects
-                            .firstOrNull { !it.isDefault && !it.isDisposed }
-                    val resolvedHex = AccentResolver.resolve(focusedProject, variant)
-                    AccentApplicator.apply(resolvedHex)
-                    ProjectAccentSwapService.getInstance().notifyExternalApply(resolvedHex)
+                    // overrides keep winning during rotation ticks. applyForFocusedProject
+                    // centralizes focus selection + resolver + apply + swap-cache sync.
+                    val resolvedHex = AccentApplicator.applyForFocusedProject(variant)
                     LOG.info(
                         "Accent rotated: mode=$mode, global=${newHex.second}, applied=$resolvedHex",
                     )

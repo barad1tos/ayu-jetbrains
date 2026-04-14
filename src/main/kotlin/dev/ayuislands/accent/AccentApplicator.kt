@@ -11,6 +11,7 @@ import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.extensions.PluginId
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.ui.ColorUtil
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.glow.GlowStyle
@@ -18,6 +19,7 @@ import dev.ayuislands.glow.GlowTabMode
 import dev.ayuislands.indent.IndentRainbowSync
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import java.awt.Color
 import java.awt.Window
 import java.lang.reflect.Method
@@ -134,6 +136,35 @@ object AccentApplicator {
         } else {
             invokeLaterSafe(work)
         }
+    }
+
+    /**
+     * Convenience wrapper around [AccentResolver.resolve] + [apply] for the "currently
+     * focused project" use case — callers (settings panels, LAF listener, rotation tick)
+     * previously hand-wired the same pattern:
+     *
+     * ```
+     * val focused = ProjectManager.getInstance().openProjects
+     *     .firstOrNull { !it.isDefault && !it.isDisposed }
+     * val hex = AccentResolver.resolve(focused, variant)
+     * AccentApplicator.apply(hex)
+     * ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
+     * ```
+     *
+     * Centralizing the sequence keeps focused-project selection, override-priority
+     * resolution, and swap-cache synchronization consistent across callers. Returns
+     * the applied hex so callers can log or display it.
+     */
+    fun applyForFocusedProject(variant: AyuVariant): String {
+        val focusedProject =
+            ProjectManager
+                .getInstance()
+                .openProjects
+                .firstOrNull { !it.isDefault && !it.isDisposed }
+        val hex = AccentResolver.resolve(focusedProject, variant)
+        apply(hex)
+        ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
+        return hex
     }
 
     fun revertAll() {
