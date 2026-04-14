@@ -5,12 +5,10 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
-import com.intellij.ui.ColorPicker
 import com.intellij.ui.ToolbarDecorator
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.table.JBTable
-import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
@@ -21,14 +19,17 @@ import java.awt.BorderLayout
 import java.awt.CardLayout
 import java.awt.Color
 import java.awt.Component
+import java.awt.Dimension
 import java.awt.FlowLayout
 import java.io.File
 import javax.swing.ButtonGroup
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.JRadioButton
+import javax.swing.JTable
 import javax.swing.ListSelectionModel
 import javax.swing.table.DefaultTableCellRenderer
+import javax.swing.table.TableModel
 
 /**
  * Builds the "Overrides" group inside the Accent settings tab. Hosts a segmented
@@ -42,8 +43,8 @@ import javax.swing.table.DefaultTableCellRenderer
 class OverridesGroupBuilder {
     private val projectModel = ProjectMappingsTableModel()
     private val languageModel = LanguageMappingsTableModel()
-    private val projectTable = JBTable(projectModel)
-    private val languageTable = JBTable(languageModel)
+    private val projectTable: JBTable = AutoSizingTable(projectModel)
+    private val languageTable: JBTable = AutoSizingTable(languageModel)
 
     private var storedProjects: List<ProjectMapping> = emptyList()
     private var storedLanguages: List<LanguageMapping> = emptyList()
@@ -69,7 +70,10 @@ class OverridesGroupBuilder {
         val segmentedBar = buildSegmentedBar()
         cardPanel.add(decorateTable(projectTable, projectActions(licensed)), CARD_PROJECTS)
         cardPanel.add(decorateTable(languageTable, languageActions(licensed)), CARD_LANGUAGES)
-        cardPanel.preferredSize = JBUI.size(CARD_WIDTH, CARD_HEIGHT)
+        // No fixed preferredSize: the AutoSizingTable drives height via
+        // getPreferredScrollableViewportSize (row count × row height) and columns 0..N-2
+        // auto-pack to their widest cell on every model change; last column absorbs
+        // remaining width via AUTO_RESIZE_LAST_COLUMN.
 
         panel.group("Overrides") {
             row {
@@ -243,11 +247,9 @@ class OverridesGroupBuilder {
         projectTable.rowHeight = TABLE_ROW_HEIGHT
         projectTable.setShowGrid(false)
         projectTable.getColumnModel().getColumn(ProjectMappingsTableModel.COLUMN_COLOR).apply {
-            preferredWidth = COLOR_COLUMN_WIDTH
             cellRenderer = RoundedSwatchRenderer()
         }
         projectTable.getColumnModel().getColumn(ProjectMappingsTableModel.COLUMN_PROJECT).apply {
-            preferredWidth = PROJECT_COLUMN_WIDTH
             cellRenderer = DimOrphanRenderer { row -> projectModel.isOrphan(row) }
         }
         projectTable.getColumnModel().getColumn(ProjectMappingsTableModel.COLUMN_PATH).apply {
@@ -260,7 +262,6 @@ class OverridesGroupBuilder {
         languageTable.rowHeight = TABLE_ROW_HEIGHT
         languageTable.setShowGrid(false)
         languageTable.getColumnModel().getColumn(LanguageMappingsTableModel.COLUMN_COLOR).apply {
-            preferredWidth = COLOR_COLUMN_WIDTH
             cellRenderer = RoundedSwatchRenderer()
         }
     }
@@ -370,17 +371,9 @@ class OverridesGroupBuilder {
     private fun editSelectedProjectColor() {
         val row = projectTable.selectedRow.takeIf { it >= 0 } ?: return
         val mapping = projectModel.rowAt(row) ?: return
-        val chosen =
-            ColorPicker.showDialog(
-                projectTable,
-                "Choose Accent Color",
-                RoundedSwatchRenderer.safeDecodeColor(mapping.hex),
-                true,
-                emptyList(),
-                false,
-            ) ?: return
-        val hex = "#%02X%02X%02X".format(chosen.red, chosen.green, chosen.blue)
-        projectModel.updateHex(row, hex)
+        val dialog = EditAccentColorDialog(parentProject, mapping.hex, mapping.displayName)
+        if (!dialog.showAndGet()) return
+        projectModel.updateHex(row, dialog.resultHex)
         fireChanged()
     }
 
@@ -407,17 +400,9 @@ class OverridesGroupBuilder {
     private fun editSelectedLanguageColor() {
         val row = languageTable.selectedRow.takeIf { it >= 0 } ?: return
         val mapping = languageModel.rowAt(row) ?: return
-        val chosen =
-            ColorPicker.showDialog(
-                languageTable,
-                "Choose Accent Color",
-                RoundedSwatchRenderer.safeDecodeColor(mapping.hex),
-                true,
-                emptyList(),
-                false,
-            ) ?: return
-        val hex = "#%02X%02X%02X".format(chosen.red, chosen.green, chosen.blue)
-        languageModel.updateHex(row, hex)
+        val dialog = EditAccentColorDialog(parentProject, mapping.hex, mapping.displayName)
+        if (!dialog.showAndGet()) return
+        languageModel.updateHex(row, dialog.resultHex)
         fireChanged()
     }
 
@@ -442,13 +427,84 @@ class OverridesGroupBuilder {
     companion object {
         private const val CARD_PROJECTS = "projects"
         private const val CARD_LANGUAGES = "languages"
-        private const val CARD_WIDTH = 620
-        private const val CARD_HEIGHT = 200
         private const val TABLE_ROW_HEIGHT = 24
-        private const val COLOR_COLUMN_WIDTH = 110
-        private const val PROJECT_COLUMN_WIDTH = 180
         private const val BAR_HGAP = 4
         private const val BAR_VGAP = 0
+    }
+
+    /**
+     * [JBTable] that sizes its viewport to the current row count (clamped to
+     * [MIN_VISIBLE_ROWS]..[MAX_VISIBLE_ROWS]) and auto-packs all columns except the
+     * last one to the widest header or cell content on every model change.
+     * The last column is left to absorb remaining width via [AUTO_RESIZE_LAST_COLUMN].
+     */
+    private class AutoSizingTable(
+        model: TableModel,
+    ) : JBTable(model) {
+        init {
+            autoResizeMode = JTable.AUTO_RESIZE_LAST_COLUMN
+            model.addTableModelListener { repack() }
+        }
+
+        override fun getPreferredScrollableViewportSize(): Dimension {
+            val visibleRows = rowCount.coerceIn(MIN_VISIBLE_ROWS, MAX_VISIBLE_ROWS)
+            val headerHeight = tableHeader?.preferredSize?.height ?: 0
+            val bodyHeight = visibleRows * rowHeight
+            // Viewport width = sum of packed column widths so the surrounding Kotlin UI DSL
+            // panel (Align.FILL) grows to show every column fully before kicking in horizontal
+            // scrolling. Floor to MIN_VIEWPORT_WIDTH so an empty table still looks reasonable
+            // on first render (before the TableModelListener has fired a pack pass).
+            val summedWidth = (0 until columnCount).sumOf { columnModel.getColumn(it).preferredWidth }
+            val width = maxOf(summedWidth, MIN_VIEWPORT_WIDTH)
+            return Dimension(width, bodyHeight + headerHeight)
+        }
+
+        /**
+         * Packs every column (including the last) to the widest of header + cell content.
+         * [AUTO_RESIZE_LAST_COLUMN] then lets the last column expand when the containing
+         * panel exceeds the sum, and lets it shrink (horizontal scroll) when the panel is
+         * narrower.
+         */
+        fun repack() {
+            for (index in 0 until columnCount) {
+                packColumn(index)
+            }
+            revalidate()
+            repaint()
+        }
+
+        private fun packColumn(columnIndex: Int) {
+            val column = columnModel.getColumn(columnIndex)
+            val headerWidth =
+                tableHeader
+                    ?.defaultRenderer
+                    ?.getTableCellRendererComponent(
+                        this,
+                        column.headerValue,
+                        false,
+                        false,
+                        -1,
+                        columnIndex,
+                    )?.preferredSize
+                    ?.width
+                    ?: COLUMN_MIN_WIDTH
+            var width = maxOf(COLUMN_MIN_WIDTH, headerWidth + PACK_PADDING)
+            for (row in 0 until rowCount) {
+                val renderer = getCellRenderer(row, columnIndex)
+                val comp = prepareRenderer(renderer, row, columnIndex)
+                width = maxOf(width, comp.preferredSize.width + PACK_PADDING)
+            }
+            column.preferredWidth = width.coerceAtMost(COLUMN_MAX_WIDTH)
+        }
+
+        companion object {
+            private const val MIN_VISIBLE_ROWS = 2
+            private const val MAX_VISIBLE_ROWS = 8
+            private const val COLUMN_MIN_WIDTH = 60
+            private const val COLUMN_MAX_WIDTH = 600
+            private const val PACK_PADDING = 16
+            private const val MIN_VIEWPORT_WIDTH = 520
+        }
     }
 
     private class TableActions(

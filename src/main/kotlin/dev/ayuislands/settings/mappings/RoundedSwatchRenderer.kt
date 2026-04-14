@@ -1,6 +1,7 @@
 package dev.ayuislands.settings.mappings
 
 import com.intellij.util.ui.JBUI
+import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import java.awt.Color
 import java.awt.Component
 import java.awt.Graphics
@@ -31,7 +32,7 @@ class RoundedSwatchRenderer : DefaultTableCellRenderer() {
     ): Component {
         super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column)
         hexValue = value as? String
-        text = hexValue?.uppercase() ?: ""
+        text = formatLabel(hexValue)
         border =
             JBUI.Borders.empty(
                 BORDER_VERTICAL,
@@ -79,6 +80,19 @@ class RoundedSwatchRenderer : DefaultTableCellRenderer() {
         private const val BORDER_RGB = 0x4E5A6E
         private const val BORDER_VERTICAL = 2
         private const val BORDER_TEXT_RIGHT = 4
+
+        /**
+         * Label shown next to the swatch: inherits the curated preset name when [hex]
+         * matches one of [AYU_ACCENT_PRESETS] (e.g. "Amber (#F29E74)"), falls back to
+         * plain hex for custom colors. Public so other renderers / dialogs can reuse
+         * the same formatting and stay consistent.
+         */
+        fun formatLabel(hex: String?): String {
+            if (hex.isNullOrBlank()) return ""
+            val preset = AYU_ACCENT_PRESETS.firstOrNull { it.hex.equals(hex, ignoreCase = true) }
+            val upper = hex.uppercase()
+            return if (preset != null) "${preset.name} ($upper)" else upper
+        }
 
         fun safeDecodeColor(hex: String): Color? =
             try {
