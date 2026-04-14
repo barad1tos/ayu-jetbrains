@@ -1,6 +1,7 @@
 package dev.ayuislands.accent
 
 import com.intellij.openapi.project.Project
+import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import dev.ayuislands.settings.mappings.AccentMappingsState
@@ -41,6 +42,11 @@ class AccentResolverTest {
 
         mockkObject(ProjectLanguageDetector)
         every { ProjectLanguageDetector.dominant(any()) } returns null
+
+        // Overrides are premium: default the license gate to licensed so the resolution
+        // logic under test runs. Individual tests override to verify the unlicensed path.
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.isLicensedOrGrace() } returns true
     }
 
     @AfterTest
@@ -170,6 +176,43 @@ class AccentResolverTest {
         assertNull(AccentResolver.projectKey(project))
         // And resolve should still fall through to global without throwing.
         assertEquals(globalMirageAccent, AccentResolver.resolve(project, AyuVariant.MIRAGE))
+    }
+
+    @Test
+    fun `resolve returns global when unlicensed even with stored project override`() {
+        // Guards against trial expiry and manual XML import leaking premium behavior.
+        val tmp = File(System.getProperty("java.io.tmpdir"), "unlicensed-proj").canonicalPath
+        mappingsState.projectAccents[tmp] = "#111111"
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+
+        val project = stubProject(File(tmp))
+        assertEquals(globalMirageAccent, AccentResolver.resolve(project, AyuVariant.MIRAGE))
+    }
+
+    @Test
+    fun `resolve returns global when unlicensed even with stored language override`() {
+        mappingsState.languageAccents["kotlin"] = "#222222"
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+
+        val project = stubProject(File(System.getProperty("java.io.tmpdir"), "unlicensed-lang"))
+        every { ProjectLanguageDetector.dominant(project) } returns "kotlin"
+
+        assertEquals(globalMirageAccent, AccentResolver.resolve(project, AyuVariant.MIRAGE))
+    }
+
+    @Test
+    fun `source reports GLOBAL when unlicensed even with stored overrides`() {
+        // UI "Currently active: ..." must not claim a project/language override is live
+        // when the resolver itself would skip it because the license check fails.
+        val tmp = File(System.getProperty("java.io.tmpdir"), "unlicensed-src").canonicalPath
+        mappingsState.projectAccents[tmp] = "#111111"
+        mappingsState.languageAccents["kotlin"] = "#222222"
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+
+        val project = stubProject(File(tmp))
+        every { ProjectLanguageDetector.dominant(project) } returns "kotlin"
+
+        assertEquals(AccentResolver.Source.GLOBAL, AccentResolver.source(project, AyuVariant.MIRAGE))
     }
 
     @Test
