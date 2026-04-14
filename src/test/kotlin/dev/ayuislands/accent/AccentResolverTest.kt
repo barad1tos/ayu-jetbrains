@@ -13,6 +13,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 /**
  * Verifies the project > language > global priority chain and short-circuit behavior.
@@ -128,6 +129,58 @@ class AccentResolverTest {
         val project = stubProject(dir)
 
         assertEquals(dir.canonicalPath, AccentResolver.projectKey(project))
+    }
+
+    @Test
+    fun `resolve returns global when project is default`() {
+        val tmp = File(System.getProperty("java.io.tmpdir"), "default-proj").canonicalPath
+        mappingsState.projectAccents[tmp] = "#111111"
+
+        val project = mockk<com.intellij.openapi.project.Project>()
+        every { project.isDefault } returns true
+        every { project.isDisposed } returns false
+        every { project.basePath } returns tmp
+        every { project.name } returns "default-proj"
+
+        assertEquals(globalMirageAccent, AccentResolver.resolve(project, AyuVariant.MIRAGE))
+    }
+
+    @Test
+    fun `resolve returns global when project is disposed`() {
+        val tmp = File(System.getProperty("java.io.tmpdir"), "disposed-proj").canonicalPath
+        mappingsState.projectAccents[tmp] = "#111111"
+
+        val project = mockk<com.intellij.openapi.project.Project>()
+        every { project.isDefault } returns false
+        every { project.isDisposed } returns true
+        every { project.basePath } returns tmp
+        every { project.name } returns "disposed-proj"
+
+        assertEquals(globalMirageAccent, AccentResolver.resolve(project, AyuVariant.MIRAGE))
+    }
+
+    @Test
+    fun `projectKey returns null when basePath is null`() {
+        val project = mockk<com.intellij.openapi.project.Project>()
+        every { project.basePath } returns null
+        every { project.isDefault } returns false
+        every { project.isDisposed } returns false
+        every { project.name } returns "no-path"
+
+        assertNull(AccentResolver.projectKey(project))
+        // And resolve should still fall through to global without throwing.
+        assertEquals(globalMirageAccent, AccentResolver.resolve(project, AyuVariant.MIRAGE))
+    }
+
+    @Test
+    fun `resolve falls through to global when dominant language is not mapped`() {
+        // Row 6 of the truth table: LM=Y, D=Y, L=N → global wins.
+        mappingsState.languageAccents["kotlin"] = "#ABCDEF"
+        val project = stubProject(File(System.getProperty("java.io.tmpdir"), "python-only"))
+        every { ProjectLanguageDetector.dominant(project) } returns "python"
+
+        assertEquals(globalMirageAccent, AccentResolver.resolve(project, AyuVariant.MIRAGE))
+        assertEquals(AccentResolver.Source.GLOBAL, AccentResolver.source(project, AyuVariant.MIRAGE))
     }
 
     private fun stubProject(baseDir: File): Project {

@@ -17,12 +17,17 @@ import java.util.concurrent.ConcurrentHashMap
  * Empty / polyglot / no-SDK projects return `null` and fall through to the global accent.
  */
 object ProjectLanguageDetector {
-    private val cache = ConcurrentHashMap<String, String?>()
+    // ConcurrentHashMap rejects null values, so we store an empty-string sentinel
+    // whenever detection returns null. AYU language ids are always non-empty
+    // ("kotlin", "python", ...) so the sentinel cannot collide with a real id.
+    private const val NULL_SENTINEL = ""
+    private val cache = ConcurrentHashMap<String, String>()
 
     /** Dominant language id for [project], cached per canonical path. */
     fun dominant(project: Project): String? {
         val key = AccentResolver.projectKey(project) ?: return null
-        return cache.getOrPut(key) { detectInternal(project) }
+        val cached = cache.getOrPut(key) { detectInternal(project) ?: NULL_SENTINEL }
+        return cached.takeIf { it.isNotEmpty() }
     }
 
     /**
