@@ -52,6 +52,19 @@ class ProjectAccentSwapService : Disposable {
     }
 
     private fun onWindowActivated(event: AWTEvent) {
+        // Wrap the entire handler so a single exception (e.g. Color.decode on a corrupted stored
+        // hex, WindowManager state inconsistency during shutdown) does not escape to the AWT
+        // dispatcher. Without this, a transient failure would still propagate to the uncaught
+        // exception handler, land in idea.log as SEVERE, and the AWTEventListener would keep
+        // re-firing the broken path on every subsequent WINDOW_ACTIVATED.
+        try {
+            handleWindowActivated(event)
+        } catch (exception: RuntimeException) {
+            LOG.error("Project accent swap failed on window activation", exception)
+        }
+    }
+
+    private fun handleWindowActivated(event: AWTEvent) {
         val window = (event as? WindowEvent)?.window ?: return
         val project = findProjectForWindow(window) ?: return
         if (project.isDisposed || project.isDefault) return
@@ -85,11 +98,19 @@ class ProjectAccentSwapService : Disposable {
     }
 
     private fun findProjectForWindow(window: Window): Project? {
+        // WindowManager.allProjectFrames can contain frames mid-dispose (shutdown race, window
+        // closed between enumeration and access). Guard each frame access so one bad frame
+        // doesn't escape the listener. Skip frames whose project is already disposed — we'd
+        // short-circuit in handleWindowActivated anyway, but skipping here avoids pointless work.
         val windowManager = WindowManager.getInstance()
         for (frame in windowManager.allProjectFrames) {
-            val frameWindow = SwingUtilities.getWindowAncestor(frame.component)
-            if (frameWindow === window) {
-                return frame.project
+            try {
+                val project = frame.project ?: continue
+                if (project.isDisposed) continue
+                val frameWindow = SwingUtilities.getWindowAncestor(frame.component) ?: continue
+                if (frameWindow === window) return project
+            } catch (exception: RuntimeException) {
+                LOG.debug("Skipping frame during window-to-project resolution: ${exception.message}")
             }
         }
         return null
