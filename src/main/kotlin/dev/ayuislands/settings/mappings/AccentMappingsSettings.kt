@@ -16,9 +16,13 @@ import com.intellij.openapi.diagnostic.logger
  *
  * `usePathMacroManager = false`: project paths are stored verbatim (absolute canonical paths),
  * not auto-substituted with `$USER_HOME$` macros. The platform expands macros for known path
- * fields but NOT for arbitrary map keys, which would silently break [AccentResolver] lookups
- * — an absolute `projectKey` would never match a macro-prefixed stored key.
+ * fields but NOT for arbitrary map keys, which would silently break
+ * [dev.ayuislands.accent.AccentResolver] lookups — an absolute `projectKey` would never match
+ * a macro-prefixed stored key. The `usePathMacroManager` flag is `@ApiStatus.Internal` on
+ * [Storage], but it is the only documented way to opt out of macro substitution for arbitrary
+ * map keys — hence the `@Suppress("UnstableApiUsage")`.
  */
+@Suppress("UnstableApiUsage")
 @Service
 @State(
     name = "AyuIslandsAccentMappings",
@@ -46,7 +50,7 @@ class AccentMappingsSettings : SimplePersistentStateComponent<AccentMappingsStat
                     state.projectDisplayNames.keys.any { it.startsWith(USER_HOME_MACRO) }
             if (hasLegacyKeys) {
                 LOG.warn(
-                    "Cannot migrate legacy \$USER_HOME\$-prefixed accent-mapping keys: " +
+                    "Cannot migrate legacy $USER_HOME_MACRO-prefixed accent-mapping keys: " +
                         "System.getProperty(\"user.home\") is unavailable. " +
                         "Affected per-project overrides won't resolve until re-added under " +
                         "Settings > Ayu Islands > Accent > Overrides.",
@@ -80,7 +84,7 @@ class AccentMappingsSettings : SimplePersistentStateComponent<AccentMappingsStat
 
     companion object {
         private val LOG = logger<AccentMappingsSettings>()
-        private const val USER_HOME_MACRO = "\$USER_HOME\$"
+        private const val USER_HOME_MACRO = $$"$USER_HOME$"
 
         fun getInstance(): AccentMappingsSettings =
             ApplicationManager

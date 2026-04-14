@@ -194,8 +194,12 @@ class EditorScrollbarManagerTest {
         val storedSize =
             vBar.getClientProperty("ayuIslands.originalPreferredSize") as? Dimension
         assertEquals(sizeBefore, storedSize)
-        // Verify it's a copy, not the same reference
-        assert(storedSize !== sizeBefore || sizeBefore == storedSize)
+        // Verify it's a defensive copy, not the same reference — the previous assertion
+        // (`storedSize !== sizeBefore || sizeBefore == storedSize`) was a tautology that
+        // passed regardless of whether a copy was actually made.
+        assert(storedSize !== sizeBefore) {
+            "Expected defensive copy of preferredSize, but stored the same reference"
+        }
         manager.dispose()
     }
 

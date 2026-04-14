@@ -47,7 +47,7 @@ class ProjectAccentSwapServiceTest {
     }
 
     @Test
-    fun `install is idempotent — second call is a no-op`() {
+    fun `install is idempotent - second call is a no-op`() {
         // The `if (listener != null) return` guard means calling install twice should not
         // throw, and should not register a second AWTEventListener (which would double-fire
         // on every WINDOW_ACTIVATED). We verify the non-throwing contract directly; the

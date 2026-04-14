@@ -9,8 +9,8 @@ import javax.swing.table.AbstractTableModel
  *
  * `languageId` is validated at construction to be non-blank and all-lowercase — the
  * KDoc convention that `AddLanguageMappingDialog` relies on now also holds at the
- * type level, so [containsLanguage] can use a plain case-sensitive `==` instead of
- * a defensive `ignoreCase = true` compensator.
+ * type level, so [LanguageMappingsTableModel.containsLanguage] can use a plain
+ * case-sensitive `==` instead of a defensive `ignoreCase = true` compensator.
  */
 data class LanguageMapping(
     val languageId: String,
