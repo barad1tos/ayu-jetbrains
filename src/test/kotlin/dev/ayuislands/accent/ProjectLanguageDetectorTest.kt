@@ -193,6 +193,37 @@ class ProjectLanguageDetectorTest {
     }
 
     @Test
+    fun `transient SDK lookup failure does not poison the cache`() {
+        // Regression guard: an earlier implementation silently swallowed the exception and stored
+        // a NULL_SENTINEL, so the next call served the poisoned entry and the user's language
+        // override was permanently broken until the next invalidate/restart.
+        val project = stubProject("/tmp/transient-sdk-${System.nanoTime()}")
+        every { ProjectRootManager.getInstance(project) } throws IllegalStateException("SDK list mutated")
+
+        // First call: underlying API threw → detector returns null WITHOUT caching.
+        assertNull(ProjectLanguageDetector.dominant(project))
+
+        // Second call: same project, now the API is healthy — detector must retry, not serve
+        // a cached sentinel.
+        wireProjectRootManager(project, sdkName = "KotlinSdkType")
+        wireModuleManager(project, moduleNames = emptyList())
+        assertEquals("kotlin", ProjectLanguageDetector.dominant(project))
+    }
+
+    @Test
+    fun `transient module lookup failure does not poison the cache`() {
+        val project = stubProject("/tmp/transient-modules-${System.nanoTime()}")
+        wireProjectRootManager(project, sdkName = null)
+        every { ModuleManager.getInstance(project) } throws IllegalStateException("ModuleManager disposed")
+
+        assertNull(ProjectLanguageDetector.dominant(project))
+
+        // Healthy retry: no cached poison.
+        wireModuleManager(project, moduleNames = listOf("my-kotlin-lib"))
+        assertEquals("kotlin", ProjectLanguageDetector.dominant(project))
+    }
+
+    @Test
     fun `clear empties all entries`() {
         val a = stubProject("/tmp/a-${System.nanoTime()}")
         val b = stubProject("/tmp/b-${System.nanoTime()}")
