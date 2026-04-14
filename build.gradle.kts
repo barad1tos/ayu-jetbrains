@@ -200,6 +200,16 @@ kover {
                     "dev.ayuislands.accent.elements.BracketScopeRenderer*",
                     // Swing Border + Component lifecycle (editor focus management)
                     "dev.ayuislands.glow.FocusRingManager*",
+                    // Accent mappings UI: DialogWrapper, JBTable wiring, paintComponent renderers
+                    "dev.ayuislands.settings.mappings.OverridesGroupBuilder*",
+                    "dev.ayuislands.settings.mappings.AddProjectMappingDialog*",
+                    "dev.ayuislands.settings.mappings.AddLanguageMappingDialog*",
+                    "dev.ayuislands.settings.mappings.AccentSwatchPickerRow*",
+                    "dev.ayuislands.settings.mappings.RoundedSwatchRenderer*",
+                    // IDE glue: SDK + ModuleManager probes
+                    "dev.ayuislands.accent.ProjectLanguageDetector*",
+                    // IDE glue: AWTEventListener + WindowManager focus-swap
+                    "dev.ayuislands.settings.mappings.ProjectAccentSwapService*",
                 )
             }
         }

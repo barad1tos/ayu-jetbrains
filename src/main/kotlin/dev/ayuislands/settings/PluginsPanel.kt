@@ -1,10 +1,12 @@
 package dev.ayuislands.settings
 
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.SegmentedButton
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.indent.IndentPreset
@@ -191,8 +193,15 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         storedCgpIntegration = pendingCgpIntegration
         storedErrorHighlight = pendingErrorHighlight
 
+        // Route through AccentResolver so per-project/per-language overrides are preserved
+        // during the settings apply cycle (PluginsPanel runs after AccentPanel in Configurable.apply).
         val currentVariant = variant ?: return
-        val accentHex = AyuIslandsSettings.getInstance().getAccentForVariant(currentVariant)
+        val focusedProject =
+            ProjectManager
+                .getInstance()
+                .openProjects
+                .firstOrNull { !it.isDefault && !it.isDisposed }
+        val accentHex = AccentResolver.resolve(focusedProject, currentVariant)
         AccentApplicator.apply(accentHex)
     }
 

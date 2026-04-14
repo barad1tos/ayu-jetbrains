@@ -4,7 +4,10 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
+import com.intellij.openapi.wm.WindowManager
+import com.intellij.util.IJSwingUtilities
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.font.FontPreset
@@ -13,6 +16,7 @@ import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import javax.swing.SwingUtilities
 
 internal class AyuIslandsStartupActivity : ProjectActivity {
@@ -26,8 +30,29 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         // Belt-and-suspenders: accent is pre-applied in appFrameCreated() (no gold flash),
         // but project-dependent features (BracketFadeManager, editor TextAttributesKey overrides)
         // need this second idempotent call once a project context exists.
-        val accentHex = settings.getAccentForVariant(variant)
+        // Project/language overrides win over the global accent; AccentResolver centralizes the chain.
+        val accentHex = AccentResolver.resolve(project, variant)
         AccentApplicator.apply(accentHex)
+        // Install the focus-swap listener once per IDE lifetime; subsequent calls are no-ops.
+        // Also sync the cache so the listener doesn't skip the first real WINDOW_ACTIVATED event.
+        val swapService = ProjectAccentSwapService.getInstance()
+        swapService.install()
+        swapService.notifyExternalApply(accentHex)
+
+        // Force a component-tree LAF refresh on the project frame so already-rendered toolbar,
+        // tab underlines, scrollbar chrome, and focus rings pick up the resolved accent.
+        // AccentApplicator only updates UIManager + editor scheme; cached JBColor instances on
+        // already-painted components otherwise keep the global-accent values they captured when
+        // the frame first rendered.
+        SwingUtilities.invokeLater {
+            if (project.isDisposed) return@invokeLater
+            val frame = WindowManager.getInstance().getFrame(project) ?: return@invokeLater
+            try {
+                IJSwingUtilities.updateComponentTreeUI(frame)
+            } catch (exception: RuntimeException) {
+                LOG.warn("Startup UI refresh failed for ${project.name}: ${exception.message}")
+            }
+        }
 
         // Apply persisted font preset (FontPresetApplicator ensures EDT internally)
         // Migrate legacy preset names (GLOW_WRITER→WHISPER, CLEAN→AMBIENT, etc.)

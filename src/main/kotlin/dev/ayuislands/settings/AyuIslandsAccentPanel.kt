@@ -1,5 +1,7 @@
 package dev.ayuislands.settings
 
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.ui.ColorPicker
 import com.intellij.ui.components.JBCheckBox
@@ -9,13 +11,17 @@ import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.selected
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.ProjectLanguageDetector
 import dev.ayuislands.accent.SystemAccentProvider
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.rotation.AccentRotationMode
 import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.rotation.ContrastAwareColorGenerator
+import dev.ayuislands.settings.mappings.OverridesGroupBuilder
 import java.awt.Color
+import javax.swing.JEditorPane
 
 /** Accent color section for the Ayu Islands settings panel. */
 class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
@@ -38,17 +44,36 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
     private var storedRotationInterval: Int = AyuIslandsState.DEFAULT_ROTATION_INTERVAL_HOURS
     private var rotationEnabledCheckbox: JBCheckBox? = null
 
+    private val overrides = OverridesGroupBuilder()
+    private var contextProject: Project? = null
+    private var currentlyActiveLabel: JEditorPane? = null
+
     override fun buildPanel(
         panel: Panel,
         variant: AyuVariant,
     ) {
         initializeState(variant)
+        contextProject =
+            ProjectManager
+                .getInstance()
+                .openProjects
+                .firstOrNull { !it.isDefault && !it.isDisposed }
         val colorPanel = createAccentColorPanel()
         applyInitialSelection(colorPanel, storedAccent)
         updateHeroGlow()
         panel.buildAccentColorGroup(colorPanel)
+        overrides.buildGroup(panel, contextProject)
         panel.buildAccentRotationGroup()
+
+        val externalAccentListener = onAccentChanged
+        onAccentChanged = { hex ->
+            externalAccentListener?.invoke(hex)
+            updateCurrentlyActiveLabel()
+        }
+        overrides.addPendingChangeListener { updateCurrentlyActiveLabel() }
+
         updatePanelEnabled()
+        updateCurrentlyActiveLabel()
     }
 
     private fun initializeState(variant: AyuVariant) {
@@ -169,8 +194,51 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                 }
             }
             row { cell(colorPanel).resizableColumn().align(Align.FILL) }
+            row {
+                currentlyActiveLabel = comment("").component
+            }
         }
     }
+
+    private fun updateCurrentlyActiveLabel() {
+        val label = currentlyActiveLabel ?: return
+        val currentVariant = variant ?: return
+        val globalHex = resolvePendingGlobalHex(currentVariant)
+        val effectiveHex = overrides.resolvePending(contextProject, globalHex)
+        val displayHex = effectiveHex.ifBlank { globalHex }
+        val presetName =
+            AYU_ACCENT_PRESETS
+                .firstOrNull { it.hex.equals(displayHex, ignoreCase = true) }
+                ?.name
+                ?: "Custom"
+        val sourceText = describeActiveSource(overrides.sourcePending(contextProject))
+        label.text = "Currently active: $presetName ($sourceText)"
+    }
+
+    private fun resolvePendingGlobalHex(currentVariant: AyuVariant): String {
+        val settings = AyuIslandsSettings.getInstance()
+        if (pendingFollowSystem) {
+            val systemHex = SystemAccentProvider.resolve()
+            if (systemHex != null) return systemHex
+        }
+        if (pendingAccent.isNotEmpty()) return pendingAccent
+        return settings.getAccentForVariant(currentVariant)
+    }
+
+    private fun describeActiveSource(source: AccentResolver.Source): String =
+        when (source) {
+            AccentResolver.Source.PROJECT_OVERRIDE ->
+                "project override for \"${contextProject?.name ?: "?"}\""
+            AccentResolver.Source.LANGUAGE_OVERRIDE -> {
+                val dominant =
+                    contextProject
+                        ?.let { ProjectLanguageDetector.dominant(it) }
+                        ?.replaceFirstChar { it.uppercase() }
+                        ?: "?"
+                "language override: $dominant"
+            }
+            AccentResolver.Source.GLOBAL -> "global"
+        }
 
     private fun Panel.buildAccentRotationGroup() {
         group("Accent Rotation") {
@@ -353,6 +421,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         if (pendingRotationEnabled != storedRotationEnabled) return true
         if (pendingRotationMode != storedRotationMode) return true
         if (pendingRotationInterval != storedRotationInterval) return true
+        if (overrides.isModified()) return true
         if (pendingFollowSystem) return false
         return pendingAccent != storedAccent
     }
@@ -361,6 +430,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         val currentVariant = variant ?: return
         if (!isModified()) return
         val settings = AyuIslandsSettings.getInstance()
+        val overridesDirty = overrides.isModified()
 
         if (pendingFollowSystem != storedFollowSystem) {
             settings.state.followSystemAccent = pendingFollowSystem
@@ -442,6 +512,11 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                 service.stopRotation()
             }
         }
+
+        if (overridesDirty) {
+            overrides.apply()
+        }
+        updateCurrentlyActiveLabel()
     }
 
     override fun reset() {
@@ -453,8 +528,10 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         pendingRotationInterval = storedRotationInterval
         rotationEnabledCheckbox?.isSelected = storedRotationEnabled
         accentPanel?.let { applyInitialSelection(it, storedAccent) }
+        overrides.reset()
         updateHeroGlow()
         updatePanelEnabled()
+        updateCurrentlyActiveLabel()
     }
 
     private fun updateHeroGlow() {

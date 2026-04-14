@@ -20,6 +20,16 @@
 # State class — XML serialized, all property names must be preserved
 -keep class dev.ayuislands.settings.AyuIslandsState { *; }
 
+# plugin.xml: applicationService (per-project + per-language accent overrides)
+-keep class dev.ayuislands.settings.mappings.AccentMappingsSettings { *; }
+# State class — XML serialized, preserve property names for map delegates
+-keep class dev.ayuislands.settings.mappings.AccentMappingsState { *; }
+# Resolver + detector singletons called from kept classes
+-keep class dev.ayuislands.accent.AccentResolver { *; }
+-keep class dev.ayuislands.accent.ProjectLanguageDetector { *; }
+# plugin.xml: applicationService (focus-swap listener)
+-keep class dev.ayuislands.settings.mappings.ProjectAccentSwapService { *; }
+
 # Enums — serialized by name
 -keep enum dev.ayuislands.accent.AyuVariant { *; }
 -keep enum dev.ayuislands.accent.AccentElementId { *; }

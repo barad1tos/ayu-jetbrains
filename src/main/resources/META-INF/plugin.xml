@@ -72,6 +72,12 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.5.0</h3>
+    <ul>
+      <li>[Paid] Pin an accent color to a specific project — set it once from Settings and every time you switch to that window your accent is there</li>
+      <li>[Paid] Pin an accent color to a programming language — e.g. Kotlin → lime, Python → sky. Applies when a project's dominant language matches and no project override exists</li>
+      <li>Recent projects populate the add-project dialog so you can configure overrides without opening the project first</li>
+    </ul>
     <h3>2.4.2</h3>
     <ul>
       <li>[Paid] Install, delete, or reinstall curated fonts directly from Settings without opening the wizard</li>
@@ -172,6 +178,14 @@
         <!-- Persistent accent color state -->
         <applicationService
                 serviceImplementation="dev.ayuislands.settings.AyuIslandsSettings"/>
+
+        <!-- Per-project and per-language accent overrides -->
+        <applicationService
+                serviceImplementation="dev.ayuislands.settings.mappings.AccentMappingsSettings"/>
+
+        <!-- Swaps the active accent when user switches between project windows -->
+        <applicationService
+                serviceImplementation="dev.ayuislands.settings.mappings.ProjectAccentSwapService"/>
 
         <!-- Appearance sync (follow system Light/Dark mode) -->
         <applicationService

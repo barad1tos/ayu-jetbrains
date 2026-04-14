@@ -5,6 +5,7 @@ import com.intellij.ide.ui.LafManagerListener
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.ProjectManager
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.glow.GlowOverlayManager
@@ -25,7 +26,8 @@ class AyuIslandsLafListener : LafManagerListener {
         }
 
         val settings = AyuIslandsSettings.getInstance()
-        val accentHex = settings.getAccentForVariant(variant)
+        val focusedProject = ProjectManager.getInstance().openProjects.firstOrNull { !it.isDefault && !it.isDisposed }
+        val accentHex = AccentResolver.resolve(focusedProject, variant)
         AccentApplicator.apply(accentHex)
         LOG.info("Ayu Islands accent re-applied on theme change: $accentHex")
 

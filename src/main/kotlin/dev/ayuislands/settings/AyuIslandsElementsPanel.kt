@@ -1,5 +1,6 @@
 package dev.ayuislands.settings
 
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.ui.dsl.builder.AlignY
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.Row
@@ -7,6 +8,7 @@ import com.intellij.ui.dsl.builder.SegmentedButton
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AccentGroup
+import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.accent.conflict.ConflictType
@@ -329,9 +331,15 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
         storedTabUnderlineGlowSync = pendingTabUnderlineGlowSync
         storedBracketScope = pendingBracketScope
 
-        // Re-apply accent with new toggle states
+        // Re-apply accent with new toggle states — respect per-project/per-language overrides
+        // so this pass doesn't stomp the accent applied by AyuIslandsAccentPanel earlier in the cycle.
         val currentVariant = variant ?: return
-        val accentHex = AyuIslandsSettings.getInstance().getAccentForVariant(currentVariant)
+        val focusedProject =
+            ProjectManager
+                .getInstance()
+                .openProjects
+                .firstOrNull { !it.isDefault && !it.isDisposed }
+        val accentHex = AccentResolver.resolve(focusedProject, currentVariant)
         AccentApplicator.apply(accentHex)
     }
 

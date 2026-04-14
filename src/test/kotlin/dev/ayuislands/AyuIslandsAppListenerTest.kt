@@ -6,6 +6,8 @@ import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.settings.mappings.AccentMappingsSettings
+import dev.ayuislands.settings.mappings.AccentMappingsState
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -42,6 +44,13 @@ class AyuIslandsAppListenerTest {
         every {
             AyuIslandsSettings.getInstance()
         } returns settings
+
+        // AccentResolver consults AccentMappingsSettings before falling through to global;
+        // an empty state preserves pre-override behavior (resolver returns the global accent).
+        val mappingsSettings = mockk<AccentMappingsSettings>()
+        every { mappingsSettings.state } returns AccentMappingsState()
+        mockkObject(AccentMappingsSettings.Companion)
+        every { AccentMappingsSettings.getInstance() } returns mappingsSettings
 
         mockkStatic(LafManager::class)
         mockkObject(AccentApplicator)
