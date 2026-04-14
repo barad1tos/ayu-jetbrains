@@ -165,7 +165,13 @@ class EditorScrollbarManager(
         patchedScrollPanes.clear()
     }
 
-    private data class PatchedState(
+    /**
+     * Mutable per-scrollPane patch state. Not a `data class` — we mutate flags in place on hot
+     * paths (every apply call), and the auto-generated equals/hashCode from `data class` would
+     * be a foot-gun if anything ever used PatchedState as a map key (we use it as a WeakHashMap
+     * *value*, not key). Plain class with `var` matches the imperative usage.
+     */
+    private class PatchedState(
         var verticalHidden: Boolean = false,
         var horizontalHidden: Boolean = false,
     )

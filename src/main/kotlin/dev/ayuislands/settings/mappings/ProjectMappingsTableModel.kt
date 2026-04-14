@@ -4,15 +4,26 @@ import java.io.File
 import javax.swing.table.AbstractTableModel
 
 /**
- * Mutable in-memory row representation for the Project Overrides table.
- * [hex] and [displayName] are `var` so `Edit color` / future display-name edits
- * can mutate the row in place without rebuilding the list.
+ * Row representation for the Project Overrides table.
+ *
+ * Immutable `val` fields enforce invariants at construction — `canonicalPath` can't be
+ * blank, and `hex` must look like `#RRGGBB`. Edits go through [copy] rather than in-place
+ * mutation, so the table model's fingerprint-based isModified detection stays reliable.
  */
-class ProjectMapping(
+data class ProjectMapping(
     val canonicalPath: String,
-    var displayName: String,
-    var hex: String,
-)
+    val displayName: String,
+    val hex: String,
+) {
+    init {
+        require(canonicalPath.isNotBlank()) { "canonicalPath must not be blank" }
+        require(HEX_REGEX.matches(hex)) { "hex must be #RRGGBB, got: '$hex'" }
+    }
+
+    companion object {
+        private val HEX_REGEX = Regex("^#[0-9A-Fa-f]{6}$")
+    }
+}
 
 /**
  * Table model for the Project Overrides section. Three columns: Color (hex),
@@ -48,7 +59,7 @@ class ProjectMappingsTableModel : AbstractTableModel() {
         hex: String,
     ) {
         if (row !in rows.indices) return
-        rows[row].hex = hex
+        rows[row] = rows[row].copy(hex = hex)
         fireTableRowsUpdated(row, row)
     }
 

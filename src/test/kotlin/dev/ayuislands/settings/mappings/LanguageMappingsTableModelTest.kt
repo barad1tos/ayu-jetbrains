@@ -38,14 +38,26 @@ class LanguageMappingsTableModelTest {
     }
 
     @Test
-    fun `containsLanguage is case-insensitive`() {
+    fun `containsLanguage is exact match against the stored lowercase id`() {
+        // LanguageMapping's init block enforces that `languageId` is always lowercase, and
+        // AddLanguageMappingDialog.doOKAction lowercases the probe before calling this — so
+        // the model doesn't need an ignoreCase compensator. The invariant lives in the type.
         val model = LanguageMappingsTableModel()
         model.add(LanguageMapping("kotlin", "Kotlin", "#111111"))
 
         assertTrue(model.containsLanguage("kotlin"))
-        assertTrue(model.containsLanguage("Kotlin"))
-        assertTrue(model.containsLanguage("KOTLIN"))
         assertFalse(model.containsLanguage("python"))
+    }
+
+    @Test
+    fun `LanguageMapping constructor rejects non-lowercase language id`() {
+        // Regression guard: the type-level invariant catches a future caller that forgets
+        // to .lowercase() before constructing — what used to be a silent drift is now a
+        // loud IllegalArgumentException at the seam.
+        val thrown =
+            runCatching { LanguageMapping("Kotlin", "Kotlin", "#111111") }
+                .exceptionOrNull()
+        assertTrue(thrown is IllegalArgumentException)
     }
 
     @Test

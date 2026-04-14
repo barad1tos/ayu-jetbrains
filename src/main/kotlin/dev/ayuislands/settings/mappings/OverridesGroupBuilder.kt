@@ -533,7 +533,7 @@ class OverridesGroupBuilder {
         }
     }
 
-    private class TableActions(
+    private data class TableActions(
         val add: () -> Unit,
         val edit: () -> Unit,
         val remove: () -> Unit,
