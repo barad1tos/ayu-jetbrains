@@ -38,3 +38,11 @@ updates:
       # Remove this rule once github/codeql#21484 is resolved.
       - dependency-name: "org.jetbrains.kotlin.jvm"
         versions: [">= 2.3.20"]
+
+      # IntelliJ Platform Gradle Plugin 2.14.0 regressed TestFrameworkType.Platform
+      # — com.intellij.testFramework.LoggedErrorProcessor disappears from test classpath,
+      # breaking LicenseTransitionListenerTest + AccentRotationServiceTest (see PR #123).
+      # Lift when 2.14.x fixes resolution or after verifying an alternative
+      # TestFrameworkType variant exposes the class.
+      - dependency-name: "org.jetbrains.intellij.platform"
+        versions: [">= 2.14.0"]
