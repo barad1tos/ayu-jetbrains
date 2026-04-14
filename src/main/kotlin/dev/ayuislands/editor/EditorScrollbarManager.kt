@@ -47,12 +47,33 @@ class EditorScrollbarManager(
         // Self-heal after IJSwingUtilities.updateComponentTreeUI (startup, focus swap,
         // LAF change) — that walk calls updateUI() on every JScrollBar descendant and
         // resets the preferredSize=0 trick this manager uses to hide scrollbars.
+        //
+        // Drop the cached "original preferred size" client property before reapplying so the
+        // next hideScrollBar call captures the freshly-installed default. Without this, the
+        // first apply's original-size snapshot (captured under the previous LAF) would be what
+        // restore returns after a theme switch, silently drifting the restored scrollbar
+        // dimensions away from the new theme's default.
         project.messageBus
             .connect(this)
             .subscribe(
                 ComponentTreeRefreshedTopic.TOPIC,
-                ComponentTreeRefreshedListener { apply() },
+                ComponentTreeRefreshedListener {
+                    resetOriginalSizeCache()
+                    apply()
+                },
             )
+    }
+
+    /**
+     * Clear `ORIGINAL_PREFERRED_SIZE_KEY` on every currently-patched scrollbar so the next
+     * [hideScrollBar] call captures the post-refresh default instead of serving a stale
+     * pre-LAF-change dimension.
+     */
+    private fun resetOriginalSizeCache() {
+        for (scrollPane in patchedScrollPanes.keys) {
+            scrollPane.verticalScrollBar?.putClientProperty(ORIGINAL_PREFERRED_SIZE_KEY, null)
+            scrollPane.horizontalScrollBar?.putClientProperty(ORIGINAL_PREFERRED_SIZE_KEY, null)
+        }
     }
 
     fun apply() {

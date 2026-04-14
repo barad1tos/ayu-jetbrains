@@ -118,7 +118,15 @@ class AddProjectMappingDialog(
 
     override fun doOKAction() {
         val rawPath = pathField.text.trim()
-        val canonical = runCatching { File(rawPath).canonicalPath }.getOrNull() ?: return
+        // doValidate() already checks canonicalPath before the OK button enables, but a race
+        // (directory deleted between validate and click) would otherwise cause a silent early
+        // return — dialog appears frozen, user has no idea why OK stopped working. setErrorText
+        // surfaces the condition and keeps the dialog open so the user can retry or cancel.
+        val canonical =
+            runCatching { File(rawPath).canonicalPath }.getOrNull() ?: run {
+                setErrorText("Could not resolve path (directory may have been removed).", pathField)
+                return
+            }
         resultCanonicalPath = canonical
         resultDisplayName =
             recentList.selectedValue

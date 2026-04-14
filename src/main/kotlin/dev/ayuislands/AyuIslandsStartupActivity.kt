@@ -141,37 +141,51 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         // Compute adaptive delay on background thread (execute() coroutine)
         val adaptiveDelayMs = StartupLicenseHandler.computeAdaptiveDelay()
 
+        // Each step runs under its own named try/catch so an exception in one stage doesn't
+        // mask the others and the log line identifies which step actually broke. A single
+        // catch used to produce a generic "License defaults failed" with no way to tell
+        // whether migration, orchestrator routing, defaults, workspace init, wizard
+        // scheduling, or trial warning blew up.
         SwingUtilities.invokeLater {
             if (project.isDisposed) return@invokeLater
-            try {
-                // Run migration and orchestrator before license defaults
-                StartupLicenseHandler.runOnboardingMigration(settings)
-                val wizardAction =
-                    StartupLicenseHandler.resolveOnboarding(
-                        isLicensed,
-                        settings,
-                        isReturningUser,
-                    )
+            var wizardAction: dev.ayuislands.onboarding.WizardAction? = null
 
-                if (isLicensed) {
-                    StartupLicenseHandler.applyLicensedDefaults(settings)
-                } else {
+            runStep("onboarding-migration") { StartupLicenseHandler.runOnboardingMigration(settings) }
+            runStep("resolve-onboarding") {
+                wizardAction = StartupLicenseHandler.resolveOnboarding(isLicensed, settings, isReturningUser)
+            }
+            if (isLicensed) {
+                runStep("apply-licensed-defaults") { StartupLicenseHandler.applyLicensedDefaults(settings) }
+            } else {
+                runStep("apply-unlicensed-defaults") {
                     StartupLicenseHandler.applyUnlicensedDefaults(project, variant, settings)
                 }
-
-                settings.state.migrateWidthModes()
-                StartupLicenseHandler.initWorkspaceServices(project, settings)
-
-                // Schedule wizard based on orchestrator decision
-                StartupLicenseHandler.handleWizardAction(wizardAction, project, adaptiveDelayMs, settings)
-
-                // Check trial expiry warning (only runs for trial users)
-                if (isLicensed) {
-                    LicenseChecker.checkTrialExpiryWarning(project)
-                }
-            } catch (e: RuntimeException) {
-                LOG.error("License defaults failed", e)
             }
+            runStep("migrate-width-modes") { settings.state.migrateWidthModes() }
+            runStep("init-workspace-services") { StartupLicenseHandler.initWorkspaceServices(project, settings) }
+            runStep("handle-wizard-action") {
+                wizardAction?.let {
+                    StartupLicenseHandler.handleWizardAction(it, project, adaptiveDelayMs, settings)
+                }
+            }
+            if (isLicensed) {
+                runStep("check-trial-expiry") { LicenseChecker.checkTrialExpiryWarning(project) }
+            }
+        }
+    }
+
+    /**
+     * Invokes [block]; on [RuntimeException] logs with the step name so post-mortems don't
+     * need to cross-reference line numbers against a generic "License defaults failed".
+     */
+    private inline fun runStep(
+        name: String,
+        block: () -> Unit,
+    ) {
+        try {
+            block()
+        } catch (exception: RuntimeException) {
+            LOG.error("License startup step '$name' failed", exception)
         }
     }
 
