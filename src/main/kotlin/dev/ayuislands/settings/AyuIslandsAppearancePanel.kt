@@ -9,7 +9,20 @@ import dev.ayuislands.AppearanceSyncService
 import dev.ayuislands.accent.AyuVariant
 import javax.swing.JComboBox
 
-/** System appearance section — visible on macOS only. */
+/**
+ * Typealias for injecting a row (e.g. the `Follow system accent color` checkbox owned
+ * by [AyuIslandsAccentPanel]) into the shared `System` collapsible group rendered by
+ * this panel. The configurable sets the bridge before `buildPanel` runs.
+ */
+typealias SystemAccentRowInstaller = (Panel) -> Unit
+
+/**
+ * Hosts the shared macOS "System" collapsible group — appearance (Light/Dark) and
+ * accent-color system integration. The accent-color checkbox is owned by
+ * [AyuIslandsAccentPanel]; [systemAccentRowInstaller] is wired by the configurable
+ * so the checkbox renders inside this group while its state and side-effects stay
+ * with the accent panel.
+ */
 class AyuIslandsAppearancePanel : AyuIslandsSettingsPanel {
     private var pendingFollowAppearance: Boolean = false
     private var storedFollowAppearance: Boolean = false
@@ -18,6 +31,8 @@ class AyuIslandsAppearancePanel : AyuIslandsSettingsPanel {
     private var pendingNightTheme: String = "Mirage"
     private var storedNightTheme: String = "Mirage"
     private var nightThemeCombo: JComboBox<String>? = null
+
+    var systemAccentRowInstaller: SystemAccentRowInstaller? = null
 
     override fun buildPanel(
         panel: Panel,
@@ -34,29 +49,39 @@ class AyuIslandsAppearancePanel : AyuIslandsSettingsPanel {
 
         if (!SystemInfo.isMac) return
 
-        panel.group("System") {
-            row { comment("Automatically switch between Light and Dark variants.") }
-            lateinit var checkboxCell: Cell<JBCheckBox>
-            row {
-                checkboxCell =
-                    checkBox("Follow system appearance (Light / Dark)")
-                val checkbox = checkboxCell.component
-                checkbox.isSelected = pendingFollowAppearance
-                checkbox.addActionListener {
-                    pendingFollowAppearance = checkbox.isSelected
+        val collapsible =
+            panel.collapsibleGroup("System") {
+                row { comment("Inherit appearance and accent color from macOS.") }
+                lateinit var checkboxCell: Cell<JBCheckBox>
+                row {
+                    checkboxCell =
+                        checkBox("Follow system appearance (Light / Dark)")
+                    val checkbox = checkboxCell.component
+                    checkbox.isSelected = pendingFollowAppearance
+                    checkbox.addActionListener {
+                        pendingFollowAppearance = checkbox.isSelected
+                    }
+                    followAppearanceCheckbox = checkbox
                 }
-                followAppearanceCheckbox = checkbox
+                row {
+                    label("Night theme:")
+                    val nightOptions = listOf("Mirage", "Dark")
+                    val combo = comboBox(nightOptions).component
+                    combo.selectedItem = currentNight
+                    combo.addActionListener {
+                        pendingNightTheme = combo.selectedItem as? String ?: "Mirage"
+                    }
+                    nightThemeCombo = combo
+                }.visibleIf(checkboxCell.selected)
+
+                // Accent-color system checkbox lives in AyuIslandsAccentPanel (owns the
+                // pendingFollowSystem state and swatch-panel disable logic). We inject
+                // its row here so the UI groups both macOS integrations together.
+                systemAccentRowInstaller?.invoke(this)
             }
-            row {
-                label("Night theme:")
-                val nightOptions = listOf("Mirage", "Dark")
-                val combo = comboBox(nightOptions).component
-                combo.selectedItem = currentNight
-                combo.addActionListener {
-                    pendingNightTheme = combo.selectedItem as? String ?: "Mirage"
-                }
-                nightThemeCombo = combo
-            }.visibleIf(checkboxCell.selected)
+        collapsible.expanded = settings.state.systemGroupExpanded
+        collapsible.addExpandedListener { expanded ->
+            settings.state.systemGroupExpanded = expanded
         }
     }
 

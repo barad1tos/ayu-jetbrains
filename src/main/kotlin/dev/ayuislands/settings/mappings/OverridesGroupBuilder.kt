@@ -75,26 +75,32 @@ class OverridesGroupBuilder {
         // auto-pack to their widest cell on every model change; last column absorbs
         // remaining width via AUTO_RESIZE_LAST_COLUMN.
 
-        panel.group("Overrides") {
-            row {
-                comment(
-                    "Pin an accent color to a specific project or a programming language. " +
-                        "Project overrides win over language overrides; both win over the global accent.",
-                )
-            }
-            row {
-                cell(segmentedBar)
-            }
-            row {
-                cell(cardPanel)
-                    .resizableColumn()
-                    .align(Align.FILL)
-            }
-            if (!licensed) {
+        val settings = AyuIslandsSettings.getInstance()
+        val collapsible =
+            panel.collapsibleGroup("Overrides") {
                 row {
-                    comment("Pro feature")
+                    comment(
+                        "Pin an accent color to a specific project or a programming language. " +
+                            "Project overrides win over language overrides; both win over the global accent.",
+                    )
+                }
+                row {
+                    cell(segmentedBar)
+                }
+                row {
+                    cell(cardPanel)
+                        .resizableColumn()
+                        .align(Align.FILL)
+                }
+                if (!licensed) {
+                    row {
+                        comment("Pro feature")
+                    }
                 }
             }
+        collapsible.expanded = settings.state.overridesGroupExpanded
+        collapsible.addExpandedListener { expanded ->
+            settings.state.overridesGroupExpanded = expanded
         }
     }
 

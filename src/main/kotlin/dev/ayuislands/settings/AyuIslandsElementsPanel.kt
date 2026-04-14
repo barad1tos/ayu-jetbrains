@@ -98,141 +98,146 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
         val previewComponent = preview.createComponent()
         elementPreview = preview
 
-        panel.group("Accent Elements") {
-            if (!licensed) {
-                row { comment("Per-element toggles require a Pro license.") }
-            }
-
-            row {
-                // Left: checkbox columns + enable/disable
-                panel {
-                    twoColumnsRow(
-                        // Visual group
-                        {
-                            panel {
-                                row { label("Visual").bold() }
-                                for (id in AccentElementId.entries.filter { it.group == AccentGroup.VISUAL }) {
-                                    buildToggleRow(this, id, licensed)
-                                }
-                            }
-                        },
-                        // Interactive group
-                        {
-                            panel {
-                                row { label("Interactive").bold() }
-                                for (
-                                id in
-                                AccentElementId.entries.filter { it.group == AccentGroup.INTERACTIVE }
-                                ) {
-                                    buildToggleRow(this, id, licensed)
-                                }
-                            }
-                        },
-                    )
-
-                    // Enable all / Disable all links
-                    row {
-                        link("Enable all") {
-                            AccentElementId.entries.forEach { pendingToggles[it] = true }
-                            refreshCheckboxes()
-                            syncPreviewToggles()
-                            onToggleChanged?.invoke()
-                        }.enabled(licensed)
-                        link("Disable all") {
-                            AccentElementId.entries.forEach { pendingToggles[it] = false }
-                            refreshCheckboxes()
-                            syncPreviewToggles()
-                            onToggleChanged?.invoke()
-                        }.enabled(licensed)
-                    }
+        val settings = AyuIslandsSettings.getInstance()
+        val collapsible =
+            panel.collapsibleGroup("Accent Elements") {
+                // ---- Subsection 1: Per-element toggles ----
+                row { label("Per-element toggles").bold() }
+                if (!licensed) {
+                    row { comment("Per-element toggles require a Pro license.") }
                 }
-
-                // Right: hover preview mockup
-                cell(previewComponent).align(AlignY.CENTER)
-            }
-        }
-
-        panel.group("Bracket Scope") {
-            row {
-                val scopeCb =
-                    checkBox("Highlight bracket scope on gutter")
-                        .comment("Show accent-colored scope stripe when caret is on a bracket")
-                scopeCb.component.isSelected = pendingBracketScope
-                scopeCb.component.isEnabled = licensed
-                scopeCb.component.addActionListener {
-                    pendingBracketScope = scopeCb.component.isSelected
-                }
-                bracketScopeCheckbox = scopeCb.component
-            }
-        }
-
-        buildActiveTabRow(panel)
-    }
-
-    private fun buildActiveTabRow(panel: Panel) {
-        val state = AyuIslandsSettings.getInstance().state
-        val glowEnabled = state.glowEnabled
-
-        val islandsUi = AyuVariant.isIslandsUi()
-
-        panel.group("Active Tab") {
-            // Tab accent style (Islands UI only)
-            tabModeCommentRow =
                 row {
-                    comment(
-                        "Minimal = underline only, Full = underline + tinted background, Off = neutral",
-                    )
-                }.visible(islandsUi)
-            tabModeRow =
-                row {
-                    label("Tab accent style")
-                    val segmented =
-                        segmentedButton(GlowTabMode.entries) { mode -> text = mode.displayName }
-                    segmented.selectedItem = GlowTabMode.fromName(pendingTabMode)
-                    segmented.enabled(licensed)
-                    @Suppress("UnstableApiUsage")
-                    segmented.whenItemSelected { mode ->
-                        pendingTabMode = mode.name
-                        updateThicknessRowVisibility()
-                    }
-                    tabModeSegmented = segmented
-                }.visible(islandsUi)
-
-            // Underline thickness presets (non-Islands only)
-            val tabModeIsOff = GlowTabMode.fromName(pendingTabMode) == GlowTabMode.OFF
-            thicknessRow =
-                row {
-                    label("Underline thickness")
-                    val thickSegmented =
-                        segmentedButton(UNDERLINE_THICKNESS_PRESETS) { value -> text = "${value}px" }
-                    thickSegmented.selectedItem = pendingTabUnderlineHeight
-                    thickSegmented.enabled(licensed && !pendingTabUnderlineGlowSync)
-                    @Suppress("UnstableApiUsage")
-                    thickSegmented.whenItemSelected { value -> pendingTabUnderlineHeight = value }
-                    thicknessSegmented = thickSegmented
-                }.visible(!tabModeIsOff && !islandsUi)
-
-            // Sync with the glow width checkbox (hidden on Islands UI)
-            syncRow =
-                row {
-                    val cb = checkBox("Sync with glow width")
-                    cb.component.isSelected = pendingTabUnderlineGlowSync
-                    cb.component.isEnabled = licensed && glowEnabled
-                    if (!glowEnabled) {
-                        cb.component.toolTipText = "Enable glow to sync"
-                    }
-                    cb.component.addActionListener {
-                        pendingTabUnderlineGlowSync = cb.component.isSelected
-                        updateThicknessEnabledState()
-                        if (pendingTabUnderlineGlowSync && glowEnabled) {
-                            val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
-                            val syncedWidth = state.getWidthForStyle(style)
-                            thicknessSegmented?.selectedItem = syncedWidth
+                    // Left: checkbox columns + enable/disable
+                    panel {
+                        twoColumnsRow(
+                            {
+                                panel {
+                                    row { label("Visual").bold() }
+                                    for (id in AccentElementId.entries.filter { it.group == AccentGroup.VISUAL }) {
+                                        buildToggleRow(this, id, licensed)
+                                    }
+                                }
+                            },
+                            {
+                                panel {
+                                    row { label("Interactive").bold() }
+                                    for (id in AccentElementId.entries.filter { it.group == AccentGroup.INTERACTIVE }) {
+                                        buildToggleRow(this, id, licensed)
+                                    }
+                                }
+                            },
+                        )
+                        row {
+                            link("Enable all") {
+                                AccentElementId.entries.forEach { pendingToggles[it] = true }
+                                refreshCheckboxes()
+                                syncPreviewToggles()
+                                onToggleChanged?.invoke()
+                            }.enabled(licensed)
+                            link("Disable all") {
+                                AccentElementId.entries.forEach { pendingToggles[it] = false }
+                                refreshCheckboxes()
+                                syncPreviewToggles()
+                                onToggleChanged?.invoke()
+                            }.enabled(licensed)
                         }
                     }
-                    syncCheckbox = cb.component
-                }.visible(!tabModeIsOff && !islandsUi)
+                    // Right: hover preview mockup
+                    cell(previewComponent).align(AlignY.CENTER)
+                }
+
+                // ---- Subsection 2: Tab underline ----
+                separator()
+                row { label("Tab underline").bold() }
+                buildActiveTabContent()
+
+                // ---- Subsection 3: Bracket scope ----
+                separator()
+                row { label("Bracket scope").bold() }
+                row {
+                    val scopeCb =
+                        checkBox("Highlight bracket scope on gutter")
+                            .comment("Show accent-colored scope stripe when caret is on a bracket")
+                    scopeCb.component.isSelected = pendingBracketScope
+                    scopeCb.component.isEnabled = licensed
+                    scopeCb.component.addActionListener {
+                        pendingBracketScope = scopeCb.component.isSelected
+                    }
+                    bracketScopeCheckbox = scopeCb.component
+                }
+            }
+        collapsible.expanded = settings.state.accentElementsGroupExpanded
+        collapsible.addExpandedListener { expanded ->
+            settings.state.accentElementsGroupExpanded = expanded
         }
+    }
+
+    /**
+     * Renders Tab-underline rows directly onto the receiver [Panel] — no group wrapper.
+     * Called from inside the parent `Accent Elements` collapsibleGroup where this content
+     * sits under the `Tab underline` subsection header.
+     */
+    private fun Panel.buildActiveTabContent() {
+        val state = AyuIslandsSettings.getInstance().state
+        val glowEnabled = state.glowEnabled
+        val islandsUi = AyuVariant.isIslandsUi()
+
+        // Tab accent style (Islands UI only)
+        tabModeCommentRow =
+            row {
+                comment(
+                    "Minimal = underline only, Full = underline + tinted background, Off = neutral",
+                )
+            }.visible(islandsUi)
+        tabModeRow =
+            row {
+                label("Tab accent style")
+                val segmented =
+                    segmentedButton(GlowTabMode.entries) { mode -> text = mode.displayName }
+                segmented.selectedItem = GlowTabMode.fromName(pendingTabMode)
+                segmented.enabled(licensed)
+                @Suppress("UnstableApiUsage")
+                segmented.whenItemSelected { mode ->
+                    pendingTabMode = mode.name
+                    updateThicknessRowVisibility()
+                }
+                tabModeSegmented = segmented
+            }.visible(islandsUi)
+
+        // Underline thickness presets (non-Islands only)
+        val tabModeIsOff = GlowTabMode.fromName(pendingTabMode) == GlowTabMode.OFF
+        thicknessRow =
+            row {
+                label("Underline thickness")
+                val thickSegmented =
+                    segmentedButton(UNDERLINE_THICKNESS_PRESETS) { value -> text = "${value}px" }
+                thickSegmented.selectedItem = pendingTabUnderlineHeight
+                thickSegmented.enabled(licensed && !pendingTabUnderlineGlowSync)
+                @Suppress("UnstableApiUsage")
+                thickSegmented.whenItemSelected { value -> pendingTabUnderlineHeight = value }
+                thicknessSegmented = thickSegmented
+            }.visible(!tabModeIsOff && !islandsUi)
+
+        // Sync with the glow width checkbox (hidden on Islands UI)
+        syncRow =
+            row {
+                val cb = checkBox("Sync with glow width")
+                cb.component.isSelected = pendingTabUnderlineGlowSync
+                cb.component.isEnabled = licensed && glowEnabled
+                if (!glowEnabled) {
+                    cb.component.toolTipText = "Enable glow to sync"
+                }
+                cb.component.addActionListener {
+                    pendingTabUnderlineGlowSync = cb.component.isSelected
+                    updateThicknessEnabledState()
+                    if (pendingTabUnderlineGlowSync && glowEnabled) {
+                        val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
+                        val syncedWidth = state.getWidthForStyle(style)
+                        thicknessSegmented?.selectedItem = syncedWidth
+                    }
+                }
+                syncCheckbox = cb.component
+            }.visible(!tabModeIsOff && !islandsUi)
     }
 
     private fun updateThicknessRowVisibility() {

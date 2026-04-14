@@ -80,10 +80,21 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         // Wire accent color changes to the element preview
         accentPanel.onAccentChanged = { hex -> elementsPanel.updatePreviewAccent(hex) }
 
+        // Visual order: Accent Color → System → Overrides → Rotation → Elements.
+        // AccentPanel renders Accent Color → (inject) → Overrides → Rotation; the
+        // injection point hosts AppearancePanel's "System" collapsibleGroup so both
+        // macOS integrations (appearance + accent color) sit together between
+        // Accent Color and the Pro override sections.
+        accentPanel.beforeOverridesInjection = { injectionPanel ->
+            appearancePanel.buildPanel(injectionPanel, variant)
+        }
+        appearancePanel.systemAccentRowInstaller = { rowHostPanel ->
+            accentPanel.installSystemAccentCheckbox(rowHostPanel)
+        }
+
         // Build tab content panels eagerly via DSL
         val accentTab =
             panel {
-                appearancePanel.buildPanel(this@panel, variant)
                 accentPanel.buildPanel(this@panel, variant)
                 elementsPanel.buildPanel(this@panel, variant)
 

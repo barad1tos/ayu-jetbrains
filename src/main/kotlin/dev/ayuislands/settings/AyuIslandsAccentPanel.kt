@@ -49,6 +49,14 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
     private var contextProject: Project? = null
     private var currentlyActiveLabel: JEditorPane? = null
 
+    /**
+     * Hook called between the Accent Color group and the Overrides group during [buildPanel].
+     * The configurable uses it to inject [AyuIslandsAppearancePanel]'s "System" collapsible
+     * group so the visual order is Accent Color → System → Overrides → Rotation while each
+     * panel keeps ownership of its own state.
+     */
+    var beforeOverridesInjection: ((Panel) -> Unit)? = null
+
     override fun buildPanel(
         panel: Panel,
         variant: AyuVariant,
@@ -63,6 +71,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         applyInitialSelection(colorPanel, storedAccent)
         updateHeroGlow()
         panel.buildAccentColorGroup(colorPanel)
+        beforeOverridesInjection?.invoke(panel)
         overrides.buildGroup(panel, contextProject)
         panel.buildAccentRotationGroup()
 
@@ -157,47 +166,55 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
             row {
                 comment("Choose your accent color. Swatches are shared across all variants.")
             }
-            if (SystemInfo.isMac) {
-                row {
-                    val checkbox =
-                        checkBox("Follow system accent color")
-                            .component
-                    checkbox.isSelected = pendingFollowSystem
-                    checkbox.addActionListener {
-                        pendingFollowSystem = checkbox.isSelected
-                        updatePanelEnabled()
-                        if (pendingFollowSystem && pendingRotationEnabled) {
-                            pendingRotationEnabled = false
-                            rotationEnabledCheckbox?.isSelected = false
-                        }
-                        if (pendingFollowSystem) {
-                            SystemAccentProvider.resolve()?.let { hex ->
-                                applyInitialSelection(colorPanel, hex)
-                                onAccentChanged?.invoke(hex)
-                            }
-                        } else {
-                            val settings =
-                                AyuIslandsSettings.getInstance()
-                            val manualAccent =
-                                getManualAccent(
-                                    variant ?: return@addActionListener,
-                                    settings,
-                                )
-                            pendingAccent = manualAccent
-                            applyInitialSelection(
-                                colorPanel,
-                                manualAccent,
-                            )
-                            onAccentChanged?.invoke(manualAccent)
-                        }
-                    }
-                    followSystemCheckbox = checkbox
-                }
-            }
             row { cell(colorPanel).resizableColumn().align(Align.FILL) }
             row {
                 currentlyActiveLabel = comment("").component
             }
+        }
+    }
+
+    /**
+     * Renders the `Follow system accent color` checkbox and binds its state +
+     * side-effects. Called by [AyuIslandsAppearancePanel] from inside the macOS
+     * "System" collapsible group so both system-integration toggles sit together.
+     * The state and enable/disable swatch-panel logic remain here because they
+     * couple tightly with [pendingFollowSystem], the active color panel, and the
+     * rotation-exclusion invariant.
+     *
+     * Must only be invoked AFTER [buildPanel] has called [createAccentColorPanel]
+     * so [accentPanel] is non-null.
+     */
+    fun installSystemAccentCheckbox(panel: Panel) {
+        if (!SystemInfo.isMac) return
+        panel.row {
+            val checkbox = checkBox("Follow system accent color").component
+            checkbox.isSelected = pendingFollowSystem
+            checkbox.addActionListener {
+                pendingFollowSystem = checkbox.isSelected
+                updatePanelEnabled()
+                if (pendingFollowSystem && pendingRotationEnabled) {
+                    pendingRotationEnabled = false
+                    rotationEnabledCheckbox?.isSelected = false
+                }
+                val colorPanel = accentPanel ?: return@addActionListener
+                if (pendingFollowSystem) {
+                    SystemAccentProvider.resolve()?.let { hex ->
+                        applyInitialSelection(colorPanel, hex)
+                        onAccentChanged?.invoke(hex)
+                    }
+                } else {
+                    val settings = AyuIslandsSettings.getInstance()
+                    val manualAccent =
+                        getManualAccent(
+                            variant ?: return@addActionListener,
+                            settings,
+                        )
+                    pendingAccent = manualAccent
+                    applyInitialSelection(colorPanel, manualAccent)
+                    onAccentChanged?.invoke(manualAccent)
+                }
+            }
+            followSystemCheckbox = checkbox
         }
     }
 
@@ -259,15 +276,21 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         }
 
     private fun Panel.buildAccentRotationGroup() {
-        group("Accent Rotation") {
-            row {
-                comment(
-                    "Automatically change your accent color on a schedule.",
-                )
+        val settings = AyuIslandsSettings.getInstance()
+        val collapsible =
+            collapsibleGroup("Accent Rotation") {
+                row {
+                    comment(
+                        "Automatically change your accent color on a schedule.",
+                    )
+                }
+                val rotationCheckboxCell = buildRotationEnableRow()
+                buildRotationModeRow(rotationCheckboxCell)
+                buildRotationIntervalRow(rotationCheckboxCell)
             }
-            val rotationCheckboxCell = buildRotationEnableRow()
-            buildRotationModeRow(rotationCheckboxCell)
-            buildRotationIntervalRow(rotationCheckboxCell)
+        collapsible.expanded = settings.state.accentRotationGroupExpanded
+        collapsible.addExpandedListener { expanded ->
+            settings.state.accentRotationGroupExpanded = expanded
         }
     }
 
