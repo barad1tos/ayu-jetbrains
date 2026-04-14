@@ -49,7 +49,7 @@ class ProjectLanguageDetectorTest {
         assertNull(ProjectLanguageDetector.dominant(project))
     }
 
-    // ---- SDK-based detection ----
+    // SDK-based detection
 
     @Test
     fun `dominant detects kotlin from SDK type containing kotlin`() {
@@ -120,7 +120,7 @@ class ProjectLanguageDetectorTest {
         assertSdkDetects("OpenJDK", "java")
     }
 
-    // ---- Module-name fallback ----
+    // Module-name fallback
 
     @Test
     fun `dominant falls back to module name when SDK is absent - kotlin`() {
@@ -150,7 +150,7 @@ class ProjectLanguageDetectorTest {
         assertNull(ProjectLanguageDetector.dominant(project))
     }
 
-    // ---- Cache behavior ----
+    // Cache behavior
 
     @Test
     fun `dominant caches successful detection - detectInternal called once`() {
@@ -243,7 +243,7 @@ class ProjectLanguageDetectorTest {
         verify(exactly = 2) { ProjectRootManager.getInstance(b) }
     }
 
-    // ---- Helpers ----
+    // Test helpers
 
     private fun assertSdkDetects(
         sdkName: String,

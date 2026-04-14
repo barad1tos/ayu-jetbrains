@@ -42,6 +42,11 @@ class AyuIslandsLafListener : LafManagerListener {
         // Platform already walked the component tree during the LAF change, resetting component-level
         // overrides (scrollbar preferredSize, horizontal policy, rendering wrappers). Publish the
         // refresh event per open project so subscribed managers reapply. No tree walk needed here.
+        //
+        // Load-bearing platform-behavior assumption — verified against IntelliJ Platform 2025.1
+        // (`LafManagerImpl.updateLafNoSave` walks frames before firing `lookAndFeelChanged`).
+        // If a future platform bump changes the order, scrollbar hides will regress after theme
+        // switches and we'll need to switch this back to `ComponentTreeRefresher.walkAndNotify`.
         for (openProject in ProjectManager.getInstance().openProjects) {
             if (openProject.isDefault || openProject.isDisposed) continue
             ComponentTreeRefresher.notifyOnly(openProject)

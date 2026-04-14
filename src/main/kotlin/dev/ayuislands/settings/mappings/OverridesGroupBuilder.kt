@@ -71,9 +71,10 @@ class OverridesGroupBuilder {
         cardPanel.add(decorateTable(projectTable, projectActions(licensed)), CARD_PROJECTS)
         cardPanel.add(decorateTable(languageTable, languageActions(licensed)), CARD_LANGUAGES)
         // No fixed preferredSize: the AutoSizingTable drives height via
-        // getPreferredScrollableViewportSize (row count × row height) and columns 0..N-2
-        // auto-pack to their widest cell on every model change; last column absorbs
-        // remaining width via AUTO_RESIZE_LAST_COLUMN.
+        // getPreferredScrollableViewportSize (row count × row height) and every column
+        // auto-packs to the wider of header/content on every model change. AUTO_RESIZE_LAST_COLUMN
+        // then lets the last column absorb any remaining width when the containing panel is wider
+        // than the sum of packed widths, or shrink (via horizontal scroll) when narrower.
 
         val settings = AyuIslandsSettings.getInstance()
         val collapsible =
@@ -104,7 +105,7 @@ class OverridesGroupBuilder {
         }
     }
 
-    // ---- Lifecycle integration ----
+    // Settings panel lifecycle (isModified / apply / reset)
 
     fun isModified(): Boolean {
         val currentProjects = projectModel.snapshot().toFingerprint()
@@ -186,7 +187,7 @@ class OverridesGroupBuilder {
         return AccentResolver.Source.GLOBAL
     }
 
-    // ---- Internals ----
+    // Internals: pending-model resolver + UI wiring helpers
 
     private fun loadFromState() {
         val state = AccentMappingsSettingsAccess.stateFor()
@@ -356,7 +357,7 @@ class OverridesGroupBuilder {
             extraActions = emptyList(),
         )
 
-    // ---- Project actions ----
+    // Project-table actions: add / edit / remove + pin-current
 
     private fun showAddProjectDialog() {
         val excluded = projectModel.snapshot().map { it.canonicalPath }.toSet()
@@ -396,7 +397,7 @@ class OverridesGroupBuilder {
         fireChanged()
     }
 
-    // ---- Language actions ----
+    // Language-table actions: add / edit / remove
 
     private fun showAddLanguageDialog() {
         val excluded = languageModel.snapshot().map { it.languageId }.toSet()
@@ -438,7 +439,7 @@ class OverridesGroupBuilder {
         fireChanged()
     }
 
-    // ---- Apply re-render ----
+    // Applies the committed mapping set via resolver → applicator → swap-cache sync
 
     private fun reapplyForCurrentContext() {
         val variant = AyuVariant.detect() ?: return
@@ -460,9 +461,10 @@ class OverridesGroupBuilder {
 
     /**
      * [JBTable] that sizes its viewport to the current row count (clamped to
-     * [MIN_VISIBLE_ROWS]..[MAX_VISIBLE_ROWS]) and auto-packs all columns except the
-     * last one to the widest header or cell content on every model change.
-     * The last column is left to absorb remaining width via [AUTO_RESIZE_LAST_COLUMN].
+     * [MIN_VISIBLE_ROWS]..[MAX_VISIBLE_ROWS]) and auto-packs every column to the wider of
+     * header / cell content on every model change. With [AUTO_RESIZE_LAST_COLUMN] Swing then
+     * lets the last column absorb any extra width when the containing panel is wider than
+     * the sum of packed widths, and shrink (horizontal scroll) when narrower.
      */
     private class AutoSizingTable(
         model: TableModel,

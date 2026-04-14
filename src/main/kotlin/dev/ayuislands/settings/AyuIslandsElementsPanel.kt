@@ -99,7 +99,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
         val settings = AyuIslandsSettings.getInstance()
         val collapsible =
             panel.collapsibleGroup("Accent Elements") {
-                // ---- Subsection 1: Per-element toggles ----
+                // Subsection 1: Per-element toggles
                 row { label("Per-element toggles").bold() }
                 if (!licensed) {
                     row { comment("Per-element toggles require a Pro license.") }
@@ -144,12 +144,12 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
                     cell(previewComponent).align(AlignY.CENTER)
                 }
 
-                // ---- Subsection 2: Tab underline ----
+                // Subsection 2: Tab underline
                 separator()
                 row { label("Tab underline").bold() }
                 buildActiveTabContent()
 
-                // ---- Subsection 3: Bracket scope ----
+                // Subsection 3: Bracket scope
                 separator()
                 row { label("Bracket scope").bold() }
                 row {
