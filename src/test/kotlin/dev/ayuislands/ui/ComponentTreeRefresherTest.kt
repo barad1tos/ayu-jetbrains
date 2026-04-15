@@ -11,7 +11,6 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.Component
-import java.util.EnumSet
 import javax.swing.JPanel
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -87,21 +86,30 @@ class ComponentTreeRefresherTest {
         // the EditorScrollbarManager / ProjectViewScrollbarManager reapply path.
         every { IJSwingUtilities.updateComponentTreeUI(root) } throws IllegalStateException("boom")
 
-        val suppressLoggedErrors =
+        // Production code logs at LOG.warn — override processWarn (not processError) so the
+        // TestLoggerFactory warn-to-failure promotion is suppressed for THIS test's
+        // intentional throw, but any unexpected LOG.error elsewhere still escalates.
+        val capturedWarns = mutableListOf<String>()
+        val processor =
             object : LoggedErrorProcessor() {
-                override fun processError(
+                override fun processWarn(
                     category: String,
                     message: String,
-                    details: Array<out String>,
                     throwable: Throwable?,
-                ): Set<Action> = EnumSet.noneOf(Action::class.java)
+                ): Boolean {
+                    capturedWarns += message
+                    return false
+                }
             }
 
-        LoggedErrorProcessor.executeWith<Throwable>(suppressLoggedErrors) {
+        LoggedErrorProcessor.executeWith<Throwable>(processor) {
             ComponentTreeRefresher.walkAndNotify(project, root)
         }
 
         verify(exactly = 1) { listener.afterRefresh(project) }
+        assert(capturedWarns.any { it.contains("Component tree refresh failed") }) {
+            "Expected warn about failed tree refresh, got: $capturedWarns"
+        }
     }
 
     @Test

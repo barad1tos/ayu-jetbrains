@@ -241,20 +241,39 @@ class AccentResolverTest {
     fun `projectKey logs once per project on canonicalization failure then dedups`() {
         // Hot-path callers (focus swap, rotation tick) must not flood idea.log when a
         // project's basePath is unresolvable. The dedup set ages out with project disposal.
-        // Simulating: a `basePath` that throws on canonicalization (e.g. invalid file path
-        // characters on certain filesystems). We use a deeply nested null-byte path which
-        // causes File.canonicalPath to throw IOException on most JVMs.
+        // Capture warns via LoggedErrorProcessor so the dedup contract is assertable — the
+        // previous test returned null from all three calls even if the dedup was silently
+        // broken (warn fired 3 times instead of 1). Now the test FAILS if the dedup goes
+        // away. Path with embedded NUL causes File.canonicalPath to throw on most JVMs.
         val project = mockk<Project>()
         every { project.basePath } returns "/tmp/path-with-nul-\u0000-byte/project"
         every { project.isDefault } returns false
         every { project.isDisposed } returns false
         every { project.name } returns "weird-project"
 
-        // First call exercises the warn path; subsequent calls hit the dedup set.
-        // Both must return null without throwing.
-        assertNull(AccentResolver.projectKey(project))
-        assertNull(AccentResolver.projectKey(project))
-        assertNull(AccentResolver.projectKey(project))
+        val capturedWarns = mutableListOf<String>()
+        val processor =
+            object : com.intellij.testFramework.LoggedErrorProcessor() {
+                override fun processWarn(
+                    category: String,
+                    message: String,
+                    throwable: Throwable?,
+                ): Boolean {
+                    capturedWarns += message
+                    return false
+                }
+            }
+
+        com.intellij.testFramework.LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
+            repeat(3) { assertNull(AccentResolver.projectKey(project)) }
+        }
+
+        assertEquals(
+            1,
+            capturedWarns.count { it.contains("canonicalize basePath") },
+            "Dedup must collapse 3 calls with the same project into exactly 1 warn; " +
+                "got: $capturedWarns",
+        )
     }
 
     @Test

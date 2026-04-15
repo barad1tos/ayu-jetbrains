@@ -294,6 +294,49 @@ class AccentRotationServiceTest {
     }
 
     @Test
+    fun `circuit breaker does NOT trip at MAX_CONSECUTIVE_FAILURES minus 1`() {
+        // Lower-edge lock: driving exactly MAX-1 (= 2) failing ticks must NOT fire a
+        // notification. Catches an accidental shift from `<` to `<=` (which would trip
+        // early at count=3 with 3-tick boundary, leaving this test alone — but we keep
+        // both-edges-locked, positive and negative, because one-sided tests are brittle).
+        mockRotationEnvironment()
+        val (notificationGroup, _) = captureNotifications()
+        state.accentRotationEnabled = true
+        state.accentRotationMode = AccentRotationMode.PRESET.name
+        every { AccentApplicator.apply(any()) } throws RotationTestException("apply stage")
+
+        val service = AccentRotationService()
+        LoggedErrorProcessor.executeWith<Throwable>(suppressLoggedErrors()) {
+            repeat(TWO) { service.rotateAccent() }
+        }
+
+        verify(exactly = 0) {
+            notificationGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
+        }
+    }
+
+    @Test
+    fun `circuit breaker trips at EXACTLY MAX_CONSECUTIVE_FAILURES`() {
+        // Upper-edge lock: driving exactly MAX (= 3) failing ticks fires exactly once.
+        // Paired with the MAX-1 test to pin the trip point precisely. Catches a shift from
+        // `<` to `>` (would never trip) and a shift making the trip fire at count=2.
+        mockRotationEnvironment()
+        val (notificationGroup, _) = captureNotifications()
+        state.accentRotationEnabled = true
+        state.accentRotationMode = AccentRotationMode.PRESET.name
+        every { AccentApplicator.apply(any()) } throws RotationTestException("apply stage")
+
+        val service = AccentRotationService()
+        LoggedErrorProcessor.executeWith<Throwable>(suppressLoggedErrors()) {
+            repeat(THREE) { service.rotateAccent() }
+        }
+
+        verify(exactly = 1) {
+            notificationGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
+        }
+    }
+
+    @Test
     fun `successful tick between failures resets the circuit-breaker budget`() {
         // Regression guard for the reset-on-success path (consecutiveFailures = 0 after a
         // clean runApplyStage). Two fail + one success + two fail must NOT trip the breaker
@@ -405,6 +448,7 @@ class AccentRotationServiceTest {
     }
 
     companion object {
+        private const val TWO = 2
         private const val THREE = 3
         private const val FOUR = 4
         private const val FIVE = 5
