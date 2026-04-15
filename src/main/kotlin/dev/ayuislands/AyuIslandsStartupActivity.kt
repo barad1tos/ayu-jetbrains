@@ -177,7 +177,14 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
     /**
      * Invokes [block]; on [RuntimeException] logs with the step name so post-mortems don't
      * need to cross-reference line numbers against a generic "License defaults failed".
+     *
+     * `Error` subtypes (ExceptionInInitializerError from lazy class init,
+     * NoClassDefFoundError from optional plugin dependencies, OOM) are caught so the step
+     * name still reaches the log — but rethrown so the JVM's normal error-escalation path
+     * remains intact. Without that rethrow, an OOM in step N would silently skip steps
+     * N+1..end and the user would see a half-initialized plugin.
      */
+    @Suppress("TooGenericExceptionCaught") // Error catch is intentional — we log then rethrow
     private inline fun runStep(
         name: String,
         block: () -> Unit,
@@ -186,6 +193,9 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
             block()
         } catch (exception: RuntimeException) {
             LOG.error("License startup step '$name' failed", exception)
+        } catch (error: Error) {
+            LOG.error("License startup step '$name' failed with Error", error)
+            throw error
         }
     }
 

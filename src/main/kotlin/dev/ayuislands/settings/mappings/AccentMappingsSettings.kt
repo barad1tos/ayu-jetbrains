@@ -45,9 +45,16 @@ class AccentMappingsSettings : SimplePersistentStateComponent<AccentMappingsStat
             // Surface the failure so affected users can find a breadcrumb in idea.log. Silent no-op
             // means stored `$USER_HOME$/...` keys never match the absolute canonical path
             // AccentResolver hands to the map lookup — overrides become invisible with no trace.
+            //
+            // The key-existence probe is wrapped in runCatching because BaseState-backed maps are
+            // shared mutable and theoretically racy with concurrent writers during startup
+            // deserialization — a ConcurrentModificationException here would propagate out of
+            // loadState and fail settings loading entirely.
             val hasLegacyKeys =
-                state.projectAccents.keys.any { it.startsWith(USER_HOME_MACRO) } ||
-                    state.projectDisplayNames.keys.any { it.startsWith(USER_HOME_MACRO) }
+                runCatching {
+                    state.projectAccents.keys.any { it.startsWith(USER_HOME_MACRO) } ||
+                        state.projectDisplayNames.keys.any { it.startsWith(USER_HOME_MACRO) }
+                }.getOrDefault(false)
             if (hasLegacyKeys) {
                 LOG.warn(
                     "Cannot migrate legacy $USER_HOME_MACRO-prefixed accent-mapping keys: " +

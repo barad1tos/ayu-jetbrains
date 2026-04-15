@@ -32,13 +32,13 @@ object AccentResolver {
     private val LOG = logger<AccentResolver>()
 
     /**
-     * Dedup set for canonicalPath warnings — a failing project base path is hot-path on focus
-     * swap / rotation ticks, so we log the first failure and suppress subsequent ones for the
-     * same project to avoid flooding idea.log. WeakHashMap keyed by Project so entries age out
-     * with the project's disposal.
+     * First-failure-only gate for [projectKey] warnings — see the [projectKey] KDoc for why.
+     * Backed by a synchronized WeakHashMap because the resolver is called from multiple
+     * threads (EDT from the AWT listener, coroutine from [dev.ayuislands.AyuIslandsStartupActivity],
+     * background from rotation). Weak references let entries age out with project disposal.
      */
     private val loggedCanonicalFailures: MutableSet<Project> =
-        Collections.newSetFromMap(WeakHashMap())
+        Collections.synchronizedSet(Collections.newSetFromMap(WeakHashMap()))
 
     /**
      * Resolves the effective accent hex. Delegates to the shared override-traversal helper,

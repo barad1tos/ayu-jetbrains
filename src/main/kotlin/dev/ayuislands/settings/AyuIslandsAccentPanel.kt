@@ -1,5 +1,6 @@
 package dev.ayuislands.settings
 
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.SystemInfo
@@ -494,11 +495,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
             settings.setAccentForVariant(currentVariant, "")
             AccentApplicator.revertAll()
         } else {
-            // Route through applyForFocusedProject so a per-project/per-language override on the
-            // currently focused project wins over the freshly-stored global accent. Applying
-            // effectiveAccent directly would overwrite the override until the next focus swap or
-            // LAF change — breaking the "per-project override is sticky" invariant.
-            AccentApplicator.applyForFocusedProject(currentVariant)
+            applyWithFallback(currentVariant, effectiveAccent)
         }
         storedAccent = effectiveAccent
 
@@ -601,7 +598,30 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         }
     }
 
+    /**
+     * Route accent apply through [AccentApplicator.applyForFocusedProject] so a stored
+     * per-project/per-language override wins over the freshly-stored global accent. A
+     * corrupted stored override hex (hand-edited XML, legacy writer) would otherwise surface
+     * as a Settings "Can't save" dialog with no diagnostic — the catch logs the cause and
+     * falls back to the global [effectiveAccent] so the panel stays usable.
+     */
+    private fun applyWithFallback(
+        currentVariant: AyuVariant,
+        effectiveAccent: String,
+    ) {
+        try {
+            AccentApplicator.applyForFocusedProject(currentVariant)
+        } catch (exception: RuntimeException) {
+            LOG.error(
+                "Failed to apply resolved accent for focused project; falling back to global",
+                exception,
+            )
+            AccentApplicator.apply(effectiveAccent)
+        }
+    }
+
     companion object {
+        private val LOG = logger<AyuIslandsAccentPanel>()
         private const val INTERVAL_1H = 1
         private const val INTERVAL_3H = 3
         private const val INTERVAL_6H = 6

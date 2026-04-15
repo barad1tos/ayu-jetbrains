@@ -110,7 +110,11 @@ class ProjectAccentSwapService : Disposable {
                 val frameWindow = SwingUtilities.getWindowAncestor(frame.component) ?: continue
                 if (frameWindow === window) return project
             } catch (exception: RuntimeException) {
-                LOG.debug("Skipping frame during window-to-project resolution: ${exception.message}")
+                // Warn with the exception so a platform regression that starts throwing here
+                // (e.g. WindowManager breaking invariants during shutdown) is visible in
+                // idea.log. DEBUG would hide the issue from user-submitted logs. The loop
+                // continues so one bad frame doesn't block resolution of a healthy one.
+                LOG.warn("Skipping frame during window-to-project resolution", exception)
             }
         }
         return null
