@@ -132,4 +132,60 @@ class ProjectMappingsTableModelTest {
         assertFalse(model.isCellEditable(0, 1))
         assertFalse(model.isCellEditable(0, 2))
     }
+
+    @Test
+    fun `updateHex out-of-bounds row is a silent no-op`() {
+        // Mirror of `remove at invalid index is a no-op` for the second mutator. UI code
+        // calls updateHex(selectedRow, ...) and selectedRow can be -1 when nothing is
+        // selected; without the bound guard this would throw IndexOutOfBoundsException
+        // from the underlying ArrayList.set, killing the Settings dialog.
+        val model = ProjectMappingsTableModel()
+        model.add(ProjectMapping("/tmp/a", "A", "#111111"))
+
+        model.updateHex(-1, "#FFFFFF")
+        model.updateHex(99, "#FFFFFF")
+
+        assertEquals("#111111", model.getValueAt(0, ProjectMappingsTableModel.COLUMN_COLOR))
+    }
+
+    @Test
+    fun `getValueAt out-of-bounds row returns null`() {
+        // Swing JTable can request stale row indices during repaint races; the
+        // `rowAt(rowIndex) ?: return null` guard must hand back null instead of NPE'ing.
+        val model = ProjectMappingsTableModel()
+        assertNull(model.getValueAt(0, ProjectMappingsTableModel.COLUMN_COLOR))
+        assertNull(model.getValueAt(99, ProjectMappingsTableModel.COLUMN_PATH))
+    }
+
+    @Test
+    fun `isOrphan returns false for out-of-bounds row`() {
+        // The renderer's prepareRenderer hook calls isOrphan(viewIndex), which can be stale
+        // mid-repaint. Without the `rowAt(...) ?: return false` guard the access would NPE
+        // and surface as a SEVERE in idea.log on every repaint.
+        val model = ProjectMappingsTableModel()
+        assertFalse(model.isOrphan(0), "no rows yet — out-of-bounds must report false")
+        assertFalse(model.isOrphan(-1))
+    }
+
+    @Test
+    fun `isOrphan returns true for path that does not exist on disk`() {
+        // The whole point of the orphan flag — when a project is moved/deleted, the stored
+        // canonicalPath stops resolving to a directory and the row should be styled
+        // differently. A regression that flipped the !isDirectory check would mark every
+        // valid mapping as orphaned.
+        val model = ProjectMappingsTableModel()
+        model.add(ProjectMapping("/this/path/definitely/does/not/exist", "Gone", "#111111"))
+
+        assertTrue(model.isOrphan(0))
+    }
+
+    @Test
+    fun `isOrphan returns false for path that resolves to a real directory`() {
+        // System tempdir always exists on every platform — use it as the canonical "live"
+        // directory so the test is portable across CI runners.
+        val model = ProjectMappingsTableModel()
+        model.add(ProjectMapping(System.getProperty("java.io.tmpdir"), "Tmp", "#111111"))
+
+        assertFalse(model.isOrphan(0))
+    }
 }

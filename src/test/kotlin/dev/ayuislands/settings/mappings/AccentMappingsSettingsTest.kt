@@ -210,6 +210,43 @@ class AccentMappingsSettingsTest {
     }
 
     @Test
+    fun `warnMigrationFailed defensive branch fires marker WARN when both causes are null`() {
+        // Algorithmic test for documented dead-from-current-callers defensive insurance:
+        // the call site at line 80 gates with `isFailure || isFailure` so at least one
+        // Throwable is always non-null in production. The `?: run { LOG.warn("...call-site
+        // gate regressed...") return }` exists so a future regression in the caller
+        // doesn't NPE inside the log path. Pure logic test that pins the marker WARN so
+        // a refactor dropping it can't slip through unnoticed.
+        val settings = AccentMappingsSettings()
+
+        val capturedMessages = mutableListOf<String>()
+        val processor =
+            object : LoggedErrorProcessor() {
+                override fun processWarn(
+                    category: String,
+                    message: String,
+                    throwable: Throwable?,
+                ): Boolean {
+                    capturedMessages += message
+                    return false
+                }
+            }
+
+        LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
+            settings.warnMigrationFailed(null, null)
+        }
+
+        assertTrue(
+            capturedMessages.any { it.contains("call-site gate regressed") },
+            "defensive both-null branch must emit the marker WARN; got: $capturedMessages",
+        )
+        assertTrue(
+            capturedMessages.none { it.contains("Failed to migrate") },
+            "marker WARN must NOT be followed by the regular migration WARN; got: $capturedMessages",
+        )
+    }
+
+    @Test
     fun `getInstance returns a usable service — companion wired correctly`() {
         // Defensive: constructor should not throw and companion accessor should compile.
         val settings = AccentMappingsSettings()

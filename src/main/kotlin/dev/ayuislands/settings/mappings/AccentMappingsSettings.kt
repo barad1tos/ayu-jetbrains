@@ -101,7 +101,7 @@ class AccentMappingsSettings : SimplePersistentStateComponent<AccentMappingsStat
      * logs a self-describing marker WARN instead of throwing, so a regression in the caller
      * doesn't become an NPE inside the log path.
      */
-    private fun warnMigrationFailed(
+    internal fun warnMigrationFailed(
         accentsCause: Throwable?,
         namesCause: Throwable?,
     ) {

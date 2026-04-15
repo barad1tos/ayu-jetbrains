@@ -204,6 +204,7 @@ kover {
                     "dev.ayuislands.settings.mappings.OverridesGroupBuilder*",
                     "dev.ayuislands.settings.mappings.AddProjectMappingDialog*",
                     "dev.ayuislands.settings.mappings.AddLanguageMappingDialog*",
+                    "dev.ayuislands.settings.mappings.EditAccentColorDialog*",
                     "dev.ayuislands.settings.mappings.AccentSwatchPickerRow*",
                     "dev.ayuislands.settings.mappings.RoundedSwatchRenderer*",
                 )

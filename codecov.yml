@@ -18,6 +18,15 @@ ignore:
   - "src/main/kotlin/dev/ayuislands/font/FontPresetApplicator.kt"
   - "src/main/kotlin/dev/ayuislands/settings/FontPresetPanel.kt"
   - "src/main/kotlin/dev/ayuislands/settings/FontPreviewComponent.kt"
+  # Pure DialogWrapper UI glue: ColorPicker/ComboBox/FileChooser wiring with no extractable
+  # logic. Same files are already excluded from Kover; aligning codecov so the patch report
+  # doesn't double-flag what Kover correctly ignores.
+  - "src/main/kotlin/dev/ayuislands/settings/mappings/EditAccentColorDialog.kt"
+  - "src/main/kotlin/dev/ayuislands/settings/mappings/AddProjectMappingDialog.kt"
+  - "src/main/kotlin/dev/ayuislands/settings/mappings/AddLanguageMappingDialog.kt"
+  - "src/main/kotlin/dev/ayuislands/settings/mappings/OverridesGroupBuilder.kt"
+  - "src/main/kotlin/dev/ayuislands/settings/mappings/AccentSwatchPickerRow.kt"
+  - "src/main/kotlin/dev/ayuislands/settings/mappings/RoundedSwatchRenderer.kt"
 
 comment:
   layout: "condensed_header, condensed_files, condensed_footer"
