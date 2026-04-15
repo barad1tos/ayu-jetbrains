@@ -73,6 +73,54 @@ class WhatsNewManifestLoaderTest {
     }
 
     @Test
+    fun `load discards malformed slides with WARN but keeps valid ones`() {
+        // src/test/resources/whatsnew/v9.9.3/manifest.json mixes one good slide
+        // with three malformed entries (missing title, non-object, missing body).
+        // The good slide must survive; each malformed entry must produce a
+        // WARN so a maintainer can spot the manifest typo in idea.log.
+        val capturedWarns = mutableListOf<String>()
+        val processor = warnCollector(capturedWarns)
+        var result: WhatsNewManifest? = null
+        LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
+            result = WhatsNewManifestLoader.load("9.9.3")
+        }
+        val parsed = assertNotNull(result)
+        assertEquals(1, parsed.slides.size, "only the well-formed slide should survive")
+        assertEquals("Good slide", parsed.slides[0].title)
+        assertTrue(
+            capturedWarns.any { it.contains("slide[1]") && it.contains("title") },
+            "missing-title slide must produce a slide[1] WARN naming 'title'; got: $capturedWarns",
+        )
+        assertTrue(
+            capturedWarns.any { it.contains("slide[2]") && it.contains("expected JSON object") },
+            "non-object entry must produce a slide[2] WARN; got: $capturedWarns",
+        )
+        assertTrue(
+            capturedWarns.any { it.contains("slide[3]") && it.contains("body") },
+            "missing-body slide must produce a slide[3] WARN naming 'body'; got: $capturedWarns",
+        )
+    }
+
+    @Test
+    fun `load returns null with WARN when every slide is malformed`() {
+        // src/test/resources/whatsnew/v9.9.4/manifest.json has three slides,
+        // all malformed. Loader collapses to "no usable slides" and returns
+        // null so the balloon path takes over — but logs WHY so the maintainer
+        // doesn't waste time wondering why the tab silently disappeared.
+        val capturedWarns = mutableListOf<String>()
+        val processor = warnCollector(capturedWarns)
+        var result: WhatsNewManifest? = null
+        LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
+            result = WhatsNewManifestLoader.load("9.9.4")
+        }
+        assertNull(result)
+        assertTrue(
+            capturedWarns.any { it.contains("no usable slides") },
+            "all-malformed manifest must produce a 'no usable slides' WARN; got: $capturedWarns",
+        )
+    }
+
+    @Test
     fun `manifestExists returns true for present resource`() {
         assertTrue(WhatsNewManifestLoader.manifestExists("9.9.0"))
     }

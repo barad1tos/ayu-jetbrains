@@ -134,17 +134,33 @@ internal object WhatsNewManifestLoader {
         val slidesArray = root.get("slides")?.takeIf { it.isJsonArray }?.asJsonArray ?: return null
 
         val slides =
-            slidesArray.mapNotNull { entry ->
-                if (!entry.isJsonObject) return@mapNotNull null
+            slidesArray.mapIndexedNotNull { index, entry ->
+                if (!entry.isJsonObject) {
+                    val type = entry::class.simpleName
+                    LOG.warn("What's New: discarding slide[$index] — expected JSON object, got $type")
+                    return@mapIndexedNotNull null
+                }
                 val obj = entry.asJsonObject
-                val title = readString(obj, "title") ?: return@mapNotNull null
-                val body = readString(obj, "body") ?: return@mapNotNull null
+                val title = readString(obj, "title")
+                val body = readString(obj, "body")
+                if (title == null || body == null) {
+                    val missing =
+                        listOfNotNull(
+                            "title".takeIf { title == null },
+                            "body".takeIf { body == null },
+                        ).joinToString()
+                    LOG.warn("What's New: discarding slide[$index] — missing required field(s): $missing")
+                    return@mapIndexedNotNull null
+                }
                 val image = readString(obj, "image")
                 val imageScale = readFloat(obj, "imageScale")?.takeIf { it > 0f }
                 WhatsNewSlide(title = title, body = body, image = image, imageScale = imageScale)
             }
 
-        if (slides.isEmpty()) return null
+        if (slides.isEmpty()) {
+            LOG.warn("What's New: manifest contains no usable slides — falling back to balloon")
+            return null
+        }
 
         return WhatsNewManifest(
             title = readString(root, "title") ?: "What's New",

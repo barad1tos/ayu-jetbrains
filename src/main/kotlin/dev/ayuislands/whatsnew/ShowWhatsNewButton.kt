@@ -35,9 +35,6 @@ internal class ShowWhatsNewButton(
         isOpaque = false
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
         border = JBUI.Borders.empty(PADDING_Y, PADDING_X)
-        val size = Dimension(JBUI.scale(WIDTH), JBUI.scale(HEIGHT))
-        preferredSize = size
-        minimumSize = size
 
         val label = JBLabel(text)
         label.horizontalAlignment = JBLabel.CENTER
@@ -48,6 +45,17 @@ internal class ShowWhatsNewButton(
             )
         label.foreground = if (isAccent) ACCENT_INK else JBColor.foreground()
         add(label, BorderLayout.CENTER)
+
+        // Width is the larger of MIN_WIDTH (so short labels like "Close" don't
+        // collapse and the two footer buttons read as a pair) and the label's
+        // own preferred size + horizontal padding (so a longer label like
+        // "Open Accent Overrides" — or a future longer string — can grow
+        // without truncation).
+        val labelWidth = label.preferredSize.width + JBUI.scale(PADDING_X * 2)
+        val width = maxOf(JBUI.scale(MIN_WIDTH), labelWidth)
+        val size = Dimension(width, JBUI.scale(HEIGHT))
+        preferredSize = size
+        minimumSize = size
 
         addMouseListener(
             object : MouseAdapter() {
@@ -102,7 +110,7 @@ internal class ShowWhatsNewButton(
     ): Color = Color(color.red, color.green, color.blue, alpha)
 
     companion object {
-        private const val WIDTH = 160
+        private const val MIN_WIDTH = 160
         private const val HEIGHT = 32
         private const val PADDING_Y = 6
         private const val PADDING_X = 14
