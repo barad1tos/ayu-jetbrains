@@ -7,6 +7,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.CheckedDisposable
 import com.intellij.openapi.util.Condition
 import com.intellij.openapi.util.Disposer
@@ -228,13 +229,26 @@ class AccentRotationService : Disposable {
             LOG.info("Accent rotated: mode=$mode, global=${newHex.second}, applied=$resolvedHex")
             null
         } catch (exception: RuntimeException) {
+            // Include focused-project identity so post-mortems can tell which project's
+            // override (if any) the apply stage was wrestling with when it failed.
+            val focusedName =
+                runCatching { focusedProjectName() }.getOrDefault("<unknown>")
             LOG.error(
-                "Accent rotation stage=$stage failed (mode=$mode, color=${newHex.second})",
+                "Accent rotation stage=$stage failed (mode=$mode, color=${newHex.second}, " +
+                    "focusedProject=$focusedName)",
                 exception,
             )
             RotationFailure(stage = stage, exception = exception)
         }
     }
+
+    private fun focusedProjectName(): String =
+        ProjectManager
+            .getInstance()
+            .openProjects
+            .firstOrNull { !it.isDefault && !it.isDisposed }
+            ?.name
+            ?: "<none>"
 
     /**
      * Sync glow overlays with the new accent. Returns a [RotationFailure] so the circuit

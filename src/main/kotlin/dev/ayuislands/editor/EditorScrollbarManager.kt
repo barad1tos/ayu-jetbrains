@@ -70,11 +70,12 @@ class EditorScrollbarManager(
      * [hideScrollBar] call captures the post-refresh default instead of serving a stale
      * pre-LAF-change dimension.
      *
-     * Iterates a snapshot of the keys, not the live view, because [patchedScrollPanes] is a
-     * [WeakHashMap] that expunges stale entries on any access — including during iteration —
-     * which can race with a concurrent `editorCreated` listener mutation elsewhere on the
-     * EDT. The snapshot plus try/catch keep the listener alive even if Swing throws from
-     * a downstream `putClientProperty`.
+     * Iterates a snapshot of the keys, not the live view: [WeakHashMap]'s iterator can throw
+     * [ConcurrentModificationException] when GC-driven expunge mutates the map's modCount
+     * mid-iteration (the expunge runs during `keys.iterator().hasNext()` / `next()` calls,
+     * independent of any other mutator thread — relevant even with strict EDT serialization).
+     * The snapshot freezes the set we walk, and the per-pane try/catch keeps the listener
+     * alive if Swing throws from a downstream `putClientProperty`.
      */
     private fun resetOriginalSizeCache() {
         val panes = patchedScrollPanes.keys.toList()

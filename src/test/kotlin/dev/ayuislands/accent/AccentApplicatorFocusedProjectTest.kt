@@ -17,13 +17,20 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * Locks in the contract of [AccentApplicator.applyForFocusedProject] — four production
- * callers (settings panels, LAF listener, rotation tick, startup) previously hand-wired
- * inconsistent variants of this sequence. These tests are the safety net that keeps the
- * sequence (focused-project selection → resolver → apply → swap-cache sync) from drifting.
+ * Locks in the contract of [AccentApplicator.applyForFocusedProject] — five production
+ * callers (the three settings panels, the LAF listener, the rotation tick) previously
+ * hand-wired inconsistent variants of this sequence (most skipped the swap-cache sync).
+ * These tests are the safety net that keeps the sequence (focused-project selection →
+ * resolver → apply → swap-cache sync) from drifting.
  *
  * Uses the real [AccentApplicator] object but mocks every collaborator:
- *  - [ProjectManager.getInstance] for the focused-project pick (first non-default, non-disposed)
+ *  - [com.intellij.openapi.wm.IdeFocusManager] is left unmocked → returns the headless
+ *    no-op manager whose `lastFocusedFrame` is `null`, so these tests exercise the
+ *    [ProjectManager] fallback path. Primary-path coverage (real focused frame) is left
+ *    to manual smoke / IDE integration; the production fallback chain is documented in
+ *    the helper's own KDoc.
+ *  - [ProjectManager.getInstance] for the fallback focused-project pick (first
+ *    non-default, non-disposed open project)
  *  - [AccentResolver.resolve] for the resolver call (covered independently in AccentResolverTest)
  *  - A partial mock on [AccentApplicator] itself to intercept `apply(hex)` — we only care that
  *    the helper forwards the resolver's output, not the full UIManager side-effect chain

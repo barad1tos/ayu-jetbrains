@@ -141,15 +141,20 @@ object AccentApplicator {
 
     /**
      * Convenience wrapper around [AccentResolver.resolve] + [apply] for the "currently focused
-     * project" use case. Before this helper existed, four callers (settings panels, LAF
-     * listener, rotation tick, startup) hand-wired variants of the same sequence — and they
-     * were *inconsistent*: only the rotation path and the overrides-panel re-apply called
+     * project" use case. Five production sites call it today: the three settings panels
+     * (Accent / Elements / Plugins), [dev.ayuislands.AyuIslandsLafListener], and the
+     * [dev.ayuislands.rotation.AccentRotationService] tick. Pre-helper, those sites hand-wired
+     * variants of the same sequence and were *inconsistent*: only the rotation path called
      * [ProjectAccentSwapService.notifyExternalApply]; the panels and LAF listener skipped it,
      * leaving the swap-cache stale and causing one redundant apply on the next WINDOW_ACTIVATED.
      *
      * Centralizing the sequence makes focused-project selection, override-priority resolution,
      * and swap-cache synchronization uniformly correct across callers. Returns the applied
      * hex so callers can log or display it.
+     *
+     * Note: [dev.ayuislands.AyuIslandsStartupActivity] is NOT a caller — it operates on the
+     * specific project the platform hands it, not the focused one, so it bypasses this helper
+     * and calls [AccentResolver.resolve] + [apply] directly with that project.
      */
     fun applyForFocusedProject(variant: AyuVariant): String {
         val focusedProject = resolveFocusedProject()
@@ -171,16 +176,18 @@ object AccentApplicator {
      *     shutdown edge cases where the focus manager is torn down
      *  3. `null` — no project open; resolver will return the global accent
      */
-    private fun resolveFocusedProject() =
+    private fun resolveFocusedProject(): com.intellij.openapi.project.Project? =
         IdeFocusManager
             .getGlobalInstance()
             .lastFocusedFrame
             ?.project
-            ?.takeIf { !it.isDefault && !it.isDisposed }
+            ?.takeIf { it.isUsable() }
             ?: ProjectManager
                 .getInstance()
                 .openProjects
-                .firstOrNull { !it.isDefault && !it.isDisposed }
+                .firstOrNull { it.isUsable() }
+
+    private fun com.intellij.openapi.project.Project.isUsable(): Boolean = !isDefault && !isDisposed
 
     fun revertAll() {
         // All revert work batched into a single EDT dispatch
