@@ -2,6 +2,7 @@ package dev.ayuislands.whatsnew
 
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.DumbAwareAction
 
 /**
@@ -32,6 +33,17 @@ internal class ShowWhatsNewAction : DumbAwareAction() {
 
     override fun actionPerformed(event: AnActionEvent) {
         val project = event.project ?: return
-        WhatsNewLauncher.openManually(project)
+        val scheduled = WhatsNewLauncher.openManually(project)
+        if (!scheduled) {
+            // update() should have hidden the menu when no manifest exists, but
+            // BGT update can race with the click. Leaving a breadcrumb in the
+            // log so a future "I clicked Show What's New and nothing happened"
+            // bug report has a paper trail to start from.
+            LOG.info("Ayu What's New: manual open declined — no manifest for current version")
+        }
+    }
+
+    companion object {
+        private val LOG = logger<ShowWhatsNewAction>()
     }
 }

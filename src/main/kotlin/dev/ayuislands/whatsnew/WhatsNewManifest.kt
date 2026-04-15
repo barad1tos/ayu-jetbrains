@@ -38,8 +38,11 @@ data class WhatsNewSlide(
  *   returns null instead.
  * @param ctaOpenSettingsLabel label for the "Open settings" footer button;
  *   if null, the button is hidden.
- * @param ctaOpenSettingsTargetId target id passed to `ShowSettingsUtil` (e.g.
- *   `"Ayu Islands"`); required when [ctaOpenSettingsLabel] is set.
+ * @param ctaOpenSettingsTargetId target id passed to `ShowSettingsUtil.showSettingsDialog`
+ *   — must match an `applicationConfigurable` `id` attribute in `plugin.xml`
+ *   (currently `dev.ayuislands.settings.AyuIslandsConfigurable`); required when
+ *   [ctaOpenSettingsLabel] is set. NOTE: the configurable's `displayName` is
+ *   not the id — passing "Ayu Islands" silently no-ops the button.
  */
 data class WhatsNewManifest(
     val title: String,
@@ -131,7 +134,7 @@ internal object WhatsNewManifestLoader {
         // `slides` is the only required field — without it there's nothing to
         // render. Returning null surfaces this as "no manifest" so the balloon
         // path takes over without further drama.
-        val slidesArray = root.get("slides")?.takeIf { it.isJsonArray }?.asJsonArray ?: return null
+        val slidesArray = root["slides"]?.takeIf { it.isJsonArray }?.asJsonArray ?: return null
 
         val slides =
             slidesArray.mapIndexedNotNull { index, entry ->
@@ -153,7 +156,7 @@ internal object WhatsNewManifestLoader {
                     return@mapIndexedNotNull null
                 }
                 val image = readString(obj, "image")
-                val imageScale = readFloat(obj, "imageScale")?.takeIf { it > 0f }
+                val imageScale = readImageScale(obj)
                 WhatsNewSlide(title = title, body = body, image = image, imageScale = imageScale)
             }
 
@@ -182,7 +185,7 @@ internal object WhatsNewManifestLoader {
         obj: com.google.gson.JsonObject,
         key: String,
     ): String? {
-        val element = obj.get(key) ?: return null
+        val element = obj[key] ?: return null
         if (element.isJsonNull) return null
         if (!element.isJsonPrimitive) return null
         val str = element.asString
@@ -190,20 +193,21 @@ internal object WhatsNewManifestLoader {
     }
 
     /**
-     * Reads an optional numeric field. Returns null for absent / JSON null /
-     * non-number so the caller can apply a sensible default.
+     * Reads the optional `imageScale` field. Returns null for absent / JSON null /
+     * non-number / non-positive so the caller can apply a sensible default.
+     * Inlined for the single call site — Gson's `JsonObject.get` returns
+     * `JsonElement?` and asFloat can throw on non-numeric primitives.
      */
-    private fun readFloat(
-        obj: com.google.gson.JsonObject,
-        key: String,
-    ): Float? {
-        val element = obj.get(key) ?: return null
+    private fun readImageScale(obj: com.google.gson.JsonObject): Float? {
+        val element = obj["imageScale"] ?: return null
         if (element.isJsonNull) return null
         if (!element.isJsonPrimitive) return null
-        return try {
-            element.asFloat
-        } catch (exception: NumberFormatException) {
-            null
-        }
+        val raw =
+            try {
+                element.asFloat
+            } catch (_: NumberFormatException) {
+                return null
+            }
+        return raw.takeIf { it > 0f }
     }
 }

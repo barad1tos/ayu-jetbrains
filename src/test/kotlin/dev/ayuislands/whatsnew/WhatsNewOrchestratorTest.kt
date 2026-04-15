@@ -41,6 +41,27 @@ class WhatsNewOrchestratorTest {
     }
 
     @Test
+    fun `release re-enables tryPick after a failed open attempt`() {
+        // Production scenario: launcher's tryPick() succeeded, then openFile
+        // threw, leaving the orchestrator stuck in shown=true. Without release()
+        // the JVM session is dead — no other window's auto-trigger and no
+        // manual menu reopen could ever fire again.
+        assertTrue(WhatsNewOrchestrator.tryPick(), "first pick must succeed")
+        assertFalse(WhatsNewOrchestrator.tryPick(), "second pick must fail before release")
+        WhatsNewOrchestrator.release()
+        assertTrue(WhatsNewOrchestrator.tryPick(), "post-release pick must succeed again")
+    }
+
+    @Test
+    fun `release on un-claimed orchestrator is a no-op`() {
+        // Idempotent — calling release() before any pick must not flip state
+        // into an unexpected configuration.
+        WhatsNewOrchestrator.release()
+        assertTrue(WhatsNewOrchestrator.tryPick(), "first pick after stray release must still win")
+        assertFalse(WhatsNewOrchestrator.tryPick(), "second pick must lose as usual")
+    }
+
+    @Test
     fun `tryPick is thread-safe under concurrent access from 100 threads`() {
         // Multi-window startup race: 3 IDE windows can all schedule the open
         // simultaneously after their delays elapse. Exactly one must claim.

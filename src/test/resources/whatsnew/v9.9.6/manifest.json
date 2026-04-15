@@ -1,0 +1,12 @@
+{
+  "title": "string field edge cases",
+  "tagline": "   ",
+  "heroImage": "",
+  "slides": [
+    { "title": "Valid slide", "body": "good" },
+    { "title": "", "body": "empty title gets dropped" },
+    { "title": "   ", "body": "blank title gets dropped" },
+    { "title": null, "body": "null title gets dropped" },
+    { "title": "trim me", "body": "non-primitive image must coerce to null", "image": {} }
+  ]
+}

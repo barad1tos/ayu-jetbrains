@@ -51,8 +51,12 @@ internal class ShowWhatsNewButton(
         // own preferred size + horizontal padding (so a longer label like
         // "Open Accent Overrides" — or a future longer string — can grow
         // without truncation).
-        val labelWidth = label.preferredSize.width + JBUI.scale(PADDING_X * 2)
-        val width = maxOf(JBUI.scale(MIN_WIDTH), labelWidth)
+        val width =
+            computeButtonWidth(
+                labelWidth = label.preferredSize.width,
+                scaledMinWidth = JBUI.scale(MIN_WIDTH),
+                scaledHorizontalPadding = JBUI.scale(PADDING_X) * 2,
+            )
         val size = Dimension(width, JBUI.scale(HEIGHT))
         preferredSize = size
         minimumSize = size
@@ -110,6 +114,18 @@ internal class ShowWhatsNewButton(
     ): Color = Color(color.red, color.green, color.blue, alpha)
 
     companion object {
+        /**
+         * Pure width math: max of [scaledMinWidth] and (label content + padding).
+         * Extracted for unit testing without instantiating the Swing button.
+         * Defends against a future label longer than [MIN_WIDTH] truncating.
+         */
+        @JvmStatic
+        internal fun computeButtonWidth(
+            labelWidth: Int,
+            scaledMinWidth: Int,
+            scaledHorizontalPadding: Int,
+        ): Int = maxOf(scaledMinWidth, labelWidth + scaledHorizontalPadding)
+
         private const val MIN_WIDTH = 160
         private const val HEIGHT = 32
         private const val PADDING_Y = 6

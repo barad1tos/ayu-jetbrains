@@ -9,6 +9,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.IdeFocusManager
 import dev.ayuislands.onboarding.OnboardingSchedulerService
 import dev.ayuislands.settings.AyuIslandsSettings
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -41,42 +42,51 @@ internal object WhatsNewLauncher {
      * for this version regardless of async outcome). Returns `false` when not
      * eligible — caller falls back to the existing balloon path.
      *
-     * Eligibility: [AyuIslandsState.lastWhatsNewShownVersion] differs from the
-     * current version AND a manifest resource exists for the current version.
+     * Eligibility: [dev.ayuislands.settings.AyuIslandsState.lastWhatsNewShownVersion]
+     * differs from the current version (after normalizing both sides via
+     * [WhatsNewManifestLoader.normalizeVersion]) AND a manifest resource exists
+     * for the current version.
      */
     fun openIfEligible(
         project: Project,
         currentVersion: String,
     ): Boolean {
         val state = AyuIslandsSettings.getInstance().state
+        val normalized = WhatsNewManifestLoader.normalizeVersion(currentVersion)
         val manifestPresent = WhatsNewManifestLoader.manifestExists(currentVersion)
         if (!isEligible(state.lastWhatsNewShownVersion, currentVersion, manifestPresent)) {
             return false
         }
-        scheduleOpen(project, currentVersion, isManual = false)
+        scheduleOpen(project, normalized, isManual = false)
         return true
     }
 
     /**
-     * Manual entry called from [ShowWhatsNewAction]. Bypasses the persistent
-     * `lastWhatsNewShownVersion` gate — the user is explicitly asking to see
-     * the tab again. Still respects [WhatsNewOrchestrator] in-session pick to
-     * avoid double-opening if the auto-trigger races with the menu click.
+     * Manual entry called from [ShowWhatsNewAction]. Bypasses BOTH the persistent
+     * `lastWhatsNewShownVersion` gate AND the in-session [WhatsNewOrchestrator]
+     * gate — the user is explicitly asking to see the tab. If a tab is already
+     * open in this project, [FileEditorManager.openFile] focuses it instead of
+     * creating a duplicate (light virtual file equality is identity-based, so
+     * we rely on the FileEditorManager's own existing-file detection by name).
      *
      * Returns `false` when no manifest exists for the current version (the
      * action's [ShowWhatsNewAction.update] disables the menu item in that
-     * case, so this is a defense-in-depth check).
+     * case, so this is a defense-in-depth check). Returns `true` when an open
+     * was scheduled — caller can use this to log/notify on no-op.
      */
     fun openManually(project: Project): Boolean {
         val descriptor = pluginDescriptor() ?: return false
+        val normalized = WhatsNewManifestLoader.normalizeVersion(descriptor.version)
         if (!WhatsNewManifestLoader.manifestExists(descriptor.version)) return false
-        scheduleOpen(project, descriptor.version, isManual = true)
+        scheduleOpen(project, normalized, isManual = true)
         return true
     }
 
     /**
      * Pure eligibility helper — extracted so unit tests can exercise the gate
-     * without bringing up the platform.
+     * without bringing up the platform. Both versions are normalized before
+     * comparison so a dev-sandbox `2.5.0-SNAPSHOT` doesn't re-trigger after a
+     * stable `2.5.0` upgrade (and vice versa).
      *
      * Returns true iff: no record of this version having been shown, AND a
      * manifest resource exists. Either gate failing means "skip the tab,
@@ -88,26 +98,38 @@ internal object WhatsNewLauncher {
         manifestPresent: Boolean,
     ): Boolean {
         if (!manifestPresent) return false
-        if (lastShownVersion == currentVersion) return false
-        return true
+        val lastNormalized = lastShownVersion?.let { WhatsNewManifestLoader.normalizeVersion(it) }
+        val currentNormalized = WhatsNewManifestLoader.normalizeVersion(currentVersion)
+        return lastNormalized != currentNormalized
     }
 
     private fun scheduleOpen(
         project: Project,
-        currentVersion: String,
+        normalizedVersion: String,
         isManual: Boolean,
     ) {
         val settings = AyuIslandsSettings.getInstance()
         val scope = OnboardingSchedulerService.getInstance(project).scope()
         LOG.info(
             "Ayu What's New: scheduling tab open " +
-                "(version=$currentVersion, manual=$isManual, delay=${OPEN_DELAY_MS}ms)",
+                "(version=$normalizedVersion, manual=$isManual, delay=${OPEN_DELAY_MS}ms)",
         )
         scope.launch {
-            delay(OPEN_DELAY_MS.milliseconds)
-            if (project.isDisposed) return@launch
-            openIfThisProjectWins(project, isManual) {
-                settings.state.lastWhatsNewShownVersion = currentVersion
+            try {
+                delay(OPEN_DELAY_MS.milliseconds)
+                if (project.isDisposed) return@launch
+                openIfThisProjectWins(project, isManual) {
+                    settings.state.lastWhatsNewShownVersion = normalizedVersion
+                    LOG.info("Ayu What's New: marked $normalizedVersion as shown")
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (exception: RuntimeException) {
+                // RuntimeException covers CancellationException (re-thrown above),
+                // IllegalStateException (e.g. IdeFocusManager called during IDE
+                // shutdown), and any platform IllegalArgumentException. Errors
+                // (OOM, LinkageError) intentionally propagate.
+                LOG.error("Ayu What's New: launcher coroutine failed", exception)
             }
         }
     }
@@ -121,8 +143,11 @@ internal object WhatsNewLauncher {
      *  - If no frame is focused (cold start), the first project to call
      *    [WhatsNewOrchestrator.tryPick] wins as a fallback.
      *
-     * For [isManual] = true, the focus check is skipped — the user explicitly
-     * asked from the action menu, so this project is the right one by definition.
+     * For [isManual] = true, both the focus check AND the orchestrator gate
+     * are skipped — the user explicitly asked from the action menu, so this
+     * project is the right one and the orchestrator's auto-trigger one-shot
+     * must not block them. If `openFile` throws, we always release the
+     * orchestrator claim so the JVM session doesn't deadlock.
      */
     private suspend fun openIfThisProjectWins(
         project: Project,
@@ -131,27 +156,53 @@ internal object WhatsNewLauncher {
     ) {
         withContext(Dispatchers.EDT + ModalityState.nonModal().asContextElement()) {
             if (project.isDisposed) return@withContext
-
-            if (!isManual) {
-                val activeProject = IdeFocusManager.getGlobalInstance().lastFocusedFrame?.project
-                if (activeProject != null && activeProject != project) {
-                    LOG.info("Ayu What's New: ${project.name} is not the active tab — deferring")
-                    return@withContext
-                }
-            }
-
-            if (!WhatsNewOrchestrator.tryPick()) {
+            if (!shouldOpenForThisProject(project, isManual)) return@withContext
+            val claimed = !isManual && WhatsNewOrchestrator.tryPick()
+            if (!isManual && !claimed) {
                 LOG.info("Ayu What's New: another project already claimed the tab slot")
                 return@withContext
             }
+            performOpen(project, isManual, claimed, onSuccess)
+        }
+    }
 
-            LOG.info("Ayu What's New: opening tab in ${project.name}")
-            try {
-                FileEditorManager.getInstance(project).openFile(WhatsNewVirtualFile(), true)
-                onSuccess()
-            } catch (exception: RuntimeException) {
-                LOG.error("Ayu What's New: failed to open tab in ${project.name}", exception)
-            }
+    /**
+     * Returns true iff this project is the right one to open the tab in. For
+     * manual triggers it's always true (user explicitly clicked the menu in
+     * this project). For auto triggers the user's currently-focused project
+     * wins; other windows defer.
+     */
+    private fun shouldOpenForThisProject(
+        project: Project,
+        isManual: Boolean,
+    ): Boolean {
+        if (isManual) return true
+        val activeProject = IdeFocusManager.getGlobalInstance().lastFocusedFrame?.project
+        if (activeProject != null && activeProject != project) {
+            LOG.info("Ayu What's New: ${project.name} is not the active tab — deferring")
+            return false
+        }
+        return true
+    }
+
+    /**
+     * Opens the tab and invokes [onSuccess] on a clean open. On failure releases
+     * the orchestrator claim if it was held — without this, a single failed open
+     * would deadlock the JVM session for both auto and manual triggers.
+     */
+    private fun performOpen(
+        project: Project,
+        isManual: Boolean,
+        claimed: Boolean,
+        onSuccess: () -> Unit,
+    ) {
+        LOG.info("Ayu What's New: opening tab in ${project.name} (manual=$isManual)")
+        try {
+            FileEditorManager.getInstance(project).openFile(WhatsNewVirtualFile(), true)
+            onSuccess()
+        } catch (exception: RuntimeException) {
+            LOG.error("Ayu What's New: failed to open tab in ${project.name}", exception)
+            if (claimed) WhatsNewOrchestrator.release()
         }
     }
 

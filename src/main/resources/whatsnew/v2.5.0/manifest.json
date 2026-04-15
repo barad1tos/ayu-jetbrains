@@ -20,5 +20,5 @@
     }
   ],
   "ctaOpenSettingsLabel": "Open Accent Overrides",
-  "ctaOpenSettingsTargetId": "Ayu Islands"
+  "ctaOpenSettingsTargetId": "dev.ayuislands.settings.AyuIslandsConfigurable"
 }

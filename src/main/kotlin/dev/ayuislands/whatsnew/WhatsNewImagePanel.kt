@@ -17,23 +17,19 @@ import javax.swing.JPanel
 
 /**
  * Paints a slide screenshot with rounded corners and a soft directional drop
- * shadow. The source image is drawn at whatever size the layout manager assigns
- * (via `setPreferredSize` from [ContentScaler][dev.ayuislands.onboarding.ContentScaler]
- * or equivalent) — `paintComponent` scales the backing [source] bitmap and
- * rebuilds a cached Gaussian-blurred shadow to match that size on each size
- * change.
+ * shadow. Sizing is owned here: [getPreferredSize] reads the parent column's
+ * current width and returns the lesser of `(maxLogicalImageWidth + shadow spread)`
+ * and the parent — so wider IDE windows let the image grow up to its cap and
+ * narrower windows shrink it without overflow. No external scaler registration
+ * is needed (would double-scale). `paintComponent` scales the backing [source]
+ * bitmap and rebuilds a cached Gaussian-blurred shadow to match the size at
+ * each layout pass.
  *
  * Source images are expected to be "clean" — containing only window content,
  * with no gray desktop/IDE background captured around them. We intentionally
  * do NOT trim at runtime: that's been moved to a pre-production step
  * (the maintainer runs a small cropping utility against `resources/whatsnew/`
  * before committing PNGs). Runtime rendering stays simple and predictable.
- *
- * Sizing is owned here: [getPreferredSize] reads the parent column's current
- * width and returns the lesser of `(maxLogicalImageWidth + shadow spread)` and
- * the parent — so wider IDE windows let the image grow up to its cap and
- * narrower windows shrink it without overflow. No external scaler registration
- * is needed (would double-scale).
  */
 internal class WhatsNewImagePanel(
     image: Image,
@@ -47,14 +43,14 @@ internal class WhatsNewImagePanel(
      * A factor of 1.0 = [DEFAULT_IMAGE_WIDTH]; 1.5 = 150% of that; etc.
      * The image never grows past this even on very wide IDE windows.
      */
-    private val maxLogicalImageWidth: Int =
-        (DEFAULT_IMAGE_WIDTH * widthFactor.coerceIn(MIN_WIDTH_FACTOR, MAX_WIDTH_FACTOR))
-            .toInt()
-            .coerceAtLeast(MIN_IMAGE_WIDTH)
+    private val maxLogicalImageWidth: Int = computeMaxLogicalImageWidth(widthFactor)
 
     private var shadowCache: BufferedImage? = null
     private var shadowCacheW: Int = -1
     private var shadowCacheH: Int = -1
+
+    private var lastResolvedParentWidth: Int = -1
+    private var cachedPreferredSize: Dimension? = null
 
     init {
         isOpaque = false
@@ -68,10 +64,17 @@ internal class WhatsNewImagePanel(
      * Height derives from the source aspect ratio so the image never gets
      * stretched or squished. The shadow spread is added on top so the
      * rendered drop-shadow halo has room without being clipped.
+     *
+     * Result is cached per (parentWidth) and reused until parent width
+     * changes — without the cache, layout managers can re-query during
+     * the same pass and oscillate when the returned size shrinks the
+     * parent that we just measured.
      */
     override fun getPreferredSize(): Dimension {
-        val maxScaledW = JBUI.scale(maxLogicalImageWidth + SHADOW_X_SPREAD)
         val parentWidth = resolveParentWidth()
+        val cached = cachedPreferredSize
+        if (cached != null && parentWidth == lastResolvedParentWidth) return cached
+        val maxScaledW = JBUI.scale(maxLogicalImageWidth + SHADOW_X_SPREAD)
         val targetW =
             if (parentWidth > 0) {
                 minOf(maxScaledW, parentWidth)
@@ -80,7 +83,10 @@ internal class WhatsNewImagePanel(
             }
         val imgW = (targetW - JBUI.scale(SHADOW_X_SPREAD)).coerceAtLeast(1)
         val imgH = (imgW * aspectRatio).toInt().coerceAtLeast(1)
-        return Dimension(targetW, imgH + JBUI.scale(SHADOW_Y_SPREAD))
+        val size = Dimension(targetW, imgH + JBUI.scale(SHADOW_Y_SPREAD))
+        lastResolvedParentWidth = parentWidth
+        cachedPreferredSize = size
+        return size
     }
 
     override fun getMaximumSize(): Dimension = preferredSize
@@ -107,6 +113,18 @@ internal class WhatsNewImagePanel(
             node = node.parent
         }
         return 0
+    }
+
+    override fun removeNotify() {
+        super.removeNotify()
+        // Drop the bitmap when the panel is unparented (tab close / reparent).
+        // Without this the per-instance shadow + cached preferredSize survive
+        // until GC, holding image memory proportional to the slide count.
+        shadowCache = null
+        shadowCacheW = -1
+        shadowCacheH = -1
+        cachedPreferredSize = null
+        lastResolvedParentWidth = -1
     }
 
     override fun paintComponent(graphics: Graphics) {
@@ -181,7 +199,7 @@ internal class WhatsNewImagePanel(
         } finally {
             sg.dispose()
         }
-        return gaussianBlur(shadow, SHADOW_BLUR_RADIUS)
+        return gaussianBlur(shadow)
     }
 
     companion object {
@@ -191,6 +209,18 @@ internal class WhatsNewImagePanel(
         private const val MIN_IMAGE_WIDTH = 200
         private const val MIN_WIDTH_FACTOR = 0.3f
         private const val MAX_WIDTH_FACTOR = 2.0f
+
+        /**
+         * Pure size math: clamp [widthFactor] into the valid range, multiply by
+         * [DEFAULT_IMAGE_WIDTH], and floor at [MIN_IMAGE_WIDTH] so a manifest
+         * specifying an absurdly small factor still renders something visible.
+         * Extracted for unit testing without instantiating the Swing panel.
+         */
+        @JvmStatic
+        internal fun computeMaxLogicalImageWidth(widthFactor: Float): Int =
+            (DEFAULT_IMAGE_WIDTH * widthFactor.coerceIn(MIN_WIDTH_FACTOR, MAX_WIDTH_FACTOR))
+                .toInt()
+                .coerceAtLeast(MIN_IMAGE_WIDTH)
 
         // Shadow footprint extends this many logical px past the image edges.
         private const val SHADOW_X_SPREAD = 24
@@ -232,16 +262,13 @@ internal class WhatsNewImagePanel(
             return copy
         }
 
-        private fun gaussianBlur(
-            source: BufferedImage,
-            radius: Int,
-        ): BufferedImage {
-            val kernelSize = radius * 2 + 1
-            val sigma = radius / GAUSSIAN_SIGMA_DIVISOR
+        private fun gaussianBlur(source: BufferedImage): BufferedImage {
+            val kernelSize = SHADOW_BLUR_RADIUS * 2 + 1
+            val sigma = SHADOW_BLUR_RADIUS / GAUSSIAN_SIGMA_DIVISOR
             val data = FloatArray(kernelSize)
             var total = 0f
             for (i in 0 until kernelSize) {
-                val x = (i - radius).toFloat()
+                val x = (i - SHADOW_BLUR_RADIUS).toFloat()
                 data[i] = kotlin.math.exp(-(x * x) / (2f * sigma * sigma))
                 total += data[i]
             }

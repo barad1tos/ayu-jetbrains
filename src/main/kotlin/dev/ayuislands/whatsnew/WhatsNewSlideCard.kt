@@ -40,6 +40,7 @@ internal object WhatsNewSlideCard {
     private const val GAP_BODY_IMAGE = 16
     private const val IMAGE_MAX_HEIGHT = 360
     private const val PLACEHOLDER_RADIUS = 8
+    private const val BODY_WRAP_WIDTH = 600
 
     // Default widthFactor for slides that don't specify imageScale in the
     // manifest. 1.0 renders at WhatsNewImagePanel.DEFAULT_IMAGE_WIDTH (800 px
@@ -75,10 +76,11 @@ internal object WhatsNewSlideCard {
      * @param resourceDir manifest resource dir prefix (e.g. `/whatsnew/v2.5.0/`)
      *   used to resolve [WhatsNewSlide.image] relative paths
      * @param accentTint accent color for card border / hover state
-     * @param scaler when non-null, every scalable child (image panel, labels,
-     *   gaps) is registered so the outer [WhatsNewPanel] can resize the whole
-     *   tab proportionally on IDE-window resize. Passing null keeps everything
-     *   at its natural baseline size — used by simple tests / placeholders.
+     * @param scaler when non-null, text labels and vertical gaps are registered
+     *   so the outer [WhatsNewPanel] resizes them proportionally on IDE-window
+     *   resize. The image panel intentionally owns its own sizing via
+     *   [WhatsNewImagePanel.getPreferredSize] and is NOT registered (would
+     *   double-scale). Passing null keeps everything at its natural baseline.
      */
     fun build(
         slide: WhatsNewSlide,
@@ -114,7 +116,9 @@ internal object WhatsNewSlideCard {
 
         // Body uses HTML so manifest authors can include <b>, <i>, line breaks
         // without a markdown parser. JBLabel renders Swing's HTML subset natively.
-        val bodyText = "<html><body style='width:600px'>${slide.body}</body></html>"
+        // Width is JBUI-scaled so the wrap point matches HiDPI device pixels.
+        val bodyWrapPx = JBUI.scale(BODY_WRAP_WIDTH)
+        val bodyText = "<html><body style='width:${bodyWrapPx}px'>${slide.body}</body></html>"
         val bodyLabel = JBLabel(bodyText)
         bodyLabel.font = bodyLabel.font.deriveFont(JBUI.scale(BODY_FONT_SIZE).toFloat())
         bodyLabel.foreground = JBColor.foreground()
@@ -152,20 +156,26 @@ internal object WhatsNewSlideCard {
         resourcePath: String,
         widthFactor: Float,
     ): JComponent {
+        // Catch broadly: ImageLoader can throw IOException for missing/broken
+        // resources, but also IllegalArgumentException for malformed paths and
+        // ClassCastException when the resource bytes don't decode as an Image.
+        // Any of these should degrade to the placeholder; an Error (OOM,
+        // VirtualMachineError) intentionally propagates because the IDE itself
+        // is in trouble at that point.
         val image =
             try {
                 ImageLoader.loadFromResource(resourcePath, WhatsNewSlideCard::class.java)
             } catch (exception: IOException) {
                 LOG.warn("What's New: failed to load slide image $resourcePath", exception)
                 null
+            } catch (exception: RuntimeException) {
+                LOG.warn("What's New: failed to decode slide image $resourcePath", exception)
+                null
             }
         if (image == null) {
             LOG.warn("What's New: slide image not found at $resourcePath")
             return placeholderImage()
         }
-        // Sizing is owned by WhatsNewImagePanel + ContentScaler — not baked
-        // into the icon at load time. That way responsive scaling on
-        // IDE-window resize just works.
         return WhatsNewImagePanel(image, widthFactor)
     }
 

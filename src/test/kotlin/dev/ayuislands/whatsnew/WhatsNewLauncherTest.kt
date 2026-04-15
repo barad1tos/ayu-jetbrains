@@ -84,4 +84,61 @@ class WhatsNewLauncherTest {
             ),
         )
     }
+
+    @Test
+    fun `not eligible when stable was shown and dev sandbox runs the same version with -SNAPSHOT`() {
+        // Dev sandbox path: maintainer ships 2.5.0 stable, user sees the tab,
+        // state stores the normalized "2.5.0". Maintainer then runs ./gradlew
+        // runIde — descriptor.version is "2.5.0-SNAPSHOT". Without normalization
+        // the raw-string compare would re-trigger the tab, polluting dev runs
+        // (and worse: writing back "2.5.0-SNAPSHOT" so the next stable launch
+        // re-triggers AGAIN).
+        assertFalse(
+            WhatsNewLauncher.isEligible(
+                lastShownVersion = "2.5.0",
+                currentVersion = "2.5.0-SNAPSHOT",
+                manifestPresent = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `not eligible when SNAPSHOT was shown and stable runs the same version`() {
+        // Inverse of the above: dev sandbox showed the tab once with
+        // "2.5.0-SNAPSHOT" stored, maintainer now runs the stable "2.5.0".
+        // Without normalization, the stable launch would re-trigger.
+        assertFalse(
+            WhatsNewLauncher.isEligible(
+                lastShownVersion = "2.5.0-SNAPSHOT",
+                currentVersion = "2.5.0",
+                manifestPresent = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `not eligible when SNAPSHOT was shown and the same SNAPSHOT runs again`() {
+        // Plain identity case under SNAPSHOT — verifies the normalization
+        // doesn't accidentally make every dev run eligible.
+        assertFalse(
+            WhatsNewLauncher.isEligible(
+                lastShownVersion = "2.5.0-SNAPSHOT",
+                currentVersion = "2.5.0-SNAPSHOT",
+                manifestPresent = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `eligible when older SNAPSHOT shown and newer stable rolls out`() {
+        // Maintainer dev'd against 2.5.0-SNAPSHOT, then user upgrades to
+        // 2.6.0 which ships its own manifest — different release, must trigger.
+        assertTrue(
+            WhatsNewLauncher.isEligible(
+                lastShownVersion = "2.5.0-SNAPSHOT",
+                currentVersion = "2.6.0",
+                manifestPresent = true,
+            ),
+        )
+    }
 }

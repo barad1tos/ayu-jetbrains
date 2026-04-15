@@ -12,7 +12,8 @@ import dev.ayuislands.onboarding.ContentScaler
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.BorderLayout
 import java.awt.Color
-import java.awt.Component
+import java.awt.Component.CENTER_ALIGNMENT
+import java.awt.Component.LEFT_ALIGNMENT
 import java.awt.FlowLayout
 import java.awt.Font
 import java.awt.event.ComponentAdapter
@@ -20,6 +21,7 @@ import java.awt.event.ComponentEvent
 import javax.swing.BorderFactory
 import javax.swing.Box
 import javax.swing.BoxLayout
+import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
 import javax.swing.event.AncestorEvent
@@ -48,29 +50,42 @@ internal class WhatsNewPanel(
     // (cards shrink, labels shrink, gaps shrink, all in sync).
     private val scaler = ContentScaler()
 
+    private val ancestorListener =
+        object : AncestorListener {
+            override fun ancestorAdded(event: AncestorEvent) {
+                if (loaded) return
+                loaded = true
+                SwingUtilities.invokeLater { loadContent() }
+            }
+
+            override fun ancestorRemoved(event: AncestorEvent) = Unit
+
+            override fun ancestorMoved(event: AncestorEvent) = Unit
+        }
+
+    private val componentListener =
+        object : ComponentAdapter() {
+            override fun componentResized(event: ComponentEvent) {
+                if (!loaded) return
+                applyResponsiveScale()
+            }
+        }
+
     init {
         background = JBColor.background()
-        addAncestorListener(
-            object : AncestorListener {
-                override fun ancestorAdded(event: AncestorEvent) {
-                    if (loaded) return
-                    loaded = true
-                    SwingUtilities.invokeLater { loadContent() }
-                }
+        addAncestorListener(ancestorListener)
+        addComponentListener(componentListener)
+    }
 
-                override fun ancestorRemoved(event: AncestorEvent) = Unit
-
-                override fun ancestorMoved(event: AncestorEvent) = Unit
-            },
-        )
-        addComponentListener(
-            object : ComponentAdapter() {
-                override fun componentResized(event: ComponentEvent) {
-                    if (!loaded) return
-                    applyResponsiveScale()
-                }
-            },
-        )
+    /**
+     * Detaches listeners and drops [ContentScaler] component refs. Called from
+     * [WhatsNewEditor.dispose] so that closing the tab does not leak labels,
+     * gaps, or the panel itself via the listener chain.
+     */
+    fun dispose() {
+        removeAncestorListener(ancestorListener)
+        removeComponentListener(componentListener)
+        scaler.clear()
     }
 
     /**
@@ -82,10 +97,8 @@ internal class WhatsNewPanel(
     private fun applyResponsiveScale() {
         val panelWidth = width
         if (panelWidth <= 0) return
-        val designWidth = JBUI.scale(DESIGN_WIDTH).toFloat()
-        val raw = panelWidth / designWidth
-        val scale = raw.coerceIn(MIN_SCALE, MAX_SCALE)
-        LOG.info("What's New: applyResponsiveScale width=$panelWidth designW=$designWidth raw=$raw final=$scale")
+        val scale = computeScale(panelWidth, JBUI.scale(DESIGN_WIDTH))
+        LOG.debug("What's New: applyResponsiveScale width=$panelWidth scale=$scale")
         scaler.apply(scale)
         revalidate()
         repaint()
@@ -94,12 +107,19 @@ internal class WhatsNewPanel(
     private fun loadContent() {
         try {
             scaler.clear()
+            removeAll()
             buildContent()
             applyResponsiveScale()
             revalidate()
             repaint()
         } catch (exception: RuntimeException) {
             LOG.error("What's New: failed to build panel content", exception)
+            // Don't leave the user staring at a blank pane — replace with an
+            // emptyState so they at least see "no content" instead of nothing.
+            removeAll()
+            add(emptyState(), BorderLayout.CENTER)
+            revalidate()
+            repaint()
         }
     }
 
@@ -138,7 +158,7 @@ internal class WhatsNewPanel(
         val titleLabel = JBLabel(manifest.title)
         titleLabel.foreground = accent
         titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, JBUI.scale(TITLE_FONT_SIZE).toFloat())
-        titleLabel.alignmentX = Component.LEFT_ALIGNMENT
+        titleLabel.alignmentX = LEFT_ALIGNMENT
         header.add(titleLabel)
         scaler.registerLabel(titleLabel, TITLE_FONT_SIZE, Font.BOLD)
 
@@ -150,7 +170,7 @@ internal class WhatsNewPanel(
             val tagline = JBLabel(manifest.tagline)
             tagline.foreground = JBColor.foreground()
             tagline.font = tagline.font.deriveFont(JBUI.scale(TAGLINE_FONT_SIZE).toFloat())
-            tagline.alignmentX = Component.LEFT_ALIGNMENT
+            tagline.alignmentX = LEFT_ALIGNMENT
             header.add(tagline)
             scaler.registerLabel(tagline, TAGLINE_FONT_SIZE, Font.PLAIN)
         }
@@ -175,17 +195,7 @@ internal class WhatsNewPanel(
                 scaler.registerGap(interSlideGap, GAP_BETWEEN_SLIDES)
             }
             val card = WhatsNewSlideCard.build(slide, resourceDir, accent, scaler)
-            // Center the card horizontally in the scroll column via an X-AXIS
-            // wrapper with glue on both sides. This guarantees the slide
-            // reads as centered regardless of how wide the viewport is.
-            val cardRow = JPanel()
-            cardRow.layout = BoxLayout(cardRow, BoxLayout.X_AXIS)
-            cardRow.isOpaque = false
-            cardRow.alignmentX = Component.CENTER_ALIGNMENT
-            cardRow.add(Box.createHorizontalGlue())
-            cardRow.add(card)
-            cardRow.add(Box.createHorizontalGlue())
-            column.add(cardRow)
+            column.add(centerInRow(card))
         }
 
         val scroll = JBScrollPane(column)
@@ -229,6 +239,23 @@ internal class WhatsNewPanel(
         return button
     }
 
+    /**
+     * Wraps [child] in an X-AXIS BoxLayout flanked by horizontal glue so the
+     * inner component renders centered within whatever width the parent column
+     * provides. Used by both the slide column (centers cards in the viewport)
+     * and the slide card (centers the image within the card content area).
+     */
+    private fun centerInRow(child: JComponent): JPanel {
+        val row = JPanel()
+        row.layout = BoxLayout(row, BoxLayout.X_AXIS)
+        row.isOpaque = false
+        row.alignmentX = CENTER_ALIGNMENT
+        row.add(Box.createHorizontalGlue())
+        row.add(child)
+        row.add(Box.createHorizontalGlue())
+        return row
+    }
+
     private fun closeTab() {
         try {
             val manager =
@@ -254,7 +281,9 @@ internal class WhatsNewPanel(
     private fun resolveAccentColor(): Color {
         val variant = AyuVariant.detect() ?: AyuVariant.MIRAGE
         val hex = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
-        return runCatching { Color.decode(hex) }.getOrDefault(FALLBACK_ACCENT)
+        return runCatching { Color.decode(hex) }
+            .onFailure { LOG.warn("What's New: invalid accent hex '$hex' for variant $variant", it) }
+            .getOrDefault(FALLBACK_ACCENT)
     }
 
     private fun pluginDescriptor() =
@@ -265,6 +294,23 @@ internal class WhatsNewPanel(
 
     companion object {
         private val LOG = logger<WhatsNewPanel>()
+
+        /**
+         * Pure ratio: panel-width / design-width, clamped to [MIN_SCALE]..[MAX_SCALE].
+         * Extracted so tests can exercise the boundary math without instantiating
+         * a Swing component. Returns [MIN_SCALE] when [scaledDesignWidth] is
+         * non-positive (defensive — the caller already guards on panelWidth > 0).
+         */
+        @JvmStatic
+        internal fun computeScale(
+            panelWidth: Int,
+            scaledDesignWidth: Int,
+        ): Float {
+            if (scaledDesignWidth <= 0) return MIN_SCALE
+            val raw = panelWidth.toFloat() / scaledDesignWidth.toFloat()
+            return raw.coerceIn(MIN_SCALE, MAX_SCALE)
+        }
+
         private const val HEADER_PADDING_TOP = 32
         private const val HEADER_PADDING_BOTTOM = 16
         private const val HEADER_PADDING_X = 32

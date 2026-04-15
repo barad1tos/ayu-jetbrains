@@ -25,6 +25,17 @@ internal object WhatsNewOrchestrator {
      */
     fun tryPick(): Boolean = shown.compareAndSet(false, true)
 
+    /**
+     * Releases the in-session claim so a later caller can pick again. Called by
+     * the launcher when an open attempt fails after `tryPick` returned true —
+     * without this, a single failed `openFile` call would deadlock the whole
+     * JVM session: no other window's auto-trigger could fire and the manual
+     * "Show What's New…" menu item would also be stuck.
+     */
+    fun release() {
+        shown.set(false)
+    }
+
     /** Test-only hook: reset the one-shot flag between test cases. */
     @org.jetbrains.annotations.TestOnly
     fun resetForTesting() {

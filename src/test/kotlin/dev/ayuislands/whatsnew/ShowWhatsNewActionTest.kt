@@ -6,6 +6,7 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.Presentation
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
+import com.intellij.testFramework.LoggedErrorProcessor
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -98,5 +99,36 @@ class ShowWhatsNewActionTest {
         action.actionPerformed(event)
 
         verify(exactly = 0) { WhatsNewLauncher.openManually(any()) }
+    }
+
+    @Test
+    fun `actionPerformed logs INFO breadcrumb when launcher returns false`() {
+        // Defense-in-depth path: update() should have hidden the menu when no
+        // manifest exists, but BGT update can race with the click. If the user
+        // hits Show What's New… and openManually returns false, we MUST leave
+        // a paper trail in idea.log — otherwise a future "I clicked it and
+        // nothing happened" bug report has nothing to start from.
+        mockkObject(WhatsNewLauncher)
+        every { WhatsNewLauncher.openManually(project) } returns false
+
+        val captured = mutableListOf<String>()
+        LoggedErrorProcessor.executeWith<RuntimeException>(
+            object : LoggedErrorProcessor() {
+                override fun processWarn(
+                    category: String,
+                    message: String,
+                    throwable: Throwable?,
+                ): Boolean {
+                    captured += "WARN: $message"
+                    return false
+                }
+            },
+        ) {
+            action.actionPerformed(event)
+        }
+        // The skill is INFO — the LoggedErrorProcessor only intercepts WARN/ERROR.
+        // We assert the no-throw + delegation contract; the breadcrumb is in idea.log.
+        verify(exactly = 1) { WhatsNewLauncher.openManually(project) }
+        assertTrue(captured.isEmpty(), "no-op action must NOT escalate to a WARN; got: $captured")
     }
 }

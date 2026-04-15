@@ -5,8 +5,8 @@ PNGs by name from `manifest.json` (sibling file).
 
 ## Required files
 
-The current manifest references three screenshots. Add them with these exact
-filenames so the slides render images instead of placeholder rectangles:
+The manifest references screenshots by these exact filenames — add them so
+the slides render images instead of placeholder rectangles:
 
 - `slide-project-overrides.png` — Settings → Ayu Islands → Accent → Overrides
   panel showing one or two project rows, each with a different color swatch.

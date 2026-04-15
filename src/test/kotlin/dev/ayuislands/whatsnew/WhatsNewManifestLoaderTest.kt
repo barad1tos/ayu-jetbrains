@@ -121,6 +121,57 @@ class WhatsNewManifestLoaderTest {
     }
 
     @Test
+    fun `load parses imageScale variants - keeps valid, drops null-or-non-positive`() {
+        // src/test/resources/whatsnew/v9.9.5/manifest.json mixes seven slides
+        // covering every imageScale parser branch. Read the per-slide scale to
+        // confirm the parser drops anything that wouldn't render meaningfully
+        // (null, non-primitive, ≤ 0) while keeping valid positive numbers as-is.
+        // The clamp into the panel's [0.3, 2.0] range happens later in
+        // WhatsNewImagePanel.computeMaxLogicalImageWidth — the manifest stores
+        // the user's intent, the panel decides what's renderable.
+        val manifest = WhatsNewManifestLoader.load("9.9.5")
+        assertNotNull(manifest)
+        assertEquals(7, manifest.slides.size, "all slides parse — only the imageScale field varies")
+        assertNull(manifest.slides[0].imageScale, "absent imageScale is null")
+        assertNull(manifest.slides[1].imageScale, "JSON null imageScale is null")
+        assertNull(manifest.slides[2].imageScale, "object imageScale coerces to null")
+        assertNull(manifest.slides[3].imageScale, "negative imageScale below the gate is null")
+        assertNull(manifest.slides[4].imageScale, "zero imageScale below the gate is null")
+        assertEquals(1.5f, manifest.slides[5].imageScale, "positive in-range value passes through")
+        assertEquals(99.0f, manifest.slides[6].imageScale, "huge positive value passes through (panel clamps)")
+    }
+
+    @Test
+    fun `load handles string field edge cases - null-blank-non-primitive coerce to null or drop`() {
+        // src/test/resources/whatsnew/v9.9.6/manifest.json:
+        //  - tagline = "   " → blank, coerces to null
+        //  - heroImage = ""  → empty, coerces to null
+        //  - slide[0]: valid → kept
+        //  - slide[1]: title = ""    → discarded (missing required)
+        //  - slide[2]: title = "   " → discarded (missing required)
+        //  - slide[3]: title = null  → discarded (missing required)
+        //  - slide[4]: image = {}   → image coerces to null, slide is kept
+        val capturedWarns = mutableListOf<String>()
+        val processor = warnCollector(capturedWarns)
+        var result: WhatsNewManifest? = null
+        LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
+            result = WhatsNewManifestLoader.load("9.9.6")
+        }
+        val parsed = assertNotNull(result)
+        assertNull(parsed.tagline, "blank tagline must coerce to null")
+        assertNull(parsed.heroImage, "empty heroImage must coerce to null")
+        assertEquals(2, parsed.slides.size, "valid + non-primitive-image slides survive")
+        assertEquals("Valid slide", parsed.slides[0].title)
+        assertEquals("trim me", parsed.slides[1].title)
+        assertNull(parsed.slides[1].image, "non-primitive image coerces to null without dropping the slide")
+        // Three discards: empty, blank, null-titled
+        assertTrue(
+            capturedWarns.count { it.contains("title") } >= 3,
+            "three title-related discard WARNs expected; got: $capturedWarns",
+        )
+    }
+
+    @Test
     fun `manifestExists returns true for present resource`() {
         assertTrue(WhatsNewManifestLoader.manifestExists("9.9.0"))
     }

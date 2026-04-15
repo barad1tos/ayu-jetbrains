@@ -34,5 +34,10 @@ internal class WhatsNewEditor(
 
     override fun removePropertyChangeListener(listener: PropertyChangeListener) = Unit
 
-    override fun dispose() = Unit
+    override fun dispose() {
+        // Drop AncestorListener / ComponentListener and clear ContentScaler refs
+        // so closing or reopening the tab does not leak labels, gaps, or the
+        // panel itself via the listener chain.
+        panel.dispose()
+    }
 }

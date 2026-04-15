@@ -1,0 +1,12 @@
+{
+  "title": "imageScale variants",
+  "slides": [
+    { "title": "absent", "body": "no imageScale field" },
+    { "title": "explicit null", "body": "json null", "imageScale": null },
+    { "title": "object", "body": "non-primitive", "imageScale": {} },
+    { "title": "negative", "body": "below the gate", "imageScale": -1.0 },
+    { "title": "zero", "body": "below the gate", "imageScale": 0.0 },
+    { "title": "valid", "body": "in range", "imageScale": 1.5 },
+    { "title": "huge", "body": "panel will clamp", "imageScale": 99.0 }
+  ]
+}
