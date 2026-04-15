@@ -49,18 +49,42 @@ class AccentMappingsSettings : SimplePersistentStateComponent<AccentMappingsStat
         // Wrap the productive rewrite path too. BaseState-backed maps are platform-shared and
         // mutable; a theoretical concurrent write during startup deserialization would throw
         // ConcurrentModificationException out of the iteration inside rewriteKeys, which
-        // would propagate out of loadState and fail settings loading entirely. Log-and-skip
-        // the migration — affected users re-attempt on next IDE restart.
-        runCatching {
-            rewriteMacroKeysInPlace(state.projectAccents, userHome)
-            rewriteMacroKeysInPlace(state.projectDisplayNames, userHome)
-        }.onFailure { exception ->
-            LOG.warn(
-                "Failed to migrate \$USER_HOME\$-prefixed accent-mapping keys; " +
-                    "will retry on next IDE restart",
-                exception,
+        // would propagate out of loadState and fail settings loading entirely.
+        //
+        // Compute BOTH rewrites before mutating EITHER map. rewriteKeys builds a new map and
+        // returns it without touching the source — so if the second computation throws, the
+        // first map is untouched and the state stays consistent (keys-in-lockstep invariant
+        // between projectAccents / projectDisplayNames preserved). Only after both rewrites
+        // succeed do we swap them into place. rewriteKeys may legitimately return null when
+        // a map has no macro-prefixed keys — that's different from exceptional failure, so
+        // we distinguish Result.isFailure explicitly rather than collapsing via getOrNull.
+        val accentsResult = runCatching { rewriteKeys(state.projectAccents, userHome) }
+        val namesResult = runCatching { rewriteKeys(state.projectDisplayNames, userHome) }
+        if (accentsResult.isFailure || namesResult.isFailure) {
+            warnMigrationFailed(
+                accentsResult.exceptionOrNull() ?: namesResult.exceptionOrNull()!!,
             )
+            return
         }
+
+        val rewrittenAccents = accentsResult.getOrNull()
+        val rewrittenNames = namesResult.getOrNull()
+        if (rewrittenAccents != null) {
+            state.projectAccents.clear()
+            state.projectAccents.putAll(rewrittenAccents)
+        }
+        if (rewrittenNames != null) {
+            state.projectDisplayNames.clear()
+            state.projectDisplayNames.putAll(rewrittenNames)
+        }
+    }
+
+    private fun warnMigrationFailed(exception: Throwable) {
+        LOG.warn(
+            "Failed to migrate \$USER_HOME\$-prefixed accent-mapping keys; " +
+                "will retry on next IDE restart",
+            exception,
+        )
     }
 
     /**
@@ -85,15 +109,6 @@ class AccentMappingsSettings : SimplePersistentStateComponent<AccentMappingsStat
                     "Settings > Ayu Islands > Accent > Overrides.",
             )
         }
-    }
-
-    private fun rewriteMacroKeysInPlace(
-        map: MutableMap<String, String>,
-        userHome: String,
-    ) {
-        val rewritten = rewriteKeys(map, userHome) ?: return
-        map.clear()
-        map.putAll(rewritten)
     }
 
     private fun rewriteKeys(

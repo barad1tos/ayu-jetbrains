@@ -103,7 +103,20 @@ object AccentResolver {
      * degrades to "return null" silently instead of escalating through the resolver.
      */
     fun projectKey(project: Project): String? {
-        val raw = runCatching { project.basePath }.getOrNull() ?: return null
+        val raw =
+            runCatching { project.basePath }
+                .onFailure { exception ->
+                    // Symmetric with the canonicalization branch below: a platform regression
+                    // making `project.basePath` throw for any project type would silently
+                    // demote every project to global accent without a breadcrumb unless we
+                    // log here too. Dedup via the same gate to avoid log spam on hot paths.
+                    if (loggedCanonicalFailures.add(project)) {
+                        LOG.warn(
+                            "Failed to read basePath for project; falling back to global accent",
+                            exception,
+                        )
+                    }
+                }.getOrNull() ?: return null
         return runCatching { File(raw).canonicalPath }
             .onFailure { exception ->
                 if (loggedCanonicalFailures.add(project)) {

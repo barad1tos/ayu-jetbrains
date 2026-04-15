@@ -613,9 +613,10 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
      *     the secondary failure and leave the visible accent unchanged; the Settings panel
      *     stays operational instead of escalating into a generic "Can't save" dialog.
      *
-     * Visibility: `internal` (instead of `private`) so unit tests can verify the
-     * failure-recovery contract directly without instantiating the Swing-heavy panel
-     * scaffolding. `@TestOnly` keeps the seam visible only to test consumers.
+     * Visibility: `internal` (instead of `private`) so unit tests can exercise the
+     * failure-recovery contract directly, without going through the BoundConfigurable
+     * lifecycle (createPanel() → apply() → platform dispatch). `@TestOnly` keeps the
+     * seam visible only to test consumers via the IDE inspection.
      */
     @org.jetbrains.annotations.TestOnly
     internal fun applyWithFallback(
@@ -633,13 +634,28 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
             )
         }
 
+        // Two discrete failure modes; keep the logs honest:
+        //  - apply() throws → visible accent unchanged, log "also failed"
+        //  - notifyExternalApply() throws after apply() succeeded → visible accent DID
+        //    change, only the swap cache is stale; log that specifically so triage
+        //    doesn't get "also failed" on a path where apply actually worked.
         try {
             AccentApplicator.apply(effectiveAccent)
-            ProjectAccentSwapService.getInstance().notifyExternalApply(effectiveAccent)
         } catch (exception: RuntimeException) {
             LOG.error(
                 "Global accent fallback also failed (variant=$currentVariant, hex=$effectiveAccent); " +
                     "Settings panel leaving visible accent unchanged",
+                exception,
+            )
+            return
+        }
+        try {
+            ProjectAccentSwapService.getInstance().notifyExternalApply(effectiveAccent)
+        } catch (exception: RuntimeException) {
+            LOG.warn(
+                "Global accent applied but swap-cache sync failed " +
+                    "(variant=$currentVariant, hex=$effectiveAccent); " +
+                    "next WINDOW_ACTIVATED will redundantly re-apply",
                 exception,
             )
         }
