@@ -12,6 +12,7 @@ import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.ui.ColorUtil
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.glow.GlowStyle
@@ -156,16 +157,35 @@ object AccentApplicator {
      * the applied hex so callers can log or display it.
      */
     fun applyForFocusedProject(variant: AyuVariant): String {
-        val focusedProject =
-            ProjectManager
-                .getInstance()
-                .openProjects
-                .firstOrNull { !it.isDefault && !it.isDisposed }
+        val focusedProject = resolveFocusedProject()
         val hex = AccentResolver.resolve(focusedProject, variant)
         apply(hex)
         ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
         return hex
     }
+
+    /**
+     * Resolves the *actually* focused project — the one whose window has OS-level focus,
+     * not just "the first open project in enumeration order". With two or more project
+     * windows open, a naive `ProjectManager.openProjects.firstOrNull` would silently apply
+     * the wrong project's override (rotation tick, settings Apply, LAF change would flow
+     * through it for the wrong window). Fallback chain:
+     *
+     *  1. [IdeFocusManager.lastFocusedFrame]'s project — real focus state
+     *  2. First non-default non-disposed open project — pre-focus-manager startup, or
+     *     shutdown edge cases where the focus manager is torn down
+     *  3. `null` — no project open; resolver will return the global accent
+     */
+    private fun resolveFocusedProject() =
+        IdeFocusManager
+            .getGlobalInstance()
+            .lastFocusedFrame
+            ?.project
+            ?.takeIf { !it.isDefault && !it.isDisposed }
+            ?: ProjectManager
+                .getInstance()
+                .openProjects
+                .firstOrNull { !it.isDefault && !it.isDisposed }
 
     fun revertAll() {
         // All revert work batched into a single EDT dispatch

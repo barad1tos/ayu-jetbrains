@@ -117,6 +117,11 @@ class AccentRotationService : Disposable {
     fun stopRotation() {
         scheduledFuture?.cancel(false)
         scheduledFuture = null
+        // Reset the circuit-breaker budget whenever rotation is torn down — otherwise a user
+        // who saw one failure, toggled rotation off, then re-enabled it, would find the
+        // breaker tripping after a single failure instead of the documented MAX_CONSECUTIVE
+        // _FAILURES. Re-enables should start clean.
+        consecutiveFailures = 0
     }
 
     @TestOnly

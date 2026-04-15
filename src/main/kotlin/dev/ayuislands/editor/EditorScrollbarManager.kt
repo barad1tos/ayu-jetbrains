@@ -2,6 +2,7 @@ package dev.ayuislands.editor
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.event.EditorFactoryEvent
 import com.intellij.openapi.editor.event.EditorFactoryListener
@@ -68,11 +69,22 @@ class EditorScrollbarManager(
      * Clear `ORIGINAL_PREFERRED_SIZE_KEY` on every currently-patched scrollbar so the next
      * [hideScrollBar] call captures the post-refresh default instead of serving a stale
      * pre-LAF-change dimension.
+     *
+     * Iterates a snapshot of the keys, not the live view, because [patchedScrollPanes] is a
+     * [WeakHashMap] that expunges stale entries on any access — including during iteration —
+     * which can race with a concurrent `editorCreated` listener mutation elsewhere on the
+     * EDT. The snapshot plus try/catch keep the listener alive even if Swing throws from
+     * a downstream `putClientProperty`.
      */
     private fun resetOriginalSizeCache() {
-        for (scrollPane in patchedScrollPanes.keys) {
-            scrollPane.verticalScrollBar?.putClientProperty(ORIGINAL_PREFERRED_SIZE_KEY, null)
-            scrollPane.horizontalScrollBar?.putClientProperty(ORIGINAL_PREFERRED_SIZE_KEY, null)
+        val panes = patchedScrollPanes.keys.toList()
+        for (scrollPane in panes) {
+            try {
+                scrollPane.verticalScrollBar?.putClientProperty(ORIGINAL_PREFERRED_SIZE_KEY, null)
+                scrollPane.horizontalScrollBar?.putClientProperty(ORIGINAL_PREFERRED_SIZE_KEY, null)
+            } catch (exception: RuntimeException) {
+                LOG.warn("Failed to clear scrollbar original-size cache on refresh", exception)
+            }
         }
     }
 
@@ -177,6 +189,7 @@ class EditorScrollbarManager(
     )
 
     companion object {
+        private val LOG = logger<EditorScrollbarManager>()
         private const val ORIGINAL_PREFERRED_SIZE_KEY = "ayuIslands.originalPreferredSize"
         private val ZERO_SIZE = Dimension(0, 0)
 

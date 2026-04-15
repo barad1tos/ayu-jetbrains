@@ -3,6 +3,7 @@ package dev.ayuislands.settings.mappings
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.ui.ToolbarDecorator
@@ -201,29 +202,48 @@ class OverridesGroupBuilder {
 
     private fun loadFromState() {
         val state = AccentMappingsSettingsAccess.stateFor()
+        // Per-row resilience: ProjectMapping / LanguageMapping have require(...) invariants at
+        // construction (valid #RRGGBB hex, lowercase language id, non-blank canonical path).
+        // If the persisted XML contains even one malformed row — hand-edited, imported, legacy —
+        // a blanket map { ... } would throw during Settings panel construction and the whole
+        // Overrides UI would refuse to open. Worse, the user would have no way to fix it
+        // because the UI that shows the bad row is exactly the UI that's broken. Drop malformed
+        // rows individually with a warn log; users can re-add them from the surviving UI.
         val projects =
-            state.projectAccents.map { (path, hex) ->
-                ProjectMapping(
-                    canonicalPath = path,
-                    displayName = state.projectDisplayNames[path] ?: File(path).name,
-                    hex = hex,
-                )
+            state.projectAccents.mapNotNull { (path, hex) ->
+                runCatching {
+                    ProjectMapping(
+                        canonicalPath = path,
+                        displayName = state.projectDisplayNames[path] ?: File(path).name,
+                        hex = hex,
+                    )
+                }.onFailure { exception ->
+                    LOG.warn(
+                        "Dropping malformed project override row (path='$path', hex='$hex'): ${exception.message}",
+                    )
+                }.getOrNull()
             }
         val languages =
-            state.languageAccents.map { (id, hex) ->
-                val displayName =
-                    runCatching {
-                        com.intellij.lang.Language
-                            .findLanguageByID(id)
-                            ?.displayName
-                    }.getOrNull()
-                        ?.takeIf { it.isNotBlank() }
-                        ?: id
-                LanguageMapping(
-                    languageId = id,
-                    displayName = displayName,
-                    hex = hex,
-                )
+            state.languageAccents.mapNotNull { (id, hex) ->
+                runCatching {
+                    val displayName =
+                        runCatching {
+                            com.intellij.lang.Language
+                                .findLanguageByID(id)
+                                ?.displayName
+                        }.getOrNull()
+                            ?.takeIf { it.isNotBlank() }
+                            ?: id
+                    LanguageMapping(
+                        languageId = id,
+                        displayName = displayName,
+                        hex = hex,
+                    )
+                }.onFailure { exception ->
+                    LOG.warn(
+                        "Dropping malformed language override row (id='$id', hex='$hex'): ${exception.message}",
+                    )
+                }.getOrNull()
             }
         projectModel.replaceAll(projects)
         languageModel.replaceAll(languages)
@@ -462,6 +482,7 @@ class OverridesGroupBuilder {
     }
 
     companion object {
+        private val LOG = logger<OverridesGroupBuilder>()
         private const val CARD_PROJECTS = "projects"
         private const val CARD_LANGUAGES = "languages"
         private const val TABLE_ROW_HEIGHT = 24
