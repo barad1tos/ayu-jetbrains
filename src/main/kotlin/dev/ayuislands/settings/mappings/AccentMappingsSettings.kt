@@ -6,6 +6,7 @@ import com.intellij.openapi.components.SimplePersistentStateComponent
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.diagnostic.logger
+import org.jetbrains.annotations.TestOnly
 
 /**
  * Application-level persistent store for per-project and per-language accent overrides.
@@ -40,9 +41,18 @@ class AccentMappingsSettings : SimplePersistentStateComponent<AccentMappingsStat
      * existing users keep their mappings after this fix ships.
      *
      * Takes maps as parameters (rather than an [AccentMappingsState]) so tests can substitute
-     * throwing maps to exercise the `runCatching` branches — `BaseState`-delegated map
-     * accessors are private and cannot be swapped on a real state instance.
+     * throwing maps to exercise the `runCatching` branches. `BaseState`'s `map()` delegate
+     * does not expose backing-map substitution — `setValue` copies entries rather than
+     * swapping the reference — so there's no way to install a custom `MutableMap` subclass
+     * on a real state instance via its public property; the only alternative to a map-typed
+     * helper is reflection or a test-only subclass, both uglier.
+     *
+     * `@TestOnly` flags the test-seam intent in IDE inspections. The sole production caller
+     * is [loadState] above, which holds the keys-in-lockstep invariant between
+     * `projectAccents` / `projectDisplayNames`; future non-test callers should go through
+     * [loadState] instead of invoking this directly.
      */
+    @TestOnly
     internal fun migrateUserHomeMacro(
         projectAccents: MutableMap<String, String>,
         projectDisplayNames: MutableMap<String, String>,
@@ -68,7 +78,7 @@ class AccentMappingsSettings : SimplePersistentStateComponent<AccentMappingsStat
         val accentsResult = runCatching { rewriteKeys(projectAccents, userHome) }
         val namesResult = runCatching { rewriteKeys(projectDisplayNames, userHome) }
         if (accentsResult.isFailure || namesResult.isFailure) {
-            warnMigrationFailed(accentsResult, namesResult)
+            warnMigrationFailed(accentsResult.exceptionOrNull(), namesResult.exceptionOrNull())
             return
         }
 
@@ -85,18 +95,27 @@ class AccentMappingsSettings : SimplePersistentStateComponent<AccentMappingsStat
     }
 
     /**
-     * Emits a single WARN for a rewrite failure. When BOTH rewrites throw, the second cause
+     * Emits a single WARN for a rewrite failure. When BOTH rewrites threw, the second cause
      * is linked to the primary via [Throwable.addSuppressed] so triage sees both failure
-     * modes instead of losing the secondary to the `?:` collapse. Caller guarantees at least
-     * one of the two results has failed.
+     * modes instead of losing the secondary to the `?:` collapse. When neither cause is
+     * present (defensive — the call site's `isFailure` gate should prevent this) the helper
+     * logs a self-describing marker WARN instead of throwing, so a regression in the caller
+     * doesn't become an NPE inside the log path.
      */
     private fun warnMigrationFailed(
-        accentsResult: Result<Map<String, String>?>,
-        namesResult: Result<Map<String, String>?>,
+        accentsCause: Throwable?,
+        namesCause: Throwable?,
     ) {
-        val accentsCause = accentsResult.exceptionOrNull()
-        val namesCause = namesResult.exceptionOrNull()
-        val primary = accentsCause ?: namesCause!!
+        val primary =
+            accentsCause
+                ?: namesCause
+                ?: run {
+                    LOG.warn(
+                        "warnMigrationFailed invoked with two successful results; " +
+                            "call-site gate regressed — no cause to report",
+                    )
+                    return
+                }
         if (accentsCause != null && namesCause != null) {
             primary.addSuppressed(namesCause)
         }

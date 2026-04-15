@@ -118,20 +118,25 @@ class AccentRotationService : Disposable {
     fun stopRotation() {
         // Reset the circuit-breaker budget BEFORE cancelling the future. The JDK's
         // `ScheduledFuture.cancel(boolean)` contract returns a boolean rather than throwing,
-        // but we wrap the call in catch-RuntimeException defensively: `scheduledFuture` is
-        // obtained via `AppExecutorUtil.getAppScheduledExecutorService()`, a platform-wrapped
-        // composite executor. If a future platform change installs a lifecycle-tracking
-        // wrapper that throws (e.g. `IllegalStateException` from a disposed pool accessor),
-        // the reset-first ordering guarantees that the counter stays in sync — every teardown
-        // (user toggle, breaker trip, service dispose) must start re-enables with a full
-        // failure budget.
+        // and `AppExecutorUtil.getAppScheduledExecutorService()` as of platformVersion 2025.1
+        // composes an executor whose wrapper does not throw either — so the catch below is
+        // cheap defensive insurance rather than a known failure path. Reset-first ordering
+        // guarantees that if the JDK / platform contract ever tightens (disposed-pool lookup
+        // throws, lifecycle-checking wrapper added), the counter stays in sync and every
+        // teardown (user toggle, breaker trip, service dispose) starts re-enables with a
+        // full failure budget. The warn message below names the JDK contract so triage sees
+        // signal value: if it ever fires, it's a regression worth investigating.
         consecutiveFailures = 0
         val future = scheduledFuture
         scheduledFuture = null
         try {
             future?.cancel(false)
         } catch (exception: RuntimeException) {
-            LOG.warn("Failed to cancel scheduled rotation future", exception)
+            LOG.warn(
+                "Failed to cancel scheduled rotation future " +
+                    "(unexpected — JDK's Future.cancel contract returns a boolean without throwing)",
+                exception,
+            )
         }
     }
 

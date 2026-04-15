@@ -273,6 +273,89 @@ class AccentMappingsSettingsTest {
     }
 
     @Test
+    fun `migrateUserHomeMacro logs only the names cause when accents rewrite succeeds`() {
+        // Mirror of the accents-fails-only asymmetry test: proves the `primary =
+        // accentsCause ?: namesCause` precedence correctly promotes `namesCause` when
+        // it's the only failure. A regression flipping the precedence (e.g.
+        // `namesCause ?: accentsCause`) would pass the accents-only test but fail this one.
+        System.setProperty("user.home", "/Users/alice")
+        val settings = AccentMappingsSettings()
+        val namesBoom = ConcurrentModificationException("names-only boom")
+        val healthyAccents = mutableMapOf<String, String>("/tmp/proj" to "#FFCD66")
+        val throwingNames = ThrowingMap(namesBoom)
+
+        val capturedThrowables = mutableListOf<Throwable?>()
+        val processor =
+            object : LoggedErrorProcessor() {
+                override fun processWarn(
+                    category: String,
+                    message: String,
+                    throwable: Throwable?,
+                ): Boolean {
+                    if (message.contains("Failed to migrate")) {
+                        capturedThrowables += throwable
+                    }
+                    return false
+                }
+            }
+
+        LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
+            settings.migrateUserHomeMacro(healthyAccents, throwingNames)
+        }
+
+        val primary =
+            assertNotNull(
+                capturedThrowables.single(),
+                "single-failure warn must carry a non-null cause",
+            )
+        assertEquals(namesBoom, primary, "single-failure warn must carry the names cause")
+        assertTrue(
+            primary.suppressed.isEmpty(),
+            "no addSuppressed linkage when only one rewrite failed; got suppressed=${primary.suppressed.toList()}",
+        )
+    }
+
+    @Test
+    fun `migrateUserHomeMacro swallows exceptions from legacy-key probe when user home is blank`() {
+        // The defensive `runCatching` in `logBlankUserHomeIfLegacyKeysPresent` exists because
+        // probing `.keys` on a platform-backed BaseState map during startup deserialization
+        // could theoretically race with a concurrent write. Exercise it directly: blank
+        // user.home drives the no-migration branch, and a throwing map simulates the CME so
+        // settings loading must still complete without propagating.
+        System.setProperty("user.home", "")
+        val settings = AccentMappingsSettings()
+        val probeBoom = ConcurrentModificationException("keys probed mid-write")
+        val throwingAccents = ThrowingMap(probeBoom)
+        val throwingNames = ThrowingMap(probeBoom)
+
+        val capturedMessages = mutableListOf<String>()
+        val processor =
+            object : LoggedErrorProcessor() {
+                override fun processWarn(
+                    category: String,
+                    message: String,
+                    throwable: Throwable?,
+                ): Boolean {
+                    capturedMessages += message
+                    return false
+                }
+            }
+
+        LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
+            settings.migrateUserHomeMacro(throwingAccents, throwingNames)
+        }
+
+        // The "legacy keys" warn must NOT fire — the probe returned false by default after
+        // catching the CME. If the runCatching were removed, the probe would propagate and
+        // the migration path would escalate out of loadState.
+        assertTrue(
+            capturedMessages.none { it.contains("Cannot migrate legacy") },
+            "Blank user.home + throwing probe must not fire the 'legacy keys' warn " +
+                "(probe's runCatching swallows the CME to default=false); got: $capturedMessages",
+        )
+    }
+
+    @Test
     fun `migrateUserHomeMacro logs only the accents cause when names rewrite succeeds`() {
         // Asymmetry check: when ONLY the accents rewrite throws, the warn must carry the
         // accents cause unchanged — no spurious `addSuppressed` wiring when there's no
@@ -315,11 +398,14 @@ class AccentMappingsSettingsTest {
     }
 
     /**
-     * Throws a caller-specified exception on every iteration-shaped access (`entries`,
-     * `keys`, `values`). Delegates reads like `size` / `isEmpty` / `containsKey` to a
-     * non-empty backing map so `Map.none { ... }` doesn't short-circuit via its isEmpty
-     * fast-path — the throw only fires from iteration, which is what we want to exercise
-     * the `runCatching { rewriteKeys(...) }` branch in
+     * Throws a caller-specified exception on every iteration-shaped accessor
+     * (`entries`, `keys`, `values`). `size` / `isEmpty` / `containsKey` delegate to a
+     * non-empty backing map so unrelated probes inside `rewriteKeys` or the stdlib's
+     * collection extensions don't surface a surprise throw before the intended iteration
+     * reaches `entries`. (`Map.none(predicate)` itself has no `isEmpty` short-circuit —
+     * only the no-arg `Map.none()` does — but keeping the non-empty backing keeps the
+     * helper well-behaved as a general-purpose `MutableMap` for any future caller.)
+     * Exercises the `runCatching { rewriteKeys(...) }` branch in
      * [AccentMappingsSettings.migrateUserHomeMacro] without reflection or instrumentation.
      */
     private class ThrowingMap(

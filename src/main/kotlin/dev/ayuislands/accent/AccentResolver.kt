@@ -99,10 +99,13 @@ object AccentResolver {
      *    network-share unreachable)
      *
      * Failures are logged once per project per failure mode — this runs on hot paths
-     * (focus swap, rotation tick) so we guard against log spam via [loggedBasePathFailures]
-     * and [loggedCanonicalFailures]. basePath / name access are each in their own
-     * `runCatching` so a race mid-dispose degrades to "return null" silently instead of
-     * escalating through the resolver.
+     * (focus swap, rotation tick) so we guard against log spam via per-mode
+     * [OneShotProjectGate]s ([basePathWarnGate] and [canonicalWarnGate]). `basePath` /
+     * `name` access are each in their own `runCatching` so a race mid-dispose degrades
+     * to "return null" silently instead of escalating through the resolver — the
+     * `name` probe uses `runCatching` with a `"<disposed>"` default so a VM-level
+     * error during the label read still lets the warn fire with the real basePath
+     * exception as its cause.
      */
     fun projectKey(project: Project): String? {
         val raw =

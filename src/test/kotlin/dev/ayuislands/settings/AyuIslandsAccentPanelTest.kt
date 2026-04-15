@@ -96,13 +96,13 @@ class AyuIslandsAccentPanelTest {
 
     @Test
     fun `applyWithFallback logs WARN when swap cache sync throws after successful global apply`() {
-        // Regression guard for failure mode #3: applyForFocusedProject throws, the
-        // global-fallback apply(effectiveAccent) succeeds, but notifyExternalApply
-        // throws (swap service mid-dispose, corrupted cache). The visible accent has
-        // already changed; only the focus-swap cache is stale. The panel must log at
-        // WARN (not ERROR, since apply actually worked) and must NOT rethrow — otherwise
-        // the Settings OK path degrades to a generic "Can't save" dialog on a path where
-        // the user's intent was actually applied.
+        // Regression guard for the notifyExternalApply-after-successful-fallback-apply
+        // stage: applyForFocusedProject throws, the global-fallback apply(effectiveAccent)
+        // succeeds, but notifyExternalApply throws (swap service mid-dispose, corrupted
+        // cache). The visible accent has already changed; only the focus-swap cache is
+        // stale. The panel must log at WARN (not ERROR, since apply actually worked) and
+        // must NOT rethrow — otherwise the Settings OK path degrades to a generic "Can't
+        // save" dialog on a path where the user's intent was actually applied.
         every { AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE) } throws
             IllegalStateException("override hex corrupted")
         every { AccentApplicator.apply("#FFCC66") } just Runs
