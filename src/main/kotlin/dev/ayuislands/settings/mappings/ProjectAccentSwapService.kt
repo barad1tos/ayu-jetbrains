@@ -38,6 +38,15 @@ class ProjectAccentSwapService : Disposable {
 
     private var listener: AWTEventListener? = null
 
+    /**
+     * First-warn-only gate for `findProjectForWindow` exceptions. The listener fires on
+     * every WINDOW_ACTIVATED — one broken frame would otherwise spam idea.log on every
+     * alt-tab / dialog / popup. After the first warning, subsequent failures degrade to
+     * DEBUG so they're still captured when a user enables debug logging for a report.
+     */
+    @Volatile
+    private var frameResolutionFailureLogged: Boolean = false
+
     fun install() {
         if (listener != null) return
         val awtListener =
@@ -111,11 +120,20 @@ class ProjectAccentSwapService : Disposable {
                 val frameWindow = SwingUtilities.getWindowAncestor(frame.component) ?: continue
                 if (frameWindow === window) return project
             } catch (exception: RuntimeException) {
-                // Warn with the exception so a platform regression that starts throwing here
-                // (e.g. WindowManager breaking invariants during shutdown) is visible in
-                // idea.log. DEBUG would hide the issue from user-submitted logs. The loop
-                // continues so one bad frame doesn't block resolution of a healthy one.
-                LOG.warn("Skipping frame during window-to-project resolution", exception)
+                // Warn on the first failure so user-submitted logs surface it, then degrade to
+                // DEBUG — WINDOW_ACTIVATED fires on every alt-tab / dialog open, so one broken
+                // frame would otherwise spam idea.log. The loop continues so one bad frame
+                // doesn't block resolution of a healthy one.
+                if (!frameResolutionFailureLogged) {
+                    frameResolutionFailureLogged = true
+                    LOG.warn(
+                        "Skipping frame during window-to-project resolution " +
+                            "(further failures logged at DEBUG)",
+                        exception,
+                    )
+                } else {
+                    LOG.debug("Skipping frame during window-to-project resolution", exception)
+                }
             }
         }
         return null

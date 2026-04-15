@@ -213,8 +213,9 @@ class AccentRotationService : Disposable {
         variant: AyuVariant,
         state: dev.ayuislands.settings.AyuIslandsState,
         settings: AyuIslandsSettings,
-    ): RotationFailure? =
-        try {
+    ): RotationFailure? {
+        val stage = Stage.APPLY
+        return try {
             if (mode == AccentRotationMode.PRESET) {
                 state.accentRotationPresetIndex = newHex.first
             }
@@ -228,25 +229,27 @@ class AccentRotationService : Disposable {
             null
         } catch (exception: RuntimeException) {
             LOG.error(
-                "Accent rotation stage=apply failed (mode=$mode, color=${newHex.second})",
+                "Accent rotation stage=$stage failed (mode=$mode, color=${newHex.second})",
                 exception,
             )
-            RotationFailure(stage = Stage.APPLY, exception = exception)
+            RotationFailure(stage = stage, exception = exception)
         }
+    }
 
     /**
-     * Sync glow overlays with the new accent. Already ran in its own try/catch pre-refactor;
-     * what this commit series adds is feeding a shared circuit-breaker counter through the
-     * returned [RotationFailure].
+     * Sync glow overlays with the new accent. Returns a [RotationFailure] so the circuit
+     * breaker upstream can count glow-sync failures alongside apply failures.
      */
-    private fun runGlowStage(): RotationFailure? =
-        try {
+    private fun runGlowStage(): RotationFailure? {
+        val stage = Stage.GLOW_SYNC
+        return try {
             GlowOverlayManager.syncGlowForAllProjects()
             null
         } catch (exception: RuntimeException) {
-            LOG.error("Accent rotation stage=glow-sync failed", exception)
-            RotationFailure(stage = Stage.GLOW_SYNC, exception = exception)
+            LOG.error("Accent rotation stage=$stage failed", exception)
+            RotationFailure(stage = stage, exception = exception)
         }
+    }
 
     /**
      * Track the failure. Once [MAX_CONSECUTIVE_FAILURES] is reached, stop the scheduler and
@@ -266,8 +269,8 @@ class AccentRotationService : Disposable {
                 .createNotification(
                     "Ayu Islands: accent rotation stopped",
                     "Rotation failed $MAX_CONSECUTIVE_FAILURES times in a row (last stage: " +
-                        "${failure.stage.logLabel}). Re-enable it from Settings > Accent > " +
-                        "Rotation after checking the logs.",
+                        "${failure.stage}). Re-enable it from Settings > Accent > Rotation " +
+                        "after checking the logs.",
                     NotificationType.WARNING,
                 )
         notification.notify(null)
@@ -276,13 +279,19 @@ class AccentRotationService : Disposable {
     /**
      * Pipeline stages the circuit breaker tracks. Previously stringly-typed (`"apply"` /
      * `"glow-sync"`), which let a typo-prone caller silently write the wrong label into logs
-     * and notifications. Closed enum so the compiler catches label drift.
+     * and notifications. Closed enum so the compiler catches label drift; [toString] returns
+     * the wire-compatible label so both `idea.log` messages and user notifications reference
+     * the single authoritative source (`"$stage"`), eliminating the hardcoded-vs-enum drift
+     * risk between the two sites.
      */
     private enum class Stage(
-        val logLabel: String,
+        private val label: String,
     ) {
         APPLY("apply"),
         GLOW_SYNC("glow-sync"),
+        ;
+
+        override fun toString(): String = label
     }
 
     private data class RotationFailure(

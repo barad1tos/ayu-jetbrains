@@ -235,6 +235,11 @@ class OverridesGroupBuilder {
                             com.intellij.lang.Language
                                 .findLanguageByID(id)
                                 ?.displayName
+                        }.onFailure { exception ->
+                            // Display-name lookup fell through to the raw id fallback — log at
+                            // DEBUG because the row is still usable; surface the platform API
+                            // regression only for users who enable debug logging.
+                            LOG.debug("Language display-name lookup failed for id='$id'", exception)
                         }.getOrNull()
                             ?.takeIf { it.isNotBlank() }
                             ?: id

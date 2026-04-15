@@ -89,19 +89,27 @@ object AccentResolver {
 
     /**
      * Stable key for a [project]: the canonicalized absolute path of `basePath`.
-     * Returns `null` when the project has no base path or canonicalization throws
-     * (permission error, symlink loop, missing directory, network-share unreachable).
+     * Returns `null` when:
+     *  - the project has no base path
+     *  - the project is being disposed concurrently (basePath / name access throws
+     *    `AlreadyDisposedException` — possible when focus swap / rotation races with
+     *    a project-close event)
+     *  - canonicalization throws (permission error, symlink loop, missing directory,
+     *    network-share unreachable)
      *
      * Canonicalization failures are logged once per project — this runs on hot paths
      * (focus swap, rotation tick) so we guard against log spam via [loggedCanonicalFailures].
+     * basePath / name access are each in their own `runCatching` so a race mid-dispose
+     * degrades to "return null" silently instead of escalating through the resolver.
      */
     fun projectKey(project: Project): String? {
-        val raw = project.basePath ?: return null
+        val raw = runCatching { project.basePath }.getOrNull() ?: return null
         return runCatching { File(raw).canonicalPath }
             .onFailure { exception ->
                 if (loggedCanonicalFailures.add(project)) {
+                    val name = runCatching { project.name }.getOrDefault("<disposed>")
                     LOG.warn(
-                        "Failed to canonicalize basePath for '${project.name}' ($raw); " +
+                        "Failed to canonicalize basePath for '$name' ($raw); " +
                             "project-override resolution will fall back to global accent",
                         exception,
                     )

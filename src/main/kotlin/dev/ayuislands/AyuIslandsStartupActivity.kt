@@ -175,16 +175,20 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
     }
 
     /**
-     * Invokes [block]; on [RuntimeException] logs with the step name so post-mortems don't
-     * need to cross-reference line numbers against a generic "License defaults failed".
+     * Invokes [block] with fine-grained error handling so each startup step gets its own
+     * log line, and the JVM's error-escalation path stays intact for genuinely fatal errors:
      *
-     * `Error` subtypes (ExceptionInInitializerError from lazy class init,
-     * NoClassDefFoundError from optional plugin dependencies, OOM) are caught so the step
-     * name still reaches the log — but rethrown so the JVM's normal error-escalation path
-     * remains intact. Without that rethrow, an OOM in step N would silently skip steps
-     * N+1..end and the user would see a half-initialized plugin.
+     *  - [RuntimeException] — logged, swallowed; the next step runs.
+     *  - [VirtualMachineError] (OutOfMemoryError, StackOverflowError, InternalError,
+     *    UnknownError) — logged and rethrown. These mean the JVM is in an unrecoverable
+     *    state; continuing risks cascading corruption, and IntelliJ's crash reporter keys
+     *    off uncaught VM errors.
+     *  - Other [Error] (LinkageError, NoClassDefFoundError, ExceptionInInitializerError,
+     *    AssertionError) — logged, swallowed; the next step runs. These usually mean an
+     *    optional plugin dependency didn't load or a plugin extension point initializer
+     *    threw — the plugin's own startup should continue, not abort.
      */
-    @Suppress("TooGenericExceptionCaught") // Error catch is intentional — we log then rethrow
+    @Suppress("TooGenericExceptionCaught") // VM error rethrown; generic Error logged-and-continue
     private inline fun runStep(
         name: String,
         block: () -> Unit,
@@ -193,9 +197,11 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
             block()
         } catch (exception: RuntimeException) {
             LOG.error("License startup step '$name' failed", exception)
+        } catch (error: VirtualMachineError) {
+            LOG.error("License startup step '$name' failed with VM error", error)
+            throw error
         } catch (error: Error) {
             LOG.error("License startup step '$name' failed with Error", error)
-            throw error
         }
     }
 

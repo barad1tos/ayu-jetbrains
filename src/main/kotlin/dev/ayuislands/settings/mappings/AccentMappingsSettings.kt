@@ -42,41 +42,58 @@ class AccentMappingsSettings : SimplePersistentStateComponent<AccentMappingsStat
     private fun migrateUserHomeMacro(state: AccentMappingsState) {
         val userHome = System.getProperty("user.home")?.takeIf { it.isNotBlank() }
         if (userHome == null) {
-            // Surface the failure so affected users can find a breadcrumb in idea.log. Silent no-op
-            // means stored `$USER_HOME$/...` keys never match the absolute canonical path
-            // AccentResolver hands to the map lookup — overrides become invisible with no trace.
-            //
-            // The key-existence probe is wrapped in runCatching because BaseState-backed maps are
-            // shared mutable and theoretically racy with concurrent writers during startup
-            // deserialization — a ConcurrentModificationException here would propagate out of
-            // loadState and fail settings loading entirely.
-            val hasLegacyKeys =
-                runCatching {
-                    state.projectAccents.keys.any { it.startsWith(USER_HOME_MACRO) } ||
-                        state.projectDisplayNames.keys.any { it.startsWith(USER_HOME_MACRO) }
-                }.getOrDefault(false)
-            if (hasLegacyKeys) {
-                LOG.warn(
-                    "Cannot migrate legacy $USER_HOME_MACRO-prefixed accent-mapping keys: " +
-                        "System.getProperty(\"user.home\") is unavailable. " +
-                        "Affected per-project overrides won't resolve until re-added under " +
-                        "Settings > Ayu Islands > Accent > Overrides.",
-                )
-            }
+            logBlankUserHomeIfLegacyKeysPresent(state)
             return
         }
 
-        val rewrittenAccents = rewriteKeys(state.projectAccents, userHome)
-        if (rewrittenAccents != null) {
-            state.projectAccents.clear()
-            state.projectAccents.putAll(rewrittenAccents)
+        // Wrap the productive rewrite path too. BaseState-backed maps are platform-shared and
+        // mutable; a theoretical concurrent write during startup deserialization would throw
+        // ConcurrentModificationException out of the iteration inside rewriteKeys, which
+        // would propagate out of loadState and fail settings loading entirely. Log-and-skip
+        // the migration — affected users re-attempt on next IDE restart.
+        runCatching {
+            rewriteMacroKeysInPlace(state.projectAccents, userHome)
+            rewriteMacroKeysInPlace(state.projectDisplayNames, userHome)
+        }.onFailure { exception ->
+            LOG.warn(
+                "Failed to migrate \$USER_HOME\$-prefixed accent-mapping keys; " +
+                    "will retry on next IDE restart",
+                exception,
+            )
         }
+    }
 
-        val rewrittenNames = rewriteKeys(state.projectDisplayNames, userHome)
-        if (rewrittenNames != null) {
-            state.projectDisplayNames.clear()
-            state.projectDisplayNames.putAll(rewrittenNames)
+    /**
+     * Surface blank-user.home to users so they can find a breadcrumb in idea.log. Silent no-op
+     * means stored `$USER_HOME$/...` keys never match the absolute canonical path
+     * AccentResolver hands to the map lookup — overrides become invisible with no trace.
+     *
+     * The probe itself is in runCatching because a CME reading `.keys` during startup
+     * deserialization must not propagate out of `loadState` and fail settings loading.
+     */
+    private fun logBlankUserHomeIfLegacyKeysPresent(state: AccentMappingsState) {
+        val hasLegacyKeys =
+            runCatching {
+                state.projectAccents.keys.any { it.startsWith(USER_HOME_MACRO) } ||
+                    state.projectDisplayNames.keys.any { it.startsWith(USER_HOME_MACRO) }
+            }.getOrDefault(false)
+        if (hasLegacyKeys) {
+            LOG.warn(
+                "Cannot migrate legacy $USER_HOME_MACRO-prefixed accent-mapping keys: " +
+                    "System.getProperty(\"user.home\") is unavailable. " +
+                    "Affected per-project overrides won't resolve until re-added under " +
+                    "Settings > Ayu Islands > Accent > Overrides.",
+            )
         }
+    }
+
+    private fun rewriteMacroKeysInPlace(
+        map: MutableMap<String, String>,
+        userHome: String,
+    ) {
+        val rewritten = rewriteKeys(map, userHome) ?: return
+        map.clear()
+        map.putAll(rewritten)
     }
 
     private fun rewriteKeys(
