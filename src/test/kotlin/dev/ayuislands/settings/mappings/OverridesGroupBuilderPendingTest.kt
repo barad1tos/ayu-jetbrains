@@ -113,17 +113,27 @@ class OverridesGroupBuilderPendingTest {
     @Test
     fun `resolvePending matches lowercase language id exactly, not case-insensitively`() {
         // LanguageMapping.init enforces lowercase, ProjectLanguageDetector returns lowercase —
-        // case-sensitive equality is the consistent choice across the code base, mirroring
-        // LanguageMappingsTableModel.containsLanguage. If a future detector ever returns
-        // "Kotlin" instead of "kotlin", the invariant is violated upstream and should surface
-        // as a test failure here rather than be silently compensated by ignoreCase = true.
+        // case-sensitive equality is the consistent choice across the codebase, mirroring
+        // LanguageMappingsTableModel.containsLanguage. Both halves of the invariant matter:
+        //  - lowercase detector output matches stored lowercase id (positive)
+        //  - non-lowercase detector output does NOT match (negative — locks the contract from
+        //    both sides; reintroducing `ignoreCase = true` in resolvePending would silently
+        //    pass the positive assertion alone)
         mappingsState.languageAccents["kotlin"] = "#CAFE00"
-        val project = stubProject(File(System.getProperty("java.io.tmpdir"), "case-test"))
-        every { ProjectLanguageDetector.dominant(project) } returns "kotlin"
 
         val builder = OverridesGroupBuilder().apply { loadFromStateForTest() }
 
-        assertEquals("#CAFE00", builder.resolvePending(project, "#FFCC66"))
+        val lowercaseProject = stubProject(File(System.getProperty("java.io.tmpdir"), "case-lower"))
+        every { ProjectLanguageDetector.dominant(lowercaseProject) } returns "kotlin"
+        assertEquals("#CAFE00", builder.resolvePending(lowercaseProject, "#FFCC66"))
+
+        val mixedCaseProject = stubProject(File(System.getProperty("java.io.tmpdir"), "case-mixed"))
+        every { ProjectLanguageDetector.dominant(mixedCaseProject) } returns "Kotlin"
+        assertEquals(
+            "#FFCC66",
+            builder.resolvePending(mixedCaseProject, "#FFCC66"),
+            "Mixed-case detector output must not match lowercase stored id",
+        )
     }
 
     private fun stubProject(baseDir: File): Project {

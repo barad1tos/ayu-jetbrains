@@ -265,33 +265,28 @@ class AccentRotationServiceTest {
     }
 
     @Test
-    fun `three consecutive failures trip the circuit breaker and notify the user`() {
-        // Regression guard for commit e8345db: MAX_CONSECUTIVE_FAILURES = 3. Flipping the
-        // off-by-one, dropping the reset on success, or removing the notification should
-        // fail this test instead of shipping a silently-broken rotation feature.
+    fun `circuit breaker trips at MAX_CONSECUTIVE_FAILURES and the post-trip reset works`() {
+        // Circuit breaker contract: after MAX_CONSECUTIVE_FAILURES = 3 consecutive failed
+        // ticks, stopRotation() fires and the user gets a single warning notification. This
+        // test drives FOUR ticks with a failing applicator to cover both contracts in one go:
+        //  - Ticks 1..3 increment the counter to 3 → breaker trips, notification #1 fires,
+        //    stopRotation() resets the counter to 0.
+        //  - Tick 4 starts fresh (counter 0 → 1), still under threshold, so NO additional
+        //    notification fires. If the post-trip reset were missing, tick 4 would push the
+        //    counter to 4, re-trigger the trip path, and fire notification #2 — `exactly = 1`
+        //    catches that regression. If the off-by-one were flipped (`<= 3` instead of
+        //    `< 3`), only ticks 1..2 would fire and exactly = 1 would still fail (zero).
         mockRotationEnvironment()
         val (notificationGroup, createdNotifications) = captureNotifications()
         state.accentRotationEnabled = true
         state.accentRotationMode = AccentRotationMode.PRESET.name
-        every { AccentApplicator.apply(any()) } throws RuntimeException("stage=apply failed")
-
-        val suppressLoggedErrors =
-            object : LoggedErrorProcessor() {
-                override fun processError(
-                    category: String,
-                    message: String,
-                    details: Array<out String>,
-                    throwable: Throwable?,
-                ): Set<Action> = EnumSet.noneOf(Action::class.java)
-            }
+        every { AccentApplicator.apply(any()) } throws RotationTestException("apply stage")
 
         val service = AccentRotationService()
-        LoggedErrorProcessor.executeWith<RuntimeException>(suppressLoggedErrors) {
-            repeat(THREE) { service.rotateAccent() }
+        LoggedErrorProcessor.executeWith<Throwable>(suppressLoggedErrors()) {
+            repeat(FOUR) { service.rotateAccent() }
         }
 
-        // Notification fires exactly once — on the third consecutive failure, not earlier, not
-        // again on a hypothetical fourth tick after the breaker tripped.
         verify(exactly = 1) {
             notificationGroup.createNotification(any<String>(), any<String>(), NotificationType.WARNING)
         }
@@ -312,22 +307,11 @@ class AccentRotationServiceTest {
         every { AccentApplicator.apply(any()) } answers {
             applyCalls += firstArg<String>()
             if (applyCalls.size == THREE) return@answers Unit
-            @Suppress("TooGenericExceptionThrown") // Test-only simulation of applicator failure
-            throw RuntimeException("fail ${applyCalls.size}")
+            throw RotationTestException("fail ${applyCalls.size}")
         }
 
-        val suppressLoggedErrors =
-            object : LoggedErrorProcessor() {
-                override fun processError(
-                    category: String,
-                    message: String,
-                    details: Array<out String>,
-                    throwable: Throwable?,
-                ): Set<Action> = EnumSet.noneOf(Action::class.java)
-            }
-
         val service = AccentRotationService()
-        LoggedErrorProcessor.executeWith<RuntimeException>(suppressLoggedErrors) {
+        LoggedErrorProcessor.executeWith<Throwable>(suppressLoggedErrors()) {
             repeat(FIVE) { service.rotateAccent() }
         }
 
@@ -335,6 +319,29 @@ class AccentRotationServiceTest {
             notificationGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
         }
     }
+
+    /**
+     * Test-only RuntimeException — gives a named, searchable type for log forensics + lets
+     * the test code throw without `@Suppress("TooGenericExceptionThrown")` boilerplate.
+     */
+    private class RotationTestException(
+        message: String,
+    ) : RuntimeException(message)
+
+    /**
+     * `LoggedErrorProcessor` that suppresses (does not promote) every LOG.error to an
+     * AssertionError so the rotation tick path can run without TestLoggerFactory escalating
+     * the deliberate simulated failure into a test crash. Returns no actions = full suppress.
+     */
+    private fun suppressLoggedErrors(): LoggedErrorProcessor =
+        object : LoggedErrorProcessor() {
+            override fun processError(
+                category: String,
+                message: String,
+                details: Array<out String>,
+                throwable: Throwable?,
+            ): Set<Action> = EnumSet.noneOf(Action::class.java)
+        }
 
     /**
      * Wire `NotificationGroupManager.getInstance().getNotificationGroup("Ayu Islands")` to a
@@ -399,6 +406,7 @@ class AccentRotationServiceTest {
 
     companion object {
         private const val THREE = 3
+        private const val FOUR = 4
         private const val FIVE = 5
     }
 }
