@@ -22,8 +22,8 @@ import java.awt.Window
 import java.awt.event.AWTEventListener
 import java.awt.event.WindowEvent
 import javax.swing.JComponent
-import javax.swing.JFrame
-import javax.swing.JLabel
+import javax.swing.JPanel
+import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -39,6 +39,11 @@ import kotlin.test.assertTrue
  * cache hook — is unit-tested via the [ProjectAccentSwapService.onWindowActivatedForTest]
  * seam plus mockkObject wrappers around AccentResolver / AccentApplicator / AyuVariant /
  * ComponentTreeRefresher and a static mock on WindowManager.
+ *
+ * Headless-safe: mocks [Window] (real `JFrame` / `JDialog` instantiation throws
+ * `HeadlessException` on CI) and stubs [SwingUtilities.getWindowAncestor] so frame-to-window
+ * reconciliation works without bringing up a graphics environment. Components are `JPanel`,
+ * which is purely lightweight (no native peer) and works in headless.
  */
 class ProjectAccentSwapServiceTest {
     @BeforeTest
@@ -53,12 +58,19 @@ class ProjectAccentSwapServiceTest {
 
         mockkStatic(WindowManager::class)
         // Default: no project frames. Tests that need a matching frame override via
-        // `wireMatchingFrame(window, project)`.
+        // `wireMatchingFrame()`.
         val windowManager =
             mockk<WindowManager> {
                 every { allProjectFrames } returns emptyArray()
             }
         every { WindowManager.getInstance() } returns windowManager
+
+        // SwingUtilities.getWindowAncestor walks up component.parent looking for a Window.
+        // In headless tests the components have no real window ancestor, so we stub the
+        // static lookup explicitly. Default: returns null; tests override per call site
+        // when they need a matching window.
+        mockkStatic(SwingUtilities::class)
+        every { SwingUtilities.getWindowAncestor(any()) } returns null
     }
 
     @AfterTest
@@ -113,8 +125,8 @@ class ProjectAccentSwapServiceTest {
         // otherwise activating a popup / dialog window would re-apply the accent on every
         // alt-tab, defeating the whole point of the cache.
         val service = ProjectAccentSwapService()
-        val window = JFrame() // not registered with WindowManager — no matching frame
-        val event = WindowEvent(window, WindowEvent.WINDOW_ACTIVATED)
+        val window = mockk<Window>(relaxed = true) // no matching frame in WindowManager
+        val event = makeEvent(window)
 
         service.onWindowActivatedForTest(event)
 
@@ -133,9 +145,8 @@ class ProjectAccentSwapServiceTest {
         val (window, project) = wireMatchingFrame()
         every { AyuVariant.detect() } returns null
         val service = ProjectAccentSwapService()
-        val event = WindowEvent(window, WindowEvent.WINDOW_ACTIVATED)
 
-        service.onWindowActivatedForTest(event)
+        service.onWindowActivatedForTest(makeEvent(window))
 
         verify(exactly = 1) { AyuVariant.detect() }
         verify(exactly = 0) { AccentResolver.resolve(project, any()) }
@@ -149,9 +160,8 @@ class ProjectAccentSwapServiceTest {
         // disposed project (which would throw deeper inside AccentResolver).
         val (window, project) = wireMatchingFrame(disposed = true)
         val service = ProjectAccentSwapService()
-        val event = WindowEvent(window, WindowEvent.WINDOW_ACTIVATED)
 
-        service.onWindowActivatedForTest(event)
+        service.onWindowActivatedForTest(makeEvent(window))
 
         verify(exactly = 0) { AccentResolver.resolve(project, any()) }
         verify(exactly = 0) { AccentApplicator.apply(any()) }
@@ -165,7 +175,7 @@ class ProjectAccentSwapServiceTest {
         val (window, project) = wireMatchingFrame()
         every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
         val service = ProjectAccentSwapService()
-        val event = WindowEvent(window, WindowEvent.WINDOW_ACTIVATED)
+        val event = makeEvent(window)
 
         service.onWindowActivatedForTest(event) // primes cache
         service.onWindowActivatedForTest(event) // same project — must short-circuit
@@ -183,19 +193,21 @@ class ProjectAccentSwapServiceTest {
         // state is already correct.
         val projectA = stubProject("project-a")
         val projectB = stubProject("project-b")
-        val windowA = JFrame()
-        val windowB = JFrame()
-        val labelA = JLabel().also { windowA.add(it) }
-        val labelB = JLabel().also { windowB.add(it) }
-        val frameA = stubIdeFrame(projectA, labelA)
-        val frameB = stubIdeFrame(projectB, labelB)
+        val windowA = mockk<Window>(relaxed = true)
+        val windowB = mockk<Window>(relaxed = true)
+        val componentA = JPanel()
+        val componentB = JPanel()
+        every { SwingUtilities.getWindowAncestor(componentA) } returns windowA
+        every { SwingUtilities.getWindowAncestor(componentB) } returns windowB
+        val frameA = stubIdeFrame(projectA, componentA)
+        val frameB = stubIdeFrame(projectB, componentB)
         every { WindowManager.getInstance().allProjectFrames } returns arrayOf(frameA, frameB)
         every { AccentResolver.resolve(projectA, AyuVariant.MIRAGE) } returns "#FFCC66"
         every { AccentResolver.resolve(projectB, AyuVariant.MIRAGE) } returns "#FFCC66"
 
         val service = ProjectAccentSwapService()
-        service.onWindowActivatedForTest(WindowEvent(windowA, WindowEvent.WINDOW_ACTIVATED))
-        service.onWindowActivatedForTest(WindowEvent(windowB, WindowEvent.WINDOW_ACTIVATED))
+        service.onWindowActivatedForTest(makeEvent(windowA))
+        service.onWindowActivatedForTest(makeEvent(windowB))
 
         // Both projects went through resolve (different cached project identity) but apply
         // fired only once because the effective hex hadn't changed.
@@ -215,9 +227,8 @@ class ProjectAccentSwapServiceTest {
         val (window, project) = wireMatchingFrame()
         every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
         val service = ProjectAccentSwapService()
-        val event = WindowEvent(window, WindowEvent.WINDOW_ACTIVATED)
 
-        service.onWindowActivatedForTest(event)
+        service.onWindowActivatedForTest(makeEvent(window))
 
         verify(exactly = 1) { ComponentTreeRefresher.walkAndNotify(project, window) }
     }
@@ -233,7 +244,7 @@ class ProjectAccentSwapServiceTest {
         val service = ProjectAccentSwapService()
 
         service.notifyExternalApply("#FFCC66") // priming write
-        service.onWindowActivatedForTest(WindowEvent(window, WindowEvent.WINDOW_ACTIVATED))
+        service.onWindowActivatedForTest(makeEvent(window))
 
         // resolve was called (project changed from null to projectA) but apply was skipped
         // because the effective hex matches the cache.
@@ -254,7 +265,7 @@ class ProjectAccentSwapServiceTest {
         every { WindowManager.getInstance().allProjectFrames } returns arrayOf(brokenFrame)
 
         val service = ProjectAccentSwapService()
-        val event = WindowEvent(JFrame(), WindowEvent.WINDOW_ACTIVATED)
+        val event = makeEvent(mockk<Window>(relaxed = true))
 
         val capturedWarns = mutableListOf<String>()
         val processor =
@@ -324,15 +335,27 @@ class ProjectAccentSwapServiceTest {
     // Test helpers
 
     /**
+     * Builds a [WindowEvent] whose `window` getter returns [window]. Direct construction
+     * via `WindowEvent(window, id)` works on macOS dev machines but indirectly touches
+     * graphics on some platforms; mocking the event keeps the test fully headless-safe.
+     */
+    private fun makeEvent(window: Window): WindowEvent =
+        mockk {
+            every { id } returns WindowEvent.WINDOW_ACTIVATED
+            every { this@mockk.window } returns window
+        }
+
+    /**
      * Returns (window, project) where the mocked WindowManager.allProjectFrames contains a
      * single IdeFrame whose component's window ancestor is `window` and whose project is
      * the returned mock. Lets [handleWindowActivated] reach AyuVariant.detect / resolve /
-     * apply on a real Swing tree.
+     * apply on a real Swing tree without instantiating a [java.awt.Frame] (which throws
+     * `HeadlessException` on CI).
      */
     private fun wireMatchingFrame(disposed: Boolean = false): Pair<Window, Project> {
-        val window = JFrame()
-        val component = JLabel()
-        window.add(component) // window becomes the ancestor of component
+        val window = mockk<Window>(relaxed = true)
+        val component = JPanel() // lightweight, headless-safe
+        every { SwingUtilities.getWindowAncestor(component) } returns window
         val project = stubProject("test-project", disposed = disposed)
         val frame = stubIdeFrame(project, component)
         every { WindowManager.getInstance().allProjectFrames } returns arrayOf(frame)
