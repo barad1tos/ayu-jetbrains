@@ -224,6 +224,41 @@ class ProjectLanguageDetectorTest {
     }
 
     @Test
+    fun `dominant propagates CancellationException from SDK lookup instead of swallowing`() {
+        // ProjectLanguageDetector.dominant is reachable from AyuIslandsStartupActivity.execute's
+        // coroutine body via AccentResolver.findOverride. Plain runCatching would absorb the
+        // CancellationException into Result.failure, log a "SDK lookup failed" WARN, return
+        // null, and the cancelled coroutine would keep walking the resolver chain. The helper
+        // runCatchingPreservingCancellation must rethrow so structured concurrency holds.
+        val project = stubProject("/tmp/cancel-sdk-${System.nanoTime()}")
+        every { ProjectRootManager.getInstance(project) } throws
+            kotlin.coroutines.cancellation.CancellationException("startup cancelled during SDK lookup")
+
+        val thrown =
+            kotlin.test.assertFailsWith<kotlin.coroutines.cancellation.CancellationException> {
+                ProjectLanguageDetector.dominant(project)
+            }
+        assertEquals("startup cancelled during SDK lookup", thrown.message)
+    }
+
+    @Test
+    fun `dominant propagates CancellationException from module lookup instead of swallowing`() {
+        // Parallel contract on the module-list branch — SDK returns no match, module lookup
+        // throws CancellationException. Without the rethrow, the detector would return null
+        // and the cancelled coroutine would continue.
+        val project = stubProject("/tmp/cancel-modules-${System.nanoTime()}")
+        wireProjectRootManager(project, sdkName = null)
+        every { ModuleManager.getInstance(project) } throws
+            kotlin.coroutines.cancellation.CancellationException("startup cancelled during module lookup")
+
+        val thrown =
+            kotlin.test.assertFailsWith<kotlin.coroutines.cancellation.CancellationException> {
+                ProjectLanguageDetector.dominant(project)
+            }
+        assertEquals("startup cancelled during module lookup", thrown.message)
+    }
+
+    @Test
     fun `clear empties all entries`() {
         val a = stubProject("/tmp/a-${System.nanoTime()}")
         val b = stubProject("/tmp/b-${System.nanoTime()}")
