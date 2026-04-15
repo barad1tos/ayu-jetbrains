@@ -181,13 +181,17 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
      *  - [RuntimeException] — logged, swallowed; the next step runs.
      *  - [VirtualMachineError] (OutOfMemoryError, StackOverflowError, InternalError,
      *    UnknownError) — logged and rethrown. These indicate the JVM is in an
-     *    unrecoverable state; any further work is undefined behavior. Rethrowing hands
-     *    control to the platform's uncaught-exception handler, which escalates normally.
-     *  - Other [Error] (LinkageError, ExceptionInInitializerError, AssertionError) —
-     *    logged, swallowed; the next step runs. These usually indicate a class-loading
-     *    or static-initializer issue in an individual step's transitive closure (e.g.
-     *    a Kotlin stdlib / compiler version mismatch surfacing from a lazily-loaded
-     *    service); the plugin's other startup steps should continue independently.
+     *    unrecoverable state; any further work is undefined behavior. Rethrowing surfaces
+     *    the error back to whoever dispatched this Runnable — on EDT that's
+     *    `IdeEventQueue.dispatchException`, which logs at ERROR and may surface a
+     *    fatal-error dialog; on background dispatchers the default uncaught-exception
+     *    handler takes over. Either way we don't swallow a VM-level failure.
+     *  - Other [Error] (NoClassDefFoundError, LinkageError, ExceptionInInitializerError,
+     *    AssertionError) — logged, swallowed; the next step runs. These usually indicate
+     *    a class-loading or static-initializer problem in an individual step's transitive
+     *    closure (e.g. a lazily-loaded service whose class body references a renamed
+     *    platform API, surfacing as `NoClassDefFoundError` only once that service is
+     *    first touched); the plugin's other startup steps should continue independently.
      */
     @Suppress("TooGenericExceptionCaught") // VM error rethrown; generic Error logged-and-continue
     private inline fun runStep(

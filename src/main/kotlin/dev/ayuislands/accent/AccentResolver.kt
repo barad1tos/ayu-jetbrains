@@ -32,11 +32,16 @@ object AccentResolver {
     private val LOG = logger<AccentResolver>()
 
     /**
-     * First-failure-only gate for [projectKey] warnings — see the [projectKey] KDoc for why.
-     * Backed by a synchronized WeakHashMap because the resolver is called from multiple
+     * Per-failure-mode gates for [projectKey] warnings — see the [projectKey] KDoc for why.
+     * Split across two sets so a project that previously hit one failure mode can still log
+     * the other: a project whose `basePath` throws once, then later hands back a path whose
+     * canonicalization fails, must not have the second warn silently dropped by a shared gate.
+     * Backed by synchronized WeakHashMaps because the resolver is called from multiple
      * threads (EDT from the AWT listener, coroutine from [dev.ayuislands.AyuIslandsStartupActivity],
      * background from rotation). Weak references let entries age out with project disposal.
      */
+    private val loggedBasePathFailures: MutableSet<Project> =
+        Collections.synchronizedSet(Collections.newSetFromMap(WeakHashMap()))
     private val loggedCanonicalFailures: MutableSet<Project> =
         Collections.synchronizedSet(Collections.newSetFromMap(WeakHashMap()))
 
@@ -97,10 +102,11 @@ object AccentResolver {
      *  - canonicalization throws (permission error, symlink loop, missing directory,
      *    network-share unreachable)
      *
-     * Canonicalization failures are logged once per project — this runs on hot paths
-     * (focus swap, rotation tick) so we guard against log spam via [loggedCanonicalFailures].
-     * basePath / name access are each in their own `runCatching` so a race mid-dispose
-     * degrades to "return null" silently instead of escalating through the resolver.
+     * Failures are logged once per project per failure mode — this runs on hot paths
+     * (focus swap, rotation tick) so we guard against log spam via [loggedBasePathFailures]
+     * and [loggedCanonicalFailures]. basePath / name access are each in their own
+     * `runCatching` so a race mid-dispose degrades to "return null" silently instead of
+     * escalating through the resolver.
      */
     fun projectKey(project: Project): String? {
         val raw =
@@ -109,8 +115,8 @@ object AccentResolver {
                     // Symmetric with the canonicalization branch below: a platform regression
                     // making `project.basePath` throw for any project type would silently
                     // demote every project to global accent without a breadcrumb unless we
-                    // log here too. Dedup via the same gate to avoid log spam on hot paths.
-                    if (loggedCanonicalFailures.add(project)) {
+                    // log here too.
+                    if (loggedBasePathFailures.add(project)) {
                         LOG.warn(
                             "Failed to read basePath for project; falling back to global accent",
                             exception,

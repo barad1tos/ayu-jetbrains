@@ -15,6 +15,7 @@ import javax.swing.JPanel
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertTrue
 
 /**
  * Locks in the contract of [ComponentTreeRefresher] — the central pipeline subscribers
@@ -88,7 +89,10 @@ class ComponentTreeRefresherTest {
 
         // Production code logs at LOG.warn — override processWarn (not processError) so the
         // TestLoggerFactory warn-to-failure promotion is suppressed for THIS test's
-        // intentional throw, but any unexpected LOG.error elsewhere still escalates.
+        // intentional throw, but any unexpected LOG.error elsewhere still escalates. Match
+        // the expected message substring so unrelated warns still propagate and fail the test
+        // instead of being silently absorbed by a blanket suppressor.
+        val expectedMessage = "Component tree refresh failed"
         val capturedWarns = mutableListOf<String>()
         val processor =
             object : LoggedErrorProcessor() {
@@ -97,6 +101,7 @@ class ComponentTreeRefresherTest {
                     message: String,
                     throwable: Throwable?,
                 ): Boolean {
+                    if (!message.contains(expectedMessage)) return true
                     capturedWarns += message
                     return false
                 }
@@ -107,9 +112,10 @@ class ComponentTreeRefresherTest {
         }
 
         verify(exactly = 1) { listener.afterRefresh(project) }
-        assert(capturedWarns.any { it.contains("Component tree refresh failed") }) {
-            "Expected warn about failed tree refresh, got: $capturedWarns"
-        }
+        assertTrue(
+            capturedWarns.any { it.contains(expectedMessage) },
+            "Expected warn about failed tree refresh, got: $capturedWarns",
+        )
     }
 
     @Test

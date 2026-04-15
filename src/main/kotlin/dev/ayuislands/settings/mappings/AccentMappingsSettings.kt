@@ -61,8 +61,16 @@ class AccentMappingsSettings : SimplePersistentStateComponent<AccentMappingsStat
         val accentsResult = runCatching { rewriteKeys(state.projectAccents, userHome) }
         val namesResult = runCatching { rewriteKeys(state.projectDisplayNames, userHome) }
         if (accentsResult.isFailure || namesResult.isFailure) {
-            warnMigrationFailed(
-                accentsResult.exceptionOrNull() ?: namesResult.exceptionOrNull()!!,
+            // If both rewrites failed, link the second cause via addSuppressed so triage
+            // doesn't lose visibility on the second failure mode.
+            val primary = accentsResult.exceptionOrNull() ?: namesResult.exceptionOrNull()!!
+            if (accentsResult.isFailure && namesResult.isFailure) {
+                namesResult.exceptionOrNull()?.let { primary.addSuppressed(it) }
+            }
+            LOG.warn(
+                "Failed to migrate \$USER_HOME\$-prefixed accent-mapping keys; " +
+                    "will retry on next IDE restart",
+                primary,
             )
             return
         }
@@ -77,14 +85,6 @@ class AccentMappingsSettings : SimplePersistentStateComponent<AccentMappingsStat
             state.projectDisplayNames.clear()
             state.projectDisplayNames.putAll(rewrittenNames)
         }
-    }
-
-    private fun warnMigrationFailed(exception: Throwable) {
-        LOG.warn(
-            "Failed to migrate \$USER_HOME\$-prefixed accent-mapping keys; " +
-                "will retry on next IDE restart",
-            exception,
-        )
     }
 
     /**
