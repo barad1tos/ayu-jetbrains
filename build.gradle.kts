@@ -206,10 +206,6 @@ kover {
                     "dev.ayuislands.settings.mappings.AddLanguageMappingDialog*",
                     "dev.ayuislands.settings.mappings.AccentSwatchPickerRow*",
                     "dev.ayuislands.settings.mappings.RoundedSwatchRenderer*",
-                    // IDE glue: SDK + ModuleManager probes
-                    "dev.ayuislands.accent.ProjectLanguageDetector*",
-                    // IDE glue: AWTEventListener + WindowManager focus-swap
-                    "dev.ayuislands.settings.mappings.ProjectAccentSwapService*",
                 )
             }
         }

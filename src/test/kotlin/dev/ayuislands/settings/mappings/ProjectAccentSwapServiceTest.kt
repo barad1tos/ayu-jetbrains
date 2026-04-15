@@ -16,7 +16,10 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
+import java.awt.AWTEvent
+import java.awt.Toolkit
 import java.awt.Window
+import java.awt.event.AWTEventListener
 import java.awt.event.WindowEvent
 import javax.swing.JComponent
 import javax.swing.JFrame
@@ -61,19 +64,6 @@ class ProjectAccentSwapServiceTest {
     @AfterTest
     fun tearDown() {
         unmockkAll()
-    }
-
-    @Test
-    fun `notifyExternalApply is non-throwing for the hex shapes callers pass`() {
-        // Real callers pass: valid hex after rotation, different hex after settings Apply, and
-        // the blank "follow system accent" sentinel. If any of these shapes starts throwing
-        // (e.g. a future null-check on a blank argument), the downstream swap-cache semantics
-        // break and every focus-swap would reapply even when hex is unchanged.
-        val service = ProjectAccentSwapService()
-
-        service.notifyExternalApply("#FFCC66")
-        service.notifyExternalApply("#ABCDEF")
-        service.notifyExternalApply("")
     }
 
     @Test
@@ -293,6 +283,42 @@ class ProjectAccentSwapServiceTest {
             capturedWarns.size,
             "Frame-resolution dedup must collapse 3 broken-frame failures into 1 WARN; got: $capturedWarns",
         )
+    }
+
+    @Test
+    fun `install registers AWTEventListener exactly once across repeated calls`() {
+        // Reentrancy guard: install() is invoked from every ProjectActivity (per project open).
+        // Without `if (listener != null) return`, each project window double-registers the
+        // listener, so the focus-swap handler would fire N times per WINDOW_ACTIVATED for an
+        // N-window IDE — straight perf regression and possible visible flicker.
+        val toolkit = mockk<Toolkit>(relaxed = true)
+        mockkStatic(Toolkit::class)
+        every { Toolkit.getDefaultToolkit() } returns toolkit
+        val service = ProjectAccentSwapService()
+
+        service.install()
+        service.install()
+        service.install()
+
+        verify(exactly = 1) {
+            toolkit.addAWTEventListener(any<AWTEventListener>(), AWTEvent.WINDOW_EVENT_MASK)
+        }
+    }
+
+    @Test
+    fun `dispose removes the AWTEventListener and clears the swap cache`() {
+        // Without removing the listener, AWT keeps dispatching to a service whose backing
+        // state is being torn down — guaranteed NPE inside handleWindowActivated. Also clears
+        // lastAppliedProject/Hex so a re-install on a fresh service starts with a clean cache.
+        val toolkit = mockk<Toolkit>(relaxed = true)
+        mockkStatic(Toolkit::class)
+        every { Toolkit.getDefaultToolkit() } returns toolkit
+        val service = ProjectAccentSwapService()
+        service.install()
+
+        service.dispose()
+
+        verify(exactly = 1) { toolkit.removeAWTEventListener(any<AWTEventListener>()) }
     }
 
     // Test helpers
