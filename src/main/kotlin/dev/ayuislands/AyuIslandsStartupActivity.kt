@@ -176,22 +176,23 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
 
     /**
      * Invokes [block] with fine-grained error handling so each startup step gets its own
-     * log line, and the JVM's error-escalation path stays intact for genuinely fatal errors:
+     * log line, and the JVM's error-escalation path stays intact for genuinely fatal errors.
+     *
+     * All production call sites run inside `SwingUtilities.invokeLater { ... }` (see
+     * [checkLicenseState]), so the surrounding Runnable is dispatched by `IdeEventQueue`:
      *
      *  - [RuntimeException] — logged, swallowed; the next step runs.
      *  - [VirtualMachineError] (OutOfMemoryError, StackOverflowError, InternalError,
-     *    UnknownError) — logged and rethrown. These indicate the JVM is in an
-     *    unrecoverable state; any further work is undefined behavior. Rethrowing surfaces
-     *    the error back to whoever dispatched this Runnable — on EDT that's
-     *    `IdeEventQueue.dispatchException`, which logs at ERROR and may surface a
-     *    fatal-error dialog; on background dispatchers the default uncaught-exception
-     *    handler takes over. Either way we don't swallow a VM-level failure.
+     *    UnknownError) — logged and rethrown. These indicate the JVM is in an unrecoverable
+     *    state; any further work is undefined behavior. Rethrowing surfaces the error back
+     *    to `IdeEventQueue.dispatchException`, which logs at ERROR and may surface a
+     *    fatal-error dialog — the one place a VM-level failure should still be visible.
      *  - Other [Error] (NoClassDefFoundError, LinkageError, ExceptionInInitializerError,
      *    AssertionError) — logged, swallowed; the next step runs. These usually indicate
      *    a class-loading or static-initializer problem in an individual step's transitive
      *    closure (e.g. a lazily-loaded service whose class body references a renamed
-     *    platform API, surfacing as `NoClassDefFoundError` only once that service is
-     *    first touched); the plugin's other startup steps should continue independently.
+     *    platform API, surfacing as `NoClassDefFoundError` only once that service is first
+     *    touched); the plugin's other startup steps should continue independently.
      */
     @Suppress("TooGenericExceptionCaught") // VM error rethrown; generic Error logged-and-continue
     private inline fun runStep(

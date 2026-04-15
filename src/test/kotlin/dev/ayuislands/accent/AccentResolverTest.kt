@@ -15,6 +15,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * Verifies the project > language > global priority chain and short-circuit behavior.
@@ -47,6 +48,11 @@ class AccentResolverTest {
         // logic under test runs. Individual tests override to verify the unlicensed path.
         mockkObject(LicenseChecker)
         every { LicenseChecker.isLicensedOrGrace() } returns true
+
+        // AccentResolver's warn gates are object-scoped (process-lifetime), so state from
+        // one @Test can bleed into the next if the same Project mock is reused. Clear
+        // before every test so dedup-count assertions start from a known-empty budget.
+        AccentResolver.resetWarnGatesForTest()
     }
 
     @AfterTest
@@ -240,8 +246,9 @@ class AccentResolverTest {
     @Test
     fun `projectKey logs once per project on canonicalization failure then dedups`() {
         // Hot-path callers (focus swap, rotation tick) must not flood idea.log when a
-        // project's basePath is unresolvable. The dedup set ages out with project disposal.
-        // Path with embedded NUL causes File.canonicalPath to throw on most JVMs.
+        // project's basePath is unresolvable. The canonicalization dedup gate ages out
+        // with project disposal. Path with embedded NUL causes File.canonicalPath to
+        // throw on most JVMs.
         val project = mockk<Project>()
         every { project.basePath } returns "/tmp/path-with-nul-\u0000-byte/project"
         every { project.isDefault } returns false
@@ -279,9 +286,12 @@ class AccentResolverTest {
     fun `projectKey logs once per project on basePath read failure then dedups`() {
         // Symmetric to the canonicalization-failure test: when basePath access itself throws
         // (platform race mid-dispose, project-type regression), the warn must fire once and
-        // then be collapsed by the dedup gate across repeated hot-path calls.
+        // then be collapsed by the dedup gate across repeated hot-path calls. The warn also
+        // carries the project name as a breadcrumb — otherwise triage with several projects
+        // open can't tell which one hit the failure from the log alone.
         val project = mockk<Project>()
         every { project.basePath } throws IllegalStateException("Already disposed: Project")
+        every { project.name } returns "racy-project"
         every { project.isDefault } returns false
         every { project.isDisposed } returns false
 
@@ -308,6 +318,64 @@ class AccentResolverTest {
             1,
             capturedWarns.count { it.contains(expectedSubstring) },
             "basePath-throws dedup must collapse 3 calls into exactly 1 warn; got: $capturedWarns",
+        )
+        assertTrue(
+            capturedWarns.single().contains("racy-project"),
+            "basePath-throws warn must name the project for triage; got: ${capturedWarns.single()}",
+        )
+    }
+
+    @Test
+    fun `projectKey dedup gates are independent per failure mode`() {
+        // The warn gates for basePath-throws and canonicalization-throws are distinct sets.
+        // A single Project hitting BOTH failure modes across its lifetime must produce TWO
+        // warns (one per mode), not one — collapsing the sets back into a shared gate would
+        // silently drop the second mode's breadcrumb.
+        val project = mockk<Project>()
+        every { project.isDefault } returns false
+        every { project.isDisposed } returns false
+        every { project.name } returns "flaky-project"
+        // Phase 1 — basePath itself throws.
+        every { project.basePath } throws IllegalStateException("Already disposed: Project")
+
+        val basePathSubstring = "Failed to read basePath"
+        val canonicalSubstring = "canonicalize basePath"
+        val capturedWarns = mutableListOf<String>()
+        val processor =
+            object : com.intellij.testFramework.LoggedErrorProcessor() {
+                override fun processWarn(
+                    category: String,
+                    message: String,
+                    throwable: Throwable?,
+                ): Boolean {
+                    if (!message.contains(basePathSubstring) && !message.contains(canonicalSubstring)) {
+                        return true
+                    }
+                    capturedWarns += message
+                    return false
+                }
+            }
+
+        com.intellij.testFramework.LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
+            assertNull(AccentResolver.projectKey(project))
+
+            // Phase 2 — basePath now yields a non-canonicalizable path (embedded NUL).
+            // The canonicalization branch has its own dedup, so a second warn must fire
+            // even though the project already tripped the basePath gate in phase 1.
+            every { project.basePath } returns "/tmp/path-with-nul-\u0000-byte/project"
+            assertNull(AccentResolver.projectKey(project))
+        }
+
+        assertEquals(
+            1,
+            capturedWarns.count { it.contains(basePathSubstring) },
+            "basePath-throws warn must fire exactly once; got: $capturedWarns",
+        )
+        assertEquals(
+            1,
+            capturedWarns.count { it.contains(canonicalSubstring) },
+            "canonicalize warn must fire exactly once AFTER the basePath gate was already " +
+                "tripped (proves the gates are per-mode, not shared); got: $capturedWarns",
         )
     }
 

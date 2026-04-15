@@ -5,6 +5,7 @@ import com.intellij.openapi.project.Project
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
+import org.jetbrains.annotations.TestOnly
 import java.io.File
 import java.util.Collections
 import java.util.WeakHashMap
@@ -32,18 +33,13 @@ object AccentResolver {
     private val LOG = logger<AccentResolver>()
 
     /**
-     * Per-failure-mode gates for [projectKey] warnings — see the [projectKey] KDoc for why.
-     * Split across two sets so a project that previously hit one failure mode can still log
+     * Per-failure-mode warn gates for [projectKey] — see the [projectKey] KDoc for why.
+     * Split across two gates so a project that previously hit one failure mode can still log
      * the other: a project whose `basePath` throws once, then later hands back a path whose
      * canonicalization fails, must not have the second warn silently dropped by a shared gate.
-     * Backed by synchronized WeakHashMaps because the resolver is called from multiple
-     * threads (EDT from the AWT listener, coroutine from [dev.ayuislands.AyuIslandsStartupActivity],
-     * background from rotation). Weak references let entries age out with project disposal.
      */
-    private val loggedBasePathFailures: MutableSet<Project> =
-        Collections.synchronizedSet(Collections.newSetFromMap(WeakHashMap()))
-    private val loggedCanonicalFailures: MutableSet<Project> =
-        Collections.synchronizedSet(Collections.newSetFromMap(WeakHashMap()))
+    private val basePathWarnGate = OneShotProjectGate()
+    private val canonicalWarnGate = OneShotProjectGate()
 
     /**
      * Resolves the effective accent hex. Delegates to the shared override-traversal helper,
@@ -115,17 +111,20 @@ object AccentResolver {
                     // Symmetric with the canonicalization branch below: a platform regression
                     // making `project.basePath` throw for any project type would silently
                     // demote every project to global accent without a breadcrumb unless we
-                    // log here too.
-                    if (loggedBasePathFailures.add(project)) {
+                    // log here too. `project.name` is read defensively inside runCatching for
+                    // the same reason — when basePath throws, name access is likely to throw
+                    // from the same mid-dispose race, and we'd rather log a marker than a NPE.
+                    if (basePathWarnGate.tryAcquire(project)) {
+                        val name = runCatching { project.name }.getOrDefault("<disposed>")
                         LOG.warn(
-                            "Failed to read basePath for project; falling back to global accent",
+                            "Failed to read basePath for project '$name'; falling back to global accent",
                             exception,
                         )
                     }
                 }.getOrNull() ?: return null
         return runCatching { File(raw).canonicalPath }
             .onFailure { exception ->
-                if (loggedCanonicalFailures.add(project)) {
+                if (canonicalWarnGate.tryAcquire(project)) {
                     val name = runCatching { project.name }.getOrDefault("<disposed>")
                     LOG.warn(
                         "Failed to canonicalize basePath for '$name' ($raw); " +
@@ -134,5 +133,42 @@ object AccentResolver {
                     )
                 }
             }.getOrNull()
+    }
+
+    /**
+     * Test-only seam: clear both warn gates so each test gets a fresh budget. Without this,
+     * `object`-scoped state leaks across test methods when a Project mock happens to be
+     * reused, silently dropping dedup-assertable warns under test-ordering variance.
+     */
+    @TestOnly
+    internal fun resetWarnGatesForTest() {
+        basePathWarnGate.clear()
+        canonicalWarnGate.clear()
+    }
+
+    /**
+     * One-shot per-project warn gate. [tryAcquire] returns `true` the first time a given
+     * project is seen and `false` on every subsequent call — so hot-path callers can emit
+     * a warn at first failure without spamming idea.log every focus swap / rotation tick.
+     *
+     * Backed by a synchronized WeakHashMap because the resolver is called from multiple
+     * threads (EDT from the AWT listener, coroutine from
+     * [dev.ayuislands.AyuIslandsStartupActivity], background from rotation). Weak references
+     * let entries age out with project disposal, so long-running IDE sessions don't
+     * accumulate unbounded gate state as projects open and close.
+     *
+     * Encapsulated as its own type so the invariant ("membership = warn-has-fired; only
+     * `add()`'s return value is load-bearing") lives in the type instead of comments, and
+     * the `Set.clear / contains / remove / iterate` surface is hidden from callers.
+     */
+    private class OneShotProjectGate {
+        private val seen: MutableSet<Project> =
+            Collections.synchronizedSet(Collections.newSetFromMap(WeakHashMap()))
+
+        fun tryAcquire(project: Project): Boolean = seen.add(project)
+
+        fun clear() {
+            seen.clear()
+        }
     }
 }

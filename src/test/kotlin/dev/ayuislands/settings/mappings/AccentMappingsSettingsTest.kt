@@ -1,6 +1,7 @@
 package dev.ayuislands.settings.mappings
 
 import com.intellij.testFramework.LoggedErrorProcessor
+import java.util.ConcurrentModificationException
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -213,5 +214,123 @@ class AccentMappingsSettingsTest {
         val settings = AccentMappingsSettings()
         assertNotNull(settings.state)
         assertTrue(settings.state.projectAccents.isEmpty())
+    }
+
+    @Test
+    fun `migrateUserHomeMacro links both rewrite failures via addSuppressed`() {
+        // When both map rewrites throw (e.g., concurrent structural modification during
+        // startup deserialization), triage must see BOTH causes — not just the first.
+        // Without addSuppressed linkage, collapsing to `primary ?: secondary` loses the
+        // second failure mode, which matters when the two exceptions carry different
+        // context (different map, different mutating thread, different stack).
+        //
+        // BaseState-delegated maps on the real `AccentMappingsState` can't easily be
+        // swapped for throwing ones — instead, we go through the `@internal` seam and
+        // hand it maps whose iteration deliberately throws.
+        System.setProperty("user.home", "/Users/alice")
+        val settings = AccentMappingsSettings()
+        val accentsBoom = ConcurrentModificationException("accents map mutated during load")
+        val namesBoom = ConcurrentModificationException("names map mutated during load")
+        val throwingAccents = ThrowingMap(accentsBoom)
+        val throwingNames = ThrowingMap(namesBoom)
+
+        val captured = mutableListOf<Pair<String, Throwable?>>()
+        val processor =
+            object : LoggedErrorProcessor() {
+                override fun processWarn(
+                    category: String,
+                    message: String,
+                    throwable: Throwable?,
+                ): Boolean {
+                    captured += message to throwable
+                    return false
+                }
+            }
+
+        LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
+            settings.migrateUserHomeMacro(throwingAccents, throwingNames)
+        }
+
+        val migrationWarn =
+            captured.firstOrNull { it.first.contains("Failed to migrate") }
+                ?: error("Expected a 'Failed to migrate' warn, got: $captured")
+        val primary =
+            assertNotNull(
+                migrationWarn.second,
+                "warn must carry the primary exception for triage",
+            )
+        assertEquals(
+            accentsBoom,
+            primary,
+            "accents cause must be the primary exception (not the names cause)",
+        )
+        assertEquals(
+            listOf(namesBoom),
+            primary.suppressed.toList(),
+            "names cause must be linked via addSuppressed so both failure modes are " +
+                "visible in the stack trace; got suppressed=${primary.suppressed.toList()}",
+        )
+    }
+
+    @Test
+    fun `migrateUserHomeMacro logs only the accents cause when names rewrite succeeds`() {
+        // Asymmetry check: when ONLY the accents rewrite throws, the warn must carry the
+        // accents cause unchanged — no spurious `addSuppressed` wiring when there's no
+        // secondary cause to link.
+        System.setProperty("user.home", "/Users/alice")
+        val settings = AccentMappingsSettings()
+        val accentsBoom = ConcurrentModificationException("accents-only boom")
+        val throwingAccents = ThrowingMap(accentsBoom)
+        val healthyNames = mutableMapOf<String, String>("/tmp/proj" to "Foo")
+
+        val capturedThrowables = mutableListOf<Throwable?>()
+        val processor =
+            object : LoggedErrorProcessor() {
+                override fun processWarn(
+                    category: String,
+                    message: String,
+                    throwable: Throwable?,
+                ): Boolean {
+                    if (message.contains("Failed to migrate")) {
+                        capturedThrowables += throwable
+                    }
+                    return false
+                }
+            }
+
+        LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
+            settings.migrateUserHomeMacro(throwingAccents, healthyNames)
+        }
+
+        val primary =
+            assertNotNull(
+                capturedThrowables.single(),
+                "single-failure warn must carry a non-null cause",
+            )
+        assertEquals(accentsBoom, primary, "single-failure warn must carry the accents cause")
+        assertTrue(
+            primary.suppressed.isEmpty(),
+            "no addSuppressed linkage when only one rewrite failed; got suppressed=${primary.suppressed.toList()}",
+        )
+    }
+
+    /**
+     * Throws a caller-specified exception on every iteration-shaped access (`entries`,
+     * `keys`, `values`). Delegates reads like `size` / `isEmpty` / `containsKey` to a
+     * non-empty backing map so `Map.none { ... }` doesn't short-circuit via its isEmpty
+     * fast-path — the throw only fires from iteration, which is what we want to exercise
+     * the `runCatching { rewriteKeys(...) }` branch in
+     * [AccentMappingsSettings.migrateUserHomeMacro] without reflection or instrumentation.
+     */
+    private class ThrowingMap(
+        private val boom: RuntimeException,
+        private val backing: MutableMap<String, String> = mutableMapOf("/seed" to "value"),
+    ) : MutableMap<String, String> by backing {
+        override val entries: MutableSet<MutableMap.MutableEntry<String, String>>
+            get() = throw boom
+        override val keys: MutableSet<String>
+            get() = throw boom
+        override val values: MutableCollection<String>
+            get() = throw boom
     }
 }

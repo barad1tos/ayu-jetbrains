@@ -602,20 +602,22 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
      * Route accent apply through [AccentApplicator.applyForFocusedProject] so a stored
      * per-project/per-language override wins over the freshly-stored global accent.
      *
-     * Three independent failure modes, each with its own recovery path:
+     * Each stage has its own recovery path so the Settings panel never escalates a
+     * corrupted hex into a generic "Can't save" dialog:
      *
-     *  1. `applyForFocusedProject` throws — typically a corrupted stored override hex
-     *     (hand-edited XML, legacy writer) blowing up `Color.decode` inside UIManager fill.
-     *     Fall back to applying [effectiveAccent] (the unresolved global) directly AND sync
-     *     the swap-cache so the next WINDOW_ACTIVATED doesn't redundantly re-apply — this
-     *     is the same invariant `applyForFocusedProject` itself maintains.
-     *  2. The global-fallback `apply` also throws — the global hex itself is malformed.
-     *     Log the secondary failure and leave the visible accent unchanged; the Settings
-     *     panel stays operational instead of escalating into a generic "Can't save" dialog.
-     *  3. The global-fallback `apply` succeeded but `notifyExternalApply` throws — the
-     *     visible accent DID change, only the focus-swap cache is stale. Log at WARN (not
-     *     ERROR) to distinguish from the harder "apply also failed" path, and return;
-     *     the next WINDOW_ACTIVATED will redundantly re-apply without user-visible impact.
+     *  - Preferred path: `applyForFocusedProject` resolves the override chain and applies
+     *    the winning color. Typical failure mode is a corrupted stored override hex
+     *    (hand-edited XML, legacy writer) blowing up `Color.decode` inside UIManager fill.
+     *    On throw, we log at ERROR and fall through to the global-fallback block below.
+     *  - Global-fallback `apply`: re-applies [effectiveAccent] (the unresolved global hex)
+     *    directly. On throw, the global hex itself is malformed — log at ERROR and return;
+     *    the visible accent stays unchanged and the Settings panel remains operational.
+     *  - Global-fallback `notifyExternalApply`: syncs the focus-swap cache so the next
+     *    WINDOW_ACTIVATED doesn't redundantly re-apply — the same invariant
+     *    `applyForFocusedProject` itself maintains internally. On throw after the global
+     *    apply succeeded, the visible accent DID change and only the cache is stale; log
+     *    at WARN (not ERROR) to distinguish from the "apply also failed" path. The next
+     *    WINDOW_ACTIVATED will redundantly re-apply without user-visible impact.
      *
      * Visibility: `internal` (instead of `private`) so unit tests can exercise the
      * failure-recovery contract directly, without going through the BoundConfigurable
@@ -638,11 +640,11 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
             )
         }
 
-        // Two discrete failure modes; keep the logs honest:
-        //  - apply() throws → visible accent unchanged, log "also failed"
-        //  - notifyExternalApply() throws after apply() succeeded → visible accent DID
-        //    change, only the swap cache is stale; log that specifically so triage
-        //    doesn't get "also failed" on a path where apply actually worked.
+        // Keep the logs honest across the two remaining stages: a thrown `apply` leaves the
+        // visible accent unchanged (logged as "also failed"), whereas a thrown
+        // `notifyExternalApply` after a successful `apply` means the accent DID change and
+        // only the swap cache is stale. Log them separately so triage doesn't get an "also
+        // failed" breadcrumb on a path where apply actually worked.
         try {
             AccentApplicator.apply(effectiveAccent)
         } catch (exception: RuntimeException) {

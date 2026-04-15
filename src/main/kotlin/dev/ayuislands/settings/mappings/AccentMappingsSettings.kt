@@ -31,18 +31,25 @@ import com.intellij.openapi.diagnostic.logger
 class AccentMappingsSettings : SimplePersistentStateComponent<AccentMappingsState>(AccentMappingsState()) {
     override fun loadState(state: AccentMappingsState) {
         super.loadState(state)
-        migrateUserHomeMacro(state)
+        migrateUserHomeMacro(state.projectAccents, state.projectDisplayNames)
     }
 
     /**
      * Back-fill migration: earlier builds persisted paths under `$USER_HOME$/...` because
      * path-macro substitution defaulted to on. Rewrite any such keys in-place on load so
      * existing users keep their mappings after this fix ships.
+     *
+     * Takes maps as parameters (rather than an [AccentMappingsState]) so tests can substitute
+     * throwing maps to exercise the `runCatching` branches — `BaseState`-delegated map
+     * accessors are private and cannot be swapped on a real state instance.
      */
-    private fun migrateUserHomeMacro(state: AccentMappingsState) {
+    internal fun migrateUserHomeMacro(
+        projectAccents: MutableMap<String, String>,
+        projectDisplayNames: MutableMap<String, String>,
+    ) {
         val userHome = System.getProperty("user.home")?.takeIf { it.isNotBlank() }
         if (userHome == null) {
-            logBlankUserHomeIfLegacyKeysPresent(state)
+            logBlankUserHomeIfLegacyKeysPresent(projectAccents, projectDisplayNames)
             return
         }
 
@@ -58,33 +65,46 @@ class AccentMappingsSettings : SimplePersistentStateComponent<AccentMappingsStat
         // succeed do we swap them into place. rewriteKeys may legitimately return null when
         // a map has no macro-prefixed keys — that's different from exceptional failure, so
         // we distinguish Result.isFailure explicitly rather than collapsing via getOrNull.
-        val accentsResult = runCatching { rewriteKeys(state.projectAccents, userHome) }
-        val namesResult = runCatching { rewriteKeys(state.projectDisplayNames, userHome) }
+        val accentsResult = runCatching { rewriteKeys(projectAccents, userHome) }
+        val namesResult = runCatching { rewriteKeys(projectDisplayNames, userHome) }
         if (accentsResult.isFailure || namesResult.isFailure) {
-            // If both rewrites failed, link the second cause via addSuppressed so triage
-            // doesn't lose visibility on the second failure mode.
-            val primary = accentsResult.exceptionOrNull() ?: namesResult.exceptionOrNull()!!
-            if (accentsResult.isFailure && namesResult.isFailure) {
-                namesResult.exceptionOrNull()?.let { primary.addSuppressed(it) }
-            }
-            LOG.warn(
-                "Failed to migrate \$USER_HOME\$-prefixed accent-mapping keys; " +
-                    "will retry on next IDE restart",
-                primary,
-            )
+            warnMigrationFailed(accentsResult, namesResult)
             return
         }
 
         val rewrittenAccents = accentsResult.getOrNull()
         val rewrittenNames = namesResult.getOrNull()
         if (rewrittenAccents != null) {
-            state.projectAccents.clear()
-            state.projectAccents.putAll(rewrittenAccents)
+            projectAccents.clear()
+            projectAccents.putAll(rewrittenAccents)
         }
         if (rewrittenNames != null) {
-            state.projectDisplayNames.clear()
-            state.projectDisplayNames.putAll(rewrittenNames)
+            projectDisplayNames.clear()
+            projectDisplayNames.putAll(rewrittenNames)
         }
+    }
+
+    /**
+     * Emits a single WARN for a rewrite failure. When BOTH rewrites throw, the second cause
+     * is linked to the primary via [Throwable.addSuppressed] so triage sees both failure
+     * modes instead of losing the secondary to the `?:` collapse. Caller guarantees at least
+     * one of the two results has failed.
+     */
+    private fun warnMigrationFailed(
+        accentsResult: Result<Map<String, String>?>,
+        namesResult: Result<Map<String, String>?>,
+    ) {
+        val accentsCause = accentsResult.exceptionOrNull()
+        val namesCause = namesResult.exceptionOrNull()
+        val primary = accentsCause ?: namesCause!!
+        if (accentsCause != null && namesCause != null) {
+            primary.addSuppressed(namesCause)
+        }
+        LOG.warn(
+            "Failed to migrate \$USER_HOME\$-prefixed accent-mapping keys; " +
+                "will retry on next IDE restart",
+            primary,
+        )
     }
 
     /**
@@ -95,11 +115,14 @@ class AccentMappingsSettings : SimplePersistentStateComponent<AccentMappingsStat
      * The probe itself is in runCatching because a CME reading `.keys` during startup
      * deserialization must not propagate out of `loadState` and fail settings loading.
      */
-    private fun logBlankUserHomeIfLegacyKeysPresent(state: AccentMappingsState) {
+    private fun logBlankUserHomeIfLegacyKeysPresent(
+        projectAccents: Map<String, String>,
+        projectDisplayNames: Map<String, String>,
+    ) {
         val hasLegacyKeys =
             runCatching {
-                state.projectAccents.keys.any { it.startsWith(USER_HOME_MACRO) } ||
-                    state.projectDisplayNames.keys.any { it.startsWith(USER_HOME_MACRO) }
+                projectAccents.keys.any { it.startsWith(USER_HOME_MACRO) } ||
+                    projectDisplayNames.keys.any { it.startsWith(USER_HOME_MACRO) }
             }.getOrDefault(false)
         if (hasLegacyKeys) {
             LOG.warn(
