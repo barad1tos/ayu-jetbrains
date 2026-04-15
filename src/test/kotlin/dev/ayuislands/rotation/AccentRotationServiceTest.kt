@@ -1,5 +1,9 @@
 package dev.ayuislands.rotation
 
+import com.intellij.notification.Notification
+import com.intellij.notification.NotificationGroup
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.util.Condition
@@ -261,6 +265,100 @@ class AccentRotationServiceTest {
     }
 
     @Test
+    fun `three consecutive failures trip the circuit breaker and notify the user`() {
+        // Regression guard for commit e8345db: MAX_CONSECUTIVE_FAILURES = 3. Flipping the
+        // off-by-one, dropping the reset on success, or removing the notification should
+        // fail this test instead of shipping a silently-broken rotation feature.
+        mockRotationEnvironment()
+        val (notificationGroup, createdNotifications) = captureNotifications()
+        state.accentRotationEnabled = true
+        state.accentRotationMode = AccentRotationMode.PRESET.name
+        every { AccentApplicator.apply(any()) } throws RuntimeException("stage=apply failed")
+
+        val suppressLoggedErrors =
+            object : LoggedErrorProcessor() {
+                override fun processError(
+                    category: String,
+                    message: String,
+                    details: Array<out String>,
+                    throwable: Throwable?,
+                ): Set<Action> = EnumSet.noneOf(Action::class.java)
+            }
+
+        val service = AccentRotationService()
+        LoggedErrorProcessor.executeWith<RuntimeException>(suppressLoggedErrors) {
+            repeat(THREE) { service.rotateAccent() }
+        }
+
+        // Notification fires exactly once — on the third consecutive failure, not earlier, not
+        // again on a hypothetical fourth tick after the breaker tripped.
+        verify(exactly = 1) {
+            notificationGroup.createNotification(any<String>(), any<String>(), NotificationType.WARNING)
+        }
+        assertEquals(1, createdNotifications.size)
+    }
+
+    @Test
+    fun `successful tick between failures resets the circuit-breaker budget`() {
+        // Regression guard for the reset-on-success path (consecutiveFailures = 0 after a
+        // clean runApplyStage). Two fail + one success + two fail must NOT trip the breaker
+        // because consecutive-failures counts go 1, 2, 0, 1, 2 — never reaches 3.
+        mockRotationEnvironment()
+        val (notificationGroup, _) = captureNotifications()
+        state.accentRotationEnabled = true
+        state.accentRotationMode = AccentRotationMode.PRESET.name
+
+        val applyCalls = mutableListOf<String>()
+        every { AccentApplicator.apply(any()) } answers {
+            applyCalls += firstArg<String>()
+            if (applyCalls.size == THREE) return@answers Unit
+            @Suppress("TooGenericExceptionThrown") // Test-only simulation of applicator failure
+            throw RuntimeException("fail ${applyCalls.size}")
+        }
+
+        val suppressLoggedErrors =
+            object : LoggedErrorProcessor() {
+                override fun processError(
+                    category: String,
+                    message: String,
+                    details: Array<out String>,
+                    throwable: Throwable?,
+                ): Set<Action> = EnumSet.noneOf(Action::class.java)
+            }
+
+        val service = AccentRotationService()
+        LoggedErrorProcessor.executeWith<RuntimeException>(suppressLoggedErrors) {
+            repeat(FIVE) { service.rotateAccent() }
+        }
+
+        verify(exactly = 0) {
+            notificationGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
+        }
+    }
+
+    /**
+     * Wire `NotificationGroupManager.getInstance().getNotificationGroup("Ayu Islands")` to a
+     * relaxed mock and return the group plus a capture list so tests can assert the circuit
+     * breaker's user-visible outcome without needing the real notification subsystem.
+     */
+    private fun captureNotifications(): Pair<NotificationGroup, MutableList<Notification>> {
+        val group = mockk<NotificationGroup>(relaxed = true)
+        val captured = mutableListOf<Notification>()
+        every {
+            group.createNotification(any<String>(), any<String>(), any<NotificationType>())
+        } answers {
+            val notification = mockk<Notification>(relaxed = true)
+            captured += notification
+            notification
+        }
+        val notificationManager = mockk<NotificationGroupManager>()
+        every { notificationManager.getNotificationGroup("Ayu Islands") } returns group
+        mockkStatic(NotificationGroupManager::class)
+        every { NotificationGroupManager.getInstance() } returns notificationManager
+        return group to captured
+    }
+
+    @Test
     fun `rotateAccent swallows AccentApplicator failures and still syncs glow`() {
         mockRotationEnvironment()
         state.accentRotationEnabled = true
@@ -297,5 +395,10 @@ class AccentRotationServiceTest {
         verify(exactly = 1) { GlowOverlayManager.syncGlowForAllProjects() }
         assertEquals(1, loggedErrors.size, "Expected exactly one LOG.error for the failed apply()")
         assertEquals("boom", loggedErrors.single()?.message)
+    }
+
+    companion object {
+        private const val THREE = 3
+        private const val FIVE = 5
     }
 }

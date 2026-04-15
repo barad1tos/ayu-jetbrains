@@ -2,6 +2,7 @@ package dev.ayuislands.settings.mappings
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -54,10 +55,9 @@ class LanguageMappingsTableModelTest {
         // Regression guard: the type-level invariant catches a future caller that forgets
         // to .lowercase() before constructing — what used to be a silent drift is now a
         // loud IllegalArgumentException at the seam.
-        val thrown =
-            runCatching { LanguageMapping("Kotlin", "Kotlin", "#111111") }
-                .exceptionOrNull()
-        assertTrue(thrown is IllegalArgumentException)
+        assertFailsWith<IllegalArgumentException> {
+            LanguageMapping("Kotlin", "Kotlin", "#111111")
+        }
     }
 
     @Test
