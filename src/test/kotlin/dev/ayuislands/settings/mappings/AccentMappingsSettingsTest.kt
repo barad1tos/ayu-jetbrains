@@ -1,5 +1,6 @@
 package dev.ayuislands.settings.mappings
 
+import com.intellij.testFramework.LoggedErrorProcessor
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -131,6 +132,79 @@ class AccentMappingsSettingsTest {
         settings.loadState(settings.state)
 
         assertEquals(afterFirstLoad, settings.state.projectAccents.toMap())
+    }
+
+    @Test
+    fun `loadState warns when legacy keys exist but user home is unavailable`() {
+        // Red-green guard for the actionable breadcrumb commit b1c1e4e added: without
+        // user.home, stored `$USER_HOME$/...` keys can never be migrated, so the user's
+        // overrides invisibly fall through to the global accent. The warn log is the only
+        // signal an affected user has — removing it would silently regress the migration UX.
+        System.setProperty("user.home", "")
+        val settings = AccentMappingsSettings()
+        val state =
+            AccentMappingsState().apply {
+                projectAccents["\$USER_HOME\$/dev/foo"] = "#FFCD66"
+            }
+
+        val capturedMessages = mutableListOf<String>()
+        val processor =
+            object : LoggedErrorProcessor() {
+                override fun processWarn(
+                    category: String,
+                    message: String,
+                    throwable: Throwable?,
+                ): Boolean {
+                    capturedMessages += message
+                    return false // suppress promotion to AssertionError in test environment
+                }
+            }
+
+        LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
+            settings.loadState(state)
+        }
+
+        assertTrue(
+            capturedMessages.any { it.contains("legacy") && it.contains("user.home") },
+            "Expected a warn about legacy \$USER_HOME\$ keys + missing user.home, " +
+                "got: $capturedMessages",
+        )
+    }
+
+    @Test
+    fun `loadState does NOT warn when user home is blank but no legacy keys exist`() {
+        // Symmetric guard: the warn is gated on legacy keys being present. A user with a
+        // blank user.home and no legacy keys should NOT see the breadcrumb (false-positive
+        // would cry wolf and dilute the signal for actually-affected users).
+        System.setProperty("user.home", "")
+        val settings = AccentMappingsSettings()
+        val state =
+            AccentMappingsState().apply {
+                projectAccents["/Users/alice/dev/foo"] = "#FFCD66"
+            }
+
+        val capturedMessages = mutableListOf<String>()
+        val processor =
+            object : LoggedErrorProcessor() {
+                override fun processWarn(
+                    category: String,
+                    message: String,
+                    throwable: Throwable?,
+                ): Boolean {
+                    capturedMessages += message
+                    return false // suppress promotion to AssertionError in test environment
+                }
+            }
+
+        LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
+            settings.loadState(state)
+        }
+
+        assertTrue(
+            capturedMessages.none { it.contains("legacy") },
+            "No legacy-key warn should fire when no \$USER_HOME\$ keys are present, " +
+                "got: $capturedMessages",
+        )
     }
 
     @Test

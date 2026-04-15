@@ -66,6 +66,14 @@ class EditorScrollbarManager(
     }
 
     /**
+     * Test-only entry point for [resetOriginalSizeCache]. The listener path that calls it
+     * goes through `project.messageBus.syncPublisher(...)` which is impractical to wire
+     * without a real Project; this seam lets unit tests verify the catch path directly.
+     */
+    @org.jetbrains.annotations.TestOnly
+    internal fun resetOriginalSizeCacheForTest() = resetOriginalSizeCache()
+
+    /**
      * Clear `ORIGINAL_PREFERRED_SIZE_KEY` on every currently-patched scrollbar so the next
      * [hideScrollBar] call captures the post-refresh default instead of serving a stale
      * pre-LAF-change dimension.

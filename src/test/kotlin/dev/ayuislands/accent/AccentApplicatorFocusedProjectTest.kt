@@ -2,6 +2,8 @@ package dev.ayuislands.accent
 
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.wm.IdeFocusManager
+import com.intellij.openapi.wm.IdeFrame
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import io.mockk.Runs
 import io.mockk.every
@@ -101,6 +103,73 @@ class AccentApplicatorFocusedProjectTest {
         assertEquals("#F29718", applied)
         verify(exactly = 1) { AccentApplicator.apply("#F29718") }
         verify(exactly = 1) { swapService.notifyExternalApply("#F29718") }
+    }
+
+    @Test
+    fun `applyForFocusedProject prefers IdeFocusManager focused frame over openProjects order`() {
+        // Locks the primary path of resolveFocusedProject: when IdeFocusManager.lastFocusedFrame
+        // resolves to a real project, that wins over openProjects enumeration. Multi-window
+        // bug R2 was about the OPPOSITE — silently picking the first open project regardless
+        // of which window the user is actually in. This test proves the fix prefers focus
+        // state.
+        val focusedProject = stubProject(isDefault = false, isDisposed = false)
+        val otherProject = stubProject(isDefault = false, isDisposed = false)
+
+        val focusedFrame =
+            mockk<IdeFrame> {
+                every { project } returns focusedProject
+            }
+        val focusManager =
+            mockk<IdeFocusManager> {
+                every { lastFocusedFrame } returns focusedFrame
+            }
+        mockkStatic(IdeFocusManager::class)
+        every { IdeFocusManager.getGlobalInstance() } returns focusManager
+
+        // Both projects are in openProjects; the focused-frame project must win even if
+        // it's NOT the first in enumeration order.
+        val manager = mockk<ProjectManager>()
+        every { manager.openProjects } returns arrayOf(otherProject, focusedProject)
+        every { ProjectManager.getInstance() } returns manager
+
+        every { AccentResolver.resolve(focusedProject, AyuVariant.MIRAGE) } returns "#FOCUSED"
+
+        val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
+
+        assertEquals("#FOCUSED", applied)
+        verify(exactly = 1) { AccentResolver.resolve(focusedProject, AyuVariant.MIRAGE) }
+        verify(exactly = 0) { AccentResolver.resolve(otherProject, any()) }
+    }
+
+    @Test
+    fun `applyForFocusedProject falls back to openProjects when focused frame project is disposed`() {
+        // Edge case in resolveFocusedProject: lastFocusedFrame returns a project that
+        // disposed between focus event and our read. The takeIf { isUsable() } guard
+        // discards it; the openProjects scan provides the fallback.
+        val disposedProject = stubProject(isDefault = false, isDisposed = true)
+        val healthyProject = stubProject(isDefault = false, isDisposed = false)
+
+        val staleFrame =
+            mockk<IdeFrame> {
+                every { project } returns disposedProject
+            }
+        val focusManager =
+            mockk<IdeFocusManager> {
+                every { lastFocusedFrame } returns staleFrame
+            }
+        mockkStatic(IdeFocusManager::class)
+        every { IdeFocusManager.getGlobalInstance() } returns focusManager
+
+        val manager = mockk<ProjectManager>()
+        every { manager.openProjects } returns arrayOf(healthyProject)
+        every { ProjectManager.getInstance() } returns manager
+
+        every { AccentResolver.resolve(healthyProject, AyuVariant.MIRAGE) } returns "#FALLBACK"
+
+        val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
+
+        assertEquals("#FALLBACK", applied)
+        verify(exactly = 1) { AccentResolver.resolve(healthyProject, AyuVariant.MIRAGE) }
     }
 
     @Test

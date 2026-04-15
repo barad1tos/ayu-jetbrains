@@ -205,6 +205,17 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         }
     }
 
+    /**
+     * Test-only hook around [runStep]. Inline private functions can't be called from a
+     * test classpath; this thin wrapper exposes the catch semantics without leaking the
+     * helper itself.
+     */
+    @org.jetbrains.annotations.TestOnly
+    internal fun runStepForTest(
+        name: String,
+        block: () -> Unit,
+    ) = runStep(name, block)
+
     companion object {
         private val LOG = logger<AyuIslandsStartupActivity>()
         private const val MS_PER_HOUR = 3_600_000L

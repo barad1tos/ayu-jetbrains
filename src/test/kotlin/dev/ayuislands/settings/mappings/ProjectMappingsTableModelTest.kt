@@ -2,6 +2,7 @@ package dev.ayuislands.settings.mappings
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -90,6 +91,36 @@ class ProjectMappingsTableModelTest {
         assertEquals("Alpha", model.getValueAt(0, ProjectMappingsTableModel.COLUMN_PROJECT))
         assertEquals("/tmp/a", model.getValueAt(0, ProjectMappingsTableModel.COLUMN_PATH))
         assertNull(model.getValueAt(0, 99))
+    }
+
+    @Test
+    fun `ProjectMapping rejects blank canonicalPath`() {
+        assertFailsWith<IllegalArgumentException> {
+            ProjectMapping(canonicalPath = "", displayName = "Empty", hex = "#FFCC66")
+        }
+    }
+
+    @Test
+    fun `ProjectMapping rejects malformed hex`() {
+        // Three classes of malformed hex the regex ^#[0-9A-Fa-f]{6}$ rejects: short, long,
+        // missing octothorpe. Each surfaces as IllegalArgumentException at the seam instead
+        // of silently flowing into Color.decode downstream.
+        assertFailsWith<IllegalArgumentException> {
+            ProjectMapping(canonicalPath = "/tmp/a", displayName = "A", hex = "#FFC")
+        }
+        assertFailsWith<IllegalArgumentException> {
+            ProjectMapping(canonicalPath = "/tmp/a", displayName = "A", hex = "#AABBCCDD")
+        }
+        assertFailsWith<IllegalArgumentException> {
+            ProjectMapping(canonicalPath = "/tmp/a", displayName = "A", hex = "FFCC66")
+        }
+    }
+
+    @Test
+    fun `ProjectMapping accepts mixed-case hex`() {
+        // The regex permits both upper and lower hex digits — production writers normalize to
+        // upper, but legacy XML or hand-edits using `#aabbcc` shouldn't fail construction.
+        ProjectMapping(canonicalPath = "/tmp/a", displayName = "A", hex = "#aAbBcC")
     }
 
     @Test

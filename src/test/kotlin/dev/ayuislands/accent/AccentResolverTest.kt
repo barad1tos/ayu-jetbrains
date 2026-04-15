@@ -226,6 +226,50 @@ class AccentResolverTest {
         assertEquals(AccentResolver.Source.GLOBAL, AccentResolver.source(project))
     }
 
+    @Test
+    fun `source returns GLOBAL when project is null even with stored mappings`() {
+        // Mirrors the null-project guard tested in `resolve returns global when project is null`
+        // for the source() projection. Together they lock the null-project branch of
+        // findOverride from both sides — resolve and source must agree.
+        val tmp = File(System.getProperty("java.io.tmpdir"), "null-src-proj").canonicalPath
+        mappingsState.projectAccents[tmp] = "#FACADE"
+
+        assertEquals(AccentResolver.Source.GLOBAL, AccentResolver.source(null))
+    }
+
+    @Test
+    fun `projectKey logs once per project on canonicalization failure then dedups`() {
+        // Hot-path callers (focus swap, rotation tick) must not flood idea.log when a
+        // project's basePath is unresolvable. The dedup set ages out with project disposal.
+        // Simulating: a `basePath` that throws on canonicalization (e.g. invalid file path
+        // characters on certain filesystems). We use a deeply nested null-byte path which
+        // causes File.canonicalPath to throw IOException on most JVMs.
+        val project = mockk<Project>()
+        every { project.basePath } returns "/tmp/path-with-nul-\u0000-byte/project"
+        every { project.isDefault } returns false
+        every { project.isDisposed } returns false
+        every { project.name } returns "weird-project"
+
+        // First call exercises the warn path; subsequent calls hit the dedup set.
+        // Both must return null without throwing.
+        assertNull(AccentResolver.projectKey(project))
+        assertNull(AccentResolver.projectKey(project))
+        assertNull(AccentResolver.projectKey(project))
+    }
+
+    @Test
+    fun `projectKey degrades to null when basePath access throws AlreadyDisposedException`() {
+        // Race condition: between the dispose check in findOverride and the basePath read in
+        // projectKey, the project finishes disposing on another thread. basePath access then
+        // throws — we must catch it and return null instead of escalating out of the resolver.
+        val project = mockk<Project>()
+        every { project.basePath } throws IllegalStateException("Already disposed: Project")
+        every { project.isDefault } returns false
+        every { project.isDisposed } returns false
+
+        assertNull(AccentResolver.projectKey(project))
+    }
+
     private fun stubProject(baseDir: File): Project {
         val project = mockk<Project>()
         every { project.isDefault } returns false

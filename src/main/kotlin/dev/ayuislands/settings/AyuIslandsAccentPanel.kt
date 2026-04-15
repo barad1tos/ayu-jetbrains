@@ -612,8 +612,13 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
      *  2. The global-fallback apply also throws — the global hex itself is malformed. Log
      *     the secondary failure and leave the visible accent unchanged; the Settings panel
      *     stays operational instead of escalating into a generic "Can't save" dialog.
+     *
+     * Visibility: `internal` (instead of `private`) so unit tests can verify the
+     * failure-recovery contract directly without instantiating the Swing-heavy panel
+     * scaffolding. `@TestOnly` keeps the seam visible only to test consumers.
      */
-    private fun applyWithFallback(
+    @org.jetbrains.annotations.TestOnly
+    internal fun applyWithFallback(
         currentVariant: AyuVariant,
         effectiveAccent: String,
     ) {
