@@ -17,9 +17,10 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * Locks in the contract of [AccentApplicator.applyForFocusedProject] — picked as a single
- * chokepoint by the DRY refactor, so these tests are the safety net that keeps the sequence
- * (focused-project selection → resolver → apply → swap-cache sync) from silently drifting.
+ * Locks in the contract of [AccentApplicator.applyForFocusedProject] — four production
+ * callers (settings panels, LAF listener, rotation tick, startup) previously hand-wired
+ * inconsistent variants of this sequence. These tests are the safety net that keeps the
+ * sequence (focused-project selection → resolver → apply → swap-cache sync) from drifting.
  *
  * Uses the real [AccentApplicator] object but mocks every collaborator:
  *  - [ProjectManager.getInstance] for the focused-project pick (first non-default, non-disposed)

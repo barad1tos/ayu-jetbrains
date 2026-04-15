@@ -140,21 +140,16 @@ object AccentApplicator {
     }
 
     /**
-     * Convenience wrapper around [AccentResolver.resolve] + [apply] for the "currently
-     * focused project" use case — callers (settings panels, LAF listener, rotation tick)
-     * previously hand-wired the same pattern:
+     * Convenience wrapper around [AccentResolver.resolve] + [apply] for the "currently focused
+     * project" use case. Before this helper existed, four callers (settings panels, LAF
+     * listener, rotation tick, startup) hand-wired variants of the same sequence — and they
+     * were *inconsistent*: only the rotation path and the overrides-panel re-apply called
+     * [ProjectAccentSwapService.notifyExternalApply]; the panels and LAF listener skipped it,
+     * leaving the swap-cache stale and causing one redundant apply on the next WINDOW_ACTIVATED.
      *
-     * ```
-     * val focused = ProjectManager.getInstance().openProjects
-     *     .firstOrNull { !it.isDefault && !it.isDisposed }
-     * val hex = AccentResolver.resolve(focused, variant)
-     * AccentApplicator.apply(hex)
-     * ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
-     * ```
-     *
-     * Centralizing the sequence keeps focused-project selection, override-priority
-     * resolution, and swap-cache synchronization consistent across callers. Returns
-     * the applied hex so callers can log or display it.
+     * Centralizing the sequence makes focused-project selection, override-priority resolution,
+     * and swap-cache synchronization uniformly correct across callers. Returns the applied
+     * hex so callers can log or display it.
      */
     fun applyForFocusedProject(variant: AyuVariant): String {
         val focusedProject = resolveFocusedProject()

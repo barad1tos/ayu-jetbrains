@@ -226,17 +226,21 @@ class AccentRotationService : Disposable {
                 "Accent rotation stage=apply failed (mode=$mode, color=${newHex.second})",
                 exception,
             )
-            RotationFailure(stage = "apply", exception = exception)
+            RotationFailure(stage = Stage.APPLY, exception = exception)
         }
 
-    /** Sync glow overlays with the new accent. Separate stage so apply failures don't mask it. */
+    /**
+     * Sync glow overlays with the new accent. Already ran in its own try/catch pre-refactor;
+     * what this commit series adds is feeding a shared circuit-breaker counter through the
+     * returned [RotationFailure].
+     */
     private fun runGlowStage(): RotationFailure? =
         try {
             GlowOverlayManager.syncGlowForAllProjects()
             null
         } catch (exception: RuntimeException) {
             LOG.error("Accent rotation stage=glow-sync failed", exception)
-            RotationFailure(stage = "glow-sync", exception = exception)
+            RotationFailure(stage = Stage.GLOW_SYNC, exception = exception)
         }
 
     /**
@@ -257,15 +261,27 @@ class AccentRotationService : Disposable {
                 .createNotification(
                     "Ayu Islands: accent rotation stopped",
                     "Rotation failed $MAX_CONSECUTIVE_FAILURES times in a row (last stage: " +
-                        "${failure.stage}). Re-enable it from Settings > Accent > Rotation after " +
-                        "checking the logs.",
+                        "${failure.stage.logLabel}). Re-enable it from Settings > Accent > " +
+                        "Rotation after checking the logs.",
                     NotificationType.WARNING,
                 )
         notification.notify(null)
     }
 
+    /**
+     * Pipeline stages the circuit breaker tracks. Previously stringly-typed (`"apply"` /
+     * `"glow-sync"`), which let a typo-prone caller silently write the wrong label into logs
+     * and notifications. Closed enum so the compiler catches label drift.
+     */
+    private enum class Stage(
+        val logLabel: String,
+    ) {
+        APPLY("apply"),
+        GLOW_SYNC("glow-sync"),
+    }
+
     private data class RotationFailure(
-        val stage: String,
+        val stage: Stage,
         val exception: Throwable,
     )
 
@@ -278,9 +294,10 @@ class AccentRotationService : Disposable {
         private const val NOTIFICATION_GROUP_ID = "Ayu Islands"
 
         /**
-         * Trip the circuit breaker and notify the user after three consecutive rotation
-         * failures. Lower threshold risks spurious notifications on transient hiccups;
-         * higher threshold means three+ hours of silent log spam before the user finds out.
+         * Trip the circuit breaker and notify the user after this many consecutive rotation
+         * failures. Lower threshold risks spurious notifications on transient hiccups; higher
+         * threshold lets the log spam accumulate across more rotation cycles before the user
+         * discovers rotation has been silently broken.
          */
         private const val MAX_CONSECUTIVE_FAILURES = 3
 

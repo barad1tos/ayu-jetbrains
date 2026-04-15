@@ -54,9 +54,10 @@ class ProjectAccentSwapService : Disposable {
     private fun onWindowActivated(event: AWTEvent) {
         // Wrap the entire handler so a single exception (e.g. Color.decode on a corrupted stored
         // hex, WindowManager state inconsistency during shutdown) does not escape to the AWT
-        // dispatcher. Without this, a transient failure would still propagate to the uncaught
-        // exception handler, land in idea.log as SEVERE, and the AWTEventListener would keep
-        // re-firing the broken path on every subsequent WINDOW_ACTIVATED.
+        // dispatcher. AWT does not remove failing listeners, so the listener would keep firing
+        // — but each failure would dump a generic uncaught-exception trace into idea.log (SEVERE
+        // in some IDE builds, which triggers a user-visible error balloon) with no project /
+        // hex context. The catch here converts that into an actionable LOG.error.
         try {
             handleWindowActivated(event)
         } catch (exception: RuntimeException) {

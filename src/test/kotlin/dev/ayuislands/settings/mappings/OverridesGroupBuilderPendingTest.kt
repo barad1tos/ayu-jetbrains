@@ -111,14 +111,15 @@ class OverridesGroupBuilderPendingTest {
     }
 
     @Test
-    fun `resolvePending is case-insensitive on language id vs detector output`() {
-        // The language detector returns lowercase ids (e.g. "kotlin"), and LanguageMapping now
-        // enforces lowercase at construction — so both sides are effectively lowercase. This
-        // test locks in that fact + the defensive `ignoreCase = true` in resolvePending, so
-        // if a future detector ever returns "Kotlin" we still match.
+    fun `resolvePending matches lowercase language id exactly, not case-insensitively`() {
+        // LanguageMapping.init enforces lowercase, ProjectLanguageDetector returns lowercase —
+        // case-sensitive equality is the consistent choice across the code base, mirroring
+        // LanguageMappingsTableModel.containsLanguage. If a future detector ever returns
+        // "Kotlin" instead of "kotlin", the invariant is violated upstream and should surface
+        // as a test failure here rather than be silently compensated by ignoreCase = true.
         mappingsState.languageAccents["kotlin"] = "#CAFE00"
         val project = stubProject(File(System.getProperty("java.io.tmpdir"), "case-test"))
-        every { ProjectLanguageDetector.dominant(project) } returns "Kotlin" // hypothetical drift
+        every { ProjectLanguageDetector.dominant(project) } returns "kotlin"
 
         val builder = OverridesGroupBuilder().apply { loadFromStateForTest() }
 

@@ -161,7 +161,10 @@ class OverridesGroupBuilder {
             val languages = languageModel.snapshot()
             if (languages.isNotEmpty()) {
                 ProjectLanguageDetector.dominant(project)?.let { languageId ->
-                    languages.firstOrNull { it.languageId.equals(languageId, ignoreCase = true) }?.let { return it.hex }
+                    // LanguageMapping.init enforces lowercase at construction; ProjectLanguageDetector
+                    // returns lowercase ids. Case-sensitive equality is sufficient — plain `==`
+                    // stays consistent with LanguageMappingsTableModel.containsLanguage.
+                    languages.firstOrNull { it.languageId == languageId }?.let { return it.hex }
                 }
             }
         }
@@ -180,7 +183,8 @@ class OverridesGroupBuilder {
             val languages = languageModel.snapshot()
             if (languages.isNotEmpty()) {
                 val dominant = ProjectLanguageDetector.dominant(project)
-                if (dominant != null && languages.any { it.languageId.equals(dominant, ignoreCase = true) }) {
+                // See resolvePending: both sides are lowercase by invariant, no compensator needed.
+                if (dominant != null && languages.any { it.languageId == dominant }) {
                     return AccentResolver.Source.LANGUAGE_OVERRIDE
                 }
             }
