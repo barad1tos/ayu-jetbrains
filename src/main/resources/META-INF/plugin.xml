@@ -231,6 +231,10 @@
         <fileEditorProvider
                 implementation="dev.ayuislands.onboarding.FreeOnboardingEditorProvider"/>
 
+        <!-- What's New release showcase editor tab -->
+        <fileEditorProvider
+                implementation="dev.ayuislands.whatsnew.WhatsNewEditorProvider"/>
+
         <!-- Mirage variants -->
         <themeProvider id="com.ayuislands.theme.mirage"
                        path="/themes/ayu-islands-mirage.theme.json"/>
@@ -262,4 +266,13 @@
                 class="dev.ayuislands.licensing.LicenseTransitionListener"
                 topic="com.intellij.ui.LicensingFacade$LicenseStateListener"/>
     </applicationListeners>
+
+    <actions>
+        <action id="AyuIslands.ShowWhatsNew"
+                class="dev.ayuislands.whatsnew.ShowWhatsNewAction"
+                text="Show What's New…"
+                description="Reopen the latest Ayu Islands release showcase">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+    </actions>
 </idea-plugin>

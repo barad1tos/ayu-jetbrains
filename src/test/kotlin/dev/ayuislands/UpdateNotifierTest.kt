@@ -10,6 +10,7 @@ import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.whatsnew.WhatsNewLauncher
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -36,6 +37,12 @@ class UpdateNotifierTest {
         val settings = mockk<AyuIslandsSettings>()
         every { AyuIslandsSettings.getInstance() } returns settings
         every { settings.state } returns state
+
+        // Default: launcher returns false so the balloon path runs as before —
+        // keeps every existing test exercising its original code path. Tests
+        // that need the tab-supersedes-balloon behavior override this stub.
+        mockkObject(WhatsNewLauncher)
+        every { WhatsNewLauncher.openIfEligible(any(), any()) } returns false
     }
 
     @AfterTest
@@ -263,6 +270,74 @@ class UpdateNotifierTest {
                         !body.contains("tool window width jumping") &&
                         !body.contains("Bug fixes")
                 },
+                NotificationType.INFORMATION,
+            )
+        }
+        verify(exactly = 1) { notification.notify(project) }
+    }
+
+    @Test
+    fun `WhatsNew tab supersedes balloon when launcher claims the upgrade`() {
+        // When a manifest exists for the upgrade target version, the launcher
+        // claims the open and returns true. UpdateNotifier must skip the balloon
+        // path entirely — no double-signal to the user.
+        state.lastSeenVersion = "2.4.2"
+        every {
+            PluginManagerCore.getPlugin(any<PluginId>())
+        } returns descriptor
+        every { descriptor.version } returns "2.5.0"
+        every { WhatsNewLauncher.openIfEligible(project, "2.5.0") } returns true
+
+        val notification = mockk<Notification>(relaxed = true)
+        val group = mockk<NotificationGroup>(relaxed = true)
+        val groupManager = mockk<NotificationGroupManager>(relaxed = true)
+        every { NotificationGroupManager.getInstance() } returns groupManager
+        every { groupManager.getNotificationGroup("Ayu Islands") } returns group
+        every {
+            group.createNotification(any<String>(), any<String>(), any<NotificationType>())
+        } returns notification
+
+        UpdateNotifier.showIfUpdated(project)
+
+        // State write still happened (lastSeenVersion is updated before the
+        // launcher delegation, preserving multi-window dedup semantics).
+        assertEquals("2.5.0", state.lastSeenVersion)
+        // Launcher was consulted; balloon was NOT created.
+        verify(exactly = 1) { WhatsNewLauncher.openIfEligible(project, "2.5.0") }
+        verify(exactly = 0) {
+            group.createNotification(any<String>(), any<String>(), any<NotificationType>())
+        }
+        verify(exactly = 0) { notification.notify(any<Project>()) }
+    }
+
+    @Test
+    fun `balloon fallback runs when launcher declines the upgrade`() {
+        // No manifest for this version (e.g. patch release like 2.5.1) — launcher
+        // returns false, balloon path runs as if the launcher integration didn't
+        // exist. Regression guard for breaking the existing balloon flow.
+        state.lastSeenVersion = "2.1.0"
+        every {
+            PluginManagerCore.getPlugin(any<PluginId>())
+        } returns descriptor
+        every { descriptor.version } returns "2.2.0"
+        every { WhatsNewLauncher.openIfEligible(project, "2.2.0") } returns false
+
+        val notification = mockk<Notification>(relaxed = true)
+        val group = mockk<NotificationGroup>(relaxed = true)
+        val groupManager = mockk<NotificationGroupManager>(relaxed = true)
+        every { NotificationGroupManager.getInstance() } returns groupManager
+        every { groupManager.getNotificationGroup("Ayu Islands") } returns group
+        every {
+            group.createNotification(any<String>(), any<String>(), any<NotificationType>())
+        } returns notification
+
+        UpdateNotifier.showIfUpdated(project)
+
+        verify(exactly = 1) { WhatsNewLauncher.openIfEligible(project, "2.2.0") }
+        verify(exactly = 1) {
+            group.createNotification(
+                "Ayu Islands updated to 2.2.0",
+                any<String>(),
                 NotificationType.INFORMATION,
             )
         }

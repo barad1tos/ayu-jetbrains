@@ -6,6 +6,7 @@ import com.intellij.notification.NotificationType
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.whatsnew.WhatsNewLauncher
 
 internal object UpdateNotifier {
     private const val PLUGIN_ID = "com.ayuislands.theme"
@@ -24,6 +25,12 @@ internal object UpdateNotifier {
 
         // Skip notification on the first installation (no previous version)
         if (lastSeen == null) return
+
+        // Tab supersedes balloon when the version ships rich What's New content.
+        // Falls through to balloon for patches without a manifest. The launcher's
+        // own gating (lastWhatsNewShownVersion + manifest existence) decides
+        // eligibility — we just defer to it.
+        if (WhatsNewLauncher.openIfEligible(project, currentVersion)) return
 
         val notes = changeNotes(currentVersion) ?: return
 

@@ -194,6 +194,12 @@ class AyuIslandsState : BaseState() {
     // Update notification (shown once per version upgrade)
     var lastSeenVersion by string(null)
 
+    // What's New tab (shown once per minor/major release that ships a manifest).
+    // Generic field — single string tracks the highest version whose tab was shown,
+    // so future releases (2.6, 3.0, …) need only drop a manifest under
+    // resources/whatsnew/v{X.Y.Z}/ — no per-version booleans required.
+    var lastWhatsNewShownVersion by string(null)
+
     // Settings tab selection (persisted across settings opens)
     var settingsSelectedTab by property(0)
 
