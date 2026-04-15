@@ -600,10 +600,18 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
 
     /**
      * Route accent apply through [AccentApplicator.applyForFocusedProject] so a stored
-     * per-project/per-language override wins over the freshly-stored global accent. A
-     * corrupted stored override hex (hand-edited XML, legacy writer) would otherwise surface
-     * as a Settings "Can't save" dialog with no diagnostic — the catch logs the cause and
-     * falls back to the global [effectiveAccent] so the panel stays usable.
+     * per-project/per-language override wins over the freshly-stored global accent.
+     *
+     * Two independent failure modes, each with its own fallback:
+     *
+     *  1. `applyForFocusedProject` throws — typically a corrupted stored override hex
+     *     (hand-edited XML, legacy writer) blowing up `Color.decode` inside UIManager fill.
+     *     Fall back to applying [effectiveAccent] (the unresolved global) directly AND sync
+     *     the swap-cache so the next WINDOW_ACTIVATED doesn't redundantly re-apply — this
+     *     is the same invariant `applyForFocusedProject` itself maintains.
+     *  2. The global-fallback apply also throws — the global hex itself is malformed. Log
+     *     the secondary failure and leave the visible accent unchanged; the Settings panel
+     *     stays operational instead of escalating into a generic "Can't save" dialog.
      */
     private fun applyWithFallback(
         currentVariant: AyuVariant,
@@ -611,12 +619,24 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
     ) {
         try {
             AccentApplicator.applyForFocusedProject(currentVariant)
+            return
         } catch (exception: RuntimeException) {
             LOG.error(
-                "Failed to apply resolved accent for focused project; falling back to global",
+                "Failed to apply resolved accent for focused project " +
+                    "(variant=$currentVariant, fallbackHex=$effectiveAccent); falling back to global",
                 exception,
             )
+        }
+
+        try {
             AccentApplicator.apply(effectiveAccent)
+            ProjectAccentSwapService.getInstance().notifyExternalApply(effectiveAccent)
+        } catch (exception: RuntimeException) {
+            LOG.error(
+                "Global accent fallback also failed (variant=$currentVariant, hex=$effectiveAccent); " +
+                    "Settings panel leaving visible accent unchanged",
+                exception,
+            )
         }
     }
 

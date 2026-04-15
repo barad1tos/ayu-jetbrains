@@ -115,13 +115,18 @@ class AccentRotationService : Disposable {
     }
 
     fun stopRotation() {
-        scheduledFuture?.cancel(false)
-        scheduledFuture = null
-        // Reset the circuit-breaker budget whenever rotation is torn down — otherwise a user
-        // who saw one failure, toggled rotation off, then re-enabled it, would find the
-        // breaker tripping after a single failure instead of the documented MAX_CONSECUTIVE
-        // _FAILURES. Re-enables should start clean.
+        // Reset the circuit-breaker budget BEFORE cancelling the future so a throw from
+        // cancel (CancellationException on double-cancel, RejectedExecutionException during
+        // executor shutdown) cannot leave the counter stuck. Every teardown — user toggle,
+        // breaker trip, service dispose — must start re-enables with a full failure budget.
         consecutiveFailures = 0
+        val future = scheduledFuture
+        scheduledFuture = null
+        try {
+            future?.cancel(false)
+        } catch (exception: RuntimeException) {
+            LOG.warn("Failed to cancel scheduled rotation future", exception)
+        }
     }
 
     @TestOnly
@@ -252,8 +257,8 @@ class AccentRotationService : Disposable {
     private fun onRotationFailure(failure: RotationFailure) {
         val count = ++consecutiveFailures
         if (count < MAX_CONSECUTIVE_FAILURES) return
+        // stopRotation resets consecutiveFailures as part of teardown — no redundant assignment.
         stopRotation()
-        consecutiveFailures = 0
         val notification =
             NotificationGroupManager
                 .getInstance()
