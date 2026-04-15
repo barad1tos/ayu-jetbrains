@@ -16,12 +16,15 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 
 /**
- * Locks in the [AyuIslandsAccentPanel.applyWithFallbackForTest] failure-recovery contract:
+ * Locks in the [AyuIslandsAccentPanel.applyWithFallback] failure-recovery contract:
  *  - happy path: applyForFocusedProject runs; no fallback triggered
- *  - corrupted override: applyForFocusedProject throws, fallback applies global hex AND
- *    syncs the swap cache (the bug R5 closed — fallback used to skip the cache sync)
+ *  - corrupted override: applyForFocusedProject throws, fallback applies the global hex
+ *    AND syncs the swap cache (the swap-cache-sync omission was the original bug — the
+ *    fallback used to skip it, silently reintroducing the stale-cache → redundant-apply
+ *    pattern applyForFocusedProject was created to prevent)
  *  - corrupted global: BOTH paths throw; the panel stays operational, second LOG.error
- *    fires, no exception escapes (the bug R6 closed)
+ *    fires with "also failed" context, no exception escapes — avoids the generic
+ *    "Settings can't save" dialog a hand-edited global hex would otherwise trigger
  */
 class AyuIslandsAccentPanelTest {
     private lateinit var swapService: ProjectAccentSwapService
@@ -54,10 +57,10 @@ class AyuIslandsAccentPanelTest {
 
     @Test
     fun `applyWithFallback corrupted override falls back to global AND syncs swap cache`() {
-        // Regression guard for R5: the previous fallback applied the global accent but
-        // forgot to call ProjectAccentSwapService.notifyExternalApply, leaving the swap
-        // cache stale and silently re-introducing the exact bug applyForFocusedProject
-        // was created to prevent.
+        // Regression guard: a previous fallback applied the global accent but forgot to
+        // call ProjectAccentSwapService.notifyExternalApply, leaving the swap cache stale
+        // and silently re-introducing the exact bug applyForFocusedProject was created
+        // to prevent (next WINDOW_ACTIVATED would redundantly re-apply).
         every { AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE) } throws
             IllegalStateException("override hex corrupted")
         every { AccentApplicator.apply("#FFCC66") } just Runs
@@ -73,10 +76,10 @@ class AyuIslandsAccentPanelTest {
 
     @Test
     fun `applyWithFallback corrupted global ALSO does not propagate exception`() {
-        // Regression guard for R6: the fallback's own apply(effectiveAccent) can throw
-        // when the GLOBAL hex is corrupted (hand-edited XML, legacy writer). Without the
-        // second try/catch, the Settings "OK" path failed with a generic dialog. Now it
-        // logs and leaves the visible accent unchanged.
+        // Regression guard: the fallback's own apply(effectiveAccent) can throw when
+        // the GLOBAL hex is corrupted (hand-edited XML, legacy writer). Without the
+        // second try/catch, the Settings "OK" path would bubble up as a generic
+        // "Can't save" dialog. The catch logs and leaves the visible accent unchanged.
         every { AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE) } throws
             IllegalStateException("override hex corrupted")
         every { AccentApplicator.apply("#FFCC66") } throws

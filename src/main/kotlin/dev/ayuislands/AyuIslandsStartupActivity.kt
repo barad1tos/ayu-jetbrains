@@ -180,13 +180,14 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
      *
      *  - [RuntimeException] — logged, swallowed; the next step runs.
      *  - [VirtualMachineError] (OutOfMemoryError, StackOverflowError, InternalError,
-     *    UnknownError) — logged and rethrown. These mean the JVM is in an unrecoverable
-     *    state; continuing risks cascading corruption, and IntelliJ's crash reporter keys
-     *    off uncaught VM errors.
-     *  - Other [Error] (LinkageError, NoClassDefFoundError, ExceptionInInitializerError,
-     *    AssertionError) — logged, swallowed; the next step runs. These usually mean an
-     *    optional plugin dependency didn't load or a plugin extension point initializer
-     *    threw — the plugin's own startup should continue, not abort.
+     *    UnknownError) — logged and rethrown. These indicate the JVM is in an
+     *    unrecoverable state; any further work is undefined behavior. Rethrowing hands
+     *    control to the platform's uncaught-exception handler, which escalates normally.
+     *  - Other [Error] (LinkageError, ExceptionInInitializerError, AssertionError) —
+     *    logged, swallowed; the next step runs. These usually indicate a class-loading
+     *    or static-initializer issue in an individual step's transitive closure (e.g.
+     *    a Kotlin stdlib / compiler version mismatch surfacing from a lazily-loaded
+     *    service); the plugin's other startup steps should continue independently.
      */
     @Suppress("TooGenericExceptionCaught") // VM error rethrown; generic Error logged-and-continue
     private inline fun runStep(
@@ -206,9 +207,9 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
     }
 
     /**
-     * Test-only hook around [runStep]. Inline private functions can't be called from a
-     * test classpath; this thin wrapper exposes the catch semantics without leaking the
-     * helper itself.
+     * Test-only hook around [runStep]. Private functions are unreachable from test classes
+     * in other packages; this thin wrapper exposes the catch semantics without widening
+     * [runStep] itself.
      */
     @org.jetbrains.annotations.TestOnly
     internal fun runStepForTest(

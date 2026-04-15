@@ -116,10 +116,13 @@ class AccentRotationService : Disposable {
     }
 
     fun stopRotation() {
-        // Reset the circuit-breaker budget BEFORE cancelling the future so a throw from
-        // cancel (CancellationException on double-cancel, RejectedExecutionException during
-        // executor shutdown) cannot leave the counter stuck. Every teardown — user toggle,
-        // breaker trip, service dispose — must start re-enables with a full failure budget.
+        // Reset the circuit-breaker budget BEFORE cancelling the future. cancel() on a
+        // standard ScheduledFuture returns a boolean rather than throwing, but we wrap
+        // defensively in case a custom executor wrapper (e.g. AppExecutorUtil composition)
+        // ever adds throwing behavior. Reset-first ordering ensures the counter stays in
+        // sync even if a future JDK / platform change makes cancel() propagate — every
+        // teardown (user toggle, breaker trip, service dispose) must start re-enables
+        // with a full failure budget.
         consecutiveFailures = 0
         val future = scheduledFuture
         scheduledFuture = null
@@ -274,8 +277,7 @@ class AccentRotationService : Disposable {
     private fun onRotationFailure(failure: RotationFailure) {
         val count = ++consecutiveFailures
         if (count < MAX_CONSECUTIVE_FAILURES) return
-        // stopRotation resets consecutiveFailures as part of teardown — no redundant assignment.
-        stopRotation()
+        stopRotation() // resets consecutiveFailures as part of teardown
         val notification =
             NotificationGroupManager
                 .getInstance()

@@ -2,7 +2,6 @@ package dev.ayuislands
 
 import com.intellij.testFramework.LoggedErrorProcessor
 import java.util.EnumSet
-import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -22,10 +21,8 @@ import kotlin.test.assertFailsWith
 class AyuIslandsStartupActivityTest {
     private val activity = AyuIslandsStartupActivity()
 
-    @AfterTest
-    fun tearDown() {
-        // Ensure the test logger doesn't leak between tests.
-    }
+    // No @AfterTest needed — LoggedErrorProcessor.executeWith restores the default
+    // processor at block end, and we don't mockkStatic/mockkObject anything global.
 
     @Test
     fun `runStep swallows RuntimeException so the next step can run`() {
@@ -64,10 +61,12 @@ class AyuIslandsStartupActivityTest {
     }
 
     @Test
-    fun `runStep swallows non-VM Error so optional-plugin LinkageError doesn't abort startup`() {
-        // LinkageError / NoClassDefFoundError typically mean an optional plugin dependency
-        // didn't load. The plugin's own startup should continue, not abort — otherwise a
-        // missing CodeGlance Pro etc. would silently kill remaining steps.
+    fun `runStep swallows non-VM Error so LinkageError from one step doesn't abort the rest`() {
+        // LinkageError / NoClassDefFoundError typically surface a class-loading issue in
+        // an individual step's transitive closure (e.g. a Kotlin stdlib mismatch from a
+        // lazily-loaded service). The plugin's remaining steps should continue
+        // independently — otherwise one class-load glitch silently kills all subsequent
+        // steps.
         val captured = mutableListOf<Pair<String, Throwable?>>()
         val processor = capturingProcessor(captured)
 

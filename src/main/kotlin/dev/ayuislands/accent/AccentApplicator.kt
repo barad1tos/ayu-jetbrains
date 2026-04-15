@@ -141,10 +141,9 @@ object AccentApplicator {
 
     /**
      * Convenience wrapper around [AccentResolver.resolve] + [apply] for the "currently focused
-     * project" use case. Five production sites call it today: the three settings panels
-     * (Accent / Elements / Plugins), [dev.ayuislands.AyuIslandsLafListener], and the
-     * [dev.ayuislands.rotation.AccentRotationService] tick. Pre-helper, those sites hand-wired
-     * variants of the same sequence and were *inconsistent*: only the rotation path called
+     * project" use case. Called from the settings panels (Accent / Elements / Plugins), the
+     * LAF listener, and the rotation tick. Pre-helper, those sites hand-wired variants of
+     * the same sequence and were *inconsistent*: only the rotation path called
      * [ProjectAccentSwapService.notifyExternalApply]; the panels and LAF listener skipped it,
      * leaving the swap-cache stale and causing one redundant apply on the next WINDOW_ACTIVATED.
      *
