@@ -1,10 +1,11 @@
 package dev.ayuislands.whatsnew
 
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.util.IconLoader
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
+import com.intellij.util.ImageLoader
 import com.intellij.util.ui.JBUI
+import dev.ayuislands.onboarding.ContentScaler
 import dev.ayuislands.onboarding.paintCardChrome
 import java.awt.BorderLayout
 import java.awt.Color
@@ -14,13 +15,12 @@ import java.awt.Font
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.RenderingHints
+import java.io.IOException
 import javax.swing.BorderFactory
 import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JComponent
-import javax.swing.JLabel
 import javax.swing.JPanel
-import javax.swing.SwingConstants
 
 /**
  * Builds one slide card: title heading + body paragraph (HTML-capable JBLabel) +
@@ -40,6 +40,11 @@ internal object WhatsNewSlideCard {
     private const val GAP_BODY_IMAGE = 16
     private const val IMAGE_MAX_HEIGHT = 360
     private const val PLACEHOLDER_RADIUS = 8
+
+    // Default widthFactor for slides that don't specify imageScale in the
+    // manifest. 1.0 renders at WhatsNewImagePanel.DEFAULT_IMAGE_WIDTH (800 px
+    // logical) before ContentScaler applies its own tab-width multiplier.
+    private const val DEFAULT_IMAGE_FACTOR = 1.0f
 
     // Aspect math for the placeholder rectangle shown when a slide's image is
     // missing. 16:9 horizontally, one-third of IMAGE_MAX_HEIGHT vertically —
@@ -70,11 +75,16 @@ internal object WhatsNewSlideCard {
      * @param resourceDir manifest resource dir prefix (e.g. `/whatsnew/v2.5.0/`)
      *   used to resolve [WhatsNewSlide.image] relative paths
      * @param accentTint accent color for card border / hover state
+     * @param scaler when non-null, every scalable child (image panel, labels,
+     *   gaps) is registered so the outer [WhatsNewPanel] can resize the whole
+     *   tab proportionally on IDE-window resize. Passing null keeps everything
+     *   at its natural baseline size — used by simple tests / placeholders.
      */
     fun build(
         slide: WhatsNewSlide,
         resourceDir: String,
         accentTint: Color,
+        scaler: ContentScaler? = null,
     ): JPanel {
         val card =
             object : JPanel(BorderLayout()) {
@@ -96,8 +106,11 @@ internal object WhatsNewSlideCard {
         titleLabel.foreground = JBColor.foreground()
         titleLabel.alignmentX = Component.LEFT_ALIGNMENT
         content.add(titleLabel)
+        scaler?.registerLabel(titleLabel, TITLE_FONT_SIZE, Font.BOLD)
 
-        content.add(Box.createVerticalStrut(JBUI.scale(GAP_TITLE_BODY)))
+        val titleGap = Box.createVerticalStrut(JBUI.scale(GAP_TITLE_BODY))
+        content.add(titleGap)
+        scaler?.registerGap(titleGap, GAP_TITLE_BODY)
 
         // Body uses HTML so manifest authors can include <b>, <i>, line breaks
         // without a markdown parser. JBLabel renders Swing's HTML subset natively.
@@ -107,33 +120,53 @@ internal object WhatsNewSlideCard {
         bodyLabel.foreground = JBColor.foreground()
         bodyLabel.alignmentX = Component.LEFT_ALIGNMENT
         content.add(bodyLabel)
+        scaler?.registerLabel(bodyLabel, BODY_FONT_SIZE, Font.PLAIN)
 
         if (slide.image != null) {
-            content.add(Box.createVerticalStrut(JBUI.scale(GAP_BODY_IMAGE)))
-            val imageComponent = loadImageLabel(resourceDir + slide.image)
-            imageComponent.alignmentX = Component.LEFT_ALIGNMENT
-            content.add(imageComponent)
+            val imageGap = Box.createVerticalStrut(JBUI.scale(GAP_BODY_IMAGE))
+            content.add(imageGap)
+            scaler?.registerGap(imageGap, GAP_BODY_IMAGE)
+
+            val effectiveScale = slide.imageScale ?: DEFAULT_IMAGE_FACTOR
+            val imageComponent = loadImageComponent(resourceDir + slide.image, effectiveScale)
+
+            // Image panel owns its sizing via dynamic getPreferredSize() that
+            // reads the parent column width — no ContentScaler registration
+            // needed (would double-scale). Centering done via BoxLayout.X_AXIS
+            // glue wrapper to match editorial-tab conventions.
+            val imageRow = JPanel()
+            imageRow.layout = BoxLayout(imageRow, BoxLayout.X_AXIS)
+            imageRow.isOpaque = false
+            imageRow.alignmentX = Component.LEFT_ALIGNMENT
+            imageRow.add(Box.createHorizontalGlue())
+            imageRow.add(imageComponent)
+            imageRow.add(Box.createHorizontalGlue())
+            content.add(imageRow)
         }
 
         card.add(content, BorderLayout.CENTER)
         return card
     }
 
-    private fun loadImageLabel(resourcePath: String): JComponent {
-        val icon =
+    private fun loadImageComponent(
+        resourcePath: String,
+        widthFactor: Float,
+    ): JComponent {
+        val image =
             try {
-                IconLoader.findIcon(resourcePath, WhatsNewSlideCard::class.java)
-            } catch (exception: RuntimeException) {
+                ImageLoader.loadFromResource(resourcePath, WhatsNewSlideCard::class.java)
+            } catch (exception: IOException) {
                 LOG.warn("What's New: failed to load slide image $resourcePath", exception)
                 null
             }
-        if (icon == null) {
+        if (image == null) {
             LOG.warn("What's New: slide image not found at $resourcePath")
             return placeholderImage()
         }
-        val label = JLabel(icon)
-        label.horizontalAlignment = SwingConstants.LEFT
-        return label
+        // Sizing is owned by WhatsNewImagePanel + ContentScaler — not baked
+        // into the icon at load time. That way responsive scaling on
+        // IDE-window resize just works.
+        return WhatsNewImagePanel(image, widthFactor)
     }
 
     /**

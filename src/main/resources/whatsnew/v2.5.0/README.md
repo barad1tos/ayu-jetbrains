@@ -13,8 +13,13 @@ filenames so the slides render images instead of placeholder rectangles:
 - `slide-language-overrides.png` — same panel scrolled to the language
   overrides table; show 2–3 language rows (e.g., Kotlin, Python, TypeScript)
   with distinct colors.
-- `slide-resolution-chain.png` — accent panel with the
-  `Currently active: <Color> (project override for "<name>")` hint visible.
+- `slide-project-collage.png` — collage of 3 IntelliJ windows side by side,
+  each with a clearly different accent color, each captioned with its role:
+  **Work** (one color), **Pet project** (another), **Outsource** (a third).
+  The point is to show "same IDE, three contexts, three colors, zero effort".
+  Tile the windows horizontally in a screenshot, add small text labels under
+  each via your image editor (Figma / Preview / whatever). Crop to roughly
+  16:9 so it matches the other slide dimensions.
 
 ## Image guidelines
 

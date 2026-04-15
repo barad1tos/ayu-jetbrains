@@ -8,12 +8,15 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.onboarding.ContentScaler
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Component
 import java.awt.FlowLayout
 import java.awt.Font
+import java.awt.event.ComponentAdapter
+import java.awt.event.ComponentEvent
 import javax.swing.BorderFactory
 import javax.swing.Box
 import javax.swing.BoxLayout
@@ -40,6 +43,11 @@ internal class WhatsNewPanel(
 ) : JPanel(BorderLayout()) {
     private var loaded = false
 
+    // Shared scaler instance — reused from the onboarding wizard so the What's
+    // New tab responds to IDE-window resize with the same proportional logic
+    // (cards shrink, labels shrink, gaps shrink, all in sync).
+    private val scaler = ContentScaler()
+
     init {
         background = JBColor.background()
         addAncestorListener(
@@ -55,11 +63,39 @@ internal class WhatsNewPanel(
                 override fun ancestorMoved(event: AncestorEvent) = Unit
             },
         )
+        addComponentListener(
+            object : ComponentAdapter() {
+                override fun componentResized(event: ComponentEvent) {
+                    if (!loaded) return
+                    applyResponsiveScale()
+                }
+            },
+        )
+    }
+
+    /**
+     * Recomputes the content scale based on the tab's current width and applies
+     * it to every registered card/label/gap via [ContentScaler]. We use width
+     * (not area) because the tab is vertically scrollable — users can always
+     * scroll to see more vertical content, but horizontal overflow is ugly.
+     */
+    private fun applyResponsiveScale() {
+        val panelWidth = width
+        if (panelWidth <= 0) return
+        val designWidth = JBUI.scale(DESIGN_WIDTH).toFloat()
+        val raw = panelWidth / designWidth
+        val scale = raw.coerceIn(MIN_SCALE, MAX_SCALE)
+        LOG.info("What's New: applyResponsiveScale width=$panelWidth designW=$designWidth raw=$raw final=$scale")
+        scaler.apply(scale)
+        revalidate()
+        repaint()
     }
 
     private fun loadContent() {
         try {
+            scaler.clear()
             buildContent()
+            applyResponsiveScale()
             revalidate()
             repaint()
         } catch (exception: RuntimeException) {
@@ -104,14 +140,19 @@ internal class WhatsNewPanel(
         titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, JBUI.scale(TITLE_FONT_SIZE).toFloat())
         titleLabel.alignmentX = Component.LEFT_ALIGNMENT
         header.add(titleLabel)
+        scaler.registerLabel(titleLabel, TITLE_FONT_SIZE, Font.BOLD)
 
         if (manifest.tagline != null) {
-            header.add(Box.createVerticalStrut(JBUI.scale(GAP_TITLE_TAGLINE)))
+            val titleTaglineGap = Box.createVerticalStrut(JBUI.scale(GAP_TITLE_TAGLINE))
+            header.add(titleTaglineGap)
+            scaler.registerGap(titleTaglineGap, GAP_TITLE_TAGLINE)
+
             val tagline = JBLabel(manifest.tagline)
             tagline.foreground = JBColor.foreground()
             tagline.font = tagline.font.deriveFont(JBUI.scale(TAGLINE_FONT_SIZE).toFloat())
             tagline.alignmentX = Component.LEFT_ALIGNMENT
             header.add(tagline)
+            scaler.registerLabel(tagline, TAGLINE_FONT_SIZE, Font.PLAIN)
         }
         return header
     }
@@ -128,10 +169,23 @@ internal class WhatsNewPanel(
         val resourceDir = pluginDescriptor()?.version?.let { WhatsNewManifestLoader.resourceDir(it) } ?: ""
 
         manifest.slides.forEachIndexed { index, slide ->
-            if (index > 0) column.add(Box.createVerticalStrut(JBUI.scale(GAP_BETWEEN_SLIDES)))
-            val card = WhatsNewSlideCard.build(slide, resourceDir, accent)
-            card.alignmentX = Component.LEFT_ALIGNMENT
-            column.add(card)
+            if (index > 0) {
+                val interSlideGap = Box.createVerticalStrut(JBUI.scale(GAP_BETWEEN_SLIDES))
+                column.add(interSlideGap)
+                scaler.registerGap(interSlideGap, GAP_BETWEEN_SLIDES)
+            }
+            val card = WhatsNewSlideCard.build(slide, resourceDir, accent, scaler)
+            // Center the card horizontally in the scroll column via an X-AXIS
+            // wrapper with glue on both sides. This guarantees the slide
+            // reads as centered regardless of how wide the viewport is.
+            val cardRow = JPanel()
+            cardRow.layout = BoxLayout(cardRow, BoxLayout.X_AXIS)
+            cardRow.isOpaque = false
+            cardRow.alignmentX = Component.CENTER_ALIGNMENT
+            cardRow.add(Box.createHorizontalGlue())
+            cardRow.add(card)
+            cardRow.add(Box.createHorizontalGlue())
+            column.add(cardRow)
         }
 
         val scroll = JBScrollPane(column)
@@ -209,7 +263,6 @@ internal class WhatsNewPanel(
                 .getId("com.ayuislands.theme"),
         )
 
-    @Suppress("MagicNumber")
     companion object {
         private val LOG = logger<WhatsNewPanel>()
         private const val HEADER_PADDING_TOP = 32
@@ -222,6 +275,15 @@ internal class WhatsNewPanel(
         private const val SCROLL_UNIT = 16
         private const val BUTTON_GAP = 8
         private const val BUTTON_PADDING_Y = 12
+
+        // Responsive-scale bounds applied on every IDE-window resize. Reference
+        // design width (900 logical px) picks a "medium-column reading width"
+        // target: if the tab is wider, content still reads cleanly (scale=1.0
+        // capped); narrower, content scales down to MIN_SCALE so the hero +
+        // slide cards stay visible rather than overflowing.
+        private const val DESIGN_WIDTH = 900
+        private const val MIN_SCALE = 0.6f
+        private const val MAX_SCALE = 1.0f
 
         // RGB channels for the secondary button tint. Fully saturated black on
         // light mode, fully bright white on dark mode. Alpha = 24/255 (~9%) for

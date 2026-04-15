@@ -3,19 +3,20 @@
   "tagline": "Per-project & per-language color control — your accent now follows your context.",
   "slides": [
     {
+      "title": "Every project in its own color",
+      "body": "Open <b>Work</b>, your <b>Pet project</b>, and an <b>Outsource</b> repo side by side — each window keeps its own accent the moment you focus it. No keyboard shortcut, no manual switch: the color is pinned per project and follows focus.",
+      "image": "slide-project-collage.png",
+      "imageScale": 2.0
+    },
+    {
       "title": "Pin an accent to a project",
       "body": "Open <b>Settings → Ayu Islands → Accent → Overrides</b> and add the project you're in. Pick any color from the swatch grid or shuffle a contrast-aware random one. Switch IntelliJ windows and each project keeps its own tint — the focus-swap kicks in instantly.",
       "image": "slide-project-overrides.png"
     },
     {
       "title": "Pin an accent to a programming language",
-      "body": "Same panel, different scope: bind <i>Kotlin → gold</i>, <i>Python → sky</i>, <i>TypeScript → cyan</i>. Whenever a project's dominant language matches and no project override exists, the language accent wins. Stops you guessing which repo is which.",
+      "body": "Same panel, different scope: bind <i>Kotlin → cyan</i>, <i>Python → gold</i>, <i>Terraform → lavender</i>. Whenever a project's dominant language matches and no project override exists, the language accent wins. Stops you guessing which repo is which.",
       "image": "slide-language-overrides.png"
-    },
-    {
-      "title": "Resolution chain you can see",
-      "body": "Project override beats language override beats global. The Settings panel shows a live <b>Currently active</b> hint so you can tell at a glance which scope produced today's color — no more Apply-and-pray.",
-      "image": "slide-resolution-chain.png"
     }
   ],
   "ctaOpenSettingsLabel": "Open Accent Overrides",

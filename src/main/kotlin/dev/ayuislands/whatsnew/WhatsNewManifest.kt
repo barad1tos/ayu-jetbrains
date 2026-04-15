@@ -12,11 +12,17 @@ import com.intellij.openapi.diagnostic.logger
  * @param image filename relative to the manifest's resource directory
  *   (e.g. `slide-overrides.png`); resolved against `/whatsnew/v$version/`.
  *   Null means "render title+body without an image".
+ * @param imageScale optional per-slide width factor; 1.0 = the default slide
+ *   width, 2.0 = double-wide (clamped by WhatsNewImagePanel to its valid
+ *   factor range). Use values < 1.0 to shrink a small diagram; use values > 1.0
+ *   for dense content that needs more horizontal room (e.g. a collage of three
+ *   IDE windows side-by-side). Null falls back to the global default.
  */
 data class WhatsNewSlide(
     val title: String,
     val body: String,
     val image: String?,
+    val imageScale: Float?,
 )
 
 /**
@@ -134,7 +140,8 @@ internal object WhatsNewManifestLoader {
                 val title = readString(obj, "title") ?: return@mapNotNull null
                 val body = readString(obj, "body") ?: return@mapNotNull null
                 val image = readString(obj, "image")
-                WhatsNewSlide(title = title, body = body, image = image)
+                val imageScale = readFloat(obj, "imageScale")?.takeIf { it > 0f }
+                WhatsNewSlide(title = title, body = body, image = image, imageScale = imageScale)
             }
 
         if (slides.isEmpty()) return null
@@ -164,5 +171,23 @@ internal object WhatsNewManifestLoader {
         if (!element.isJsonPrimitive) return null
         val str = element.asString
         return str.takeIf { it.isNotBlank() }
+    }
+
+    /**
+     * Reads an optional numeric field. Returns null for absent / JSON null /
+     * non-number so the caller can apply a sensible default.
+     */
+    private fun readFloat(
+        obj: com.google.gson.JsonObject,
+        key: String,
+    ): Float? {
+        val element = obj.get(key) ?: return null
+        if (element.isJsonNull) return null
+        if (!element.isJsonPrimitive) return null
+        return try {
+            element.asFloat
+        } catch (exception: NumberFormatException) {
+            null
+        }
     }
 }
