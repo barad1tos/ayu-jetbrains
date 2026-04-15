@@ -829,7 +829,7 @@ class AccentApplicatorTest {
     fun `apply calls applyAlwaysOnUiKeys and applyAlwaysOnEditorKeys on EDT`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any()) } returns Unit
+        every { IndentRainbowSync.apply(any(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
 
         AccentApplicator.apply("#FFCC66")
@@ -841,16 +841,20 @@ class AccentApplicatorTest {
     }
 
     @Test
-    fun `apply invokes IndentRainbowSync when variant is non-null`() {
+    fun `apply invokes IndentRainbowSync with the exact accent hex passed in`() {
+        // Regression guard against passthrough drift: a future refactor that dropped the hex
+        // parameter and called AyuIslandsSettings.getInstance().getAccentForVariant(variant)
+        // internally would make IR paint the GLOBAL accent during rotation + override scenarios,
+        // but the old `any()` matcher would still pass. Assert the exact hex flows through.
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any()) } returns Unit
+        every { IndentRainbowSync.apply(any(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
 
         AccentApplicator.apply("#FFCC66")
 
-        verify { IndentRainbowSync.apply(AyuVariant.MIRAGE) }
+        verify { IndentRainbowSync.apply(AyuVariant.MIRAGE, "#FFCC66") }
     }
 
     @Test
@@ -862,14 +866,14 @@ class AccentApplicatorTest {
 
         AccentApplicator.apply("#FFCC66")
 
-        verify(exactly = 0) { IndentRainbowSync.apply(any()) }
+        verify(exactly = 0) { IndentRainbowSync.apply(any(), any()) }
     }
 
     @Test
     fun `apply calls repaintAllWindows`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any()) } returns Unit
+        every { IndentRainbowSync.apply(any(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
         val mockWindow = mockk<Window>(relaxed = true)
         every { Window.getWindows() } returns arrayOf(mockWindow)
@@ -883,7 +887,7 @@ class AccentApplicatorTest {
     fun `apply runs work directly when on EDT`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any()) } returns Unit
+        every { IndentRainbowSync.apply(any(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
         every { SwingUtilities.isEventDispatchThread() } returns true
 
@@ -897,7 +901,7 @@ class AccentApplicatorTest {
     fun `apply posts to invokeLater when not on EDT`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any()) } returns Unit
+        every { IndentRainbowSync.apply(any(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
         every { SwingUtilities.isEventDispatchThread() } returns false
         every { mockApplication.invokeLater(any(), any<ModalityState>()) } answers {

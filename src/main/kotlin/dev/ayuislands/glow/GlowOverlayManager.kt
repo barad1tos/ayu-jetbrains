@@ -11,7 +11,7 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
-import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -27,7 +27,6 @@ import java.beans.PropertyChangeListener
 import javax.swing.JComponent
 import javax.swing.JLayeredPane
 import javax.swing.SwingUtilities
-import javax.swing.UIManager
 
 /** Manages glow overlays for tool windows, editor, tabs, and focus rings. */
 class GlowOverlayManager(
@@ -51,9 +50,6 @@ class GlowOverlayManager(
     companion object {
         private const val EDITOR_ID = "Editor"
         private const val DEFAULT_ACCENT_HEX = "#FFCC66"
-        private const val TAB_ACCENT_BG_ALPHA = 50
-        private const val KEY_TAB_UNDERLINE = "EditorTabs.underlinedBorderColor"
-        private const val KEY_TAB_BACKGROUND = "EditorTabs.underlinedTabBackground"
 
         fun getInstance(project: Project): GlowOverlayManager = project.getService(GlowOverlayManager::class.java)
 
@@ -215,8 +211,7 @@ class GlowOverlayManager(
         if (!state.glowFocusRing) return
 
         val variant = AyuVariant.detect()
-        val settings = AyuIslandsSettings.getInstance()
-        val accentHex = if (variant != null) settings.getAccentForVariant(variant) else DEFAULT_ACCENT_HEX
+        val accentHex = if (variant != null) AccentResolver.resolve(project, variant) else DEFAULT_ACCENT_HEX
         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
         val accent = safeDecodeColor(accentHex)
         val intensity = state.getIntensityForStyle(style)
@@ -255,9 +250,8 @@ class GlowOverlayManager(
         val layeredPane = rootPane.layeredPane
 
         val state = AyuIslandsSettings.getInstance().state
-        val settings = AyuIslandsSettings.getInstance()
         val variant = AyuVariant.detect()
-        val accentHex = if (variant != null) settings.getAccentForVariant(variant) else DEFAULT_ACCENT_HEX
+        val accentHex = if (variant != null) AccentResolver.resolve(project, variant) else DEFAULT_ACCENT_HEX
         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
 
         val glassPane =
@@ -404,12 +398,12 @@ class GlowOverlayManager(
         }
 
         val variant = AyuVariant.detect()
-        val accentHex = if (variant != null) settings.getAccentForVariant(variant) else DEFAULT_ACCENT_HEX
+        val accentHex = if (variant != null) AccentResolver.resolve(project, variant) else DEFAULT_ACCENT_HEX
         val accent = safeDecodeColor(accentHex)
         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
 
         updateOverlayStyles(state, accent, style)
-        updateTabGlow(state, accent)
+        repaintTabs()
 
         val intensity = state.getIntensityForStyle(style)
         focusRingManager.updateFocusRingGlow(accent, style, intensity, state.glowFocusRing)
@@ -437,35 +431,23 @@ class GlowOverlayManager(
         }
     }
 
-    private fun updateTabGlow(
-        state: AyuIslandsState,
-        accent: Color,
-    ) {
-        val tabMode = GlowTabMode.fromName(state.glowTabMode ?: "MINIMAL")
-
-        when (tabMode) {
-            GlowTabMode.MINIMAL -> {
-                UIManager.put(KEY_TAB_UNDERLINE, accent)
-                UIManager.put(KEY_TAB_BACKGROUND, Color(0, 0, 0, 0))
-            }
-            GlowTabMode.FULL -> {
-                UIManager.put(KEY_TAB_UNDERLINE, accent)
-                UIManager.put(
-                    KEY_TAB_BACKGROUND,
-                    Color(accent.red, accent.green, accent.blue, TAB_ACCENT_BG_ALPHA),
-                )
-            }
-            GlowTabMode.OFF -> {
-                val variant = AyuVariant.detect()
-                if (variant != null) {
-                    UIManager.put(KEY_TAB_UNDERLINE, Color.decode(variant.neutralGray))
-                }
-                UIManager.put(KEY_TAB_BACKGROUND, Color(0, 0, 0, 0))
-            }
-        }
-
-        UIManager.put("EditorTabs.underlineHeight", AccentApplicator.resolveUnderlineHeight(state))
-
+    /**
+     * Repaints editor tabs for THIS project only.
+     *
+     * Previously this also wrote `EditorTabs.underlinedBorderColor`, `KEY_TAB_BACKGROUND`,
+     * and `EditorTabs.underlineHeight` to `UIManager`. That was a subtle race: `UIManager`
+     * is a single JVM-wide table, and `syncGlowForAllProjects` iterates every open project,
+     * so the last project's accent ended up in `UIManager` regardless of which window the
+     * user was actually looking at — clearly wrong when one project has a per-project
+     * override and another doesn't (tabs show the loser's color while glow, scoped to each
+     * project's overlay, correctly shows the right one).
+     *
+     * AccentApplicator.apply writes those UIManager keys exactly once, for the focused
+     * project's resolved accent, and the focus-swap service re-applies on WINDOW_ACTIVATED.
+     * Tab appearance now follows the resolved accent consistently; this method only nudges
+     * Swing to repaint the tabs so the glow-overlay bounds recalculate for this project.
+     */
+    private fun repaintTabs() {
         EditorTabGeometry.repaintEditorTabs(project)
     }
 

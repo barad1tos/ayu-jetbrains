@@ -191,9 +191,11 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         storedCgpIntegration = pendingCgpIntegration
         storedErrorHighlight = pendingErrorHighlight
 
+        // Route through AccentApplicator.applyForFocusedProject so per-project/per-language
+        // overrides are preserved during the settings apply cycle (PluginsPanel runs after
+        // AccentPanel in Configurable.apply).
         val currentVariant = variant ?: return
-        val accentHex = AyuIslandsSettings.getInstance().getAccentForVariant(currentVariant)
-        AccentApplicator.apply(accentHex)
+        AccentApplicator.applyForFocusedProject(currentVariant)
     }
 
     override fun reset() {

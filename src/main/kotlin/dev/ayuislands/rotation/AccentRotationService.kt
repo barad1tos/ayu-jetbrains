@@ -1,10 +1,13 @@
 package dev.ayuislands.rotation
 
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.CheckedDisposable
 import com.intellij.openapi.util.Condition
 import com.intellij.openapi.util.Disposer
@@ -46,6 +49,16 @@ class AccentRotationService : Disposable {
 
     @Volatile
     private var scheduledFuture: ScheduledFuture<*>? = null
+
+    /**
+     * Circuit-breaker counter. When a rotation tick fails, this increments; on
+     * [MAX_CONSECUTIVE_FAILURES] consecutive failures we stop the scheduler and notify the user.
+     * Reset to zero on every successful tick. This stops a broken rotation from hammering
+     * idea.log every hour indefinitely when the root cause is persistent (corrupted state,
+     * stuck UIManager, missing variant).
+     */
+    @Volatile
+    private var consecutiveFailures: Int = 0
 
     fun startRotation() {
         stopRotation()
@@ -103,8 +116,28 @@ class AccentRotationService : Disposable {
     }
 
     fun stopRotation() {
-        scheduledFuture?.cancel(false)
+        // Reset the circuit-breaker budget BEFORE cancelling the future. The JDK's
+        // `ScheduledFuture.cancel(boolean)` contract returns a boolean rather than throwing,
+        // and `AppExecutorUtil.getAppScheduledExecutorService()` as of platformVersion 2025.1
+        // composes an executor whose wrapper does not throw either — so the catch below is
+        // cheap defensive insurance rather than a known failure path. Reset-first ordering
+        // guarantees that if the JDK / platform contract ever tightens (disposed-pool lookup
+        // throws, lifecycle-checking wrapper added), the counter stays in sync and every
+        // teardown (user toggle, breaker trip, service dispose) starts re-enables with a
+        // full failure budget. The warn message below names the JDK contract so triage sees
+        // signal value: if it ever fires, it's a regression worth investigating.
+        consecutiveFailures = 0
+        val future = scheduledFuture
         scheduledFuture = null
+        try {
+            future?.cancel(false)
+        } catch (exception: RuntimeException) {
+            LOG.warn(
+                "Failed to cancel scheduled rotation future " +
+                    "(unexpected — JDK's Future.cancel contract returns a boolean without throwing)",
+                exception,
+            )
+        }
     }
 
     @TestOnly
@@ -167,37 +200,13 @@ class AccentRotationService : Disposable {
                 }
         app.invokeLater(
             {
-                try {
-                    if (mode == AccentRotationMode.PRESET) {
-                        state.accentRotationPresetIndex =
-                            newHex.first
-                    }
-                    settings.setAccentForVariant(
-                        variant,
-                        newHex.second,
-                    )
-                    state.accentRotationLastSwitchMs =
-                        System.currentTimeMillis()
-                    AccentApplicator.apply(newHex.second)
-                    LOG.info(
-                        "Accent rotated: " +
-                            "mode=$mode, color=${newHex.second}",
-                    )
-                } catch (exception: RuntimeException) {
-                    LOG.error(
-                        "Accent rotation failed: " +
-                            "mode=$mode, color=${newHex.second}",
-                        exception,
-                    )
-                }
+                val applyFailure = runApplyStage(mode, newHex, variant, state, settings)
+                val glowFailure = runGlowStage()
 
-                try {
-                    GlowOverlayManager.syncGlowForAllProjects()
-                } catch (exception: RuntimeException) {
-                    LOG.warn(
-                        "Glow sync after accent rotation failed",
-                        exception,
-                    )
+                if (applyFailure != null || glowFailure != null) {
+                    onRotationFailure(applyFailure ?: glowFailure!!)
+                } else {
+                    consecutiveFailures = 0
                 }
             },
             ModalityState.nonModal(),
@@ -205,12 +214,129 @@ class AccentRotationService : Disposable {
         )
     }
 
+    /**
+     * Commit the new preset index + global accent hex, then re-apply the resolver output for
+     * the focused project so overrides stay sticky. Returns a failure descriptor on exception.
+     */
+    private fun runApplyStage(
+        mode: AccentRotationMode,
+        newHex: Pair<Int, String>,
+        variant: AyuVariant,
+        state: dev.ayuislands.settings.AyuIslandsState,
+        settings: AyuIslandsSettings,
+    ): RotationFailure? {
+        val stage = Stage.APPLY
+        return try {
+            if (mode == AccentRotationMode.PRESET) {
+                state.accentRotationPresetIndex = newHex.first
+            }
+            settings.setAccentForVariant(variant, newHex.second)
+            state.accentRotationLastSwitchMs = System.currentTimeMillis()
+            // Rotation updates the GLOBAL accent layer only. For the currently focused project we
+            // must apply the RESOLVED color so per-project and per-language overrides keep winning
+            // during rotation ticks.
+            val resolvedHex = AccentApplicator.applyForFocusedProject(variant)
+            LOG.info("Accent rotated: mode=$mode, global=${newHex.second}, applied=$resolvedHex")
+            null
+        } catch (exception: RuntimeException) {
+            // Include focused-project identity so post-mortems can tell which project's
+            // override (if any) the apply stage was wrestling with when it failed.
+            val focusedName =
+                runCatching { focusedProjectName() }.getOrDefault("<unknown>")
+            LOG.error(
+                "Accent rotation stage=$stage failed (mode=$mode, color=${newHex.second}, " +
+                    "focusedProject=$focusedName)",
+                exception,
+            )
+            RotationFailure(stage = stage, exception = exception)
+        }
+    }
+
+    private fun focusedProjectName(): String =
+        ProjectManager
+            .getInstance()
+            .openProjects
+            .firstOrNull { !it.isDefault && !it.isDisposed }
+            ?.name
+            ?: "<none>"
+
+    /**
+     * Sync glow overlays with the new accent. Returns a [RotationFailure] so the circuit
+     * breaker upstream can count glow-sync failures alongside apply failures.
+     */
+    private fun runGlowStage(): RotationFailure? {
+        val stage = Stage.GLOW_SYNC
+        return try {
+            GlowOverlayManager.syncGlowForAllProjects()
+            null
+        } catch (exception: RuntimeException) {
+            LOG.error("Accent rotation stage=$stage failed", exception)
+            RotationFailure(stage = stage, exception = exception)
+        }
+    }
+
+    /**
+     * Track the failure. Once [MAX_CONSECUTIVE_FAILURES] is reached, stop the scheduler and
+     * surface a notification so the user discovers the problem instead of silently losing the
+     * rotation feature. The user can re-enable it from Settings > Accent > Rotation after
+     * investigating.
+     */
+    private fun onRotationFailure(failure: RotationFailure) {
+        val count = ++consecutiveFailures
+        if (count < MAX_CONSECUTIVE_FAILURES) return
+        stopRotation() // resets consecutiveFailures as part of teardown
+        val notification =
+            NotificationGroupManager
+                .getInstance()
+                .getNotificationGroup(NOTIFICATION_GROUP_ID)
+                .createNotification(
+                    "Ayu Islands: accent rotation stopped",
+                    "Rotation failed $MAX_CONSECUTIVE_FAILURES times in a row (last stage: " +
+                        "${failure.stage}). Re-enable it from Settings > Accent > Rotation " +
+                        "after checking the logs.",
+                    NotificationType.WARNING,
+                )
+        notification.notify(null)
+    }
+
+    /**
+     * Pipeline stages the circuit breaker tracks. Previously stringly-typed (`"apply"` /
+     * `"glow-sync"`), which let a typo-prone caller silently write the wrong label into logs
+     * and notifications. Closed enum so the compiler catches label drift; [toString] returns
+     * the wire-compatible label so both `idea.log` messages and user notifications reference
+     * the single authoritative source (`"$stage"`), eliminating the hardcoded-vs-enum drift
+     * risk between the two sites.
+     */
+    private enum class Stage(
+        private val label: String,
+    ) {
+        APPLY("apply"),
+        GLOW_SYNC("glow-sync"),
+        ;
+
+        override fun toString(): String = label
+    }
+
+    private data class RotationFailure(
+        val stage: Stage,
+        val exception: Throwable,
+    )
+
     override fun dispose() {
         stopRotation()
     }
 
     companion object {
         private val LOG = logger<AccentRotationService>()
+        private const val NOTIFICATION_GROUP_ID = "Ayu Islands"
+
+        /**
+         * Trip the circuit breaker and notify the user after this many consecutive rotation
+         * failures. Lower threshold risks spurious notifications on transient hiccups; higher
+         * threshold lets the log spam accumulate across more rotation cycles before the user
+         * discovers rotation has been silently broken.
+         */
+        private const val MAX_CONSECUTIVE_FAILURES = 3
 
         fun getInstance(): AccentRotationService =
             ApplicationManager

@@ -1,21 +1,29 @@
 package dev.ayuislands.settings
 
+import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.ui.ColorPicker
 import com.intellij.ui.components.JBCheckBox
-import com.intellij.ui.dsl.builder.Align
+import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.Cell
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.selected
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.ProjectLanguageDetector
 import dev.ayuislands.accent.SystemAccentProvider
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.rotation.AccentRotationMode
 import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.rotation.ContrastAwareColorGenerator
+import dev.ayuislands.settings.mappings.OverridesGroupBuilder
+import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import java.awt.Color
+import javax.swing.JEditorPane
 
 /** Accent color section for the Ayu Islands settings panel. */
 class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
@@ -38,17 +46,45 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
     private var storedRotationInterval: Int = AyuIslandsState.DEFAULT_ROTATION_INTERVAL_HOURS
     private var rotationEnabledCheckbox: JBCheckBox? = null
 
+    private val overrides = OverridesGroupBuilder()
+    private var contextProject: Project? = null
+    private var currentlyActiveLabel: JEditorPane? = null
+
+    /**
+     * Hook called between the Accent Color group and the Overrides group during [buildPanel].
+     * The configurable uses it to inject [AyuIslandsAppearancePanel]'s "System" collapsible
+     * group so the visual order is Accent Color → System → Overrides → Rotation while each
+     * panel keeps ownership of its own state.
+     */
+    var beforeOverridesInjection: ((Panel) -> Unit)? = null
+
     override fun buildPanel(
         panel: Panel,
         variant: AyuVariant,
     ) {
         initializeState(variant)
+        contextProject =
+            ProjectManager
+                .getInstance()
+                .openProjects
+                .firstOrNull { !it.isDefault && !it.isDisposed }
         val colorPanel = createAccentColorPanel()
         applyInitialSelection(colorPanel, storedAccent)
         updateHeroGlow()
         panel.buildAccentColorGroup(colorPanel)
+        beforeOverridesInjection?.invoke(panel)
+        overrides.buildGroup(panel, contextProject)
         panel.buildAccentRotationGroup()
+
+        val externalAccentListener = onAccentChanged
+        onAccentChanged = { hex ->
+            externalAccentListener?.invoke(hex)
+            updateCurrentlyActiveLabel()
+        }
+        overrides.addPendingChangeListener { updateCurrentlyActiveLabel() }
+
         updatePanelEnabled()
+        updateCurrentlyActiveLabel()
     }
 
     private fun initializeState(variant: AyuVariant) {
@@ -131,57 +167,135 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
             row {
                 comment("Choose your accent color. Swatches are shared across all variants.")
             }
-            if (SystemInfo.isMac) {
-                row {
-                    val checkbox =
-                        checkBox("Follow system accent color")
-                            .component
-                    checkbox.isSelected = pendingFollowSystem
-                    checkbox.addActionListener {
-                        pendingFollowSystem = checkbox.isSelected
-                        updatePanelEnabled()
-                        if (pendingFollowSystem && pendingRotationEnabled) {
-                            pendingRotationEnabled = false
-                            rotationEnabledCheckbox?.isSelected = false
-                        }
-                        if (pendingFollowSystem) {
-                            SystemAccentProvider.resolve()?.let { hex ->
-                                applyInitialSelection(colorPanel, hex)
-                                onAccentChanged?.invoke(hex)
-                            }
-                        } else {
-                            val settings =
-                                AyuIslandsSettings.getInstance()
-                            val manualAccent =
-                                getManualAccent(
-                                    variant ?: return@addActionListener,
-                                    settings,
-                                )
-                            pendingAccent = manualAccent
-                            applyInitialSelection(
-                                colorPanel,
-                                manualAccent,
-                            )
-                            onAccentChanged?.invoke(manualAccent)
-                        }
-                    }
-                    followSystemCheckbox = checkbox
-                }
+            // AlignX.LEFT (not Align.FILL) so the panel uses its natural preferred width.
+            // PresetComponent.preferredSize gives each swatch a fixed width (~80px); without
+            // FILL, expanding the Settings dialog (e.g. opening Overrides with its wide
+            // AutoSizingTable viewport) cannot stretch the swatches horizontally.
+            row { cell(colorPanel).align(AlignX.LEFT) }
+            row {
+                currentlyActiveLabel = comment("").component
             }
-            row { cell(colorPanel).resizableColumn().align(Align.FILL) }
         }
     }
 
-    private fun Panel.buildAccentRotationGroup() {
-        group("Accent Rotation") {
-            row {
-                comment(
-                    "Automatically change your accent color on a schedule.",
-                )
+    /**
+     * Renders the `Follow system accent color` checkbox and binds its state +
+     * side-effects. Called by [AyuIslandsAppearancePanel] from inside the macOS
+     * "System" collapsible group so both system-integration toggles sit together.
+     * The state and enable/disable swatch-panel logic remain here because they
+     * couple tightly with [pendingFollowSystem], the active color panel, and the
+     * rotation-exclusion invariant.
+     *
+     * Must only be invoked AFTER [buildPanel] has called [createAccentColorPanel]
+     * so [accentPanel] is non-null.
+     */
+    fun installSystemAccentCheckbox(panel: Panel) {
+        if (!SystemInfo.isMac) return
+        panel.row {
+            val checkbox = checkBox("Follow system accent color").component
+            checkbox.isSelected = pendingFollowSystem
+            checkbox.addActionListener {
+                pendingFollowSystem = checkbox.isSelected
+                updatePanelEnabled()
+                if (pendingFollowSystem && pendingRotationEnabled) {
+                    pendingRotationEnabled = false
+                    rotationEnabledCheckbox?.isSelected = false
+                }
+                val colorPanel = accentPanel ?: return@addActionListener
+                if (pendingFollowSystem) {
+                    SystemAccentProvider.resolve()?.let { hex ->
+                        applyInitialSelection(colorPanel, hex)
+                        onAccentChanged?.invoke(hex)
+                    }
+                } else {
+                    val settings = AyuIslandsSettings.getInstance()
+                    val manualAccent =
+                        getManualAccent(
+                            variant ?: return@addActionListener,
+                            settings,
+                        )
+                    pendingAccent = manualAccent
+                    applyInitialSelection(colorPanel, manualAccent)
+                    onAccentChanged?.invoke(manualAccent)
+                }
             }
-            val rotationCheckboxCell = buildRotationEnableRow()
-            buildRotationModeRow(rotationCheckboxCell)
-            buildRotationIntervalRow(rotationCheckboxCell)
+            followSystemCheckbox = checkbox
+        }
+    }
+
+    private fun updateCurrentlyActiveLabel() {
+        val label = currentlyActiveLabel ?: return
+        val currentVariant = variant ?: return
+        val globalHex = resolvePendingGlobalHex(currentVariant)
+        val effectiveHex = overrides.resolvePending(contextProject, globalHex)
+        val displayHex = effectiveHex.ifBlank { globalHex }
+        val presetName =
+            AYU_ACCENT_PRESETS
+                .firstOrNull { it.hex.equals(displayHex, ignoreCase = true) }
+                ?.name
+                ?: "Custom"
+        val sourceText = describeActiveSource(overrides.sourcePending(contextProject))
+        label.text = "Currently active: $presetName ($sourceText)"
+    }
+
+    /**
+     * Rotation paths persist the new global accent, then must apply the **resolved** color
+     * so per-project and per-language overrides keep winning during the rotation tick.
+     * Also syncs the focus-swap service cache so the next WINDOW_ACTIVATED comparison
+     * lines up with what's actually on screen.
+     */
+    private fun applyRotationRespectingOverrides(currentVariant: AyuVariant) {
+        val focusedProject =
+            ProjectManager
+                .getInstance()
+                .openProjects
+                .firstOrNull { !it.isDefault && !it.isDisposed }
+        val resolvedHex = AccentResolver.resolve(focusedProject, currentVariant)
+        AccentApplicator.apply(resolvedHex)
+        ProjectAccentSwapService.getInstance().notifyExternalApply(resolvedHex)
+    }
+
+    private fun resolvePendingGlobalHex(currentVariant: AyuVariant): String {
+        val settings = AyuIslandsSettings.getInstance()
+        if (pendingFollowSystem) {
+            val systemHex = SystemAccentProvider.resolve()
+            if (systemHex != null) return systemHex
+        }
+        if (pendingAccent.isNotEmpty()) return pendingAccent
+        return settings.getAccentForVariant(currentVariant)
+    }
+
+    private fun describeActiveSource(source: AccentResolver.Source): String =
+        when (source) {
+            AccentResolver.Source.PROJECT_OVERRIDE ->
+                "project override for \"${contextProject?.name ?: "?"}\""
+            AccentResolver.Source.LANGUAGE_OVERRIDE -> {
+                val dominant =
+                    contextProject
+                        ?.let { ProjectLanguageDetector.dominant(it) }
+                        ?.replaceFirstChar { it.uppercase() }
+                        ?: "?"
+                "language override: $dominant"
+            }
+            AccentResolver.Source.GLOBAL -> "global"
+        }
+
+    private fun Panel.buildAccentRotationGroup() {
+        val settings = AyuIslandsSettings.getInstance()
+        val collapsible =
+            collapsibleGroup("Accent Rotation") {
+                row {
+                    comment(
+                        "Automatically change your accent color on a schedule.",
+                    )
+                }
+                val rotationCheckboxCell = buildRotationEnableRow()
+                buildRotationModeRow(rotationCheckboxCell)
+                buildRotationIntervalRow(rotationCheckboxCell)
+            }
+        collapsible.expanded = settings.state.accentRotationGroupExpanded
+        collapsible.addExpandedListener { expanded ->
+            settings.state.accentRotationGroupExpanded = expanded
         }
     }
 
@@ -353,6 +467,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         if (pendingRotationEnabled != storedRotationEnabled) return true
         if (pendingRotationMode != storedRotationMode) return true
         if (pendingRotationInterval != storedRotationInterval) return true
+        if (overrides.isModified()) return true
         if (pendingFollowSystem) return false
         return pendingAccent != storedAccent
     }
@@ -361,6 +476,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         val currentVariant = variant ?: return
         if (!isModified()) return
         val settings = AyuIslandsSettings.getInstance()
+        val overridesDirty = overrides.isModified()
 
         if (pendingFollowSystem != storedFollowSystem) {
             settings.state.followSystemAccent = pendingFollowSystem
@@ -379,7 +495,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
             settings.setAccentForVariant(currentVariant, "")
             AccentApplicator.revertAll()
         } else {
-            AccentApplicator.apply(effectiveAccent)
+            applyWithFallback(currentVariant, effectiveAccent)
         }
         storedAccent = effectiveAccent
 
@@ -407,7 +523,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                             )
                         settings.setAccentForVariant(currentVariant, rotationHex)
                         settings.state.accentRotationLastSwitchMs = System.currentTimeMillis()
-                        AccentApplicator.apply(rotationHex)
+                        applyRotationRespectingOverrides(currentVariant)
                         storedAccent = rotationHex
                         pendingAccent = rotationHex
                         accentPanel?.selectedPreset = null
@@ -425,7 +541,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                         val presetHex = AYU_ACCENT_PRESETS[nextIndex].hex
                         settings.setAccentForVariant(currentVariant, presetHex)
                         settings.state.accentRotationLastSwitchMs = System.currentTimeMillis()
-                        AccentApplicator.apply(presetHex)
+                        applyRotationRespectingOverrides(currentVariant)
                         storedAccent = presetHex
                         pendingAccent = presetHex
                         pendingCustomColor = null
@@ -442,6 +558,11 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                 service.stopRotation()
             }
         }
+
+        if (overridesDirty) {
+            overrides.apply()
+        }
+        updateCurrentlyActiveLabel()
     }
 
     override fun reset() {
@@ -453,8 +574,10 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         pendingRotationInterval = storedRotationInterval
         rotationEnabledCheckbox?.isSelected = storedRotationEnabled
         accentPanel?.let { applyInitialSelection(it, storedAccent) }
+        overrides.reset()
         updateHeroGlow()
         updatePanelEnabled()
+        updateCurrentlyActiveLabel()
     }
 
     private fun updateHeroGlow() {
@@ -475,7 +598,77 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         }
     }
 
+    /**
+     * Route accent apply through [AccentApplicator.applyForFocusedProject] so a stored
+     * per-project/per-language override wins over the freshly-stored global accent.
+     *
+     * Each stage has its own recovery path so the Settings panel never escalates a
+     * corrupted hex into a generic "Can't save" dialog:
+     *
+     *  - Preferred path: `applyForFocusedProject` resolves the override chain and applies
+     *    the winning color. Typical failure mode is a corrupted stored override hex
+     *    (hand-edited XML, legacy writer) blowing up `Color.decode` inside UIManager fill.
+     *    On throw, we log at ERROR and fall through to the global-fallback block below.
+     *  - Global-fallback `apply`: re-applies [effectiveAccent] (the unresolved global hex)
+     *    directly. On throw, the global hex itself is malformed — log at ERROR and return;
+     *    the visible accent stays unchanged and the Settings panel remains operational.
+     *  - Global-fallback `notifyExternalApply`: syncs the focus-swap cache so the next
+     *    WINDOW_ACTIVATED doesn't redundantly re-apply — the same invariant
+     *    `applyForFocusedProject` itself maintains internally. On throw after the global
+     *    apply succeeded, the visible accent DID change and only the cache is stale; log
+     *    at WARN (not ERROR) to distinguish from the "apply also failed" path. The next
+     *    WINDOW_ACTIVATED will redundantly re-apply without user-visible impact.
+     *
+     * Visibility: `internal` (instead of `private`) so unit tests can exercise the
+     * failure-recovery contract directly, without going through the BoundConfigurable
+     * lifecycle (createPanel() → apply() → platform dispatch). `@TestOnly` keeps the
+     * seam visible only to test consumers via the IDE inspection.
+     */
+    @org.jetbrains.annotations.TestOnly
+    internal fun applyWithFallback(
+        currentVariant: AyuVariant,
+        effectiveAccent: String,
+    ) {
+        try {
+            AccentApplicator.applyForFocusedProject(currentVariant)
+            return
+        } catch (exception: RuntimeException) {
+            LOG.error(
+                "Failed to apply resolved accent for focused project " +
+                    "(variant=$currentVariant, fallbackHex=$effectiveAccent); falling back to global",
+                exception,
+            )
+        }
+
+        // Keep the logs honest across the two remaining stages: a thrown `apply` leaves the
+        // visible accent unchanged (logged as "also failed"), whereas a thrown
+        // `notifyExternalApply` after a successful `apply` means the accent DID change and
+        // only the swap cache is stale. Log them separately so triage doesn't get an "also
+        // failed" breadcrumb on a path where apply actually worked.
+        try {
+            AccentApplicator.apply(effectiveAccent)
+        } catch (exception: RuntimeException) {
+            LOG.error(
+                "Global accent fallback also failed (variant=$currentVariant, hex=$effectiveAccent); " +
+                    "Settings panel leaving visible accent unchanged",
+                exception,
+            )
+            return
+        }
+        try {
+            ProjectAccentSwapService.getInstance().notifyExternalApply(effectiveAccent)
+        } catch (exception: RuntimeException) {
+            LOG.warn(
+                "Global accent applied but swap-cache sync failed " +
+                    "(variant=$currentVariant, hex=$effectiveAccent); " +
+                    "next WINDOW_ACTIVATED will redundantly re-apply",
+                exception,
+            )
+        }
+    }
+
     companion object {
+        private val LOG = logger<AyuIslandsAccentPanel>()
         private const val INTERVAL_1H = 1
         private const val INTERVAL_3H = 3
         private const val INTERVAL_6H = 6

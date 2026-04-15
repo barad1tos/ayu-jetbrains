@@ -4,15 +4,21 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
+import com.intellij.openapi.wm.WindowManager
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.conflict.ConflictRegistry
+import dev.ayuislands.editor.EditorScrollbarManager
 import dev.ayuislands.font.FontPreset
 import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.mappings.ProjectAccentSwapService
+import dev.ayuislands.ui.ComponentTreeRefresher
 import javax.swing.SwingUtilities
 
 internal class AyuIslandsStartupActivity : ProjectActivity {
@@ -26,8 +32,34 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         // Belt-and-suspenders: accent is pre-applied in appFrameCreated() (no gold flash),
         // but project-dependent features (BracketFadeManager, editor TextAttributesKey overrides)
         // need this second idempotent call once a project context exists.
-        val accentHex = settings.getAccentForVariant(variant)
+        // Project/language overrides win over the global accent; AccentResolver centralizes the chain.
+        val accentHex = AccentResolver.resolve(project, variant)
         AccentApplicator.apply(accentHex)
+        // Install the focus-swap listener once per IDE lifetime; subsequent calls are no-ops.
+        // Also sync the cache so the listener doesn't skip the first real WINDOW_ACTIVATED event.
+        val swapService = ProjectAccentSwapService.getInstance()
+        swapService.install()
+        swapService.notifyExternalApply(accentHex)
+
+        // Eager-instantiate per-project scrollbar managers BEFORE firing the first refresh event.
+        // Their init{} blocks subscribe to ComponentTreeRefreshedTopic; without this, the
+        // walkAndNotify below publishes into an empty subscriber list and the managers — lazily
+        // created later by StartupLicenseHandler.initWorkspaceServices on a subsequent EDT turn —
+        // miss the initial refresh (plus any editors already opened before they subscribed to
+        // EditorFactoryListener). Services are no-op when their toggles are off and are cheap to
+        // instantiate, so gating on settings would only add complexity.
+        EditorScrollbarManager.getInstance(project)
+        ProjectViewScrollbarManager.getInstance(project)
+
+        // Force a component-tree LAF refresh on the project frame so already-rendered toolbar,
+        // tab underlines, scrollbar chrome, and focus rings pick up the resolved accent.
+        // AccentApplicator only updates UIManager + editor scheme; cached JBColor instances on
+        // already-painted components otherwise keep the global-accent values they captured when
+        // the frame first rendered.
+        SwingUtilities.invokeLater {
+            val frame = WindowManager.getInstance().getFrame(project) ?: return@invokeLater
+            ComponentTreeRefresher.walkAndNotify(project, frame)
+        }
 
         // Apply persisted font preset (FontPresetApplicator ensures EDT internally)
         // Migrate legacy preset names (GLOW_WRITER→WHISPER, CLEAN→AMBIENT, etc.)
@@ -109,39 +141,86 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         // Compute adaptive delay on background thread (execute() coroutine)
         val adaptiveDelayMs = StartupLicenseHandler.computeAdaptiveDelay()
 
+        // Each step runs under its own named try/catch so an exception in one stage doesn't
+        // mask the others and the log line identifies which step actually broke. A single
+        // catch used to produce a generic "License defaults failed" with no way to tell
+        // whether migration, orchestrator routing, defaults, workspace init, wizard
+        // scheduling, or trial warning blew up.
         SwingUtilities.invokeLater {
             if (project.isDisposed) return@invokeLater
-            try {
-                // Run migration and orchestrator before license defaults
-                StartupLicenseHandler.runOnboardingMigration(settings)
-                val wizardAction =
-                    StartupLicenseHandler.resolveOnboarding(
-                        isLicensed,
-                        settings,
-                        isReturningUser,
-                    )
+            var wizardAction: dev.ayuislands.onboarding.WizardAction? = null
 
-                if (isLicensed) {
-                    StartupLicenseHandler.applyLicensedDefaults(settings)
-                } else {
+            runStep("onboarding-migration") { StartupLicenseHandler.runOnboardingMigration(settings) }
+            runStep("resolve-onboarding") {
+                wizardAction = StartupLicenseHandler.resolveOnboarding(isLicensed, settings, isReturningUser)
+            }
+            if (isLicensed) {
+                runStep("apply-licensed-defaults") { StartupLicenseHandler.applyLicensedDefaults(settings) }
+            } else {
+                runStep("apply-unlicensed-defaults") {
                     StartupLicenseHandler.applyUnlicensedDefaults(project, variant, settings)
                 }
-
-                settings.state.migrateWidthModes()
-                StartupLicenseHandler.initWorkspaceServices(project, settings)
-
-                // Schedule wizard based on orchestrator decision
-                StartupLicenseHandler.handleWizardAction(wizardAction, project, adaptiveDelayMs, settings)
-
-                // Check trial expiry warning (only runs for trial users)
-                if (isLicensed) {
-                    LicenseChecker.checkTrialExpiryWarning(project)
+            }
+            runStep("migrate-width-modes") { settings.state.migrateWidthModes() }
+            runStep("init-workspace-services") { StartupLicenseHandler.initWorkspaceServices(project, settings) }
+            runStep("handle-wizard-action") {
+                wizardAction?.let {
+                    StartupLicenseHandler.handleWizardAction(it, project, adaptiveDelayMs, settings)
                 }
-            } catch (e: RuntimeException) {
-                LOG.error("License defaults failed", e)
+            }
+            if (isLicensed) {
+                runStep("check-trial-expiry") { LicenseChecker.checkTrialExpiryWarning(project) }
             }
         }
     }
+
+    /**
+     * Invokes [block] with fine-grained error handling so each startup step gets its own
+     * log line, and the JVM's error-escalation path stays intact for genuinely fatal errors.
+     *
+     * All production call sites run inside `SwingUtilities.invokeLater { ... }` (see
+     * [checkLicenseState]), so the surrounding Runnable is dispatched by `IdeEventQueue`:
+     *
+     *  - [RuntimeException] — logged, swallowed; the next step runs.
+     *  - [VirtualMachineError] (OutOfMemoryError, StackOverflowError, InternalError,
+     *    UnknownError) — logged and rethrown. These indicate the JVM is in an unrecoverable
+     *    state; any further work is undefined behavior. Rethrowing surfaces the error back
+     *    to `IdeEventQueue.dispatchException`, which logs at ERROR and may surface a
+     *    fatal-error dialog — the one place a VM-level failure should still be visible.
+     *  - Other [Error] (NoClassDefFoundError, LinkageError, ExceptionInInitializerError,
+     *    AssertionError) — logged, swallowed; the next step runs. These usually indicate
+     *    a class-loading or static-initializer problem in an individual step's transitive
+     *    closure (e.g. a lazily-loaded service whose class body references a renamed
+     *    platform API, surfacing as `NoClassDefFoundError` only once that service is first
+     *    touched); the plugin's other startup steps should continue independently.
+     */
+    @Suppress("TooGenericExceptionCaught") // VM error rethrown; generic Error logged-and-continue
+    private inline fun runStep(
+        name: String,
+        block: () -> Unit,
+    ) {
+        try {
+            block()
+        } catch (exception: RuntimeException) {
+            LOG.error("License startup step '$name' failed", exception)
+        } catch (error: VirtualMachineError) {
+            LOG.error("License startup step '$name' failed with VM error", error)
+            throw error
+        } catch (error: Error) {
+            LOG.error("License startup step '$name' failed with Error", error)
+        }
+    }
+
+    /**
+     * Test-only hook around [runStep]. Private functions are unreachable from test classes
+     * in other packages; this thin wrapper exposes the catch semantics without widening
+     * [runStep] itself.
+     */
+    @org.jetbrains.annotations.TestOnly
+    internal fun runStepForTest(
+        name: String,
+        block: () -> Unit,
+    ) = runStep(name, block)
 
     companion object {
         private val LOG = logger<AyuIslandsStartupActivity>()

@@ -173,7 +173,11 @@ class AccentColorPanel(
         private val accent: AccentColor,
     ) : JComponent() {
         init {
-            preferredSize = Dimension(0, PANEL_HEIGHT)
+            // Explicit non-zero width: the outer cell uses AlignX.LEFT (not Align.FILL) so
+            // the panel stays at its natural preferred width regardless of Settings dialog
+            // expansion (e.g. when Overrides opens and its AutoSizingTable requests a wider
+            // viewport for full project paths). Width=0 would collapse the GridLayout.
+            preferredSize = Dimension(NATURAL_SWATCH_WIDTH, PANEL_HEIGHT)
             toolTipText = accent.name
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
             addMouseListener(
@@ -566,6 +570,14 @@ class AccentColorPanel(
 
     companion object {
         private const val PANEL_HEIGHT = 26
+
+        // Per-swatch preferred width. 110 gives each preset enough horizontal mass to read
+        // as a distinct color block (not a cramped pill) while keeping the panel's natural
+        // width under the "Overrides open → dialog widens" scenario — AlignX.LEFT on the
+        // outer cell pins total panel width to 120 (left col) + 6 (gap) + 4*110 + 3*2 = 572px
+        // regardless of Settings dialog size, so opening Overrides cannot stretch or compress
+        // the swatches.
+        private const val NATURAL_SWATCH_WIDTH = 110
         private const val PANEL_ARC = 8f
         private const val GRID_GAP = 2
         private const val LEFT_COLUMN_GAP = 4

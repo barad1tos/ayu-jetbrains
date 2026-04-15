@@ -8,8 +8,8 @@ import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.glow.GlowOverlayManager
-import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.ui.ComponentTreeRefresher
 
 /** Re-applies accent, font, glow, and scrollbar settings on theme change. */
 class AyuIslandsLafListener : LafManagerListener {
@@ -25,8 +25,7 @@ class AyuIslandsLafListener : LafManagerListener {
         }
 
         val settings = AyuIslandsSettings.getInstance()
-        val accentHex = settings.getAccentForVariant(variant)
-        AccentApplicator.apply(accentHex)
+        val accentHex = AccentApplicator.applyForFocusedProject(variant)
         LOG.info("Ayu Islands accent re-applied on theme change: $accentHex")
 
         // Re-apply font preset if enabled
@@ -40,22 +39,21 @@ class AyuIslandsLafListener : LafManagerListener {
         }
         syncService.clearProgrammaticSwitch()
 
-        // Re-apply Project View scrollbar setting
-        reapplyProjectViewScrollbar()
+        // Platform already walked the component tree during the LAF change, resetting component-level
+        // overrides (scrollbar preferredSize, horizontal policy, rendering wrappers). Publish the
+        // refresh event per open project so subscribed managers reapply. No tree walk needed here.
+        //
+        // Load-bearing platform-behavior assumption — verified against IntelliJ Platform 2025.1
+        // (`LafManagerImpl.updateLafNoSave` walks frames before firing `lookAndFeelChanged`).
+        // If a future platform bump changes the order, scrollbar hides will regress after theme
+        // switches and we'll need to switch this back to `ComponentTreeRefresher.walkAndNotify`.
+        for (openProject in ProjectManager.getInstance().openProjects) {
+            if (openProject.isDefault || openProject.isDisposed) continue
+            ComponentTreeRefresher.notifyOnly(openProject)
+        }
 
         // Update glow overlays with new accent color
         GlowOverlayManager.syncGlowForAllProjects()
-    }
-
-    private fun reapplyProjectViewScrollbar() {
-        if (!AyuIslandsSettings.getInstance().state.hideProjectViewHScrollbar) return
-        for (openProject in ProjectManager.getInstance().openProjects) {
-            try {
-                ProjectViewScrollbarManager.getInstance(openProject).apply()
-            } catch (exception: RuntimeException) {
-                LOG.warn("Failed to re-apply scrollbar for project ${openProject.name}: ${exception.message}")
-            }
-        }
     }
 
     companion object {

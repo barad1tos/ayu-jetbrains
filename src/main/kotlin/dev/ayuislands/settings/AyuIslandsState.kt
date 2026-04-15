@@ -203,6 +203,12 @@ class AyuIslandsState : BaseState() {
     var workspaceEditorExpanded by property(false)
     var workspaceGitPanelExpanded by property(false)
 
+    // Accent tab: collapsible group expanded states (persisted across settings opens)
+    var systemGroupExpanded by property(false)
+    var overridesGroupExpanded by property(false)
+    var accentRotationGroupExpanded by property(true)
+    var accentElementsGroupExpanded by property(false)
+
     // Force overrides for conflicting elements (element ID names)
     var forceOverrides by stringSet()
 

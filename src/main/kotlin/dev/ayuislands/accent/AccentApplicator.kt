@@ -11,6 +11,8 @@ import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.extensions.PluginId
+import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.ui.ColorUtil
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.glow.GlowStyle
@@ -18,6 +20,7 @@ import dev.ayuislands.glow.GlowTabMode
 import dev.ayuislands.indent.IndentRainbowSync
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import java.awt.Color
 import java.awt.Window
 import java.lang.reflect.Method
@@ -121,7 +124,7 @@ object AccentApplicator {
                 applyElements(state, accent, variant)
                 syncCodeGlanceProViewport(accentHex)
                 if (variant != null) {
-                    IndentRainbowSync.apply(variant)
+                    IndentRainbowSync.apply(variant, accentHex)
                 }
                 applyAlwaysOnEditorKeys(accent)
                 overrideTabUnderlineForOffMode(state, variant)
@@ -135,6 +138,55 @@ object AccentApplicator {
             invokeLaterSafe(work)
         }
     }
+
+    /**
+     * Convenience wrapper around [AccentResolver.resolve] + [apply] for the "currently focused
+     * project" use case. Called from the settings panels (Accent / Elements / Plugins), the
+     * LAF listener, and the rotation tick. Pre-helper, those sites hand-wired variants of
+     * the same sequence and were *inconsistent*: only the rotation path called
+     * [ProjectAccentSwapService.notifyExternalApply]; the panels and LAF listener skipped it,
+     * leaving the swap-cache stale and causing one redundant apply on the next WINDOW_ACTIVATED.
+     *
+     * Centralizing the sequence makes focused-project selection, override-priority resolution,
+     * and swap-cache synchronization uniformly correct across callers. Returns the applied
+     * hex so callers can log or display it.
+     *
+     * Note: [dev.ayuislands.AyuIslandsStartupActivity] is NOT a caller — it operates on the
+     * specific project the platform hands it, not the focused one, so it bypasses this helper
+     * and calls [AccentResolver.resolve] + [apply] directly with that project.
+     */
+    fun applyForFocusedProject(variant: AyuVariant): String {
+        val focusedProject = resolveFocusedProject()
+        val hex = AccentResolver.resolve(focusedProject, variant)
+        apply(hex)
+        ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
+        return hex
+    }
+
+    /**
+     * Resolves the *actually* focused project — the one whose window has OS-level focus,
+     * not just "the first open project in enumeration order". With two or more project
+     * windows open, a naive `ProjectManager.openProjects.firstOrNull` would silently apply
+     * the wrong project's override (rotation tick, settings Apply, LAF change would flow
+     * through it for the wrong window). Fallback chain:
+     *
+     *  1. [IdeFocusManager.lastFocusedFrame]'s project — real focus state
+     *  2. First non-default non-disposed open project — pre-focus-manager startup, or
+     *     shutdown edge cases where the focus manager is torn down
+     *  3. `null` — no project open; resolver will return the global accent
+     */
+    private fun resolveFocusedProject(): com.intellij.openapi.project.Project? =
+        IdeFocusManager
+            .getGlobalInstance()
+            .lastFocusedFrame
+            ?.project
+            ?.takeIf { it.isUsable() }
+            ?: ProjectManager
+                .getInstance()
+                .openProjects
+                .firstOrNull { it.isUsable() }
+
+    private fun com.intellij.openapi.project.Project.isUsable(): Boolean = !isDefault && !isDisposed
 
     fun revertAll() {
         // All revert work batched into a single EDT dispatch

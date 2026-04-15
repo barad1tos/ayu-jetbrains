@@ -5,6 +5,7 @@ import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.event.EditorFactoryListener
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.project.Project
+import com.intellij.testFramework.LoggedErrorProcessor
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -14,6 +15,7 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkAll
+import io.mockk.verify
 import java.awt.Dimension
 import javax.swing.JScrollPane
 import kotlin.test.AfterTest
@@ -194,8 +196,12 @@ class EditorScrollbarManagerTest {
         val storedSize =
             vBar.getClientProperty("ayuIslands.originalPreferredSize") as? Dimension
         assertEquals(sizeBefore, storedSize)
-        // Verify it's a copy, not the same reference
-        assert(storedSize !== sizeBefore || sizeBefore == storedSize)
+        // Verify it's a defensive copy, not the same reference — the previous assertion
+        // (`storedSize !== sizeBefore || sizeBefore == storedSize`) was a tautology that
+        // passed regardless of whether a copy was actually made.
+        assert(storedSize !== sizeBefore) {
+            "Expected defensive copy of preferredSize, but stored the same reference"
+        }
         manager.dispose()
     }
 
@@ -211,6 +217,80 @@ class EditorScrollbarManagerTest {
         realState.hideEditorVScrollbar = false
         manager.apply()
         assertNull(vBar.getClientProperty("ayuIslands.originalPreferredSize"))
+        manager.dispose()
+    }
+
+    @Test
+    fun `resetOriginalSizeCache tolerates putClientProperty failures`() {
+        // Listener body is `resetOriginalSizeCacheForTest() then apply()`. If a downstream
+        // Swing layer throws from putClientProperty (platform regression, disposed
+        // component) the listener must survive — otherwise the MessageBus dispatcher
+        // catches it as SEVERE and the follow-up apply() never runs (scrollbars stay
+        // unhidden after LAF change). Mocked scrollbar that throws on the null-value
+        // clear proves the per-pane try/catch keeps iteration alive.
+        val throwingVBar = mockk<javax.swing.JScrollBar>(relaxed = true)
+        every {
+            throwingVBar.putClientProperty(eq("ayuIslands.originalPreferredSize"), null)
+        } throws IllegalStateException("simulated putClientProperty failure")
+
+        val mockScrollPane = mockk<JScrollPane>(relaxed = true)
+        every { mockScrollPane.verticalScrollBar } returns throwingVBar
+        every { mockScrollPane.horizontalScrollBar } returns mockk(relaxed = true)
+        every { editorEx.scrollPane } returns mockScrollPane
+
+        realState.hideEditorVScrollbar = true
+        val manager = createManager()
+        manager.apply() // populates patchedScrollPanes; hideScrollBar's
+        // putClientProperty (with non-null Dimension) is the relaxed-mock no-op.
+
+        // Reset path: the null-value put on the vertical bar throws; the iteration must
+        // continue (horizontal bar still gets cleared) and no exception escapes.
+        val suppressLoggedErrors =
+            object : LoggedErrorProcessor() {
+                override fun processWarn(
+                    category: String,
+                    message: String,
+                    throwable: Throwable?,
+                ): Boolean = false
+            }
+        LoggedErrorProcessor.executeWith<Throwable>(suppressLoggedErrors) {
+            manager.resetOriginalSizeCacheForTest()
+        }
+
+        verify(atLeast = 1) {
+            throwingVBar.putClientProperty(eq("ayuIslands.originalPreferredSize"), null)
+        }
+        manager.dispose()
+    }
+
+    @Test
+    fun `apply re-hides scrollbar after platform reset simulation`() {
+        // Regression guard for the stale-flag bug (commit 64833a0): a previous version of
+        // applyToEditor gated hideScrollBar on `!patched.verticalHidden`. After startup the
+        // flag would read "true", the platform's LAF walk would reset preferredSize back to
+        // the default, and the subsequent apply() — triggered by LafListener via
+        // ComponentTreeRefreshedTopic — would see the true flag and skip re-hiding. Result:
+        // visible scrollbar until the user manually toggled off → on.
+        //
+        // Simulate the exact sequence and assert preferredSize stays at (0,0) after the second
+        // apply, regardless of what the internal state flag looked like before.
+        realState.hideEditorVScrollbar = true
+        val vBar = scrollPane.verticalScrollBar
+
+        val manager = createManager()
+        manager.apply()
+        assertEquals(Dimension(0, 0), vBar.preferredSize)
+
+        // Simulate what IJSwingUtilities.updateComponentTreeUI does to a patched scrollbar
+        // during a LAF change: the UI delegate is reinstalled, and preferredSize reverts to
+        // the default (some non-zero dimension computed by the new UI delegate).
+        vBar.preferredSize = Dimension(12, 100)
+
+        // The LafListener publishes ComponentTreeRefreshedTopic, subscribers call apply().
+        // The real contract: apply() must re-zero the scrollbar regardless of cached state.
+        manager.apply()
+
+        assertEquals(Dimension(0, 0), vBar.preferredSize)
         manager.dispose()
     }
 
