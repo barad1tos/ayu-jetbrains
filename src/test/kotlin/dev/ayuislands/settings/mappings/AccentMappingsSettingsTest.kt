@@ -2,6 +2,7 @@ package dev.ayuislands.settings.mappings
 
 import com.intellij.testFramework.LoggedErrorProcessor
 import java.util.ConcurrentModificationException
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -322,6 +323,10 @@ class AccentMappingsSettingsTest {
         // could theoretically race with a concurrent write. Exercise it directly: blank
         // user.home drives the no-migration branch, and a throwing map simulates the CME so
         // settings loading must still complete without propagating.
+        //
+        // Positive-evidence assertion: check ThrowingMap.iterationAccessCount > 0 to prove
+        // the probe ACTUALLY RAN and threw. Without this, an absence-assertion alone would
+        // pass trivially if a future refactor early-returned before invoking the probe.
         System.setProperty("user.home", "")
         val settings = AccentMappingsSettings()
         val probeBoom = ConcurrentModificationException("keys probed mid-write")
@@ -344,6 +349,15 @@ class AccentMappingsSettingsTest {
         LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
             settings.migrateUserHomeMacro(throwingAccents, throwingNames)
         }
+
+        // Probe must have actually executed (accessed one of the iteration members) before
+        // the runCatching caught the throw. Guards against a refactor that skips the probe
+        // altogether — the absence-assertion below would pass trivially in that case.
+        assertTrue(
+            throwingAccents.iterationAccessCount.get() > 0,
+            "Probe must actually access projectAccents iteration members before catching; " +
+                "iterationAccessCount=${throwingAccents.iterationAccessCount.get()}",
+        )
 
         // The "legacy keys" warn must NOT fire — the probe returned false by default after
         // catching the CME. If the runCatching were removed, the probe would propagate and
@@ -400,11 +414,15 @@ class AccentMappingsSettingsTest {
     /**
      * Throws a caller-specified exception on every iteration-shaped accessor
      * (`entries`, `keys`, `values`). `size` / `isEmpty` / `containsKey` delegate to a
-     * non-empty backing map so unrelated probes inside `rewriteKeys` or the stdlib's
-     * collection extensions don't surface a surprise throw before the intended iteration
-     * reaches `entries`. (`Map.none(predicate)` itself has no `isEmpty` short-circuit —
-     * only the no-arg `Map.none()` does — but keeping the non-empty backing keeps the
-     * helper well-behaved as a general-purpose `MutableMap` for any future caller.)
+     * non-empty backing map — this matters load-bearingly: Kotlin's
+     * `Map.none(predicate)` stdlib extension short-circuits to `true` when `isEmpty()` is
+     * true (see `_Maps.kt` in the stdlib — the fast-path applies to both the no-arg and
+     * predicate overloads). An empty backing would make `source.none { it.key.startsWith
+     * (USER_HOME_MACRO) }` inside `rewriteKeys` return `true` immediately, skipping the
+     * iteration over `entries` that actually throws. The non-empty seed forces the
+     * implementation past the fast-path into the `for (element in this)` loop, which
+     * accesses `entries` — and that's where [boom] finally fires.
+     *
      * Exercises the `runCatching { rewriteKeys(...) }` branch in
      * [AccentMappingsSettings.migrateUserHomeMacro] without reflection or instrumentation.
      */
@@ -412,11 +430,22 @@ class AccentMappingsSettingsTest {
         private val boom: RuntimeException,
         private val backing: MutableMap<String, String> = mutableMapOf("/seed" to "value"),
     ) : MutableMap<String, String> by backing {
+        val iterationAccessCount = AtomicInteger(0)
+
         override val entries: MutableSet<MutableMap.MutableEntry<String, String>>
-            get() = throw boom
+            get() {
+                iterationAccessCount.incrementAndGet()
+                throw boom
+            }
         override val keys: MutableSet<String>
-            get() = throw boom
+            get() {
+                iterationAccessCount.incrementAndGet()
+                throw boom
+            }
         override val values: MutableCollection<String>
-            get() = throw boom
+            get() {
+                iterationAccessCount.incrementAndGet()
+                throw boom
+            }
     }
 }

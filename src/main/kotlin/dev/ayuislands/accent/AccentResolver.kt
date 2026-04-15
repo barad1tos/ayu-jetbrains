@@ -101,34 +101,39 @@ object AccentResolver {
      * Failures are logged once per project per failure mode — this runs on hot paths
      * (focus swap, rotation tick) so we guard against log spam via per-mode
      * [OneShotProjectGate]s ([basePathWarnGate] and [canonicalWarnGate]). `basePath` /
-     * `name` access are each in their own `runCatching` so a race mid-dispose degrades
-     * to "return null" silently instead of escalating through the resolver — the
-     * `name` probe uses `runCatching` with a `"<disposed>"` default so a VM-level
-     * error during the label read still lets the warn fire with the real basePath
-     * exception as its cause.
+     * `name` access are each wrapped in [runCatchingPreservingCancellation] so a race
+     * mid-dispose degrades to "return null" silently instead of escalating through the
+     * resolver — while still letting [kotlin.coroutines.cancellation.CancellationException]
+     * propagate, since the resolver is reachable from coroutine contexts
+     * (`AyuIslandsStartupActivity.execute`) where swallowing cancellation would keep
+     * a cancelled coroutine alive past its structural concurrency boundary.
      */
     fun projectKey(project: Project): String? {
         val raw =
-            runCatching { project.basePath }
+            runCatchingPreservingCancellation { project.basePath }
                 .onFailure { exception ->
                     // Symmetric with the canonicalization branch below: a platform regression
                     // making `project.basePath` throw for any project type would silently
                     // demote every project to global accent without a breadcrumb unless we
-                    // log here too. `project.name` is read defensively inside runCatching for
-                    // the same reason — when basePath throws, name access is likely to throw
-                    // from the same mid-dispose race, and we'd rather log a marker than a NPE.
+                    // log here too. `project.name` is read defensively for the same reason —
+                    // when basePath throws, name access is likely to throw from the same
+                    // mid-dispose race, and we'd rather log a marker than a NPE.
                     if (basePathWarnGate.tryAcquire(project)) {
-                        val name = runCatching { project.name }.getOrDefault("<disposed>")
+                        val name =
+                            runCatchingPreservingCancellation { project.name }
+                                .getOrDefault("<disposed>")
                         LOG.warn(
                             "Failed to read basePath for project '$name'; falling back to global accent",
                             exception,
                         )
                     }
                 }.getOrNull() ?: return null
-        return runCatching { File(raw).canonicalPath }
+        return runCatchingPreservingCancellation { File(raw).canonicalPath }
             .onFailure { exception ->
                 if (canonicalWarnGate.tryAcquire(project)) {
-                    val name = runCatching { project.name }.getOrDefault("<disposed>")
+                    val name =
+                        runCatchingPreservingCancellation { project.name }
+                            .getOrDefault("<disposed>")
                     LOG.warn(
                         "Failed to canonicalize basePath for '$name' ($raw); " +
                             "project-override resolution will fall back to global accent",
@@ -136,6 +141,22 @@ object AccentResolver {
                     )
                 }
             }.getOrNull()
+    }
+
+    /**
+     * [kotlin.runCatching] variant that rethrows
+     * [kotlin.coroutines.cancellation.CancellationException] instead of capturing it in
+     * the returned [Result]. This resolver is called from `AyuIslandsStartupActivity`'s
+     * coroutine body; swallowing cancellation there would let the coroutine continue
+     * past its scope's cancellation, breaking structured concurrency. Other Throwables
+     * (including [Error] subtypes like `NoClassDefFoundError` from a mid-dispose race
+     * on a lazily-loaded service accessor) keep the existing fall-back-to-null behavior.
+     */
+    private inline fun <T> runCatchingPreservingCancellation(block: () -> T): Result<T> {
+        val result = runCatching(block)
+        val cause = result.exceptionOrNull()
+        if (cause is kotlin.coroutines.cancellation.CancellationException) throw cause
+        return result
     }
 
     /**

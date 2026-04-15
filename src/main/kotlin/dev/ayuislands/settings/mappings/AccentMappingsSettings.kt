@@ -6,7 +6,6 @@ import com.intellij.openapi.components.SimplePersistentStateComponent
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.diagnostic.logger
-import org.jetbrains.annotations.TestOnly
 
 /**
  * Application-level persistent store for per-project and per-language accent overrides.
@@ -47,12 +46,12 @@ class AccentMappingsSettings : SimplePersistentStateComponent<AccentMappingsStat
      * on a real state instance via its public property; the only alternative to a map-typed
      * helper is reflection or a test-only subclass, both uglier.
      *
-     * `@TestOnly` flags the test-seam intent in IDE inspections. The sole production caller
-     * is [loadState] above, which holds the keys-in-lockstep invariant between
+     * Not annotated `@TestOnly` — the production [loadState] calls this directly, which
+     * the inspection would flag. The KDoc test-seam intent stands, but the sole production
+     * caller is [loadState] above, which holds the keys-in-lockstep invariant between
      * `projectAccents` / `projectDisplayNames`; future non-test callers should go through
      * [loadState] instead of invoking this directly.
      */
-    @TestOnly
     internal fun migrateUserHomeMacro(
         projectAccents: MutableMap<String, String>,
         projectDisplayNames: MutableMap<String, String>,

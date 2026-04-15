@@ -380,6 +380,26 @@ class AccentResolverTest {
     }
 
     @Test
+    fun `projectKey propagates CancellationException from basePath access instead of swallowing`() {
+        // The resolver is called from AyuIslandsStartupActivity's coroutine body via
+        // `AccentApplicator.apply(accentHex)`. If project.basePath ever throws
+        // CancellationException (cooperative cancellation of the startup coroutine),
+        // swallowing it into `raw = null` and continuing would keep the cancelled
+        // coroutine alive past its structured-concurrency boundary. Must rethrow.
+        val project = mockk<Project>()
+        every { project.basePath } throws kotlin.coroutines.cancellation.CancellationException("startup cancelled")
+        every { project.isDefault } returns false
+        every { project.isDisposed } returns false
+        every { project.name } returns "cancelled-project"
+
+        val thrown =
+            kotlin.test.assertFailsWith<kotlin.coroutines.cancellation.CancellationException> {
+                AccentResolver.projectKey(project)
+            }
+        assertEquals("startup cancelled", thrown.message)
+    }
+
+    @Test
     fun `projectKey degrades to null when basePath access throws AlreadyDisposedException`() {
         // Race condition: between the dispose check in findOverride and the basePath read in
         // projectKey, the project finishes disposing on another thread. basePath access then
