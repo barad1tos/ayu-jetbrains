@@ -68,8 +68,12 @@ object ProjectLanguageDetector {
     )
 
     private fun detectInternal(project: Project): DetectionResult {
+        // Both platform lookups wrap via runCatchingPreservingCancellation — `dominant`
+        // is reachable from AyuIslandsStartupActivity.execute's coroutine body via
+        // AccentResolver.findOverride, and plain `runCatching` would swallow
+        // CancellationException and keep a cancelled coroutine alive.
         val sdkResult =
-            runCatching {
+            runCatchingPreservingCancellation {
                 ProjectRootManager
                     .getInstance(project)
                     .projectSdk
@@ -87,7 +91,10 @@ object ProjectLanguageDetector {
             return DetectionResult(languageId = it, cacheable = true)
         }
 
-        val moduleResult = runCatching { ModuleManager.getInstance(project).modules.map { it.name } }
+        val moduleResult =
+            runCatchingPreservingCancellation {
+                ModuleManager.getInstance(project).modules.map { it.name }
+            }
         if (moduleResult.isFailure) {
             LOG.warn(
                 "Module lookup failed during language detection; will retry on next call instead of caching null",

@@ -46,11 +46,11 @@ class AccentMappingsSettings : SimplePersistentStateComponent<AccentMappingsStat
      * on a real state instance via its public property; the only alternative to a map-typed
      * helper is reflection or a test-only subclass, both uglier.
      *
-     * Not annotated `@TestOnly` — the production [loadState] calls this directly, which
-     * the inspection would flag. The KDoc test-seam intent stands, but the sole production
-     * caller is [loadState] above, which holds the keys-in-lockstep invariant between
-     * `projectAccents` / `projectDisplayNames`; future non-test callers should go through
-     * [loadState] instead of invoking this directly.
+     * Visibility is `internal` rather than `@TestOnly` because [loadState] is a production
+     * caller; `@TestOnly` would fire an inspection warning on the real call site. The sole
+     * production call site is [loadState] above, which holds the keys-in-lockstep invariant
+     * between `projectAccents` / `projectDisplayNames`. Future non-test callers should route
+     * through [loadState] to preserve that invariant rather than invoking this directly.
      */
     internal fun migrateUserHomeMacro(
         projectAccents: MutableMap<String, String>,

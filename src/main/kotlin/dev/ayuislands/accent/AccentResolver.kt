@@ -106,7 +106,7 @@ object AccentResolver {
      * resolver — while still letting [kotlin.coroutines.cancellation.CancellationException]
      * propagate, since the resolver is reachable from coroutine contexts
      * (`AyuIslandsStartupActivity.execute`) where swallowing cancellation would keep
-     * a cancelled coroutine alive past its structural concurrency boundary.
+     * a cancelled coroutine alive past its structured-concurrency boundary.
      */
     fun projectKey(project: Project): String? {
         val raw =
@@ -141,22 +141,6 @@ object AccentResolver {
                     )
                 }
             }.getOrNull()
-    }
-
-    /**
-     * [kotlin.runCatching] variant that rethrows
-     * [kotlin.coroutines.cancellation.CancellationException] instead of capturing it in
-     * the returned [Result]. This resolver is called from `AyuIslandsStartupActivity`'s
-     * coroutine body; swallowing cancellation there would let the coroutine continue
-     * past its scope's cancellation, breaking structured concurrency. Other Throwables
-     * (including [Error] subtypes like `NoClassDefFoundError` from a mid-dispose race
-     * on a lazily-loaded service accessor) keep the existing fall-back-to-null behavior.
-     */
-    private inline fun <T> runCatchingPreservingCancellation(block: () -> T): Result<T> {
-        val result = runCatching(block)
-        val cause = result.exceptionOrNull()
-        if (cause is kotlin.coroutines.cancellation.CancellationException) throw cause
-        return result
     }
 
     /**
