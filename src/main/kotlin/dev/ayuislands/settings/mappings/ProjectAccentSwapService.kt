@@ -9,6 +9,7 @@ import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.ui.ComponentTreeRefresher
+import org.jetbrains.annotations.TestOnly
 import java.awt.AWTEvent
 import java.awt.Toolkit
 import java.awt.Window
@@ -59,6 +60,15 @@ class ProjectAccentSwapService : Disposable {
         listener = awtListener
         LOG.info("ProjectAccentSwapService installed")
     }
+
+    /**
+     * Test seam exposing the `RuntimeException`-catching handler entry point. Production
+     * code reaches this via the AWTEventListener registered in [install]; tests invoke it
+     * directly without bringing up the AWT dispatch loop. Marked `@TestOnly` so the IDE
+     * inspection flags any non-test callers.
+     */
+    @TestOnly
+    internal fun onWindowActivatedForTest(event: AWTEvent) = onWindowActivated(event)
 
     private fun onWindowActivated(event: AWTEvent) {
         // Wrap the entire handler so a single exception (e.g. Color.decode on a corrupted stored

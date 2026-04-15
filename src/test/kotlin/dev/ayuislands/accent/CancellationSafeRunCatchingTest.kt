@@ -5,6 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -53,7 +54,7 @@ class CancellationSafeRunCatchingTest {
                 runCatchingPreservingCancellation<String> { throw boom }
             }
         assertEquals("coroutine cancelled mid-probe", thrown.message)
-        assertEquals(boom, thrown, "must rethrow the ORIGINAL instance, not a wrapper")
+        assertSame(boom, thrown, "must rethrow the ORIGINAL instance, not a wrapper")
     }
 
     @Test
@@ -68,6 +69,6 @@ class CancellationSafeRunCatchingTest {
             assertFailsWith<CancellationException> {
                 runCatchingPreservingCancellation<Unit> { throw boom }
             }
-        assertEquals(boom, thrown)
+        assertSame(boom, thrown, "subtype rethrow must preserve the original instance")
     }
 }

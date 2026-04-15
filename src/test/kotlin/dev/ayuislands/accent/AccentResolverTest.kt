@@ -400,6 +400,25 @@ class AccentResolverTest {
     }
 
     @Test
+    fun `projectKey propagates CancellationException from project name probe in basePath warn branch`() {
+        // When basePath throws and we try to log a warn, the defensive `runCatching {
+        // project.name }` wrapper must preserve cancellation. Otherwise a coroutine
+        // cancelled mid-dispose-race would have its cancellation absorbed into the
+        // "<disposed>" default and the resolver would return null instead of unwinding.
+        val project = mockk<Project>()
+        every { project.basePath } throws IllegalStateException("Already disposed")
+        every { project.name } throws kotlin.coroutines.cancellation.CancellationException("name probe cancelled")
+        every { project.isDefault } returns false
+        every { project.isDisposed } returns false
+
+        val thrown =
+            kotlin.test.assertFailsWith<kotlin.coroutines.cancellation.CancellationException> {
+                AccentResolver.projectKey(project)
+            }
+        assertEquals("name probe cancelled", thrown.message)
+    }
+
+    @Test
     fun `projectKey degrades to null when basePath access throws AlreadyDisposedException`() {
         // Race condition: between the dispose check in findOverride and the basePath read in
         // projectKey, the project finishes disposing on another thread. basePath access then
