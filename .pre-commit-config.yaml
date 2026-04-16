@@ -6,17 +6,19 @@ repos:
       - id: end-of-file-fixer
       - id: check-yaml
       - id: check-json
-        # Test fixtures under whatsnew/ are intentionally malformed to exercise
-        # the manifest parser's error branches (v9.9.1 is invalid JSON on
-        # purpose). Matches the same exclude in .github/workflows/build.yml.
-        exclude: '^src/test/resources/whatsnew/'
+        # Only v9.9.1 is intentionally malformed JSON (exercises the manifest
+        # parser's syntax-error branch). All other whatsnew test fixtures are
+        # valid JSON and must still pass validation so a maintainer typo in
+        # e.g. v9.9.5 gets caught by the hook.
+        exclude: '^src/test/resources/whatsnew/v9\.9\.1/'
       - id: check-xml
       - id: check-added-large-files
         args: ['--maxkb=500']
-        # assets/ holds marketplace screenshots; src/main/resources/whatsnew/
-        # holds release-showcase slide PNGs. Both are user-facing artifacts
-        # intentionally shipped at full quality.
-        exclude: '^(assets/|src/main/resources/whatsnew/)'
+        # assets/ holds marketplace screenshots; slide-*.png under whatsnew/v*/
+        # are release-showcase screenshots intentionally shipped at full quality.
+        # Only the slide PNGs are excluded — any OTHER oversized file dropped
+        # into whatsnew/ (a video, zip, database dump) still gets flagged.
+        exclude: '^(assets/|src/main/resources/whatsnew/v[0-9.]+/slide-[A-Za-z0-9-]+\.png$)'
       - id: check-merge-conflict
       - id: no-commit-to-branch
         args: ['--branch', 'main']
