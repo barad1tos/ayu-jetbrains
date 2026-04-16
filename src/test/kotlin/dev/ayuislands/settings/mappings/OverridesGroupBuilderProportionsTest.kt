@@ -146,13 +146,16 @@ class OverridesGroupBuilderProportionsTest {
     @Test
     fun `JBLabel renders malicious display name literally without HTML interpretation`() {
         // VALIDATION 26-02-04 — threat T-26-01 under the icon-row redesign.
-        // Previously the status line was a JEditorPane (text/html), so a third-party
-        // Language.displayName containing markup would be interpreted. The redesign
-        // uses JBLabel with plain text (no `<html>` prefix) — Swing renders the
-        // string literally with no HTML parsing. This test pins that contract: the
-        // raw `<script>` substring must appear verbatim in the JBLabel.text
-        // (proving no interpretation) and therefore no escape-xml transformation
-        // is needed on this path.
+        // Post-refinement, entry labels show only the percentage — language name
+        // moved into the JBLabel.toolTipText. Both `.text` (icon+percent) and
+        // `.toolTipText` (display name) are plain-text by default in Swing: neither
+        // starts with `<html>`, so a Language whose displayName contains markup
+        // renders literally with no HTML parsing.
+        //
+        // The security invariant is now: display names appear ONLY in tooltip,
+        // and that tooltip keeps the raw `<script>…</script>` substring intact
+        // (proof of no interpretation). No JBLabel text or tooltip may open
+        // with `<html>` — that would flip Swing into the HTML-parsing branch.
         val project = stubProject("/tmp/prop-xss-${System.nanoTime()}")
         every { ProjectLanguageDetector.proportions(project) } returns
             mapOf("<script>evil</script>" to 1_000L)
@@ -160,15 +163,18 @@ class OverridesGroupBuilderProportionsTest {
         val builder = OverridesGroupBuilder().apply { setParentProjectForTest(project) }
 
         val labels = builder.proportionsPanelLabelsForTest()
-        val rendered = labels.joinToString(" | ") { it.second }
+        val allTooltips = labels.mapNotNull { it.third }
+        val renderedTooltips = allTooltips.joinToString(" | ")
         assertTrue(
-            labels.any { it.second.contains("<script>evil</script>") },
-            "JBLabel must carry the literal <script>…</script> substring — got: $rendered",
+            allTooltips.any { it.contains("<script>evil</script>") },
+            "one tooltip must carry the literal <script>…</script> substring — got: $renderedTooltips",
         )
-        // And no JBLabel starts with `<html>` — that would trigger HTML parsing.
+        // No text or tooltip may start with <html> — that would trigger Swing
+        // HTML parsing.
+        val allStrings = labels.flatMap { listOf(it.second) + listOfNotNull(it.third) }
         assertFalse(
-            labels.any { it.second.startsWith("<html", ignoreCase = true) },
-            "no label may start with <html> — that would enable HTML interpretation. Labels: $rendered",
+            allStrings.any { it.startsWith("<html", ignoreCase = true) },
+            "no label text or tooltip may start with <html>. Strings: $allStrings",
         )
     }
 
@@ -196,20 +202,24 @@ class OverridesGroupBuilderProportionsTest {
         val texts = labels.map { it.second }
         assertEquals(
             listOf(
-                "Languages detected:",
-                "Kotlin 78% ·",
-                "Java 15% ·",
-                "Scala 4% ·",
-                "other 3%",
+                "Detected:",
+                "78%",
+                "·",
+                "15%",
+                "·",
+                "4%",
+                "·",
+                "3%",
             ),
             texts,
-            "icon row starts with the Languages-detected prefix, then top-3 languages " +
-                "plus the other bucket in weight-descending order, dot-separated except the last",
+            "icon row opens with the Detected prefix, then alternates percent-only " +
+                "entries and standalone middle-dot separator labels (space-around " +
+                "separation handled by FlowLayout gap) — language names live purely " +
+                "in the icon per user feedback",
         )
-        // Scala and Groovy may not be registered in the test JVM's Language index —
-        // icon can be null for any named entry. The "other" entry (last) must
-        // always have a null icon since there's no language to resolve. The prefix
-        // label has a null icon too (it's text-only).
+        // Prefix and separators carry no icon. Every named-language entry tries
+        // to resolve an IDE-platform icon; the "other" bucket entry (last non-
+        // separator label) has no associated language and therefore no icon.
         assertEquals(null, labels.first().first, "the prefix label carries no icon")
         assertEquals(null, labels.last().first, "the 'other' bucket entry carries no icon")
     }
@@ -260,14 +270,16 @@ class OverridesGroupBuilderProportionsTest {
 
         val builder = OverridesGroupBuilder().apply { setParentProjectForTest(projectA) }
         val firstTexts = builder.proportionsPanelLabelsForTest().map { it.second }
-        assertEquals(listOf("Languages detected:", "Kotlin 100%"), firstTexts)
+        assertEquals(listOf("Detected:", "100%"), firstTexts)
 
         builder.setParentProjectForTest(projectB)
         val secondTexts = builder.proportionsPanelLabelsForTest().map { it.second }
         assertEquals(
-            listOf("Languages detected:", "Python 100%"),
+            listOf("Detected:", "100%"),
             secondTexts,
-            "refresh must rebuild children from projectB's weights, not leak projectA's Kotlin entry",
+            "refresh must rebuild children from projectB's weights — both project A " +
+                "and project B are single-language so the rendered text collapses to " +
+                "Detected: + 100%; the difference shows up in the resolved icon, not text",
         )
     }
 

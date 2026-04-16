@@ -13,6 +13,7 @@ import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.table.JBTable
 import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.UIUtil
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
@@ -302,14 +303,33 @@ class OverridesGroupBuilder {
                 val weights = ProjectLanguageDetector.proportions(project)
                 if (weights == null) emptyList() else LanguageDetectionRules.pickDisplayEntries(weights)
             }
+        val subdued = UIUtil.getContextHelpForeground()
         if (entries.isEmpty()) {
-            panel.add(JBLabel(POLYGLOT_COPY, AllIcons.General.Information, SwingConstants.LEADING))
+            panel.add(
+                JBLabel(POLYGLOT_COPY, AllIcons.General.Information, SwingConstants.LEADING).apply {
+                    foreground = subdued
+                },
+            )
         } else {
-            panel.add(JBLabel(PROPORTIONS_PREFIX))
+            panel.add(JBLabel(PROPORTIONS_PREFIX).apply { foreground = subdued })
             entries.forEachIndexed { index, entry ->
+                if (index > 0) {
+                    panel.add(
+                        JBLabel(PROPORTIONS_SEPARATOR.toString()).apply { foreground = subdued },
+                    )
+                }
                 val icon = entry.id?.let { LanguageDetectionRules.iconForLanguageId(it) }
-                val suffix = if (index == entries.lastIndex) "" else " $PROPORTIONS_SEPARATOR"
-                panel.add(JBLabel("${entry.label} ${entry.percent}%$suffix", icon, SwingConstants.LEADING))
+                panel.add(
+                    JBLabel("${entry.percent}%", icon, SwingConstants.LEADING).apply {
+                        foreground = subdued
+                        // Hover affordance: icon alone can be unfamiliar for less-common
+                        // languages, so the display name surfaces in the tooltip.
+                        // toolTipText is plain-text unless it starts with <html>, so any
+                        // pathological Language.displayName renders literally — no HTML
+                        // interpretation, consistent with the label-text safety story.
+                        toolTipText = entry.label
+                    },
+                )
             }
         }
         panel.revalidate()
@@ -358,11 +378,11 @@ class OverridesGroupBuilder {
      * functions.
      */
     @org.jetbrains.annotations.TestOnly
-    internal fun proportionsPanelLabelsForTest(): List<Pair<Icon?, String>> {
+    internal fun proportionsPanelLabelsForTest(): List<Triple<Icon?, String, String?>> {
         val panel = proportionsPanel ?: JPanel().also { proportionsPanel = it }
         populateProportionsPanel(panel)
         return panel.components.filterIsInstance<JBLabel>().map { label ->
-            label.icon to label.text
+            Triple(label.icon, label.text, label.toolTipText)
         }
     }
 
@@ -673,11 +693,11 @@ class OverridesGroupBuilder {
 
         /**
          * Header rendered in front of the icon-row proportions layout under the
-         * overrides table. Separate from [DETECTED_PREFIX] (used by the text
-         * projection) because the icon-row phrasing is more concise and
-         * positionally clear ("under the table, here's what we detected").
+         * overrides table. Kept terse ("Detected:") because the row sits below
+         * the overrides table where context is already established, and the
+         * full "Languages detected" was verbose for a subdued helper-text row.
          */
-        const val PROPORTIONS_PREFIX: String = "Languages detected:"
+        const val PROPORTIONS_PREFIX: String = "Detected:"
 
         /**
          * Middle-dot (U+00B7) separator glued to the end of every entry except
