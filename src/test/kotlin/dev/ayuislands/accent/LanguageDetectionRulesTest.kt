@@ -581,6 +581,169 @@ class LanguageDetectionRulesTest {
         assertTrue(missing.isEmpty(), "Missing canonical excluded segments: $missing")
     }
 
+    // ── pickTopLanguagesForDisplay ───────────────────────────────────────────────────
+
+    @Test
+    fun `pickTopLanguagesForDisplay returns empty string for empty weights map`() {
+        // Polyglot null-state — the caller renders the fixed polyglot copy on an
+        // empty return, so the formatter MUST NOT invent a synthetic verdict.
+        assertEquals("", LanguageDetectionRules.pickTopLanguagesForDisplay(emptyMap()))
+    }
+
+    @Test
+    fun `pickTopLanguagesForDisplay returns empty string when all weights are zero`() {
+        // Divide-by-zero guard: every share would be NaN, so we bail out with an
+        // empty string and let the caller render the polyglot fallback.
+        val result =
+            LanguageDetectionRules.pickTopLanguagesForDisplay(
+                mapOf("kotlin" to 0L, "java" to 0L),
+            )
+        assertEquals("", result)
+    }
+
+    @Test
+    fun `pickTopLanguagesForDisplay returns Kotlin 100 percent for single kotlin weight`() {
+        val result =
+            LanguageDetectionRules.pickTopLanguagesForDisplay(mapOf("kotlin" to 1_000L))
+        assertEquals("Kotlin (100%)", result)
+    }
+
+    @Test
+    fun `pickTopLanguagesForDisplay shows YAML 100 percent for yaml-only markup fallback`() {
+        // Markup-only project (K8s manifests) — code tier is empty so markup
+        // becomes the display base, YAML gets its 100% share. Test environment
+        // may return null for Language.findLanguageByID("yaml") — either the
+        // live display name or the "Yaml" title-cased fallback is acceptable.
+        val result =
+            LanguageDetectionRules.pickTopLanguagesForDisplay(mapOf("yaml" to 1_000L))
+        val acceptable = result == "YAML (100%)" || result == "Yaml (100%)"
+        assertTrue(
+            acceptable,
+            "Expected 'YAML (100%)' or 'Yaml (100%)' — got: '$result'",
+        )
+    }
+
+    @Test
+    fun `pickTopLanguagesForDisplay filters out markup when code tier is non-empty`() {
+        // Android-style code+markup: Kotlin (40%) + XML (60%). The two-tier filter
+        // drops XML from the display base, so Kotlin renders as 100% of the code
+        // tier. Prevents the misleading "Kotlin (40%) • XML (60%)" case from
+        // Phase 26 success criterion #4.
+        val result =
+            LanguageDetectionRules.pickTopLanguagesForDisplay(
+                mapOf("kotlin" to 400L, "xml" to 600L),
+            )
+        assertEquals("Kotlin (100%)", result)
+    }
+
+    @Test
+    fun `pickTopLanguagesForDisplay renders three named languages without other bucket`() {
+        val result =
+            LanguageDetectionRules.pickTopLanguagesForDisplay(
+                mapOf("kotlin" to 780L, "java" to 150L, "python" to 70L),
+            )
+        assertEquals("Kotlin (78%) • Java (15%) • Python (7%)", result)
+    }
+
+    @Test
+    fun `pickTopLanguagesForDisplay collapses 4th-plus languages into trailing other bucket`() {
+        // Top-3 kept; 4th and 5th languages (Go + Ruby) collapse into "other".
+        // Integer-rounded raw-share sum of the collapsed entries: 3 + 2 = 5%.
+        val result =
+            LanguageDetectionRules.pickTopLanguagesForDisplay(
+                mapOf(
+                    "kotlin" to 500L,
+                    "java" to 300L,
+                    "python" to 150L,
+                    "ruby" to 30L,
+                    "go" to 20L,
+                ),
+            )
+        assertEquals("Kotlin (50%) • Java (30%) • Python (15%) • other (5%)", result)
+    }
+
+    @Test
+    fun `pickTopLanguagesForDisplay collapses sub-1 percent entries into other bucket`() {
+        // 99.5% kotlin + 0.5% java → java floor-percent is 0, below 1% threshold,
+        // collapses into "other" with integer-rounded raw share (0% → suffix dropped).
+        // Use a case where collapsed sum is non-zero: 98% + 2 × 1% boundary cases,
+        // plus a 0.5% entry that actually rounds to zero.
+        val result =
+            LanguageDetectionRules.pickTopLanguagesForDisplay(
+                mapOf(
+                    "kotlin" to 950L,
+                    "java" to 20L,
+                    "python" to 15L,
+                    "rust" to 10L,
+                    "go" to 5L,
+                ),
+            )
+        // kotlin 95%, java 2%, python 1%, rust 1%, go 0% → top-3 kept, go collapses
+        // into other. Rust is at 1% (floor), stays as 4th → but top-3 cap drops it
+        // too. Collapsed raw sum = 10 + 5 = 15 → floor(15/1000 * 100) = 1%.
+        assertEquals("Kotlin (95%) • Java (2%) • Python (1%) • other (1%)", result)
+    }
+
+    @Test
+    fun `pickTopLanguagesForDisplay keeps an entry at exactly 1 percent floor`() {
+        // Boundary: 99 + 1 = 100 total, java is 1/100 = 1.0% → floor == 1 → KEEP.
+        // A regression that changed the condition to `> 1` would drop java here.
+        val result =
+            LanguageDetectionRules.pickTopLanguagesForDisplay(
+                mapOf("kotlin" to 99L, "java" to 1L),
+            )
+        assertEquals("Kotlin (99%) • Java (1%)", result)
+    }
+
+    @Test
+    fun `pickTopLanguagesForDisplay collapses an entry below 1 percent floor`() {
+        // Boundary: 9950 + 50 = 10_000 total, java is 50/10000 = 0.5% → floor == 0 →
+        // collapse into other with raw-share sum rendered as integer-rounded pct.
+        // Collapsed raw = 50 → floor(50/10000 * 100) = 0 → suffix omitted.
+        val result =
+            LanguageDetectionRules.pickTopLanguagesForDisplay(
+                mapOf("kotlin" to 9_950L, "java" to 50L),
+            )
+        assertEquals("Kotlin (99%)", result)
+    }
+
+    @Test
+    fun `pickTopLanguagesForDisplay does not append other bucket when nothing collapses`() {
+        // Three languages, each ≥ 1% floor, top-3 cap NOT triggered → no
+        // trailing " • other (N%)" even though shares don't sum to exactly 100.
+        val result =
+            LanguageDetectionRules.pickTopLanguagesForDisplay(
+                mapOf("kotlin" to 40L, "java" to 30L, "python" to 30L),
+            )
+        // floor(40/100*100)=40, floor(30/100*100)=30, floor(30/100*100)=30
+        assertEquals("Kotlin (40%) • Java (30%) • Python (30%)", result)
+    }
+
+    @Test
+    fun `pickTopLanguagesForDisplay falls back to title-cased id for unknown language`() {
+        // Unknown id ("xyzunknown" is not in the Language registry) — formatter
+        // MUST title-case the raw id rather than emit a lowercase display name.
+        // Test env's Language.findLanguageByID returns null for this id.
+        val result =
+            LanguageDetectionRules.pickTopLanguagesForDisplay(mapOf("xyzunknown" to 1_000L))
+        assertTrue(
+            result.startsWith("Xyzunknown"),
+            "Expected unknown-id fallback to title-case 'xyzunknown' — got: '$result'",
+        )
+    }
+
+    @Test
+    fun `pickTopLanguagesForDisplay breaks ties alphabetically by language id`() {
+        // Equal weights → alphabetical order on the id ("java" < "kotlin"), so
+        // Java must precede Kotlin in the display. Matches pickDominantFromWeights
+        // determinism contract so a HashMap iteration-order regression fails loudly.
+        val result =
+            LanguageDetectionRules.pickTopLanguagesForDisplay(
+                mapOf("kotlin" to 500L, "java" to 500L),
+            )
+        assertEquals("Java (50%) • Kotlin (50%)", result)
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────────────
 
     private fun mockLanguageFileType(languageId: String): FileType {
