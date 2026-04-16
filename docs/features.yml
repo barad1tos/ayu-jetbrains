@@ -1,0 +1,299 @@
+# Single source of truth for Ayu Islands user-facing features.
+#
+# CI (scripts/verify-docs.py) enforces three invariants:
+#
+#   1. Every `keyword` in this file appears in README.md AND in the
+#      <description> CDATA of src/main/resources/META-INF/plugin.xml
+#      (case-insensitive substring match). Prevents "shipped but never
+#      mentioned in marketing copy" drift.
+#
+#   2. Every [Paid]/[Free] bullet in the latest CHANGELOG.md section has
+#      a feature with a matching `introduced` version. Prevents
+#      "changelog bumped but features.yml forgotten".
+#
+#   3. Every feature whose `screenshot.sources` has git changes since
+#      `screenshot.last_verified_sha` fails with "re-capture OR re-stamp".
+#      Plus a SHA-256 byte-hash guard that catches "bumped last_verified_sha
+#      but forgot to swap the image file".
+#
+# When adding a feature: pick a distinctive keyword (short phrase that will
+# always appear verbatim in the marketing copy). When the UI changes: either
+# re-capture the screenshot and update content_sha256 + last_verified_sha,
+# or confirm the UI still matches and bump last_verified_sha only.
+
+schema_version: 1
+
+categories:
+  accent:
+    title: "Accent control"
+    features:
+      - id: accent-presets
+        title: "12 accent presets + custom picker + macOS system sync"
+        keyword: "12 accent presets"
+        introduced: "2.2.0"
+        tier: free
+        description: >
+          Twelve curated accent colors or any custom hex. Follows the
+          macOS system accent color when the system sync toggle is on.
+
+      - id: accent-element-toggles
+        title: "Per-element accent switches"
+        keyword: "Accent control"
+        introduced: "2.0.0"
+        tier: paid
+        description: >
+          Decide exactly where the accent appears: scrollbars, links,
+          caret line, search highlights, progress bars, bracket matches,
+          inlay hints, tag matches. Eight independent switches.
+
+      - id: accent-rotation
+        title: "Accent rotation"
+        keyword: "Accent rotation"
+        introduced: "2.3.2"
+        tier: paid
+        description: >
+          Automatic preset cycling or contrast-aware random accent
+          switching on a timer.
+
+      - id: accent-scoped-project
+        title: "Per-project accent pin"
+        keyword: "per-project"
+        introduced: "2.5.0"
+        tier: paid
+        description: >
+          Pin an accent color to a specific project window; it applies
+          whenever you focus that project. Configured from
+          Settings → Ayu Islands → Accent → Overrides.
+
+      - id: accent-scoped-language
+        title: "Per-language accent pin"
+        keyword: "per-language"
+        introduced: "2.5.0"
+        tier: paid
+        description: >
+          Pin an accent to a programming language (Kotlin → cyan,
+          Python → gold). Applies when the project's dominant language
+          matches and no project override exists.
+
+        screenshot:
+          path: assets/feature-accent.png
+          caption: "Accent control panel with overrides"
+          sources:
+            - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
+            - src/main/kotlin/dev/ayuislands/settings/mappings
+            - src/main/kotlin/dev/ayuislands/accent
+          last_verified_sha: "35acead"
+          last_verified_date: "2026-04-16"
+          content_sha256: "f95f08c18e54d45733fda1bb48dc30b4d2e28bc3ac01083076cc2ec310420484"
+
+  glow:
+    title: "Glow effects"
+    features:
+      - id: glow-overlay
+        title: "Glow overlay beneath tabs and panels"
+        keyword: "Glow"
+        introduced: "2.0.0"
+        tier: paid
+        description: >
+          Soft light overlay beneath tabs and panels. Three styles —
+          Soft, Sharp Neon, Gradient. Control intensity, width, and
+          which of the seven panels glow.
+
+      - id: glow-animation
+        title: "Glow animations — Pulse, Breathe, Reactive"
+        keyword: "Pulse, Breathe"
+        introduced: "2.2.0"
+        tier: paid
+        description: >
+          Three animation modes for the glow overlay: Pulse, Breathe,
+          or Reactive.
+
+        screenshot:
+          path: assets/feature-glow.png
+          caption: "Glow settings panel"
+          sources:
+            - src/main/kotlin/dev/ayuislands/settings/GlowGroupPanel.kt
+            - src/main/kotlin/dev/ayuislands/settings/AyuIslandsEffectsPanel.kt
+            - src/main/kotlin/dev/ayuislands/glow
+          last_verified_sha: "35acead"
+          last_verified_date: "2026-04-16"
+          content_sha256: "3ef51add4539d9c82ce6ad559bce68f6d88fb97606986910ea9b9d13da64fef5"
+
+  fonts:
+    title: "Font presets"
+    features:
+      - id: font-presets
+        title: "4 curated Nerd Fonts with one-click apply"
+        keyword: "4 font presets"
+        introduced: "2.2.0"
+        tier: free
+        description: >
+          Four curated coding fonts (Whisper, Ambient, Neon, Cyberpunk)
+          with one-click apply, live preview, and per-preset fine-tuning.
+
+      - id: font-install
+        title: "Install, delete, reinstall fonts from Settings"
+        keyword: "reinstall fonts"
+        introduced: "2.4.2"
+        tier: paid
+        description: >
+          Download and manage curated fonts directly from the Settings
+          panel with a consent dialog for every filesystem change.
+
+        screenshot:
+          path: assets/feature-font.png
+          caption: "Font presets panel"
+          sources:
+            - src/main/kotlin/dev/ayuislands/settings/FontPresetPanel.kt
+            - src/main/kotlin/dev/ayuislands/font
+          last_verified_sha: "35acead"
+          last_verified_date: "2026-04-16"
+          content_sha256: "2303011928e4246c32edfcc3c4caa923d536aa73f848e225708da4374ce17b41"
+
+  workspace:
+    title: "Workspace"
+    features:
+      - id: workspace-autofit
+        title: "Auto-fit width for Project, Commit, and Git panels"
+        keyword: "auto-fit"
+        introduced: "2.3.0"
+        tier: paid
+        description: >
+          Auto-fit or fixed width for Project View, Commit, and Git
+          panels with configurable min/max bounds.
+
+      - id: workspace-git-splitter
+        title: "Git panel splitter control"
+        keyword: "Git panel splitter"
+        introduced: "2.3.0"
+        tier: paid
+        description: >
+          Auto-resize the branches tree and file changes tree inside
+          the Git panel.
+
+      - id: workspace-project-cleanup
+        title: "Project View cleanup"
+        keyword: "Hide the filesystem path"
+        introduced: "2.3.0"
+        tier: paid
+        description: >
+          Hide the filesystem path and horizontal scrollbar from the
+          Project View.
+
+        screenshot:
+          path: assets/feature-workspace.png
+          caption: "Workspace panel settings"
+          sources:
+            - src/main/kotlin/dev/ayuislands/settings/WorkspacePanel.kt
+            - src/main/kotlin/dev/ayuislands/commitpanel
+            - src/main/kotlin/dev/ayuislands/gitpanel
+            - src/main/kotlin/dev/ayuislands/projectview
+            - src/main/kotlin/dev/ayuislands/editor/EditorScrollbarManager.kt
+          last_verified_sha: "35acead"
+          last_verified_date: "2026-04-16"
+          content_sha256: "3468cac87c8b1a2b834d3ff595e84b9bdd5e559f2fb90f4ba79c2295518112cb"
+
+  tabs:
+    title: "Tab styling"
+    features:
+      - id: tab-styling
+        title: "Islands and Classic UI tab styling"
+        keyword: "Tab styling"
+        introduced: "2.1.2"
+        tier: paid
+        description: >
+          Islands UI — underline, full accent bar, or none. Classic UI —
+          underline thickness from hairline to bold.
+
+  plugin-sync:
+    title: "Plugin ecosystem integrations"
+    features:
+      - id: plugin-sync-codeglance
+        title: "Accent sync with CodeGlance Pro minimap"
+        keyword: "CodeGlance Pro"
+        introduced: "2.1.0"
+        tier: paid
+        description: >
+          Accent color propagates into the CodeGlance Pro minimap
+          viewport border automatically.
+
+      - id: plugin-sync-indent-rainbow
+        title: "Accent sync with Indent Rainbow"
+        keyword: "Indent Rainbow"
+        introduced: "2.1.0"
+        tier: paid
+        description: >
+          Indent Rainbow guides adopt one of three Ayu presets
+          (Whisper / Ambient / Neon).
+
+      - id: bracket-scope
+        title: "Bracket scope gutter stripe"
+        keyword: "Bracket scope"
+        introduced: "2.1.0"
+        tier: paid
+        description: >
+          A colored gutter stripe showing the full scope when your
+          cursor lands on a bracket.
+
+        screenshot:
+          path: assets/feature-integrations.png
+          caption: "Plugin integrations panel"
+          sources:
+            - src/main/kotlin/dev/ayuislands/settings/PluginsPanel.kt
+            - src/main/kotlin/dev/ayuislands/indent
+            - src/main/kotlin/dev/ayuislands/accent/elements/BracketScopeRenderer.kt
+          last_verified_sha: "35acead"
+          last_verified_date: "2026-04-16"
+          content_sha256: "c5c1eea5a119bd19bf98518d394d698bf09983a1e0a3472e255358c50e41ed16"
+
+  onboarding:
+    title: "Onboarding wizard"
+    features:
+      - id: onboarding-wizard
+        title: "Full-tab onboarding wizard"
+        keyword: "Onboarding wizard"
+        introduced: "2.4.0"
+        tier: free
+        description: >
+          Full-tab welcome experience on first install with preset
+          cards, theme variant picker, and accent swatches.
+
+      - id: whatsnew-tab
+        title: "First-launch release showcase"
+        keyword: "release showcase"
+        introduced: "2.5.0"
+        tier: free
+        description: >
+          On the first launch after an upgrade, a release showcase tab
+          opens automatically with captioned screenshots of the marquee
+          features. Reopen anytime via Tools → Ayu Islands → Show What's New.
+
+  free-tier:
+    title: "Free tier — complete theme"
+    features:
+      - id: theme-variants
+        title: "6 theme variants (Mirage, Dark, Light × Classic/Islands UI)"
+        keyword: "6 theme variants"
+        introduced: "1.0.3"
+        tier: free
+        description: >
+          Three color modes (Mirage, Dark, Light) each available in two
+          UI styles (Classic and Islands), for six total variants.
+
+      - id: language-syntax
+        title: "40+ language syntaxes"
+        keyword: "40+ individually crafted language syntaxes"
+        introduced: "1.1.0"
+        tier: free
+        description: >
+          Hand-tuned syntax highlighting for 40+ languages and formats,
+          with Ayu palette defaults for anything unlisted.
+
+      - id: terminal-scheme
+        title: "16-color terminal scheme + VCS/diff palette"
+        keyword: "16-color terminal scheme"
+        introduced: "2.0.0"
+        tier: free
+        description: >
+          Full VCS/diff colors and a 16-color terminal color scheme
+          aligned with the theme palette.

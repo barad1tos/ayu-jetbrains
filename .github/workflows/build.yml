@@ -89,6 +89,13 @@ jobs:
             -- ':!*.md' ':!.pre-commit-config.yaml' \
             ':!.github/workflows/*' \
             || { echo "::error::Private key detected"; exit 1; }
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: scripts/uv.lock
+      - name: Verify docs sync (features.yml ↔ README + plugin.xml + CHANGELOG)
+        run: scripts/verify-docs.py
 
   gha-security:
     name: GHA security (zizmor)
