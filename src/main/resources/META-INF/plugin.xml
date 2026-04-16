@@ -284,6 +284,11 @@
         <listener
                 class="dev.ayuislands.licensing.LicenseTransitionListener"
                 topic="com.intellij.ui.LicensingFacade$LicenseStateListener"/>
+        <!-- Drop the language-detector cache on project close so canonical-path-keyed
+             entries don't leak when a project is renamed / reopened at the same path -->
+        <listener
+                class="dev.ayuislands.accent.ProjectLanguageCacheInvalidator"
+                topic="com.intellij.openapi.project.ProjectManagerListener"/>
     </applicationListeners>
 
     <actions>
