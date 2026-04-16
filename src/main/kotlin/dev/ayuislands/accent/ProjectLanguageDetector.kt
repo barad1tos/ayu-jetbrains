@@ -55,6 +55,26 @@ object ProjectLanguageDetector {
     private val cache = ConcurrentHashMap<String, String>()
 
     /**
+     * Parallel per-language byte-weight cache, written alongside [cache] inside
+     * [detectAndCache] when the scan produced non-empty weights. Keyed by the same
+     * canonical project path as [cache] (see [AccentResolver.projectKey]) so a
+     * single [invalidate] call evicts both and the two caches never drift.
+     *
+     * Absence of a key means "no warm weights" — callers of [proportions] treat the
+     * missing key as the polyglot / no-winner signal and render the fallback copy.
+     * The legacy SDK/module fallback path ([legacySdkModuleDetection]) produces no
+     * weights and deliberately does NOT populate this cache — proportions() for a
+     * legacy-detected project stays null so the Settings display shows the polyglot
+     * copy rather than a misleading "(100%)" single-language breakdown derived from
+     * an empty scan.
+     *
+     * In-memory only (like [cache]); re-warms on the next successful scan. Not
+     * persisted across IDE restarts — the project-open startup activity re-warms
+     * via the next `dominant()` call it issues.
+     */
+    private val weightsCache = ConcurrentHashMap<String, Map<String, Long>>()
+
+    /**
      * Dominant language id for [project], cached per canonical path.
      *
      * On EDT with a cold cache, returns null and schedules a background scan; the
@@ -74,29 +94,81 @@ object ProjectLanguageDetector {
     }
 
     /**
+     * Per-language byte-weight map for [project], read strictly from the warm cache.
+     *
+     * Returns null when the cache is cold (never scanned), when the scan produced no
+     * meaningful weights (legacy SDK fallback path, empty-scan path — caller renders
+     * the polyglot copy), when the scan failed due to dumb mode or disposal race,
+     * or when the project's canonical path cannot be resolved.
+     *
+     * Never triggers a scan or schedules background work. The caller is responsible
+     * for rendering a fallback (polyglot copy) on null. Cache is warmed via
+     * [dominant] (called from [dev.ayuislands.AyuIslandsStartupActivity] and the
+     * focus-swap path in [AccentResolver]) and invalidated atomically with the
+     * dominant-id cache via [invalidate].
+     *
+     * Phase 26 contract: this is a read-only projection of existing detector state.
+     * Phase 29 supplies a manual rescan trigger; Phase 31 may extend this API with
+     * a scan-status discriminant. Neither should weaken the "no scan on miss"
+     * invariant established here.
+     */
+    fun proportions(project: Project): Map<String, Long>? {
+        val key = AccentResolver.projectKey(project) ?: return null
+        // Cross-cache coherence guard: `invalidate()` clears both `cache` and
+        // `weightsCache`, and `detectAndCache` writes them in a specific order
+        // (`weightsCache` first, `cache` last). If a concurrent `invalidate()`
+        // interleaves between those two writes the `weightsCache` entry would
+        // already be gone, but reading the raw `weightsCache[key]` here would
+        // let a stale entry slip through in the opposite race window (write
+        // happened, then invalidate ran between the two writes, leaving the
+        // dominant-id cache empty and weightsCache populated with stale data).
+        // Gate the weights read on the dominant-id cache being present — if the
+        // evictor already ran, serve null so the UI re-reads after the next
+        // `dominant()` completes instead of painting a breakdown for a layout
+        // the rest of the detector has already forgotten.
+        if (cache[key] == null) return null
+        return weightsCache[key]
+    }
+
+    /**
      * Clear the cached detection for [project]. Called from the project-close
      * listener ([ProjectLanguageCacheInvalidator]) so a re-opened project can
      * be re-analyzed, and from the `ModuleRootListener` subscription registered
      * in [dev.ayuislands.AyuIslandsStartupActivity] so mid-session content-root
      * changes (gradle sync, module add/remove) trigger a fresh scan.
+     *
+     * Evicts BOTH [cache] and [weightsCache] under the same key so `dominant()` and
+     * `proportions()` never drift — a stale weights entry served after
+     * `dominant()` re-scanned would show the user a proportion breakdown for the
+     * pre-invalidate layout.
      */
     fun invalidate(project: Project) {
-        AccentResolver.projectKey(project)?.let { cache.remove(it) }
+        val key = AccentResolver.projectKey(project) ?: return
+        cache.remove(key)
+        weightsCache.remove(key)
     }
 
-    /** Drop the entire cache — useful for test isolation. */
+    /** Drop the entire cache — useful for test isolation. Empties both maps. */
     fun clear() {
         cache.clear()
+        weightsCache.clear()
     }
 
     /**
      * Result of a single detection attempt. `cacheable = false` signals a transient
      * failure (the underlying IntelliJ API threw) — the caller must NOT persist this
      * result, so the next invocation retries instead of serving a poisoned cache entry.
+     *
+     * [weights] carries the raw per-language byte map produced by the scan path; it
+     * is null on the legacy SDK/module fallback path (no scan produced weights) and
+     * also when the scan ran but produced no winner and no margin-plurality tiebreak
+     * (the polyglot null verdict). [detectAndCache] only writes [weightsCache] when
+     * [weights] is present and non-empty — see `weightsCache` KDoc for rationale.
      */
     private data class DetectionResult(
         val languageId: String?,
         val cacheable: Boolean,
+        val weights: Map<String, Long>? = null,
     )
 
     /**
@@ -109,7 +181,27 @@ object ProjectLanguageDetector {
     ): String? {
         val detection = detectInternal(project)
         if (detection.cacheable) {
+            // Write order is load-bearing: `weightsCache` first, `cache`
+            // (dominant-id) second, paired with the `cache[key] == null` guard
+            // in `proportions()`. An interleaved `invalidate()` that lands
+            // between the two writes is observed as "no cache entry yet" by
+            // both readers instead of "proportions populated, dominant gone" —
+            // the latter would render a stale breakdown for a layout the
+            // detector has already forgotten.
+            if (!detection.weights.isNullOrEmpty()) {
+                weightsCache[key] = detection.weights
+            }
             cache[key] = detection.languageId ?: NULL_SENTINEL
+        } else {
+            // Forensic breadcrumb: a non-cacheable result means the scan hit
+            // dumb mode, a disposed project, or the scanner threw. The caller
+            // sees the same `null` the polyglot/legacy paths emit, so the
+            // Settings row silently renders the polyglot copy — without this
+            // log there is no trace for "proportions never show up" reports.
+            // DEBUG severity keeps the normal indexing-warmup path quiet
+            // (every fresh IDE window hits dumb mode once) while still leaving
+            // a paper trail in idea.log.
+            LOG.debug("Scan for $key returned non-cacheable result; caller will re-scan on next call")
         }
         return detection.languageId
     }
@@ -149,24 +241,71 @@ object ProjectLanguageDetector {
         project: Project,
         detectedId: String,
     ) {
-        val mappings = AccentMappingsSettings.getInstance().state
-        if (detectedId !in mappings.languageAccents) return
-        SwingUtilities.invokeLater {
-            if (project.isDisposed) return@invokeLater
-            // Best-effort refresh: the cache already has the detected id, so
-            // `dominant()` behavior is unaffected by failures here. Containing
-            // exceptions keeps a regression in any of the downstream apply paths
-            // (variant detection, UIManager writes, focus-swap notification)
-            // from surfacing as an uncaught EDT exception and risking the UI.
-            runCatchingPreservingCancellation {
-                val variant = AyuVariant.detect() ?: return@runCatchingPreservingCancellation
-                val hex = AccentResolver.resolve(project, variant)
-                AccentApplicator.apply(hex)
-                ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
-            }.onFailure { exception ->
-                LOG.warn("Post-scan accent refresh failed; cache is still warm", exception)
-            }
+        SwingUtilities.invokeLater { refreshAccentOnEdt(project, detectedId) }
+    }
+
+    /**
+     * EDT body extracted from [tryRefreshAccentForDetected] so the membership
+     * check + apply chain can be red/green tested synchronously without having
+     * to pump a Swing event loop. The caller is expected to already be on the
+     * EDT (production: wrapped in `SwingUtilities.invokeLater`; tests: called
+     * directly on the test thread). Returns early on disposal or on a
+     * language-override miss, logs and swallows any downstream apply or
+     * settings-read failure.
+     *
+     * `internal` (no `@TestOnly`) because [tryRefreshAccentForDetected] — the
+     * production caller — reaches this helper through the `SwingUtilities.invokeLater`
+     * boundary; marking it test-only would misrepresent the call graph and
+     * any `@TestOnly` inspection would either miss real misuse or flag this
+     * legitimate production path.
+     */
+    internal fun refreshAccentOnEdt(
+        project: Project,
+        detectedId: String,
+    ) {
+        if (project.isDisposed) return
+        // Widen the runCatching to cover the settings read AND the apply
+        // chain. `AccentMappingsSettings.getInstance()` can fail during a
+        // plugin-unload race or a corrupt persistent-state XML read on the
+        // EDT — without the wrap, that throw would bubble out of the
+        // invokeLater callback as an uncaught EDT exception, exactly the
+        // failure mode the inner block already contains for the apply chain.
+        runCatchingPreservingCancellation {
+            // Re-read the mappings ON the EDT so membership reflects the
+            // same state the apply chain is about to resolve against — the
+            // Settings UI mutates `languageAccents` on EDT, and an off-EDT
+            // membership check could observe a stale map between scan
+            // completion and this callback's scheduling.
+            val mappings = AccentMappingsSettings.getInstance().state
+            if (detectedId !in mappings.languageAccents) return@runCatchingPreservingCancellation
+            // Best-effort refresh: the cache already has the detected id,
+            // so `dominant()` behavior is unaffected by failures here.
+            // Containing exceptions keeps a regression in any of the
+            // downstream apply paths (variant detection, UIManager writes,
+            // focus-swap notification) from surfacing as an uncaught EDT
+            // exception and risking the UI.
+            val variant = AyuVariant.detect() ?: return@runCatchingPreservingCancellation
+            val hex = AccentResolver.resolve(project, variant)
+            AccentApplicator.apply(hex)
+            ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
+        }.onFailure { exception ->
+            LOG.warn("Post-scan accent refresh failed; cache is still warm", exception)
         }
+    }
+
+    /**
+     * `@TestOnly` seam for the `proportions()` cross-cache coherence guard —
+     * lets tests simulate the race window where `weightsCache` is written for
+     * a key before the matching `cache` (dominant-id) entry lands, by evicting
+     * just the dominant-id side of the pair. Without this seam the guard at
+     * [proportions] is unreachable from any black-box test because the sole
+     * production write path ([detectAndCache]) writes both entries
+     * back-to-back on the same thread.
+     */
+    @org.jetbrains.annotations.TestOnly
+    internal fun evictDominantCacheForTest(project: Project) {
+        val key = AccentResolver.projectKey(project) ?: return
+        cache.remove(key)
     }
 
     private fun isOnEdt(): Boolean = ApplicationManager.getApplication()?.isDispatchThread == true
@@ -181,7 +320,7 @@ object ProjectLanguageDetector {
         if (weights.isNotEmpty()) {
             val scanWinner = LanguageDetectionRules.pickDominantFromAllWeights(weights)
             if (scanWinner != null) {
-                return DetectionResult(languageId = scanWinner, cacheable = true)
+                return DetectionResult(languageId = scanWinner, cacheable = true, weights = weights)
             }
             // Scan found weights but no clear or plurality winner. Consult the
             // legacy heuristic as a tiebreaker — but only accept its answer when
@@ -189,13 +328,18 @@ object ProjectLanguageDetector {
             // TIE_BREAK_MIN_SHARE. Guards against the SDK confidently reporting
             // a language that the scan didn't even find.
             resolveTiebreakFromLegacy(project, weights)?.let {
-                return DetectionResult(languageId = it, cacheable = true)
+                return DetectionResult(languageId = it, cacheable = true, weights = weights)
             }
-            return DetectionResult(languageId = null, cacheable = true)
+            // Polyglot no-winner verdict: cache the null id (definitive) but NOT
+            // the weights — Phase 26 shows the polyglot copy on this state rather
+            // than a weights breakdown, so leaving weightsCache empty keeps
+            // proportions() returning null for a clean caller dispatch.
+            return DetectionResult(languageId = null, cacheable = true, weights = null)
         }
         // Empty scan: brand-new project / everything-filtered-as-markup / newly
         // checked out. Fall back to the SDK + module heuristic; its result is
-        // cached the same way the pre-scan implementation did.
+        // cached the same way the pre-scan implementation did. Legacy path produces
+        // no weights — weightsCache stays empty and proportions() stays null.
         return legacySdkModuleDetection(project)
     }
 

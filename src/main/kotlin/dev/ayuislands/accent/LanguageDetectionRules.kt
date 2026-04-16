@@ -1,8 +1,11 @@
 package dev.ayuislands.accent
 
+import com.intellij.lang.Language
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.fileTypes.LanguageFileType
 import java.util.Locale
+import javax.swing.Icon
 
 /**
  * Pure, side-effect-free helpers for the proportional language detector.
@@ -126,6 +129,73 @@ internal object LanguageDetectionRules {
      * "kotlin" but the scan has no strong signal either way.
      */
     const val TIE_BREAK_MIN_SHARE: Double = 0.20
+
+    /**
+     * Max named language entries in the Settings status-line proportions display
+     * before the remainder collapses into a trailing "other (N%)" bucket. Fixed at 3
+     * per Phase 26 scope; not user-configurable.
+     *
+     * See [pickTopLanguagesForDisplay].
+     */
+    const val DEFAULT_DISPLAY_MAX_ENTRIES: Int = 3
+
+    /**
+     * Separator between entries in the Settings status-line proportions display.
+     * The `•` glyph matches the existing Ayu Islands visual language for inline
+     * bullet separators.
+     */
+    private const val DISPLAY_ENTRY_SEPARATOR: String = " • "
+
+    /**
+     * Suffix label for the collapsed "other" bucket at the end of the display line.
+     */
+    private const val DISPLAY_OTHER_LABEL: String = "other"
+
+    private val LOG = logger<LanguageDetectionRules>()
+
+    /**
+     * Multiplier for converting a fractional share (0.0–1.0) to an integer percent
+     * (0–100). Extracted to a constant so the rounding math in
+     * [pickTopLanguagesForDisplay] stays self-documenting and detekt's MagicNumber
+     * rule doesn't trip on the literal.
+     */
+    private const val PERCENT_SCALE: Double = 100.0
+
+    /**
+     * Lower bound for any displayable percent. Entries below this are folded
+     * into the "other" bucket by `pickDisplayEntries`, so the invariant holds
+     * for every surviving [DisplayEntry].
+     */
+    private const val MIN_DISPLAY_PERCENT: Int = 1
+
+    /**
+     * Upper bound for a named [DisplayEntry] — integer mirror of [PERCENT_SCALE]
+     * kept as a `const` so range construction stays a compile-time expression.
+     * Caps trivially at 100% for a single-language project.
+     */
+    private const val MAX_NAMED_PERCENT: Int = 100
+
+    /**
+     * Upper bound for the "other" bucket — one less than the named ceiling
+     * because the bucket only appears alongside at least one named entry
+     * that has already claimed some share.
+     */
+    private const val MAX_OTHER_PERCENT: Int = MAX_NAMED_PERCENT - MIN_DISPLAY_PERCENT
+
+    /**
+     * Valid percent range for a named [DisplayEntry]. The lower bound is
+     * enforced at construction because `pickDisplayEntries` filters sub-1%
+     * entries into the "other" bucket; the upper bound caps single-language
+     * projects.
+     */
+    private val NAMED_PERCENT_RANGE = MIN_DISPLAY_PERCENT..MAX_NAMED_PERCENT
+
+    /**
+     * Valid percent range for the "other" [DisplayEntry] bucket. Upper bound
+     * excludes 100% because the bucket only appears alongside at least one
+     * named entry that already claimed some share.
+     */
+    private val OTHER_PERCENT_RANGE = MIN_DISPLAY_PERCENT..MAX_OTHER_PERCENT
 
     /**
      * Path segments whose presence in a file's canonical path always disqualifies
@@ -319,4 +389,286 @@ internal object LanguageDetectionRules {
         val base = codeWeights.ifEmpty { allWeights }
         return pickDominantFromWeights(base, threshold, marginRatio, floor)
     }
+
+    /**
+     * Human-readable top-N summary of language proportions for Settings display.
+     *
+     * Applies the same code/markup two-tier base as [pickDominantFromAllWeights]:
+     * when any code language is present, only code weights contribute to the display;
+     * markup-only projects (K8s manifest repo, docs site) display their markup. This
+     * prevents the misleading "Kotlin (40%) • XML (60%)" rendering on Android-style
+     * code+markup projects.
+     *
+     * Returns the concatenated entry text (without any prefix — the caller prepends
+     * "Detected in this project: "). Returns an empty string when [weights] is empty,
+     * all-zero, or the computed base sum is non-positive — the caller is expected to
+     * render the polyglot copy on an empty return.
+     *
+     * Percent allocation: the structured list from [pickDisplayEntries] already
+     * encodes the Largest Remainder (Hare) invariant — the per-entry percents
+     * always sum to exactly 100, sub-1% entries fold into the trailing "other"
+     * bucket, and the bucket is omitted when it would render as 0. This text
+     * projection just joins the pre-computed entries; see [pickDisplayEntries]
+     * for the allocation contract.
+     *
+     * Ordering: weight descending, then alphabetical language id ascending — the same
+     * determinism guarantee as [pickDominantFromWeights]. A regression that dropped
+     * the alphabetical tiebreak would flake across JVM versions depending on HashMap
+     * iteration order.
+     *
+     * Display names: [findLanguageByLowercaseId] (case-insensitive iteration over
+     * `Language.getRegisteredLanguages()`) with a fallback to
+     * `id.replaceFirstChar { it.titlecase(Locale.ROOT) }` when the language is not
+     * registered (third-party language plugin uninstalled between scan and render).
+     * The lowercase bridge keeps lookup resilient to the casing drift IntelliJ's
+     * Language registry exhibits ("JAVA", "kotlin", "JavaScript", "C#").
+     */
+    fun pickTopLanguagesForDisplay(
+        weights: Map<String, Long>,
+        maxEntries: Int = DEFAULT_DISPLAY_MAX_ENTRIES,
+    ): String {
+        val entries = pickDisplayEntries(weights, maxEntries)
+        if (entries.isEmpty()) return ""
+        return entries.joinToString(DISPLAY_ENTRY_SEPARATOR) { entry ->
+            "${entry.label} (${entry.percent}%)"
+        }
+    }
+
+    /**
+     * One entry in the structured proportions display — either a named language
+     * (`id` non-null) or the trailing "other" bucket that aggregates sub-1%
+     * entries and everything past [DEFAULT_DISPLAY_MAX_ENTRIES].
+     *
+     * Used by the Settings UI to render `Kotlin 78% · Java 15% · other 7%`
+     * with per-language icons in front of each entry — each entry becomes one
+     * `JBLabel` with the icon resolved from [iconForLanguageId].
+     * The string-projection [pickTopLanguagesForDisplay] is implemented on top of this
+     * same data, so UI and text callers never disagree on what's displayed.
+     */
+    data class DisplayEntry(
+        /** Lowercase AYU language id, or `null` for the "other" bucket. */
+        val id: String?,
+        /** Human-readable display name ("Kotlin", "JavaScript", "other"). */
+        val label: String,
+        /** Integer percentage share; 1..100 for named entries, 1..99 for "other". */
+        val percent: Int,
+    ) {
+        init {
+            // Runtime contract guards — the single producer (`pickDisplayEntries`)
+            // honors these naturally, but `data class` exposes a public constructor
+            // and a synthesized `copy(...)` within the module, so tests and
+            // future helpers can't accidentally build invalid instances.
+            require(percent in NAMED_PERCENT_RANGE) { "percent must be $NAMED_PERCENT_RANGE, got $percent" }
+            require(label.isNotBlank()) { "label must be non-blank" }
+            if (id != null) {
+                require(id.isNotBlank()) { "named entry id must be non-blank" }
+                require(id == id.lowercase(Locale.ROOT)) {
+                    "named entry id must be lowercase, got '$id'"
+                }
+            } else {
+                // Other-bucket invariant: the structured output never exposes
+                // an "other" entry at 100% — it only appears alongside at least
+                // one named entry that already claimed some share.
+                require(percent in OTHER_PERCENT_RANGE) {
+                    "other-bucket percent must be $OTHER_PERCENT_RANGE, got $percent"
+                }
+                // Other-bucket label coherence: `id == null` is the discriminator
+                // for the "other" bucket, so the label must match. Closes the
+                // `DisplayEntry(id=null, label="Kotlin", percent=5)` construction
+                // hole where a caller could mix the discriminator and the label.
+                require(label == DISPLAY_OTHER_LABEL) {
+                    "other-bucket label must be '$DISPLAY_OTHER_LABEL', got '$label'"
+                }
+            }
+        }
+    }
+
+    /**
+     * Structured proportion breakdown — a list of top languages (up to
+     * [maxEntries]) followed by an optional "other" bucket that aggregates
+     * everything below 1% and everything past the top-N cutoff.
+     *
+     * Returns empty list when:
+     *  - [weights] is empty
+     *  - total weight is non-positive (defensive)
+     *  - no entry survives the 1% threshold after sorting
+     *
+     * Invariants:
+     *  - Entries sorted by weight descending; ties broken alphabetically by id
+     *    (same determinism guarantee as [pickDominantFromWeights])
+     *  - Two-tier filter: code languages take priority; markup-only projects
+     *    fall back to the full weight map
+     *  - Integer percentages are allocated via the **Largest Remainder** (Hare)
+     *    method so the displayed values always sum to exactly 100 — plain
+     *    `floor(share * 100)` rounds toward zero and on an uneven split (e.g.
+     *    950 / 23 / 22 / 5 → 95 / 2 / 2 / 0 = 99) leaves 1 percentage point
+     *    unaccounted for, which users read as a math bug. The leftover points
+     *    are distributed to the entries with the largest fractional remainder
+     *    (ties by weight descending, then id ascending for determinism).
+     *  - "Other" bucket aggregates entries past [maxEntries] and entries that
+     *    round to 0%; the bucket is shown when its total reaches at least 1%.
+     *
+     * Used directly by the Settings UI to produce (icon, label, percent) triples
+     * for the proportions status row; also underlies the string-formatted
+     * [pickTopLanguagesForDisplay] so both share one source of truth.
+     */
+    fun pickDisplayEntries(
+        weights: Map<String, Long>,
+        maxEntries: Int = DEFAULT_DISPLAY_MAX_ENTRIES,
+    ): List<DisplayEntry> {
+        if (weights.isEmpty()) return emptyList()
+        val codeWeights = weights.filterKeys { it !in MARKUP_IDS }
+        val base = codeWeights.ifEmpty { weights }
+        val total = base.values.sum()
+        if (total <= 0L) return emptyList()
+        val sorted =
+            base.entries.sortedWith(
+                compareByDescending<Map.Entry<String, Long>> { it.value }.thenBy { it.key },
+            )
+        val finalPcts = allocateLargestRemainder(sorted, total)
+        val named = mutableListOf<DisplayEntry>()
+        var collapsedPct = 0
+        for ((index, entry) in sorted.withIndex()) {
+            val pct = finalPcts[index]
+            if (index < maxEntries && pct >= 1) {
+                named += DisplayEntry(id = entry.key, label = displayNameFor(entry.key), percent = pct)
+            } else {
+                collapsedPct += pct
+            }
+        }
+        if (named.isEmpty()) return emptyList()
+        if (collapsedPct >= 1) {
+            named += DisplayEntry(id = null, label = DISPLAY_OTHER_LABEL, percent = collapsedPct)
+        }
+        return named
+    }
+
+    /**
+     * Largest-remainder integer allocation: returns a per-index `Int` percent
+     * for every entry in [sorted] such that the sum equals exactly 100.
+     *
+     * Algorithm:
+     *  1. Each entry gets `floor(weight / total * 100)` as its base share.
+     *  2. The remainder `100 - sum(floors)` is distributed 1 pt at a time to
+     *     the entries with the largest fractional remainder.
+     *  3. Ties broken by weight descending, then id ascending — same determinism
+     *     guarantee as [pickDominantFromWeights] so a HashMap-iteration-order
+     *     regression can't flake this path across JVM versions.
+     */
+    private fun allocateLargestRemainder(
+        sorted: List<Map.Entry<String, Long>>,
+        total: Long,
+    ): IntArray {
+        // Callers must pre-filter empty/zero-total maps — this contract lets
+        // the function assume at least one entry and a positive denominator,
+        // which preserves the "sum equals exactly 100" invariant in the KDoc.
+        require(sorted.isNotEmpty()) { "allocateLargestRemainder requires non-empty input" }
+        require(total > 0L) { "allocateLargestRemainder requires positive total, got $total" }
+        val floors = IntArray(sorted.size)
+        val remainders = DoubleArray(sorted.size)
+        var floorSum = 0
+        for ((index, entry) in sorted.withIndex()) {
+            val exact = entry.value.toDouble() / total.toDouble() * PERCENT_SCALE
+            val floor = exact.toInt()
+            floors[index] = floor
+            remainders[index] = exact - floor
+            floorSum += floor
+        }
+        val leftover = PERCENT_SCALE.toInt() - floorSum
+        if (leftover <= 0) return floors
+        val bumpIndices =
+            sorted.indices
+                .sortedWith(
+                    compareByDescending<Int> { remainders[it] }
+                        .thenByDescending { sorted[it].value }
+                        .thenBy { sorted[it].key },
+                ).take(leftover)
+        for (index in bumpIndices) {
+            floors[index] += 1
+        }
+        return floors
+    }
+
+    /**
+     * `@TestOnly` seam for exercising the `require(...)` preconditions in
+     * [allocateLargestRemainder] directly. Production callers always flow
+     * through [pickDisplayEntries], which pre-filters empty maps and
+     * non-positive totals, so the guards inside the private function would
+     * otherwise be unreachable from any red/green test. Exposing this seam is
+     * the minimum surface area needed to satisfy the "every validation guard
+     * gets a direct test" rule in `CLAUDE.md`.
+     */
+    @org.jetbrains.annotations.TestOnly
+    internal fun allocateLargestRemainderForTest(
+        sorted: List<Map.Entry<String, Long>>,
+        total: Long,
+    ): IntArray = allocateLargestRemainder(sorted, total)
+
+    /**
+     * Resolve a lowercase AYU language id to the IntelliJ platform icon for
+     * that language's [LanguageFileType]. Returns null when the id is blank,
+     * the language isn't registered, the language has no associated file type,
+     * or the file type isn't a [LanguageFileType] (shouldn't happen for code
+     * languages but guarded for third-party plugins that register custom file
+     * types).
+     *
+     * Used by the Settings proportions row to pick up the same icon the user
+     * already sees beside source files in the Project View — zero new
+     * dependencies, theme-aware, always available when the language plugin is
+     * loaded.
+     */
+    fun iconForLanguageId(id: String): Icon? {
+        if (id.isBlank()) return null
+        // `Language.associatedFileType` returns `LanguageFileType?` directly — no
+        // cast is needed. `.icon` is inherited from `FileType` (non-null Icon).
+        return findLanguageByLowercaseId(id)?.associatedFileType?.icon
+    }
+
+    /**
+     * Resolve a lowercase AYU language id to a human-readable display name.
+     *
+     * Uses [findLanguageByLowercaseId] so the scanner's lowercase ids
+     * ("java", "python", "javascript") match against IntelliJ's case-varying
+     * `Language.id` values ("JAVA", "Python", "JavaScript") — the platform's
+     * direct [Language.findLanguageByID] lookup is case-sensitive and misses
+     * every id the scanner already normalized. Falls back to a title-cased
+     * form of the raw id when the language is not registered in the current
+     * IDE — ensures a never-emit-lowercase invariant for the UI.
+     */
+    private fun displayNameFor(id: String): String =
+        findLanguageByLowercaseId(id)?.displayName
+            ?: id.replaceFirstChar { it.titlecase(Locale.ROOT) }
+
+    /**
+     * Case-insensitive lookup over [Language.getRegisteredLanguages]. Required
+     * because every id on the `weights` map is `id.lowercase(Locale.ROOT)` by
+     * scanner contract, but IntelliJ's `Language.id` casing varies per plugin
+     * (Java is `"JAVA"`, Python is `"Python"`, JavaScript is `"JavaScript"`,
+     * TypeScript is `"TypeScript"`, Groovy is `"Groovy"`, Markdown is
+     * `"Markdown"`), so the stock [Language.findLanguageByID] call fails to
+     * resolve nearly every language the scanner would have found.
+     *
+     * Live iteration (no caching) so plugins loaded / unloaded mid-session
+     * surface immediately, matching the Phase 26 RESEARCH "live lookup" decision.
+     * Cost: ~100–200 registered languages × one string equality — O(n) negligible
+     * for a UI-layer call. The companion tooltip + icon resolution both go
+     * through this helper so display and icon stay paired.
+     */
+    private fun findLanguageByLowercaseId(lowercaseId: String): Language? =
+        runCatchingPreservingCancellation {
+            // Defensive: `Language.getRegisteredLanguages()` iteration is not
+            // contractually concurrent-modification-safe across every IntelliJ
+            // platform build, and a buggy plugin can throw from its `id` getter.
+            // Null return matches the "answer unavailable" contract — callers
+            // fall back to title-cased id / icon-less label.
+            Language.getRegisteredLanguages().firstOrNull {
+                it.id.equals(lowercaseId, ignoreCase = true)
+            }
+        }.onFailure { exception ->
+            // DEBUG severity because a pathological third-party plugin can
+            // trigger this on every call, and WARN would flood idea.log. The
+            // breadcrumb still surfaces the root cause when a "missing icon"
+            // user report lands in triage.
+            LOG.debug("Registered-language iteration failed for id='$lowercaseId'", exception)
+        }.getOrNull()
 }

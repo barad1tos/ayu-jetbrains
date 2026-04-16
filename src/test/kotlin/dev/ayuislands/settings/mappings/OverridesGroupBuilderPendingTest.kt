@@ -50,7 +50,7 @@ class OverridesGroupBuilderPendingTest {
         mappingsState.projectAccents[tmp] = "#ABCDEF"
         val project = stubProject(File(tmp))
 
-        val builder = OverridesGroupBuilder().apply { loadFromStateForTest() }
+        val builder = OverridesGroupBuilder().apply { loadFromState() }
 
         assertEquals("#ABCDEF", builder.resolvePending(project, "#FFCC66"))
         assertEquals(AccentResolver.Source.PROJECT_OVERRIDE, builder.sourcePending(project))
@@ -62,7 +62,7 @@ class OverridesGroupBuilderPendingTest {
         val project = stubProject(File(System.getProperty("java.io.tmpdir"), "pending-lang"))
         every { ProjectLanguageDetector.dominant(project) } returns "kotlin"
 
-        val builder = OverridesGroupBuilder().apply { loadFromStateForTest() }
+        val builder = OverridesGroupBuilder().apply { loadFromState() }
 
         assertEquals("#112233", builder.resolvePending(project, "#FFCC66"))
         assertEquals(AccentResolver.Source.LANGUAGE_OVERRIDE, builder.sourcePending(project))
@@ -76,7 +76,7 @@ class OverridesGroupBuilderPendingTest {
         val project = stubProject(File(tmp))
         every { ProjectLanguageDetector.dominant(project) } returns "kotlin"
 
-        val builder = OverridesGroupBuilder().apply { loadFromStateForTest() }
+        val builder = OverridesGroupBuilder().apply { loadFromState() }
 
         assertEquals("#111111", builder.resolvePending(project, "#FFCC66"))
         assertEquals(AccentResolver.Source.PROJECT_OVERRIDE, builder.sourcePending(project))
@@ -86,7 +86,7 @@ class OverridesGroupBuilderPendingTest {
     fun `resolvePending falls back to global when no pending entry matches`() {
         val project = stubProject(File(System.getProperty("java.io.tmpdir"), "pending-none"))
 
-        val builder = OverridesGroupBuilder().apply { loadFromStateForTest() }
+        val builder = OverridesGroupBuilder().apply { loadFromState() }
 
         assertEquals("#FFCC66", builder.resolvePending(project, "#FFCC66"))
         assertEquals(AccentResolver.Source.GLOBAL, builder.sourcePending(project))
@@ -104,7 +104,7 @@ class OverridesGroupBuilderPendingTest {
                 every { name } returns "default"
             }
 
-        val builder = OverridesGroupBuilder().apply { loadFromStateForTest() }
+        val builder = OverridesGroupBuilder().apply { loadFromState() }
 
         assertEquals("#FFCC66", builder.resolvePending(defaultProject, "#FFCC66"))
         assertEquals(AccentResolver.Source.GLOBAL, builder.sourcePending(defaultProject))
@@ -121,7 +121,7 @@ class OverridesGroupBuilderPendingTest {
         //    pass the positive assertion alone)
         mappingsState.languageAccents["kotlin"] = "#CAFE00"
 
-        val builder = OverridesGroupBuilder().apply { loadFromStateForTest() }
+        val builder = OverridesGroupBuilder().apply { loadFromState() }
 
         val lowercaseProject = stubProject(File(System.getProperty("java.io.tmpdir"), "case-lower"))
         every { ProjectLanguageDetector.dominant(lowercaseProject) } returns "kotlin"

@@ -6,14 +6,20 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.util.text.StringUtil
 import com.intellij.ui.ToolbarDecorator
+import com.intellij.ui.components.JBLabel
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.table.JBTable
+import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.UIUtil
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.LanguageDetectionRules
 import dev.ayuislands.accent.ProjectLanguageDetector
+import dev.ayuislands.accent.runCatchingPreservingCancellation
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.BorderLayout
@@ -24,11 +30,13 @@ import java.awt.Dimension
 import java.awt.FlowLayout
 import java.io.File
 import javax.swing.ButtonGroup
+import javax.swing.Icon
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.JRadioButton
 import javax.swing.JTable
 import javax.swing.ListSelectionModel
+import javax.swing.SwingConstants
 import javax.swing.table.DefaultTableCellRenderer
 import javax.swing.table.TableModel
 
@@ -54,9 +62,18 @@ class OverridesGroupBuilder {
     private val cardPanel = JPanel(CardLayout())
     private var parentProject: Project? = null
 
+    /**
+     * Captured [JPanel] backing the detected-language proportions status row.
+     * Children are cleared and rebuilt on every [reset] and every pending-change
+     * event via [populateProportionsPanel]. Each child is a [JBLabel] carrying
+     * the language-specific icon from
+     * [LanguageDetectionRules.iconForLanguageId] (or the info icon for the
+     * polyglot state). Null before [buildGroup] has populated it.
+     */
+    private var proportionsPanel: JPanel? = null
+
     init {
-        configureProjectTable()
-        configureLanguageTable()
+        configureTables()
     }
 
     fun buildGroup(
@@ -64,6 +81,14 @@ class OverridesGroupBuilder {
         contextProject: Project?,
     ) {
         parentProject = contextProject
+        // Defense-in-depth: StartupActivity warms the detector cache off-EDT on
+        // project open, but Settings might be opened before that coroutine lands
+        // (race window) or the cache might have been invalidated mid-session.
+        // Kick a warmup now on the EDT path — the detector's own EDT bail-out
+        // schedules a background scan and returns null immediately, so this is
+        // zero-cost on EDT; the first paint may show the polyglot copy but the
+        // next reset (any model edit or panel reopen) picks up the warm cache.
+        contextProject?.let { ProjectLanguageDetector.dominant(it) }
         loadFromState()
 
         val licensed = LicenseChecker.isLicensedOrGrace()
@@ -94,6 +119,17 @@ class OverridesGroupBuilder {
                         .resizableColumn()
                         .align(Align.FILL)
                 }
+                row {
+                    val gap = JBUI.scale(PROPORTIONS_ENTRY_GAP_PX)
+                    val statusPanel =
+                        JPanel(FlowLayout(FlowLayout.LEFT, gap, 0)).apply {
+                            isOpaque = false
+                            border = null
+                        }
+                    proportionsPanel = statusPanel
+                    populateProportionsPanel(statusPanel)
+                    cell(statusPanel)
+                }
                 if (!licensed) {
                     row {
                         comment("Pro feature")
@@ -104,6 +140,11 @@ class OverridesGroupBuilder {
         collapsible.addExpandedListener { expanded ->
             settings.state.overridesGroupExpanded = expanded
         }
+        // Keep the proportions status line in sync with the pending-change surface so
+        // any override add / edit / delete re-reads from the detector cache. Phase 29's
+        // rescan action will reuse this same channel (invalidate + fireChanged) without
+        // introducing a new MessageBus Topic.
+        addPendingChangeListener { proportionsPanel?.let { populateProportionsPanel(it) } }
     }
 
     // Settings panel lifecycle (isModified / apply / reset)
@@ -131,14 +172,34 @@ class OverridesGroupBuilder {
             state.languageAccents[row.languageId] = row.hex
         }
 
-        reapplyForCurrentContext()
-        snapshotStored()
+        // Re-apply the committed mapping set via resolver → applicator → swap-cache sync.
+        // Keep the focus-swap cache consistent so the next WINDOW_ACTIVATED event evaluates
+        // against the color actually showing on screen right now.
+        //
+        // Defense-in-depth: the resolver / applicator / swap-cache chain touches LafManager,
+        // UIManager, and the project-swap service; a transient failure anywhere in that chain
+        // must not short-circuit the stored-snapshot refresh or `fireChanged()` below, or the
+        // settings UI would drift (persisted state saved, but `isModified()` keeps reporting
+        // "modified" because `storedProjects/languages` stayed on the pre-apply snapshot).
+        runCatchingPreservingCancellation {
+            AyuVariant.detect()?.let { variant ->
+                val project = parentProject ?: ProjectManager.getInstance().openProjects.firstOrNull()
+                val hex = AccentResolver.resolve(project, variant)
+                AccentApplicator.apply(hex)
+                ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
+            }
+        }.onFailure { exception ->
+            LOG.warn("Re-apply after overrides commit failed; persisted state is saved, UI may need reopen", exception)
+        }
+        storedProjects = projectModel.snapshot().map { ProjectMapping(it.canonicalPath, it.displayName, it.hex) }
+        storedLanguages = languageModel.snapshot().map { LanguageMapping(it.languageId, it.displayName, it.hex) }
         fireChanged()
     }
 
     fun reset() {
         projectModel.replaceAll(storedProjects.map { ProjectMapping(it.canonicalPath, it.displayName, it.hex) })
         languageModel.replaceAll(storedLanguages.map { LanguageMapping(it.languageId, it.displayName, it.hex) })
+        proportionsPanel?.let { populateProportionsPanel(it) }
         fireChanged()
     }
 
@@ -195,16 +256,209 @@ class OverridesGroupBuilder {
     // Internals: pending-model resolver + UI wiring helpers
 
     /**
-     * Populate the pending table models from the persisted [AccentMappingsSettings]. Public
-     * [buildGroup] calls this during UI setup; exposed to tests so `resolvePending` and
-     * `sourcePending` can be exercised without inflating the full Swing tree.
+     * Compute the current status-line text by reading from the detector's warm cache.
+     *
+     * Returns the fixed polyglot copy ([POLYGLOT_COPY]) when:
+     *  - [parentProject] is null (Settings opened with no focused project)
+     *  - [ProjectLanguageDetector.proportions] returns null (cold cache, polyglot
+     *    no-winner verdict, or legacy-SDK fallback path — all leave weightsCache empty)
+     *  - [LanguageDetectionRules.pickTopLanguagesForDisplay] produces a blank string
+     *    (all-zero weights or markup-only below-threshold — same visual as polyglot)
+     *
+     * Otherwise returns [DETECTED_PREFIX] concatenated with the formatter output,
+     * passed through [StringUtil.escapeXmlEntities] — the current icon-row
+     * renderer uses plain-text `JBLabel`s that never parse HTML, so the escape
+     * is not load-bearing for the production UI, but this helper survives as a
+     * regression guard that locks the T-26-01 threat model (a third-party
+     * language plugin registering a display name containing markup): the
+     * escape keeps the text projection safe against a future render path that
+     * switches back to an HTML-capable label.
+     *
+     * O(1) HashMap probe plus a bounded formatter pass; safe to call on EDT.
+     *
+     * Exposed as an `internal @TestOnly` seam so
+     * `OverridesGroupBuilderProportionsTest` can assert every user-visible render
+     * state without instantiating the Swing tree — the UI builder itself no
+     * longer calls this helper (the icon-panel path lives in
+     * [populateProportionsPanel]), so this method survives as a pure test
+     * projection over the text-equivalent rendering.
      */
     @org.jetbrains.annotations.TestOnly
-    internal fun loadFromStateForTest() {
-        loadFromState()
+    internal fun currentProportionsTextForTest(): String {
+        val project = parentProject ?: return POLYGLOT_COPY
+        val weights = ProjectLanguageDetector.proportions(project) ?: return POLYGLOT_COPY
+        val rendered = LanguageDetectionRules.pickTopLanguagesForDisplay(weights)
+        if (rendered.isBlank()) return POLYGLOT_COPY
+        return DETECTED_PREFIX + StringUtil.escapeXmlEntities(rendered)
     }
 
-    private fun loadFromState() {
+    /**
+     * Rebuild the status-panel children from the detector's warm cache. Clears
+     * existing children first so stale entries from a previous project focus
+     * don't leak. Called from the inline panel construction inside [buildGroup]
+     * (initial paint), from [reset] (Settings re-opens or Cancel), and from the
+     * pending-change listener registered in [buildGroup] (override add / edit /
+     * delete path via [fireChanged]).
+     *
+     * Two render paths:
+     *  - **Icon row** (normal): one [JBLabel] per [LanguageDetectionRules.DisplayEntry]
+     *    with the IDE-platform icon from [LanguageDetectionRules.iconForLanguageId]
+     *    (null for the "other" bucket — JBLabel without an icon renders as
+     *    text-only, same font). Labels carry the raw display name + percentage.
+     *    Because `JBLabel.text` is plain-text by default (NOT `<html>`-prefixed),
+     *    any pathological language display name renders literally — no HTML
+     *    interpretation, no need for escape-xml.
+     *  - **Polyglot row** (weights cache cold OR `pickDisplayEntries` returned
+     *    an empty list): one [JBLabel] with
+     *    `AllIcons.General.Information` + [POLYGLOT_COPY]. Visually distinct
+     *    from the icon row so the user instantly sees "no single dominant".
+     */
+    private fun populateProportionsPanel(panel: JPanel) {
+        // Wrap the entire rebuild under runCatchingPreservingCancellation so a
+        // third-party Language plugin throwing from `associatedFileType.icon`,
+        // a `ConcurrentModificationException` on `Language.getRegisteredLanguages()`
+        // during a mid-render plugin unload, or any other transient platform
+        // failure cannot propagate out of this EDT callback — the UI DSL builder,
+        // the pending-change listener chain (`listeners.forEach { it.run() }`),
+        // and `reset()` all call this helper and a bubbled exception would break
+        // the entire Overrides group, not just the proportions row.
+        //
+        // Atomic-swap strategy: render into a detached staging `JPanel` first, and
+        // only touch the live `panel` once rendering fully succeeded. A prior
+        // version cleared `panel` BEFORE rendering, so a mid-render throw left the
+        // user looking at a blank row while the log claimed "previous state" —
+        // misleading triage. Now the live panel is either fully replaced or left
+        // exactly as the user last saw it.
+        // Construct a FRESH FlowLayout for the staging panel instead of aliasing
+        // `panel.layout`. `FlowLayout` is stateless today, but sharing a layout
+        // instance across two containers is undefined behavior if a future edit
+        // swaps the live panel's layout to one that caches per-child constraints
+        // (GridBagLayout, MigLayout). Reconstruct from the same scaled gap used
+        // in `buildGroup` so the staging pack width matches the live pack width.
+        val gap = JBUI.scale(PROPORTIONS_ENTRY_GAP_PX)
+        val staging =
+            JPanel(FlowLayout(FlowLayout.LEFT, gap, 0)).apply {
+                isOpaque = panel.isOpaque
+                border = panel.border
+            }
+        val outcome = runCatchingPreservingCancellation { renderProportionsInto(staging) }
+        outcome.onFailure { exception ->
+            LOG.warn("Proportions panel repopulate failed; leaving previous state", exception)
+            return
+        }
+        panel.removeAll()
+        staging.components.toList().forEach { child ->
+            staging.remove(child)
+            panel.add(child)
+        }
+        panel.revalidate()
+        panel.repaint()
+    }
+
+    /**
+     * Paint the proportions content into [panel] — the polyglot fallback label
+     * when there are no entries, otherwise the leading prefix plus one
+     * icon+percent label per entry with separators between them.
+     *
+     * Extracted out of [populateProportionsPanel] to keep the EDT callback's
+     * cognitive complexity within detekt's 15-branch budget: the runCatching
+     * wrapper, the onFailure sink, and the revalidate/repaint calls stay in the
+     * caller while all branching / looping / label construction happens here.
+     */
+    private fun renderProportionsInto(panel: JPanel) {
+        val subdued = UIUtil.getContextHelpForeground()
+        val project = parentProject
+        val weights = project?.let { ProjectLanguageDetector.proportions(it) }
+        val entries =
+            weights?.let { LanguageDetectionRules.pickDisplayEntries(it) } ?: emptyList()
+        if (entries.isEmpty()) {
+            panel.add(
+                JBLabel(POLYGLOT_COPY, AllIcons.General.Information, SwingConstants.LEADING).apply {
+                    foreground = subdued
+                },
+            )
+            return
+        }
+        panel.add(JBLabel(PROPORTIONS_PREFIX).apply { foreground = subdued })
+        entries.forEachIndexed { index, entry ->
+            if (index > 0) {
+                panel.add(JBLabel(PROPORTIONS_SEPARATOR.toString()).apply { foreground = subdued })
+            }
+            val icon = entry.id?.let { LanguageDetectionRules.iconForLanguageId(it) }
+            // Named entries render as icon + percent only (icon identifies the
+            // language). The "other" bucket has no icon and no single language —
+            // render its literal "other" label before the percent so the row
+            // still reads as a unit instead of a dangling bare percent that
+            // looks like a rendering glitch.
+            val text =
+                if (entry.id == null) {
+                    "${entry.label} ${entry.percent}%"
+                } else {
+                    "${entry.percent}%"
+                }
+            panel.add(
+                JBLabel(text, icon, SwingConstants.LEADING).apply {
+                    foreground = subdued
+                    // Hover affordance: icon alone can be unfamiliar for less-common
+                    // languages, so the display name surfaces in the tooltip.
+                    // toolTipText is plain-text unless it starts with <html>, so
+                    // any pathological Language.displayName renders literally —
+                    // no HTML interpretation, consistent with the label-text
+                    // safety story.
+                    toolTipText = entry.label
+                },
+            )
+        }
+    }
+
+    /**
+     * Builder-level `@TestOnly` seam that binds a focused project without
+     * spinning up a full Swing panel — wiring tests can exercise
+     * `resolvePending` / `sourcePending` / proportions rendering without going
+     * through [buildGroup].
+     */
+    @org.jetbrains.annotations.TestOnly
+    internal fun setParentProjectForTest(project: Project?) {
+        parentProject = project
+    }
+
+    /**
+     * Builder-level seam for the pending table models. Tests seed rows
+     * through this helper to exercise `apply()` / `isModified()` / `reset()`
+     * without going through the Swing ToolbarDecorator "+" / "-" path — the
+     * alternative is a Swing-heavy fixture just to populate two rows.
+     */
+    @org.jetbrains.annotations.TestOnly
+    internal fun seedPendingForTest(
+        projects: Collection<ProjectMapping> = emptyList(),
+        languages: Collection<LanguageMapping> = emptyList(),
+    ) {
+        projectModel.replaceAll(projects)
+        languageModel.replaceAll(languages)
+    }
+
+    /**
+     * Builder-level seam: lazily builds the proportions panel on first call (so
+     * wiring tests can bypass `buildGroup`), repopulates from the current
+     * [parentProject] + detector cache, and returns `(icon, text)` pairs for
+     * each child in layout order.
+     *
+     * Combines refresh + read into one seam so test call sites stay terse and
+     * the public surface of [OverridesGroupBuilder] stays under the detekt
+     * `TooManyFunctions` threshold — refresh helpers were inlined into [reset]
+     * and the pending-change listener instead of adding dedicated private
+     * functions.
+     */
+    @org.jetbrains.annotations.TestOnly
+    internal fun proportionsPanelLabelsForTest(): List<Triple<Icon?, String, String?>> {
+        val panel = proportionsPanel ?: JPanel().also { proportionsPanel = it }
+        populateProportionsPanel(panel)
+        return panel.components.filterIsInstance<JBLabel>().map { label ->
+            Triple(label.icon, label.text, label.toolTipText)
+        }
+    }
+
+    internal fun loadFromState() {
         val state = AccentMappingsSettingsAccess.stateFor()
         // Per-row resilience: ProjectMapping / LanguageMapping have require(...) invariants at
         // construction (valid #RRGGBB hex, lowercase language id, non-blank canonical path).
@@ -256,10 +510,6 @@ class OverridesGroupBuilder {
             }
         projectModel.replaceAll(projects)
         languageModel.replaceAll(languages)
-        snapshotStored()
-    }
-
-    private fun snapshotStored() {
         storedProjects = projectModel.snapshot().map { ProjectMapping(it.canonicalPath, it.displayName, it.hex) }
         storedLanguages = languageModel.snapshot().map { LanguageMapping(it.languageId, it.displayName, it.hex) }
     }
@@ -288,10 +538,12 @@ class OverridesGroupBuilder {
         return bar
     }
 
-    private fun configureProjectTable() {
-        projectTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
-        projectTable.rowHeight = TABLE_ROW_HEIGHT
-        projectTable.setShowGrid(false)
+    private fun configureTables() {
+        for (table in listOf(projectTable, languageTable)) {
+            table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
+            table.rowHeight = TABLE_ROW_HEIGHT
+            table.setShowGrid(false)
+        }
         projectTable.getColumnModel().getColumn(ProjectMappingsTableModel.COLUMN_COLOR).apply {
             cellRenderer = RoundedSwatchRenderer()
         }
@@ -301,12 +553,6 @@ class OverridesGroupBuilder {
         projectTable.getColumnModel().getColumn(ProjectMappingsTableModel.COLUMN_PATH).apply {
             cellRenderer = DimOrphanRenderer { row -> projectModel.isOrphan(row) }
         }
-    }
-
-    private fun configureLanguageTable() {
-        languageTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
-        languageTable.rowHeight = TABLE_ROW_HEIGHT
-        languageTable.setShowGrid(false)
         languageTable.getColumnModel().getColumn(LanguageMappingsTableModel.COLUMN_COLOR).apply {
             cellRenderer = RoundedSwatchRenderer()
         }
@@ -350,7 +596,18 @@ class OverridesGroupBuilder {
                         }
 
                         override fun update(event: AnActionEvent) {
-                            event.presentation.isEnabled = canPinCurrentProject()
+                            // Inlined pin-eligibility gate: the action is enabled only when a
+                            // focused, non-default, non-disposed project has a canonical key
+                            // that isn't already pinned. Kept inline rather than as a helper so
+                            // the file stays under detekt's TooManyFunctions threshold.
+                            val project = parentProject
+                            event.presentation.isEnabled =
+                                project != null &&
+                                !project.isDefault &&
+                                !project.isDisposed &&
+                                AccentResolver.projectKey(project)?.let { key ->
+                                    !projectModel.containsPath(key)
+                                } == true
                         }
                     },
                 )
@@ -369,7 +626,7 @@ class OverridesGroupBuilder {
                     updateHex = projectModel::updateHex,
                 )
             },
-            remove = { removeSelectedProject() },
+            remove = { removeSelectedRow(projectTable, projectModel::remove) },
             addEnabled = { licensed },
             editEnabled = { licensed && projectTable.selectedRow >= 0 },
             removeEnabled = { projectTable.selectedRow >= 0 },
@@ -389,7 +646,7 @@ class OverridesGroupBuilder {
                     updateHex = languageModel::updateHex,
                 )
             },
-            remove = { removeSelectedLanguage() },
+            remove = { removeSelectedRow(languageTable, languageModel::remove) },
             addEnabled = { licensed },
             editEnabled = { licensed && languageTable.selectedRow >= 0 },
             removeEnabled = { languageTable.selectedRow >= 0 },
@@ -410,13 +667,6 @@ class OverridesGroupBuilder {
         fireChanged()
     }
 
-    private fun canPinCurrentProject(): Boolean {
-        val project = parentProject ?: return false
-        if (project.isDefault || project.isDisposed) return false
-        val key = AccentResolver.projectKey(project) ?: return false
-        return !projectModel.containsPath(key)
-    }
-
     private fun pinCurrentProject() {
         val project = parentProject ?: return
         if (project.isDefault || project.isDisposed) return
@@ -430,9 +680,17 @@ class OverridesGroupBuilder {
         fireChanged()
     }
 
-    private fun removeSelectedProject() {
-        val row = projectTable.selectedRow.takeIf { it >= 0 } ?: return
-        projectModel.remove(row)
+    /**
+     * Generic remove-selected-row flow shared by the project and language tables.
+     * Shares the JBTable selection probe, the model-agnostic remove call, and the
+     * pending-change notification.
+     */
+    private fun removeSelectedRow(
+        table: JBTable,
+        remove: (Int) -> Unit,
+    ) {
+        val row = table.selectedRow.takeIf { it >= 0 } ?: return
+        remove(row)
         fireChanged()
     }
 
@@ -472,24 +730,6 @@ class OverridesGroupBuilder {
         fireChanged()
     }
 
-    private fun removeSelectedLanguage() {
-        val row = languageTable.selectedRow.takeIf { it >= 0 } ?: return
-        languageModel.remove(row)
-        fireChanged()
-    }
-
-    // Applies the committed mapping set via resolver → applicator → swap-cache sync
-
-    private fun reapplyForCurrentContext() {
-        val variant = AyuVariant.detect() ?: return
-        val project = parentProject ?: ProjectManager.getInstance().openProjects.firstOrNull()
-        val hex = AccentResolver.resolve(project, variant)
-        AccentApplicator.apply(hex)
-        // Keep the focus-swap cache consistent so the next WINDOW_ACTIVATED event
-        // evaluates against the color actually showing on screen right now.
-        ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
-    }
-
     companion object {
         private val LOG = logger<OverridesGroupBuilder>()
         private const val CARD_PROJECTS = "projects"
@@ -497,6 +737,46 @@ class OverridesGroupBuilder {
         private const val TABLE_ROW_HEIGHT = 24
         private const val BAR_HORIZONTAL_GAP = 4
         private const val BAR_VERTICAL_GAP = 0
+
+        /**
+         * Horizontal gap between entries in the proportions status row.
+         * Scaled via [com.intellij.util.ui.JBUI.scale] for HiDPI displays.
+         * 12 px at 1x matches the rhythm of other Settings rows in the plugin.
+         */
+        private const val PROPORTIONS_ENTRY_GAP_PX: Int = 12
+
+        /**
+         * Fixed status-line copy rendered under Per-Language Accent Pins when the
+         * detector has no warm weights for the focused project — cache is cold, the
+         * most recent scan produced no dominant winner, or the legacy SDK / module
+         * fallback path was used (no weights to proportion). Exact string is locked
+         * per phase-26 D-05 / ROADMAP success criterion. NOT i18n'd, NOT
+         * user-configurable. The em-dash is U+2014, not a hyphen.
+         */
+        const val POLYGLOT_COPY: String =
+            "Polyglot — no single dominant language; global accent applies"
+
+        /**
+         * Prefix for the detected-language proportions line. Paired with the output
+         * of [LanguageDetectionRules.pickTopLanguagesForDisplay]. The trailing space
+         * is part of the locked copy — do not trim.
+         */
+        const val DETECTED_PREFIX: String = "Detected in this project: "
+
+        /**
+         * Header rendered in front of the icon-row proportions layout under the
+         * overrides table. Kept terse ("Detected:") because the row sits below
+         * the overrides table where context is already established, and the
+         * full "Languages detected" was verbose for a subdued helper-text row.
+         */
+        const val PROPORTIONS_PREFIX: String = "Detected:"
+
+        /**
+         * Middle-dot (U+00B7) separator glued to the end of every entry except
+         * the last. Matches the visual separator style used in the font preset
+         * panel (e.g. `Maple Mono · 14pt · Regular · 1.0× · ligatures`).
+         */
+        const val PROPORTIONS_SEPARATOR: Char = '·'
     }
 
     /**
