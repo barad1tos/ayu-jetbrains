@@ -23,6 +23,23 @@
 
 schema_version: 1
 
+# ─── Release-sync guard ───────────────────────────────────────────────────
+# Tracks the plugin.xml <description> CDATA hash as it was at the time of
+# the last successful Marketplace publish. verify-docs.py refuses to pass
+# when `gradle.properties.pluginVersion == last_published_version` AND the
+# current <description> SHA-256 differs — because that means main has copy
+# edits the live Marketplace JAR does NOT reflect (the exact trap that
+# caused v2.5.0's Marketplace "About" page to stay on 2.4.x copy after
+# PR #131 landed description updates without a version bump).
+#
+# /release-plugin recomputes last_published_description_sha256 as part of
+# the version-bump commit, so the guard resets automatically after a real
+# release. Between releases the hash is intentionally frozen to the last
+# published state — any copy edit without a version bump fails lint.
+release_sync:
+  last_published_version: "2.5.1"
+  last_published_description_sha256: "8d8996c596cacd275b73d104db05ed775649489c3f6aaae408914dfe598f6e8b"
+
 categories:
   accent:
     title: "Accent control"

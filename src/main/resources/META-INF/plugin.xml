@@ -87,6 +87,10 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.5.1</h3>
+    <ul>
+      <li>Updated Marketplace "About" description to cover all v2.5.0 features — per-project and per-language accent pins, onboarding wizard, and the first-launch release showcase tab — that hadn't made it onto the listing page</li>
+    </ul>
     <h3>2.5.0</h3>
     <ul>
       <li>[Paid] Pin an accent color to a specific project — set it once from Settings and every time you switch to that window your accent is there</li>

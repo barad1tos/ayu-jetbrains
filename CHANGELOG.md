@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.5.1] - 2026-04-16
+
+### Changed
+- Marketplace "About" description now lists all v2.5.0 features — per-project and per-language accent pins, onboarding wizard, first-launch release showcase, and Settings-based font install — that were missing from the listing page when v2.5.0 was published
+
 ## [2.5.0] - 2026-04-16
 
 ### Added
