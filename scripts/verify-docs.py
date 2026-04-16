@@ -345,6 +345,116 @@ def _replace_content_hash(text: str, path: str, new_hash: str) -> tuple[str, boo
     return new_text, True
 
 
+def check_required_links(data: dict, report: Report) -> None:
+    """Invariant 4: every required_links entry's substring appears in its `in` file.
+
+    Catches "someone refactored the Community section and dropped the
+    GitHub Discussions links", or "removed the Marketplace install badge".
+    """
+    for entry in data.get("required_links") or []:
+        name = entry.get("name", "<unnamed>")
+        needle = (entry.get("substring") or "").strip().lower()
+        target_rel = (entry.get("in") or "").strip()
+        if not needle or not target_rel:
+            report.error(name, "required_links entry missing `substring` or `in`")
+            continue
+        target_path = REPO_ROOT / target_rel
+        if not target_path.exists():
+            report.error(name, f"required_links target '{target_rel}' does not exist")
+            continue
+        haystack = target_path.read_text(encoding="utf-8").lower()
+        if needle not in haystack:
+            report.error(
+                name,
+                f"required link '{entry['substring']}' not found in {target_rel} — "
+                f"add it or remove this entry from features.yml",
+            )
+
+
+_ASSET_EXTENSIONS = (".png", ".gif", ".svg", ".jpg", ".jpeg", ".webp")
+_ASSET_SEARCH_ROOTS = ("assets", "src/main/resources/whatsnew")
+
+
+def check_asset_inventory(data: dict, report: Report) -> None:
+    """Invariant 5: every on-disk image under the tracked roots is inventoried,
+    and every inventory entry's `referenced_by` files actually mention the path.
+
+    Three failure modes caught:
+      - Orphan asset:       PNG on disk but not in asset_inventory
+      - Broken reference:   inventory says "README.md" but README doesn't
+                            actually contain the path
+      - Missing justification: inventory entry has referenced_by=[] AND no
+                               `justification` explaining why it's unused
+    """
+    inventory = data.get("asset_inventory") or []
+    _check_inventory_entries(inventory, report)
+    _check_filesystem_orphans(inventory, report)
+
+
+def _check_inventory_entries(inventory: list[dict], report: Report) -> None:
+    for entry in inventory:
+        _check_one_inventory_entry(entry, report)
+
+
+def _check_one_inventory_entry(entry: dict, report: Report) -> None:
+    path = (entry.get("path") or "").strip()
+    if not path:
+        report.error("_asset_inventory_", "inventory entry missing `path`")
+        return
+    if not (REPO_ROOT / path).exists():
+        report.error(path, "inventory path does not exist on disk")
+        return
+    referenced_by = entry.get("referenced_by") or []
+    justification = (entry.get("justification") or "").strip()
+    if not referenced_by and not justification:
+        report.error(
+            path,
+            "asset has no `referenced_by` and no `justification` — either "
+            "add a README/plugin.xml reference or explain why it's unreferenced",
+        )
+        return
+    basename = Path(path).name
+    for ref_rel in referenced_by:
+        _check_reference_in_file(path, basename, ref_rel, report)
+
+
+def _check_reference_in_file(
+    path: str, basename: str, ref_rel: str, report: Report
+) -> None:
+    ref_path = REPO_ROOT / ref_rel
+    if not ref_path.exists():
+        report.error(path, f"`referenced_by` file '{ref_rel}' does not exist")
+        return
+    content = ref_path.read_text(encoding="utf-8")
+    # Accept either full repo-relative path (README, plugin.xml) or bare
+    # basename (manifest.json, which joins a directory prefix at runtime).
+    if path not in content and basename not in content:
+        report.error(
+            path,
+            f"inventory claims '{ref_rel}' references this asset, but the "
+            f"file contains neither the full path nor the basename — add "
+            f"the reference or remove '{ref_rel}' from `referenced_by`",
+        )
+
+
+def _check_filesystem_orphans(inventory: list[dict], report: Report) -> None:
+    inventoried = {(entry.get("path") or "").strip() for entry in inventory}
+    for root_rel in _ASSET_SEARCH_ROOTS:
+        root = REPO_ROOT / root_rel
+        if not root.is_dir():
+            continue
+        for path in root.rglob("*"):
+            if not path.is_file() or path.suffix.lower() not in _ASSET_EXTENSIONS:
+                continue
+            rel = path.relative_to(REPO_ROOT).as_posix()
+            if rel not in inventoried:
+                report.error(
+                    rel,
+                    "orphan asset — not listed in features.yml `asset_inventory`. "
+                    "Add an entry with `referenced_by:` or `justification:`.",
+                )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -369,6 +479,8 @@ def main() -> int:
     check_keywords(data, report)
     check_changelog_cross_ref(data, report)
     check_screenshots(data, report)
+    check_required_links(data, report)
+    check_asset_inventory(data, report)
     report.print()
     return 1 if report.has_errors else 0
 
