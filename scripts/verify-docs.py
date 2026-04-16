@@ -8,7 +8,9 @@ Three invariants (see docs/features.yml header for the rationale):
      to at least one feature with matching `introduced: X.Y.Z`
   3. Screenshots declared under a feature aren't stale:
      - sources' files exist
-     - `git log <last_verified_sha>..HEAD -- <sources>` is empty
+     - `git log <last_verified_sha>..HEAD -- <sources>` is empty, with a branch
+       -aware fallback so a squash-merged stamp on `main` warns instead of
+       erroring (see `_check_freshness_by_state`)
      - file content SHA-256 matches `content_sha256` (or content_sha256 is empty
        meaning "seed me"; script offers --update-hashes to populate)
 
@@ -17,6 +19,12 @@ CLI:
   scripts/verify-docs.py --update-hashes  # recompute content_sha256 for every
                                           # screenshot and rewrite features.yml
                                           # (use when intentionally re-capturing)
+  scripts/verify-docs.py --restamp        # rewrite every orphaned
+                                          # last_verified_sha to current HEAD;
+                                          # use after a squash-merge lands, or
+                                          # when a feature branch inherits an
+                                          # orphaned stamp from main before
+                                          # editing tracked sources
 """
 
 from __future__ import annotations
@@ -191,9 +199,7 @@ def _check_one_screenshot(fid: str, shot: dict, report: Report) -> None:
         return
 
     _check_source_paths_exist(fid, sources, report)
-    if not _check_commit_exists(fid, sha, report):
-        return
-    _check_source_freshness(fid, path, sha, sources, report)
+    _check_freshness_by_state(fid, path, sha, sources, report)
     _check_content_hash(fid, screenshot_file, stored_hash, report)
 
 
@@ -205,36 +211,136 @@ def _check_source_paths_exist(fid: str, sources: list[str], report: Report) -> N
             )
 
 
-def _check_commit_exists(fid: str, sha: str, report: Report) -> bool:
-    if _git_commit_exists(sha):
-        return True
-    report.error(fid, f"last_verified_sha '{sha}' is not a known git commit")
-    return False
-
-
-def _check_source_freshness(
+def _check_freshness_by_state(
     fid: str, path: str, sha: str, sources: list[str], report: Report
 ) -> None:
+    """Dispatch source-freshness check based on how the stamp relates to HEAD.
+
+    Three cases:
+      (A) Stamp is ancestor of HEAD (happy path) → diff sources since stamp;
+          any change is an ERROR (re-stamp or re-capture required).
+      (B) Stamp is orphaned (not ancestor of HEAD) AND we are on `main` →
+          post-squash-merge state; emit a warn and lean on content_sha256 to
+          catch pixel drift. A future PR that actually touches sources will
+          be caught by case (C) on its feature branch.
+      (C) Stamp is orphaned AND we are on a non-main branch → use the merge
+          base with `origin/main` as the "since" ref. Any source change
+          introduced by the current branch is an ERROR that demands
+          re-stamping to HEAD (use `scripts/verify-docs.py --restamp`).
+    """
+    if not _git_commit_exists(sha):
+        _handle_orphan_stamp(
+            fid, path, sha, sources, report, reason="not in local git object db"
+        )
+        return
+    if _is_ancestor_of_head(sha):
+        _check_source_freshness_since(fid, path, sha, sources, report, strict_msg=True)
+        return
+    _handle_orphan_stamp(
+        fid, path, sha, sources, report, reason="not an ancestor of HEAD"
+    )
+
+
+def _handle_orphan_stamp(
+    fid: str, path: str, sha: str, sources: list[str], report: Report, *, reason: str
+) -> None:
+    if _current_branch() == "main":
+        report.warn(
+            fid,
+            f"last_verified_sha '{sha[:8]}' is orphaned ({reason}) — expected on "
+            f"main after a squash-merge + branch delete. content_sha256 remains "
+            f"the pixel-drift guard; the next PR that touches sources must re-stamp.",
+        )
+        return
+    base = _merge_base_with_origin_main()
+    if base is None:
+        report.warn(
+            fid,
+            f"last_verified_sha '{sha[:8]}' is orphaned ({reason}) and origin/main "
+            f"is not fetched — cannot diff branch changes; re-fetch or re-stamp.",
+        )
+        return
+    _check_source_freshness_since(
+        fid, path, base, sources, report, strict_msg=False, orphan_sha=sha
+    )
+
+
+def _check_source_freshness_since(
+    fid: str,
+    path: str,
+    since_ref: str,
+    sources: list[str],
+    report: Report,
+    *,
+    strict_msg: bool,
+    orphan_sha: str | None = None,
+) -> None:
     try:
-        changed = _git_changed_since(sha, sources)
+        changed = _git_changed_since(since_ref, sources)
     except RuntimeError as exc:
-        # `git log` returned non-zero — let the lint surface the real error
-        # instead of swallowing it as "no changes". The empty-set fallthrough
-        # would silently let a stale screenshot through if the ref became
-        # unreachable (CI shallow clone, force-pushed branch, etc.).
         report.error(fid, f"git freshness check failed for {path}: {exc}")
         return
     if not changed:
         return
     preview = ", ".join(sorted(changed)[:3])
     more = f" (+{len(changed) - 3} more)" if len(changed) > 3 else ""
-    report.error(
-        fid,
-        f"sources changed since last_verified_sha {sha[:8]}: {preview}{more}. "
-        f"Re-capture {path} and bump last_verified_sha + content_sha256, "
-        f"OR if the UI didn't visually change, re-stamp last_verified_sha "
-        f"to the current HEAD.",
+    if strict_msg:
+        report.error(
+            fid,
+            f"sources changed since last_verified_sha {since_ref[:8]}: {preview}{more}. "
+            f"Re-capture {path} and bump last_verified_sha + content_sha256, "
+            f"OR if the UI didn't visually change, re-stamp last_verified_sha "
+            f"to the current HEAD (or run `scripts/verify-docs.py --restamp`).",
+        )
+    else:
+        report.error(
+            fid,
+            f"last_verified_sha '{(orphan_sha or since_ref)[:8]}' is orphaned AND "
+            f"this branch touches tracked sources: {preview}{more}. Re-stamp to "
+            f"current HEAD before pushing (`scripts/verify-docs.py --restamp`).",
+        )
+
+
+def _is_ancestor_of_head(sha: str) -> bool:
+    """Return True when `sha` is reachable from HEAD via parent edges.
+
+    False on the classic post-squash-merge state: the feature-branch SHAs
+    that were stamped during PR iteration sit on a now-unreferenced branch
+    whose tip isn't an ancestor of the squash commit on main.
+    """
+    result = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", sha, "HEAD"],
+        cwd=REPO_ROOT,
+        capture_output=True,
     )
+    return result.returncode == 0
+
+
+def _current_branch() -> str:
+    """Return the current branch name; empty string on detached HEAD."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _merge_base_with_origin_main() -> str | None:
+    """Return merge-base SHA with `origin/main`, or None if not computable."""
+    result = subprocess.run(
+        ["git", "merge-base", "origin/main", "HEAD"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    base = result.stdout.strip()
+    return base or None
 
 
 def _check_content_hash(
@@ -321,6 +427,80 @@ def update_hashes(data: dict) -> int:
     if updated:
         FEATURES_YAML.write_text(text, encoding="utf-8")
     return updated
+
+
+def restamp_orphaned(data: dict) -> int:
+    """Rewrite every orphaned `last_verified_sha` in features.yml to HEAD.
+
+    "Orphaned" = `git merge-base --is-ancestor sha HEAD` returns non-zero.
+    Keeps ancestor stamps untouched so an intentional pre-verified marker
+    (the stamp was pinned to a specific commit for a reason) survives.
+
+    Used two ways:
+      - `scripts/verify-docs.py --restamp` after a squash-merge landed on
+        main, to realign docs/features.yml with the merge commit.
+      - `scripts/verify-docs.py --restamp` on a feature branch that
+        inherited an orphaned stamp from main and needs to reclaim it
+        before editing tracked sources.
+    """
+    head_sha = _head_short_sha()
+    if head_sha is None:
+        print("Cannot resolve HEAD SHA; refusing to re-stamp.", file=sys.stderr)
+        return 0
+    text = FEATURES_YAML.read_text(encoding="utf-8")
+    updated = 0
+    for feat in iter_features(data):
+        shot = feat.get("screenshot") or {}
+        stored_sha = (shot.get("last_verified_sha") or "").strip()
+        path = (shot.get("path") or "").strip()
+        if not stored_sha or not path:
+            continue
+        if _is_ancestor_of_head(stored_sha):
+            continue  # stamp is still on the live history — leave alone
+        text, changed = _replace_last_verified_sha(text, path, head_sha)
+        if changed:
+            updated += 1
+
+    if updated:
+        FEATURES_YAML.write_text(text, encoding="utf-8")
+    return updated
+
+
+def _head_short_sha() -> str | None:
+    """Return `git rev-parse --short HEAD` output, or None on failure."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return None if result.returncode != 0 else result.stdout.strip() or None
+
+
+def _replace_last_verified_sha(text: str, path: str, new_sha: str) -> tuple[str, bool]:
+    """Replace `last_verified_sha:` immediately following a given `path:` line.
+
+    Mirrors `_replace_content_hash`: regex anchor on the path to scope the
+    rewrite to one screenshot block, preserve surrounding YAML comments
+    and formatting. Returns (new_text, changed).
+    """
+    escaped = re.escape(path)
+    pattern = re.compile(
+        rf"(path:\s*{escaped}\s*\n(?:.*\n){{0,40}}?\s*last_verified_sha:\s*)"
+        rf"\"?(?P<old>[0-9a-fA-F]*)\"?",
+        re.MULTILINE,
+    )
+    match = pattern.search(text)
+    if not match:
+        return text, False
+    if match["old"] == new_sha:
+        return text, False
+    # Preserve the quoted form: existing "abcdef1" stays quoted, bare abcdef1 stays bare.
+    quoted = match[0].rstrip().endswith('"')
+    replacement = f'"{new_sha}"' if quoted else new_sha
+    new_text = text[: match.start()] + match[1] + replacement + text[match.end() :]
+    return new_text, True
 
 
 def _replace_content_hash(text: str, path: str, new_hash: str) -> tuple[str, bool]:
@@ -539,6 +719,14 @@ def main() -> int:
         action="store_true",
         help="Recompute content_sha256 for every screenshot and rewrite features.yml",
     )
+    ap.add_argument(
+        "--restamp",
+        action="store_true",
+        help="Rewrite every screenshot's last_verified_sha to the current HEAD "
+        "when the existing stamp is orphaned (not an ancestor of HEAD). "
+        "Use after a squash-merge rebase or when adopting the inherited "
+        "stamp from main onto a fresh feature branch.",
+    )
     args = ap.parse_args()
 
     data = load_features()
@@ -547,6 +735,14 @@ def main() -> int:
         count = update_hashes(data)
         print(
             f"Updated {count} content_sha256 entry/entries in {FEATURES_YAML.relative_to(REPO_ROOT)}"
+        )
+        return 0
+
+    if args.restamp:
+        count = restamp_orphaned(data)
+        print(
+            f"Re-stamped {count} orphaned last_verified_sha entry/entries in "
+            f"{FEATURES_YAML.relative_to(REPO_ROOT)} to current HEAD"
         )
         return 0
 

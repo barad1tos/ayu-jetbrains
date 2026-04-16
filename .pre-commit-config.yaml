@@ -62,3 +62,17 @@ repos:
         pass_filenames: false
         # Run on any edit to one of the inputs/outputs of the sync check.
         files: ^(docs/features\.yml|README\.md|CHANGELOG\.md|src/main/resources/META-INF/plugin\.xml|src/main/kotlin/.*\.kt|assets/feature-.*\.png)$
+
+      # Manual-stage helper: `pre-commit run verify-docs-restamp` rewrites
+      # every orphaned last_verified_sha in features.yml to current HEAD.
+      # NOT auto-invoked — amending stamp metadata mid-commit would change
+      # the diff the user just staged. Explicit invocation only; the main
+      # `verify-docs` hook above surfaces the exact command in its error
+      # message when an orphan stamp is detected on a feature branch that
+      # touches tracked sources.
+      - id: verify-docs-restamp
+        name: re-stamp orphaned last_verified_sha to HEAD (manual)
+        entry: scripts/verify-docs.py --restamp
+        language: system
+        pass_filenames: false
+        stages: [manual]
