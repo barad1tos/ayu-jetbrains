@@ -319,8 +319,19 @@ class OverridesGroupBuilder {
                     )
                 }
                 val icon = entry.id?.let { LanguageDetectionRules.iconForLanguageId(it) }
+                // Named entries render as icon + percent only (icon identifies the
+                // language). The "other" bucket has no icon and no single language —
+                // render its literal "other" label before the percent so the row
+                // still reads as a unit instead of a dangling bare percent that
+                // looks like a rendering glitch.
+                val text =
+                    if (entry.id == null) {
+                        "${entry.label} ${entry.percent}%"
+                    } else {
+                        "${entry.percent}%"
+                    }
                 panel.add(
-                    JBLabel("${entry.percent}%", icon, SwingConstants.LEADING).apply {
+                    JBLabel(text, icon, SwingConstants.LEADING).apply {
                         foreground = subdued
                         // Hover affordance: icon alone can be unfamiliar for less-common
                         // languages, so the display name surfaces in the tooltip.

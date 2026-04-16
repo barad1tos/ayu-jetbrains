@@ -429,8 +429,15 @@ internal object LanguageDetectionRules {
      *    (same determinism guarantee as [pickDominantFromWeights])
      *  - Two-tier filter: code languages take priority; markup-only projects
      *    fall back to the full weight map
-     *  - "Other" bucket only appears when `collapsedPct >= 1`
-     *  - All percentages are integer — `(raw/total * 100).toInt()` rounds toward zero
+     *  - Integer percentages are allocated via the **Largest Remainder** (Hare)
+     *    method so the displayed values always sum to exactly 100 — plain
+     *    `floor(share * 100)` rounds toward zero and on an uneven split (e.g.
+     *    950 / 23 / 22 / 5 → 95 / 2 / 2 / 0 = 99) leaves 1 percentage point
+     *    unaccounted for, which users read as a math bug. The leftover points
+     *    are distributed to the entries with the largest fractional remainder
+     *    (ties by weight descending, then id ascending for determinism).
+     *  - "Other" bucket aggregates entries past [maxEntries] and entries that
+     *    round to 0%; the bucket is shown when its total reaches at least 1%.
      *
      * Used directly by the Settings UI to produce (icon, label, percent) triples
      * for the proportions status row; also underlies the string-formatted
@@ -449,22 +456,63 @@ internal object LanguageDetectionRules {
             base.entries.sortedWith(
                 compareByDescending<Map.Entry<String, Long>> { it.value }.thenBy { it.key },
             )
+        val finalPcts = allocateLargestRemainder(sorted, total)
         val named = mutableListOf<DisplayEntry>()
-        var collapsedRaw = 0L
+        var collapsedPct = 0
         for ((index, entry) in sorted.withIndex()) {
-            val pct = (entry.value.toDouble() / total.toDouble() * PERCENT_SCALE).toInt()
+            val pct = finalPcts[index]
             if (index < maxEntries && pct >= 1) {
                 named += DisplayEntry(id = entry.key, label = displayNameFor(entry.key), percent = pct)
             } else {
-                collapsedRaw += entry.value
+                collapsedPct += pct
             }
         }
         if (named.isEmpty()) return emptyList()
-        val collapsedPct = (collapsedRaw.toDouble() / total.toDouble() * PERCENT_SCALE).toInt()
         if (collapsedPct >= 1) {
             named += DisplayEntry(id = null, label = DISPLAY_OTHER_LABEL, percent = collapsedPct)
         }
         return named
+    }
+
+    /**
+     * Largest-remainder integer allocation: returns a per-index `Int` percent
+     * for every entry in [sorted] such that the sum equals exactly 100.
+     *
+     * Algorithm:
+     *  1. Each entry gets `floor(weight / total * 100)` as its base share.
+     *  2. The remainder `100 - sum(floors)` is distributed 1 pt at a time to
+     *     the entries with the largest fractional remainder.
+     *  3. Ties broken by weight descending, then id ascending — same determinism
+     *     guarantee as [pickDominantFromWeights] so a HashMap-iteration-order
+     *     regression can't flake this path across JVM versions.
+     */
+    private fun allocateLargestRemainder(
+        sorted: List<Map.Entry<String, Long>>,
+        total: Long,
+    ): IntArray {
+        val floors = IntArray(sorted.size)
+        val remainders = DoubleArray(sorted.size)
+        var floorSum = 0
+        for ((index, entry) in sorted.withIndex()) {
+            val exact = entry.value.toDouble() / total.toDouble() * PERCENT_SCALE
+            val floor = exact.toInt()
+            floors[index] = floor
+            remainders[index] = exact - floor
+            floorSum += floor
+        }
+        val leftover = PERCENT_SCALE.toInt() - floorSum
+        if (leftover <= 0) return floors
+        val bumpIndices =
+            sorted.indices
+                .sortedWith(
+                    compareByDescending<Int> { remainders[it] }
+                        .thenByDescending { sorted[it].value }
+                        .thenBy { sorted[it].key },
+                ).take(leftover)
+        for (index in bumpIndices) {
+            floors[index] += 1
+        }
+        return floors
     }
 
     /**

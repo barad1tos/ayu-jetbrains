@@ -209,13 +209,13 @@ class OverridesGroupBuilderProportionsTest {
                 "·",
                 "4%",
                 "·",
-                "3%",
+                "other 3%",
             ),
             texts,
             "icon row opens with the Detected prefix, then alternates percent-only " +
-                "entries and standalone middle-dot separator labels (space-around " +
-                "separation handled by FlowLayout gap) — language names live purely " +
-                "in the icon per user feedback",
+                "entries and standalone middle-dot separator labels — the final bucket " +
+                "is labeled 'other' inline (it has no icon and no single language, so " +
+                "a bare percent would read as a rendering glitch)",
         )
         // Prefix and separators carry no icon. Every named-language entry tries
         // to resolve an IDE-platform icon; the "other" bucket entry (last non-

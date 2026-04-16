@@ -664,10 +664,11 @@ class LanguageDetectionRulesTest {
 
     @Test
     fun `pickTopLanguagesForDisplay collapses sub-1 percent entries into other bucket`() {
-        // 99.5% kotlin + 0.5% java → java floor-percent is 0, below 1% threshold,
-        // collapses into "other" with integer-rounded raw share (0% → suffix dropped).
-        // Use a case where collapsed sum is non-zero: 98% + 2 × 1% boundary cases,
-        // plus a 0.5% entry that actually rounds to zero.
+        // 950 / 20 / 15 / 10 / 5 across 5 languages. Floor shares sum to 99; the
+        // Largest Remainder rule redistributes the leftover 1 pt to the entry
+        // with the largest fractional remainder (Python at 0.5) — weight desc
+        // breaks the Python-vs-Go remainder tie so Python is bumped. Top-3 take
+        // Kotlin / Java / Python; Rust and Go collapse into the other bucket at 1%.
         val result =
             LanguageDetectionRules.pickTopLanguagesForDisplay(
                 mapOf(
@@ -678,10 +679,7 @@ class LanguageDetectionRulesTest {
                     "go" to 5L,
                 ),
             )
-        // kotlin 95%, java 2%, python 1%, rust 1%, go 0% → top-3 kept, go collapses
-        // into other. Rust is at 1% (floor), stays as 4th → but top-3 cap drops it
-        // too. Collapsed raw sum = 10 + 5 = 15 → floor(15/1000 * 100) = 1%.
-        assertEquals("Kotlin (95%) • Java (2%) • Python (1%) • other (1%)", result)
+        assertEquals("Kotlin (95%) • Java (2%) • Python (2%) • other (1%)", result)
     }
 
     @Test
@@ -696,15 +694,17 @@ class LanguageDetectionRulesTest {
     }
 
     @Test
-    fun `pickTopLanguagesForDisplay collapses an entry below 1 percent floor`() {
-        // Boundary: 9950 + 50 = 10_000 total, java is 50/10000 = 0.5% → floor == 0 →
-        // collapse into other with raw-share sum rendered as integer-rounded pct.
-        // Collapsed raw = 50 → floor(50/10000 * 100) = 0 → suffix omitted.
+    fun `pickTopLanguagesForDisplay absorbs sub-1 percent entry into the dominant under Largest Remainder`() {
+        // 9950 / 50 = 10_000 total. Floors are 99 / 0, leaving 1 pt to redistribute;
+        // ties on remainder (both 0.5) break by weight desc — Kotlin wins and
+        // bumps to 100. Java drops from the named list (pct 0 after allocation),
+        // collapsed_pct is 0, no "other" bucket. Sum is exactly 100 — the older
+        // plain-floor algorithm printed "Kotlin (99%)" with 1 pt missing.
         val result =
             LanguageDetectionRules.pickTopLanguagesForDisplay(
                 mapOf("kotlin" to 9_950L, "java" to 50L),
             )
-        assertEquals("Kotlin (99%)", result)
+        assertEquals("Kotlin (100%)", result)
     }
 
     @Test
@@ -804,18 +804,44 @@ class LanguageDetectionRulesTest {
     }
 
     @Test
-    fun `pickDisplayEntries drops sub-1-percent entries into the other bucket`() {
-        // 99% Kotlin + 0.5% Java + 0.5% Python → Java and Python fall below the
-        // 1% floor (pct == 0 after integer rounding) and fold into "other" even
-        // though they fit within the top-3 slot limit. The "other" bucket's
-        // rounded percent matches the floor behaviour of integer truncation —
-        // here total raw = 1000, collapsedRaw = 5+5 = 10, percent = 1.
+    fun `pickDisplayEntries uses Largest Remainder so integer percentages sum to 100`() {
+        // 99% Kotlin + 0.5% Java + 0.5% Python: floor gives 99/0/0 = 99. The
+        // Largest Remainder rule redistributes the missing 1 pt to the entry
+        // with the largest fractional remainder (0.5 for Java and Python);
+        // ties break by weight desc (both 5) then id asc ("java" < "python"),
+        // so Java is bumped to 1% and Python stays at 0. The bump promotes
+        // Java into the named list since its final percent now clears the
+        // 1% visibility floor; Python (0%) is dropped with no "other" bucket.
         val entries =
             LanguageDetectionRules.pickDisplayEntries(
                 mapOf("kotlin" to 990L, "java" to 5L, "python" to 5L),
             )
-        assertEquals(listOf("kotlin", null), entries.map { it.id })
+        assertEquals(listOf("kotlin", "java"), entries.map { it.id })
         assertEquals(listOf(99, 1), entries.map { it.percent })
+        assertEquals(100, entries.sumOf { it.percent }, "integer percentages must sum to 100")
+    }
+
+    @Test
+    fun `pickDisplayEntries absorbs missing point into the other bucket via Largest Remainder`() {
+        // 950 / 23 / 22 / 5 — the exact case a user reported where plain floor
+        // rounding produced "95% · 2% · 2% · 0%" summing to 99 and looking
+        // like a math bug. Largest Remainder promotes the lowest-weight entry
+        // (Ruby at 0.5 remainder, the highest) up by 1, which lands in the
+        // "other" bucket (past top-3) so the row now shows 95 · 2 · 2 · other 1
+        // and sums cleanly to 100.
+        val entries =
+            LanguageDetectionRules.pickDisplayEntries(
+                mapOf(
+                    "kotlin" to 950L,
+                    "python" to 23L,
+                    "java" to 22L,
+                    "ruby" to 5L,
+                ),
+            )
+        assertEquals(listOf("kotlin", "python", "java", null), entries.map { it.id })
+        assertEquals(listOf(95, 2, 2, 1), entries.map { it.percent })
+        assertEquals(100, entries.sumOf { it.percent })
+        assertEquals("other", entries.last().label)
     }
 
     @Test
