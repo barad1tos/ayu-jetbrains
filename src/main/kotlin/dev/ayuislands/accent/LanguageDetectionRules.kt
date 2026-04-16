@@ -1,5 +1,6 @@
 package dev.ayuislands.accent
 
+import com.intellij.lang.Language
 import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.fileTypes.LanguageFileType
 import java.util.Locale
@@ -126,6 +127,35 @@ internal object LanguageDetectionRules {
      * "kotlin" but the scan has no strong signal either way.
      */
     const val TIE_BREAK_MIN_SHARE: Double = 0.20
+
+    /**
+     * Max named language entries in the Settings status-line proportions display
+     * before the remainder collapses into a trailing "other (N%)" bucket. Fixed at 3
+     * per Phase 26 scope; not user-configurable.
+     *
+     * See [pickTopLanguagesForDisplay].
+     */
+    const val DEFAULT_DISPLAY_MAX_ENTRIES: Int = 3
+
+    /**
+     * Separator between entries in the Settings status-line proportions display.
+     * The `•` glyph matches the existing Ayu Islands visual language for inline
+     * bullet separators.
+     */
+    private const val DISPLAY_ENTRY_SEPARATOR: String = " • "
+
+    /**
+     * Suffix label for the collapsed "other" bucket at the end of the display line.
+     */
+    private const val DISPLAY_OTHER_LABEL: String = "other"
+
+    /**
+     * Multiplier for converting a fractional share (0.0–1.0) to an integer percent
+     * (0–100). Extracted to a constant so the rounding math in
+     * [pickTopLanguagesForDisplay] stays self-documenting and detekt's MagicNumber
+     * rule doesn't trip on the literal.
+     */
+    private const val PERCENT_SCALE: Double = 100.0
 
     /**
      * Path segments whose presence in a file's canonical path always disqualifies
@@ -319,4 +349,84 @@ internal object LanguageDetectionRules {
         val base = codeWeights.ifEmpty { allWeights }
         return pickDominantFromWeights(base, threshold, marginRatio, floor)
     }
+
+    /**
+     * Human-readable top-N summary of language proportions for Settings display.
+     *
+     * Applies the same code/markup two-tier base as [pickDominantFromAllWeights]:
+     * when any code language is present, only code weights contribute to the display;
+     * markup-only projects (K8s manifest repo, docs site) display their markup. This
+     * prevents the misleading "Kotlin (40%) • XML (60%)" rendering on Android-style
+     * code+markup projects.
+     *
+     * Returns the concatenated entry text (without any prefix — the caller prepends
+     * "Detected in this project: "). Returns an empty string when [weights] is empty,
+     * all-zero, or the computed base sum is non-positive — the caller is expected to
+     * render the polyglot copy on an empty return.
+     *
+     * Rounding: integer percent via truncation (`share × 100` cast to Int). Entries
+     * whose floor-percent is 0 (below 1%) collapse into a trailing "other (N%)"
+     * bucket whose N is the integer-rounded sum of the collapsed raw shares. An entry
+     * at exactly 1% (floor == 1) does NOT collapse. The top [maxEntries] entries are
+     * kept; the remainder also collapses into "other". The "other" suffix is omitted
+     * when the collapsed percent would render as 0.
+     *
+     * Ordering: weight descending, then alphabetical language id ascending — the same
+     * determinism guarantee as [pickDominantFromWeights]. A regression that dropped
+     * the alphabetical tiebreak would flake across JVM versions depending on HashMap
+     * iteration order.
+     *
+     * Display names: [Language.findLanguageByID] with a fallback to
+     * `id.replaceFirstChar { it.titlecase(Locale.ROOT) }` when the language is not
+     * registered (third-party language plugin uninstalled between scan and render).
+     * Live lookup matches the existing pattern at `OverridesGroupBuilder.kt:237` and
+     * keeps the display in sync with dynamic plugin load/unload.
+     */
+    fun pickTopLanguagesForDisplay(
+        weights: Map<String, Long>,
+        maxEntries: Int = DEFAULT_DISPLAY_MAX_ENTRIES,
+    ): String {
+        if (weights.isEmpty()) return ""
+        val codeWeights = weights.filterKeys { it !in MARKUP_IDS }
+        val base = codeWeights.ifEmpty { weights }
+        val total = base.values.sum()
+        if (total <= 0L) return ""
+        val sorted =
+            base.entries.sortedWith(
+                compareByDescending<Map.Entry<String, Long>> { it.value }.thenBy { it.key },
+            )
+        val named = mutableListOf<Pair<String, Int>>()
+        var collapsedRaw = 0L
+        for ((index, entry) in sorted.withIndex()) {
+            val pct = (entry.value.toDouble() / total.toDouble() * PERCENT_SCALE).toInt()
+            if (index < maxEntries && pct >= 1) {
+                named.add(entry.key to pct)
+            } else {
+                collapsedRaw += entry.value
+            }
+        }
+        val namedText =
+            named.joinToString(DISPLAY_ENTRY_SEPARATOR) { (id, pct) ->
+                "${displayNameFor(id)} ($pct%)"
+            }
+        val collapsedPct = (collapsedRaw.toDouble() / total.toDouble() * PERCENT_SCALE).toInt()
+        return if (collapsedPct > 0) {
+            namedText + DISPLAY_ENTRY_SEPARATOR + "$DISPLAY_OTHER_LABEL ($collapsedPct%)"
+        } else {
+            namedText
+        }
+    }
+
+    /**
+     * Resolve a lowercase AYU language id to a human-readable display name.
+     *
+     * Uses [Language.findLanguageByID] for registered languages (returns
+     * "JavaScript", "Kotlin", "Shell Script" etc. in the exact casing the
+     * platform ships). Falls back to a title-cased form of the raw id when the
+     * language is not registered in the current IDE — ensures a never-emit-lowercase
+     * invariant for the UI.
+     */
+    private fun displayNameFor(id: String): String =
+        Language.findLanguageByID(id)?.displayName
+            ?: id.replaceFirstChar { it.titlecase(Locale.ROOT) }
 }
