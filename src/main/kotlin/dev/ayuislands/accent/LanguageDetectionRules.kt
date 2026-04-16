@@ -316,7 +316,7 @@ internal object LanguageDetectionRules {
     ): String? {
         if (allWeights.isEmpty()) return null
         val codeWeights = allWeights.filterKeys { it !in MARKUP_IDS }
-        val base = if (codeWeights.isNotEmpty()) codeWeights else allWeights
+        val base = codeWeights.ifEmpty { allWeights }
         return pickDominantFromWeights(base, threshold, marginRatio, floor)
     }
 }

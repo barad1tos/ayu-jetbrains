@@ -73,9 +73,11 @@ object ProjectLanguageDetector {
     }
 
     /**
-     * Clear the cached detection for [project]; call from project-close hooks
-     * so a re-opened project can be re-analyzed and from [ModuleRootListener]
-     * so content-root changes trigger a fresh scan.
+     * Clear the cached detection for [project]. Called from the project-close
+     * listener ([ProjectLanguageCacheInvalidator]) so a re-opened project can
+     * be re-analyzed, and from the `ModuleRootListener` subscription registered
+     * in [dev.ayuislands.AyuIslandsStartupActivity] so mid-session content-root
+     * changes (gradle sync, module add/remove) trigger a fresh scan.
      */
     fun invalidate(project: Project) {
         AccentResolver.projectKey(project)?.let { cache.remove(it) }
@@ -152,13 +154,12 @@ object ProjectLanguageDetector {
     private fun isOnEdt(): Boolean = ApplicationManager.getApplication()?.isDispatchThread == true
 
     private fun detectInternal(project: Project): DetectionResult {
-        val weights = ProjectLanguageScanner.scan(project)
-        if (weights == null) {
-            // Scan can't give an authoritative answer right now (dumb mode,
-            // disposal race, ReadAction failure). Don't cache — the next call
-            // retries so detection catches up once the IDE stabilizes.
-            return DetectionResult(languageId = null, cacheable = false)
-        }
+        // Scan can't give an authoritative answer right now (dumb mode, disposal
+        // race, ReadAction failure). Don't cache — the next call retries so
+        // detection catches up once the IDE stabilizes.
+        val weights =
+            ProjectLanguageScanner.scan(project)
+                ?: return DetectionResult(languageId = null, cacheable = false)
         if (weights.isNotEmpty()) {
             val scanWinner = LanguageDetectionRules.pickDominantFromAllWeights(weights)
             if (scanWinner != null) {
@@ -192,7 +193,7 @@ object ProjectLanguageDetector {
     ): String? {
         val hint = legacySdkModuleDetection(project).languageId ?: return null
         val codeWeights = weights.filterKeys { it !in LanguageDetectionRules.MARKUP_IDS }
-        val base = if (codeWeights.isNotEmpty()) codeWeights else weights
+        val base = codeWeights.ifEmpty { weights }
         val total = base.values.sum()
         if (total <= 0L) return null
         val hintWeight = base[hint] ?: 0L
@@ -272,7 +273,12 @@ object ProjectLanguageDetector {
             lowered.contains("php") -> "php"
             lowered.contains("dart") -> "dart"
             lowered.contains("scala") -> "scala"
-            lowered.contains("javasdk") || lowered.contains("jdk") -> "java"
+            // "jdk" covers "OpenJDK", "AdoptOpenJDK", "Amazon Corretto JDK"; the
+            // conjunction handles "Java SDK" / "JavaSDK" SDK type names where
+            // lowercasing drops the word boundary and the letters never form
+            // a "jdk" substring (j-a-v-a-s-d-k).
+            lowered.contains("jdk") ||
+                (lowered.contains("java") && lowered.contains("sdk")) -> "java"
             else -> null
         }
 

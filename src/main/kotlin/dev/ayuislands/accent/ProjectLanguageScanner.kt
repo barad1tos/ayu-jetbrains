@@ -6,7 +6,6 @@ import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.vfs.VirtualFile
-import org.jetbrains.annotations.TestOnly
 
 /**
  * Walks a project's content roots under a [ReadAction] and tallies per-language
@@ -119,24 +118,5 @@ internal object ProjectLanguageScanner {
             LOG.debug("Skipping file during language scan: ${file.path}", sampleResult.exceptionOrNull())
         }
         return true
-    }
-
-    /**
-     * Test seam: exposes the byte-tally math over a pre-built sequence so test
-     * code can feed synthetic (languageId, bytes) pairs through the cap / merge
-     * logic without standing up a project. Covers the same code path that
-     * [visit] drives at runtime.
-     */
-    @TestOnly
-    internal fun tallyForTest(samples: Sequence<Pair<String, Long>>): Map<String, Long> {
-        val weights = HashMap<String, Long>()
-        val count = IntArray(1)
-        for ((id, bytes) in samples) {
-            if (count[0] >= LanguageDetectionRules.MAX_FILES_SCANNED) break
-            val weight = bytes.coerceIn(0L, LanguageDetectionRules.MAX_FILE_WEIGHT_BYTES)
-            weights.merge(id, weight) { a, b -> a + b }
-            count[0]++
-        }
-        return weights
     }
 }
