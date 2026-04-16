@@ -6,10 +6,13 @@ import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Condition
+import com.intellij.openapi.wm.IdeFrame
 import com.intellij.testFramework.LoggedErrorProcessor
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
@@ -149,10 +152,8 @@ class AccentRotationServiceTest {
                 .getInstance()
         } returns projectManager
 
-        // AccentApplicator.resolveFocusedProject scans WindowManager.allProjectFrames for the
-        // OS-active project frame. The rotation tick path exercises this scan, so the static
-        // must be stubbed; empty frames cleanly falls through to the IdeFocusManager /
-        // ProjectManager cascade that the rest of this test's mocks already cover.
+        // OS-active scan calls WindowManager.getInstance(); empty frames so the cascade
+        // reaches the IdeFocusManager / ProjectManager mocks already set up below.
         val windowManager = mockk<com.intellij.openapi.wm.WindowManager>()
         every { windowManager.allProjectFrames } returns emptyArray()
         mockkStatic(com.intellij.openapi.wm.WindowManager::class)
@@ -361,8 +362,9 @@ class AccentRotationServiceTest {
         val applyCalls = mutableListOf<String>()
         every { AccentApplicator.apply(any()) } answers {
             applyCalls += firstArg<String>()
-            if (applyCalls.size == THREE) return@answers Unit
-            throw RotationTestException("fail ${applyCalls.size}")
+            if (applyCalls.size != THREE) {
+                throw RotationTestException("fail ${applyCalls.size}")
+            }
         }
 
         val service = AccentRotationService()
@@ -457,6 +459,75 @@ class AccentRotationServiceTest {
         verify(exactly = 1) { GlowOverlayManager.syncGlowForAllProjects() }
         assertEquals(1, loggedErrors.size, "Expected exactly one LOG.error for the failed apply()")
         assertEquals("boom", loggedErrors.single()?.message)
+    }
+
+    @Test
+    fun `rotateAccent resolves for the OS-active project when two projects are open`() {
+        // Integration-level proof of the headline bug fix. With two projects open (A
+        // OS-active, B not), a rotation tick must resolve through AccentResolver.resolve(A,
+        // ...) — not B — so A's override sticks across the tick. This is the exact asymmetry
+        // the original bug produced: rotation picked the wrong project, glow stayed correct
+        // per-project (because GlowOverlayManager iterates explicitly), and the visible tab
+        // underline on the OS-active window ended up with B's or the global color.
+        //
+        // Test asserts on AccentResolver.resolve — the production entry point where the
+        // cascade's output flows into the applied hex. `AccentApplicator.applyForFocusedProject`
+        // is locked in AccentApplicatorFocusedProjectTest; here we prove the rotation scheduler
+        // actually routes through it with the right project.
+        mockRotationEnvironment()
+        state.accentRotationEnabled = true
+        state.accentRotationMode = AccentRotationMode.PRESET.name
+        state.accentRotationPresetIndex = 0
+
+        val osActiveProject = stubProject("project-A")
+        val inactiveProject = stubProject("project-B")
+
+        val osActiveFrame = stubFrame(osActiveProject, isActive = true)
+        val inactiveFrame = stubFrame(inactiveProject, isActive = false)
+        every {
+            com.intellij.openapi.wm.WindowManager
+                .getInstance()
+                .allProjectFrames
+        } returns arrayOf(osActiveFrame, inactiveFrame)
+        every {
+            com.intellij.openapi.project.ProjectManager
+                .getInstance()
+                .openProjects
+        } returns arrayOf(osActiveProject, inactiveProject)
+
+        mockkObject(AccentResolver)
+        every { AccentResolver.resolve(osActiveProject, AyuVariant.MIRAGE) } returns "#5CCFE6"
+        every { AccentResolver.resolve(inactiveProject, any()) } returns "#DFBFFF"
+        every { AccentResolver.resolve(null, any()) } returns "#GLOBAL"
+
+        val service = AccentRotationService()
+        service.rotateAccent()
+
+        verify(exactly = 1) { AccentResolver.resolve(osActiveProject, AyuVariant.MIRAGE) }
+        verify(exactly = 0) { AccentResolver.resolve(inactiveProject, any()) }
+        verify(exactly = 1) { AccentApplicator.apply("#5CCFE6") }
+    }
+
+    private fun stubProject(name: String): Project =
+        mockk {
+            every { isDisposed } returns false
+            every { isDefault } returns false
+            every { this@mockk.name } returns name
+        }
+
+    private fun stubFrame(
+        project: Project,
+        isActive: Boolean,
+    ): IdeFrame {
+        val window = mockk<java.awt.Window>(relaxed = true)
+        every { window.isActive } returns isActive
+        val component = javax.swing.JPanel()
+        mockkStatic(javax.swing.SwingUtilities::class)
+        every { javax.swing.SwingUtilities.getWindowAncestor(component) } returns window
+        return mockk {
+            every { this@mockk.project } returns project
+            every { this@mockk.component } returns component
+        }
     }
 
     companion object {

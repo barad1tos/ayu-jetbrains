@@ -60,9 +60,9 @@ class AccentApplicatorFocusedProjectTest {
         every { ProjectAccentSwapService.getInstance() } returns swapService
 
         // AccentApplicator is a JVM-wide object; WARN-gate flags persist across tests.
-        // Reset them so each gate-observation test starts from a clean slate.
-        AccentApplicator.osActiveFrameFailureLogged = false
-        AccentApplicator.windowManagerUnavailableLogged = false
+        // Reset before AND after so cross-file test ordering (Gradle forks, parallel
+        // execution) cannot observe stale gate state.
+        resetLogGates()
 
         // Default: empty frames + null window ancestor so `resolveFocusedProject` falls
         // through to the IdeFocusManager / ProjectManager chain. OS-active-path tests
@@ -80,7 +80,13 @@ class AccentApplicatorFocusedProjectTest {
 
     @AfterTest
     fun tearDown() {
+        resetLogGates()
         unmockkAll()
+    }
+
+    private fun resetLogGates() {
+        AccentApplicator.osActiveFrameFailureLogged.set(false)
+        AccentApplicator.windowManagerUnavailableLogged.set(false)
     }
 
     @Test
@@ -218,10 +224,10 @@ class AccentApplicatorFocusedProjectTest {
 
     @Test
     fun `applyForFocusedProject prefers OS-active project frame over IdeFocusManager lastFocusedFrame`() {
-        // When two IDE project windows are open, IdeFocusManager.lastFocusedFrame can still
-        // point at the previously-clicked IDE frame (not the one currently on top). The
-        // OS-active-frame path is the ground truth for "which project window is the user
-        // visually on right now", and must win over lastFocusedFrame when they disagree.
+        // IdeFocusManager.lastFocusedFrame can still point at the previously-clicked IDE
+        // frame even when the user has since alt-tabbed to the other open project. OS-level
+        // window activity is the ground truth for "which project window is visible right now"
+        // and must win over lastFocusedFrame when they disagree.
         val osActiveProject = stubProject(isDefault = false, isDisposed = false)
         val lastFocusedProject = stubProject(isDefault = false, isDisposed = false)
 
@@ -489,11 +495,11 @@ class AccentApplicatorFocusedProjectTest {
 
     @Test
     fun `applyForFocusedProject disposed OS-active frame falls through to IdeFocusManager not ProjectManager`() {
-        // Covers the middle tier of the cascade: OS-active-but-disposed must reach
-        // IdeFocusManager (tier 2), not skip all the way to ProjectManager.openProjects
-        // (tier 3). A regression that collapsed tiers 2+3 would pass the existing
-        // "fall back to openProjects" test but break ordering in a way only this test
-        // detects.
+        // A regression that collapsed tiers 2+3 of the cascade would pass the existing
+        // "fall back to openProjects" test (empty tier-1, empty tier-2, hits tier-3 as
+        // expected) but silently reach tier-3 instead of tier-2 when tier-1 returns an
+        // unusable match. This test forces tier-1 to return disposed, leaves tier-2
+        // healthy, and asserts tier-2 wins.
         val disposedProject = stubProject(isDefault = false, isDisposed = true)
         val disposedWindow = mockk<Window>(relaxed = true)
         every { disposedWindow.isActive } returns true

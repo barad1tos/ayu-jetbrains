@@ -25,6 +25,7 @@ import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import java.awt.Color
 import java.awt.Window
 import java.lang.reflect.Method
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
 
@@ -36,17 +37,18 @@ object AccentApplicator {
 
     private val log = logger<AccentApplicator>()
 
-    // First-WARN-then-DEBUG gates for osActiveProjectFrame error paths. Without the gate,
-    // a broken frame mid-shutdown or an unavailable WindowManager would either spam idea.log
+    // First-WARN-then-DEBUG gates for osActiveProjectFrame error paths. Without them, a
+    // broken frame mid-shutdown or an unavailable WindowManager would either spam idea.log
     // on every apply (LAF listener, rotation tick, Settings panel Apply all go through the
-    // OS-active scan) or silently degrade with no trace. The first failure surfaces at WARN
-    // so user-submitted logs make the pathology visible; subsequent failures degrade to
-    // DEBUG so interactive sessions don't drown in noise. Declared `internal` so tests in
-    // the same module can reset between runs — `AccentApplicator` is a JVM-wide object and
-    // gate state persists across tests without the reset.
-    @Volatile internal var osActiveFrameFailureLogged = false
+    // OS-active scan) or silently degrade with no trace.
+    //
+    // Rotation runs on `AppScheduledExecutorService`; the other callers are on EDT.
+    // Concurrent first-failure across threads is rare but real, so the gate uses
+    // `AtomicBoolean.compareAndSet` — not `@Volatile Boolean` — so exactly one caller wins
+    // the WARN even when two threads race to log the same shutdown-race failure.
+    internal val osActiveFrameFailureLogged = AtomicBoolean(false)
 
-    @Volatile internal var windowManagerUnavailableLogged = false
+    internal val windowManagerUnavailableLogged = AtomicBoolean(false)
 
     private const val DARK_FOREGROUND_HEX = 0x1F2430
     private val DARK_FOREGROUND = Color(DARK_FOREGROUND_HEX)
@@ -185,13 +187,15 @@ object AccentApplicator {
      * manager happened to bookmark most recently.
      *
      *  1. First `WindowManager.allProjectFrames` whose ancestor window reports
-     *     `Window.isActive`. Uses the same frame-enumeration pattern as
-     *     `ProjectAccentSwapService.findProjectForWindow` (which matches by reference
-     *     equality on a listener-provided window); here we need the OS-active window, so
-     *     the match predicate is `Window.isActive`.
-     *  2. [IdeFocusManager.lastFocusedFrame]'s project — fallback when the IDE is
-     *     alt-tabbed out (no frame has OS focus) or the window ancestor lookup is
-     *     temporarily unavailable.
+     *     `Window.isActive`. Iterates all project frames, calls
+     *     `SwingUtilities.getWindowAncestor(frame.component)`, and matches where
+     *     `window.isActive` is true. (The sibling swap-service uses the same frame
+     *     enumeration but matches by reference equality against a listener-provided
+     *     window — identical iteration, different predicate.)
+     *  2. [IdeFocusManager.lastFocusedFrame]'s project — fallback when the OS-active
+     *     scan returns null for any reason: the IDE is alt-tabbed out, the window
+     *     ancestor lookup is temporarily unavailable, or `WindowManager` itself is
+     *     null during startup / shutdown.
      *  3. First non-default non-disposed open project — pre-focus-manager startup or
      *     shutdown edge cases.
      *  4. `null` — no project open; resolver will return the global accent.
@@ -215,40 +219,44 @@ object AccentApplicator {
      * access is wrapped in try/catch because frames can be mid-dispose during a shutdown
      * race; one bad frame must not break the scan for a healthy one. Error paths — a null
      * `WindowManager` service and per-frame failures — log at WARN on first occurrence then
-     * degrade to DEBUG (see [osActiveFrameFailureLogged] / [windowManagerUnavailableLogged])
-     * so user-submitted idea.log captures the pathology while interactive sessions do not
-     * drown in noise across repeated Apply / LAF-change / rotation-tick calls.
+     * degrade to DEBUG so user-submitted idea.log captures the pathology while interactive
+     * sessions do not drown in noise across repeated Apply / LAF-change / rotation-tick
+     * calls.
      */
     private fun osActiveProjectFrame(): com.intellij.openapi.project.Project? {
         val windowManager = WindowManager.getInstance()
         if (windowManager == null) {
-            if (!windowManagerUnavailableLogged) {
-                windowManagerUnavailableLogged = true
+            val context = "thread=${Thread.currentThread().name}"
+            if (windowManagerUnavailableLogged.compareAndSet(false, true)) {
                 log.warn(
-                    "WindowManager unavailable during OS-active project resolution; " +
+                    "WindowManager unavailable during OS-active project resolution ($context); " +
                         "falling back to IdeFocusManager cascade (further occurrences at DEBUG)",
                 )
             } else {
-                log.debug("WindowManager unavailable during OS-active project resolution")
+                log.debug("WindowManager unavailable during OS-active project resolution ($context)")
             }
             return null
         }
-        for (frame in windowManager.allProjectFrames) {
+        for ((index, frame) in windowManager.allProjectFrames.withIndex()) {
+            var probedName: String? = null
             try {
                 val project = frame.project ?: continue
+                probedName = runCatching { project.name }.getOrNull()
                 if (!project.isUsable()) continue
                 val window = SwingUtilities.getWindowAncestor(frame.component) ?: continue
                 if (window.isActive) return project
             } catch (exception: RuntimeException) {
-                if (!osActiveFrameFailureLogged) {
-                    osActiveFrameFailureLogged = true
+                val context =
+                    "index=$index, project=${probedName ?: "<unresolved>"}, " +
+                        "thread=${Thread.currentThread().name}"
+                if (osActiveFrameFailureLogged.compareAndSet(false, true)) {
                     log.warn(
-                        "Skipping frame during OS-active resolution " +
+                        "Skipping frame during OS-active resolution ($context) " +
                             "(further failures logged at DEBUG)",
                         exception,
                     )
                 } else {
-                    log.debug("Skipping frame during OS-active resolution", exception)
+                    log.debug("Skipping frame during OS-active resolution ($context)", exception)
                 }
             }
         }
