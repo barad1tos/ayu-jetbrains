@@ -88,6 +88,9 @@
 # plugin.xml: applicationListeners (license transition)
 -keep class dev.ayuislands.licensing.LicenseTransitionListener { *; }
 
+# plugin.xml: applicationListeners (drop language-detector cache on project close)
+-keep class dev.ayuislands.accent.ProjectLanguageCacheInvalidator { *; }
+
 # LicenseChecker — keep class name + public API, obfuscate private crypto internals
 # Kotlin `object` compiles to instance methods (public final), not static
 -keep class dev.ayuislands.licensing.LicenseChecker {

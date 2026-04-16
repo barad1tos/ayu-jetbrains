@@ -3,11 +3,14 @@ package dev.ayuislands
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.roots.ModuleRootEvent
+import com.intellij.openapi.roots.ModuleRootListener
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.openapi.wm.WindowManager
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.ProjectLanguageDetector
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.editor.EditorScrollbarManager
 import dev.ayuislands.font.FontPreset
@@ -35,6 +38,23 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         // Project/language overrides win over the global accent; AccentResolver centralizes the chain.
         val accentHex = AccentResolver.resolve(project, variant)
         AccentApplicator.apply(accentHex)
+
+        // Drop the language-detector cache when the project's module / content-root
+        // structure changes (gradle sync adds a module, user edits sourceSets, etc.)
+        // so the next language-override resolution re-scans instead of serving a stale
+        // dominant language from a scan taken before the change. Bus connection is
+        // tied to `project`, so the subscription auto-disposes on project close.
+        project.messageBus
+            .connect(project)
+            .subscribe(
+                ModuleRootListener.TOPIC,
+                object : ModuleRootListener {
+                    override fun rootsChanged(event: ModuleRootEvent) {
+                        ProjectLanguageDetector.invalidate(project)
+                    }
+                },
+            )
+
         // Install the focus-swap listener once per IDE lifetime; subsequent calls are no-ops.
         // Also sync the cache so the listener doesn't skip the first real WINDOW_ACTIVATED event.
         val swapService = ProjectAccentSwapService.getInstance()

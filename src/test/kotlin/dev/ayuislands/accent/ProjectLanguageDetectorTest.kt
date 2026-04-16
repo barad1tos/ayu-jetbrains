@@ -8,6 +8,7 @@ import com.intellij.openapi.projectRoots.SdkTypeId
 import com.intellij.openapi.roots.ProjectRootManager
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
@@ -31,6 +32,12 @@ class ProjectLanguageDetectorTest {
     fun setUp() {
         mockkStatic(ProjectRootManager::class)
         mockkStatic(ModuleManager::class)
+        // ProjectLanguageScanner is the new primary path; default it to emptyMap()
+        // so existing SDK/module-fallback tests (which pre-date the scanner) exercise
+        // the legacy path — their fixtures don't set up a ProjectFileIndex and the
+        // fallback is what they're really asserting against.
+        mockkObject(ProjectLanguageScanner)
+        every { ProjectLanguageScanner.scan(any()) } returns emptyMap()
         ProjectLanguageDetector.clear()
     }
 
@@ -276,6 +283,195 @@ class ProjectLanguageDetectorTest {
 
         verify(exactly = 2) { ProjectRootManager.getInstance(a) }
         verify(exactly = 2) { ProjectRootManager.getInstance(b) }
+    }
+
+    // ── Content-scan primary path (new in v2.6.x) ────────────────────────────────────
+
+    @Test
+    fun `content scan dominance wins over SDK fallback`() {
+        // Scanner says Kotlin is 80% of the weight — even though the SDK is Python,
+        // the scan is authoritative. Guards against a regression where someone wires
+        // legacy detection before the scan result.
+        val project = stubProject("/tmp/scan-wins-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns
+            mapOf("kotlin" to 800L, "java" to 200L)
+        wireProjectRootManager(project, sdkName = "Python SDK")
+        wireModuleManager(project, moduleNames = emptyList())
+
+        assertEquals("kotlin", ProjectLanguageDetector.dominant(project))
+        // Legacy detection must NOT have been consulted — scan was decisive.
+        verify(exactly = 0) { ProjectRootManager.getInstance(project) }
+    }
+
+    @Test
+    fun `content scan polyglot uses SDK tiebreak when hint has code-weight foothold`() {
+        // 50/50 Kotlin/Java: scan alone produces no winner. The SDK tiebreak kicks
+        // in — "KotlinSdkType" resolves to "kotlin", which has a 50% share of the
+        // code weights (well above the 20% TIE_BREAK_MIN_SHARE floor), so the
+        // detector returns "kotlin". Without this tiebreak, users upgrading from
+        // v2.5 would silently lose their Kotlin override on JVM-mixed codebases.
+        val project = stubProject("/tmp/scan-polyglot-sdk-tie-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns
+            mapOf("kotlin" to 500L, "java" to 500L)
+        wireProjectRootManager(project, sdkName = "KotlinSdkType")
+        wireModuleManager(project, moduleNames = emptyList())
+
+        assertEquals("kotlin", ProjectLanguageDetector.dominant(project))
+    }
+
+    @Test
+    fun `content scan polyglot rejects SDK tiebreak when hint lacks foothold`() {
+        // Scanner proves Kotlin is only 10% — below the 20% tiebreak floor. The
+        // SDK says Kotlin, but we refuse to override the scan's "no winner"
+        // verdict because Kotlin isn't meaningfully present.
+        val project = stubProject("/tmp/scan-polyglot-weak-hint-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns
+            mapOf("kotlin" to 100L, "java" to 900L)
+        wireProjectRootManager(project, sdkName = "KotlinSdkType")
+        wireModuleManager(project, moduleNames = emptyList())
+
+        // Kotlin is 10% — below TIE_BREAK_MIN_SHARE (20%). But Java is 90% → scan
+        // actually DOES have a winner via the primary threshold. So this test
+        // asserts the primary path first, proving the SDK hint is irrelevant.
+        assertEquals("java", ProjectLanguageDetector.dominant(project))
+    }
+
+    @Test
+    fun `content scan polyglot ignores SDK hint when it is not in the scan weights`() {
+        // Scanner found Kotlin + Python in a 50/50 split. SDK says "Rust", which
+        // isn't represented in the scan at all — detector must NOT return "rust"
+        // just because the SDK said so.
+        val project = stubProject("/tmp/scan-polyglot-hint-absent-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns
+            mapOf("kotlin" to 500L, "python" to 500L)
+        wireProjectRootManager(project, sdkName = "RustSdkType")
+        wireModuleManager(project, moduleNames = emptyList())
+
+        assertNull(ProjectLanguageDetector.dominant(project))
+    }
+
+    @Test
+    fun `content scan polyglot with no SDK hint returns null`() {
+        val project = stubProject("/tmp/scan-polyglot-no-hint-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns
+            mapOf("kotlin" to 500L, "java" to 500L)
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        assertNull(ProjectLanguageDetector.dominant(project))
+    }
+
+    @Test
+    fun `content scan null result is not cached and retries next call`() {
+        // Scanner returns null when it can't give an authoritative answer (dumb mode,
+        // disposal, ReadAction failure). Detector must NOT cache null because the
+        // next call — potentially in smart mode — can succeed.
+        val project = stubProject("/tmp/scan-transient-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returnsMany
+            listOf(null, mapOf("kotlin" to 900L, "java" to 100L))
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        // First call: scanner returns null → detector returns null WITHOUT caching.
+        assertNull(ProjectLanguageDetector.dominant(project))
+        // Second call: scanner now returns weights → kotlin wins, cached.
+        assertEquals("kotlin", ProjectLanguageDetector.dominant(project))
+        // Third call: cache hit, scanner NOT consulted again.
+        assertEquals("kotlin", ProjectLanguageDetector.dominant(project))
+        verify(exactly = 2) { ProjectLanguageScanner.scan(project) }
+    }
+
+    @Test
+    fun `content scan empty map falls through to legacy SDK detection`() {
+        // Scanner ran clean but found no source files (brand-new project / docs-only).
+        // Legacy SDK/module path must still engage so the user gets their override
+        // even before the first code file lands.
+        val project = stubProject("/tmp/scan-empty-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns emptyMap()
+        wireProjectRootManager(project, sdkName = "RustSdkType")
+        wireModuleManager(project, moduleNames = emptyList())
+
+        assertEquals("rust", ProjectLanguageDetector.dominant(project))
+    }
+
+    @Test
+    fun `content scan markup-only project surfaces markup as dominant`() {
+        // K8s-manifests-only repo: pickDominantFromAllWeights falls back to the full
+        // map when code weights are empty, so the user's "yaml → blue" mapping lands.
+        val project = stubProject("/tmp/scan-yaml-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns
+            mapOf("yaml" to 1_000L, "json" to 200L)
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        assertEquals("yaml", ProjectLanguageDetector.dominant(project))
+    }
+
+    @Test
+    fun `content scan code plus xml resources picks code winner`() {
+        // Android-style: Kotlin source + lots of XML resources. Two-tier filter
+        // drops XML from the code base, Kotlin wins 100% of the code tier.
+        val project = stubProject("/tmp/scan-android-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns
+            mapOf("kotlin" to 400L, "xml" to 800L, "json" to 100L)
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        assertEquals("kotlin", ProjectLanguageDetector.dominant(project))
+    }
+
+    @Test
+    fun `content scan result is cached after success`() {
+        val project = stubProject("/tmp/scan-cache-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns
+            mapOf("python" to 900L, "yaml" to 100L)
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        assertEquals("python", ProjectLanguageDetector.dominant(project))
+        assertEquals("python", ProjectLanguageDetector.dominant(project))
+        assertEquals("python", ProjectLanguageDetector.dominant(project))
+
+        // Scanner called exactly once despite three dominant() calls.
+        verify(exactly = 1) { ProjectLanguageScanner.scan(project) }
+    }
+
+    @Test
+    fun `content scan polyglot null is cached definitively`() {
+        // Contrast with scan-returning-null (transient). A scan that RAN but produced
+        // no winner is a definitive answer — cache it so we don't re-scan a 10k-file
+        // repo on every focus swap just to re-confirm "yep, still polyglot".
+        val project = stubProject("/tmp/scan-polyglot-cache-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns
+            mapOf("kotlin" to 500L, "java" to 500L)
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        assertNull(ProjectLanguageDetector.dominant(project))
+        assertNull(ProjectLanguageDetector.dominant(project))
+
+        verify(exactly = 1) { ProjectLanguageScanner.scan(project) }
+    }
+
+    @Test
+    fun `invalidate after content scan triggers a fresh scan`() {
+        // ModuleRootListener fires invalidate on content-root changes (gradle sync,
+        // module add/remove). Next dominance lookup must hit the scanner again so a
+        // newly-added Python microservice doesn't keep "kotlin" cached.
+        val project = stubProject("/tmp/scan-invalidate-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returnsMany
+            listOf(
+                mapOf("kotlin" to 900L, "java" to 100L),
+                mapOf("python" to 900L, "kotlin" to 100L),
+            )
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        assertEquals("kotlin", ProjectLanguageDetector.dominant(project))
+        ProjectLanguageDetector.invalidate(project)
+        assertEquals("python", ProjectLanguageDetector.dominant(project))
+
+        verify(exactly = 2) { ProjectLanguageScanner.scan(project) }
     }
 
     // Test helpers
