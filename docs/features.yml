@@ -65,6 +65,17 @@ categories:
           whenever you focus that project. Configured from
           Settings → Ayu Islands → Accent → Overrides.
 
+        screenshot:
+          path: src/main/resources/whatsnew/v2.5.0/slide-project-overrides.png
+          caption: "Per-project accent overrides table"
+          sources:
+            - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
+            - src/main/kotlin/dev/ayuislands/settings/mappings
+            - src/main/kotlin/dev/ayuislands/accent
+          last_verified_sha: "eacf7f6"
+          last_verified_date: "2026-04-16"
+          content_sha256: "4c86c5d855c6dcefd703f647451bac4117397e435b05dd9cae6b9cbc7f479616"
+
       - id: accent-scoped-language
         title: "Per-language accent pin"
         keyword: "per-language"
@@ -76,15 +87,15 @@ categories:
           matches and no project override exists.
 
         screenshot:
-          path: assets/feature-accent.png
-          caption: "Accent control panel with overrides"
+          path: src/main/resources/whatsnew/v2.5.0/slide-language-overrides.png
+          caption: "Per-language accent overrides table"
           sources:
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "35acead"
+          last_verified_sha: "eacf7f6"
           last_verified_date: "2026-04-16"
-          content_sha256: "f95f08c18e54d45733fda1bb48dc30b4d2e28bc3ac01083076cc2ec310420484"
+          content_sha256: "ea83498db84a5cd122dd1d09132d74774c6e24295188b93464fddb0d784bf4e1"
 
   glow:
     title: "Glow effects"
@@ -189,9 +200,9 @@ categories:
             - src/main/kotlin/dev/ayuislands/gitpanel
             - src/main/kotlin/dev/ayuislands/projectview
             - src/main/kotlin/dev/ayuislands/editor/EditorScrollbarManager.kt
-          last_verified_sha: "35acead"
+          last_verified_sha: "eacf7f6"
           last_verified_date: "2026-04-16"
-          content_sha256: "3468cac87c8b1a2b834d3ff595e84b9bdd5e559f2fb90f4ba79c2295518112cb"
+          content_sha256: "fc9ba63b9c9c53893a486a3c9055287bd6dc9c68f5439cae197efe5ae585d17c"
 
   tabs:
     title: "Tab styling"
@@ -297,3 +308,79 @@ categories:
         description: >
           Full VCS/diff colors and a 16-color terminal color scheme
           aligned with the theme palette.
+
+# ─── Required external/community links ────────────────────────────────────
+# The README must expose these community touchpoints. Each entry is a
+# substring that must appear somewhere in the declared file; case-insensitive.
+# Catches "someone rewrote the Community section and dropped Discussions links".
+required_links:
+  - name: "GitHub Discussions — Feature Requests"
+    substring: "discussions/categories/feature-requests"
+    in: README.md
+  - name: "GitHub Discussions — Show Your Setup"
+    substring: "discussions/categories/show-your-setup"
+    in: README.md
+  - name: "GitHub Discussions — Q&A"
+    substring: "discussions/categories/q-a"
+    in: README.md
+  - name: "JetBrains Marketplace plugin page"
+    substring: "plugins.jetbrains.com/plugin/30373"
+    in: README.md
+  - name: "Original Ayu palette source"
+    substring: "github.com/ayu-theme/ayu-colors"
+    in: README.md
+  - name: "Bug report template"
+    substring: "issues/new?template=bug_report"
+    in: README.md
+
+# ─── Asset inventory ──────────────────────────────────────────────────────
+# Every image under assets/ and src/main/resources/whatsnew/ must either be
+# explicitly referenced in the declared files OR carry a `justification`
+# explaining why it's intentionally unreferenced. The check walks the
+# filesystem and fails if:
+#   - a PNG/GIF/SVG exists on disk but isn't listed here (orphan asset)
+#   - `referenced_by` names a file that doesn't actually mention the path
+#   - `referenced_by` is empty and `justification` is missing
+asset_inventory:
+  # README hero + theme previews
+  - path: assets/logo.png
+    referenced_by: [README.md]
+  - path: assets/Hero.gif
+    referenced_by: [README.md]
+  - path: assets/preview-mirage-islands.png
+    referenced_by: [README.md]
+  - path: assets/preview-dark-islands.png
+    referenced_by: [README.md]
+  - path: assets/preview-light-islands.png
+    referenced_by: [README.md]
+
+  # Premium feature grid
+  - path: assets/feature-glow.png
+    referenced_by: [README.md]
+  - path: assets/feature-font.png
+    referenced_by: [README.md]
+  - path: assets/feature-workspace.png
+    referenced_by: [README.md]
+  - path: assets/feature-integrations.png
+    referenced_by: [README.md]
+
+  # Retired in v2.5.0 — replaced by two focused slide-*-overrides.png crops
+  # that show the per-project and per-language override tables directly.
+  # Keep the file on disk for history; remove from README references.
+  - path: assets/feature-accent.png
+    referenced_by: []
+    justification: >
+      Replaced in v2.5.0 by the two slide-*-overrides.png crops under
+      src/main/resources/whatsnew/v2.5.0/. Left on disk as a visual
+      reference for the pre-v2.5.0 settings-panel layout.
+
+  # What's New slides — used both in the in-IDE showcase tab and the README
+  - path: src/main/resources/whatsnew/v2.5.0/slide-project-overrides.png
+    referenced_by: [README.md, src/main/resources/whatsnew/v2.5.0/manifest.json]
+  - path: src/main/resources/whatsnew/v2.5.0/slide-language-overrides.png
+    referenced_by: [README.md, src/main/resources/whatsnew/v2.5.0/manifest.json]
+  - path: src/main/resources/whatsnew/v2.5.0/slide-project-collage.png
+    referenced_by: [src/main/resources/whatsnew/v2.5.0/manifest.json]
+    justification: >
+      Hero-width (2:1) collage — used only in the in-IDE What's New tab.
+      README's narrower column layout would downscale it to illegibility.
