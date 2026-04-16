@@ -20,9 +20,11 @@ internal class ShowWhatsNewAction : DumbAwareAction() {
     override fun update(event: AnActionEvent) {
         // Disable when no current-version manifest exists. Use the cheap probe;
         // the launcher does the same check before scheduling, so this is purely
-        // for UI affordance. A null descriptor would mean the platform can't
-        // find our own plugin — log it once so the anomaly is debuggable
-        // without spamming the log on every BGT update tick.
+        // for UI affordance. A null descriptor means the platform can't find
+        // our own plugin — rate-limit to one WARN per null transition (reset
+        // when the descriptor is observed non-null again) so each real
+        // disable-enable cycle gets its own signal without spamming every
+        // BGT update tick.
         val descriptor =
             com.intellij.ide.plugins.PluginManagerCore.getPlugin(
                 com.intellij.openapi.extensions.PluginId
@@ -35,6 +37,8 @@ internal class ShowWhatsNewAction : DumbAwareAction() {
             event.presentation.isEnabledAndVisible = false
             return
         }
+        // Re-arm the WARN latch so a subsequent disable cycle logs again.
+        descriptorNullLogged.set(false)
         val available = WhatsNewManifestLoader.manifestExists(descriptor.version)
         event.presentation.isEnabledAndVisible = available
     }
@@ -65,5 +69,11 @@ internal class ShowWhatsNewAction : DumbAwareAction() {
         private val descriptorNullLogged =
             java.util.concurrent.atomic
                 .AtomicBoolean(false)
+
+        /** Test-only hook: reset the one-shot latch between test cases. */
+        @org.jetbrains.annotations.TestOnly
+        internal fun resetForTesting() {
+            descriptorNullLogged.set(false)
+        }
     }
 }

@@ -123,11 +123,13 @@ internal object WhatsNewLauncher {
                     LOG.info("Ayu What's New: marked $normalizedVersion as shown")
                 }
             } catch (cancellation: CancellationException) {
+                // Catch order matters: CancellationException is a RuntimeException
+                // subtype, so this branch MUST come first to preserve structured
+                // concurrency. The broader catch below swallows anything else.
                 throw cancellation
             } catch (exception: RuntimeException) {
-                // RuntimeException covers CancellationException (re-thrown above),
                 // IllegalStateException (e.g. IdeFocusManager called during IDE
-                // shutdown), and any platform IllegalArgumentException. Errors
+                // shutdown), platform IllegalArgumentException, etc. Errors
                 // (OOM, LinkageError) intentionally propagate.
                 LOG.error("Ayu What's New: launcher coroutine failed", exception)
             }

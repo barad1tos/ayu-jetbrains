@@ -35,11 +35,13 @@ internal object WhatsNewOrchestrator {
      * "Show What's New…" menu item would also be stuck.
      */
     fun release() {
-        // Breadcrumb for "tab never opened" debugging — pairs with the launcher's
-        // ERROR log on the failed openFile so a future report can correlate
-        // why a retry from another window did or didn't succeed.
-        LOG.info("Ayu What's New: orchestrator claim released after failed open")
-        shown.set(false)
+        // compareAndSet true→false only logs when the call actually flipped a
+        // held claim. A defensive release from a caller that never picked
+        // (or ran after another thread already released) is a no-op and emits
+        // no misleading "released after failed open" breadcrumb.
+        if (shown.compareAndSet(true, false)) {
+            LOG.info("Ayu What's New: orchestrator claim released after failed open")
+        }
     }
 
     /** Test-only hook: reset the one-shot flag between test cases. */

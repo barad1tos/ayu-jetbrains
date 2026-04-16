@@ -35,6 +35,10 @@ class ShowWhatsNewActionTest {
 
     @AfterTest
     fun tearDown() {
+        // Reset the companion-object one-shot latch between tests — otherwise
+        // a test that trips the null-descriptor path could swallow the WARN in
+        // a subsequent test case within the same JVM.
+        ShowWhatsNewAction.resetForTesting()
         unmockkAll()
     }
 
@@ -102,7 +106,7 @@ class ShowWhatsNewActionTest {
     }
 
     @Test
-    fun `actionPerformed logs INFO breadcrumb when launcher returns false and manifest is absent`() {
+    fun `actionPerformed does NOT escalate to WARN when launcher declines due to missing manifest`() {
         // Defense-in-depth path: update() should have hidden the menu when no
         // manifest exists, but BGT update can race with the click. If the user
         // hits Show What's New… and openManually returns false (manifest gone),
@@ -133,6 +137,46 @@ class ShowWhatsNewActionTest {
             captured.isEmpty(),
             "manifest-missing race is INFO-level, must NOT escalate to WARN; got: $captured",
         )
+    }
+
+    @Test
+    fun `update logs WARN exactly once per null-descriptor streak then re-arms on recovery`() {
+        // The one-shot latch must emit a WARN on the FIRST null-descriptor
+        // observation, then stay silent through subsequent null-observations,
+        // and then re-arm once the descriptor comes back non-null — so each
+        // disable-enable cycle of the plugin produces its own diagnostic.
+        val captured = mutableListOf<String>()
+        val processor =
+            object : LoggedErrorProcessor() {
+                override fun processWarn(
+                    category: String,
+                    message: String,
+                    throwable: Throwable?,
+                ): Boolean {
+                    if (message.contains("plugin descriptor lookup returned null")) captured += message
+                    return false
+                }
+            }
+        LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
+            // First null observation — expect ONE WARN.
+            every { PluginManagerCore.getPlugin(any<PluginId>()) } returns null
+            action.update(event)
+            action.update(event)
+            action.update(event)
+            val firstStreak = captured.size
+            kotlin.test.assertEquals(1, firstStreak, "streak of null-observations must produce ONE WARN")
+
+            // Descriptor comes back — action re-arms the latch silently.
+            every { PluginManagerCore.getPlugin(any<PluginId>()) } returns descriptor
+            every { descriptor.version } returns "9.9.0"
+            action.update(event)
+            kotlin.test.assertEquals(1, captured.size, "recovery must not log WARN")
+
+            // Descriptor goes null again — latch re-armed, expect a SECOND WARN.
+            every { PluginManagerCore.getPlugin(any<PluginId>()) } returns null
+            action.update(event)
+            kotlin.test.assertEquals(2, captured.size, "second null streak must re-arm and log once")
+        }
     }
 
     @Test

@@ -62,6 +62,22 @@ class WhatsNewOrchestratorTest {
     }
 
     @Test
+    fun `double release after single pick is a no-op on the second call`() {
+        // The conditional compareAndSet in release() guarantees the second
+        // release from a caller that has already released (or was never
+        // claimed) doesn't re-open the orchestrator gate and doesn't emit
+        // a misleading breadcrumb. Pin this so a future refactor to
+        // unconditional `shown.set(false)` regresses in CI.
+        WhatsNewOrchestrator.tryPick()
+        WhatsNewOrchestrator.release() // clears claim
+        assertTrue(WhatsNewOrchestrator.tryPick(), "pick after release must succeed")
+        WhatsNewOrchestrator.release() // clears second claim
+        // A stray third release must NOT flip state — the next tryPick owns it.
+        WhatsNewOrchestrator.release()
+        assertTrue(WhatsNewOrchestrator.tryPick(), "orchestrator stays healthy through stray release calls")
+    }
+
+    @Test
     fun `tryPick is thread-safe under concurrent access from 100 threads`() {
         // Multi-window startup race: 3 IDE windows can all schedule the open
         // simultaneously after their delays elapse. Exactly one must claim.

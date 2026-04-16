@@ -70,15 +70,15 @@ internal class WhatsNewPanel(
             }
         }
 
+    private val disposed =
+        java.util.concurrent.atomic
+            .AtomicBoolean(false)
+
     init {
         background = JBColor.background()
         addAncestorListener(ancestorListener)
         addComponentListener(componentListener)
     }
-
-    private val disposed =
-        java.util.concurrent.atomic
-            .AtomicBoolean(false)
 
     /**
      * Detaches listeners and drops [ContentScaler] component refs. Called from
@@ -116,6 +116,14 @@ internal class WhatsNewPanel(
     }
 
     private fun loadContent() {
+        // loadContent is dispatched via SwingUtilities.invokeLater from
+        // ancestorAdded. If the tab is closed in the same EDT pump, dispose()
+        // fires before the queued loadContent runs. Without this guard the
+        // panel would re-populate itself post-dispose and leak listeners.
+        if (disposed.get()) {
+            LOG.info("What's New: loadContent skipped — panel already disposed")
+            return
+        }
         try {
             scaler.clear()
             removeAll()
@@ -151,7 +159,7 @@ internal class WhatsNewPanel(
         val accent = resolveAccentColor()
         add(buildHeader(manifest, accent), BorderLayout.NORTH)
         add(buildScrollableSlides(manifest, accent), BorderLayout.CENTER)
-        add(buildFooter(manifest), BorderLayout.SOUTH)
+        add(buildFooter(manifest, accent), BorderLayout.SOUTH)
     }
 
     private fun buildHeader(
@@ -202,12 +210,8 @@ internal class WhatsNewPanel(
 
         val resourceDir = pluginDescriptor()?.version?.let { WhatsNewManifestLoader.resourceDir(it) } ?: ""
 
-        manifest.slides.forEachIndexed { index, slide ->
-            if (index > 0) {
-                val interSlideGap = Box.createVerticalStrut(JBUI.scale(GAP_BETWEEN_SLIDES))
-                column.add(interSlideGap)
-                scaler.registerGap(interSlideGap, GAP_BETWEEN_SLIDES)
-            }
+        var addedCount = 0
+        manifest.slides.forEach { slide ->
             val card =
                 try {
                     WhatsNewSlideCard.build(slide, resourceDir, accent, scaler)
@@ -215,9 +219,23 @@ internal class WhatsNewPanel(
                     // One bad slide must not kill the others. Log and skip so
                     // the user still sees the rest of the release showcase.
                     LOG.warn("What's New: failed to build slide '${slide.title}' — skipped", exception)
-                    return@forEachIndexed
+                    return@forEach
                 }
+            if (addedCount > 0) {
+                val interSlideGap = Box.createVerticalStrut(JBUI.scale(GAP_BETWEEN_SLIDES))
+                column.add(interSlideGap)
+                scaler.registerGap(interSlideGap, GAP_BETWEEN_SLIDES)
+            }
             column.add(centerInRow(card, CENTER_ALIGNMENT))
+            addedCount++
+        }
+
+        if (addedCount == 0) {
+            // All slides threw — user would see a bare header + footer with an
+            // empty middle. Make the failure visible instead of shipping a
+            // phantom tab that silently claims the release shipped no features.
+            LOG.warn("What's New: no slides rendered — falling back to emptyState")
+            column.add(emptyState())
         }
 
         val scroll = JBScrollPane(column)
@@ -227,38 +245,35 @@ internal class WhatsNewPanel(
         return scroll
     }
 
-    private fun buildFooter(manifest: WhatsNewManifest): JPanel {
+    private fun buildFooter(
+        manifest: WhatsNewManifest,
+        accent: Color,
+    ): JPanel {
         val footer = JPanel(FlowLayout(FlowLayout.RIGHT, JBUI.scale(BUTTON_GAP), JBUI.scale(BUTTON_PADDING_Y)))
         footer.isOpaque = false
         footer.border = JBUI.Borders.emptyTop(BUTTON_PADDING_Y)
 
         if (manifest.ctaOpenSettingsLabel != null && manifest.ctaOpenSettingsTargetId != null) {
             footer.add(
-                buildButton(manifest.ctaOpenSettingsLabel, accent = true) {
+                buildButton(manifest.ctaOpenSettingsLabel, tint = accent, isAccent = true) {
                     ShowSettingsUtil.getInstance().showSettingsDialog(project, manifest.ctaOpenSettingsTargetId)
                 },
             )
         }
-        footer.add(buildButton("Close", accent = false) { closeTab() })
+        footer.add(buildButton("Close", tint = SECONDARY_BUTTON_TINT, isAccent = false) { closeTab() })
         return footer
     }
 
     private fun buildButton(
         text: String,
-        accent: Boolean,
+        tint: Color,
+        isAccent: Boolean,
         onClick: () -> Unit,
     ): JPanel {
         // We avoid the onboarding panel's createStyledButton because that variant
         // requires a ContentScaler and is sized for the wizard's hero overlay.
         // Here we want a plain editor-tab button matching the rest of the IDE.
-        val tint =
-            if (accent) {
-                resolveAccentColor()
-            } else {
-                SECONDARY_BUTTON_TINT
-            }
-        val button = ShowWhatsNewButton(text, tint, accent, onClick)
-        return button
+        return ShowWhatsNewButton(text, tint, isAccent, onClick)
     }
 
     private fun closeTab() {
@@ -266,9 +281,11 @@ internal class WhatsNewPanel(
             val manager =
                 com.intellij.openapi.fileEditor.FileEditorManager
                     .getInstance(project)
-            manager.openFiles
-                .filterIsInstance<WhatsNewVirtualFile>()
-                .forEach { manager.closeFile(it) }
+            // Snapshot via toList() before calling closeFile — closeFile
+            // mutates openFiles, and iterating the live view could otherwise
+            // skip or double-visit entries if another listener reacts.
+            val targets = manager.openFiles.filterIsInstance<WhatsNewVirtualFile>().toList()
+            targets.forEach { manager.closeFile(it) }
         } catch (exception: RuntimeException) {
             LOG.warn("What's New: close tab failed", exception)
         }

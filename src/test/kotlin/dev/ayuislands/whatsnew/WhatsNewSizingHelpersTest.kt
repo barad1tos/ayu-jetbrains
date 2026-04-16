@@ -106,7 +106,7 @@ class WhatsNewSizingHelpersTest {
         val large = WhatsNewImagePanel.computeMaxLogicalImageWidth(1.5f)
         val capped = WhatsNewImagePanel.computeMaxLogicalImageWidth(2.0f)
         assertTrue(
-            small < mid && mid < large && large < capped,
+            mid in (small + 1)..<large && large < capped,
             "widths must increase monotonically with factor up to the cap",
         )
     }
