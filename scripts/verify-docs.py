@@ -404,7 +404,14 @@ def _check_one_inventory_entry(entry: dict, report: Report) -> None:
     if not (REPO_ROOT / path).exists():
         report.error(path, "inventory path does not exist on disk")
         return
-    referenced_by = entry.get("referenced_by") or []
+    # Normalize: drop non-strings, strip whitespace, drop empties. A bare
+    # `referenced_by: [""]` would otherwise resolve to REPO_ROOT itself
+    # (`Path / ""` == `Path`) and produce nonsense errors about the repo
+    # root not containing the asset path.
+    raw_referenced_by = entry.get("referenced_by") or []
+    referenced_by = [
+        ref.strip() for ref in raw_referenced_by if isinstance(ref, str) and ref.strip()
+    ]
     justification = (entry.get("justification") or "").strip()
     if not referenced_by and not justification:
         report.error(
