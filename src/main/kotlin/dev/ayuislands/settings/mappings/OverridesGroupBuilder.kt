@@ -275,9 +275,10 @@ class OverridesGroupBuilder {
     /**
      * Rebuild the status-panel children from the detector's warm cache. Clears
      * existing children first so stale entries from a previous project focus
-     * don't leak. Called from [buildProportionsPanel] (initial paint), [reset]
-     * (Settings re-opens or Cancel), and the pending-change listener
-     * ([fireChanged] path: override add / edit / delete).
+     * don't leak. Called from the inline panel construction inside [buildGroup]
+     * (initial paint), from [reset] (Settings re-opens or Cancel), and from the
+     * pending-change listener registered in [buildGroup] (override add / edit /
+     * delete path via [fireChanged]).
      *
      * Two render paths:
      *  - **Icon row** (normal): one [JBLabel] per [LanguageDetectionRules.DisplayEntry]

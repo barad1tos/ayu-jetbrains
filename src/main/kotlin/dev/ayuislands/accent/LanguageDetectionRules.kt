@@ -399,8 +399,9 @@ internal object LanguageDetectionRules {
      * (`id` non-null) or the trailing "other" bucket that aggregates sub-1%
      * entries and everything past [DEFAULT_DISPLAY_MAX_ENTRIES].
      *
-     * Used by the Settings UI to render `[icon] Kotlin 78%  [icon] Java 15%  other 7%`
-     * — each entry becomes one `JBLabel` with the icon resolved from [iconForLanguageId].
+     * Used by the Settings UI to render `Kotlin 78% · Java 15% · other 7%`
+     * with per-language icons in front of each entry — each entry becomes one
+     * `JBLabel` with the icon resolved from [iconForLanguageId].
      * The string-projection [pickTopLanguagesForDisplay] is implemented on top of this
      * same data, so UI and text callers never disagree on what's displayed.
      */
