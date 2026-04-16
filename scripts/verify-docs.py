@@ -38,9 +38,6 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# PyYAML is a small, widely-available dependency; the CI workflow installs it
-# via `pip install pyyaml` before running this script. Let ImportError bubble
-# with its default message — no sentinel dance that would confuse type-checkers.
 import yaml
 
 
@@ -244,20 +241,26 @@ def _check_freshness_by_state(
 def _handle_orphan_stamp(
     fid: str, path: str, sha: str, sources: list[str], report: Report, *, reason: str
 ) -> None:
-    if _current_branch() == "main":
+    # SHA-identity check instead of branch-name equality so the main path also
+    # covers CI runs that check out `origin/main` in detached-HEAD state —
+    # `_current_branch()` would return "HEAD" there and incorrectly drop us
+    # into the feature-branch diff logic.
+    if _head_points_at_primary():
         report.warn(
             fid,
             f"last_verified_sha '{sha[:8]}' is orphaned ({reason}) — expected on "
-            f"main after a squash-merge + branch delete. content_sha256 remains "
-            f"the pixel-drift guard; the next PR that touches sources must re-stamp.",
+            f"the primary branch after a squash-merge + branch delete. "
+            f"content_sha256 remains the pixel-drift guard; the next PR that "
+            f"touches sources must re-stamp.",
         )
         return
-    base = _merge_base_with_origin_main()
+    base = _merge_base_with_primary()
     if base is None:
         report.warn(
             fid,
-            f"last_verified_sha '{sha[:8]}' is orphaned ({reason}) and origin/main "
-            f"is not fetched — cannot diff branch changes; re-fetch or re-stamp.",
+            f"last_verified_sha '{sha[:8]}' is orphaned ({reason}) and the "
+            f"primary branch ref is not fetched — cannot diff branch changes; "
+            f"re-fetch or re-stamp.",
         )
         return
     _check_source_freshness_since(
@@ -316,10 +319,45 @@ def _is_ancestor_of_head(sha: str) -> bool:
     return result.returncode == 0
 
 
-def _current_branch() -> str:
-    """Return the current branch name; empty string on detached HEAD."""
+@functools.cache
+def _primary_ref() -> str:
+    """Return the remote primary-branch ref (e.g. `origin/main`).
+
+    Derives from `git symbolic-ref refs/remotes/origin/HEAD` when that ref
+    exists (set by `git clone` and recoverable via `git remote set-head
+    origin -a`); falls back to `origin/main` for repos that never had the
+    symbolic ref initialized. Caching keeps the lookup cheap when every
+    feature in features.yml runs through the freshness pipeline.
+    """
     result = subprocess.run(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    ref = result.stdout.strip() if result.returncode == 0 else ""
+    return ref or "origin/main"
+
+
+def _head_points_at_primary() -> bool:
+    """True when HEAD's commit SHA equals the primary branch's commit SHA.
+
+    SHA-identity check — correct under both named-branch checkouts (local
+    `main` tracking `origin/main`) and detached-HEAD checkouts (CI runs
+    that check out `origin/main` as a disconnected ref). The alternative
+    `_current_branch() == "main"` check misses the detached case because
+    `git rev-parse --abbrev-ref HEAD` returns the literal string "HEAD".
+    """
+    head_sha = _rev_parse("HEAD")
+    primary_sha = _rev_parse(_primary_ref())
+    return bool(head_sha) and head_sha == primary_sha
+
+
+def _rev_parse(ref: str) -> str:
+    """Resolve `ref` to a full commit SHA; empty string on failure."""
+    result = subprocess.run(
+        ["git", "rev-parse", ref],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
@@ -328,10 +366,11 @@ def _current_branch() -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
-def _merge_base_with_origin_main() -> str | None:
-    """Return merge-base SHA with `origin/main`, or None if not computable."""
+def _merge_base_with_primary() -> str | None:
+    """Return merge-base SHA with the remote primary branch, or None if the
+    primary ref is not fetched (shallow clone, new repo without `origin/HEAD`)."""
     result = subprocess.run(
-        ["git", "merge-base", "origin/main", "HEAD"],
+        ["git", "merge-base", _primary_ref(), "HEAD"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
