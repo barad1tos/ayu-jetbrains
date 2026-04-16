@@ -159,6 +159,42 @@ internal object LanguageDetectionRules {
     private const val PERCENT_SCALE: Double = 100.0
 
     /**
+     * Lower bound for any displayable percent. Entries below this are folded
+     * into the "other" bucket by `pickDisplayEntries`, so the invariant holds
+     * for every surviving [DisplayEntry].
+     */
+    private const val MIN_DISPLAY_PERCENT: Int = 1
+
+    /**
+     * Upper bound for a named [DisplayEntry] — integer mirror of [PERCENT_SCALE]
+     * kept as a `const` so range construction stays a compile-time expression.
+     * Caps trivially at 100% for a single-language project.
+     */
+    private const val MAX_NAMED_PERCENT: Int = 100
+
+    /**
+     * Upper bound for the "other" bucket — one less than the named ceiling
+     * because the bucket only appears alongside at least one named entry
+     * that has already claimed some share.
+     */
+    private const val MAX_OTHER_PERCENT: Int = MAX_NAMED_PERCENT - MIN_DISPLAY_PERCENT
+
+    /**
+     * Valid percent range for a named [DisplayEntry]. The lower bound is
+     * enforced at construction because `pickDisplayEntries` filters sub-1%
+     * entries into the "other" bucket; the upper bound caps single-language
+     * projects.
+     */
+    private val NAMED_PERCENT_RANGE = MIN_DISPLAY_PERCENT..MAX_NAMED_PERCENT
+
+    /**
+     * Valid percent range for the "other" [DisplayEntry] bucket. Upper bound
+     * excludes 100% because the bucket only appears alongside at least one
+     * named entry that already claimed some share.
+     */
+    private val OTHER_PERCENT_RANGE = MIN_DISPLAY_PERCENT..MAX_OTHER_PERCENT
+
+    /**
      * Path segments whose presence in a file's canonical path always disqualifies
      * the file from dominance math — dependency vendoring, build outputs, IDE /
      * VCS metadata, generated-code roots. Matched exactly (no wildcards, no
@@ -410,9 +446,31 @@ internal object LanguageDetectionRules {
         val id: String?,
         /** Human-readable display name ("Kotlin", "JavaScript", "other"). */
         val label: String,
-        /** Integer percentage share; always 1–100 for named entries, 1–99 for "other". */
+        /** Integer percentage share; 1..100 for named entries, 1..99 for "other". */
         val percent: Int,
-    )
+    ) {
+        init {
+            // Runtime contract guards — the single producer (`pickDisplayEntries`)
+            // honors these naturally, but `data class` exposes a public constructor
+            // and a synthesized `copy(...)` within the module, so tests and
+            // future helpers can't accidentally build invalid instances.
+            require(percent in NAMED_PERCENT_RANGE) { "percent must be $NAMED_PERCENT_RANGE, got $percent" }
+            require(label.isNotBlank()) { "label must be non-blank" }
+            if (id != null) {
+                require(id.isNotBlank()) { "named entry id must be non-blank" }
+                require(id == id.lowercase(Locale.ROOT)) {
+                    "named entry id must be lowercase, got '$id'"
+                }
+            } else {
+                // Other-bucket invariant: the structured output never exposes
+                // an "other" entry at 100% — it only appears alongside at least
+                // one named entry that already claimed some share.
+                require(percent in OTHER_PERCENT_RANGE) {
+                    "other-bucket percent must be $OTHER_PERCENT_RANGE, got $percent"
+                }
+            }
+        }
+    }
 
     /**
      * Structured proportion breakdown — a list of top languages (up to
@@ -490,6 +548,11 @@ internal object LanguageDetectionRules {
         sorted: List<Map.Entry<String, Long>>,
         total: Long,
     ): IntArray {
+        // Callers must pre-filter empty/zero-total maps — this contract lets
+        // the function assume at least one entry and a positive denominator,
+        // which preserves the "sum equals exactly 100" invariant in the KDoc.
+        require(sorted.isNotEmpty()) { "allocateLargestRemainder requires non-empty input" }
+        require(total > 0L) { "allocateLargestRemainder requires positive total, got $total" }
         val floors = IntArray(sorted.size)
         val remainders = DoubleArray(sorted.size)
         var floorSum = 0
@@ -566,7 +629,14 @@ internal object LanguageDetectionRules {
      * through this helper so display and icon stay paired.
      */
     private fun findLanguageByLowercaseId(lowercaseId: String): Language? =
-        Language.getRegisteredLanguages().firstOrNull {
-            it.id.equals(lowercaseId, ignoreCase = true)
-        }
+        runCatchingPreservingCancellation {
+            // Defensive: `Language.getRegisteredLanguages()` iteration is not
+            // contractually concurrent-modification-safe across every IntelliJ
+            // platform build, and a buggy plugin can throw from its `id` getter.
+            // Null return matches the "answer unavailable" contract — callers
+            // fall back to title-cased id / icon-less label.
+            Language.getRegisteredLanguages().firstOrNull {
+                it.id.equals(lowercaseId, ignoreCase = true)
+            }
+        }.getOrNull()
 }

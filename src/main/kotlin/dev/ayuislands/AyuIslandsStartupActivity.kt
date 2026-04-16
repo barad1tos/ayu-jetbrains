@@ -12,6 +12,7 @@ import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.ProjectLanguageDetector
 import dev.ayuislands.accent.conflict.ConflictRegistry
+import dev.ayuislands.accent.runCatchingPreservingCancellation
 import dev.ayuislands.editor.EditorScrollbarManager
 import dev.ayuislands.font.FontPreset
 import dev.ayuislands.font.FontPresetApplicator
@@ -20,6 +21,7 @@ import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import dev.ayuislands.ui.ComponentTreeRefresher
 import javax.swing.SwingUtilities
@@ -39,13 +41,27 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         val accentHex = AccentResolver.resolve(project, variant)
         AccentApplicator.apply(accentHex)
 
-        // Warm the language-detector cache unconditionally so Settings → Accent →
-        // Overrides shows real per-language proportions on first open even before
-        // the user adds a language override (the resolver's fast path intentionally
-        // skips `dominant()` when `languageAccents` is empty). Runs here on the
-        // startup coroutine — off-EDT — so the scan completes synchronously and
-        // populates both caches before any UI thread asks for proportions().
-        ProjectLanguageDetector.dominant(project)
+        // Warm the language-detector cache so Settings → Accent → Overrides
+        // shows real per-language proportions on first open. Gated on the same
+        // `languageAccents.isNotEmpty()` predicate `AccentResolver.findOverride`
+        // uses: users with no language pins never paid for the scan before this
+        // feature landed, and still shouldn't pay for it just because the
+        // Settings panel has a new informational row. When no pins exist the
+        // panel's own `buildGroup` warmup (EDT-safe bail-out) handles the first
+        // open with one extra cache miss. Defense-in-depth wrap prevents a
+        // transient detector failure from short-circuiting the rest of startup
+        // (ModuleRootListener subscription, font-preset apply, license checks).
+        if (AccentMappingsSettings
+                .getInstance()
+                .state.languageAccents
+                .isNotEmpty()
+        ) {
+            runCatchingPreservingCancellation {
+                ProjectLanguageDetector.dominant(project)
+            }.onFailure { exception ->
+                LOG.warn("Language detector warmup failed; will retry on next resolve", exception)
+            }
+        }
 
         // Drop the language-detector cache when the project's module / content-root
         // structure changes (gradle sync adds a module, user edits sourceSets, etc.)

@@ -19,6 +19,7 @@ import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.LanguageDetectionRules
 import dev.ayuislands.accent.ProjectLanguageDetector
+import dev.ayuislands.accent.runCatchingPreservingCancellation
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.BorderLayout
@@ -264,8 +265,16 @@ class OverridesGroupBuilder {
      * containing markup (T-26-01).
      *
      * O(1) HashMap probe plus a bounded formatter pass; safe to call on EDT.
+     *
+     * Exposed as an `internal @TestOnly` seam so
+     * `OverridesGroupBuilderProportionsTest` can assert every user-visible render
+     * state without instantiating the Swing tree — the UI builder itself no
+     * longer calls this helper (the icon-panel path lives in
+     * [populateProportionsPanel]), so this method survives as a pure test
+     * projection over the text-equivalent rendering.
      */
-    private fun computeProportionsText(): String {
+    @org.jetbrains.annotations.TestOnly
+    internal fun currentProportionsTextForTest(): String {
         val project = parentProject ?: return POLYGLOT_COPY
         val weights = ProjectLanguageDetector.proportions(project) ?: return POLYGLOT_COPY
         val rendered = LanguageDetectionRules.pickTopLanguagesForDisplay(weights)
@@ -294,57 +303,80 @@ class OverridesGroupBuilder {
      *    from the icon row so the user instantly sees "no single dominant".
      */
     private fun populateProportionsPanel(panel: JPanel) {
-        panel.removeAll()
-        val project = parentProject
-        val entries =
-            if (project == null) {
-                emptyList()
-            } else {
-                val weights = ProjectLanguageDetector.proportions(project)
-                if (weights == null) emptyList() else LanguageDetectionRules.pickDisplayEntries(weights)
+        // Wrap the entire rebuild under runCatchingPreservingCancellation so a
+        // third-party Language plugin throwing from `associatedFileType.icon`,
+        // a `ConcurrentModificationException` on `Language.getRegisteredLanguages()`
+        // during a mid-render plugin unload, or any other transient platform
+        // failure cannot propagate out of this EDT callback — the UI DSL builder,
+        // the pending-change listener chain (`listeners.forEach { it.run() }`),
+        // and `reset()` all call this helper and a bubbled exception would break
+        // the entire Overrides group, not just the proportions row.
+        val outcome =
+            runCatchingPreservingCancellation {
+                panel.removeAll()
+                renderProportionsInto(panel)
+                panel.revalidate()
+                panel.repaint()
             }
+        outcome.onFailure { exception ->
+            LOG.warn("Proportions panel repopulate failed; leaving previous state", exception)
+        }
+    }
+
+    /**
+     * Paint the proportions content into [panel] — the polyglot fallback label
+     * when there are no entries, otherwise the leading prefix plus one
+     * icon+percent label per entry with separators between them.
+     *
+     * Extracted out of [populateProportionsPanel] to keep the EDT callback's
+     * cognitive complexity within detekt's 15-branch budget: the runCatching
+     * wrapper, the onFailure sink, and the revalidate/repaint calls stay in the
+     * caller while all branching / looping / label construction happens here.
+     */
+    private fun renderProportionsInto(panel: JPanel) {
         val subdued = UIUtil.getContextHelpForeground()
+        val project = parentProject
+        val weights = project?.let { ProjectLanguageDetector.proportions(it) }
+        val entries =
+            weights?.let { LanguageDetectionRules.pickDisplayEntries(it) } ?: emptyList()
         if (entries.isEmpty()) {
             panel.add(
                 JBLabel(POLYGLOT_COPY, AllIcons.General.Information, SwingConstants.LEADING).apply {
                     foreground = subdued
                 },
             )
-        } else {
-            panel.add(JBLabel(PROPORTIONS_PREFIX).apply { foreground = subdued })
-            entries.forEachIndexed { index, entry ->
-                if (index > 0) {
-                    panel.add(
-                        JBLabel(PROPORTIONS_SEPARATOR.toString()).apply { foreground = subdued },
-                    )
-                }
-                val icon = entry.id?.let { LanguageDetectionRules.iconForLanguageId(it) }
-                // Named entries render as icon + percent only (icon identifies the
-                // language). The "other" bucket has no icon and no single language —
-                // render its literal "other" label before the percent so the row
-                // still reads as a unit instead of a dangling bare percent that
-                // looks like a rendering glitch.
-                val text =
-                    if (entry.id == null) {
-                        "${entry.label} ${entry.percent}%"
-                    } else {
-                        "${entry.percent}%"
-                    }
-                panel.add(
-                    JBLabel(text, icon, SwingConstants.LEADING).apply {
-                        foreground = subdued
-                        // Hover affordance: icon alone can be unfamiliar for less-common
-                        // languages, so the display name surfaces in the tooltip.
-                        // toolTipText is plain-text unless it starts with <html>, so any
-                        // pathological Language.displayName renders literally — no HTML
-                        // interpretation, consistent with the label-text safety story.
-                        toolTipText = entry.label
-                    },
-                )
-            }
+            return
         }
-        panel.revalidate()
-        panel.repaint()
+        panel.add(JBLabel(PROPORTIONS_PREFIX).apply { foreground = subdued })
+        entries.forEachIndexed { index, entry ->
+            if (index > 0) {
+                panel.add(JBLabel(PROPORTIONS_SEPARATOR.toString()).apply { foreground = subdued })
+            }
+            val icon = entry.id?.let { LanguageDetectionRules.iconForLanguageId(it) }
+            // Named entries render as icon + percent only (icon identifies the
+            // language). The "other" bucket has no icon and no single language —
+            // render its literal "other" label before the percent so the row
+            // still reads as a unit instead of a dangling bare percent that
+            // looks like a rendering glitch.
+            val text =
+                if (entry.id == null) {
+                    "${entry.label} ${entry.percent}%"
+                } else {
+                    "${entry.percent}%"
+                }
+            panel.add(
+                JBLabel(text, icon, SwingConstants.LEADING).apply {
+                    foreground = subdued
+                    // Hover affordance: icon alone can be unfamiliar for less-common
+                    // languages, so the display name surfaces in the tooltip.
+                    // toolTipText is plain-text unless it starts with <html>, so
+                    // any pathological Language.displayName renders literally —
+                    // no HTML interpretation, consistent with the label-text
+                    // safety story.
+                    toolTipText = entry.label
+                },
+            )
+        }
     }
 
     /**
@@ -366,15 +398,6 @@ class OverridesGroupBuilder {
     internal fun setParentProjectForTest(project: Project?) {
         parentProject = project
     }
-
-    /**
-     * Builder-level seam returning the exact text [buildGroup] would render for the
-     * current [parentProject] + detector cache state. Used by
-     * `OverridesGroupBuilderProportionsTest` to assert every user-visible render
-     * state without instantiating the Swing tree.
-     */
-    @org.jetbrains.annotations.TestOnly
-    internal fun currentProportionsTextForTest(): String = computeProportionsText()
 
     /**
      * Builder-level seam: lazily builds the proportions panel on first call (so
