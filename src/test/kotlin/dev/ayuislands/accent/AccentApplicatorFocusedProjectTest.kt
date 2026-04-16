@@ -4,6 +4,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.openapi.wm.IdeFrame
+import com.intellij.openapi.wm.WindowManager
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import io.mockk.Runs
 import io.mockk.every
@@ -13,6 +14,10 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
+import java.awt.Window
+import javax.swing.JComponent
+import javax.swing.JPanel
+import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -51,6 +56,20 @@ class AccentApplicatorFocusedProjectTest {
         mockkObject(ProjectAccentSwapService.Companion)
         swapService = mockk(relaxed = true)
         every { ProjectAccentSwapService.getInstance() } returns swapService
+
+        // Default: no OS-active project frames. resolveFocusedProject's new primary path
+        // (OS-active IDE frame) short-circuits to null so tests that exercise the
+        // IdeFocusManager / ProjectManager fallback chain behave as before. Tests covering
+        // the OS-active path override this explicitly.
+        mockkStatic(WindowManager::class)
+        val windowManager =
+            mockk<WindowManager> {
+                every { allProjectFrames } returns emptyArray()
+            }
+        every { WindowManager.getInstance() } returns windowManager
+
+        mockkStatic(SwingUtilities::class)
+        every { SwingUtilities.getWindowAncestor(any()) } returns null
     }
 
     @AfterTest
@@ -191,6 +210,136 @@ class AccentApplicatorFocusedProjectTest {
         }
     }
 
+    @Test
+    fun `applyForFocusedProject prefers OS-active project frame over IdeFocusManager lastFocusedFrame`() {
+        // Regression guard for the rotation-override bug. When rotation tick fires while the
+        // user is alt-tabbed between IDE project windows, IdeFocusManager.lastFocusedFrame can
+        // still point at the previously-clicked IDE frame (not the one currently on top). The
+        // OS-active-frame path is the ground truth for "which project window is the user
+        // visually on right now", and must win over lastFocusedFrame when they disagree.
+        val osActiveProject = stubProject(isDefault = false, isDisposed = false)
+        val lastFocusedProject = stubProject(isDefault = false, isDisposed = false)
+
+        val osActiveWindow = mockk<Window>(relaxed = true)
+        every { osActiveWindow.isActive } returns true
+        val osActiveComponent = JPanel()
+        every { SwingUtilities.getWindowAncestor(osActiveComponent) } returns osActiveWindow
+        val osActiveFrame = stubIdeFrame(osActiveProject, osActiveComponent)
+
+        every { WindowManager.getInstance().allProjectFrames } returns arrayOf(osActiveFrame)
+
+        val lastFocusedFrame =
+            mockk<IdeFrame> {
+                every { project } returns lastFocusedProject
+            }
+        val focusManager =
+            mockk<IdeFocusManager> {
+                every { this@mockk.lastFocusedFrame } returns lastFocusedFrame
+            }
+        mockkStatic(IdeFocusManager::class)
+        every { IdeFocusManager.getGlobalInstance() } returns focusManager
+
+        every { AccentResolver.resolve(osActiveProject, AyuVariant.MIRAGE) } returns "#OS"
+
+        val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
+
+        assertEquals("#OS", applied)
+        verify(exactly = 1) { AccentResolver.resolve(osActiveProject, AyuVariant.MIRAGE) }
+        verify(exactly = 0) { AccentResolver.resolve(lastFocusedProject, any()) }
+    }
+
+    @Test
+    fun `applyForFocusedProject falls back to IdeFocusManager when no project frame is OS-active`() {
+        // User alt-tabbed to a non-IDE app (browser, Slack) when rotation tick fires. No
+        // project frame has OS focus, so the OS-active-frame path returns null and the
+        // cascade falls through to IdeFocusManager.lastFocusedFrame. The scheduler runs on
+        // EDT via invokeLater, so lastFocusedFrame is the best available signal for "which
+        // project the user was most recently in".
+        val lastFocusedProject = stubProject(isDefault = false, isDisposed = false)
+
+        val inactiveWindow = mockk<Window>(relaxed = true)
+        every { inactiveWindow.isActive } returns false
+        val inactiveComponent = JPanel()
+        every { SwingUtilities.getWindowAncestor(inactiveComponent) } returns inactiveWindow
+        val otherProject = stubProject(isDefault = false, isDisposed = false)
+        val inactiveFrame = stubIdeFrame(otherProject, inactiveComponent)
+
+        every { WindowManager.getInstance().allProjectFrames } returns arrayOf(inactiveFrame)
+
+        val lastFocusedFrame =
+            mockk<IdeFrame> {
+                every { project } returns lastFocusedProject
+            }
+        val focusManager =
+            mockk<IdeFocusManager> {
+                every { this@mockk.lastFocusedFrame } returns lastFocusedFrame
+            }
+        mockkStatic(IdeFocusManager::class)
+        every { IdeFocusManager.getGlobalInstance() } returns focusManager
+
+        every { AccentResolver.resolve(lastFocusedProject, AyuVariant.MIRAGE) } returns "#LAST"
+
+        val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
+
+        assertEquals("#LAST", applied)
+        verify(exactly = 1) { AccentResolver.resolve(lastFocusedProject, AyuVariant.MIRAGE) }
+    }
+
+    @Test
+    fun `applyForFocusedProject skips OS-active frame whose project is disposed and continues the cascade`() {
+        // Shutdown race: a project frame is OS-active but its project has just been disposed.
+        // The isUsable() guard inside the OS-active scan must drop it; the cascade falls
+        // through to IdeFocusManager / ProjectManager. Without the guard, resolve() would be
+        // called with a disposed project and throw inside AccentResolver.projectKey.
+        val disposedProject = stubProject(isDefault = false, isDisposed = true)
+
+        val osActiveWindow = mockk<Window>(relaxed = true)
+        every { osActiveWindow.isActive } returns true
+        val osActiveComponent = JPanel()
+        every { SwingUtilities.getWindowAncestor(osActiveComponent) } returns osActiveWindow
+        val disposedFrame = stubIdeFrame(disposedProject, osActiveComponent)
+
+        every { WindowManager.getInstance().allProjectFrames } returns arrayOf(disposedFrame)
+
+        val healthyProject = stubProject(isDefault = false, isDisposed = false)
+        val manager = mockk<ProjectManager>()
+        every { manager.openProjects } returns arrayOf(healthyProject)
+        every { ProjectManager.getInstance() } returns manager
+
+        every { AccentResolver.resolve(healthyProject, AyuVariant.MIRAGE) } returns "#FALLBACK"
+
+        val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
+
+        assertEquals("#FALLBACK", applied)
+        verify(exactly = 0) { AccentResolver.resolve(disposedProject, any()) }
+    }
+
+    @Test
+    fun `applyForFocusedProject survives a frame throwing during OS-active resolution`() {
+        // Frame access can throw when the frame is mid-dispose during shutdown. The OS-active
+        // scan wraps each frame access in try/catch so one bad frame doesn't break resolution
+        // of a healthy one — same defensive pattern as ProjectAccentSwapService.findProjectForWindow.
+        val brokenFrame =
+            mockk<IdeFrame> {
+                every { project } throws IllegalStateException("frame mid-dispose")
+            }
+        val healthyProject = stubProject(isDefault = false, isDisposed = false)
+        val healthyWindow = mockk<Window>(relaxed = true)
+        every { healthyWindow.isActive } returns true
+        val healthyComponent = JPanel()
+        every { SwingUtilities.getWindowAncestor(healthyComponent) } returns healthyWindow
+        val healthyFrame = stubIdeFrame(healthyProject, healthyComponent)
+
+        every { WindowManager.getInstance().allProjectFrames } returns arrayOf(brokenFrame, healthyFrame)
+
+        every { AccentResolver.resolve(healthyProject, AyuVariant.MIRAGE) } returns "#HEALTHY"
+
+        val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
+
+        assertEquals("#HEALTHY", applied)
+        verify(exactly = 1) { AccentResolver.resolve(healthyProject, AyuVariant.MIRAGE) }
+    }
+
     private fun stubProject(
         isDefault: Boolean,
         isDisposed: Boolean,
@@ -200,4 +349,13 @@ class AccentApplicatorFocusedProjectTest {
         every { project.isDisposed } returns isDisposed
         return project
     }
+
+    private fun stubIdeFrame(
+        project: Project,
+        component: JComponent,
+    ): IdeFrame =
+        mockk {
+            every { this@mockk.project } returns project
+            every { this@mockk.component } returns component
+        }
 }

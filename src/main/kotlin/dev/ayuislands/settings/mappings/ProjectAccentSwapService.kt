@@ -88,8 +88,13 @@ class ProjectAccentSwapService : Disposable {
         val window = (event as? WindowEvent)?.window ?: return
         val project = findProjectForWindow(window) ?: return
         if (project.isDisposed || project.isDefault) return
-        if (project === lastAppliedProject) return
 
+        // No project-equality short-circuit on top of the hex check: alt-tab away to a non-IDE
+        // app and back reports the same project, but an external apply (rotation tick, settings
+        // Apply) may have pushed a different color into the JVM-wide UIManager/globalScheme
+        // since the last activation. Re-resolving is cheap (canonicalPath + HashMap lookup);
+        // the hex gate below still skips the expensive apply + component-tree walk when the
+        // resolver output hasn't drifted.
         val variant = AyuVariant.detect() ?: return
         val effectiveHex = AccentResolver.resolve(project, variant)
 

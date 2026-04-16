@@ -13,6 +13,7 @@ import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.wm.IdeFocusManager
+import com.intellij.openapi.wm.WindowManager
 import com.intellij.ui.ColorUtil
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.glow.GlowStyle
@@ -164,27 +165,59 @@ object AccentApplicator {
     }
 
     /**
-     * Resolves the *actually* focused project — the one whose window has OS-level focus,
-     * not just "the first open project in enumeration order". With two or more project
-     * windows open, a naive `ProjectManager.openProjects.firstOrNull` would silently apply
-     * the wrong project's override (rotation tick, settings Apply, LAF change would flow
-     * through it for the wrong window). Fallback chain:
+     * Resolves the *actually* focused project — the one whose window is currently on top
+     * for the user. The cascade walks from strongest signal (OS-level window activity) to
+     * weakest (first non-disposed open project) so rotation ticks, settings Apply, and LAF
+     * changes route through the window the user is visually on, not the one the focus
+     * manager happened to bookmark most recently.
      *
-     *  1. [IdeFocusManager.lastFocusedFrame]'s project — real focus state
-     *  2. First non-default non-disposed open project — pre-focus-manager startup, or
-     *     shutdown edge cases where the focus manager is torn down
-     *  3. `null` — no project open; resolver will return the global accent
+     *  1. First `WindowManager.allProjectFrames` whose ancestor window reports
+     *     [Window.isActive]. This is the ground truth for "which project window has OS
+     *     focus right now" and matches the same mechanism
+     *     [dev.ayuislands.settings.mappings.ProjectAccentSwapService.findProjectForWindow]
+     *     uses for WINDOW_ACTIVATED — both paths stay consistent.
+     *  2. [IdeFocusManager.lastFocusedFrame]'s project — fallback when the IDE is
+     *     alt-tabbed out (no frame has OS focus) or the window ancestor lookup is
+     *     temporarily unavailable.
+     *  3. First non-default non-disposed open project — pre-focus-manager startup or
+     *     shutdown edge cases.
+     *  4. `null` — no project open; resolver will return the global accent.
      */
-    private fun resolveFocusedProject(): com.intellij.openapi.project.Project? =
+    private fun resolveFocusedProject(): com.intellij.openapi.project.Project? {
+        osActiveProjectFrame()?.let { return it }
         IdeFocusManager
             .getGlobalInstance()
             .lastFocusedFrame
             ?.project
             ?.takeIf { it.isUsable() }
-            ?: ProjectManager
-                .getInstance()
-                .openProjects
-                .firstOrNull { it.isUsable() }
+            ?.let { return it }
+        return ProjectManager
+            .getInstance()
+            .openProjects
+            .firstOrNull { it.isUsable() }
+    }
+
+    /**
+     * Scans open project frames for the one whose ancestor window is OS-active. Each frame
+     * access is wrapped in try/catch because frames can be mid-dispose during a shutdown
+     * race; one bad frame must not break the scan for a healthy one. Failures log at DEBUG
+     * to keep idea.log quiet on alt-tab storms while still being visible under verbose
+     * logging for user-submitted reports.
+     */
+    private fun osActiveProjectFrame(): com.intellij.openapi.project.Project? {
+        val windowManager = WindowManager.getInstance() ?: return null
+        for (frame in windowManager.allProjectFrames) {
+            try {
+                val project = frame.project ?: continue
+                if (!project.isUsable()) continue
+                val window = SwingUtilities.getWindowAncestor(frame.component) ?: continue
+                if (window.isActive) return project
+            } catch (exception: RuntimeException) {
+                log.debug("Skipping frame during OS-active resolution", exception)
+            }
+        }
+        return null
+    }
 
     private fun com.intellij.openapi.project.Project.isUsable(): Boolean = !isDefault && !isDisposed
 

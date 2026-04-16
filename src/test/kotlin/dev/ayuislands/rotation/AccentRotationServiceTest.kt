@@ -149,6 +149,18 @@ class AccentRotationServiceTest {
                 .getInstance()
         } returns projectManager
 
+        // AccentApplicator.resolveFocusedProject scans WindowManager.allProjectFrames for the
+        // OS-active project frame. The rotation tick path exercises this scan, so the static
+        // must be stubbed; empty frames cleanly falls through to the IdeFocusManager /
+        // ProjectManager cascade that the rest of this test's mocks already cover.
+        val windowManager = mockk<com.intellij.openapi.wm.WindowManager>()
+        every { windowManager.allProjectFrames } returns emptyArray()
+        mockkStatic(com.intellij.openapi.wm.WindowManager::class)
+        every {
+            com.intellij.openapi.wm.WindowManager
+                .getInstance()
+        } returns windowManager
+
         val swapService = mockk<ProjectAccentSwapService>(relaxed = true)
         mockkObject(ProjectAccentSwapService.Companion)
         every { ProjectAccentSwapService.getInstance() } returns swapService

@@ -168,21 +168,53 @@ class ProjectAccentSwapServiceTest {
     }
 
     @Test
-    fun `onWindowActivated short-circuits on same-project re-activation`() {
-        // The whole point of the cache: alt-tabbing within the same project window must NOT
-        // re-apply the accent on every focus event. After the first activation primes the
-        // cache, the second call with the same project must skip resolve+apply.
+    fun `onWindowActivated re-resolves on same-project re-activation and skips apply when hex matches`() {
+        // Same-project re-activation (alt-tab out to a non-IDE app and back) MUST re-resolve
+        // because an external apply — rotation tick, settings panel — may have drifted the
+        // JVM-wide UIManager/globalScheme color since the last activation. The apply itself
+        // is still skipped when the resolver output matches lastAppliedHex, so alt-tab within
+        // a stable project is cheap (one HashMap lookup, no component-tree walk).
         val (window, project) = wireMatchingFrame()
         every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
         val service = ProjectAccentSwapService()
         val event = makeEvent(window)
 
         service.onWindowActivatedForTest(event) // primes cache
-        service.onWindowActivatedForTest(event) // same project — must short-circuit
+        service.onWindowActivatedForTest(event) // same project — re-resolves, hex matches, skips apply
 
-        // resolve called exactly once on the priming pass; apply called exactly once.
-        verify(exactly = 1) { AccentResolver.resolve(project, AyuVariant.MIRAGE) }
+        verify(exactly = 2) { AccentResolver.resolve(project, AyuVariant.MIRAGE) }
         verify(exactly = 1) { AccentApplicator.apply("#FFCC66") }
+        verify(exactly = 1) { ComponentTreeRefresher.walkAndNotify(project, window) }
+    }
+
+    @Test
+    fun `onWindowActivated re-applies when external apply drifted hex for same project`() {
+        // Regression guard for the rotation-override bug. When AccentRotationService fires a
+        // tick while the user is alt-tabbed to a non-IDE app, resolveFocusedProject may pick
+        // a project that differs from the one the user is visually on, then push that
+        // project's resolved color into the JVM-wide UIManager/globalScheme (via
+        // AccentApplicator.apply + notifyExternalApply). Alt-tab back to the original project
+        // fires WINDOW_ACTIVATED with the SAME project as before the tick; without the fix,
+        // the project-equality short-circuit skipped the handler entirely and the user was
+        // stuck with the wrong accent on tabs/toolbars while glow (per-project) stayed
+        // correct — the exact asymmetry reported by the user.
+        val (window, project) = wireMatchingFrame()
+        val service = ProjectAccentSwapService()
+
+        // First activation primes the cache with the project's real override color.
+        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#5CCFE6"
+        service.onWindowActivatedForTest(makeEvent(window))
+
+        // Rotation tick path: external apply pushed a DIFFERENT color into UIManager
+        // (because the tick resolved for a different focused project) and synced the cache.
+        service.notifyExternalApply("#DFBFFF")
+
+        // Alt-tab back to the original project. Resolver still returns the override color;
+        // cache-hex is lavender; the handler must notice the drift and re-apply cyan.
+        service.onWindowActivatedForTest(makeEvent(window))
+
+        verify(exactly = 2) { AccentApplicator.apply("#5CCFE6") }
+        verify(exactly = 2) { ComponentTreeRefresher.walkAndNotify(project, window) }
     }
 
     @Test
@@ -348,7 +380,7 @@ class ProjectAccentSwapServiceTest {
     /**
      * Returns (window, project) where the mocked WindowManager.allProjectFrames contains a
      * single IdeFrame whose component's window ancestor is `window` and whose project is
-     * the returned mock. Lets [handleWindowActivated] reach AyuVariant.detect / resolve /
+     * the returned mock. Lets `handleWindowActivated` reach AyuVariant.detect / resolve /
      * apply on a real Swing tree without instantiating a [java.awt.Frame] (which throws
      * `HeadlessException` on CI).
      */
