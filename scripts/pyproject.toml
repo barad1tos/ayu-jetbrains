@@ -6,7 +6,24 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "pyyaml>=6.0.2",
+    # defusedxml replaces stdlib's xml.etree parser with a safer variant —
+    # our theme XML inputs are trusted (own source files), but using the
+    # hardened parser signals intent and keeps Semgrep's CWE-611 rule happy.
+    "defusedxml>=0.7.1",
+]
+
+[dependency-groups]
+dev = [
+    # Type stubs for defusedxml; PyYAML stubs aren't needed (pyright finds them
+    # bundled). Only used by pyright/mypy, not at runtime.
+    "types-defusedxml>=0.7.0",
 ]
 
 [tool.uv]
 package = false
+
+[tool.pyright]
+# Scripts import sibling modules (e.g. _plugin_xml) — Python auto-adds the
+# script's directory to sys.path at runtime, but pyright's static analyzer
+# needs an explicit hint. `.` = the scripts/ dir (where pyproject.toml lives).
+extraPaths = ["."]

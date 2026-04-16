@@ -92,7 +92,7 @@ def extract_plugin_xml_description() -> str:
     """Extract the <description> CDATA block from plugin.xml as plain text."""
     xml = PLUGIN_XML.read_text(encoding="utf-8")
     if m := re.search(
-        r"<description>\s*<!\[CDATA\[(.*?)\]\]>\s*</description>",
+        r"<description>\s*<!\[CDATA\[(.*?)]]>\s*</description>",
         xml,
         re.DOTALL,
     ):
@@ -129,7 +129,7 @@ def check_keywords(data: dict, report: Report) -> None:
 def extract_latest_changelog_section() -> tuple[str, list[tuple[str, str]]]:
     """Return (version, [(tier, bullet_text), ...]) for the latest CHANGELOG section."""
     text = CHANGELOG.read_text(encoding="utf-8")
-    m = re.search(r"^##\s*\[(\d+\.\d+\.\d+)\]", text, re.MULTILINE)
+    m = re.search(r"^##\s*\[(\d+\.\d+\.\d+)]", text, re.MULTILINE)
     if not m:
         raise SystemExit("Could not find latest version header in CHANGELOG.md")
     version = m[1]
@@ -138,7 +138,7 @@ def extract_latest_changelog_section() -> tuple[str, list[tuple[str, str]]]:
     end = start + (next_m.start() if next_m else len(text) - start)
     section = text[start:end]
     # Match bullets that start with [Paid] or [Free] (tier-tagged, user-facing).
-    bullets = re.findall(r"^\s*-\s*\[(Paid|Free)\]\s*(.+)$", section, re.MULTILINE)
+    bullets = re.findall(r"^\s*-\s*\[(Paid|Free)]\s*(.+)$", section, re.MULTILINE)
     return version, bullets
 
 
@@ -322,9 +322,9 @@ def _replace_content_hash(text: str, path: str, new_hash: str) -> tuple[str, boo
     match = pattern.search(text)
     if not match:
         return text, False
-    if match.group("old") == new_hash:
+    if match["old"] == new_hash:
         return text, False
-    new_text = text[: match.start()] + match.group(1) + new_hash + text[match.end() :]
+    new_text = text[: match.start()] + match[1] + new_hash + text[match.end() :]
     return new_text, True
 
 

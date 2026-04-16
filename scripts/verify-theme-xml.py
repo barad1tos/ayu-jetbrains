@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script --project scripts
 """Cross-variant consistency checker for Ayu Islands editor scheme XML files.
 
 Validates that all three variants (Mirage, Dark, Light) have identical:
@@ -6,15 +6,25 @@ Validates that all three variants (Mirage, Dark, Light) have identical:
   2. FONT_TYPE values
   3. baseAttributes values
 
-Usage: python3 scripts/check-consistency.py
+Usage: python3 scripts/verify-theme-xml.py
 Exit code 0 = all checks pass, 1 = mismatches found
 """
 
 import sys
-from typing import Dict, List, Set, Tuple
-from xml.etree.ElementTree import Element, parse as parse_xml
-
 from pathlib import Path
+from typing import TYPE_CHECKING, Dict, List, Set, Tuple
+
+# defusedxml replaces stdlib's xml.etree parser with a hardened variant that
+# rejects entity expansion / XML bombs. Our inputs are committed source files
+# (trusted), but using the safe parser keeps Semgrep's CWE-611 rule happy and
+# signals intent for future contributors who might feed external XML in.
+from defusedxml.ElementTree import parse as parse_xml
+
+if TYPE_CHECKING:
+    # Element is a TYPE annotation only; defusedxml's parser returns stdlib
+    # Element instances, so we type-import from stdlib without running any
+    # stdlib parsing code at runtime.
+    from xml.etree.ElementTree import Element
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 THEMES = REPO_ROOT / "src" / "main" / "resources" / "themes"

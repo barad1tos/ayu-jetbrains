@@ -120,10 +120,14 @@ jobs:
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12'
-      - name: Check XML cross-variant consistency
-        run: python3 scripts/check-consistency.py
-      - name: Check JSON pair consistency
-        run: python3 scripts/check-json-consistency.py
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: scripts/uv.lock
+      - name: Verify XML cross-variant consistency
+        run: scripts/verify-theme-xml.py
+      - name: Verify JSON pair consistency
+        run: python3 scripts/verify-theme-json.py
 
   # ── Tier 2: Gradle compilation ─────────────────────────
   build:
@@ -207,9 +211,9 @@ jobs:
       - name: Build plugin JAR
         run: ./gradlew buildPlugin
       - name: Verify bytecode freshness
-        run: bash scripts/verify-bytecode.sh
+        run: python3 scripts/verify-bytecode.py
       - name: Verify ProGuard keep rules
-        run: bash scripts/verify-proguard-keeps.sh
+        run: python3 scripts/verify-proguard-keeps.py
 
   # ── Tier 4: Full IDE verification (PRs only) ──────────
   verify:

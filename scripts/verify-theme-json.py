@@ -6,7 +6,7 @@ islands file (Islands Dark/ExperimentalLight parent). The "colors" and
 "icons.ColorPalette" blocks must be identical within each pair — divergence
 means one file was edited and the other forgotten (the project's #1 gotcha).
 
-Usage: python3 scripts/check-json-consistency.py
+Usage: python3 scripts/verify-theme-json.py
 Exit code 0 = all checks pass, 1 = mismatches found
 """
 
