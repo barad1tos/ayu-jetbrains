@@ -255,7 +255,7 @@ object ProjectLanguageDetector {
      *
      * `internal` (no `@TestOnly`) because [tryRefreshAccentForDetected] — the
      * production caller — reaches this helper through the `SwingUtilities.invokeLater`
-     * boundary; marking it test-only would misadvertise the call graph and
+     * boundary; marking it test-only would misrepresent the call graph and
      * any `@TestOnly` inspection would either miss real misuse or flag this
      * legitimate production path.
      */
@@ -295,8 +295,8 @@ object ProjectLanguageDetector {
 
     /**
      * `@TestOnly` seam for the `proportions()` cross-cache coherence guard —
-     * lets tests simulate the race window where `weightsCache[key]` is written
-     * before the matching `cache[key]` (dominant-id) entry lands, by evicting
+     * lets tests simulate the race window where `weightsCache` is written for
+     * a key before the matching `cache` (dominant-id) entry lands, by evicting
      * just the dominant-id side of the pair. Without this seam the guard at
      * [proportions] is unreachable from any black-box test because the sole
      * production write path ([detectAndCache]) writes both entries

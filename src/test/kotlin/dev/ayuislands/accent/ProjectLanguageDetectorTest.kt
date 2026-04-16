@@ -757,6 +757,55 @@ class ProjectLanguageDetectorTest {
     }
 
     @Test
+    fun `refreshAccentOnEdt swallows a throwing settings read without rethrowing`() {
+        // Lock on the round-5 widening of runCatching: the settings read at
+        // AccentMappingsSettings.getInstance() can fail during a plugin-unload
+        // race or a corrupt persistent-state XML read. Must be contained inside
+        // the wrapper so it never bubbles out as an uncaught EDT exception.
+        // Narrowing the runCatching back to "apply chain only" would regress
+        // round-5 and this test would fail.
+        mockkObject(AccentMappingsSettings.Companion)
+        every { AccentMappingsSettings.getInstance() } throws RuntimeException("plugin unload race")
+
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.apply(any()) } returns Unit
+
+        val project = stubProject("/tmp/refresh-settings-boom-${System.nanoTime()}")
+
+        // Must not throw — the widened runCatching contains the settings read.
+        ProjectLanguageDetector.refreshAccentOnEdt(project, "kotlin")
+
+        // And because the membership check never executed, the apply chain
+        // must not have been reached.
+        verify(exactly = 0) { AccentApplicator.apply(any()) }
+    }
+
+    @Test
+    fun `refreshAccentOnEdt skips apply chain when variant detection returns null`() {
+        // Null variant = no Ayu theme active. The early `?: return@…` keeps
+        // the applicator from touching UIManager when there's no Ayu theme to
+        // drive. Locking the guard so a future author doesn't delete it as
+        // "dead code" — it's the fallback path for users on a non-Ayu theme.
+        val mappingsState =
+            AccentMappingsState().apply { languageAccents["kotlin"] = "#FFCC66" }
+        val settings = mockk<AccentMappingsSettings>()
+        every { settings.state } returns mappingsState
+        mockkObject(AccentMappingsSettings.Companion)
+        every { AccentMappingsSettings.getInstance() } returns settings
+
+        mockkObject(AyuVariant.Companion)
+        every { AyuVariant.detect() } returns null
+
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.apply(any()) } returns Unit
+
+        val project = stubProject("/tmp/refresh-null-variant-${System.nanoTime()}")
+        ProjectLanguageDetector.refreshAccentOnEdt(project, "kotlin")
+
+        verify(exactly = 0) { AccentApplicator.apply(any()) }
+    }
+
+    @Test
     fun `refreshAccentOnEdt skips apply chain when project is disposed`() {
         // Round-2 disposal guard: scheduling delay between background scan
         // and EDT dispatch can close the project. The early return here

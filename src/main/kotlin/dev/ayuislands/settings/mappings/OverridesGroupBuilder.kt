@@ -69,9 +69,6 @@ class OverridesGroupBuilder {
      * the language-specific icon from
      * [LanguageDetectionRules.iconForLanguageId] (or the info icon for the
      * polyglot state). Null before [buildGroup] has populated it.
-     *
-     * Replaces the pre-icon `JEditorPane` with `comment()`-style gray italic
-     * text that was too faint to read on the premium settings row.
      */
     private var proportionsPanel: JPanel? = null
 
