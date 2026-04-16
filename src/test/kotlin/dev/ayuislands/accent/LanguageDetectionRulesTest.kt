@@ -6,8 +6,11 @@ import com.intellij.openapi.fileTypes.LanguageFileType
 import com.intellij.openapi.fileTypes.UserBinaryFileType
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -878,6 +881,159 @@ class LanguageDetectionRulesTest {
         // return null so the UI can render a text-only JBLabel without a broken
         // icon rectangle.
         assertEquals(null, LanguageDetectionRules.iconForLanguageId("xyzunknown"))
+    }
+
+    @Test
+    fun `iconForLanguageId returns null when registered-language iteration throws`() {
+        // Contract: the runCatchingPreservingCancellation wrapper in
+        // findLanguageByLowercaseId must absorb a ConcurrentModificationException
+        // or a pathological third-party Language.id getter throw, and surface as
+        // `null` so callers fall back to the icon-less JBLabel path. A regression
+        // that drops the runCatching would propagate the throw all the way up
+        // into the Settings EDT callback and break the Overrides group.
+        mockkStatic(Language::class)
+        try {
+            every { Language.getRegisteredLanguages() } throws ConcurrentModificationException("plugin unload race")
+            assertNull(LanguageDetectionRules.iconForLanguageId("kotlin"))
+        } finally {
+            unmockkStatic(Language::class)
+        }
+    }
+
+    // ── DisplayEntry.init invariants ─────────────────────────────────────────────────
+
+    @Test
+    fun `DisplayEntry rejects percent below the floor`() {
+        assertFailsWith<IllegalArgumentException> {
+            LanguageDetectionRules.DisplayEntry(id = "kotlin", label = "Kotlin", percent = 0)
+        }
+    }
+
+    @Test
+    fun `DisplayEntry rejects percent above 100`() {
+        assertFailsWith<IllegalArgumentException> {
+            LanguageDetectionRules.DisplayEntry(id = "kotlin", label = "Kotlin", percent = 101)
+        }
+    }
+
+    @Test
+    fun `DisplayEntry rejects blank label`() {
+        assertFailsWith<IllegalArgumentException> {
+            LanguageDetectionRules.DisplayEntry(id = "kotlin", label = "   ", percent = 50)
+        }
+    }
+
+    @Test
+    fun `DisplayEntry rejects blank id for named entry`() {
+        assertFailsWith<IllegalArgumentException> {
+            LanguageDetectionRules.DisplayEntry(id = "", label = "Kotlin", percent = 50)
+        }
+    }
+
+    @Test
+    fun `DisplayEntry rejects mixed-case id for named entry`() {
+        // Contract: all language ids flow through `id.lowercase(Locale.ROOT)`
+        // at the producer; a caller bypassing that would break cache keys and
+        // icon lookups.
+        assertFailsWith<IllegalArgumentException> {
+            LanguageDetectionRules.DisplayEntry(id = "Kotlin", label = "Kotlin", percent = 50)
+        }
+    }
+
+    @Test
+    fun `DisplayEntry rejects other-bucket at 100 percent`() {
+        // The "other" bucket only exists alongside at least one named entry
+        // that has already claimed some share; a 100% other would mean the
+        // caller collapsed the sole named language into the residual bucket,
+        // which is a structural bug.
+        assertFailsWith<IllegalArgumentException> {
+            LanguageDetectionRules.DisplayEntry(id = null, label = "other", percent = 100)
+        }
+    }
+
+    @Test
+    fun `DisplayEntry accepts other-bucket at the 99 percent boundary`() {
+        // Upper-boundary red/green for OTHER_PERCENT_RANGE — a regression
+        // flipping the range to 1..98 would make this construction fail.
+        val entry = LanguageDetectionRules.DisplayEntry(id = null, label = "other", percent = 99)
+        assertEquals(99, entry.percent)
+    }
+
+    @Test
+    fun `DisplayEntry rejects other-bucket with a non-other label`() {
+        // Discriminator coherence: `id == null` is the "other" bucket and the
+        // label must match the canonical `DISPLAY_OTHER_LABEL`. A caller that
+        // wired id=null with a language-looking label would render "Kotlin 5%"
+        // into the tail position where the UI expects the residual bucket.
+        assertFailsWith<IllegalArgumentException> {
+            LanguageDetectionRules.DisplayEntry(id = null, label = "Kotlin", percent = 5)
+        }
+    }
+
+    // ── allocateLargestRemainder preconditions (private helper, @TestOnly seam) ──────
+
+    @Test
+    fun `allocateLargestRemainder rejects empty sorted input`() {
+        // Defensive guard — production callers pre-filter, but a future caller
+        // that skips the pre-filter would silently produce an empty IntArray
+        // and break the "sum equals exactly 100" KDoc contract. The require
+        // turns a caller regression into an immediate, traceable exception.
+        assertFailsWith<IllegalArgumentException> {
+            LanguageDetectionRules.allocateLargestRemainderForTest(emptyList(), 100L)
+        }
+    }
+
+    @Test
+    fun `allocateLargestRemainder rejects zero total`() {
+        val singleEntry = mapOf("kotlin" to 10L).entries.toList()
+        assertFailsWith<IllegalArgumentException> {
+            LanguageDetectionRules.allocateLargestRemainderForTest(singleEntry, 0L)
+        }
+    }
+
+    @Test
+    fun `allocateLargestRemainder rejects negative total`() {
+        // Signed Long math on a malformed cache entry could flip negative;
+        // the require catches that instead of letting the division below
+        // produce NaN / nonsense percentages.
+        val singleEntry = mapOf("kotlin" to 10L).entries.toList()
+        assertFailsWith<IllegalArgumentException> {
+            LanguageDetectionRules.allocateLargestRemainderForTest(singleEntry, -42L)
+        }
+    }
+
+    // ── pickDisplayEntries edge cases (covers named.isEmpty + displayNameFor fallback) ─
+
+    @Test
+    fun `pickDisplayEntries returns empty list when maxEntries is zero`() {
+        // maxEntries=0 pushes every entry into the collapsed bucket, leaving
+        // `named` empty. The `named.isEmpty()` guard in pickDisplayEntries
+        // must then return emptyList() instead of emitting a solo "other"
+        // row — which would fail DisplayEntry.init anyway, but this is the
+        // quieter contractual path. Locking it keeps a future caller that
+        // passes maxEntries=0 (e.g., a badge-only rendering mode) safe.
+        val entries =
+            LanguageDetectionRules.pickDisplayEntries(
+                mapOf("kotlin" to 500L, "java" to 500L),
+                maxEntries = 0,
+            )
+        assertTrue(entries.isEmpty(), "maxEntries=0 must yield an empty list, got $entries")
+    }
+
+    @Test
+    fun `pickDisplayEntries falls back to title-cased id when displayName is unavailable`() {
+        // Contract: `displayNameFor` hits the Language registry; when the id
+        // isn't registered (unknown language plugin, renamed id, mock data),
+        // the label falls through to `id.replaceFirstChar { it.titlecase(...) }`
+        // so the user still sees a readable name instead of a raw "xyzlang".
+        val entries =
+            LanguageDetectionRules.pickDisplayEntries(mapOf("xyzunregistered" to 1_000L))
+        assertEquals(1, entries.size)
+        // Title-cased id = "Xyzunregistered" — anything non-blank and distinct
+        // from the lowercase id confirms the fallback branch executed.
+        val label = entries.single().label
+        assertTrue(label.isNotBlank(), "label must not be blank; got '$label'")
+        assertEquals('X', label.first(), "title-case fallback capitalizes first char; got '$label'")
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────────

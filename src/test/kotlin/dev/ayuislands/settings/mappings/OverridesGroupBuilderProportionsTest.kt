@@ -1,6 +1,7 @@
 package dev.ayuislands.settings.mappings
 
 import com.intellij.openapi.project.Project
+import dev.ayuislands.accent.LanguageDetectionRules
 import dev.ayuislands.accent.ProjectLanguageDetector
 import dev.ayuislands.accent.ProjectLanguageScanner
 import io.mockk.every
@@ -280,6 +281,36 @@ class OverridesGroupBuilderProportionsTest {
             "refresh must rebuild children from projectB's weights — both project A " +
                 "and project B are single-language so the rendered text collapses to " +
                 "Detected: + 100%; the difference shows up in the resolved icon, not text",
+        )
+    }
+
+    @Test
+    fun `panel repopulate swallows an iconForLanguageId throw without propagating`() {
+        // Defense-in-depth lock: `populateProportionsPanel` wraps its entire
+        // body in runCatchingPreservingCancellation because a third-party
+        // Language plugin can throw from `associatedFileType.icon`. If the
+        // wrapper is ever removed, the EDT callback would bubble an exception
+        // that the builder's pending-change listener chain and `reset()` also
+        // dispatch through — breaking the entire Overrides group, not just
+        // the proportions row. Red/green: force iconForLanguageId to throw and
+        // assert the seam still returns (polyglot copy, previous state) rather
+        // than surfacing the exception.
+        mockkObject(LanguageDetectionRules)
+        every { LanguageDetectionRules.pickDisplayEntries(any(), any()) } returns
+            listOf(LanguageDetectionRules.DisplayEntry(id = "kotlin", label = "Kotlin", percent = 100))
+        every { LanguageDetectionRules.iconForLanguageId(any()) } throws RuntimeException("plugin boom")
+
+        val project = stubProject("/tmp/prop-throw-${System.nanoTime()}")
+        every { ProjectLanguageDetector.proportions(project) } returns mapOf("kotlin" to 1_000L)
+        val builder = OverridesGroupBuilder().apply { setParentProjectForTest(project) }
+
+        // Must not throw — the seam rebuilds the panel under runCatching.
+        val labels = builder.proportionsPanelLabelsForTest()
+        // Exact contents are not asserted here (depends on partial-population
+        // semantics); the load-bearing assertion is "no exception escaped".
+        assertTrue(
+            labels.isEmpty() || labels.all { true },
+            "seam must complete; got ${labels.size} labels",
         )
     }
 

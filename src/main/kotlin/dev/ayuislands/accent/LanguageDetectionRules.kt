@@ -589,6 +589,21 @@ internal object LanguageDetectionRules {
     }
 
     /**
+     * `@TestOnly` seam for exercising the `require(...)` preconditions in
+     * [allocateLargestRemainder] directly. Production callers always flow
+     * through [pickDisplayEntries], which pre-filters empty maps and
+     * non-positive totals, so the guards inside the private function would
+     * otherwise be unreachable from any red/green test. Exposing this seam is
+     * the minimum surface area needed to satisfy the "every validation guard
+     * gets a direct test" rule in `CLAUDE.md`.
+     */
+    @org.jetbrains.annotations.TestOnly
+    internal fun allocateLargestRemainderForTest(
+        sorted: List<Map.Entry<String, Long>>,
+        total: Long,
+    ): IntArray = allocateLargestRemainder(sorted, total)
+
+    /**
      * Resolve a lowercase AYU language id to the IntelliJ platform icon for
      * that language's [LanguageFileType]. Returns null when the id is blank,
      * the language isn't registered, the language has no associated file type,
