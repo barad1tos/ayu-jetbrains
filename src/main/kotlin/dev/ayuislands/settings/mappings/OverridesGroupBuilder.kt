@@ -124,14 +124,14 @@ class OverridesGroupBuilder {
                 }
                 row {
                     val gap = JBUI.scale(PROPORTIONS_ENTRY_GAP_PX)
-                    val panel =
+                    val statusPanel =
                         JPanel(FlowLayout(FlowLayout.LEFT, gap, 0)).apply {
                             isOpaque = false
                             border = null
                         }
-                    proportionsPanel = panel
-                    populateProportionsPanel(panel)
-                    cell(panel)
+                    proportionsPanel = statusPanel
+                    populateProportionsPanel(statusPanel)
+                    cell(statusPanel)
                 }
                 if (!licensed) {
                     row {
@@ -178,11 +178,21 @@ class OverridesGroupBuilder {
         // Re-apply the committed mapping set via resolver → applicator → swap-cache sync.
         // Keep the focus-swap cache consistent so the next WINDOW_ACTIVATED event evaluates
         // against the color actually showing on screen right now.
-        AyuVariant.detect()?.let { variant ->
-            val project = parentProject ?: ProjectManager.getInstance().openProjects.firstOrNull()
-            val hex = AccentResolver.resolve(project, variant)
-            AccentApplicator.apply(hex)
-            ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
+        //
+        // Defense-in-depth: the resolver / applicator / swap-cache chain touches LafManager,
+        // UIManager, and the project-swap service; a transient failure anywhere in that chain
+        // must not short-circuit the stored-snapshot refresh or `fireChanged()` below, or the
+        // settings UI would drift (persisted state saved, but `isModified()` keeps reporting
+        // "modified" because `storedProjects/languages` stayed on the pre-apply snapshot).
+        runCatchingPreservingCancellation {
+            AyuVariant.detect()?.let { variant ->
+                val project = parentProject ?: ProjectManager.getInstance().openProjects.firstOrNull()
+                val hex = AccentResolver.resolve(project, variant)
+                AccentApplicator.apply(hex)
+                ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
+            }
+        }.onFailure { exception ->
+            LOG.warn("Re-apply after overrides commit failed; persisted state is saved, UI may need reopen", exception)
         }
         storedProjects = projectModel.snapshot().map { ProjectMapping(it.canonicalPath, it.displayName, it.hex) }
         storedLanguages = languageModel.snapshot().map { LanguageMapping(it.languageId, it.displayName, it.hex) }
@@ -258,11 +268,14 @@ class OverridesGroupBuilder {
      *  - [LanguageDetectionRules.pickTopLanguagesForDisplay] produces a blank string
      *    (all-zero weights or markup-only below-threshold — same visual as polyglot)
      *
-     * Otherwise returns [DETECTED_PREFIX] concatenated with the HTML-escaped formatter
-     * output. Escaping goes through [StringUtil.escapeXmlEntities] because the
-     * surrounding `JEditorPane.text` is parsed as `text/html` by the IntelliJ UI DSL;
-     * a third-party language plugin could theoretically register a display name
-     * containing markup (T-26-01).
+     * Otherwise returns [DETECTED_PREFIX] concatenated with the formatter output,
+     * passed through [StringUtil.escapeXmlEntities] — the current icon-row
+     * renderer uses plain-text `JBLabel`s that never parse HTML, so the escape
+     * is not load-bearing for the production UI, but this helper survives as a
+     * regression guard that locks the T-26-01 threat model (a third-party
+     * language plugin registering a display name containing markup): the
+     * escape keeps the text projection safe against a future render path that
+     * switches back to an HTML-capable label.
      *
      * O(1) HashMap probe plus a bounded formatter pass; safe to call on EDT.
      *
@@ -298,7 +311,8 @@ class OverridesGroupBuilder {
      *    Because `JBLabel.text` is plain-text by default (NOT `<html>`-prefixed),
      *    any pathological language display name renders literally — no HTML
      *    interpretation, no need for escape-xml.
-     *  - **Polyglot row** (null / empty entries): one [JBLabel] with
+     *  - **Polyglot row** (weights cache cold OR `pickDisplayEntries` returned
+     *    an empty list): one [JBLabel] with
      *    `AllIcons.General.Information` + [POLYGLOT_COPY]. Visually distinct
      *    from the icon row so the user instantly sees "no single dominant".
      */

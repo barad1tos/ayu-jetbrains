@@ -1,6 +1,7 @@
 package dev.ayuislands.accent
 
 import com.intellij.lang.Language
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.fileTypes.LanguageFileType
 import java.util.Locale
@@ -149,6 +150,8 @@ internal object LanguageDetectionRules {
      * Suffix label for the collapsed "other" bucket at the end of the display line.
      */
     private const val DISPLAY_OTHER_LABEL: String = "other"
+
+    private val LOG = logger<LanguageDetectionRules>()
 
     /**
      * Multiplier for converting a fractional share (0.0–1.0) to an integer percent
@@ -468,6 +471,13 @@ internal object LanguageDetectionRules {
                 require(percent in OTHER_PERCENT_RANGE) {
                     "other-bucket percent must be $OTHER_PERCENT_RANGE, got $percent"
                 }
+                // Other-bucket label coherence: `id == null` is the discriminator
+                // for the "other" bucket, so the label must match. Closes the
+                // `DisplayEntry(id=null, label="Kotlin", percent=5)` construction
+                // hole where a caller could mix the discriminator and the label.
+                require(label == DISPLAY_OTHER_LABEL) {
+                    "other-bucket label must be '$DISPLAY_OTHER_LABEL', got '$label'"
+                }
             }
         }
     }
@@ -638,5 +648,11 @@ internal object LanguageDetectionRules {
             Language.getRegisteredLanguages().firstOrNull {
                 it.id.equals(lowercaseId, ignoreCase = true)
             }
+        }.onFailure { exception ->
+            // DEBUG severity because a pathological third-party plugin can
+            // trigger this on every call, and WARN would flood idea.log. The
+            // breadcrumb still surfaces the root cause when a "missing icon"
+            // user report lands in triage.
+            LOG.debug("Registered-language iteration failed for id='$lowercaseId'", exception)
         }.getOrNull()
 }

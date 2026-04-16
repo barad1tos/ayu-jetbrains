@@ -48,19 +48,19 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         // feature landed, and still shouldn't pay for it just because the
         // Settings panel has a new informational row. When no pins exist the
         // panel's own `buildGroup` warmup (EDT-safe bail-out) handles the first
-        // open with one extra cache miss. Defense-in-depth wrap prevents a
-        // transient detector failure from short-circuiting the rest of startup
-        // (ModuleRootListener subscription, font-preset apply, license checks).
-        if (AccentMappingsSettings
-                .getInstance()
-                .state.languageAccents
-                .isNotEmpty()
-        ) {
-            runCatchingPreservingCancellation {
+        // open with one extra cache miss. Both the `AccentMappingsSettings`
+        // state read and the detector call run under the same runCatching so a
+        // transient failure in either (corrupt persistent-state XML, plugin
+        // unload race, disposed scanner, etc.) can't short-circuit the rest of
+        // startup — ModuleRootListener subscription, font-preset apply, license
+        // checks, and onboarding all live below this block.
+        runCatchingPreservingCancellation {
+            val pinnedLanguages = AccentMappingsSettings.getInstance().state.languageAccents
+            if (pinnedLanguages.isNotEmpty()) {
                 ProjectLanguageDetector.dominant(project)
-            }.onFailure { exception ->
-                LOG.warn("Language detector warmup failed; will retry on next resolve", exception)
             }
+        }.onFailure { exception ->
+            LOG.warn("Language detector warmup failed; will retry on next resolve", exception)
         }
 
         // Drop the language-detector cache when the project's module / content-root

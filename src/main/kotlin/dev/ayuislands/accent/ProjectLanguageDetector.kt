@@ -172,6 +172,16 @@ object ProjectLanguageDetector {
             if (!detection.weights.isNullOrEmpty()) {
                 weightsCache[key] = detection.weights
             }
+        } else {
+            // Forensic breadcrumb: a non-cacheable result means the scan hit
+            // dumb mode, a disposed project, or the scanner threw. The caller
+            // sees the same `null` the polyglot/legacy paths emit, so the
+            // Settings row silently renders the polyglot copy — without this
+            // log there is no trace for "proportions never show up" reports.
+            // DEBUG severity keeps the normal indexing-warmup path quiet
+            // (every fresh IDE window hits dumb mode once) while still leaving
+            // a paper trail in idea.log.
+            LOG.debug("Scan for $key returned non-cacheable result; caller will re-scan on next call")
         }
         return detection.languageId
     }
@@ -211,10 +221,15 @@ object ProjectLanguageDetector {
         project: Project,
         detectedId: String,
     ) {
-        val mappings = AccentMappingsSettings.getInstance().state
-        if (detectedId !in mappings.languageAccents) return
         SwingUtilities.invokeLater {
             if (project.isDisposed) return@invokeLater
+            // Re-read the mappings ON the EDT so membership reflects the same
+            // state the apply chain is about to resolve against — the Settings
+            // UI mutates `languageAccents` on EDT, and an off-EDT membership
+            // check could observe a stale map between scan completion and this
+            // callback's scheduling.
+            val mappings = AccentMappingsSettings.getInstance().state
+            if (detectedId !in mappings.languageAccents) return@invokeLater
             // Best-effort refresh: the cache already has the detected id, so
             // `dominant()` behavior is unaffected by failures here. Containing
             // exceptions keeps a regression in any of the downstream apply paths
