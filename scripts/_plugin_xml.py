@@ -19,8 +19,11 @@ PLUGIN_XML = REPO_ROOT / "src" / "main" / "resources" / "META-INF" / "plugin.xml
 # a FQN — new extension-point slots, listener bindings, etc.
 _CLASS_ATTRS = ("implementation", "instance", "serviceImplementation", "class")
 
+# Non-capturing group is required — `a|b|c="x"` without parens parses as
+# "a OR b OR c=..x..", not "(a|b|c)=..x..". Word boundary `\b` forbids
+# matching sub-phrases like "-class" or "intelliJClass" on the left.
 _CLASS_ATTR_RE = re.compile(
-    r"(?:" + "|".join(_CLASS_ATTRS) + r')="(dev\.ayuislands\.[^"]+)"'
+    r"\b(?:" + "|".join(_CLASS_ATTRS) + r')="(dev\.ayuislands\.[^"]+)"'
 )
 
 

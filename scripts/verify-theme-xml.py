@@ -14,16 +14,17 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Set, Tuple
 
-# defusedxml replaces stdlib's xml.etree parser with a hardened variant that
-# rejects entity expansion / XML bombs. Our inputs are committed source files
-# (trusted), but using the safe parser keeps Semgrep's CWE-611 rule happy and
-# signals intent for future contributors who might feed external XML in.
+# The defusedxml package replaces the stdlib xml.etree parser with a hardened
+# variant that rejects entity expansion and XML-bomb attacks. Our inputs are
+# committed source files (trusted), but using the safe parser signals intent
+# and keeps the Semgrep CWE-611 rule satisfied for contributors who might
+# later feed external XML into this script.
 from defusedxml.ElementTree import parse as parse_xml
 
 if TYPE_CHECKING:
-    # Element is a TYPE annotation only; defusedxml's parser returns stdlib
-    # Element instances, so we type-import from stdlib without running any
-    # stdlib parsing code at runtime.
+    # Element is a type annotation only. The defusedxml parser returns stdlib
+    # Element instances, so importing the type here stays safe — no stdlib
+    # parsing code runs at runtime.
     from xml.etree.ElementTree import Element
 
 REPO_ROOT = Path(__file__).resolve().parent.parent

@@ -27,3 +27,6 @@ package = false
 # script's directory to sys.path at runtime, but pyright's static analyzer
 # needs an explicit hint. `.` = the scripts/ dir (where pyproject.toml lives).
 extraPaths = ["."]
+# types-defusedxml ships stubs only (no source) — suppress the spurious
+# "source not found" warning that would otherwise fire on every import.
+reportMissingModuleSource = "none"
