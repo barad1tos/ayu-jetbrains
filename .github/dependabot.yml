@@ -7,8 +7,10 @@ updates:
       interval: "weekly"
       day: "monday"
     cooldown:
+      # Actions pin to commit-SHA / tag references, not semver — Dependabot
+      # rejects `semver-major-days` under this ecosystem. Default-days still
+      # applies uniformly to every action update.
       default-days: 3
-      semver-major-days: 7
     open-pull-requests-limit: 3
     labels:
       - "dependencies"
