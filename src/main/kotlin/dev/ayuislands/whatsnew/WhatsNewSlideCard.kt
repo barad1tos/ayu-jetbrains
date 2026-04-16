@@ -34,13 +34,10 @@ internal object WhatsNewSlideCard {
     private val LOG = logger<WhatsNewSlideCard>()
 
     private const val TITLE_FONT_SIZE = 18
-    private const val BODY_FONT_SIZE = 13
     private const val PADDING = 24
-    private const val GAP_TITLE_BODY = 12
-    private const val GAP_BODY_IMAGE = 16
+    private const val GAP_TITLE_IMAGE = 16
     private const val IMAGE_MAX_HEIGHT = 360
     private const val PLACEHOLDER_RADIUS = 8
-    private const val BODY_WRAP_WIDTH = 600
 
     // Default widthFactor for slides that don't specify imageScale in the
     // manifest. 1.0 renders at WhatsNewImagePanel.DEFAULT_IMAGE_WIDTH (800 px
@@ -76,16 +73,21 @@ internal object WhatsNewSlideCard {
      * @param resourceDir manifest resource dir prefix (e.g. `/whatsnew/v2.5.0/`)
      *   used to resolve [WhatsNewSlide.image] relative paths
      * @param accentTint accent color for card border / hover state
-     * @param scaler when non-null, text labels and vertical gaps are registered
-     *   so the outer [WhatsNewPanel] resizes them proportionally on IDE-window
-     *   resize. The image panel intentionally owns its own sizing via
-     *   [WhatsNewImagePanel.getPreferredSize] and is NOT registered (would
-     *   double-scale). Passing null keeps everything at its natural baseline.
+     * @param titleColor color applied to the slide title; caller passes a
+     *   per-slide palette entry (lavender/gold/cyan) so the scroll column
+     *   reads as a color sequence rather than a uniform block.
+     * @param scaler when non-null, the title label and its surrounding gap
+     *   are registered so the outer [WhatsNewPanel] resizes them
+     *   proportionally on IDE-window resize. The image panel intentionally
+     *   owns its own sizing via [WhatsNewImagePanel.getPreferredSize] and is
+     *   NOT registered (would double-scale). Passing null keeps everything
+     *   at its natural baseline.
      */
     fun build(
         slide: WhatsNewSlide,
         resourceDir: String,
         accentTint: Color,
+        titleColor: Color,
         scaler: ContentScaler? = null,
     ): JPanel {
         val card =
@@ -105,31 +107,21 @@ internal object WhatsNewSlideCard {
 
         val titleLabel = JBLabel(slide.title)
         titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, JBUI.scale(TITLE_FONT_SIZE).toFloat())
-        titleLabel.foreground = JBColor.foreground()
+        titleLabel.foreground = titleColor
         titleLabel.alignmentX = Component.LEFT_ALIGNMENT
         content.add(titleLabel)
         scaler?.registerLabel(titleLabel, TITLE_FONT_SIZE, Font.BOLD)
 
-        val titleGap = Box.createVerticalStrut(JBUI.scale(GAP_TITLE_BODY))
-        content.add(titleGap)
-        scaler?.registerGap(titleGap, GAP_TITLE_BODY)
-
-        // Body uses HTML so manifest authors can include <b>, <i>, line breaks
-        // without a markdown parser. JBLabel renders Swing's HTML subset natively.
-        // Width is JBUI-scaled so the wrap point matches HiDPI device pixels.
-        val bodyWrapPx = JBUI.scale(BODY_WRAP_WIDTH)
-        val bodyText = "<html><body style='width:${bodyWrapPx}px'>${slide.body}</body></html>"
-        val bodyLabel = JBLabel(bodyText)
-        bodyLabel.font = bodyLabel.font.deriveFont(JBUI.scale(BODY_FONT_SIZE).toFloat())
-        bodyLabel.foreground = JBColor.foreground()
-        bodyLabel.alignmentX = Component.LEFT_ALIGNMENT
-        content.add(bodyLabel)
-        scaler?.registerLabel(bodyLabel, BODY_FONT_SIZE, Font.PLAIN)
+        // Body paragraph intentionally dropped — a plugin targeted at
+        // developers doesn't need hand-holding prose; the title + screenshot
+        // convey the feature on their own, and Settings → Accent → Overrides
+        // is self-explanatory once opened. The WhatsNewSlide.body field stays
+        // in the data model so future releases can opt back in if needed.
 
         if (slide.image != null) {
-            val imageGap = Box.createVerticalStrut(JBUI.scale(GAP_BODY_IMAGE))
+            val imageGap = Box.createVerticalStrut(JBUI.scale(GAP_TITLE_IMAGE))
             content.add(imageGap)
-            scaler?.registerGap(imageGap, GAP_BODY_IMAGE)
+            scaler?.registerGap(imageGap, GAP_TITLE_IMAGE)
 
             val effectiveScale = slide.imageScale ?: DEFAULT_IMAGE_FACTOR
             val imageComponent = loadImageComponent(resourceDir + slide.image, effectiveScale)
@@ -137,7 +129,7 @@ internal object WhatsNewSlideCard {
             // Image panel owns its sizing via dynamic getPreferredSize() that
             // reads the parent column width — no ContentScaler registration
             // needed (would double-scale). LEFT_ALIGNMENT keeps the wrapper
-            // flush with the text column above; horizontal glue inside still
+            // flush with the title above; horizontal glue inside still
             // centers the image within the wrapper's actual rendered width.
             content.add(centerInRow(imageComponent, Component.LEFT_ALIGNMENT))
         }

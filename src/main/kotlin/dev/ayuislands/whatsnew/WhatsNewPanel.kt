@@ -211,15 +211,16 @@ internal class WhatsNewPanel(
         val resourceDir = pluginDescriptor()?.version?.let { WhatsNewManifestLoader.resourceDir(it) } ?: ""
 
         var addedCount = 0
-        manifest.slides.forEach { slide ->
+        manifest.slides.forEachIndexed { index, slide ->
+            val titleColor = TITLE_PALETTE[index % TITLE_PALETTE.size]
             val card =
                 try {
-                    WhatsNewSlideCard.build(slide, resourceDir, accent, scaler)
+                    WhatsNewSlideCard.build(slide, resourceDir, accent, titleColor, scaler)
                 } catch (exception: RuntimeException) {
                     // One bad slide must not kill the others. Log and skip so
                     // the user still sees the rest of the release showcase.
                     LOG.warn("What's New: failed to build slide '${slide.title}' — skipped", exception)
-                    return@forEach
+                    return@forEachIndexed
                 }
             if (addedCount > 0) {
                 val interSlideGap = Box.createVerticalStrut(JBUI.scale(GAP_BETWEEN_SLIDES))
@@ -364,6 +365,22 @@ internal class WhatsNewPanel(
         // Hex constant for the Ayu Mirage gold accent — used as the last-resort
         // fallback when the plugin's current accent color fails to decode.
         private const val FALLBACK_ACCENT_RGB = 0xFFCC66
+
+        // Per-slide title color palette cycling through lavender → gold → cyan.
+        // Matches the accent spectrum the plugin ships (these three are the
+        // canonical "secondary accent" tones used across the v2.5.0 overrides
+        // feature). Rendering slide titles in the same sequence keeps the
+        // column from reading as a uniform block and nudges the user to see
+        // each slide as a distinct capability.
+        private const val LAVENDER_RGB = 0xC3A6FF
+        private const val GOLD_RGB = 0xFFCC66
+        private const val CYAN_RGB = 0x5CCFE6
+        private val TITLE_PALETTE: List<JBColor> =
+            listOf(
+                JBColor(Color(LAVENDER_RGB), Color(LAVENDER_RGB)),
+                JBColor(Color(GOLD_RGB), Color(GOLD_RGB)),
+                JBColor(Color(CYAN_RGB), Color(CYAN_RGB)),
+            )
 
         private val SECONDARY_BUTTON_TINT: JBColor =
             JBColor(
