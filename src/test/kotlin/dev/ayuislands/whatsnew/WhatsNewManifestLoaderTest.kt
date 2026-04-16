@@ -172,6 +172,49 @@ class WhatsNewManifestLoaderTest {
     }
 
     @Test
+    fun `load WARNs when CTA label is set without a target id (or vice versa)`() {
+        // The renderer hides the button when only one half of the CTA pair is
+        // present — without this WARN the maintainer ships a "missing button"
+        // and gets no signal in idea.log. Use the v9.9.7 fixture which sets
+        // ctaOpenSettingsLabel but omits ctaOpenSettingsTargetId.
+        val capturedWarns = mutableListOf<String>()
+        val processor = warnCollector(capturedWarns)
+        var result: WhatsNewManifest? = null
+        LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
+            result = WhatsNewManifestLoader.load("9.9.7")
+        }
+        val parsed = assertNotNull(result)
+        // Manifest still loads — the half-CTA isn't a fatal error, just a
+        // surface-level mistake. The renderer hides the button and we move on.
+        assertEquals(1, parsed.slides.size)
+        assertTrue(
+            capturedWarns.any { it.contains("ctaOpenSettingsLabel") && it.contains("ctaOpenSettingsTargetId") },
+            "half-CTA must produce a WARN naming both fields; got: $capturedWarns",
+        )
+    }
+
+    @Test
+    fun `load WARNs when imageScale is non-positive or non-numeric`() {
+        // v9.9.5 fixture has zero, negative, non-primitive imageScale entries.
+        // Each should produce a WARN so a maintainer who ships imageScale=0
+        // or imageScale=-1 has a paper trail (parser silently substitutes the
+        // default 1.0 — without the WARN the slide just renders smaller than
+        // expected and the cause is invisible).
+        val capturedWarns = mutableListOf<String>()
+        val processor = warnCollector(capturedWarns)
+        LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
+            WhatsNewManifestLoader.load("9.9.5")
+        }
+        // Three rejection branches: object (non-primitive), negative, zero.
+        val rejectionWarns = capturedWarns.count { it.contains("imageScale") }
+        assertTrue(
+            rejectionWarns >= 3,
+            "expected at least 3 imageScale rejection WARNs (object/negative/zero); " +
+                "got $rejectionWarns: $capturedWarns",
+        )
+    }
+
+    @Test
     fun `manifestExists returns true for present resource`() {
         assertTrue(WhatsNewManifestLoader.manifestExists("9.9.0"))
     }

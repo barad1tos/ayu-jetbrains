@@ -21,7 +21,6 @@ import java.awt.event.ComponentEvent
 import javax.swing.BorderFactory
 import javax.swing.Box
 import javax.swing.BoxLayout
-import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
 import javax.swing.event.AncestorEvent
@@ -77,12 +76,24 @@ internal class WhatsNewPanel(
         addComponentListener(componentListener)
     }
 
+    private val disposed =
+        java.util.concurrent.atomic
+            .AtomicBoolean(false)
+
     /**
      * Detaches listeners and drops [ContentScaler] component refs. Called from
      * [WhatsNewEditor.dispose] so that closing the tab does not leak labels,
      * gaps, or the panel itself via the listener chain.
+     *
+     * Idempotent: a double-dispose (provider bug, split-editor close race) is
+     * a no-op rather than a crash. Logs WARN on the second call so the race
+     * is visible in idea.log instead of silently masked.
      */
     fun dispose() {
+        if (!disposed.compareAndSet(false, true)) {
+            LOG.warn("What's New: dispose called more than once on the same panel")
+            return
+        }
         removeAncestorListener(ancestorListener)
         removeComponentListener(componentListener)
         scaler.clear()
@@ -116,7 +127,10 @@ internal class WhatsNewPanel(
             LOG.error("What's New: failed to build panel content", exception)
             // Don't leave the user staring at a blank pane — replace with an
             // emptyState so they at least see "no content" instead of nothing.
+            // Also clear scaler refs that may have been registered before the
+            // throw, so a partially-built header doesn't leak labels/gaps.
             removeAll()
+            scaler.clear()
             add(emptyState(), BorderLayout.CENTER)
             revalidate()
             repaint()
@@ -194,8 +208,16 @@ internal class WhatsNewPanel(
                 column.add(interSlideGap)
                 scaler.registerGap(interSlideGap, GAP_BETWEEN_SLIDES)
             }
-            val card = WhatsNewSlideCard.build(slide, resourceDir, accent, scaler)
-            column.add(centerInRow(card))
+            val card =
+                try {
+                    WhatsNewSlideCard.build(slide, resourceDir, accent, scaler)
+                } catch (exception: RuntimeException) {
+                    // One bad slide must not kill the others. Log and skip so
+                    // the user still sees the rest of the release showcase.
+                    LOG.warn("What's New: failed to build slide '${slide.title}' — skipped", exception)
+                    return@forEachIndexed
+                }
+            column.add(centerInRow(card, CENTER_ALIGNMENT))
         }
 
         val scroll = JBScrollPane(column)
@@ -237,23 +259,6 @@ internal class WhatsNewPanel(
             }
         val button = ShowWhatsNewButton(text, tint, accent, onClick)
         return button
-    }
-
-    /**
-     * Wraps [child] in an X-AXIS BoxLayout flanked by horizontal glue so the
-     * inner component renders centered within whatever width the parent column
-     * provides. Used by both the slide column (centers cards in the viewport)
-     * and the slide card (centers the image within the card content area).
-     */
-    private fun centerInRow(child: JComponent): JPanel {
-        val row = JPanel()
-        row.layout = BoxLayout(row, BoxLayout.X_AXIS)
-        row.isOpaque = false
-        row.alignmentX = CENTER_ALIGNMENT
-        row.add(Box.createHorizontalGlue())
-        row.add(child)
-        row.add(Box.createHorizontalGlue())
-        return row
     }
 
     private fun closeTab() {

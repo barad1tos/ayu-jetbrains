@@ -1,5 +1,8 @@
 package dev.ayuislands.whatsnew
 
+import java.awt.Component
+import javax.swing.BoxLayout
+import javax.swing.JPanel
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -147,6 +150,39 @@ class WhatsNewSizingHelpersTest {
                 scaledHorizontalPadding = 28,
             ),
         )
+    }
+
+    // -- centerInRow shared helper --
+
+    @Test
+    fun `centerInRow wraps the child between two horizontal glue components`() {
+        // Centering relies on glue-child-glue layout. If a future refactor
+        // accidentally drops one of the glues, the child no longer centers
+        // (it sticks left or right). Pin the structure with this test.
+        val child = JPanel()
+        val row = centerInRow(child, Component.CENTER_ALIGNMENT)
+        assertEquals(3, row.componentCount, "wrapper must contain glue + child + glue")
+        assertEquals(child, row.getComponent(1), "child must be the middle component")
+    }
+
+    @Test
+    fun `centerInRow uses BoxLayout X_AXIS for horizontal flow`() {
+        val row = centerInRow(JPanel(), Component.LEFT_ALIGNMENT)
+        val layout = row.layout
+        assertTrue(layout is BoxLayout, "wrapper must use BoxLayout for the glue-child-glue distribution")
+    }
+
+    @Test
+    fun `centerInRow respects the requested wrapper alignment`() {
+        // The wrapper's alignmentX controls how it sits within its own Y-axis
+        // BoxLayout parent. WhatsNewPanel passes CENTER (centers cards in the
+        // viewport); WhatsNewSlideCard passes LEFT (keeps the wrapper flush
+        // with the text column above it). Pin both so a future caller can't
+        // accidentally swap and break either layout.
+        val left = centerInRow(JPanel(), Component.LEFT_ALIGNMENT)
+        val center = centerInRow(JPanel(), Component.CENTER_ALIGNMENT)
+        assertEquals(Component.LEFT_ALIGNMENT, left.alignmentX)
+        assertEquals(Component.CENTER_ALIGNMENT, center.alignmentX)
     }
 
     @Test

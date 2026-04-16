@@ -127,6 +127,17 @@ internal class WhatsNewImagePanel(
         lastResolvedParentWidth = -1
     }
 
+    override fun invalidate() {
+        // Layout invalidation cascades from any ancestor change (window resize,
+        // viewport scroll, scaler.apply revalidate). Drop the preferredSize
+        // cache so the next layout pass re-measures against the now-current
+        // parent width — without this the cache could stick to a stale value
+        // when the BoxLayout parent width happens to equal a previous result.
+        cachedPreferredSize = null
+        lastResolvedParentWidth = -1
+        super.invalidate()
+    }
+
     override fun paintComponent(graphics: Graphics) {
         super.paintComponent(graphics)
         val g2 = graphics.create() as Graphics2D

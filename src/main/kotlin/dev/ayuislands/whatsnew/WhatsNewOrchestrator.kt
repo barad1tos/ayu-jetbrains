@@ -1,5 +1,6 @@
 package dev.ayuislands.whatsnew
 
+import com.intellij.openapi.diagnostic.logger
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -16,6 +17,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * cross-restart "already shown" gate.
  */
 internal object WhatsNewOrchestrator {
+    private val LOG = logger<WhatsNewOrchestrator>()
     private val shown = AtomicBoolean(false)
 
     /**
@@ -33,6 +35,10 @@ internal object WhatsNewOrchestrator {
      * "Show What's New…" menu item would also be stuck.
      */
     fun release() {
+        // Breadcrumb for "tab never opened" debugging — pairs with the launcher's
+        // ERROR log on the failed openFile so a future report can correlate
+        // why a retry from another window did or didn't succeed.
+        LOG.info("Ayu What's New: orchestrator claim released after failed open")
         shown.set(false)
     }
 

@@ -136,16 +136,10 @@ internal object WhatsNewSlideCard {
 
             // Image panel owns its sizing via dynamic getPreferredSize() that
             // reads the parent column width — no ContentScaler registration
-            // needed (would double-scale). Centering done via BoxLayout.X_AXIS
-            // glue wrapper to match editorial-tab conventions.
-            val imageRow = JPanel()
-            imageRow.layout = BoxLayout(imageRow, BoxLayout.X_AXIS)
-            imageRow.isOpaque = false
-            imageRow.alignmentX = Component.LEFT_ALIGNMENT
-            imageRow.add(Box.createHorizontalGlue())
-            imageRow.add(imageComponent)
-            imageRow.add(Box.createHorizontalGlue())
-            content.add(imageRow)
+            // needed (would double-scale). LEFT_ALIGNMENT keeps the wrapper
+            // flush with the text column above; horizontal glue inside still
+            // centers the image within the wrapper's actual rendered width.
+            content.add(centerInRow(imageComponent, Component.LEFT_ALIGNMENT))
         }
 
         card.add(content, BorderLayout.CENTER)
@@ -161,19 +155,29 @@ internal object WhatsNewSlideCard {
         // ClassCastException when the resource bytes don't decode as an Image.
         // Any of these should degrade to the placeholder; an Error (OOM,
         // VirtualMachineError) intentionally propagates because the IDE itself
-        // is in trouble at that point.
+        // is in trouble at that point. Each branch returns the placeholder
+        // directly so a single failure produces exactly one WARN line.
         val image =
             try {
                 ImageLoader.loadFromResource(resourcePath, WhatsNewSlideCard::class.java)
             } catch (exception: IOException) {
                 LOG.warn("What's New: failed to load slide image $resourcePath", exception)
-                null
+                return placeholderImage()
             } catch (exception: RuntimeException) {
                 LOG.warn("What's New: failed to decode slide image $resourcePath", exception)
-                null
+                return placeholderImage()
             }
         if (image == null) {
             LOG.warn("What's New: slide image not found at $resourcePath")
+            return placeholderImage()
+        }
+        // Defensive — a broken AsyncImage or a partially-loaded Toolkit image
+        // can report negative dimensions. Render a placeholder rather than
+        // a 1×1 pixel speck where the screenshot should have been.
+        val w = image.getWidth(null)
+        val h = image.getHeight(null)
+        if (w <= 0 || h <= 0) {
+            LOG.warn("What's New: slide image $resourcePath has invalid dimensions ${w}x$h")
             return placeholderImage()
         }
         return WhatsNewImagePanel(image, widthFactor)

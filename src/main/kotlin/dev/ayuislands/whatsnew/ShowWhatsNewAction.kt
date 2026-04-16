@@ -20,14 +20,22 @@ internal class ShowWhatsNewAction : DumbAwareAction() {
     override fun update(event: AnActionEvent) {
         // Disable when no current-version manifest exists. Use the cheap probe;
         // the launcher does the same check before scheduling, so this is purely
-        // for UI affordance.
+        // for UI affordance. A null descriptor would mean the platform can't
+        // find our own plugin — log it once so the anomaly is debuggable
+        // without spamming the log on every BGT update tick.
         val descriptor =
             com.intellij.ide.plugins.PluginManagerCore.getPlugin(
                 com.intellij.openapi.extensions.PluginId
                     .getId("com.ayuislands.theme"),
             )
-        val available =
-            descriptor?.version?.let { WhatsNewManifestLoader.manifestExists(it) } ?: false
+        if (descriptor == null) {
+            if (descriptorNullLogged.compareAndSet(false, true)) {
+                LOG.warn("Ayu What's New: plugin descriptor lookup returned null in update()")
+            }
+            event.presentation.isEnabledAndVisible = false
+            return
+        }
+        val available = WhatsNewManifestLoader.manifestExists(descriptor.version)
         event.presentation.isEnabledAndVisible = available
     }
 
@@ -36,14 +44,26 @@ internal class ShowWhatsNewAction : DumbAwareAction() {
         val scheduled = WhatsNewLauncher.openManually(project)
         if (!scheduled) {
             // update() should have hidden the menu when no manifest exists, but
-            // BGT update can race with the click. Leaving a breadcrumb in the
-            // log so a future "I clicked Show What's New and nothing happened"
-            // bug report has a paper trail to start from.
-            LOG.info("Ayu What's New: manual open declined — no manifest for current version")
+            // BGT update can race with the click. The launcher returns false in
+            // two cases: descriptor missing (a real anomaly — WARN) or no
+            // manifest for current version (expected on patches — INFO).
+            val descriptor =
+                com.intellij.ide.plugins.PluginManagerCore.getPlugin(
+                    com.intellij.openapi.extensions.PluginId
+                        .getId("com.ayuislands.theme"),
+                )
+            if (descriptor == null) {
+                LOG.warn("Ayu What's New: manual open declined — plugin descriptor missing")
+            } else {
+                LOG.info("Ayu What's New: manual open declined — no manifest for ${descriptor.version}")
+            }
         }
     }
 
     companion object {
         private val LOG = logger<ShowWhatsNewAction>()
+        private val descriptorNullLogged =
+            java.util.concurrent.atomic
+                .AtomicBoolean(false)
     }
 }

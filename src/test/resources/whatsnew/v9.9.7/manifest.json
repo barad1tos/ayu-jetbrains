@@ -1,0 +1,7 @@
+{
+  "title": "Half-CTA",
+  "slides": [
+    { "title": "Only one slide", "body": "renderer must hide the button entirely" }
+  ],
+  "ctaOpenSettingsLabel": "Open Something"
+}

@@ -198,7 +198,14 @@ internal object WhatsNewLauncher {
     ) {
         LOG.info("Ayu What's New: opening tab in ${project.name} (manual=$isManual)")
         try {
-            FileEditorManager.getInstance(project).openFile(WhatsNewVirtualFile(), true)
+            // WhatsNewVirtualFile uses identity equality, so a fresh instance
+            // would NOT match an already-open tab and FileEditorManager would
+            // create a duplicate. Look up the existing instance first and pass
+            // THAT to openFile, which then focuses the existing tab instead.
+            val manager = FileEditorManager.getInstance(project)
+            val existing = manager.openFiles.filterIsInstance<WhatsNewVirtualFile>().firstOrNull()
+            val target = existing ?: WhatsNewVirtualFile()
+            manager.openFile(target, true)
             onSuccess()
         } catch (exception: RuntimeException) {
             LOG.error("Ayu What's New: failed to open tab in ${project.name}", exception)

@@ -165,13 +165,25 @@ internal object WhatsNewManifestLoader {
             return null
         }
 
+        val ctaLabel = readString(root, "ctaOpenSettingsLabel")
+        val ctaTargetId = readString(root, "ctaOpenSettingsTargetId")
+        if ((ctaLabel == null) != (ctaTargetId == null)) {
+            // The renderer only shows the button when BOTH are present — surface
+            // the manifest typo so a maintainer who set just one half doesn't
+            // ship a "missing button" without any log signal to debug.
+            LOG.warn(
+                "What's New: ctaOpenSettingsLabel and ctaOpenSettingsTargetId must " +
+                    "both be set or both be absent; got label='$ctaLabel' targetId='$ctaTargetId'. " +
+                    "Button hidden.",
+            )
+        }
         return WhatsNewManifest(
             title = readString(root, "title") ?: "What's New",
             tagline = readString(root, "tagline"),
             heroImage = readString(root, "heroImage"),
             slides = slides,
-            ctaOpenSettingsLabel = readString(root, "ctaOpenSettingsLabel"),
-            ctaOpenSettingsTargetId = readString(root, "ctaOpenSettingsTargetId"),
+            ctaOpenSettingsLabel = ctaLabel,
+            ctaOpenSettingsTargetId = ctaTargetId,
         )
     }
 
@@ -201,13 +213,21 @@ internal object WhatsNewManifestLoader {
     private fun readImageScale(obj: com.google.gson.JsonObject): Float? {
         val element = obj["imageScale"] ?: return null
         if (element.isJsonNull) return null
-        if (!element.isJsonPrimitive) return null
+        if (!element.isJsonPrimitive) {
+            LOG.warn("What's New: ignoring non-primitive imageScale (got $element); using default")
+            return null
+        }
         val raw =
             try {
                 element.asFloat
-            } catch (_: NumberFormatException) {
+            } catch (exception: NumberFormatException) {
+                LOG.warn("What's New: ignoring non-numeric imageScale '$element'; using default", exception)
                 return null
             }
-        return raw.takeIf { it > 0f }
+        if (raw <= 0f || raw.isNaN()) {
+            LOG.warn("What's New: ignoring imageScale '$raw' (must be > 0); using default")
+            return null
+        }
+        return raw
     }
 }

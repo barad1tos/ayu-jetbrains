@@ -102,12 +102,14 @@ class ShowWhatsNewActionTest {
     }
 
     @Test
-    fun `actionPerformed logs INFO breadcrumb when launcher returns false`() {
+    fun `actionPerformed logs INFO breadcrumb when launcher returns false and manifest is absent`() {
         // Defense-in-depth path: update() should have hidden the menu when no
         // manifest exists, but BGT update can race with the click. If the user
-        // hits Show What's New… and openManually returns false, we MUST leave
-        // a paper trail in idea.log — otherwise a future "I clicked it and
-        // nothing happened" bug report has nothing to start from.
+        // hits Show What's New… and openManually returns false (manifest gone),
+        // we leave an INFO breadcrumb — but NOT a WARN, since this is an
+        // expected race, not an anomaly.
+        every { PluginManagerCore.getPlugin(any<PluginId>()) } returns descriptor
+        every { descriptor.version } returns "0.0.0"
         mockkObject(WhatsNewLauncher)
         every { WhatsNewLauncher.openManually(project) } returns false
 
@@ -126,9 +128,41 @@ class ShowWhatsNewActionTest {
         ) {
             action.actionPerformed(event)
         }
-        // The skill is INFO — the LoggedErrorProcessor only intercepts WARN/ERROR.
-        // We assert the no-throw + delegation contract; the breadcrumb is in idea.log.
         verify(exactly = 1) { WhatsNewLauncher.openManually(project) }
-        assertTrue(captured.isEmpty(), "no-op action must NOT escalate to a WARN; got: $captured")
+        assertTrue(
+            captured.isEmpty(),
+            "manifest-missing race is INFO-level, must NOT escalate to WARN; got: $captured",
+        )
+    }
+
+    @Test
+    fun `actionPerformed escalates to WARN when descriptor is missing`() {
+        // Distinct from the manifest-missing path: descriptor=null means the
+        // platform can't find OUR OWN plugin, which is a real anomaly worth
+        // surfacing as WARN so a future "menu does nothing" report has a
+        // diagnostic that distinguishes "patch release" from "platform broken".
+        every { PluginManagerCore.getPlugin(any<PluginId>()) } returns null
+        mockkObject(WhatsNewLauncher)
+        every { WhatsNewLauncher.openManually(project) } returns false
+
+        val captured = mutableListOf<String>()
+        LoggedErrorProcessor.executeWith<RuntimeException>(
+            object : LoggedErrorProcessor() {
+                override fun processWarn(
+                    category: String,
+                    message: String,
+                    throwable: Throwable?,
+                ): Boolean {
+                    captured += message
+                    return false
+                }
+            },
+        ) {
+            action.actionPerformed(event)
+        }
+        assertTrue(
+            captured.any { it.contains("plugin descriptor missing") },
+            "descriptor-null path must produce a WARN naming the descriptor; got: $captured",
+        )
     }
 }
