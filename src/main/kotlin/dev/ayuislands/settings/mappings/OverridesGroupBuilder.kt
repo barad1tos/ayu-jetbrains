@@ -57,13 +57,16 @@ class OverridesGroupBuilder {
     private var parentProject: Project? = null
 
     /**
-     * Captured JEditorPane backing the detected-language proportions `comment()` row.
-     * Mutated in place via [refreshProportionsLabel] on every [reset] and on every
-     * pending-change fired into the builder-registered listener — mirrors the
-     * `AyuIslandsEffectsPanel.updateAnimationDescription` pattern. Null before
-     * [buildGroup] has populated it.
+     * Captured JPanel backing the detected-language proportions status row.
+     * Children are cleared and rebuilt on every [reset] and every pending-change
+     * event via [refreshProportionsPanel]. Each child is a [com.intellij.ui.components.JBLabel]
+     * carrying the language-specific icon from `LanguageDetectionRules.iconForLanguageId`
+     * (or the info icon for the polyglot state). Null before [buildGroup] has populated it.
+     *
+     * Replaces the pre-icon `JEditorPane` with `comment()`-style gray italic text that
+     * was too faint to read on the premium settings row.
      */
-    private var proportionsLabel: javax.swing.JEditorPane? = null
+    private var proportionsPanel: javax.swing.JPanel? = null
 
     init {
         configureTables()
@@ -74,6 +77,14 @@ class OverridesGroupBuilder {
         contextProject: Project?,
     ) {
         parentProject = contextProject
+        // Defense-in-depth: StartupActivity warms the detector cache off-EDT on
+        // project open, but Settings might be opened before that coroutine lands
+        // (race window) or the cache might have been invalidated mid-session.
+        // Kick a warmup now on the EDT path — the detector's own EDT bail-out
+        // schedules a background scan and returns null immediately, so this is
+        // zero-cost on EDT; the first paint may show the polyglot copy but the
+        // next reset (any model edit or panel reopen) picks up the warm cache.
+        contextProject?.let { ProjectLanguageDetector.dominant(it) }
         loadFromState()
 
         val licensed = LicenseChecker.isLicensedOrGrace()
@@ -100,8 +111,19 @@ class OverridesGroupBuilder {
                     cell(segmentedBar)
                 }
                 row {
-                    val descCell = comment(computeProportionsText())
-                    proportionsLabel = descCell.component
+                    val gap =
+                        com.intellij.util.ui.JBUI
+                            .scale(PROPORTIONS_ENTRY_GAP_PX)
+                    val panel =
+                        javax.swing
+                            .JPanel(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, gap, 0))
+                            .apply {
+                                isOpaque = false
+                                border = null
+                            }
+                    proportionsPanel = panel
+                    populateProportionsPanel(panel)
+                    cell(panel)
                 }
                 row {
                     cell(cardPanel)
@@ -122,7 +144,7 @@ class OverridesGroupBuilder {
         // any override add / edit / delete re-reads from the detector cache. Phase 29's
         // rescan action will reuse this same channel (invalidate + fireChanged) without
         // introducing a new MessageBus Topic.
-        addPendingChangeListener { refreshProportionsLabel() }
+        addPendingChangeListener { proportionsPanel?.let { populateProportionsPanel(it) } }
     }
 
     // Settings panel lifecycle (isModified / apply / reset)
@@ -167,7 +189,7 @@ class OverridesGroupBuilder {
     fun reset() {
         projectModel.replaceAll(storedProjects.map { ProjectMapping(it.canonicalPath, it.displayName, it.hex) })
         languageModel.replaceAll(storedLanguages.map { LanguageMapping(it.languageId, it.displayName, it.hex) })
-        refreshProportionsLabel()
+        proportionsPanel?.let { populateProportionsPanel(it) }
         fireChanged()
     }
 
@@ -250,14 +272,56 @@ class OverridesGroupBuilder {
     }
 
     /**
-     * Refresh the captured [proportionsLabel] with the latest detector read. No-op
-     * when [buildGroup] has not yet populated the field. Invoked from [reset] and
-     * from the internal listener registered inside [buildGroup] so that any pending
-     * model change (override add / edit / delete) or external `reset()` re-renders
-     * the line without rebuilding the collapsible group.
+     * Rebuild the status-panel children from the detector's warm cache. Clears
+     * existing children first so stale entries from a previous project focus
+     * don't leak. Called from [buildProportionsPanel] (initial paint), [reset]
+     * (Settings re-opens or Cancel), and the pending-change listener
+     * ([fireChanged] path: override add / edit / delete).
+     *
+     * Two render paths:
+     *  - **Icon row** (normal): one [JBLabel] per [LanguageDetectionRules.DisplayEntry]
+     *    with the IDE-platform icon from [LanguageDetectionRules.iconForLanguageId]
+     *    (null for the "other" bucket — JBLabel without an icon renders as
+     *    text-only, same font). Labels carry the raw display name + percentage.
+     *    Because `JBLabel.text` is plain-text by default (NOT `<html>`-prefixed),
+     *    any pathological language display name renders literally — no HTML
+     *    interpretation, no need for escape-xml.
+     *  - **Polyglot row** (null / empty entries): one [JBLabel] with
+     *    `AllIcons.General.Information` + [POLYGLOT_COPY]. Visually distinct
+     *    from the icon row so the user instantly sees "no single dominant".
      */
-    private fun refreshProportionsLabel() {
-        proportionsLabel?.text = computeProportionsText()
+    private fun populateProportionsPanel(panel: javax.swing.JPanel) {
+        panel.removeAll()
+        val project = parentProject
+        val entries =
+            if (project == null) {
+                emptyList()
+            } else {
+                val weights = ProjectLanguageDetector.proportions(project)
+                if (weights == null) emptyList() else LanguageDetectionRules.pickDisplayEntries(weights)
+            }
+        if (entries.isEmpty()) {
+            val label =
+                com.intellij.ui.components.JBLabel(
+                    POLYGLOT_COPY,
+                    com.intellij.icons.AllIcons.General.Information,
+                    javax.swing.SwingConstants.LEADING,
+                )
+            panel.add(label)
+        } else {
+            for (entry in entries) {
+                val icon = entry.id?.let { LanguageDetectionRules.iconForLanguageId(it) }
+                val label =
+                    com.intellij.ui.components.JBLabel(
+                        "${entry.label} ${entry.percent}%",
+                        icon,
+                        javax.swing.SwingConstants.LEADING,
+                    )
+                panel.add(label)
+            }
+        }
+        panel.revalidate()
+        panel.repaint()
     }
 
     /**
@@ -290,13 +354,25 @@ class OverridesGroupBuilder {
     internal fun currentProportionsTextForTest(): String = computeProportionsText()
 
     /**
-     * Builder-level seam that triggers the same refresh path [reset] uses, without
-     * replacing table models. Lets tests verify the refresh path mutates state in
-     * isolation.
+     * Builder-level seam: lazily builds the proportions panel on first call (so
+     * wiring tests can bypass `buildGroup`), repopulates from the current
+     * [parentProject] + detector cache, and returns `(icon, text)` pairs for
+     * each child in layout order.
+     *
+     * Combines refresh + read into one seam so test call sites stay terse and
+     * the public surface of [OverridesGroupBuilder] stays under the detekt
+     * `TooManyFunctions` threshold (27 → 25 after inlining `buildProportionsPanel`,
+     * `refreshProportionsPanel`, and this combined seam).
      */
     @org.jetbrains.annotations.TestOnly
-    internal fun refreshProportionsLabelForTest() {
-        refreshProportionsLabel()
+    internal fun proportionsPanelLabelsForTest(): List<Pair<javax.swing.Icon?, String>> {
+        val panel =
+            proportionsPanel
+                ?: javax.swing.JPanel().also { proportionsPanel = it }
+        populateProportionsPanel(panel)
+        return panel.components.filterIsInstance<com.intellij.ui.components.JBLabel>().map { label ->
+            label.icon to label.text
+        }
     }
 
     private fun loadFromState() {
@@ -578,6 +654,13 @@ class OverridesGroupBuilder {
         private const val TABLE_ROW_HEIGHT = 24
         private const val BAR_HORIZONTAL_GAP = 4
         private const val BAR_VERTICAL_GAP = 0
+
+        /**
+         * Horizontal gap between entries in the proportions status row.
+         * Scaled via [com.intellij.util.ui.JBUI.scale] for HiDPI displays.
+         * 12 px at 1x matches the rhythm of other Settings rows in the plugin.
+         */
+        private const val PROPORTIONS_ENTRY_GAP_PX: Int = 12
 
         /**
          * Fixed status-line copy rendered under Per-Language Accent Pins when the

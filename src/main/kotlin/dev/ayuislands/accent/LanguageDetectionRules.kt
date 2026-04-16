@@ -4,6 +4,7 @@ import com.intellij.lang.Language
 import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.fileTypes.LanguageFileType
 import java.util.Locale
+import javax.swing.Icon
 
 /**
  * Pure, side-effect-free helpers for the proportional language detector.
@@ -386,35 +387,103 @@ internal object LanguageDetectionRules {
         weights: Map<String, Long>,
         maxEntries: Int = DEFAULT_DISPLAY_MAX_ENTRIES,
     ): String {
-        if (weights.isEmpty()) return ""
+        val entries = pickDisplayEntries(weights, maxEntries)
+        if (entries.isEmpty()) return ""
+        return entries.joinToString(DISPLAY_ENTRY_SEPARATOR) { entry ->
+            "${entry.label} (${entry.percent}%)"
+        }
+    }
+
+    /**
+     * One entry in the structured proportions display — either a named language
+     * (`id` non-null) or the trailing "other" bucket that aggregates sub-1%
+     * entries and everything past [DEFAULT_DISPLAY_MAX_ENTRIES].
+     *
+     * Used by the Settings UI to render `[icon] Kotlin 78%  [icon] Java 15%  other 7%`
+     * — each entry becomes one `JBLabel` with the icon resolved from [iconForLanguageId].
+     * The string-projection [pickTopLanguagesForDisplay] is implemented on top of this
+     * same data, so UI and text callers never disagree on what's displayed.
+     */
+    data class DisplayEntry(
+        /** Lowercase AYU language id, or `null` for the "other" bucket. */
+        val id: String?,
+        /** Human-readable display name ("Kotlin", "JavaScript", "other"). */
+        val label: String,
+        /** Integer percentage share; always 1–100 for named entries, 1–99 for "other". */
+        val percent: Int,
+    )
+
+    /**
+     * Structured proportion breakdown — a list of top languages (up to
+     * [maxEntries]) followed by an optional "other" bucket that aggregates
+     * everything below 1% and everything past the top-N cutoff.
+     *
+     * Returns empty list when:
+     *  - [weights] is empty
+     *  - total weight is non-positive (defensive)
+     *  - no entry survives the 1% threshold after sorting
+     *
+     * Invariants:
+     *  - Entries sorted by weight descending; ties broken alphabetically by id
+     *    (same determinism guarantee as [pickDominantFromWeights])
+     *  - Two-tier filter: code languages take priority; markup-only projects
+     *    fall back to the full weight map
+     *  - "Other" bucket only appears when `collapsedPct >= 1`
+     *  - All percentages are integer — `(raw/total * 100).toInt()` rounds toward zero
+     *
+     * Used directly by the Settings UI to produce (icon, label, percent) triples
+     * for the proportions status row; also underlies the string-formatted
+     * [pickTopLanguagesForDisplay] so both share one source of truth.
+     */
+    fun pickDisplayEntries(
+        weights: Map<String, Long>,
+        maxEntries: Int = DEFAULT_DISPLAY_MAX_ENTRIES,
+    ): List<DisplayEntry> {
+        if (weights.isEmpty()) return emptyList()
         val codeWeights = weights.filterKeys { it !in MARKUP_IDS }
         val base = codeWeights.ifEmpty { weights }
         val total = base.values.sum()
-        if (total <= 0L) return ""
+        if (total <= 0L) return emptyList()
         val sorted =
             base.entries.sortedWith(
                 compareByDescending<Map.Entry<String, Long>> { it.value }.thenBy { it.key },
             )
-        val named = mutableListOf<Pair<String, Int>>()
+        val named = mutableListOf<DisplayEntry>()
         var collapsedRaw = 0L
         for ((index, entry) in sorted.withIndex()) {
             val pct = (entry.value.toDouble() / total.toDouble() * PERCENT_SCALE).toInt()
             if (index < maxEntries && pct >= 1) {
-                named.add(entry.key to pct)
+                named += DisplayEntry(id = entry.key, label = displayNameFor(entry.key), percent = pct)
             } else {
                 collapsedRaw += entry.value
             }
         }
-        val namedText =
-            named.joinToString(DISPLAY_ENTRY_SEPARATOR) { (id, pct) ->
-                "${displayNameFor(id)} ($pct%)"
-            }
+        if (named.isEmpty()) return emptyList()
         val collapsedPct = (collapsedRaw.toDouble() / total.toDouble() * PERCENT_SCALE).toInt()
-        return if (collapsedPct > 0) {
-            "$namedText$DISPLAY_ENTRY_SEPARATOR$DISPLAY_OTHER_LABEL ($collapsedPct%)"
-        } else {
-            namedText
+        if (collapsedPct >= 1) {
+            named += DisplayEntry(id = null, label = DISPLAY_OTHER_LABEL, percent = collapsedPct)
         }
+        return named
+    }
+
+    /**
+     * Resolve a lowercase AYU language id to the IntelliJ platform icon for
+     * that language's [LanguageFileType]. Returns null when the id is blank,
+     * the language isn't registered, the language has no associated file type,
+     * or the file type isn't a [LanguageFileType] (shouldn't happen for code
+     * languages but guarded for third-party plugins that register custom file
+     * types).
+     *
+     * Used by the Settings proportions row to pick up the same icon the user
+     * already sees beside source files in the Project View — zero new
+     * dependencies, theme-aware, always available when the language plugin is
+     * loaded.
+     */
+    fun iconForLanguageId(id: String): Icon? {
+        if (id.isBlank()) return null
+        val language = Language.findLanguageByID(id) ?: return null
+        val fileType = language.associatedFileType ?: return null
+        return (fileType as? LanguageFileType)?.icon
     }
 
     /**

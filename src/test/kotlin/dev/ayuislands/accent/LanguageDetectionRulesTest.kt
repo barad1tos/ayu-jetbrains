@@ -744,6 +744,116 @@ class LanguageDetectionRulesTest {
         assertEquals("Java (50%) • Kotlin (50%)", result)
     }
 
+    // ── pickDisplayEntries (structured output) ───────────────────────────────────────
+
+    @Test
+    fun `pickDisplayEntries returns empty list for empty weights`() {
+        assertEquals(emptyList(), LanguageDetectionRules.pickDisplayEntries(emptyMap()))
+    }
+
+    @Test
+    fun `pickDisplayEntries returns empty list for all-zero weights`() {
+        assertEquals(
+            emptyList(),
+            LanguageDetectionRules.pickDisplayEntries(mapOf("kotlin" to 0L, "java" to 0L)),
+        )
+    }
+
+    @Test
+    fun `pickDisplayEntries returns single-language 100 percent entry with non-null id`() {
+        val entries = LanguageDetectionRules.pickDisplayEntries(mapOf("kotlin" to 1_000L))
+        assertEquals(1, entries.size)
+        val entry = entries.single()
+        assertEquals("kotlin", entry.id)
+        assertEquals("Kotlin", entry.label)
+        assertEquals(100, entry.percent)
+    }
+
+    @Test
+    fun `pickDisplayEntries falls back to markup for markup-only weights`() {
+        val entries = LanguageDetectionRules.pickDisplayEntries(mapOf("yaml" to 1_000L))
+        assertEquals(1, entries.size)
+        assertEquals("yaml", entries.single().id)
+        assertEquals(100, entries.single().percent)
+    }
+
+    @Test
+    fun `pickDisplayEntries filters markup when code tier is non-empty`() {
+        // Android-style repo: XML must be excluded from the display base so the
+        // icon row doesn't advertise resources as a "dominant language".
+        val entries =
+            LanguageDetectionRules.pickDisplayEntries(
+                mapOf("kotlin" to 400L, "xml" to 600L),
+            )
+        assertEquals(listOf("kotlin"), entries.map { it.id })
+        assertEquals(100, entries.single().percent)
+    }
+
+    @Test
+    fun `pickDisplayEntries caps named entries at maxEntries and collapses remainder to other bucket`() {
+        // 4 languages, maxEntries=3 → top 3 named + "other" bucket with null id.
+        val entries =
+            LanguageDetectionRules.pickDisplayEntries(
+                mapOf("kotlin" to 780L, "java" to 150L, "scala" to 40L, "groovy" to 30L),
+            )
+        assertEquals(4, entries.size)
+        assertEquals(listOf("kotlin", "java", "scala", null), entries.map { it.id })
+        assertEquals(listOf(78, 15, 4, 3), entries.map { it.percent })
+        // The "other" bucket carries the literal label — NOT a language display name.
+        assertEquals("other", entries.last().label)
+    }
+
+    @Test
+    fun `pickDisplayEntries drops sub-1-percent entries into the other bucket`() {
+        // 99% Kotlin + 0.5% Java + 0.5% Python → Java and Python fall below the
+        // 1% floor (pct == 0 after integer rounding) and fold into "other" even
+        // though they fit within the top-3 slot limit. The "other" bucket's
+        // rounded percent matches the floor behaviour of integer truncation —
+        // here total raw = 1000, collapsedRaw = 5+5 = 10, percent = 1.
+        val entries =
+            LanguageDetectionRules.pickDisplayEntries(
+                mapOf("kotlin" to 990L, "java" to 5L, "python" to 5L),
+            )
+        assertEquals(listOf("kotlin", null), entries.map { it.id })
+        assertEquals(listOf(99, 1), entries.map { it.percent })
+    }
+
+    @Test
+    fun `pickDisplayEntries omits other bucket when no collapsed weight remains`() {
+        // Everything fits within top-3 and no entry is below 1% → no other bucket.
+        val entries =
+            LanguageDetectionRules.pickDisplayEntries(
+                mapOf("kotlin" to 500L, "java" to 300L, "python" to 200L),
+            )
+        assertEquals(listOf("kotlin", "java", "python"), entries.map { it.id })
+        assertEquals(listOf(50, 30, 20), entries.map { it.percent })
+        assertTrue(entries.none { it.id == null }, "no null-id bucket when collapsedPct == 0")
+    }
+
+    @Test
+    fun `pickDisplayEntries breaks ties alphabetically by id`() {
+        // Determinism contract: HashMap-iteration-order must not affect display.
+        val entries =
+            LanguageDetectionRules.pickDisplayEntries(mapOf("kotlin" to 500L, "java" to 500L))
+        assertEquals(listOf("java", "kotlin"), entries.map { it.id })
+    }
+
+    // ── iconForLanguageId (IntelliJ platform bridge) ─────────────────────────────────
+
+    @Test
+    fun `iconForLanguageId returns null for blank id`() {
+        assertEquals(null, LanguageDetectionRules.iconForLanguageId(""))
+        assertEquals(null, LanguageDetectionRules.iconForLanguageId("   "))
+    }
+
+    @Test
+    fun `iconForLanguageId returns null for unknown language id`() {
+        // `xyzunknown` is not in the Language registry; the icon resolver must
+        // return null so the UI can render a text-only JBLabel without a broken
+        // icon rectangle.
+        assertEquals(null, LanguageDetectionRules.iconForLanguageId("xyzunknown"))
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────────────
 
     private fun mockLanguageFileType(languageId: String): FileType {

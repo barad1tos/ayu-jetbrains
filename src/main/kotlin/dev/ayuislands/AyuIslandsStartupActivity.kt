@@ -39,6 +39,14 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         val accentHex = AccentResolver.resolve(project, variant)
         AccentApplicator.apply(accentHex)
 
+        // Warm the language-detector cache unconditionally so Settings → Accent →
+        // Overrides shows real per-language proportions on first open even before
+        // the user adds a language override (the resolver's fast path intentionally
+        // skips `dominant()` when `languageAccents` is empty). Runs here on the
+        // startup coroutine — off-EDT — so the scan completes synchronously and
+        // populates both caches before any UI thread asks for proportions().
+        ProjectLanguageDetector.dominant(project)
+
         // Drop the language-detector cache when the project's module / content-root
         // structure changes (gradle sync adds a module, user edits sourceSets, etc.)
         // so the next language-override resolution re-scans instead of serving a stale

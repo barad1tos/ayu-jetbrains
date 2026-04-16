@@ -22,7 +22,7 @@ import kotlin.test.assertTrue
  * Exercises the builder through its `@TestOnly` seams
  * ([OverridesGroupBuilder.setParentProjectForTest],
  * [OverridesGroupBuilder.currentProportionsTextForTest],
- * [OverridesGroupBuilder.refreshProportionsLabelForTest]) — mirrors the
+ * [OverridesGroupBuilder.proportionsPanelLabelsForTest]) — mirrors the
  * builder-level pattern already established by [OverridesGroupBuilderPendingTest],
  * does NOT spin up the Swing panel (no `BasePlatformTestCase` per project
  * `TESTING.md`).
@@ -134,7 +134,6 @@ class OverridesGroupBuilderProportionsTest {
         // Simulate focus swap — parentProject rebinds then refresh fires (same
         // surface reset() uses in production).
         builder.setParentProjectForTest(projectB)
-        builder.refreshProportionsLabelForTest()
 
         assertEquals(
             "Detected in this project: Python (100%)",
@@ -142,29 +141,128 @@ class OverridesGroupBuilderProportionsTest {
         )
     }
 
-    // ── HTML-safety (T-26-01) ─────────────────────────────────────────────────
+    // ── HTML-safety (T-26-01, post icon-row redesign) ─────────────────────────
 
     @Test
-    fun `proportions text escapes HTML entities in language display names`() {
-        // VALIDATION 26-02-04 — threat T-26-01. JEditorPane defaults to text/html;
-        // a third-party plugin could register a Language whose `.displayName`
-        // contains markup. Here we synthesise a weight whose id is not registered,
-        // which exercises the formatter's title-case fallback path and lets the raw
-        // "<" character reach StringUtil.escapeXmlEntities inside computeProportionsText.
+    fun `JBLabel renders malicious display name literally without HTML interpretation`() {
+        // VALIDATION 26-02-04 — threat T-26-01 under the icon-row redesign.
+        // Previously the status line was a JEditorPane (text/html), so a third-party
+        // Language.displayName containing markup would be interpreted. The redesign
+        // uses JBLabel with plain text (no `<html>` prefix) — Swing renders the
+        // string literally with no HTML parsing. This test pins that contract: the
+        // raw `<script>` substring must appear verbatim in the JBLabel.text
+        // (proving no interpretation) and therefore no escape-xml transformation
+        // is needed on this path.
         val project = stubProject("/tmp/prop-xss-${System.nanoTime()}")
         every { ProjectLanguageDetector.proportions(project) } returns
             mapOf("<script>evil</script>" to 1_000L)
 
         val builder = OverridesGroupBuilder().apply { setParentProjectForTest(project) }
 
-        val text = builder.currentProportionsTextForTest()
-        assertFalse(
-            text.contains("<script>"),
-            "raw <script> must not appear in rendered text — got: $text",
-        )
+        val labels = builder.proportionsPanelLabelsForTest()
+        val rendered = labels.joinToString(" | ") { it.second }
         assertTrue(
-            text.contains("&lt;script&gt;"),
-            "HTML entities must be escaped — got: $text",
+            labels.any { it.second.contains("<script>evil</script>") },
+            "JBLabel must carry the literal <script>…</script> substring — got: $rendered",
+        )
+        // And no JBLabel starts with `<html>` — that would trigger HTML parsing.
+        assertFalse(
+            labels.any { it.second.startsWith("<html", ignoreCase = true) },
+            "no label may start with <html> — that would enable HTML interpretation. Labels: $rendered",
+        )
+    }
+
+    // ── Panel structure (icon row + polyglot state) ───────────────────────────
+
+    @Test
+    fun `panel renders one JBLabel per display entry in descending order with icons`() {
+        // Icon-row redesign: the proportions status row is now a FlowLayout panel
+        // containing one JBLabel per DisplayEntry. Each named-language label
+        // carries the IDE's platform icon for that language (or null if the
+        // language isn't registered in this IDE). The "other" bucket has a null
+        // icon and literal "other N%" text.
+        val project = stubProject("/tmp/prop-row-${System.nanoTime()}")
+        every { ProjectLanguageDetector.proportions(project) } returns
+            mapOf(
+                "kotlin" to 780L,
+                "java" to 150L,
+                "scala" to 40L,
+                "groovy" to 30L,
+            )
+
+        val builder = OverridesGroupBuilder().apply { setParentProjectForTest(project) }
+
+        val labels = builder.proportionsPanelLabelsForTest()
+        val texts = labels.map { it.second }
+        assertEquals(
+            listOf("Kotlin 78%", "Java 15%", "Scala 4%", "other 3%"),
+            texts,
+            "icon-row must contain top-3 languages plus the other bucket, in weight-descending order",
+        )
+        // Scala and Groovy may not be registered in the test JVM's Language index —
+        // icon can be null for any named entry. The "other" entry (last) must
+        // always have a null icon since there's no language to resolve.
+        assertEquals(
+            null,
+            labels.last().first,
+            "the 'other' bucket entry must have a null icon",
+        )
+    }
+
+    @Test
+    fun `panel renders single polyglot JBLabel with info icon when detector returns null`() {
+        val project = stubProject("/tmp/prop-polyglot-row-${System.nanoTime()}")
+        every { ProjectLanguageDetector.proportions(project) } returns null
+
+        val builder = OverridesGroupBuilder().apply { setParentProjectForTest(project) }
+
+        val labels = builder.proportionsPanelLabelsForTest()
+        assertEquals(1, labels.size, "polyglot state renders exactly one label")
+        assertEquals(
+            OverridesGroupBuilder.POLYGLOT_COPY,
+            labels.first().second,
+            "polyglot label carries the exact D-05 copy",
+        )
+        assertEquals(
+            com.intellij.icons.AllIcons.General.Information,
+            labels.first().first,
+            "polyglot label uses AllIcons.General.Information so the state is visually distinct from the icon row",
+        )
+    }
+
+    @Test
+    fun `panel renders polyglot state when detector returns empty weights`() {
+        // An empty-but-non-null weights map is the "scan ran, nothing matched"
+        // state — the structured formatter returns an empty list, and the panel
+        // must fall through to the polyglot copy path rather than rendering zero
+        // labels (which would leave an invisible row).
+        val project = stubProject("/tmp/prop-empty-${System.nanoTime()}")
+        every { ProjectLanguageDetector.proportions(project) } returns emptyMap()
+
+        val builder = OverridesGroupBuilder().apply { setParentProjectForTest(project) }
+
+        val labels = builder.proportionsPanelLabelsForTest()
+        assertEquals(1, labels.size)
+        assertEquals(OverridesGroupBuilder.POLYGLOT_COPY, labels.first().second)
+    }
+
+    @Test
+    fun `focus-swap rebuilds panel children with the new project's weights`() {
+        val projectA = stubProject("/tmp/prop-row-a-${System.nanoTime()}")
+        val projectB = stubProject("/tmp/prop-row-b-${System.nanoTime()}")
+        every { ProjectLanguageDetector.proportions(projectA) } returns mapOf("kotlin" to 1_000L)
+        every { ProjectLanguageDetector.proportions(projectB) } returns mapOf("python" to 1_000L)
+
+        val builder = OverridesGroupBuilder().apply { setParentProjectForTest(projectA) }
+        val firstTexts = builder.proportionsPanelLabelsForTest().map { it.second }
+        assertEquals(listOf("Kotlin 100%"), firstTexts)
+
+        builder.setParentProjectForTest(projectB)
+        val secondTexts = builder.proportionsPanelLabelsForTest().map { it.second }
+        assertEquals(
+            listOf("Python 100%"),
+            secondTexts,
+            "refresh must rebuild children from projectB's weights, not leak projectA's Kotlin entry",
         )
     }
 
@@ -184,7 +282,7 @@ class OverridesGroupBuilderProportionsTest {
 
         val builder = OverridesGroupBuilder().apply { setParentProjectForTest(project) }
         builder.currentProportionsTextForTest()
-        builder.refreshProportionsLabelForTest()
+        builder.proportionsPanelLabelsForTest()
 
         verify(exactly = 0) { ProjectLanguageScanner.scan(any()) }
     }
