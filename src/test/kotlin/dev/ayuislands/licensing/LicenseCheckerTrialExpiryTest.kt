@@ -334,9 +334,19 @@ class LicenseCheckerTrialExpiryTest {
         assertEquals(true, state.trialExpiryWarningShown)
     }
 
-    /** Create a [Date] representing [daysFromNow] days in the future (or past if negative). */
+    /**
+     * Create a [Date] representing [daysFromNow] days in the future (or past if negative).
+     *
+     * Anchors the base date in UTC, not the JVM's system zone. Production
+     * [LicenseChecker.getTrialDaysRemaining] computes the day diff as
+     * `DAYS.between(LocalDate.now(UTC), expirationDay)`, so the fixture must use the same
+     * zone — otherwise, during the few hours each day when the system zone and UTC are on
+     * different calendar days (Kyiv/EEST 00:00–03:00 local ≈ previous-day 21:00–00:00 UTC),
+     * `dateFromNow(N)` yields `N+1` days under production's UTC-anchored calculation and
+     * every day-sensitive assertion fails off-by-one.
+     */
     private fun dateFromNow(daysFromNow: Long): Date {
-        val localDate = LocalDate.now().plusDays(daysFromNow)
+        val localDate = LocalDate.now(ZoneId.of("UTC")).plusDays(daysFromNow)
         val instant = localDate.atStartOfDay(ZoneId.of("UTC")).toInstant()
         return Date.from(instant)
     }
