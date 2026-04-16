@@ -23,9 +23,10 @@ import javax.swing.JComponent
 import javax.swing.JPanel
 
 /**
- * Builds one slide card: title heading + body paragraph (HTML-capable JBLabel) +
- * optional screenshot. Wrapped in a card chrome panel that reuses
- * [paintCardChrome] for visual consistency with the onboarding wizard.
+ * Builds one slide card: colorized title heading + optional screenshot,
+ * wrapped in a card chrome panel that reuses [paintCardChrome] for visual
+ * consistency with the onboarding wizard. Body prose is intentionally NOT
+ * rendered — see the [WhatsNewSlide.body] KDoc for the rationale.
  *
  * Image is loaded best-effort: a missing or broken file renders the slide
  * without an image and logs a single WARN. Other slides remain unaffected.
@@ -70,6 +71,8 @@ internal object WhatsNewSlideCard {
         )
 
     /**
+     * @param slide manifest entry; only `title` and `image` are rendered —
+     *   `body` is ignored (see [WhatsNewSlide.body] for rationale)
      * @param resourceDir manifest resource dir prefix (e.g. `/whatsnew/v2.5.0/`)
      *   used to resolve [WhatsNewSlide.image] relative paths
      * @param accentTint accent color for card border / hover state
@@ -177,8 +180,9 @@ internal object WhatsNewSlideCard {
 
     /**
      * Renders a soft-gray rectangle when an image is missing or fails to load.
-     * Slide still shows title + body; user sees there *should* have been a
-     * screenshot here. Single WARN already logged; rendering doesn't crash.
+     * Slide still shows its colorized title; user sees there *should* have
+     * been a screenshot here. Single WARN already logged; rendering doesn't
+     * crash.
      */
     private fun placeholderImage(): JPanel {
         val placeholder =

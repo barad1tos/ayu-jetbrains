@@ -7,11 +7,15 @@ import com.intellij.openapi.diagnostic.logger
 /**
  * One feature highlight inside the What's New tab — a captioned screenshot.
  *
- * @param title bold heading shown above the screenshot
- * @param body paragraph describing the feature; HTML allowed (rendered via JBLabel)
+ * @param title bold heading shown above the screenshot; rendered in a
+ *   per-slide palette color (lavender / gold / cyan cycle) by [WhatsNewPanel]
+ * @param body paragraph from the manifest; currently NOT rendered — the
+ *   v2.5.0 design is "developer-targeted audience doesn't need prose, the
+ *   title + screenshot carry the feature". Field is preserved in the schema
+ *   so a future release can opt prose back in without a manifest migration.
  * @param image filename relative to the manifest's resource directory
  *   (e.g. `slide-overrides.png`); resolved against `/whatsnew/v$version/`.
- *   Null means "render title+body without an image".
+ *   Null means "render title without an image".
  * @param imageScale optional per-slide width factor; 1.0 = the default slide
  *   width, 2.0 = double-wide (clamped by WhatsNewImagePanel to its valid
  *   factor range). Use values < 1.0 to shrink a small diagram; use values > 1.0

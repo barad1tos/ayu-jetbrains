@@ -372,14 +372,24 @@ internal class WhatsNewPanel(
         // feature). Rendering slide titles in the same sequence keeps the
         // column from reading as a uniform block and nudges the user to see
         // each slide as a distinct capability.
-        private const val LAVENDER_RGB = 0xC3A6FF
-        private const val GOLD_RGB = 0xFFCC66
-        private const val CYAN_RGB = 0x5CCFE6
+        //
+        // Each entry ships BOTH a light-mode and a dark-mode variant: the
+        // dark hex (e.g. C3A6FF for lavender) has great contrast on dark
+        // backgrounds but drops to ~2:1 on white (fails WCAG AA). The light
+        // variant is a deeper, more saturated form of the same hue so the
+        // slide reads as the same color family but stays legible on the
+        // Ayu Islands Light theme.
+        private const val LAVENDER_LIGHT = 0x6F3EDC
+        private const val LAVENDER_DARK = 0xC3A6FF
+        private const val GOLD_LIGHT = 0xB8860B
+        private const val GOLD_DARK = 0xFFCC66
+        private const val CYAN_LIGHT = 0x0E7FB6
+        private const val CYAN_DARK = 0x5CCFE6
         private val TITLE_PALETTE: List<JBColor> =
             listOf(
-                JBColor(Color(LAVENDER_RGB), Color(LAVENDER_RGB)),
-                JBColor(Color(GOLD_RGB), Color(GOLD_RGB)),
-                JBColor(Color(CYAN_RGB), Color(CYAN_RGB)),
+                JBColor(Color(LAVENDER_LIGHT), Color(LAVENDER_DARK)),
+                JBColor(Color(GOLD_LIGHT), Color(GOLD_DARK)),
+                JBColor(Color(CYAN_LIGHT), Color(CYAN_DARK)),
             )
 
         private val SECONDARY_BUTTON_TINT: JBColor =

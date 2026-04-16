@@ -34,6 +34,13 @@ the slides render images instead of placeholder rectangles:
 Edit `manifest.json` — append a new slide object with `title`, `body`, and
 `image`. Drop the matching PNG into this directory. No code changes are needed.
 
+> **Note:** as of v2.5.0 the rendered slide shows only the title (in a
+> per-slide palette color: lavender → gold → cyan cycle) plus the image.
+> The `body` field is still parsed and required by the schema, but not
+> rendered — keep any non-blank placeholder text until a future release
+> re-enables prose rendering. The palette cycles by slide index, so slide 4
+> reuses lavender, slide 5 reuses gold, etc.
+
 ## Iterating in the dev sandbox
 
 Run `./gradlew runIde` after dropping new files; the resource is picked up
