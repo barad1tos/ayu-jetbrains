@@ -404,23 +404,24 @@ internal object LanguageDetectionRules {
      * all-zero, or the computed base sum is non-positive — the caller is expected to
      * render the polyglot copy on an empty return.
      *
-     * Rounding: integer percent via truncation (`share × 100` cast to Int). Entries
-     * whose floor-percent is 0 (below 1%) collapse into a trailing "other (N%)"
-     * bucket whose N is the integer-rounded sum of the collapsed raw shares. An entry
-     * at exactly 1% (floor == 1) does NOT collapse. The top [maxEntries] entries are
-     * kept; the remainder also collapses into "other". The "other" suffix is omitted
-     * when the collapsed percent would render as 0.
+     * Percent allocation: the structured list from [pickDisplayEntries] already
+     * encodes the Largest Remainder (Hare) invariant — the per-entry percents
+     * always sum to exactly 100, sub-1% entries fold into the trailing "other"
+     * bucket, and the bucket is omitted when it would render as 0. This text
+     * projection just joins the pre-computed entries; see [pickDisplayEntries]
+     * for the allocation contract.
      *
      * Ordering: weight descending, then alphabetical language id ascending — the same
      * determinism guarantee as [pickDominantFromWeights]. A regression that dropped
      * the alphabetical tiebreak would flake across JVM versions depending on HashMap
      * iteration order.
      *
-     * Display names: [Language.findLanguageByID] with a fallback to
+     * Display names: [findLanguageByLowercaseId] (case-insensitive iteration over
+     * `Language.getRegisteredLanguages()`) with a fallback to
      * `id.replaceFirstChar { it.titlecase(Locale.ROOT) }` when the language is not
      * registered (third-party language plugin uninstalled between scan and render).
-     * Live lookup matches the existing pattern at `OverridesGroupBuilder.kt:237` and
-     * keeps the display in sync with dynamic plugin load/unload.
+     * The lowercase bridge keeps lookup resilient to the casing drift IntelliJ's
+     * Language registry exhibits ("JAVA", "kotlin", "JavaScript", "C#").
      */
     fun pickTopLanguagesForDisplay(
         weights: Map<String, Long>,

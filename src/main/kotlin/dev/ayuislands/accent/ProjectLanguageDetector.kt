@@ -114,6 +114,19 @@ object ProjectLanguageDetector {
      */
     fun proportions(project: Project): Map<String, Long>? {
         val key = AccentResolver.projectKey(project) ?: return null
+        // Cross-cache coherence guard: `invalidate()` clears both `cache` and
+        // `weightsCache`, and `detectAndCache` writes them in a specific order
+        // (`weightsCache` first, `cache` last). If a concurrent `invalidate()`
+        // interleaves between those two writes the `weightsCache` entry would
+        // already be gone, but reading the raw `weightsCache[key]` here would
+        // let a stale entry slip through in the opposite race window (write
+        // happened, then invalidate ran between the two writes, leaving the
+        // dominant-id cache empty and weightsCache populated with stale data).
+        // Gate the weights read on the dominant-id cache being present — if the
+        // evictor already ran, serve null so the UI re-reads after the next
+        // `dominant()` completes instead of painting a breakdown for a layout
+        // the rest of the detector has already forgotten.
+        if (cache[key] == null) return null
         return weightsCache[key]
     }
 
@@ -168,10 +181,17 @@ object ProjectLanguageDetector {
     ): String? {
         val detection = detectInternal(project)
         if (detection.cacheable) {
-            cache[key] = detection.languageId ?: NULL_SENTINEL
+            // Write order is load-bearing: `weightsCache` first, `cache`
+            // (dominant-id) second, paired with the `cache[key] == null` guard
+            // in `proportions()`. An interleaved `invalidate()` that lands
+            // between the two writes is observed as "no cache entry yet" by
+            // both readers instead of "proportions populated, dominant gone" —
+            // the latter would render a stale breakdown for a layout the
+            // detector has already forgotten.
             if (!detection.weights.isNullOrEmpty()) {
                 weightsCache[key] = detection.weights
             }
+            cache[key] = detection.languageId ?: NULL_SENTINEL
         } else {
             // Forensic breadcrumb: a non-cacheable result means the scan hit
             // dumb mode, a disposed project, or the scanner threw. The caller

@@ -325,16 +325,30 @@ class OverridesGroupBuilder {
         // the pending-change listener chain (`listeners.forEach { it.run() }`),
         // and `reset()` all call this helper and a bubbled exception would break
         // the entire Overrides group, not just the proportions row.
-        val outcome =
-            runCatchingPreservingCancellation {
-                panel.removeAll()
-                renderProportionsInto(panel)
-                panel.revalidate()
-                panel.repaint()
+        //
+        // Atomic-swap strategy: render into a detached staging `JPanel` first, and
+        // only touch the live `panel` once rendering fully succeeded. A prior
+        // version cleared `panel` BEFORE rendering, so a mid-render throw left the
+        // user looking at a blank row while the log claimed "previous state" —
+        // misleading triage. Now the live panel is either fully replaced or left
+        // exactly as the user last saw it.
+        val staging =
+            JPanel(panel.layout).apply {
+                isOpaque = panel.isOpaque
+                border = panel.border
             }
+        val outcome = runCatchingPreservingCancellation { renderProportionsInto(staging) }
         outcome.onFailure { exception ->
             LOG.warn("Proportions panel repopulate failed; leaving previous state", exception)
+            return
         }
+        panel.removeAll()
+        staging.components.toList().forEach { child ->
+            staging.remove(child)
+            panel.add(child)
+        }
+        panel.revalidate()
+        panel.repaint()
     }
 
     /**
@@ -394,23 +408,29 @@ class OverridesGroupBuilder {
     }
 
     /**
-     * Populate the pending table models from the persisted [AccentMappingsSettings]. Public
-     * [buildGroup] calls this during UI setup; exposed to tests so `resolvePending` and
-     * `sourcePending` can be exercised without inflating the full Swing tree.
-     */
-    @org.jetbrains.annotations.TestOnly
-    internal fun loadFromStateForTest() {
-        loadFromState()
-    }
-
-    /**
      * Builder-level seam for the proportions status line: lets wiring tests bind a
      * fake focused project without spinning up a full Swing panel. Mirrors the
-     * pattern established by [loadFromStateForTest].
+     * pattern established by [loadFromState].
      */
     @org.jetbrains.annotations.TestOnly
     internal fun setParentProjectForTest(project: Project?) {
         parentProject = project
+    }
+
+    /**
+     * Builder-level seam for the pending table models. Tests seed rows through
+     * this helper to exercise `apply()` / `isModified()` / `reset()` without
+     * going through the Swing ToolbarDecorator "+" / "-" path. Mirrors the
+     * [loadFromState] pattern — the alternative is introducing a
+     * Swing-heavy fixture just to populate two rows.
+     */
+    @org.jetbrains.annotations.TestOnly
+    internal fun seedPendingForTest(
+        projects: Collection<ProjectMapping> = emptyList(),
+        languages: Collection<LanguageMapping> = emptyList(),
+    ) {
+        projectModel.replaceAll(projects)
+        languageModel.replaceAll(languages)
     }
 
     /**
@@ -434,7 +454,7 @@ class OverridesGroupBuilder {
         }
     }
 
-    private fun loadFromState() {
+    internal fun loadFromState() {
         val state = AccentMappingsSettingsAccess.stateFor()
         // Per-row resilience: ProjectMapping / LanguageMapping have require(...) invariants at
         // construction (valid #RRGGBB hex, lowercase language id, non-blank canonical path).

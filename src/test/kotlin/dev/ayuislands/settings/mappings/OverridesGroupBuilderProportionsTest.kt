@@ -305,12 +305,17 @@ class OverridesGroupBuilderProportionsTest {
         val builder = OverridesGroupBuilder().apply { setParentProjectForTest(project) }
 
         // Must not throw — the seam rebuilds the panel under runCatching.
+        // Load-bearing claim: with the staging-panel atomic swap strategy from
+        // round 3, a mid-render throw leaves the LIVE panel untouched. The
+        // first invocation of `proportionsPanelLabelsForTest()` seeds an empty
+        // panel and then attempts to render — the render fails, so the live
+        // panel stays empty (no partially-populated children).
         val labels = builder.proportionsPanelLabelsForTest()
-        // Exact contents are not asserted here (depends on partial-population
-        // semantics); the load-bearing assertion is "no exception escaped".
-        assertTrue(
-            labels.isEmpty() || labels.all { true },
-            "seam must complete; got ${labels.size} labels",
+        assertEquals(
+            0,
+            labels.size,
+            "mid-render throw must leave the live panel untouched, not half-populated; " +
+                "got ${labels.size} labels: ${labels.map { it.second }}",
         )
     }
 
