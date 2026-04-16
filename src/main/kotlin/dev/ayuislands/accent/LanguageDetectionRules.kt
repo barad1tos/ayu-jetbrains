@@ -484,19 +484,41 @@ internal object LanguageDetectionRules {
         if (id.isBlank()) return null
         // `Language.associatedFileType` returns `LanguageFileType?` directly — no
         // cast is needed. `.icon` is inherited from `FileType` (non-null Icon).
-        return Language.findLanguageByID(id)?.associatedFileType?.icon
+        return findLanguageByLowercaseId(id)?.associatedFileType?.icon
     }
 
     /**
      * Resolve a lowercase AYU language id to a human-readable display name.
      *
-     * Uses [Language.findLanguageByID] for registered languages (returns
-     * "JavaScript", "Kotlin", "Shell Script" etc. in the exact casing the
-     * platform ships). Falls back to a title-cased form of the raw id when the
-     * language is not registered in the current IDE — ensures a never-emit-lowercase
-     * invariant for the UI.
+     * Uses [findLanguageByLowercaseId] so the scanner's lowercase ids
+     * ("java", "python", "javascript") match against IntelliJ's case-varying
+     * `Language.id` values ("JAVA", "Python", "JavaScript") — the platform's
+     * direct [Language.findLanguageByID] lookup is case-sensitive and misses
+     * every id the scanner already normalized. Falls back to a title-cased
+     * form of the raw id when the language is not registered in the current
+     * IDE — ensures a never-emit-lowercase invariant for the UI.
      */
     private fun displayNameFor(id: String): String =
-        Language.findLanguageByID(id)?.displayName
+        findLanguageByLowercaseId(id)?.displayName
             ?: id.replaceFirstChar { it.titlecase(Locale.ROOT) }
+
+    /**
+     * Case-insensitive lookup over [Language.getRegisteredLanguages]. Required
+     * because every id on the `weights` map is `id.lowercase(Locale.ROOT)` by
+     * scanner contract, but IntelliJ's `Language.id` casing varies per plugin
+     * (Java is `"JAVA"`, Python is `"Python"`, JavaScript is `"JavaScript"`,
+     * TypeScript is `"TypeScript"`, Groovy is `"Groovy"`, Markdown is
+     * `"Markdown"`), so the stock [Language.findLanguageByID] call fails to
+     * resolve nearly every language the scanner would have found.
+     *
+     * Live iteration (no caching) so plugins loaded / unloaded mid-session
+     * surface immediately, matching the Phase 26 RESEARCH "live lookup" decision.
+     * Cost: ~100–200 registered languages × one string equality — O(n) negligible
+     * for a UI-layer call. The companion tooltip + icon resolution both go
+     * through this helper so display and icon stay paired.
+     */
+    private fun findLanguageByLowercaseId(lowercaseId: String): Language? =
+        Language.getRegisteredLanguages().firstOrNull {
+            it.id.equals(lowercaseId, ignoreCase = true)
+        }
 }
