@@ -22,6 +22,7 @@ CLI:
 from __future__ import annotations
 
 import argparse
+import functools
 import hashlib
 import re
 import subprocess
@@ -377,13 +378,21 @@ _ASSET_SEARCH_ROOTS = ("assets", "src/main/resources/whatsnew")
 GRADLE_PROPERTIES = REPO_ROOT / "gradle.properties"
 
 
-def _read_plugin_version() -> str:
-    """Extract pluginVersion=X.Y.Z from gradle.properties."""
+@functools.cache
+def _read_plugin_version() -> str | None:
+    """Extract pluginVersion=X.Y.Z from gradle.properties.
+
+    Tolerates `pluginVersion = X`, `pluginVersion\t=\tX`, etc. — any whitespace
+    around the `=`. Returns None when the key is absent or has no value so
+    callers fail loudly instead of silently no-op'ing the sync guard.
+    """
     for line in GRADLE_PROPERTIES.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
-        if stripped.startswith("pluginVersion="):
-            return stripped.split("=", 1)[1].strip()
-    return ""
+        key, sep, value = stripped.partition("=")
+        if sep and key.strip() == "pluginVersion":
+            version = value.strip()
+            return version or None
+    return None
 
 
 def check_marketplace_sync(data: dict, report: Report) -> None:
@@ -404,6 +413,14 @@ def check_marketplace_sync(data: dict, report: Report) -> None:
         return  # Bootstrap mode — no last-published state recorded yet.
 
     current_version = _read_plugin_version()
+    if current_version is None:
+        report.error(
+            "_release_sync_",
+            "gradle.properties is missing a `pluginVersion=X.Y.Z` line — "
+            "the Marketplace-sync guard cannot verify anything without it. "
+            "Restore the key or fix the format.",
+        )
+        return
     if current_version != expected_version:
         # Mid-development; main is ahead of the last-published version.
         # The next /release-plugin run will refresh the hash.
