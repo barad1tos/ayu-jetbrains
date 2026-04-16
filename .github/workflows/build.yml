@@ -43,7 +43,12 @@ jobs:
           done
       - name: Validate JSON
         run: |
-          find . -name '*.json' -not -path '*/build/*' | while read f; do
+          # v9.9.1 test fixture is intentionally malformed JSON (exercises the
+          # manifest parser's syntax-error branch). Only that one directory is
+          # excluded — other whatsnew test fixtures are valid JSON and must
+          # still be checked so a maintainer typo in e.g. v9.9.5 gets caught.
+          find . -name '*.json' -not -path '*/build/*' \
+            -not -path '*/src/test/resources/whatsnew/v9.9.1/*' | while read f; do
             python3 -c "import json; json.load(open('$f'))" \
               || { echo "::error::Invalid JSON: $f"; exit 1; }
           done
@@ -57,12 +62,19 @@ jobs:
           done
       - name: Check for large files (>500KB)
         run: |
+          # Only release-showcase slide PNGs are exempted (shipped at full
+          # quality for a reason) — any OTHER oversized file dropped into
+          # resources/whatsnew/ still gets flagged.
           found=0
           while IFS= read -r f; do
+            case "$f" in
+              */src/main/resources/whatsnew/v*/slide-*.png) continue ;;
+            esac
             echo "::error::Large file detected: $f ($(du -h "$f" | cut -f1))"
             found=1
           done < <(find . -not -path '*/build/*' -not -path '*/.gradle/*' \
-            -not -path '*/.git/*' -not -path '*/assets/*' -type f -size +500k \
+            -not -path '*/.git/*' -not -path '*/assets/*' \
+            -type f -size +500k \
             -not -name '*.jar' -not -name '*.zip')
           if [ "$found" -eq 1 ]; then exit 1; fi
       - name: Check for merge conflict markers

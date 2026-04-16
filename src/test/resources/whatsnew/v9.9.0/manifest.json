@@ -1,0 +1,19 @@
+{
+  "title": "Test Release",
+  "tagline": "Tagline for the loader test",
+  "heroImage": "hero",
+  "slides": [
+    {
+      "title": "First slide",
+      "body": "Body of slide one.",
+      "image": "slide-1.png"
+    },
+    {
+      "title": "Second slide",
+      "body": "Body of slide two.",
+      "image": null
+    }
+  ],
+  "ctaOpenSettingsLabel": "Open settings",
+  "ctaOpenSettingsTargetId": "Test"
+}

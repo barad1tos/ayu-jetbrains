@@ -369,4 +369,19 @@ class AyuIslandsStateTest {
     fun `PanelWidthMode fromString returns DEFAULT for unknown`() {
         assertEquals(PanelWidthMode.DEFAULT, PanelWidthMode.fromString("NONEXISTENT"))
     }
+
+    @Test
+    fun `lastWhatsNewShownVersion defaults to null and round-trips`() {
+        // Generic per-version persistent gate for the What's New tab. Null
+        // default = "never shown" so a fresh install with v2.5.0 (no record
+        // yet) gets its tab. Round-trip the value to lock the persisted shape.
+        val state = freshState()
+        assertEquals(null, state.lastWhatsNewShownVersion, "default must be null")
+        state.lastWhatsNewShownVersion = "2.5.0"
+        assertEquals("2.5.0", state.lastWhatsNewShownVersion)
+        state.lastWhatsNewShownVersion = "2.6.0"
+        assertEquals("2.6.0", state.lastWhatsNewShownVersion, "field must accept version updates across releases")
+        state.lastWhatsNewShownVersion = null
+        assertEquals(null, state.lastWhatsNewShownVersion, "null assignment must clear the field")
+    }
 }

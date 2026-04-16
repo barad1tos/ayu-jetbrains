@@ -1,0 +1,8 @@
+{
+  "title": "All slides malformed",
+  "slides": [
+    { "body": "no title" },
+    { "title": "no body" },
+    42
+  ]
+}

@@ -3,11 +3,14 @@ package dev.ayuislands
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.whatsnew.WhatsNewLauncher
 
 internal object UpdateNotifier {
+    private val LOG = logger<UpdateNotifier>()
     private const val PLUGIN_ID = "com.ayuislands.theme"
 
     fun showIfUpdated(project: Project) {
@@ -25,7 +28,21 @@ internal object UpdateNotifier {
         // Skip notification on the first installation (no previous version)
         if (lastSeen == null) return
 
-        val notes = changeNotes(currentVersion) ?: return
+        // Tab supersedes balloon when the version ships rich What's New content.
+        // Falls through to balloon for patches without a manifest. The launcher's
+        // own gating (lastWhatsNewShownVersion + manifest existence) decides
+        // eligibility — we just defer to it.
+        if (WhatsNewLauncher.openIfEligible(project, currentVersion)) return
+
+        val notes = changeNotes(currentVersion)
+        if (notes == null) {
+            // Release shipped without a manifest AND without a RELEASE_NOTES
+            // entry — the entire update goes silent. Log INFO so a future
+            // "users didn't see the notification for X" report has a paper
+            // trail; the missing-entry bug isn't invisible.
+            LOG.info("Ayu Islands updated to $currentVersion — no manifest and no balloon notes; nothing to show")
+            return
+        }
 
         NotificationGroupManager
             .getInstance()

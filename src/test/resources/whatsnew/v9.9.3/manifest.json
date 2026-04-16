@@ -1,0 +1,17 @@
+{
+  "title": "Mixed validity",
+  "slides": [
+    {
+      "title": "Good slide",
+      "body": "This one parses fine.",
+      "image": "ok.png"
+    },
+    {
+      "body": "Missing title — should be discarded with WARN."
+    },
+    "this is a string, not an object",
+    {
+      "title": "Missing body — should also be discarded with WARN."
+    }
+  ]
+}

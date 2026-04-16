@@ -6,10 +6,19 @@ repos:
       - id: end-of-file-fixer
       - id: check-yaml
       - id: check-json
+        # Only v9.9.1 is intentionally malformed JSON (exercises the manifest
+        # parser's syntax-error branch). All other whatsnew test fixtures are
+        # valid JSON and must still pass validation so a maintainer typo in
+        # e.g. v9.9.5 gets caught by the hook.
+        exclude: '^src/test/resources/whatsnew/v9\.9\.1/'
       - id: check-xml
       - id: check-added-large-files
         args: ['--maxkb=500']
-        exclude: '^assets/'
+        # assets/ holds marketplace screenshots; slide-*.png under whatsnew/v*/
+        # are release-showcase screenshots intentionally shipped at full quality.
+        # Only the slide PNGs are excluded — any OTHER oversized file dropped
+        # into whatsnew/ (a video, zip, database dump) still gets flagged.
+        exclude: '^(assets/|src/main/resources/whatsnew/v[0-9.]+/slide-[A-Za-z0-9-]+\.png$)'
       - id: check-merge-conflict
       - id: no-commit-to-branch
         args: ['--branch', 'main']
