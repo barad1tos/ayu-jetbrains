@@ -43,7 +43,12 @@ jobs:
           done
       - name: Validate JSON
         run: |
-          find . -name '*.json' -not -path '*/build/*' | while read f; do
+          # Exclude test-resource fixtures under whatsnew/ — several are
+          # intentionally malformed to exercise the manifest parser's error
+          # branches (e.g. v9.9.1 is invalid JSON on purpose) and must NOT
+          # pass a strict JSON validator.
+          find . -name '*.json' -not -path '*/build/*' \
+            -not -path '*/src/test/resources/whatsnew/*' | while read f; do
             python3 -c "import json; json.load(open('$f'))" \
               || { echo "::error::Invalid JSON: $f"; exit 1; }
           done

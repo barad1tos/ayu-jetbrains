@@ -54,7 +54,7 @@ internal object WhatsNewLauncher {
         val state = AyuIslandsSettings.getInstance().state
         val normalized = WhatsNewManifestLoader.normalizeVersion(currentVersion)
         val manifestPresent = WhatsNewManifestLoader.manifestExists(currentVersion)
-        if (!isEligible(state.lastWhatsNewShownVersion, currentVersion, manifestPresent)) {
+        if (!isWhatsNewEligible(state.lastWhatsNewShownVersion, currentVersion, manifestPresent)) {
             return false
         }
         scheduleOpen(project, normalized, isManual = false)
@@ -80,27 +80,6 @@ internal object WhatsNewLauncher {
         if (!WhatsNewManifestLoader.manifestExists(descriptor.version)) return false
         scheduleOpen(project, normalized, isManual = true)
         return true
-    }
-
-    /**
-     * Pure eligibility helper — extracted so unit tests can exercise the gate
-     * without bringing up the platform. Both versions are normalized before
-     * comparison so a dev-sandbox `2.5.0-SNAPSHOT` doesn't re-trigger after a
-     * stable `2.5.0` upgrade (and vice versa).
-     *
-     * Returns true iff: no record of this version having been shown, AND a
-     * manifest resource exists. Either gate failing means "skip the tab,
-     * fall through to balloon".
-     */
-    internal fun isEligible(
-        lastShownVersion: String?,
-        currentVersion: String,
-        manifestPresent: Boolean,
-    ): Boolean {
-        if (!manifestPresent) return false
-        val lastNormalized = lastShownVersion?.let { WhatsNewManifestLoader.normalizeVersion(it) }
-        val currentNormalized = WhatsNewManifestLoader.normalizeVersion(currentVersion)
-        return lastNormalized != currentNormalized
     }
 
     private fun scheduleOpen(

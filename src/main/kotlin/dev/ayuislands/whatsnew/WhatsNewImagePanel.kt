@@ -259,7 +259,14 @@ internal class WhatsNewImagePanel(
         // kernel edge is negligible.
         private const val GAUSSIAN_SIGMA_DIVISOR = 3f
 
-        private fun toBufferedImage(image: Image): BufferedImage {
+        /**
+         * Passthrough when the input is already a BufferedImage; otherwise
+         * copies into a fresh TYPE_INT_ARGB buffer. Exposed as `internal` so
+         * tests pin the passthrough path (same instance returned) distinct
+         * from the copy path (new instance with the same dimensions).
+         */
+        @JvmStatic
+        internal fun toBufferedImage(image: Image): BufferedImage {
             if (image is BufferedImage) return image
             val w = image.getWidth(null).coerceAtLeast(1)
             val h = image.getHeight(null).coerceAtLeast(1)
@@ -273,7 +280,15 @@ internal class WhatsNewImagePanel(
             return copy
         }
 
-        private fun gaussianBlur(source: BufferedImage): BufferedImage {
+        /**
+         * Separable Gaussian blur — exposed as `internal` so the kernel math
+         * (sigma derivation, normalization, ConvolveOp wiring) has direct
+         * red/green tests. A regression that drops the normalization step
+         * would darken or brighten the shadow invisibly; pinning the kernel
+         * sum preserves the visual contract.
+         */
+        @JvmStatic
+        internal fun gaussianBlur(source: BufferedImage): BufferedImage {
             val kernelSize = SHADOW_BLUR_RADIUS * 2 + 1
             val sigma = SHADOW_BLUR_RADIUS / GAUSSIAN_SIGMA_DIVISOR
             val data = FloatArray(kernelSize)

@@ -13,7 +13,7 @@ class WhatsNewLauncherTest {
     @Test
     fun `eligible when no record and manifest present`() {
         assertTrue(
-            WhatsNewLauncher.isEligible(
+            isWhatsNewEligible(
                 lastShownVersion = null,
                 currentVersion = "2.5.0",
                 manifestPresent = true,
@@ -26,7 +26,7 @@ class WhatsNewLauncherTest {
         // The persistent gate: once the tab opens for v2.5.0, lastShownVersion
         // gets written and subsequent IDE launches must skip the auto-trigger.
         assertFalse(
-            WhatsNewLauncher.isEligible(
+            isWhatsNewEligible(
                 lastShownVersion = "2.5.0",
                 currentVersion = "2.5.0",
                 manifestPresent = true,
@@ -41,7 +41,7 @@ class WhatsNewLauncherTest {
         // the last-shown version (not "ever shown") is the whole point of the
         // generalized state field.
         assertTrue(
-            WhatsNewLauncher.isEligible(
+            isWhatsNewEligible(
                 lastShownVersion = "2.5.0",
                 currentVersion = "2.6.0",
                 manifestPresent = true,
@@ -54,14 +54,14 @@ class WhatsNewLauncherTest {
         // Patch releases like 2.5.1 typically don't ship a manifest. Auto-trigger
         // skips them silently and falls through to the existing balloon path.
         assertFalse(
-            WhatsNewLauncher.isEligible(
+            isWhatsNewEligible(
                 lastShownVersion = null,
                 currentVersion = "2.5.1",
                 manifestPresent = false,
             ),
         )
         assertFalse(
-            WhatsNewLauncher.isEligible(
+            isWhatsNewEligible(
                 lastShownVersion = "2.5.0",
                 currentVersion = "2.5.1",
                 manifestPresent = false,
@@ -77,7 +77,7 @@ class WhatsNewLauncherTest {
         // manifestPresent check thinking "any new version triggers") would
         // pass the prior tests if tightened to "no record" only.
         assertFalse(
-            WhatsNewLauncher.isEligible(
+            isWhatsNewEligible(
                 lastShownVersion = null,
                 currentVersion = "3.0.0",
                 manifestPresent = false,
@@ -94,7 +94,7 @@ class WhatsNewLauncherTest {
         // (and worse: writing back "2.5.0-SNAPSHOT" so the next stable launch
         // re-triggers AGAIN).
         assertFalse(
-            WhatsNewLauncher.isEligible(
+            isWhatsNewEligible(
                 lastShownVersion = "2.5.0",
                 currentVersion = "2.5.0-SNAPSHOT",
                 manifestPresent = true,
@@ -108,7 +108,7 @@ class WhatsNewLauncherTest {
         // "2.5.0-SNAPSHOT" stored, maintainer now runs the stable "2.5.0".
         // Without normalization, the stable launch would re-trigger.
         assertFalse(
-            WhatsNewLauncher.isEligible(
+            isWhatsNewEligible(
                 lastShownVersion = "2.5.0-SNAPSHOT",
                 currentVersion = "2.5.0",
                 manifestPresent = true,
@@ -121,7 +121,7 @@ class WhatsNewLauncherTest {
         // Plain identity case under SNAPSHOT — verifies the normalization
         // doesn't accidentally make every dev run eligible.
         assertFalse(
-            WhatsNewLauncher.isEligible(
+            isWhatsNewEligible(
                 lastShownVersion = "2.5.0-SNAPSHOT",
                 currentVersion = "2.5.0-SNAPSHOT",
                 manifestPresent = true,
@@ -134,7 +134,7 @@ class WhatsNewLauncherTest {
         // Maintainer dev'd against 2.5.0-SNAPSHOT, then user upgrades to
         // 2.6.0 which ships its own manifest — different release, must trigger.
         assertTrue(
-            WhatsNewLauncher.isEligible(
+            isWhatsNewEligible(
                 lastShownVersion = "2.5.0-SNAPSHOT",
                 currentVersion = "2.6.0",
                 manifestPresent = true,

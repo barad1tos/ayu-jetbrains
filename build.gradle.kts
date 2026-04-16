@@ -186,6 +186,35 @@ kover {
                     "dev.ayuislands.onboarding.*Editor",
                     "dev.ayuislands.onboarding.*VirtualFile*",
                     "dev.ayuislands.onboarding.OnboardingSchedulerService*",
+                    // What's New tab — pure Swing UI builders + IDE glue. Pure logic
+                    // (computeScale, computeMaxLogicalImageWidth, computeButtonWidth,
+                    // isEligible, normalizeVersion, centerInRow, gaussianBlur, toBufferedImage,
+                    // readImageScale, readString, half-CTA WARN, per-slide try/catch contract)
+                    // lives in companion objects / top-level helpers with dedicated red/green
+                    // tests. These excludes only cover the Swing lifecycle scaffolding:
+                    //   - WhatsNewPanel: JBScrollPane assembly, AncestorListener/ComponentListener
+                    //     wiring, FileEditorManager.closeFile invocation, Swing paint
+                    //   - WhatsNewSlideCard: JBLabel/HTML body construction, BoxLayout wiring,
+                    //     paintCardChrome forward to onboarding helper
+                    //   - WhatsNewImagePanel: Graphics2D paintComponent, shadow BufferedImage
+                    //     caching, removeNotify/invalidate Swing lifecycle
+                    //   - ShowWhatsNewButton: MouseAdapter event dispatch, hover/pressed
+                    //     paint, JBLabel layout
+                    //   - WhatsNewEditor: thin FileEditor contract wrapper
+                    //   - WhatsNewLauncher: OnboardingSchedulerService coroutine launch,
+                    //     Dispatchers.EDT hop, IdeFocusManager lookup, FileEditorManager open
+                    //     (the pure isEligible + version normalization paths ARE tested)
+                    "dev.ayuislands.whatsnew.WhatsNewPanel",
+                    $$"dev.ayuislands.whatsnew.WhatsNewPanel$1",
+                    $$"dev.ayuislands.whatsnew.WhatsNewPanel$2",
+                    "dev.ayuislands.whatsnew.WhatsNewSlideCard",
+                    $$"dev.ayuislands.whatsnew.WhatsNewSlideCard\$*",
+                    "dev.ayuislands.whatsnew.WhatsNewImagePanel",
+                    "dev.ayuislands.whatsnew.ShowWhatsNewButton",
+                    $$"dev.ayuislands.whatsnew.ShowWhatsNewButton$1",
+                    "dev.ayuislands.whatsnew.WhatsNewEditor",
+                    "dev.ayuislands.whatsnew.WhatsNewLauncher",
+                    $$"dev.ayuislands.whatsnew.WhatsNewLauncher\$*",
                     // Startup lifecycle (coroutine scheduling, project service init)
                     "dev.ayuislands.StartupLicenseHandler*",
                     // Onboarding data-class holders (generated constructors + getters only)
