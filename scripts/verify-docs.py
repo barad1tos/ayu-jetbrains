@@ -243,8 +243,8 @@ def _handle_orphan_stamp(
 ) -> None:
     # SHA-identity check instead of branch-name equality so the main path also
     # covers CI runs that check out `origin/main` in detached-HEAD state —
-    # `_current_branch()` would return "HEAD" there and incorrectly drop us
-    # into the feature-branch diff logic.
+    # `git rev-parse --abbrev-ref HEAD` returns the literal string "HEAD"
+    # there and would misroute us into the feature-branch diff logic.
     if _head_points_at_primary():
         report.warn(
             fid,
@@ -310,6 +310,13 @@ def _is_ancestor_of_head(sha: str) -> bool:
     False on the classic post-squash-merge state: the feature-branch SHAs
     that were stamped during PR iteration sit on a now-unreferenced branch
     whose tip isn't an ancestor of the squash commit on main.
+
+    Git's `merge-base --is-ancestor` exits 0 on "is ancestor", 1 on
+    "not ancestor", and 128 on a genuine repo error (bad object, missing
+    ref, corrupt pack). Exit 128 gets the same False treatment as exit 1
+    here — a corrupted repo is already in a state where the freshness
+    story is moot, and `_handle_orphan_stamp` downstream surfaces the
+    SHA as orphaned with enough context for a human to investigate.
     """
     result = subprocess.run(
         ["git", "merge-base", "--is-ancestor", sha, "HEAD"],
@@ -345,13 +352,18 @@ def _head_points_at_primary() -> bool:
 
     SHA-identity check — correct under both named-branch checkouts (local
     `main` tracking `origin/main`) and detached-HEAD checkouts (CI runs
-    that check out `origin/main` as a disconnected ref). The alternative
-    `_current_branch() == "main"` check misses the detached case because
-    `git rev-parse --abbrev-ref HEAD` returns the literal string "HEAD".
+    that check out `origin/main` as a disconnected ref). An
+    `abbrev-ref HEAD == 'main'` alternative misses the detached case
+    because `git rev-parse --abbrev-ref HEAD` returns the literal string
+    "HEAD" when not on a named branch.
     """
     head_sha = _rev_parse("HEAD")
     primary_sha = _rev_parse(_primary_ref())
-    return bool(head_sha) and head_sha == primary_sha
+    # Guard both sides: `_rev_parse` returns "" on failure, and "" == ""
+    # would spuriously match if a future refactor widened the failure
+    # surface. Keeping the `bool(primary_sha)` check makes the invariant
+    # explicit instead of relying on the short-circuit.
+    return bool(head_sha) and bool(primary_sha) and head_sha == primary_sha
 
 
 def _rev_parse(ref: str) -> str:
