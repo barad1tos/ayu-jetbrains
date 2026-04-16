@@ -474,6 +474,154 @@ class ProjectLanguageDetectorTest {
         verify(exactly = 2) { ProjectLanguageScanner.scan(project) }
     }
 
+    // ── proportions + weightsCache coherence ─────────────────────────────────────────
+
+    @Test
+    fun `proportions returns null for a cold cache without calling the scanner`() {
+        // Cold cache: nothing warmed by dominant(). proportions() is a strictly
+        // read-only projection; it MUST NOT call ProjectLanguageScanner.scan()
+        // on a miss — the caller renders the polyglot copy on null.
+        val project = stubProject("/tmp/proportions-cold-${System.nanoTime()}")
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        assertNull(ProjectLanguageDetector.proportions(project))
+        verify(exactly = 0) { ProjectLanguageScanner.scan(any()) }
+    }
+
+    @Test
+    fun `proportions returns the warm weights map after dominant populates the cache`() {
+        // dominant() runs a full scan and caches both the id and the raw weights.
+        // A subsequent proportions() call serves the exact same map from the
+        // parallel weightsCache — no second scan, same instance reference.
+        val project = stubProject("/tmp/proportions-warm-${System.nanoTime()}")
+        val scanWeights = mapOf("kotlin" to 900L, "java" to 100L)
+        every { ProjectLanguageScanner.scan(project) } returns scanWeights
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        assertEquals("kotlin", ProjectLanguageDetector.dominant(project))
+        assertEquals(scanWeights, ProjectLanguageDetector.proportions(project))
+        // Scanner was called exactly once — by dominant(). proportions() did not scan.
+        verify(exactly = 1) { ProjectLanguageScanner.scan(project) }
+    }
+
+    @Test
+    fun `invalidate evicts both dominant cache and weights cache atomically`() {
+        // Invalidate must be total — a drift where dominant() re-scans but
+        // proportions() still serves stale weights would confuse users who
+        // see the polyglot copy while their override applies correctly (or
+        // vice-versa).
+        val project = stubProject("/tmp/proportions-invalidate-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns
+            mapOf("python" to 800L, "yaml" to 200L)
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        // Warm both caches.
+        assertEquals("python", ProjectLanguageDetector.dominant(project))
+        assertEquals(
+            mapOf("python" to 800L, "yaml" to 200L),
+            ProjectLanguageDetector.proportions(project),
+        )
+
+        ProjectLanguageDetector.invalidate(project)
+
+        // After invalidate: proportions returns null (weights evicted) AND a
+        // fresh dominant() call re-kicks the scanner (cache evicted).
+        assertNull(ProjectLanguageDetector.proportions(project))
+        assertEquals("python", ProjectLanguageDetector.dominant(project))
+        verify(exactly = 2) { ProjectLanguageScanner.scan(project) }
+    }
+
+    @Test
+    fun `proportions returns null when the project has no canonical path`() {
+        // Disposal race / default-project: AccentResolver.projectKey returns
+        // null. proportions() must bail out with null — the polyglot copy is
+        // the correct fallback.
+        val project = mockk<Project>()
+        every { project.basePath } returns null
+        every { project.isDefault } returns false
+        every { project.isDisposed } returns false
+
+        assertNull(ProjectLanguageDetector.proportions(project))
+    }
+
+    @Test
+    fun `proportions returns null when the scan returned null transient failure`() {
+        // Scanner returns null when it can't give an authoritative answer
+        // (dumb mode, disposal race). detectAndCache treats this as
+        // cacheable=false → neither cache is written. proportions() must
+        // therefore keep returning null on subsequent calls.
+        val project = stubProject("/tmp/proportions-transient-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns null
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        // dominant() reports null AND does NOT cache (transient failure).
+        assertNull(ProjectLanguageDetector.dominant(project))
+        assertNull(ProjectLanguageDetector.proportions(project))
+    }
+
+    @Test
+    fun `clear empties both dominant cache and weights cache`() {
+        // The @TestOnly clear() seam must reset BOTH caches — test isolation
+        // depends on it. A regression that only cleared the dominant cache
+        // would leak weights across tests.
+        val project = stubProject("/tmp/proportions-clear-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns
+            mapOf("rust" to 1_000L)
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        ProjectLanguageDetector.dominant(project)
+        assertEquals(mapOf("rust" to 1_000L), ProjectLanguageDetector.proportions(project))
+
+        ProjectLanguageDetector.clear()
+
+        assertNull(ProjectLanguageDetector.proportions(project))
+    }
+
+    @Test
+    fun `detectAndCache does not write weightsCache on legacy SDK fallback path`() {
+        // Scanner returned emptyMap (brand-new project / docs-only after filter).
+        // Legacy SDK resolves to "rust" — dominant cache populated, but the
+        // weights cache MUST stay empty so proportions() returns null and the
+        // caller renders polyglot copy (there are no meaningful proportions to
+        // display when the scan itself is empty).
+        val project = stubProject("/tmp/proportions-legacy-sdk-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns emptyMap()
+        wireProjectRootManager(project, sdkName = "RustSdkType")
+        wireModuleManager(project, moduleNames = emptyList())
+
+        assertEquals("rust", ProjectLanguageDetector.dominant(project))
+        assertNull(ProjectLanguageDetector.proportions(project))
+    }
+
+    @Test
+    fun `proportions for one project does not leak to another project`() {
+        // Multi-entity isolation (CLAUDE.md testing philosophy): weightsCache
+        // is keyed by AccentResolver.projectKey (canonical path), so project A
+        // and project B each get their own entry. A bug that used a shared key
+        // would cause cross-contamination and user-visible confusion.
+        val a = stubProject("/tmp/proportions-a-${System.nanoTime()}")
+        val b = stubProject("/tmp/proportions-b-${System.nanoTime()}")
+        val aWeights = mapOf("kotlin" to 900L, "java" to 100L)
+        val bWeights = mapOf("python" to 800L, "yaml" to 200L)
+        every { ProjectLanguageScanner.scan(a) } returns aWeights
+        every { ProjectLanguageScanner.scan(b) } returns bWeights
+        wireProjectRootManager(a, sdkName = null)
+        wireProjectRootManager(b, sdkName = null)
+        wireModuleManager(a, moduleNames = emptyList())
+        wireModuleManager(b, moduleNames = emptyList())
+
+        ProjectLanguageDetector.dominant(a)
+        ProjectLanguageDetector.dominant(b)
+
+        assertEquals(aWeights, ProjectLanguageDetector.proportions(a))
+        assertEquals(bWeights, ProjectLanguageDetector.proportions(b))
+    }
+
     // Test helpers
 
     private fun assertSdkDetects(
