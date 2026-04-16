@@ -44,6 +44,12 @@
     <p><b>Accent rotation</b> — automatic preset cycling or contrast-aware
     random. Your IDE palette evolves on its own.</p>
 
+    <p><b>Per-project accent pins</b> — bind a color to a specific project;
+    it applies whenever you focus that window, no keyboard shortcut needed.
+    <b>Per-language accent pins</b> — bind a color to a language (Kotlin → cyan,
+    Python → gold); applies when the project's dominant language matches and no
+    project override exists.</p>
+
     <p><b>Workspace</b> — auto-fit or fixed width for Project View, Commit,
     and Git panels with min/max bounds. Git panel splitter control for branches
     and file changes trees. Hide the filesystem path and scrollbar from
@@ -57,6 +63,15 @@
 
     <p><b>Bracket scope</b> — a colored gutter stripe showing the full scope
     when your cursor lands on a bracket.</p>
+
+    <p><b>Onboarding wizard</b> — a full-tab welcome on first install with
+    preset cards, theme variant picker, and accent swatches. After upgrades,
+    a <b>release showcase</b> tab opens automatically with captioned screenshots
+    of the marquee features; reopen anytime from Tools → Ayu Islands.</p>
+
+    <p><b>Font presets</b> — 4 curated Nerd Fonts with one-click apply.
+    <b>Install, delete, or reinstall fonts</b> directly from Settings — every
+    filesystem change gets a consent dialog showing the exact folder path.</p>
 
     <p><b>Try everything free for 30 days.</b> No credit card.
     Install, explore, decide later.</p>

@@ -54,3 +54,11 @@ repos:
         language: system
         pass_filenames: false
         types: [kotlin]
+
+      - id: verify-docs
+        name: verify docs sync (features.yml ↔ README + plugin.xml + CHANGELOG)
+        entry: scripts/verify-docs.py
+        language: system
+        pass_filenames: false
+        # Run on any edit to one of the inputs/outputs of the sync check.
+        files: ^(docs/features\.yml|README\.md|CHANGELOG\.md|src/main/resources/META-INF/plugin\.xml|src/main/kotlin/.*\.kt|assets/feature-.*\.png)$
