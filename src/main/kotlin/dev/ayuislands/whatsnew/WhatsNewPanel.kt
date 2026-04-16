@@ -232,10 +232,11 @@ internal class WhatsNewPanel(
 
         if (addedCount == 0) {
             // All slides threw — user would see a bare header + footer with an
-            // empty middle. Make the failure visible instead of shipping a
-            // phantom tab that silently claims the release shipped no features.
+            // empty middle. Wrap the fallback label in centerInRow so BoxLayout
+            // Y_AXIS renders the BorderLayout emptyState at a predictable width
+            // instead of stretching or collapsing it in the scroll viewport.
             LOG.warn("What's New: no slides rendered — falling back to emptyState")
-            column.add(emptyState())
+            column.add(centerInRow(emptyState(), CENTER_ALIGNMENT))
         }
 
         val scroll = JBScrollPane(column)

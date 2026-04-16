@@ -204,9 +204,16 @@ internal object WhatsNewLauncher {
             // would NOT match an already-open tab and FileEditorManager would
             // create a duplicate. Look up the existing instance first and pass
             // THAT to openFile, which then focuses the existing tab instead.
+            // If MULTIPLE stale instances exist (leaked from an earlier bug or
+            // a split-editor race), focus the first and close the rest so the
+            // tab strip doesn't collect orphans silently.
             val manager = FileEditorManager.getInstance(project)
-            val existing = manager.openFiles.filterIsInstance<WhatsNewVirtualFile>().firstOrNull()
-            val target = existing ?: WhatsNewVirtualFile()
+            val matches = manager.openFiles.filterIsInstance<WhatsNewVirtualFile>()
+            if (matches.size > 1) {
+                LOG.warn("Ayu What's New: found ${matches.size} stale tabs in ${project.name}; closing extras")
+                matches.drop(1).forEach { manager.closeFile(it) }
+            }
+            val target = matches.firstOrNull() ?: WhatsNewVirtualFile()
             manager.openFile(target, true)
             onSuccess()
         } catch (exception: RuntimeException) {

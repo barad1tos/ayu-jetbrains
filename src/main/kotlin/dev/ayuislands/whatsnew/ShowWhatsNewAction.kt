@@ -38,7 +38,13 @@ internal class ShowWhatsNewAction : DumbAwareAction() {
             return
         }
         // Re-arm the WARN latch so a subsequent disable cycle logs again.
-        descriptorNullLogged.set(false)
+        // compareAndSet(true, false) documents the semantics: the reset is a
+        // no-op when the latch was already false (the common path — descriptor
+        // stayed non-null). Note: concurrent BGT update()s can still observe
+        // interleavings that produce two WARNs within one real null streak;
+        // this is a narrow BGT race the latch doesn't defend against, but the
+        // signal is at worst duplicated, never lost.
+        descriptorNullLogged.compareAndSet(true, false)
         val available = WhatsNewManifestLoader.manifestExists(descriptor.version)
         event.presentation.isEnabledAndVisible = available
     }
