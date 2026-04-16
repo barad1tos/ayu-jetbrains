@@ -481,9 +481,9 @@ internal object LanguageDetectionRules {
      */
     fun iconForLanguageId(id: String): Icon? {
         if (id.isBlank()) return null
-        val language = Language.findLanguageByID(id) ?: return null
-        val fileType = language.associatedFileType ?: return null
-        return (fileType as? LanguageFileType)?.icon
+        // `Language.associatedFileType` returns `LanguageFileType?` directly — no
+        // cast is needed. `.icon` is inherited from `FileType` (non-null Icon).
+        return Language.findLanguageByID(id)?.associatedFileType?.icon
     }
 
     /**

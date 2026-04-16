@@ -8,9 +8,11 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.ui.ToolbarDecorator
+import com.intellij.ui.components.JBLabel
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.table.JBTable
+import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
@@ -26,11 +28,13 @@ import java.awt.Dimension
 import java.awt.FlowLayout
 import java.io.File
 import javax.swing.ButtonGroup
+import javax.swing.Icon
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.JRadioButton
 import javax.swing.JTable
 import javax.swing.ListSelectionModel
+import javax.swing.SwingConstants
 import javax.swing.table.DefaultTableCellRenderer
 import javax.swing.table.TableModel
 
@@ -57,16 +61,17 @@ class OverridesGroupBuilder {
     private var parentProject: Project? = null
 
     /**
-     * Captured JPanel backing the detected-language proportions status row.
+     * Captured [JPanel] backing the detected-language proportions status row.
      * Children are cleared and rebuilt on every [reset] and every pending-change
-     * event via [refreshProportionsPanel]. Each child is a [com.intellij.ui.components.JBLabel]
-     * carrying the language-specific icon from `LanguageDetectionRules.iconForLanguageId`
-     * (or the info icon for the polyglot state). Null before [buildGroup] has populated it.
+     * event via [populateProportionsPanel]. Each child is a [JBLabel] carrying
+     * the language-specific icon from
+     * [LanguageDetectionRules.iconForLanguageId] (or the info icon for the
+     * polyglot state). Null before [buildGroup] has populated it.
      *
-     * Replaces the pre-icon `JEditorPane` with `comment()`-style gray italic text that
-     * was too faint to read on the premium settings row.
+     * Replaces the pre-icon `JEditorPane` with `comment()`-style gray italic
+     * text that was too faint to read on the premium settings row.
      */
-    private var proportionsPanel: javax.swing.JPanel? = null
+    private var proportionsPanel: JPanel? = null
 
     init {
         configureTables()
@@ -111,16 +116,12 @@ class OverridesGroupBuilder {
                     cell(segmentedBar)
                 }
                 row {
-                    val gap =
-                        com.intellij.util.ui.JBUI
-                            .scale(PROPORTIONS_ENTRY_GAP_PX)
+                    val gap = JBUI.scale(PROPORTIONS_ENTRY_GAP_PX)
                     val panel =
-                        javax.swing
-                            .JPanel(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, gap, 0))
-                            .apply {
-                                isOpaque = false
-                                border = null
-                            }
+                        JPanel(FlowLayout(FlowLayout.LEFT, gap, 0)).apply {
+                            isOpaque = false
+                            border = null
+                        }
                     proportionsPanel = panel
                     populateProportionsPanel(panel)
                     cell(panel)
@@ -290,7 +291,7 @@ class OverridesGroupBuilder {
      *    `AllIcons.General.Information` + [POLYGLOT_COPY]. Visually distinct
      *    from the icon row so the user instantly sees "no single dominant".
      */
-    private fun populateProportionsPanel(panel: javax.swing.JPanel) {
+    private fun populateProportionsPanel(panel: JPanel) {
         panel.removeAll()
         val project = parentProject
         val entries =
@@ -301,23 +302,11 @@ class OverridesGroupBuilder {
                 if (weights == null) emptyList() else LanguageDetectionRules.pickDisplayEntries(weights)
             }
         if (entries.isEmpty()) {
-            val label =
-                com.intellij.ui.components.JBLabel(
-                    POLYGLOT_COPY,
-                    com.intellij.icons.AllIcons.General.Information,
-                    javax.swing.SwingConstants.LEADING,
-                )
-            panel.add(label)
+            panel.add(JBLabel(POLYGLOT_COPY, AllIcons.General.Information, SwingConstants.LEADING))
         } else {
             for (entry in entries) {
                 val icon = entry.id?.let { LanguageDetectionRules.iconForLanguageId(it) }
-                val label =
-                    com.intellij.ui.components.JBLabel(
-                        "${entry.label} ${entry.percent}%",
-                        icon,
-                        javax.swing.SwingConstants.LEADING,
-                    )
-                panel.add(label)
+                panel.add(JBLabel("${entry.label} ${entry.percent}%", icon, SwingConstants.LEADING))
             }
         }
         panel.revalidate()
@@ -361,16 +350,15 @@ class OverridesGroupBuilder {
      *
      * Combines refresh + read into one seam so test call sites stay terse and
      * the public surface of [OverridesGroupBuilder] stays under the detekt
-     * `TooManyFunctions` threshold (27 → 25 after inlining `buildProportionsPanel`,
-     * `refreshProportionsPanel`, and this combined seam).
+     * `TooManyFunctions` threshold — refresh helpers were inlined into [reset]
+     * and the pending-change listener instead of adding dedicated private
+     * functions.
      */
     @org.jetbrains.annotations.TestOnly
-    internal fun proportionsPanelLabelsForTest(): List<Pair<javax.swing.Icon?, String>> {
-        val panel =
-            proportionsPanel
-                ?: javax.swing.JPanel().also { proportionsPanel = it }
+    internal fun proportionsPanelLabelsForTest(): List<Pair<Icon?, String>> {
+        val panel = proportionsPanel ?: JPanel().also { proportionsPanel = it }
         populateProportionsPanel(panel)
-        return panel.components.filterIsInstance<com.intellij.ui.components.JBLabel>().map { label ->
+        return panel.components.filterIsInstance<JBLabel>().map { label ->
             label.icon to label.text
         }
     }
