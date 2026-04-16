@@ -35,6 +35,19 @@ object AccentApplicator {
         )
 
     private val log = logger<AccentApplicator>()
+
+    // First-WARN-then-DEBUG gates for osActiveProjectFrame error paths. Without the gate,
+    // a broken frame mid-shutdown or an unavailable WindowManager would either spam idea.log
+    // on every apply (LAF listener, rotation tick, Settings panel Apply all go through the
+    // OS-active scan) or silently degrade with no trace. The first failure surfaces at WARN
+    // so user-submitted logs make the pathology visible; subsequent failures degrade to
+    // DEBUG so interactive sessions don't drown in noise. Declared `internal` so tests in
+    // the same module can reset between runs — `AccentApplicator` is a JVM-wide object and
+    // gate state persists across tests without the reset.
+    @Volatile internal var osActiveFrameFailureLogged = false
+
+    @Volatile internal var windowManagerUnavailableLogged = false
+
     private const val DARK_FOREGROUND_HEX = 0x1F2430
     private val DARK_FOREGROUND = Color(DARK_FOREGROUND_HEX)
     private const val TAB_ACCENT_BG_ALPHA = 50
@@ -172,10 +185,10 @@ object AccentApplicator {
      * manager happened to bookmark most recently.
      *
      *  1. First `WindowManager.allProjectFrames` whose ancestor window reports
-     *     [Window.isActive]. This is the ground truth for "which project window has OS
-     *     focus right now" and matches the same mechanism
-     *     [dev.ayuislands.settings.mappings.ProjectAccentSwapService.findProjectForWindow]
-     *     uses for WINDOW_ACTIVATED — both paths stay consistent.
+     *     `Window.isActive`. Uses the same frame-enumeration pattern as
+     *     `ProjectAccentSwapService.findProjectForWindow` (which matches by reference
+     *     equality on a listener-provided window); here we need the OS-active window, so
+     *     the match predicate is `Window.isActive`.
      *  2. [IdeFocusManager.lastFocusedFrame]'s project — fallback when the IDE is
      *     alt-tabbed out (no frame has OS focus) or the window ancestor lookup is
      *     temporarily unavailable.
@@ -200,12 +213,26 @@ object AccentApplicator {
     /**
      * Scans open project frames for the one whose ancestor window is OS-active. Each frame
      * access is wrapped in try/catch because frames can be mid-dispose during a shutdown
-     * race; one bad frame must not break the scan for a healthy one. Failures log at DEBUG
-     * to keep idea.log quiet on alt-tab storms while still being visible under verbose
-     * logging for user-submitted reports.
+     * race; one bad frame must not break the scan for a healthy one. Error paths — a null
+     * `WindowManager` service and per-frame failures — log at WARN on first occurrence then
+     * degrade to DEBUG (see [osActiveFrameFailureLogged] / [windowManagerUnavailableLogged])
+     * so user-submitted idea.log captures the pathology while interactive sessions do not
+     * drown in noise across repeated Apply / LAF-change / rotation-tick calls.
      */
     private fun osActiveProjectFrame(): com.intellij.openapi.project.Project? {
-        val windowManager = WindowManager.getInstance() ?: return null
+        val windowManager = WindowManager.getInstance()
+        if (windowManager == null) {
+            if (!windowManagerUnavailableLogged) {
+                windowManagerUnavailableLogged = true
+                log.warn(
+                    "WindowManager unavailable during OS-active project resolution; " +
+                        "falling back to IdeFocusManager cascade (further occurrences at DEBUG)",
+                )
+            } else {
+                log.debug("WindowManager unavailable during OS-active project resolution")
+            }
+            return null
+        }
         for (frame in windowManager.allProjectFrames) {
             try {
                 val project = frame.project ?: continue
@@ -213,7 +240,16 @@ object AccentApplicator {
                 val window = SwingUtilities.getWindowAncestor(frame.component) ?: continue
                 if (window.isActive) return project
             } catch (exception: RuntimeException) {
-                log.debug("Skipping frame during OS-active resolution", exception)
+                if (!osActiveFrameFailureLogged) {
+                    osActiveFrameFailureLogged = true
+                    log.warn(
+                        "Skipping frame during OS-active resolution " +
+                            "(further failures logged at DEBUG)",
+                        exception,
+                    )
+                } else {
+                    log.debug("Skipping frame during OS-active resolution", exception)
+                }
             }
         }
         return null

@@ -189,15 +189,13 @@ class ProjectAccentSwapServiceTest {
 
     @Test
     fun `onWindowActivated re-applies when external apply drifted hex for same project`() {
-        // Regression guard for the rotation-override bug. When AccentRotationService fires a
-        // tick while the user is alt-tabbed to a non-IDE app, resolveFocusedProject may pick
-        // a project that differs from the one the user is visually on, then push that
-        // project's resolved color into the JVM-wide UIManager/globalScheme (via
-        // AccentApplicator.apply + notifyExternalApply). Alt-tab back to the original project
-        // fires WINDOW_ACTIVATED with the SAME project as before the tick; without the fix,
-        // the project-equality short-circuit skipped the handler entirely and the user was
-        // stuck with the wrong accent on tabs/toolbars while glow (per-project) stayed
-        // correct — the exact asymmetry reported by the user.
+        // Rotation tick / Settings Apply / LAF change can push a color resolved for a DIFFERENT
+        // focused project into the JVM-wide UIManager/globalScheme (via AccentApplicator.apply
+        // + notifyExternalApply). Re-activating the same project later must notice the drift
+        // and re-apply the correct resolved color — the only signal that the visible UI needs
+        // to be rewritten is a cache-hex that no longer matches the resolver's output. Without
+        // the re-apply, tabs/toolbars (global scheme) would stay on the wrong color while
+        // glow (per-project) stayed on the correct override.
         val (window, project) = wireMatchingFrame()
         val service = ProjectAccentSwapService()
 
@@ -220,9 +218,10 @@ class ProjectAccentSwapServiceTest {
     @Test
     fun `onWindowActivated short-circuits on same-hex re-activation across different projects`() {
         // Two different projects sharing the same effective accent hex (e.g. same global
-        // override). Activating the second after priming with the first must update the
-        // lastAppliedProject reference but skip the apply, because the visible UIManager
-        // state is already correct.
+        // override). Activating the second after priming with the first must resolve the
+        // new project but skip the apply, because the visible UIManager state is already
+        // correct — the hex gate carries the dedup load now that project identity alone is
+        // no longer enough to prove staleness.
         val projectA = stubProject("project-a")
         val projectB = stubProject("project-b")
         val windowA = mockk<Window>(relaxed = true)
