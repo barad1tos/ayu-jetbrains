@@ -74,6 +74,12 @@
 # plugin.xml: fileEditorProvider (free onboarding wizard)
 -keep class dev.ayuislands.onboarding.FreeOnboardingEditorProvider { *; }
 
+# plugin.xml: fileEditorProvider (What's New release showcase)
+-keep class dev.ayuislands.whatsnew.WhatsNewEditorProvider { *; }
+
+# plugin.xml: action (Tools → Show What's New…)
+-keep class dev.ayuislands.whatsnew.ShowWhatsNewAction { *; }
+
 # Public API singletons (called from kept classes)
 -keep class dev.ayuislands.accent.AccentApplicator { *; }
 -keep class dev.ayuislands.accent.AccentColor { *; }
