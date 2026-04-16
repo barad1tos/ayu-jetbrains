@@ -29,6 +29,10 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
+          # verify-docs.py uses `git rev-parse <last_verified_sha>` to
+          # anchor screenshot freshness checks; shallow clone (default
+          # fetch-depth=1) would fail for SHAs older than the PR tip.
+          fetch-depth: 0
           persist-credentials: false
       - name: Check trailing whitespace
         run: |

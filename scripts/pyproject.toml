@@ -3,7 +3,7 @@ name = "scripts"
 version = "0.1.0"
 description = "Ayu Islands maintenance scripts — docs drift lint, screenshot freshness checks"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.11"
 dependencies = [
     "pyyaml>=6.0.2",
     # defusedxml replaces stdlib's xml.etree parser with a safer variant —

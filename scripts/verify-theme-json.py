@@ -126,10 +126,10 @@ def main() -> int:
 
     print()
     if errors == 0:
-        print("RESULT: PASS -- all JSON pairs are consistent")
+        print("RESULT: PASS - all JSON pairs are consistent")
         return 0
 
-    print(f"RESULT: FAIL -- {errors} pair(s) with mismatches")
+    print(f"RESULT: FAIL - {errors} pair(s) with mismatches")
     return 1
 
 

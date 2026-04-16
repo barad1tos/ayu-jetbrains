@@ -10,6 +10,8 @@ Usage: python3 scripts/verify-theme-xml.py
 Exit code 0 = all checks pass, 1 = mismatches found
 """
 
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Set, Tuple

@@ -214,7 +214,15 @@ def _check_commit_exists(fid: str, sha: str, report: Report) -> bool:
 def _check_source_freshness(
     fid: str, path: str, sha: str, sources: list[str], report: Report
 ) -> None:
-    changed = _git_changed_since(sha, sources)
+    try:
+        changed = _git_changed_since(sha, sources)
+    except RuntimeError as exc:
+        # `git log` returned non-zero — let the lint surface the real error
+        # instead of swallowing it as "no changes". The empty-set fallthrough
+        # would silently let a stale screenshot through if the ref became
+        # unreachable (CI shallow clone, force-pushed branch, etc.).
+        report.error(fid, f"git freshness check failed for {path}: {exc}")
+        return
     if not changed:
         return
     preview = ", ".join(sorted(changed)[:3])
@@ -257,15 +265,24 @@ def _git_commit_exists(sha: str) -> bool:
 
 
 def _git_changed_since(sha: str, paths: list[str]) -> set[str]:
-    """Return the set of file paths under `paths` that changed after `sha`."""
+    """Return the set of file paths under `paths` that changed after `sha`.
+
+    Raises `RuntimeError` on `git log` failure instead of silently returning
+    an empty set — an empty set is indistinguishable from "clean history"
+    and would let a stale screenshot slip past CI if git itself broke
+    (missing ref, shallow clone, disk error).
+    """
     result = subprocess.run(
-        ["git", "log", "--name-only", "--pretty=", f"{sha}..HEAD", "--"] + paths,
+        ["git", "log", "--name-only", "--pretty=", f"{sha}..HEAD", "--", *paths],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
+        check=False,
     )
     if result.returncode != 0:
-        return set()
+        raise RuntimeError(
+            f"git log failed for sha={sha}: {result.stderr.strip() or 'no stderr'}"
+        )
     return {line.strip() for line in result.stdout.splitlines() if line.strip()}
 
 

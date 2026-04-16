@@ -35,7 +35,7 @@ Deps: `pyyaml`. Invoked via uv shebang.
 Parses `AyuIslandsMirage.xml`, `AyuIslandsDark.xml`, `AyuIslandsLight.xml`
 and asserts identical attribute name sets, `FONT_TYPE` values, and
 `baseAttributes` values. Catches the #1 theme-pack regression class:
-one variant edited, the others forgotten.
+one variant edited, the others were forgotten.
 
 ```bash
 scripts/verify-theme-xml.py
@@ -46,7 +46,7 @@ Invoked via uv shebang.
 
 ### `verify-theme-json.py` — JSON base/islands pair consistency
 
-Every color variant ships two `.theme.json` files (base + islands). Their
+Every color variant ships two `.theme.json` files (base and islands). Their
 `colors` and `icons.ColorPalette` blocks must be identical — this script
 diffs each pair and fails on divergence.
 
@@ -61,7 +61,7 @@ Deps: stdlib only (`json`). Plain `python3` invocation.
 After `./gradlew buildPlugin`, verifies every `dev.ayuislands.*` class
 referenced in `plugin.xml` exists in the **composed** JAR (the one that
 ships). Excludes `-base.jar` / `-instrumented.jar` — those still contain
-un-processed classes, so a pass against them would mask a ProGuard strip
+unprocessed classes, so a pass against them would mask a ProGuard strip
 in the shipping artifact.
 
 ```bash
@@ -93,7 +93,7 @@ into `.pre-commit-config.yaml`.
 
 ### `_plugin_xml.py`
 
-Single source for "extract dev.ayuislands.* classes referenced from
+Single source for "extract dev.ayuislands.* Classes referenced from
 plugin.xml". Used by `verify-bytecode.py` and `verify-proguard-keeps.py`
 — if a future plugin.xml attribute becomes an FQN holder, update this
 module only.
