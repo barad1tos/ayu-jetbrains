@@ -69,8 +69,8 @@ object ProjectLanguageDetector {
      * an empty scan.
      *
      * In-memory only (like [cache]); re-warms on the next successful scan. Not
-     * persisted across IDE restarts — [AyuIslandsStartupActivity] re-warms via the
-     * next `dominant()` call on project open.
+     * persisted across IDE restarts — the project-open startup activity re-warms
+     * via the next `dominant()` call it issues.
      */
     private val weightsCache = ConcurrentHashMap<String, Map<String, Long>>()
 
@@ -169,9 +169,8 @@ object ProjectLanguageDetector {
         val detection = detectInternal(project)
         if (detection.cacheable) {
             cache[key] = detection.languageId ?: NULL_SENTINEL
-            val weights = detection.weights
-            if (weights != null && weights.isNotEmpty()) {
-                weightsCache[key] = weights
+            if (!detection.weights.isNullOrEmpty()) {
+                weightsCache[key] = detection.weights
             }
         }
         return detection.languageId

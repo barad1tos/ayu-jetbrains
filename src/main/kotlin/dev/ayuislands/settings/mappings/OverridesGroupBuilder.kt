@@ -122,7 +122,7 @@ class OverridesGroupBuilder {
         // any override add / edit / delete re-reads from the detector cache. Phase 29's
         // rescan action will reuse this same channel (invalidate + fireChanged) without
         // introducing a new MessageBus Topic.
-        addPendingChangeListener(Runnable { refreshProportionsLabel() })
+        addPendingChangeListener { refreshProportionsLabel() }
     }
 
     // Settings panel lifecycle (isModified / apply / reset)

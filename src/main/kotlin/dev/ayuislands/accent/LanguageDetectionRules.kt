@@ -411,7 +411,7 @@ internal object LanguageDetectionRules {
             }
         val collapsedPct = (collapsedRaw.toDouble() / total.toDouble() * PERCENT_SCALE).toInt()
         return if (collapsedPct > 0) {
-            namedText + DISPLAY_ENTRY_SEPARATOR + "$DISPLAY_OTHER_LABEL ($collapsedPct%)"
+            "$namedText$DISPLAY_ENTRY_SEPARATOR$DISPLAY_OTHER_LABEL ($collapsedPct%)"
         } else {
             namedText
         }
