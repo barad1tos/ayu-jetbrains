@@ -332,8 +332,15 @@ class OverridesGroupBuilder {
         // user looking at a blank row while the log claimed "previous state" —
         // misleading triage. Now the live panel is either fully replaced or left
         // exactly as the user last saw it.
+        // Construct a FRESH FlowLayout for the staging panel instead of aliasing
+        // `panel.layout`. `FlowLayout` is stateless today, but sharing a layout
+        // instance across two containers is undefined behavior if a future edit
+        // swaps the live panel's layout to one that caches per-child constraints
+        // (GridBagLayout, MigLayout). Reconstruct from the same scaled gap used
+        // in `buildGroup` so the staging pack width matches the live pack width.
+        val gap = JBUI.scale(PROPORTIONS_ENTRY_GAP_PX)
         val staging =
-            JPanel(panel.layout).apply {
+            JPanel(FlowLayout(FlowLayout.LEFT, gap, 0)).apply {
                 isOpaque = panel.isOpaque
                 border = panel.border
             }

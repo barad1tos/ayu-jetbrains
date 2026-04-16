@@ -241,29 +241,62 @@ object ProjectLanguageDetector {
         project: Project,
         detectedId: String,
     ) {
-        SwingUtilities.invokeLater {
-            if (project.isDisposed) return@invokeLater
-            // Re-read the mappings ON the EDT so membership reflects the same
-            // state the apply chain is about to resolve against — the Settings
-            // UI mutates `languageAccents` on EDT, and an off-EDT membership
-            // check could observe a stale map between scan completion and this
-            // callback's scheduling.
-            val mappings = AccentMappingsSettings.getInstance().state
-            if (detectedId !in mappings.languageAccents) return@invokeLater
-            // Best-effort refresh: the cache already has the detected id, so
-            // `dominant()` behavior is unaffected by failures here. Containing
-            // exceptions keeps a regression in any of the downstream apply paths
-            // (variant detection, UIManager writes, focus-swap notification)
-            // from surfacing as an uncaught EDT exception and risking the UI.
-            runCatchingPreservingCancellation {
-                val variant = AyuVariant.detect() ?: return@runCatchingPreservingCancellation
-                val hex = AccentResolver.resolve(project, variant)
-                AccentApplicator.apply(hex)
-                ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
-            }.onFailure { exception ->
-                LOG.warn("Post-scan accent refresh failed; cache is still warm", exception)
-            }
+        SwingUtilities.invokeLater { refreshAccentOnEdt(project, detectedId) }
+    }
+
+    /**
+     * EDT body extracted from [tryRefreshAccentForDetected] so the membership
+     * check + apply chain can be red/green tested synchronously without having
+     * to pump a Swing event loop. The caller is expected to already be on the
+     * EDT (production: wrapped in `SwingUtilities.invokeLater`; tests: called
+     * directly on the test thread). Returns early on disposal or on a
+     * language-override miss, logs and swallows any downstream apply failure.
+     *
+     * `internal` + `@TestOnly` so the test seam below stays the single door
+     * for callers outside this file; no production path other than
+     * [tryRefreshAccentForDetected] should reach this helper.
+     */
+    @org.jetbrains.annotations.TestOnly
+    internal fun refreshAccentOnEdt(
+        project: Project,
+        detectedId: String,
+    ) {
+        if (project.isDisposed) return
+        // Re-read the mappings ON the EDT so membership reflects the same
+        // state the apply chain is about to resolve against — the Settings
+        // UI mutates `languageAccents` on EDT, and an off-EDT membership
+        // check could observe a stale map between scan completion and this
+        // callback's scheduling.
+        val mappings = AccentMappingsSettings.getInstance().state
+        if (detectedId !in mappings.languageAccents) return
+        // Best-effort refresh: the cache already has the detected id, so
+        // `dominant()` behavior is unaffected by failures here. Containing
+        // exceptions keeps a regression in any of the downstream apply paths
+        // (variant detection, UIManager writes, focus-swap notification)
+        // from surfacing as an uncaught EDT exception and risking the UI.
+        runCatchingPreservingCancellation {
+            val variant = AyuVariant.detect() ?: return@runCatchingPreservingCancellation
+            val hex = AccentResolver.resolve(project, variant)
+            AccentApplicator.apply(hex)
+            ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
+        }.onFailure { exception ->
+            LOG.warn("Post-scan accent refresh failed; cache is still warm", exception)
         }
+    }
+
+    /**
+     * `@TestOnly` seam for the `proportions()` cross-cache coherence guard —
+     * lets tests simulate the race window where `weightsCache[key]` is written
+     * before the matching `cache[key]` (dominant-id) entry lands, by evicting
+     * just the dominant-id side of the pair. Without this seam the guard at
+     * [proportions] is unreachable from any black-box test because the sole
+     * production write path ([detectAndCache]) writes both entries
+     * back-to-back on the same thread.
+     */
+    @org.jetbrains.annotations.TestOnly
+    internal fun evictDominantCacheForTest(project: Project) {
+        val key = AccentResolver.projectKey(project) ?: return
+        cache.remove(key)
     }
 
     private fun isOnEdt(): Boolean = ApplicationManager.getApplication()?.isDispatchThread == true

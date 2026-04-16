@@ -6,6 +6,8 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.projectRoots.SdkTypeId
 import com.intellij.openapi.roots.ProjectRootManager
+import dev.ayuislands.settings.mappings.AccentMappingsSettings
+import dev.ayuislands.settings.mappings.AccentMappingsState
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -632,6 +634,87 @@ class ProjectLanguageDetectorTest {
         wireProjectRootManager(project, sdkName = sdkName)
         wireModuleManager(project, moduleNames = emptyList())
         assertEquals(expected, ProjectLanguageDetector.dominant(project))
+    }
+
+    // ── proportions() cross-cache coherence guard ─────────────────────────────
+
+    @Test
+    fun `proportions returns null when weightsCache is populated but dominant cache was evicted`() {
+        // Round 3 closed a race: `detectAndCache` writes `weightsCache` first,
+        // then `cache` (dominant-id) last. If `invalidate()` interleaves
+        // between the two writes, a reader that ignored the dominant-id cache
+        // would serve a stale weights breakdown for a layout the detector has
+        // already forgotten. `proportions()` guards with `cache[key] == null`;
+        // this test simulates the race by warming both caches and then
+        // evicting only the dominant-id side, asserting `proportions()`
+        // returns null rather than the stale weights map.
+        val project = stubProject("/tmp/prop-guard-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns mapOf("kotlin" to 500L, "java" to 500L)
+        wireProjectRootManager(project, sdkName = "KotlinSDK")
+        wireModuleManager(project, moduleNames = emptyList())
+
+        // Warm both caches in a coherent state.
+        ProjectLanguageDetector.dominant(project)
+        assertEquals(
+            mapOf("kotlin" to 500L, "java" to 500L),
+            ProjectLanguageDetector.proportions(project),
+            "baseline: both caches warm, proportions must serve the weights",
+        )
+
+        // Simulate the race: dominant-id cache evicted, weightsCache still
+        // populated. The guard in `proportions()` must treat this as cold.
+        ProjectLanguageDetector.evictDominantCacheForTest(project)
+        assertNull(
+            ProjectLanguageDetector.proportions(project),
+            "proportions must not serve weightsCache entries that are orphaned by an evicted dominant-id entry",
+        )
+    }
+
+    // ── refreshAccentOnEdt (extracted from tryRefreshAccentForDetected) ───────
+
+    @Test
+    fun `refreshAccentOnEdt skips apply chain when detected id has no language override`() {
+        // Round 2 moved the membership check inside the EDT body so the
+        // apply chain reads the same snapshot the resolver will resolve
+        // against. Locking the "no override → no apply" branch here so a
+        // regression flipping the `!in` guard is caught.
+        val mappingsState = AccentMappingsState()
+        val settings = mockk<AccentMappingsSettings>()
+        every { settings.state } returns mappingsState
+        mockkObject(AccentMappingsSettings.Companion)
+        every { AccentMappingsSettings.getInstance() } returns settings
+
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.apply(any()) } returns Unit
+
+        val project = stubProject("/tmp/refresh-miss-${System.nanoTime()}")
+        ProjectLanguageDetector.refreshAccentOnEdt(project, "kotlin")
+
+        verify(exactly = 0) { AccentApplicator.apply(any()) }
+    }
+
+    @Test
+    fun `refreshAccentOnEdt skips apply chain when project is disposed`() {
+        // Round-2 disposal guard: scheduling delay between background scan
+        // and EDT dispatch can close the project. The early return here
+        // keeps the applicator from writing UIManager entries for a dead
+        // project's swap-cache.
+        val mappingsState =
+            AccentMappingsState().apply { languageAccents["kotlin"] = "#FFCC66" }
+        val settings = mockk<AccentMappingsSettings>()
+        every { settings.state } returns mappingsState
+        mockkObject(AccentMappingsSettings.Companion)
+        every { AccentMappingsSettings.getInstance() } returns settings
+
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.apply(any()) } returns Unit
+
+        val project = stubProject("/tmp/refresh-disposed-${System.nanoTime()}")
+        every { project.isDisposed } returns true
+
+        ProjectLanguageDetector.refreshAccentOnEdt(project, "kotlin")
+
+        verify(exactly = 0) { AccentApplicator.apply(any()) }
     }
 
     private fun assertModuleDetects(
