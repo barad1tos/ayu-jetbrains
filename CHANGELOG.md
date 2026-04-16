@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.5.0] - 2026-04-16
+
+### Added
+- [Paid] Pin an accent color to a specific project — set it once from Settings and every time you switch to that window your accent is there
+- [Paid] Pin an accent color to a programming language — e.g. Kotlin → lime, Python → sky. Applies when a project's dominant language matches and no project override exists
+- Recent projects populate the add-project dialog so you can configure overrides without opening the project first
+- First-launch release showcase opens automatically in the editor on upgrade, with captioned screenshots of the marquee features; reopen anytime via Tools → Ayu Islands → Show What's New
+
 ## [2.4.2] - 2026-04-12
 
 ### Added

@@ -58,6 +58,13 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.5.0" to
+                "<ul>" +
+                "<li>Pin an accent color to a specific project</li>" +
+                "<li>Pin an accent color to a programming language</li>" +
+                "<li>Recent projects populate the add-project dialog</li>" +
+                "<li>First-launch release showcase with captioned screenshots</li>" +
+                "</ul>",
             "2.4.2" to
                 "<ul>" +
                 "<li>Install, delete, or reinstall fonts from Settings</li>" +
