@@ -195,18 +195,23 @@ class OverridesGroupBuilderProportionsTest {
         val labels = builder.proportionsPanelLabelsForTest()
         val texts = labels.map { it.second }
         assertEquals(
-            listOf("Kotlin 78%", "Java 15%", "Scala 4%", "other 3%"),
+            listOf(
+                "Languages detected:",
+                "Kotlin 78% ·",
+                "Java 15% ·",
+                "Scala 4% ·",
+                "other 3%",
+            ),
             texts,
-            "icon-row must contain top-3 languages plus the other bucket, in weight-descending order",
+            "icon row starts with the Languages-detected prefix, then top-3 languages " +
+                "plus the other bucket in weight-descending order, dot-separated except the last",
         )
         // Scala and Groovy may not be registered in the test JVM's Language index —
         // icon can be null for any named entry. The "other" entry (last) must
-        // always have a null icon since there's no language to resolve.
-        assertEquals(
-            null,
-            labels.last().first,
-            "the 'other' bucket entry must have a null icon",
-        )
+        // always have a null icon since there's no language to resolve. The prefix
+        // label has a null icon too (it's text-only).
+        assertEquals(null, labels.first().first, "the prefix label carries no icon")
+        assertEquals(null, labels.last().first, "the 'other' bucket entry carries no icon")
     }
 
     @Test
@@ -255,12 +260,12 @@ class OverridesGroupBuilderProportionsTest {
 
         val builder = OverridesGroupBuilder().apply { setParentProjectForTest(projectA) }
         val firstTexts = builder.proportionsPanelLabelsForTest().map { it.second }
-        assertEquals(listOf("Kotlin 100%"), firstTexts)
+        assertEquals(listOf("Languages detected:", "Kotlin 100%"), firstTexts)
 
         builder.setParentProjectForTest(projectB)
         val secondTexts = builder.proportionsPanelLabelsForTest().map { it.second }
         assertEquals(
-            listOf("Python 100%"),
+            listOf("Languages detected:", "Python 100%"),
             secondTexts,
             "refresh must rebuild children from projectB's weights, not leak projectA's Kotlin entry",
         )

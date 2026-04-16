@@ -116,6 +116,11 @@ class OverridesGroupBuilder {
                     cell(segmentedBar)
                 }
                 row {
+                    cell(cardPanel)
+                        .resizableColumn()
+                        .align(Align.FILL)
+                }
+                row {
                     val gap = JBUI.scale(PROPORTIONS_ENTRY_GAP_PX)
                     val panel =
                         JPanel(FlowLayout(FlowLayout.LEFT, gap, 0)).apply {
@@ -125,11 +130,6 @@ class OverridesGroupBuilder {
                     proportionsPanel = panel
                     populateProportionsPanel(panel)
                     cell(panel)
-                }
-                row {
-                    cell(cardPanel)
-                        .resizableColumn()
-                        .align(Align.FILL)
                 }
                 if (!licensed) {
                     row {
@@ -304,9 +304,11 @@ class OverridesGroupBuilder {
         if (entries.isEmpty()) {
             panel.add(JBLabel(POLYGLOT_COPY, AllIcons.General.Information, SwingConstants.LEADING))
         } else {
-            for (entry in entries) {
+            panel.add(JBLabel(PROPORTIONS_PREFIX))
+            entries.forEachIndexed { index, entry ->
                 val icon = entry.id?.let { LanguageDetectionRules.iconForLanguageId(it) }
-                panel.add(JBLabel("${entry.label} ${entry.percent}%", icon, SwingConstants.LEADING))
+                val suffix = if (index == entries.lastIndex) "" else " $PROPORTIONS_SEPARATOR"
+                panel.add(JBLabel("${entry.label} ${entry.percent}%$suffix", icon, SwingConstants.LEADING))
             }
         }
         panel.revalidate()
@@ -667,6 +669,21 @@ class OverridesGroupBuilder {
          * is part of the locked copy — do not trim.
          */
         const val DETECTED_PREFIX: String = "Detected in this project: "
+
+        /**
+         * Header rendered in front of the icon-row proportions layout under the
+         * overrides table. Separate from [DETECTED_PREFIX] (used by the text
+         * projection) because the icon-row phrasing is more concise and
+         * positionally clear ("under the table, here's what we detected").
+         */
+        const val PROPORTIONS_PREFIX: String = "Languages detected:"
+
+        /**
+         * Middle-dot (U+00B7) separator glued to the end of every entry except
+         * the last. Matches the visual separator style used in the font preset
+         * panel (e.g. `Maple Mono · 14pt · Regular · 1.0× · ligatures`).
+         */
+        const val PROPORTIONS_SEPARATOR: Char = '·'
     }
 
     /**
