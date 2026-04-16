@@ -694,6 +694,69 @@ class ProjectLanguageDetectorTest {
     }
 
     @Test
+    fun `refreshAccentOnEdt runs the full apply chain when override is present`() {
+        // Happy-path lock: given a language override for the detected id on a
+        // live project, the helper must call the full resolver → applicator →
+        // swap-cache chain. A regression flipping the `!in` guard or dropping
+        // any of the three downstream calls would leave users stuck on the
+        // global accent until the next focus swap — exactly the bug the
+        // extraction was meant to lock down.
+        val mappingsState =
+            AccentMappingsState().apply { languageAccents["kotlin"] = "#FFCC66" }
+        val settings = mockk<AccentMappingsSettings>()
+        every { settings.state } returns mappingsState
+        mockkObject(AccentMappingsSettings.Companion)
+        every { AccentMappingsSettings.getInstance() } returns settings
+
+        mockkObject(AyuVariant.Companion)
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        mockkObject(AccentResolver)
+        every { AccentResolver.resolve(any(), any()) } returns "#FFCC66"
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.apply(any()) } returns Unit
+        val swapService = mockk<dev.ayuislands.settings.mappings.ProjectAccentSwapService>(relaxed = true)
+        mockkObject(dev.ayuislands.settings.mappings.ProjectAccentSwapService.Companion)
+        every {
+            dev.ayuislands.settings.mappings.ProjectAccentSwapService
+                .getInstance()
+        } returns swapService
+
+        val project = stubProject("/tmp/refresh-hit-${System.nanoTime()}")
+        ProjectLanguageDetector.refreshAccentOnEdt(project, "kotlin")
+
+        verify(exactly = 1) { AccentApplicator.apply("#FFCC66") }
+        verify(exactly = 1) { swapService.notifyExternalApply("#FFCC66") }
+    }
+
+    @Test
+    fun `refreshAccentOnEdt swallows a throwing apply chain without rethrowing`() {
+        // Contract lock on the runCatchingPreservingCancellation wrapper:
+        // AccentApplicator.apply can throw on a LafManager race / UIManager
+        // shutdown; if that propagates out of the invokeLater callback it
+        // becomes an uncaught EDT exception. This test asserts the helper
+        // returns normally (WARN-logged internally) instead of rethrowing.
+        val mappingsState =
+            AccentMappingsState().apply { languageAccents["kotlin"] = "#FFCC66" }
+        val settings = mockk<AccentMappingsSettings>()
+        every { settings.state } returns mappingsState
+        mockkObject(AccentMappingsSettings.Companion)
+        every { AccentMappingsSettings.getInstance() } returns settings
+
+        mockkObject(AyuVariant.Companion)
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        mockkObject(AccentResolver)
+        every { AccentResolver.resolve(any(), any()) } returns "#FFCC66"
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.apply(any()) } throws RuntimeException("LafManager boom")
+
+        val project = stubProject("/tmp/refresh-throw-${System.nanoTime()}")
+        // Must not throw — load-bearing assertion is simply that the call
+        // completes. A regression dropping the runCatching would propagate
+        // the RuntimeException and fail this test.
+        ProjectLanguageDetector.refreshAccentOnEdt(project, "kotlin")
+    }
+
+    @Test
     fun `refreshAccentOnEdt skips apply chain when project is disposed`() {
         // Round-2 disposal guard: scheduling delay between background scan
         // and EDT dispatch can close the project. The early return here

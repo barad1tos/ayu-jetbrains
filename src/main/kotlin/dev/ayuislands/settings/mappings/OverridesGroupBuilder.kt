@@ -415,9 +415,10 @@ class OverridesGroupBuilder {
     }
 
     /**
-     * Builder-level seam for the proportions status line: lets wiring tests bind a
-     * fake focused project without spinning up a full Swing panel. Mirrors the
-     * pattern established by [loadFromState].
+     * Builder-level `@TestOnly` seam that binds a focused project without
+     * spinning up a full Swing panel — wiring tests can exercise
+     * `resolvePending` / `sourcePending` / proportions rendering without going
+     * through [buildGroup].
      */
     @org.jetbrains.annotations.TestOnly
     internal fun setParentProjectForTest(project: Project?) {
@@ -425,11 +426,10 @@ class OverridesGroupBuilder {
     }
 
     /**
-     * Builder-level seam for the pending table models. Tests seed rows through
-     * this helper to exercise `apply()` / `isModified()` / `reset()` without
-     * going through the Swing ToolbarDecorator "+" / "-" path. Mirrors the
-     * [loadFromState] pattern — the alternative is introducing a
-     * Swing-heavy fixture just to populate two rows.
+     * Builder-level seam for the pending table models. Tests seed rows
+     * through this helper to exercise `apply()` / `isModified()` / `reset()`
+     * without going through the Swing ToolbarDecorator "+" / "-" path — the
+     * alternative is a Swing-heavy fixture just to populate two rows.
      */
     @org.jetbrains.annotations.TestOnly
     internal fun seedPendingForTest(

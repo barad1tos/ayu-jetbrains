@@ -250,31 +250,40 @@ object ProjectLanguageDetector {
      * to pump a Swing event loop. The caller is expected to already be on the
      * EDT (production: wrapped in `SwingUtilities.invokeLater`; tests: called
      * directly on the test thread). Returns early on disposal or on a
-     * language-override miss, logs and swallows any downstream apply failure.
+     * language-override miss, logs and swallows any downstream apply or
+     * settings-read failure.
      *
-     * `internal` + `@TestOnly` so the test seam below stays the single door
-     * for callers outside this file; no production path other than
-     * [tryRefreshAccentForDetected] should reach this helper.
+     * `internal` (no `@TestOnly`) because [tryRefreshAccentForDetected] — the
+     * production caller — reaches this helper through the `SwingUtilities.invokeLater`
+     * boundary; marking it test-only would misadvertise the call graph and
+     * any `@TestOnly` inspection would either miss real misuse or flag this
+     * legitimate production path.
      */
-    @org.jetbrains.annotations.TestOnly
     internal fun refreshAccentOnEdt(
         project: Project,
         detectedId: String,
     ) {
         if (project.isDisposed) return
-        // Re-read the mappings ON the EDT so membership reflects the same
-        // state the apply chain is about to resolve against — the Settings
-        // UI mutates `languageAccents` on EDT, and an off-EDT membership
-        // check could observe a stale map between scan completion and this
-        // callback's scheduling.
-        val mappings = AccentMappingsSettings.getInstance().state
-        if (detectedId !in mappings.languageAccents) return
-        // Best-effort refresh: the cache already has the detected id, so
-        // `dominant()` behavior is unaffected by failures here. Containing
-        // exceptions keeps a regression in any of the downstream apply paths
-        // (variant detection, UIManager writes, focus-swap notification)
-        // from surfacing as an uncaught EDT exception and risking the UI.
+        // Widen the runCatching to cover the settings read AND the apply
+        // chain. `AccentMappingsSettings.getInstance()` can fail during a
+        // plugin-unload race or a corrupt persistent-state XML read on the
+        // EDT — without the wrap, that throw would bubble out of the
+        // invokeLater callback as an uncaught EDT exception, exactly the
+        // failure mode the inner block already contains for the apply chain.
         runCatchingPreservingCancellation {
+            // Re-read the mappings ON the EDT so membership reflects the
+            // same state the apply chain is about to resolve against — the
+            // Settings UI mutates `languageAccents` on EDT, and an off-EDT
+            // membership check could observe a stale map between scan
+            // completion and this callback's scheduling.
+            val mappings = AccentMappingsSettings.getInstance().state
+            if (detectedId !in mappings.languageAccents) return@runCatchingPreservingCancellation
+            // Best-effort refresh: the cache already has the detected id,
+            // so `dominant()` behavior is unaffected by failures here.
+            // Containing exceptions keeps a regression in any of the
+            // downstream apply paths (variant detection, UIManager writes,
+            // focus-swap notification) from surfacing as an uncaught EDT
+            // exception and risking the UI.
             val variant = AyuVariant.detect() ?: return@runCatchingPreservingCancellation
             val hex = AccentResolver.resolve(project, variant)
             AccentApplicator.apply(hex)
