@@ -78,8 +78,14 @@ internal object ProjectLanguageScanner {
 
     /**
      * Per-file visitor. Returns `false` to stop iteration once
-     * [LanguageDetectionRules.MAX_FILES_SCANNED] is reached — the existing
-     * sample is assumed representative of the rest.
+     * [LanguageDetectionRules.MAX_FILES_SCANNED] is reached.
+     *
+     * The cap counts every non-directory, non-path-excluded file the visitor
+     * touches, NOT only files with a resolved language id. Without that the
+     * cap became invisible on binary- / image- / archive-heavy repos: a game
+     * asset tree with 50 000 PNGs and 200 Kotlin files would iterate all
+     * 50 200 entries before stopping, defeating the whole "keep the EDT
+     * responsive on monorepos" purpose of the cap.
      *
      * Per-file exceptions (mid-delete race, a language plugin throwing from its
      * FileType.detect) must NOT abort the scan. [runCatchingPreservingCancellation]
@@ -98,9 +104,12 @@ internal object ProjectLanguageScanner {
         // a Python project with a committed .venv otherwise mis-reports as
         // "dominant dependency library" rather than "dominant user code".
         if (LanguageDetectionRules.isExcludedPath(file.path)) return true
+        if (file.isDirectory) return true
+        // Count every non-directory, non-excluded file toward the cap so binary-
+        // heavy repos don't bypass it (see KDoc rationale).
+        fileCount[0]++
         val sampleResult =
             runCatchingPreservingCancellation {
-                if (file.isDirectory) return@runCatchingPreservingCancellation null
                 val languageId =
                     LanguageDetectionRules.resolveLanguageId(file.fileType)
                         ?: return@runCatchingPreservingCancellation null
@@ -109,7 +118,6 @@ internal object ProjectLanguageScanner {
             }
         sampleResult.getOrNull()?.let { (languageId, weight) ->
             weights.merge(languageId, weight) { a, b -> a + b }
-            fileCount[0]++
         }
         if (sampleResult.isFailure) {
             // AlreadyDisposedException, mid-VFS-change IOException, third-party

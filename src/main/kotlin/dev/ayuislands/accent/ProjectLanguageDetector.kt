@@ -3,6 +3,7 @@ package dev.ayuislands.accent
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.module.ModuleManager
+import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectRootManager
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
@@ -118,11 +119,19 @@ object ProjectLanguageDetector {
      * scheduler's dedup gate short-circuits duplicate calls for the same key, so
      * multiple simultaneous `dominant()` invocations from different UI components
      * coalesce into a single scan.
+     *
+     * Skips entirely in dumb mode so a long-running gradle sync or initial index
+     * doesn't pile up doomed tasks on the shared executor — every EDT-path
+     * `dominant()` call during indexing would otherwise enqueue a scan that the
+     * scanner's own dumb-mode check immediately bails out of. The next post-index
+     * resolve (e.g., `ModuleRootListener.rootsChanged` fires an invalidate, or
+     * focus swap calls `dominant` again) re-schedules cleanly.
      */
     private fun scheduleBackgroundDetection(
         project: Project,
         key: String,
     ) {
+        if (DumbService.isDumb(project)) return
         ProjectLanguageScanAsync.schedule(key) {
             if (project.isDisposed) return@schedule
             val detected = detectAndCache(project, key) ?: return@schedule
@@ -144,10 +153,19 @@ object ProjectLanguageDetector {
         if (detectedId !in mappings.languageAccents) return
         SwingUtilities.invokeLater {
             if (project.isDisposed) return@invokeLater
-            val variant = AyuVariant.detect() ?: return@invokeLater
-            val hex = AccentResolver.resolve(project, variant)
-            AccentApplicator.apply(hex)
-            ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
+            // Best-effort refresh: the cache already has the detected id, so
+            // `dominant()` behavior is unaffected by failures here. Containing
+            // exceptions keeps a regression in any of the downstream apply paths
+            // (variant detection, UIManager writes, focus-swap notification)
+            // from surfacing as an uncaught EDT exception and risking the UI.
+            runCatchingPreservingCancellation {
+                val variant = AyuVariant.detect() ?: return@runCatchingPreservingCancellation
+                val hex = AccentResolver.resolve(project, variant)
+                AccentApplicator.apply(hex)
+                ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
+            }.onFailure { exception ->
+                LOG.warn("Post-scan accent refresh failed; cache is still warm", exception)
+            }
         }
     }
 
