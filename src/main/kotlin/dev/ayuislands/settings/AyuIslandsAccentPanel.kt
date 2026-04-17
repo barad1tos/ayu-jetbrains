@@ -63,10 +63,10 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
     ) {
         initializeState(variant)
         // Route through AccentApplicator.resolveFocusedProject so the panel picks the
-        // window the user is visually on (same cascade rotation + apply paths use). A
-        // prior `openProjects.firstOrNull` silently bound to the enumeration-first
-        // project — producing wrong "Currently active:" and "Detected:" readouts when
-        // two or more projects were open.
+        // window the user is visually on (same cascade rotation + apply paths use). Do
+        // NOT substitute `ProjectManager.openProjects.firstOrNull { … }` — that silently
+        // binds to the enumeration-first project in multi-window setups, so "Currently
+        // active:" and "Detected:" read out the wrong project.
         contextProject = AccentApplicator.resolveFocusedProject()
         val colorPanel = createAccentColorPanel()
         applyInitialSelection(colorPanel, storedAccent)

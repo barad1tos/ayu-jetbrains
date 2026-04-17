@@ -173,11 +173,11 @@ object AccentApplicator {
      * specific project the platform hands it, not the focused one, so it bypasses this helper
      * and calls [AccentResolver.resolve] + [apply] directly with that project.
      *
-     * EDT-only: [resolveFocusedProject] is annotated [RequiresEdt] for the same reason
-     * (WindowManager / IdeFocusManager / ProjectManager access). The [apply] call itself
-     * hops to the EDT internally via [invokeLaterSafe], so the helper is safe against
-     * accidental background-thread reentry, but the focused-project resolve step still
-     * requires the caller to be on the EDT.
+     * EDT-only. [resolveFocusedProject] is `@RequiresEdt` because it traverses WindowManager
+     * / IdeFocusManager / ProjectManager; [ProjectAccentSwapService.notifyExternalApply]
+     * touches a shared volatile without its own dispatch. Only the inner [apply] call
+     * self-dispatches to the EDT via [invokeLaterSafe] — the helper as a whole is not
+     * self-protecting, so callers MUST already be on the EDT.
      */
     @RequiresEdt
     fun applyForFocusedProject(variant: AyuVariant): String {
@@ -197,9 +197,9 @@ object AccentApplicator {
      *
      * Exposed as `internal` so UI entry points (settings panels, LAF listener, rotation
      * scheduler, etc.) share one cascade instead of hand-rolling
-     * `ProjectManager.openProjects.firstOrNull` — which silently picked the wrong
-     * project when the user had two or more windows open, producing stale "Currently
-     * active:" / "Detected:" readouts keyed to the enumeration-first project.
+     * `ProjectManager.openProjects.firstOrNull` — that pattern silently binds to the
+     * enumeration-first project in multi-window setups, producing stale status-label
+     * readouts in the Accent settings panel that don't match the visible window.
      *
      * Must run on the EDT: traverses `WindowManager`, `IdeFocusManager`, and
      * `ProjectManager`, all of which are EDT-only platform APIs. Annotated with
