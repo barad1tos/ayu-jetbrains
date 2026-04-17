@@ -183,9 +183,15 @@ object AccentApplicator {
     /**
      * Resolves the *actually* focused project — the one whose window is currently on top
      * for the user. The cascade walks from strongest signal (OS-level window activity) to
-     * weakest (first non-disposed open project) so rotation ticks, settings Apply, and LAF
-     * changes route through the window the user is visually on, not the one the focus
-     * manager happened to bookmark most recently.
+     * weakest (first non-disposed open project) so rotation ticks, settings Apply, LAF
+     * changes, AND Settings-panel initialisation route through the window the user is
+     * visually on, not the one the focus manager happened to bookmark most recently.
+     *
+     * Exposed as `internal` so Settings panels (AccentPanel, OverridesGroupBuilder,
+     * FontPresetPanel) can reuse the same cascade instead of hand-rolling
+     * `ProjectManager.openProjects.firstOrNull` — which silently picked the wrong
+     * project when the user had two or more windows open, producing stale "Currently
+     * active:" / "Detected:" readouts keyed to the enumeration-first project.
      *
      *  1. First `WindowManager.allProjectFrames` whose ancestor window reports
      *     `Window.isActive`. Iterates all project frames, calls
@@ -201,7 +207,7 @@ object AccentApplicator {
      *     shutdown edge cases.
      *  4. `null` — no project open; resolver will return the global accent.
      */
-    private fun resolveFocusedProject(): com.intellij.openapi.project.Project? {
+    internal fun resolveFocusedProject(): com.intellij.openapi.project.Project? {
         osActiveProjectFrame()?.let { return it }
         IdeFocusManager
             .getGlobalInstance()

@@ -5,7 +5,6 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.ui.ToolbarDecorator
 import com.intellij.ui.components.JBLabel
@@ -183,7 +182,9 @@ class OverridesGroupBuilder {
         // "modified" because `storedProjects/languages` stayed on the pre-apply snapshot).
         runCatchingPreservingCancellation {
             AyuVariant.detect()?.let { variant ->
-                val project = parentProject ?: ProjectManager.getInstance().openProjects.firstOrNull()
+                // Fall through to the OS-active cascade when the builder has no parentProject
+                // bound yet — same priority order used by rotation, LAF, and Settings Apply.
+                val project = parentProject ?: AccentApplicator.resolveFocusedProject()
                 val hex = AccentResolver.resolve(project, variant)
                 AccentApplicator.apply(hex)
                 ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
