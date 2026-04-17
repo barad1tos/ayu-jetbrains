@@ -183,7 +183,7 @@ class OverridesGroupBuilder {
         runCatchingPreservingCancellation {
             AyuVariant.detect()?.let { variant ->
                 // Fall through to the OS-active cascade when the builder has no parentProject
-                // bound yet — same priority order used by rotation, LAF, and Settings Apply.
+                // bound yet — same helper every apply path ultimately converges on.
                 val project = parentProject ?: AccentApplicator.resolveFocusedProject()
                 val hex = AccentResolver.resolve(project, variant)
                 AccentApplicator.apply(hex)

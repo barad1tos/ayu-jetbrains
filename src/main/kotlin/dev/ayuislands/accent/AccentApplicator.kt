@@ -173,11 +173,12 @@ object AccentApplicator {
      * specific project the platform hands it, not the focused one, so it bypasses this helper
      * and calls [AccentResolver.resolve] + [apply] directly with that project.
      *
-     * EDT-only. [resolveFocusedProject] is `@RequiresEdt` because it traverses WindowManager
-     * / IdeFocusManager / ProjectManager; [ProjectAccentSwapService.notifyExternalApply]
-     * touches a shared volatile without its own dispatch. Only the inner [apply] call
-     * self-dispatches to the EDT via [invokeLaterSafe] — the helper as a whole is not
-     * self-protecting, so callers MUST already be on the EDT.
+     * EDT-only. Neither this helper nor [resolveFocusedProject] self-dispatch; only the
+     * inner [apply] call hops to the EDT internally via [invokeLaterSafe], and that hop
+     * does NOT rescue the preceding [resolveFocusedProject] + [AccentResolver.resolve]
+     * steps (the first traverses EDT-only platform APIs, the second reads settings state
+     * that may race off-EDT). [ProjectAccentSwapService.notifyExternalApply] is likewise
+     * a bare volatile write with no dispatch. Callers MUST already be on the EDT.
      */
     @RequiresEdt
     fun applyForFocusedProject(variant: AyuVariant): String {
@@ -195,11 +196,12 @@ object AccentApplicator {
      * changes, and any UI entry point route through the window the user is visually on,
      * not the one the focus manager happened to bookmark most recently.
      *
-     * Exposed as `internal` so UI entry points (settings panels, LAF listener, rotation
-     * scheduler, etc.) share one cascade instead of hand-rolling
-     * `ProjectManager.openProjects.firstOrNull` — that pattern silently binds to the
-     * enumeration-first project in multi-window setups, producing stale status-label
-     * readouts in the Accent settings panel that don't match the visible window.
+     * Exposed as `internal` so every UI entry point that needs the focused project shares
+     * one cascade instead of hand-rolling `ProjectManager.openProjects.firstOrNull` — that
+     * pattern silently binds to the enumeration-first project in multi-window setups,
+     * producing stale status-label readouts in the Accent settings panel that don't match
+     * the visible window. Most callers reach this via [applyForFocusedProject]; settings
+     * panels that only need to READ the focused project (without applying) call it directly.
      *
      * Must run on the EDT: traverses `WindowManager`, `IdeFocusManager`, and
      * `ProjectManager`, all of which are EDT-only platform APIs. Annotated with

@@ -149,7 +149,7 @@ class OverridesGroupBuilderApplyTest {
         // has not been called (e.g. Settings Apply reached here before the panel finished
         // binding the context project), the builder MUST route through the shared cascade —
         // NOT `ProjectManager.openProjects.firstOrNull`, which picks the enumeration-first
-        // project and reproduces the multi-window bug #138 fixed upstream. A regression that
+        // project and reproduces the multi-window status-label mismatch. A regression that
         // swaps resolveFocusedProject back to openProjects.firstOrNull would pass the two
         // tests above (parentProject is bound there) but fail this one.
         val focusedProject =
