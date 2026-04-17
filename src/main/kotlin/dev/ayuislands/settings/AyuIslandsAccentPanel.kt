@@ -2,7 +2,6 @@ package dev.ayuislands.settings
 
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.ui.ColorPicker
 import com.intellij.ui.components.JBCheckBox
@@ -63,11 +62,12 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         variant: AyuVariant,
     ) {
         initializeState(variant)
-        contextProject =
-            ProjectManager
-                .getInstance()
-                .openProjects
-                .firstOrNull { !it.isDefault && !it.isDisposed }
+        // Route through AccentApplicator.resolveFocusedProject so the panel picks the
+        // window the user is visually on (same cascade rotation + apply paths use). Do
+        // NOT substitute `ProjectManager.openProjects.firstOrNull { … }` — that silently
+        // binds to the enumeration-first project in multi-window setups, so "Currently
+        // active:" and "Detected:" read out the wrong project.
+        contextProject = AccentApplicator.resolveFocusedProject()
         val colorPanel = createAccentColorPanel()
         applyInitialSelection(colorPanel, storedAccent)
         updateHeroGlow()
@@ -245,11 +245,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
      * lines up with what's actually on screen.
      */
     private fun applyRotationRespectingOverrides(currentVariant: AyuVariant) {
-        val focusedProject =
-            ProjectManager
-                .getInstance()
-                .openProjects
-                .firstOrNull { !it.isDefault && !it.isDisposed }
+        val focusedProject = AccentApplicator.resolveFocusedProject()
         val resolvedHex = AccentResolver.resolve(focusedProject, currentVariant)
         AccentApplicator.apply(resolvedHex)
         ProjectAccentSwapService.getInstance().notifyExternalApply(resolvedHex)

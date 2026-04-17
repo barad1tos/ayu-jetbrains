@@ -4,12 +4,12 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
-import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.SegmentedButton
+import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.font.FontCatalog
 import dev.ayuislands.font.FontDetector
@@ -260,7 +260,7 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
     private fun triggerLifecycleAction(uninstall: Boolean) {
         try {
             val preset = FontPreset.fromName(pendingPreset)
-            val project = ProjectManager.getInstance().openProjects.firstOrNull()
+            val project = AccentApplicator.resolveFocusedProject()
             val entry = FontCatalog.forPreset(preset)
             val refresh = {
                 ApplicationManager.getApplication().invokeLater {
@@ -332,7 +332,7 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
                 if (state.fontInstallTerminal == "SYSTEM") {
                     ProcessBuilder("open", "-a", "Terminal").start()
                 } else {
-                    val project = ProjectManager.getInstance().openProjects.firstOrNull() ?: return@link
+                    val project = AccentApplicator.resolveFocusedProject() ?: return@link
                     ToolWindowManager.getInstance(project).getToolWindow("Terminal")?.activate(null)
                 }
             }

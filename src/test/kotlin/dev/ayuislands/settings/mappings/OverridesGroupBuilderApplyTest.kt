@@ -142,4 +142,47 @@ class OverridesGroupBuilderApplyTest {
         io.mockk.verify(exactly = 1) { AccentApplicator.apply("#AABBCC") }
         io.mockk.verify(exactly = 1) { swapService.notifyExternalApply("#AABBCC") }
     }
+
+    @Test
+    fun `apply() falls back to AccentApplicator resolveFocusedProject when parentProject is not bound`() {
+        // Guards the second-tier project source inside apply(): when setParentProjectForTest
+        // has not been called (e.g. Settings Apply reached here before the panel finished
+        // binding the context project), the builder MUST route through the shared cascade —
+        // NOT `ProjectManager.openProjects.firstOrNull`, which picks the enumeration-first
+        // project and reproduces the multi-window status-label mismatch. A regression that
+        // swaps resolveFocusedProject back to openProjects.firstOrNull would pass the two
+        // tests above (parentProject is bound there) but fail this one.
+        val focusedProject =
+            mockk<Project>(relaxed = true) {
+                every { isDisposed } returns false
+                every { isDefault } returns false
+            }
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        every { AccentApplicator.resolveFocusedProject() } returns focusedProject
+        every { AccentResolver.resolve(focusedProject, AyuVariant.MIRAGE) } returns "#5CCFE6"
+        every { AccentApplicator.apply(any()) } returns Unit
+        val swapService = mockk<ProjectAccentSwapService>(relaxed = true)
+        every { ProjectAccentSwapService.getInstance() } returns swapService
+
+        val builder =
+            OverridesGroupBuilder().apply {
+                // Deliberately do NOT call setParentProjectForTest — exercise the fallback.
+                seedPendingForTest(
+                    projects =
+                        listOf(
+                            ProjectMapping(
+                                canonicalPath = "/tmp/apply-fallback",
+                                displayName = "fallback",
+                                hex = "#5CCFE6",
+                            ),
+                        ),
+                )
+            }
+
+        builder.apply()
+
+        io.mockk.verify(exactly = 1) { AccentApplicator.resolveFocusedProject() }
+        io.mockk.verify(exactly = 1) { AccentResolver.resolve(focusedProject, AyuVariant.MIRAGE) }
+        io.mockk.verify(exactly = 1) { AccentApplicator.apply("#5CCFE6") }
+    }
 }
