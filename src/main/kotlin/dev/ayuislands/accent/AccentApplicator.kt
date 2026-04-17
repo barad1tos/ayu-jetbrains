@@ -15,6 +15,7 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.openapi.wm.WindowManager
 import com.intellij.ui.ColorUtil
+import com.intellij.util.concurrency.annotations.RequiresEdt
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.GlowTabMode
@@ -171,7 +172,14 @@ object AccentApplicator {
      * Note: [dev.ayuislands.AyuIslandsStartupActivity] is NOT a caller — it operates on the
      * specific project the platform hands it, not the focused one, so it bypasses this helper
      * and calls [AccentResolver.resolve] + [apply] directly with that project.
+     *
+     * EDT-only: [resolveFocusedProject] is annotated [RequiresEdt] for the same reason
+     * (WindowManager / IdeFocusManager / ProjectManager access). The [apply] call itself
+     * hops to the EDT internally via [invokeLaterSafe], so the helper is safe against
+     * accidental background-thread reentry, but the focused-project resolve step still
+     * requires the caller to be on the EDT.
      */
+    @RequiresEdt
     fun applyForFocusedProject(variant: AyuVariant): String {
         val focusedProject = resolveFocusedProject()
         val hex = AccentResolver.resolve(focusedProject, variant)
@@ -184,14 +192,19 @@ object AccentApplicator {
      * Resolves the *actually* focused project — the one whose window is currently on top
      * for the user. The cascade walks from strongest signal (OS-level window activity) to
      * weakest (first non-disposed open project) so rotation ticks, settings Apply, LAF
-     * changes, AND Settings-panel initialisation route through the window the user is
-     * visually on, not the one the focus manager happened to bookmark most recently.
+     * changes, and any UI entry point route through the window the user is visually on,
+     * not the one the focus manager happened to bookmark most recently.
      *
-     * Exposed as `internal` so Settings panels (AccentPanel, OverridesGroupBuilder,
-     * FontPresetPanel) can reuse the same cascade instead of hand-rolling
+     * Exposed as `internal` so UI entry points (settings panels, LAF listener, rotation
+     * scheduler, etc.) share one cascade instead of hand-rolling
      * `ProjectManager.openProjects.firstOrNull` — which silently picked the wrong
      * project when the user had two or more windows open, producing stale "Currently
      * active:" / "Detected:" readouts keyed to the enumeration-first project.
+     *
+     * Must run on the EDT: traverses `WindowManager`, `IdeFocusManager`, and
+     * `ProjectManager`, all of which are EDT-only platform APIs. Annotated with
+     * [RequiresEdt] so accidental off-EDT callers surface through IntelliJ's threading
+     * checker rather than deadlocking or throwing deep inside the platform.
      *
      *  1. First `WindowManager.allProjectFrames` whose ancestor window reports
      *     `Window.isActive`. Iterates all project frames, calls
@@ -207,6 +220,7 @@ object AccentApplicator {
      *     shutdown edge cases.
      *  4. `null` — no project open; resolver will return the global accent.
      */
+    @RequiresEdt
     internal fun resolveFocusedProject(): com.intellij.openapi.project.Project? {
         osActiveProjectFrame()?.let { return it }
         IdeFocusManager
