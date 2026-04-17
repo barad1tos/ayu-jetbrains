@@ -32,9 +32,6 @@ import javax.swing.SwingUtilities
  */
 class ProjectAccentSwapService : Disposable {
     @Volatile
-    private var lastAppliedProject: Project? = null
-
-    @Volatile
     private var lastAppliedHex: String? = null
 
     private var listener: AWTEventListener? = null
@@ -88,12 +85,16 @@ class ProjectAccentSwapService : Disposable {
         val window = (event as? WindowEvent)?.window ?: return
         val project = findProjectForWindow(window) ?: return
         if (project.isDisposed || project.isDefault) return
-        if (project === lastAppliedProject) return
 
+        // Re-resolve on every activation. Alt-tab away to a non-IDE app and back reports the
+        // same project, but any external apply (rotation tick, Settings panel Apply, LAF
+        // change — anything that reaches `notifyExternalApply`) may have pushed a different
+        // color into the JVM-wide UIManager/globalScheme since the last activation. The
+        // resolver call is cheap (canonicalPath + HashMap lookup); the hex gate below still
+        // skips the expensive apply + component-tree walk when the resolver output matches.
         val variant = AyuVariant.detect() ?: return
         val effectiveHex = AccentResolver.resolve(project, variant)
 
-        lastAppliedProject = project
         if (effectiveHex == lastAppliedHex) return
 
         lastAppliedHex = effectiveHex
@@ -154,7 +155,6 @@ class ProjectAccentSwapService : Disposable {
             Toolkit.getDefaultToolkit().removeAWTEventListener(it)
             listener = null
         }
-        lastAppliedProject = null
         lastAppliedHex = null
         LOG.info("ProjectAccentSwapService disposed")
     }

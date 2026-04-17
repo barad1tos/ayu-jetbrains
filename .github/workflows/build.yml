@@ -234,6 +234,18 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
+      # GitHub-hosted runners ship with ~25 GB of pre-installed toolchains we don't need.
+      # Plugin Verifier downloads + extracts 5-6 IDE builds per group (~10-12 GB) and the
+      # Group B job has hit "No space left on device" on the runner diag log partition.
+      # Prune the large toolchains we don't touch so the IDE extraction window has room.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          df -h /
       - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
         with:
           distribution: temurin

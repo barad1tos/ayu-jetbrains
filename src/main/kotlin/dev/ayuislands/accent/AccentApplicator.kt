@@ -13,6 +13,7 @@ import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.wm.IdeFocusManager
+import com.intellij.openapi.wm.WindowManager
 import com.intellij.ui.ColorUtil
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.glow.GlowStyle
@@ -24,6 +25,7 @@ import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import java.awt.Color
 import java.awt.Window
 import java.lang.reflect.Method
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
 
@@ -34,6 +36,21 @@ object AccentApplicator {
         )
 
     private val log = logger<AccentApplicator>()
+
+    // First-WARN-then-DEBUG gates for osActiveProjectFrame error paths. Without them, a
+    // broken frame mid-shutdown or an unavailable WindowManager would either spam idea.log
+    // on every apply (LAF listener, rotation tick, Settings panel Apply all go through the
+    // OS-active scan) or silently degrade with no trace.
+    //
+    // Rotation runs on `AppScheduledExecutorService`; the other callers are on EDT.
+    // Concurrent first-failure across threads is rare but real, so the gate uses
+    // `AtomicBoolean.compareAndSet` — not `@Volatile Boolean` — so exactly one caller wins
+    // the WARN even when two threads race to log the same shutdown-race failure.
+    internal val osActiveFrameFailureLogged = AtomicBoolean(false)
+
+    // Paired gate; see osActiveFrameFailureLogged above for the WARN/DEBUG rationale.
+    internal val windowManagerUnavailableLogged = AtomicBoolean(false)
+
     private const val DARK_FOREGROUND_HEX = 0x1F2430
     private val DARK_FOREGROUND = Color(DARK_FOREGROUND_HEX)
     private const val TAB_ACCENT_BG_ALPHA = 50
@@ -164,27 +181,88 @@ object AccentApplicator {
     }
 
     /**
-     * Resolves the *actually* focused project — the one whose window has OS-level focus,
-     * not just "the first open project in enumeration order". With two or more project
-     * windows open, a naive `ProjectManager.openProjects.firstOrNull` would silently apply
-     * the wrong project's override (rotation tick, settings Apply, LAF change would flow
-     * through it for the wrong window). Fallback chain:
+     * Resolves the *actually* focused project — the one whose window is currently on top
+     * for the user. The cascade walks from strongest signal (OS-level window activity) to
+     * weakest (first non-disposed open project) so rotation ticks, settings Apply, and LAF
+     * changes route through the window the user is visually on, not the one the focus
+     * manager happened to bookmark most recently.
      *
-     *  1. [IdeFocusManager.lastFocusedFrame]'s project — real focus state
-     *  2. First non-default non-disposed open project — pre-focus-manager startup, or
-     *     shutdown edge cases where the focus manager is torn down
-     *  3. `null` — no project open; resolver will return the global accent
+     *  1. First `WindowManager.allProjectFrames` whose ancestor window reports
+     *     `Window.isActive`. Iterates all project frames, calls
+     *     `SwingUtilities.getWindowAncestor(frame.component)`, and matches where
+     *     `window.isActive` is true. (The sibling swap-service uses the same frame
+     *     enumeration but matches by reference equality against a listener-provided
+     *     window — identical iteration, different predicate.)
+     *  2. [IdeFocusManager.lastFocusedFrame]'s project — fallback when the OS-active
+     *     scan returns null for any reason: the IDE is alt-tabbed out, the window
+     *     ancestor lookup is temporarily unavailable, or `WindowManager` itself is
+     *     null during startup / shutdown.
+     *  3. First non-default non-disposed open project — pre-focus-manager startup or
+     *     shutdown edge cases.
+     *  4. `null` — no project open; resolver will return the global accent.
      */
-    private fun resolveFocusedProject(): com.intellij.openapi.project.Project? =
+    private fun resolveFocusedProject(): com.intellij.openapi.project.Project? {
+        osActiveProjectFrame()?.let { return it }
         IdeFocusManager
             .getGlobalInstance()
             .lastFocusedFrame
             ?.project
             ?.takeIf { it.isUsable() }
-            ?: ProjectManager
-                .getInstance()
-                .openProjects
-                .firstOrNull { it.isUsable() }
+            ?.let { return it }
+        return ProjectManager
+            .getInstance()
+            .openProjects
+            .firstOrNull { it.isUsable() }
+    }
+
+    /**
+     * Scans open project frames for the one whose ancestor window is OS-active. Each frame
+     * access is wrapped in try/catch because frames can be mid-dispose during a shutdown
+     * race; one bad frame must not break the scan for a healthy one. Error paths — a null
+     * `WindowManager` service and per-frame failures — log at WARN on first occurrence then
+     * degrade to DEBUG so user-submitted idea.log captures the pathology while interactive
+     * sessions do not drown in noise across repeated Apply / LAF-change / rotation-tick
+     * calls.
+     */
+    private fun osActiveProjectFrame(): com.intellij.openapi.project.Project? {
+        val windowManager = WindowManager.getInstance()
+        if (windowManager == null) {
+            val context = "thread=${Thread.currentThread().name}"
+            if (windowManagerUnavailableLogged.compareAndSet(false, true)) {
+                log.warn(
+                    "WindowManager unavailable during OS-active project resolution ($context); " +
+                        "falling back to IdeFocusManager cascade (further occurrences at DEBUG)",
+                )
+            } else {
+                log.debug("WindowManager unavailable during OS-active project resolution ($context)")
+            }
+            return null
+        }
+        for ((index, frame) in windowManager.allProjectFrames.withIndex()) {
+            var probedName: String? = null
+            try {
+                val project = frame.project ?: continue
+                probedName = runCatching { project.name }.getOrNull()
+                if (!project.isUsable()) continue
+                val window = SwingUtilities.getWindowAncestor(frame.component) ?: continue
+                if (window.isActive) return project
+            } catch (exception: RuntimeException) {
+                val context =
+                    "index=$index, project=${probedName ?: "<unresolved>"}, " +
+                        "thread=${Thread.currentThread().name}"
+                if (osActiveFrameFailureLogged.compareAndSet(false, true)) {
+                    log.warn(
+                        "Skipping frame during OS-active resolution ($context) " +
+                            "(further failures logged at DEBUG)",
+                        exception,
+                    )
+                } else {
+                    log.debug("Skipping frame during OS-active resolution ($context)", exception)
+                }
+            }
+        }
+        return null
+    }
 
     private fun com.intellij.openapi.project.Project.isUsable(): Boolean = !isDefault && !isDisposed
 

@@ -168,29 +168,60 @@ class ProjectAccentSwapServiceTest {
     }
 
     @Test
-    fun `onWindowActivated short-circuits on same-project re-activation`() {
-        // The whole point of the cache: alt-tabbing within the same project window must NOT
-        // re-apply the accent on every focus event. After the first activation primes the
-        // cache, the second call with the same project must skip resolve+apply.
+    fun `onWindowActivated re-resolves on same-project re-activation and skips apply when hex matches`() {
+        // Same-project re-activation (alt-tab out to a non-IDE app and back) MUST re-resolve
+        // because an external apply — rotation tick, settings panel — may have drifted the
+        // JVM-wide UIManager/globalScheme color since the last activation. The apply itself
+        // is still skipped when the resolver output matches lastAppliedHex, so alt-tab within
+        // a stable project is cheap (one HashMap lookup, no component-tree walk).
         val (window, project) = wireMatchingFrame()
         every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
         val service = ProjectAccentSwapService()
         val event = makeEvent(window)
 
         service.onWindowActivatedForTest(event) // primes cache
-        service.onWindowActivatedForTest(event) // same project — must short-circuit
+        service.onWindowActivatedForTest(event) // same project — re-resolves, hex matches, skips apply
 
-        // resolve called exactly once on the priming pass; apply called exactly once.
-        verify(exactly = 1) { AccentResolver.resolve(project, AyuVariant.MIRAGE) }
+        verify(exactly = 2) { AccentResolver.resolve(project, AyuVariant.MIRAGE) }
         verify(exactly = 1) { AccentApplicator.apply("#FFCC66") }
+        verify(exactly = 1) { ComponentTreeRefresher.walkAndNotify(project, window) }
+    }
+
+    @Test
+    fun `onWindowActivated re-applies when external apply drifted hex for same project`() {
+        // Rotation tick / Settings Apply / LAF change can push a color resolved for a DIFFERENT
+        // focused project into the JVM-wide UIManager/globalScheme (via AccentApplicator.apply
+        // + notifyExternalApply). Re-activating the same project later must notice the drift
+        // and re-apply the correct resolved color — the only signal that the visible UI needs
+        // to be rewritten is a cache-hex that no longer matches the resolver's output. Without
+        // the re-apply, tabs/toolbars (global scheme) would stay on the wrong color while
+        // glow (per-project) stayed on the correct override.
+        val (window, project) = wireMatchingFrame()
+        val service = ProjectAccentSwapService()
+
+        // First activation primes the cache with the project's real override color.
+        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#5CCFE6"
+        service.onWindowActivatedForTest(makeEvent(window))
+
+        // Rotation tick path: external apply pushed a DIFFERENT color into UIManager
+        // (because the tick resolved for a different focused project) and synced the cache.
+        service.notifyExternalApply("#DFBFFF")
+
+        // Alt-tab back to the original project. Resolver still returns the override color;
+        // cache-hex is lavender; the handler must notice the drift and re-apply cyan.
+        service.onWindowActivatedForTest(makeEvent(window))
+
+        verify(exactly = 2) { AccentApplicator.apply("#5CCFE6") }
+        verify(exactly = 2) { ComponentTreeRefresher.walkAndNotify(project, window) }
     }
 
     @Test
     fun `onWindowActivated short-circuits on same-hex re-activation across different projects`() {
         // Two different projects sharing the same effective accent hex (e.g. same global
-        // override). Activating the second after priming with the first must update the
-        // lastAppliedProject reference but skip the apply, because the visible UIManager
-        // state is already correct.
+        // override). Activating the second after priming with the first must resolve the
+        // new project but skip the apply, because the visible UIManager state is already
+        // correct — the hex gate carries the dedup load now that project identity alone is
+        // no longer enough to prove staleness.
         val projectA = stubProject("project-a")
         val projectB = stubProject("project-b")
         val windowA = mockk<Window>(relaxed = true)
@@ -348,7 +379,7 @@ class ProjectAccentSwapServiceTest {
     /**
      * Returns (window, project) where the mocked WindowManager.allProjectFrames contains a
      * single IdeFrame whose component's window ancestor is `window` and whose project is
-     * the returned mock. Lets [handleWindowActivated] reach AyuVariant.detect / resolve /
+     * the returned mock. Lets `handleWindowActivated` reach AyuVariant.detect / resolve /
      * apply on a real Swing tree without instantiating a [java.awt.Frame] (which throws
      * `HeadlessException` on CI).
      */
