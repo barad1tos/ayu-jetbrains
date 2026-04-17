@@ -89,7 +89,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "cb6e03c"
+          last_verified_sha: "85fed84"
           last_verified_date: "2026-04-17"
           content_sha256: "4c86c5d855c6dcefd703f647451bac4117397e435b05dd9cae6b9cbc7f479616"
 
@@ -110,7 +110,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "cb6e03c"
+          last_verified_sha: "85fed84"
           last_verified_date: "2026-04-17"
           content_sha256: "ea83498db84a5cd122dd1d09132d74774c6e24295188b93464fddb0d784bf4e1"
 
@@ -174,7 +174,7 @@ categories:
           sources:
             - src/main/kotlin/dev/ayuislands/settings/FontPresetPanel.kt
             - src/main/kotlin/dev/ayuislands/font
-          last_verified_sha: "cb6e03c"
+          last_verified_sha: "85fed84"
           last_verified_date: "2026-04-16"
           content_sha256: "2303011928e4246c32edfcc3c4caa923d536aa73f848e225708da4374ce17b41"
 
