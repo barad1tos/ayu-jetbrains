@@ -58,6 +58,12 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.5.2" to
+                "<ul>" +
+                "<li>Per-Language Accent Pins show a live language-proportions breakdown</li>" +
+                "<li>Fix accent rotation overriding pinned project colors</li>" +
+                "<li>Fix Settings showing the wrong project with two or more windows open</li>" +
+                "</ul>",
             "2.5.0" to
                 "<ul>" +
                 "<li>Pin an accent color to a specific project</li>" +
