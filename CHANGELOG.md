@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.5.2] - 2026-04-17
+
+### Added
+- [Paid] Per-Language Accent Pins show a live language-proportions breakdown for the current project (e.g. "Detected: Kotlin 78% · Java 15% · other 7%") with a polyglot fallback when no single language dominates
+
+### Fixed
+- Fix accent rotation overriding pinned project colors — tabs and glow stay on your pinned accent across rotation ticks
+- Fix Settings panel "Currently active:" and "Detected:" readouts binding to the wrong project when two or more windows are open
+
 ## [2.5.1] - 2026-04-16
 
 ### Changed

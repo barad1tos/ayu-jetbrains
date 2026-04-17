@@ -47,7 +47,9 @@
           needed.</li>
       <li><b>Per-language accent pins</b> — bind a color to a language
           (Kotlin → cyan, Python → gold); applies when the project's dominant
-          language matches and no project override exists.</li>
+          language matches and no project override exists. Settings shows a
+          live <b>language-proportions</b> breakdown for the current project
+          so you can see which pin takes effect.</li>
       <li><b>Workspace</b> — auto-fit or fixed width for Project View, Commit,
           and Git panels with min/max bounds. Git panel splitter control for
           branches and file changes trees. Hide the filesystem path and
@@ -83,9 +85,11 @@
   ]]></description>
 
     <change-notes><![CDATA[
-    <h3>Unreleased</h3>
+    <h3>2.5.2</h3>
     <ul>
-      <li>Per-Language Accent Pins now show a live breakdown of the detected languages in your project (e.g. "Detected in this project: Kotlin (78%) • Java (15%) • other (7%)") or a clear "polyglot" notice when no single language dominates</li>
+      <li>[Paid] Per-Language Accent Pins now show a live breakdown of the detected languages in your project (e.g. "Detected: Kotlin 78% • Java 15% • other 7%") or a clear "polyglot" notice when no single language dominates</li>
+      <li>Fix accent rotation overriding pinned project colors — tabs and glow now stay on your pinned accent across rotation ticks</li>
+      <li>Fix Settings panel "Currently active:" and "Detected:" readouts binding to the wrong project when two or more windows are open</li>
     </ul>
     <h3>2.5.1</h3>
     <ul>

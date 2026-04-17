@@ -114,6 +114,17 @@ categories:
           last_verified_date: "2026-04-17"
           content_sha256: "ea83498db84a5cd122dd1d09132d74774c6e24295188b93464fddb0d784bf4e1"
 
+      - id: accent-language-breakdown
+        title: "Live language-proportions breakdown"
+        keyword: "language-proportions"
+        introduced: "2.5.2"
+        tier: paid
+        description: >
+          Per-Language Accent Pins shows a live breakdown of the detected
+          languages in the current project (e.g. "Detected: Kotlin 78% ·
+          Java 15% · other 7%") with a polyglot fallback when no single
+          language dominates.
+
   glow:
     title: "Glow effects"
     features:
