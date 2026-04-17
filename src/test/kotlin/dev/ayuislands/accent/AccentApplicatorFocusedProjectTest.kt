@@ -174,6 +174,35 @@ class AccentApplicatorFocusedProjectTest {
     }
 
     @Test
+    fun `applyForFocusedProject falls back to openProjects when focused frame has null project`() {
+        // IdeFrame.getProject is @Nullable on the platform; the lastFocusedFrame may itself
+        // be non-null but return null for its project (welcome-frame edge). The cascade must
+        // treat that the same as "no focused frame" and fall through to ProjectManager.
+        val nullProjectFrame =
+            mockk<IdeFrame> {
+                every { project } returns null
+            }
+        val focusManager =
+            mockk<IdeFocusManager> {
+                every { lastFocusedFrame } returns nullProjectFrame
+            }
+        mockkStatic(IdeFocusManager::class)
+        every { IdeFocusManager.getGlobalInstance() } returns focusManager
+
+        val healthyProject = stubProject(isDefault = false, isDisposed = false)
+        val manager = mockk<ProjectManager>()
+        every { manager.openProjects } returns arrayOf(healthyProject)
+        every { ProjectManager.getInstance() } returns manager
+
+        every { AccentResolver.resolve(healthyProject, AyuVariant.MIRAGE) } returns "#FALLBACK"
+
+        val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
+
+        assertEquals("#FALLBACK", applied)
+        verify(exactly = 1) { AccentResolver.resolve(healthyProject, AyuVariant.MIRAGE) }
+    }
+
+    @Test
     fun `applyForFocusedProject falls back to openProjects when focused frame project is disposed`() {
         // Edge case in resolveFocusedProject: lastFocusedFrame returns a project that
         // disposed between focus event and our read. The takeIf { isUsable() } guard
@@ -585,6 +614,54 @@ class AccentApplicatorFocusedProjectTest {
 
         assertEquals("#HEALTHY", applied)
         verify(exactly = 1) { AccentResolver.resolve(healthyProject, AyuVariant.MIRAGE) }
+    }
+
+    @Test
+    fun `applyForFocusedProject WARN context includes resolved project name when name succeeded before throw`() {
+        // Exercises the other branch of `probedName ?: "<unresolved>"` in the WARN context
+        // string: when `project.name` succeeds but a later state probe (isUsable / window
+        // ancestor) throws, the catch must credit the resolved name in the log so triage
+        // can tell WHICH project's frame broke. The "<unresolved>" branch is covered by
+        // the throwing-frame tests above where `.project` itself throws.
+        val probedProject =
+            mockk<Project> {
+                every { name } returns "frame-project"
+                every { isDefault } throws IllegalStateException("probe after name")
+            }
+        val probedFrame =
+            mockk<IdeFrame> {
+                every { project } returns probedProject
+            }
+        every { WindowManager.getInstance().allProjectFrames } returns arrayOf(probedFrame)
+
+        val projectManager = mockk<ProjectManager>()
+        every { projectManager.openProjects } returns emptyArray()
+        every { ProjectManager.getInstance() } returns projectManager
+        every { AccentResolver.resolve(null, AyuVariant.MIRAGE) } returns "#GLOBAL"
+
+        val capturedWarns = mutableListOf<String>()
+        val processor =
+            object : LoggedErrorProcessor() {
+                override fun processWarn(
+                    category: String,
+                    message: String,
+                    throwable: Throwable?,
+                ): Boolean {
+                    if (!message.contains("Skipping frame during OS-active resolution")) return true
+                    capturedWarns += message
+                    return false
+                }
+            }
+
+        LoggedErrorProcessor.executeWith<Throwable>(processor) {
+            AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
+        }
+
+        val firstWarn = capturedWarns.single()
+        assertTrue(
+            firstWarn.contains("project=frame-project"),
+            "WARN must carry the resolved project name when it was captured before the throw; got: $firstWarn",
+        )
     }
 
     @Test
