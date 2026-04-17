@@ -48,6 +48,7 @@ object AccentApplicator {
     // the WARN even when two threads race to log the same shutdown-race failure.
     internal val osActiveFrameFailureLogged = AtomicBoolean(false)
 
+    // Paired gate; see osActiveFrameFailureLogged above for the WARN/DEBUG rationale.
     internal val windowManagerUnavailableLogged = AtomicBoolean(false)
 
     private const val DARK_FOREGROUND_HEX = 0x1F2430

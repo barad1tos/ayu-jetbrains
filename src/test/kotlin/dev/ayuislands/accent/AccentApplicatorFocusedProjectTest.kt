@@ -23,6 +23,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -59,9 +60,9 @@ class AccentApplicatorFocusedProjectTest {
         swapService = mockk(relaxed = true)
         every { ProjectAccentSwapService.getInstance() } returns swapService
 
-        // AccentApplicator is a JVM-wide object; WARN-gate flags persist across tests.
-        // Reset before AND after so cross-file test ordering (Gradle forks, parallel
-        // execution) cannot observe stale gate state.
+        // AccentApplicator is a JVM-wide object; WARN-gate flags persist across tests in
+        // the same JVM. Reset before AND after so other test classes running in the same
+        // fork can neither poison this suite nor inherit stale state from it.
         resetLogGates()
 
         // Default: empty frames + null window ancestor so `resolveFocusedProject` falls
@@ -396,6 +397,14 @@ class AccentApplicatorFocusedProjectTest {
             capturedWarns.single().contains("further occurrences at DEBUG"),
             "first WARN must announce the dedup contract; got: ${capturedWarns.single()}",
         )
+        assertTrue(
+            capturedWarns.single().contains("thread="),
+            "WARN must carry thread-name context so idea.log distinguishes callers; got: ${capturedWarns.single()}",
+        )
+        assertFalse(
+            AccentApplicator.osActiveFrameFailureLogged.get(),
+            "WindowManager gate must not flip the per-frame gate; the two are independent",
+        )
     }
 
     @Test
@@ -620,6 +629,19 @@ class AccentApplicatorFocusedProjectTest {
             1,
             capturedWarns.size,
             "Per-frame exception must WARN once then dedup; got: $capturedWarns",
+        )
+        val firstWarn = capturedWarns.single()
+        assertTrue(
+            firstWarn.contains("further failures logged at DEBUG"),
+            "first WARN must announce the dedup contract; got: $firstWarn",
+        )
+        assertTrue(
+            firstWarn.contains("index=") && firstWarn.contains("thread="),
+            "WARN must carry frame index and thread name so idea.log makes triage possible; got: $firstWarn",
+        )
+        assertFalse(
+            AccentApplicator.windowManagerUnavailableLogged.get(),
+            "per-frame gate must not flip the WindowManager gate; the two are independent",
         )
     }
 

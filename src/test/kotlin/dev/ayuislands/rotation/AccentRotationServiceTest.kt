@@ -463,37 +463,35 @@ class AccentRotationServiceTest {
 
     @Test
     fun `rotateAccent resolves for the OS-active project when two projects are open`() {
-        // Integration-level proof of the headline bug fix. With two projects open (A
-        // OS-active, B not), a rotation tick must resolve through AccentResolver.resolve(A,
-        // ...) — not B — so A's override sticks across the tick. This is the exact asymmetry
-        // the original bug produced: rotation picked the wrong project, glow stayed correct
-        // per-project (because GlowOverlayManager iterates explicitly), and the visible tab
-        // underline on the OS-active window ended up with B's or the global color.
-        //
-        // Test asserts on AccentResolver.resolve — the production entry point where the
-        // cascade's output flows into the applied hex. `AccentApplicator.applyForFocusedProject`
-        // is locked in AccentApplicatorFocusedProjectTest; here we prove the rotation scheduler
-        // actually routes through it with the right project.
+        // Two projects open, A is OS-active. A rotation tick must resolve through
+        // AccentResolver.resolve(A, ...) — not B — so A's override sticks across the tick.
+        // Cascade internals are locked in AccentApplicatorFocusedProjectTest; this test
+        // proves the rotation scheduler routes through it with the OS-active project.
         mockRotationEnvironment()
         state.accentRotationEnabled = true
         state.accentRotationMode = AccentRotationMode.PRESET.name
         state.accentRotationPresetIndex = 0
 
+        mockkStatic(javax.swing.SwingUtilities::class)
         val osActiveProject = stubProject("project-A")
         val inactiveProject = stubProject("project-B")
 
         val osActiveFrame = stubFrame(osActiveProject, isActive = true)
         val inactiveFrame = stubFrame(inactiveProject, isActive = false)
+        // Inactive frame first in both arrays: if a regression reverted
+        // resolveFocusedProject to `openProjects.firstOrNull` or `allProjectFrames[0]`, that
+        // regression would pick B and this test would fail. With A winning only through the
+        // OS-active predicate, the tier-1 cascade is the sole reason the test passes.
         every {
             com.intellij.openapi.wm.WindowManager
                 .getInstance()
                 .allProjectFrames
-        } returns arrayOf(osActiveFrame, inactiveFrame)
+        } returns arrayOf(inactiveFrame, osActiveFrame)
         every {
             com.intellij.openapi.project.ProjectManager
                 .getInstance()
                 .openProjects
-        } returns arrayOf(osActiveProject, inactiveProject)
+        } returns arrayOf(inactiveProject, osActiveProject)
 
         mockkObject(AccentResolver)
         every { AccentResolver.resolve(osActiveProject, AyuVariant.MIRAGE) } returns "#5CCFE6"
@@ -522,7 +520,6 @@ class AccentRotationServiceTest {
         val window = mockk<java.awt.Window>(relaxed = true)
         every { window.isActive } returns isActive
         val component = javax.swing.JPanel()
-        mockkStatic(javax.swing.SwingUtilities::class)
         every { javax.swing.SwingUtilities.getWindowAncestor(component) } returns window
         return mockk {
             every { this@mockk.project } returns project
