@@ -6,6 +6,7 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.text.StringUtil
+import com.intellij.ui.ColorUtil
 import com.intellij.ui.ToolbarDecorator
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.dsl.builder.Align
@@ -17,6 +18,7 @@ import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.LanguageDetectionRules
+import dev.ayuislands.accent.ProjectLanguageDetectionListener
 import dev.ayuislands.accent.ProjectLanguageDetector
 import dev.ayuislands.accent.runCatchingPreservingCancellation
 import dev.ayuislands.licensing.LicenseChecker
@@ -25,8 +27,11 @@ import java.awt.BorderLayout
 import java.awt.CardLayout
 import java.awt.Color
 import java.awt.Component
+import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.FlowLayout
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import java.io.File
 import javax.swing.ButtonGroup
 import javax.swing.Icon
@@ -36,6 +41,7 @@ import javax.swing.JRadioButton
 import javax.swing.JTable
 import javax.swing.ListSelectionModel
 import javax.swing.SwingConstants
+import javax.swing.SwingUtilities
 import javax.swing.table.DefaultTableCellRenderer
 import javax.swing.table.TableModel
 
@@ -92,7 +98,23 @@ class OverridesGroupBuilder {
 
         val licensed = LicenseChecker.isLicensedOrGrace()
 
-        val segmentedBar = buildSegmentedBar()
+        val projectsRadio = JRadioButton("Projects", true)
+        val languagesRadio = JRadioButton("Languages", false)
+        val segmentedButtonGroup =
+            ButtonGroup().apply {
+                add(projectsRadio)
+                add(languagesRadio)
+            }
+        projectsRadio.addActionListener { (cardPanel.layout as CardLayout).show(cardPanel, CARD_PROJECTS) }
+        languagesRadio.addActionListener { (cardPanel.layout as CardLayout).show(cardPanel, CARD_LANGUAGES) }
+        val segmentedBar =
+            JPanel(FlowLayout(FlowLayout.LEADING, BAR_HORIZONTAL_GAP, BAR_VERTICAL_GAP)).apply {
+                isOpaque = false
+                add(projectsRadio)
+                add(languagesRadio)
+                // Retain strong reference so actions survive focus changes.
+                putClientProperty("ayu.overrides.group", segmentedButtonGroup)
+            }
         cardPanel.add(decorateTable(projectTable, projectActions(licensed)), CARD_PROJECTS)
         cardPanel.add(decorateTable(languageTable, languageActions(licensed)), CARD_LANGUAGES)
         // No fixed preferredSize: the AutoSizingTable drives height via
@@ -139,11 +161,32 @@ class OverridesGroupBuilder {
         collapsible.addExpandedListener { expanded ->
             settings.state.overridesGroupExpanded = expanded
         }
-        // Keep the proportions status line in sync with the pending-change surface so
-        // any override add / edit / delete re-reads from the detector cache. Phase 29's
-        // rescan action will reuse this same channel (invalidate + fireChanged) without
-        // introducing a new MessageBus Topic.
+        // Two independent refresh channels share one repopulate helper:
+        //  - Pending-change listener: Settings-local edits (add / edit / delete a row)
+        //    fire `fireChanged()` synchronously on EDT, which re-reads the warm cache.
+        //  - Detection Topic: async scan completions (startup warmup, `ModuleRootListener`
+        //    content-root change, user-triggered rescan) fire
+        //    `ProjectLanguageDetectionListener.scanCompleted` on EDT — the only signal
+        //    the row has to exit a stale winner state without a settings edit.
         addPendingChangeListener { proportionsPanel?.let { populateProportionsPanel(it) } }
+        // Lifetime of the Topic subscription is tied to the project's MessageBus
+        // (auto-cleared on project close); the panel-displayable guard below
+        // covers the window where Settings has been closed but the project is
+        // still alive — `populateProportionsPanel` on a detached panel would
+        // paint into nothing and waste EDT budget.
+        contextProject?.let { project ->
+            val connection = project.messageBus.connect()
+            connection.subscribe(
+                ProjectLanguageDetectionListener.TOPIC,
+                ProjectLanguageDetectionListener {
+                    SwingUtilities.invokeLater {
+                        val panel = proportionsPanel ?: return@invokeLater
+                        if (!panel.isDisplayable) return@invokeLater
+                        populateProportionsPanel(panel)
+                    }
+                },
+            )
+        }
     }
 
     // Settings panel lifecycle (isModified / apply / reset)
@@ -378,39 +421,99 @@ class OverridesGroupBuilder {
                     foreground = subdued
                 },
             )
-            return
-        }
-        panel.add(JBLabel(PROPORTIONS_PREFIX).apply { foreground = subdued })
-        entries.forEachIndexed { index, entry ->
-            if (index > 0) {
-                panel.add(JBLabel(PROPORTIONS_SEPARATOR.toString()).apply { foreground = subdued })
-            }
-            val icon = entry.id?.let { LanguageDetectionRules.iconForLanguageId(it) }
-            // Named entries render as icon + percent only (icon identifies the
-            // language). The "other" bucket has no icon and no single language —
-            // render its literal "other" label before the percent so the row
-            // still reads as a unit instead of a dangling bare percent that
-            // looks like a rendering glitch.
-            val text =
-                if (entry.id == null) {
-                    "${entry.label} ${entry.percent}%"
-                } else {
-                    "${entry.percent}%"
+        } else {
+            panel.add(JBLabel(PROPORTIONS_PREFIX).apply { foreground = subdued })
+            entries.forEachIndexed { index, entry ->
+                if (index > 0) {
+                    panel.add(JBLabel(PROPORTIONS_SEPARATOR.toString()).apply { foreground = subdued })
                 }
-            panel.add(
-                JBLabel(text, icon, SwingConstants.LEADING).apply {
-                    foreground = subdued
-                    // Hover affordance: icon alone can be unfamiliar for less-common
-                    // languages, so the display name surfaces in the tooltip.
-                    // toolTipText is plain-text unless it starts with <html>, so
-                    // any pathological Language.displayName renders literally —
-                    // no HTML interpretation, consistent with the label-text
-                    // safety story.
-                    toolTipText = entry.label
+                val icon = entry.id?.let { LanguageDetectionRules.iconForLanguageId(it) }
+                // Named entries render as icon + percent only (icon identifies the
+                // language). The "other" bucket has no icon and no single language —
+                // render its literal "other" label before the percent so the row
+                // still reads as a unit instead of a dangling bare percent that
+                // looks like a rendering glitch.
+                val text =
+                    if (entry.id == null) {
+                        "${entry.label} ${entry.percent}%"
+                    } else {
+                        "${entry.percent}%"
+                    }
+                panel.add(
+                    JBLabel(text, icon, SwingConstants.LEADING).apply {
+                        foreground = subdued
+                        // Hover affordance: icon alone can be unfamiliar for less-common
+                        // languages, so the display name surfaces in the tooltip.
+                        // toolTipText is plain-text unless it starts with <html>, so
+                        // any pathological Language.displayName renders literally —
+                        // no HTML interpretation, consistent with the label-text
+                        // safety story.
+                        toolTipText = entry.label
+                    },
+                )
+            }
+        }
+        // Trailing Rescan affordance appended in BOTH paths (normal + polyglot)
+        // so the user is never stuck on a stale verdict without an escape hatch.
+        // Skipped when project is null (Settings opened without a focused project):
+        // `ProjectLanguageDetector.rescan` would have nowhere to dispatch.
+        if (project != null) {
+            panel.add(JBLabel(PROPORTIONS_SEPARATOR.toString()).apply { foreground = subdued })
+            panel.add(buildRescanAffordanceLabel(project, subdued))
+        }
+    }
+
+    /**
+     * Build the clickable "Rescan" label at the trailing end of the proportions row.
+     *
+     * Behavior contract (muted-by-default, accent-on-hover, click-to-rescan):
+     *  - Foreground starts at `subdued` so the label blends with the row.
+     *  - `mouseEntered` re-resolves the currently-applied accent live (NOT
+     *    captured at build time) so a mid-session accent change surfaces on
+     *    the next hover. `runCatchingPreservingCancellation` contains any
+     *    platform-API throw — this runs on every hover tick and an uncaught
+     *    EDT exception would break the entire Settings row.
+     *  - `mouseExited` restores `subdued`.
+     *  - `mouseClicked` calls [ProjectLanguageDetector.rescan]; the
+     *    invalidate + schedule + publish chain lives in the detector so the
+     *    click inherits dedup-gate coalescing for free.
+     *
+     * Extracted out of [renderProportionsInto] so the outer function stays
+     * inside detekt's cyclomatic budget now that the trailing affordance adds
+     * its own conditional branches.
+     */
+    private fun buildRescanAffordanceLabel(
+        project: Project,
+        subdued: Color,
+    ): JBLabel =
+        JBLabel(RESCAN_LABEL).apply {
+            foreground = subdued
+            toolTipText = RESCAN_TOOLTIP
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            addMouseListener(
+                object : MouseAdapter() {
+                    override fun mouseEntered(event: MouseEvent) {
+                        foreground =
+                            runCatchingPreservingCancellation {
+                                val variant =
+                                    AyuVariant.detect()
+                                        ?: return@runCatchingPreservingCancellation subdued
+                                ColorUtil.fromHex(AccentResolver.resolve(project, variant))
+                            }.getOrDefault(subdued)
+                        repaint()
+                    }
+
+                    override fun mouseExited(event: MouseEvent) {
+                        foreground = subdued
+                        repaint()
+                    }
+
+                    override fun mouseClicked(event: MouseEvent) {
+                        ProjectLanguageDetector.rescan(project)
+                    }
                 },
             )
         }
-    }
 
     /**
      * Builder-level `@TestOnly` seam that binds a focused project without
@@ -516,28 +619,6 @@ class OverridesGroupBuilder {
     }
 
     private val fireChanged: () -> Unit = { listeners.forEach { it.run() } }
-
-    private fun buildSegmentedBar(): JComponent {
-        val projectsRadio = JRadioButton("Projects", true)
-        val languagesRadio = JRadioButton("Languages", false)
-        val group =
-            ButtonGroup().apply {
-                add(projectsRadio)
-                add(languagesRadio)
-            }
-        projectsRadio.addActionListener { (cardPanel.layout as CardLayout).show(cardPanel, CARD_PROJECTS) }
-        languagesRadio.addActionListener { (cardPanel.layout as CardLayout).show(cardPanel, CARD_LANGUAGES) }
-
-        val bar =
-            JPanel(FlowLayout(FlowLayout.LEADING, BAR_HORIZONTAL_GAP, BAR_VERTICAL_GAP)).apply {
-                isOpaque = false
-                add(projectsRadio)
-                add(languagesRadio)
-            }
-        // Retain strong reference so actions survive focus changes
-        bar.putClientProperty("ayu.overrides.group", group)
-        return bar
-    }
 
     private fun configureTables() {
         for (table in listOf(projectTable, languageTable)) {
@@ -778,6 +859,21 @@ class OverridesGroupBuilder {
          * panel (e.g. `Maple Mono · 14pt · Regular · 1.0× · ligatures`).
          */
         const val PROPORTIONS_SEPARATOR: Char = '·'
+
+        /**
+         * Literal text of the inline clickable "Rescan" affordance at the
+         * trailing end of the proportions row. Kept short so it doesn't
+         * dominate the muted status line — the cursor change + hover-accent
+         * already signal interactivity.
+         */
+        const val RESCAN_LABEL: String = "Rescan"
+
+        /**
+         * Tooltip for the inline Rescan label. Clarifies what will happen
+         * without bloating the visible text — hover discoverability.
+         */
+        const val RESCAN_TOOLTIP: String =
+            "Re-detect the dominant language of this project"
     }
 
     /**

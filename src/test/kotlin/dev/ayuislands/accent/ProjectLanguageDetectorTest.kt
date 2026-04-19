@@ -829,6 +829,192 @@ class ProjectLanguageDetectorTest {
         verify(exactly = 0) { AccentApplicator.apply(any()) }
     }
 
+    // ── rescan (Phase 29) ─────────────────────────────────────────────────────
+
+    @Test
+    fun `rescan clears both caches so proportions returns null immediately`() {
+        // Baseline: warm both caches via dominant(). Then mock the scheduler
+        // so the post-invalidate scan never actually runs; this proves
+        // rescan()'s invalidate happens synchronously before the async
+        // scheduler is consulted.
+        val project = stubProject("/tmp/rescan-clears-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns mapOf("kotlin" to 900L, "java" to 100L)
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+        ProjectLanguageDetector.dominant(project)
+        assertEquals(
+            mapOf("kotlin" to 900L, "java" to 100L),
+            ProjectLanguageDetector.proportions(project),
+        )
+
+        stubDumbServiceSmart(project)
+        mockkObject(ProjectLanguageScanAsync)
+        every { ProjectLanguageScanAsync.schedule(any(), any()) } returns true
+
+        ProjectLanguageDetector.rescan(project)
+
+        assertNull(
+            ProjectLanguageDetector.proportions(project),
+            "rescan MUST evict the weights cache synchronously — a stale breakdown " +
+                "served while the scan is still running would misrepresent the in-progress state",
+        )
+    }
+
+    @Test
+    fun `rescan forwards to scheduler keyed by the canonical project path`() {
+        // The dedup gate in ProjectLanguageScanAsync keys on the canonical
+        // project path — rescan MUST use the same key so rapid-fire Rescan
+        // clicks coalesce into a single scan run.
+        val project = stubProject("/tmp/rescan-schedules-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns emptyMap()
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        stubDumbServiceSmart(project)
+        mockkObject(ProjectLanguageScanAsync)
+        val capturedKey = io.mockk.slot<String>()
+        every { ProjectLanguageScanAsync.schedule(capture(capturedKey), any()) } returns true
+
+        ProjectLanguageDetector.rescan(project)
+
+        assertEquals(
+            AccentResolver.projectKey(project),
+            capturedKey.captured,
+            "rescan forwards the scheduler key so the dedup gate can coalesce concurrent requests",
+        )
+    }
+
+    @Test
+    fun `rescan on a project with no canonical path is a no-op`() {
+        // AccentResolver.projectKey returns null for a disposal race / default
+        // project. rescan must bail out without touching caches or scheduling.
+        val project = mockk<Project>()
+        every { project.basePath } returns null
+        every { project.isDefault } returns false
+        every { project.isDisposed } returns false
+
+        stubDumbServiceSmart(project)
+        mockkObject(ProjectLanguageScanAsync)
+
+        ProjectLanguageDetector.rescan(project)
+
+        verify(exactly = 0) { ProjectLanguageScanAsync.schedule(any(), any()) }
+    }
+
+    @Test
+    fun `rescan runs detectInternal and publishes scanCompleted with the winning id`() {
+        // End-to-end happy path: rescan → scheduler runs task inline →
+        // detectAndCache writes both caches → publishScanCompleted fires on
+        // EDT with the detected id. Verified by capturing the MessageBus
+        // subscriber and asserting scanCompleted was called with "python".
+        val project = stubProject("/tmp/rescan-publish-hit-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns mapOf("python" to 900L, "yaml" to 100L)
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        stubDumbServiceSmart(project)
+        val listener = mockk<ProjectLanguageDetectionListener>(relaxed = true)
+        wireMessageBus(project, listener)
+        runInvokeLaterInline()
+        runSchedulerInline()
+
+        ProjectLanguageDetector.rescan(project)
+
+        verify(exactly = 1) { listener.scanCompleted("python") }
+    }
+
+    @Test
+    fun `rescan publishes scanCompleted with null on polyglot no-winner verdict`() {
+        // 50/50 split with no SDK hint → scan returns null winner → detector
+        // caches the null verdict → publishScanCompleted fires with null so
+        // subscribers (Settings row, Rescan balloon) can render the polyglot
+        // copy without relying on detector state inspection.
+        val project = stubProject("/tmp/rescan-publish-polyglot-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns mapOf("kotlin" to 500L, "java" to 500L)
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        stubDumbServiceSmart(project)
+        val listener = mockk<ProjectLanguageDetectionListener>(relaxed = true)
+        wireMessageBus(project, listener)
+        runInvokeLaterInline()
+        runSchedulerInline()
+
+        ProjectLanguageDetector.rescan(project)
+
+        verify(exactly = 1) { listener.scanCompleted(null) }
+    }
+
+    @Test
+    fun `rescan skips publish entirely when project disposes before scan completes`() {
+        // Dispose-between-schedule-and-completion race: the scheduler's
+        // executor thread checks isDisposed before calling detectAndCache AND
+        // before publishScanCompleted invokeLater. A bug that dropped the
+        // second guard would publish on EDT after project disposal → stale
+        // MessageBus. Simulate by flipping isDisposed true between schedule
+        // and task execution.
+        val project = stubProject("/tmp/rescan-disposed-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns mapOf("kotlin" to 1_000L)
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        stubDumbServiceSmart(project)
+        val listener = mockk<ProjectLanguageDetectionListener>(relaxed = true)
+        wireMessageBus(project, listener)
+        runInvokeLaterInline()
+
+        // Custom scheduler: flips disposed right before running the task.
+        mockkObject(ProjectLanguageScanAsync)
+        every { ProjectLanguageScanAsync.schedule(any(), any()) } answers {
+            every { project.isDisposed } returns true
+            val task = secondArg<() -> Unit>()
+            task()
+            true
+        }
+
+        ProjectLanguageDetector.rescan(project)
+
+        verify(exactly = 0) { listener.scanCompleted(any()) }
+    }
+
+    // Helpers for rescan tests — shared across the five specs above.
+
+    private fun stubDumbServiceSmart(project: Project) {
+        // scheduleBackgroundDetection gates on DumbService.isDumb(project) —
+        // which resolves to `project.getService(DumbService::class).isDumb`
+        // (the companion @JvmStatic delegates to getInstance → getService).
+        // mockkStatic on DumbService does NOT intercept the companion call,
+        // so we wire the service lookup directly on the mock Project instead.
+        val dumbService = mockk<com.intellij.openapi.project.DumbService>()
+        every { dumbService.isDumb } returns false
+        every { project.getService(com.intellij.openapi.project.DumbService::class.java) } returns dumbService
+    }
+
+    private fun wireMessageBus(
+        project: Project,
+        listener: ProjectLanguageDetectionListener,
+    ) {
+        val bus = mockk<com.intellij.util.messages.MessageBus>()
+        every { project.messageBus } returns bus
+        every { bus.syncPublisher(ProjectLanguageDetectionListener.TOPIC) } returns listener
+    }
+
+    private fun runInvokeLaterInline() {
+        mockkStatic(javax.swing.SwingUtilities::class)
+        every { javax.swing.SwingUtilities.invokeLater(any()) } answers {
+            firstArg<Runnable>().run()
+        }
+    }
+
+    private fun runSchedulerInline() {
+        mockkObject(ProjectLanguageScanAsync)
+        every { ProjectLanguageScanAsync.schedule(any(), any()) } answers {
+            val task = secondArg<() -> Unit>()
+            task()
+            true
+        }
+    }
+
     private fun assertModuleDetects(
         moduleNames: List<String>,
         expected: String,

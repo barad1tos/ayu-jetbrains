@@ -148,6 +148,36 @@ object ProjectLanguageDetector {
         weightsCache.remove(key)
     }
 
+    /**
+     * Manual entry point that forces a fresh scan: clears the cache for [project]
+     * and kicks [scheduleBackgroundDetection]. Bound to the Tools-menu
+     * `RescanLanguageAction` and to the inline "Rescan" affordance in the
+     * Settings → Accent → Overrides proportions row; both reuse a single public
+     * surface so the scheduler's dedup gate (keyed by canonical path inside
+     * [ProjectLanguageScanAsync]) coalesces rapid-fire spam from either source
+     * into one actual scan.
+     *
+     * Side effects:
+     *  - Evicts both dominant-id and weights caches for [project].
+     *  - Schedules a background scan on the shared IDE pool (no-op in dumb mode
+     *    — the startup activity's `ModuleRootListener` subscription re-runs
+     *    detection once indexing completes).
+     *  - On scan completion, [ProjectLanguageDetectionListener.scanCompleted] fires
+     *    on EDT via [publishScanCompleted], so UI subscribers (the Settings
+     *    proportions row, the action's balloon) receive the new state without
+     *    polling.
+     *
+     * Safe to call from EDT: invalidate is a two-`ConcurrentHashMap.remove`
+     * pair, and `scheduleBackgroundDetection` immediately returns after
+     * enqueuing the task on `AppExecutorUtil.getAppExecutorService()`.
+     */
+    fun rescan(project: Project) {
+        val key = AccentResolver.projectKey(project) ?: return
+        cache.remove(key)
+        weightsCache.remove(key)
+        scheduleBackgroundDetection(project, key)
+    }
+
     /** Drop the entire cache — useful for test isolation. Empties both maps. */
     fun clear() {
         cache.clear()
@@ -226,8 +256,45 @@ object ProjectLanguageDetector {
         if (DumbService.isDumb(project)) return
         ProjectLanguageScanAsync.schedule(key) {
             if (project.isDisposed) return@schedule
-            val detected = detectAndCache(project, key) ?: return@schedule
-            tryRefreshAccentForDetected(project, detected)
+            val detected = detectAndCache(project, key)
+            // Publish even when `detected` is null — UI subscribers (the
+            // Settings proportions row, the Rescan balloon) need to refresh
+            // their projection of the cache regardless of whether the scan
+            // produced a winner, a polyglot null, or a non-cacheable
+            // transient failure. A null publish after a Rescan click is the
+            // only way the UI can exit the stale "old winner" state when
+            // the project has since drifted into polyglot territory.
+            if (detected != null) {
+                tryRefreshAccentForDetected(project, detected)
+            }
+            publishScanCompleted(project, detected)
+        }
+    }
+
+    /**
+     * Dispatch [ProjectLanguageDetectionListener.scanCompleted] on EDT so
+     * subscribers can touch Swing directly. Separate from the scan task body
+     * so the scheduler's executor thread never reaches the MessageBus
+     * `syncPublisher` machinery — syncPublisher's invocation handler can run
+     * arbitrary subscriber code, and keeping that off the scan pool prevents
+     * a misbehaving subscriber from stalling the shared executor. Double
+     * dispose-guard (before and after invokeLater) because project disposal
+     * can race with a late-arriving scan completion.
+     */
+    private fun publishScanCompleted(
+        project: Project,
+        detectedId: String?,
+    ) {
+        if (project.isDisposed) return
+        SwingUtilities.invokeLater {
+            if (project.isDisposed) return@invokeLater
+            runCatchingPreservingCancellation {
+                project.messageBus
+                    .syncPublisher(ProjectLanguageDetectionListener.TOPIC)
+                    .scanCompleted(detectedId)
+            }.onFailure { exception ->
+                LOG.warn("scanCompleted publish failed; subscribers will not refresh for this scan", exception)
+            }
         }
     }
 

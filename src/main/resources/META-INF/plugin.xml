@@ -85,6 +85,10 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.6.0</h3>
+    <ul>
+      <li>[Paid] Rescan project language on demand — new "Rescan" link in the Overrides proportions row and "Tools → Ayu Islands → Rescan Project Language" menu action, for when you want the detected breakdown to refresh without waiting for the next Gradle sync</li>
+    </ul>
     <h3>2.5.2</h3>
     <ul>
       <li>[Paid] Per-Language Accent Pins now show a live breakdown of the detected languages in your project (e.g. "Detected: Kotlin 78% • Java 15% • other 7%") or a clear "polyglot" notice when no single language dominates</li>
@@ -302,5 +306,16 @@
                 description="Reopen the latest Ayu Islands release showcase">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
+
+        <group id="AyuIslands.ToolsGroup"
+               popup="true"
+               text="Ayu Islands"
+               description="Ayu Islands theme actions">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <action id="AyuIslands.RescanLanguage"
+                    class="dev.ayuislands.actions.RescanLanguageAction"
+                    text="Rescan Project Language"
+                    description="Invalidate the cache and re-detect the dominant project language"/>
+        </group>
     </actions>
 </idea-plugin>
