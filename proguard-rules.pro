@@ -80,6 +80,9 @@
 # plugin.xml: action (Tools → Show What's New…)
 -keep class dev.ayuislands.whatsnew.ShowWhatsNewAction { *; }
 
+# plugin.xml: action (Tools → Ayu Islands → Rescan Project Language)
+-keep class dev.ayuislands.actions.RescanLanguageAction { *; }
+
 # Public API singletons (called from kept classes)
 -keep class dev.ayuislands.accent.AccentApplicator { *; }
 -keep class dev.ayuislands.accent.AccentColor { *; }
