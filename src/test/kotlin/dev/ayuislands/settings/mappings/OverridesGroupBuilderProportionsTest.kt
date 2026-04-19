@@ -1,6 +1,7 @@
 package dev.ayuislands.settings.mappings
 
 import com.intellij.openapi.project.Project
+import com.intellij.util.messages.MessageBusConnection
 import dev.ayuislands.accent.LanguageDetectionRules
 import dev.ayuislands.accent.ProjectLanguageDetector
 import dev.ayuislands.accent.ProjectLanguageScanner
@@ -14,6 +15,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -44,6 +46,20 @@ class OverridesGroupBuilderProportionsTest {
         every { AccentMappingsSettings.getInstance() } returns settings
 
         mockkObject(ProjectLanguageDetector)
+
+        // `buildRescanAffordanceLabel.mouseClicked` re-reads
+        // `LicenseChecker.isLicensedOrGrace()` live on click as
+        // defence-in-depth against a license that expires while Settings
+        // is open. Without this mock the real `LicenseChecker` hits
+        // `ApplicationManager.getApplication()` (null in unit tests) and
+        // the click-dispatch tests fail. Default to licensed so the
+        // click tests drive the rescan path; a dedicated
+        // unlicensed-suppression spec flips it to false.
+        mockkObject(dev.ayuislands.licensing.LicenseChecker)
+        every {
+            dev.ayuislands.licensing.LicenseChecker
+                .isLicensedOrGrace()
+        } returns true
     }
 
     @AfterTest
@@ -211,29 +227,35 @@ class OverridesGroupBuilderProportionsTest {
                 "4%",
                 "·",
                 "other 3%",
+                "·",
+                "Rescan",
             ),
             texts,
             "icon row opens with the Detected prefix, then alternates percent-only " +
                 "entries and standalone middle-dot separator labels — the final bucket " +
-                "is labeled 'other' inline (it has no icon and no single language, so " +
-                "a bare percent would read as a rendering glitch)",
+                "is labeled 'other' inline, and a trailing Rescan affordance sits at " +
+                "the end so users can force a re-detection without leaving the row",
         )
         // Prefix and separators carry no icon. Every named-language entry tries
-        // to resolve an IDE-platform icon; the "other" bucket entry (last non-
-        // separator label) has no associated language and therefore no icon.
+        // to resolve an IDE-platform icon; the "other" bucket entry and the
+        // trailing Rescan label have no associated language and therefore no icon.
         assertEquals(null, labels.first().first, "the prefix label carries no icon")
-        assertEquals(null, labels.last().first, "the 'other' bucket entry carries no icon")
+        assertEquals(null, labels.last().first, "the Rescan affordance carries no icon")
     }
 
     @Test
-    fun `panel renders single polyglot JBLabel with info icon when detector returns null`() {
+    fun `panel renders polyglot JBLabel with info icon and trailing Rescan when detector returns null`() {
         val project = stubProject("/tmp/prop-polyglot-row-${System.nanoTime()}")
         every { ProjectLanguageDetector.proportions(project) } returns null
 
         val builder = OverridesGroupBuilder().apply { setParentProjectForTest(project) }
 
         val labels = builder.proportionsPanelLabelsForTest()
-        assertEquals(1, labels.size, "polyglot state renders exactly one label")
+        assertEquals(
+            3,
+            labels.size,
+            "polyglot state renders the main polyglot label, a · separator, and the Rescan affordance",
+        )
         assertEquals(
             OverridesGroupBuilder.POLYGLOT_COPY,
             labels.first().second,
@@ -244,22 +266,35 @@ class OverridesGroupBuilderProportionsTest {
             labels.first().first,
             "polyglot label uses AllIcons.General.Information so the state is visually distinct from the icon row",
         )
+        assertEquals(
+            OverridesGroupBuilder.PROPORTIONS_SEPARATOR.toString(),
+            labels[1].second,
+            "· separator sits between the polyglot copy and the Rescan affordance",
+        )
+        assertEquals(
+            OverridesGroupBuilder.RESCAN_LABEL,
+            labels.last().second,
+            "Rescan affordance MUST appear in the polyglot path — otherwise users " +
+                "have no escape hatch to force a re-detection from the polyglot state",
+        )
     }
 
     @Test
-    fun `panel renders polyglot state when detector returns empty weights`() {
+    fun `panel renders polyglot state with trailing Rescan when detector returns empty weights`() {
         // An empty-but-non-null weights map is the "scan ran, nothing matched"
         // state — the structured formatter returns an empty list, and the panel
         // must fall through to the polyglot copy path rather than rendering zero
-        // labels (which would leave an invisible row).
+        // labels (which would leave an invisible row). The Rescan affordance
+        // still appears at the trailing end.
         val project = stubProject("/tmp/prop-empty-${System.nanoTime()}")
         every { ProjectLanguageDetector.proportions(project) } returns emptyMap()
 
         val builder = OverridesGroupBuilder().apply { setParentProjectForTest(project) }
 
         val labels = builder.proportionsPanelLabelsForTest()
-        assertEquals(1, labels.size)
+        assertEquals(3, labels.size)
         assertEquals(OverridesGroupBuilder.POLYGLOT_COPY, labels.first().second)
+        assertEquals(OverridesGroupBuilder.RESCAN_LABEL, labels.last().second)
     }
 
     @Test
@@ -271,16 +306,17 @@ class OverridesGroupBuilderProportionsTest {
 
         val builder = OverridesGroupBuilder().apply { setParentProjectForTest(projectA) }
         val firstTexts = builder.proportionsPanelLabelsForTest().map { it.second }
-        assertEquals(listOf("Detected:", "100%"), firstTexts)
+        assertEquals(listOf("Detected:", "100%", "·", "Rescan"), firstTexts)
 
         builder.setParentProjectForTest(projectB)
         val secondTexts = builder.proportionsPanelLabelsForTest().map { it.second }
         assertEquals(
-            listOf("Detected:", "100%"),
+            listOf("Detected:", "100%", "·", "Rescan"),
             secondTexts,
             "refresh must rebuild children from projectB's weights — both project A " +
                 "and project B are single-language so the rendered text collapses to " +
-                "Detected: + 100%; the difference shows up in the resolved icon, not text",
+                "Detected: + 100%; the Rescan affordance is always appended so the " +
+                "difference between projects shows up in the resolved icon, not text",
         )
     }
 
@@ -317,6 +353,382 @@ class OverridesGroupBuilderProportionsTest {
             "mid-render throw must leave the live panel untouched, not half-populated; " +
                 "got ${labels.size} labels: ${labels.map { it.second }}",
         )
+    }
+
+    // ── Rescan affordance (Phase 29) ──────────────────────────────────────────
+
+    @Test
+    fun `Rescan label triggers ProjectLanguageDetector rescan on click`() {
+        // User-space contract: clicking "Rescan" in the proportions row MUST
+        // call ProjectLanguageDetector.rescan(project). Any other binding
+        // (invalidate alone, dominant alone) would miss part of the
+        // invalidate + schedule + publish chain and the UI would stay stale.
+        val project = stubProject("/tmp/rescan-click-${System.nanoTime()}")
+        every { ProjectLanguageDetector.proportions(project) } returns mapOf("kotlin" to 1_000L)
+        every { ProjectLanguageDetector.rescan(project) } returns Unit
+
+        val builder = OverridesGroupBuilder().apply { setParentProjectForTest(project) }
+        val rescanComponent = findRescanComponent(builder)
+
+        // Simulate a real mouseClicked MouseEvent — the label swallows the
+        // event without consulting x/y, so a zero-location event is fine.
+        val event =
+            java.awt.event.MouseEvent(
+                rescanComponent,
+                java.awt.event.MouseEvent.MOUSE_CLICKED,
+                System.currentTimeMillis(),
+                0,
+                0,
+                0,
+                1,
+                false,
+            )
+        rescanComponent.mouseListeners.forEach { it.mouseClicked(event) }
+
+        verify(exactly = 1) { ProjectLanguageDetector.rescan(project) }
+    }
+
+    @Test
+    fun `Rescan label carries a tooltip clarifying the affordance`() {
+        val project = stubProject("/tmp/rescan-tooltip-${System.nanoTime()}")
+        every { ProjectLanguageDetector.proportions(project) } returns mapOf("kotlin" to 1_000L)
+
+        val builder = OverridesGroupBuilder().apply { setParentProjectForTest(project) }
+
+        val tooltip = builder.proportionsPanelLabelsForTest().last().third
+        assertEquals(
+            OverridesGroupBuilder.RESCAN_TOOLTIP,
+            tooltip,
+            "Rescan tooltip explains what the click does without bloating the visible text",
+        )
+    }
+
+    @Test
+    fun `Rescan label is NOT appended when parentProject is null`() {
+        // Settings opened with no focused project: ProjectLanguageDetector.rescan
+        // would have nowhere to dispatch, so the click would be a dead-end. The
+        // affordance is deliberately suppressed in that state.
+        val builder = OverridesGroupBuilder().apply { setParentProjectForTest(null) }
+
+        val labels = builder.proportionsPanelLabelsForTest()
+        assertEquals(
+            1,
+            labels.size,
+            "with no parentProject, only the polyglot copy renders — no separator, no Rescan affordance",
+        )
+        assertEquals(OverridesGroupBuilder.POLYGLOT_COPY, labels.first().second)
+    }
+
+    @Test
+    fun `Rescan label hover flips foreground to currentAccent then reverts on exit`() {
+        // Hover contract: muted foreground by default (blends with the
+        // detected-proportions row), currently-applied accent on hover (signals
+        // which color the click will influence). Locks the mouseEntered /
+        // mouseExited round-trip so a regression that drops either branch gets
+        // caught — e.g. a refactor that leaves the label permanently accent-tinted
+        // after the first hover.
+        val project = stubProject("/tmp/rescan-hover-${System.nanoTime()}")
+        every { ProjectLanguageDetector.proportions(project) } returns mapOf("kotlin" to 1_000L)
+
+        val mirage = dev.ayuislands.accent.AyuVariant.MIRAGE
+        mockkObject(dev.ayuislands.accent.AyuVariant.Companion)
+        every {
+            dev.ayuislands.accent.AyuVariant
+                .detect()
+        } returns mirage
+        mockkObject(dev.ayuislands.accent.AccentResolver)
+        every {
+            dev.ayuislands.accent.AccentResolver
+                .resolve(project, mirage)
+        } returns "#5CCFE6"
+
+        val builder = OverridesGroupBuilder().apply { setParentProjectForTest(project) }
+        val rescan = findRescanComponent(builder)
+        val subdued = rescan.foreground
+
+        val enter =
+            java.awt.event.MouseEvent(rescan, java.awt.event.MouseEvent.MOUSE_ENTERED, 0L, 0, 0, 0, 0, false)
+        val exit =
+            java.awt.event.MouseEvent(rescan, java.awt.event.MouseEvent.MOUSE_EXITED, 0L, 0, 0, 0, 0, false)
+        ourMouseAdapters(rescan).forEach { it.mouseEntered(enter) }
+        val hoverColor = rescan.foreground
+        ourMouseAdapters(rescan).forEach { it.mouseExited(exit) }
+        val restoredColor = rescan.foreground
+
+        val expectedAccent =
+            com.intellij.ui.ColorUtil
+                .fromHex("#5CCFE6")
+        assertEquals(expectedAccent, hoverColor, "mouseEntered must flip foreground to the resolved accent color")
+        assertEquals(subdued, restoredColor, "mouseExited must restore the original muted foreground")
+    }
+
+    @Test
+    fun `Rescan label hover falls back to subdued when AccentResolver throws`() {
+        // Defensive lock on the runCatchingPreservingCancellation wrap
+        // inside the hover handler. If `AccentResolver.resolve` throws
+        // (malformed stored hex, plugin-unload race on EDT), the handler
+        // must fall back to the subdued foreground rather than propagate
+        // an uncaught EDT exception that would break the entire
+        // Settings row.
+        val project = stubProject("/tmp/rescan-hover-throw-${System.nanoTime()}")
+        every { ProjectLanguageDetector.proportions(project) } returns mapOf("kotlin" to 1_000L)
+
+        val mirage = dev.ayuislands.accent.AyuVariant.MIRAGE
+        mockkObject(dev.ayuislands.accent.AyuVariant.Companion)
+        every {
+            dev.ayuislands.accent.AyuVariant
+                .detect()
+        } returns mirage
+        mockkObject(dev.ayuislands.accent.AccentResolver)
+        every {
+            dev.ayuislands.accent.AccentResolver
+                .resolve(project, mirage)
+        } throws
+            RuntimeException("malformed hex")
+
+        val builder = OverridesGroupBuilder().apply { setParentProjectForTest(project) }
+        val rescan = findRescanComponent(builder)
+        val subdued = rescan.foreground
+
+        val enter =
+            java.awt.event.MouseEvent(rescan, java.awt.event.MouseEvent.MOUSE_ENTERED, 0L, 0, 0, 0, 0, false)
+        ourMouseAdapters(rescan).forEach { it.mouseEntered(enter) }
+
+        assertEquals(
+            subdued,
+            rescan.foreground,
+            "a throwing AccentResolver must be contained by the hover runCatching; foreground stays subdued",
+        )
+    }
+
+    @Test
+    fun `Rescan click is a no-op when license flips to unlicensed mid-session`() {
+        // Defence-in-depth lock on the click-time license re-check. The
+        // affordance was built while licensed, but a mid-session expiry
+        // (grace roll-off, LicensingFacade revocation) must prevent the
+        // click from firing a rescan.
+        val project = stubProject("/tmp/rescan-click-expiry-${System.nanoTime()}")
+        every { ProjectLanguageDetector.proportions(project) } returns mapOf("kotlin" to 1_000L)
+        every { ProjectLanguageDetector.rescan(project) } returns Unit
+
+        val builder = OverridesGroupBuilder().apply { setParentProjectForTest(project) }
+        val rescan = findRescanComponent(builder)
+
+        // Flip license AFTER the affordance is wired — simulates mid-session expiry.
+        every {
+            dev.ayuislands.licensing.LicenseChecker
+                .isLicensedOrGrace()
+        } returns false
+
+        val click =
+            java.awt.event.MouseEvent(
+                rescan,
+                java.awt.event.MouseEvent.MOUSE_CLICKED,
+                System.currentTimeMillis(),
+                0,
+                0,
+                0,
+                1,
+                false,
+            )
+        ourMouseAdapters(rescan).forEach { it.mouseClicked(click) }
+
+        verify(exactly = 0) { ProjectLanguageDetector.rescan(project) }
+    }
+
+    @Test
+    fun `Rescan label hover falls back to subdued when variant detect returns null`() {
+        // Defensive path: no Ayu theme active → AyuVariant.detect returns null,
+        // currentAccentColorFor hits the `?: return@... fallback` branch, and
+        // the hover foreground stays on the subdued base color instead of
+        // defaulting to an arbitrary Color or throwing.
+        val project = stubProject("/tmp/rescan-hover-null-${System.nanoTime()}")
+        every { ProjectLanguageDetector.proportions(project) } returns mapOf("kotlin" to 1_000L)
+
+        mockkObject(dev.ayuislands.accent.AyuVariant.Companion)
+        every {
+            dev.ayuislands.accent.AyuVariant
+                .detect()
+        } returns null
+
+        val builder = OverridesGroupBuilder().apply { setParentProjectForTest(project) }
+        val rescan = findRescanComponent(builder)
+        val subdued = rescan.foreground
+
+        val enter =
+            java.awt.event.MouseEvent(rescan, java.awt.event.MouseEvent.MOUSE_ENTERED, 0L, 0, 0, 0, 0, false)
+        ourMouseAdapters(rescan).forEach { it.mouseEntered(enter) }
+
+        assertEquals(subdued, rescan.foreground, "null variant must keep the subdued foreground")
+    }
+
+    @Test
+    fun `Rescan label uses HAND cursor to signal interactivity`() {
+        val project = stubProject("/tmp/rescan-cursor-${System.nanoTime()}")
+        every { ProjectLanguageDetector.proportions(project) } returns mapOf("kotlin" to 1_000L)
+
+        val builder = OverridesGroupBuilder().apply { setParentProjectForTest(project) }
+        val rescan = findRescanComponent(builder)
+
+        assertEquals(
+            java.awt.Cursor.HAND_CURSOR,
+            rescan.cursor.type,
+            "HAND cursor is the discoverability affordance — the label is visually muted, " +
+                "so the cursor is one of the few in-panel signals that this text is clickable",
+        )
+    }
+
+    /**
+     * Return only the MouseAdapter listeners that the Ayu Islands plugin
+     * installed — filters out Swing's internal `ToolTipManager` listener,
+     * which auto-registers when `toolTipText` is set and starts an undisposed
+     * shared Timer when we dispatch `mouseEntered` directly on the listener.
+     * IntelliJ's `SwingTimerWatcherExtension` fails the test if any Timer
+     * remains after teardown.
+     */
+    private fun ourMouseAdapters(component: javax.swing.JComponent): List<java.awt.event.MouseListener> =
+        component.mouseListeners.filter { it.javaClass.name.startsWith("dev.ayuislands") }
+
+    /**
+     * Reflection seam: install a mock `MessageBusConnection` into the
+     * builder's private `detectionConnection` field so disposal contract
+     * tests can drive `dispose()` without spinning up a real
+     * `Project.messageBus`. Production sets the same field via
+     * `buildGroup`; tests bypass Swing and the platform MessageBus graph.
+     */
+    private fun installDetectionConnection(
+        builder: OverridesGroupBuilder,
+        connection: MessageBusConnection?,
+    ) {
+        builder.javaClass
+            .getDeclaredField("detectionConnection")
+            .apply { isAccessible = true }
+            .set(builder, connection)
+    }
+
+    private fun readDetectionConnection(builder: OverridesGroupBuilder): MessageBusConnection? =
+        builder.javaClass
+            .getDeclaredField("detectionConnection")
+            .apply { isAccessible = true }
+            .get(builder) as MessageBusConnection?
+
+    /**
+     * Resolve the Rescan JBLabel inside the builder's proportions panel by
+     * matching on the companion-level literal — keeps the helper robust against
+     * cosmetic label rewordings as long as the literal stays in sync.
+     */
+    private fun findRescanComponent(builder: OverridesGroupBuilder): javax.swing.JComponent {
+        val panel =
+            builder.javaClass
+                .getDeclaredField("proportionsPanel")
+                .apply { isAccessible = true }
+                .get(builder) as? javax.swing.JPanel
+                ?: javax.swing.JPanel().also {
+                    // Mirror the seam used by proportionsPanelLabelsForTest(): lazily
+                    // build the panel before reflecting into it.
+                    builder.javaClass
+                        .getDeclaredField("proportionsPanel")
+                        .apply { isAccessible = true }
+                        .set(builder, it)
+                }
+        // Force one render pass so the Rescan label is in the tree.
+        builder.proportionsPanelLabelsForTest()
+        return panel.components
+            .filterIsInstance<com.intellij.ui.components.JBLabel>()
+            .firstOrNull { it.text == OverridesGroupBuilder.RESCAN_LABEL }
+            ?: error(
+                "Rescan JBLabel missing from proportions panel — components were " +
+                    "${panel.components.map { (it as? com.intellij.ui.components.JBLabel)?.text }}",
+            )
+    }
+
+    @Test
+    fun `Rescan affordance is suppressed when the user is unlicensed`() {
+        // Rescan is premium by project policy. The inline affordance must
+        // not appear for unlicensed users even though the proportions row
+        // itself stays free to read. The @TestOnly seam mirrors the
+        // `buildGroup` license read with an explicit `licensed` flag;
+        // passing `false` locks the unlicensed-suppression contract.
+        val project = stubProject("/tmp/rescan-unlicensed-${System.nanoTime()}")
+        every { ProjectLanguageDetector.proportions(project) } returns mapOf("kotlin" to 1_000L)
+
+        val builder = OverridesGroupBuilder().apply { setParentProjectForTest(project, licensed = false) }
+        val texts = builder.proportionsPanelLabelsForTest().map { it.second }
+
+        assertEquals(
+            listOf("Detected:", "100%"),
+            texts,
+            "unlicensed users must see the proportions row without the trailing Rescan affordance",
+        )
+    }
+
+    // ── detection subscription lifecycle (leak guard) ─────────────────────────
+
+    @Test
+    fun `dispose disconnects the live detection subscription`() {
+        // Lock the leak-fix: when `buildGroup` installed a MessageBus
+        // subscription, `dispose()` must call `disconnect()` on it and
+        // null the field so the next Settings open re-acquires a fresh
+        // connection instead of piling onto the stale one.
+        val builder = OverridesGroupBuilder()
+        val connection = mockk<MessageBusConnection>(relaxed = true)
+        installDetectionConnection(builder, connection)
+
+        builder.dispose()
+
+        verify(exactly = 1) { connection.disconnect() }
+        assertNull(
+            readDetectionConnection(builder),
+            "dispose() must null the field so the next wiring doesn't observe a disconnected handle",
+        )
+    }
+
+    @Test
+    fun `dispose is idempotent across repeated calls`() {
+        // The Configurable's disposeUIResources may fire more than once
+        // under pathological shutdown paths. A second dispose() must be
+        // a no-op — specifically it must NOT call disconnect() on an
+        // already-null field (NPE) and must NOT double-disconnect.
+        val builder = OverridesGroupBuilder()
+        val connection = mockk<MessageBusConnection>(relaxed = true)
+        installDetectionConnection(builder, connection)
+
+        builder.dispose()
+        builder.dispose()
+
+        verify(exactly = 1) { connection.disconnect() }
+    }
+
+    @Test
+    fun `dispose swallows a throwing disconnect without propagating`() {
+        // Round 3 defence: wrap the disconnect in
+        // `runCatchingPreservingCancellation` so a platform regression
+        // throwing `AlreadyDisposedException` from `disconnect()` does
+        // not break the Configurable's disposeUIResources chain. Without
+        // the wrap, `super.disposeUIResources()` would be skipped and
+        // BoundConfigurable's binding cleanup would leak.
+        val builder = OverridesGroupBuilder()
+        val connection = mockk<MessageBusConnection>(relaxed = true)
+        every { connection.disconnect() } throws IllegalStateException("already disposed")
+        installDetectionConnection(builder, connection)
+
+        // Load-bearing assertion: the call completes cleanly despite the throw.
+        builder.dispose()
+        // Field still nulled — next wiring observes a clean slot.
+        assertNull(readDetectionConnection(builder))
+    }
+
+    @Test
+    fun `dispose is a no-op before buildGroup wires up the subscription`() {
+        // The Configurable may invoke disposeUIResources on a builder whose
+        // Settings panel was never actually painted (user dismissed the dialog
+        // before the tab rendered). `dispose()` must tolerate the pre-wired
+        // state without NPE and must remain idempotent across multiple
+        // teardown calls.
+        val builder = OverridesGroupBuilder()
+
+        builder.dispose()
+        builder.dispose()
     }
 
     // ── No scanner call from read path (SC-05 / T-26-02) ──────────────────────

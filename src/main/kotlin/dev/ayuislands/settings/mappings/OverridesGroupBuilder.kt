@@ -6,17 +6,20 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.text.StringUtil
+import com.intellij.ui.ColorUtil
 import com.intellij.ui.ToolbarDecorator
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.table.JBTable
+import com.intellij.util.messages.MessageBusConnection
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.LanguageDetectionRules
+import dev.ayuislands.accent.ProjectLanguageDetectionListener
 import dev.ayuislands.accent.ProjectLanguageDetector
 import dev.ayuislands.accent.runCatchingPreservingCancellation
 import dev.ayuislands.licensing.LicenseChecker
@@ -25,8 +28,11 @@ import java.awt.BorderLayout
 import java.awt.CardLayout
 import java.awt.Color
 import java.awt.Component
+import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.FlowLayout
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import java.io.File
 import javax.swing.ButtonGroup
 import javax.swing.Icon
@@ -36,6 +42,7 @@ import javax.swing.JRadioButton
 import javax.swing.JTable
 import javax.swing.ListSelectionModel
 import javax.swing.SwingConstants
+import javax.swing.SwingUtilities
 import javax.swing.table.DefaultTableCellRenderer
 import javax.swing.table.TableModel
 
@@ -71,8 +78,97 @@ class OverridesGroupBuilder {
      */
     private var proportionsPanel: JPanel? = null
 
+    /**
+     * Live `MessageBusConnection` subscribing the proportions panel to
+     * [ProjectLanguageDetectionListener.TOPIC]. Stored so [dispose] can tear
+     * down the subscription when the Settings panel closes — otherwise every
+     * Settings open on the same project accumulates another live subscriber
+     * that survives until project close, and every scan completion walks the
+     * accumulated list to hit a `panel.isDisplayable` no-op on every stale
+     * builder. Null before [buildGroup] runs and after [dispose] has
+     * disconnected; [buildGroup] disconnects any prior connection on re-entry
+     * so a builder rebuilt in place (variant swap while Settings stays open)
+     * doesn't double-subscribe either.
+     */
+    private var detectionConnection: MessageBusConnection? = null
+
+    /**
+     * License-gate snapshot for the rescan affordance, captured once at
+     * [buildGroup] time from `LicenseChecker.isLicensedOrGrace()`. Kept as a
+     * dedicated boolean (rather than folding into the `parentProject`
+     * nullability) so the two "Rescan hidden" reasons stay distinguishable
+     * at debug time:
+     *   - `parentProject == null` → Settings opened without a focused project.
+     *   - `parentProject != null && !rescanLicensed` → unlicensed user.
+     *
+     * Rescan is a Pro feature by project policy (all new features premium
+     * by default). Reading the license once in [buildGroup] keeps the hot
+     * render path ([renderProportionsInto]) out of a repeated
+     * `LicenseChecker.isLicensedOrGrace()` call and avoids a cyclomatic-
+     * budget bump from an inline `&&`.
+     *
+     * [buildRescanAffordanceLabel]'s `mouseClicked` defence-in-depth
+     * re-reads `LicenseChecker.isLicensedOrGrace()` live on click so a
+     * license that expires while Settings is open can't still fire a rescan
+     * from a stale panel.
+     */
+    private var rescanLicensed: Boolean = false
+
+    /**
+     * Derived rescan-eligibility: non-null iff a focused project is
+     * present AND the license snapshot permits the Pro affordance. Kept
+     * as a computed property (property getters don't count toward
+     * detekt's `TooManyFunctions` budget) so the single read in
+     * [renderProportionsInto] reduces to one `?.let` branch. The two
+     * reasons for null remain debuggable independently via
+     * [parentProject] and [rescanLicensed].
+     */
+    private val rescanEligibleProject: Project?
+        get() = parentProject?.takeIf { rescanLicensed }
+
     init {
-        configureTables()
+        for (table in listOf(projectTable, languageTable)) {
+            table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
+            table.rowHeight = TABLE_ROW_HEIGHT
+            table.setShowGrid(false)
+        }
+        projectTable.getColumnModel().getColumn(ProjectMappingsTableModel.COLUMN_COLOR).apply {
+            cellRenderer = RoundedSwatchRenderer()
+        }
+        projectTable.getColumnModel().getColumn(ProjectMappingsTableModel.COLUMN_PROJECT).apply {
+            cellRenderer = DimOrphanRenderer { row -> projectModel.isOrphan(row) }
+        }
+        projectTable.getColumnModel().getColumn(ProjectMappingsTableModel.COLUMN_PATH).apply {
+            cellRenderer = DimOrphanRenderer { row -> projectModel.isOrphan(row) }
+        }
+        languageTable.getColumnModel().getColumn(LanguageMappingsTableModel.COLUMN_COLOR).apply {
+            cellRenderer = RoundedSwatchRenderer()
+        }
+    }
+
+    /**
+     * Tear down the detection-Topic subscription. Called from
+     * [dev.ayuislands.settings.AyuIslandsConfigurable.disposeUIResources]
+     * via the `dispose()` override on
+     * [dev.ayuislands.settings.AyuIslandsAccentPanel] (through the
+     * `AyuIslandsSettingsPanel.dispose()` interface method). Without this
+     * call the live subscriber count grows by one per Settings open. Safe
+     * to call multiple times; no-op when the builder was never wired up.
+     */
+    fun dispose() {
+        // Wrap the disconnect in runCatchingPreservingCancellation to
+        // match the sibling defence in RescanLanguageAction: the platform
+        // has been observed to throw `AlreadyDisposedException` from
+        // `MessageBusConnection.disconnect()` during a plugin-unload
+        // race. Without the wrap, a throw here propagates up through
+        // `AyuIslandsConfigurable.disposeUIResources` and skips both the
+        // remaining panel teardown and `super.disposeUIResources`, which
+        // would leak the `BoundConfigurable` binding cleanup.
+        runCatchingPreservingCancellation { detectionConnection?.disconnect() }
+            .onFailure { exception ->
+                LOG.debug("OverridesGroupBuilder detection disconnect failed", exception)
+            }
+        detectionConnection = null
     }
 
     fun buildGroup(
@@ -91,8 +187,29 @@ class OverridesGroupBuilder {
         loadFromState()
 
         val licensed = LicenseChecker.isLicensedOrGrace()
+        // Capture the license snapshot up front so `renderProportionsInto`
+        // reads one boolean + one nullable without bumping its cyclomatic
+        // count. See `rescanLicensed` KDoc for why license and project
+        // eligibility live in separate fields.
+        rescanLicensed = licensed
 
-        val segmentedBar = buildSegmentedBar()
+        val projectsRadio = JRadioButton("Projects", true)
+        val languagesRadio = JRadioButton("Languages", false)
+        val segmentedButtonGroup =
+            ButtonGroup().apply {
+                add(projectsRadio)
+                add(languagesRadio)
+            }
+        projectsRadio.addActionListener { (cardPanel.layout as CardLayout).show(cardPanel, CARD_PROJECTS) }
+        languagesRadio.addActionListener { (cardPanel.layout as CardLayout).show(cardPanel, CARD_LANGUAGES) }
+        val segmentedBar =
+            JPanel(FlowLayout(FlowLayout.LEADING, BAR_HORIZONTAL_GAP, BAR_VERTICAL_GAP)).apply {
+                isOpaque = false
+                add(projectsRadio)
+                add(languagesRadio)
+                // Retain strong reference so actions survive focus changes.
+                putClientProperty("ayu.overrides.group", segmentedButtonGroup)
+            }
         cardPanel.add(decorateTable(projectTable, projectActions(licensed)), CARD_PROJECTS)
         cardPanel.add(decorateTable(languageTable, languageActions(licensed)), CARD_LANGUAGES)
         // No fixed preferredSize: the AutoSizingTable drives height via
@@ -139,11 +256,47 @@ class OverridesGroupBuilder {
         collapsible.addExpandedListener { expanded ->
             settings.state.overridesGroupExpanded = expanded
         }
-        // Keep the proportions status line in sync with the pending-change surface so
-        // any override add / edit / delete re-reads from the detector cache. Phase 29's
-        // rescan action will reuse this same channel (invalidate + fireChanged) without
-        // introducing a new MessageBus Topic.
+        // Two independent refresh channels share one repopulate helper:
+        //  - Pending-change listener: Settings-local edits (add / edit / delete a row)
+        //    fire `fireChanged()` synchronously on EDT, which re-reads the warm cache.
+        //  - Detection Topic: async scan completions (startup warmup, `ModuleRootListener`
+        //    content-root change, user-triggered rescan) fire
+        //    `ProjectLanguageDetectionListener.scanCompleted` on EDT — the only signal
+        //    the row has to exit a stale winner state without a settings edit.
         addPendingChangeListener { proportionsPanel?.let { populateProportionsPanel(it) } }
+        // Subscription lifetime is tied to the Settings panel (disconnected by
+        // [dispose] from the Configurable's disposeUIResources). Any prior
+        // connection on this same builder is torn down first so a rebuild in
+        // place can't double-subscribe. Wrapped in runCatchingPreservingCancellation
+        // so a platform regression throwing from `disconnect()` (observed as
+        // `AlreadyDisposedException` during plugin-unload races) doesn't
+        // propagate out of `buildGroup` and break the Settings render path.
+        // The project MessageBus is the ultimate safety net — if Settings is
+        // orphaned without disposeUI firing, the connection still drops on
+        // project close.
+        runCatchingPreservingCancellation { detectionConnection?.disconnect() }
+            .onFailure { exception ->
+                LOG.debug("OverridesGroupBuilder re-entry disconnect failed", exception)
+            }
+        detectionConnection = null
+        // The `panel.isDisplayable` guard inside invokeLater below covers
+        // the window where Settings has been closed but dispose hasn't
+        // fired yet — without it, `populateProportionsPanel` would paint
+        // into a detached panel and waste EDT budget.
+        contextProject?.let { project ->
+            val connection = project.messageBus.connect()
+            detectionConnection = connection
+            connection.subscribe(
+                ProjectLanguageDetectionListener.TOPIC,
+                ProjectLanguageDetectionListener {
+                    SwingUtilities.invokeLater {
+                        val panel = proportionsPanel ?: return@invokeLater
+                        if (!panel.isDisplayable) return@invokeLater
+                        populateProportionsPanel(panel)
+                    }
+                },
+            )
+        }
     }
 
     // Settings panel lifecycle (isModified / apply / reset)
@@ -378,39 +531,122 @@ class OverridesGroupBuilder {
                     foreground = subdued
                 },
             )
-            return
-        }
-        panel.add(JBLabel(PROPORTIONS_PREFIX).apply { foreground = subdued })
-        entries.forEachIndexed { index, entry ->
-            if (index > 0) {
-                panel.add(JBLabel(PROPORTIONS_SEPARATOR.toString()).apply { foreground = subdued })
-            }
-            val icon = entry.id?.let { LanguageDetectionRules.iconForLanguageId(it) }
-            // Named entries render as icon + percent only (icon identifies the
-            // language). The "other" bucket has no icon and no single language —
-            // render its literal "other" label before the percent so the row
-            // still reads as a unit instead of a dangling bare percent that
-            // looks like a rendering glitch.
-            val text =
-                if (entry.id == null) {
-                    "${entry.label} ${entry.percent}%"
-                } else {
-                    "${entry.percent}%"
+        } else {
+            panel.add(JBLabel(PROPORTIONS_PREFIX).apply { foreground = subdued })
+            entries.forEachIndexed { index, entry ->
+                if (index > 0) {
+                    panel.add(JBLabel(PROPORTIONS_SEPARATOR.toString()).apply { foreground = subdued })
                 }
-            panel.add(
-                JBLabel(text, icon, SwingConstants.LEADING).apply {
-                    foreground = subdued
-                    // Hover affordance: icon alone can be unfamiliar for less-common
-                    // languages, so the display name surfaces in the tooltip.
-                    // toolTipText is plain-text unless it starts with <html>, so
-                    // any pathological Language.displayName renders literally —
-                    // no HTML interpretation, consistent with the label-text
-                    // safety story.
-                    toolTipText = entry.label
+                val icon = entry.id?.let { LanguageDetectionRules.iconForLanguageId(it) }
+                // Named entries render as icon + percent only (icon identifies the
+                // language). The "other" bucket has no icon and no single language —
+                // render its literal "other" label before the percent so the row
+                // still reads as a unit instead of a dangling bare percent that
+                // looks like a rendering glitch.
+                val text =
+                    if (entry.id == null) {
+                        "${entry.label} ${entry.percent}%"
+                    } else {
+                        "${entry.percent}%"
+                    }
+                panel.add(
+                    JBLabel(text, icon, SwingConstants.LEADING).apply {
+                        foreground = subdued
+                        // Hover affordance: icon alone can be unfamiliar for less-common
+                        // languages, so the display name surfaces in the tooltip.
+                        // toolTipText is plain-text unless it starts with <html>, so
+                        // any pathological Language.displayName renders literally —
+                        // no HTML interpretation, consistent with the label-text
+                        // safety story.
+                        toolTipText = entry.label
+                    },
+                )
+            }
+        }
+        // Trailing Rescan affordance appended in BOTH paths (normal + polyglot)
+        // so the user is never stuck on a stale verdict without an escape hatch.
+        // Source of truth: [rescanEligibleProject] — null when there is no
+        // focused project OR when the user is unlicensed (see
+        // `rescanLicensed` KDoc). Reading it as a single `?.let` keeps this
+        // method under detekt's cyclomatic budget. `mouseClicked` re-reads
+        // the live license as defence-in-depth against a license that
+        // expires while Settings is open.
+        rescanEligibleProject?.let { rescanProject ->
+            panel.add(JBLabel(PROPORTIONS_SEPARATOR.toString()).apply { foreground = subdued })
+            panel.add(buildRescanAffordanceLabel(rescanProject, subdued))
+        }
+    }
+
+    /**
+     * Build the clickable "Rescan" label at the trailing end of the proportions row.
+     *
+     * Behavior contract (muted-by-default, accent-on-hover, click-to-rescan):
+     *  - Foreground starts at `subdued` so the label blends with the row.
+     *  - `mouseEntered` re-resolves the currently-applied accent live (NOT
+     *    captured at build time) so a mid-session accent change surfaces on
+     *    the next hover. `runCatchingPreservingCancellation` contains any
+     *    platform-API throw — this runs on every hover tick and an uncaught
+     *    EDT exception would break the entire Settings row.
+     *  - `mouseExited` restores `subdued`.
+     *  - `mouseClicked` calls [ProjectLanguageDetector.rescan]; the
+     *    invalidate + schedule + publish chain lives in the detector so the
+     *    click inherits dedup-gate coalescing for free.
+     *
+     * Extracted out of [renderProportionsInto] so the outer function stays
+     * inside detekt's cyclomatic budget now that the trailing affordance adds
+     * its own conditional branches.
+     */
+    private fun buildRescanAffordanceLabel(
+        project: Project,
+        subdued: Color,
+    ): JBLabel =
+        JBLabel(RESCAN_LABEL).apply {
+            foreground = subdued
+            toolTipText = RESCAN_TOOLTIP
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            addMouseListener(
+                object : MouseAdapter() {
+                    override fun mouseEntered(event: MouseEvent) {
+                        foreground =
+                            runCatchingPreservingCancellation {
+                                val variant =
+                                    AyuVariant.detect()
+                                        ?: return@runCatchingPreservingCancellation subdued
+                                ColorUtil.fromHex(AccentResolver.resolve(project, variant))
+                            }.onFailure { exception ->
+                                // DEBUG not WARN: hover fires on every
+                                // pointer entry, so a systemic regression
+                                // (malformed stored hex, plugin-unload
+                                // race) must not spam idea.log. Still
+                                // leaves a triage breadcrumb when a user
+                                // reports "hover doesn't light up".
+                                LOG.debug(
+                                    "Rescan hover AccentResolver threw; falling back to subdued",
+                                    exception,
+                                )
+                            }.getOrDefault(subdued)
+                        repaint()
+                    }
+
+                    override fun mouseExited(event: MouseEvent) {
+                        foreground = subdued
+                        repaint()
+                    }
+
+                    override fun mouseClicked(event: MouseEvent) {
+                        // Defence-in-depth license re-check: the
+                        // `rescanLicensed` field was snapshotted at
+                        // `buildGroup` time. If the license expired while
+                        // Settings was open (grace roll-off, revocation via
+                        // LicensingFacade), the label is still visible but
+                        // the click must NOT fire a rescan. Matches the
+                        // `actionPerformed` gate in RescanLanguageAction.
+                        if (!LicenseChecker.isLicensedOrGrace()) return
+                        ProjectLanguageDetector.rescan(project)
+                    }
                 },
             )
         }
-    }
 
     /**
      * Builder-level `@TestOnly` seam that binds a focused project without
@@ -419,8 +655,21 @@ class OverridesGroupBuilder {
      * through [buildGroup].
      */
     @org.jetbrains.annotations.TestOnly
-    internal fun setParentProjectForTest(project: Project?) {
+    internal fun setParentProjectForTest(
+        project: Project?,
+        licensed: Boolean = true,
+    ) {
         parentProject = project
+        // Tests bypass `buildGroup`, so `rescanLicensed` would otherwise
+        // stay false and the inline Rescan affordance would never appear
+        // under test. The `licensed` parameter mirrors the gate that
+        // `buildGroup` reads from `LicenseChecker.isLicensedOrGrace()` in
+        // production — default `true` keeps every existing test driving the
+        // rescan-affordance-visible path without having to stand up the
+        // platform `ApplicationManager` service graph just to mock
+        // `LicenseChecker`. A dedicated unlicensed-suppression spec passes
+        // `licensed = false` to lock the inverse contract.
+        rescanLicensed = licensed
     }
 
     /**
@@ -516,48 +765,6 @@ class OverridesGroupBuilder {
     }
 
     private val fireChanged: () -> Unit = { listeners.forEach { it.run() } }
-
-    private fun buildSegmentedBar(): JComponent {
-        val projectsRadio = JRadioButton("Projects", true)
-        val languagesRadio = JRadioButton("Languages", false)
-        val group =
-            ButtonGroup().apply {
-                add(projectsRadio)
-                add(languagesRadio)
-            }
-        projectsRadio.addActionListener { (cardPanel.layout as CardLayout).show(cardPanel, CARD_PROJECTS) }
-        languagesRadio.addActionListener { (cardPanel.layout as CardLayout).show(cardPanel, CARD_LANGUAGES) }
-
-        val bar =
-            JPanel(FlowLayout(FlowLayout.LEADING, BAR_HORIZONTAL_GAP, BAR_VERTICAL_GAP)).apply {
-                isOpaque = false
-                add(projectsRadio)
-                add(languagesRadio)
-            }
-        // Retain strong reference so actions survive focus changes
-        bar.putClientProperty("ayu.overrides.group", group)
-        return bar
-    }
-
-    private fun configureTables() {
-        for (table in listOf(projectTable, languageTable)) {
-            table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
-            table.rowHeight = TABLE_ROW_HEIGHT
-            table.setShowGrid(false)
-        }
-        projectTable.getColumnModel().getColumn(ProjectMappingsTableModel.COLUMN_COLOR).apply {
-            cellRenderer = RoundedSwatchRenderer()
-        }
-        projectTable.getColumnModel().getColumn(ProjectMappingsTableModel.COLUMN_PROJECT).apply {
-            cellRenderer = DimOrphanRenderer { row -> projectModel.isOrphan(row) }
-        }
-        projectTable.getColumnModel().getColumn(ProjectMappingsTableModel.COLUMN_PATH).apply {
-            cellRenderer = DimOrphanRenderer { row -> projectModel.isOrphan(row) }
-        }
-        languageTable.getColumnModel().getColumn(LanguageMappingsTableModel.COLUMN_COLOR).apply {
-            cellRenderer = RoundedSwatchRenderer()
-        }
-    }
 
     private fun decorateTable(
         table: JBTable,
@@ -778,6 +985,21 @@ class OverridesGroupBuilder {
          * panel (e.g. `Maple Mono · 14pt · Regular · 1.0× · ligatures`).
          */
         const val PROPORTIONS_SEPARATOR: Char = '·'
+
+        /**
+         * Literal text of the inline clickable "Rescan" affordance at the
+         * trailing end of the proportions row. Kept short so it doesn't
+         * dominate the muted status line — the cursor change + hover-accent
+         * already signal interactivity.
+         */
+        const val RESCAN_LABEL: String = "Rescan"
+
+        /**
+         * Tooltip for the inline Rescan label. Clarifies what will happen
+         * without bloating the visible text — hover discoverability.
+         */
+        const val RESCAN_TOOLTIP: String =
+            "Re-detect the dominant language of this project"
     }
 
     /**
