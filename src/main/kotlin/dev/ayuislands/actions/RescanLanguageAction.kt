@@ -11,6 +11,7 @@ import com.intellij.openapi.project.Project
 import dev.ayuislands.accent.ProjectLanguageDetectionListener
 import dev.ayuislands.accent.ProjectLanguageDetector
 import dev.ayuislands.accent.runCatchingPreservingCancellation
+import dev.ayuislands.licensing.LicenseChecker
 
 /**
  * Tools-menu action that forces a fresh project-language detection scan.
@@ -34,12 +35,14 @@ internal class RescanLanguageAction : DumbAwareAction() {
         event.presentation.isEnabledAndVisible =
             project != null &&
             !project.isDefault &&
-            !project.isDisposed
+            !project.isDisposed &&
+            LicenseChecker.isLicensedOrGrace()
     }
 
     override fun actionPerformed(event: AnActionEvent) {
         val project = event.project ?: return
         if (project.isDefault || project.isDisposed) return
+        if (!LicenseChecker.isLicensedOrGrace()) return
         subscribeOnceForBalloon(project)
         ProjectLanguageDetector.rescan(project)
     }

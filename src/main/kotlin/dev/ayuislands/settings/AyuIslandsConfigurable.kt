@@ -295,6 +295,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
     override fun disposeUIResources() {
         activeTimers.forEach { it.stop() }
         activeTimers.clear()
+        accentPanel.overrides.dispose()
         super.disposeUIResources()
     }
 

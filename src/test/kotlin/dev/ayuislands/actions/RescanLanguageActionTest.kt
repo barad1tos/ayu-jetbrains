@@ -12,6 +12,7 @@ import com.intellij.util.messages.MessageBus
 import com.intellij.util.messages.MessageBusConnection
 import dev.ayuislands.accent.ProjectLanguageDetectionListener
 import dev.ayuislands.accent.ProjectLanguageDetector
+import dev.ayuislands.licensing.LicenseChecker
 import io.mockk.CapturingSlot
 import io.mockk.every
 import io.mockk.mockk
@@ -57,6 +58,9 @@ class RescanLanguageActionTest {
 
         mockkObject(ProjectLanguageDetector)
         every { ProjectLanguageDetector.rescan(project) } returns Unit
+
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.isLicensedOrGrace() } returns true
 
         mockkStatic(NotificationGroupManager::class)
         every { NotificationGroupManager.getInstance() } returns notificationGroupManager
@@ -116,6 +120,33 @@ class RescanLanguageActionTest {
 
         assertFalse(presentation.isEnabled)
         assertFalse(presentation.isVisible)
+    }
+
+    @Test
+    fun `update hides the action when the user is unlicensed`() {
+        // Rescan is a Pro feature by project policy — every new feature is
+        // premium by default per CLAUDE.md. The Tools menu entry must not
+        // appear for unlicensed users, and the action must not dispatch
+        // even if a stale menu click slips through a BGT update race.
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+
+        action.update(event)
+
+        assertFalse(presentation.isEnabled)
+        assertFalse(presentation.isVisible)
+    }
+
+    @Test
+    fun `actionPerformed is a no-op when the user is unlicensed`() {
+        // Defense-in-depth: BGT update() should have hidden the action, but
+        // the click path re-checks the license so a race between update and
+        // click never triggers a rescan for an unlicensed user.
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+
+        action.actionPerformed(event)
+
+        verify(exactly = 0) { ProjectLanguageDetector.rescan(any()) }
+        verify(exactly = 0) { bus.connect() }
     }
 
     // ── actionPerformed() dispatch contract ────────────────────────────────────
@@ -207,12 +238,12 @@ class RescanLanguageActionTest {
         mockkStatic(Language::class)
         every { Language.getRegisteredLanguages() } returns emptyList()
 
-        listener.captured.scanCompleted("exotic-lang")
+        listener.captured.scanCompleted("Exoticlang")
 
         verify(exactly = 1) {
             notificationGroup.createNotification(
                 "Project language re-detected",
-                "exotic-lang",
+                "Exoticlang",
                 NotificationType.INFORMATION,
             )
         }

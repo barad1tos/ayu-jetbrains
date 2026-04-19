@@ -12,6 +12,7 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.table.JBTable
+import com.intellij.util.messages.MessageBusConnection
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import dev.ayuislands.accent.AccentApplicator
@@ -77,8 +78,61 @@ class OverridesGroupBuilder {
      */
     private var proportionsPanel: JPanel? = null
 
+    /**
+     * Live `MessageBusConnection` subscribing the proportions panel to
+     * [ProjectLanguageDetectionListener.TOPIC]. Stored so [dispose] can tear
+     * down the subscription when the Settings panel closes — otherwise every
+     * Settings open on the same project accumulates another live subscriber
+     * that survives until project close, and every scan completion walks the
+     * accumulated list to hit a `panel.isDisplayable` no-op on every stale
+     * builder. Null before [buildGroup] runs and after [dispose] has
+     * disconnected; [buildGroup] disconnects any prior connection on re-entry
+     * so a builder rebuilt in place (variant swap while Settings stays open)
+     * doesn't double-subscribe either.
+     */
+    private var detectionConnection: MessageBusConnection? = null
+
+    /**
+     * Snapshot of the focused project captured at [buildGroup] time, nulled
+     * out when the user is unlicensed so the rescan affordance is suppressed
+     * without an inline `&&` check inside [renderProportionsInto]. Rescan is
+     * a Pro feature by project policy (all new features premium by default)
+     * and reading the license once in [buildGroup] keeps the hot render path
+     * under the detekt cyclomatic budget.
+     */
+    private var rescanAffordanceProject: Project? = null
+
     init {
-        configureTables()
+        for (table in listOf(projectTable, languageTable)) {
+            table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
+            table.rowHeight = TABLE_ROW_HEIGHT
+            table.setShowGrid(false)
+        }
+        projectTable.getColumnModel().getColumn(ProjectMappingsTableModel.COLUMN_COLOR).apply {
+            cellRenderer = RoundedSwatchRenderer()
+        }
+        projectTable.getColumnModel().getColumn(ProjectMappingsTableModel.COLUMN_PROJECT).apply {
+            cellRenderer = DimOrphanRenderer { row -> projectModel.isOrphan(row) }
+        }
+        projectTable.getColumnModel().getColumn(ProjectMappingsTableModel.COLUMN_PATH).apply {
+            cellRenderer = DimOrphanRenderer { row -> projectModel.isOrphan(row) }
+        }
+        languageTable.getColumnModel().getColumn(LanguageMappingsTableModel.COLUMN_COLOR).apply {
+            cellRenderer = RoundedSwatchRenderer()
+        }
+    }
+
+    /**
+     * Tear down the detection-Topic subscription. Called from
+     * [dev.ayuislands.settings.AyuIslandsConfigurable.disposeUIResources]
+     * (which reaches the builder through the `internal val overrides` field
+     * exposed by [dev.ayuislands.settings.AyuIslandsAccentPanel]) so the
+     * live subscriber count doesn't grow by one per Settings open. Safe to
+     * call multiple times; no-op when the builder was never wired up.
+     */
+    fun dispose() {
+        detectionConnection?.disconnect()
+        detectionConnection = null
     }
 
     fun buildGroup(
@@ -97,6 +151,11 @@ class OverridesGroupBuilder {
         loadFromState()
 
         val licensed = LicenseChecker.isLicensedOrGrace()
+        // Capture the rescan-eligible project up front so the render hot path
+        // (`renderProportionsInto`) stays under the detekt cyclomatic budget;
+        // see `rescanAffordanceProject` KDoc for why the license check lives
+        // here rather than inline.
+        rescanAffordanceProject = contextProject?.takeIf { licensed }
 
         val projectsRadio = JRadioButton("Projects", true)
         val languagesRadio = JRadioButton("Languages", false)
@@ -169,13 +228,20 @@ class OverridesGroupBuilder {
         //    `ProjectLanguageDetectionListener.scanCompleted` on EDT — the only signal
         //    the row has to exit a stale winner state without a settings edit.
         addPendingChangeListener { proportionsPanel?.let { populateProportionsPanel(it) } }
-        // Lifetime of the Topic subscription is tied to the project's MessageBus
-        // (auto-cleared on project close); the panel-displayable guard below
-        // covers the window where Settings has been closed but the project is
-        // still alive — `populateProportionsPanel` on a detached panel would
+        // Subscription lifetime is tied to the Settings panel (disconnected by
+        // [dispose] from the Configurable's disposeUIResources). Any prior
+        // connection on this same builder is torn down first so a rebuild in
+        // place can't double-subscribe. The project MessageBus is the ultimate
+        // safety net — if the Settings panel is orphaned without disposeUI
+        // firing, the connection still drops when the project closes.
+        detectionConnection?.disconnect()
+        detectionConnection = null
+        // The panel-displayable guard below covers the window where Settings has
+        // been closed but dispose hasn't fired yet — `populateProportionsPanel`
         // paint into nothing and waste EDT budget.
         contextProject?.let { project ->
             val connection = project.messageBus.connect()
+            detectionConnection = connection
             connection.subscribe(
                 ProjectLanguageDetectionListener.TOPIC,
                 ProjectLanguageDetectionListener {
@@ -455,11 +521,14 @@ class OverridesGroupBuilder {
         }
         // Trailing Rescan affordance appended in BOTH paths (normal + polyglot)
         // so the user is never stuck on a stale verdict without an escape hatch.
-        // Skipped when project is null (Settings opened without a focused project):
-        // `ProjectLanguageDetector.rescan` would have nowhere to dispatch.
-        if (project != null) {
+        // Source of truth: [rescanAffordanceProject] — null when there is no
+        // focused project OR when the user is unlicensed (see its KDoc).
+        // Reading it here as a single `?.let` keeps this method inside detekt's
+        // cyclomatic budget now that Rescan is behind a Pro-feature license
+        // gate.
+        rescanAffordanceProject?.let { rescanProject ->
             panel.add(JBLabel(PROPORTIONS_SEPARATOR.toString()).apply { foreground = subdued })
-            panel.add(buildRescanAffordanceLabel(project, subdued))
+            panel.add(buildRescanAffordanceLabel(rescanProject, subdued))
         }
     }
 
@@ -522,8 +591,21 @@ class OverridesGroupBuilder {
      * through [buildGroup].
      */
     @org.jetbrains.annotations.TestOnly
-    internal fun setParentProjectForTest(project: Project?) {
+    internal fun setParentProjectForTest(
+        project: Project?,
+        licensed: Boolean = true,
+    ) {
         parentProject = project
+        // Tests bypass `buildGroup`, so `rescanAffordanceProject` would
+        // otherwise stay null and the inline Rescan affordance would never
+        // appear under test. The `licensed` parameter mirrors the gate that
+        // `buildGroup` reads from `LicenseChecker.isLicensedOrGrace()` in
+        // production — default `true` keeps every existing test driving the
+        // rescan-affordance-visible path without having to stand up the
+        // platform `ApplicationManager` service graph just to mock
+        // `LicenseChecker`. A dedicated unlicensed-suppression spec passes
+        // `licensed = false` to lock the inverse contract.
+        rescanAffordanceProject = project?.takeIf { licensed }
     }
 
     /**
@@ -619,26 +701,6 @@ class OverridesGroupBuilder {
     }
 
     private val fireChanged: () -> Unit = { listeners.forEach { it.run() } }
-
-    private fun configureTables() {
-        for (table in listOf(projectTable, languageTable)) {
-            table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
-            table.rowHeight = TABLE_ROW_HEIGHT
-            table.setShowGrid(false)
-        }
-        projectTable.getColumnModel().getColumn(ProjectMappingsTableModel.COLUMN_COLOR).apply {
-            cellRenderer = RoundedSwatchRenderer()
-        }
-        projectTable.getColumnModel().getColumn(ProjectMappingsTableModel.COLUMN_PROJECT).apply {
-            cellRenderer = DimOrphanRenderer { row -> projectModel.isOrphan(row) }
-        }
-        projectTable.getColumnModel().getColumn(ProjectMappingsTableModel.COLUMN_PATH).apply {
-            cellRenderer = DimOrphanRenderer { row -> projectModel.isOrphan(row) }
-        }
-        languageTable.getColumnModel().getColumn(LanguageMappingsTableModel.COLUMN_COLOR).apply {
-            cellRenderer = RoundedSwatchRenderer()
-        }
-    }
 
     private fun decorateTable(
         table: JBTable,

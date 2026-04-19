@@ -529,6 +529,41 @@ class OverridesGroupBuilderProportionsTest {
             )
     }
 
+    @Test
+    fun `Rescan affordance is suppressed when the user is unlicensed`() {
+        // Rescan is premium by project policy. The inline affordance must
+        // not appear for unlicensed users even though the proportions row
+        // itself stays free to read. The @TestOnly seam mirrors the
+        // `buildGroup` license read with an explicit `licensed` flag;
+        // passing `false` locks the unlicensed-suppression contract.
+        val project = stubProject("/tmp/rescan-unlicensed-${System.nanoTime()}")
+        every { ProjectLanguageDetector.proportions(project) } returns mapOf("kotlin" to 1_000L)
+
+        val builder = OverridesGroupBuilder().apply { setParentProjectForTest(project, licensed = false) }
+        val texts = builder.proportionsPanelLabelsForTest().map { it.second }
+
+        assertEquals(
+            listOf("Detected:", "100%"),
+            texts,
+            "unlicensed users must see the proportions row without the trailing Rescan affordance",
+        )
+    }
+
+    // ── detection subscription lifecycle (leak guard) ─────────────────────────
+
+    @Test
+    fun `dispose is a no-op before buildGroup wires up the subscription`() {
+        // The Configurable may invoke disposeUIResources on a builder whose
+        // Settings panel was never actually painted (user dismissed the dialog
+        // before the tab rendered). `dispose()` must tolerate the pre-wired
+        // state without NPE and must remain idempotent across multiple
+        // teardown calls.
+        val builder = OverridesGroupBuilder()
+
+        builder.dispose()
+        builder.dispose()
+    }
+
     // ── No scanner call from read path (SC-05 / T-26-02) ──────────────────────
 
     @Test
