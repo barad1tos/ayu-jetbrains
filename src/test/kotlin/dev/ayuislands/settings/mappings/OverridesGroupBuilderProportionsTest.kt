@@ -1,6 +1,7 @@
 package dev.ayuislands.settings.mappings
 
 import com.intellij.openapi.project.Project
+import com.intellij.util.messages.MessageBusConnection
 import dev.ayuislands.accent.LanguageDetectionRules
 import dev.ayuislands.accent.ProjectLanguageDetector
 import dev.ayuislands.accent.ProjectLanguageScanner
@@ -14,6 +15,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -44,6 +46,20 @@ class OverridesGroupBuilderProportionsTest {
         every { AccentMappingsSettings.getInstance() } returns settings
 
         mockkObject(ProjectLanguageDetector)
+
+        // `buildRescanAffordanceLabel.mouseClicked` re-reads
+        // `LicenseChecker.isLicensedOrGrace()` live on click as
+        // defence-in-depth against a license that expires while Settings
+        // is open. Without this mock the real `LicenseChecker` hits
+        // `ApplicationManager.getApplication()` (null in unit tests) and
+        // the click-dispatch tests fail. Default to licensed so the
+        // click tests drive the rescan path; a dedicated
+        // unlicensed-suppression spec flips it to false.
+        mockkObject(dev.ayuislands.licensing.LicenseChecker)
+        every {
+            dev.ayuislands.licensing.LicenseChecker
+                .isLicensedOrGrace()
+        } returns true
     }
 
     @AfterTest
@@ -447,6 +463,80 @@ class OverridesGroupBuilderProportionsTest {
     }
 
     @Test
+    fun `Rescan label hover falls back to subdued when AccentResolver throws`() {
+        // Defensive lock on the runCatchingPreservingCancellation wrap
+        // inside the hover handler. If `AccentResolver.resolve` throws
+        // (malformed stored hex, plugin-unload race on EDT), the handler
+        // must fall back to the subdued foreground rather than propagate
+        // an uncaught EDT exception that would break the entire
+        // Settings row.
+        val project = stubProject("/tmp/rescan-hover-throw-${System.nanoTime()}")
+        every { ProjectLanguageDetector.proportions(project) } returns mapOf("kotlin" to 1_000L)
+
+        val mirage = dev.ayuislands.accent.AyuVariant.MIRAGE
+        mockkObject(dev.ayuislands.accent.AyuVariant.Companion)
+        every {
+            dev.ayuislands.accent.AyuVariant
+                .detect()
+        } returns mirage
+        mockkObject(dev.ayuislands.accent.AccentResolver)
+        every {
+            dev.ayuislands.accent.AccentResolver
+                .resolve(project, mirage)
+        } throws
+            RuntimeException("malformed hex")
+
+        val builder = OverridesGroupBuilder().apply { setParentProjectForTest(project) }
+        val rescan = findRescanComponent(builder)
+        val subdued = rescan.foreground
+
+        val enter =
+            java.awt.event.MouseEvent(rescan, java.awt.event.MouseEvent.MOUSE_ENTERED, 0L, 0, 0, 0, 0, false)
+        ourMouseAdapters(rescan).forEach { it.mouseEntered(enter) }
+
+        assertEquals(
+            subdued,
+            rescan.foreground,
+            "a throwing AccentResolver must be contained by the hover runCatching; foreground stays subdued",
+        )
+    }
+
+    @Test
+    fun `Rescan click is a no-op when license flips to unlicensed mid-session`() {
+        // Defence-in-depth lock on the click-time license re-check. The
+        // affordance was built while licensed, but a mid-session expiry
+        // (grace roll-off, LicensingFacade revocation) must prevent the
+        // click from firing a rescan.
+        val project = stubProject("/tmp/rescan-click-expiry-${System.nanoTime()}")
+        every { ProjectLanguageDetector.proportions(project) } returns mapOf("kotlin" to 1_000L)
+        every { ProjectLanguageDetector.rescan(project) } returns Unit
+
+        val builder = OverridesGroupBuilder().apply { setParentProjectForTest(project) }
+        val rescan = findRescanComponent(builder)
+
+        // Flip license AFTER the affordance is wired — simulates mid-session expiry.
+        every {
+            dev.ayuislands.licensing.LicenseChecker
+                .isLicensedOrGrace()
+        } returns false
+
+        val click =
+            java.awt.event.MouseEvent(
+                rescan,
+                java.awt.event.MouseEvent.MOUSE_CLICKED,
+                System.currentTimeMillis(),
+                0,
+                0,
+                0,
+                1,
+                false,
+            )
+        ourMouseAdapters(rescan).forEach { it.mouseClicked(click) }
+
+        verify(exactly = 0) { ProjectLanguageDetector.rescan(project) }
+    }
+
+    @Test
     fun `Rescan label hover falls back to subdued when variant detect returns null`() {
         // Defensive path: no Ayu theme active → AyuVariant.detect returns null,
         // currentAccentColorFor hits the `?: return@... fallback` branch, and
@@ -500,6 +590,29 @@ class OverridesGroupBuilderProportionsTest {
         component.mouseListeners.filter { it.javaClass.name.startsWith("dev.ayuislands") }
 
     /**
+     * Reflection seam: install a mock `MessageBusConnection` into the
+     * builder's private `detectionConnection` field so disposal contract
+     * tests can drive `dispose()` without spinning up a real
+     * `Project.messageBus`. Production sets the same field via
+     * `buildGroup`; tests bypass Swing and the platform MessageBus graph.
+     */
+    private fun installDetectionConnection(
+        builder: OverridesGroupBuilder,
+        connection: MessageBusConnection?,
+    ) {
+        builder.javaClass
+            .getDeclaredField("detectionConnection")
+            .apply { isAccessible = true }
+            .set(builder, connection)
+    }
+
+    private fun readDetectionConnection(builder: OverridesGroupBuilder): MessageBusConnection? =
+        builder.javaClass
+            .getDeclaredField("detectionConnection")
+            .apply { isAccessible = true }
+            .get(builder) as MessageBusConnection?
+
+    /**
      * Resolve the Rescan JBLabel inside the builder's proportions panel by
      * matching on the companion-level literal — keeps the helper robust against
      * cosmetic label rewordings as long as the literal stays in sync.
@@ -550,6 +663,41 @@ class OverridesGroupBuilderProportionsTest {
     }
 
     // ── detection subscription lifecycle (leak guard) ─────────────────────────
+
+    @Test
+    fun `dispose disconnects the live detection subscription`() {
+        // Lock the leak-fix: when `buildGroup` installed a MessageBus
+        // subscription, `dispose()` must call `disconnect()` on it and
+        // null the field so the next Settings open re-acquires a fresh
+        // connection instead of piling onto the stale one.
+        val builder = OverridesGroupBuilder()
+        val connection = mockk<MessageBusConnection>(relaxed = true)
+        installDetectionConnection(builder, connection)
+
+        builder.dispose()
+
+        verify(exactly = 1) { connection.disconnect() }
+        assertNull(
+            readDetectionConnection(builder),
+            "dispose() must null the field so the next wiring doesn't observe a disconnected handle",
+        )
+    }
+
+    @Test
+    fun `dispose is idempotent across repeated calls`() {
+        // The Configurable's disposeUIResources may fire more than once
+        // under pathological shutdown paths. A second dispose() must be
+        // a no-op — specifically it must NOT call disconnect() on an
+        // already-null field (NPE) and must NOT double-disconnect.
+        val builder = OverridesGroupBuilder()
+        val connection = mockk<MessageBusConnection>(relaxed = true)
+        installDetectionConnection(builder, connection)
+
+        builder.dispose()
+        builder.dispose()
+
+        verify(exactly = 1) { connection.disconnect() }
+    }
 
     @Test
     fun `dispose is a no-op before buildGroup wires up the subscription`() {

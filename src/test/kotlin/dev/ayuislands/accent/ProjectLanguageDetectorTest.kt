@@ -977,6 +977,58 @@ class ProjectLanguageDetectorTest {
         verify(exactly = 0) { listener.scanCompleted(any()) }
     }
 
+    @Test
+    fun `rescan on null project key publishes null scanCompleted`() {
+        // User-facing symptom guard: `AccentResolver.projectKey` can
+        // return null for a disposal race or canonicalization failure on
+        // a live project. Before the fix, `rescan` returned silently,
+        // orphaning the one-shot subscriber installed by
+        // `RescanLanguageAction.subscribeOnceForBalloon` — user clicks
+        // Rescan, gets no balloon, subscription leaks until project
+        // close. The fix publishes `scanCompleted(null)` so subscribers
+        // fire the polyglot-copy balloon and disconnect.
+        val project = mockk<Project>()
+        every { project.basePath } returns null
+        every { project.isDefault } returns false
+        every { project.isDisposed } returns false
+
+        val listener = mockk<ProjectLanguageDetectionListener>(relaxed = true)
+        wireMessageBus(project, listener)
+        runInvokeLaterInline()
+        mockkObject(ProjectLanguageScanAsync)
+
+        ProjectLanguageDetector.rescan(project)
+
+        verify(exactly = 1) { listener.scanCompleted(null) }
+        verify(exactly = 0) { ProjectLanguageScanAsync.schedule(any(), any()) }
+    }
+
+    @Test
+    fun `publishScanCompleted swallows a throwing subscriber without rethrow`() {
+        // Defensive lock on the runCatchingPreservingCancellation wrap
+        // inside publishScanCompleted. A rogue subscriber whose
+        // scanCompleted handler throws must not propagate into the EDT
+        // invokeLater callback — that becomes an uncaught EDT exception.
+        val project = stubProject("/tmp/rescan-publish-throw-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns mapOf("kotlin" to 1_000L)
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        stubDumbServiceSmart(project)
+        val listener =
+            ProjectLanguageDetectionListener {
+                error("subscriber blew up on purpose")
+            }
+        val bus = mockk<com.intellij.util.messages.MessageBus>()
+        every { project.messageBus } returns bus
+        every { bus.syncPublisher(ProjectLanguageDetectionListener.TOPIC) } returns listener
+        runInvokeLaterInline()
+        runSchedulerInline()
+
+        // Load-bearing claim: rescan completes cleanly despite the rogue subscriber.
+        ProjectLanguageDetector.rescan(project)
+    }
+
     // Helpers for rescan tests — shared across the five specs above.
 
     private fun stubDumbServiceSmart(project: Project) {

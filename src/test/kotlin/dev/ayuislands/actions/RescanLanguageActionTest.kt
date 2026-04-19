@@ -278,6 +278,95 @@ class RescanLanguageActionTest {
         verify(exactly = 0) { notification.notify(any<Project>()) }
     }
 
+    // ── defensive swallows (round 2) ───────────────────────────────────────────
+
+    @Test
+    fun `connection disconnect failure is swallowed and balloon still fires`() {
+        // Defensive: `MessageBusConnection.disconnect()` is documented
+        // idempotent but has thrown on `AlreadyDisposedException` in
+        // platform regressions. The `runCatchingPreservingCancellation`
+        // wrap must absorb the throw so `notifyUser` still runs — a
+        // regression that drops the wrap would let the exception bubble
+        // out of `scanCompleted` and suppress the user-visible balloon.
+        val listener = captureSubscribedListener()
+        every { connection.disconnect() } throws IllegalStateException("already disposed")
+        action.actionPerformed(event)
+
+        listener.captured.scanCompleted("kotlin")
+
+        verify(exactly = 1) { notification.notify(any<Project>()) }
+    }
+
+    @Test
+    fun `balloon emit failure is swallowed without rethrow`() {
+        // Defensive: `NotificationGroupManager.getNotificationGroup` can
+        // fail during a plugin-unload race. The `runCatchingPreservingCancellation`
+        // wrap around the balloon emit must contain it so the action
+        // doesn't propagate an uncaught EDT exception.
+        val listener = captureSubscribedListener()
+        every {
+            notificationGroup.createNotification(
+                any<String>(),
+                any<String>(),
+                any<NotificationType>(),
+            )
+        } throws RuntimeException("plugin unload race")
+        action.actionPerformed(event)
+
+        // Must not throw — load-bearing assertion is simply that the call completes.
+        listener.captured.scanCompleted("kotlin")
+    }
+
+    @Test
+    fun `balloon shows raw id when Language registry throws`() {
+        // Defensive: a third-party plugin throwing from
+        // `Language.getRegisteredLanguages()` during `humanLabelFor` must
+        // fall through to the raw id so the balloon still fires with
+        // *some* label. Previously the `runCatching` onFailure was
+        // untested — a regression narrowing the wrap would regress to an
+        // uncaught EDT exception. Uses a made-up id to keep spell-check
+        // quiet; the raw-id passthrough is language-agnostic.
+        val listener = captureSubscribedListener()
+        mockkStatic(Language::class)
+        every { Language.getRegisteredLanguages() } throws RuntimeException("plugin registry corrupted")
+        action.actionPerformed(event)
+
+        listener.captured.scanCompleted("Exoticlang")
+
+        verify(exactly = 1) {
+            notificationGroup.createNotification(
+                "Project language re-detected",
+                "Exoticlang",
+                NotificationType.INFORMATION,
+            )
+        }
+    }
+
+    @Test
+    fun `balloon shows raw id when Language displayName is blank`() {
+        // Defensive: the `.takeIf { it.isNotBlank() }` guard must fall
+        // through to the raw id when a registered Language reports a
+        // blank displayName (pathological third-party plugin). Without
+        // the guard the balloon would show an empty body.
+        val listener = captureSubscribedListener()
+        mockkStatic(Language::class)
+        val blankLang = mockk<Language>()
+        every { blankLang.id } returns "Exoticlang"
+        every { blankLang.displayName } returns "   "
+        every { Language.getRegisteredLanguages() } returns listOf(blankLang)
+        action.actionPerformed(event)
+
+        listener.captured.scanCompleted("Exoticlang")
+
+        verify(exactly = 1) {
+            notificationGroup.createNotification(
+                "Project language re-detected",
+                "Exoticlang",
+                NotificationType.INFORMATION,
+            )
+        }
+    }
+
     // ── fixtures ───────────────────────────────────────────────────────────────
 
     private fun captureSubscribedListener(): CapturingSlot<ProjectLanguageDetectionListener> {

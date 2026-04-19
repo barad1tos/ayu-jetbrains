@@ -93,14 +93,38 @@ class OverridesGroupBuilder {
     private var detectionConnection: MessageBusConnection? = null
 
     /**
-     * Snapshot of the focused project captured at [buildGroup] time, nulled
-     * out when the user is unlicensed so the rescan affordance is suppressed
-     * without an inline `&&` check inside [renderProportionsInto]. Rescan is
-     * a Pro feature by project policy (all new features premium by default)
-     * and reading the license once in [buildGroup] keeps the hot render path
-     * under the detekt cyclomatic budget.
+     * License-gate snapshot for the rescan affordance, captured once at
+     * [buildGroup] time from `LicenseChecker.isLicensedOrGrace()`. Kept as a
+     * dedicated boolean (rather than folding into the `parentProject`
+     * nullability) so the two "Rescan hidden" reasons stay distinguishable
+     * at debug time:
+     *   - `parentProject == null` → Settings opened without a focused project.
+     *   - `parentProject != null && !rescanLicensed` → unlicensed user.
+     *
+     * Rescan is a Pro feature by project policy (all new features premium
+     * by default). Reading the license once in [buildGroup] keeps the hot
+     * render path ([renderProportionsInto]) out of a repeated
+     * `LicenseChecker.isLicensedOrGrace()` call and avoids a cyclomatic-
+     * budget bump from an inline `&&`.
+     *
+     * [buildRescanAffordanceLabel]'s `mouseClicked` defence-in-depth
+     * re-reads `LicenseChecker.isLicensedOrGrace()` live on click so a
+     * license that expires while Settings is open can't still fire a rescan
+     * from a stale panel.
      */
-    private var rescanAffordanceProject: Project? = null
+    private var rescanLicensed: Boolean = false
+
+    /**
+     * Derived rescan-eligibility: non-null iff a focused project is
+     * present AND the license snapshot permits the Pro affordance. Kept
+     * as a computed property (property getters don't count toward
+     * detekt's `TooManyFunctions` budget) so the single read in
+     * [renderProportionsInto] reduces to one `?.let` branch. The two
+     * reasons for null remain debuggable independently via
+     * [parentProject] and [rescanLicensed].
+     */
+    private val rescanEligibleProject: Project?
+        get() = parentProject?.takeIf { rescanLicensed }
 
     init {
         for (table in listOf(projectTable, languageTable)) {
@@ -125,10 +149,11 @@ class OverridesGroupBuilder {
     /**
      * Tear down the detection-Topic subscription. Called from
      * [dev.ayuislands.settings.AyuIslandsConfigurable.disposeUIResources]
-     * (which reaches the builder through the `internal val overrides` field
-     * exposed by [dev.ayuislands.settings.AyuIslandsAccentPanel]) so the
-     * live subscriber count doesn't grow by one per Settings open. Safe to
-     * call multiple times; no-op when the builder was never wired up.
+     * via the `dispose()` override on
+     * [dev.ayuislands.settings.AyuIslandsAccentPanel] (through the
+     * `AyuIslandsSettingsPanel.dispose()` interface method). Without this
+     * call the live subscriber count grows by one per Settings open. Safe
+     * to call multiple times; no-op when the builder was never wired up.
      */
     fun dispose() {
         detectionConnection?.disconnect()
@@ -151,11 +176,11 @@ class OverridesGroupBuilder {
         loadFromState()
 
         val licensed = LicenseChecker.isLicensedOrGrace()
-        // Capture the rescan-eligible project up front so the render hot path
-        // (`renderProportionsInto`) stays under the detekt cyclomatic budget;
-        // see `rescanAffordanceProject` KDoc for why the license check lives
-        // here rather than inline.
-        rescanAffordanceProject = contextProject?.takeIf { licensed }
+        // Capture the license snapshot up front so `renderProportionsInto`
+        // reads one boolean + one nullable without bumping its cyclomatic
+        // count. See `rescanLicensed` KDoc for why license and project
+        // eligibility live in separate fields.
+        rescanLicensed = licensed
 
         val projectsRadio = JRadioButton("Projects", true)
         val languagesRadio = JRadioButton("Languages", false)
@@ -236,9 +261,10 @@ class OverridesGroupBuilder {
         // firing, the connection still drops when the project closes.
         detectionConnection?.disconnect()
         detectionConnection = null
-        // The panel-displayable guard below covers the window where Settings has
-        // been closed but dispose hasn't fired yet — `populateProportionsPanel`
-        // paint into nothing and waste EDT budget.
+        // The `panel.isDisplayable` guard inside invokeLater below covers
+        // the window where Settings has been closed but dispose hasn't
+        // fired yet — without it, `populateProportionsPanel` would paint
+        // into a detached panel and waste EDT budget.
         contextProject?.let { project ->
             val connection = project.messageBus.connect()
             detectionConnection = connection
@@ -521,12 +547,13 @@ class OverridesGroupBuilder {
         }
         // Trailing Rescan affordance appended in BOTH paths (normal + polyglot)
         // so the user is never stuck on a stale verdict without an escape hatch.
-        // Source of truth: [rescanAffordanceProject] — null when there is no
-        // focused project OR when the user is unlicensed (see its KDoc).
-        // Reading it here as a single `?.let` keeps this method inside detekt's
-        // cyclomatic budget now that Rescan is behind a Pro-feature license
-        // gate.
-        rescanAffordanceProject?.let { rescanProject ->
+        // Source of truth: [rescanEligibleProject] — null when there is no
+        // focused project OR when the user is unlicensed (see
+        // `rescanLicensed` KDoc). Reading it as a single `?.let` keeps this
+        // method under detekt's cyclomatic budget. `mouseClicked` re-reads
+        // the live license as defence-in-depth against a license that
+        // expires while Settings is open.
+        rescanEligibleProject?.let { rescanProject ->
             panel.add(JBLabel(PROPORTIONS_SEPARATOR.toString()).apply { foreground = subdued })
             panel.add(buildRescanAffordanceLabel(rescanProject, subdued))
         }
@@ -578,6 +605,14 @@ class OverridesGroupBuilder {
                     }
 
                     override fun mouseClicked(event: MouseEvent) {
+                        // Defence-in-depth license re-check: the
+                        // `rescanLicensed` field was snapshotted at
+                        // `buildGroup` time. If the license expired while
+                        // Settings was open (grace roll-off, revocation via
+                        // LicensingFacade), the label is still visible but
+                        // the click must NOT fire a rescan. Matches the
+                        // `actionPerformed` gate in RescanLanguageAction.
+                        if (!LicenseChecker.isLicensedOrGrace()) return
                         ProjectLanguageDetector.rescan(project)
                     }
                 },
@@ -596,16 +631,16 @@ class OverridesGroupBuilder {
         licensed: Boolean = true,
     ) {
         parentProject = project
-        // Tests bypass `buildGroup`, so `rescanAffordanceProject` would
-        // otherwise stay null and the inline Rescan affordance would never
-        // appear under test. The `licensed` parameter mirrors the gate that
+        // Tests bypass `buildGroup`, so `rescanLicensed` would otherwise
+        // stay false and the inline Rescan affordance would never appear
+        // under test. The `licensed` parameter mirrors the gate that
         // `buildGroup` reads from `LicenseChecker.isLicensedOrGrace()` in
         // production — default `true` keeps every existing test driving the
         // rescan-affordance-visible path without having to stand up the
         // platform `ApplicationManager` service graph just to mock
         // `LicenseChecker`. A dedicated unlicensed-suppression spec passes
         // `licensed = false` to lock the inverse contract.
-        rescanAffordanceProject = project?.takeIf { licensed }
+        rescanLicensed = licensed
     }
 
     /**

@@ -159,20 +159,38 @@ object ProjectLanguageDetector {
      *
      * Side effects:
      *  - Evicts both dominant-id and weights caches for [project].
-     *  - Schedules a background scan on the shared IDE pool (no-op in dumb mode
-     *    — the startup activity's `ModuleRootListener` subscription re-runs
-     *    detection once indexing completes).
-     *  - On scan completion, [ProjectLanguageDetectionListener.scanCompleted] fires
-     *    on EDT via [publishScanCompleted], so UI subscribers (the Settings
-     *    proportions row, the action's balloon) receive the new state without
-     *    polling.
+     *  - Schedules a background scan on the shared IDE pool (no-op in dumb
+     *    mode — the user must re-click after indexing finishes, or wait for
+     *    the next `ModuleRootListener.rootsChanged` to re-trigger detection
+     *    on a Gradle sync / module change).
+     *  - On scan completion, [ProjectLanguageDetectionListener.scanCompleted]
+     *    fires on EDT via [publishScanCompleted], so UI subscribers (the
+     *    Settings proportions row, the action's balloon) receive the new
+     *    state without polling.
+     *  - When [project] has no canonical path (disposal race, default
+     *    project), publishes `scanCompleted(null)` immediately so one-shot
+     *    subscribers (notably the [dev.ayuislands.actions.RescanLanguageAction]
+     *    balloon) fire and disconnect instead of silently hanging on the
+     *    MessageBus until project close.
      *
      * Safe to call from EDT: invalidate is a two-`ConcurrentHashMap.remove`
      * pair, and `scheduleBackgroundDetection` immediately returns after
      * enqueuing the task on `AppExecutorUtil.getAppExecutorService()`.
      */
     fun rescan(project: Project) {
-        val key = AccentResolver.projectKey(project) ?: return
+        val key =
+            AccentResolver.projectKey(project) ?: run {
+                // No canonical path: bail out of the cache+schedule work, but
+                // still publish a null scanCompleted so subscribers (especially
+                // the one-shot action balloon) fire and release their
+                // MessageBus connection instead of silently leaking until
+                // project close. `AccentResolver.projectKey` already logged the
+                // reason it returned null (base-path throw, canonicalization
+                // failure) — this branch is about the *user-facing* symptom.
+                LOG.info("rescan: projectKey unavailable; publishing null scanCompleted so subscribers unblock")
+                publishScanCompleted(project, null)
+                return
+            }
         cache.remove(key)
         weightsCache.remove(key)
         scheduleBackgroundDetection(project, key)
@@ -253,9 +271,19 @@ object ProjectLanguageDetector {
         project: Project,
         key: String,
     ) {
-        if (DumbService.isDumb(project)) return
+        if (DumbService.isDumb(project)) {
+            // Breadcrumb for the "user clicked Rescan, nothing happened"
+            // triage path: the dumb-mode gate deliberately drops the task,
+            // and without this log a Tools-menu click during indexing
+            // produces no balloon and no log trace.
+            LOG.debug("scheduleBackgroundDetection skipped for $key: DumbService.isDumb == true")
+            return
+        }
         ProjectLanguageScanAsync.schedule(key) {
-            if (project.isDisposed) return@schedule
+            if (project.isDisposed) {
+                LOG.debug("scheduleBackgroundDetection task aborted for $key: project disposed before scan body ran")
+                return@schedule
+            }
             val detected = detectAndCache(project, key)
             // Publish even when `detected` is null — UI subscribers (the
             // Settings proportions row, the Rescan balloon) need to refresh
@@ -285,9 +313,15 @@ object ProjectLanguageDetector {
         project: Project,
         detectedId: String?,
     ) {
-        if (project.isDisposed) return
+        if (project.isDisposed) {
+            LOG.debug("publishScanCompleted dropped before invokeLater: project already disposed")
+            return
+        }
         SwingUtilities.invokeLater {
-            if (project.isDisposed) return@invokeLater
+            if (project.isDisposed) {
+                LOG.debug("publishScanCompleted dropped inside invokeLater: project disposed during EDT hop")
+                return@invokeLater
+            }
             runCatchingPreservingCancellation {
                 project.messageBus
                     .syncPublisher(ProjectLanguageDetectionListener.TOPIC)
