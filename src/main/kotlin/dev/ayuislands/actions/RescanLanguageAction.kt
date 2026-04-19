@@ -110,6 +110,12 @@ internal class RescanLanguageAction : DumbAwareAction() {
                     .getRegisteredLanguages()
                     .firstOrNull { it.id.equals(detectedId, ignoreCase = true) }
                     ?.displayName
+            }.onFailure { exception ->
+                // DEBUG not WARN: a corrupted third-party Language
+                // registry can fire on every rescan, and WARN would
+                // spam idea.log. DEBUG leaves a triage breadcrumb so
+                // "balloon shows raw id" reports can be diagnosed.
+                LOG.debug("Language registry lookup threw for id='$detectedId'; falling back to raw id", exception)
             }.getOrNull()
         return display?.takeIf { it.isNotBlank() } ?: detectedId
     }

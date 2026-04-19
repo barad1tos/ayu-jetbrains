@@ -700,6 +700,25 @@ class OverridesGroupBuilderProportionsTest {
     }
 
     @Test
+    fun `dispose swallows a throwing disconnect without propagating`() {
+        // Round 3 defence: wrap the disconnect in
+        // `runCatchingPreservingCancellation` so a platform regression
+        // throwing `AlreadyDisposedException` from `disconnect()` does
+        // not break the Configurable's disposeUIResources chain. Without
+        // the wrap, `super.disposeUIResources()` would be skipped and
+        // BoundConfigurable's binding cleanup would leak.
+        val builder = OverridesGroupBuilder()
+        val connection = mockk<MessageBusConnection>(relaxed = true)
+        every { connection.disconnect() } throws IllegalStateException("already disposed")
+        installDetectionConnection(builder, connection)
+
+        // Load-bearing assertion: the call completes cleanly despite the throw.
+        builder.dispose()
+        // Field still nulled — next wiring observes a clean slot.
+        assertNull(readDetectionConnection(builder))
+    }
+
+    @Test
     fun `dispose is a no-op before buildGroup wires up the subscription`() {
         // The Configurable may invoke disposeUIResources on a builder whose
         // Settings panel was never actually painted (user dismissed the dialog

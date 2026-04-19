@@ -303,8 +303,19 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         // directly via the `internal val overrides` field rather than
         // layering a second dispose override, which would bump
         // AccentPanel past detekt's 25-function class budget.
-        panels.forEach { it.dispose() }
-        accentPanel.overrides.dispose()
+        //
+        // Each dispose call is individually wrapped so a throwing panel
+        // (or a future override with a platform-API failure mode) does
+        // not prevent the remaining panels or the mandatory super call
+        // from running. The MessageBus subscription in overrides is the
+        // load-bearing cleanup — a skipped super would leak the
+        // BoundConfigurable binding too.
+        panels.forEach { panel ->
+            runCatching { panel.dispose() }
+                .onFailure { log.warn("Panel dispose threw for ${panel.javaClass.simpleName}", it) }
+        }
+        runCatching { accentPanel.overrides.dispose() }
+            .onFailure { log.warn("OverridesGroupBuilder dispose threw", it) }
         super.disposeUIResources()
     }
 

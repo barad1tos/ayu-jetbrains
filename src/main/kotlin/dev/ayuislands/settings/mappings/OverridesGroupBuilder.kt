@@ -156,7 +156,18 @@ class OverridesGroupBuilder {
      * to call multiple times; no-op when the builder was never wired up.
      */
     fun dispose() {
-        detectionConnection?.disconnect()
+        // Wrap the disconnect in runCatchingPreservingCancellation to
+        // match the sibling defence in RescanLanguageAction: the platform
+        // has been observed to throw `AlreadyDisposedException` from
+        // `MessageBusConnection.disconnect()` during a plugin-unload
+        // race. Without the wrap, a throw here propagates up through
+        // `AyuIslandsConfigurable.disposeUIResources` and skips both the
+        // remaining panel teardown and `super.disposeUIResources`, which
+        // would leak the `BoundConfigurable` binding cleanup.
+        runCatchingPreservingCancellation { detectionConnection?.disconnect() }
+            .onFailure { exception ->
+                LOG.debug("OverridesGroupBuilder detection disconnect failed", exception)
+            }
         detectionConnection = null
     }
 
@@ -256,10 +267,17 @@ class OverridesGroupBuilder {
         // Subscription lifetime is tied to the Settings panel (disconnected by
         // [dispose] from the Configurable's disposeUIResources). Any prior
         // connection on this same builder is torn down first so a rebuild in
-        // place can't double-subscribe. The project MessageBus is the ultimate
-        // safety net — if the Settings panel is orphaned without disposeUI
-        // firing, the connection still drops when the project closes.
-        detectionConnection?.disconnect()
+        // place can't double-subscribe. Wrapped in runCatchingPreservingCancellation
+        // so a platform regression throwing from `disconnect()` (observed as
+        // `AlreadyDisposedException` during plugin-unload races) doesn't
+        // propagate out of `buildGroup` and break the Settings render path.
+        // The project MessageBus is the ultimate safety net — if Settings is
+        // orphaned without disposeUI firing, the connection still drops on
+        // project close.
+        runCatchingPreservingCancellation { detectionConnection?.disconnect() }
+            .onFailure { exception ->
+                LOG.debug("OverridesGroupBuilder re-entry disconnect failed", exception)
+            }
         detectionConnection = null
         // The `panel.isDisplayable` guard inside invokeLater below covers
         // the window where Settings has been closed but dispose hasn't
@@ -595,6 +613,17 @@ class OverridesGroupBuilder {
                                     AyuVariant.detect()
                                         ?: return@runCatchingPreservingCancellation subdued
                                 ColorUtil.fromHex(AccentResolver.resolve(project, variant))
+                            }.onFailure { exception ->
+                                // DEBUG not WARN: hover fires on every
+                                // pointer entry, so a systemic regression
+                                // (malformed stored hex, plugin-unload
+                                // race) must not spam idea.log. Still
+                                // leaves a triage breadcrumb when a user
+                                // reports "hover doesn't light up".
+                                LOG.debug(
+                                    "Rescan hover AccentResolver threw; falling back to subdued",
+                                    exception,
+                                )
                             }.getOrDefault(subdued)
                         repaint()
                     }
