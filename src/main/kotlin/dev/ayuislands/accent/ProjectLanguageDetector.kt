@@ -187,8 +187,8 @@ object ProjectLanguageDetector {
                 // project close. `AccentResolver.projectKey` already logged the
                 // reason it returned null (base-path throw, canonicalization
                 // failure) — this branch is about the *user-facing* symptom.
-                LOG.info("rescan: projectKey unavailable; publishing null scanCompleted so subscribers unblock")
-                publishScanCompleted(project, null)
+                LOG.info("rescan: projectKey unavailable; publishing Unavailable so subscribers unblock")
+                publishScanCompleted(project, ScanOutcome.Unavailable)
                 return
             }
         cache.remove(key)
@@ -285,17 +285,27 @@ object ProjectLanguageDetector {
                 return@schedule
             }
             val detected = detectAndCache(project, key)
-            // Publish even when `detected` is null — UI subscribers (the
-            // Settings proportions row, the Rescan balloon) need to refresh
-            // their projection of the cache regardless of whether the scan
-            // produced a winner, a polyglot null, or a non-cacheable
-            // transient failure. A null publish after a Rescan click is the
-            // only way the UI can exit the stale "old winner" state when
-            // the project has since drifted into polyglot territory.
+            // Classify into a typed ScanOutcome so subscribers can
+            // distinguish polyglot (definitive no-winner) from
+            // Unavailable (transient — scanner threw, dumb-mode race).
+            // Discriminator: `detectAndCache` writes `cache[key]` only
+            // when the underlying DetectionResult is cacheable. After
+            // the call:
+            //   - detected != null → cache holds the id → Detected
+            //   - detected == null && cache[key] != null → cache holds
+            //     NULL_SENTINEL → definitive polyglot verdict
+            //   - detected == null && cache[key] == null → non-cacheable
+            //     transient failure → Unavailable
+            val outcome: ScanOutcome =
+                when {
+                    detected != null -> ScanOutcome.Detected(detected)
+                    cache[key] != null -> ScanOutcome.Polyglot
+                    else -> ScanOutcome.Unavailable
+                }
             if (detected != null) {
                 tryRefreshAccentForDetected(project, detected)
             }
-            publishScanCompleted(project, detected)
+            publishScanCompleted(project, outcome)
         }
     }
 
@@ -311,7 +321,7 @@ object ProjectLanguageDetector {
      */
     private fun publishScanCompleted(
         project: Project,
-        detectedId: String?,
+        outcome: ScanOutcome,
     ) {
         if (project.isDisposed) {
             LOG.debug("publishScanCompleted dropped before invokeLater: project already disposed")
@@ -325,7 +335,7 @@ object ProjectLanguageDetector {
             runCatchingPreservingCancellation {
                 project.messageBus
                     .syncPublisher(ProjectLanguageDetectionListener.TOPIC)
-                    .scanCompleted(detectedId)
+                    .scanCompleted(outcome)
             }.onFailure { exception ->
                 LOG.warn("scanCompleted publish failed; subscribers will not refresh for this scan", exception)
             }

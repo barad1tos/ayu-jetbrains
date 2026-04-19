@@ -156,17 +156,34 @@ class OverridesGroupBuilder {
      * to call multiple times; no-op when the builder was never wired up.
      */
     fun dispose() {
-        // Wrap the disconnect in runCatchingPreservingCancellation to
-        // match the sibling defence in RescanLanguageAction: the platform
-        // has been observed to throw `AlreadyDisposedException` from
-        // `MessageBusConnection.disconnect()` during a plugin-unload
-        // race. Without the wrap, a throw here propagates up through
-        // `AyuIslandsConfigurable.disposeUIResources` and skips both the
-        // remaining panel teardown and `super.disposeUIResources`, which
-        // would leak the `BoundConfigurable` binding cleanup.
+        safelyDisconnectDetection("dispose")
+    }
+
+    /**
+     * Shared disconnect-and-null helper for the two call sites that
+     * tear down [detectionConnection]: [dispose] from
+     * `AyuIslandsConfigurable.disposeUIResources` and the re-entry
+     * guard inside [buildGroup] when a variant swap reuses the builder.
+     *
+     * Wrapping the disconnect in `runCatchingPreservingCancellation`
+     * matches the sibling defence in
+     * [dev.ayuislands.actions.RescanLanguageAction]: the platform has
+     * been observed to throw `AlreadyDisposedException` from
+     * `MessageBusConnection.disconnect()` during a plugin-unload race.
+     * Without the wrap, a throw here propagates up through
+     * `AyuIslandsConfigurable.disposeUIResources` and skips both the
+     * remaining panel teardown and `super.disposeUIResources`, which
+     * would leak the `BoundConfigurable` binding cleanup.
+     *
+     * The [site] string names the caller in the breadcrumb so triage
+     * can distinguish a dispose-path failure from a rebuild-path one —
+     * the former is a Settings-close race, the latter is a mid-session
+     * variant swap.
+     */
+    private fun safelyDisconnectDetection(site: String) {
         runCatchingPreservingCancellation { detectionConnection?.disconnect() }
             .onFailure { exception ->
-                LOG.debug("OverridesGroupBuilder detection disconnect failed", exception)
+                LOG.debug("OverridesGroupBuilder $site disconnect failed", exception)
             }
         detectionConnection = null
     }
@@ -273,12 +290,10 @@ class OverridesGroupBuilder {
         // propagate out of `buildGroup` and break the Settings render path.
         // The project MessageBus is the ultimate safety net — if Settings is
         // orphaned without disposeUI firing, the connection still drops on
-        // project close.
-        runCatchingPreservingCancellation { detectionConnection?.disconnect() }
-            .onFailure { exception ->
-                LOG.debug("OverridesGroupBuilder re-entry disconnect failed", exception)
-            }
-        detectionConnection = null
+        // project close. Shared with `dispose()` via
+        // [safelyDisconnectDetection] so a single red/green test covers
+        // both call sites by construction.
+        safelyDisconnectDetection("re-entry")
         // The `panel.isDisplayable` guard inside invokeLater below covers
         // the window where Settings has been closed but dispose hasn't
         // fired yet — without it, `populateProportionsPanel` would paint
@@ -800,7 +815,21 @@ class OverridesGroupBuilder {
                         AllIcons.Actions.PinTab,
                     ) {
                         override fun actionPerformed(event: AnActionEvent) {
-                            pinCurrentProject()
+                            // Inlined from the former `pinCurrentProject` helper to
+                            // keep the class under detekt's 25-function cap after
+                            // [safelyDisconnectDetection] was extracted. Behaviour
+                            // unchanged: capture focused project, derive canonical
+                            // key, pin with the current variant's global accent.
+                            val project = parentProject ?: return
+                            if (project.isDefault || project.isDisposed) return
+                            val key = AccentResolver.projectKey(project) ?: return
+                            if (projectModel.containsPath(key)) return
+                            val variant = AyuVariant.detect() ?: AyuVariant.MIRAGE
+                            val hex = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
+                            val name = project.name.takeIf { it.isNotBlank() } ?: File(key).name
+                            val index = projectModel.add(ProjectMapping(key, name, hex))
+                            projectTable.selectionModel.setSelectionInterval(index, index)
+                            fireChanged()
                         }
 
                         override fun update(event: AnActionEvent) {
@@ -871,19 +900,6 @@ class OverridesGroupBuilder {
         val hex = dialog.resultHex ?: return
         val name = dialog.resultDisplayName ?: File(path).name
         val index = projectModel.add(ProjectMapping(path, name, hex))
-        projectTable.selectionModel.setSelectionInterval(index, index)
-        fireChanged()
-    }
-
-    private fun pinCurrentProject() {
-        val project = parentProject ?: return
-        if (project.isDefault || project.isDisposed) return
-        val key = AccentResolver.projectKey(project) ?: return
-        if (projectModel.containsPath(key)) return
-        val variant = AyuVariant.detect() ?: AyuVariant.MIRAGE
-        val hex = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
-        val name = project.name.takeIf { it.isNotBlank() } ?: File(key).name
-        val index = projectModel.add(ProjectMapping(key, name, hex))
         projectTable.selectionModel.setSelectionInterval(index, index)
         fireChanged()
     }

@@ -21,26 +21,23 @@ import com.intellij.util.messages.Topic
  */
 internal fun interface ProjectLanguageDetectionListener {
     /**
-     * Invoked after `ProjectLanguageDetector` settles a scan (successful or
-     * non-cacheable transient failure) OR after a `rescan` call whose
-     * `AccentResolver.projectKey` returned null (the scheduler is bypassed
-     * but the listener still fires so one-shot subscribers can unblock).
+     * Invoked after `ProjectLanguageDetector` settles a scan (successful,
+     * polyglot, or non-cacheable transient failure) OR after a `rescan`
+     * call whose `AccentResolver.projectKey` returned null.
      *
-     * @param detectedId the dominant language id the detector settled on,
-     *   or `null` when the scan was polyglot (definitive no-winner verdict),
-     *   hit a non-cacheable transient failure (scanner threw, index read
-     *   aborted), or the caller was a `rescan` with an unresolvable project
-     *   key. Note: dumb mode and pre-scan disposal short-circuit inside
-     *   `scheduleBackgroundDetection` and produce *no* publish at all;
+     * @param outcome structurally distinguishes the three end states;
+     *   see [ScanOutcome] for the discriminator contract. Dumb mode and
+     *   pre-scan disposal short-circuit inside
+     *   `scheduleBackgroundDetection` and produce *no* publish at all —
      *   subscribers must not treat absence of `scanCompleted` as an error.
      *
      *   Callers rendering proportions MUST re-query
-     *   [ProjectLanguageDetector.proportions] instead of relying on this id
-     *   alone — the weights cache is the authoritative source for the
-     *   proportions row and may be populated (or deliberately empty)
-     *   independently of the winner id.
+     *   [ProjectLanguageDetector.proportions] instead of relying on the
+     *   outcome alone — the weights cache is the authoritative source for
+     *   the proportions row and may be populated (or deliberately empty)
+     *   independently of the outcome shape.
      */
-    fun scanCompleted(detectedId: String?)
+    fun scanCompleted(outcome: ScanOutcome)
 
     companion object {
         val TOPIC: Topic<ProjectLanguageDetectionListener> =
