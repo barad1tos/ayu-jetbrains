@@ -920,7 +920,7 @@ class ProjectLanguageDetectorTest {
 
         ProjectLanguageDetector.rescan(project)
 
-        verify(exactly = 1) { listener.scanCompleted("python") }
+        verify(exactly = 1) { listener.scanCompleted(ScanOutcome.Detected("python")) }
     }
 
     @Test
@@ -942,7 +942,7 @@ class ProjectLanguageDetectorTest {
 
         ProjectLanguageDetector.rescan(project)
 
-        verify(exactly = 1) { listener.scanCompleted(null) }
+        verify(exactly = 1) { listener.scanCompleted(ScanOutcome.Polyglot) }
     }
 
     @Test
@@ -978,15 +978,17 @@ class ProjectLanguageDetectorTest {
     }
 
     @Test
-    fun `rescan on null project key publishes null scanCompleted`() {
+    fun `rescan on null project key publishes Unavailable outcome`() {
         // User-facing symptom guard: `AccentResolver.projectKey` can
         // return null for a disposal race or canonicalization failure on
         // a live project. Before the fix, `rescan` returned silently,
         // orphaning the one-shot subscriber installed by
         // `RescanLanguageAction.subscribeOnceForBalloon` — user clicks
         // Rescan, gets no balloon, subscription leaks until project
-        // close. The fix publishes `scanCompleted(null)` so subscribers
-        // fire the polyglot-copy balloon and disconnect.
+        // close. The fix publishes [ScanOutcome.Unavailable] (transient,
+        // not a definitive polyglot verdict) so subscribers fire the
+        // polyglot-copy balloon and disconnect while signalling to the
+        // Settings row that the previous render should stay put.
         val project = mockk<Project>()
         every { project.basePath } returns null
         every { project.isDefault } returns false
@@ -999,7 +1001,7 @@ class ProjectLanguageDetectorTest {
 
         ProjectLanguageDetector.rescan(project)
 
-        verify(exactly = 1) { listener.scanCompleted(null) }
+        verify(exactly = 1) { listener.scanCompleted(ScanOutcome.Unavailable) }
         verify(exactly = 0) { ProjectLanguageScanAsync.schedule(any(), any()) }
     }
 

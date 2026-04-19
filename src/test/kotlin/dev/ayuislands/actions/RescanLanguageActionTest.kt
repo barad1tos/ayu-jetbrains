@@ -12,6 +12,7 @@ import com.intellij.util.messages.MessageBus
 import com.intellij.util.messages.MessageBusConnection
 import dev.ayuislands.accent.ProjectLanguageDetectionListener
 import dev.ayuislands.accent.ProjectLanguageDetector
+import dev.ayuislands.accent.ScanOutcome
 import dev.ayuislands.licensing.LicenseChecker
 import io.mockk.CapturingSlot
 import io.mockk.every
@@ -202,7 +203,7 @@ class RescanLanguageActionTest {
         every { kotlin.displayName } returns "Kotlin"
         every { Language.getRegisteredLanguages() } returns listOf(kotlin)
 
-        listener.captured.scanCompleted("kotlin")
+        listener.captured.scanCompleted(ScanOutcome.Detected("kotlin"))
 
         verify(exactly = 1) {
             notificationGroup.createNotification(
@@ -219,7 +220,7 @@ class RescanLanguageActionTest {
         val listener = captureSubscribedListener()
         action.actionPerformed(event)
 
-        listener.captured.scanCompleted(null)
+        listener.captured.scanCompleted(ScanOutcome.Polyglot)
 
         verify(exactly = 1) {
             notificationGroup.createNotification(
@@ -238,7 +239,7 @@ class RescanLanguageActionTest {
         mockkStatic(Language::class)
         every { Language.getRegisteredLanguages() } returns emptyList()
 
-        listener.captured.scanCompleted("Exoticlang")
+        listener.captured.scanCompleted(ScanOutcome.Detected("Exoticlang"))
 
         verify(exactly = 1) {
             notificationGroup.createNotification(
@@ -259,8 +260,8 @@ class RescanLanguageActionTest {
         val listener = captureSubscribedListener()
         action.actionPerformed(event)
 
-        listener.captured.scanCompleted("kotlin")
-        listener.captured.scanCompleted("python")
+        listener.captured.scanCompleted(ScanOutcome.Detected("kotlin"))
+        listener.captured.scanCompleted(ScanOutcome.Detected("python"))
 
         verify(exactly = 1) { connection.disconnect() }
         // Only the first balloon fires.
@@ -273,7 +274,7 @@ class RescanLanguageActionTest {
         action.actionPerformed(event)
 
         every { project.isDisposed } returns true
-        listener.captured.scanCompleted("kotlin")
+        listener.captured.scanCompleted(ScanOutcome.Detected("kotlin"))
 
         verify(exactly = 0) { notification.notify(any<Project>()) }
     }
@@ -292,7 +293,7 @@ class RescanLanguageActionTest {
         every { connection.disconnect() } throws IllegalStateException("already disposed")
         action.actionPerformed(event)
 
-        listener.captured.scanCompleted("kotlin")
+        listener.captured.scanCompleted(ScanOutcome.Detected("kotlin"))
 
         verify(exactly = 1) { notification.notify(any<Project>()) }
     }
@@ -314,7 +315,7 @@ class RescanLanguageActionTest {
         action.actionPerformed(event)
 
         // Must not throw — load-bearing assertion is simply that the call completes.
-        listener.captured.scanCompleted("kotlin")
+        listener.captured.scanCompleted(ScanOutcome.Detected("kotlin"))
     }
 
     @Test
@@ -331,7 +332,7 @@ class RescanLanguageActionTest {
         every { Language.getRegisteredLanguages() } throws RuntimeException("plugin registry corrupted")
         action.actionPerformed(event)
 
-        listener.captured.scanCompleted("Exoticlang")
+        listener.captured.scanCompleted(ScanOutcome.Detected("Exoticlang"))
 
         verify(exactly = 1) {
             notificationGroup.createNotification(
@@ -356,7 +357,7 @@ class RescanLanguageActionTest {
         every { Language.getRegisteredLanguages() } returns listOf(blankLang)
         action.actionPerformed(event)
 
-        listener.captured.scanCompleted("Exoticlang")
+        listener.captured.scanCompleted(ScanOutcome.Detected("Exoticlang"))
 
         verify(exactly = 1) {
             notificationGroup.createNotification(

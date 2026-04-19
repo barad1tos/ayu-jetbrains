@@ -12,6 +12,7 @@ import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.runCatchingPreservingCancellation
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.onboarding.OnboardingUrls
@@ -310,11 +311,17 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         // from running. The MessageBus subscription in overrides is the
         // load-bearing cleanup — a skipped super would leak the
         // BoundConfigurable binding too.
+        // Cancellation-preserving wrap keeps structured-concurrency
+        // semantics if a future refactor moves this dispose chain into
+        // a coroutine scope; today disposeUIResources is a plain EDT
+        // callback but the sibling disconnect wraps in
+        // OverridesGroupBuilder use the same variant, so we stay
+        // consistent across the module.
         panels.forEach { panel ->
-            runCatching { panel.dispose() }
+            runCatchingPreservingCancellation { panel.dispose() }
                 .onFailure { log.warn("Panel dispose threw for ${panel.javaClass.simpleName}", it) }
         }
-        runCatching { accentPanel.overrides.dispose() }
+        runCatchingPreservingCancellation { accentPanel.overrides.dispose() }
             .onFailure { log.warn("OverridesGroupBuilder dispose threw", it) }
         super.disposeUIResources()
     }
