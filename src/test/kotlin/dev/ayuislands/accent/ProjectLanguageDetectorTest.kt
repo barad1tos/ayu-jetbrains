@@ -924,6 +924,33 @@ class ProjectLanguageDetectorTest {
     }
 
     @Test
+    fun `rescan publishes Unavailable when scanner hits a non-cacheable transient failure`() {
+        // Scanner returns null when it can't give an authoritative answer
+        // (ReadAction throw, disposal race, DumbService edge). The
+        // DetectionResult carries cacheable=false, so detectAndCache does
+        // NOT write the dominant-id cache. scheduleBackgroundDetection's
+        // classifier then picks the third when-arm:
+        //   detected == null && cache[key] == null → Unavailable.
+        // Locks the discriminator that distinguishes Unavailable from
+        // Polyglot — a regression collapsing both into a single outcome
+        // would surface here.
+        val project = stubProject("/tmp/rescan-publish-unavailable-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns null
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        stubDumbServiceSmart(project)
+        val listener = mockk<ProjectLanguageDetectionListener>(relaxed = true)
+        wireMessageBus(project, listener)
+        runInvokeLaterInline()
+        runSchedulerInline()
+
+        ProjectLanguageDetector.rescan(project)
+
+        verify(exactly = 1) { listener.scanCompleted(ScanOutcome.Unavailable) }
+    }
+
+    @Test
     fun `rescan publishes scanCompleted with null on polyglot no-winner verdict`() {
         // 50/50 split with no SDK hint → scan returns null winner → detector
         // caches the null verdict → publishScanCompleted fires with null so

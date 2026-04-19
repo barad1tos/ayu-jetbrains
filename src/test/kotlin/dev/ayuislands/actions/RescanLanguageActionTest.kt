@@ -216,11 +216,33 @@ class RescanLanguageActionTest {
     }
 
     @Test
-    fun `scan completion with null id fires a polyglot balloon`() {
+    fun `scan completion with Polyglot fires the polyglot balloon`() {
         val listener = captureSubscribedListener()
         action.actionPerformed(event)
 
         listener.captured.scanCompleted(ScanOutcome.Polyglot)
+
+        verify(exactly = 1) {
+            notificationGroup.createNotification(
+                "Project language re-detected",
+                "Polyglot — no single dominant language; global accent applies",
+                NotificationType.INFORMATION,
+            )
+        }
+    }
+
+    @Test
+    fun `scan completion with Unavailable fires the polyglot balloon via the shared when arm`() {
+        // `humanLabelFor` collapses Polyglot and Unavailable into the
+        // same user-visible balloon body (polyglot copy) — the user
+        // sees "no dominant language right now" the same way whether
+        // the scan definitively said polyglot or hit a transient
+        // failure. Locks the when-arm coverage so a regression
+        // splitting the arms without updating the copy gets caught.
+        val listener = captureSubscribedListener()
+        action.actionPerformed(event)
+
+        listener.captured.scanCompleted(ScanOutcome.Unavailable)
 
         verify(exactly = 1) {
             notificationGroup.createNotification(
