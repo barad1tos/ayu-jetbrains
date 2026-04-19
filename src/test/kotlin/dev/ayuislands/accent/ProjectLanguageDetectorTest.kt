@@ -920,7 +920,34 @@ class ProjectLanguageDetectorTest {
 
         ProjectLanguageDetector.rescan(project)
 
-        verify(exactly = 1) { listener.scanCompleted("python") }
+        verify(exactly = 1) { listener.scanCompleted(ScanOutcome.Detected("python")) }
+    }
+
+    @Test
+    fun `rescan publishes Unavailable when scanner hits a non-cacheable transient failure`() {
+        // Scanner returns null when it can't give an authoritative answer
+        // (ReadAction throw, disposal race, DumbService edge). The
+        // DetectionResult carries cacheable=false, so detectAndCache does
+        // NOT write the dominant-id cache. scheduleBackgroundDetection's
+        // classifier then picks the third when-arm:
+        //   detected == null && cache[key] == null → Unavailable.
+        // Locks the discriminator that distinguishes Unavailable from
+        // Polyglot — a regression collapsing both into a single outcome
+        // would surface here.
+        val project = stubProject("/tmp/rescan-publish-unavailable-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns null
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        stubDumbServiceSmart(project)
+        val listener = mockk<ProjectLanguageDetectionListener>(relaxed = true)
+        wireMessageBus(project, listener)
+        runInvokeLaterInline()
+        runSchedulerInline()
+
+        ProjectLanguageDetector.rescan(project)
+
+        verify(exactly = 1) { listener.scanCompleted(ScanOutcome.Unavailable) }
     }
 
     @Test
@@ -942,7 +969,7 @@ class ProjectLanguageDetectorTest {
 
         ProjectLanguageDetector.rescan(project)
 
-        verify(exactly = 1) { listener.scanCompleted(null) }
+        verify(exactly = 1) { listener.scanCompleted(ScanOutcome.Polyglot) }
     }
 
     @Test
@@ -978,15 +1005,17 @@ class ProjectLanguageDetectorTest {
     }
 
     @Test
-    fun `rescan on null project key publishes null scanCompleted`() {
+    fun `rescan on null project key publishes Unavailable outcome`() {
         // User-facing symptom guard: `AccentResolver.projectKey` can
         // return null for a disposal race or canonicalization failure on
         // a live project. Before the fix, `rescan` returned silently,
         // orphaning the one-shot subscriber installed by
         // `RescanLanguageAction.subscribeOnceForBalloon` — user clicks
         // Rescan, gets no balloon, subscription leaks until project
-        // close. The fix publishes `scanCompleted(null)` so subscribers
-        // fire the polyglot-copy balloon and disconnect.
+        // close. The fix publishes [ScanOutcome.Unavailable] (transient,
+        // not a definitive polyglot verdict) so subscribers fire the
+        // polyglot-copy balloon and disconnect while signalling to the
+        // Settings row that the previous render should stay put.
         val project = mockk<Project>()
         every { project.basePath } returns null
         every { project.isDefault } returns false
@@ -999,7 +1028,7 @@ class ProjectLanguageDetectorTest {
 
         ProjectLanguageDetector.rescan(project)
 
-        verify(exactly = 1) { listener.scanCompleted(null) }
+        verify(exactly = 1) { listener.scanCompleted(ScanOutcome.Unavailable) }
         verify(exactly = 0) { ProjectLanguageScanAsync.schedule(any(), any()) }
     }
 

@@ -10,6 +10,7 @@ import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import dev.ayuislands.accent.ProjectLanguageDetectionListener
 import dev.ayuislands.accent.ProjectLanguageDetector
+import dev.ayuislands.accent.ScanOutcome
 import dev.ayuislands.accent.runCatchingPreservingCancellation
 import dev.ayuislands.licensing.LicenseChecker
 
@@ -61,23 +62,23 @@ internal class RescanLanguageAction : DumbAwareAction() {
             java.util.concurrent.atomic
                 .AtomicBoolean(false)
         val listener =
-            ProjectLanguageDetectionListener { detectedId ->
+            ProjectLanguageDetectionListener { outcome ->
                 if (!fired.compareAndSet(false, true)) return@ProjectLanguageDetectionListener
                 runCatchingPreservingCancellation { connection.disconnect() }
                     .onFailure { exception ->
                         LOG.debug("Rescan balloon connection disconnect failed", exception)
                     }
-                notifyUser(project, detectedId)
+                notifyUser(project, outcome)
             }
         connection.subscribe(ProjectLanguageDetectionListener.TOPIC, listener)
     }
 
     private fun notifyUser(
         project: Project,
-        detectedId: String?,
+        outcome: ScanOutcome,
     ) {
         if (project.isDisposed) return
-        val label = humanLabelFor(detectedId)
+        val label = humanLabelFor(outcome)
         runCatchingPreservingCancellation {
             NotificationGroupManager
                 .getInstance()
@@ -93,17 +94,28 @@ internal class RescanLanguageAction : DumbAwareAction() {
     }
 
     /**
-     * Resolve an AYU language id to a display name using the platform registry,
-     * falling back to the raw id when the language plugin has been unloaded
-     * between scan and render. Null id means "no dominant language" —
-     * render the polyglot copy.
+     * Resolve a [ScanOutcome] to a human-readable balloon body.
+     * [ScanOutcome.Detected] maps to the registered Language `displayName`
+     * (case-insensitive, raw id on lookup failure or blank displayName).
+     * [ScanOutcome.Polyglot] and [ScanOutcome.Unavailable] both map to the
+     * polyglot copy today — from the user's perspective "no dominant
+     * language right now" reads the same whether the scan definitively
+     * said polyglot or hit a transient failure, and the UI keeps a
+     * single copy string rather than surfacing detector-internal
+     * transience.
      *
-     * Case-insensitive lookup because `Language.id` casing varies per plugin
-     * (`"JAVA"` / `"kotlin"` / `"JavaScript"`) while the detector always
-     * normalizes to lowercase via [dev.ayuislands.accent.LanguageDetectionRules].
+     * Case-insensitive lookup because `Language.id` casing varies per
+     * plugin (`"JAVA"` / `"kotlin"` / `"JavaScript"`) while the detector
+     * always normalises to lowercase via
+     * [dev.ayuislands.accent.LanguageDetectionRules].
      */
-    private fun humanLabelFor(detectedId: String?): String {
-        if (detectedId == null) return POLYGLOT_LABEL
+    private fun humanLabelFor(outcome: ScanOutcome): String =
+        when (outcome) {
+            is ScanOutcome.Detected -> displayNameFor(outcome.languageId)
+            ScanOutcome.Polyglot, ScanOutcome.Unavailable -> POLYGLOT_LABEL
+        }
+
+    private fun displayNameFor(detectedId: String): String {
         val display =
             runCatchingPreservingCancellation {
                 Language
