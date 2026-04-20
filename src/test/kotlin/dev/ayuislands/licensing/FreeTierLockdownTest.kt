@@ -23,6 +23,7 @@ import io.mockk.runs
 import io.mockk.unmockkAll
 import io.mockk.verify
 import org.w3c.dom.Element
+import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -195,11 +196,18 @@ class FreeTierLockdownTest {
         // `<themeProvider` would miscount if a theme provider ever got commented out
         // or another element's name starts with the same prefix. DOM ignores comments
         // and returns only live nodes.
+        //
+        // Hardened against malicious manifests: secure-processing on, DOCTYPE
+        // declarations rejected outright, both external-entity flags off. The plugin's
+        // own plugin.xml has no DOCTYPE, so flipping disallow-doctype-decl to true
+        // costs nothing and prevents DTD-based attacks if the test classpath is ever
+        // swapped for a tampered manifest.
         val factory =
             DocumentBuilderFactory.newInstance().apply {
                 isNamespaceAware = false
                 isValidating = false
-                setFeature("http://apache.org/xml/features/disallow-doctype-decl", false)
+                setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true)
+                setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
                 setFeature("http://xml.org/sax/features/external-general-entities", false)
                 setFeature("http://xml.org/sax/features/external-parameter-entities", false)
             }

@@ -59,19 +59,17 @@ class LicenseCheckerAntiCheatTest {
         mockkStatic(PluginManagerCore::class)
         every { PluginManagerCore.getPlugin(any<PluginId>()) } returns null
 
-        // Pin the clock through the public test seam instead of mocking
-        // System.currentTimeMillis — the latter kept Gradle test-executor shutdown
-        // hooks alive and timed out CI. A stable anchor removes boundary-test
-        // flakiness caused by real-clock jitter during the `isLicensedOrGrace` call.
+        // Pin the clock through LicenseCheckerClockSeam so restore stays centralized
+        // and the production defaults come back from exactly one place in tearDown.
         fixedNow = 1_700_000_000_000L // 2023-11-14, arbitrary but stable
-        LicenseChecker.nowMsSupplier = { fixedNow }
+        LicenseCheckerClockSeam.pinNow(fixedNow)
 
         System.clearProperty("ayu.islands.dev")
     }
 
     @AfterTest
     fun tearDown() {
-        LicenseChecker.nowMsSupplier = System::currentTimeMillis
+        LicenseCheckerClockSeam.restore()
         System.clearProperty("ayu.islands.dev")
         unmockkAll()
     }
