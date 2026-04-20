@@ -1,13 +1,18 @@
 package dev.ayuislands.licensing
 
+import com.intellij.ide.plugins.IdeaPluginDescriptor
+import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.application.PathManager
+import com.intellij.openapi.extensions.PluginId
 import com.intellij.ui.LicensingFacade
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.every
+import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
+import java.nio.file.Path
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -26,8 +31,18 @@ class LicenseCheckerTest {
     fun setUp() {
         mockkStatic(PathManager::class)
         mockkStatic(LicensingFacade::class)
+        mockkStatic(PluginManagerCore::class)
+        every { PluginManagerCore.getPlugin(any<PluginId>()) } returns null
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns defaultSettings
+    }
+
+    private fun mockSandboxPluginPath() {
+        val descriptor = mockk<IdeaPluginDescriptor>()
+        val path = mockk<Path>()
+        every { path.toString() } returns "/repo/build/idea-sandbox/plugins/ayuIslands/lib/ayuIslands.jar"
+        every { descriptor.pluginPath } returns path
+        every { PluginManagerCore.getPlugin(PluginId.getId("com.ayuislands.theme")) } returns descriptor
     }
 
     @AfterTest
@@ -37,9 +52,10 @@ class LicenseCheckerTest {
     }
 
     @Test
-    fun `isLicensed returns true when dev property set and in sandbox`() {
+    fun `isLicensed returns true when all three dev gates match`() {
         System.setProperty("ayu.islands.dev", "true")
         every { PathManager.getConfigPath() } returns "/home/user/.gradle/idea-sandbox/config"
+        mockSandboxPluginPath()
 
         val result = LicenseChecker.isLicensed()
 
@@ -47,14 +63,15 @@ class LicenseCheckerTest {
     }
 
     @Test
-    fun `isLicensed does not shortcut when dev property set but not in sandbox`() {
+    fun `isLicensed does not shortcut when dev property set but not in sandbox config path`() {
         System.setProperty("ayu.islands.dev", "true")
         every { PathManager.getConfigPath() } returns "/home/user/.config/JetBrains/IntelliJIdea2025.1"
+        mockSandboxPluginPath()
         every { LicensingFacade.getInstance() } returns null
 
         val result = LicenseChecker.isLicensed()
 
-        // Dev shortcut skipped because not in sandbox; facade is null so returns null
+        // Dev shortcut skipped because config path is not a sandbox; facade is null so returns null
         assertNull(result)
     }
 
@@ -136,6 +153,63 @@ class LicenseCheckerTest {
 
         // No stamp -> isLicensed() returns false -> isLicensedOrGrace() returns false
         assertFalse(result)
+    }
+
+    // ---------- Grace-window boundary tests ----------
+
+    @Test
+    fun `isLicensedOrGrace returns true within 47h 59m of last licensed check`() {
+        val realState = AyuIslandsState()
+        val settingsMock = io.mockk.mockk<AyuIslandsSettings>()
+        every { AyuIslandsSettings.getInstance() } returns settingsMock
+        every { settingsMock.state } returns realState
+        every { PathManager.getConfigPath() } returns "/home/user/.config/JetBrains/IntelliJIdea2025.1"
+        val facade = io.mockk.mockk<LicensingFacade>()
+        every { LicensingFacade.getInstance() } returns facade
+        every { facade.getConfirmationStamp(LicenseChecker.PRODUCT_CODE) } returns null
+
+        val msPerHour = 3_600_000L
+        realState.lastKnownLicensedMs = System.currentTimeMillis() - (47L * msPerHour) - (59L * 60_000L)
+
+        assertTrue(LicenseChecker.isLicensedOrGrace(), "47h 59m must still be inside grace window")
+    }
+
+    @Test
+    fun `isLicensedOrGrace returns false after 48h of last licensed check`() {
+        val realState = AyuIslandsState()
+        val settingsMock = io.mockk.mockk<AyuIslandsSettings>()
+        every { AyuIslandsSettings.getInstance() } returns settingsMock
+        every { settingsMock.state } returns realState
+        every { PathManager.getConfigPath() } returns "/home/user/.config/JetBrains/IntelliJIdea2025.1"
+        val facade = io.mockk.mockk<LicensingFacade>()
+        every { LicensingFacade.getInstance() } returns facade
+        every { facade.getConfirmationStamp(LicenseChecker.PRODUCT_CODE) } returns null
+
+        val msPerHour = 3_600_000L
+        realState.lastKnownLicensedMs = System.currentTimeMillis() - (48L * msPerHour) - 1L
+
+        assertFalse(LicenseChecker.isLicensedOrGrace(), "Past 48h must fall outside grace window")
+    }
+
+    @Test
+    fun `isLicensedOrGrace writes lastKnownLicensedMs monotonically on each licensed call`() {
+        val realState = AyuIslandsState()
+        val settingsMock = io.mockk.mockk<AyuIslandsSettings>()
+        every { AyuIslandsSettings.getInstance() } returns settingsMock
+        every { settingsMock.state } returns realState
+        every { PathManager.getConfigPath() } returns "/home/user/.config/JetBrains/IntelliJIdea2025.1"
+        val facade = io.mockk.mockk<LicensingFacade>()
+        every { LicensingFacade.getInstance() } returns facade
+        every { facade.getConfirmationStamp(LicenseChecker.PRODUCT_CODE) } returns "eval:1"
+
+        realState.lastKnownLicensedMs = 0L
+        LicenseChecker.isLicensedOrGrace()
+        val firstStamp = realState.lastKnownLicensedMs
+        assertTrue(firstStamp > 0, "First licensed call must write a positive stamp")
+
+        // Second call must not regress — should stay the same or grow.
+        LicenseChecker.isLicensedOrGrace()
+        assertTrue(realState.lastKnownLicensedMs >= firstStamp, "Stamp must be monotonic")
     }
 
     @Test
