@@ -156,6 +156,12 @@ class LicenseCheckerTest {
     }
 
     // ---------- Grace-window boundary tests ----------
+    //
+    // Each boundary case pins the clock through LicenseChecker.nowMsSupplier so
+    // real-clock jitter during the `isLicensedOrGrace` call cannot cross the
+    // 48 h threshold mid-test. Restore the default supplier in AfterTest via
+    // `unmockkAll` + a fresh setUp is not enough — nowMsSupplier is a top-level
+    // var on the object and survives mockk resets.
 
     @Test
     fun `isLicensedOrGrace returns true within 47h 59m of last licensed check`() {
@@ -169,13 +175,18 @@ class LicenseCheckerTest {
         every { facade.getConfirmationStamp(LicenseChecker.PRODUCT_CODE) } returns null
 
         val msPerHour = 3_600_000L
-        realState.lastKnownLicensedMs = System.currentTimeMillis() - (47L * msPerHour) - (59L * 60_000L)
-
-        assertTrue(LicenseChecker.isLicensedOrGrace(), "47h 59m must still be inside grace window")
+        val fixedNow = 1_700_000_000_000L
+        LicenseChecker.nowMsSupplier = { fixedNow }
+        try {
+            realState.lastKnownLicensedMs = fixedNow - (47L * msPerHour) - (59L * 60_000L)
+            assertTrue(LicenseChecker.isLicensedOrGrace(), "47h 59m must still be inside grace window")
+        } finally {
+            LicenseChecker.nowMsSupplier = System::currentTimeMillis
+        }
     }
 
     @Test
-    fun `isLicensedOrGrace returns false after 48h of last licensed check`() {
+    fun `isLicensedOrGrace returns false at exact 48h boundary`() {
         val realState = AyuIslandsState()
         val settingsMock = io.mockk.mockk<AyuIslandsSettings>()
         every { AyuIslandsSettings.getInstance() } returns settingsMock
@@ -186,9 +197,14 @@ class LicenseCheckerTest {
         every { facade.getConfirmationStamp(LicenseChecker.PRODUCT_CODE) } returns null
 
         val msPerHour = 3_600_000L
-        realState.lastKnownLicensedMs = System.currentTimeMillis() - (48L * msPerHour) - 1L
-
-        assertFalse(LicenseChecker.isLicensedOrGrace(), "Past 48h must fall outside grace window")
+        val fixedNow = 1_700_000_000_000L
+        LicenseChecker.nowMsSupplier = { fixedNow }
+        try {
+            realState.lastKnownLicensedMs = fixedNow - (48L * msPerHour)
+            assertFalse(LicenseChecker.isLicensedOrGrace(), "Exactly 48h must be outside grace window (strict <)")
+        } finally {
+            LicenseChecker.nowMsSupplier = System::currentTimeMillis
+        }
     }
 
     @Test
@@ -202,14 +218,21 @@ class LicenseCheckerTest {
         every { LicensingFacade.getInstance() } returns facade
         every { facade.getConfirmationStamp(LicenseChecker.PRODUCT_CODE) } returns "eval:1"
 
-        realState.lastKnownLicensedMs = 0L
-        LicenseChecker.isLicensedOrGrace()
-        val firstStamp = realState.lastKnownLicensedMs
-        assertTrue(firstStamp > 0, "First licensed call must write a positive stamp")
+        var nowTick = 1_700_000_000_000L
+        LicenseChecker.nowMsSupplier = { nowTick }
+        try {
+            realState.lastKnownLicensedMs = 0L
+            LicenseChecker.isLicensedOrGrace()
+            val firstStamp = realState.lastKnownLicensedMs
+            assertEquals(nowTick, firstStamp, "First licensed call must write the clock value")
 
-        // Second call must not regress — should stay the same or grow.
-        LicenseChecker.isLicensedOrGrace()
-        assertTrue(realState.lastKnownLicensedMs >= firstStamp, "Stamp must be monotonic")
+            // Advance the fake clock; stamp must track the forward movement.
+            nowTick += 1_000L
+            LicenseChecker.isLicensedOrGrace()
+            assertEquals(nowTick, realState.lastKnownLicensedMs, "Stamp must move forward with the clock")
+        } finally {
+            LicenseChecker.nowMsSupplier = System::currentTimeMillis
+        }
     }
 
     @Test

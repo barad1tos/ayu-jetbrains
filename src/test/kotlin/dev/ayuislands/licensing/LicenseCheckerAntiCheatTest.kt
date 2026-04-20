@@ -38,6 +38,7 @@ import kotlin.test.assertTrue
 class LicenseCheckerAntiCheatTest {
     private lateinit var state: AyuIslandsState
     private lateinit var facade: LicensingFacade
+    private var fixedNow: Long = 0L
 
     @BeforeTest
     fun setUp() {
@@ -58,17 +59,19 @@ class LicenseCheckerAntiCheatTest {
         mockkStatic(PluginManagerCore::class)
         every { PluginManagerCore.getPlugin(any<PluginId>()) } returns null
 
-        // Use the real clock instead of mocking System.currentTimeMillis — the earlier
-        // revision patched it with mockkStatic(System::class), which kept the Gradle
-        // test-executor from shutting down in CI. Every assertion below uses offsets
-        // larger than the scheduling jitter (minutes / hours), so real-clock drift is
-        // harmless.
+        // Pin the clock through the public test seam instead of mocking
+        // System.currentTimeMillis — the latter kept Gradle test-executor shutdown
+        // hooks alive and timed out CI. A stable anchor removes boundary-test
+        // flakiness caused by real-clock jitter during the `isLicensedOrGrace` call.
+        fixedNow = 1_700_000_000_000L // 2023-11-14, arbitrary but stable
+        LicenseChecker.nowMsSupplier = { fixedNow }
 
         System.clearProperty("ayu.islands.dev")
     }
 
     @AfterTest
     fun tearDown() {
+        LicenseChecker.nowMsSupplier = System::currentTimeMillis
         System.clearProperty("ayu.islands.dev")
         unmockkAll()
     }
@@ -99,7 +102,7 @@ class LicenseCheckerAntiCheatTest {
     @Test
     fun `isLicensedOrGrace returns false when lastKnownLicensedMs is one hour in the future`() {
         setStampUnlicensed()
-        state.lastKnownLicensedMs = System.currentTimeMillis() + hoursMs
+        state.lastKnownLicensedMs = fixedNow + hoursMs
 
         val result = LicenseChecker.isLicensedOrGrace()
 
@@ -108,46 +111,54 @@ class LicenseCheckerAntiCheatTest {
     }
 
     @Test
-    fun `isLicensedOrGrace returns false when lastKnownLicensedMs is one minute in the future`() {
-        // Using a 60 s offset instead of 1 ms avoids flakiness from thread scheduling —
-        // the System.currentTimeMillis() call inside isLicensedOrGrace will land at most
-        // a few ms after the seed, still comfortably in the future.
+    fun `isLicensedOrGrace returns false when lastKnownLicensedMs is one millisecond in the future`() {
+        // Deterministic clock via nowMsSupplier lets us assert the strict `>` branch
+        // without real-clock race: a 1 ms future stamp is still rejected.
         setStampUnlicensed()
-        state.lastKnownLicensedMs = System.currentTimeMillis() + 60_000L
+        state.lastKnownLicensedMs = fixedNow + 1L
 
         val result = LicenseChecker.isLicensedOrGrace()
 
-        assertFalse(result, "Even a one-minute rollback is rejected — no fudge factor")
+        assertFalse(result, "Even a one-millisecond rollback is rejected — strict > guard")
         assertEquals(0L, state.lastKnownLicensedMs)
+    }
+
+    @Test
+    fun `isLicensedOrGrace returns true when lastKnownLicensedMs is exactly now`() {
+        setStampUnlicensed()
+        state.lastKnownLicensedMs = fixedNow
+
+        val result = LicenseChecker.isLicensedOrGrace()
+
+        assertTrue(result, "elapsed=0 is inside the grace window")
     }
 
     // ---------- Grace-window boundaries ----------
 
     @Test
-    fun `isLicensedOrGrace grants grace when stamp is 45 hours old`() {
+    fun `isLicensedOrGrace returns true just below the 48-hour boundary`() {
         setStampUnlicensed()
-        state.lastKnownLicensedMs = System.currentTimeMillis() - (45L * hoursMs)
+        state.lastKnownLicensedMs = fixedNow - (48L * hoursMs) + 1L
 
         val result = LicenseChecker.isLicensedOrGrace()
 
-        assertTrue(result, "45 h is well inside the 48 h grace window")
+        assertTrue(result, "47:59:59.999 must still grant grace")
     }
 
     @Test
-    fun `isLicensedOrGrace denies grace when stamp is older than 48 hours`() {
+    fun `isLicensedOrGrace returns false at exact 48-hour boundary`() {
         setStampUnlicensed()
-        // 48 h + 1 s ago — 1 s buffer absorbs any mid-test drift.
-        state.lastKnownLicensedMs = System.currentTimeMillis() - (48L * hoursMs) - 1_000L
+        state.lastKnownLicensedMs = fixedNow - (48L * hoursMs)
 
         val result = LicenseChecker.isLicensedOrGrace()
 
-        assertFalse(result, "Past the 48 h window, grace must be denied")
+        assertFalse(result, "Exactly 48 h must be outside the grace window (strict <)")
     }
 
     @Test
     fun `isLicensedOrGrace returns false well after 48-hour boundary`() {
         setStampUnlicensed()
-        state.lastKnownLicensedMs = System.currentTimeMillis() - (72L * hoursMs)
+        state.lastKnownLicensedMs = fixedNow - (72L * hoursMs)
 
         val result = LicenseChecker.isLicensedOrGrace()
 
@@ -167,18 +178,13 @@ class LicenseCheckerAntiCheatTest {
     // ---------- Monotonic clamp on write ----------
 
     @Test
-    fun `licensed check writes a current stamp when lastKnownLicensedMs is zero`() {
+    fun `licensed check writes exactly now when lastKnownLicensedMs is zero`() {
         setStampLicensed()
         state.lastKnownLicensedMs = 0L
-        val before = System.currentTimeMillis()
 
         LicenseChecker.isLicensedOrGrace()
 
-        val after = System.currentTimeMillis()
-        assertTrue(
-            state.lastKnownLicensedMs in before..after,
-            "Stamp ${state.lastKnownLicensedMs} must be inside [$before, $after]",
-        )
+        assertEquals(fixedNow, state.lastKnownLicensedMs)
     }
 
     @Test
@@ -186,7 +192,7 @@ class LicenseCheckerAntiCheatTest {
         // Attacker set the stamp to the future; monotonic clamp must not regress it,
         // but the rollback guard on the next unlicensed call will clear it anyway.
         setStampLicensed()
-        val tampered = System.currentTimeMillis() + 10_000L
+        val tampered = fixedNow + 10_000L
         state.lastKnownLicensedMs = tampered
 
         LicenseChecker.isLicensedOrGrace()
@@ -197,15 +203,11 @@ class LicenseCheckerAntiCheatTest {
     @Test
     fun `licensed check upgrades a past lastKnownLicensedMs to now`() {
         setStampLicensed()
-        val before = System.currentTimeMillis()
-        state.lastKnownLicensedMs = before - 1_000_000L
+        state.lastKnownLicensedMs = fixedNow - 1_000_000L
 
         LicenseChecker.isLicensedOrGrace()
 
-        assertTrue(
-            state.lastKnownLicensedMs >= before,
-            "Stamp must move forward to at least $before, got ${state.lastKnownLicensedMs}",
-        )
+        assertEquals(fixedNow, state.lastKnownLicensedMs)
     }
 
     @Test
@@ -213,7 +215,6 @@ class LicenseCheckerAntiCheatTest {
         runBlocking {
             setStampLicensed()
             checkAll(Arb.long(0L..Long.MAX_VALUE / 2)) { seed ->
-                val before = System.currentTimeMillis()
                 state.lastKnownLicensedMs = seed
                 LicenseChecker.isLicensedOrGrace()
                 assertTrue(
@@ -221,8 +222,8 @@ class LicenseCheckerAntiCheatTest {
                     "clamp regressed seed=$seed -> ${state.lastKnownLicensedMs}",
                 )
                 assertTrue(
-                    state.lastKnownLicensedMs >= before,
-                    "licensed call must bring stamp to at least $before, got ${state.lastKnownLicensedMs}",
+                    state.lastKnownLicensedMs >= fixedNow,
+                    "licensed call must bring stamp at least to fixedNow=$fixedNow",
                 )
             }
         }
@@ -231,8 +232,8 @@ class LicenseCheckerAntiCheatTest {
     fun `property unlicensed call with future stamp always resets to zero`(): Unit =
         runBlocking {
             setStampUnlicensed()
-            checkAll(Arb.long(hoursMs..Long.MAX_VALUE / 2)) { offset ->
-                state.lastKnownLicensedMs = System.currentTimeMillis() + offset
+            checkAll(Arb.long(1L..Long.MAX_VALUE / 2)) { offset ->
+                state.lastKnownLicensedMs = fixedNow + offset
                 val result = LicenseChecker.isLicensedOrGrace()
                 assertFalse(result, "future-stamp offset=$offset must not grant grace")
                 assertEquals(0L, state.lastKnownLicensedMs, "stamp must reset after detection")
@@ -355,7 +356,7 @@ class LicenseCheckerAntiCheatTest {
     @Test
     fun `repeated unlicensed calls within grace do not mutate lastKnownLicensedMs`() {
         setStampUnlicensed()
-        val stamp = System.currentTimeMillis() - hoursMs
+        val stamp = fixedNow - hoursMs
         state.lastKnownLicensedMs = stamp
 
         repeat(1000) {
@@ -369,7 +370,7 @@ class LicenseCheckerAntiCheatTest {
     fun `repeated future-stamp detections always reset to zero`() {
         setStampUnlicensed()
         repeat(100) {
-            state.lastKnownLicensedMs = System.currentTimeMillis() + 60_000L
+            state.lastKnownLicensedMs = fixedNow + 1L
             LicenseChecker.isLicensedOrGrace()
             assertEquals(0L, state.lastKnownLicensedMs)
         }
