@@ -57,6 +57,12 @@ class TrialLifecycleIntegrationTest {
     private lateinit var notificationGroup: NotificationGroup
     private lateinit var notification: Notification
 
+    // Deterministic clock anchor. Seeded in setUp and pushed through the
+    // LicenseChecker.nowMsSupplier + todayUtcSupplier seams so grace-window /
+    // trial-expiry checks do not race with the real wall clock.
+    private var fakeNowMs: Long = 0L
+    private lateinit var fakeTodayUtc: LocalDate
+
     @BeforeTest
     fun setUp() {
         state = AyuIslandsState()
@@ -73,6 +79,15 @@ class TrialLifecycleIntegrationTest {
 
         mockkStatic(PathManager::class)
         every { PathManager.getConfigPath() } returns "/home/user/.config/JetBrains/IntelliJIdea2025.1"
+
+        // Anchor UTC "today" at a stable date so dateFromNow and the trial-days
+        // arithmetic are fully deterministic. fakeNowMs mirrors the same moment
+        // (midnight UTC on the anchor day), which lets grace-window assertions
+        // derive from the same reference frame as the expiration helper.
+        fakeTodayUtc = LocalDate.of(2026, 4, 20)
+        fakeNowMs = fakeTodayUtc.atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli()
+        LicenseChecker.nowMsSupplier = { fakeNowMs }
+        LicenseChecker.todayUtcSupplier = { fakeTodayUtc }
 
         System.clearProperty("ayu.islands.dev")
 
@@ -102,11 +117,13 @@ class TrialLifecycleIntegrationTest {
 
     @AfterTest
     fun tearDown() {
+        LicenseChecker.nowMsSupplier = System::currentTimeMillis
+        LicenseChecker.todayUtcSupplier = { LocalDate.now(ZoneId.of("UTC")) }
         unmockkAll()
     }
 
     private fun dateFromNow(offsetDays: Long): Date {
-        val localDate = LocalDate.now(ZoneId.of("UTC")).plusDays(offsetDays)
+        val localDate = fakeTodayUtc.plusDays(offsetDays)
         return Date.from(localDate.atStartOfDay(ZoneId.of("UTC")).toInstant())
     }
 
@@ -225,10 +242,10 @@ class TrialLifecycleIntegrationTest {
             "Day 31 within 48 h grace: user must still see Pro",
         )
 
-        // Day 31 + 49 h: grace expired. Simulate by moving the stored stamp
-        // into the past rather than mocking System clock — equivalent result
-        // from isLicensedOrGrace's perspective.
-        state.lastKnownLicensedMs = System.currentTimeMillis() - 49L * 3_600_000L
+        // Day 31 + 49 h: grace expired. Move the deterministic clock 49 h past
+        // the stamp so the grace-window check falls off the edge.
+        state.lastKnownLicensedMs = fakeNowMs
+        fakeNowMs += 49L * 3_600_000L
         assertFalse(
             LicenseChecker.isLicensedOrGrace(),
             "Day 31 + 49 h: grace window must close",
@@ -330,12 +347,15 @@ class TrialLifecycleIntegrationTest {
         advanceToTrialDay(0)
         LicenseChecker.isLicensedOrGrace()
         val first = state.lastKnownLicensedMs
-        assertTrue(first > 0)
-        Thread.sleep(5L)
+        assertEquals(fakeNowMs, first, "First call pins the stamp to the fake clock")
+
+        // Advance the fake clock by 5 ms instead of sleeping — keeps the test
+        // deterministic and fast, and exercises the same monotonic-advance path.
+        fakeNowMs += 5L
         advanceToTrialDay(1)
         LicenseChecker.isLicensedOrGrace()
-        val second = state.lastKnownLicensedMs
-        assertTrue(second >= first, "Stamp must never regress across sessions")
+        assertEquals(fakeNowMs, state.lastKnownLicensedMs, "Second call tracks the forward-moving clock")
+        assertTrue(state.lastKnownLicensedMs > first, "Stamp must advance, not regress")
     }
 
     @Test
@@ -360,7 +380,8 @@ class TrialLifecycleIntegrationTest {
         state.everBeenPro = true
 
         advanceToPostTrial()
-        state.lastKnownLicensedMs = System.currentTimeMillis() - 49L * 3_600_000L
+        state.lastKnownLicensedMs = fakeNowMs
+        fakeNowMs += 49L * 3_600_000L
         assertFalse(LicenseChecker.isLicensedOrGrace())
 
         advanceToLicensed()

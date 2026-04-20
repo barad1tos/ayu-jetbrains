@@ -22,6 +22,8 @@ import io.mockk.mockkStatic
 import io.mockk.runs
 import io.mockk.unmockkAll
 import io.mockk.verify
+import org.w3c.dom.Element
+import javax.xml.parsers.DocumentBuilderFactory
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -189,14 +191,32 @@ class FreeTierLockdownTest {
 
     @Test
     fun `plugin registers exactly six theme providers three variants times base-and-islands`() {
-        val manifest =
+        // Parse plugin.xml through a DOM builder instead of regex — a text match on
+        // `<themeProvider` would miscount if a theme provider ever got commented out
+        // or another element's name starts with the same prefix. DOM ignores comments
+        // and returns only live nodes.
+        val factory =
+            DocumentBuilderFactory.newInstance().apply {
+                isNamespaceAware = false
+                isValidating = false
+                setFeature("http://apache.org/xml/features/disallow-doctype-decl", false)
+                setFeature("http://xml.org/sax/features/external-general-entities", false)
+                setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+            }
+        val doc =
             javaClass
                 .getResourceAsStream("/META-INF/plugin.xml")
-                ?.bufferedReader()
-                ?.use { it.readText() }
-        assertTrue(!manifest.isNullOrBlank(), "plugin.xml must be on the classpath")
-        val providerCount = Regex("<themeProvider\\b").findAll(manifest).count()
-        assertEquals(6, providerCount, "free-tier theme catalog is locked to six providers")
+                ?.use { factory.newDocumentBuilder().parse(it) }
+                ?: error("plugin.xml must be on the classpath")
+
+        val providers = doc.getElementsByTagName("themeProvider")
+        val providerIds =
+            (0 until providers.length).map { (providers.item(it) as Element).getAttribute("id") }
+        assertEquals(
+            6,
+            providers.length,
+            "free-tier theme catalog is locked to six providers (ids: $providerIds)",
+        )
     }
 
     // ---------- Idempotency and concurrency ----------

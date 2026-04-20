@@ -28,6 +28,7 @@ import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.PanelWidthMode
+import org.jetbrains.annotations.VisibleForTesting
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
@@ -38,6 +39,26 @@ object LicenseChecker {
     private val LOG = logger<LicenseChecker>()
     private const val NOTIFICATION_GROUP = "Ayu Islands"
     private val verifier = LicenseVerifier()
+
+    /**
+     * Test seam for the wall-clock reads inside [isLicensedOrGrace].
+     *
+     * Production code uses the real system clock; tests can pin it to a deterministic
+     * value to exercise the rollback guard and grace-window boundaries without relying
+     * on real-time jitter. Always restore the default supplier in a tearDown to avoid
+     * leaking state across tests.
+     */
+    @VisibleForTesting
+    @Volatile
+    internal var nowMsSupplier: () -> Long = System::currentTimeMillis
+
+    /**
+     * Test seam for the UTC "today" read inside [getTrialDaysRemaining]. Same rules
+     * as [nowMsSupplier] — overridable in tests, must be reset in teardown.
+     */
+    @VisibleForTesting
+    @Volatile
+    internal var todayUtcSupplier: () -> LocalDate = { LocalDate.now(ZoneId.of("UTC")) }
 
     /**
      * Check license state.
@@ -89,7 +110,7 @@ object LicenseChecker {
     fun isLicensedOrGrace(): Boolean {
         val licensed = isLicensed()
         val state = AyuIslandsSettings.getInstance().state
-        val now = System.currentTimeMillis()
+        val now = nowMsSupplier()
         if (licensed == true) {
             state.lastKnownLicensedMs = maxOf(state.lastKnownLicensedMs, now)
             return true
@@ -306,7 +327,7 @@ object LicenseChecker {
         if (!facade.isEvaluationLicense) return null
         val expirationDate = facade.getExpirationDate(PRODUCT_CODE) ?: return null
         val expirationDay = expirationDate.toInstant().atZone(ZoneId.of("UTC")).toLocalDate()
-        val today = LocalDate.now(ZoneId.of("UTC"))
+        val today = todayUtcSupplier()
         val days = ChronoUnit.DAYS.between(today, expirationDay)
         return if (days >= 0) days else null
     }
