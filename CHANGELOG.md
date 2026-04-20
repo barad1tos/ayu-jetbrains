@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.5.3] - 2026-04-20
+
+### Added
+- [Paid] Rescan project language on demand — new "Rescan" link in the Overrides proportions row and "Tools → Ayu Islands → Rescan Project Language" menu action, for when you want the detected breakdown to refresh without waiting for the next Gradle sync
+
+### Fixed
+- Bug fixes
+
 ## [2.5.2] - 2026-04-17
 
 ### Added
