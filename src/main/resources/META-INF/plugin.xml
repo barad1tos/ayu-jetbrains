@@ -49,7 +49,8 @@
           (Kotlin → cyan, Python → gold); applies when the project's dominant
           language matches and no project override exists. Settings shows a
           live <b>language-proportions</b> breakdown for the current project
-          so you can see which pin takes effect.</li>
+          so you can see which pin takes effect. <b>Rescan Project Language</b>
+          on demand from the proportions row or the Tools menu.</li>
       <li><b>Workspace</b> — auto-fit or fixed width for Project View, Commit,
           and Git panels with min/max bounds. Git panel splitter control for
           branches and file changes trees. Hide the filesystem path and
@@ -85,9 +86,10 @@
   ]]></description>
 
     <change-notes><![CDATA[
-    <h3>2.6.0</h3>
+    <h3>2.5.3</h3>
     <ul>
       <li>[Paid] Rescan project language on demand — new "Rescan" link in the Overrides proportions row and "Tools → Ayu Islands → Rescan Project Language" menu action, for when you want the detected breakdown to refresh without waiting for the next Gradle sync</li>
+      <li>Bug fixes</li>
     </ul>
     <h3>2.5.2</h3>
     <ul>

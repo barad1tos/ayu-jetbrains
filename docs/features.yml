@@ -125,6 +125,17 @@ categories:
           Java 15% · other 7%") with a polyglot fallback when no single
           language dominates.
 
+      - id: accent-language-rescan
+        title: "Rescan project language on demand"
+        keyword: "Rescan Project Language"
+        introduced: "2.5.3"
+        tier: paid
+        description: >
+          Refresh the detected language breakdown on demand — a new
+          Rescan link in the Overrides proportions row and a Tools →
+          Ayu Islands → Rescan Project Language menu action, for when
+          you don't want to wait for the next Gradle sync.
+
   glow:
     title: "Glow effects"
     features:

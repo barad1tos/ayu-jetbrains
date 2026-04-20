@@ -58,6 +58,11 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.5.3" to
+                "<ul>" +
+                "<li>Rescan project language on demand — new Rescan link and Tools menu action</li>" +
+                "<li>Bug fixes</li>" +
+                "</ul>",
             "2.5.2" to
                 "<ul>" +
                 "<li>Per-Language Accent Pins show a live language-proportions breakdown</li>" +
