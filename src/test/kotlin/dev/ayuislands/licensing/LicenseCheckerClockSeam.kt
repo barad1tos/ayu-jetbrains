@@ -1,7 +1,6 @@
 package dev.ayuislands.licensing
 
 import java.time.LocalDate
-import java.time.ZoneId
 
 /**
  * Scoped override for the [LicenseChecker] time seams.
@@ -10,6 +9,13 @@ import java.time.ZoneId
  * `var`s — convenient for test determinism, dangerous if a test forgets to restore them.
  * This helper centralizes the pin/restore dance so every time-sensitive test uses the
  * same idiom, and the production defaults are re-installed from exactly one place.
+ *
+ * **Snapshot at class init, not hardcoded.** The first time this object is touched it
+ * captures whatever suppliers [LicenseChecker] currently holds — typically the production
+ * defaults (`System::currentTimeMillis`, `LocalDate.now(UTC)`). [restore] hands those
+ * original references back, so the helper stays correct even if the production defaults
+ * ever change inside [LicenseChecker]. The capture happens before any test can pin a
+ * supplier because Kotlin `object` initialization is eager on first access.
  *
  * Typical usage in per-class test state:
  * ```
@@ -29,8 +35,15 @@ import java.time.ZoneId
  *     assertFalse(LicenseChecker.isLicensedOrGrace())
  * }
  * ```
+ *
+ * [withFixedNow] captures the currently-installed supplier before pinning and reinstalls
+ * that exact reference in `finally`, so a setUp-level pin survives an inner boundary
+ * test's block without being hard-reset to the production default.
  */
 internal object LicenseCheckerClockSeam {
+    private val originalNowMsSupplier: () -> Long = LicenseChecker.nowMsSupplier
+    private val originalTodayUtcSupplier: () -> LocalDate = LicenseChecker.todayUtcSupplier
+
     /** Pin the millisecond clock to a constant value. */
     fun pinNow(fixedNowMs: Long) {
         LicenseChecker.nowMsSupplier = { fixedNowMs }
@@ -51,25 +64,34 @@ internal object LicenseCheckerClockSeam {
         LicenseChecker.todayUtcSupplier = supplier
     }
 
-    /** Reset both seams to their production defaults. Safe to call multiple times. */
+    /**
+     * Reset both seams to the suppliers that [LicenseChecker] held when this helper was
+     * first touched. Typically the production defaults, but the snapshot keeps the helper
+     * correct even if those defaults ever move. Safe to call multiple times.
+     */
     fun restore() {
-        LicenseChecker.nowMsSupplier = System::currentTimeMillis
-        LicenseChecker.todayUtcSupplier = { LocalDate.now(ZoneId.of("UTC")) }
+        LicenseChecker.nowMsSupplier = originalNowMsSupplier
+        LicenseChecker.todayUtcSupplier = originalTodayUtcSupplier
     }
 
     /**
      * Pin [LicenseChecker.nowMsSupplier] to [fixedNowMs] for the duration of [block],
-     * always restoring the default afterwards — even on exception.
+     * always restoring the *previously-installed* supplier afterwards — even on exception.
+     *
+     * Preserves a caller-level pin (e.g. a `@BeforeTest` pin that wraps a whole class)
+     * so a nested boundary test can override the clock for a single assertion without
+     * clobbering the outer override.
      */
     inline fun <R> withFixedNow(
         fixedNowMs: Long,
         block: () -> R,
     ): R {
-        pinNow(fixedNowMs)
+        val previous = LicenseChecker.nowMsSupplier
+        LicenseChecker.nowMsSupplier = { fixedNowMs }
         return try {
             block()
         } finally {
-            restore()
+            LicenseChecker.nowMsSupplier = previous
         }
     }
 }
