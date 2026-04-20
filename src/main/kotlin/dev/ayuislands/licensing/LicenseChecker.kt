@@ -1,5 +1,6 @@
 package dev.ayuislands.licensing
 
+import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
@@ -14,6 +15,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
 import com.intellij.ui.LicensingFacade
 import dev.ayuislands.accent.AccentApplicator
@@ -71,17 +73,39 @@ object LicenseChecker {
      * within the last 48 hours but the current check returns false (e.g. offline,
      * server unreachable), the user keeps pro features until the grace window
      * expires. This prevents a single offline restart from locking out a paid user.
+     *
+     * **Anti-cheat guards** (see `LicenseCheckerAntiCheatTest`):
+     *  - Monotonic clamp on write (`maxOf`): a future-fabricated `lastKnownLicensedMs`
+     *    from hand-edited XML will only ever be replaced by a real `now` on the next
+     *    legitimate licensed check, never moved further forward.
+     *  - Rollback detection on read: if `lastKnownLicensedMs > now`, we assume the
+     *    system clock was rolled back or the stamp was tampered to the future, so
+     *    we revoke grace and clear the stamp. Combined with monotonic clamp, this
+     *    means an attacker cannot stretch the 48 h grace window beyond real time.
+     *  - XML signing is out of scope (key would live in the jar, trivially
+     *    extractable for a solo plugin). Tampering remains possible but self-corrects
+     *    the moment Marketplace confirms a stamp.
      */
     fun isLicensedOrGrace(): Boolean {
         val licensed = isLicensed()
         val state = AyuIslandsSettings.getInstance().state
+        val now = System.currentTimeMillis()
         if (licensed == true) {
-            state.lastKnownLicensedMs = System.currentTimeMillis()
+            state.lastKnownLicensedMs = maxOf(state.lastKnownLicensedMs, now)
             return true
         }
         if (licensed == null) return true
-        val elapsed = System.currentTimeMillis() - state.lastKnownLicensedMs
-        if (state.lastKnownLicensedMs > 0 && elapsed < OFFLINE_GRACE_MS) {
+        if (state.lastKnownLicensedMs > now) {
+            LOG.warn(
+                "Clock rollback or lastKnownLicensedMs tamper detected " +
+                    "(stamp=${state.lastKnownLicensedMs}, now=$now); " +
+                    "revoking grace and resetting stamp",
+            )
+            state.lastKnownLicensedMs = 0L
+            return false
+        }
+        val elapsed = now - state.lastKnownLicensedMs
+        if (state.lastKnownLicensedMs > 0 && elapsed in 0 until OFFLINE_GRACE_MS) {
             LOG.info(
                 "License check returned false but within ${elapsed / MS_PER_HOUR}h " +
                     "offline grace (${OFFLINE_GRACE_HOURS}h window) — treating as licensed",
@@ -189,34 +213,49 @@ object LicenseChecker {
         state.workspaceDefaultsApplied = true
     }
 
-    /** Revert paid features to free defaults for the given variant. */
+    /**
+     * Revert paid features to free defaults for the given variant.
+     *
+     * State mutations are wrapped in `synchronized(state)` to tolerate rare
+     * concurrent callers (unlicensed path from `StartupLicenseHandler`, license
+     * transition listener, and any future direct callers). `BaseState` itself
+     * is not thread-safe for parallel writes, and the writes here are idempotent
+     * resets — a lost update would produce the same terminal state, but the lock
+     * prevents a half-committed toggle map from leaking. Downstream calls
+     * (`AccentApplicator.apply`, `GlowOverlayManager.syncGlowForAllProjects`)
+     * intentionally stay *outside* the lock: both hop to EDT and can take other
+     * platform locks, so holding `state` across them would risk deadlock.
+     */
     fun revertToFreeDefaults(variant: AyuVariant) {
         val state = AyuIslandsSettings.getInstance().state
 
-        // Disable glow (premium feature)
-        state.glowEnabled = false
+        synchronized(state) {
+            // Disable glow (premium feature)
+            state.glowEnabled = false
 
-        // Reset tab accent to free default (underline only, no tinted background)
-        state.glowTabMode = "MINIMAL"
+            // Reset tab accent to free default (underline only, no tinted background)
+            state.glowTabMode = "MINIMAL"
 
-        // Reset per-element toggles to defaults (all ON)
-        for (id in AccentElementId.entries) {
-            state.setToggle(id, true)
+            // Reset per-element toggles to defaults (all ON)
+            for (id in AccentElementId.entries) {
+                state.setToggle(id, true)
+            }
+
+            // Reset workspace settings to free defaults
+            state.projectPanelWidthMode = PanelWidthMode.DEFAULT.name
+            state.commitPanelWidthMode = PanelWidthMode.DEFAULT.name
+            state.gitPanelWidthMode = PanelWidthMode.DEFAULT.name
+            state.hideProjectRootPath = false
+            state.hideProjectViewHScrollbar = false
+
+            // Disable plugin integrations (premium features)
+            state.cgpIntegrationEnabled = false
+            state.irIntegrationEnabled = false
+
+            // Stop accent rotation (premium feature)
+            state.accentRotationEnabled = false
         }
 
-        // Reset workspace settings to free defaults
-        state.projectPanelWidthMode = PanelWidthMode.DEFAULT.name
-        state.commitPanelWidthMode = PanelWidthMode.DEFAULT.name
-        state.gitPanelWidthMode = PanelWidthMode.DEFAULT.name
-        state.hideProjectRootPath = false
-        state.hideProjectViewHScrollbar = false
-
-        // Disable plugin integrations (premium features)
-        state.cgpIntegrationEnabled = false
-        state.irIntegrationEnabled = false
-
-        // Stop accent rotation (premium feature)
-        state.accentRotationEnabled = false
         ApplicationManager.getApplication().getService(AccentRotationService::class.java)?.stopRotation()
 
         // Re-apply accent with reset toggles (accent color itself stays — it's free)
@@ -318,10 +357,33 @@ object LicenseChecker {
     private const val OFFLINE_GRACE_HOURS = 48L
     private const val OFFLINE_GRACE_MS = OFFLINE_GRACE_HOURS * MS_PER_HOUR
 
-    /** Dev mode: requires BOTH system property AND Gradle sandbox environment. */
+    /**
+     * Dev mode: requires all three gates to match. Each gate alone is bypassable
+     * with an end-user sysprop; all three together demand a Gradle-produced sandbox
+     * install, which requires compiling from source — at which point the user is
+     * already a developer and "bypassing" is moot.
+     *
+     *  1. `-Dayu.islands.dev=true` — explicit opt-in.
+     *  2. `PathManager.getConfigPath()` under `idea-sandbox` — the config dir that
+     *     `runIde` creates. An attacker can forge this with `-Didea.config.path`,
+     *     so it is insufficient on its own.
+     *  3. Plugin install path under `idea-sandbox` — `runIde` installs the plugin
+     *     under `build/idea-sandbox/plugins/`. Production installs sit under the
+     *     user's JetBrains plugins dir or are bundled in the IDE. The IDE discovers
+     *     plugin paths from its filesystem scan, not from a JVM sysprop, so this
+     *     gate is not trivially forgeable.
+     */
     private fun isDevBuild(): Boolean {
         if (System.getProperty("ayu.islands.dev") != "true") return false
         val configPath = PathManager.getConfigPath()
-        return configPath.contains("idea-sandbox")
+        if (!configPath.contains("idea-sandbox")) return false
+        val pluginId = PluginId.getId("com.ayuislands.theme")
+        val pluginPath =
+            PluginManagerCore
+                .getPlugin(pluginId)
+                ?.pluginPath
+                ?.toString()
+                .orEmpty()
+        return pluginPath.contains("idea-sandbox")
     }
 }
