@@ -84,10 +84,12 @@ class TrialLifecycleIntegrationTest {
         // arithmetic are fully deterministic. fakeNowMs mirrors the same moment
         // (midnight UTC on the anchor day), which lets grace-window assertions
         // derive from the same reference frame as the expiration helper.
+        // Dynamic suppliers read the latest `var` value on every call so the
+        // lifecycle simulation can advance the clock between checks.
         fakeTodayUtc = LocalDate.of(2026, 4, 20)
         fakeNowMs = fakeTodayUtc.atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli()
-        LicenseChecker.nowMsSupplier = { fakeNowMs }
-        LicenseChecker.todayUtcSupplier = { fakeTodayUtc }
+        LicenseCheckerClockSeam.pinNow { fakeNowMs }
+        LicenseCheckerClockSeam.pinToday { fakeTodayUtc }
 
         System.clearProperty("ayu.islands.dev")
 
@@ -117,8 +119,7 @@ class TrialLifecycleIntegrationTest {
 
     @AfterTest
     fun tearDown() {
-        LicenseChecker.nowMsSupplier = System::currentTimeMillis
-        LicenseChecker.todayUtcSupplier = { LocalDate.now(ZoneId.of("UTC")) }
+        LicenseCheckerClockSeam.restore()
         unmockkAll()
     }
 

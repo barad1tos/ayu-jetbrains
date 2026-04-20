@@ -157,11 +157,10 @@ class LicenseCheckerTest {
 
     // ---------- Grace-window boundary tests ----------
     //
-    // Each boundary case pins the clock through LicenseChecker.nowMsSupplier so
-    // real-clock jitter during the `isLicensedOrGrace` call cannot cross the
-    // 48 h threshold mid-test. Restore the default supplier in AfterTest via
-    // `unmockkAll` + a fresh setUp is not enough — nowMsSupplier is a top-level
-    // var on the object and survives mockk resets.
+    // Each case uses LicenseCheckerClockSeam so the pin/restore pair is uniform and the
+    // production defaults come back from one place. Restore runs in `finally` via
+    // withFixedNow / explicit `restore()`, so a failing assertion can never leak the
+    // fake clock to a sibling test.
 
     @Test
     fun `isLicensedOrGrace returns true within 47h 59m of last licensed check`() {
@@ -176,12 +175,9 @@ class LicenseCheckerTest {
 
         val msPerHour = 3_600_000L
         val fixedNow = 1_700_000_000_000L
-        LicenseChecker.nowMsSupplier = { fixedNow }
-        try {
+        LicenseCheckerClockSeam.withFixedNow(fixedNow) {
             realState.lastKnownLicensedMs = fixedNow - (47L * msPerHour) - (59L * 60_000L)
             assertTrue(LicenseChecker.isLicensedOrGrace(), "47h 59m must still be inside grace window")
-        } finally {
-            LicenseChecker.nowMsSupplier = System::currentTimeMillis
         }
     }
 
@@ -198,12 +194,9 @@ class LicenseCheckerTest {
 
         val msPerHour = 3_600_000L
         val fixedNow = 1_700_000_000_000L
-        LicenseChecker.nowMsSupplier = { fixedNow }
-        try {
+        LicenseCheckerClockSeam.withFixedNow(fixedNow) {
             realState.lastKnownLicensedMs = fixedNow - (48L * msPerHour)
             assertFalse(LicenseChecker.isLicensedOrGrace(), "Exactly 48h must be outside grace window (strict <)")
-        } finally {
-            LicenseChecker.nowMsSupplier = System::currentTimeMillis
         }
     }
 
@@ -219,7 +212,7 @@ class LicenseCheckerTest {
         every { facade.getConfirmationStamp(LicenseChecker.PRODUCT_CODE) } returns "eval:1"
 
         var nowTick = 1_700_000_000_000L
-        LicenseChecker.nowMsSupplier = { nowTick }
+        LicenseCheckerClockSeam.pinNow { nowTick }
         try {
             realState.lastKnownLicensedMs = 0L
             LicenseChecker.isLicensedOrGrace()
@@ -231,7 +224,7 @@ class LicenseCheckerTest {
             LicenseChecker.isLicensedOrGrace()
             assertEquals(nowTick, realState.lastKnownLicensedMs, "Stamp must move forward with the clock")
         } finally {
-            LicenseChecker.nowMsSupplier = System::currentTimeMillis
+            LicenseCheckerClockSeam.restore()
         }
     }
 
