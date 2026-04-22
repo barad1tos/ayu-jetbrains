@@ -1,6 +1,8 @@
 package dev.ayuislands.settings
 
+import com.intellij.ide.DataManager
 import com.intellij.openapi.options.ShowSettingsUtil
+import com.intellij.openapi.options.ex.Settings
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.dsl.builder.Align
@@ -10,6 +12,7 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.ChromeDecorationsProbe
 import dev.ayuislands.licensing.LicenseChecker
 import org.jetbrains.annotations.TestOnly
+import java.awt.Component
 import javax.swing.JLabel
 import javax.swing.JSlider
 
@@ -124,13 +127,42 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
                 // surfaces its own restart-required prompt (standard JetBrains UX).
                 if (canOfferMergedMenu) {
                     row {
-                        // Project-aware open (see PremiumOnboardingPanel / FreeOnboardingPanel
-                        // precedent) so the Settings dialog mounts against the focused project
-                        // when available. ShowSettingsUtil.showSettingsDialog(Project, String)
-                        // was javap-verified against 2025.1 platform JARs in plan 40-11 Task 2.
+                        // Two-stage navigation (plan 40-11 hot-fix):
+                        //
+                        //  Stage 1 — in-dialog: this link lives INSIDE the Settings dialog,
+                        //  so ShowSettingsUtil.showSettingsDialog(project, id) against an
+                        //  already-open Settings window only blinks the dialog without
+                        //  switching the left sidebar. Instead, resolve the open Settings
+                        //  host via Settings.KEY.getData(dataContext) and call select(...)
+                        //  on the found configurable.
+                        //
+                        //  Stage 2 — fallback: when the link is invoked from a context that
+                        //  does NOT resolve a Settings host (hypothetical external invocation
+                        //  or missing DataContext), fall back to the original
+                        //  ShowSettingsUtil.showSettingsDialog entry-point.
+                        //
+                        // javap-verified against 2025.1 platform JARs (app-client.jar):
+                        //   Settings.KEY               : DataKey<Settings>
+                        //   Settings.find(String)      : Configurable
+                        //   Settings.select(Configurable) : ActionCallback
+                        //   DataManager.getInstance()  : DataManager
+                        //   DataManager.getDataContext(Component) : DataContext
+                        //
                         // B-1 regression guard: no Registry.setValue, no ApplicationManager.restart
                         // — IntelliJ surfaces the restart-required prompt natively.
-                        link(MERGED_MENU_OFFER_LABEL) {
+                        link(MERGED_MENU_OFFER_LABEL) { event ->
+                            val sourceComponent = event.source as? Component
+                            if (sourceComponent != null) {
+                                val dataContext = DataManager.getInstance().getDataContext(sourceComponent)
+                                val settings = Settings.KEY.getData(dataContext)
+                                if (settings != null) {
+                                    val configurable = settings.find(MERGED_MENU_CONFIGURABLE_ID)
+                                    if (configurable != null) {
+                                        settings.select(configurable)
+                                        return@link
+                                    }
+                                }
+                            }
                             val project = ProjectManager.getInstance().openProjects.firstOrNull()
                             ShowSettingsUtil
                                 .getInstance()
