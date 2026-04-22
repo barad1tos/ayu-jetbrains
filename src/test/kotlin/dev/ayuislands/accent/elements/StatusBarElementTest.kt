@@ -4,6 +4,7 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.every
@@ -52,7 +53,9 @@ class StatusBarElementTest {
 
         mockkObject(ChromeTintBlender)
         every { ChromeTintBlender.blend(any(), any(), any()) } returns blended
-        every { ChromeTintBlender.contrastForeground(any()) } returns Color.WHITE
+
+        mockkObject(WcagForeground)
+        every { WcagForeground.pickForeground(any(), any()) } returns Color.GREEN
     }
 
     @AfterTest
@@ -84,15 +87,35 @@ class StatusBarElementTest {
     }
 
     @Test
-    fun `apply writes contrast foreground when keepForegroundReadable is true`() {
+    fun `apply writes WcagForeground pick to both foreground keys when keepForegroundReadable is true`() {
         state.chromeTintIntensity = 40
         state.chromeTintKeepForegroundReadable = true
 
         StatusBarElement().apply(accent)
 
-        verify { ChromeTintBlender.contrastForeground(blended) }
-        verify { UIManager.put("StatusBar.Widget.foreground", Color.WHITE) }
-        verify { UIManager.put("StatusBar.Widget.hoverForeground", Color.WHITE) }
+        verify { WcagForeground.pickForeground(blended, WcagForeground.TextTarget.PRIMARY_TEXT) }
+        verify { UIManager.put("StatusBar.Widget.foreground", Color.GREEN) }
+        verify { UIManager.put("StatusBar.Widget.hoverForeground", Color.GREEN) }
+    }
+
+    @Test
+    fun `apply uses PRIMARY_TEXT target not ICON for status bar widget text`() {
+        state.chromeTintIntensity = 40
+        state.chromeTintKeepForegroundReadable = true
+
+        StatusBarElement().apply(accent)
+
+        // StatusBar.Widget.foreground + StatusBar.Widget.hoverForeground share the
+        // same tinted sample, so pickForeground is invoked once per fg key at minimum.
+        verify(atLeast = 1) {
+            WcagForeground.pickForeground(any(), WcagForeground.TextTarget.PRIMARY_TEXT)
+        }
+        verify(exactly = 0) {
+            WcagForeground.pickForeground(any(), WcagForeground.TextTarget.ICON)
+        }
+        verify(exactly = 0) {
+            WcagForeground.pickForeground(any(), WcagForeground.TextTarget.SECONDARY_TEXT)
+        }
     }
 
     @Test
@@ -102,7 +125,7 @@ class StatusBarElementTest {
 
         StatusBarElement().apply(accent)
 
-        verify(exactly = 0) { ChromeTintBlender.contrastForeground(any()) }
+        verify(exactly = 0) { WcagForeground.pickForeground(any(), any()) }
         verify(exactly = 0) { UIManager.put("StatusBar.Widget.foreground", any()) }
         verify(exactly = 0) { UIManager.put("StatusBar.Widget.hoverForeground", any()) }
     }
