@@ -83,14 +83,24 @@ class Gap4BannedApiGuardTest {
     }
 
     @Test
-    fun `accent module must not reference LafManagerListener`() {
+    fun `accent module must not publish LafManagerListener broadcasts`() {
+        // Subscribing to the LAF topic is SAFE — a passive cache-invalidation
+        // listener cannot recurse through the apply/revert path. What 40-12 §A
+        // verdict=UNSAFE actually banned was *publishing* lookAndFeelChanged
+        // from the apply path (the `syncPublisher(LafManagerListener.TOPIC)`
+        // shape), which would recurse through ProcessPopup's handler that
+        // calls IJSwingUtilities.updateComponentTreeUI.
+        //
+        // This guard catches the unsafe shape while allowing the safe
+        // ChromeBaseColors subscriber pattern (`subscribe(LafManagerListener.TOPIC, …)`).
         val offenders =
             accentSources.filter { (_, source) ->
-                source.contains("LafManagerListener")
+                source.contains("syncPublisher(LafManagerListener.TOPIC") ||
+                    source.contains("LafManager.getInstance().lookAndFeelChanged")
             }
         assertFalse(
             offenders.isNotEmpty(),
-            "Files referencing LafManagerListener (per 40-12 §A verdict=UNSAFE, " +
+            "Files publishing LafManagerListener broadcasts (per 40-12 §A verdict=UNSAFE, " +
                 "publishing lookAndFeelChanged from apply path would recurse): " +
                 "${offenders.map { it.first.fileName }}",
         )
