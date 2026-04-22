@@ -140,6 +140,12 @@ class AccentApplicatorChromeApplyRefreshTest {
         every { chromeElement.displayName } returns "ChromeTestElement"
         mockEpExtensionList(listOf(chromeElement))
 
+        // STATUS_BAR chrome toggle defaults to false, which would route apply()
+        // through the `neutralizeOrRevert` branch and never call `element.apply()`.
+        // Enable it so the EP apply loop exercises the apply() path and we can
+        // verify the ordering against notifyOnly.
+        state.chromeStatusBar = true
+
         val project = mockProject(usable = true)
         every { mockProjectManager.openProjects } returns arrayOf(project)
 

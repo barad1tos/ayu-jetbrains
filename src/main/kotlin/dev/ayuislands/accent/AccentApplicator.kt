@@ -148,6 +148,22 @@ object AccentApplicator {
                 applyAlwaysOnEditorKeys(accent)
                 overrideTabUnderlineForOffMode(state, variant)
                 applyTabUnderlineStyle(state)
+
+                // Gap-4 mirror of the D-15 hook in revertAll. Re-publish
+                // ComponentTreeRefreshedTopic after EP apply so subscribers
+                // (EditorScrollbarManager, ProjectViewScrollbarManager) re-read
+                // UIManager state. Chrome surfaces do NOT subscribe to this topic —
+                // their live-refresh happens in plan 40-14 Level 2. This hook is the
+                // architectural symmetry primitive; 40-14 is the visible fix.
+                //
+                // Per 40-12 research §A verdict=UNSAFE, this site MUST NOT publish
+                // LafManagerListener.TOPIC — that broadcast would re-enter the LAF
+                // cycle. notifyOnly only.
+                for (project in ProjectManager.getInstance().openProjects) {
+                    if (!project.isUsable()) continue
+                    ComponentTreeRefresher.notifyOnly(project)
+                }
+
                 repaintAllWindows(Window.getWindows())
             }
 
