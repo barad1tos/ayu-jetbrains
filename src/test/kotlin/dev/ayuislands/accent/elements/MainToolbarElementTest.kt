@@ -33,6 +33,10 @@ import kotlin.test.assertFalse
  *    (per-project IntelliJ gradient palette)
  *  - Intensity sourced from `AyuIslandsSettings.state.chromeTintIntensity`
  *  - Optional contrast-foreground write on `MainToolbar.foreground`
+ *  - `MainToolbar.Icon.foreground` is NEVER written — javap-verified absent from
+ *    platformVersion 2026.1 metadata + lib JAR string tables (drop-icon decision
+ *    on plan 40-10). The regression guard below makes a future platform addition
+ *    fail loudly so it must be opted-in explicitly rather than silently activated.
  *
  * Key scope is limited to javap-verified platform 2025.1 UIManager keys:
  * `MainToolbar.background` is registered in `IntelliJPlatform.themeMetadata.json`
@@ -125,20 +129,6 @@ class MainToolbarElementTest {
     }
 
     @Test
-    fun `apply with contrast on writes WcagForeground ICON to MainToolbar Icon foreground`() {
-        every { ChromeDecorationsProbe.isCustomHeaderActive() } returns true
-        mockState.chromeTintIntensity = 40
-        mockState.chromeTintKeepForegroundReadable = true
-
-        MainToolbarElement().apply(testAccent)
-
-        verify(exactly = 1) {
-            WcagForeground.pickForeground(blended, WcagForeground.TextTarget.ICON)
-        }
-        verify(exactly = 1) { UIManager.put("MainToolbar.Icon.foreground", contrastFg) }
-    }
-
-    @Test
     fun `apply with contrast off skips every MainToolbar foreground key`() {
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns true
         mockState.chromeTintIntensity = 40
@@ -148,11 +138,10 @@ class MainToolbarElementTest {
 
         verify(exactly = 0) { WcagForeground.pickForeground(any(), any()) }
         verify(exactly = 0) { UIManager.put("MainToolbar.foreground", any()) }
-        verify(exactly = 0) { UIManager.put("MainToolbar.Icon.foreground", any()) }
     }
 
     @Test
-    fun `revert nulls every MainToolbar key unconditionally even when probe returns false`() {
+    fun `revert nulls MainToolbar background and foreground unconditionally even when probe returns false`() {
         // Simulate probe flipping between apply and revert: probe OFF during revert,
         // but the keys we might have written earlier still get cleaned up.
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns false
@@ -161,7 +150,24 @@ class MainToolbarElementTest {
 
         verify(exactly = 1) { UIManager.put("MainToolbar.background", null) }
         verify(exactly = 1) { UIManager.put("MainToolbar.foreground", null) }
-        verify(exactly = 1) { UIManager.put("MainToolbar.Icon.foreground", null) }
+    }
+
+    @Test
+    fun `MainToolbar Icon foreground is never written — drop-icon guard for 2026 1 platform`() {
+        // Regression guard: MainToolbar.Icon.foreground is absent from platform
+        // 2026.1 metadata + lib/*.jar string tables (javap-verified). If a future
+        // platform release adds the key and someone naively turns it on, this
+        // assertion fails loudly and forces an explicit opt-in rather than a
+        // silent activation. Covers BOTH apply and revert paths.
+        every { ChromeDecorationsProbe.isCustomHeaderActive() } returns true
+        mockState.chromeTintIntensity = 80
+        mockState.chromeTintKeepForegroundReadable = true
+
+        val element = MainToolbarElement()
+        element.apply(testAccent)
+        element.revert()
+
+        verify(exactly = 0) { UIManager.put("MainToolbar.Icon.foreground", any()) }
     }
 
     @Test
