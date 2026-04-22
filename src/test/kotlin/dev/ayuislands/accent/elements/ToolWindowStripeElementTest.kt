@@ -4,6 +4,7 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.every
@@ -46,7 +47,9 @@ class ToolWindowStripeElementTest {
 
         mockkObject(ChromeTintBlender)
         every { ChromeTintBlender.blend(any(), any(), any()) } returns blended
-        every { ChromeTintBlender.contrastForeground(any()) } returns contrastFg
+
+        mockkObject(WcagForeground)
+        every { WcagForeground.pickForeground(any(), any()) } returns contrastFg
 
         // AyuIslandsSettings.getInstance() is backed by ApplicationManager.getService.
         // Mock the Application so the companion resolves without an IDE container.
@@ -97,25 +100,44 @@ class ToolWindowStripeElementTest {
     }
 
     @Test
-    fun `apply with contrast toggle on writes contrast foreground to selectedForeground`() {
+    fun `apply with contrast on writes WcagForeground ICON pick to both foreground keys`() {
         mockState.chromeTintIntensity = 40
         mockState.chromeTintKeepForegroundReadable = true
 
         ToolWindowStripeElement().apply(testAccent)
 
-        verify(exactly = 1) { ChromeTintBlender.contrastForeground(blended) }
+        verify(atLeast = 1) {
+            WcagForeground.pickForeground(blended, WcagForeground.TextTarget.ICON)
+        }
         verify(exactly = 1) { UIManager.put("ToolWindow.Button.selectedForeground", contrastFg) }
+        verify(exactly = 1) { UIManager.put("ToolWindow.Stripe.foreground", contrastFg) }
     }
 
     @Test
-    fun `apply with contrast toggle off skips selectedForeground entirely`() {
+    fun `apply uses ICON target not PRIMARY_TEXT for stripe buttons`() {
+        mockState.chromeTintIntensity = 40
+        mockState.chromeTintKeepForegroundReadable = true
+
+        ToolWindowStripeElement().apply(testAccent)
+
+        verify(exactly = 0) {
+            WcagForeground.pickForeground(any(), WcagForeground.TextTarget.PRIMARY_TEXT)
+        }
+        verify(exactly = 0) {
+            WcagForeground.pickForeground(any(), WcagForeground.TextTarget.SECONDARY_TEXT)
+        }
+    }
+
+    @Test
+    fun `apply with contrast toggle off skips every fg key`() {
         mockState.chromeTintIntensity = 40
         mockState.chromeTintKeepForegroundReadable = false
 
         ToolWindowStripeElement().apply(testAccent)
 
-        verify(exactly = 0) { ChromeTintBlender.contrastForeground(any()) }
+        verify(exactly = 0) { WcagForeground.pickForeground(any(), any()) }
         verify(exactly = 0) { UIManager.put("ToolWindow.Button.selectedForeground", any()) }
+        verify(exactly = 0) { UIManager.put("ToolWindow.Stripe.foreground", any()) }
     }
 
     @Test
@@ -126,6 +148,7 @@ class ToolWindowStripeElementTest {
         verify(exactly = 1) { UIManager.put("ToolWindow.Stripe.borderColor", null) }
         verify(exactly = 1) { UIManager.put("ToolWindow.Button.selectedBackground", null) }
         verify(exactly = 1) { UIManager.put("ToolWindow.Button.selectedForeground", null) }
+        verify(exactly = 1) { UIManager.put("ToolWindow.Stripe.foreground", null) }
     }
 
     @Test
@@ -137,10 +160,11 @@ class ToolWindowStripeElementTest {
         element.apply(testAccent)
         element.revert()
 
-        // revert() hits every key (including the optional foreground one) unconditionally
+        // revert() hits every key (including every optional foreground one) unconditionally
         verify(exactly = 1) { UIManager.put("ToolWindow.Stripe.background", null) }
         verify(exactly = 1) { UIManager.put("ToolWindow.Stripe.borderColor", null) }
         verify(exactly = 1) { UIManager.put("ToolWindow.Button.selectedBackground", null) }
         verify(exactly = 1) { UIManager.put("ToolWindow.Button.selectedForeground", null) }
+        verify(exactly = 1) { UIManager.put("ToolWindow.Stripe.foreground", null) }
     }
 }
