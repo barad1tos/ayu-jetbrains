@@ -4,6 +4,7 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.every
@@ -24,9 +25,11 @@ import kotlin.test.assertTrue
 /**
  * User-space + algorithmic coverage for [NavBarElement] per CHROME-04.
  *
- * NavBar has no foreground contrast contract — its breadcrumbs inherit from the
- * editor scheme — so these tests additionally lock the "no contrastForeground"
- * invariant so a future dev can't silently copy the StatusBar block here.
+ * Phase 40-10 (Gap 2) — the legacy "no foreground contract" invariant is
+ * retired; the NavBar now writes `NavBar.foreground` and
+ * `NavBar.selectedItemForeground` via [WcagForeground.pickForeground] under
+ * the contrast gate. Tests here lock both the new fg writes and the
+ * revert-symmetry for those new keys.
  */
 class NavBarElementTest {
     private val mockApplication = mockk<Application>(relaxed = true)
@@ -35,6 +38,7 @@ class NavBarElementTest {
 
     private val accent = Color(255, 0, 0)
     private val blended = Color(0x12, 0x34, 0x56)
+    private val contrastFg = Color.GREEN
 
     @BeforeTest
     fun setUp() {
@@ -50,7 +54,9 @@ class NavBarElementTest {
 
         mockkObject(ChromeTintBlender)
         every { ChromeTintBlender.blend(any(), any(), any()) } returns blended
-        every { ChromeTintBlender.contrastForeground(any()) } returns Color.WHITE
+
+        mockkObject(WcagForeground)
+        every { WcagForeground.pickForeground(any(), any()) } returns contrastFg
     }
 
     @AfterTest
@@ -61,6 +67,7 @@ class NavBarElementTest {
     @Test
     fun `apply writes blended color to NavBar background and border`() {
         state.chromeTintIntensity = 30
+        state.chromeTintKeepForegroundReadable = false
 
         NavBarElement().apply(accent)
 
@@ -69,16 +76,43 @@ class NavBarElementTest {
     }
 
     @Test
-    fun `revert nulls both NavBar keys`() {
+    fun `apply with contrast on writes WcagForeground pick to both foreground keys`() {
+        state.chromeTintIntensity = 40
+        state.chromeTintKeepForegroundReadable = true
+
+        NavBarElement().apply(accent)
+
+        verify { WcagForeground.pickForeground(blended, WcagForeground.TextTarget.PRIMARY_TEXT) }
+        verify { UIManager.put("NavBar.foreground", contrastFg) }
+        verify { UIManager.put("NavBar.selectedItemForeground", contrastFg) }
+    }
+
+    @Test
+    fun `apply with contrast off skips every foreground write and pickForeground call`() {
+        state.chromeTintIntensity = 40
+        state.chromeTintKeepForegroundReadable = false
+
+        NavBarElement().apply(accent)
+
+        verify(exactly = 0) { WcagForeground.pickForeground(any(), any()) }
+        verify(exactly = 0) { UIManager.put("NavBar.foreground", any()) }
+        verify(exactly = 0) { UIManager.put("NavBar.selectedItemForeground", any()) }
+    }
+
+    @Test
+    fun `revert nulls both bg keys and both fg keys unconditionally`() {
         NavBarElement().revert()
 
         verify { UIManager.put("NavBar.background", null) }
         verify { UIManager.put("NavBar.borderColor", null) }
+        verify { UIManager.put("NavBar.foreground", null) }
+        verify { UIManager.put("NavBar.selectedItemForeground", null) }
     }
 
     @Test
     fun `apply passes intensity from state to blender per D-03`() {
         state.chromeTintIntensity = 62
+        state.chromeTintKeepForegroundReadable = false
 
         val intensitySlot = slot<Int>()
         every {
@@ -92,8 +126,20 @@ class NavBarElementTest {
     }
 
     @Test
-    fun `revert symmetry — every key apply writes is nulled on revert`() {
+    fun `apply invokes blender twice per call — once per background key`() {
+        state.chromeTintIntensity = 50
+        state.chromeTintKeepForegroundReadable = false
+
+        NavBarElement().apply(accent)
+
+        verify(exactly = 1) { ChromeTintBlender.blend(accent, "NavBar.background", 50) }
+        verify(exactly = 1) { ChromeTintBlender.blend(accent, "NavBar.borderColor", 50) }
+    }
+
+    @Test
+    fun `revert symmetry — every key apply can write is nulled on revert`() {
         state.chromeTintIntensity = 40
+        state.chromeTintKeepForegroundReadable = true
 
         val appliedKeys = mutableListOf<String>()
         every {
@@ -109,10 +155,9 @@ class NavBarElementTest {
         val writtenDuringRevert = appliedKeys.toSet()
 
         assertTrue(writtenDuringApply.isNotEmpty(), "apply should have written at least one key")
-        assertEquals(
-            writtenDuringApply,
-            writtenDuringRevert,
-            "revert must null exactly the keys apply wrote",
+        assertTrue(
+            writtenDuringApply.all { it in writtenDuringRevert },
+            "every key apply writes must be nulled on revert; missing: ${writtenDuringApply - writtenDuringRevert}",
         )
     }
 
@@ -122,15 +167,5 @@ class NavBarElementTest {
 
         assertEquals(AccentElementId.NAV_BAR, element.id)
         assertEquals("Navigation bar", element.displayName)
-    }
-
-    @Test
-    fun `apply never writes a foreground contrast color — NavBar owns no foreground keys`() {
-        state.chromeTintIntensity = 40
-        state.chromeTintKeepForegroundReadable = true
-
-        NavBarElement().apply(accent)
-
-        verify(exactly = 0) { ChromeTintBlender.contrastForeground(any()) }
     }
 }
