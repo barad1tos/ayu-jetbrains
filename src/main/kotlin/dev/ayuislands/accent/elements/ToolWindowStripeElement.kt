@@ -3,6 +3,7 @@ package dev.ayuislands.accent.elements
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.LiveChromeRefresher
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.Color
@@ -41,29 +42,44 @@ class ToolWindowStripeElement : AccentElement {
     override fun apply(color: Color) {
         val state = AyuIslandsSettings.getInstance().state
         val intensity = state.chromeTintIntensity
+        var tintedStripeBackground: Color? = null
+        var tintedSelectedBackground: Color? = null
         for (key in backgroundKeys) {
             val tinted = ChromeTintBlender.blend(color, key, intensity)
             UIManager.put(key, tinted)
+            when (key) {
+                STRIPE_BACKGROUND_KEY -> tintedStripeBackground = tinted
+                SELECTED_BACKGROUND_KEY -> tintedSelectedBackground = tinted
+            }
         }
-        if (state.chromeTintKeepForegroundReadable) {
-            val tintedForContrast =
-                ChromeTintBlender.blend(color, SELECTED_BACKGROUND_KEY, intensity)
+        if (state.chromeTintKeepForegroundReadable && tintedSelectedBackground != null) {
             val foreground =
-                WcagForeground.pickForeground(tintedForContrast, WcagForeground.TextTarget.ICON)
+                WcagForeground.pickForeground(tintedSelectedBackground, WcagForeground.TextTarget.ICON)
             for (key in foregroundKeys) {
                 UIManager.put(key, foreground)
             }
         }
+        // Level 2 Gap-4: push stripe bg to the live com.intellij.toolWindow.Stripe peer.
+        tintedStripeBackground?.let { LiveChromeRefresher.refreshByClassName(STRIPE_PEER_CLASS, it) }
     }
 
     override fun revert() {
         for (key in backgroundKeys + foregroundKeys) {
             UIManager.put(key, null)
         }
+        // D-14 symmetry: hand the stripe peer back to LAF default.
+        LiveChromeRefresher.clearByClassName(STRIPE_PEER_CLASS)
     }
 
     private companion object {
         /** Reference key for the contrast-foreground sample; same as the last entry in [backgroundKeys]. */
         const val SELECTED_BACKGROUND_KEY = "ToolWindow.Button.selectedBackground"
+        const val STRIPE_BACKGROUND_KEY = "ToolWindow.Stripe.background"
+
+        /**
+         * Internal (package-private, final) tool-window stripe class — type not importable,
+         * so runtime class-name string match is the supported lookup path (see 40-12 §B).
+         */
+        const val STRIPE_PEER_CLASS = "com.intellij.toolWindow.Stripe"
     }
 }

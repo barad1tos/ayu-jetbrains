@@ -4,6 +4,7 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.LiveChromeRefresher
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -50,6 +51,10 @@ class ToolWindowStripeElementTest {
 
         mockkObject(WcagForeground)
         every { WcagForeground.pickForeground(any(), any()) } returns contrastFg
+
+        mockkObject(LiveChromeRefresher)
+        every { LiveChromeRefresher.refreshByClassName(any(), any()) } returns Unit
+        every { LiveChromeRefresher.clearByClassName(any()) } returns Unit
 
         // AyuIslandsSettings.getInstance() is backed by ApplicationManager.getService.
         // Mock the Application so the companion resolves without an IDE container.
@@ -166,5 +171,26 @@ class ToolWindowStripeElementTest {
         verify(exactly = 1) { UIManager.put("ToolWindow.Button.selectedBackground", null) }
         verify(exactly = 1) { UIManager.put("ToolWindow.Button.selectedForeground", null) }
         verify(exactly = 1) { UIManager.put("ToolWindow.Stripe.foreground", null) }
+    }
+
+    @Test
+    fun `apply invokes LiveChromeRefresher refreshByClassName for stripe peer (Gap 4)`() {
+        mockState.chromeTintIntensity = 30
+        mockState.chromeTintKeepForegroundReadable = false
+
+        ToolWindowStripeElement().apply(testAccent)
+
+        verify(exactly = 1) {
+            LiveChromeRefresher.refreshByClassName("com.intellij.toolWindow.Stripe", blended)
+        }
+        verify(exactly = 0) { LiveChromeRefresher.clearByClassName(any()) }
+    }
+
+    @Test
+    fun `revert invokes LiveChromeRefresher clearByClassName for stripe peer (D-14 symmetry)`() {
+        ToolWindowStripeElement().revert()
+
+        verify(exactly = 1) { LiveChromeRefresher.clearByClassName("com.intellij.toolWindow.Stripe") }
+        verify(exactly = 0) { LiveChromeRefresher.refreshByClassName(any(), any()) }
     }
 }
