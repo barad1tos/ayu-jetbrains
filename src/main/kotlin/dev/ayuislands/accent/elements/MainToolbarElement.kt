@@ -4,6 +4,7 @@ import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeDecorationsProbe
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.Color
 import javax.swing.UIManager
@@ -65,7 +66,8 @@ class MainToolbarElement : AccentElement {
         if (state.chromeTintKeepForegroundReadable) {
             val tintedForContrast =
                 ChromeTintBlender.blend(color, BACKGROUND_KEY, intensity)
-            val foreground = ChromeTintBlender.contrastForeground(tintedForContrast)
+            val foreground =
+                WcagForeground.pickForeground(tintedForContrast, WcagForeground.TextTarget.PRIMARY_TEXT)
             for (key in foregroundKeys) {
                 UIManager.put(key, foreground)
             }
