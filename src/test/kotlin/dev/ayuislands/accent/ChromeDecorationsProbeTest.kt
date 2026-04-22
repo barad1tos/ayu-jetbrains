@@ -92,4 +92,45 @@ class ChromeDecorationsProbeTest {
 
         assertFalse(ChromeDecorationsProbe.isCustomHeaderActive())
     }
+
+    // ── Plan 40-11 Gap 3: canEnableCustomHeaderOnMac helper ───────────────────
+
+    @Test
+    fun `canEnableCustomHeaderOnMac returns true on macOS when custom header is NOT active`() {
+        // macOS + both probe keys false ⇒ native title bar ⇒ the Settings panel should
+        // offer the merged-menu link so the user has a path forward (VERIFICATION Gap 3).
+        ChromeDecorationsProbe.osSupplier = { ChromeDecorationsProbe.Os.MAC }
+        every { UIManager.getBoolean("TitlePane.unifiedBackground") } returns false
+        every { Registry.`is`("ide.mac.transparentTitleBarAppearance", false) } returns false
+
+        assertTrue(ChromeDecorationsProbe.canEnableCustomHeaderOnMac())
+    }
+
+    @Test
+    fun `canEnableCustomHeaderOnMac returns false on macOS when custom header IS active`() {
+        // macOS + merged menu already ON ⇒ custom header active ⇒ offering to enable it
+        // again is nonsense. The helper must return false so the link stays hidden.
+        ChromeDecorationsProbe.osSupplier = { ChromeDecorationsProbe.Os.MAC }
+        every { UIManager.getBoolean("TitlePane.unifiedBackground") } returns true
+
+        assertFalse(ChromeDecorationsProbe.canEnableCustomHeaderOnMac())
+    }
+
+    @Test
+    fun `canEnableCustomHeaderOnMac returns false on non-macOS platforms across all three branches`() {
+        // Windows, Linux, and UNKNOWN all short-circuit to false — the merged-menu offer
+        // is macOS-specific (Windows/Linux have their own custom-header paths and showing
+        // a macOS hint on them would be misleading).
+        fun runScenario(os: ChromeDecorationsProbe.Os) {
+            ChromeDecorationsProbe.osSupplier = { os }
+            assertFalse(
+                ChromeDecorationsProbe.canEnableCustomHeaderOnMac(),
+                "canEnableCustomHeaderOnMac must be false on $os",
+            )
+        }
+
+        runScenario(ChromeDecorationsProbe.Os.WINDOWS)
+        runScenario(ChromeDecorationsProbe.Os.LINUX)
+        runScenario(ChromeDecorationsProbe.Os.UNKNOWN)
+    }
 }
