@@ -94,6 +94,10 @@ class StatusBarElementTest {
         verify { UIManager.put("StatusBar.Widget.hoverBackground", null) }
         verify { UIManager.put("StatusBar.Widget.foreground", null) }
         verify { UIManager.put("StatusBar.Widget.hoverForeground", null) }
+        // D-14 symmetry for breadcrumbs foreground fix — every new key written on
+        // apply must be nulled on revert so the LAF re-resolves the stock value.
+        verify { UIManager.put("StatusBar.Breadcrumbs.foreground", null) }
+        verify { UIManager.put("StatusBar.Breadcrumbs.hoverForeground", null) }
     }
 
     @Test
@@ -105,6 +109,24 @@ class StatusBarElementTest {
         verify { WcagForeground.pickForeground(blended, WcagForeground.TextTarget.PRIMARY_TEXT) }
         verify { UIManager.put("StatusBar.Widget.foreground", Color.GREEN) }
         verify { UIManager.put("StatusBar.Widget.hoverForeground", Color.GREEN) }
+    }
+
+    @Test
+    fun `apply extends WcagForeground pick to breadcrumb foreground keys present in 2026_1`() {
+        // Regression guard: path breadcrumbs ("project > build.gradle.kts") in the
+        // status bar used to stay LAF-grey against a tinted background. The fix
+        // re-uses the same contrast color the rest of the status bar widget text
+        // already receives, so breadcrumbs are legible at any supported tint.
+        //
+        // Only keys present in IntelliJPlatform.themeMetadata.json for platformVersion
+        // 2026.1 are asserted here — see StatusBarElement.foregroundKeys for the
+        // javap-verified presence list.
+        state.chromeTintIntensity = 40
+
+        StatusBarElement().apply(accent)
+
+        verify(exactly = 1) { UIManager.put("StatusBar.Breadcrumbs.foreground", Color.GREEN) }
+        verify(exactly = 1) { UIManager.put("StatusBar.Breadcrumbs.hoverForeground", Color.GREEN) }
     }
 
     @Test

@@ -35,10 +35,29 @@ class StatusBarElement : AccentElement {
             "StatusBar.Widget.hoverBackground",
         )
 
+    // Foreground keys receive the WcagForeground-picked contrast color sampled against
+    // the tinted StatusBar background. Breadcrumb foregrounds are included so the
+    // path breadcrumb ("project > build.gradle.kts") inherits the same contrast-aware
+    // colour as the rest of the status bar widget text — without them, breadcrumbs
+    // stayed LAF-grey and became unreadable once the status bar was tinted.
+    //
+    // Only keys confirmed present in IntelliJPlatform.themeMetadata.json for
+    // platformVersion 2026.1 (ide.impl/themes/metadata) are written. Verified via
+    // `unzip -p intellij.platform.ide.impl.jar themes/metadata/IntelliJPlatform.themeMetadata.json`
+    // on IDE 2026.1:
+    //   - StatusBar.Breadcrumbs.foreground       — PRESENT
+    //   - StatusBar.Breadcrumbs.hoverForeground  — PRESENT
+    // Keys that do NOT exist in 2026.1 metadata (do NOT add — silent writes to
+    // non-existent UIManager keys are dead bytes and lie to future readers):
+    //   - Breadcrumbs.CurrentColor               — ABSENT in 2026.1
+    //   - Breadcrumbs.InactiveColor              — ABSENT in 2026.1
+    //   - Breadcrumbs.HoverColor                 — ABSENT in 2026.1
     private val foregroundKeys =
         listOf(
             "StatusBar.Widget.foreground",
             "StatusBar.Widget.hoverForeground",
+            "StatusBar.Breadcrumbs.foreground",
+            "StatusBar.Breadcrumbs.hoverForeground",
         )
 
     override fun apply(color: Color) {
