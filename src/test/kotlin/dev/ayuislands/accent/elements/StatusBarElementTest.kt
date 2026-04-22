@@ -1,0 +1,161 @@
+package dev.ayuislands.accent.elements
+
+import com.intellij.openapi.application.Application
+import com.intellij.openapi.application.ApplicationManager
+import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.mockkObject
+import io.mockk.mockkStatic
+import io.mockk.slot
+import io.mockk.unmockkAll
+import io.mockk.verify
+import java.awt.Color
+import javax.swing.UIManager
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+/**
+ * User-space + algorithmic coverage for [StatusBarElement] per CHROME-01 / CHROME-07.
+ *
+ * Verifies that `apply` routes every background key through [ChromeTintBlender.blend],
+ * that the foreground-contrast branch is gated on
+ * [AyuIslandsState.chromeTintKeepForegroundReadable], that intensity is pulled from
+ * state per D-03 (not from the `apply` signature), and that `revert` nulls every
+ * touched UIManager key so the LAF re-resolves the stock theme value.
+ */
+class StatusBarElementTest {
+    private val mockApplication = mockk<Application>(relaxed = true)
+    private val mockSettings = mockk<AyuIslandsSettings>(relaxed = true)
+    private val state = AyuIslandsState()
+
+    private val accent = Color(255, 0, 0)
+    private val blended = Color(0x12, 0x34, 0x56)
+
+    @BeforeTest
+    fun setUp() {
+        mockkStatic(ApplicationManager::class)
+        every { ApplicationManager.getApplication() } returns mockApplication
+
+        mockkObject(AyuIslandsSettings.Companion)
+        every { AyuIslandsSettings.getInstance() } returns mockSettings
+        every { mockSettings.state } returns state
+
+        mockkStatic(UIManager::class)
+        every { UIManager.put(any<String>(), any()) } returns null
+
+        mockkObject(ChromeTintBlender)
+        every { ChromeTintBlender.blend(any(), any(), any()) } returns blended
+        every { ChromeTintBlender.contrastForeground(any()) } returns Color.WHITE
+    }
+
+    @AfterTest
+    fun tearDown() {
+        unmockkAll()
+    }
+
+    @Test
+    fun `apply writes blended color to every background key`() {
+        state.chromeTintIntensity = 40
+        state.chromeTintKeepForegroundReadable = false
+
+        StatusBarElement().apply(accent)
+
+        verify { UIManager.put("StatusBar.background", blended) }
+        verify { UIManager.put("StatusBar.borderColor", blended) }
+        verify { UIManager.put("StatusBar.Widget.hoverBackground", blended) }
+    }
+
+    @Test
+    fun `revert nulls every touched UIManager key`() {
+        StatusBarElement().revert()
+
+        verify { UIManager.put("StatusBar.background", null) }
+        verify { UIManager.put("StatusBar.borderColor", null) }
+        verify { UIManager.put("StatusBar.Widget.hoverBackground", null) }
+        verify { UIManager.put("StatusBar.Widget.foreground", null) }
+        verify { UIManager.put("StatusBar.Widget.hoverForeground", null) }
+    }
+
+    @Test
+    fun `apply writes contrast foreground when keepForegroundReadable is true`() {
+        state.chromeTintIntensity = 40
+        state.chromeTintKeepForegroundReadable = true
+
+        StatusBarElement().apply(accent)
+
+        verify { ChromeTintBlender.contrastForeground(blended) }
+        verify { UIManager.put("StatusBar.Widget.foreground", Color.WHITE) }
+        verify { UIManager.put("StatusBar.Widget.hoverForeground", Color.WHITE) }
+    }
+
+    @Test
+    fun `apply skips foreground writes when keepForegroundReadable is false`() {
+        state.chromeTintIntensity = 40
+        state.chromeTintKeepForegroundReadable = false
+
+        StatusBarElement().apply(accent)
+
+        verify(exactly = 0) { ChromeTintBlender.contrastForeground(any()) }
+        verify(exactly = 0) { UIManager.put("StatusBar.Widget.foreground", any()) }
+        verify(exactly = 0) { UIManager.put("StatusBar.Widget.hoverForeground", any()) }
+    }
+
+    @Test
+    fun `apply passes intensity from state to blender per D-03`() {
+        state.chromeTintIntensity = 77
+        state.chromeTintKeepForegroundReadable = false
+
+        val intensitySlot = slot<Int>()
+        every {
+            ChromeTintBlender.blend(any<Color>(), any<String>(), capture(intensitySlot))
+        } returns blended
+
+        StatusBarElement().apply(accent)
+
+        assertTrue(intensitySlot.isCaptured, "intensity should be forwarded to blender")
+        assertEquals(77, intensitySlot.captured, "element must read intensity from state, not from apply()")
+    }
+
+    @Test
+    fun `revert symmetry — every key apply writes is nulled on revert`() {
+        state.chromeTintIntensity = 50
+        state.chromeTintKeepForegroundReadable = true
+
+        val appliedKeys = mutableListOf<String>()
+        every {
+            UIManager.put(capture(appliedKeys), any<Any>())
+        } returns null
+
+        val element = StatusBarElement()
+        element.apply(accent)
+        val writtenDuringApply = appliedKeys.toSet()
+        appliedKeys.clear()
+
+        element.revert()
+        val writtenDuringRevert = appliedKeys.toSet()
+
+        assertTrue(
+            writtenDuringApply.isNotEmpty(),
+            "apply should have written at least one key",
+        )
+        assertTrue(
+            writtenDuringApply.all { it in writtenDuringRevert },
+            "every key apply writes must be nulled on revert; missing: ${writtenDuringApply - writtenDuringRevert}",
+        )
+    }
+
+    @Test
+    fun `id and displayName match the CHROME registry entry`() {
+        val element = StatusBarElement()
+
+        assertEquals(AccentElementId.STATUS_BAR, element.id)
+        assertEquals("Status bar", element.displayName)
+    }
+}
