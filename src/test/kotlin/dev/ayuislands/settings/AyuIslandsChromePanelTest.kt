@@ -1,19 +1,11 @@
 package dev.ayuislands.settings
 
-import com.intellij.ide.DataManager
 import com.intellij.openapi.actionSystem.ActionManager
-import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.options.Configurable
-import com.intellij.openapi.options.ShowSettingsUtil
-import com.intellij.openapi.options.ex.Settings
-import com.intellij.openapi.project.Project
-import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.DialogPanel
-import com.intellij.openapi.util.ActionCallback
+import com.intellij.openapi.util.SystemInfo
 import com.intellij.ui.ExperimentalUI
-import com.intellij.ui.components.ActionLink
 import com.intellij.ui.dsl.builder.panel
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
@@ -25,7 +17,6 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
-import java.awt.Container
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -34,7 +25,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import kotlin.test.fail
 
 /**
  * Coverage for [AyuIslandsChromePanel] (Phase 40 / Plan 07):
@@ -51,8 +41,8 @@ import kotlin.test.fail
  *    collapsible content collapses to a single "requires Pro" comment row so the gate is
  *    visible as a hint but none of the underlying bindings surface.
  *  - Probe gate (CONTEXT D-09 / CHROME-02): the Main Toolbar row is enabled when
- *    [ChromeDecorationsProbe.isCustomHeaderActive] returns `true` and disabled (with the
- *    CHROME-02 comment) when it returns `false` — present but disabled, never hidden.
+ *    [ChromeDecorationsProbe.isCustomHeaderActive] returns `true` and disabled (with a
+ *    per-OS honest comment) when it returns `false` — present but disabled, never hidden.
  *  - Persisted expanded state: toggling the collapsible writes
  *    [AyuIslandsState.chromeTintingGroupExpanded].
  *
@@ -78,9 +68,6 @@ class AyuIslandsChromePanelTest {
 
         mockkObject(ChromeDecorationsProbe)
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns true
-        // Gap-3 helper: default false so all 14 pre-existing tests stay behavioral
-        // (no merged-menu offer row renders in the existing scenarios).
-        every { ChromeDecorationsProbe.canEnableCustomHeaderOnMac() } returns false
 
         mockkObject(AccentApplicator)
         every { AccentApplicator.applyForFocusedProject(any()) } returns "#E6B450"
@@ -323,7 +310,7 @@ class AyuIslandsChromePanelTest {
     }
 
     @Test
-    fun `main toolbar row is disabled with CHROME-02 comment when probe reports native chrome`() {
+    fun `main toolbar row is disabled with per-OS honest comment when probe reports native chrome`() {
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns false
         val chromePanel = AyuIslandsChromePanel()
 
@@ -333,10 +320,29 @@ class AyuIslandsChromePanelTest {
             chromePanel.mainToolbarRowEnabledForTest(),
             "Main Toolbar row must be disabled when the OS paints the native title bar (CHROME-02)",
         )
+        val comment = chromePanel.mainToolbarRowCommentForTest()
+        assertNotNull(
+            comment,
+            "Main Toolbar row must display a per-OS disabled-state comment",
+        )
+        // Host-OS-dependent assertion: the rendered comment must match the branch that
+        // disabledMainToolbarComment() picks for the running OS. Other branches are
+        // exercised by the dedicated per-branch tests below via the helper seam.
+        val expected =
+            when {
+                SystemInfo.isMac ->
+                    "Disabled: macOS paints the native title bar (IDE 2026.1+ no longer exposes a toggle)."
+                SystemInfo.isWindows ->
+                    "Disabled: your IDE is not using custom window decorations."
+                SystemInfo.isLinux ->
+                    "Disabled: your window manager paints the native title bar."
+                else ->
+                    "Disabled: your OS paints the native title bar."
+            }
         assertEquals(
-            "Disabled: your OS paints the native title bar",
-            chromePanel.mainToolbarRowCommentForTest(),
-            "Main Toolbar row must display the CHROME-02 disabled-state comment",
+            expected,
+            comment,
+            "Main Toolbar row comment must match the per-OS branch of disabledMainToolbarComment()",
         )
     }
 
@@ -371,223 +377,53 @@ class AyuIslandsChromePanelTest {
         )
     }
 
-    // ── Plan 40-11 Gap 3: merged-menu offer link ──────────────────────────────
-
-    /**
-     * Walks the Swing component tree rooted at [root] and returns the first
-     * [ActionLink] whose visible text equals [text]. The Kotlin UI DSL `link(text) { … }`
-     * builder emits an [ActionLink] (decompiled against 2025.1 SDK — see L-4 commit body).
-     */
-    private fun findLinkByText(
-        root: Container,
-        text: String,
-    ): ActionLink? {
-        if (root is ActionLink && root.text == text) return root
-        for (child in root.components) {
-            if (child is Container) {
-                val hit = findLinkByText(child, text)
-                if (hit != null) return hit
-            }
-        }
-        return null
-    }
-
-    private fun assertNoLinkWithText(
-        root: Container,
-        text: String,
-    ) {
-        val found = findLinkByText(root, text)
-        if (found != null) {
-            fail(
-                "Expected NO component labelled '$text' in the rendered panel, but the DSL " +
-                    "traversal found one. The merged-menu offer row must not render in this scenario.",
-            )
-        }
-    }
+    // ── Static regression guard for plan 40-11 supersede ──────────────────────
+    //
+    // After the 2026-04-22 supersede (link retracted, per-OS comment added), the panel
+    // source must NOT reference any of the following — they are the removed machinery
+    // for the merged-menu offer link that IDE 2026.1+ made dead-letter. A static
+    // substring check provides defence-in-depth beyond the `rg` command in SUMMARY.
 
     @Test
-    fun `L-1 merged menu offer link is visible when probe canEnableCustomHeaderOnMac returns true`() {
-        every { ChromeDecorationsProbe.isCustomHeaderActive() } returns false
-        every { ChromeDecorationsProbe.canEnableCustomHeaderOnMac() } returns true
-        val chromePanel = AyuIslandsChromePanel()
-
-        val dialogPanel = buildPanel(chromePanel)
-
-        assertTrue(
-            chromePanel.mergedMenuOfferVisibleForTest(),
-            "mergedMenuOfferVisibleForTest must be true when canEnableCustomHeaderOnMac returns true",
-        )
-        assertFalse(
-            chromePanel.mainToolbarRowEnabledForTest(),
-            "Main Toolbar row must be disabled when isCustomHeaderActive returns false",
-        )
-        // DSL traversal lock (W-4 remediation): a rendered ActionLink must actually exist,
-        // not just an internal flag set to true. If the DSL `link(...)` call was dropped
-        // or misrendered this assertion fails.
-        val link = findLinkByText(dialogPanel, "Enable merged menu to tint title bar")
+    fun `panel source contains no merged-menu offer residue after supersede`() {
+        val source =
+            this::class
+                .java
+                .classLoader
+                .getResource("dev/ayuislands/settings/AyuIslandsChromePanel.kt")
+                ?.readText()
+        // Source is not on the test classpath in this project layout; fall back to
+        // reading from the on-disk src tree relative to the project root. This mirrors
+        // the pattern used elsewhere (e.g., integration tests that resolve .planning/).
+        val onDisk =
+            source
+                ?: java.io
+                    .File("src/main/kotlin/dev/ayuislands/settings/AyuIslandsChromePanel.kt")
+                    .takeIf {
+                        it.exists()
+                    }?.readText()
         assertNotNull(
-            link,
-            "Expected a component labelled 'Enable merged menu to tint title bar' in the rendered panel " +
-                "when canEnableCustomHeaderOnMac is true — DSL link(...) wiring broken",
+            onDisk,
+            "Could not locate AyuIslandsChromePanel.kt source for static regression guard",
         )
-    }
-
-    @Test
-    fun `L-2 merged menu offer link is hidden when probe isCustomHeaderActive is true`() {
-        every { ChromeDecorationsProbe.isCustomHeaderActive() } returns true
-        every { ChromeDecorationsProbe.canEnableCustomHeaderOnMac() } returns false
-        val chromePanel = AyuIslandsChromePanel()
-
-        val dialogPanel = buildPanel(chromePanel)
-
-        assertFalse(
-            chromePanel.mergedMenuOfferVisibleForTest(),
-            "mergedMenuOfferVisibleForTest must be false when custom header already active",
+        for (
+        forbidden in
+        listOf(
+            "MERGED_MENU_OFFER_LABEL",
+            "MERGED_MENU_CONFIGURABLE_ID",
+            "ide.mac.bigSurStyle",
+            "Registry.get",
+            "Registry.`is`",
+            "ApplicationManager.getApplication().restart",
+            "ShowSettingsUtil",
+            "Settings.KEY",
+            "DataManager",
         )
-        assertTrue(
-            chromePanel.mainToolbarRowEnabledForTest(),
-            "Main Toolbar row must be enabled when the IDE paints a JBR custom window header",
-        )
-        assertNoLinkWithText(dialogPanel, "Enable merged menu to tint title bar")
-    }
-
-    @Test
-    fun `L-3 merged menu offer link is hidden on non-macOS even when probe reports inactive`() {
-        // Non-mac forces canEnableCustomHeaderOnMac = false (see probe Task 1 M-3 tests).
-        // isCustomHeaderActive() reports false (e.g., Linux without ide.linux.custom.title.bar).
-        every { ChromeDecorationsProbe.isCustomHeaderActive() } returns false
-        every { ChromeDecorationsProbe.canEnableCustomHeaderOnMac() } returns false
-        val chromePanel = AyuIslandsChromePanel()
-
-        val dialogPanel = buildPanel(chromePanel)
-
-        assertFalse(
-            chromePanel.mergedMenuOfferVisibleForTest(),
-            "mergedMenuOfferVisibleForTest must be false on non-macOS platforms",
-        )
-        assertFalse(
-            chromePanel.mainToolbarRowEnabledForTest(),
-            "Main Toolbar row must still be disabled when probe reports inactive (non-mac too)",
-        )
-        assertNoLinkWithText(dialogPanel, "Enable merged menu to tint title bar")
-    }
-
-    @Test
-    fun `L-4a clicking the rendered merged-menu link navigates in-dialog when Settings context resolves`() {
-        // (1) Arrange: enable the offer branch.
-        every { ChromeDecorationsProbe.isCustomHeaderActive() } returns false
-        every { ChromeDecorationsProbe.canEnableCustomHeaderOnMac() } returns true
-
-        // (2) Stub ShowSettingsUtil so we can verify it is NOT called when in-dialog path wins.
-        mockkStatic(ShowSettingsUtil::class)
-        val showSettingsUtilMock = mockk<ShowSettingsUtil>(relaxed = true)
-        every { ShowSettingsUtil.getInstance() } returns showSettingsUtilMock
-
-        // (3) Stub ProjectManager so the panel's fallback project resolver doesn't NPE
-        // even though we expect the fallback path NOT to run.
-        mockkStatic(ProjectManager::class)
-        val projectManagerMock = mockk<ProjectManager>(relaxed = true)
-        every { ProjectManager.getInstance() } returns projectManagerMock
-        every { projectManagerMock.openProjects } returns emptyArray()
-
-        // (4) Stub DataManager so the click lambda resolves a DataContext; then hand that
-        // DataContext a non-null Settings via DataKey.getData. This simulates the real
-        // case where the link lives INSIDE an already-open Settings dialog.
-        mockkStatic(DataManager::class)
-        val dataManagerMock = mockk<DataManager>(relaxed = true)
-        val dataContextMock = mockk<DataContext>(relaxed = true)
-        every { DataManager.getInstance() } returns dataManagerMock
-        every { dataManagerMock.getDataContext(any<java.awt.Component>()) } returns dataContextMock
-
-        val settingsHostMock = mockk<Settings>(relaxed = true)
-        val configurableMock = mockk<Configurable>(relaxed = true)
-        every { dataContextMock.getData(Settings.KEY) } returns settingsHostMock
-        every { settingsHostMock.find("preferences.lookFeel") } returns configurableMock
-        every { settingsHostMock.select(configurableMock) } returns ActionCallback.DONE
-
-        val chromePanel = AyuIslandsChromePanel()
-        val dialogPanel = buildPanel(chromePanel)
-
-        val link =
-            findLinkByText(dialogPanel, "Enable merged menu to tint title bar")
-                ?: fail(
-                    "Expected a link labelled 'Enable merged menu to tint title bar' in the rendered panel, " +
-                        "but the DSL traversal found none.",
-                )
-
-        link.doClick()
-
-        // In-dialog navigation wins: select invoked exactly once, showSettingsDialog NOT invoked.
-        verify(exactly = 1) { settingsHostMock.select(configurableMock) }
-        verify(exactly = 0) {
-            showSettingsUtilMock.showSettingsDialog(
-                any<Project>(),
-                any<String>(),
+        ) {
+            assertFalse(
+                onDisk.contains(forbidden),
+                "Panel source must not contain '$forbidden' after plan 40-11 supersede",
             )
         }
-    }
-
-    @Test
-    fun `L-4b clicking the rendered merged-menu link falls back to ShowSettingsUtil when Settings context is absent`() {
-        // (1) Arrange: enable the offer branch.
-        every { ChromeDecorationsProbe.isCustomHeaderActive() } returns false
-        every { ChromeDecorationsProbe.canEnableCustomHeaderOnMac() } returns true
-
-        // (2) Stub ShowSettingsUtil.getInstance() so we can verify the fallback fires.
-        mockkStatic(ShowSettingsUtil::class)
-        val showSettingsUtilMock = mockk<ShowSettingsUtil>(relaxed = true)
-        every { ShowSettingsUtil.getInstance() } returns showSettingsUtilMock
-
-        // (3) Stub ProjectManager so the panel's project resolver doesn't NPE.
-        mockkStatic(ProjectManager::class)
-        val projectManagerMock = mockk<ProjectManager>(relaxed = true)
-        every { ProjectManager.getInstance() } returns projectManagerMock
-        every { projectManagerMock.openProjects } returns emptyArray()
-
-        // (4) External-click context: DataManager resolves a DataContext, but Settings.KEY
-        // data is null (the link is hypothetically invoked from outside an open Settings
-        // dialog). The panel must take the fallback path.
-        mockkStatic(DataManager::class)
-        val dataManagerMock = mockk<DataManager>(relaxed = true)
-        val dataContextMock = mockk<DataContext>(relaxed = true)
-        every { DataManager.getInstance() } returns dataManagerMock
-        every { dataManagerMock.getDataContext(any<java.awt.Component>()) } returns dataContextMock
-        every { dataContextMock.getData(Settings.KEY) } returns null
-
-        val chromePanel = AyuIslandsChromePanel()
-        val dialogPanel = buildPanel(chromePanel)
-
-        // (5) Locate the link via component-tree traversal — NOT via a @TestOnly back-door
-        // seam. If the DSL `link(…)` binding is broken (wrong builder, wrong lambda
-        // wiring, wrong container nesting) this assertion fails.
-        val link =
-            findLinkByText(dialogPanel, "Enable merged menu to tint title bar")
-                ?: fail(
-                    "Expected a link labelled 'Enable merged menu to tint title bar' in the rendered panel, " +
-                        "but the DSL traversal found none. This usually means the DSL `link(...)` block did " +
-                        "not render — check Change 2 wiring in AyuIslandsChromePanel.",
-                )
-
-        // (6) Click the link. ActionLink extends JButton, so doClick fires the action.
-        link.doClick()
-
-        // (7) Assert: ShowSettingsUtil was invoked exactly once with the verified id.
-        verify(exactly = 1) {
-            showSettingsUtilMock.showSettingsDialog(
-                any<Project>(),
-                "preferences.lookFeel",
-            )
-        }
-
-        // (8) Regression guards — T-40-40 / T-40-41 — are enforced STATICALLY by the
-        // plan's acceptance criteria (see 40-11-PLAN.md):
-        //   B-1 regression guard: no raw Registry key write in the click path
-        //   rg "ApplicationManager.*restart" AyuIslandsChromePanel.kt → 0 matches
-        //   rg "Registry\.get|Registry\.`is`" AyuIslandsChromePanel.kt → 0 matches
-        // Runtime mockk verification on ApplicationManager.getApplication() would race
-        // with the UI DSL builder's own getApplication() calls (it reaches into the
-        // Application service for ExperimentalUI / ActionManager / ExecutionManager),
-        // so the defence-in-depth for these threats stays in the static check above
-        // plus the positive ShowSettingsUtil verification at (7).
     }
 }
