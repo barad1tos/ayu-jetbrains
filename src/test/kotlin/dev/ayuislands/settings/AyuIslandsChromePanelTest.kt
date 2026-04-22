@@ -1,12 +1,17 @@
 package dev.ayuislands.settings
 
+import com.intellij.ide.DataManager
 import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.options.ShowSettingsUtil
+import com.intellij.openapi.options.ex.Settings
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.DialogPanel
+import com.intellij.openapi.util.ActionCallback
 import com.intellij.ui.ExperimentalUI
 import com.intellij.ui.components.ActionLink
 import com.intellij.ui.dsl.builder.panel
@@ -468,12 +473,67 @@ class AyuIslandsChromePanelTest {
     }
 
     @Test
-    fun `L-4 clicking the rendered merged-menu link opens Settings via ShowSettingsUtil (DSL traversal)`() {
+    fun `L-4a clicking the rendered merged-menu link navigates in-dialog when Settings context resolves`() {
         // (1) Arrange: enable the offer branch.
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns false
         every { ChromeDecorationsProbe.canEnableCustomHeaderOnMac() } returns true
 
-        // (2) Stub ShowSettingsUtil.getInstance() so we can verify the call.
+        // (2) Stub ShowSettingsUtil so we can verify it is NOT called when in-dialog path wins.
+        mockkStatic(ShowSettingsUtil::class)
+        val showSettingsUtilMock = mockk<ShowSettingsUtil>(relaxed = true)
+        every { ShowSettingsUtil.getInstance() } returns showSettingsUtilMock
+
+        // (3) Stub ProjectManager so the panel's fallback project resolver doesn't NPE
+        // even though we expect the fallback path NOT to run.
+        mockkStatic(ProjectManager::class)
+        val projectManagerMock = mockk<ProjectManager>(relaxed = true)
+        every { ProjectManager.getInstance() } returns projectManagerMock
+        every { projectManagerMock.openProjects } returns emptyArray()
+
+        // (4) Stub DataManager so the click lambda resolves a DataContext; then hand that
+        // DataContext a non-null Settings via DataKey.getData. This simulates the real
+        // case where the link lives INSIDE an already-open Settings dialog.
+        mockkStatic(DataManager::class)
+        val dataManagerMock = mockk<DataManager>(relaxed = true)
+        val dataContextMock = mockk<DataContext>(relaxed = true)
+        every { DataManager.getInstance() } returns dataManagerMock
+        every { dataManagerMock.getDataContext(any<java.awt.Component>()) } returns dataContextMock
+
+        val settingsHostMock = mockk<Settings>(relaxed = true)
+        val configurableMock = mockk<Configurable>(relaxed = true)
+        every { dataContextMock.getData(Settings.KEY) } returns settingsHostMock
+        every { settingsHostMock.find("preferences.lookFeel") } returns configurableMock
+        every { settingsHostMock.select(configurableMock) } returns ActionCallback.DONE
+
+        val chromePanel = AyuIslandsChromePanel()
+        val dialogPanel = buildPanel(chromePanel)
+
+        val link =
+            findLinkByText(dialogPanel, "Enable merged menu to tint title bar")
+                ?: fail(
+                    "Expected a link labelled 'Enable merged menu to tint title bar' in the rendered panel, " +
+                        "but the DSL traversal found none.",
+                )
+
+        link.doClick()
+
+        // In-dialog navigation wins: select invoked exactly once, showSettingsDialog NOT invoked.
+        verify(exactly = 1) { settingsHostMock.select(configurableMock) }
+        verify(exactly = 0) {
+            showSettingsUtilMock.showSettingsDialog(
+                any<Project>(),
+                any<String>(),
+            )
+        }
+    }
+
+    @Test
+    fun `L-4b clicking the rendered merged-menu link falls back to ShowSettingsUtil when Settings context is absent`() {
+        // (1) Arrange: enable the offer branch.
+        every { ChromeDecorationsProbe.isCustomHeaderActive() } returns false
+        every { ChromeDecorationsProbe.canEnableCustomHeaderOnMac() } returns true
+
+        // (2) Stub ShowSettingsUtil.getInstance() so we can verify the fallback fires.
         mockkStatic(ShowSettingsUtil::class)
         val showSettingsUtilMock = mockk<ShowSettingsUtil>(relaxed = true)
         every { ShowSettingsUtil.getInstance() } returns showSettingsUtilMock
@@ -484,10 +544,20 @@ class AyuIslandsChromePanelTest {
         every { ProjectManager.getInstance() } returns projectManagerMock
         every { projectManagerMock.openProjects } returns emptyArray()
 
+        // (4) External-click context: DataManager resolves a DataContext, but Settings.KEY
+        // data is null (the link is hypothetically invoked from outside an open Settings
+        // dialog). The panel must take the fallback path.
+        mockkStatic(DataManager::class)
+        val dataManagerMock = mockk<DataManager>(relaxed = true)
+        val dataContextMock = mockk<DataContext>(relaxed = true)
+        every { DataManager.getInstance() } returns dataManagerMock
+        every { dataManagerMock.getDataContext(any<java.awt.Component>()) } returns dataContextMock
+        every { dataContextMock.getData(Settings.KEY) } returns null
+
         val chromePanel = AyuIslandsChromePanel()
         val dialogPanel = buildPanel(chromePanel)
 
-        // (4) Locate the link via component-tree traversal — NOT via a @TestOnly back-door
+        // (5) Locate the link via component-tree traversal — NOT via a @TestOnly back-door
         // seam. If the DSL `link(…)` binding is broken (wrong builder, wrong lambda
         // wiring, wrong container nesting) this assertion fails.
         val link =
@@ -498,12 +568,10 @@ class AyuIslandsChromePanelTest {
                         "not render — check Change 2 wiring in AyuIslandsChromePanel.",
                 )
 
-        // (5) Click the link. ActionLink extends JButton, so doClick fires the action.
+        // (6) Click the link. ActionLink extends JButton, so doClick fires the action.
         link.doClick()
 
-        // (6) Assert: ShowSettingsUtil was invoked exactly once with the verified id.
-        // Kotlin view of the Java method has a non-null Project parameter (annotated
-        // @Nullable at runtime but erased in the descriptor), hence `any<Project>()`.
+        // (7) Assert: ShowSettingsUtil was invoked exactly once with the verified id.
         verify(exactly = 1) {
             showSettingsUtilMock.showSettingsDialog(
                 any<Project>(),
@@ -511,7 +579,7 @@ class AyuIslandsChromePanelTest {
             )
         }
 
-        // (7) Regression guards — T-40-40 / T-40-41 — are enforced STATICALLY by the
+        // (8) Regression guards — T-40-40 / T-40-41 — are enforced STATICALLY by the
         // plan's acceptance criteria (see 40-11-PLAN.md):
         //   B-1 regression guard: no raw Registry key write in the click path
         //   rg "ApplicationManager.*restart" AyuIslandsChromePanel.kt → 0 matches
@@ -520,6 +588,6 @@ class AyuIslandsChromePanelTest {
         // with the UI DSL builder's own getApplication() calls (it reaches into the
         // Application service for ExperimentalUI / ActionManager / ExecutionManager),
         // so the defence-in-depth for these threats stays in the static check above
-        // plus the positive ShowSettingsUtil verification at (6).
+        // plus the positive ShowSettingsUtil verification at (7).
     }
 }
