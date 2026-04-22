@@ -194,6 +194,11 @@
         <accentElement implementation="dev.ayuislands.accent.elements.BracketMatchElement"/>
         <accentElement implementation="dev.ayuislands.accent.elements.SearchResultsElement"/>
         <accentElement implementation="dev.ayuislands.accent.elements.MatchingTagElement"/>
+        <accentElement implementation="dev.ayuislands.accent.elements.StatusBarElement"/>
+        <accentElement implementation="dev.ayuislands.accent.elements.MainToolbarElement"/>
+        <accentElement implementation="dev.ayuislands.accent.elements.ToolWindowStripeElement"/>
+        <accentElement implementation="dev.ayuislands.accent.elements.NavBarElement"/>
+        <accentElement implementation="dev.ayuislands.accent.elements.PanelBorderElement"/>
     </extensions>
 
     <extensions defaultExtensionNs="com.intellij">
