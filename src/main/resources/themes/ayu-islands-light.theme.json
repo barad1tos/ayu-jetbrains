@@ -148,6 +148,7 @@
       "background": "ToolWindowBackground",
       "borderColor": "BorderDark",
       "Button.foreground": "#828E9F",
+      "Button.selectedBackground": "HoverBackgroundLight",
       "Header": {
         "background": "ToolWindowBackground",
         "inactiveBackground": "ToolWindowBackground",
@@ -227,6 +228,7 @@
       "Orange": "#FFF0E0"
     },
 
+    "NavBar.background": "BackgroundLight",
     "NavBar.borderColor": "BorderTransparent",
 
     "Popup": {
