@@ -23,6 +23,7 @@ import dev.ayuislands.indent.IndentRainbowSync
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
+import dev.ayuislands.ui.ComponentTreeRefresher
 import java.awt.Color
 import java.awt.Window
 import java.lang.reflect.Method
@@ -317,6 +318,19 @@ object AccentApplicator {
                 }
 
                 revertAlwaysOnEditorKeys()
+
+                // D-15: cached JBColor instances survive a bare UIManager.put(key, null)
+                // clear. Publish the refresh topic per usable open project so subscribers
+                // (e.g. EditorScrollbarManager) reapply their customizations against the
+                // freshly-reverted UIManager state. notifyOnly stops short of
+                // IJSwingUtilities.updateComponentTreeUI — that path would crash here
+                // because LAF refresh is still mid-flight (see the no-repaint note
+                // below). Publishing a topic lets subscribers decide when to repaint.
+                for (project in ProjectManager.getInstance().openProjects) {
+                    if (!project.isUsable()) continue
+                    ComponentTreeRefresher.notifyOnly(project)
+                }
+
                 // No repaintAllWindows here: revertAll runs inside
                 // lookAndFeelChanged, before the new theme finishes
                 // loading. Forcing a repaint at this point causes

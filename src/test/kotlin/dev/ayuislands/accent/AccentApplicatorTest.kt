@@ -88,6 +88,24 @@ class AccentApplicatorTest {
         mockkStatic(PluginManagerCore::class)
         every { PluginManagerCore.getPlugin(any()) } returns null
 
+        // D-15 plumbing: revertAll iterates ProjectManager.openProjects and calls
+        // ComponentTreeRefresher.notifyOnly per usable project. Unit tests don't boot
+        // the platform, so both must be stubbed or the new notifyOnly loop blows up
+        // with "Can't get extension point" / a null ProjectManager.
+        mockkStatic(com.intellij.openapi.project.ProjectManager::class)
+        val mockProjectManager = mockk<com.intellij.openapi.project.ProjectManager>(relaxed = true)
+        every {
+            com.intellij.openapi.project.ProjectManager
+                .getInstance()
+        } returns mockProjectManager
+        every { mockProjectManager.openProjects } returns emptyArray()
+
+        mockkObject(dev.ayuislands.ui.ComponentTreeRefresher)
+        every {
+            dev.ayuislands.ui.ComponentTreeRefresher
+                .notifyOnly(any())
+        } returns Unit
+
         // Reset CGP cached state before each test
         resetCgpState()
     }
