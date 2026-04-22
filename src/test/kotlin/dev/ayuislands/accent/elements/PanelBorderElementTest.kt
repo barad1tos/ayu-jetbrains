@@ -5,6 +5,7 @@ import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.LiveChromeRefresher
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.every
@@ -53,6 +54,10 @@ class PanelBorderElementTest {
 
         mockkObject(ChromeTintBlender)
         every { ChromeTintBlender.blend(any(), any(), any()) } returns blended
+
+        mockkObject(LiveChromeRefresher)
+        every { LiveChromeRefresher.refreshByClassName(any(), any()) } returns Unit
+        every { LiveChromeRefresher.clearByClassName(any()) } returns Unit
     }
 
     @AfterTest
@@ -154,5 +159,27 @@ class PanelBorderElementTest {
         val field = AccentApplicator::class.java.getDeclaredField("ALWAYS_ON_UI_KEYS")
         field.isAccessible = true
         return field.get(AccentApplicator) as List<String>
+    }
+
+    @Test
+    fun `apply invokes LiveChromeRefresher refreshByClassName for OnePixelDivider peer (Gap 4)`() {
+        state.chromeTintIntensity = 30
+
+        PanelBorderElement().apply(accent)
+
+        verify(exactly = 1) {
+            LiveChromeRefresher.refreshByClassName("com.intellij.openapi.ui.OnePixelDivider", blended)
+        }
+        verify(exactly = 0) { LiveChromeRefresher.clearByClassName(any()) }
+    }
+
+    @Test
+    fun `revert invokes LiveChromeRefresher clearByClassName for OnePixelDivider peer (D-14 symmetry)`() {
+        PanelBorderElement().revert()
+
+        verify(exactly = 1) {
+            LiveChromeRefresher.clearByClassName("com.intellij.openapi.ui.OnePixelDivider")
+        }
+        verify(exactly = 0) { LiveChromeRefresher.refreshByClassName(any(), any()) }
     }
 }
