@@ -373,11 +373,15 @@ class AyuIslandsState : BaseState() {
         private const val DEFAULT_GRADIENT_WIDTH = 6
 
         /**
-         * Chrome tint intensity default (0-100). 20 is a subtle tint — visible
-         * as accent on status bar / toolbar / stripe without drowning out
-         * foreground readability. Users can raise it via the Chrome tinting
-         * settings slider.
+         * Chrome tint intensity default (0-100). `40` is the Peacock-parity
+         * opening balance per Phase 40 `CONTEXT.md §specifics` and sits above
+         * VERIFICATION Gap 1's recommended floor of `35` — at `20` the tint
+         * read as a 5% wash on the Mirage + Cyan pairing (runIde smoke
+         * 2026-04-22), which failed the user-space quality bar. The HSB-space
+         * blender (Phase 40-09 Task 2) makes this value visibly chromatic
+         * across all 5 chrome surfaces without sacrificing foreground
+         * readability. Users can adjust via the Chrome tinting settings slider.
          */
-        const val DEFAULT_CHROME_TINT_INTENSITY = 20
+        const val DEFAULT_CHROME_TINT_INTENSITY = 40
     }
 }
