@@ -1,0 +1,146 @@
+package dev.ayuislands.accent.elements
+
+import com.intellij.openapi.application.Application
+import com.intellij.openapi.application.ApplicationManager
+import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.mockkObject
+import io.mockk.mockkStatic
+import io.mockk.unmockkAll
+import io.mockk.verify
+import java.awt.Color
+import javax.swing.UIManager
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+/**
+ * Tests for [ToolWindowStripeElement] — CHROME-03.
+ *
+ * Locks:
+ *  - 3 UIManager background keys tinted (Stripe.background, Stripe.borderColor, Button.selectedBackground)
+ *  - `ToolWindow.Button.selectedBackground` is the javap-verified New UI 2025.1 stripe-button key
+ *    (IntelliJPlatform.themeMetadata.json entry present in app-client.jar)
+ *  - Intensity sourced from `AyuIslandsSettings.state.chromeTintIntensity`
+ *  - Contrast toggle produces optional foreground write on `ToolWindow.Button.selectedForeground`
+ *  - revert unconditionally nulls every touched key
+ */
+class ToolWindowStripeElementTest {
+    private lateinit var mockSettings: AyuIslandsSettings
+    private lateinit var mockState: AyuIslandsState
+    private lateinit var mockApplication: Application
+
+    private val testAccent = Color(0xE6, 0xB4, 0x50)
+    private val blended = Color(0x33, 0x44, 0x55)
+    private val contrastFg = Color.WHITE
+
+    @BeforeTest
+    fun setUp() {
+        mockkStatic(UIManager::class)
+        every { UIManager.put(any<String>(), any()) } returns Unit
+
+        mockkObject(ChromeTintBlender)
+        every { ChromeTintBlender.blend(any(), any(), any()) } returns blended
+        every { ChromeTintBlender.contrastForeground(any()) } returns contrastFg
+
+        // AyuIslandsSettings.getInstance() is backed by ApplicationManager.getService.
+        // Mock the Application so the companion resolves without an IDE container.
+        mockState = AyuIslandsState()
+        mockSettings = mockk(relaxed = true)
+        every { mockSettings.state } returns mockState
+
+        mockApplication = mockk(relaxed = true)
+        every { mockApplication.getService(AyuIslandsSettings::class.java) } returns mockSettings
+        mockkStatic(ApplicationManager::class)
+        every { ApplicationManager.getApplication() } returns mockApplication
+    }
+
+    @AfterTest
+    fun tearDown() {
+        unmockkAll()
+    }
+
+    @Test
+    fun `metadata id and displayName`() {
+        val element = ToolWindowStripeElement()
+        assertEquals(AccentElementId.TOOL_WINDOW_STRIPE, element.id)
+        assertEquals("Tool window stripe", element.displayName)
+    }
+
+    @Test
+    fun `apply writes blended color to three stripe background keys`() {
+        mockState.chromeTintIntensity = 30
+        mockState.chromeTintKeepForegroundReadable = false
+
+        ToolWindowStripeElement().apply(testAccent)
+
+        verify(exactly = 1) { UIManager.put("ToolWindow.Stripe.background", blended) }
+        verify(exactly = 1) { UIManager.put("ToolWindow.Stripe.borderColor", blended) }
+        verify(exactly = 1) { UIManager.put("ToolWindow.Button.selectedBackground", blended) }
+    }
+
+    @Test
+    fun `apply passes chromeTintIntensity through to blender for every background key`() {
+        mockState.chromeTintIntensity = 55
+        mockState.chromeTintKeepForegroundReadable = false
+
+        ToolWindowStripeElement().apply(testAccent)
+
+        verify(exactly = 1) { ChromeTintBlender.blend(testAccent, "ToolWindow.Stripe.background", 55) }
+        verify(exactly = 1) { ChromeTintBlender.blend(testAccent, "ToolWindow.Stripe.borderColor", 55) }
+        verify(exactly = 1) { ChromeTintBlender.blend(testAccent, "ToolWindow.Button.selectedBackground", 55) }
+    }
+
+    @Test
+    fun `apply with contrast toggle on writes contrast foreground to selectedForeground`() {
+        mockState.chromeTintIntensity = 40
+        mockState.chromeTintKeepForegroundReadable = true
+
+        ToolWindowStripeElement().apply(testAccent)
+
+        verify(exactly = 1) { ChromeTintBlender.contrastForeground(blended) }
+        verify(exactly = 1) { UIManager.put("ToolWindow.Button.selectedForeground", contrastFg) }
+    }
+
+    @Test
+    fun `apply with contrast toggle off skips selectedForeground entirely`() {
+        mockState.chromeTintIntensity = 40
+        mockState.chromeTintKeepForegroundReadable = false
+
+        ToolWindowStripeElement().apply(testAccent)
+
+        verify(exactly = 0) { ChromeTintBlender.contrastForeground(any()) }
+        verify(exactly = 0) { UIManager.put("ToolWindow.Button.selectedForeground", any()) }
+    }
+
+    @Test
+    fun `revert nulls every key the element can write`() {
+        ToolWindowStripeElement().revert()
+
+        verify(exactly = 1) { UIManager.put("ToolWindow.Stripe.background", null) }
+        verify(exactly = 1) { UIManager.put("ToolWindow.Stripe.borderColor", null) }
+        verify(exactly = 1) { UIManager.put("ToolWindow.Button.selectedBackground", null) }
+        verify(exactly = 1) { UIManager.put("ToolWindow.Button.selectedForeground", null) }
+    }
+
+    @Test
+    fun `apply then revert cleans every key touched by apply`() {
+        mockState.chromeTintIntensity = 40
+        mockState.chromeTintKeepForegroundReadable = true
+
+        val element = ToolWindowStripeElement()
+        element.apply(testAccent)
+        element.revert()
+
+        // revert() hits every key (including the optional foreground one) unconditionally
+        verify(exactly = 1) { UIManager.put("ToolWindow.Stripe.background", null) }
+        verify(exactly = 1) { UIManager.put("ToolWindow.Stripe.borderColor", null) }
+        verify(exactly = 1) { UIManager.put("ToolWindow.Button.selectedBackground", null) }
+        verify(exactly = 1) { UIManager.put("ToolWindow.Button.selectedForeground", null) }
+    }
+}
