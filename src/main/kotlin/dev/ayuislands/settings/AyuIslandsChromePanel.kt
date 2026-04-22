@@ -208,8 +208,14 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
         pendingChromeNavBar = storedChromeNavBar
         storedChromePanelBorder = state.chromePanelBorder
         pendingChromePanelBorder = storedChromePanelBorder
+        // Stored intensity mirrors whatever AyuIslandsState holds (including legacy
+        // out-of-range values 51-100 from sessions predating the cap); the pending
+        // value is clamped down to [MAX_INTENSITY] so the slider can always display
+        // it. A legacy value > MAX_INTENSITY leaves stored != pending on purpose —
+        // isModified() reports true and the user sees a one-time Apply button that
+        // persists the capped value back into state.
         storedChromeTintIntensity = state.chromeTintIntensity
-        pendingChromeTintIntensity = storedChromeTintIntensity
+        pendingChromeTintIntensity = state.chromeTintIntensity.coerceAtMost(MAX_INTENSITY)
     }
 
     /**
@@ -311,8 +317,27 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
     companion object {
         private const val GROUP_TITLE = "Chrome Tinting"
         private const val MIN_INTENSITY = 10
-        private const val MAX_INTENSITY = 100
-        private const val INTENSITY_MAJOR_TICK = 20
-        private const val INTENSITY_MINOR_TICK = 10
+
+        /**
+         * User-facing cap for the chrome tint intensity slider.
+         *
+         * Saturations above ~50 drive the tinted background so close to the raw accent
+         * that even the always-on WCAG foreground pick (see [WcagForeground]) cannot
+         * restore readable contrast on warm/pastel accents — the text ends up washed
+         * out against an almost-solid-accent chrome surface. Capping the slider at 50
+         * keeps the usable range inside the readable band.
+         *
+         * [ChromeTintBlender] still accepts intensities up to 100 internally — that's
+         * a math-safety clamp for the blend formula and intentionally unaffected by
+         * the user-visible cap here.
+         *
+         * Users returning from older sessions with a persisted
+         * [AyuIslandsState.chromeTintIntensity] above this cap see the slider snap to
+         * 50 on panel load (via [loadStored]) and a visible Apply button so the capped
+         * value can be persisted back on their next interaction.
+         */
+        internal const val MAX_INTENSITY = 50
+        private const val INTENSITY_MAJOR_TICK = 10
+        private const val INTENSITY_MINOR_TICK = 5
     }
 }

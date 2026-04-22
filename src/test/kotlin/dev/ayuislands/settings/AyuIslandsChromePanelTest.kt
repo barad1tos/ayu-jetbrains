@@ -139,9 +139,54 @@ class AyuIslandsChromePanelTest {
         )
         val slider = chromePanel.intensitySliderForTest()
         assertEquals(
-            10..100,
+            10..50,
             slider?.let { it.minimum..it.maximum },
-            "Intensity slider range must be 10-100 per CONTEXT D-09",
+            "Intensity slider user-facing range must be 10-50 — saturations above 50 " +
+                "produce near-accent chrome surfaces that fail the readable-contrast bar " +
+                "even with always-on WCAG foreground picks. ChromeTintBlender still accepts " +
+                "0-100 internally as a math-safety clamp; the 50 cap is the user-visible ceiling.",
+        )
+    }
+
+    @Test
+    fun `loadStored clamps legacy out-of-range intensity down to MAX_INTENSITY and dirties the panel`() {
+        // Simulate a user returning from a session predating the cap with intensity > 50.
+        state.chromeTintIntensity = 80
+        val chromePanel = AyuIslandsChromePanel()
+
+        buildPanel(chromePanel)
+
+        assertEquals(
+            50,
+            chromePanel.getPendingChromeTintIntensityForTest(),
+            "Legacy intensity > MAX_INTENSITY must clamp down to the user-facing cap on load",
+        )
+        assertEquals(
+            50,
+            chromePanel.intensitySliderForTest()?.value,
+            "Slider must display the clamped pending value, not the raw out-of-range stored value",
+        )
+        assertTrue(
+            chromePanel.isModified(),
+            "Clamping a legacy value must dirty the panel so the user gets a visible Apply " +
+                "button to persist the capped intensity back into AyuIslandsState",
+        )
+    }
+
+    @Test
+    fun `applying a clamped legacy intensity persists MAX_INTENSITY back into state`() {
+        state.chromeTintIntensity = 90
+        val chromePanel = AyuIslandsChromePanel()
+        buildPanel(chromePanel, AyuVariant.DARK)
+
+        // No user interaction — the clamp alone dirtied the panel. Applying should
+        // write the capped pending value back to state, not the raw 90.
+        chromePanel.apply()
+
+        assertEquals(
+            50,
+            state.chromeTintIntensity,
+            "apply() on a legacy-clamped panel must persist MAX_INTENSITY back to state",
         )
     }
 
@@ -209,7 +254,7 @@ class AyuIslandsChromePanelTest {
         chromePanel.setPendingChromeToolWindowStripeForTest(true)
         chromePanel.setPendingChromeNavBarForTest(true)
         chromePanel.setPendingChromePanelBorderForTest(true)
-        chromePanel.setPendingChromeTintIntensityForTest(75)
+        chromePanel.setPendingChromeTintIntensityForTest(45)
 
         chromePanel.apply()
 
@@ -219,7 +264,7 @@ class AyuIslandsChromePanelTest {
         assertTrue(state.chromeToolWindowStripe, "chromeToolWindowStripe not persisted")
         assertTrue(state.chromeNavBar, "chromeNavBar not persisted")
         assertTrue(state.chromePanelBorder, "chromePanelBorder not persisted")
-        assertEquals(75, state.chromeTintIntensity, "chromeTintIntensity not persisted")
+        assertEquals(45, state.chromeTintIntensity, "chromeTintIntensity not persisted")
 
         // apply() must re-run the EP chain exactly once for the panel's variant so the
         // 5 chrome AccentElement impls repaint immediately (CONTEXT D-07 / must_have 4).
