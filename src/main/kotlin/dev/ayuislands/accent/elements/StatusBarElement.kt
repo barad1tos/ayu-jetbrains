@@ -3,6 +3,7 @@ package dev.ayuislands.accent.elements
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.LiveChromeRefresher
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.Color
@@ -40,22 +41,27 @@ class StatusBarElement : AccentElement {
     override fun apply(color: Color) {
         val state = AyuIslandsSettings.getInstance().state
         val intensity = state.chromeTintIntensity
+        val tintedBackground = ChromeTintBlender.blend(color, "StatusBar.background", intensity)
         for (key in backgroundKeys) {
             val tinted = ChromeTintBlender.blend(color, key, intensity)
             UIManager.put(key, tinted)
         }
         if (state.chromeTintKeepForegroundReadable) {
-            val tintedForContrast = ChromeTintBlender.blend(color, "StatusBar.background", intensity)
-            val contrast = WcagForeground.pickForeground(tintedForContrast, WcagForeground.TextTarget.PRIMARY_TEXT)
+            val contrast = WcagForeground.pickForeground(tintedBackground, WcagForeground.TextTarget.PRIMARY_TEXT)
             for (key in foregroundKeys) {
                 UIManager.put(key, contrast)
             }
         }
+        // Level 2 Gap-4: push the tinted bg to the live IdeStatusBarImpl peer because
+        // UIManager writes don't propagate to already-rendered chrome (CHROME-07).
+        LiveChromeRefresher.refreshStatusBar(tintedBackground)
     }
 
     override fun revert() {
         for (key in backgroundKeys + foregroundKeys) {
             UIManager.put(key, null)
         }
+        // D-14 symmetry: hand the status bar peer back to LAF default.
+        LiveChromeRefresher.clearStatusBar()
     }
 }

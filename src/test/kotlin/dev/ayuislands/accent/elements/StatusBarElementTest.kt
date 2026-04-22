@@ -4,6 +4,7 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.LiveChromeRefresher
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -56,6 +57,10 @@ class StatusBarElementTest {
 
         mockkObject(WcagForeground)
         every { WcagForeground.pickForeground(any(), any()) } returns Color.GREEN
+
+        mockkObject(LiveChromeRefresher)
+        every { LiveChromeRefresher.refreshStatusBar(any()) } returns Unit
+        every { LiveChromeRefresher.clearStatusBar() } returns Unit
     }
 
     @AfterTest
@@ -180,5 +185,24 @@ class StatusBarElementTest {
 
         assertEquals(AccentElementId.STATUS_BAR, element.id)
         assertEquals("Status bar", element.displayName)
+    }
+
+    @Test
+    fun `apply invokes LiveChromeRefresher refreshStatusBar once with tinted background (Gap 4)`() {
+        state.chromeTintIntensity = 40
+        state.chromeTintKeepForegroundReadable = false
+
+        StatusBarElement().apply(accent)
+
+        verify(exactly = 1) { LiveChromeRefresher.refreshStatusBar(blended) }
+        verify(exactly = 0) { LiveChromeRefresher.clearStatusBar() }
+    }
+
+    @Test
+    fun `revert invokes LiveChromeRefresher clearStatusBar once (D-14 symmetry)`() {
+        StatusBarElement().revert()
+
+        verify(exactly = 1) { LiveChromeRefresher.clearStatusBar() }
+        verify(exactly = 0) { LiveChromeRefresher.refreshStatusBar(any()) }
     }
 }
