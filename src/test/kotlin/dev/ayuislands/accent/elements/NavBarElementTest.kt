@@ -4,6 +4,7 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.LiveChromeRefresher
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -57,6 +58,10 @@ class NavBarElementTest {
 
         mockkObject(WcagForeground)
         every { WcagForeground.pickForeground(any(), any()) } returns contrastFg
+
+        mockkObject(LiveChromeRefresher)
+        every { LiveChromeRefresher.refreshByClassName(any(), any()) } returns Unit
+        every { LiveChromeRefresher.clearByClassName(any()) } returns Unit
     }
 
     @AfterTest
@@ -167,5 +172,31 @@ class NavBarElementTest {
 
         assertEquals(AccentElementId.NAV_BAR, element.id)
         assertEquals("Navigation bar", element.displayName)
+    }
+
+    @Test
+    fun `apply invokes LiveChromeRefresher refreshByClassName for navbar peer (Gap 4)`() {
+        state.chromeTintIntensity = 40
+        state.chromeTintKeepForegroundReadable = false
+
+        NavBarElement().apply(accent)
+
+        verify(exactly = 1) {
+            LiveChromeRefresher.refreshByClassName(
+                "com.intellij.platform.navbar.frontend.MyNavBarWrapperPanel",
+                blended,
+            )
+        }
+        verify(exactly = 0) { LiveChromeRefresher.clearByClassName(any()) }
+    }
+
+    @Test
+    fun `revert invokes LiveChromeRefresher clearByClassName for navbar peer (D-14 symmetry)`() {
+        NavBarElement().revert()
+
+        verify(exactly = 1) {
+            LiveChromeRefresher.clearByClassName("com.intellij.platform.navbar.frontend.MyNavBarWrapperPanel")
+        }
+        verify(exactly = 0) { LiveChromeRefresher.refreshByClassName(any(), any()) }
     }
 }

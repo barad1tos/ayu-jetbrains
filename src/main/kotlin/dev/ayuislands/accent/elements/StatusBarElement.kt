@@ -41,12 +41,13 @@ class StatusBarElement : AccentElement {
     override fun apply(color: Color) {
         val state = AyuIslandsSettings.getInstance().state
         val intensity = state.chromeTintIntensity
-        val tintedBackground = ChromeTintBlender.blend(color, "StatusBar.background", intensity)
+        var tintedBackground: Color? = null
         for (key in backgroundKeys) {
             val tinted = ChromeTintBlender.blend(color, key, intensity)
             UIManager.put(key, tinted)
+            if (key == "StatusBar.background") tintedBackground = tinted
         }
-        if (state.chromeTintKeepForegroundReadable) {
+        if (state.chromeTintKeepForegroundReadable && tintedBackground != null) {
             val contrast = WcagForeground.pickForeground(tintedBackground, WcagForeground.TextTarget.PRIMARY_TEXT)
             for (key in foregroundKeys) {
                 UIManager.put(key, contrast)
@@ -54,7 +55,7 @@ class StatusBarElement : AccentElement {
         }
         // Level 2 Gap-4: push the tinted bg to the live IdeStatusBarImpl peer because
         // UIManager writes don't propagate to already-rendered chrome (CHROME-07).
-        LiveChromeRefresher.refreshStatusBar(tintedBackground)
+        tintedBackground?.let { LiveChromeRefresher.refreshStatusBar(it) }
     }
 
     override fun revert() {

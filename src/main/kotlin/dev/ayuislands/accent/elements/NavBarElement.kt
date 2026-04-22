@@ -3,6 +3,7 @@ package dev.ayuislands.accent.elements
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.LiveChromeRefresher
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.Color
@@ -40,23 +41,37 @@ class NavBarElement : AccentElement {
     override fun apply(color: Color) {
         val state = AyuIslandsSettings.getInstance().state
         val intensity = state.chromeTintIntensity
+        var tintedBackground: Color? = null
         for (key in backgroundKeys) {
             val tinted = ChromeTintBlender.blend(color, key, intensity)
             UIManager.put(key, tinted)
+            if (key == "NavBar.background") tintedBackground = tinted
         }
-        if (state.chromeTintKeepForegroundReadable) {
-            val tintedForContrast = ChromeTintBlender.blend(color, "NavBar.background", intensity)
+        if (state.chromeTintKeepForegroundReadable && tintedBackground != null) {
             val contrast =
-                WcagForeground.pickForeground(tintedForContrast, WcagForeground.TextTarget.PRIMARY_TEXT)
+                WcagForeground.pickForeground(tintedBackground, WcagForeground.TextTarget.PRIMARY_TEXT)
             for (key in foregroundKeys) {
                 UIManager.put(key, contrast)
             }
         }
+        // Level 2 Gap-4: push tinted bg to the live MyNavBarWrapperPanel peer.
+        tintedBackground?.let { LiveChromeRefresher.refreshByClassName(NAVBAR_PEER_CLASS, it) }
     }
 
     override fun revert() {
         for (key in backgroundKeys + foregroundKeys) {
             UIManager.put(key, null)
         }
+        // D-14 symmetry: hand the navbar peer back to LAF default.
+        LiveChromeRefresher.clearByClassName(NAVBAR_PEER_CLASS)
+    }
+
+    private companion object {
+        /**
+         * Fully-qualified class name of the New-UI navbar wrapper panel — package-private
+         * so we cannot import the type. Runtime class-name string match is the supported
+         * lookup (see 40-12 §B).
+         */
+        const val NAVBAR_PEER_CLASS = "com.intellij.platform.navbar.frontend.MyNavBarWrapperPanel"
     }
 }
