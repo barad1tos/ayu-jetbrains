@@ -5,6 +5,7 @@ import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeDecorationsProbe
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.every
@@ -55,7 +56,9 @@ class MainToolbarElementTest {
 
         mockkObject(ChromeTintBlender)
         every { ChromeTintBlender.blend(any(), any(), any()) } returns blended
-        every { ChromeTintBlender.contrastForeground(any()) } returns contrastFg
+
+        mockkObject(WcagForeground)
+        every { WcagForeground.pickForeground(any(), any()) } returns contrastFg
 
         mockkObject(ChromeDecorationsProbe)
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns true
@@ -104,35 +107,52 @@ class MainToolbarElementTest {
         // Silent no-op at element level per D-13
         verify(exactly = 0) { UIManager.put(any<String>(), any()) }
         verify(exactly = 0) { ChromeTintBlender.blend(any(), any(), any()) }
-        verify(exactly = 0) { ChromeTintBlender.contrastForeground(any()) }
+        verify(exactly = 0) { WcagForeground.pickForeground(any(), any()) }
     }
 
     @Test
-    fun `apply with contrast on writes contrast foreground to MainToolbar foreground`() {
+    fun `apply with contrast on writes WcagForeground PRIMARY_TEXT to MainToolbar foreground`() {
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns true
         mockState.chromeTintIntensity = 40
         mockState.chromeTintKeepForegroundReadable = true
 
         MainToolbarElement().apply(testAccent)
 
-        verify(exactly = 1) { ChromeTintBlender.contrastForeground(blended) }
+        verify(exactly = 1) {
+            WcagForeground.pickForeground(blended, WcagForeground.TextTarget.PRIMARY_TEXT)
+        }
         verify(exactly = 1) { UIManager.put("MainToolbar.foreground", contrastFg) }
     }
 
     @Test
-    fun `apply with contrast off skips MainToolbar foreground`() {
+    fun `apply with contrast on writes WcagForeground ICON to MainToolbar Icon foreground`() {
+        every { ChromeDecorationsProbe.isCustomHeaderActive() } returns true
+        mockState.chromeTintIntensity = 40
+        mockState.chromeTintKeepForegroundReadable = true
+
+        MainToolbarElement().apply(testAccent)
+
+        verify(exactly = 1) {
+            WcagForeground.pickForeground(blended, WcagForeground.TextTarget.ICON)
+        }
+        verify(exactly = 1) { UIManager.put("MainToolbar.Icon.foreground", contrastFg) }
+    }
+
+    @Test
+    fun `apply with contrast off skips every MainToolbar foreground key`() {
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns true
         mockState.chromeTintIntensity = 40
         mockState.chromeTintKeepForegroundReadable = false
 
         MainToolbarElement().apply(testAccent)
 
-        verify(exactly = 0) { ChromeTintBlender.contrastForeground(any()) }
+        verify(exactly = 0) { WcagForeground.pickForeground(any(), any()) }
         verify(exactly = 0) { UIManager.put("MainToolbar.foreground", any()) }
+        verify(exactly = 0) { UIManager.put("MainToolbar.Icon.foreground", any()) }
     }
 
     @Test
-    fun `revert nulls MainToolbar keys unconditionally even when probe returns false`() {
+    fun `revert nulls every MainToolbar key unconditionally even when probe returns false`() {
         // Simulate probe flipping between apply and revert: probe OFF during revert,
         // but the keys we might have written earlier still get cleaned up.
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns false
@@ -141,6 +161,7 @@ class MainToolbarElementTest {
 
         verify(exactly = 1) { UIManager.put("MainToolbar.background", null) }
         verify(exactly = 1) { UIManager.put("MainToolbar.foreground", null) }
+        verify(exactly = 1) { UIManager.put("MainToolbar.Icon.foreground", null) }
     }
 
     @Test
