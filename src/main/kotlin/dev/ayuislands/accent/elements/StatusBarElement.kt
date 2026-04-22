@@ -3,6 +3,7 @@ package dev.ayuislands.accent.elements
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.Color
 import javax.swing.UIManager
@@ -45,7 +46,7 @@ class StatusBarElement : AccentElement {
         }
         if (state.chromeTintKeepForegroundReadable) {
             val tintedForContrast = ChromeTintBlender.blend(color, "StatusBar.background", intensity)
-            val contrast = ChromeTintBlender.contrastForeground(tintedForContrast)
+            val contrast = WcagForeground.pickForeground(tintedForContrast, WcagForeground.TextTarget.PRIMARY_TEXT)
             for (key in foregroundKeys) {
                 UIManager.put(key, contrast)
             }
