@@ -35,10 +35,10 @@ import javax.swing.UIManager
  *
  * ### Deliberately excluded
  *
- *  - `MainToolbar.Dropdown.transparentHoverBackground` — intentional translucency; tinting would
- *    solidify it and destroy the dropdown hover effect.
- *  - `RecentProject.Color*.MainToolbarGradientStart` / `...GradientEnd` — per-project IntelliJ
- *    gradient palette, owned by the Recent Projects feature.
+ *  - The dropdown translucent-hover key under `MainToolbar.Dropdown.*` — intentional
+ *    translucency; tinting would solidify it and destroy the dropdown hover effect.
+ *  - The per-project gradient palette under the Recent Projects feature's per-colour
+ *    keys — owned by that feature, not chrome tinting.
  */
 class MainToolbarElement : AccentElement {
     override val id = AccentElementId.MAIN_TOOLBAR
