@@ -45,7 +45,8 @@ class ToolWindowStripeElement : AccentElement {
         var tintedStripeBackground: Color? = null
         var tintedSelectedBackground: Color? = null
         for (key in backgroundKeys) {
-            val tinted = ChromeTintBlender.blend(color, key, intensity)
+            val baseColor = UIManager.getColor(key) ?: continue
+            val tinted = ChromeTintBlender.blend(color, baseColor, intensity)
             UIManager.put(key, tinted)
             when (key) {
                 STRIPE_BACKGROUND_KEY -> tintedStripeBackground = tinted

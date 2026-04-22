@@ -40,6 +40,7 @@ class NavBarElementTest {
     private val accent = Color(255, 0, 0)
     private val blended = Color(0x12, 0x34, 0x56)
     private val contrastFg = Color.GREEN
+    private val stockBase = Color(0x2A, 0x2F, 0x3A)
 
     @BeforeTest
     fun setUp() {
@@ -52,9 +53,10 @@ class NavBarElementTest {
 
         mockkStatic(UIManager::class)
         every { UIManager.put(any<String>(), any()) } returns null
+        every { UIManager.getColor(any<String>()) } returns stockBase
 
         mockkObject(ChromeTintBlender)
-        every { ChromeTintBlender.blend(any(), any(), any()) } returns blended
+        every { ChromeTintBlender.blend(any(), any<Color>(), any()) } returns blended
 
         mockkObject(WcagForeground)
         every { WcagForeground.pickForeground(any(), any()) } returns contrastFg
@@ -121,7 +123,7 @@ class NavBarElementTest {
 
         val intensitySlot = slot<Int>()
         every {
-            ChromeTintBlender.blend(any<Color>(), any<String>(), capture(intensitySlot))
+            ChromeTintBlender.blend(any<Color>(), any<Color>(), capture(intensitySlot))
         } returns blended
 
         NavBarElement().apply(accent)
@@ -137,8 +139,8 @@ class NavBarElementTest {
 
         NavBarElement().apply(accent)
 
-        verify(exactly = 1) { ChromeTintBlender.blend(accent, "NavBar.background", 50) }
-        verify(exactly = 1) { ChromeTintBlender.blend(accent, "NavBar.borderColor", 50) }
+        // Called once per background key — 2 keys, both resolve to the same stubbed stockBase.
+        verify(exactly = 2) { ChromeTintBlender.blend(accent, stockBase, 50) }
     }
 
     @Test

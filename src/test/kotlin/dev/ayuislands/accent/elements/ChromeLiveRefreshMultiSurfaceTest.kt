@@ -36,14 +36,16 @@ class ChromeLiveRefreshMultiSurfaceTest {
 
     private val testAccent = Color(0xE6, 0xB4, 0x50)
     private val blended = Color(0x22, 0x33, 0x44)
+    private val stockBase = Color(0x2A, 0x2F, 0x3A)
 
     @BeforeTest
     fun setUp() {
         mockkStatic(UIManager::class)
         every { UIManager.put(any<String>(), any()) } returns Unit
+        every { UIManager.getColor(any<String>()) } returns stockBase
 
         mockkObject(ChromeTintBlender)
-        every { ChromeTintBlender.blend(any(), any(), any()) } returns blended
+        every { ChromeTintBlender.blend(any(), any<Color>(), any()) } returns blended
 
         mockkObject(WcagForeground)
         every { WcagForeground.pickForeground(any(), any()) } returns Color.WHITE

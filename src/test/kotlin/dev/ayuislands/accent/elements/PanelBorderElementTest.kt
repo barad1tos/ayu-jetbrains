@@ -39,6 +39,7 @@ class PanelBorderElementTest {
 
     private val accent = Color(255, 0, 0)
     private val blended = Color(0x12, 0x34, 0x56)
+    private val stockBase = Color(0x2A, 0x2F, 0x3A)
 
     @BeforeTest
     fun setUp() {
@@ -51,9 +52,10 @@ class PanelBorderElementTest {
 
         mockkStatic(UIManager::class)
         every { UIManager.put(any<String>(), any()) } returns null
+        every { UIManager.getColor(any<String>()) } returns stockBase
 
         mockkObject(ChromeTintBlender)
-        every { ChromeTintBlender.blend(any(), any(), any()) } returns blended
+        every { ChromeTintBlender.blend(any(), any<Color>(), any()) } returns blended
 
         mockkObject(LiveChromeRefresher)
         every { LiveChromeRefresher.refreshByClassName(any(), any()) } returns Unit
@@ -89,7 +91,7 @@ class PanelBorderElementTest {
 
         val intensitySlot = slot<Int>()
         every {
-            ChromeTintBlender.blend(any<Color>(), any<String>(), capture(intensitySlot))
+            ChromeTintBlender.blend(any<Color>(), any<Color>(), capture(intensitySlot))
         } returns blended
 
         PanelBorderElement().apply(accent)

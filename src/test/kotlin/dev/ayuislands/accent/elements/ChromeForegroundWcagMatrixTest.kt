@@ -2,13 +2,7 @@ package dev.ayuislands.accent.elements
 
 import dev.ayuislands.accent.ChromeTintBlender
 import dev.ayuislands.accent.WcagForeground
-import io.mockk.every
-import io.mockk.mockkStatic
-import io.mockk.unmockkAll
 import java.awt.Color
-import javax.swing.UIManager
-import kotlin.test.AfterTest
-import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertTrue
 
@@ -44,19 +38,6 @@ import kotlin.test.assertTrue
 class ChromeForegroundWcagMatrixTest {
     private val darkBase = Color(0x1F, 0x24, 0x30)
 
-    @BeforeTest
-    fun setUp() {
-        // Feed ChromeTintBlender a deterministic stock background per base
-        // key so the matrix exercises blend output, not UIManager wiring.
-        mockkStatic(UIManager::class)
-        every { UIManager.getColor(any<String>()) } returns darkBase
-    }
-
-    @AfterTest
-    fun tearDown() {
-        unmockkAll()
-    }
-
     @Test
     fun `W-3 spot check — Ayu dark foreground on white exceeds 14 to 1`() {
         val ratio = WcagForeground.contrastRatio(Color.WHITE, darkBase)
@@ -73,7 +54,7 @@ class ChromeForegroundWcagMatrixTest {
         for (spec in ELEMENT_SPECS) {
             for (accent in PALETTE) {
                 for (intensity in INTENSITIES) {
-                    val tinted = ChromeTintBlender.blend(accent.color, spec.sampleKey, intensity)
+                    val tinted = ChromeTintBlender.blend(accent.color, darkBase, intensity)
                     val foreground = WcagForeground.pickForeground(tinted, spec.target)
                     val ratio = WcagForeground.contrastRatio(foreground, tinted)
                     if (ratio < spec.target.minRatio) {
@@ -97,7 +78,6 @@ class ChromeForegroundWcagMatrixTest {
 
     private data class ElementSpec(
         val name: String,
-        val sampleKey: String,
         val target: WcagForeground.TextTarget,
     )
 
@@ -112,14 +92,10 @@ class ChromeForegroundWcagMatrixTest {
 
         private val ELEMENT_SPECS =
             listOf(
-                ElementSpec("StatusBar", "StatusBar.background", WcagForeground.TextTarget.PRIMARY_TEXT),
-                ElementSpec("NavBar", "NavBar.background", WcagForeground.TextTarget.PRIMARY_TEXT),
-                ElementSpec(
-                    "ToolWindowStripe",
-                    "ToolWindow.Button.selectedBackground",
-                    WcagForeground.TextTarget.ICON,
-                ),
-                ElementSpec("MainToolbar", "MainToolbar.background", WcagForeground.TextTarget.PRIMARY_TEXT),
+                ElementSpec("StatusBar", WcagForeground.TextTarget.PRIMARY_TEXT),
+                ElementSpec("NavBar", WcagForeground.TextTarget.PRIMARY_TEXT),
+                ElementSpec("ToolWindowStripe", WcagForeground.TextTarget.ICON),
+                ElementSpec("MainToolbar", WcagForeground.TextTarget.PRIMARY_TEXT),
             )
 
         // Representative 5-colour set covering the perceptual span of the

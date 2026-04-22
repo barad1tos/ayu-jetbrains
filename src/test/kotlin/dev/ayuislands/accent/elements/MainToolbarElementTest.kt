@@ -54,13 +54,16 @@ class MainToolbarElementTest {
     private val blended = Color(0x22, 0x33, 0x44)
     private val contrastFg = Color.WHITE
 
+    private val stockBase = Color(0x2A, 0x2F, 0x3A)
+
     @BeforeTest
     fun setUp() {
         mockkStatic(UIManager::class)
         every { UIManager.put(any<String>(), any()) } returns Unit
+        every { UIManager.getColor(any<String>()) } returns stockBase
 
         mockkObject(ChromeTintBlender)
-        every { ChromeTintBlender.blend(any(), any(), any()) } returns blended
+        every { ChromeTintBlender.blend(any(), any<Color>(), any()) } returns blended
 
         mockkObject(WcagForeground)
         every { WcagForeground.pickForeground(any(), any()) } returns contrastFg
@@ -183,7 +186,7 @@ class MainToolbarElementTest {
 
         MainToolbarElement().apply(testAccent)
 
-        verify(exactly = 1) { ChromeTintBlender.blend(testAccent, "MainToolbar.background", 55) }
+        verify(exactly = 1) { ChromeTintBlender.blend(testAccent, stockBase, 55) }
     }
 
     @Test

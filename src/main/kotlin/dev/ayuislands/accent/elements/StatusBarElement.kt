@@ -43,7 +43,8 @@ class StatusBarElement : AccentElement {
         val intensity = state.chromeTintIntensity
         var tintedBackground: Color? = null
         for (key in backgroundKeys) {
-            val tinted = ChromeTintBlender.blend(color, key, intensity)
+            val baseColor = UIManager.getColor(key) ?: continue
+            val tinted = ChromeTintBlender.blend(color, baseColor, intensity)
             UIManager.put(key, tinted)
             if (key == "StatusBar.background") tintedBackground = tinted
         }

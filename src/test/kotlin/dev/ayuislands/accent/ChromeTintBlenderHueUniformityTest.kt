@@ -1,14 +1,7 @@
 package dev.ayuislands.accent
 
-import com.intellij.ui.ColorUtil
-import io.mockk.every
-import io.mockk.mockkStatic
-import io.mockk.unmockkAll
 import java.awt.Color
-import javax.swing.UIManager
 import kotlin.math.abs
-import kotlin.test.AfterTest
-import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertTrue
 
@@ -23,6 +16,10 @@ import kotlin.test.assertTrue
  * regression — at intensity=20 each surface rendered as a visibly different
  * color because per-channel RGB lerp mixed each base toward the accent without
  * homogenising hue. This suite RED-locks the corrected algorithm.
+ *
+ * After the 40-chrome refactor the blender takes `baseColor: Color` directly
+ * (no UIManager reads), so the test feeds stock values as literal [Color]s
+ * instead of mocking `UIManager.getColor`.
  */
 class ChromeTintBlenderHueUniformityTest {
     // Stock base table drawn from VERIFICATION Gap 1 — the five real chrome surfaces
@@ -44,28 +41,6 @@ class ChromeTintBlenderHueUniformityTest {
             Color(0xFF, 0x6B, 0x9D),
             Color(0x7F, 0x52, 0xFF),
         )
-
-    @BeforeTest
-    fun setUp() {
-        mockkStatic(UIManager::class)
-        mockkStatic(ColorUtil::class)
-
-        // Fallback chain stubs: every known chrome key resolves to its stock base.
-        // Unknown keys fall back to the first entry (StatusBar.background) via the
-        // `answers` lambda — matches the shape used by ChromeTintBlenderTest.
-        chromeBases.forEach { (key, base) ->
-            every { UIManager.getColor(key) } returns base
-        }
-        every { UIManager.getColor("Panel.background") } returns chromeBases.values.first()
-        every { UIManager.getColor(any<String>()) } answers {
-            chromeBases[firstArg()] ?: chromeBases.values.first()
-        }
-    }
-
-    @AfterTest
-    fun tearDown() {
-        unmockkAll()
-    }
 
     @Test
     fun `blend produces the same hue across all 5 chrome bases at intensity 20`() {
@@ -91,8 +66,10 @@ class ChromeTintBlenderHueUniformityTest {
     @Test
     fun `blend preserves luminance hierarchy - tinted StatusBar stays darker than tinted MainToolbar`() {
         accents.forEach { accent ->
-            val tintedStatus = ChromeTintBlender.blend(accent, "StatusBar.background", 50)
-            val tintedToolbar = ChromeTintBlender.blend(accent, "MainToolbar.background", 50)
+            val tintedStatus =
+                ChromeTintBlender.blend(accent, chromeBases.getValue("StatusBar.background"), 50)
+            val tintedToolbar =
+                ChromeTintBlender.blend(accent, chromeBases.getValue("MainToolbar.background"), 50)
             val statusLuma = luma(tintedStatus)
             val toolbarLuma = luma(tintedToolbar)
             assertTrue(
@@ -107,8 +84,8 @@ class ChromeTintBlenderHueUniformityTest {
     fun `at intensity 100 blend hue equals accent hue within epsilon`() {
         accents.forEach { accent ->
             val accentHue = hueOf(accent)
-            chromeBases.keys.forEach { key ->
-                val tinted = ChromeTintBlender.blend(accent, key, 100)
+            chromeBases.forEach { (key, base) ->
+                val tinted = ChromeTintBlender.blend(accent, base, 100)
                 val delta = hueDelta(hueOf(tinted), accentHue)
                 assertTrue(
                     delta <= HUE_EPSILON,
@@ -123,7 +100,7 @@ class ChromeTintBlenderHueUniformityTest {
     fun `at intensity 0 blend returns base color unchanged per channel`() {
         accents.forEach { accent ->
             chromeBases.forEach { (key, base) ->
-                val result = ChromeTintBlender.blend(accent, key, 0)
+                val result = ChromeTintBlender.blend(accent, base, 0)
                 assertTrue(
                     result.red == base.red,
                     "red mismatch for $key: expected ${base.red}, got ${result.red}",
@@ -149,8 +126,8 @@ class ChromeTintBlenderHueUniformityTest {
         // (S≈accent.S * damp), upper bound allows HSB rounding tolerance.
         val saturatedAccent = Color(0x5C, 0xCF, 0xE6) // Cyan — clearly chromatic.
         val accentSat = saturationOf(saturatedAccent)
-        chromeBases.keys.forEach { key ->
-            val tinted = ChromeTintBlender.blend(saturatedAccent, key, 50)
+        chromeBases.forEach { (key, base) ->
+            val tinted = ChromeTintBlender.blend(saturatedAccent, base, 50)
             val tintedSat = saturationOf(tinted)
             val lower = accentSat * 0.4f
             val upper = accentSat * 1.05f
@@ -167,7 +144,7 @@ class ChromeTintBlenderHueUniformityTest {
         intensity: Int,
     ) {
         val tintedByKey =
-            chromeBases.keys.associateWith { key -> ChromeTintBlender.blend(accent, key, intensity) }
+            chromeBases.mapValues { (_, base) -> ChromeTintBlender.blend(accent, base, intensity) }
         val hues = tintedByKey.mapValues { (_, tinted) -> hueOf(tinted) }
         val reference = hues.values.first()
         hues.forEach { (key, h) ->
