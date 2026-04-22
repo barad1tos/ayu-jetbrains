@@ -2,6 +2,7 @@ package dev.ayuislands.accent.elements
 
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.ChromeBaseColors
 import dev.ayuislands.accent.ChromeTintBlender
 import dev.ayuislands.accent.LiveChromeRefresher
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -32,7 +33,7 @@ class PanelBorderElement : AccentElement {
         val intensity = AyuIslandsSettings.getInstance().state.chromeTintIntensity
         var tintedHeaderBorder: Color? = null
         for (key in uiKeys) {
-            val baseColor = UIManager.getColor(key) ?: continue
+            val baseColor = ChromeBaseColors.get(key) ?: continue
             val tinted = ChromeTintBlender.blend(color, baseColor, intensity)
             UIManager.put(key, tinted)
             if (key == HEADER_BORDER_KEY) tintedHeaderBorder = tinted

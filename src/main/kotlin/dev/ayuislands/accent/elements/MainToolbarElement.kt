@@ -2,6 +2,7 @@ package dev.ayuislands.accent.elements
 
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.ChromeBaseColors
 import dev.ayuislands.accent.ChromeDecorationsProbe
 import dev.ayuislands.accent.ChromeTintBlender
 import dev.ayuislands.accent.LiveChromeRefresher
@@ -62,7 +63,7 @@ class MainToolbarElement : AccentElement {
         val intensity = state.chromeTintIntensity
         var tintedBackground: Color? = null
         for (key in backgroundKeys) {
-            val baseColor = UIManager.getColor(key) ?: continue
+            val baseColor = ChromeBaseColors.get(key) ?: continue
             val tinted = ChromeTintBlender.blend(color, baseColor, intensity)
             UIManager.put(key, tinted)
             if (key == BACKGROUND_KEY) tintedBackground = tinted

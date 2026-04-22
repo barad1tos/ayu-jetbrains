@@ -2,6 +2,7 @@ package dev.ayuislands.accent.elements
 
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
+import dev.ayuislands.accent.ChromeBaseColors
 import dev.ayuislands.accent.ChromeDecorationsProbe
 import dev.ayuislands.accent.ChromeTintBlender
 import dev.ayuislands.accent.LiveChromeRefresher
@@ -42,7 +43,9 @@ class ChromeLiveRefreshMultiSurfaceTest {
     fun setUp() {
         mockkStatic(UIManager::class)
         every { UIManager.put(any<String>(), any()) } returns Unit
-        every { UIManager.getColor(any<String>()) } returns stockBase
+
+        mockkObject(ChromeBaseColors)
+        every { ChromeBaseColors.get(any()) } returns stockBase
 
         mockkObject(ChromeTintBlender)
         every { ChromeTintBlender.blend(any(), any<Color>(), any()) } returns blended

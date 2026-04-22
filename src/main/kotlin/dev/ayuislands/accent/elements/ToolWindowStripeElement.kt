@@ -2,6 +2,7 @@ package dev.ayuislands.accent.elements
 
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.ChromeBaseColors
 import dev.ayuislands.accent.ChromeTintBlender
 import dev.ayuislands.accent.LiveChromeRefresher
 import dev.ayuislands.accent.WcagForeground
@@ -45,7 +46,7 @@ class ToolWindowStripeElement : AccentElement {
         var tintedStripeBackground: Color? = null
         var tintedSelectedBackground: Color? = null
         for (key in backgroundKeys) {
-            val baseColor = UIManager.getColor(key) ?: continue
+            val baseColor = ChromeBaseColors.get(key) ?: continue
             val tinted = ChromeTintBlender.blend(color, baseColor, intensity)
             UIManager.put(key, tinted)
             when (key) {

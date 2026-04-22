@@ -3,6 +3,7 @@ package dev.ayuislands.accent.elements
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.ChromeBaseColors
 import dev.ayuislands.accent.ChromeTintBlender
 import dev.ayuislands.accent.LiveChromeRefresher
 import dev.ayuislands.accent.WcagForeground
@@ -52,7 +53,9 @@ class StatusBarElementTest {
 
         mockkStatic(UIManager::class)
         every { UIManager.put(any<String>(), any()) } returns null
-        every { UIManager.getColor(any<String>()) } returns stockBase
+
+        mockkObject(ChromeBaseColors)
+        every { ChromeBaseColors.get(any()) } returns stockBase
 
         mockkObject(ChromeTintBlender)
         every { ChromeTintBlender.blend(any(), any<Color>(), any()) } returns blended
