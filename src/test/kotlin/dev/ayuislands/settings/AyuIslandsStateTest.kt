@@ -1,6 +1,7 @@
 package dev.ayuislands.settings
 
 import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.AccentGroup
 import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
@@ -13,10 +14,15 @@ class AyuIslandsStateTest {
     private fun freshState(): AyuIslandsState = AyuIslandsState()
 
     @Test
-    fun `isToggleEnabled returns true by default for all elements`() {
+    fun `isToggleEnabled defaults true for VISUAL INTERACTIVE and false for CHROME`() {
+        // VISUAL/INTERACTIVE group elements default ON — part of the free accent surface.
+        // CHROME group (phase 40) defaults OFF — premium, opt-in chrome tinting.
         val state = freshState()
-        for (id in AccentElementId.entries) {
+        for (id in AccentElementId.entries.filter { it.group != AccentGroup.CHROME }) {
             assertTrue(state.isToggleEnabled(id), "${id.name} should be enabled by default")
+        }
+        for (id in AccentElementId.entries.filter { it.group == AccentGroup.CHROME }) {
+            assertFalse(state.isToggleEnabled(id), "${id.name} should be disabled by default (premium opt-in)")
         }
     }
 
@@ -29,6 +35,113 @@ class AyuIslandsStateTest {
             state.setToggle(id, true)
             assertTrue(state.isToggleEnabled(id), "${id.name} should be enabled after set(true)")
         }
+    }
+
+    // ---------- Chrome tinting (phase 40) — per-id branch coverage + defaults ----------
+
+    @Test
+    fun `setToggle routes STATUS_BAR to chromeStatusBar field`() {
+        val state = freshState()
+        assertFalse(state.chromeStatusBar, "precondition: chromeStatusBar defaults false")
+
+        state.setToggle(AccentElementId.STATUS_BAR, true)
+        assertTrue(state.chromeStatusBar, "setToggle(STATUS_BAR,true) must flip chromeStatusBar")
+        assertTrue(state.isToggleEnabled(AccentElementId.STATUS_BAR))
+
+        state.setToggle(AccentElementId.STATUS_BAR, false)
+        assertFalse(state.chromeStatusBar)
+        assertFalse(state.isToggleEnabled(AccentElementId.STATUS_BAR))
+    }
+
+    @Test
+    fun `setToggle routes MAIN_TOOLBAR to chromeMainToolbar field`() {
+        val state = freshState()
+        state.setToggle(AccentElementId.MAIN_TOOLBAR, true)
+        assertTrue(state.chromeMainToolbar)
+        assertTrue(state.isToggleEnabled(AccentElementId.MAIN_TOOLBAR))
+
+        state.setToggle(AccentElementId.MAIN_TOOLBAR, false)
+        assertFalse(state.chromeMainToolbar)
+    }
+
+    @Test
+    fun `setToggle routes TOOL_WINDOW_STRIPE to chromeToolWindowStripe field`() {
+        val state = freshState()
+        state.setToggle(AccentElementId.TOOL_WINDOW_STRIPE, true)
+        assertTrue(state.chromeToolWindowStripe)
+        assertTrue(state.isToggleEnabled(AccentElementId.TOOL_WINDOW_STRIPE))
+
+        state.setToggle(AccentElementId.TOOL_WINDOW_STRIPE, false)
+        assertFalse(state.chromeToolWindowStripe)
+    }
+
+    @Test
+    fun `setToggle routes NAV_BAR to chromeNavBar field`() {
+        val state = freshState()
+        state.setToggle(AccentElementId.NAV_BAR, true)
+        assertTrue(state.chromeNavBar)
+        assertTrue(state.isToggleEnabled(AccentElementId.NAV_BAR))
+
+        state.setToggle(AccentElementId.NAV_BAR, false)
+        assertFalse(state.chromeNavBar)
+    }
+
+    @Test
+    fun `setToggle routes PANEL_BORDER to chromePanelBorder field`() {
+        val state = freshState()
+        state.setToggle(AccentElementId.PANEL_BORDER, true)
+        assertTrue(state.chromePanelBorder)
+        assertTrue(state.isToggleEnabled(AccentElementId.PANEL_BORDER))
+
+        state.setToggle(AccentElementId.PANEL_BORDER, false)
+        assertFalse(state.chromePanelBorder)
+    }
+
+    @Test
+    fun `chrome tinting auxiliary defaults`() {
+        val state = freshState()
+        assertEquals(
+            AyuIslandsState.DEFAULT_CHROME_TINT_INTENSITY,
+            state.chromeTintIntensity,
+            "chromeTintIntensity must match DEFAULT_CHROME_TINT_INTENSITY",
+        )
+        assertTrue(
+            state.chromeTintKeepForegroundReadable,
+            "chromeTintKeepForegroundReadable defaults ON — readable tints out of the box",
+        )
+        assertFalse(
+            state.chromeTintingGroupExpanded,
+            "chromeTintingGroupExpanded defaults collapsed (same shape as accentElementsGroupExpanded)",
+        )
+    }
+
+    @Test
+    fun `chromeTintIntensity round-trips`() {
+        val state = freshState()
+        state.chromeTintIntensity = 0
+        assertEquals(0, state.chromeTintIntensity)
+        state.chromeTintIntensity = 55
+        assertEquals(55, state.chromeTintIntensity)
+        state.chromeTintIntensity = 100
+        assertEquals(100, state.chromeTintIntensity)
+    }
+
+    @Test
+    fun `chromeTintKeepForegroundReadable round-trips`() {
+        val state = freshState()
+        state.chromeTintKeepForegroundReadable = false
+        assertFalse(state.chromeTintKeepForegroundReadable)
+        state.chromeTintKeepForegroundReadable = true
+        assertTrue(state.chromeTintKeepForegroundReadable)
+    }
+
+    @Test
+    fun `chromeTintingGroupExpanded round-trips`() {
+        val state = freshState()
+        state.chromeTintingGroupExpanded = true
+        assertTrue(state.chromeTintingGroupExpanded)
+        state.chromeTintingGroupExpanded = false
+        assertFalse(state.chromeTintingGroupExpanded)
     }
 
     @Test
