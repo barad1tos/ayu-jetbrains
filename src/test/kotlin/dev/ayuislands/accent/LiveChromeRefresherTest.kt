@@ -34,26 +34,50 @@ class LiveChromeRefresherTest {
 
     // --- refreshByClassName / clearByClassName ---
 
-    /** Subclass so its FQN differs from plain JPanel — used for class-name string match. */
-    private open class StripeLike : JPanel()
+    /**
+     * JPanel subclass that captures every [setBackground] call so we can assert
+     * direct invocations regardless of Swing's parent-chain fallback behaviour in
+     * [java.awt.Component.getBackground] — a non-opaque JPanel with no parent may
+     * still report a non-null background resolved through the LAF / peer chain.
+     */
+    private open class TrackingPanel : JPanel() {
+        var lastSetBackground: Color? = null
+        var setBackgroundCallCount: Int = 0
+        var wasExplicitlyClearedToNull: Boolean = false
 
-    private open class ToolbarLike : JPanel()
+        override fun setBackground(bg: Color?) {
+            super.setBackground(bg)
+            setBackgroundCallCount++
+            lastSetBackground = bg
+            if (bg == null) wasExplicitlyClearedToNull = true
+        }
+    }
+
+    private open class StripeLike : TrackingPanel()
+
+    private open class ToolbarLike : TrackingPanel()
 
     @Test
     fun `refreshByClassName sets background on matching components only`() {
         val matching = StripeLike()
-        val nonMatching = JPanel()
+        val nonMatching = TrackingPanel()
         val parent =
             JPanel().apply {
                 add(matching)
                 add(nonMatching)
             }
+        val matchingBaseline = matching.setBackgroundCallCount
+        val nonMatchingBaseline = nonMatching.setBackgroundCallCount
 
         LiveChromeRefresher.refreshOnTree(parent, StripeLike::class.java.name, targetColor)
 
-        assertEquals(targetColor, matching.background)
-        // JPanel default LAF background is non-null; we assert we didn't overwrite it with our target.
-        assertEquals(false, nonMatching.background == targetColor)
+        assertEquals(targetColor, matching.lastSetBackground)
+        assertEquals(matchingBaseline + 1, matching.setBackgroundCallCount)
+        assertEquals(
+            nonMatchingBaseline,
+            nonMatching.setBackgroundCallCount,
+            "non-matching peer must not be touched during tree walk",
+        )
     }
 
     @Test
@@ -64,17 +88,18 @@ class LiveChromeRefresherTest {
 
         LiveChromeRefresher.refreshOnTree(root, StripeLike::class.java.name, targetColor)
 
-        assertEquals(targetColor, deep.background)
+        assertEquals(targetColor, deep.lastSetBackground)
     }
 
     @Test
     fun `refreshByClassName ignores different class-name matches`() {
         val unrelated = ToolbarLike()
         val root = JPanel().apply { add(unrelated) }
+        val baseline = unrelated.setBackgroundCallCount
 
         LiveChromeRefresher.refreshOnTree(root, StripeLike::class.java.name, targetColor)
 
-        assertEquals(false, unrelated.background == targetColor)
+        assertEquals(baseline, unrelated.setBackgroundCallCount, "class-name mismatch must skip peer")
     }
 
     @Test
@@ -84,23 +109,29 @@ class LiveChromeRefresherTest {
 
         LiveChromeRefresher.clearOnTree(parent, StripeLike::class.java.name)
 
-        assertNull(matching.background)
+        assertEquals(true, matching.wasExplicitlyClearedToNull)
+        assertNull(matching.lastSetBackground)
     }
 
     @Test
     fun `clearByClassName leaves non-matching components untouched`() {
-        val untouched = JPanel().apply { background = Color.BLUE }
+        val untouched = TrackingPanel().apply { background = Color.BLUE }
         val matching = StripeLike().apply { background = Color.RED }
         val root =
             JPanel().apply {
                 add(untouched)
                 add(matching)
             }
+        val untouchedSetCountBeforeWalk = untouched.setBackgroundCallCount
 
         LiveChromeRefresher.clearOnTree(root, StripeLike::class.java.name)
 
-        assertEquals(Color.BLUE, untouched.background)
-        assertNull(matching.background)
+        assertEquals(
+            untouchedSetCountBeforeWalk,
+            untouched.setBackgroundCallCount,
+            "non-matching peer must see zero setBackground calls during walk",
+        )
+        assertEquals(true, matching.wasExplicitlyClearedToNull)
     }
 
     @Test
@@ -111,7 +142,7 @@ class LiveChromeRefresherTest {
 
         LiveChromeRefresher.clearOnTree(root, StripeLike::class.java.name)
 
-        assertNull(deep.background)
+        assertEquals(true, deep.wasExplicitlyClearedToNull)
     }
 
     // --- refreshStatusBar / clearStatusBar ---
