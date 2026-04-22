@@ -1,7 +1,9 @@
 package dev.ayuislands.settings
 
+import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.ui.ExperimentalUI
 import com.intellij.ui.dsl.builder.panel
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
@@ -68,13 +70,28 @@ class AyuIslandsChromePanelTest {
         mockkObject(AccentApplicator)
         every { AccentApplicator.applyForFocusedProject(any()) } returns "#E6B450"
 
-        // Some Kotlin UI DSL builder paths touch ApplicationManager.getApplication() via
-        // observable properties. Stub it so Swing panel construction in `panel { … }`
-        // does not NPE in unit tests.
+        // The Kotlin UI DSL `collapsibleGroup { … }` builder resolves the CollapsiblePanel
+        // toggle action through `ActionManager.getInstance()` which goes via
+        // `ApplicationManager.getApplication().getService(ActionManager::class.java)` and
+        // down-casts the result. Without a typed ActionManager stub the cast throws
+        // `ClassCastException` inside `CollapsibleRowImpl.<init>` and the whole panel
+        // cannot build. We hand the relaxed Application mock a relaxed ActionManager so
+        // the cast succeeds and `getAction("CollapsiblePanel-toggle")` returns null,
+        // which the DSL treats as "no shortcut".
         mockkStatic(ApplicationManager::class)
         val appMock = mockk<Application>(relaxed = true)
+        val actionManagerMock = mockk<ActionManager>(relaxed = true)
         every { ApplicationManager.getApplication() } returns appMock
         every { appMock.invokeLater(any()) } answers { firstArg<Runnable>().run() }
+        every { appMock.getService(ActionManager::class.java) } returns actionManagerMock
+        every { actionManagerMock.getAction(any()) } returns null
+
+        // `Cell.comment(...)` and the unlicensed "requires Pro" row both call into
+        // `ExperimentalUI.getInstance()` for New-UI-aware styling. Same cast trap as
+        // ActionManager above — hand over a relaxed ExperimentalUI so the downcast
+        // inside `ExperimentalUI.getInstance()` succeeds.
+        val experimentalUiMock = mockk<ExperimentalUI>(relaxed = true)
+        every { appMock.getService(ExperimentalUI::class.java) } returns experimentalUiMock
     }
 
     @AfterTest
@@ -338,5 +355,4 @@ class AyuIslandsChromePanelTest {
             "Collapsing the group must persist state.chromeTintingGroupExpanded = false",
         )
     }
-
 }
