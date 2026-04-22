@@ -3,6 +3,7 @@ package dev.ayuislands.accent.elements
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.Color
 import javax.swing.UIManager
@@ -34,6 +35,7 @@ class ToolWindowStripeElement : AccentElement {
     private val foregroundKeys =
         listOf(
             "ToolWindow.Button.selectedForeground",
+            "ToolWindow.Stripe.foreground",
         )
 
     override fun apply(color: Color) {
@@ -46,7 +48,8 @@ class ToolWindowStripeElement : AccentElement {
         if (state.chromeTintKeepForegroundReadable) {
             val tintedForContrast =
                 ChromeTintBlender.blend(color, SELECTED_BACKGROUND_KEY, intensity)
-            val foreground = ChromeTintBlender.contrastForeground(tintedForContrast)
+            val foreground =
+                WcagForeground.pickForeground(tintedForContrast, WcagForeground.TextTarget.ICON)
             for (key in foregroundKeys) {
                 UIManager.put(key, foreground)
             }
