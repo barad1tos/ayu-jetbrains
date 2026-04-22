@@ -2,6 +2,7 @@ package dev.ayuislands.accent
 
 import com.intellij.openapi.util.registry.Registry
 import io.mockk.every
+import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import javax.swing.UIManager
@@ -24,7 +25,7 @@ class ChromeDecorationsProbeTest {
     @BeforeTest
     fun setUp() {
         mockkStatic(UIManager::class)
-        mockkStatic(Registry::class)
+        mockkObject(Registry.Companion)
         every { UIManager.getBoolean(any<String>()) } returns false
         every { Registry.`is`(any<String>(), any<Boolean>()) } returns false
     }
