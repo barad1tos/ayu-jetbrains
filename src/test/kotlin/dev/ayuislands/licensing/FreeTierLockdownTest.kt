@@ -143,13 +143,11 @@ class FreeTierLockdownTest {
         // Mutate every chrome-tinting auxiliary field away from its free-tier default,
         // then prove the reverter restores each one.
         state.chromeTintIntensity = 75
-        state.chromeTintKeepForegroundReadable = false
         state.chromeTintingGroupExpanded = true
 
         LicenseChecker.revertToFreeDefaults(AyuVariant.LIGHT)
 
         assertEquals(AyuIslandsState.DEFAULT_CHROME_TINT_INTENSITY, state.chromeTintIntensity)
-        assertTrue(state.chromeTintKeepForegroundReadable)
         assertFalse(state.chromeTintingGroupExpanded)
     }
 

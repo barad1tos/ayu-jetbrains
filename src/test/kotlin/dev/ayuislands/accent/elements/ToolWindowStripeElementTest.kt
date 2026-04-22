@@ -88,7 +88,6 @@ class ToolWindowStripeElementTest {
     @Test
     fun `apply writes blended color to three stripe background keys`() {
         mockState.chromeTintIntensity = 30
-        mockState.chromeTintKeepForegroundReadable = false
 
         ToolWindowStripeElement().apply(testAccent)
 
@@ -100,7 +99,6 @@ class ToolWindowStripeElementTest {
     @Test
     fun `apply passes chromeTintIntensity through to blender for every background key`() {
         mockState.chromeTintIntensity = 55
-        mockState.chromeTintKeepForegroundReadable = false
 
         ToolWindowStripeElement().apply(testAccent)
 
@@ -109,9 +107,8 @@ class ToolWindowStripeElementTest {
     }
 
     @Test
-    fun `apply with contrast on writes WcagForeground ICON pick to both foreground keys`() {
+    fun `apply always writes WcagForeground ICON pick to both foreground keys`() {
         mockState.chromeTintIntensity = 40
-        mockState.chromeTintKeepForegroundReadable = true
 
         ToolWindowStripeElement().apply(testAccent)
 
@@ -125,7 +122,6 @@ class ToolWindowStripeElementTest {
     @Test
     fun `apply uses ICON target not PRIMARY_TEXT for stripe buttons`() {
         mockState.chromeTintIntensity = 40
-        mockState.chromeTintKeepForegroundReadable = true
 
         ToolWindowStripeElement().apply(testAccent)
 
@@ -135,18 +131,6 @@ class ToolWindowStripeElementTest {
         verify(exactly = 0) {
             WcagForeground.pickForeground(any(), WcagForeground.TextTarget.SECONDARY_TEXT)
         }
-    }
-
-    @Test
-    fun `apply with contrast toggle off skips every fg key`() {
-        mockState.chromeTintIntensity = 40
-        mockState.chromeTintKeepForegroundReadable = false
-
-        ToolWindowStripeElement().apply(testAccent)
-
-        verify(exactly = 0) { WcagForeground.pickForeground(any(), any()) }
-        verify(exactly = 0) { UIManager.put("ToolWindow.Button.selectedForeground", any()) }
-        verify(exactly = 0) { UIManager.put("ToolWindow.Stripe.foreground", any()) }
     }
 
     @Test
@@ -163,7 +147,6 @@ class ToolWindowStripeElementTest {
     @Test
     fun `apply then revert cleans every key touched by apply`() {
         mockState.chromeTintIntensity = 40
-        mockState.chromeTintKeepForegroundReadable = true
 
         val element = ToolWindowStripeElement()
         element.apply(testAccent)
@@ -180,7 +163,6 @@ class ToolWindowStripeElementTest {
     @Test
     fun `apply invokes LiveChromeRefresher refreshByClassName for stripe peer (Gap 4)`() {
         mockState.chromeTintIntensity = 30
-        mockState.chromeTintKeepForegroundReadable = false
 
         ToolWindowStripeElement().apply(testAccent)
 

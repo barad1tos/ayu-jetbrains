@@ -269,9 +269,9 @@ object LicenseChecker {
             }
 
             // Reset chrome-tinting auxiliary state to defaults (intensity baseline,
-            // readability guard ON, group collapsed).
+            // group collapsed). The WCAG foreground contrast is now always-on so no
+            // toggle needs resetting.
             state.chromeTintIntensity = AyuIslandsState.DEFAULT_CHROME_TINT_INTENSITY
-            state.chromeTintKeepForegroundReadable = true
             state.chromeTintingGroupExpanded = false
 
             // Reset workspace settings to free defaults

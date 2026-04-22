@@ -13,14 +13,16 @@ import javax.swing.UIManager
 /**
  * Tints the status bar background, border, and widget hover per CHROME-01 / CHROME-07.
  *
- * Intensity and the foreground-readability flag are read directly from
- * [AyuIslandsSettings.state] per CONTEXT D-03 — the `apply(color)` signature does
- * not carry either, so every Phase 40 chrome element pulls the same live settings.
+ * Intensity is read directly from [AyuIslandsSettings.state] per CONTEXT D-03 — the
+ * `apply(color)` signature does not carry it, so every Phase 40 chrome element pulls
+ * the same live settings. WCAG-aware foreground contrast is always applied — the
+ * earlier opt-out toggle was retired because saturated tints without readable
+ * foregrounds failed the user-space quality bar.
  *
  * `revert()` nulls every touched UIManager key so the LAF re-resolves the stock
  * theme value (D-14 / CHROME-08). Both the background keys and the foreground keys
  * are nulled unconditionally so a previously-applied contrast color cannot leak
- * after the toggle is turned off.
+ * after the user disables chrome tinting.
  */
 class StatusBarElement : AccentElement {
     override val id = AccentElementId.STATUS_BAR
@@ -40,8 +42,7 @@ class StatusBarElement : AccentElement {
         )
 
     override fun apply(color: Color) {
-        val state = AyuIslandsSettings.getInstance().state
-        val intensity = state.chromeTintIntensity
+        val intensity = AyuIslandsSettings.getInstance().state.chromeTintIntensity
         var tintedBackground: Color? = null
         for (key in backgroundKeys) {
             val baseColor = ChromeBaseColors.get(key) ?: continue
@@ -49,7 +50,7 @@ class StatusBarElement : AccentElement {
             UIManager.put(key, tinted)
             if (key == "StatusBar.background") tintedBackground = tinted
         }
-        if (state.chromeTintKeepForegroundReadable && tintedBackground != null) {
+        if (tintedBackground != null) {
             val contrast = WcagForeground.pickForeground(tintedBackground, WcagForeground.TextTarget.PRIMARY_TEXT)
             for (key in foregroundKeys) {
                 UIManager.put(key, contrast)

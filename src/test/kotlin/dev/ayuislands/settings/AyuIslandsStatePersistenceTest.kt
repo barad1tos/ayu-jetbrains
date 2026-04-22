@@ -255,16 +255,6 @@ class AyuIslandsStatePersistenceTest {
     }
 
     @Test
-    fun `chromeTintKeepForegroundReadable survives save reload cycle when disabled`() {
-        // Default is ON; flip to OFF and confirm the non-default value survives.
-        val reloaded =
-            roundTrip { state ->
-                state.chromeTintKeepForegroundReadable = false
-            }
-        assertFalse(reloaded.state.chromeTintKeepForegroundReadable)
-    }
-
-    @Test
     fun `chromeTintingGroupExpanded survives save reload cycle when expanded`() {
         val reloaded =
             roundTrip { state ->

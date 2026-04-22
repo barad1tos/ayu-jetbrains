@@ -14,11 +14,9 @@ import javax.swing.UIManager
  * Tints the Navigation Bar per CHROME-04.
  *
  * Writes WCAG-picked foregrounds to `NavBar.foreground` +
- * `NavBar.selectedItemForeground` when
- * [AyuIslandsState.chromeTintKeepForegroundReadable] is true — closes
- * VERIFICATION Gap 2 (navbar breadcrumb text was unreadable at saturated
- * accents + intensity >= 40%). Intensity is read directly from
- * [AyuIslandsSettings.state] per CONTEXT D-03.
+ * `NavBar.selectedItemForeground` — closes VERIFICATION Gap 2 (navbar
+ * breadcrumb text was unreadable at saturated accents + intensity >= 40%).
+ * Intensity is read directly from [AyuIslandsSettings.state] per CONTEXT D-03.
  *
  * `revert()` nulls every touched key unconditionally so the LAF re-resolves
  * the stock theme value — CHROME-08 symmetry across bg + fg.
@@ -40,8 +38,7 @@ class NavBarElement : AccentElement {
         )
 
     override fun apply(color: Color) {
-        val state = AyuIslandsSettings.getInstance().state
-        val intensity = state.chromeTintIntensity
+        val intensity = AyuIslandsSettings.getInstance().state.chromeTintIntensity
         var tintedBackground: Color? = null
         for (key in backgroundKeys) {
             val baseColor = ChromeBaseColors.get(key) ?: continue
@@ -49,7 +46,7 @@ class NavBarElement : AccentElement {
             UIManager.put(key, tinted)
             if (key == "NavBar.background") tintedBackground = tinted
         }
-        if (state.chromeTintKeepForegroundReadable && tintedBackground != null) {
+        if (tintedBackground != null) {
             val contrast =
                 WcagForeground.pickForeground(tintedBackground, WcagForeground.TextTarget.PRIMARY_TEXT)
             for (key in foregroundKeys) {

@@ -118,7 +118,7 @@ class AyuIslandsChromePanelTest {
     // ── Test 1: user-space structure ───────────────────────────────────────────
 
     @Test
-    fun `buildPanel produces licensed content with 5 toggles, intensity slider, contrast checkbox`() {
+    fun `buildPanel produces licensed content with 5 toggles and intensity slider`() {
         every { LicenseChecker.isLicensedOrGrace() } returns true
         val chromePanel = AyuIslandsChromePanel()
 
@@ -143,9 +143,26 @@ class AyuIslandsChromePanelTest {
             slider?.let { it.minimum..it.maximum },
             "Intensity slider range must be 10-100 per CONTEXT D-09",
         )
-        assertNotNull(
-            chromePanel.keepForegroundReadableCheckboxForTest(),
-            "Chrome Tinting group must render the 'Keep foreground readable' checkbox",
+    }
+
+    @Test
+    fun `buildPanel source no longer references the retired keep-foreground-readable checkbox`() {
+        // Regression guard: the "Keep foreground readable" row was retired — WCAG
+        // foreground contrast is now always-on so the toggle and its backing
+        // state field should not appear anywhere in the panel source.
+        val source =
+            java.io
+                .File("src/main/kotlin/dev/ayuislands/settings/AyuIslandsChromePanel.kt")
+                .takeIf { it.exists() }
+                ?.readText()
+        assertNotNull(source, "Could not locate AyuIslandsChromePanel.kt for static regression guard")
+        assertFalse(
+            source.contains("Keep foreground readable"),
+            "Panel must no longer render the retired 'Keep foreground readable' checkbox",
+        )
+        assertFalse(
+            source.contains("chromeTintKeepForegroundReadable"),
+            "Panel must no longer reference chromeTintKeepForegroundReadable state",
         )
     }
 
@@ -179,24 +196,10 @@ class AyuIslandsChromePanelTest {
         assertTrue(chromePanel.isModified(), "Changing pendingChromeTintIntensity must dirty the panel")
     }
 
-    @Test
-    fun `isModified returns true after keep-foreground-readable flips`() {
-        val chromePanel = AyuIslandsChromePanel()
-        buildPanel(chromePanel)
-
-        // Default for chromeTintKeepForegroundReadable is true; flip to false.
-        chromePanel.setPendingChromeTintKeepForegroundReadableForTest(false)
-
-        assertTrue(
-            chromePanel.isModified(),
-            "Flipping pendingChromeTintKeepForegroundReadable must dirty the panel",
-        )
-    }
-
     // ── Test 6-7: apply() persistence ──────────────────────────────────────────
 
     @Test
-    fun `apply persists all 8 chrome fields and triggers applyForFocusedProject once`() {
+    fun `apply persists all 7 chrome fields and triggers applyForFocusedProject once`() {
         val chromePanel = AyuIslandsChromePanel()
         buildPanel(chromePanel, AyuVariant.DARK)
 
@@ -207,7 +210,6 @@ class AyuIslandsChromePanelTest {
         chromePanel.setPendingChromeNavBarForTest(true)
         chromePanel.setPendingChromePanelBorderForTest(true)
         chromePanel.setPendingChromeTintIntensityForTest(75)
-        chromePanel.setPendingChromeTintKeepForegroundReadableForTest(false)
 
         chromePanel.apply()
 
@@ -218,10 +220,6 @@ class AyuIslandsChromePanelTest {
         assertTrue(state.chromeNavBar, "chromeNavBar not persisted")
         assertTrue(state.chromePanelBorder, "chromePanelBorder not persisted")
         assertEquals(75, state.chromeTintIntensity, "chromeTintIntensity not persisted")
-        assertFalse(
-            state.chromeTintKeepForegroundReadable,
-            "chromeTintKeepForegroundReadable not persisted",
-        )
 
         // apply() must re-run the EP chain exactly once for the panel's variant so the
         // 5 chrome AccentElement impls repaint immediately (CONTEXT D-07 / must_have 4).
@@ -245,14 +243,12 @@ class AyuIslandsChromePanelTest {
     fun `reset reverts pending fields to stored without touching AyuIslandsState`() {
         state.chromeStatusBar = false
         state.chromeTintIntensity = AyuIslandsState.DEFAULT_CHROME_TINT_INTENSITY
-        state.chromeTintKeepForegroundReadable = true
 
         val chromePanel = AyuIslandsChromePanel()
         buildPanel(chromePanel)
 
         chromePanel.setPendingChromeStatusBarForTest(true)
         chromePanel.setPendingChromeTintIntensityForTest(90)
-        chromePanel.setPendingChromeTintKeepForegroundReadableForTest(false)
 
         chromePanel.reset()
 
@@ -261,7 +257,6 @@ class AyuIslandsChromePanelTest {
             AyuIslandsState.DEFAULT_CHROME_TINT_INTENSITY,
             chromePanel.getPendingChromeTintIntensityForTest(),
         )
-        assertTrue(chromePanel.getPendingChromeTintKeepForegroundReadableForTest())
         // Reset must not call the applicator.
         verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any()) }
     }
@@ -287,10 +282,6 @@ class AyuIslandsChromePanelTest {
         assertNull(
             chromePanel.intensitySliderForTest(),
             "Unlicensed build must not wire the intensity slider",
-        )
-        assertNull(
-            chromePanel.keepForegroundReadableCheckboxForTest(),
-            "Unlicensed build must not wire the 'Keep foreground readable' checkbox",
         )
     }
 

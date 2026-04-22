@@ -28,10 +28,11 @@ import kotlin.test.assertTrue
  * User-space + algorithmic coverage for [StatusBarElement] per CHROME-01 / CHROME-07.
  *
  * Verifies that `apply` routes every background key through [ChromeTintBlender.blend],
- * that the foreground-contrast branch is gated on
- * [AyuIslandsState.chromeTintKeepForegroundReadable], that intensity is pulled from
- * state per D-03 (not from the `apply` signature), and that `revert` nulls every
- * touched UIManager key so the LAF re-resolves the stock theme value.
+ * that the foreground-contrast branch always fires (the legacy
+ * `chromeTintKeepForegroundReadable` toggle was retired — WCAG contrast is
+ * always-on), that intensity is pulled from state per D-03 (not from the
+ * `apply` signature), and that `revert` nulls every touched UIManager key so
+ * the LAF re-resolves the stock theme value.
  */
 class StatusBarElementTest {
     private val mockApplication = mockk<Application>(relaxed = true)
@@ -76,7 +77,6 @@ class StatusBarElementTest {
     @Test
     fun `apply writes blended color to every background key`() {
         state.chromeTintIntensity = 40
-        state.chromeTintKeepForegroundReadable = false
 
         StatusBarElement().apply(accent)
 
@@ -97,9 +97,8 @@ class StatusBarElementTest {
     }
 
     @Test
-    fun `apply writes WcagForeground pick to both foreground keys when keepForegroundReadable is true`() {
+    fun `apply always writes WcagForeground pick to both foreground keys`() {
         state.chromeTintIntensity = 40
-        state.chromeTintKeepForegroundReadable = true
 
         StatusBarElement().apply(accent)
 
@@ -111,7 +110,6 @@ class StatusBarElementTest {
     @Test
     fun `apply uses PRIMARY_TEXT target not ICON for status bar widget text`() {
         state.chromeTintIntensity = 40
-        state.chromeTintKeepForegroundReadable = true
 
         StatusBarElement().apply(accent)
 
@@ -129,21 +127,8 @@ class StatusBarElementTest {
     }
 
     @Test
-    fun `apply skips foreground writes when keepForegroundReadable is false`() {
-        state.chromeTintIntensity = 40
-        state.chromeTintKeepForegroundReadable = false
-
-        StatusBarElement().apply(accent)
-
-        verify(exactly = 0) { WcagForeground.pickForeground(any(), any()) }
-        verify(exactly = 0) { UIManager.put("StatusBar.Widget.foreground", any()) }
-        verify(exactly = 0) { UIManager.put("StatusBar.Widget.hoverForeground", any()) }
-    }
-
-    @Test
     fun `apply passes intensity from state to blender per D-03`() {
         state.chromeTintIntensity = 77
-        state.chromeTintKeepForegroundReadable = false
 
         val intensitySlot = slot<Int>()
         every {
@@ -159,7 +144,6 @@ class StatusBarElementTest {
     @Test
     fun `revert symmetry — every key apply writes is nulled on revert`() {
         state.chromeTintIntensity = 50
-        state.chromeTintKeepForegroundReadable = true
 
         val appliedKeys = mutableListOf<String>()
         every {
@@ -195,7 +179,6 @@ class StatusBarElementTest {
     @Test
     fun `apply invokes LiveChromeRefresher refreshStatusBar once with tinted background (Gap 4)`() {
         state.chromeTintIntensity = 40
-        state.chromeTintKeepForegroundReadable = false
 
         StatusBarElement().apply(accent)
 

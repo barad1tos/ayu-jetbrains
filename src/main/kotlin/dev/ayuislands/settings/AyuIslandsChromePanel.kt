@@ -50,8 +50,6 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
     private var storedChromePanelBorder: Boolean = false
     private var pendingChromeTintIntensity: Int = AyuIslandsState.DEFAULT_CHROME_TINT_INTENSITY
     private var storedChromeTintIntensity: Int = AyuIslandsState.DEFAULT_CHROME_TINT_INTENSITY
-    private var pendingChromeTintKeepForegroundReadable: Boolean = true
-    private var storedChromeTintKeepForegroundReadable: Boolean = true
 
     // ── Swing references (kept for reset-time refresh + test seams) ───────────
 
@@ -64,7 +62,6 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
     private var panelBorderCheckbox: JBCheckBox? = null
     private var intensitySlider: JSlider? = null
     private var intensityValueLabel: JLabel? = null
-    private var keepForegroundReadableCheckbox: JBCheckBox? = null
     private var mainToolbarComment: String? = null
     private var expandedListener: ((Boolean) -> Unit)? = null
     private var collapsibleExpanded: Boolean = false
@@ -149,14 +146,6 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
                     intensitySlider = slider
                     intensityValueLabel = valueLabel
                 }
-                row {
-                    val cb = checkBox("Keep foreground readable")
-                    cb.component.isSelected = pendingChromeTintKeepForegroundReadable
-                    cb.component.addActionListener {
-                        pendingChromeTintKeepForegroundReadable = cb.component.isSelected
-                    }
-                    keepForegroundReadableCheckbox = cb.component
-                }
             }
 
         collapsibleExpanded = state.chromeTintingGroupExpanded
@@ -175,8 +164,7 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
             pendingChromeToolWindowStripe != storedChromeToolWindowStripe ||
             pendingChromeNavBar != storedChromeNavBar ||
             pendingChromePanelBorder != storedChromePanelBorder ||
-            pendingChromeTintIntensity != storedChromeTintIntensity ||
-            pendingChromeTintKeepForegroundReadable != storedChromeTintKeepForegroundReadable
+            pendingChromeTintIntensity != storedChromeTintIntensity
 
     override fun apply() {
         if (!isModified()) return
@@ -187,7 +175,6 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
         state.chromeNavBar = pendingChromeNavBar
         state.chromePanelBorder = pendingChromePanelBorder
         state.chromeTintIntensity = pendingChromeTintIntensity
-        state.chromeTintKeepForegroundReadable = pendingChromeTintKeepForegroundReadable
         loadStored(state)
 
         // Re-run the EP chain so the 5 chrome AccentElement impls repaint now —
@@ -208,7 +195,6 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
         panelBorderCheckbox?.isSelected = pendingChromePanelBorder
         intensitySlider?.value = pendingChromeTintIntensity
         intensityValueLabel?.text = "$pendingChromeTintIntensity"
-        keepForegroundReadableCheckbox?.isSelected = pendingChromeTintKeepForegroundReadable
     }
 
     private fun loadStored(state: AyuIslandsState) {
@@ -224,8 +210,6 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
         pendingChromePanelBorder = storedChromePanelBorder
         storedChromeTintIntensity = state.chromeTintIntensity
         pendingChromeTintIntensity = storedChromeTintIntensity
-        storedChromeTintKeepForegroundReadable = state.chromeTintKeepForegroundReadable
-        pendingChromeTintKeepForegroundReadable = storedChromeTintKeepForegroundReadable
     }
 
     /**
@@ -275,9 +259,6 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
     internal fun intensitySliderForTest(): JSlider? = intensitySlider
 
     @TestOnly
-    internal fun keepForegroundReadableCheckboxForTest(): JBCheckBox? = keepForegroundReadableCheckbox
-
-    @TestOnly
     internal fun mainToolbarRowEnabledForTest(): Boolean = mainToolbarCheckbox?.isEnabled ?: false
 
     @TestOnly
@@ -322,18 +303,10 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
     }
 
     @TestOnly
-    internal fun setPendingChromeTintKeepForegroundReadableForTest(value: Boolean) {
-        pendingChromeTintKeepForegroundReadable = value
-    }
-
-    @TestOnly
     internal fun getPendingChromeStatusBarForTest(): Boolean = pendingChromeStatusBar
 
     @TestOnly
     internal fun getPendingChromeTintIntensityForTest(): Int = pendingChromeTintIntensity
-
-    @TestOnly
-    internal fun getPendingChromeTintKeepForegroundReadableForTest(): Boolean = pendingChromeTintKeepForegroundReadable
 
     companion object {
         private const val GROUP_TITLE = "Chrome Tinting"

@@ -59,8 +59,7 @@ class MainToolbarElement : AccentElement {
 
     override fun apply(color: Color) {
         if (!ChromeDecorationsProbe.isCustomHeaderActive()) return
-        val state = AyuIslandsSettings.getInstance().state
-        val intensity = state.chromeTintIntensity
+        val intensity = AyuIslandsSettings.getInstance().state.chromeTintIntensity
         var tintedBackground: Color? = null
         for (key in backgroundKeys) {
             val baseColor = ChromeBaseColors.get(key) ?: continue
@@ -68,7 +67,7 @@ class MainToolbarElement : AccentElement {
             UIManager.put(key, tinted)
             if (key == BACKGROUND_KEY) tintedBackground = tinted
         }
-        if (state.chromeTintKeepForegroundReadable && tintedBackground != null) {
+        if (tintedBackground != null) {
             val foreground =
                 WcagForeground.pickForeground(tintedBackground, WcagForeground.TextTarget.PRIMARY_TEXT)
             for (key in foregroundKeys) {

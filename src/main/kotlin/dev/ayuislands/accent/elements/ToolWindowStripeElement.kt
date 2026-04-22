@@ -41,8 +41,7 @@ class ToolWindowStripeElement : AccentElement {
         )
 
     override fun apply(color: Color) {
-        val state = AyuIslandsSettings.getInstance().state
-        val intensity = state.chromeTintIntensity
+        val intensity = AyuIslandsSettings.getInstance().state.chromeTintIntensity
         var tintedStripeBackground: Color? = null
         var tintedSelectedBackground: Color? = null
         for (key in backgroundKeys) {
@@ -54,7 +53,7 @@ class ToolWindowStripeElement : AccentElement {
                 SELECTED_BACKGROUND_KEY -> tintedSelectedBackground = tinted
             }
         }
-        if (state.chromeTintKeepForegroundReadable && tintedSelectedBackground != null) {
+        if (tintedSelectedBackground != null) {
             val foreground =
                 WcagForeground.pickForeground(tintedSelectedBackground, WcagForeground.TextTarget.ICON)
             for (key in foregroundKeys) {

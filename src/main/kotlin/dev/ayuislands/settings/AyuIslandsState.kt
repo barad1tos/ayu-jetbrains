@@ -232,11 +232,6 @@ class AyuIslandsState : BaseState() {
     // tint that keeps the IDE chrome readable while still being visible as an accent.
     var chromeTintIntensity by property(DEFAULT_CHROME_TINT_INTENSITY)
 
-    // When true, CHROME tinting mixes the accent toward the surface's original
-    // foreground color so label/icon contrast stays above the readability floor.
-    // Defaults to ON — users must explicitly disable this to get saturated tints.
-    var chromeTintKeepForegroundReadable by property(true)
-
     // Chrome-tinting collapsible group expanded state (same shape as accentElementsGroupExpanded).
     var chromeTintingGroupExpanded by property(false)
 

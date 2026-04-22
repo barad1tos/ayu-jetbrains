@@ -105,10 +105,6 @@ class AyuIslandsStateTest {
             state.chromeTintIntensity,
             "chromeTintIntensity must match DEFAULT_CHROME_TINT_INTENSITY",
         )
-        assertTrue(
-            state.chromeTintKeepForegroundReadable,
-            "chromeTintKeepForegroundReadable defaults ON — readable tints out of the box",
-        )
         assertFalse(
             state.chromeTintingGroupExpanded,
             "chromeTintingGroupExpanded defaults collapsed (same shape as accentElementsGroupExpanded)",
@@ -124,15 +120,6 @@ class AyuIslandsStateTest {
         assertEquals(55, state.chromeTintIntensity)
         state.chromeTintIntensity = 100
         assertEquals(100, state.chromeTintIntensity)
-    }
-
-    @Test
-    fun `chromeTintKeepForegroundReadable round-trips`() {
-        val state = freshState()
-        state.chromeTintKeepForegroundReadable = false
-        assertFalse(state.chromeTintKeepForegroundReadable)
-        state.chromeTintKeepForegroundReadable = true
-        assertTrue(state.chromeTintKeepForegroundReadable)
     }
 
     @Test

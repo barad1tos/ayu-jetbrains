@@ -104,7 +104,6 @@ class MainToolbarElementTest {
     fun `apply with probe active writes blended color to MainToolbar background`() {
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns true
         mockState.chromeTintIntensity = 30
-        mockState.chromeTintKeepForegroundReadable = false
 
         MainToolbarElement().apply(testAccent)
 
@@ -115,7 +114,6 @@ class MainToolbarElementTest {
     fun `apply short-circuits when probe reports native chrome — no UIManager writes`() {
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns false
         mockState.chromeTintIntensity = 40
-        mockState.chromeTintKeepForegroundReadable = true
 
         MainToolbarElement().apply(testAccent)
 
@@ -126,10 +124,9 @@ class MainToolbarElementTest {
     }
 
     @Test
-    fun `apply with contrast on writes WcagForeground PRIMARY_TEXT to MainToolbar foreground`() {
+    fun `apply always writes WcagForeground PRIMARY_TEXT to MainToolbar foreground`() {
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns true
         mockState.chromeTintIntensity = 40
-        mockState.chromeTintKeepForegroundReadable = true
 
         MainToolbarElement().apply(testAccent)
 
@@ -137,18 +134,6 @@ class MainToolbarElementTest {
             WcagForeground.pickForeground(blended, WcagForeground.TextTarget.PRIMARY_TEXT)
         }
         verify(exactly = 1) { UIManager.put("MainToolbar.foreground", contrastFg) }
-    }
-
-    @Test
-    fun `apply with contrast off skips every MainToolbar foreground key`() {
-        every { ChromeDecorationsProbe.isCustomHeaderActive() } returns true
-        mockState.chromeTintIntensity = 40
-        mockState.chromeTintKeepForegroundReadable = false
-
-        MainToolbarElement().apply(testAccent)
-
-        verify(exactly = 0) { WcagForeground.pickForeground(any(), any()) }
-        verify(exactly = 0) { UIManager.put("MainToolbar.foreground", any()) }
     }
 
     @Test
@@ -172,7 +157,6 @@ class MainToolbarElementTest {
         // silent activation. Covers BOTH apply and revert paths.
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns true
         mockState.chromeTintIntensity = 80
-        mockState.chromeTintKeepForegroundReadable = true
 
         val element = MainToolbarElement()
         element.apply(testAccent)
@@ -185,7 +169,6 @@ class MainToolbarElementTest {
     fun `apply passes chromeTintIntensity through to blender`() {
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns true
         mockState.chromeTintIntensity = 55
-        mockState.chromeTintKeepForegroundReadable = false
 
         MainToolbarElement().apply(testAccent)
 
@@ -196,7 +179,6 @@ class MainToolbarElementTest {
     fun `apply invokes LiveChromeRefresher refreshByClassName for MainToolbar peer when probe active (Gap 4)`() {
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns true
         mockState.chromeTintIntensity = 30
-        mockState.chromeTintKeepForegroundReadable = false
 
         MainToolbarElement().apply(testAccent)
 
@@ -213,7 +195,6 @@ class MainToolbarElementTest {
     fun `apply skips LiveChromeRefresher when probe reports native chrome (D-13 gate)`() {
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns false
         mockState.chromeTintIntensity = 30
-        mockState.chromeTintKeepForegroundReadable = false
 
         MainToolbarElement().apply(testAccent)
 
@@ -235,7 +216,6 @@ class MainToolbarElementTest {
     fun `apply never touches Dropdown translucent key nor RecentProject gradient keys`() {
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns true
         mockState.chromeTintIntensity = 80
-        mockState.chromeTintKeepForegroundReadable = true
 
         // Capture every UIManager.put invocation and assert none of them hit the forbidden namespace.
         val writtenKeys = mutableListOf<String>()

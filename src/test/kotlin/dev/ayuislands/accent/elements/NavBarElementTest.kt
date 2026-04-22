@@ -77,7 +77,6 @@ class NavBarElementTest {
     @Test
     fun `apply writes blended color to NavBar background and border`() {
         state.chromeTintIntensity = 30
-        state.chromeTintKeepForegroundReadable = false
 
         NavBarElement().apply(accent)
 
@@ -86,27 +85,14 @@ class NavBarElementTest {
     }
 
     @Test
-    fun `apply with contrast on writes WcagForeground pick to both foreground keys`() {
+    fun `apply always writes WcagForeground pick to both foreground keys`() {
         state.chromeTintIntensity = 40
-        state.chromeTintKeepForegroundReadable = true
 
         NavBarElement().apply(accent)
 
         verify { WcagForeground.pickForeground(blended, WcagForeground.TextTarget.PRIMARY_TEXT) }
         verify { UIManager.put("NavBar.foreground", contrastFg) }
         verify { UIManager.put("NavBar.selectedItemForeground", contrastFg) }
-    }
-
-    @Test
-    fun `apply with contrast off skips every foreground write and pickForeground call`() {
-        state.chromeTintIntensity = 40
-        state.chromeTintKeepForegroundReadable = false
-
-        NavBarElement().apply(accent)
-
-        verify(exactly = 0) { WcagForeground.pickForeground(any(), any()) }
-        verify(exactly = 0) { UIManager.put("NavBar.foreground", any()) }
-        verify(exactly = 0) { UIManager.put("NavBar.selectedItemForeground", any()) }
     }
 
     @Test
@@ -122,7 +108,6 @@ class NavBarElementTest {
     @Test
     fun `apply passes intensity from state to blender per D-03`() {
         state.chromeTintIntensity = 62
-        state.chromeTintKeepForegroundReadable = false
 
         val intensitySlot = slot<Int>()
         every {
@@ -138,7 +123,6 @@ class NavBarElementTest {
     @Test
     fun `apply invokes blender twice per call — once per background key`() {
         state.chromeTintIntensity = 50
-        state.chromeTintKeepForegroundReadable = false
 
         NavBarElement().apply(accent)
 
@@ -149,7 +133,6 @@ class NavBarElementTest {
     @Test
     fun `revert symmetry — every key apply can write is nulled on revert`() {
         state.chromeTintIntensity = 40
-        state.chromeTintKeepForegroundReadable = true
 
         val appliedKeys = mutableListOf<String>()
         every {
@@ -182,7 +165,6 @@ class NavBarElementTest {
     @Test
     fun `apply invokes LiveChromeRefresher refreshByClassName for navbar peer (Gap 4)`() {
         state.chromeTintIntensity = 40
-        state.chromeTintKeepForegroundReadable = false
 
         NavBarElement().apply(accent)
 
