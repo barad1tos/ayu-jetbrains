@@ -1,6 +1,5 @@
 package dev.ayuislands.accent
 
-import com.intellij.ui.ColorUtil
 import java.awt.Color
 import javax.swing.UIManager
 
@@ -8,17 +7,19 @@ import javax.swing.UIManager
  * Pure color-math foundation for Phase 40 chrome tinting.
  *
  * Every chrome accent element (`StatusBar`, `MainToolbar`, `ToolWindowStripe`,
- * `NavBar`, `PanelBorder`) consumes these two helpers so the blend math lives
- * in exactly one place. Lifted from
- * [dev.ayuislands.accent.elements.SearchResultsElement.blendWithBackground] and
- * [dev.ayuislands.accent.AccentApplicator]'s contrast block (lines 55-56, 389)
+ * `NavBar`, `PanelBorder`) consumes [blend] so the blend math lives in exactly
+ * one place. Lifted from
+ * [dev.ayuislands.accent.elements.SearchResultsElement.blendWithBackground]
  * per phase decisions D-04, D-05, D-06.
+ *
+ * Foreground picking lives in [WcagForeground] — the legacy two-way
+ * `contrastForeground(tinted)` helper was retired on plan 40-10 after all five
+ * chrome elements migrated to [WcagForeground.pickForeground].
  */
 object ChromeTintBlender {
     private const val MIN_INTENSITY = 0
     private const val MAX_INTENSITY = 100
     private const val INTENSITY_TO_RATIO = 100f
-    private const val DARK_FOREGROUND_HEX = 0x1F2430
     private const val PANEL_BACKGROUND_KEY = "Panel.background"
 
     /**
@@ -34,8 +35,6 @@ object ChromeTintBlender {
      * saturation past the perceptual ceiling.
      */
     private const val SATURATION_DAMP = 1.0f
-
-    private val DARK_FOREGROUND = Color(DARK_FOREGROUND_HEX)
 
     /**
      * Luma-preserving hue replacement between the stock theme color behind
@@ -104,12 +103,4 @@ object ChromeTintBlender {
         // getHSBColor returns an opaque Color; no 4-arg ctor needed (D-05).
         return Color.getHSBColor(outputHue, outputSaturation.coerceIn(0f, 1f), outputBrightness)
     }
-
-    /**
-     * Contrast-aware foreground for text painted on top of a [tinted] chrome
-     * background. Returns [Color.WHITE] when the background reads as dark per
-     * [ColorUtil.isDark]; otherwise returns the Ayu dark-foreground constant
-     * `0x1F2430` (mirrors `AccentApplicator.DARK_FOREGROUND`).
-     */
-    fun contrastForeground(tinted: Color): Color = if (ColorUtil.isDark(tinted)) Color.WHITE else DARK_FOREGROUND
 }

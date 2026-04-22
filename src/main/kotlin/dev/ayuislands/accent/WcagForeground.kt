@@ -11,14 +11,14 @@ import java.awt.Color
  *   L = 0.2126*R_lin + 0.7152*G_lin + 0.0722*B_lin
  *   channel_lin = if (c <= 0.03928) c / 12.92 else ((c + 0.055) / 1.055)^2.4
  *
- * Closes VERIFICATION Gap 2 — the static `ColorUtil.isDark` two-way pick in
- * [ChromeTintBlender.contrastForeground] was insufficient for saturated
- * mid-luminance tinted backgrounds where both white and the Ayu dark
- * foreground could undershoot WCAG AA. The picker sweeps a deterministic
- * palette (white → Ayu dark foreground → black) and returns the first
- * candidate meeting the [TextTarget]'s minimum ratio; if none pass it falls
- * through to the candidate that measured the highest ratio (graceful
- * degradation — the picker NEVER throws).
+ * Closes VERIFICATION Gap 2 — the legacy static `ColorUtil.isDark` two-way
+ * pick (the retired `ChromeTintBlender.contrastForeground`) was insufficient
+ * for saturated mid-luminance tinted backgrounds where both white and the
+ * Ayu dark foreground could undershoot WCAG AA. The picker sweeps a
+ * deterministic palette (white → Ayu dark foreground → black) and returns
+ * the first candidate meeting the [TextTarget]'s minimum ratio; if none
+ * pass it falls through to the candidate that measured the highest ratio
+ * (graceful degradation — the picker NEVER throws).
  */
 object WcagForeground {
     /**

@@ -1,6 +1,5 @@
 package dev.ayuislands.accent
 
-import com.intellij.ui.ColorUtil
 import io.mockk.every
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
@@ -20,20 +19,12 @@ class ChromeTintBlenderTest {
     @BeforeTest
     fun setUp() {
         mockkStatic(UIManager::class)
-        mockkStatic(ColorUtil::class)
 
         // Default stubs: Panel.background available, arbitrary base keys resolve to darkBase.
         every { UIManager.getColor("Panel.background") } returns darkBase
         every { UIManager.getColor(any<String>()) } answers {
             val key = firstArg<String>()
             if (key == "Panel.background") darkBase else darkBase
-        }
-
-        // ColorUtil.isDark default: delegate to a luma check so tests stay deterministic.
-        every { ColorUtil.isDark(any<Color>()) } answers {
-            val c = firstArg<Color>()
-            val luma = (0.299 * c.red + 0.587 * c.green + 0.114 * c.blue) / 255.0
-            luma < 0.5
         }
     }
 
@@ -147,20 +138,6 @@ class ChromeTintBlenderTest {
         assertEquals(Color.RED.green, result.green)
         assertEquals(Color.RED.blue, result.blue)
         assertEquals(255, result.alpha)
-    }
-
-    @Test
-    fun `contrastForeground returns white for dark tinted background`() {
-        val dark = Color(0x1F, 0x24, 0x30)
-        every { ColorUtil.isDark(dark) } returns true
-        assertEquals(Color.WHITE, ChromeTintBlender.contrastForeground(dark))
-    }
-
-    @Test
-    fun `contrastForeground returns DARK_FOREGROUND for light tinted background`() {
-        val light = Color(0xE6, 0xE6, 0xE6)
-        every { ColorUtil.isDark(light) } returns false
-        assertEquals(Color(0x1F, 0x24, 0x30), ChromeTintBlender.contrastForeground(light))
     }
 
     @Test

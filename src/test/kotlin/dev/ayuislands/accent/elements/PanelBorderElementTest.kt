@@ -53,7 +53,6 @@ class PanelBorderElementTest {
 
         mockkObject(ChromeTintBlender)
         every { ChromeTintBlender.blend(any(), any(), any()) } returns blended
-        every { ChromeTintBlender.contrastForeground(any()) } returns Color.WHITE
     }
 
     @AfterTest
