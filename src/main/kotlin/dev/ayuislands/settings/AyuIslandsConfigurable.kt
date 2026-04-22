@@ -43,6 +43,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
 
     private val appearancePanel = AyuIslandsAppearancePanel()
     private val accentPanel = AyuIslandsAccentPanel()
+    private val chromePanel = AyuIslandsChromePanel()
     private val elementsPanel = AyuIslandsElementsPanel()
     private val workspacePanel = WorkspacePanel()
     private val pluginsPanel = PluginsPanel()
@@ -53,6 +54,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         listOf(
             appearancePanel,
             accentPanel,
+            chromePanel,
             elementsPanel,
             fontPresetPanel,
             effectsPanel,
@@ -81,13 +83,20 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         // Wire accent color changes to the element preview
         accentPanel.onAccentChanged = { hex -> elementsPanel.updatePreviewAccent(hex) }
 
-        // Visual order: Accent Color → System → Overrides → Rotation → Elements.
+        // Visual order: Accent Color → System → Chrome Tinting → Overrides → Rotation → Elements.
         // AccentPanel renders Accent Color → (inject) → Overrides → Rotation; the
-        // injection point hosts AppearancePanel's "System" collapsibleGroup so both
-        // macOS integrations (appearance + accent color) sit together between
-        // Accent Color and the Pro override sections.
+        // injection point hosts AppearancePanel's "System" collapsibleGroup and the
+        // Phase 40 Chrome Tinting collapsible so macOS integrations sit together with
+        // chrome surface controls between Accent Color and the Pro override sections.
+        //
+        // Chrome Tinting renders AFTER System and BEFORE Overrides so the top-to-bottom
+        // reading order is: System integrations → chrome surface toggles → scoped
+        // accent overrides → rotation schedule → per-element toggles. Keeping the
+        // injection in a single callback (vs. adding a parallel beforeRotationInjection
+        // hook) preserves AccentPanel as a 1-panel composition (see PATTERNS.md 349-362).
         accentPanel.beforeOverridesInjection = { injectionPanel ->
             appearancePanel.buildPanel(injectionPanel, variant)
+            chromePanel.buildPanel(injectionPanel, variant)
         }
         appearancePanel.systemAccentRowInstaller = { rowHostPanel ->
             accentPanel.installSystemAccentCheckbox(rowHostPanel)
@@ -286,6 +295,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
 
     private fun resetAllSettings() {
         accentPanel.resetToDefault()
+        chromePanel.reset()
         elementsPanel.reset()
         fontPresetPanel.reset()
         effectsPanel.reset()
