@@ -4,6 +4,7 @@ import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeDecorationsProbe
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.LiveChromeRefresher
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.Color
@@ -59,29 +60,42 @@ class MainToolbarElement : AccentElement {
         if (!ChromeDecorationsProbe.isCustomHeaderActive()) return
         val state = AyuIslandsSettings.getInstance().state
         val intensity = state.chromeTintIntensity
+        var tintedBackground: Color? = null
         for (key in backgroundKeys) {
             val tinted = ChromeTintBlender.blend(color, key, intensity)
             UIManager.put(key, tinted)
+            if (key == BACKGROUND_KEY) tintedBackground = tinted
         }
-        if (state.chromeTintKeepForegroundReadable) {
-            val tintedForContrast =
-                ChromeTintBlender.blend(color, BACKGROUND_KEY, intensity)
+        if (state.chromeTintKeepForegroundReadable && tintedBackground != null) {
             val foreground =
-                WcagForeground.pickForeground(tintedForContrast, WcagForeground.TextTarget.PRIMARY_TEXT)
+                WcagForeground.pickForeground(tintedBackground, WcagForeground.TextTarget.PRIMARY_TEXT)
             for (key in foregroundKeys) {
                 UIManager.put(key, foreground)
             }
         }
+        // Level 2 Gap-4: push tinted bg to live MainToolbar peer. Probe-gated per D-13
+        // — we only walk when isCustomHeaderActive is true (early return above).
+        tintedBackground?.let { LiveChromeRefresher.refreshByClassName(MAIN_TOOLBAR_PEER_CLASS, it) }
     }
 
     override fun revert() {
         for (key in backgroundKeys + foregroundKeys) {
             UIManager.put(key, null)
         }
+        // D-14 symmetry: hand the toolbar peer back to LAF default. Unconditional like
+        // the UIManager revert above — even if the probe flips between apply and revert,
+        // the peer's lingering explicit background must be cleared.
+        LiveChromeRefresher.clearByClassName(MAIN_TOOLBAR_PEER_CLASS)
     }
 
     private companion object {
         /** Reference key for the contrast-foreground sample; same as the only entry in [backgroundKeys]. */
         const val BACKGROUND_KEY = "MainToolbar.background"
+
+        /**
+         * FQN of the internal main-toolbar peer — imported as a literal string because the
+         * class is package-private (see 40-12 §B).
+         */
+        const val MAIN_TOOLBAR_PEER_CLASS = "com.intellij.openapi.wm.impl.headertoolbar.MainToolbar"
     }
 }
