@@ -1,5 +1,7 @@
 package dev.ayuislands.settings
 
+import com.intellij.openapi.options.ShowSettingsUtil
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
@@ -64,6 +66,11 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
     private var expandedListener: ((Boolean) -> Unit)? = null
     private var collapsibleExpanded: Boolean = false
 
+    // Plan 40-11 (VERIFICATION Gap 3): tracks whether the actionable "Enable merged menu
+    // to tint title bar" link row was rendered under the disabled Main Toolbar row.
+    // Shown only on macOS when ChromeDecorationsProbe.canEnableCustomHeaderOnMac() is true.
+    private var mergedMenuOfferVisible: Boolean = false
+
     // ── Panel lifecycle ───────────────────────────────────────────────────────
 
     override fun buildPanel(
@@ -75,6 +82,11 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
         val state = AyuIslandsSettings.getInstance().state
         loadStored(state)
         val probeAllowsMainToolbar = ChromeDecorationsProbe.isCustomHeaderActive()
+        // Plan 40-11 (VERIFICATION Gap 3): on macOS with native chrome, offer the user a
+        // direct link to Settings → Appearance where they can toggle "Merge main menu
+        // with window title". The probe helper forces this to `false` on non-macOS and
+        // on macOS when the custom header is already active.
+        val canOfferMergedMenu = ChromeDecorationsProbe.canEnableCustomHeaderOnMac()
 
         val collapsible =
             panel.collapsibleGroup(GROUP_TITLE) {
@@ -103,6 +115,29 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
                         cb.comment(MAIN_TOOLBAR_NATIVE_CHROME_COMMENT)
                         mainToolbarComment = MAIN_TOOLBAR_NATIVE_CHROME_COMMENT
                     }
+                }
+                // Plan 40-11 (VERIFICATION Gap 3): actionable link under the disabled
+                // Main Toolbar row on macOS only, and only when merged menu is OFF. The
+                // comment on the row above explains WHY the row is disabled; this link
+                // offers HOW TO fix it — one click opens IntelliJ's native Appearance
+                // settings panel where the user toggles the real preference and the IDE
+                // surfaces its own restart-required prompt (standard JetBrains UX).
+                if (canOfferMergedMenu) {
+                    row {
+                        // Project-aware open (see PremiumOnboardingPanel / FreeOnboardingPanel
+                        // precedent) so the Settings dialog mounts against the focused project
+                        // when available. ShowSettingsUtil.showSettingsDialog(Project, String)
+                        // was javap-verified against 2025.1 platform JARs in plan 40-11 Task 2.
+                        // B-1 regression guard: no Registry.setValue, no ApplicationManager.restart
+                        // — IntelliJ surfaces the restart-required prompt natively.
+                        link(MERGED_MENU_OFFER_LABEL) {
+                            val project = ProjectManager.getInstance().openProjects.firstOrNull()
+                            ShowSettingsUtil
+                                .getInstance()
+                                .showSettingsDialog(project, MERGED_MENU_CONFIGURABLE_ID)
+                        }
+                    }
+                    mergedMenuOfferVisible = true
                 }
                 row {
                     val cb = checkBox("Tool window stripe")
@@ -247,9 +282,6 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
     internal fun intensitySliderForTest(): JSlider? = intensitySlider
 
     @TestOnly
-    internal fun intensitySliderRangeForTest(): IntRange? = intensitySlider?.let { it.minimum..it.maximum }
-
-    @TestOnly
     internal fun keepForegroundReadableCheckboxForTest(): JBCheckBox? = keepForegroundReadableCheckbox
 
     @TestOnly
@@ -257,6 +289,16 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
 
     @TestOnly
     internal fun mainToolbarRowCommentForTest(): String? = mainToolbarComment
+
+    /**
+     * Plan 40-11 (VERIFICATION Gap 3): state-introspection seam for the merged-menu
+     * offer link. NOTE: the CLICK path is NOT exposed via a `@TestOnly` trigger — L-4 in
+     * [AyuIslandsChromePanelTest] walks the rendered component tree to locate the
+     * [com.intellij.ui.components.ActionLink] by label and invokes its action directly
+     * (W-4 remediation). If the DSL `link(...)` wiring breaks, L-4 fails.
+     */
+    @TestOnly
+    internal fun mergedMenuOfferVisibleForTest(): Boolean = mergedMenuOfferVisible
 
     @TestOnly
     internal fun collapsibleExpandedForTest(): Boolean = collapsibleExpanded
@@ -318,5 +360,15 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
         private const val INTENSITY_MINOR_TICK = 10
         private const val MAIN_TOOLBAR_NATIVE_CHROME_COMMENT =
             "Disabled: your OS paints the native title bar"
+
+        // Plan 40-11 / VERIFICATION Gap 3 constants. Label intentionally mirrors the
+        // CHROME-02 requirement's hint phrasing "Enable 'Merge main menu with window title'"
+        // — user-facing action-wording, not raw key names.
+        private const val MERGED_MENU_OFFER_LABEL = "Enable merged menu to tint title bar"
+
+        // javap-verified against platformVersion 2025.1 platform JARs (app-client.jar;
+        // META-INF/PlatformExtensions.xml: id="preferences.lookFeel" key="title.appearance").
+        // Do NOT change this id without re-running the Task 2 verification recipe.
+        private const val MERGED_MENU_CONFIGURABLE_ID = "preferences.lookFeel"
     }
 }

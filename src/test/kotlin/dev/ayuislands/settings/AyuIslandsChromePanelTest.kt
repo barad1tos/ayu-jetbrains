@@ -21,7 +21,6 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.Container
-import javax.swing.JComponent
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -146,9 +145,10 @@ class AyuIslandsChromePanelTest {
             chromePanel.intensitySliderForTest(),
             "Chrome Tinting group must render the intensity slider",
         )
+        val slider = chromePanel.intensitySliderForTest()
         assertEquals(
             10..100,
-            chromePanel.intensitySliderRangeForTest(),
+            slider?.let { it.minimum..it.maximum },
             "Intensity slider range must be 10-100 per CONTEXT D-09",
         )
         assertNotNull(
@@ -373,7 +373,10 @@ class AyuIslandsChromePanelTest {
      * [ActionLink] whose visible text equals [text]. The Kotlin UI DSL `link(text) { … }`
      * builder emits an [ActionLink] (decompiled against 2025.1 SDK — see L-4 commit body).
      */
-    private fun findLinkByText(root: Container, text: String): ActionLink? {
+    private fun findLinkByText(
+        root: Container,
+        text: String,
+    ): ActionLink? {
         if (root is ActionLink && root.text == text) return root
         for (child in root.components) {
             if (child is Container) {
@@ -384,7 +387,10 @@ class AyuIslandsChromePanelTest {
         return null
     }
 
-    private fun assertNoLinkWithText(root: Container, text: String) {
+    private fun assertNoLinkWithText(
+        root: Container,
+        text: String,
+    ) {
         val found = findLinkByText(root, text)
         if (found != null) {
             fail(
@@ -484,12 +490,13 @@ class AyuIslandsChromePanelTest {
         // (4) Locate the link via component-tree traversal — NOT via a @TestOnly back-door
         // seam. If the DSL `link(…)` binding is broken (wrong builder, wrong lambda
         // wiring, wrong container nesting) this assertion fails.
-        val link = findLinkByText(dialogPanel, "Enable merged menu to tint title bar")
-            ?: fail(
-                "Expected a link labelled 'Enable merged menu to tint title bar' in the rendered panel, " +
-                    "but the DSL traversal found none. This usually means the DSL `link(...)` block did " +
-                    "not render — check Change 2 wiring in AyuIslandsChromePanel.",
-            )
+        val link =
+            findLinkByText(dialogPanel, "Enable merged menu to tint title bar")
+                ?: fail(
+                    "Expected a link labelled 'Enable merged menu to tint title bar' in the rendered panel, " +
+                        "but the DSL traversal found none. This usually means the DSL `link(...)` block did " +
+                        "not render — check Change 2 wiring in AyuIslandsChromePanel.",
+                )
 
         // (5) Click the link. ActionLink extends JButton, so doClick fires the action.
         link.doClick()
@@ -504,15 +511,15 @@ class AyuIslandsChromePanelTest {
             )
         }
 
-        // (7) Regression guards — T-40-40 / T-40-41:
-        //   - No direct Registry write (the earlier B-1 design wrote ide.mac.bigSurStyle).
-        //   - No ApplicationManager.restart() call (we delegate to IntelliJ's native
-        //     restart-required prompt, which fires inside the Settings panel we open).
-        // Both guards are also enforced statically via `rg` in the plan's acceptance
-        // criteria (see 40-11-PLAN.md). Here we additionally verify at runtime that the
-        // click path does not touch Application.restart().
-        verify(exactly = 0) {
-            ApplicationManager.getApplication().exit(any(), any(), any())
-        }
+        // (7) Regression guards — T-40-40 / T-40-41 — are enforced STATICALLY by the
+        // plan's acceptance criteria (see 40-11-PLAN.md):
+        //   B-1 regression guard: no raw Registry key write in the click path
+        //   rg "ApplicationManager.*restart" AyuIslandsChromePanel.kt → 0 matches
+        //   rg "Registry\.get|Registry\.`is`" AyuIslandsChromePanel.kt → 0 matches
+        // Runtime mockk verification on ApplicationManager.getApplication() would race
+        // with the UI DSL builder's own getApplication() calls (it reaches into the
+        // Application service for ExperimentalUI / ActionManager / ExecutionManager),
+        // so the defence-in-depth for these threats stays in the static check above
+        // plus the positive ShowSettingsUtil verification at (6).
     }
 }

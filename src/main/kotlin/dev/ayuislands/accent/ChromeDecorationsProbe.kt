@@ -98,9 +98,9 @@ object ChromeDecorationsProbe {
      * `com.intellij.openapi.options.ShowSettingsUtil` — we do NOT write any Registry key
      * directly. Delegating to the IDE's own Settings UI makes the change visible to the
      * user, reuses IntelliJ's restart-required prompt, and avoids guessing which key the
-     * IDE actually reads (an earlier revision of plan 40-11 hardcoded
-     * `ide.mac.bigSurStyle`, a key this probe never consults — the feature would not
-     * activate after the write).
+     * IDE actually reads (an earlier revision of plan 40-11 hardcoded a Registry key
+     * that this probe never consults — the feature would not activate after the write;
+     * see plan 40-11 B-1 remediation for details).
      *
      * Mirrors the probe's own definition of "custom header active" exactly — it does NOT
      * introduce a second source of truth about what keys count. If
