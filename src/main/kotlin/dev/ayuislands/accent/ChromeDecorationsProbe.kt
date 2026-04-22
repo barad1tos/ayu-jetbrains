@@ -84,4 +84,30 @@ object ChromeDecorationsProbe {
     private fun macCustomHeader(): Boolean =
         UIManager.getBoolean(MAC_UNIFIED_KEY) ||
             Registry.`is`(MAC_REGISTRY_KEY, false)
+
+    /**
+     * Returns `true` when the user is on macOS AND the custom JBR header is currently
+     * INACTIVE — i.e., the Main Toolbar Settings row is disabled but the user could in
+     * principle turn on "Merge main menu with window title" in IDE Settings → Appearance
+     * & Behavior → Appearance, restart when prompted natively by that control, and
+     * reach a custom-header IDE where chrome tinting can paint the title bar.
+     *
+     * [dev.ayuislands.settings.AyuIslandsChromePanel] renders an actionable "Enable
+     * merged menu to tint title bar" link when this returns true, closing VERIFICATION
+     * Gap 3. The link's click action opens the native Appearance Settings panel via
+     * `com.intellij.openapi.options.ShowSettingsUtil` — we do NOT write any Registry key
+     * directly. Delegating to the IDE's own Settings UI makes the change visible to the
+     * user, reuses IntelliJ's restart-required prompt, and avoids guessing which key the
+     * IDE actually reads (an earlier revision of plan 40-11 hardcoded
+     * `ide.mac.bigSurStyle`, a key this probe never consults — the feature would not
+     * activate after the write).
+     *
+     * Mirrors the probe's own definition of "custom header active" exactly — it does NOT
+     * introduce a second source of truth about what keys count. If
+     * [isCustomHeaderActive] changes its underlying key-read later, this helper adapts
+     * automatically without a separate edit.
+     *
+     * Never throws.
+     */
+    fun canEnableCustomHeaderOnMac(): Boolean = osSupplier() == Os.MAC && !isCustomHeaderActive()
 }
