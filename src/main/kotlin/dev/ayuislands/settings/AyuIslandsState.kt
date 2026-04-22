@@ -218,6 +218,28 @@ class AyuIslandsState : BaseState() {
     // Force overrides for conflicting elements (element ID names)
     var forceOverrides by stringSet()
 
+    // Chrome tinting (phase 40). Per-surface opt-in toggles, global intensity, and
+    // foreground-readability guard. CHROME-group AccentElementIds are driven by these
+    // fields — NOT by the Elements-panel toggle map — so they never leak into the
+    // VISUAL/INTERACTIVE checkbox list. Defaults are all OFF (premium, opt-in).
+    var chromeStatusBar by property(false)
+    var chromeMainToolbar by property(false)
+    var chromeToolWindowStripe by property(false)
+    var chromeNavBar by property(false)
+    var chromePanelBorder by property(false)
+
+    // Global tint intensity for all CHROME surfaces (0-100). 20 is a subtle default
+    // tint that keeps the IDE chrome readable while still being visible as an accent.
+    var chromeTintIntensity by property(DEFAULT_CHROME_TINT_INTENSITY)
+
+    // When true, CHROME tinting mixes the accent toward the surface's original
+    // foreground color so label/icon contrast stays above the readability floor.
+    // Defaults to ON — users must explicitly disable this to get saturated tints.
+    var chromeTintKeepForegroundReadable by property(true)
+
+    // Chrome-tinting collapsible group expanded state (same shape as accentElementsGroupExpanded).
+    var chromeTintingGroupExpanded by property(false)
+
     fun isToggleEnabled(id: AccentElementId): Boolean =
         when (id) {
             AccentElementId.INLAY_HINTS -> inlayHints
@@ -228,6 +250,11 @@ class AyuIslandsState : BaseState() {
             AccentElementId.BRACKET_MATCH -> bracketMatch
             AccentElementId.SEARCH_RESULTS -> searchResults
             AccentElementId.MATCHING_TAG -> matchingTag
+            AccentElementId.STATUS_BAR -> chromeStatusBar
+            AccentElementId.MAIN_TOOLBAR -> chromeMainToolbar
+            AccentElementId.TOOL_WINDOW_STRIPE -> chromeToolWindowStripe
+            AccentElementId.NAV_BAR -> chromeNavBar
+            AccentElementId.PANEL_BORDER -> chromePanelBorder
         }
 
     fun setToggle(
@@ -243,6 +270,11 @@ class AyuIslandsState : BaseState() {
             AccentElementId.BRACKET_MATCH -> bracketMatch = enabled
             AccentElementId.SEARCH_RESULTS -> searchResults = enabled
             AccentElementId.MATCHING_TAG -> matchingTag = enabled
+            AccentElementId.STATUS_BAR -> chromeStatusBar = enabled
+            AccentElementId.MAIN_TOOLBAR -> chromeMainToolbar = enabled
+            AccentElementId.TOOL_WINDOW_STRIPE -> chromeToolWindowStripe = enabled
+            AccentElementId.NAV_BAR -> chromeNavBar = enabled
+            AccentElementId.PANEL_BORDER -> chromePanelBorder = enabled
         }
     }
 
@@ -339,5 +371,13 @@ class AyuIslandsState : BaseState() {
         private const val DEFAULT_SOFT_WIDTH = 4
         private const val DEFAULT_SHARP_NEON_WIDTH = 4
         private const val DEFAULT_GRADIENT_WIDTH = 6
+
+        /**
+         * Chrome tint intensity default (0-100). 20 is a subtle tint — visible
+         * as accent on status bar / toolbar / stripe without drowning out
+         * foreground readability. Users can raise it via the Chrome tinting
+         * settings slider.
+         */
+        const val DEFAULT_CHROME_TINT_INTENSITY = 20
     }
 }

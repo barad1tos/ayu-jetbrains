@@ -8,6 +8,7 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.AccentGroup
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.rotation.AccentRotationService
@@ -117,17 +118,39 @@ class FreeTierLockdownTest {
     }
 
     @Test
-    fun `revertToFreeDefaults resets all eight accent element toggles to true`() {
+    fun `revertToFreeDefaults resets VISUAL INTERACTIVE toggles to true and CHROME toggles to false`() {
+        // Seed every toggle to the OPPOSITE of its free-tier default so we can see the revert
+        // actually run: VISUAL/INTERACTIVE start false (free-tier default is true) and CHROME
+        // starts true (free-tier default is false — chrome tinting is premium-only).
         for (id in AccentElementId.entries) {
-            state.setToggle(id, false)
+            state.setToggle(id, id.group == AccentGroup.CHROME)
         }
 
         LicenseChecker.revertToFreeDefaults(AyuVariant.LIGHT)
 
-        for (id in AccentElementId.entries) {
+        for (id in AccentElementId.entries.filter { it.group != AccentGroup.CHROME }) {
             assertTrue(state.isToggleEnabled(id), "${id.name} must be re-enabled on revert")
         }
-        assertEquals(8, AccentElementId.entries.size, "element count locked to 8 — update reverter if this changes")
+        for (id in AccentElementId.entries.filter { it.group == AccentGroup.CHROME }) {
+            assertFalse(state.isToggleEnabled(id), "${id.name} must be disabled on free-tier revert")
+        }
+        // 4 VISUAL + 4 INTERACTIVE + 5 CHROME = 13. Update this number and the reverter together.
+        assertEquals(13, AccentElementId.entries.size, "element count locked to 13 — update reverter if this changes")
+    }
+
+    @Test
+    fun `revertToFreeDefaults resets chrome tinting auxiliary state to defaults`() {
+        // Mutate every chrome-tinting auxiliary field away from its free-tier default,
+        // then prove the reverter restores each one.
+        state.chromeTintIntensity = 75
+        state.chromeTintKeepForegroundReadable = false
+        state.chromeTintingGroupExpanded = true
+
+        LicenseChecker.revertToFreeDefaults(AyuVariant.LIGHT)
+
+        assertEquals(AyuIslandsState.DEFAULT_CHROME_TINT_INTENSITY, state.chromeTintIntensity)
+        assertTrue(state.chromeTintKeepForegroundReadable)
+        assertFalse(state.chromeTintingGroupExpanded)
     }
 
     @Test
@@ -242,7 +265,13 @@ class FreeTierLockdownTest {
         assertFalse(state.glowEnabled)
         assertFalse(state.accentRotationEnabled)
         assertFalse(state.cgpIntegrationEnabled)
-        for (id in AccentElementId.entries) assertTrue(state.isToggleEnabled(id))
+        // VISUAL/INTERACTIVE toggles flip to true; CHROME toggles stay off on free tier.
+        for (id in AccentElementId.entries.filter { it.group != AccentGroup.CHROME }) {
+            assertTrue(state.isToggleEnabled(id))
+        }
+        for (id in AccentElementId.entries.filter { it.group == AccentGroup.CHROME }) {
+            assertFalse(state.isToggleEnabled(id))
+        }
         assertEquals(PanelWidthMode.DEFAULT.name, state.projectPanelWidthMode)
     }
 
@@ -262,7 +291,10 @@ class FreeTierLockdownTest {
             state.glowTabMode = "FULL"
             state.hideProjectRootPath = true
             state.hideProjectViewHScrollbar = true
-            for (id in AccentElementId.entries) state.setToggle(id, false)
+            // Seed opposite of free-tier defaults: non-CHROME to false, CHROME to true.
+            for (id in AccentElementId.entries) {
+                state.setToggle(id, id.group == AccentGroup.CHROME)
+            }
 
             val threads =
                 (1..4).map {
@@ -279,8 +311,11 @@ class FreeTierLockdownTest {
             assertEquals("MINIMAL", state.glowTabMode)
             assertFalse(state.hideProjectRootPath)
             assertFalse(state.hideProjectViewHScrollbar)
-            for (id in AccentElementId.entries) {
+            for (id in AccentElementId.entries.filter { it.group != AccentGroup.CHROME }) {
                 assertTrue(state.isToggleEnabled(id), "${id.name} must be true after concurrent revert")
+            }
+            for (id in AccentElementId.entries.filter { it.group == AccentGroup.CHROME }) {
+                assertFalse(state.isToggleEnabled(id), "${id.name} must be false after concurrent revert")
             }
         }
     }

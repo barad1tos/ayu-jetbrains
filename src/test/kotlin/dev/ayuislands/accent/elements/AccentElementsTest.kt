@@ -87,8 +87,12 @@ class AccentElementsTest {
 
     @Test
     fun `all AccentElementId values have an implementation`() {
+        // CHROME-group elements are owned by the phase 40 chrome-tinting subsystem,
+        // not the VISUAL/INTERACTIVE AccentElement EP registered here. Limit this
+        // coverage check to VISUAL + INTERACTIVE so the registry gate stays accurate
+        // for the subsystem this test file covers.
         val implementedIds = allElements().map { it.id }.toSet()
-        for (entry in AccentElementId.entries) {
+        for (entry in AccentElementId.entries.filter { it.group != AccentGroup.CHROME }) {
             assertTrue(
                 entry in implementedIds,
                 "AccentElementId.$entry has no implementation",
