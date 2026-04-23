@@ -421,8 +421,8 @@ class AyuIslandsState : BaseState() {
          * `AyuIslandsChromePanel.MAX_INTENSITY` slider cap (50) — the blender's
          * internal 0-100 math-safety clamp still guards the algorithm, but
          * [effectiveChromeTintIntensity] pre-clamps to the UX cap so legacy
-         * persisted values (pre-cap sessions saved 60-100) and any corrupted
-         * XML observe the same ceiling every live user can reach.
+         * persisted values (pre-cap sessions could save up to 100) and any
+         * corrupted XML observe the same ceiling every live user can reach.
          */
         const val MAX_CHROME_TINT_INTENSITY = 50
     }

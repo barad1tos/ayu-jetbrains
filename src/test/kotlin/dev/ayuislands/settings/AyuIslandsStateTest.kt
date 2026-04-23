@@ -134,9 +134,9 @@ class AyuIslandsStateTest {
         //
         // The upper bound here is the USER-VISIBLE `MAX_CHROME_TINT_INTENSITY` (50),
         // not the blender's internal math clamp (0-100). Keeping state aligned with
-        // the UI slider cap means pre-cap sessions that saved 60-100 see the same
-        // ceiling every live user can reach, eliminating the "slider maxes at 50 but
-        // chrome paints like 80" desync reported during runIde smoke.
+        // the UI slider cap means pre-cap sessions that could save up to 100 see
+        // the same ceiling every live user can reach, eliminating the "slider maxes
+        // at 50 but chrome paints like 80" desync reported during runIde smoke.
         val cap = AyuIslandsState.MAX_CHROME_TINT_INTENSITY
         val state = freshState()
 
