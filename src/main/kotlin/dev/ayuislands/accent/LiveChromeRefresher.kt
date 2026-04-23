@@ -74,15 +74,11 @@ internal object LiveChromeRefresher {
         classNameFqn: String,
         color: Color,
     ) {
-        for (window in Window.getWindows()) {
-            refreshOnTree(window, classNameFqn, color)
-        }
+        forEachShowingWindow { refreshOnTree(it, classNameFqn, color) }
     }
 
     fun clearByClassName(classNameFqn: String) {
-        for (window in Window.getWindows()) {
-            clearOnTree(window, classNameFqn)
-        }
+        forEachShowingWindow { clearOnTree(it, classNameFqn) }
     }
 
     /**
@@ -98,9 +94,7 @@ internal object LiveChromeRefresher {
         ancestorFqn: String,
         color: Color,
     ) {
-        for (window in Window.getWindows()) {
-            refreshOnTreeInsideAncestor(window, targetFqn, ancestorFqn, color)
-        }
+        forEachShowingWindow { refreshOnTreeInsideAncestor(it, targetFqn, ancestorFqn, color) }
     }
 
     /** Mirror of [refreshByClassNameInsideAncestorClass] for the revert path. */
@@ -108,8 +102,20 @@ internal object LiveChromeRefresher {
         targetFqn: String,
         ancestorFqn: String,
     ) {
+        forEachShowingWindow { clearOnTreeInsideAncestor(it, targetFqn, ancestorFqn) }
+    }
+
+    /**
+     * Iterates top-level windows, skipping ones that are not [Window.isShowing] (disposed,
+     * hidden, pooled popups) and isolating per-window failures so one flaky peer doesn't
+     * abort chrome apply for the rest of the desktop. See Phase 40 review Round 3 C-1, C-2.
+     */
+    private inline fun forEachShowingWindow(action: (Window) -> Unit) {
         for (window in Window.getWindows()) {
-            clearOnTreeInsideAncestor(window, targetFqn, ancestorFqn)
+            if (!window.isShowing) continue
+            runCatching { action(window) }.onFailure {
+                log.debug("Live refresh skipped for ${window.javaClass.simpleName}", it)
+            }
         }
     }
 
@@ -195,13 +201,22 @@ internal object LiveChromeRefresher {
         return false
     }
 
+    /**
+     * Recursively walks [component] and its descendants, invoking [visit] per node.
+     * Each visit is isolated in `runCatching` so a single flaky peer (mid-dispose,
+     * ClassCast on reflective match, NPE inside repaint) doesn't abort the rest of
+     * the tree. See Phase 40 review Round 3 C-1.
+     */
     private fun walk(
         component: Component,
         visit: (Component) -> Unit,
     ) {
-        visit(component)
+        runCatching { visit(component) }.onFailure {
+            log.debug("Live refresh visit failed on ${component.javaClass.name}", it)
+        }
         if (component is Container) {
-            for (child in component.components) {
+            val children = runCatching { component.components }.getOrNull() ?: return
+            for (child in children) {
                 walk(child, visit)
             }
         }
