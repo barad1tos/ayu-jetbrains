@@ -1,6 +1,7 @@
 package dev.ayuislands
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ModuleRootEvent
@@ -24,6 +25,8 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import dev.ayuislands.ui.ComponentTreeRefresher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import javax.swing.SwingUtilities
 
 internal class AyuIslandsStartupActivity : ProjectActivity {
@@ -46,9 +49,18 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         // focused window is ayu-jetbrains. Reading the focused project here aligns the write with
         // what the user actually sees. Falls back to THIS project when focus cascade hasn't settled
         // yet (single-project launch or pre-focus-manager startup).
-        val focusedProject = AccentApplicator.resolveFocusedProject() ?: project
-        val accentHex = AccentResolver.resolve(focusedProject, variant)
-        AccentApplicator.apply(accentHex)
+        //
+        // Dispatch to the EDT because AccentApplicator.resolveFocusedProject is @RequiresEdt
+        // (IdeFocusManager touches Swing focus state) and ProjectActivity.execute runs on a
+        // background coroutine by default. AccentApplicator.apply self-dispatches internally
+        // but the resolveFocusedProject call ahead of it must be on EDT first.
+        val accentHex =
+            withContext(Dispatchers.EDT) {
+                val focusedProject = AccentApplicator.resolveFocusedProject() ?: project
+                val hex = AccentResolver.resolve(focusedProject, variant)
+                AccentApplicator.apply(hex)
+                hex
+            }
 
         // Warm the language-detector cache so Settings → Accent → Overrides
         // shows real per-language proportions on first open. Gated on the same
