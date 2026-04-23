@@ -107,16 +107,61 @@ class ToolWindowStripeElementTest {
     }
 
     @Test
-    fun `apply always writes WcagForeground ICON pick to both foreground keys`() {
+    fun `apply samples WcagForeground ICON independently for each bg (Round 2 A-2)`() {
         mockState.chromeTintIntensity = 40
 
         ToolWindowStripeElement().apply(testAccent)
 
-        verify(atLeast = 1) {
-            WcagForeground.pickForeground(blended, WcagForeground.TextTarget.ICON)
+        // Round 2 A-2 CRITICAL: stripe bg and selected-button bg are DIFFERENT base colors;
+        // fg must be sampled against each bg independently, not reused across both.
+        // With the current stub all three bg keys resolve to the same stubbed base+blend,
+        // so the two pickForeground calls receive the same input. The important invariant
+        // is that pickForeground is called at least TWICE (once per target bg).
+        verify(atLeast = 2) {
+            WcagForeground.pickForeground(any(), WcagForeground.TextTarget.ICON)
         }
         verify(exactly = 1) { UIManager.put("ToolWindow.Button.selectedForeground", contrastFg) }
         verify(exactly = 1) { UIManager.put("ToolWindow.Stripe.foreground", contrastFg) }
+    }
+
+    @Test
+    fun `apply picks DISTINCT fg colors when stripe bg and selected bg differ (Round 2 A-2)`() {
+        mockState.chromeTintIntensity = 40
+
+        // Return different base colors for the two foreground-bearing background keys so the
+        // blender produces different tints, then have pickForeground return a distinct fg per
+        // tint. This locks the invariant: fg is NOT reused; each bg gets its own contrast pick.
+        val stripeBase = Color(0x20, 0x20, 0x20)
+        val selectedBase = Color(0x60, 0x60, 0x60)
+        val stripeTinted = Color(0x41, 0x41, 0x41)
+        val selectedTinted = Color(0x82, 0x82, 0x82)
+        val stripeFg = Color(0xEE, 0xEE, 0xEE)
+        val selectedFg = Color(0x11, 0x11, 0x11)
+
+        every { ChromeBaseColors.get("ToolWindow.Stripe.background") } returns stripeBase
+        every { ChromeBaseColors.get("ToolWindow.Button.selectedBackground") } returns selectedBase
+        every { ChromeBaseColors.get("ToolWindow.Stripe.borderColor") } returns stockBase
+        every { ChromeTintBlender.blend(testAccent, stripeBase, 40) } returns stripeTinted
+        every { ChromeTintBlender.blend(testAccent, selectedBase, 40) } returns selectedTinted
+        every { ChromeTintBlender.blend(testAccent, stockBase, 40) } returns blended
+        every {
+            WcagForeground.pickForeground(stripeTinted, WcagForeground.TextTarget.ICON)
+        } returns stripeFg
+        every {
+            WcagForeground.pickForeground(selectedTinted, WcagForeground.TextTarget.ICON)
+        } returns selectedFg
+
+        ToolWindowStripeElement().apply(testAccent)
+
+        verify(exactly = 1) {
+            WcagForeground.pickForeground(stripeTinted, WcagForeground.TextTarget.ICON)
+        }
+        verify(exactly = 1) {
+            WcagForeground.pickForeground(selectedTinted, WcagForeground.TextTarget.ICON)
+        }
+        // The two writes diverge — stripe fg is NOT reused for the selected button.
+        verify(exactly = 1) { UIManager.put("ToolWindow.Stripe.foreground", stripeFg) }
+        verify(exactly = 1) { UIManager.put("ToolWindow.Button.selectedForeground", selectedFg) }
     }
 
     @Test

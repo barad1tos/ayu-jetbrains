@@ -53,12 +53,20 @@ class ToolWindowStripeElement : AccentElement {
                 SELECTED_BACKGROUND_KEY -> tintedSelectedBackground = tinted
             }
         }
+        // Round 2 review A-2 (CRITICAL correctness): stripe background and selected-button
+        // background are DIFFERENT base colors — at non-trivial intensities their tinted
+        // outputs diverge. Sampling the contrast foreground against only the selected-button
+        // bg and reusing that pick for the stripe foreground can drop non-selected stripe
+        // icons below the WCAG AA ratio. Pick each foreground against its own bg.
         if (tintedSelectedBackground != null) {
-            val foreground =
+            val selectedForeground =
                 WcagForeground.pickForeground(tintedSelectedBackground, WcagForeground.TextTarget.ICON)
-            for (key in foregroundKeys) {
-                UIManager.put(key, foreground)
-            }
+            UIManager.put(SELECTED_FOREGROUND_KEY, selectedForeground)
+        }
+        if (tintedStripeBackground != null) {
+            val stripeForeground =
+                WcagForeground.pickForeground(tintedStripeBackground, WcagForeground.TextTarget.ICON)
+            UIManager.put(STRIPE_FOREGROUND_KEY, stripeForeground)
         }
         // Level 2 Gap-4: push stripe bg to the live com.intellij.toolWindow.Stripe peer.
         tintedStripeBackground?.let { LiveChromeRefresher.refreshByClassName(STRIPE_PEER_CLASS, it) }
@@ -73,9 +81,15 @@ class ToolWindowStripeElement : AccentElement {
     }
 
     private companion object {
-        /** Reference key for the contrast-foreground sample; same as the last entry in [backgroundKeys]. */
+        /** Reference key for the selected-button contrast-foreground sample. */
         const val SELECTED_BACKGROUND_KEY = "ToolWindow.Button.selectedBackground"
         const val STRIPE_BACKGROUND_KEY = "ToolWindow.Stripe.background"
+
+        /** Foreground key paired with [SELECTED_BACKGROUND_KEY] for the Round 2 A-2 split fg pick. */
+        const val SELECTED_FOREGROUND_KEY = "ToolWindow.Button.selectedForeground"
+
+        /** Foreground key paired with [STRIPE_BACKGROUND_KEY] for the Round 2 A-2 split fg pick. */
+        const val STRIPE_FOREGROUND_KEY = "ToolWindow.Stripe.foreground"
 
         /**
          * Internal (package-private, final) tool-window stripe class — type not importable,
