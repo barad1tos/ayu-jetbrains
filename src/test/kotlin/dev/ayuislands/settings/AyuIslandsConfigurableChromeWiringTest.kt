@@ -136,6 +136,37 @@ class AyuIslandsConfigurableChromeWiringTest {
     }
 
     @Test
+    fun `Configurable bytecode wires chromePanel to afterOverridesInjection not before`() {
+        // Regression guard for the Phase 40 / Plan 08 reorder: Chrome Tinting
+        // moved from BEFORE Overrides to AFTER Overrides by rewiring the
+        // chromePanel.buildPanel call from the shared beforeOverridesInjection
+        // callback to a new, parallel afterOverridesInjection callback. If a
+        // future refactor moves chrome back under beforeOverrides (or drops the
+        // new hook), the visual order silently regresses — chrome tinting would
+        // render before the user sets the per-project overrides it depends on.
+        //
+        // Checking bytecode keeps this test hermetic (no Swing/DSL runtime) and
+        // catches reorders that leave Kotlin source compiling cleanly.
+        val classBytes =
+            AyuIslandsConfigurable::class.java
+                .getResourceAsStream("AyuIslandsConfigurable.class")
+                ?.readAllBytes()
+        assertTrue(
+            classBytes != null && classBytes.isNotEmpty(),
+            "AyuIslandsConfigurable.class must be loadable for bytecode inspection",
+        )
+        val classText = String(classBytes!!, Charsets.ISO_8859_1)
+        assertTrue(
+            classText.contains("setAfterOverridesInjection"),
+            "createPanel bytecode must call setAfterOverridesInjection to host Chrome Tinting",
+        )
+        assertTrue(
+            classText.contains("setBeforeOverridesInjection"),
+            "createPanel bytecode must still call setBeforeOverridesInjection to host System panel",
+        )
+    }
+
+    @Test
     fun `chromePanel sits between accentPanel and elementsPanel in panels list`() {
         val configurable = AyuIslandsConfigurable()
         val panels = readField<List<AyuIslandsSettingsPanel>>(configurable, "panels")
