@@ -50,17 +50,33 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         // what the user actually sees. Falls back to THIS project when focus cascade hasn't settled
         // yet (single-project launch or pre-focus-manager startup).
         //
-        // Dispatch to the EDT because AccentApplicator.resolveFocusedProject is @RequiresEdt
-        // (IdeFocusManager touches Swing focus state) and ProjectActivity.execute runs on a
-        // background coroutine by default. AccentApplicator.apply self-dispatches internally
-        // but the resolveFocusedProject call ahead of it must be on EDT first.
-        val accentHex =
-            withContext(Dispatchers.EDT) {
-                val focusedProject = AccentApplicator.resolveFocusedProject() ?: project
-                val hex = AccentResolver.resolve(focusedProject, variant)
-                AccentApplicator.apply(hex)
-                hex
-            }
+        // Dispatch to the EDT: every step in this triplet has an EDT precondition.
+        //  - AccentApplicator.resolveFocusedProject is @RequiresEdt — it traverses
+        //    WindowManager, IdeFocusManager, ProjectManager, all EDT-only APIs.
+        //  - AccentApplicator.apply is @RequiresEdt — its KDoc lines 200-205
+        //    explicitly state the helper does NOT self-dispatch the pre-apply steps,
+        //    and the inner invokeLaterSafe hop inside apply() only batches the
+        //    UIManager/editor writes; it does not rescue anything that runs before.
+        //  - ProjectAccentSwapService.install registers an AWT listener whose
+        //    WINDOW_ACTIVATED handler expects to fire after the initial apply's
+        //    UIManager state is visible; calling it off the EDT would let the first
+        //    real activation race an in-flight apply.
+        //  - ProjectAccentSwapService.notifyExternalApply is a bare volatile write
+        //    with no dispatch; per the AccentApplicator KDoc (lines 203-205) callers
+        //    must already be on the EDT so the lastAppliedHex cache publishes in the
+        //    same ordering as the apply that preceded it — otherwise the first
+        //    WINDOW_ACTIVATED after startup would re-apply the same color it just
+        //    painted.
+        // ProjectActivity.execute runs on a background coroutine, so the full
+        // compute-apply-publish triplet must be wrapped in a single EDT block.
+        withContext(Dispatchers.EDT) {
+            val focusedProject = AccentApplicator.resolveFocusedProject() ?: project
+            val hex = AccentResolver.resolve(focusedProject, variant)
+            AccentApplicator.apply(hex)
+            val swapService = ProjectAccentSwapService.getInstance()
+            swapService.install()
+            swapService.notifyExternalApply(hex)
+        }
 
         // Warm the language-detector cache so Settings → Accent → Overrides
         // shows real per-language proportions on first open. Gated on the same
@@ -100,11 +116,10 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
                 },
             )
 
-        // Install the focus-swap listener once per IDE lifetime; subsequent calls are no-ops.
-        // Also sync the cache so the listener doesn't skip the first real WINDOW_ACTIVATED event.
-        val swapService = ProjectAccentSwapService.getInstance()
-        swapService.install()
-        swapService.notifyExternalApply(accentHex)
+        // Focus-swap listener install() + cache sync via notifyExternalApply(hex)
+        // are now inside the withContext(Dispatchers.EDT) block above so they share an
+        // atomic EDT turn with the initial apply — see that block's KDoc for the
+        // ordering rationale.
 
         // Eager-instantiate per-project scrollbar managers BEFORE firing the first refresh event.
         // Their init{} blocks subscribe to ComponentTreeRefreshedTopic; without this, the
