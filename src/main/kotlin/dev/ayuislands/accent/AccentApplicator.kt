@@ -435,6 +435,18 @@ object AccentApplicator {
                     "Failed to apply accent to ${element.displayName}",
                     exception,
                 )
+                // A partial apply can leave UIManager / live peers in a
+                // mixed tinted+stock state; a subsequent `ChromeBaseColors.get()`
+                // would capture those tinted values as the stock baseline and
+                // poison the cache for the rest of the session. Roll back this
+                // element so the next apply starts from a clean slate. See Phase 40
+                // review Round 3 M-7.
+                runCatching { element.revert() }.onFailure { revertException ->
+                    log.warn(
+                        "Revert after failed apply also failed for ${element.displayName}",
+                        revertException,
+                    )
+                }
             }
         }
     }
