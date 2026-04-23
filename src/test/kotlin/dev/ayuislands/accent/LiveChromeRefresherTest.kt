@@ -9,6 +9,7 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import java.awt.Color
+import java.awt.Window
 import javax.swing.JPanel
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -403,5 +404,102 @@ class LiveChromeRefresherTest {
             "non.existent.Target.Z",
             "non.existent.Ancestor.Y",
         )
+    }
+
+    // --- Round 3 hotfix regression tests (C1–C4) ---
+    //
+    // These lock the isolation guarantees added in Phase 40 Round 3 C-1/C-2:
+    // a single broken peer or window-enumeration failure must NOT abort the
+    // entire chrome-refresh pass, and repeated passes over a known-broken
+    // container must stay safe (the log-once latch demotes the second hit
+    // to DEBUG but the walk still short-circuits cleanly).
+
+    /**
+     * Match-target subclass used by C2. Tracks a per-instance latch so one
+     * sibling can throw on its first `setBackground` call while the next
+     * sibling of the same runtime class keeps its normal behaviour.
+     */
+    private open class ThrowOnFirstSetBackgroundTracker(
+        private val shouldThrow: Boolean,
+    ) : TrackingPanel() {
+        private var thrown: Boolean = false
+
+        override fun setBackground(bg: Color?) {
+            if (shouldThrow && !thrown) {
+                thrown = true
+                error("setBackground boom")
+            }
+            super.setBackground(bg)
+        }
+    }
+
+    /**
+     * Container whose `getComponents()` override throws on every invocation.
+     * Used by C3 and C4 to prove the tree walk isolates container failures
+     * per-subtree instead of aborting the whole pass.
+     */
+    private class BrokenChildrenContainer : JPanel() {
+        override fun getComponents(): Array<java.awt.Component> = error("getComponents boom")
+    }
+
+    @Test
+    fun `refreshByClassName returns early without throwing when Window getWindows throws`() {
+        mockkStatic(Window::class)
+        every { Window.getWindows() } throws IllegalStateException("enumeration boom")
+
+        // No throw must propagate — the Round 3 C-2 guard converts the
+        // enumeration failure into a WARN + early return.
+        LiveChromeRefresher.refreshByClassName("dummy.FQN", Color.RED)
+    }
+
+    @Test
+    fun `refreshOnTree continues visiting siblings after one node throws on setBackground`() {
+        val throwingFqn = ThrowOnFirstSetBackgroundTracker::class.java.name
+        val throwing = ThrowOnFirstSetBackgroundTracker(shouldThrow = true)
+        val survivor = ThrowOnFirstSetBackgroundTracker(shouldThrow = false)
+        val parent =
+            JPanel().apply {
+                add(throwing)
+                add(survivor)
+            }
+
+        LiveChromeRefresher.refreshOnTree(parent, throwingFqn, Color.BLUE)
+
+        // Surviving sibling must have been painted — the per-visit try/catch
+        // in `walk` (Round 3 C-1) isolates the throwing peer from the rest.
+        assertEquals(Color.BLUE, survivor.lastSetBackground)
+    }
+
+    @Test
+    fun `refreshOnTree continues to sibling containers when one containers getComponents throws`() {
+        val trackerFqn = TrackingPanel::class.java.name
+        val tracker = TrackingPanel()
+        val brokenContainer = BrokenChildrenContainer()
+        val siblingContainer = JPanel().apply { add(tracker) }
+        val parent =
+            JPanel().apply {
+                add(brokenContainer)
+                add(siblingContainer)
+            }
+
+        LiveChromeRefresher.refreshOnTree(parent, trackerFqn, Color.GREEN)
+
+        // The broken container's subtree is skipped, but the walk proceeds
+        // to the next sibling and paints the tracker inside it. Without
+        // the container-level try/catch (Round 3 C-1), the RuntimeException
+        // would unwind the whole walk and tracker would stay untouched.
+        assertEquals(Color.GREEN, tracker.lastSetBackground)
+    }
+
+    @Test
+    fun `refreshOnTree survives repeated walks over a broken container`() {
+        val brokenContainer = BrokenChildrenContainer()
+
+        // Two consecutive walks must both return cleanly. The second pass
+        // exercises the `brokenContainerLogged` latch demote-to-DEBUG branch
+        // introduced in Round 3; the behaviour lock here is simply "no
+        // throw on either call".
+        LiveChromeRefresher.refreshOnTree(brokenContainer, "x", Color.RED)
+        LiveChromeRefresher.refreshOnTree(brokenContainer, "x", Color.RED)
     }
 }

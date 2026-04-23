@@ -1381,6 +1381,67 @@ class AccentApplicatorTest {
         verify(exactly = 0) { element.applyNeutral(any()) }
     }
 
+    // --- Round 3 hotfix regression tests (C7, C8) ---
+    //
+    // Locks the revert-on-apply-fail block introduced in Phase 40 Round 3 M-7:
+    // when an element's `apply` throws, `applyElements` must roll that element
+    // back with `revert()` so a partial mutation doesn't leave UIManager +
+    // live peers in a mixed tinted+stock state (which would then poison
+    // `ChromeBaseColors` on the next capture). The PRE-EXISTING
+    // "catches RuntimeException from element apply" test passes even if the
+    // revert block is deleted — these tests fail if the block is removed.
+
+    /**
+     * C7 — when an element's `apply` throws, `applyElements` must call
+     * `revert()` on the same element AND continue to the next element in
+     * the extension list. Without the revert block, the partial mutation
+     * would stay visible until the next full apply/revert cycle.
+     */
+    @Test
+    fun `applyElements calls revert on an element whose apply throws`() {
+        val throwingElement = createFakeAccentElement(AccentElementId.CARET_ROW, "Caret Row")
+        every { throwingElement.apply(any()) } throws RuntimeException("apply broke")
+        val normalElement = createFakeAccentElement(AccentElementId.SCROLLBAR, "Scrollbar")
+        mockEpExtensionList(listOf(throwingElement, normalElement))
+
+        val accent = Color.decode("#FFCC66")
+        // Must not propagate the simulated apply failure.
+        invokeApplyElements(state, accent, AyuVariant.MIRAGE)
+
+        // Revert was invoked exactly once on the throwing element — this is
+        // the Round 3 M-7 lock; if the new try/revert block is deleted,
+        // this verification fails.
+        verify(exactly = 1) { throwingElement.revert() }
+        // Dispatch proceeded to the next element despite the failure above.
+        verify(exactly = 1) { normalElement.apply(accent) }
+    }
+
+    /**
+     * C8 — when `apply` throws AND the fallback `revert()` also throws,
+     * `applyElements` must still move on to the next element. Locks the
+     * nested try/catch around the cleanup path so a doubly-broken element
+     * does not take the whole dispatch loop down with it.
+     */
+    @Test
+    fun `applyElements continues to next element when revert-after-apply-fail also throws`() {
+        val doubleThrower = createFakeAccentElement(AccentElementId.CARET_ROW, "Caret Row")
+        every { doubleThrower.apply(any()) } throws RuntimeException("apply broke")
+        every { doubleThrower.revert() } throws RuntimeException("revert broke too")
+        val survivor = createFakeAccentElement(AccentElementId.SCROLLBAR, "Scrollbar")
+        mockEpExtensionList(listOf(doubleThrower, survivor))
+
+        val accent = Color.decode("#FFCC66")
+        // Must not propagate either the apply or the revert exception.
+        invokeApplyElements(state, accent, AyuVariant.MIRAGE)
+
+        // Revert WAS attempted on the failing element, even though it
+        // threw — locks that the cleanup path runs unconditionally after
+        // an apply failure.
+        verify(exactly = 1) { doubleThrower.revert() }
+        // Dispatch continued to the next element after both failures.
+        verify(exactly = 1) { survivor.apply(accent) }
+    }
+
     /**
      * Builds a relaxed [AccentElement] mock with the given id and display
      * name. Used by the defensive dispatch regression tests to assemble
