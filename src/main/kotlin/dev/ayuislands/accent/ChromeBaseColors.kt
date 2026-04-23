@@ -30,6 +30,13 @@ object ChromeBaseColors {
     private val log = logger<ChromeBaseColors>()
     private val snapshot = ConcurrentHashMap<String, Color>()
 
+    /**
+     * Per-key latch — a `true` entry means "we already logged the missing-key warning".
+     * Cleared alongside [snapshot] on LAF refresh so a key that drops between themes
+     * gets its own fresh warning. See Phase 40 review Round 3 C-3.
+     */
+    private val missingKeyLogged = ConcurrentHashMap<String, Boolean>()
+
     init {
         // Tests that exercise ChromeBaseColors without an IDE container (no
         // MessageBus) swallow the subscription throw silently — the snapshot
@@ -39,10 +46,14 @@ object ChromeBaseColors {
         // changing theme. Log at WARN so the "chrome tints look stale after
         // theme change" report has a trace in idea.log.
         runCatching {
-            ApplicationManager
-                .getApplication()
+            val application = ApplicationManager.getApplication()
+            application
                 .messageBus
-                .connect()
+                // Anchor the subscription to the Application Disposable so the
+                // connection is disposed on plugin / application shutdown instead
+                // of leaking across dynamic plugin reloads. See Phase 40 review
+                // Round 3 C-4.
+                .connect(application)
                 .subscribe(LafManagerListener.TOPIC, LafManagerListener { refresh() })
         }.onFailure { exception ->
             log.warn(
@@ -56,11 +67,23 @@ object ChromeBaseColors {
      * Returns the stock color for [key] — captured the first time this method is
      * called (and every subsequent call returns the same value until the next
      * LAF change). Returns `null` if UIManager has no entry for [key] at capture
-     * time; callers fall back to their own default.
+     * time; callers fall back to their own default, and the first miss per key
+     * is logged at WARN so user-submitted idea.log captures which chrome surface
+     * silently skipped tint.
      */
     fun get(key: String): Color? {
         snapshot[key]?.let { return it }
-        val current = UIManager.getColor(key) ?: return null
+        val current = UIManager.getColor(key)
+        if (current == null) {
+            if (missingKeyLogged.putIfAbsent(key, true) == null) {
+                log.warn(
+                    "ChromeBaseColors: UIManager has no entry for '$key' — " +
+                        "chrome surface using this key will skip tint until " +
+                        "the next LAF event populates it",
+                )
+            }
+            return null
+        }
         // Retain first captured value even under concurrent first access.
         return snapshot.putIfAbsent(key, current) ?: current
     }
@@ -71,5 +94,8 @@ object ChromeBaseColors {
      */
     fun refresh() {
         snapshot.clear()
+        // Rearm the missing-key WARN latch so a key that disappears between
+        // themes gets a fresh log line on the next apply cycle.
+        missingKeyLogged.clear()
     }
 }
