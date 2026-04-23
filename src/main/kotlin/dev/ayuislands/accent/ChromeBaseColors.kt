@@ -31,11 +31,13 @@ object ChromeBaseColors {
     private val snapshot = ConcurrentHashMap<String, Color>()
 
     /**
-     * Per-key latch — a `true` entry means "we already logged the missing-key warning".
+     * Set of keys we've already logged a "UIManager has no entry" warning for.
      * Cleared alongside [snapshot] on LAF refresh so a key that drops between themes
-     * gets its own fresh warning. See Phase 40 review Round 3 C-3.
+     * gets its own fresh warning. Backed by `ConcurrentHashMap.newKeySet()` so
+     * `.add(key)` returns the log-once gate in a single atomic step. See Phase 40
+     * review Round 3 C-3 and Round 1 loop type-design finding.
      */
-    private val missingKeyLogged = ConcurrentHashMap<String, Boolean>()
+    private val missingKeyLogged: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     init {
         // Tests that exercise ChromeBaseColors without an IDE container (no
@@ -75,7 +77,9 @@ object ChromeBaseColors {
         snapshot[key]?.let { return it }
         val current = UIManager.getColor(key)
         if (current == null) {
-            if (missingKeyLogged.putIfAbsent(key, true) == null) {
+            // `Set.add` returns `true` iff the element was newly inserted — that is
+            // exactly the log-once gate, in a single atomic step.
+            if (missingKeyLogged.add(key)) {
                 log.warn(
                     "ChromeBaseColors: UIManager has no entry for '$key' — " +
                         "chrome surface using this key will skip tint until " +
@@ -93,9 +97,11 @@ object ChromeBaseColors {
      * Invoked by the LAF listener; exposed for tests.
      */
     fun refresh() {
-        snapshot.clear()
-        // Rearm the missing-key WARN latch so a key that disappears between
-        // themes gets a fresh log line on the next apply cycle.
+        // Clear the latch BEFORE the snapshot so a racing `get(key)` between the
+        // two clears cannot see a cleared snapshot with a stale latch still full
+        // (which would silence a WARN that the new LAF cycle should emit). See
+        // Phase 40 Round 1 review loop MEDIUM-2.
         missingKeyLogged.clear()
+        snapshot.clear()
     }
 }

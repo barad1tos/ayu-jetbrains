@@ -73,25 +73,11 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         // install / notifyExternalApply doesn't abort the rest of startup
         // (font preset apply, language-detector warmup, ModuleRootListener
         // subscribe, scrollbar manager init, ComponentTreeRefresher,
-        // ConflictRegistry, license checks, onboarding). Logged at ERROR so
-        // user bug reports include a trace of which step failed. See Phase 40
-        // review Round 3 C-5.
-        withContext(Dispatchers.EDT) {
-            runCatchingPreservingCancellation {
-                val focusedProject = AccentApplicator.resolveFocusedProject() ?: project
-                val hex = AccentResolver.resolve(focusedProject, variant)
-                AccentApplicator.apply(hex)
-                val swapService = ProjectAccentSwapService.getInstance()
-                swapService.install()
-                swapService.notifyExternalApply(hex)
-            }.onFailure { exception ->
-                LOG.error(
-                    "Startup accent apply/install failed for project '${project.name}'; " +
-                        "continuing with remaining startup steps",
-                    exception,
-                )
-            }
-        }
+        // ConflictRegistry, license checks, onboarding). Extracted into
+        // `runStartupAccentOnEdt` to keep `execute` within detekt's cyclomatic
+        // complexity budget. See Phase 40 review Round 3 C-5 and review-loop
+        // Round 1 HIGH-2/HIGH-3/MEDIUM-3.
+        runStartupAccentOnEdt(project, variant)
 
         // Warm the language-detector cache so Settings → Accent → Overrides
         // shows real per-language proportions on first open. Gated on the same
@@ -216,6 +202,63 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
                 { GlowOverlayManager.getInstance(project).initialize() },
                 project.disposed,
             )
+        }
+    }
+
+    /**
+     * EDT triplet that must run atomically to avoid startup races: resolve the
+     * focused project, apply the accent, then install the focus-swap listener
+     * and publish the swap cache. Split from [execute] to keep cyclomatic
+     * complexity under detekt's threshold and to let the tests exercise this
+     * sequence in isolation (see Phase 40 review-loop Round 1 test-gap list).
+     *
+     * Round 1 refinements on top of the initial Round 3 C-5 fix:
+     *  - Capture projectName BEFORE the EDT hop so a mid-hop `project.isDisposed`
+     *    race cannot NPE inside the error logger and swallow the original
+     *    exception (MEDIUM-3).
+     *  - Split apply-vs-install into two [runCatchingPreservingCancellation]
+     *    blocks so the ERROR message pins which half failed — apply fail is a
+     *    visual regression the user sees; install fail silently disables
+     *    focus-swap cycling for the session (HIGH-2).
+     *  - Bail early if project/application already disposed to avoid hitting
+     *    platform APIs that rewrap PCE as AlreadyDisposedException, which the
+     *    coroutine cancellation helper can't unwrap (HIGH-3 mitigation at the
+     *    call site).
+     */
+    private suspend fun runStartupAccentOnEdt(
+        project: Project,
+        variant: AyuVariant,
+    ) {
+        val projectName = runCatching { project.name }.getOrElse { "<disposed>" }
+        withContext(Dispatchers.EDT) {
+            if (project.isDisposed || ApplicationManager.getApplication().isDisposed) {
+                return@withContext
+            }
+            val hex =
+                runCatchingPreservingCancellation {
+                    val focusedProject = AccentApplicator.resolveFocusedProject() ?: project
+                    val resolved = AccentResolver.resolve(focusedProject, variant)
+                    AccentApplicator.apply(resolved)
+                    resolved
+                }.onFailure { exception ->
+                    LOG.error(
+                        "Startup accent apply failed for project '$projectName'; " +
+                            "chrome may look un-themed until the next user-triggered apply",
+                        exception,
+                    )
+                }.getOrNull() ?: return@withContext
+            runCatchingPreservingCancellation {
+                val swapService = ProjectAccentSwapService.getInstance()
+                swapService.install()
+                swapService.notifyExternalApply(hex)
+            }.onFailure { exception ->
+                LOG.error(
+                    "Startup accent-swap install/notify failed for project '$projectName' " +
+                        "AFTER a successful apply; multi-project focus-swap cycling will " +
+                        "be inert this session until the user re-triggers apply",
+                    exception,
+                )
+            }
         }
     }
 

@@ -8,6 +8,7 @@ import java.awt.Color
 import java.awt.Component
 import java.awt.Container
 import java.awt.Window
+import java.util.concurrent.ConcurrentHashMap
 import javax.swing.JComponent
 
 /**
@@ -34,6 +35,16 @@ import javax.swing.JComponent
  */
 internal object LiveChromeRefresher {
     private val log = Logger.getInstance(LiveChromeRefresher::class.java)
+
+    /**
+     * Set of Container class names that have already produced a WARN for a
+     * `.components` read failure. Subsequent failures on the same class drop to
+     * DEBUG to avoid log spam, but the first occurrence per container class is
+     * loud because it almost always indicates a broken custom `Container`
+     * override in a third-party plugin — reportable, not just defensive. See
+     * Phase 40 review-loop Round 1 MEDIUM-1.
+     */
+    private val brokenContainerLogged: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     // --- StatusBar (resolvable via public WindowManager API) ---
 
@@ -118,7 +129,17 @@ internal object LiveChromeRefresher {
      * the catch here also satisfies detekt's TooGenericExceptionCaught.
      */
     private inline fun forEachShowingWindow(action: (Window) -> Unit) {
-        for (window in Window.getWindows()) {
+        val windows =
+            try {
+                Window.getWindows()
+            } catch (exception: RuntimeException) {
+                log.warn(
+                    "Live refresh could not enumerate AWT windows; skipping pass",
+                    exception,
+                )
+                return
+            }
+        for (window in windows) {
             if (!window.isShowing) continue
             try {
                 action(window)
@@ -234,15 +255,35 @@ internal object LiveChromeRefresher {
                 try {
                     component.components
                 } catch (exception: RuntimeException) {
-                    log.debug(
-                        "Live refresh could not read children of ${component.javaClass.name}",
-                        exception,
-                    )
+                    logBrokenContainer(component, exception)
                     return
                 }
             for (child in children) {
                 walk(child, visit)
             }
+        }
+    }
+
+    /**
+     * WARN on first encounter per container class, DEBUG thereafter. A throwing
+     * `Container.components` read is a reportable defect (likely a broken
+     * custom `Container` override in a third-party plugin) — the first
+     * occurrence must be loud; subsequent hits in the same session drop to
+     * DEBUG so the log doesn't flood. See Phase 40 review-loop Round 1 MEDIUM-1.
+     */
+    private fun logBrokenContainer(
+        component: Container,
+        exception: RuntimeException,
+    ) {
+        val className = component.javaClass.name
+        if (brokenContainerLogged.add(className)) {
+            log.warn(
+                "Live refresh could not read children of $className — " +
+                    "subtree will be skipped every apply; further hits log at DEBUG",
+                exception,
+            )
+        } else {
+            log.debug("Live refresh could not read children of $className", exception)
         }
     }
 
