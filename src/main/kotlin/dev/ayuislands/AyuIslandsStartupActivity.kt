@@ -69,13 +69,28 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         //    painted.
         // ProjectActivity.execute runs on a background coroutine, so the full
         // compute-apply-publish triplet must be wrapped in a single EDT block.
+        // Isolate the triplet so a throw in resolveFocusedProject / apply /
+        // install / notifyExternalApply doesn't abort the rest of startup
+        // (font preset apply, language-detector warmup, ModuleRootListener
+        // subscribe, scrollbar manager init, ComponentTreeRefresher,
+        // ConflictRegistry, license checks, onboarding). Logged at ERROR so
+        // user bug reports include a trace of which step failed. See Phase 40
+        // review Round 3 C-5.
         withContext(Dispatchers.EDT) {
-            val focusedProject = AccentApplicator.resolveFocusedProject() ?: project
-            val hex = AccentResolver.resolve(focusedProject, variant)
-            AccentApplicator.apply(hex)
-            val swapService = ProjectAccentSwapService.getInstance()
-            swapService.install()
-            swapService.notifyExternalApply(hex)
+            runCatchingPreservingCancellation {
+                val focusedProject = AccentApplicator.resolveFocusedProject() ?: project
+                val hex = AccentResolver.resolve(focusedProject, variant)
+                AccentApplicator.apply(hex)
+                val swapService = ProjectAccentSwapService.getInstance()
+                swapService.install()
+                swapService.notifyExternalApply(hex)
+            }.onFailure { exception ->
+                LOG.error(
+                    "Startup accent apply/install failed for project '${project.name}'; " +
+                        "continuing with remaining startup steps",
+                    exception,
+                )
+            }
         }
 
         // Warm the language-detector cache so Settings → Accent → Overrides
