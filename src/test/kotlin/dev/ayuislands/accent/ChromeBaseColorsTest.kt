@@ -1,5 +1,6 @@
 package dev.ayuislands.accent
 
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.util.messages.MessageBus
@@ -36,7 +37,11 @@ class ChromeBaseColorsTest {
         val connection = mockk<MessageBusConnection>(relaxed = true)
         every { ApplicationManager.getApplication() } returns app
         every { app.messageBus } returns bus
+        // ChromeBaseColors now anchors its MessageBusConnection to the Application
+        // Disposable (Phase 40 Round 3 C-4), so the mock must match `connect(app)`
+        // as well as the bare `connect()` overload to stay forward-compatible.
         every { bus.connect() } returns connection
+        every { bus.connect(any<Disposable>()) } returns connection
         every { connection.subscribe(any(), any()) } returns Unit
 
         mockkStatic(UIManager::class)
