@@ -109,12 +109,21 @@ internal object LiveChromeRefresher {
      * Iterates top-level windows, skipping ones that are not [Window.isShowing] (disposed,
      * hidden, pooled popups) and isolating per-window failures so one flaky peer doesn't
      * abort chrome apply for the rest of the desktop. See Phase 40 review Round 3 C-1, C-2.
+     *
+     * Catches [RuntimeException] rather than using `runCatching` (which would also
+     * swallow [Error] — [OutOfMemoryError], [StackOverflowError]) so catastrophic JVM
+     * failures still propagate and don't get quietly logged at DEBUG. The Swing /
+     * AWT peer surface only throws [RuntimeException] subtypes (NPE on disposed peer,
+     * ClassCast on reflective match, IllegalState on detached frame), so narrowing
+     * the catch here also satisfies detekt's TooGenericExceptionCaught.
      */
     private inline fun forEachShowingWindow(action: (Window) -> Unit) {
         for (window in Window.getWindows()) {
             if (!window.isShowing) continue
-            runCatching { action(window) }.onFailure {
-                log.debug("Live refresh skipped for ${window.javaClass.simpleName}", it)
+            try {
+                action(window)
+            } catch (exception: RuntimeException) {
+                log.debug("Live refresh skipped for ${window.javaClass.simpleName}", exception)
             }
         }
     }
@@ -203,19 +212,34 @@ internal object LiveChromeRefresher {
 
     /**
      * Recursively walks [component] and its descendants, invoking [visit] per node.
-     * Each visit is isolated in `runCatching` so a single flaky peer (mid-dispose,
-     * ClassCast on reflective match, NPE inside repaint) doesn't abort the rest of
-     * the tree. See Phase 40 review Round 3 C-1.
+     * Each visit is isolated so a single flaky peer (mid-dispose, ClassCast on
+     * reflective match, NPE inside repaint) doesn't abort the rest of the tree;
+     * see Phase 40 review Round 3 C-1. Catches [RuntimeException] rather than
+     * [Throwable] so [Error]s ([OutOfMemoryError], [StackOverflowError]) still
+     * propagate instead of being silently swallowed at DEBUG, and narrower than
+     * [Exception] so detekt's TooGenericExceptionCaught stays happy — the Swing
+     * peer surface only throws [RuntimeException] subtypes anyway.
      */
     private fun walk(
         component: Component,
         visit: (Component) -> Unit,
     ) {
-        runCatching { visit(component) }.onFailure {
-            log.debug("Live refresh visit failed on ${component.javaClass.name}", it)
+        try {
+            visit(component)
+        } catch (exception: RuntimeException) {
+            log.debug("Live refresh visit failed on ${component.javaClass.name}", exception)
         }
         if (component is Container) {
-            val children = runCatching { component.components }.getOrNull() ?: return
+            val children =
+                try {
+                    component.components
+                } catch (exception: RuntimeException) {
+                    log.debug(
+                        "Live refresh could not read children of ${component.javaClass.name}",
+                        exception,
+                    )
+                    return
+                }
             for (child in children) {
                 walk(child, visit)
             }
