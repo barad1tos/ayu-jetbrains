@@ -265,4 +265,143 @@ class LiveChromeRefresherTest {
         LiveChromeRefresher.refreshByClassName("non.existent.ClassName.Z", targetColor)
         LiveChromeRefresher.clearByClassName("non.existent.ClassName.Z")
     }
+
+    // --- refreshOnTreeInsideAncestor / clearOnTreeInsideAncestor (Round 2 A-1) ---
+    //
+    // Ancestor-constrained variants prevent shared peer types (OnePixelDivider) from being
+    // tinted IDE-wide — only instances inside a specific container ancestor are touched.
+
+    private open class DividerLike : TrackingPanel()
+
+    private open class ToolWindowDecoratorLike : JPanel()
+
+    private open class EditorSplitterLike : JPanel()
+
+    @Test
+    fun `refreshOnTreeInsideAncestor mutates divider INSIDE tool-window ancestor`() {
+        val targetDivider = DividerLike()
+        val decorator = ToolWindowDecoratorLike().apply { add(targetDivider) }
+        val root = JPanel().apply { add(decorator) }
+        val baseline = targetDivider.setBackgroundCallCount
+
+        LiveChromeRefresher.refreshOnTreeInsideAncestor(
+            root,
+            DividerLike::class.java.name,
+            ToolWindowDecoratorLike::class.java.name,
+            targetColor,
+        )
+
+        assertEquals(targetColor, targetDivider.lastSetBackground)
+        assertEquals(baseline + 1, targetDivider.setBackgroundCallCount)
+    }
+
+    @Test
+    fun `refreshOnTreeInsideAncestor leaves divider OUTSIDE tool-window ancestor untouched`() {
+        val siblingDivider = DividerLike()
+        val editorSplitter = EditorSplitterLike().apply { add(siblingDivider) }
+        val root = JPanel().apply { add(editorSplitter) }
+        val baseline = siblingDivider.setBackgroundCallCount
+
+        LiveChromeRefresher.refreshOnTreeInsideAncestor(
+            root,
+            DividerLike::class.java.name,
+            ToolWindowDecoratorLike::class.java.name,
+            targetColor,
+        )
+
+        assertEquals(
+            baseline,
+            siblingDivider.setBackgroundCallCount,
+            "divider outside the tool-window decorator must not be mutated",
+        )
+    }
+
+    @Test
+    fun `refreshOnTreeInsideAncestor finds divider deeply nested inside ancestor`() {
+        val deepDivider = DividerLike()
+        val midContainer = JPanel().apply { add(deepDivider) }
+        val decorator = ToolWindowDecoratorLike().apply { add(midContainer) }
+        val anotherIntermediate = JPanel().apply { add(decorator) }
+        val root = JPanel().apply { add(anotherIntermediate) }
+
+        LiveChromeRefresher.refreshOnTreeInsideAncestor(
+            root,
+            DividerLike::class.java.name,
+            ToolWindowDecoratorLike::class.java.name,
+            targetColor,
+        )
+
+        assertEquals(targetColor, deepDivider.lastSetBackground)
+    }
+
+    @Test
+    fun `refreshOnTreeInsideAncestor handles mixed inside and outside siblings on same pass`() {
+        val insideDivider = DividerLike()
+        val outsideDivider = DividerLike()
+        val decorator = ToolWindowDecoratorLike().apply { add(insideDivider) }
+        val editorSplitter = EditorSplitterLike().apply { add(outsideDivider) }
+        val root =
+            JPanel().apply {
+                add(decorator)
+                add(editorSplitter)
+            }
+        val outsideBaseline = outsideDivider.setBackgroundCallCount
+
+        LiveChromeRefresher.refreshOnTreeInsideAncestor(
+            root,
+            DividerLike::class.java.name,
+            ToolWindowDecoratorLike::class.java.name,
+            targetColor,
+        )
+
+        assertEquals(targetColor, insideDivider.lastSetBackground)
+        assertEquals(
+            outsideBaseline,
+            outsideDivider.setBackgroundCallCount,
+            "outside sibling must remain untouched while inside sibling is tinted",
+        )
+    }
+
+    @Test
+    fun `clearOnTreeInsideAncestor nulls divider INSIDE tool-window ancestor only`() {
+        val insideDivider = DividerLike().apply { background = Color.RED }
+        val outsideDivider = DividerLike().apply { background = Color.BLUE }
+        val decorator = ToolWindowDecoratorLike().apply { add(insideDivider) }
+        val editorSplitter = EditorSplitterLike().apply { add(outsideDivider) }
+        val root =
+            JPanel().apply {
+                add(decorator)
+                add(editorSplitter)
+            }
+        val outsideBaseline = outsideDivider.setBackgroundCallCount
+
+        LiveChromeRefresher.clearOnTreeInsideAncestor(
+            root,
+            DividerLike::class.java.name,
+            ToolWindowDecoratorLike::class.java.name,
+        )
+
+        assertEquals(true, insideDivider.wasExplicitlyClearedToNull)
+        assertNull(insideDivider.lastSetBackground)
+        assertEquals(
+            outsideBaseline,
+            outsideDivider.setBackgroundCallCount,
+            "outside sibling must remain untouched during ancestor-scoped clear",
+        )
+    }
+
+    @Test
+    fun `refreshByClassNameInsideAncestorClass public entry does not throw in headless JVM`() {
+        // Smoke test: the window walk over an empty (or near-empty) headless AWT window list
+        // must complete without exceptions, just like the blind variant's smoke test above.
+        LiveChromeRefresher.refreshByClassNameInsideAncestorClass(
+            "non.existent.Target.Z",
+            "non.existent.Ancestor.Y",
+            targetColor,
+        )
+        LiveChromeRefresher.clearByClassNameInsideAncestorClass(
+            "non.existent.Target.Z",
+            "non.existent.Ancestor.Y",
+        )
+    }
 }

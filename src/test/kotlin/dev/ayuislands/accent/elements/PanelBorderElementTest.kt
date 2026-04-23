@@ -63,6 +63,12 @@ class PanelBorderElementTest {
         mockkObject(LiveChromeRefresher)
         every { LiveChromeRefresher.refreshByClassName(any(), any()) } returns Unit
         every { LiveChromeRefresher.clearByClassName(any()) } returns Unit
+        every {
+            LiveChromeRefresher.refreshByClassNameInsideAncestorClass(any(), any(), any())
+        } returns Unit
+        every {
+            LiveChromeRefresher.clearByClassNameInsideAncestorClass(any(), any())
+        } returns Unit
     }
 
     @AfterTest
@@ -167,24 +173,43 @@ class PanelBorderElementTest {
     }
 
     @Test
-    fun `apply invokes LiveChromeRefresher refreshByClassName for OnePixelDivider peer (Gap 4)`() {
+    fun `apply invokes ancestor-scoped refresh for OnePixelDivider inside tool-window decorator (Round 2 A-1)`() {
         state.chromeTintIntensity = 30
 
         PanelBorderElement().apply(accent)
 
         verify(exactly = 1) {
-            LiveChromeRefresher.refreshByClassName("com.intellij.openapi.ui.OnePixelDivider", blended)
+            LiveChromeRefresher.refreshByClassNameInsideAncestorClass(
+                "com.intellij.openapi.ui.OnePixelDivider",
+                "com.intellij.toolWindow.InternalDecoratorImpl",
+                blended,
+            )
         }
-        verify(exactly = 0) { LiveChromeRefresher.clearByClassName(any()) }
+        verify(exactly = 0) { LiveChromeRefresher.clearByClassNameInsideAncestorClass(any(), any()) }
     }
 
     @Test
-    fun `revert invokes LiveChromeRefresher clearByClassName for OnePixelDivider peer (D-14 symmetry)`() {
+    fun `apply must NOT invoke blind refreshByClassName (would over-tint IDE-wide dividers) (Round 2 A-1)`() {
+        state.chromeTintIntensity = 30
+
+        PanelBorderElement().apply(accent)
+
+        // Blind refresh would walk Window.getWindows() and paint every OnePixelDivider in
+        // the IDE — editor splitters, Settings dialog, diff gutter, Run/Debug splitter, etc.
+        verify(exactly = 0) { LiveChromeRefresher.refreshByClassName(any(), any()) }
+    }
+
+    @Test
+    fun `revert invokes ancestor-scoped clear for OnePixelDivider inside tool-window decorator (D-14 symmetry)`() {
         PanelBorderElement().revert()
 
         verify(exactly = 1) {
-            LiveChromeRefresher.clearByClassName("com.intellij.openapi.ui.OnePixelDivider")
+            LiveChromeRefresher.clearByClassNameInsideAncestorClass(
+                "com.intellij.openapi.ui.OnePixelDivider",
+                "com.intellij.toolWindow.InternalDecoratorImpl",
+            )
         }
-        verify(exactly = 0) { LiveChromeRefresher.refreshByClassName(any(), any()) }
+        verify(exactly = 0) { LiveChromeRefresher.refreshByClassNameInsideAncestorClass(any(), any(), any()) }
+        verify(exactly = 0) { LiveChromeRefresher.clearByClassName(any()) }
     }
 }

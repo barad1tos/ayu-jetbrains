@@ -86,6 +86,34 @@ internal object LiveChromeRefresher {
     }
 
     /**
+     * Ancestor-constrained variant of [refreshByClassName]. Mutates a matching [targetFqn]
+     * only when the component sits inside a container whose runtime class name equals
+     * [ancestorFqn]. Used for shared peer types (`OnePixelDivider`) whose instances live
+     * all over the IDE — tinting every one of them would leak panel-border styling into
+     * editor splitters, diff gutters, Settings dialog splitters, etc. See Phase 40
+     * review Round 2 A-1.
+     */
+    fun refreshByClassNameInsideAncestorClass(
+        targetFqn: String,
+        ancestorFqn: String,
+        color: Color,
+    ) {
+        for (window in Window.getWindows()) {
+            refreshOnTreeInsideAncestor(window, targetFqn, ancestorFqn, color)
+        }
+    }
+
+    /** Mirror of [refreshByClassNameInsideAncestorClass] for the revert path. */
+    fun clearByClassNameInsideAncestorClass(
+        targetFqn: String,
+        ancestorFqn: String,
+    ) {
+        for (window in Window.getWindows()) {
+            clearOnTreeInsideAncestor(window, targetFqn, ancestorFqn)
+        }
+    }
+
+    /**
      * Visible for tests — traverses [root] (and every descendant Container) and mutates
      * any [JComponent] whose runtime class name equals [classNameFqn].
      */
@@ -113,6 +141,58 @@ internal object LiveChromeRefresher {
                 component.repaint()
             }
         }
+    }
+
+    /**
+     * Visible for tests — ancestor-constrained variant of [refreshOnTree]. Only mutates a
+     * matching [targetFqn] when a parent in its container chain has runtime class name
+     * equal to [ancestorFqn].
+     */
+    internal fun refreshOnTreeInsideAncestor(
+        root: Component,
+        targetFqn: String,
+        ancestorFqn: String,
+        color: Color,
+    ) {
+        walk(root) { component ->
+            if (component is JComponent &&
+                component.javaClass.name == targetFqn &&
+                hasAncestorWithClassName(component, ancestorFqn)
+            ) {
+                component.background = color
+                component.repaint()
+            }
+        }
+    }
+
+    /** Visible for tests — mirror of [refreshOnTreeInsideAncestor] for the revert path. */
+    internal fun clearOnTreeInsideAncestor(
+        root: Component,
+        targetFqn: String,
+        ancestorFqn: String,
+    ) {
+        walk(root) { component ->
+            if (component is JComponent &&
+                component.javaClass.name == targetFqn &&
+                hasAncestorWithClassName(component, ancestorFqn)
+            ) {
+                component.background = null
+                component.repaint()
+            }
+        }
+    }
+
+    /** Walks the parent chain of [component] looking for a container whose runtime class name equals [ancestorFqn]. */
+    private fun hasAncestorWithClassName(
+        component: Component,
+        ancestorFqn: String,
+    ): Boolean {
+        var current: Container? = component.parent
+        while (current != null) {
+            if (current.javaClass.name == ancestorFqn) return true
+            current = current.parent
+        }
+        return false
     }
 
     private fun walk(

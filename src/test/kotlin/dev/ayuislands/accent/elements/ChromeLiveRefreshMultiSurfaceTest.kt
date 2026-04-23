@@ -61,6 +61,12 @@ class ChromeLiveRefreshMultiSurfaceTest {
         every { LiveChromeRefresher.clearStatusBar() } returns Unit
         every { LiveChromeRefresher.refreshByClassName(any(), any()) } returns Unit
         every { LiveChromeRefresher.clearByClassName(any()) } returns Unit
+        every {
+            LiveChromeRefresher.refreshByClassNameInsideAncestorClass(any(), any(), any())
+        } returns Unit
+        every {
+            LiveChromeRefresher.clearByClassNameInsideAncestorClass(any(), any())
+        } returns Unit
 
         mockState = AyuIslandsState().apply { chromeTintIntensity = 40 }
         mockSettings = mockk(relaxed = true)
@@ -103,13 +109,23 @@ class ChromeLiveRefreshMultiSurfaceTest {
                 blended,
             )
         }
+        // Round 2 A-1: PanelBorder now uses the ancestor-scoped variant to avoid
+        // over-tinting OnePixelDivider instances outside tool windows.
         verify(exactly = 1) {
-            LiveChromeRefresher.refreshByClassName("com.intellij.openapi.ui.OnePixelDivider", blended)
+            LiveChromeRefresher.refreshByClassNameInsideAncestorClass(
+                "com.intellij.openapi.ui.OnePixelDivider",
+                "com.intellij.toolWindow.InternalDecoratorImpl",
+                blended,
+            )
+        }
+        verify(exactly = 0) {
+            LiveChromeRefresher.refreshByClassName("com.intellij.openapi.ui.OnePixelDivider", any())
         }
 
         // No cross-talk: no element should be invoking the clear path during apply.
         verify(exactly = 0) { LiveChromeRefresher.clearStatusBar() }
         verify(exactly = 0) { LiveChromeRefresher.clearByClassName(any()) }
+        verify(exactly = 0) { LiveChromeRefresher.clearByClassNameInsideAncestorClass(any(), any()) }
     }
 
     @Test
@@ -128,11 +144,23 @@ class ChromeLiveRefreshMultiSurfaceTest {
         verify(exactly = 1) {
             LiveChromeRefresher.clearByClassName("com.intellij.openapi.wm.impl.headertoolbar.MainToolbar")
         }
-        verify(exactly = 1) { LiveChromeRefresher.clearByClassName("com.intellij.openapi.ui.OnePixelDivider") }
+        // Round 2 A-1: PanelBorder uses the ancestor-scoped clear for D-14 symmetry.
+        verify(exactly = 1) {
+            LiveChromeRefresher.clearByClassNameInsideAncestorClass(
+                "com.intellij.openapi.ui.OnePixelDivider",
+                "com.intellij.toolWindow.InternalDecoratorImpl",
+            )
+        }
+        verify(exactly = 0) {
+            LiveChromeRefresher.clearByClassName("com.intellij.openapi.ui.OnePixelDivider")
+        }
 
         // No cross-talk: revert must not invoke any refresh path.
         verify(exactly = 0) { LiveChromeRefresher.refreshStatusBar(any()) }
         verify(exactly = 0) { LiveChromeRefresher.refreshByClassName(any(), any()) }
+        verify(exactly = 0) {
+            LiveChromeRefresher.refreshByClassNameInsideAncestorClass(any(), any(), any())
+        }
     }
 
     @Test
@@ -152,17 +180,31 @@ class ChromeLiveRefreshMultiSurfaceTest {
         verify(exactly = 1) { LiveChromeRefresher.refreshStatusBar(blended) }
         verify(exactly = 1) { LiveChromeRefresher.clearStatusBar() }
 
-        // Four class-name pairs
-        val peerClasses =
+        // Three blind class-name pairs (NavBar / Stripe / MainToolbar)
+        val blindPeerClasses =
             listOf(
                 "com.intellij.platform.navbar.frontend.MyNavBarWrapperPanel",
                 "com.intellij.toolWindow.Stripe",
                 "com.intellij.openapi.wm.impl.headertoolbar.MainToolbar",
-                "com.intellij.openapi.ui.OnePixelDivider",
             )
-        for (fqn in peerClasses) {
+        for (fqn in blindPeerClasses) {
             verify(exactly = 1) { LiveChromeRefresher.refreshByClassName(fqn, blended) }
             verify(exactly = 1) { LiveChromeRefresher.clearByClassName(fqn) }
+        }
+
+        // PanelBorder pair — ancestor-scoped (Round 2 A-1)
+        verify(exactly = 1) {
+            LiveChromeRefresher.refreshByClassNameInsideAncestorClass(
+                "com.intellij.openapi.ui.OnePixelDivider",
+                "com.intellij.toolWindow.InternalDecoratorImpl",
+                blended,
+            )
+        }
+        verify(exactly = 1) {
+            LiveChromeRefresher.clearByClassNameInsideAncestorClass(
+                "com.intellij.openapi.ui.OnePixelDivider",
+                "com.intellij.toolWindow.InternalDecoratorImpl",
+            )
         }
     }
 
@@ -193,8 +235,14 @@ class ChromeLiveRefreshMultiSurfaceTest {
                 any(),
             )
         }
+        // PanelBorder ancestor-scoped refresh still fires (Round 2 A-1) — MainToolbar gate
+        // short-circuits MainToolbar only, not sibling peers.
         verify(exactly = 1) {
-            LiveChromeRefresher.refreshByClassName("com.intellij.openapi.ui.OnePixelDivider", blended)
+            LiveChromeRefresher.refreshByClassNameInsideAncestorClass(
+                "com.intellij.openapi.ui.OnePixelDivider",
+                "com.intellij.toolWindow.InternalDecoratorImpl",
+                blended,
+            )
         }
     }
 }
