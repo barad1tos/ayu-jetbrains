@@ -59,7 +59,7 @@ class MainToolbarElement : AccentElement {
 
     override fun apply(color: Color) {
         if (!ChromeDecorationsProbe.isCustomHeaderActive()) return
-        val intensity = AyuIslandsSettings.getInstance().state.chromeTintIntensity
+        val intensity = AyuIslandsSettings.getInstance().state.effectiveChromeTintIntensity()
         var tintedBackground: Color? = null
         for (key in backgroundKeys) {
             val baseColor = ChromeBaseColors.get(key) ?: continue

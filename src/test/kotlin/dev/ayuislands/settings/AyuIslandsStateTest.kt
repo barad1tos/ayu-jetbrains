@@ -123,6 +123,33 @@ class AyuIslandsStateTest {
     }
 
     @Test
+    fun `effectiveChromeTintIntensity coerces corrupted persisted values into 0-100`() {
+        // Regression guard for PR #151 Round 1 Fix 2: a corrupted persisted intensity
+        // (negative, above 100) must never flow into the HSB blender as-is. The raw
+        // BaseState `property(...)` delegate can't validate at the setter boundary
+        // without breaking XML deserialization, so the state class exposes an
+        // `effective*` helper that clamps at READ time. Every chrome-element apply
+        // site reads through this helper, so garbage values in the XML cannot
+        // desaturate / over-saturate chrome surfaces regardless of how the state
+        // file was hand-edited or migrated.
+        val state = freshState()
+
+        state.chromeTintIntensity = -10
+        assertEquals(0, state.effectiveChromeTintIntensity(), "negative values clamp to 0")
+
+        state.chromeTintIntensity = 500
+        assertEquals(100, state.effectiveChromeTintIntensity(), "above-100 values clamp to 100")
+
+        state.chromeTintIntensity = 42
+        assertEquals(42, state.effectiveChromeTintIntensity(), "in-range values pass through unchanged")
+
+        state.chromeTintIntensity = 0
+        assertEquals(0, state.effectiveChromeTintIntensity())
+        state.chromeTintIntensity = 100
+        assertEquals(100, state.effectiveChromeTintIntensity())
+    }
+
+    @Test
     fun `chromeTintingGroupExpanded round-trips`() {
         val state = freshState()
         state.chromeTintingGroupExpanded = true

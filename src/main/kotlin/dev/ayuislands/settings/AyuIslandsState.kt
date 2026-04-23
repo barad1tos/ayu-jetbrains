@@ -235,22 +235,41 @@ class AyuIslandsState : BaseState() {
     // Force overrides for conflicting elements (element ID names)
     var forceOverrides by stringSet()
 
-    // Chrome tinting (phase 40). Per-surface opt-in toggles, global intensity, and
-    // foreground-readability guard. CHROME-group AccentElementIds are driven by these
-    // fields — NOT by the Elements-panel toggle map — so they never leak into the
-    // VISUAL/INTERACTIVE checkbox list. Defaults are all OFF (premium, opt-in).
+    // Chrome tinting (phase 40). Per-surface opt-in toggles and a global intensity.
+    // WCAG foreground contrast is always-on (no persisted toggle). CHROME-group
+    // AccentElementIds are driven by these fields — NOT by the Elements-panel toggle
+    // map — so they never leak into the VISUAL/INTERACTIVE checkbox list. Defaults
+    // are all OFF (premium, opt-in).
     var chromeStatusBar by property(false)
     var chromeMainToolbar by property(false)
     var chromeToolWindowStripe by property(false)
     var chromeNavBar by property(false)
     var chromePanelBorder by property(false)
 
-    // Global tint intensity for all CHROME surfaces (0-100). 20 is a subtle default
-    // tint that keeps the IDE chrome readable while still being visible as an accent.
+    // Global tint intensity (0-100). See DEFAULT_CHROME_TINT_INTENSITY KDoc for the
+    // 40 rationale. Raw reads of this field can return out-of-range values if the
+    // persisted XML was hand-edited, migrated from an older schema, or otherwise
+    // corrupted — the backing `BaseState.property(...)` delegate is unvalidated.
+    // Call-sites that feed the HSB blender MUST read through
+    // [effectiveChromeTintIntensity] so a garbage persisted value can't desaturate
+    // or over-saturate chrome surfaces.
     var chromeTintIntensity by property(DEFAULT_CHROME_TINT_INTENSITY)
 
     // Chrome-tinting collapsible group expanded state (same shape as accentElementsGroupExpanded).
     var chromeTintingGroupExpanded by property(false)
+
+    /**
+     * Returns [chromeTintIntensity] clamped to the valid [0, 100] slider range.
+     *
+     * The underlying field is delegated through [BaseState.property] which performs
+     * no validation — a corrupted persisted XML (hand-edited, legacy-migrated, or
+     * third-party-tool-written) can store values outside the slider bounds. Chrome
+     * element apply sites feed this value into the HSB blender; out-of-range
+     * garbage would desaturate or over-saturate the tinted surface. Reading through
+     * this helper keeps every caller on the safe contract without breaking XML
+     * serialization (which requires the raw delegate).
+     */
+    fun effectiveChromeTintIntensity(): Int = chromeTintIntensity.coerceIn(0, MAX_CHROME_TINT_INTENSITY)
 
     fun isToggleEnabled(id: AccentElementId): Boolean =
         when (id) {
@@ -395,5 +414,13 @@ class AyuIslandsState : BaseState() {
          * readability. Users can adjust via the Chrome tinting settings slider.
          */
         const val DEFAULT_CHROME_TINT_INTENSITY = 40
+
+        /**
+         * Upper bound for [chromeTintIntensity] reads. The blender internally
+         * re-clamps, but [effectiveChromeTintIntensity] pre-clamps so every
+         * call site observes a valid slider value regardless of how the
+         * persisted XML was mutated.
+         */
+        const val MAX_CHROME_TINT_INTENSITY = 100
     }
 }

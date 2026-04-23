@@ -30,7 +30,7 @@ class PanelBorderElement : AccentElement {
         )
 
     override fun apply(color: Color) {
-        val intensity = AyuIslandsSettings.getInstance().state.chromeTintIntensity
+        val intensity = AyuIslandsSettings.getInstance().state.effectiveChromeTintIntensity()
         var tintedHeaderBorder: Color? = null
         for (key in uiKeys) {
             val baseColor = ChromeBaseColors.get(key) ?: continue

@@ -41,7 +41,7 @@ class ToolWindowStripeElement : AccentElement {
         )
 
     override fun apply(color: Color) {
-        val intensity = AyuIslandsSettings.getInstance().state.chromeTintIntensity
+        val intensity = AyuIslandsSettings.getInstance().state.effectiveChromeTintIntensity()
         var tintedStripeBackground: Color? = null
         var tintedSelectedBackground: Color? = null
         for (key in backgroundKeys) {

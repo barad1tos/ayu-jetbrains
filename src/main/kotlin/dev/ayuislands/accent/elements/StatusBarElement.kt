@@ -61,7 +61,7 @@ class StatusBarElement : AccentElement {
         )
 
     override fun apply(color: Color) {
-        val intensity = AyuIslandsSettings.getInstance().state.chromeTintIntensity
+        val intensity = AyuIslandsSettings.getInstance().state.effectiveChromeTintIntensity()
         var tintedBackground: Color? = null
         for (key in backgroundKeys) {
             val baseColor = ChromeBaseColors.get(key) ?: continue
