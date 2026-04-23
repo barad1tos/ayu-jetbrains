@@ -18,10 +18,25 @@ internal class AyuIslandsAppListener : AppLifecycleListener {
         // runs). The live resolver chain still fires once projects settle (see
         // AyuIslandsStartupActivity.execute), so this cached hex is only authoritative
         // for the first painted frame.
-        val cached = AyuIslandsSettings.getInstance().state.lastAppliedAccentHex
-        val accentHex = cached ?: AccentResolver.resolve(null, variant)
+        //
+        // Trust-but-verify the persisted hex: [AyuIslandsState.lastAppliedAccentHex] is
+        // a plain String property on a [BaseState] serialized to XML. Corrupted writes
+        // (partial persist on IDE crash, hand-edited ayu-islands.xml, stale format from
+        // a legacy build) would feed straight into [AccentApplicator.apply], which in
+        // turn routes through [Color.decode] and throws [NumberFormatException]. The
+        // applier now self-defends, but we still clear the bad persisted value so the
+        // next boot does not re-poison startup. When the cache is unusable we fall
+        // through to the resolver path just like a fresh install.
+        val settings = AyuIslandsSettings.getInstance()
+        val cached = settings.state.lastAppliedAccentHex
+        val validCached = cached?.takeIf { AccentApplicator.HEX_COLOR_PATTERN.matches(it) }
+        if (cached != null && validCached == null) {
+            LOG.warn("AyuIslandsAppListener: invalid cached hex '$cached'; clearing and re-resolving")
+            settings.state.lastAppliedAccentHex = null
+        }
+        val accentHex = validCached ?: AccentResolver.resolve(null, variant)
         AccentApplicator.apply(accentHex)
-        val source = if (cached != null) "cached" else "resolved"
+        val source = if (validCached != null) "cached" else "resolved"
         LOG.info("Ayu Islands accent pre-applied in appFrameCreated ($source): $accentHex for ${variant.name}")
     }
 

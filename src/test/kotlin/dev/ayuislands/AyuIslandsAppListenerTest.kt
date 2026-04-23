@@ -20,6 +20,8 @@ import io.mockk.verify
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 @Suppress("UnstableApiUsage")
 class AyuIslandsAppListenerTest {
@@ -172,6 +174,88 @@ class AyuIslandsAppListenerTest {
 
         verify(exactly = 1) { AccentResolver.resolve(null, AyuVariant.MIRAGE) }
         verify(exactly = 1) { AccentApplicator.apply("#FF0000") }
+    }
+
+    @Test
+    fun `appFrameCreated skips invalid cached hex and falls through to resolver`() {
+        // Phase 40 Round 2 Fix B-1: a corrupted `lastAppliedAccentHex` (truncated
+        // persist, hand-edited XML, legacy format) used to feed straight into
+        // AccentApplicator.apply and throw NumberFormatException inside Color.decode.
+        // The listener now shape-checks the cached value before use; invalid values are
+        // cleared so they can't re-poison subsequent boots, and the resolver path runs
+        // instead — identical to a fresh install's first frame.
+        state.lastAppliedAccentHex = "garbage"
+        mockkObject(AccentResolver)
+        every { AccentResolver.resolve(null, AyuVariant.MIRAGE) } returns "#FF0000"
+
+        val laf = mockk<UIThemeLookAndFeelInfo>()
+        every { laf.name } returns "Ayu Mirage (Islands UI)"
+        val lafManager = mockk<LafManager>()
+        every { lafManager.currentUIThemeLookAndFeel } returns laf
+        every { LafManager.getInstance() } returns lafManager
+
+        listener.appFrameCreated(mutableListOf())
+
+        // Resolver MUST be consulted — cached hex was invalid.
+        verify(exactly = 1) { AccentResolver.resolve(null, AyuVariant.MIRAGE) }
+        verify(exactly = 1) { AccentApplicator.apply("#FF0000") }
+        // Applier must NOT have been called with the poison value.
+        verify(exactly = 0) { AccentApplicator.apply("garbage") }
+        // Bad persisted hex cleared so next boot starts clean.
+        assertNull(state.lastAppliedAccentHex, "invalid cached hex must be cleared")
+    }
+
+    @Test
+    fun `appFrameCreated accepts only properly shaped cached hex strings`() {
+        // Boundary cases for the shape check: only `#RRGGBB` passes. Shorter, longer,
+        // missing-prefix, and non-hex forms must all route through the resolver and
+        // leave the cache cleared.
+        mockkObject(AccentResolver)
+        every { AccentResolver.resolve(null, AyuVariant.MIRAGE) } returns "#FF0000"
+
+        val laf = mockk<UIThemeLookAndFeelInfo>()
+        every { laf.name } returns "Ayu Mirage (Islands UI)"
+        val lafManager = mockk<LafManager>()
+        every { lafManager.currentUIThemeLookAndFeel } returns laf
+        every { LafManager.getInstance() } returns lafManager
+
+        val malformed = listOf("", "FFCC66", "#12345", "#1234567", "#ZZZZZZ")
+        for (badValue in malformed) {
+            state.lastAppliedAccentHex = badValue
+            listener.appFrameCreated(mutableListOf())
+            assertNull(
+                state.lastAppliedAccentHex,
+                "malformed cached hex '$badValue' must be cleared",
+            )
+        }
+
+        // Resolver consulted for every malformed entry; no call applied the poison hex.
+        verify(atLeast = malformed.size) { AccentResolver.resolve(null, AyuVariant.MIRAGE) }
+        for (badValue in malformed) {
+            verify(exactly = 0) { AccentApplicator.apply(badValue) }
+        }
+    }
+
+    @Test
+    fun `appFrameCreated preserves valid cached hex`() {
+        // Positive counterpart: a well-shaped cached hex must not be cleared and must
+        // be applied directly without consulting the resolver — that's the Round 1
+        // anti-flicker guarantee. Round 2 only hardens the NEGATIVE path; the positive
+        // path must remain unchanged.
+        state.lastAppliedAccentHex = "#5CCFE6"
+        mockkObject(AccentResolver)
+
+        val laf = mockk<UIThemeLookAndFeelInfo>()
+        every { laf.name } returns "Ayu Mirage (Islands UI)"
+        val lafManager = mockk<LafManager>()
+        every { lafManager.currentUIThemeLookAndFeel } returns laf
+        every { LafManager.getInstance() } returns lafManager
+
+        listener.appFrameCreated(mutableListOf())
+
+        verify(exactly = 1) { AccentApplicator.apply("#5CCFE6") }
+        verify(exactly = 0) { AccentResolver.resolve(any(), any()) }
+        assertEquals("#5CCFE6", state.lastAppliedAccentHex, "valid cached hex must remain persisted")
     }
 
     @Test

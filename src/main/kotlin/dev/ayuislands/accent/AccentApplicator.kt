@@ -32,6 +32,17 @@ import javax.swing.SwingUtilities
 import javax.swing.UIManager
 
 object AccentApplicator {
+    /**
+     * Shape check for persisted / caller-provided accent hex strings. `#` prefix + exactly
+     * six hex digits — the only form [Color.decode] can interpret without throwing on
+     * this path. Shared with [dev.ayuislands.AyuIslandsAppListener] so the cache read
+     * on startup and the apply entry point reject the same corrupted values (hand-edited
+     * XML, truncated writes, rare partial-persist under IDE crash) before they reach the
+     * decoder. Without this gate a single bad hex in `ayu-islands.xml` would abort the
+     * very first frame paint and leave the plugin silently inert for the session.
+     */
+    val HEX_COLOR_PATTERN = Regex("^#[0-9A-Fa-f]{6}$")
+
     private val EP_NAME =
         ExtensionPointName<AccentElement>(
             "com.ayuislands.theme.accentElement",
@@ -130,6 +141,17 @@ object AccentApplicator {
         )
 
     fun apply(accentHex: String) {
+        // Reject garbage before it reaches [Color.decode], which throws
+        // [NumberFormatException] on anything outside the `#RRGGBB` form. Callers
+        // include [dev.ayuislands.AyuIslandsAppListener.appFrameCreated] feeding the
+        // persisted `lastAppliedAccentHex` straight from XML — a corrupted or
+        // hand-edited value must not abort the first frame paint. Warn so user-submitted
+        // idea.log captures the offending value for diagnosis, then bail; the next
+        // resolver-driven apply (StartupActivity) will write a clean hex.
+        if (!HEX_COLOR_PATTERN.matches(accentHex)) {
+            log.warn("AccentApplicator.apply: invalid hex '$accentHex' — skipping apply")
+            return
+        }
         val accent = Color.decode(accentHex)
         val state = AyuIslandsSettings.getInstance().state
         val variant = AyuVariant.detect()
