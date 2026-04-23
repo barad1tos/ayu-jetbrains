@@ -23,6 +23,7 @@ import dev.ayuislands.indent.IndentRainbowSync
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
+import dev.ayuislands.ui.ComponentTreeRefresher
 import java.awt.Color
 import java.awt.Window
 import java.lang.reflect.Method
@@ -31,6 +32,17 @@ import javax.swing.SwingUtilities
 import javax.swing.UIManager
 
 object AccentApplicator {
+    /**
+     * Shape check for persisted / caller-provided accent hex strings. `#` prefix + exactly
+     * six hex digits — the only form [Color.decode] can interpret without throwing on
+     * this path. Shared with [dev.ayuislands.AyuIslandsAppListener] so the cache read
+     * on startup and the apply entry point reject the same corrupted values (hand-edited
+     * XML, truncated writes, rare partial-persist under IDE crash) before they reach the
+     * decoder. Without this gate a single bad hex in `ayu-islands.xml` would abort the
+     * very first frame paint and leave the plugin silently inert for the session.
+     */
+    val HEX_COLOR_PATTERN = Regex("^#[0-9A-Fa-f]{6}$")
+
     private val EP_NAME =
         ExtensionPointName<AccentElement>(
             "com.ayuislands.theme.accentElement",
@@ -129,6 +141,17 @@ object AccentApplicator {
         )
 
     fun apply(accentHex: String) {
+        // Reject garbage before it reaches [Color.decode], which throws
+        // [NumberFormatException] on anything outside the `#RRGGBB` form. Callers
+        // include [dev.ayuislands.AyuIslandsAppListener.appFrameCreated] feeding the
+        // persisted `lastAppliedAccentHex` straight from XML — a corrupted or
+        // hand-edited value must not abort the first frame paint. Warn so user-submitted
+        // idea.log captures the offending value for diagnosis, then bail; the next
+        // resolver-driven apply (StartupActivity) will write a clean hex.
+        if (!HEX_COLOR_PATTERN.matches(accentHex)) {
+            log.warn("AccentApplicator.apply: invalid hex '$accentHex' — skipping apply")
+            return
+        }
         val accent = Color.decode(accentHex)
         val state = AyuIslandsSettings.getInstance().state
         val variant = AyuVariant.detect()
@@ -147,7 +170,30 @@ object AccentApplicator {
                 applyAlwaysOnEditorKeys(accent)
                 overrideTabUnderlineForOffMode(state, variant)
                 applyTabUnderlineStyle(state)
+
+                // Gap-4 mirror of the D-15 hook in revertAll. Re-publish
+                // ComponentTreeRefreshedTopic after EP apply so subscribers
+                // (EditorScrollbarManager, ProjectViewScrollbarManager) re-read
+                // UIManager state. Chrome surfaces do NOT subscribe to this topic —
+                // their live-refresh happens in plan 40-14 Level 2. This hook is the
+                // architectural symmetry primitive; 40-14 is the visible fix.
+                //
+                // Per 40-12 research §A verdict=UNSAFE, this site MUST NOT publish
+                // LafManagerListener.TOPIC — that broadcast would re-enter the LAF
+                // cycle. notifyOnly only.
+                for (project in ProjectManager.getInstance().openProjects) {
+                    if (!project.isUsable()) continue
+                    ComponentTreeRefresher.notifyOnly(project)
+                }
+
                 repaintAllWindows(Window.getWindows())
+
+                // Persist for next-startup anti-flicker: AyuIslandsAppListener.appFrameCreated
+                // reads this hex and applies it before any project context exists, so the first
+                // painted frame after IDE restart matches the eventual resolver output. Without
+                // this, multi-window setups flash the GLOBAL accent before each project's
+                // StartupActivity runs.
+                state.lastAppliedAccentHex = accentHex
             }
 
         if (SwingUtilities.isEventDispatchThread()) {
@@ -317,6 +363,19 @@ object AccentApplicator {
                 }
 
                 revertAlwaysOnEditorKeys()
+
+                // D-15: cached JBColor instances survive a bare UIManager.put(key, null)
+                // clear. Publish the refresh topic per usable open project so subscribers
+                // (e.g. EditorScrollbarManager) reapply their customizations against the
+                // freshly-reverted UIManager state. notifyOnly stops short of
+                // IJSwingUtilities.updateComponentTreeUI — that path would crash here
+                // because LAF refresh is still mid-flight (see the no-repaint note
+                // below). Publishing a topic lets subscribers decide when to repaint.
+                for (project in ProjectManager.getInstance().openProjects) {
+                    if (!project.isUsable()) continue
+                    ComponentTreeRefresher.notifyOnly(project)
+                }
+
                 // No repaintAllWindows here: revertAll runs inside
                 // lookAndFeelChanged, before the new theme finishes
                 // loading. Forcing a repaint at this point causes

@@ -1,6 +1,7 @@
 package dev.ayuislands.settings
 
 import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.AccentGroup
 import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowStyle
 import java.io.File
@@ -215,6 +216,80 @@ class AyuIslandsStatePersistenceTest {
         assertEquals(2, reloaded.state.explicitlyUninstalledFonts.size)
     }
 
+    // ---------- Chrome tinting (phase 40) XML round-trip for all 8 new fields ----------
+
+    @Test
+    fun `all five chrome-group toggles survive save reload cycle when enabled`() {
+        // Drive every CHROME-group id through setToggle so the routing in
+        // AyuIslandsState.setToggle is exercised during the mutation phase,
+        // then verify each backing property persisted across the reload.
+        val reloaded =
+            roundTrip { state ->
+                for (id in AccentElementId.entries.filter { it.group == AccentGroup.CHROME }) {
+                    state.setToggle(id, true)
+                }
+            }
+
+        assertTrue(reloaded.state.chromeStatusBar, "chromeStatusBar must persist")
+        assertTrue(reloaded.state.chromeMainToolbar, "chromeMainToolbar must persist")
+        assertTrue(reloaded.state.chromeToolWindowStripe, "chromeToolWindowStripe must persist")
+        assertTrue(reloaded.state.chromeNavBar, "chromeNavBar must persist")
+        assertTrue(reloaded.state.chromePanelBorder, "chromePanelBorder must persist")
+
+        // isToggleEnabled must resolve through the reloaded state, not the original.
+        for (id in AccentElementId.entries.filter { it.group == AccentGroup.CHROME }) {
+            assertTrue(
+                reloaded.state.isToggleEnabled(id),
+                "${id.name} must remain enabled after reload",
+            )
+        }
+    }
+
+    @Test
+    fun `chromeTintIntensity survives save reload cycle`() {
+        val reloaded =
+            roundTrip { state ->
+                state.chromeTintIntensity = EXPECTED_CHROME_TINT_INTENSITY
+            }
+        assertEquals(EXPECTED_CHROME_TINT_INTENSITY, reloaded.state.chromeTintIntensity)
+    }
+
+    @Test
+    fun `chromeTintingGroupExpanded survives save reload cycle when expanded`() {
+        val reloaded =
+            roundTrip { state ->
+                state.chromeTintingGroupExpanded = true
+            }
+        assertTrue(reloaded.state.chromeTintingGroupExpanded)
+    }
+
+    // ---- Startup-flicker anti-flash (phase 40) ----
+
+    @Test
+    fun `lastAppliedAccentHex defaults to null`() {
+        val settings = AyuIslandsSettings()
+        assertEquals(null, settings.state.lastAppliedAccentHex)
+    }
+
+    @Test
+    fun `lastAppliedAccentHex survives save reload cycle`() {
+        val reloaded =
+            roundTrip { state ->
+                state.lastAppliedAccentHex = "#5CCFE6"
+            }
+        assertEquals("#5CCFE6", reloaded.state.lastAppliedAccentHex)
+    }
+
+    @Test
+    fun `lastAppliedAccentHex last-write-wins across reloads`() {
+        val reloaded =
+            roundTrip { state ->
+                state.lastAppliedAccentHex = "#5CCFE6"
+                state.lastAppliedAccentHex = "#FF3333"
+            }
+        assertEquals("#FF3333", reloaded.state.lastAppliedAccentHex)
+    }
+
     // ---- encodeFontPaths / decodeFontPaths helpers ----
 
     @Test
@@ -257,5 +332,6 @@ class AyuIslandsStatePersistenceTest {
         private const val EXPECTED_SHARP_NEON_INTENSITY = 80
         private const val EXPECTED_SHARP_NEON_WIDTH = 6
         private const val EXPECTED_LICENSED_MS = 1_700_000_000_000L
+        private const val EXPECTED_CHROME_TINT_INTENSITY = 65
     }
 }

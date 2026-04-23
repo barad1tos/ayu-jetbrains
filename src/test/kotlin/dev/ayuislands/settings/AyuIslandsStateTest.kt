@@ -1,6 +1,7 @@
 package dev.ayuislands.settings
 
 import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.AccentGroup
 import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
@@ -13,10 +14,15 @@ class AyuIslandsStateTest {
     private fun freshState(): AyuIslandsState = AyuIslandsState()
 
     @Test
-    fun `isToggleEnabled returns true by default for all elements`() {
+    fun `isToggleEnabled defaults true for VISUAL INTERACTIVE and false for CHROME`() {
+        // VISUAL/INTERACTIVE group elements default ON — part of the free accent surface.
+        // CHROME group (phase 40) defaults OFF — premium, opt-in chrome tinting.
         val state = freshState()
-        for (id in AccentElementId.entries) {
+        for (id in AccentElementId.entries.filter { it.group != AccentGroup.CHROME }) {
             assertTrue(state.isToggleEnabled(id), "${id.name} should be enabled by default")
+        }
+        for (id in AccentElementId.entries.filter { it.group == AccentGroup.CHROME }) {
+            assertFalse(state.isToggleEnabled(id), "${id.name} should be disabled by default (premium opt-in)")
         }
     }
 
@@ -29,6 +35,140 @@ class AyuIslandsStateTest {
             state.setToggle(id, true)
             assertTrue(state.isToggleEnabled(id), "${id.name} should be enabled after set(true)")
         }
+    }
+
+    // ---------- Chrome tinting (phase 40) — per-id branch coverage + defaults ----------
+
+    @Test
+    fun `setToggle routes STATUS_BAR to chromeStatusBar field`() {
+        val state = freshState()
+        assertFalse(state.chromeStatusBar, "precondition: chromeStatusBar defaults false")
+
+        state.setToggle(AccentElementId.STATUS_BAR, true)
+        assertTrue(state.chromeStatusBar, "setToggle(STATUS_BAR,true) must flip chromeStatusBar")
+        assertTrue(state.isToggleEnabled(AccentElementId.STATUS_BAR))
+
+        state.setToggle(AccentElementId.STATUS_BAR, false)
+        assertFalse(state.chromeStatusBar)
+        assertFalse(state.isToggleEnabled(AccentElementId.STATUS_BAR))
+    }
+
+    @Test
+    fun `setToggle routes MAIN_TOOLBAR to chromeMainToolbar field`() {
+        val state = freshState()
+        state.setToggle(AccentElementId.MAIN_TOOLBAR, true)
+        assertTrue(state.chromeMainToolbar)
+        assertTrue(state.isToggleEnabled(AccentElementId.MAIN_TOOLBAR))
+
+        state.setToggle(AccentElementId.MAIN_TOOLBAR, false)
+        assertFalse(state.chromeMainToolbar)
+    }
+
+    @Test
+    fun `setToggle routes TOOL_WINDOW_STRIPE to chromeToolWindowStripe field`() {
+        val state = freshState()
+        state.setToggle(AccentElementId.TOOL_WINDOW_STRIPE, true)
+        assertTrue(state.chromeToolWindowStripe)
+        assertTrue(state.isToggleEnabled(AccentElementId.TOOL_WINDOW_STRIPE))
+
+        state.setToggle(AccentElementId.TOOL_WINDOW_STRIPE, false)
+        assertFalse(state.chromeToolWindowStripe)
+    }
+
+    @Test
+    fun `setToggle routes NAV_BAR to chromeNavBar field`() {
+        val state = freshState()
+        state.setToggle(AccentElementId.NAV_BAR, true)
+        assertTrue(state.chromeNavBar)
+        assertTrue(state.isToggleEnabled(AccentElementId.NAV_BAR))
+
+        state.setToggle(AccentElementId.NAV_BAR, false)
+        assertFalse(state.chromeNavBar)
+    }
+
+    @Test
+    fun `setToggle routes PANEL_BORDER to chromePanelBorder field`() {
+        val state = freshState()
+        state.setToggle(AccentElementId.PANEL_BORDER, true)
+        assertTrue(state.chromePanelBorder)
+        assertTrue(state.isToggleEnabled(AccentElementId.PANEL_BORDER))
+
+        state.setToggle(AccentElementId.PANEL_BORDER, false)
+        assertFalse(state.chromePanelBorder)
+    }
+
+    @Test
+    fun `chrome tinting auxiliary defaults`() {
+        val state = freshState()
+        assertEquals(
+            AyuIslandsState.DEFAULT_CHROME_TINT_INTENSITY,
+            state.chromeTintIntensity,
+            "chromeTintIntensity must match DEFAULT_CHROME_TINT_INTENSITY",
+        )
+        assertFalse(
+            state.chromeTintingGroupExpanded,
+            "chromeTintingGroupExpanded defaults collapsed (same shape as accentElementsGroupExpanded)",
+        )
+    }
+
+    @Test
+    fun `chromeTintIntensity round-trips`() {
+        val state = freshState()
+        state.chromeTintIntensity = 0
+        assertEquals(0, state.chromeTintIntensity)
+        state.chromeTintIntensity = 55
+        assertEquals(55, state.chromeTintIntensity)
+        state.chromeTintIntensity = 100
+        assertEquals(100, state.chromeTintIntensity)
+    }
+
+    @Test
+    fun `effectiveChromeTintIntensity coerces corrupted persisted values to user-visible range`() {
+        // Regression guard for PR #151 Round 1 Fix 2: a corrupted or legacy persisted
+        // intensity (negative, above the user-visible slider cap) must never flow into
+        // the HSB blender as-is. The raw BaseState `property(...)` delegate can't
+        // validate at the setter boundary without breaking XML deserialization, so the
+        // state class exposes an `effective*` helper that clamps at READ time. Every
+        // chrome-element apply site reads through this helper, so garbage or legacy
+        // values in the XML cannot desaturate / over-saturate chrome surfaces.
+        //
+        // The upper bound here is the USER-VISIBLE `MAX_CHROME_TINT_INTENSITY` (50),
+        // not the blender's internal math clamp (0-100). Keeping state aligned with
+        // the UI slider cap means pre-cap sessions that could save up to 100 see
+        // the same ceiling every live user can reach, eliminating the "slider maxes
+        // at 50 but chrome paints like 80" desync reported during runIde smoke.
+        val cap = AyuIslandsState.MAX_CHROME_TINT_INTENSITY
+        val state = freshState()
+
+        state.chromeTintIntensity = -10
+        assertEquals(0, state.effectiveChromeTintIntensity(), "negative values clamp to 0")
+
+        state.chromeTintIntensity = 500
+        assertEquals(cap, state.effectiveChromeTintIntensity(), "above-cap values clamp to the user-visible ceiling")
+
+        state.chromeTintIntensity = 80
+        assertEquals(
+            cap,
+            state.effectiveChromeTintIntensity(),
+            "legacy pre-cap persisted values observe the new ceiling",
+        )
+
+        state.chromeTintIntensity = 42
+        assertEquals(42, state.effectiveChromeTintIntensity(), "in-range values pass through unchanged")
+
+        state.chromeTintIntensity = 0
+        assertEquals(0, state.effectiveChromeTintIntensity())
+        state.chromeTintIntensity = cap
+        assertEquals(cap, state.effectiveChromeTintIntensity())
+    }
+
+    @Test
+    fun `chromeTintingGroupExpanded round-trips`() {
+        val state = freshState()
+        state.chromeTintingGroupExpanded = true
+        assertTrue(state.chromeTintingGroupExpanded)
+        state.chromeTintingGroupExpanded = false
+        assertFalse(state.chromeTintingGroupExpanded)
     }
 
     @Test

@@ -88,6 +88,24 @@ class AccentApplicatorTest {
         mockkStatic(PluginManagerCore::class)
         every { PluginManagerCore.getPlugin(any()) } returns null
 
+        // D-15 plumbing: revertAll iterates ProjectManager.openProjects and calls
+        // ComponentTreeRefresher.notifyOnly per usable project. Unit tests don't boot
+        // the platform, so both must be stubbed or the new notifyOnly loop blows up
+        // with "Can't get extension point" / a null ProjectManager.
+        mockkStatic(com.intellij.openapi.project.ProjectManager::class)
+        val mockProjectManager = mockk<com.intellij.openapi.project.ProjectManager>(relaxed = true)
+        every {
+            com.intellij.openapi.project.ProjectManager
+                .getInstance()
+        } returns mockProjectManager
+        every { mockProjectManager.openProjects } returns emptyArray()
+
+        mockkObject(dev.ayuislands.ui.ComponentTreeRefresher)
+        every {
+            dev.ayuislands.ui.ComponentTreeRefresher
+                .notifyOnly(any())
+        } returns Unit
+
         // Reset CGP cached state before each test
         resetCgpState()
     }
@@ -895,6 +913,112 @@ class AccentApplicatorTest {
 
         // If on EDT, work runs synchronously, so UIManager.put should be called.
         verify(atLeast = 1) { UIManager.put(any<String>(), any()) }
+    }
+
+    @Test
+    fun `apply persists accent hex to lastAppliedAccentHex for next-startup anti-flicker`() {
+        // Regression guard for Phase 40-anti-flicker: AyuIslandsAppListener.appFrameCreated
+        // reads state.lastAppliedAccentHex on the next IDE restart to paint the first frame
+        // without a global-accent flash. If a refactor drops the state write inside apply(),
+        // multi-window restores would flicker Gold before each StartupActivity ran.
+        mockEpExtensionList(emptyList())
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.apply(any(), any()) } returns Unit
+        state.cgpIntegrationEnabled = false
+
+        AccentApplicator.apply("#5CCFE6")
+
+        assertEquals("#5CCFE6", state.lastAppliedAccentHex)
+    }
+
+    @Test
+    fun `apply updates lastAppliedAccentHex with last-write-wins semantics`() {
+        // A later apply() must overwrite the persisted hex so settings changes, rotation
+        // ticks, and per-project swaps leave the right color for the next restart.
+        mockEpExtensionList(emptyList())
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.apply(any(), any()) } returns Unit
+        state.cgpIntegrationEnabled = false
+
+        AccentApplicator.apply("#5CCFE6")
+        assertEquals("#5CCFE6", state.lastAppliedAccentHex)
+
+        AccentApplicator.apply("#FF3333")
+        assertEquals("#FF3333", state.lastAppliedAccentHex)
+    }
+
+    // Hex validation — Phase 40 Round 2 Fix B-1
+
+    @Test
+    fun `apply rejects invalid hex strings without throwing or mutating UIManager`() {
+        // Phase 40 Round 2 Fix B-1: corrupted / hand-edited persisted hex must not
+        // abort the first frame paint. AccentApplicator.apply now rejects anything that
+        // doesn't match HEX_COLOR_PATTERN before reaching Color.decode (which would
+        // throw NumberFormatException). Covers "garbage", empty string, and malformed
+        // shapes that used to crash the applier.
+        mockEpExtensionList(emptyList())
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.apply(any(), any()) } returns Unit
+        state.cgpIntegrationEnabled = false
+
+        // None of these should throw; none should set the cached hex.
+        AccentApplicator.apply("garbage")
+        AccentApplicator.apply("")
+        AccentApplicator.apply("FFCC66") // missing leading #
+        AccentApplicator.apply("#12345") // 5 chars — too short
+        AccentApplicator.apply("#1234567") // 7 chars — too long
+        AccentApplicator.apply("#ZZZZZZ") // non-hex digits
+
+        // UIManager.put must not have been called for any of these (apply short-circuits
+        // before applyAlwaysOnUiKeys). The cached hex stays whatever it was (default null).
+        verify(exactly = 0) { UIManager.put(any<String>(), any<Color>()) }
+        assertEquals(null, state.lastAppliedAccentHex)
+    }
+
+    @Test
+    fun `apply accepts well-formed 6-digit hex with hash prefix`() {
+        mockEpExtensionList(emptyList())
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.apply(any(), any()) } returns Unit
+        state.cgpIntegrationEnabled = false
+
+        // Boundary: exactly #RRGGBB with valid hex digits. Must go through the full
+        // apply flow (UIManager writes, lastAppliedAccentHex persisted).
+        AccentApplicator.apply("#123456")
+
+        verify(atLeast = 1) { UIManager.put(any<String>(), any<Color>()) }
+        assertEquals("#123456", state.lastAppliedAccentHex)
+    }
+
+    @Test
+    fun `apply accepts mixed-case hex digits`() {
+        mockEpExtensionList(emptyList())
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.apply(any(), any()) } returns Unit
+        state.cgpIntegrationEnabled = false
+
+        // Upper and lower case 0-9A-Fa-f are all valid per Color.decode.
+        AccentApplicator.apply("#AbCdEf")
+
+        assertEquals("#AbCdEf", state.lastAppliedAccentHex)
+    }
+
+    @Test
+    fun `HEX_COLOR_PATTERN matches expected shapes`() {
+        // Positive
+        assertTrue(AccentApplicator.HEX_COLOR_PATTERN.matches("#000000"))
+        assertTrue(AccentApplicator.HEX_COLOR_PATTERN.matches("#FFFFFF"))
+        assertTrue(AccentApplicator.HEX_COLOR_PATTERN.matches("#ffcc66"))
+        assertTrue(AccentApplicator.HEX_COLOR_PATTERN.matches("#5CCFE6"))
+
+        // Negative
+        assertEquals(false, AccentApplicator.HEX_COLOR_PATTERN.matches(""))
+        assertEquals(false, AccentApplicator.HEX_COLOR_PATTERN.matches("garbage"))
+        assertEquals(false, AccentApplicator.HEX_COLOR_PATTERN.matches("FFCC66"))
+        assertEquals(false, AccentApplicator.HEX_COLOR_PATTERN.matches("#12345"))
+        assertEquals(false, AccentApplicator.HEX_COLOR_PATTERN.matches("#1234567"))
+        assertEquals(false, AccentApplicator.HEX_COLOR_PATTERN.matches("#ZZZZZZ"))
+        assertEquals(false, AccentApplicator.HEX_COLOR_PATTERN.matches("#12 34 56"))
     }
 
     @Test

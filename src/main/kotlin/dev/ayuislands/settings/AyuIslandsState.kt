@@ -40,6 +40,23 @@ class AyuIslandsState : BaseState() {
     var freeOnboardingShown by property(false)
     var premiumOnboardingShown by property(false)
 
+    /**
+     * Last accent hex applied by [dev.ayuislands.accent.AccentApplicator.apply].
+     * Persisted so the next IDE startup can paint the correct color on the very
+     * first frame (before project contexts load), eliminating the "Gold → override"
+     * flicker users see when multiple project windows restore simultaneously with
+     * distinct per-project overrides.
+     *
+     * Written by every `apply()`, read once in
+     * [dev.ayuislands.AyuIslandsAppListener.appFrameCreated] and then effectively
+     * ignored at runtime (the live resolver chain inside `AyuIslandsStartupActivity`
+     * overrides it per project once contexts are available).
+     *
+     * Stored as hex string (e.g. `"#5CCFE6"`) for IDE-state simplicity — no color
+     * serialization round-trip. `null` on first launch (pre-plugin-install history).
+     */
+    var lastAppliedAccentHex by string(null)
+
     // Per-element accent toggles (all ON by default)
     var inlayHints by property(true)
     var caretRow by property(true)
@@ -218,6 +235,43 @@ class AyuIslandsState : BaseState() {
     // Force overrides for conflicting elements (element ID names)
     var forceOverrides by stringSet()
 
+    // Chrome tinting (phase 40). Per-surface opt-in toggles and a global intensity.
+    // WCAG foreground contrast is always-on (no persisted toggle). CHROME-group
+    // AccentElementIds are driven by these fields — NOT by the Elements-panel toggle
+    // map — so they never leak into the VISUAL/INTERACTIVE checkbox list. Defaults
+    // are all OFF (premium, opt-in).
+    var chromeStatusBar by property(false)
+    var chromeMainToolbar by property(false)
+    var chromeToolWindowStripe by property(false)
+    var chromeNavBar by property(false)
+    var chromePanelBorder by property(false)
+
+    // Global tint intensity (0-MAX_CHROME_TINT_INTENSITY). See DEFAULT_CHROME_TINT_INTENSITY KDoc for the
+    // 40 rationale. Raw reads of this field can return out-of-range values if the
+    // persisted XML was hand-edited, migrated from an older schema, or otherwise
+    // corrupted — the backing `BaseState.property(...)` delegate is unvalidated.
+    // Call-sites that feed the HSB blender MUST read through
+    // [effectiveChromeTintIntensity] so a garbage persisted value can't desaturate
+    // or over-saturate chrome surfaces.
+    var chromeTintIntensity by property(DEFAULT_CHROME_TINT_INTENSITY)
+
+    // Chrome-tinting collapsible group expanded state (same shape as accentElementsGroupExpanded).
+    var chromeTintingGroupExpanded by property(false)
+
+    /**
+     * Returns [chromeTintIntensity] clamped to the user-visible slider range
+     * [0, MAX_CHROME_TINT_INTENSITY].
+     *
+     * The underlying field is delegated through [BaseState.property] which performs
+     * no validation — a corrupted persisted XML (hand-edited, legacy-migrated, or
+     * third-party-tool-written) can store values outside the slider bounds. Chrome
+     * element apply sites feed this value into the HSB blender; out-of-range
+     * garbage would desaturate or over-saturate the tinted surface. Reading through
+     * this helper keeps every caller on the safe contract without breaking XML
+     * serialization (which requires the raw delegate).
+     */
+    fun effectiveChromeTintIntensity(): Int = chromeTintIntensity.coerceIn(0, MAX_CHROME_TINT_INTENSITY)
+
     fun isToggleEnabled(id: AccentElementId): Boolean =
         when (id) {
             AccentElementId.INLAY_HINTS -> inlayHints
@@ -228,6 +282,11 @@ class AyuIslandsState : BaseState() {
             AccentElementId.BRACKET_MATCH -> bracketMatch
             AccentElementId.SEARCH_RESULTS -> searchResults
             AccentElementId.MATCHING_TAG -> matchingTag
+            AccentElementId.STATUS_BAR -> chromeStatusBar
+            AccentElementId.MAIN_TOOLBAR -> chromeMainToolbar
+            AccentElementId.TOOL_WINDOW_STRIPE -> chromeToolWindowStripe
+            AccentElementId.NAV_BAR -> chromeNavBar
+            AccentElementId.PANEL_BORDER -> chromePanelBorder
         }
 
     fun setToggle(
@@ -243,6 +302,11 @@ class AyuIslandsState : BaseState() {
             AccentElementId.BRACKET_MATCH -> bracketMatch = enabled
             AccentElementId.SEARCH_RESULTS -> searchResults = enabled
             AccentElementId.MATCHING_TAG -> matchingTag = enabled
+            AccentElementId.STATUS_BAR -> chromeStatusBar = enabled
+            AccentElementId.MAIN_TOOLBAR -> chromeMainToolbar = enabled
+            AccentElementId.TOOL_WINDOW_STRIPE -> chromeToolWindowStripe = enabled
+            AccentElementId.NAV_BAR -> chromeNavBar = enabled
+            AccentElementId.PANEL_BORDER -> chromePanelBorder = enabled
         }
     }
 
@@ -339,5 +403,27 @@ class AyuIslandsState : BaseState() {
         private const val DEFAULT_SOFT_WIDTH = 4
         private const val DEFAULT_SHARP_NEON_WIDTH = 4
         private const val DEFAULT_GRADIENT_WIDTH = 6
+
+        /**
+         * Chrome tint intensity default (0-100). `40` is the Peacock-parity
+         * opening balance per Phase 40 `CONTEXT.md §specifics` and sits above
+         * VERIFICATION Gap 1's recommended floor of `35` — at `20` the tint
+         * read as a 5% wash on the Mirage + Cyan pairing (runIde smoke
+         * 2026-04-22), which failed the user-space quality bar. The HSB-space
+         * blender (Phase 40-09 Task 2) makes this value visibly chromatic
+         * across all 5 chrome surfaces without sacrificing foreground
+         * readability. Users can adjust via the Chrome tinting settings slider.
+         */
+        const val DEFAULT_CHROME_TINT_INTENSITY = 40
+
+        /**
+         * Upper bound for [chromeTintIntensity] reads. Mirrors the user-visible
+         * `AyuIslandsChromePanel.MAX_INTENSITY` slider cap (50) — the blender's
+         * internal 0-100 math-safety clamp still guards the algorithm, but
+         * [effectiveChromeTintIntensity] pre-clamps to the UX cap so legacy
+         * persisted values (pre-cap sessions could save up to 100) and any
+         * corrupted XML observe the same ceiling every live user can reach.
+         */
+        const val MAX_CHROME_TINT_INTENSITY = 50
     }
 }

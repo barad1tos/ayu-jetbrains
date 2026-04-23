@@ -22,6 +22,11 @@ repos:
       - id: check-merge-conflict
       - id: no-commit-to-branch
         args: ['--branch', 'main']
+        # Fire on both pre-commit AND commit-msg stages so cherry-picks,
+        # reverts, and amends on main are caught — not just plain `git commit`.
+        # pre-commit stage alone misses cherry-pick because cherry-pick
+        # skips pre-commit hooks by default but still invokes commit-msg.
+        stages: [pre-commit, commit-msg]
       - id: detect-private-key
 
   # GitHub Actions security scanner

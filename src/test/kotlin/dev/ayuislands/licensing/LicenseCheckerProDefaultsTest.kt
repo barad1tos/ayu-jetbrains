@@ -6,6 +6,7 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.AccentGroup
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowOverlayManager
@@ -189,16 +190,21 @@ class LicenseCheckerProDefaultsTest {
     }
 
     @Test
-    fun `revertToFreeDefaults resets all element toggles to true`() {
+    fun `revertToFreeDefaults resets VISUAL INTERACTIVE toggles to true and CHROME toggles to false`() {
+        // CHROME group is premium-only (phase 40 chrome tinting) — revert must leave it off
+        // on free tier even if the user had it enabled pre-downgrade.
         for (id in AccentElementId.entries) {
-            state.setToggle(id, false)
+            state.setToggle(id, id.group == AccentGroup.CHROME)
         }
         mockAccentApplicator()
 
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
 
-        for (id in AccentElementId.entries) {
+        for (id in AccentElementId.entries.filter { it.group != AccentGroup.CHROME }) {
             assertTrue(state.isToggleEnabled(id), "${id.name} should be reset to true")
+        }
+        for (id in AccentElementId.entries.filter { it.group == AccentGroup.CHROME }) {
+            assertFalse(state.isToggleEnabled(id), "${id.name} should be forcibly disabled on free tier")
         }
     }
 

@@ -7,7 +7,8 @@ import kotlin.test.assertTrue
 class AccentElementIdTest {
     @Test
     fun `exhaustive element count`() {
-        assertEquals(8, AccentElementId.entries.size)
+        // 4 VISUAL + 4 INTERACTIVE + 5 CHROME (phase 40 chrome-tinting targets) = 13.
+        assertEquals(13, AccentElementId.entries.size)
     }
 
     @Test
@@ -31,6 +32,17 @@ class AccentElementIdTest {
     }
 
     @Test
+    fun `CHROME group contains exactly 5 elements`() {
+        val chrome = AccentElementId.entries.filter { it.group == AccentGroup.CHROME }
+        assertEquals(5, chrome.size)
+        assertTrue(AccentElementId.STATUS_BAR in chrome)
+        assertTrue(AccentElementId.MAIN_TOOLBAR in chrome)
+        assertTrue(AccentElementId.TOOL_WINDOW_STRIPE in chrome)
+        assertTrue(AccentElementId.NAV_BAR in chrome)
+        assertTrue(AccentElementId.PANEL_BORDER in chrome)
+    }
+
+    @Test
     fun `all elements have non-empty display names`() {
         for (id in AccentElementId.entries) {
             assertTrue(id.displayName.isNotBlank(), "${id.name} should have a non-blank display name")
@@ -47,6 +59,11 @@ class AccentElementIdTest {
         assertEquals("Bracket match", AccentElementId.BRACKET_MATCH.displayName)
         assertEquals("Search results", AccentElementId.SEARCH_RESULTS.displayName)
         assertEquals("Matching tag", AccentElementId.MATCHING_TAG.displayName)
+        assertEquals("Status bar", AccentElementId.STATUS_BAR.displayName)
+        assertEquals("Main toolbar", AccentElementId.MAIN_TOOLBAR.displayName)
+        assertEquals("Tool window stripe", AccentElementId.TOOL_WINDOW_STRIPE.displayName)
+        assertEquals("Navigation bar", AccentElementId.NAV_BAR.displayName)
+        assertEquals("Panel border", AccentElementId.PANEL_BORDER.displayName)
     }
 
     @Test
@@ -56,8 +73,9 @@ class AccentElementIdTest {
     }
 
     @Test
-    fun `AccentGroup has exactly 2 entries`() {
-        assertEquals(2, AccentGroup.entries.size)
+    fun `AccentGroup has exactly 3 entries`() {
+        // VISUAL + INTERACTIVE + CHROME (phase 40).
+        assertEquals(3, AccentGroup.entries.size)
     }
 
     @Test

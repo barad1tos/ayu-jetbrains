@@ -420,6 +420,19 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
                         JBUI.scale(LABEL_PROGRESS_X),
                         layout.editorBottom - JBUI.scale(LABEL_PROGRESS_Y_OFFSET),
                     )
+                // CHROME-group elements (phase 40) are not rendered in the editor preview.
+                // Callers must filter by group before invoking — treat as a programming
+                // error rather than silently drawing off-screen.
+                AccentElementId.STATUS_BAR,
+                AccentElementId.MAIN_TOOLBAR,
+                AccentElementId.TOOL_WINDOW_STRIPE,
+                AccentElementId.NAV_BAR,
+                AccentElementId.PANEL_BORDER,
+                ->
+                    error(
+                        "CHROME-group AccentElementId $id has no preview annotation — " +
+                            "the preview panel shows VISUAL/INTERACTIVE elements only",
+                    )
             }
 
         private fun contrastTextColor(background: Color): Color {

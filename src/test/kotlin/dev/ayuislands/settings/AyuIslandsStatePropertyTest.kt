@@ -1,6 +1,7 @@
 package dev.ayuislands.settings
 
 import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.AccentGroup
 import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
@@ -11,12 +12,18 @@ import kotlin.test.assertTrue
 
 class AyuIslandsStatePropertyTest {
     @Test
-    fun `all accent element toggles default to true`() {
+    fun `VISUAL INTERACTIVE element toggles default to true, CHROME defaults to false`() {
         val state = AyuIslandsState()
-        for (element in AccentElementId.entries) {
+        for (element in AccentElementId.entries.filter { it.group != AccentGroup.CHROME }) {
             assertTrue(
                 state.isToggleEnabled(element),
                 "Default toggle for ${element.name} must be true",
+            )
+        }
+        for (element in AccentElementId.entries.filter { it.group == AccentGroup.CHROME }) {
+            assertFalse(
+                state.isToggleEnabled(element),
+                "Default toggle for CHROME element ${element.name} must be false (premium opt-in)",
             )
         }
     }

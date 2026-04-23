@@ -52,10 +52,20 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
     /**
      * Hook called between the Accent Color group and the Overrides group during [buildPanel].
      * The configurable uses it to inject [AyuIslandsAppearancePanel]'s "System" collapsible
-     * group so the visual order is Accent Color → System → Overrides → Rotation while each
-     * panel keeps ownership of its own state.
+     * group so the visual order is Accent Color → System → Overrides → Chrome Tinting →
+     * Rotation (Chrome Tinting is injected separately via [afterOverridesInjection]) while
+     * each panel keeps ownership of its own state.
      */
     var beforeOverridesInjection: ((Panel) -> Unit)? = null
+
+    /**
+     * Hook called between the Overrides group and the Accent Rotation group during [buildPanel].
+     * The configurable uses it to inject [AyuIslandsChromePanel]'s "Chrome Tinting" collapsible
+     * group so the visual order is Accent Color → System → Overrides → Chrome Tinting → Rotation,
+     * which mirrors the dependency chain (chrome tinting consumes the *resolved* accent that
+     * override rules produce).
+     */
+    var afterOverridesInjection: ((Panel) -> Unit)? = null
 
     override fun buildPanel(
         panel: Panel,
@@ -74,6 +84,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         panel.buildAccentColorGroup(colorPanel)
         beforeOverridesInjection?.invoke(panel)
         overrides.buildGroup(panel, contextProject)
+        afterOverridesInjection?.invoke(panel)
         panel.buildAccentRotationGroup()
 
         val externalAccentListener = onAccentChanged

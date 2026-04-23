@@ -20,6 +20,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.ui.LicensingFacade
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.AccentGroup
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowOverlayManager
@@ -27,6 +28,7 @@ import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.PanelWidthMode
 import org.jetbrains.annotations.VisibleForTesting
 import java.time.LocalDate
@@ -257,10 +259,20 @@ object LicenseChecker {
             // Reset tab accent to free default (underline only, no tinted background)
             state.glowTabMode = "MINIMAL"
 
-            // Reset per-element toggles to defaults (all ON)
+            // Reset per-element toggles to defaults. VISUAL/INTERACTIVE groups are
+            // free-tier features that default to ON; the CHROME group is a premium-only
+            // chrome-tinting surface (phase 40) that must be forcibly disabled on the
+            // free tier so unlicensed users never see tinted chrome after a downgrade.
             for (id in AccentElementId.entries) {
-                state.setToggle(id, true)
+                val defaultForFree = id.group != AccentGroup.CHROME
+                state.setToggle(id, defaultForFree)
             }
+
+            // Reset chrome-tinting auxiliary state to defaults (intensity baseline,
+            // group collapsed). The WCAG foreground contrast is now always-on so no
+            // toggle needs resetting.
+            state.chromeTintIntensity = AyuIslandsState.DEFAULT_CHROME_TINT_INTENSITY
+            state.chromeTintingGroupExpanded = false
 
             // Reset workspace settings to free defaults
             state.projectPanelWidthMode = PanelWidthMode.DEFAULT.name

@@ -59,8 +59,10 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
         val state = AyuIslandsSettings.getInstance().state
         licensed = LicenseChecker.isLicensedOrGrace()
 
-        // Initialize toggle state from persisted settings
-        for (id in AccentElementId.entries) {
+        // Initialize toggle state from persisted settings. CHROME-group ids are owned
+        // by the Chrome tinting panel (phase 40) and must NOT surface in this panel's
+        // checkbox list — filter them out here, at blockedIds, and at enable/disable-all.
+        for (id in AccentElementId.entries.filter { it.group != AccentGroup.CHROME }) {
             val enabled = state.isToggleEnabled(id)
             pendingToggles[id] = enabled
         }
@@ -83,6 +85,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
         ConflictRegistry.detectConflicts()
         val blockedIds =
             AccentElementId.entries
+                .filter { it.group != AccentGroup.CHROME }
                 .filter { ConflictRegistry.getConflictFor(it)?.type == ConflictType.BLOCK }
                 .map { it.name }
                 .toSet()
@@ -127,13 +130,17 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
                         )
                         row {
                             link("Enable all") {
-                                AccentElementId.entries.forEach { pendingToggles[it] = true }
+                                AccentElementId.entries
+                                    .filter { it.group != AccentGroup.CHROME }
+                                    .forEach { pendingToggles[it] = true }
                                 refreshCheckboxes()
                                 syncPreviewToggles()
                                 onToggleChanged?.invoke()
                             }.enabled(licensed)
                             link("Disable all") {
-                                AccentElementId.entries.forEach { pendingToggles[it] = false }
+                                AccentElementId.entries
+                                    .filter { it.group != AccentGroup.CHROME }
+                                    .forEach { pendingToggles[it] = false }
                                 refreshCheckboxes()
                                 syncPreviewToggles()
                                 onToggleChanged?.invoke()
