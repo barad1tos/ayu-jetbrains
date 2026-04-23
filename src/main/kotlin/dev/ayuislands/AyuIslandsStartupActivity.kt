@@ -229,33 +229,82 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         project: Project,
         variant: AyuVariant,
     ) {
-        val projectName = runCatching { project.name }.getOrElse { "<disposed>" }
+        // Round 2 MEDIUM R2-1: narrow the projectName capture catch to
+        // RuntimeException so CancellationException propagates instead of
+        // being swallowed into the "<disposed>" fallback. `project.name`
+        // access is non-suspend; catching Throwable here was asymmetric
+        // with every other catch in this file.
+        val projectName =
+            try {
+                project.name
+            } catch (exception: RuntimeException) {
+                LOG.debug(
+                    "Startup projectName capture failed; using <disposed> fallback",
+                    exception,
+                )
+                "<disposed>"
+            }
         withContext(Dispatchers.EDT) {
             if (project.isDisposed || ApplicationManager.getApplication().isDisposed) {
                 return@withContext
             }
-            val hex =
+            val applyOutcome =
                 runCatchingPreservingCancellation {
                     val focusedProject = AccentApplicator.resolveFocusedProject() ?: project
                     val resolved = AccentResolver.resolve(focusedProject, variant)
                     AccentApplicator.apply(resolved)
                     resolved
+                }
+            applyOutcome.onFailure { exception ->
+                LOG.error(
+                    "Startup accent apply failed for project '$projectName'; " +
+                        "chrome may look un-themed until the next user-triggered apply",
+                    exception,
+                )
+            }
+            val hex = applyOutcome.getOrNull()
+            if (hex == null) {
+                // Round 2 MEDIUM R2-2: apply-failure already logged via onFailure
+                // above. This branch also fires for Success(null), which is not
+                // reachable today (AccentResolver returns non-null) but a future
+                // refactor making `resolved` nullable must not silently skip
+                // install/notify without a log trace.
+                if (applyOutcome.isSuccess) {
+                    LOG.warn(
+                        "Startup accent apply returned a null hex unexpectedly " +
+                            "for project '$projectName'; skipping swap install",
+                    )
+                }
+                return@withContext
+            }
+            // Split install from notifyExternalApply so the ERROR message honestly
+            // describes what's broken. Bundling them under one catch meant an
+            // install-success + notify-failure combination logged "focus-swap
+            // cycling will be inert" — factually wrong, because the listener IS
+            // live; only the swap-cache publish step failed, so the first
+            // activation will redundantly re-apply but the cycling itself works.
+            // See Phase 40 review-loop Round 2 HIGH R2-1.
+            val swapService = ProjectAccentSwapService.getInstance()
+            val installed =
+                runCatchingPreservingCancellation {
+                    swapService.install()
+                    true
                 }.onFailure { exception ->
                     LOG.error(
-                        "Startup accent apply failed for project '$projectName'; " +
-                            "chrome may look un-themed until the next user-triggered apply",
+                        "Startup accent-swap install failed for project '$projectName' " +
+                            "AFTER a successful apply; multi-project focus-swap cycling " +
+                            "will be inert this session until the user re-triggers apply",
                         exception,
                     )
-                }.getOrNull() ?: return@withContext
+                }.getOrDefault(false)
+            if (!installed) return@withContext
             runCatchingPreservingCancellation {
-                val swapService = ProjectAccentSwapService.getInstance()
-                swapService.install()
                 swapService.notifyExternalApply(hex)
             }.onFailure { exception ->
                 LOG.error(
-                    "Startup accent-swap install/notify failed for project '$projectName' " +
-                        "AFTER a successful apply; multi-project focus-swap cycling will " +
-                        "be inert this session until the user re-triggers apply",
+                    "Startup accent-swap cache publish (notifyExternalApply) failed for " +
+                        "project '$projectName' AFTER a successful install; the listener " +
+                        "is live but the first WINDOW_ACTIVATED will redundantly re-apply",
                     exception,
                 )
             }

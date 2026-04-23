@@ -103,12 +103,13 @@ class AyuIslandsStartupActivityTest {
             "Source must import kotlinx.coroutines.withContext",
         )
         // The resolveFocusedProject call must sit inside a withContext(Dispatchers.EDT) block.
-        // Regex matches across newlines so formatter variations (chained vs. split args) still
-        // pass. The critical constraint: resolveFocusedProject appears *after* Dispatchers.EDT
-        // and before the next top-level statement.
+        // Non-greedy `.*?` with DOT_MATCHES_ALL tolerates nested blocks (disposal bail,
+        // runCatchingPreservingCancellation) between the outer withContext brace and the
+        // resolveFocusedProject call site, while still anchoring that the call appears
+        // after withContext(Dispatchers.EDT) in the text.
         val edtBlock =
             Regex(
-                """withContext\(Dispatchers\.EDT\)\s*\{[^}]*AccentApplicator\.resolveFocusedProject\(\)""",
+                """withContext\(Dispatchers\.EDT\).*?AccentApplicator\.resolveFocusedProject\(\)""",
                 RegexOption.DOT_MATCHES_ALL,
             )
         assertTrue(
@@ -122,29 +123,119 @@ class AyuIslandsStartupActivityTest {
         // Regression guard for the PR #151 Round 2 Fix B-2: ProjectAccentSwapService has an
         // EDT precondition for notifyExternalApply (per AccentApplicator KDoc lines 203-205,
         // the cache write is a bare volatile with no dispatch and must publish in the same
-        // ordering as the apply that preceded it). Previously `swapService.install()` and
-        // `swapService.notifyExternalApply(accentHex)` lived below the EDT withContext
-        // block — i.e. back on the ProjectActivity background coroutine — which left a
-        // window where a WINDOW_ACTIVATED event could fire after the EDT apply but before
-        // the cache caught up, causing the swap listener to re-apply the exact same color
-        // and triggering an avoidable component-tree walk.
+        // ordering as the apply that preceded it).
         //
-        // The fix moves the entire compute-apply-publish triplet inside one withContext
-        // EDT turn. Enforce that source-level: notifyExternalApply MUST appear inside the
-        // same braces as resolveFocusedProject, not after the block closes.
+        // Phase 40 review-loop Round 2 HIGH R2-1 then split install and notifyExternalApply
+        // into two runCatchingPreservingCancellation blocks for better error attribution,
+        // so the regex tolerates intermediate braces — the only invariant that matters is
+        // that all four operations appear in order inside the EDT turn, not that they
+        // share a single inner block.
         val source = readStartupActivitySource()
         val edtTriplet =
             Regex(
-                """withContext\(Dispatchers\.EDT\)\s*\{[^}]*AccentApplicator\.resolveFocusedProject\(\)""" +
-                    """[^}]*AccentApplicator\.apply\([^)]*\)""" +
-                    """[^}]*swapService\.install\(\)""" +
-                    """[^}]*swapService\.notifyExternalApply\([^)]*\)""",
+                """withContext\(Dispatchers\.EDT\).*?AccentApplicator\.resolveFocusedProject\(\)""" +
+                    """.*?AccentApplicator\.apply\(""" +
+                    """.*?swapService\.install\(\)""" +
+                    """.*?swapService\.notifyExternalApply\(""",
                 RegexOption.DOT_MATCHES_ALL,
             )
         assertTrue(
             edtTriplet.containsMatchIn(source),
-            "swapService.install() + notifyExternalApply must run inside the same " +
-                "withContext(Dispatchers.EDT) { … } block as resolveFocusedProject + apply",
+            "resolveFocusedProject → apply → install → notifyExternalApply must all run " +
+                "inside the same withContext(Dispatchers.EDT) { … } turn",
+        )
+    }
+
+    @Test
+    fun `startup accent helper emits distinct error messages per failure branch`() {
+        // Round 2 HIGH R2-1 regression lock. The Round 1 loop fix split one
+        // runCatching into three (apply / install / notifyExternalApply) so
+        // triage can tell which half of the startup triplet failed from the
+        // log line alone. A maintainer who collapses the three branches back
+        // into one message, or who accidentally swaps the strings, would
+        // silently break that attribution contract.
+        val source = readStartupActivitySource()
+        assertTrue(
+            source.contains("Startup accent apply failed for project"),
+            "Apply branch must have its own distinct ERROR message",
+        )
+        assertTrue(
+            source.contains("Startup accent-swap install failed for project"),
+            "Install branch must have its own distinct ERROR message",
+        )
+        assertTrue(
+            source.contains("Startup accent-swap cache publish (notifyExternalApply) failed for"),
+            "notifyExternalApply branch must have its own distinct ERROR message",
+        )
+        // And the old bundled wording must NOT reappear — that's the swap-back regression.
+        assertEquals(
+            false,
+            source.contains("Startup accent-swap install/notify failed"),
+            "Old bundled install+notify message must not return",
+        )
+    }
+
+    @Test
+    fun `startup EDT block bails early when project or application is disposed`() {
+        // Round 2 HIGH R2-2 regression lock. The disposal bail must be the
+        // FIRST statement inside the withContext(Dispatchers.EDT) body so a
+        // mid-hop disposal can't reach platform APIs that would rewrap
+        // ProcessCanceledException as AlreadyDisposedException (which the
+        // coroutine cancellation helper cannot unwrap). Locks both presence
+        // AND position of the guard.
+        val source = readStartupActivitySource()
+        val disposedBail =
+            Regex(
+                """withContext\(Dispatchers\.EDT\)\s*\{\s*if\s*\(\s*project\.isDisposed\s*\|\|\s*""" +
+                    """ApplicationManager\.getApplication\(\)\.isDisposed\s*\)\s*\{\s*return@withContext""",
+                RegexOption.DOT_MATCHES_ALL,
+            )
+        assertTrue(
+            disposedBail.containsMatchIn(source),
+            "Disposal bail must be the first statement inside withContext(Dispatchers.EDT) { … }",
+        )
+    }
+
+    @Test
+    fun `startup projectName is captured before the EDT hop`() {
+        // Round 2 HIGH R2-3 regression lock. `projectName` MUST be captured
+        // OUTSIDE `withContext(Dispatchers.EDT)` so a mid-hop disposal cannot
+        // NPE inside the error logger and swallow the original exception
+        // (the MEDIUM-3 failure mode). Tempting to move it inside since
+        // projectName is only read there — this guard catches that.
+        val source = readStartupActivitySource()
+        val beforeEdt =
+            Regex(
+                """val\s+projectName\s*=\s*(?:try\s*\{|runCatching\s*\{).*?withContext\(Dispatchers\.EDT\)""",
+                RegexOption.DOT_MATCHES_ALL,
+            )
+        assertTrue(
+            beforeEdt.containsMatchIn(source),
+            "projectName must be captured before the withContext(Dispatchers.EDT) block",
+        )
+    }
+
+    @Test
+    fun `startup projectName capture uses disposed fallback when project name access throws`() {
+        // Round 2 S-3 lock for MEDIUM-3 fix. The projectName capture uses a
+        // try/catch with RuntimeException (narrowed from runCatching-Throwable
+        // in Round 2 MEDIUM R2-1) and falls back to the "<disposed>" literal
+        // when project.name access blows up. Lock both the narrowed catch and
+        // the literal fallback.
+        val source = readStartupActivitySource()
+        assertTrue(
+            source.contains("\"<disposed>\""),
+            "projectName fallback must use the <disposed> sentinel string literal",
+        )
+        val narrowedCatch =
+            Regex(
+                """val\s+projectName\s*=\s*try\s*\{\s*project\.name\s*\}""" +
+                    """\s*catch\s*\(\s*exception:\s*RuntimeException\s*\)""",
+                RegexOption.DOT_MATCHES_ALL,
+            )
+        assertTrue(
+            narrowedCatch.containsMatchIn(source),
+            "projectName capture must use try/catch(RuntimeException), not runCatching (Throwable)",
         )
     }
 

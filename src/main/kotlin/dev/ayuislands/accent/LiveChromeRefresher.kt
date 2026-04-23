@@ -42,9 +42,32 @@ internal object LiveChromeRefresher {
      * DEBUG to avoid log spam, but the first occurrence per container class is
      * loud because it almost always indicates a broken custom `Container`
      * override in a third-party plugin — reportable, not just defensive. See
-     * Phase 40 review-loop Round 1 MEDIUM-1.
+     * Phase 40 review-loop Round 1 MEDIUM-1 and Round 2 LOW R2-1.
+     *
+     * Capped at [BROKEN_CONTAINER_LOG_CAP] entries so a pathological IDE
+     * session (1000+ transient Container subclasses all throwing) cannot let
+     * the set grow unbounded; on overflow the latch resets and the next
+     * encounter of any class re-logs at WARN.
      */
     private val brokenContainerLogged: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    /**
+     * Upper bound on [brokenContainerLogged]. A typical IDE session sees
+     * ~5-10 distinct Container subclasses; 64 leaves plenty of headroom before
+     * the cap triggers.
+     */
+    private const val BROKEN_CONTAINER_LOG_CAP = 64
+
+    /**
+     * Test-only reset for [brokenContainerLogged]. `ChromeBaseColors` clears
+     * its sibling latch via `refresh()` (LAF-driven), but there is no
+     * equivalent trigger for a per-session container latch in production, so
+     * tests use this hook to isolate order-dependent assertions.
+     */
+    @org.jetbrains.annotations.TestOnly
+    internal fun resetBrokenContainerLoggedForTests() {
+        brokenContainerLogged.clear()
+    }
 
     // --- StatusBar (resolvable via public WindowManager API) ---
 
@@ -284,6 +307,12 @@ internal object LiveChromeRefresher {
             )
         } else {
             log.debug("Live refresh could not read children of $className", exception)
+        }
+        // Round 2 LOW R2-1: cap the set so a pathological session can't leak.
+        // On overflow we clear and the next encounter re-warns — acceptable
+        // trade-off vs unbounded memory growth.
+        if (brokenContainerLogged.size > BROKEN_CONTAINER_LOG_CAP) {
+            brokenContainerLogged.clear()
         }
     }
 

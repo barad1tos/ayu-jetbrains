@@ -95,6 +95,17 @@ object ChromeBaseColors {
     /**
      * Clears the snapshot so the next `get` call re-captures from UIManager.
      * Invoked by the LAF listener; exposed for tests.
+     *
+     * Ordering note (Phase 40 review-loop Round 1 MEDIUM-2 / Round 2 S-2):
+     * the latch is cleared BEFORE the snapshot so a racing `get(key)` between
+     * the two clears cannot see a cleared snapshot with a stale latch still
+     * full (which would silence a WARN the new LAF cycle should emit). A
+     * symmetric residual race exists where a concurrent `get()` right after
+     * latch-clear re-populates the latch before snapshot-clear runs — the
+     * WARN still fires, it is just attributed to a cycle boundary that the
+     * reader happened to cross. Documented here rather than guarded with a
+     * lock because `refresh()` fires on EDT via the LAF listener and the
+     * cost of a briefly-skipped WARN line does not justify the synchronization.
      */
     fun refresh() {
         // Clear the latch BEFORE the snapshot so a racing `get(key)` between the
