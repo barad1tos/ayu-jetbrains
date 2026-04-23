@@ -2,6 +2,7 @@ package dev.ayuislands.accent
 
 import com.intellij.ide.ui.LafManagerListener
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.diagnostic.logger
 import java.awt.Color
 import java.util.concurrent.ConcurrentHashMap
 import javax.swing.UIManager
@@ -26,19 +27,29 @@ import javax.swing.UIManager
  * passive listener that only clears its own cache — no tree updates, no re-entry.
  */
 object ChromeBaseColors {
+    private val log = logger<ChromeBaseColors>()
     private val snapshot = ConcurrentHashMap<String, Color>()
 
     init {
+        // Tests that exercise ChromeBaseColors without an IDE container (no
+        // MessageBus) swallow the subscription throw silently — the snapshot
+        // just won't auto-refresh on LAF change, and refresh() stays callable
+        // manually. In production, a throw here means the cache never resets
+        // on theme switch, so the user would see wrong base colors after
+        // changing theme. Log at WARN so the "chrome tints look stale after
+        // theme change" report has a trace in idea.log.
         runCatching {
             ApplicationManager
                 .getApplication()
                 .messageBus
                 .connect()
                 .subscribe(LafManagerListener.TOPIC, LafManagerListener { refresh() })
+        }.onFailure { exception ->
+            log.warn(
+                "ChromeBaseColors LAF listener wiring failed; cache will not auto-refresh on theme change",
+                exception,
+            )
         }
-        // Suppressed on purpose — tests that exercise ChromeBaseColors without an
-        // IDE container (no MessageBus) must still be able to load the object.
-        // refresh() is still callable manually in those setups.
     }
 
     /**

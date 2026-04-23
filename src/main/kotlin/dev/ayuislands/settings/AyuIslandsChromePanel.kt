@@ -31,7 +31,7 @@ import javax.swing.JSlider
  *    the corresponding custom-header registry entries, making custom title bar painting
  *    impossible on macOS — the comment explains this without pointing users at a setting
  *    that no longer exists.
- *  - On [apply], after the 8 chrome fields persist into [AyuIslandsState], the panel calls
+ *  - On [apply], after the 6 chrome fields persist into [AyuIslandsState], the panel calls
  *    [AccentApplicator.applyForFocusedProject] so the 5 chrome AccentElement impls repaint
  *    immediately without requiring a second settings open.
  */

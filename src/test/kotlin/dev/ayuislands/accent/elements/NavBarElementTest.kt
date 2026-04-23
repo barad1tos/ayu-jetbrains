@@ -107,7 +107,7 @@ class NavBarElementTest {
 
     @Test
     fun `apply passes intensity from state to blender per D-03`() {
-        state.chromeTintIntensity = 62
+        state.chromeTintIntensity = 42
 
         val intensitySlot = slot<Int>()
         every {
@@ -117,7 +117,7 @@ class NavBarElementTest {
         NavBarElement().apply(accent)
 
         assertTrue(intensitySlot.isCaptured, "intensity must flow from state into blender")
-        assertEquals(62, intensitySlot.captured)
+        assertEquals(42, intensitySlot.captured)
     }
 
     @Test

@@ -150,7 +150,7 @@ class StatusBarElementTest {
 
     @Test
     fun `apply passes intensity from state to blender per D-03`() {
-        state.chromeTintIntensity = 77
+        state.chromeTintIntensity = 37
 
         val intensitySlot = slot<Int>()
         every {
@@ -160,7 +160,7 @@ class StatusBarElementTest {
         StatusBarElement().apply(accent)
 
         assertTrue(intensitySlot.isCaptured, "intensity should be forwarded to blender")
-        assertEquals(77, intensitySlot.captured, "element must read intensity from state, not from apply()")
+        assertEquals(37, intensitySlot.captured, "element must read intensity from state, not from apply()")
     }
 
     @Test

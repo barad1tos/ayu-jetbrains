@@ -246,7 +246,7 @@ class AyuIslandsState : BaseState() {
     var chromeNavBar by property(false)
     var chromePanelBorder by property(false)
 
-    // Global tint intensity (0-100). See DEFAULT_CHROME_TINT_INTENSITY KDoc for the
+    // Global tint intensity (0-MAX_CHROME_TINT_INTENSITY). See DEFAULT_CHROME_TINT_INTENSITY KDoc for the
     // 40 rationale. Raw reads of this field can return out-of-range values if the
     // persisted XML was hand-edited, migrated from an older schema, or otherwise
     // corrupted — the backing `BaseState.property(...)` delegate is unvalidated.
@@ -259,7 +259,8 @@ class AyuIslandsState : BaseState() {
     var chromeTintingGroupExpanded by property(false)
 
     /**
-     * Returns [chromeTintIntensity] clamped to the valid [0, 100] slider range.
+     * Returns [chromeTintIntensity] clamped to the user-visible slider range
+     * [0, MAX_CHROME_TINT_INTENSITY].
      *
      * The underlying field is delegated through [BaseState.property] which performs
      * no validation — a corrupted persisted XML (hand-edited, legacy-migrated, or
@@ -416,11 +417,13 @@ class AyuIslandsState : BaseState() {
         const val DEFAULT_CHROME_TINT_INTENSITY = 40
 
         /**
-         * Upper bound for [chromeTintIntensity] reads. The blender internally
-         * re-clamps, but [effectiveChromeTintIntensity] pre-clamps so every
-         * call site observes a valid slider value regardless of how the
-         * persisted XML was mutated.
+         * Upper bound for [chromeTintIntensity] reads. Mirrors the user-visible
+         * `AyuIslandsChromePanel.MAX_INTENSITY` slider cap (50) — the blender's
+         * internal 0-100 math-safety clamp still guards the algorithm, but
+         * [effectiveChromeTintIntensity] pre-clamps to the UX cap so legacy
+         * persisted values (pre-cap sessions saved 60-100) and any corrupted
+         * XML observe the same ceiling every live user can reach.
          */
-        const val MAX_CHROME_TINT_INTENSITY = 100
+        const val MAX_CHROME_TINT_INTENSITY = 50
     }
 }

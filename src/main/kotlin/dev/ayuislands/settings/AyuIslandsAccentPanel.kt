@@ -52,8 +52,9 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
     /**
      * Hook called between the Accent Color group and the Overrides group during [buildPanel].
      * The configurable uses it to inject [AyuIslandsAppearancePanel]'s "System" collapsible
-     * group so the visual order is Accent Color → System → Overrides → Rotation while each
-     * panel keeps ownership of its own state.
+     * group so the visual order is Accent Color → System → Overrides → Chrome Tinting →
+     * Rotation (Chrome Tinting is injected separately via [afterOverridesInjection]) while
+     * each panel keeps ownership of its own state.
      */
     var beforeOverridesInjection: ((Panel) -> Unit)? = null
 

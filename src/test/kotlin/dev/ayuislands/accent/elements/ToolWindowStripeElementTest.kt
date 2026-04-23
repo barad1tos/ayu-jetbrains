@@ -98,12 +98,12 @@ class ToolWindowStripeElementTest {
 
     @Test
     fun `apply passes chromeTintIntensity through to blender for every background key`() {
-        mockState.chromeTintIntensity = 55
+        mockState.chromeTintIntensity = 45
 
         ToolWindowStripeElement().apply(testAccent)
 
         // All 3 keys resolve to the stubbed stockBase, so blend is invoked 3× with the same args.
-        verify(exactly = 3) { ChromeTintBlender.blend(testAccent, stockBase, 55) }
+        verify(exactly = 3) { ChromeTintBlender.blend(testAccent, stockBase, 45) }
     }
 
     @Test

@@ -123,30 +123,43 @@ class AyuIslandsStateTest {
     }
 
     @Test
-    fun `effectiveChromeTintIntensity coerces corrupted persisted values into 0-100`() {
-        // Regression guard for PR #151 Round 1 Fix 2: a corrupted persisted intensity
-        // (negative, above 100) must never flow into the HSB blender as-is. The raw
-        // BaseState `property(...)` delegate can't validate at the setter boundary
-        // without breaking XML deserialization, so the state class exposes an
-        // `effective*` helper that clamps at READ time. Every chrome-element apply
-        // site reads through this helper, so garbage values in the XML cannot
-        // desaturate / over-saturate chrome surfaces regardless of how the state
-        // file was hand-edited or migrated.
+    fun `effectiveChromeTintIntensity coerces corrupted persisted values to user-visible range`() {
+        // Regression guard for PR #151 Round 1 Fix 2: a corrupted or legacy persisted
+        // intensity (negative, above the user-visible slider cap) must never flow into
+        // the HSB blender as-is. The raw BaseState `property(...)` delegate can't
+        // validate at the setter boundary without breaking XML deserialization, so the
+        // state class exposes an `effective*` helper that clamps at READ time. Every
+        // chrome-element apply site reads through this helper, so garbage or legacy
+        // values in the XML cannot desaturate / over-saturate chrome surfaces.
+        //
+        // The upper bound here is the USER-VISIBLE `MAX_CHROME_TINT_INTENSITY` (50),
+        // not the blender's internal math clamp (0-100). Keeping state aligned with
+        // the UI slider cap means pre-cap sessions that saved 60-100 see the same
+        // ceiling every live user can reach, eliminating the "slider maxes at 50 but
+        // chrome paints like 80" desync reported during runIde smoke.
+        val cap = AyuIslandsState.MAX_CHROME_TINT_INTENSITY
         val state = freshState()
 
         state.chromeTintIntensity = -10
         assertEquals(0, state.effectiveChromeTintIntensity(), "negative values clamp to 0")
 
         state.chromeTintIntensity = 500
-        assertEquals(100, state.effectiveChromeTintIntensity(), "above-100 values clamp to 100")
+        assertEquals(cap, state.effectiveChromeTintIntensity(), "above-cap values clamp to the user-visible ceiling")
+
+        state.chromeTintIntensity = 80
+        assertEquals(
+            cap,
+            state.effectiveChromeTintIntensity(),
+            "legacy pre-cap persisted values observe the new ceiling",
+        )
 
         state.chromeTintIntensity = 42
         assertEquals(42, state.effectiveChromeTintIntensity(), "in-range values pass through unchanged")
 
         state.chromeTintIntensity = 0
         assertEquals(0, state.effectiveChromeTintIntensity())
-        state.chromeTintIntensity = 100
-        assertEquals(100, state.effectiveChromeTintIntensity())
+        state.chromeTintIntensity = cap
+        assertEquals(cap, state.effectiveChromeTintIntensity())
     }
 
     @Test

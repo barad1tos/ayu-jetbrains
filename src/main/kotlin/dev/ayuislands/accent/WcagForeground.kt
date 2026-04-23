@@ -35,10 +35,11 @@ object WcagForeground {
         ICON(LARGE_MIN_RATIO),
     }
 
-    // Palette sweep order — lifts ChromeTintBlender.DARK_FOREGROUND literal
-    // (0x1F2430) so both modules agree on the Ayu dark foreground without a
-    // circular import. Black is the last-resort high-contrast candidate for
-    // unusually light tinted surfaces.
+    // Palette sweep order — 0x1F2430 is the Ayu dark foreground literal also
+    // used by AccentApplicator's own contrast-foreground pick, so both modules
+    // agree on the canonical dark foreground without a cross-import. Black is
+    // the last-resort high-contrast candidate for unusually light tinted
+    // surfaces.
     private val palette = listOf(Color.WHITE, Color(DARK_FOREGROUND_HEX), Color.BLACK)
 
     /**
@@ -131,6 +132,6 @@ object WcagForeground {
     /** WCAG AA minimum ratio for large text / non-text UI components. */
     private const val LARGE_MIN_RATIO = 3.0
 
-    /** Ayu dark-foreground literal (mirrors `ChromeTintBlender.DARK_FOREGROUND_HEX`). */
+    /** Ayu dark-foreground literal (shared with AccentApplicator's contrast-foreground pick). */
     private const val DARK_FOREGROUND_HEX = 0x1F2430
 }

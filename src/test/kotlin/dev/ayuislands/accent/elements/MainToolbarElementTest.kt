@@ -168,11 +168,11 @@ class MainToolbarElementTest {
     @Test
     fun `apply passes chromeTintIntensity through to blender`() {
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns true
-        mockState.chromeTintIntensity = 55
+        mockState.chromeTintIntensity = 45
 
         MainToolbarElement().apply(testAccent)
 
-        verify(exactly = 1) { ChromeTintBlender.blend(testAccent, stockBase, 55) }
+        verify(exactly = 1) { ChromeTintBlender.blend(testAccent, stockBase, 45) }
     }
 
     @Test
