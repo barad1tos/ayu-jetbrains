@@ -165,6 +165,13 @@ object AccentApplicator {
                 }
 
                 repaintAllWindows(Window.getWindows())
+
+                // Persist for next-startup anti-flicker: AyuIslandsAppListener.appFrameCreated
+                // reads this hex and applies it before any project context exists, so the first
+                // painted frame after IDE restart matches the eventual resolver output. Without
+                // this, multi-window setups flash the GLOBAL accent before each project's
+                // StartupActivity runs.
+                state.lastAppliedAccentHex = accentHex
             }
 
         if (SwingUtilities.isEventDispatchThread()) {

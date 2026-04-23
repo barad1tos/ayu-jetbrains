@@ -916,6 +916,38 @@ class AccentApplicatorTest {
     }
 
     @Test
+    fun `apply persists accent hex to lastAppliedAccentHex for next-startup anti-flicker`() {
+        // Regression guard for Phase 40-anti-flicker: AyuIslandsAppListener.appFrameCreated
+        // reads state.lastAppliedAccentHex on the next IDE restart to paint the first frame
+        // without a global-accent flash. If a refactor drops the state write inside apply(),
+        // multi-window restores would flicker Gold before each StartupActivity ran.
+        mockEpExtensionList(emptyList())
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.apply(any(), any()) } returns Unit
+        state.cgpIntegrationEnabled = false
+
+        AccentApplicator.apply("#5CCFE6")
+
+        assertEquals("#5CCFE6", state.lastAppliedAccentHex)
+    }
+
+    @Test
+    fun `apply updates lastAppliedAccentHex with last-write-wins semantics`() {
+        // A later apply() must overwrite the persisted hex so settings changes, rotation
+        // ticks, and per-project swaps leave the right color for the next restart.
+        mockEpExtensionList(emptyList())
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.apply(any(), any()) } returns Unit
+        state.cgpIntegrationEnabled = false
+
+        AccentApplicator.apply("#5CCFE6")
+        assertEquals("#5CCFE6", state.lastAppliedAccentHex)
+
+        AccentApplicator.apply("#FF3333")
+        assertEquals("#FF3333", state.lastAppliedAccentHex)
+    }
+
+    @Test
     fun `apply posts to invokeLater when not on EDT`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)

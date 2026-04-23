@@ -263,6 +263,33 @@ class AyuIslandsStatePersistenceTest {
         assertTrue(reloaded.state.chromeTintingGroupExpanded)
     }
 
+    // ---- Startup-flicker anti-flash (phase 40) ----
+
+    @Test
+    fun `lastAppliedAccentHex defaults to null`() {
+        val settings = AyuIslandsSettings()
+        assertEquals(null, settings.state.lastAppliedAccentHex)
+    }
+
+    @Test
+    fun `lastAppliedAccentHex survives save reload cycle`() {
+        val reloaded =
+            roundTrip { state ->
+                state.lastAppliedAccentHex = "#5CCFE6"
+            }
+        assertEquals("#5CCFE6", reloaded.state.lastAppliedAccentHex)
+    }
+
+    @Test
+    fun `lastAppliedAccentHex last-write-wins across reloads`() {
+        val reloaded =
+            roundTrip { state ->
+                state.lastAppliedAccentHex = "#5CCFE6"
+                state.lastAppliedAccentHex = "#FF3333"
+            }
+        assertEquals("#FF3333", reloaded.state.lastAppliedAccentHex)
+    }
+
     // ---- encodeFontPaths / decodeFontPaths helpers ----
 
     @Test

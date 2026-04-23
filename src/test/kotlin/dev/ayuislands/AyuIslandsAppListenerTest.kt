@@ -3,6 +3,7 @@ package dev.ayuislands
 import com.intellij.ide.ui.LafManager
 import com.intellij.ide.ui.laf.UIThemeLookAndFeelInfo
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -127,6 +128,50 @@ class AyuIslandsAppListenerTest {
                 AccentApplicator.apply(expectedAccent)
             }
         }
+    }
+
+    @Test
+    fun `appFrameCreated applies cached hex directly when lastAppliedAccentHex is set`() {
+        // Phase 40 anti-flicker: when a previous session persisted the last-applied hex,
+        // the listener MUST apply that hex directly on the first frame rather than
+        // resolving against a null project context (which yields the global accent and
+        // flashes Gold before per-project StartupActivity runs).
+        state.lastAppliedAccentHex = "#5CCFE6"
+        mockkObject(AccentResolver)
+
+        val laf = mockk<UIThemeLookAndFeelInfo>()
+        every { laf.name } returns "Ayu Mirage (Islands UI)"
+        val lafManager = mockk<LafManager>()
+        every { lafManager.currentUIThemeLookAndFeel } returns laf
+        every { LafManager.getInstance() } returns lafManager
+
+        listener.appFrameCreated(mutableListOf())
+
+        verify(exactly = 1) { AccentApplicator.apply("#5CCFE6") }
+        // Resolver must NOT be consulted when cached hex is available — that's the whole
+        // point of the anti-flicker cache.
+        verify(exactly = 0) { AccentResolver.resolve(any(), any()) }
+    }
+
+    @Test
+    fun `appFrameCreated falls back to resolver when lastAppliedAccentHex is null`() {
+        // First-ever launch (or post-settings-reset) has no cached hex — resolver path
+        // must still run so the first frame paints *something* sensible, even if it
+        // flashes the global accent before StartupActivity refines it.
+        state.lastAppliedAccentHex = null
+        mockkObject(AccentResolver)
+        every { AccentResolver.resolve(null, AyuVariant.MIRAGE) } returns "#FF0000"
+
+        val laf = mockk<UIThemeLookAndFeelInfo>()
+        every { laf.name } returns "Ayu Mirage (Islands UI)"
+        val lafManager = mockk<LafManager>()
+        every { lafManager.currentUIThemeLookAndFeel } returns laf
+        every { LafManager.getInstance() } returns lafManager
+
+        listener.appFrameCreated(mutableListOf())
+
+        verify(exactly = 1) { AccentResolver.resolve(null, AyuVariant.MIRAGE) }
+        verify(exactly = 1) { AccentApplicator.apply("#FF0000") }
     }
 
     @Test

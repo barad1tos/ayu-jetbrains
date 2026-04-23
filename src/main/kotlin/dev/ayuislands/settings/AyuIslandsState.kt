@@ -40,6 +40,23 @@ class AyuIslandsState : BaseState() {
     var freeOnboardingShown by property(false)
     var premiumOnboardingShown by property(false)
 
+    /**
+     * Last accent hex applied by [dev.ayuislands.accent.AccentApplicator.apply].
+     * Persisted so the next IDE startup can paint the correct color on the very
+     * first frame (before project contexts load), eliminating the "Gold → override"
+     * flicker users see when multiple project windows restore simultaneously with
+     * distinct per-project overrides.
+     *
+     * Written by every `apply()`, read once in
+     * [dev.ayuislands.AyuIslandsAppListener.appFrameCreated] and then effectively
+     * ignored at runtime (the live resolver chain inside `AyuIslandsStartupActivity`
+     * overrides it per project once contexts are available).
+     *
+     * Stored as hex string (e.g. `"#5CCFE6"`) for IDE-state simplicity — no color
+     * serialization round-trip. `null` on first launch (pre-plugin-install history).
+     */
+    var lastAppliedAccentHex by string(null)
+
     // Per-element accent toggles (all ON by default)
     var inlayHints by property(true)
     var caretRow by property(true)
