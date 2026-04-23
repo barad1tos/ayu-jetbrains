@@ -38,7 +38,16 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         // but project-dependent features (BracketFadeManager, editor TextAttributesKey overrides)
         // need this second idempotent call once a project context exists.
         // Project/language overrides win over the global accent; AccentResolver centralizes the chain.
-        val accentHex = AccentResolver.resolve(project, variant)
+        //
+        // Resolve for the FOCUSED project rather than THIS project — with multiple projects booting
+        // together, each StartupActivity writes to the single JVM-wide UIManager, so last-writer-wins.
+        // If core-terraform (Lavender override) and ayu-jetbrains (Cyan override) open simultaneously
+        // and core-terraform's activity finishes last, chrome ends up Lavender even when the user's
+        // focused window is ayu-jetbrains. Reading the focused project here aligns the write with
+        // what the user actually sees. Falls back to THIS project when focus cascade hasn't settled
+        // yet (single-project launch or pre-focus-manager startup).
+        val focusedProject = AccentApplicator.resolveFocusedProject() ?: project
+        val accentHex = AccentResolver.resolve(focusedProject, variant)
         AccentApplicator.apply(accentHex)
 
         // Warm the language-detector cache so Settings → Accent → Overrides
