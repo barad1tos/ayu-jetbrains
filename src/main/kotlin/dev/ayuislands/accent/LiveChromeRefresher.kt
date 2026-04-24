@@ -117,14 +117,8 @@ internal object LiveChromeRefresher {
     }
 
     private inline fun forEachUsableStatusBarComponent(action: (JComponent) -> Unit) {
-        val projectManager =
-            runCatching { ProjectManager.getInstance() }
-                .onFailure { log.debug("ProjectManager unavailable during live refresh", it) }
-                .getOrNull() ?: return
-        val windowManager =
-            runCatching { WindowManager.getInstance() }
-                .onFailure { log.debug("WindowManager unavailable during live refresh", it) }
-                .getOrNull() ?: return
+        val projectManager = safeService("ProjectManager") { ProjectManager.getInstance() } ?: return
+        val windowManager = safeService("WindowManager") { WindowManager.getInstance() } ?: return
         for (project in projectManager.openProjects) {
             if (!project.isUsable()) continue
             val statusBar = windowManager.getStatusBar(project) ?: continue
@@ -132,6 +126,25 @@ internal object LiveChromeRefresher {
             action(component)
         }
     }
+
+    /**
+     * Pattern B: narrow the service-lookup catch to [RuntimeException] so
+     * [OutOfMemoryError] / [NoClassDefFoundError] during a shutdown race
+     * still propagate — the prior `runCatching { ... }.onFailure { log.debug(...) }`
+     * swallowed the full [Throwable] surface on the hot live-refresh path.
+     * The `?: return` on the callsite is expected during shutdown (both
+     * services can legitimately report null).
+     */
+    private inline fun <T : Any> safeService(
+        name: String,
+        crossinline lookup: () -> T?,
+    ): T? =
+        try {
+            lookup()
+        } catch (exception: RuntimeException) {
+            log.debug("$name unavailable during live refresh", exception)
+            null
+        }
 
     /**
      * Iterates top-level windows, skipping ones that are not [Window.isShowing] (disposed,
