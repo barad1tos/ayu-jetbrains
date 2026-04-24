@@ -121,8 +121,8 @@ class AyuIslandsStartupActivityTest {
     @Test
     fun `execute publishes swap-service cache inside the same EDT withContext block`() {
         // Regression guard for the PR #151 Round 2 Fix B-2: ProjectAccentSwapService has an
-        // EDT precondition for notifyExternalApply (per AccentApplicator KDoc lines 203-205,
-        // the cache write is a bare volatile with no dispatch and must publish in the same
+        // EDT precondition for notifyExternalApply (per the AccentApplicator.applyForFocusedProject
+        // KDoc — the cache write is a bare volatile with no dispatch and must publish in the same
         // ordering as the apply that preceded it).
         //
         // Phase 40 review-loop Round 2 HIGH R2-1 then split install and notifyExternalApply
