@@ -15,6 +15,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * Tests for [LiveChromeRefresher] — the Level 2 Gap-4 helper that walks live
@@ -501,5 +502,42 @@ class LiveChromeRefresherTest {
         // throw on either call".
         LiveChromeRefresher.refreshOnTree(brokenContainer, "x", Color.RED)
         LiveChromeRefresher.refreshOnTree(brokenContainer, "x", Color.RED)
+    }
+
+    @Test
+    fun `broken-container log cap is 64 and clears on overflow`() {
+        // Round 3 G3 regression lock. The LOW R2-1 fix protects
+        // `brokenContainerLogged` from unbounded growth with a
+        // `BROKEN_CONTAINER_LOG_CAP = 64` constant plus an overflow-clear
+        // branch. Either piece alone is cosmetic: raise the cap silently to
+        // defeat the protection, or delete the clear branch and keep the
+        // constant as dead code. Lock both at the source level since the
+        // production path only fires under pathological conditions (65+
+        // distinct broken Container subclasses), unreachable in unit tests.
+        val source = readLiveChromeRefresherSource()
+        assertTrue(
+            source.contains("BROKEN_CONTAINER_LOG_CAP = 64"),
+            "Cap must remain at 64 — raising it silently defeats the unbounded-growth protection",
+        )
+        val overflowClear =
+            Regex(
+                """brokenContainerLogged\.size\s*>\s*BROKEN_CONTAINER_LOG_CAP""" +
+                    """\s*\)\s*\{\s*brokenContainerLogged\.clear\(\)""",
+                RegexOption.DOT_MATCHES_ALL,
+            )
+        assertTrue(
+            overflowClear.containsMatchIn(source),
+            "Overflow clear branch must remain — the cap constant alone is cosmetic without it",
+        )
+        assertTrue(
+            source.contains("resetBrokenContainerLoggedForTests"),
+            "TestOnly reset hook must remain for test isolation across order-dependent runs",
+        )
+    }
+
+    private fun readLiveChromeRefresherSource(): String {
+        val file = java.io.File("src/main/kotlin/dev/ayuislands/accent/LiveChromeRefresher.kt")
+        return file.takeIf { it.exists() }?.readText()
+            ?: error("Could not locate LiveChromeRefresher.kt for source-level guard")
     }
 }

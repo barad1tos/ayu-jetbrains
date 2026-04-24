@@ -288,7 +288,6 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
             val installed =
                 runCatchingPreservingCancellation {
                     swapService.install()
-                    true
                 }.onFailure { exception ->
                     LOG.error(
                         "Startup accent-swap install failed for project '$projectName' " +
@@ -296,7 +295,7 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
                             "will be inert this session until the user re-triggers apply",
                         exception,
                     )
-                }.getOrDefault(false)
+                }.isSuccess
             if (!installed) return@withContext
             runCatchingPreservingCancellation {
                 swapService.notifyExternalApply(hex)

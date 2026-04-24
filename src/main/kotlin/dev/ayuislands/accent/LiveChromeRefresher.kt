@@ -4,6 +4,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.wm.WindowManager
+import org.jetbrains.annotations.TestOnly
 import java.awt.Color
 import java.awt.Component
 import java.awt.Container
@@ -64,7 +65,7 @@ internal object LiveChromeRefresher {
      * equivalent trigger for a per-session container latch in production, so
      * tests use this hook to isolate order-dependent assertions.
      */
-    @org.jetbrains.annotations.TestOnly
+    @TestOnly
     internal fun resetBrokenContainerLoggedForTests() {
         brokenContainerLogged.clear()
     }

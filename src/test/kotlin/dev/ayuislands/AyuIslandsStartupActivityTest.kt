@@ -240,6 +240,57 @@ class AyuIslandsStartupActivityTest {
     }
 
     @Test
+    fun `install and notifyExternalApply are structurally separated by a short-circuit bail`() {
+        // Round 3 G1 regression lock. The R2-1 fix depends on install() and
+        // notifyExternalApply() sitting in SEPARATE runCatchingPreservingCancellation
+        // blocks with an `if (!installed) return@withContext` short-circuit
+        // between them. A "simplify" refactor that collapses them back into
+        // one block would keep both error literals (as dead code inside one
+        // runCatching body) while silently restoring the exact bug R2-1 fixed.
+        // Lock the structural pattern.
+        val source = readStartupActivitySource()
+        val structural =
+            Regex(
+                """runCatchingPreservingCancellation\s*\{\s*swapService\.install\(\)""" +
+                    """.*?\}\.onFailure\s*\{.*?\}\.isSuccess""" +
+                    """.*?if\s*\(\s*!\s*installed\s*\)\s*return@withContext""" +
+                    """.*?runCatchingPreservingCancellation\s*\{\s*swapService\.notifyExternalApply\(""",
+                RegexOption.DOT_MATCHES_ALL,
+            )
+        assertTrue(
+            structural.containsMatchIn(source),
+            "install() and notifyExternalApply() must remain in SEPARATE runCatching " +
+                "blocks with an `if (!installed) return@withContext` short-circuit between them",
+        )
+    }
+
+    @Test
+    fun `startup helper WARNs on Success-null hex as a defensive branch for future refactors`() {
+        // Round 3 G2 regression lock. MEDIUM R2-2 added a defensive branch:
+        // if applyOutcome.isSuccess but hex is null (not reachable today but
+        // reachable after any refactor that makes resolved nullable), WARN.
+        // The branch has NO behavioural test because the condition is not
+        // reachable today, so its only guard is a source-level lock on both
+        // the WARN literal AND the structural `applyOutcome.isSuccess` check
+        // inside the `hex == null` branch.
+        val source = readStartupActivitySource()
+        assertTrue(
+            source.contains("Startup accent apply returned a null hex unexpectedly"),
+            "WARN-on-null-hex defensive branch must remain against future nullable-refactor regressions",
+        )
+        val isSuccessInNullBranch =
+            Regex(
+                """if\s*\(\s*hex\s*==\s*null\s*\)\s*\{\s*[^}]*if\s*\(\s*applyOutcome\.isSuccess\s*\)""",
+                RegexOption.DOT_MATCHES_ALL,
+            )
+        assertTrue(
+            isSuccessInNullBranch.containsMatchIn(source),
+            "isSuccess check must sit INSIDE the `if (hex == null)` block — " +
+                "that is the Success(null) discriminator; removing it collapses the MEDIUM R2-2 fix",
+        )
+    }
+
+    @Test
     fun `execute does not claim AccentApplicator apply self-dispatches`() {
         // Regression guard for the PR #151 Round 2 Fix B-2: the old comment above the
         // withContext block asserted "AccentApplicator.apply self-dispatches internally",
