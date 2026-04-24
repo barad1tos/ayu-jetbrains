@@ -3,7 +3,6 @@ package dev.ayuislands
 import com.intellij.ide.AppLifecycleListener
 import com.intellij.openapi.diagnostic.logger
 import dev.ayuislands.accent.AccentApplicator
-import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -31,7 +30,7 @@ internal class AyuIslandsAppListener : AppLifecycleListener {
         val settings = AyuIslandsSettings.getInstance()
         val cached = settings.state.lastAppliedAccentHex
         val cleanCache = settings.state.lastApplyOk
-        val validCached = AccentHex.of(cached)
+        val validCached = settings.state.effectiveLastAppliedAccentHex()
         if (cached != null && validCached == null) {
             LOG.warn("AyuIslandsAppListener: invalid cached hex '$cached'; clearing and re-resolving")
             settings.state.lastAppliedAccentHex = null

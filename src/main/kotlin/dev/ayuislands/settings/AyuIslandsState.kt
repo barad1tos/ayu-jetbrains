@@ -2,6 +2,7 @@ package dev.ayuislands.settings
 
 import com.intellij.openapi.components.BaseState
 import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.TintIntensity
 import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowPreset
@@ -286,6 +287,21 @@ class AyuIslandsState : BaseState() {
      * serialization (which requires the raw delegate).
      */
     fun effectiveChromeTintIntensity(): TintIntensity = TintIntensity.of(chromeTintIntensity)
+
+    /**
+     * Returns [lastAppliedAccentHex] wrapped in an [AccentHex], or `null` when
+     * the persisted string is absent or corrupted. Mirrors the
+     * [effectiveChromeTintIntensity] pattern: the raw field stays `String?`
+     * for `BaseState` XML serialization, and every read path consults this
+     * helper instead of calling [AccentHex.of] at each site.
+     *
+     * Phase 40.3b: used by [dev.ayuislands.AyuIslandsAppListener.appFrameCreated]
+     * as the single trust boundary for the first-frame anti-flicker cache;
+     * [AccentHex.of] internally rejects hand-edited XML corruption and
+     * truncated writes so the resolver fallback fires whenever the cache is
+     * unusable.
+     */
+    fun effectiveLastAppliedAccentHex(): AccentHex? = AccentHex.of(lastAppliedAccentHex)
 
     fun isToggleEnabled(id: AccentElementId): Boolean =
         when (id) {
