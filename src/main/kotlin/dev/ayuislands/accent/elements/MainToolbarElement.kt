@@ -5,6 +5,7 @@ import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeBaseColors
 import dev.ayuislands.accent.ChromeDecorationsProbe
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.ClassFqn
 import dev.ayuislands.accent.LiveChromeRefresher
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -76,7 +77,7 @@ class MainToolbarElement : AccentElement {
         }
         // Level 2 Gap-4: push tinted bg to live MainToolbar peer. Probe-gated per D-13
         // — we only walk when isCustomHeaderActive is true (early return above).
-        tintedBackground?.let { LiveChromeRefresher.refreshByClassName(MAIN_TOOLBAR_PEER_CLASS, it) }
+        tintedBackground?.let { LiveChromeRefresher.refreshByClassName(ClassFqn.require(MAIN_TOOLBAR_PEER_CLASS), it) }
     }
 
     override fun revert() {
@@ -86,7 +87,7 @@ class MainToolbarElement : AccentElement {
         // D-14 symmetry: hand the toolbar peer back to LAF default. Unconditional like
         // the UIManager revert above — even if the probe flips between apply and revert,
         // the peer's lingering explicit background must be cleared.
-        LiveChromeRefresher.clearByClassName(MAIN_TOOLBAR_PEER_CLASS)
+        LiveChromeRefresher.clearByClassName(ClassFqn.require(MAIN_TOOLBAR_PEER_CLASS))
     }
 
     private companion object {

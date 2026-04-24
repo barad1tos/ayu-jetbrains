@@ -6,6 +6,7 @@ import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeBaseColors
 import dev.ayuislands.accent.ChromeDecorationsProbe
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.ClassFqn
 import dev.ayuislands.accent.LiveChromeRefresher
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -184,7 +185,7 @@ class MainToolbarElementTest {
 
         verify(exactly = 1) {
             LiveChromeRefresher.refreshByClassName(
-                "com.intellij.openapi.wm.impl.headertoolbar.MainToolbar",
+                ClassFqn.require("com.intellij.openapi.wm.impl.headertoolbar.MainToolbar"),
                 blended,
             )
         }
@@ -208,7 +209,9 @@ class MainToolbarElementTest {
         MainToolbarElement().revert()
 
         verify(exactly = 1) {
-            LiveChromeRefresher.clearByClassName("com.intellij.openapi.wm.impl.headertoolbar.MainToolbar")
+            LiveChromeRefresher.clearByClassName(
+                ClassFqn.require("com.intellij.openapi.wm.impl.headertoolbar.MainToolbar"),
+            )
         }
     }
 

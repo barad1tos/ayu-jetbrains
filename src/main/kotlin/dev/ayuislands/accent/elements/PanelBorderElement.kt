@@ -5,6 +5,7 @@ import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeBaseColors
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.ClassFqn
 import dev.ayuislands.accent.LiveChromeRefresher
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.Color
@@ -72,8 +73,8 @@ class PanelBorderElement : AccentElement {
         // which extends `JBPanel`, so `Container.getParent()` chain traversal is safe).
         tintedHeaderBorder?.let {
             LiveChromeRefresher.refreshByClassNameInsideAncestorClass(
-                DIVIDER_PEER_CLASS,
-                TOOL_WINDOW_ANCESTOR_CLASS,
+                ClassFqn.require(DIVIDER_PEER_CLASS),
+                ClassFqn.require(TOOL_WINDOW_ANCESTOR_CLASS),
                 it,
             )
         }
@@ -85,8 +86,8 @@ class PanelBorderElement : AccentElement {
         }
         // D-14 symmetry: hand the divider peer back to LAF default.
         LiveChromeRefresher.clearByClassNameInsideAncestorClass(
-            DIVIDER_PEER_CLASS,
-            TOOL_WINDOW_ANCESTOR_CLASS,
+            ClassFqn.require(DIVIDER_PEER_CLASS),
+            ClassFqn.require(TOOL_WINDOW_ANCESTOR_CLASS),
         )
     }
 

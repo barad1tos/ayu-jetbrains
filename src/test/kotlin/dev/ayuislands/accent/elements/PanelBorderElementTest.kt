@@ -6,6 +6,7 @@ import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeBaseColors
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.ClassFqn
 import dev.ayuislands.accent.LiveChromeRefresher
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -180,8 +181,8 @@ class PanelBorderElementTest {
 
         verify(exactly = 1) {
             LiveChromeRefresher.refreshByClassNameInsideAncestorClass(
-                "com.intellij.openapi.ui.OnePixelDivider",
-                "com.intellij.toolWindow.InternalDecoratorImpl",
+                ClassFqn.require("com.intellij.openapi.ui.OnePixelDivider"),
+                ClassFqn.require("com.intellij.toolWindow.InternalDecoratorImpl"),
                 blended,
             )
         }
@@ -205,8 +206,8 @@ class PanelBorderElementTest {
 
         verify(exactly = 1) {
             LiveChromeRefresher.clearByClassNameInsideAncestorClass(
-                "com.intellij.openapi.ui.OnePixelDivider",
-                "com.intellij.toolWindow.InternalDecoratorImpl",
+                ClassFqn.require("com.intellij.openapi.ui.OnePixelDivider"),
+                ClassFqn.require("com.intellij.toolWindow.InternalDecoratorImpl"),
             )
         }
         verify(exactly = 0) { LiveChromeRefresher.refreshByClassNameInsideAncestorClass(any(), any(), any()) }

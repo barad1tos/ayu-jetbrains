@@ -4,6 +4,7 @@ import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeBaseColors
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.ClassFqn
 import dev.ayuislands.accent.LiveChromeRefresher
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -54,7 +55,7 @@ class NavBarElement : AccentElement {
             }
         }
         // Level 2 Gap-4: push tinted bg to the live MyNavBarWrapperPanel peer.
-        tintedBackground?.let { LiveChromeRefresher.refreshByClassName(NAVBAR_PEER_CLASS, it) }
+        tintedBackground?.let { LiveChromeRefresher.refreshByClassName(ClassFqn.require(NAVBAR_PEER_CLASS), it) }
     }
 
     override fun revert() {
@@ -62,7 +63,7 @@ class NavBarElement : AccentElement {
             UIManager.put(key, null)
         }
         // D-14 symmetry: hand the navbar peer back to LAF default.
-        LiveChromeRefresher.clearByClassName(NAVBAR_PEER_CLASS)
+        LiveChromeRefresher.clearByClassName(ClassFqn.require(NAVBAR_PEER_CLASS))
     }
 
     private companion object {

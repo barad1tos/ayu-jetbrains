@@ -5,6 +5,7 @@ import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeBaseColors
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.ClassFqn
 import dev.ayuislands.accent.LiveChromeRefresher
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -170,7 +171,7 @@ class NavBarElementTest {
 
         verify(exactly = 1) {
             LiveChromeRefresher.refreshByClassName(
-                "com.intellij.platform.navbar.frontend.MyNavBarWrapperPanel",
+                ClassFqn.require("com.intellij.platform.navbar.frontend.MyNavBarWrapperPanel"),
                 blended,
             )
         }
@@ -182,7 +183,9 @@ class NavBarElementTest {
         NavBarElement().revert()
 
         verify(exactly = 1) {
-            LiveChromeRefresher.clearByClassName("com.intellij.platform.navbar.frontend.MyNavBarWrapperPanel")
+            LiveChromeRefresher.clearByClassName(
+                ClassFqn.require("com.intellij.platform.navbar.frontend.MyNavBarWrapperPanel"),
+            )
         }
         verify(exactly = 0) { LiveChromeRefresher.refreshByClassName(any(), any()) }
     }

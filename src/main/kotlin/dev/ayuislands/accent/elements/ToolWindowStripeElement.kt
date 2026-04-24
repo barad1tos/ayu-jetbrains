@@ -5,6 +5,7 @@ import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeBaseColors
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.ClassFqn
 import dev.ayuislands.accent.LiveChromeRefresher
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -87,7 +88,7 @@ class ToolWindowStripeElement : AccentElement {
             UIManager.put(STRIPE_FOREGROUND_KEY, stripeForeground)
         }
         // Level 2 Gap-4: push stripe bg to the live com.intellij.toolWindow.Stripe peer.
-        tintedStripeBackground?.let { LiveChromeRefresher.refreshByClassName(STRIPE_PEER_CLASS, it) }
+        tintedStripeBackground?.let { LiveChromeRefresher.refreshByClassName(ClassFqn.require(STRIPE_PEER_CLASS), it) }
     }
 
     override fun revert() {
@@ -95,7 +96,7 @@ class ToolWindowStripeElement : AccentElement {
             UIManager.put(key, null)
         }
         // D-14 symmetry: hand the stripe peer back to LAF default.
-        LiveChromeRefresher.clearByClassName(STRIPE_PEER_CLASS)
+        LiveChromeRefresher.clearByClassName(ClassFqn.require(STRIPE_PEER_CLASS))
     }
 
     private companion object {

@@ -5,6 +5,7 @@ import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeBaseColors
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.ClassFqn
 import dev.ayuislands.accent.LiveChromeRefresher
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -212,7 +213,7 @@ class ToolWindowStripeElementTest {
         ToolWindowStripeElement().apply(testAccent)
 
         verify(exactly = 1) {
-            LiveChromeRefresher.refreshByClassName("com.intellij.toolWindow.Stripe", blended)
+            LiveChromeRefresher.refreshByClassName(ClassFqn.require("com.intellij.toolWindow.Stripe"), blended)
         }
         verify(exactly = 0) { LiveChromeRefresher.clearByClassName(any()) }
     }
@@ -221,7 +222,7 @@ class ToolWindowStripeElementTest {
     fun `revert invokes LiveChromeRefresher clearByClassName for stripe peer (D-14 symmetry)`() {
         ToolWindowStripeElement().revert()
 
-        verify(exactly = 1) { LiveChromeRefresher.clearByClassName("com.intellij.toolWindow.Stripe") }
+        verify(exactly = 1) { LiveChromeRefresher.clearByClassName(ClassFqn.require("com.intellij.toolWindow.Stripe")) }
         verify(exactly = 0) { LiveChromeRefresher.refreshByClassName(any(), any()) }
     }
 }

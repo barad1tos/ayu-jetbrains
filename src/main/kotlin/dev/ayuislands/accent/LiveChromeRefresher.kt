@@ -107,13 +107,13 @@ internal object LiveChromeRefresher {
     // --- Class-name-based frame walk (internal platform peer types) ---
 
     fun refreshByClassName(
-        classNameFqn: String,
+        classNameFqn: ClassFqn,
         color: Color,
     ) {
         forEachShowingWindow { refreshOnTree(it, classNameFqn, color) }
     }
 
-    fun clearByClassName(classNameFqn: String) {
+    fun clearByClassName(classNameFqn: ClassFqn) {
         forEachShowingWindow { clearOnTree(it, classNameFqn) }
     }
 
@@ -126,8 +126,8 @@ internal object LiveChromeRefresher {
      * review Round 2 A-1.
      */
     fun refreshByClassNameInsideAncestorClass(
-        targetFqn: String,
-        ancestorFqn: String,
+        targetFqn: ClassFqn,
+        ancestorFqn: ClassFqn,
         color: Color,
     ) {
         forEachShowingWindow { refreshOnTreeInsideAncestor(it, targetFqn, ancestorFqn, color) }
@@ -135,8 +135,8 @@ internal object LiveChromeRefresher {
 
     /** Mirror of [refreshByClassNameInsideAncestorClass] for the revert path. */
     fun clearByClassNameInsideAncestorClass(
-        targetFqn: String,
-        ancestorFqn: String,
+        targetFqn: ClassFqn,
+        ancestorFqn: ClassFqn,
     ) {
         forEachShowingWindow { clearOnTreeInsideAncestor(it, targetFqn, ancestorFqn) }
     }
@@ -180,11 +180,11 @@ internal object LiveChromeRefresher {
      */
     internal fun refreshOnTree(
         root: Component,
-        classNameFqn: String,
+        classNameFqn: ClassFqn,
         color: Color,
     ) {
         walk(root) { component ->
-            if (component is JComponent && component.javaClass.name == classNameFqn) {
+            if (component is JComponent && component.javaClass.name == classNameFqn.value) {
                 component.background = color
                 component.repaint()
             }
@@ -194,10 +194,10 @@ internal object LiveChromeRefresher {
     /** Visible for tests — mirror of [refreshOnTree] for the revert path. */
     internal fun clearOnTree(
         root: Component,
-        classNameFqn: String,
+        classNameFqn: ClassFqn,
     ) {
         walk(root) { component ->
-            if (component is JComponent && component.javaClass.name == classNameFqn) {
+            if (component is JComponent && component.javaClass.name == classNameFqn.value) {
                 component.background = null
                 component.repaint()
             }
@@ -211,13 +211,13 @@ internal object LiveChromeRefresher {
      */
     internal fun refreshOnTreeInsideAncestor(
         root: Component,
-        targetFqn: String,
-        ancestorFqn: String,
+        targetFqn: ClassFqn,
+        ancestorFqn: ClassFqn,
         color: Color,
     ) {
         walk(root) { component ->
             if (component is JComponent &&
-                component.javaClass.name == targetFqn &&
+                component.javaClass.name == targetFqn.value &&
                 hasAncestorWithClassName(component, ancestorFqn)
             ) {
                 component.background = color
@@ -229,12 +229,12 @@ internal object LiveChromeRefresher {
     /** Visible for tests — mirror of [refreshOnTreeInsideAncestor] for the revert path. */
     internal fun clearOnTreeInsideAncestor(
         root: Component,
-        targetFqn: String,
-        ancestorFqn: String,
+        targetFqn: ClassFqn,
+        ancestorFqn: ClassFqn,
     ) {
         walk(root) { component ->
             if (component is JComponent &&
-                component.javaClass.name == targetFqn &&
+                component.javaClass.name == targetFqn.value &&
                 hasAncestorWithClassName(component, ancestorFqn)
             ) {
                 component.background = null
@@ -246,11 +246,11 @@ internal object LiveChromeRefresher {
     /** Walks the parent chain of [component] looking for a container whose runtime class name equals [ancestorFqn]. */
     private fun hasAncestorWithClassName(
         component: Component,
-        ancestorFqn: String,
+        ancestorFqn: ClassFqn,
     ): Boolean {
         var current: Container? = component.parent
         while (current != null) {
-            if (current.javaClass.name == ancestorFqn) return true
+            if (current.javaClass.name == ancestorFqn.value) return true
             current = current.parent
         }
         return false
