@@ -96,22 +96,44 @@ object ChromeDecorationsProbe {
     private val diagnosticLogged = AtomicBoolean(false)
 
     /**
-     * Returns `true` when the IDE is currently painting a JBR custom window header for
-     * the current OS. Never throws: a missing UIManager key resolves to `false`, and a
-     * missing Registry key returns the supplied default (`false`).
+     * Returns a typed [ChromeSupport] result describing whether chrome tinting can
+     * reach the title bar and, when it cannot, why. Never throws: a missing UIManager
+     * key resolves to `false`, and a missing Registry key returns the supplied default.
+     *
+     * Phase 40.3c Refactor 3: introduced so the Settings UI can read the reason code
+     * straight from the probe instead of re-sampling `SystemInfo.isMac/isWindows/isLinux`
+     * on its own to build the "disabled" tooltip.
      */
-    fun isCustomHeaderActive(): Boolean {
+    fun probe(): ChromeSupport {
         val os = osSupplier()
         val unified = UIManager.getBoolean(MAC_UNIFIED_KEY)
         val tpab = Registry.`is`(MAC_REGISTRY_KEY, false)
         val winHeader = UIManager.getBoolean(WINDOWS_HEADER_KEY)
         val linuxReg = Registry.`is`(LINUX_REGISTRY_KEY, false)
-        val result =
+        val result: ChromeSupport =
             when (os) {
-                Os.MAC -> unified || tpab
-                Os.WINDOWS -> winHeader
-                Os.LINUX -> linuxReg
-                Os.UNKNOWN -> false
+                Os.MAC -> {
+                    if (unified || tpab) {
+                        ChromeSupport.Supported
+                    } else {
+                        ChromeSupport.Unsupported.NativeMacTitleBar
+                    }
+                }
+                Os.WINDOWS -> {
+                    if (winHeader) {
+                        ChromeSupport.Supported
+                    } else {
+                        ChromeSupport.Unsupported.WindowsNoCustomHeader
+                    }
+                }
+                Os.LINUX -> {
+                    if (linuxReg) {
+                        ChromeSupport.Supported
+                    } else {
+                        ChromeSupport.Unsupported.GnomeSsd
+                    }
+                }
+                Os.UNKNOWN -> ChromeSupport.Unsupported.UnknownOs
             }
         // H-5: one-shot INFO diagnostic per session so users can see WHY the
         // Main Toolbar toggle was disabled (or enabled) from idea.log alone.
@@ -126,6 +148,14 @@ object ChromeDecorationsProbe {
         }
         return result
     }
+
+    /**
+     * Back-compat boolean delegate — returns `true` iff [probe] reports [ChromeSupport.Supported].
+     * Call sites that only need the boolean answer (the Settings row `.enabledIf` predicate,
+     * MainToolbarElement's probe gate) keep using this method; [probe] is the typed entry for
+     * callers that also need the reason code.
+     */
+    fun isCustomHeaderActive(): Boolean = probe() is ChromeSupport.Supported
 
     /** Test-only reset for the one-shot diagnostic gate. */
     @TestOnly

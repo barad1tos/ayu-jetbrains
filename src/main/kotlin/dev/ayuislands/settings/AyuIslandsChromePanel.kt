@@ -1,13 +1,13 @@
 package dev.ayuislands.settings
 
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.util.SystemInfo
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.ChromeDecorationsProbe
+import dev.ayuislands.accent.ChromeSupport
 import dev.ayuislands.licensing.LicenseChecker
 import org.jetbrains.annotations.TestOnly
 import javax.swing.JLabel
@@ -261,18 +261,24 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
      * option no longer exists on macOS, so the link navigated users to a panel with
      * nothing relevant to toggle. Instead, explain honestly per platform what the
      * situation is so the user knows why MainToolbar tint is disabled.
+     *
+     * Phase 40.3c Refactor 3: reads the reason code from [ChromeDecorationsProbe.probe]
+     * instead of re-sampling `SystemInfo` — keeps the probe as the single source of
+     * truth for "why chrome tinting is unavailable".
      */
-    private fun disabledMainToolbarComment(): String =
-        when {
-            SystemInfo.isMac ->
+    private fun disabledMainToolbarComment(): String {
+        val unsupported = ChromeDecorationsProbe.probe() as? ChromeSupport.Unsupported ?: return ""
+        return when (unsupported) {
+            ChromeSupport.Unsupported.NativeMacTitleBar ->
                 "Disabled: macOS paints the native title bar (IDE 2026.1+ no longer exposes a toggle)."
-            SystemInfo.isWindows ->
+            ChromeSupport.Unsupported.WindowsNoCustomHeader ->
                 "Disabled: your IDE is not using custom window decorations."
-            SystemInfo.isLinux ->
+            ChromeSupport.Unsupported.GnomeSsd ->
                 "Disabled: your window manager paints the native title bar."
-            else ->
+            ChromeSupport.Unsupported.UnknownOs ->
                 "Disabled: your OS paints the native title bar."
         }
+    }
 
     // ── @TestOnly seams ───────────────────────────────────────────────────────
     //
