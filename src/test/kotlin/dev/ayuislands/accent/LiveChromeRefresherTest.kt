@@ -531,10 +531,10 @@ class LiveChromeRefresherTest {
 
     @Test
     fun `refreshStatusBar returns silently when ProjectManager getInstance throws`() {
-        // Covers the runCatching onFailure + getOrNull ?: return path at
-        // LiveChromeRefresher lines 91-93 — ProjectManager resolution fails
-        // during live refresh (e.g. application shutting down mid-apply).
-        // The helper must log at DEBUG and return without propagating.
+        // Covers the `safeService("ProjectManager", ...) ?: return` path in
+        // `forEachUsableStatusBarComponent`. ProjectManager resolution fails
+        // during live refresh (e.g. application shutting down mid-apply) —
+        // the helper must log at DEBUG and return without propagating.
         mockkStatic(ProjectManager::class)
         every { ProjectManager.getInstance() } throws IllegalStateException("no container")
 
@@ -544,10 +544,12 @@ class LiveChromeRefresherTest {
 
     @Test
     fun `refreshStatusBar returns silently when WindowManager getInstance throws`() {
-        // Covers lines 95-97 — WindowManager resolution fails after
-        // ProjectManager succeeded. ProjectManager must still be mockable as
-        // a usable singleton so control flow reaches the WindowManager
-        // runCatching block; the WindowManager failure must be swallowed.
+        // Covers the `safeService("WindowManager", ...) ?: return` path in
+        // `forEachUsableStatusBarComponent`, which fires after the earlier
+        // ProjectManager lookup succeeded. ProjectManager must still be
+        // mockable as a usable singleton so control flow reaches the
+        // WindowManager safeService call; the WindowManager failure must be
+        // swallowed (DEBUG log inside the helper, early return in the caller).
         mockProjectManagerOpenProjects(mockUsableProject())
         mockkStatic(WindowManager::class)
         every { WindowManager.getInstance() } throws IllegalStateException("wm gone")
