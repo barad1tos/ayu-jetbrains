@@ -36,7 +36,8 @@ import javax.swing.UIManager
  * probe therefore funnels OS detection through [osSupplier], an overridable seam in the
  * same shape as `LicenseChecker.nowMsSupplier`. Tests pin [osSupplier] to the desired
  * branch and must call [resetOsSupplierForTests] in `@AfterTest` to restore production
- * behavior.
+ * behavior. The override is held in a [ThreadLocal] so parallel JUnit workers cannot
+ * leak a pinned OS from one test into a concurrent sibling.
  */
 object ChromeDecorationsProbe {
     private const val MAC_UNIFIED_KEY = "TitlePane.unifiedBackground"
@@ -70,18 +71,43 @@ object ChromeDecorationsProbe {
     private val defaultOsSupplier: () -> Os = { computeOs() }
 
     /**
+     * Per-thread override storage for the OS-detection seam. `null` means "use the
+     * production supplier" — only tests ever write a non-null entry, and they must
+     * clear it in `@AfterTest` via [resetOsSupplierForTests].
+     *
+     * Why ThreadLocal rather than the prior `@Volatile var`? Gradle runs JUnit tests
+     * in parallel workers by default; a shared `@Volatile` supplier leaks a pinned
+     * OS from one test into a concurrent sibling's probe call, producing
+     * intermittent "looks like macOS in a Windows test" false negatives. The
+     * ThreadLocal isolates the override to the mutating test's own thread.
+     */
+    private val osSupplierOverride: ThreadLocal<(() -> Os)?> = ThreadLocal.withInitial { null }
+
+    /**
      * Test seam for OS detection. Production code reads [SystemInfo]; tests override this
      * supplier to exercise each branch. Always restore via [resetOsSupplierForTests] in
      * teardown to prevent leaking state across tests.
+     *
+     * Backed by a per-thread override ([osSupplierOverride]) so concurrent test
+     * workers cannot leak OS overrides into each other. The `var` shape with
+     * get/set accessors is preserved for test-API compatibility — `osSupplier = { ... }`
+     * on the mutating test's own thread writes into the thread-local; the read side
+     * falls back to [defaultOsSupplier] when the thread-local is null (production
+     * path and any thread that never set an override).
      */
-    @VisibleForTesting
-    @Volatile
-    internal var osSupplier: () -> Os = defaultOsSupplier
+    internal var osSupplier: () -> Os
+        @VisibleForTesting
+        get() = osSupplierOverride.get() ?: defaultOsSupplier
 
-    /** Restore the production [osSupplier]. Intended for test teardown. */
+        @VisibleForTesting
+        set(value) {
+            osSupplierOverride.set(value)
+        }
+
+    /** Restore the production [osSupplier] on the calling thread. Intended for test teardown. */
     @VisibleForTesting
     internal fun resetOsSupplierForTests() {
-        osSupplier = defaultOsSupplier
+        osSupplierOverride.remove()
     }
 
     private val log = logger<ChromeDecorationsProbe>()

@@ -207,6 +207,42 @@ class ChromeDecorationsProbeTest {
     }
 
     @Test
+    fun `osSupplier override on one thread does not leak into another thread`() {
+        // Phase 40.4 L-2 regression lock: the osSupplier seam is backed by a
+        // ThreadLocal so parallel JUnit workers cannot cross-contaminate pinned
+        // OS branches. Pin a deterministic sentinel on this thread, then capture
+        // what another thread sees — the sentinel lambda's reference identity
+        // must not leak across threads. A different lambda reference proves the
+        // other thread fell through to the (per-thread-isolated) default path.
+        val sentinel: () -> ChromeDecorationsProbe.Os = { ChromeDecorationsProbe.Os.UNKNOWN }
+        ChromeDecorationsProbe.osSupplier = sentinel
+
+        val observedFromOtherThread =
+            java.util.concurrent.atomic
+                .AtomicReference<(() -> ChromeDecorationsProbe.Os)?>()
+        val worker =
+            Thread {
+                observedFromOtherThread.set(ChromeDecorationsProbe.osSupplier)
+            }
+        worker.start()
+        worker.join()
+
+        val seen = observedFromOtherThread.get()
+        kotlin.test.assertNotSame(
+            sentinel,
+            seen,
+            "Another thread must not observe this thread's osSupplier override — " +
+                "ThreadLocal backing is load-bearing for parallel JUnit workers",
+        )
+        // Confirm the read still works — the other thread must get the non-null
+        // default supplier, not an uninitialized null.
+        assertTrue(
+            seen != null,
+            "Other thread must see a non-null default supplier (thread-local fallback)",
+        )
+    }
+
+    @Test
     fun `ChromeSupport Unsupported variants expose distinct reason strings`() {
         // Regression guard: UI code maps reason strings into user-visible tooltips,
         // so collisions would make the tooltip lie about which OS branch fired.
