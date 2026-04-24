@@ -157,6 +157,19 @@ object AccentApplicator {
      * flipped to `true` only after the full sequence completes, so the startup listener
      * can distinguish "cached hex from a clean apply" from "cached hex from a torn
      * apply" and fall back to the resolver in the torn case.
+     *
+     * ### Threading contract
+     *
+     * Synchronous when called on the EDT; posts the full Runnable via
+     * [invokeLaterSafe] when called off-EDT. The ordering invariant —
+     * applyElements / editor keys / repaint all happen BEFORE the method
+     * returns on EDT — is load-bearing for callers that publish follow-on
+     * cache state (for example [ProjectAccentSwapService.notifyExternalApply]
+     * reached via [applyForFocusedProject]): those callers MUST already be on
+     * the EDT so their cache write happens after the full apply sequence.
+     * Off-EDT callers get Boolean "validation + scheduling" semantics only —
+     * paint completion is asynchronous, and the [lastApplyOk] flag is the
+     * correct signal for "apply finished cleanly" in those flows.
      */
     fun apply(accentHex: AccentHex): Boolean {
         val trimmedHex = accentHex.value
@@ -175,7 +188,7 @@ object AccentApplicator {
         // thread-safe, and elements previously posted their own invokeLater)
         val work =
             Runnable {
-                applyAlwaysOnUiKeys(accent)
+                applyAlwaysOnUiKeys(state, accent)
 
                 applyElements(state, accent, variant)
                 syncCodeGlanceProViewport(trimmedHex)
@@ -478,7 +491,16 @@ object AccentApplicator {
         }
     }
 
-    private fun applyAlwaysOnUiKeys(accent: Color) {
+    /**
+     * Thread [state] in from the outer [apply] capture rather than re-fetching via
+     * `AyuIslandsSettings.getInstance()`: the outer call already read state at the
+     * apply entry, so re-reading here risked observing a mid-apply settings mutation
+     * and splitting behaviour between the EP chain and the tab-mode resolution.
+     */
+    private fun applyAlwaysOnUiKeys(
+        state: AyuIslandsState,
+        accent: Color,
+    ) {
         for (key in ALWAYS_ON_UI_KEYS) {
             UIManager.put(key, accent)
         }
@@ -496,7 +518,6 @@ object AccentApplicator {
         UIManager.put("Button.default.endBorderColor", darkenedAccent)
 
         // Editor tab background tint (respects persisted tab mode, not gated by license)
-        val state = AyuIslandsSettings.getInstance().state
         val tabMode = GlowTabMode.fromName(state.glowTabMode ?: "MINIMAL")
         when (tabMode) {
             GlowTabMode.MINIMAL -> UIManager.put(KEY_TAB_BACKGROUND, Color(0, 0, 0, 0))
@@ -612,6 +633,11 @@ object AccentApplicator {
         }
     }
 
+    /**
+     * Pairs with [LiveChromeRefresher.forEachShowingWindow]'s `isShowing` filter —
+     * both paths must skip disposed/hidden peers so a future contributor doesn't
+     * regress one without the other.
+     */
     private fun repaintAllWindows(windows: Array<Window>) {
         // Phase 40.2 M-8: filter by isDisplayable before repaint, mirroring
         // LiveChromeRefresher.forEachShowingWindow. A disposed/undisplayed window still

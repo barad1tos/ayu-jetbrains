@@ -128,7 +128,8 @@ class AccentApplicatorTest {
 
         // Replicate the always-on logic from AccentApplicator.apply() without
         // applyElements (requires EP_NAME) and syncCodeGlanceProViewport (requires CGP).
-        invokePrivate("applyAlwaysOnUiKeys", accent)
+        val state = AyuIslandsSettings.getInstance().state
+        invokePrivate("applyAlwaysOnUiKeys", state, accent)
         invokePrivate("applyAlwaysOnEditorKeys", accent)
         val windows = Window.getWindows()
         invokePrivate("repaintAllWindows", windows)
@@ -837,6 +838,36 @@ class AccentApplicatorTest {
     }
 
     // Tests for public apply() method
+
+    @Test
+    fun `applyAlwaysOnUiKeys accepts state as an explicit parameter (Phase 40_4 L-4)`() {
+        // Phase 40.4 L-4 regression lock: the outer apply() already captures
+        // AyuIslandsSettings.state at entry, so applyAlwaysOnUiKeys must thread
+        // that same state through rather than re-fetching via
+        // AyuIslandsSettings.getInstance(). A future refactor that drops the
+        // parameter would re-open the split-brain window where the EP chain and
+        // tab-mode resolution could observe different state snapshots if settings
+        // mutated mid-apply.
+        val method =
+            AccentApplicator::class.java.declaredMethods
+                .first { it.name == "applyAlwaysOnUiKeys" }
+        assertEquals(
+            2,
+            method.parameterCount,
+            "applyAlwaysOnUiKeys must accept (state, accent) so tab-mode resolution shares the same state snapshot " +
+                "as the outer apply() call and cannot drift mid-apply",
+        )
+        assertEquals(
+            AyuIslandsState::class.java,
+            method.parameterTypes[0],
+            "First parameter must be AyuIslandsState — threaded from apply()'s captured snapshot",
+        )
+        assertEquals(
+            Color::class.java,
+            method.parameterTypes[1],
+            "Second parameter must be the resolved accent Color",
+        )
+    }
 
     @Test
     fun `apply calls applyAlwaysOnUiKeys and applyAlwaysOnEditorKeys on EDT`() {
