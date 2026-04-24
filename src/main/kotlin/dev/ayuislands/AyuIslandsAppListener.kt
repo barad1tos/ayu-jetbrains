@@ -41,14 +41,24 @@ internal class AyuIslandsAppListener : AppLifecycleListener {
         // resolver rather than re-paint against a torn half-apply.
         val trustedCached = validCached?.takeIf { cleanCache }
         val accentHex = trustedCached?.value ?: AccentResolver.resolve(null, variant)
-        AccentApplicator.applyFromHexString(accentHex)
+        val applied = AccentApplicator.applyFromHexString(accentHex)
         val source =
             when {
                 trustedCached != null -> "cached"
                 validCached != null -> "cached-untrusted"
                 else -> "resolved"
             }
-        LOG.info("Ayu Islands accent pre-applied in appFrameCreated ($source): $accentHex for ${variant.name}")
+        if (applied) {
+            LOG.info(
+                "Ayu Islands accent applied in appFrameCreated " +
+                    "(source=$source, hex='$accentHex') for ${variant.name}",
+            )
+        } else {
+            LOG.warn(
+                "Ayu Islands accent rejected in appFrameCreated " +
+                    "(source=$source, hex='$accentHex') for ${variant.name}",
+            )
+        }
     }
 
     companion object {

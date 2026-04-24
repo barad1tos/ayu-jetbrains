@@ -480,7 +480,10 @@ internal class FreeOnboardingPanel(
             updateTrialHeadline(fontPx)
         }
         ApplicationManager.getApplication().invokeLater {
-            AccentApplicator.applyFromHexString(preset.hex)
+            val applied = AccentApplicator.applyFromHexString(preset.hex)
+            if (!applied) {
+                LOG.warn("Onboarding preset apply rejected (hex='${preset.hex}')")
+            }
         }
     }
 

@@ -265,18 +265,17 @@ class AyuIslandsStartupActivityTest {
     }
 
     @Test
-    fun `startup helper WARNs on Success-null hex as a defensive branch for future refactors`() {
-        // Round 3 G2 regression lock. MEDIUM R2-2 added a defensive branch:
-        // if applyOutcome.isSuccess but hex is null (not reachable today but
-        // reachable after any refactor that makes resolved nullable), WARN.
-        // The branch has NO behavioural test because the condition is not
-        // reachable today, so its only guard is a source-level lock on both
-        // the WARN literal AND the structural `applyOutcome.isSuccess` check
-        // inside the `hex == null` branch.
+    fun `startup helper WARNs when applyFromHexString rejects hex as a defensive branch`() {
+        // Round 3 G2 regression lock, updated for Phase 40.4 HIGH-1:
+        // `applyFromHexString` returns Boolean (false = rejected); when rejected,
+        // hex becomes null via `if (applied) resolved else null`. That branch
+        // must log a WARN so operators can tell rejected-hex from throw-hex.
+        // Source-level lock on the WARN literal AND the structural
+        // `applyOutcome.isSuccess` check inside `if (hex == null)`.
         val source = readStartupActivitySource()
         assertTrue(
-            source.contains("Startup accent apply returned a null hex unexpectedly"),
-            "WARN-on-null-hex defensive branch must remain against future nullable-refactor regressions",
+            source.contains("Startup accent apply was rejected by applyFromHexString"),
+            "WARN-on-rejected-hex branch must remain against Boolean-gating regressions",
         )
         val isSuccessInNullBranch =
             Regex(
@@ -286,7 +285,7 @@ class AyuIslandsStartupActivityTest {
         assertTrue(
             isSuccessInNullBranch.containsMatchIn(source),
             "isSuccess check must sit INSIDE the `if (hex == null)` block — " +
-                "that is the Success(null) discriminator; removing it collapses the MEDIUM R2-2 fix",
+                "that distinguishes Success(null=rejected) from Failure(throw)",
         )
     }
 

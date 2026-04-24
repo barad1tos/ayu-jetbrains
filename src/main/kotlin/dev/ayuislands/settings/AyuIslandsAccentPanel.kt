@@ -258,8 +258,12 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
     private fun applyRotationRespectingOverrides(currentVariant: AyuVariant) {
         val focusedProject = AccentApplicator.resolveFocusedProject()
         val resolvedHex = AccentResolver.resolve(focusedProject, currentVariant)
-        AccentApplicator.applyFromHexString(resolvedHex)
-        ProjectAccentSwapService.getInstance().notifyExternalApply(resolvedHex)
+        val applied = AccentApplicator.applyFromHexString(resolvedHex)
+        if (applied) {
+            ProjectAccentSwapService.getInstance().notifyExternalApply(resolvedHex)
+        } else {
+            LOG.warn("Skipping swap publish: applyFromHexString rejected '$resolvedHex'")
+        }
     }
 
     private fun resolvePendingGlobalHex(currentVariant: AyuVariant): String {
@@ -652,13 +656,21 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         // `notifyExternalApply` after a successful `apply` means the accent DID change and
         // only the swap cache is stale. Log them separately so triage doesn't get an "also
         // failed" breadcrumb on a path where apply actually worked.
-        try {
-            AccentApplicator.applyFromHexString(effectiveAccent)
-        } catch (exception: RuntimeException) {
-            LOG.error(
-                "Global accent fallback also failed (variant=$currentVariant, hex=$effectiveAccent); " +
-                    "Settings panel leaving visible accent unchanged",
-                exception,
+        val fallbackApplied =
+            try {
+                AccentApplicator.applyFromHexString(effectiveAccent)
+            } catch (exception: RuntimeException) {
+                LOG.error(
+                    "Global accent fallback also failed (variant=$currentVariant, hex=$effectiveAccent); " +
+                        "Settings panel leaving visible accent unchanged",
+                    exception,
+                )
+                return
+            }
+        if (!fallbackApplied) {
+            LOG.warn(
+                "Global accent fallback rejected by applyFromHexString " +
+                    "(variant=$currentVariant, hex='$effectiveAccent'); skipping swap publish",
             )
             return
         }
