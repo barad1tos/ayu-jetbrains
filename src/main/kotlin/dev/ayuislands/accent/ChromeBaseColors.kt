@@ -28,6 +28,12 @@ import javax.swing.UIManager
  */
 object ChromeBaseColors {
     private val log = logger<ChromeBaseColors>()
+
+    // Bounded implicitly by the finite set of UIManager keys consumed by chrome
+    // elements (~20). No explicit cap needed — no caller feeds user-controlled
+    // keys in, and a LAF refresh() clears the whole map anyway. Do not introduce
+    // a TTL or LRU cache here speculatively; the growth ceiling is the key list
+    // above, not user activity.
     private val snapshot = ConcurrentHashMap<String, Color>()
 
     /**

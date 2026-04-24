@@ -138,6 +138,10 @@ internal object LiveChromeRefresher {
      * hidden, pooled popups) and isolating per-window failures so one flaky peer doesn't
      * abort chrome apply for the rest of the desktop. See Phase 40 review Round 3 C-1, C-2.
      *
+     * Uses [Window.getWindows] (broader than `WindowManager.allProjectFrames`) to catch
+     * pooled dialogs and detached popups that still cache stale chrome colors; the
+     * [Window.isShowing] filter keeps the walk safe by skipping disposed/hidden peers.
+     *
      * Catches [RuntimeException] rather than using `runCatching` (which would also
      * swallow [Error] — [OutOfMemoryError], [StackOverflowError]) so catastrophic JVM
      * failures still propagate and don't get quietly logged at DEBUG. The Swing /
