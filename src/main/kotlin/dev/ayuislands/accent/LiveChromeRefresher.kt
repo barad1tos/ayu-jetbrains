@@ -161,6 +161,15 @@ internal object LiveChromeRefresher {
      * AWT peer surface only throws [RuntimeException] subtypes (NPE on disposed peer,
      * ClassCast on reflective match, IllegalState on detached frame), so narrowing
      * the catch here also satisfies detekt's TooGenericExceptionCaught.
+     *
+     * The per-window catch around `action(window)` is defense-in-depth for callers
+     * that might pass an `action` lambda not wrapped in [walk]. Every current caller
+     * ([refreshOnTree], [clearOnTree], and the two `*InsideAncestor` variants)
+     * delegates to [walk], whose own per-component catch swallows broken peers
+     * before they can reach this layer — so the per-window catch is structurally
+     * unreachable today. Keep it: this is a `private inline fun` whose signature
+     * accepts an arbitrary `(Window) -> Unit`, and a future non-walk caller would
+     * otherwise regress the isolation guarantee.
      */
     private inline fun forEachShowingWindow(action: (Window) -> Unit) {
         val windows =

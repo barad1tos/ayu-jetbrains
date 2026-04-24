@@ -558,13 +558,19 @@ class LiveChromeRefresherTest {
 
     @Test
     fun `forEachShowingWindow isolates per-window failures from sibling windows`() {
-        // Covers lines 166-171 — the inner try/catch around `action(window)`
-        // in forEachShowingWindow. A showing window whose tree walk throws
-        // must be logged at DEBUG without aborting the rest of the window
-        // enumeration. Real `JFrame` / `JDialog` instantiation throws
-        // HeadlessException in the Gradle test JVM, so we mock a Window
-        // whose `getComponents()` blows up — the same RuntimeException the
-        // production catch block is there to defend against.
+        // Exercises the `walk()`-level per-container catch (see walk's inner
+        // try around `current.components` — the `brokenContainerLogged` DEBUG
+        // path). The test mocks a showing Window whose `getComponents()`
+        // throws; the throw surfaces inside walk's loop, is caught there, and
+        // never reaches `forEachShowingWindow`'s per-window catch block.
+        // The outer `forEachShowingWindow` catch is defense-in-depth for
+        // callers that might pass an `action` lambda NOT wrapped in `walk`;
+        // all current callers (`refreshOnTree`, `clearOnTree`, and the two
+        // `*InsideAncestor` variants) delegate to `walk`, so the outer catch
+        // is structurally unreachable today and intentionally has no direct
+        // test. Real `JFrame` / `JDialog` instantiation throws
+        // HeadlessException in the Gradle test JVM, so mocking the Window is
+        // the only way to simulate an in-the-field broken Swing peer.
         val brokenWindow =
             mockk<Window>(relaxed = true) {
                 every { isShowing } returns true
