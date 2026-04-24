@@ -98,7 +98,7 @@ class ProjectAccentSwapService : Disposable {
         if (effectiveHex == lastAppliedHex) return
 
         lastAppliedHex = effectiveHex
-        AccentApplicator.apply(effectiveHex)
+        AccentApplicator.applyFromHexString(effectiveHex)
 
         // AccentApplicator updates UIManager + editor scheme. UIManager-only components
         // (toolbar, tab underlines, scrollbar chrome, focus rings) hold cached JBColor

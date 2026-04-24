@@ -397,7 +397,7 @@ object ProjectLanguageDetector {
             // exception and risking the UI.
             val variant = AyuVariant.detect() ?: return@runCatchingPreservingCancellation
             val hex = AccentResolver.resolve(project, variant)
-            AccentApplicator.apply(hex)
+            AccentApplicator.applyFromHexString(hex)
             ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
         }.onFailure { exception ->
             LOG.warn("Post-scan accent refresh failed; cache is still warm", exception)

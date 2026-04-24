@@ -294,7 +294,7 @@ object LicenseChecker {
         // Re-apply accent with reset toggles (accent color itself stays — it's free)
         try {
             val accentHex = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
-            AccentApplicator.apply(accentHex)
+            AccentApplicator.applyFromHexString(accentHex)
         } catch (exception: RuntimeException) {
             LOG.warn("Revert to free defaults failed", exception)
             NotificationGroupManager

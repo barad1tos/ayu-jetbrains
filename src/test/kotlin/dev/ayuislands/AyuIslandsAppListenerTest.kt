@@ -56,7 +56,7 @@ class AyuIslandsAppListenerTest {
 
         mockkStatic(LafManager::class)
         mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } returns true
+        every { AccentApplicator.applyFromHexString(any()) } returns true
     }
 
     @AfterTest
@@ -77,7 +77,7 @@ class AyuIslandsAppListenerTest {
         listener.appFrameCreated(mutableListOf())
 
         verify(exactly = 1) {
-            AccentApplicator.apply("#FF0000")
+            AccentApplicator.applyFromHexString("#FF0000")
         }
     }
 
@@ -94,7 +94,7 @@ class AyuIslandsAppListenerTest {
         listener.appFrameCreated(mutableListOf())
 
         verify(exactly = 0) {
-            AccentApplicator.apply(any())
+            AccentApplicator.applyFromHexString(any())
         }
     }
 
@@ -125,7 +125,7 @@ class AyuIslandsAppListenerTest {
             listener.appFrameCreated(mutableListOf())
 
             verify(atLeast = 1) {
-                AccentApplicator.apply(expectedAccent)
+                AccentApplicator.applyFromHexString(expectedAccent)
             }
         }
     }
@@ -150,7 +150,7 @@ class AyuIslandsAppListenerTest {
 
         listener.appFrameCreated(mutableListOf())
 
-        verify(exactly = 1) { AccentApplicator.apply("#5CCFE6") }
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("#5CCFE6") }
         // Resolver must NOT be consulted when cached hex is available — that's the whole
         // point of the anti-flicker cache.
         verify(exactly = 0) { AccentResolver.resolve(any(), any()) }
@@ -174,7 +174,7 @@ class AyuIslandsAppListenerTest {
         listener.appFrameCreated(mutableListOf())
 
         verify(exactly = 1) { AccentResolver.resolve(null, AyuVariant.MIRAGE) }
-        verify(exactly = 1) { AccentApplicator.apply("#FF0000") }
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("#FF0000") }
     }
 
     @Test
@@ -199,9 +199,9 @@ class AyuIslandsAppListenerTest {
 
         // Resolver MUST be consulted — cached hex was invalid.
         verify(exactly = 1) { AccentResolver.resolve(null, AyuVariant.MIRAGE) }
-        verify(exactly = 1) { AccentApplicator.apply("#FF0000") }
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("#FF0000") }
         // Applier must NOT have been called with the poison value.
-        verify(exactly = 0) { AccentApplicator.apply("garbage") }
+        verify(exactly = 0) { AccentApplicator.applyFromHexString("garbage") }
         // Bad persisted hex cleared so next boot starts clean.
         assertNull(state.lastAppliedAccentHex, "invalid cached hex must be cleared")
     }
@@ -233,7 +233,7 @@ class AyuIslandsAppListenerTest {
         // Resolver consulted for every malformed entry; no call applied the poison hex.
         verify(atLeast = malformed.size) { AccentResolver.resolve(null, AyuVariant.MIRAGE) }
         for (badValue in malformed) {
-            verify(exactly = 0) { AccentApplicator.apply(badValue) }
+            verify(exactly = 0) { AccentApplicator.applyFromHexString(badValue) }
         }
     }
 
@@ -256,7 +256,7 @@ class AyuIslandsAppListenerTest {
 
         listener.appFrameCreated(mutableListOf())
 
-        verify(exactly = 1) { AccentApplicator.apply("#5CCFE6") }
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("#5CCFE6") }
         verify(exactly = 0) { AccentResolver.resolve(any(), any()) }
         assertEquals("#5CCFE6", state.lastAppliedAccentHex, "valid cached hex must remain persisted")
     }
@@ -279,8 +279,8 @@ class AyuIslandsAppListenerTest {
         listener.appFrameCreated(mutableListOf())
 
         // Both calls must land on the Mirage accent — never the Dark or Light one.
-        verify(exactly = 2) { AccentApplicator.apply("#FF0000") }
-        verify(exactly = 0) { AccentApplicator.apply("#00FF00") }
-        verify(exactly = 0) { AccentApplicator.apply("#0000FF") }
+        verify(exactly = 2) { AccentApplicator.applyFromHexString("#FF0000") }
+        verify(exactly = 0) { AccentApplicator.applyFromHexString("#00FF00") }
+        verify(exactly = 0) { AccentApplicator.applyFromHexString("#0000FF") }
     }
 }

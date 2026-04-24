@@ -3,6 +3,7 @@ package dev.ayuislands
 import com.intellij.ide.AppLifecycleListener
 import com.intellij.openapi.diagnostic.logger
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -30,7 +31,7 @@ internal class AyuIslandsAppListener : AppLifecycleListener {
         val settings = AyuIslandsSettings.getInstance()
         val cached = settings.state.lastAppliedAccentHex
         val cleanCache = settings.state.lastApplyOk
-        val validCached = cached?.takeIf { AccentApplicator.HEX_COLOR_PATTERN.matches(it) }
+        val validCached = AccentHex.of(cached)
         if (cached != null && validCached == null) {
             LOG.warn("AyuIslandsAppListener: invalid cached hex '$cached'; clearing and re-resolving")
             settings.state.lastAppliedAccentHex = null
@@ -40,8 +41,8 @@ internal class AyuIslandsAppListener : AppLifecycleListener {
         // hex persisted without the clean flag, so we must fall back to the
         // resolver rather than re-paint against a torn half-apply.
         val trustedCached = validCached?.takeIf { cleanCache }
-        val accentHex = trustedCached ?: AccentResolver.resolve(null, variant)
-        AccentApplicator.apply(accentHex)
+        val accentHex = trustedCached?.value ?: AccentResolver.resolve(null, variant)
+        AccentApplicator.applyFromHexString(accentHex)
         val source =
             when {
                 trustedCached != null -> "cached"

@@ -258,7 +258,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
     private fun applyRotationRespectingOverrides(currentVariant: AyuVariant) {
         val focusedProject = AccentApplicator.resolveFocusedProject()
         val resolvedHex = AccentResolver.resolve(focusedProject, currentVariant)
-        AccentApplicator.apply(resolvedHex)
+        AccentApplicator.applyFromHexString(resolvedHex)
         ProjectAccentSwapService.getInstance().notifyExternalApply(resolvedHex)
     }
 
@@ -653,7 +653,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         // only the swap cache is stale. Log them separately so triage doesn't get an "also
         // failed" breadcrumb on a path where apply actually worked.
         try {
-            AccentApplicator.apply(effectiveAccent)
+            AccentApplicator.applyFromHexString(effectiveAccent)
         } catch (exception: RuntimeException) {
             LOG.error(
                 "Global accent fallback also failed (variant=$currentVariant, hex=$effectiveAccent); " +

@@ -724,7 +724,7 @@ class ProjectLanguageDetectorTest {
         val project = stubProject("/tmp/refresh-hit-${System.nanoTime()}")
         ProjectLanguageDetector.refreshAccentOnEdt(project, "kotlin")
 
-        verify(exactly = 1) { AccentApplicator.apply("#FFCC66") }
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("#FFCC66") }
         verify(exactly = 1) { swapService.notifyExternalApply("#FFCC66") }
     }
 

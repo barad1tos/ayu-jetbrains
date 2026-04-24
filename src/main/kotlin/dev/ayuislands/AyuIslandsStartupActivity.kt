@@ -252,7 +252,7 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
                 runCatchingPreservingCancellation {
                     val focusedProject = AccentApplicator.resolveFocusedProject() ?: project
                     val resolved = AccentResolver.resolve(focusedProject, variant)
-                    AccentApplicator.apply(resolved)
+                    AccentApplicator.applyFromHexString(resolved)
                     resolved
                 }
             applyOutcome.onFailure { exception ->

@@ -480,7 +480,7 @@ internal class FreeOnboardingPanel(
             updateTrialHeadline(fontPx)
         }
         ApplicationManager.getApplication().invokeLater {
-            AccentApplicator.apply(preset.hex)
+            AccentApplicator.applyFromHexString(preset.hex)
         }
     }
 

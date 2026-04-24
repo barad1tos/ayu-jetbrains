@@ -35,23 +35,6 @@ import javax.swing.SwingUtilities
 import javax.swing.UIManager
 
 object AccentApplicator {
-    /**
-     * Shape check for persisted / caller-provided accent hex strings. `#` prefix + exactly
-     * six hex digits — the only form [Color.decode] can interpret without throwing on
-     * this path. Shared with [dev.ayuislands.AyuIslandsAppListener] so the cache read
-     * on startup and the apply entry point reject the same corrupted values (hand-edited
-     * XML, truncated writes, rare partial-persist under IDE crash) before they reach the
-     * decoder. Without this gate a single bad hex in `ayu-islands.xml` would abort the
-     * very first frame paint and leave the plugin silently inert for the session.
-     *
-     * Phase 40.2 M-2: leading/trailing whitespace is tolerated in the match but callers
-     * MUST `.trim()` the input before handing it to [Color.decode] (the decoder itself
-     * does not accept padding). Shorthand `#RGB` is intentionally NOT accepted — every
-     * persisted value in `ayu-islands.xml` is emitted as `#RRGGBB` and expanding the
-     * pattern would silently forgive a new corruption mode.
-     */
-    val HEX_COLOR_PATTERN = Regex("^\\s*#[0-9A-Fa-f]{6}\\s*$")
-
     /** Notification group ID declared in plugin.xml — shared with [dev.ayuislands.rotation.AccentRotationService]. */
     private const val NOTIFICATION_GROUP_ID = "Ayu Islands"
 
@@ -155,13 +138,17 @@ object AccentApplicator {
     /**
      * Applies [accentHex] across UIManager, editor keys, and the EP chain.
      *
-     * Phase 40.2 H-3 changed the return type to [Boolean]: `false` signals that the
-     * caller-provided hex failed shape validation and no apply work ran. Callers MUST
-     * surface a user-visible notification so settings-panel Apply, rotation ticks, and
-     * manual accent picks do not silently swallow corruption. `true` means the hex
-     * passed validation and the EP dispatch was scheduled (actual EP work may still
-     * happen asynchronously if the caller is off-EDT — the Boolean reports
-     * validation + scheduling, not end-to-end paint completion).
+     * Takes an [AccentHex] whose `#RRGGBB` shape is proven by construction —
+     * no internal regex, no `NumberFormatException` path through [Color.decode].
+     * Callers with a raw `String` from an untrusted boundary should use the
+     * top-level [applyFromHexString] helper which centralizes the Phase 40.2
+     * H-3 notification-on-bad-hex + `false` return contract.
+     *
+     * Phase 40.2 H-3 preserved: `true` means the hex passed validation and the
+     * EP dispatch was scheduled (actual EP work may still happen asynchronously
+     * if the caller is off-EDT — the Boolean reports validation + scheduling,
+     * not end-to-end paint completion). The return stays `Boolean` rather than
+     * `Unit` so the string-wrapper's `false` path can bubble up.
      *
      * Phase 40.2 H-2: [AyuIslandsState.lastAppliedAccentHex] is written BEFORE the EP
      * iteration runs, not after — a mid-EP throw would otherwise drop the anti-flicker
@@ -171,38 +158,9 @@ object AccentApplicator {
      * can distinguish "cached hex from a clean apply" from "cached hex from a torn
      * apply" and fall back to the resolver in the torn case.
      */
-    fun apply(accentHex: String): Boolean {
-        // Reject garbage before it reaches [Color.decode], which throws
-        // [NumberFormatException] on anything outside the `#RRGGBB` form. Callers
-        // include [dev.ayuislands.AyuIslandsAppListener.appFrameCreated] feeding the
-        // persisted `lastAppliedAccentHex` straight from XML — a corrupted or
-        // hand-edited value must not abort the first frame paint. Warn so user-submitted
-        // idea.log captures the offending value for diagnosis, surface a user-facing
-        // notification (Phase 40.2 H-3), then bail; the next resolver-driven apply
-        // (StartupActivity) will write a clean hex.
-        if (!HEX_COLOR_PATTERN.matches(accentHex)) {
-            log.warn("AccentApplicator.apply: invalid hex '$accentHex' — skipping apply")
-            // Phase 40.2 H-3: user-visible notification for the rejected hex so
-            // per-project XML corruption, manual edits, and rotation palette
-            // bugs do not silently turn chrome tinting off. Wrapped in
-            // runCatching so a notification subsystem hiccup cannot cascade
-            // into the caller (settings panel, rotation tick, startup).
-            runCatching {
-                Notifications.Bus.notify(
-                    Notification(
-                        NOTIFICATION_GROUP_ID,
-                        "Ayu Islands",
-                        "Ayu accent rejected — hex '$accentHex' is not a valid #RRGGBB.",
-                        NotificationType.WARNING,
-                    ),
-                )
-            }.onFailure { exception ->
-                log.debug("AccentApplicator invalid-hex notification failed to post", exception)
-            }
-            return false
-        }
-        val trimmedHex = accentHex.trim()
-        val accent = Color.decode(trimmedHex)
+    fun apply(accentHex: AccentHex): Boolean {
+        val trimmedHex = accentHex.value
+        val accent = accentHex.toColor()
         val state = AyuIslandsSettings.getInstance().state
         val variant = AyuVariant.detect()
 
@@ -293,7 +251,7 @@ object AccentApplicator {
         // manual XML edit, future resolver bug), skip the swap-cache publish so the
         // cache does not drift to a hex that was never actually painted. The apply
         // call itself already surfaces the user-visible notification.
-        val applied = apply(hex)
+        val applied = applyFromHexString(hex)
         if (applied) {
             ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
         }
@@ -696,9 +654,9 @@ object AccentApplicator {
             cgpSetViewportBorderColor = configClass.getMethod("setViewportBorderColor", String::class.java)
             cgpSetViewportBorderThickness = configClass.getMethod("setViewportBorderThickness", Int::class.java)
         } catch (exception: ReflectiveOperationException) {
-            logCgpWarning(CGP_RESOLUTION_FAILED, exception)
+            log.warn("CodeGlance Pro $CGP_RESOLUTION_FAILED: ${exception.javaClass.simpleName}: ${exception.message}")
         } catch (exception: RuntimeException) {
-            logCgpWarning(CGP_RESOLUTION_FAILED, exception)
+            log.warn("CodeGlance Pro $CGP_RESOLUTION_FAILED: ${exception.javaClass.simpleName}: ${exception.message}")
         }
     }
 
@@ -724,18 +682,50 @@ object AccentApplicator {
             // CGP panels repaint via globalSchemeChange notification (no manual walk needed)
             log.info("CodeGlance Pro viewport color synced to $hexWithoutHash")
         } catch (exception: java.lang.reflect.InvocationTargetException) {
-            logCgpWarning(CGP_SYNC_FAILED, exception.cause ?: exception)
+            val cause = exception.cause ?: exception
+            log.warn("CodeGlance Pro $CGP_SYNC_FAILED: ${cause.javaClass.simpleName}: ${cause.message}")
         } catch (exception: ReflectiveOperationException) {
-            logCgpWarning(CGP_SYNC_FAILED, exception)
+            log.warn("CodeGlance Pro $CGP_SYNC_FAILED: ${exception.javaClass.simpleName}: ${exception.message}")
         } catch (exception: RuntimeException) {
-            logCgpWarning(CGP_SYNC_FAILED, exception)
+            log.warn("CodeGlance Pro $CGP_SYNC_FAILED: ${exception.javaClass.simpleName}: ${exception.message}")
         }
     }
 
-    private fun logCgpWarning(
-        action: String,
-        exception: Throwable,
-    ) {
-        log.warn("CodeGlance Pro $action: ${exception.javaClass.simpleName}: ${exception.message}")
+    /**
+     * String-accepting entry point for callers that hold a raw hex from an
+     * untrusted boundary (persisted XML, settings-panel input, resolver
+     * output that is still `String` until Phase 40.3b migration completes).
+     * Validates the shape via [AccentHex.of], surfaces the Phase 40.2 H-3
+     * notification + returns `false` on rejection, and forwards to [apply]
+     * on success.
+     *
+     * Deliberately NOT named `apply(String)` — mockk's `every { apply(any()) }`
+     * can't resolve across overloads of the same name, so tests that lock in
+     * the cache-publish ordering against the apply path would all break.
+     */
+    fun applyFromHexString(accentHex: String): Boolean {
+        val accent =
+            AccentHex.of(accentHex) ?: run {
+                log.warn("AccentApplicator.apply: invalid hex '$accentHex' — skipping apply")
+                // Phase 40.2 H-3: user-visible notification for the rejected hex so
+                // per-project XML corruption, manual edits, and rotation palette
+                // bugs do not silently turn chrome tinting off. Wrapped in
+                // runCatching so a notification subsystem hiccup cannot cascade
+                // into the caller (settings panel, rotation tick, startup).
+                runCatching {
+                    Notifications.Bus.notify(
+                        Notification(
+                            NOTIFICATION_GROUP_ID,
+                            "Ayu Islands",
+                            "Ayu accent rejected — hex '$accentHex' is not a valid #RRGGBB.",
+                            NotificationType.WARNING,
+                        ),
+                    )
+                }.onFailure { exception ->
+                    log.debug("AccentApplicator invalid-hex notification failed to post", exception)
+                }
+                return false
+            }
+        return apply(accent)
     }
 }

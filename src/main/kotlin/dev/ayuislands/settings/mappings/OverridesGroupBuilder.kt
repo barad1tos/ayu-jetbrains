@@ -354,7 +354,7 @@ class OverridesGroupBuilder {
                 // bound yet — same helper every apply path ultimately converges on.
                 val project = parentProject ?: AccentApplicator.resolveFocusedProject()
                 val hex = AccentResolver.resolve(project, variant)
-                AccentApplicator.apply(hex)
+                AccentApplicator.applyFromHexString(hex)
                 ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
             }
         }.onFailure { exception ->

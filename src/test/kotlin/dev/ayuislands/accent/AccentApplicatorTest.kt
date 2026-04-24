@@ -33,6 +33,8 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -490,13 +492,6 @@ class AccentApplicatorTest {
         invokeNeutralizeOrRevert(element, null)
     }
 
-    // logCgpWarning
-
-    @Test
-    fun `logCgpWarning does not throw`() {
-        invokePrivate("logCgpWarning", "test action", RuntimeException("test message"))
-    }
-
     // syncCodeGlanceProViewport early return when disabled
 
     @Test
@@ -750,11 +745,6 @@ class AccentApplicatorTest {
         }
     }
 
-    @Test
-    fun `logCgpWarning handles exception with null message`() {
-        invokePrivate("logCgpWarning", "test action", RuntimeException())
-    }
-
     // syncCodeGlanceProViewport: various null method fields
 
     @Test
@@ -855,7 +845,7 @@ class AccentApplicatorTest {
         every { IndentRainbowSync.apply(any(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
 
-        AccentApplicator.apply("#FFCC66")
+        AccentApplicator.applyFromHexString("#FFCC66")
 
         // Verify always-on UI keys were set (proves applyAlwaysOnUiKeys ran)
         verify(atLeast = 13) { UIManager.put(any<String>(), any<Color>()) }
@@ -875,7 +865,7 @@ class AccentApplicatorTest {
         state.cgpIntegrationEnabled = false
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
 
-        AccentApplicator.apply("#FFCC66")
+        AccentApplicator.applyFromHexString("#FFCC66")
 
         verify { IndentRainbowSync.apply(AyuVariant.MIRAGE, "#FFCC66") }
     }
@@ -887,7 +877,7 @@ class AccentApplicatorTest {
         state.cgpIntegrationEnabled = false
         every { AyuVariant.detect() } returns null
 
-        AccentApplicator.apply("#FFCC66")
+        AccentApplicator.applyFromHexString("#FFCC66")
 
         verify(exactly = 0) { IndentRainbowSync.apply(any(), any()) }
     }
@@ -902,7 +892,7 @@ class AccentApplicatorTest {
         every { mockWindow.isDisplayable } returns true
         every { Window.getWindows() } returns arrayOf(mockWindow)
 
-        AccentApplicator.apply("#FFCC66")
+        AccentApplicator.applyFromHexString("#FFCC66")
 
         verify { mockWindow.repaint() }
     }
@@ -915,7 +905,7 @@ class AccentApplicatorTest {
         state.cgpIntegrationEnabled = false
         every { SwingUtilities.isEventDispatchThread() } returns true
 
-        AccentApplicator.apply("#FFCC66")
+        AccentApplicator.applyFromHexString("#FFCC66")
 
         // If on EDT, work runs synchronously, so UIManager.put should be called.
         verify(atLeast = 1) { UIManager.put(any<String>(), any()) }
@@ -932,7 +922,7 @@ class AccentApplicatorTest {
         every { IndentRainbowSync.apply(any(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
 
-        AccentApplicator.apply("#5CCFE6")
+        AccentApplicator.applyFromHexString("#5CCFE6")
 
         assertEquals("#5CCFE6", state.lastAppliedAccentHex)
     }
@@ -946,10 +936,10 @@ class AccentApplicatorTest {
         every { IndentRainbowSync.apply(any(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
 
-        AccentApplicator.apply("#5CCFE6")
+        AccentApplicator.applyFromHexString("#5CCFE6")
         assertEquals("#5CCFE6", state.lastAppliedAccentHex)
 
-        AccentApplicator.apply("#FF3333")
+        AccentApplicator.applyFromHexString("#FF3333")
         assertEquals("#FF3333", state.lastAppliedAccentHex)
     }
 
@@ -968,12 +958,12 @@ class AccentApplicatorTest {
         state.cgpIntegrationEnabled = false
 
         // None of these should throw; none should set the cached hex.
-        AccentApplicator.apply("garbage")
-        AccentApplicator.apply("")
-        AccentApplicator.apply("FFCC66") // missing leading #
-        AccentApplicator.apply("#12345") // 5 chars — too short
-        AccentApplicator.apply("#1234567") // 7 chars — too long
-        AccentApplicator.apply("#ZZZZZZ") // non-hex digits
+        AccentApplicator.applyFromHexString("garbage")
+        AccentApplicator.applyFromHexString("")
+        AccentApplicator.applyFromHexString("FFCC66") // missing leading #
+        AccentApplicator.applyFromHexString("#12345") // 5 chars — too short
+        AccentApplicator.applyFromHexString("#1234567") // 7 chars — too long
+        AccentApplicator.applyFromHexString("#ZZZZZZ") // non-hex digits
 
         // UIManager.put must not have been called for any of these (apply short-circuits
         // before applyAlwaysOnUiKeys). The cached hex stays whatever it was (default null).
@@ -990,7 +980,7 @@ class AccentApplicatorTest {
 
         // Boundary: exactly #RRGGBB with valid hex digits. Must go through the full
         // apply flow (UIManager writes, lastAppliedAccentHex persisted).
-        AccentApplicator.apply("#123456")
+        AccentApplicator.applyFromHexString("#123456")
 
         verify(atLeast = 1) { UIManager.put(any<String>(), any<Color>()) }
         assertEquals("#123456", state.lastAppliedAccentHex)
@@ -1004,27 +994,31 @@ class AccentApplicatorTest {
         state.cgpIntegrationEnabled = false
 
         // Upper and lower case 0-9A-Fa-f are all valid per Color.decode.
-        AccentApplicator.apply("#AbCdEf")
+        AccentApplicator.applyFromHexString("#AbCdEf")
 
         assertEquals("#AbCdEf", state.lastAppliedAccentHex)
     }
 
     @Test
-    fun `HEX_COLOR_PATTERN matches expected shapes`() {
+    fun `AccentHex of matches expected shapes`() {
+        // Phase 40.3b: the shape check moved from AccentApplicator.HEX_COLOR_PATTERN
+        // onto AccentHex.of, which is now the single boundary that gates Color.decode.
+        // This test is retained under the applicator suite so the same contract the
+        // applicator used to own is still asserted in the applicator's coverage footprint.
         // Positive
-        assertTrue(AccentApplicator.HEX_COLOR_PATTERN.matches("#000000"))
-        assertTrue(AccentApplicator.HEX_COLOR_PATTERN.matches("#FFFFFF"))
-        assertTrue(AccentApplicator.HEX_COLOR_PATTERN.matches("#ffcc66"))
-        assertTrue(AccentApplicator.HEX_COLOR_PATTERN.matches("#5CCFE6"))
+        assertNotNull(AccentHex.of("#000000"))
+        assertNotNull(AccentHex.of("#FFFFFF"))
+        assertNotNull(AccentHex.of("#ffcc66"))
+        assertNotNull(AccentHex.of("#5CCFE6"))
 
         // Negative
-        assertEquals(false, AccentApplicator.HEX_COLOR_PATTERN.matches(""))
-        assertEquals(false, AccentApplicator.HEX_COLOR_PATTERN.matches("garbage"))
-        assertEquals(false, AccentApplicator.HEX_COLOR_PATTERN.matches("FFCC66"))
-        assertEquals(false, AccentApplicator.HEX_COLOR_PATTERN.matches("#12345"))
-        assertEquals(false, AccentApplicator.HEX_COLOR_PATTERN.matches("#1234567"))
-        assertEquals(false, AccentApplicator.HEX_COLOR_PATTERN.matches("#ZZZZZZ"))
-        assertEquals(false, AccentApplicator.HEX_COLOR_PATTERN.matches("#12 34 56"))
+        assertNull(AccentHex.of(""))
+        assertNull(AccentHex.of("garbage"))
+        assertNull(AccentHex.of("FFCC66"))
+        assertNull(AccentHex.of("#12345"))
+        assertNull(AccentHex.of("#1234567"))
+        assertNull(AccentHex.of("#ZZZZZZ"))
+        assertNull(AccentHex.of("#12 34 56"))
     }
 
     @Test
@@ -1038,7 +1032,7 @@ class AccentApplicatorTest {
             firstArg<Runnable>().run()
         }
 
-        AccentApplicator.apply("#FFCC66")
+        AccentApplicator.applyFromHexString("#FFCC66")
 
         verify { mockApplication.invokeLater(any(), any<ModalityState>()) }
         verify(exactly = 0) { SwingUtilities.invokeLater(any()) }
@@ -1811,9 +1805,9 @@ class AccentApplicatorTest {
                     .notify(any())
             } returns Unit
 
-            val result = AccentApplicator.apply("garbage-hex")
+            val result = AccentApplicator.applyFromHexString("garbage-hex")
 
-            assertEquals(false, result, "Invalid hex must return false from apply()")
+            assertEquals(false, result, "Invalid hex must return false from applyFromHexString()")
             verify(exactly = 1) {
                 com.intellij.notification.Notifications.Bus
                     .notify(any())

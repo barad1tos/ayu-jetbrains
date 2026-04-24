@@ -53,7 +53,7 @@ class ProjectAccentSwapServiceTest {
         mockkObject(AyuVariant.Companion)
         mockkObject(ComponentTreeRefresher)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-        every { AccentApplicator.apply(any()) } returns true
+        every { AccentApplicator.applyFromHexString(any()) } returns true
         every { ComponentTreeRefresher.walkAndNotify(any(), any()) } just Runs
 
         mockkStatic(WindowManager::class)
@@ -130,7 +130,7 @@ class ProjectAccentSwapServiceTest {
 
         service.onWindowActivatedForTest(event)
 
-        verify(exactly = 0) { AccentApplicator.apply(any()) }
+        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
         verify(exactly = 0) { AccentResolver.resolve(any(), any()) }
         verify(exactly = 0) { AyuVariant.detect() }
     }
@@ -150,7 +150,7 @@ class ProjectAccentSwapServiceTest {
 
         verify(exactly = 1) { AyuVariant.detect() }
         verify(exactly = 0) { AccentResolver.resolve(project, any()) }
-        verify(exactly = 0) { AccentApplicator.apply(any()) }
+        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
     }
 
     @Test
@@ -164,7 +164,7 @@ class ProjectAccentSwapServiceTest {
         service.onWindowActivatedForTest(makeEvent(window))
 
         verify(exactly = 0) { AccentResolver.resolve(project, any()) }
-        verify(exactly = 0) { AccentApplicator.apply(any()) }
+        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
     }
 
     @Test
@@ -183,7 +183,7 @@ class ProjectAccentSwapServiceTest {
         service.onWindowActivatedForTest(event) // same project — re-resolves, hex matches, skips apply
 
         verify(exactly = 2) { AccentResolver.resolve(project, AyuVariant.MIRAGE) }
-        verify(exactly = 1) { AccentApplicator.apply("#FFCC66") }
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("#FFCC66") }
         verify(exactly = 1) { ComponentTreeRefresher.walkAndNotify(project, window) }
     }
 
@@ -211,7 +211,7 @@ class ProjectAccentSwapServiceTest {
         // cache-hex is lavender; the handler must notice the drift and re-apply cyan.
         service.onWindowActivatedForTest(makeEvent(window))
 
-        verify(exactly = 2) { AccentApplicator.apply("#5CCFE6") }
+        verify(exactly = 2) { AccentApplicator.applyFromHexString("#5CCFE6") }
         verify(exactly = 2) { ComponentTreeRefresher.walkAndNotify(project, window) }
     }
 
@@ -244,7 +244,7 @@ class ProjectAccentSwapServiceTest {
         // fired only once because the effective hex hadn't changed.
         verify(exactly = 1) { AccentResolver.resolve(projectA, AyuVariant.MIRAGE) }
         verify(exactly = 1) { AccentResolver.resolve(projectB, AyuVariant.MIRAGE) }
-        verify(exactly = 1) { AccentApplicator.apply("#FFCC66") }
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("#FFCC66") }
     }
 
     @Test
@@ -280,7 +280,7 @@ class ProjectAccentSwapServiceTest {
         // resolve was called (project changed from null to projectA) but apply was skipped
         // because the effective hex matches the cache.
         verify(exactly = 1) { AccentResolver.resolve(project, AyuVariant.MIRAGE) }
-        verify(exactly = 0) { AccentApplicator.apply(any()) }
+        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
     }
 
     @Test

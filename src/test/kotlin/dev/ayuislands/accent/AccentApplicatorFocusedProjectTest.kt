@@ -99,7 +99,7 @@ class AccentApplicatorFocusedProjectTest {
         val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
 
         assertEquals("#ABCDEF", applied)
-        verify(exactly = 1) { AccentApplicator.apply("#ABCDEF") }
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("#ABCDEF") }
         verify(exactly = 1) { swapService.notifyExternalApply("#ABCDEF") }
     }
 
@@ -131,7 +131,7 @@ class AccentApplicatorFocusedProjectTest {
         val applied = AccentApplicator.applyForFocusedProject(AyuVariant.LIGHT)
 
         assertEquals("#F29718", applied)
-        verify(exactly = 1) { AccentApplicator.apply("#F29718") }
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("#F29718") }
         verify(exactly = 1) { swapService.notifyExternalApply("#F29718") }
     }
 
@@ -245,7 +245,7 @@ class AccentApplicatorFocusedProjectTest {
 
         io.mockk.verifyOrder {
             AccentResolver.resolve(focused, AyuVariant.MIRAGE)
-            AccentApplicator.apply("#FFCC66")
+            AccentApplicator.applyFromHexString("#FFCC66")
             swapService.notifyExternalApply("#FFCC66")
         }
     }

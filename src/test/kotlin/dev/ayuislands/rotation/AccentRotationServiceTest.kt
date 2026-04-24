@@ -173,7 +173,7 @@ class AccentRotationServiceTest {
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
 
         mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } returns true
+        every { AccentApplicator.applyFromHexString(any()) } returns true
 
         mockkObject(GlowOverlayManager.Companion)
         every { GlowOverlayManager.syncGlowForAllProjects() } just Runs
@@ -236,7 +236,7 @@ class AccentRotationServiceTest {
         service.rotateAccent()
         val after = System.currentTimeMillis()
 
-        verify(exactly = 1) { AccentApplicator.apply(expectedHex) }
+        verify(exactly = 1) { AccentApplicator.applyFromHexString(expectedHex) }
         verify(exactly = 1) { settingsMock.setAccentForVariant(AyuVariant.MIRAGE, expectedHex) }
         assertEquals(expectedIndex, state.accentRotationPresetIndex)
         assertTrue(
@@ -259,7 +259,7 @@ class AccentRotationServiceTest {
         service.rotateAccent()
 
         verify(exactly = 1) { ContrastAwareColorGenerator.generate(AyuVariant.MIRAGE) }
-        verify(exactly = 1) { AccentApplicator.apply(generatedHex) }
+        verify(exactly = 1) { AccentApplicator.applyFromHexString(generatedHex) }
         verify(exactly = 1) { settingsMock.setAccentForVariant(AyuVariant.MIRAGE, generatedHex) }
         assertEquals(3, state.accentRotationPresetIndex, "PRESET index must not advance in RANDOM mode")
     }
@@ -273,7 +273,7 @@ class AccentRotationServiceTest {
         val service = AccentRotationService()
         service.rotateAccent()
 
-        verify(exactly = 0) { AccentApplicator.apply(any()) }
+        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
         verify(exactly = 0) { settingsMock.setAccentForVariant(any(), any()) }
     }
 
@@ -293,7 +293,7 @@ class AccentRotationServiceTest {
         val (notificationGroup, createdNotifications) = captureNotifications()
         state.accentRotationEnabled = true
         state.accentRotationMode = AccentRotationMode.PRESET.name
-        every { AccentApplicator.apply(any()) } throws RotationTestException("apply stage")
+        every { AccentApplicator.applyFromHexString(any()) } throws RotationTestException("apply stage")
 
         val service = AccentRotationService()
         LoggedErrorProcessor.executeWith<Throwable>(suppressLoggedErrors()) {
@@ -316,7 +316,7 @@ class AccentRotationServiceTest {
         val (notificationGroup, _) = captureNotifications()
         state.accentRotationEnabled = true
         state.accentRotationMode = AccentRotationMode.PRESET.name
-        every { AccentApplicator.apply(any()) } throws RotationTestException("apply stage")
+        every { AccentApplicator.applyFromHexString(any()) } throws RotationTestException("apply stage")
 
         val service = AccentRotationService()
         LoggedErrorProcessor.executeWith<Throwable>(suppressLoggedErrors()) {
@@ -337,7 +337,7 @@ class AccentRotationServiceTest {
         val (notificationGroup, _) = captureNotifications()
         state.accentRotationEnabled = true
         state.accentRotationMode = AccentRotationMode.PRESET.name
-        every { AccentApplicator.apply(any()) } throws RotationTestException("apply stage")
+        every { AccentApplicator.applyFromHexString(any()) } throws RotationTestException("apply stage")
 
         val service = AccentRotationService()
         LoggedErrorProcessor.executeWith<Throwable>(suppressLoggedErrors()) {
@@ -360,7 +360,7 @@ class AccentRotationServiceTest {
         state.accentRotationMode = AccentRotationMode.PRESET.name
 
         val applyCalls = mutableListOf<String>()
-        every { AccentApplicator.apply(any()) } answers {
+        every { AccentApplicator.applyFromHexString(any()) } answers {
             applyCalls += firstArg<String>()
             if (applyCalls.size != THREE) {
                 throw RotationTestException("fail ${applyCalls.size}")
@@ -430,7 +430,7 @@ class AccentRotationServiceTest {
         state.accentRotationMode = AccentRotationMode.PRESET.name
         state.accentRotationPresetIndex = 0
 
-        every { AccentApplicator.apply(any()) } throws RuntimeException("boom")
+        every { AccentApplicator.applyFromHexString(any()) } throws RuntimeException("boom")
 
         // IntelliJ's TestLoggerFactory promotes LOG.error calls into AssertionErrors.
         // rotateAccent() is expected to log the AccentApplicator failure via LOG.error,
@@ -455,7 +455,7 @@ class AccentRotationServiceTest {
             service.rotateAccent()
         }
 
-        verify(exactly = 1) { AccentApplicator.apply(any()) }
+        verify(exactly = 1) { AccentApplicator.applyFromHexString(any()) }
         // Glow sync runs in a separate try/catch and should still fire after apply() fails.
         verify(exactly = 1) { GlowOverlayManager.syncGlowForAllProjects() }
         assertEquals(1, loggedErrors.size, "Expected exactly one LOG.error for the failed apply()")
@@ -504,7 +504,7 @@ class AccentRotationServiceTest {
 
         verify(exactly = 1) { AccentResolver.resolve(osActiveProject, AyuVariant.MIRAGE) }
         verify(exactly = 0) { AccentResolver.resolve(inactiveProject, any()) }
-        verify(exactly = 1) { AccentApplicator.apply("#5CCFE6") }
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("#5CCFE6") }
     }
 
     private fun stubProject(name: String): Project =

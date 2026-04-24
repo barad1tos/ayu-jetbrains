@@ -115,7 +115,7 @@ class AccentApplicatorChromeApplyRefreshTest {
         val project2 = mockProject(usable = true)
         every { mockProjectManager.openProjects } returns arrayOf(project1, project2)
 
-        AccentApplicator.apply("#FFCC66")
+        AccentApplicator.applyFromHexString("#FFCC66")
 
         verify(exactly = 1) { ComponentTreeRefresher.notifyOnly(project1) }
         verify(exactly = 1) { ComponentTreeRefresher.notifyOnly(project2) }
@@ -127,7 +127,7 @@ class AccentApplicatorChromeApplyRefreshTest {
         val disposed = mockProject(usable = false)
         every { mockProjectManager.openProjects } returns arrayOf(usable, disposed)
 
-        AccentApplicator.apply("#FFCC66")
+        AccentApplicator.applyFromHexString("#FFCC66")
 
         verify(exactly = 1) { ComponentTreeRefresher.notifyOnly(usable) }
         verify(exactly = 0) { ComponentTreeRefresher.notifyOnly(disposed) }
@@ -149,7 +149,7 @@ class AccentApplicatorChromeApplyRefreshTest {
         val project = mockProject(usable = true)
         every { mockProjectManager.openProjects } returns arrayOf(project)
 
-        AccentApplicator.apply("#FFCC66")
+        AccentApplicator.applyFromHexString("#FFCC66")
 
         // EP apply must happen before the refresh notification so subscribers see
         // freshly-written UIManager state when they repaint.

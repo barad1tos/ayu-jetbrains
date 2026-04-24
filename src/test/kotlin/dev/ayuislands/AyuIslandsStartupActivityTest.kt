@@ -134,7 +134,7 @@ class AyuIslandsStartupActivityTest {
         val edtTriplet =
             Regex(
                 """withContext\(Dispatchers\.EDT\).*?AccentApplicator\.resolveFocusedProject\(\)""" +
-                    """.*?AccentApplicator\.apply\(""" +
+                    """.*?AccentApplicator\.(apply|applyFromHexString)\(""" +
                     """.*?swapService\.install\(\)""" +
                     """.*?swapService\.notifyExternalApply\(""",
                 RegexOption.DOT_MATCHES_ALL,
@@ -321,7 +321,7 @@ class AyuIslandsStartupActivityTest {
             Regex(
                 """AccentApplicator\.resolveFocusedProject\(\)""" +
                     """.*?AccentResolver\.resolve\(""" +
-                    """.*?AccentApplicator\.apply\(""" +
+                    """.*?AccentApplicator\.(apply|applyFromHexString)\(""" +
                     """.*?swapService\.install\(\)""" +
                     """.*?swapService\.notifyExternalApply\(""",
                 RegexOption.DOT_MATCHES_ALL,

@@ -139,7 +139,7 @@ class OverridesGroupBuilderApplyTest {
 
         assertEquals(mapOf("/tmp/apply-ok-b" to "#AABBCC"), mappingsState.projectAccents)
         assertFalse(builder.isModified(), "stored snapshot must advance on happy path too")
-        io.mockk.verify(exactly = 1) { AccentApplicator.apply("#AABBCC") }
+        io.mockk.verify(exactly = 1) { AccentApplicator.applyFromHexString("#AABBCC") }
         io.mockk.verify(exactly = 1) { swapService.notifyExternalApply("#AABBCC") }
     }
 
@@ -183,6 +183,6 @@ class OverridesGroupBuilderApplyTest {
 
         io.mockk.verify(exactly = 1) { AccentApplicator.resolveFocusedProject() }
         io.mockk.verify(exactly = 1) { AccentResolver.resolve(focusedProject, AyuVariant.MIRAGE) }
-        io.mockk.verify(exactly = 1) { AccentApplicator.apply("#5CCFE6") }
+        io.mockk.verify(exactly = 1) { AccentApplicator.applyFromHexString("#5CCFE6") }
     }
 }
