@@ -44,14 +44,27 @@ object ChromeDecorationsProbe {
     /** OS branches the probe dispatches over; `UNKNOWN` is the safe-default else branch. */
     enum class Os { MAC, WINDOWS, LINUX, UNKNOWN }
 
-    private val defaultOsSupplier: () -> Os = {
+    /**
+     * Pure OS-dispatch function extracted from the default supplier so tests can
+     * exercise every branch without having to mock `SystemInfo`'s final static
+     * fields (which mockk cannot touch — see class KDoc). Default args read
+     * [SystemInfo] so production behaviour is unchanged; tests pass explicit
+     * booleans to reach the [Os.WINDOWS], [Os.LINUX], and [Os.UNKNOWN] branches.
+     */
+    @VisibleForTesting
+    internal fun computeOs(
+        isMac: Boolean = SystemInfo.isMac,
+        isWindows: Boolean = SystemInfo.isWindows,
+        isLinux: Boolean = SystemInfo.isLinux,
+    ): Os =
         when {
-            SystemInfo.isMac -> Os.MAC
-            SystemInfo.isWindows -> Os.WINDOWS
-            SystemInfo.isLinux -> Os.LINUX
+            isMac -> Os.MAC
+            isWindows -> Os.WINDOWS
+            isLinux -> Os.LINUX
             else -> Os.UNKNOWN
         }
-    }
+
+    private val defaultOsSupplier: () -> Os = { computeOs() }
 
     /**
      * Test seam for OS detection. Production code reads [SystemInfo]; tests override this
