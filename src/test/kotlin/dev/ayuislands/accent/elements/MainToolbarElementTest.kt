@@ -8,6 +8,7 @@ import dev.ayuislands.accent.ChromeDecorationsProbe
 import dev.ayuislands.accent.ChromeTintBlender
 import dev.ayuislands.accent.ClassFqn
 import dev.ayuislands.accent.LiveChromeRefresher
+import dev.ayuislands.accent.TintIntensity
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -173,7 +174,7 @@ class MainToolbarElementTest {
 
         MainToolbarElement().apply(testAccent)
 
-        verify(exactly = 1) { ChromeTintBlender.blend(testAccent, stockBase, 45) }
+        verify(exactly = 1) { ChromeTintBlender.blend(testAccent, stockBase, TintIntensity.of(45)) }
     }
 
     @Test

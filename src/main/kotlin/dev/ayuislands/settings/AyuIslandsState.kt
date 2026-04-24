@@ -2,6 +2,7 @@ package dev.ayuislands.settings
 
 import com.intellij.openapi.components.BaseState
 import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.TintIntensity
 import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
@@ -272,8 +273,9 @@ class AyuIslandsState : BaseState() {
     var chromeTintingGroupExpanded by property(false)
 
     /**
-     * Returns [chromeTintIntensity] clamped to the user-visible slider range
-     * [0, MAX_CHROME_TINT_INTENSITY].
+     * Returns [chromeTintIntensity] wrapped in a [TintIntensity] — the wrapper's
+     * `of(raw)` factory clamps to the user-visible slider range
+     * `[TintIntensity.MIN, TintIntensity.MAX]`.
      *
      * The underlying field is delegated through [BaseState.property] which performs
      * no validation — a corrupted persisted XML (hand-edited, legacy-migrated, or
@@ -283,7 +285,7 @@ class AyuIslandsState : BaseState() {
      * this helper keeps every caller on the safe contract without breaking XML
      * serialization (which requires the raw delegate).
      */
-    fun effectiveChromeTintIntensity(): Int = chromeTintIntensity.coerceIn(0, MAX_CHROME_TINT_INTENSITY)
+    fun effectiveChromeTintIntensity(): TintIntensity = TintIntensity.of(chromeTintIntensity)
 
     fun isToggleEnabled(id: AccentElementId): Boolean =
         when (id) {

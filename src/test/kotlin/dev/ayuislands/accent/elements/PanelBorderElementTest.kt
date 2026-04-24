@@ -8,6 +8,7 @@ import dev.ayuislands.accent.ChromeBaseColors
 import dev.ayuislands.accent.ChromeTintBlender
 import dev.ayuislands.accent.ClassFqn
 import dev.ayuislands.accent.LiveChromeRefresher
+import dev.ayuislands.accent.TintIntensity
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.every
@@ -99,7 +100,7 @@ class PanelBorderElementTest {
     fun `apply passes intensity from state to blender per D-03`() {
         state.chromeTintIntensity = 45
 
-        val intensitySlot = slot<Int>()
+        val intensitySlot = slot<TintIntensity>()
         every {
             ChromeTintBlender.blend(any<Color>(), any<Color>(), capture(intensitySlot))
         } returns blended
@@ -107,7 +108,7 @@ class PanelBorderElementTest {
         PanelBorderElement().apply(accent)
 
         assertTrue(intensitySlot.isCaptured)
-        assertEquals(45, intensitySlot.captured)
+        assertEquals(45, intensitySlot.captured.percent)
     }
 
     @Test

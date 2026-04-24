@@ -7,6 +7,7 @@ import dev.ayuislands.accent.ChromeBaseColors
 import dev.ayuislands.accent.ChromeTintBlender
 import dev.ayuislands.accent.ClassFqn
 import dev.ayuislands.accent.LiveChromeRefresher
+import dev.ayuislands.accent.TintIntensity
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -110,7 +111,7 @@ class NavBarElementTest {
     fun `apply passes intensity from state to blender per D-03`() {
         state.chromeTintIntensity = 42
 
-        val intensitySlot = slot<Int>()
+        val intensitySlot = slot<TintIntensity>()
         every {
             ChromeTintBlender.blend(any<Color>(), any<Color>(), capture(intensitySlot))
         } returns blended
@@ -118,7 +119,7 @@ class NavBarElementTest {
         NavBarElement().apply(accent)
 
         assertTrue(intensitySlot.isCaptured, "intensity must flow from state into blender")
-        assertEquals(42, intensitySlot.captured)
+        assertEquals(42, intensitySlot.captured.percent)
     }
 
     @Test
@@ -128,7 +129,7 @@ class NavBarElementTest {
         NavBarElement().apply(accent)
 
         // Called once per background key — 2 keys, both resolve to the same stubbed stockBase.
-        verify(exactly = 2) { ChromeTintBlender.blend(accent, stockBase, 50) }
+        verify(exactly = 2) { ChromeTintBlender.blend(accent, stockBase, TintIntensity.of(50)) }
     }
 
     @Test

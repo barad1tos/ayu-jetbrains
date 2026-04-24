@@ -1,6 +1,7 @@
 package dev.ayuislands.accent.elements
 
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.TintIntensity
 import dev.ayuislands.accent.WcagForeground
 import java.awt.Color
 import kotlin.test.Test
@@ -54,7 +55,7 @@ class ChromeForegroundWcagMatrixTest {
         for (spec in ELEMENT_SPECS) {
             for (accent in PALETTE) {
                 for (intensity in INTENSITIES) {
-                    val tinted = ChromeTintBlender.blend(accent.color, darkBase, intensity)
+                    val tinted = ChromeTintBlender.blend(accent.color, darkBase, TintIntensity.of(intensity))
                     val foreground = WcagForeground.pickForeground(tinted, spec.target)
                     val ratio = WcagForeground.contrastRatio(foreground, tinted)
                     if (ratio < spec.target.minRatio) {

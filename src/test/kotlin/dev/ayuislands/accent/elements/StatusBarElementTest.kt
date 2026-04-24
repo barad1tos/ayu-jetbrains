@@ -6,6 +6,7 @@ import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeBaseColors
 import dev.ayuislands.accent.ChromeTintBlender
 import dev.ayuislands.accent.LiveChromeRefresher
+import dev.ayuislands.accent.TintIntensity
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -152,7 +153,7 @@ class StatusBarElementTest {
     fun `apply passes intensity from state to blender per D-03`() {
         state.chromeTintIntensity = 37
 
-        val intensitySlot = slot<Int>()
+        val intensitySlot = slot<TintIntensity>()
         every {
             ChromeTintBlender.blend(any<Color>(), any<Color>(), capture(intensitySlot))
         } returns blended
@@ -160,7 +161,7 @@ class StatusBarElementTest {
         StatusBarElement().apply(accent)
 
         assertTrue(intensitySlot.isCaptured, "intensity should be forwarded to blender")
-        assertEquals(37, intensitySlot.captured, "element must read intensity from state, not from apply()")
+        assertEquals(37, intensitySlot.captured.percent, "element must read intensity from state, not from apply()")
     }
 
     @Test

@@ -64,7 +64,10 @@ object ChromeTintBlender {
      * Algorithm (VERIFICATION Gap 1, Phase 40-09) — HSB-space blend rather than
      * per-channel RGB lerp so every chrome surface receives the SAME accent
      * hue regardless of how its stock base hue drifts:
-     *  1. Clamp [intensityPercent] to `[0, 100]`.
+     *  1. Read `intensity.percent` — already clamped to the user-visible
+     *     slider range by the [TintIntensity] constructor. The blender still
+     *     coerces into `[0, 100]` as a math-safety floor in case the wrapper
+     *     cap ever widens past the blender's algorithmic range.
      *  2. Extract the accent's hue + saturation (`accent.H`, `accent.S`) and
      *     the base's hue + saturation + brightness (`base.H`, `base.S`,
      *     `base.B`) via [Color.RGBtoHSB].
@@ -89,15 +92,16 @@ object ChromeTintBlender {
      * @param baseColor stock theme color to tint — callers fetch this from
      *     [ChromeBaseColors] so repeated applies all blend from the true stock
      *     baseline instead of an already-tinted value
-     * @param intensityPercent 0-100 mix ratio; out-of-range values clamp without throwing
+     * @param intensity typed slider position — range invariant proven at
+     *     construction via [TintIntensity.of]
      * @return opaque [Color] sharing the accent hue at the requested blend ratio
      */
     fun blend(
         accent: Color,
         baseColor: Color,
-        intensityPercent: Int,
+        intensity: TintIntensity,
     ): Color {
-        val clamped = intensityPercent.coerceIn(MIN_INTENSITY, MAX_INTENSITY)
+        val clamped = intensity.percent.coerceIn(MIN_INTENSITY, MAX_INTENSITY)
 
         // Identity short-circuit at 0: return the base per-channel so callers
         // see the exact stock color when the slider is off. This preserves the

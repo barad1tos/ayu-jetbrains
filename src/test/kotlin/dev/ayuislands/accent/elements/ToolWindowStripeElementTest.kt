@@ -7,6 +7,7 @@ import dev.ayuislands.accent.ChromeBaseColors
 import dev.ayuislands.accent.ChromeTintBlender
 import dev.ayuislands.accent.ClassFqn
 import dev.ayuislands.accent.LiveChromeRefresher
+import dev.ayuislands.accent.TintIntensity
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -104,7 +105,7 @@ class ToolWindowStripeElementTest {
         ToolWindowStripeElement().apply(testAccent)
 
         // All 3 keys resolve to the stubbed stockBase, so blend is invoked 3× with the same args.
-        verify(exactly = 3) { ChromeTintBlender.blend(testAccent, stockBase, 45) }
+        verify(exactly = 3) { ChromeTintBlender.blend(testAccent, stockBase, TintIntensity.of(45)) }
     }
 
     @Test
@@ -142,9 +143,9 @@ class ToolWindowStripeElementTest {
         every { ChromeBaseColors.get("ToolWindow.Stripe.background") } returns stripeBase
         every { ChromeBaseColors.get("ToolWindow.Button.selectedBackground") } returns selectedBase
         every { ChromeBaseColors.get("ToolWindow.Stripe.borderColor") } returns stockBase
-        every { ChromeTintBlender.blend(testAccent, stripeBase, 40) } returns stripeTinted
-        every { ChromeTintBlender.blend(testAccent, selectedBase, 40) } returns selectedTinted
-        every { ChromeTintBlender.blend(testAccent, stockBase, 40) } returns blended
+        every { ChromeTintBlender.blend(testAccent, stripeBase, TintIntensity.of(40)) } returns stripeTinted
+        every { ChromeTintBlender.blend(testAccent, selectedBase, TintIntensity.of(40)) } returns selectedTinted
+        every { ChromeTintBlender.blend(testAccent, stockBase, TintIntensity.of(40)) } returns blended
         every {
             WcagForeground.pickForeground(stripeTinted, WcagForeground.TextTarget.ICON)
         } returns stripeFg
