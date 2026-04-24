@@ -53,7 +53,14 @@ object ChromeBaseColors {
         // on theme switch, so the user would see wrong base colors after
         // changing theme. Log at WARN so the "chrome tints look stale after
         // theme change" report has a trace in idea.log.
-        runCatching {
+        //
+        // Pattern B: narrow the catch to [RuntimeException] so catastrophic
+        // JVM signals ([OutOfMemoryError], [NoClassDefFoundError],
+        // [StackOverflowError]) still propagate during plugin init instead
+        // of being demoted to a single WARN line. The MessageBus / LAF
+        // subscription surface throws only [RuntimeException] subtypes
+        // (NPE on null service, IllegalState on torn-down app).
+        try {
             val application = ApplicationManager.getApplication()
             application
                 .messageBus
@@ -63,7 +70,7 @@ object ChromeBaseColors {
                 // Round 3 C-4.
                 .connect(application)
                 .subscribe(LafManagerListener.TOPIC, LafManagerListener { refresh() })
-        }.onFailure { exception ->
+        } catch (exception: RuntimeException) {
             log.warn(
                 "ChromeBaseColors LAF listener wiring failed; cache will not auto-refresh on theme change",
                 exception,
