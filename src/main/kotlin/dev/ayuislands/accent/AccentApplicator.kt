@@ -346,7 +346,12 @@ object AccentApplicator {
             var probedName: String? = null
             try {
                 val project = frame.project ?: continue
-                probedName = runCatching { project.name }.getOrNull()
+                // Platform contract: `Project.getName()` is a safe bookmarked-name
+                // accessor that does not throw even on a mid-dispose instance. A
+                // prior `runCatching { project.name }.getOrNull()` here swallowed
+                // the entire [Throwable] surface (Pattern B) for no defensive
+                // benefit — drop the wrapper and read the property directly.
+                probedName = project.name
                 if (!project.isUsable()) continue
                 val window = SwingUtilities.getWindowAncestor(frame.component) ?: continue
                 if (window.isActive) return project
