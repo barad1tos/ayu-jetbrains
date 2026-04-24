@@ -244,12 +244,17 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
         pendingChromePanelBorder = storedChromePanelBorder
         // Stored intensity mirrors whatever AyuIslandsState holds (including legacy
         // out-of-range values 51-100 from sessions predating the cap); the pending
-        // value is clamped down to [MAX_INTENSITY] so the slider can always display
-        // it. A legacy value > MAX_INTENSITY leaves stored != pending on purpose —
-        // isModified() reports true and the user sees a one-time Apply button that
-        // persists the capped value back into state.
+        // value is clamped into [MIN_INTENSITY, MAX_INTENSITY] so the slider can
+        // always display it. A legacy value outside that range leaves
+        // stored != pending on purpose — isModified() reports true and the user sees
+        // a one-time Apply button that persists the capped value back into state.
+        //
+        // coerceIn (not coerceAtMost) is load-bearing: a negative persisted value
+        // (corrupted XML, older schema, third-party migration) would otherwise slip
+        // through the cap and reach the JSlider constructor, which throws when
+        // value < min. The lower bound keeps the slider construction total.
         storedChromeTintIntensity = state.chromeTintIntensity
-        pendingChromeTintIntensity = state.chromeTintIntensity.coerceAtMost(MAX_INTENSITY)
+        pendingChromeTintIntensity = state.chromeTintIntensity.coerceIn(MIN_INTENSITY, MAX_INTENSITY)
     }
 
     /**

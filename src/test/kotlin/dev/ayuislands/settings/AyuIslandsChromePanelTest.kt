@@ -174,6 +174,29 @@ class AyuIslandsChromePanelTest {
     }
 
     @Test
+    fun `loadStored clamps negative legacy intensity up to MIN_INTENSITY so slider construction stays total`() {
+        // Corrupted XML or a third-party migration may persist a negative intensity.
+        // The prior coerceAtMost clamp only trimmed the upper bound, so a negative
+        // value would slip through to the JSlider(min, max, value) constructor which
+        // throws IllegalArgumentException when value < min. coerceIn fixes both sides.
+        state.chromeTintIntensity = -5
+        val chromePanel = AyuIslandsChromePanel()
+
+        buildPanel(chromePanel)
+
+        assertEquals(
+            10,
+            chromePanel.getPendingChromeTintIntensityForTest(),
+            "Negative legacy intensity must clamp up to MIN_INTENSITY so slider construction cannot throw",
+        )
+        assertEquals(
+            10,
+            chromePanel.intensitySliderForTest()?.value,
+            "Slider must display the floor-clamped pending value, not the raw negative stored value",
+        )
+    }
+
+    @Test
     fun `applying a clamped legacy intensity persists MAX_INTENSITY back into state`() {
         state.chromeTintIntensity = 90
         val chromePanel = AyuIslandsChromePanel()
