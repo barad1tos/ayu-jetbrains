@@ -165,7 +165,7 @@ class LiveChromeRefresherTest {
         every { WindowManager.getInstance() } returns windowManager
         mockProjectManagerOpenProjects(project)
 
-        LiveChromeRefresher.refreshStatusBar(targetColor)
+        LiveChromeRefresher.refresh(ChromeTarget.StatusBar, targetColor)
 
         assertEquals(targetColor, statusBarComponent.background)
     }
@@ -186,7 +186,7 @@ class LiveChromeRefresherTest {
         every { WindowManager.getInstance() } returns windowManager
         mockProjectManagerOpenProjects(project)
 
-        LiveChromeRefresher.clearStatusBar()
+        LiveChromeRefresher.clear(ChromeTarget.StatusBar)
 
         assertNull(statusBarComponent.background)
     }
@@ -203,7 +203,7 @@ class LiveChromeRefresherTest {
         mockProjectManagerOpenProjects(project)
 
         // No assertion needed beyond "does not throw".
-        LiveChromeRefresher.refreshStatusBar(targetColor)
+        LiveChromeRefresher.refresh(ChromeTarget.StatusBar, targetColor)
     }
 
     @Test
@@ -218,7 +218,7 @@ class LiveChromeRefresherTest {
         every { WindowManager.getInstance() } returns windowManager
         mockProjectManagerOpenProjects(disposedProject)
 
-        LiveChromeRefresher.refreshStatusBar(targetColor)
+        LiveChromeRefresher.refresh(ChromeTarget.StatusBar, targetColor)
 
         // Never resolved a status bar because project is unusable.
         io.mockk.verify(exactly = 0) { windowManager.getStatusBar(any<Project>()) }
@@ -240,7 +240,7 @@ class LiveChromeRefresherTest {
         mockProjectManagerOpenProjects(project)
 
         // No throw — null component path is safe.
-        LiveChromeRefresher.refreshStatusBar(targetColor)
+        LiveChromeRefresher.refresh(ChromeTarget.StatusBar, targetColor)
     }
 
     // --- helpers ---
@@ -264,8 +264,11 @@ class LiveChromeRefresherTest {
     fun `refreshByClassName walks every top-level window in Window getWindows`() {
         // Smoke test to ensure the public entry point does not throw when walking the real
         // AWT window list in a headless test JVM (getWindows returns a possibly-empty array).
-        LiveChromeRefresher.refreshByClassName(ClassFqn.require("non.existent.ClassName.Z"), targetColor)
-        LiveChromeRefresher.clearByClassName(ClassFqn.require("non.existent.ClassName.Z"))
+        LiveChromeRefresher.refresh(
+            ChromeTarget.ByClassName(ClassFqn.require("non.existent.ClassName.Z")),
+            targetColor,
+        )
+        LiveChromeRefresher.clear(ChromeTarget.ByClassName(ClassFqn.require("non.existent.ClassName.Z")))
     }
 
     // --- refreshOnTreeInsideAncestor / clearOnTreeInsideAncestor (Round 2 A-1) ---
@@ -396,14 +399,18 @@ class LiveChromeRefresherTest {
     fun `refreshByClassNameInsideAncestorClass public entry does not throw in headless JVM`() {
         // Smoke test: the window walk over an empty (or near-empty) headless AWT window list
         // must complete without exceptions, just like the blind variant's smoke test above.
-        LiveChromeRefresher.refreshByClassNameInsideAncestorClass(
-            ClassFqn.require("non.existent.Target.Z"),
-            ClassFqn.require("non.existent.Ancestor.Y"),
+        LiveChromeRefresher.refresh(
+            ChromeTarget.ByClassNameInside(
+                target = ClassFqn.require("non.existent.Target.Z"),
+                ancestor = ClassFqn.require("non.existent.Ancestor.Y"),
+            ),
             targetColor,
         )
-        LiveChromeRefresher.clearByClassNameInsideAncestorClass(
-            ClassFqn.require("non.existent.Target.Z"),
-            ClassFqn.require("non.existent.Ancestor.Y"),
+        LiveChromeRefresher.clear(
+            ChromeTarget.ByClassNameInside(
+                target = ClassFqn.require("non.existent.Target.Z"),
+                ancestor = ClassFqn.require("non.existent.Ancestor.Y"),
+            ),
         )
     }
 
@@ -450,7 +457,7 @@ class LiveChromeRefresherTest {
 
         // No throw must propagate — the Round 3 C-2 guard converts the
         // enumeration failure into a WARN + early return.
-        LiveChromeRefresher.refreshByClassName(ClassFqn.require("dummy.FQN"), Color.RED)
+        LiveChromeRefresher.refresh(ChromeTarget.ByClassName(ClassFqn.require("dummy.FQN")), Color.RED)
     }
 
     @Test
@@ -531,8 +538,8 @@ class LiveChromeRefresherTest {
         mockkStatic(ProjectManager::class)
         every { ProjectManager.getInstance() } throws IllegalStateException("no container")
 
-        LiveChromeRefresher.refreshStatusBar(targetColor)
-        LiveChromeRefresher.clearStatusBar()
+        LiveChromeRefresher.refresh(ChromeTarget.StatusBar, targetColor)
+        LiveChromeRefresher.clear(ChromeTarget.StatusBar)
     }
 
     @Test
@@ -545,8 +552,8 @@ class LiveChromeRefresherTest {
         mockkStatic(WindowManager::class)
         every { WindowManager.getInstance() } throws IllegalStateException("wm gone")
 
-        LiveChromeRefresher.refreshStatusBar(targetColor)
-        LiveChromeRefresher.clearStatusBar()
+        LiveChromeRefresher.refresh(ChromeTarget.StatusBar, targetColor)
+        LiveChromeRefresher.clear(ChromeTarget.StatusBar)
     }
 
     @Test
@@ -568,8 +575,8 @@ class LiveChromeRefresherTest {
 
         // No throw — the per-window catch converts the RuntimeException
         // into a DEBUG log and moves on.
-        LiveChromeRefresher.refreshByClassName(ClassFqn.require("dummy.FQN"), Color.RED)
-        LiveChromeRefresher.clearByClassName(ClassFqn.require("dummy.FQN"))
+        LiveChromeRefresher.refresh(ChromeTarget.ByClassName(ClassFqn.require("dummy.FQN")), Color.RED)
+        LiveChromeRefresher.clear(ChromeTarget.ByClassName(ClassFqn.require("dummy.FQN")))
     }
 
     @Test

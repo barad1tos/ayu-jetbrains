@@ -55,16 +55,8 @@ class AbstractChromeElementTest {
         every { WcagForeground.pickForeground(any(), any()) } returns contrastFg
 
         mockkObject(LiveChromeRefresher)
-        every { LiveChromeRefresher.refreshByClassName(any(), any()) } returns Unit
-        every { LiveChromeRefresher.clearByClassName(any()) } returns Unit
-        every { LiveChromeRefresher.refreshStatusBar(any()) } returns Unit
-        every { LiveChromeRefresher.clearStatusBar() } returns Unit
-        every {
-            LiveChromeRefresher.refreshByClassNameInsideAncestorClass(any(), any(), any())
-        } returns Unit
-        every {
-            LiveChromeRefresher.clearByClassNameInsideAncestorClass(any(), any())
-        } returns Unit
+        every { LiveChromeRefresher.refresh(any(), any()) } returns Unit
+        every { LiveChromeRefresher.clear(any()) } returns Unit
 
         val state = AyuIslandsState().apply { chromeTintIntensity = 30 }
         val settings = mockk<AyuIslandsSettings>(relaxed = true)
@@ -109,7 +101,7 @@ class AbstractChromeElementTest {
             WcagForeground.pickForeground(blended, WcagForeground.TextTarget.PRIMARY_TEXT)
         }
         verify(exactly = 1) { UIManager.put("Fake.foreground", contrastFg) }
-        verify(exactly = 1) { LiveChromeRefresher.refreshByClassName(peerFqn, blended) }
+        verify(exactly = 1) { LiveChromeRefresher.refresh(ChromeTarget.ByClassName(peerFqn), blended) }
     }
 
     @Test
@@ -125,7 +117,7 @@ class AbstractChromeElementTest {
 
         verify(exactly = 1) { UIManager.put("Fake.background", null) }
         verify(exactly = 1) { UIManager.put("Fake.foreground", null) }
-        verify(exactly = 1) { LiveChromeRefresher.clearByClassName(peerFqn) }
+        verify(exactly = 1) { LiveChromeRefresher.clear(ChromeTarget.ByClassName(peerFqn)) }
     }
 
     @Test
@@ -141,7 +133,7 @@ class AbstractChromeElementTest {
         element.apply(accent)
 
         verify(exactly = 0) { UIManager.put(any<String>(), any()) }
-        verify(exactly = 0) { LiveChromeRefresher.refreshByClassName(any(), any()) }
+        verify(exactly = 0) { LiveChromeRefresher.refresh(any(), any()) }
     }
 
     @Test
@@ -158,7 +150,7 @@ class AbstractChromeElementTest {
 
         verify(exactly = 1) { UIManager.put("Fake.background", null) }
         verify(exactly = 1) { UIManager.put("Fake.foreground", null) }
-        verify(exactly = 1) { LiveChromeRefresher.clearByClassName(peerFqn) }
+        verify(exactly = 1) { LiveChromeRefresher.clear(ChromeTarget.ByClassName(peerFqn)) }
     }
 
     @Test
@@ -174,7 +166,7 @@ class AbstractChromeElementTest {
 
         verify(exactly = 0) { WcagForeground.pickForeground(any(), any()) }
         verify(exactly = 1) { UIManager.put("Fake.background", blended) }
-        verify(exactly = 1) { LiveChromeRefresher.refreshByClassName(peerFqn, blended) }
+        verify(exactly = 1) { LiveChromeRefresher.refresh(ChromeTarget.ByClassName(peerFqn), blended) }
     }
 
     @Test
@@ -188,15 +180,11 @@ class AbstractChromeElementTest {
 
         element.apply(accent)
 
-        verify(exactly = 0) { LiveChromeRefresher.refreshByClassName(any(), any()) }
-        verify(exactly = 0) { LiveChromeRefresher.refreshStatusBar(any()) }
-        verify(exactly = 0) {
-            LiveChromeRefresher.refreshByClassNameInsideAncestorClass(any(), any(), any())
-        }
+        verify(exactly = 0) { LiveChromeRefresher.refresh(any(), any()) }
     }
 
     @Test
-    fun `apply routes StatusBar peer target through refreshStatusBar`() {
+    fun `apply routes StatusBar peer target through the refresh entry point`() {
         val element =
             FakeElement(
                 backgroundKeys = listOf("Fake.background"),
@@ -206,11 +194,11 @@ class AbstractChromeElementTest {
 
         element.apply(accent)
 
-        verify(exactly = 1) { LiveChromeRefresher.refreshStatusBar(blended) }
+        verify(exactly = 1) { LiveChromeRefresher.refresh(ChromeTarget.StatusBar, blended) }
     }
 
     @Test
-    fun `revert routes StatusBar peer target through clearStatusBar`() {
+    fun `revert routes StatusBar peer target through the clear entry point`() {
         val element =
             FakeElement(
                 backgroundKeys = listOf("Fake.background"),
@@ -220,45 +208,41 @@ class AbstractChromeElementTest {
 
         element.revert()
 
-        verify(exactly = 1) { LiveChromeRefresher.clearStatusBar() }
+        verify(exactly = 1) { LiveChromeRefresher.clear(ChromeTarget.StatusBar) }
     }
 
     @Test
-    fun `apply routes ByClassNameInside ancestor target through the ancestor-scoped entry`() {
+    fun `apply routes ByClassNameInside ancestor target through the refresh entry point`() {
         val target = ClassFqn.require("test.fake.Target")
         val ancestor = ClassFqn.require("test.fake.Ancestor")
+        val peerTarget = ChromeTarget.ByClassNameInside(target, ancestor)
         val element =
             FakeElement(
                 backgroundKeys = listOf("Fake.background"),
                 foregroundKeys = emptyList(),
-                peerTarget = ChromeTarget.ByClassNameInside(target, ancestor),
+                peerTarget = peerTarget,
             )
 
         element.apply(accent)
 
-        verify(exactly = 1) {
-            LiveChromeRefresher.refreshByClassNameInsideAncestorClass(target, ancestor, blended)
-        }
-        verify(exactly = 0) { LiveChromeRefresher.refreshByClassName(any(), any()) }
+        verify(exactly = 1) { LiveChromeRefresher.refresh(peerTarget, blended) }
     }
 
     @Test
-    fun `revert routes ByClassNameInside ancestor target through the ancestor-scoped clear`() {
+    fun `revert routes ByClassNameInside ancestor target through the clear entry point`() {
         val target = ClassFqn.require("test.fake.Target")
         val ancestor = ClassFqn.require("test.fake.Ancestor")
+        val peerTarget = ChromeTarget.ByClassNameInside(target, ancestor)
         val element =
             FakeElement(
                 backgroundKeys = listOf("Fake.background"),
                 foregroundKeys = emptyList(),
-                peerTarget = ChromeTarget.ByClassNameInside(target, ancestor),
+                peerTarget = peerTarget,
             )
 
         element.revert()
 
-        verify(exactly = 1) {
-            LiveChromeRefresher.clearByClassNameInsideAncestorClass(target, ancestor)
-        }
-        verify(exactly = 0) { LiveChromeRefresher.clearByClassName(any()) }
+        verify(exactly = 1) { LiveChromeRefresher.clear(peerTarget) }
     }
 
     @Test

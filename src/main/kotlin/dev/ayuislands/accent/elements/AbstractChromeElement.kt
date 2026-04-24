@@ -120,36 +120,19 @@ abstract class AbstractChromeElement : AccentElement {
 
     /**
      * Dispatches the live peer refresh to [LiveChromeRefresher] per the typed
-     * [peerTarget]. Refactor 2 will collapse the six entry points into
-     * `LiveChromeRefresher.refresh(target, color)`; until then the base class
-     * performs the mapping so subclasses never touch the flat API surface.
+     * [peerTarget]. Phase 40.3c Refactor 2 collapsed the six entry points into
+     * `LiveChromeRefresher.refresh(target, color)`; subclasses never touch the
+     * LiveChromeRefresher surface directly.
      */
     private fun refreshPeer(color: Color) {
-        when (val target = peerTarget) {
-            null -> Unit
-            ChromeTarget.StatusBar -> LiveChromeRefresher.refreshStatusBar(color)
-            is ChromeTarget.ByClassName -> LiveChromeRefresher.refreshByClassName(target.fqn, color)
-            is ChromeTarget.ByClassNameInside ->
-                LiveChromeRefresher.refreshByClassNameInsideAncestorClass(
-                    target.target,
-                    target.ancestor,
-                    color,
-                )
-        }
+        val target = peerTarget ?: return
+        LiveChromeRefresher.refresh(target, color)
     }
 
     /** D-14 symmetry mirror of [refreshPeer] — unconditional, ignores [isEnabled]. */
     private fun clearPeer() {
-        when (val target = peerTarget) {
-            null -> Unit
-            ChromeTarget.StatusBar -> LiveChromeRefresher.clearStatusBar()
-            is ChromeTarget.ByClassName -> LiveChromeRefresher.clearByClassName(target.fqn)
-            is ChromeTarget.ByClassNameInside ->
-                LiveChromeRefresher.clearByClassNameInsideAncestorClass(
-                    target.target,
-                    target.ancestor,
-                )
-        }
+        val target = peerTarget ?: return
+        LiveChromeRefresher.clear(target)
     }
 
     /**

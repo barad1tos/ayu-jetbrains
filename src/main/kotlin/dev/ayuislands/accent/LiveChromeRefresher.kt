@@ -71,19 +71,48 @@ internal object LiveChromeRefresher {
         brokenContainerLogged.clear()
     }
 
-    // --- StatusBar (resolvable via public WindowManager API) ---
+    // --- Typed entry points (Phase 40.3c Refactor 2) ---
+    //
+    // Sealed [ChromeTarget] collapses the prior 6-entry API (refresh/clear × 3
+    // peer strategies) into two methods. Dispatch is exhaustive — adding a new
+    // ChromeTarget variant is a compile-time pattern-match failure, not a silent
+    // new overload. Internal helpers (refreshOnTree*, clearOnTree*) stay
+    // `internal` for the tree-walk tests that build synthetic Container trees.
 
-    fun refreshStatusBar(color: Color) {
-        forEachUsableStatusBarComponent { component ->
-            component.background = color
-            component.repaint()
+    /** Refreshes the live peer described by [target] with [color]. */
+    fun refresh(
+        target: ChromeTarget,
+        color: Color,
+    ) {
+        when (target) {
+            ChromeTarget.StatusBar ->
+                forEachUsableStatusBarComponent { component ->
+                    component.background = color
+                    component.repaint()
+                }
+            is ChromeTarget.ByClassName ->
+                forEachShowingWindow { refreshOnTree(it, target.fqn, color) }
+            is ChromeTarget.ByClassNameInside ->
+                forEachShowingWindow {
+                    refreshOnTreeInsideAncestor(it, target.target, target.ancestor, color)
+                }
         }
     }
 
-    fun clearStatusBar() {
-        forEachUsableStatusBarComponent { component ->
-            component.background = null
-            component.repaint()
+    /** D-14 symmetry mirror of [refresh] — hands [target]'s peer back to LAF default. */
+    fun clear(target: ChromeTarget) {
+        when (target) {
+            ChromeTarget.StatusBar ->
+                forEachUsableStatusBarComponent { component ->
+                    component.background = null
+                    component.repaint()
+                }
+            is ChromeTarget.ByClassName ->
+                forEachShowingWindow { clearOnTree(it, target.fqn) }
+            is ChromeTarget.ByClassNameInside ->
+                forEachShowingWindow {
+                    clearOnTreeInsideAncestor(it, target.target, target.ancestor)
+                }
         }
     }
 
@@ -102,43 +131,6 @@ internal object LiveChromeRefresher {
             val component = statusBar.component as? JComponent ?: continue
             action(component)
         }
-    }
-
-    // --- Class-name-based frame walk (internal platform peer types) ---
-
-    fun refreshByClassName(
-        classNameFqn: ClassFqn,
-        color: Color,
-    ) {
-        forEachShowingWindow { refreshOnTree(it, classNameFqn, color) }
-    }
-
-    fun clearByClassName(classNameFqn: ClassFqn) {
-        forEachShowingWindow { clearOnTree(it, classNameFqn) }
-    }
-
-    /**
-     * Ancestor-constrained variant of [refreshByClassName]. Mutates a matching [targetFqn]
-     * only when the component sits inside a container whose runtime class name equals
-     * [ancestorFqn]. Used for shared peer types (`OnePixelDivider`) whose instances live
-     * all over the IDE — tinting every one of them would leak panel-border styling into
-     * editor splitters, diff gutters, Settings dialog splitters, etc. See Phase 40
-     * review Round 2 A-1.
-     */
-    fun refreshByClassNameInsideAncestorClass(
-        targetFqn: ClassFqn,
-        ancestorFqn: ClassFqn,
-        color: Color,
-    ) {
-        forEachShowingWindow { refreshOnTreeInsideAncestor(it, targetFqn, ancestorFqn, color) }
-    }
-
-    /** Mirror of [refreshByClassNameInsideAncestorClass] for the revert path. */
-    fun clearByClassNameInsideAncestorClass(
-        targetFqn: ClassFqn,
-        ancestorFqn: ClassFqn,
-    ) {
-        forEachShowingWindow { clearOnTreeInsideAncestor(it, targetFqn, ancestorFqn) }
     }
 
     /**

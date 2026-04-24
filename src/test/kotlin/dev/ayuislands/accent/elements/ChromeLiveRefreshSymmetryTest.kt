@@ -54,33 +54,18 @@ class ChromeLiveRefreshSymmetryTest {
     }
 
     @Test
-    fun `base AbstractChromeElement wires refresh and clear for every ChromeTarget variant`() {
+    fun `base AbstractChromeElement wires both refresh and clear via the typed LiveChromeRefresher API`() {
         val source = readAbstractBaseStripped()
-        val refreshRoutes =
-            listOf(
-                "LiveChromeRefresher.refreshStatusBar",
-                "LiveChromeRefresher.refreshByClassName",
-                "LiveChromeRefresher.refreshByClassNameInsideAncestorClass",
-            )
-        val clearRoutes =
-            listOf(
-                "LiveChromeRefresher.clearStatusBar",
-                "LiveChromeRefresher.clearByClassName",
-                "LiveChromeRefresher.clearByClassNameInsideAncestorClass",
-            )
-        for (entry in refreshRoutes) {
-            assertTrue(
-                source.contains(entry),
-                "AbstractChromeElement must wire $entry for its matching ChromeTarget variant.",
-            )
-        }
-        for (entry in clearRoutes) {
-            assertTrue(
-                source.contains(entry),
-                "AbstractChromeElement must wire $entry for D-14 symmetry on its matching " +
-                    "ChromeTarget variant.",
-            )
-        }
+        assertTrue(
+            source.contains("LiveChromeRefresher.refresh("),
+            "AbstractChromeElement must call LiveChromeRefresher.refresh(target, color) so " +
+                "apply can reach the live peer (Gap 4).",
+        )
+        assertTrue(
+            source.contains("LiveChromeRefresher.clear("),
+            "AbstractChromeElement must call LiveChromeRefresher.clear(target) so revert " +
+                "hands the peer back to the LAF default (D-14 symmetry).",
+        )
     }
 
     @Test
@@ -125,12 +110,14 @@ class ChromeLiveRefreshSymmetryTest {
     }
 
     private fun refreshCallCount(source: String): Int {
-        val pattern = Regex("""LiveChromeRefresher\.refresh[A-Za-z]+""")
+        // Match both the Refactor 2 typed entry (`refresh(`) and any legacy variant
+        // with a method-name suffix (`refreshStatusBar(`, `refreshByClassName(`).
+        val pattern = Regex("""LiveChromeRefresher\.refresh[A-Za-z]*\(""")
         return pattern.findAll(source).count()
     }
 
     private fun clearCallCount(source: String): Int {
-        val pattern = Regex("""LiveChromeRefresher\.clear[A-Za-z]+""")
+        val pattern = Regex("""LiveChromeRefresher\.clear[A-Za-z]*\(""")
         return pattern.findAll(source).count()
     }
 }

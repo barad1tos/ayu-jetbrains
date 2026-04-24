@@ -5,6 +5,7 @@ import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeBaseColors
+import dev.ayuislands.accent.ChromeTarget
 import dev.ayuislands.accent.ChromeTintBlender
 import dev.ayuislands.accent.ClassFqn
 import dev.ayuislands.accent.LiveChromeRefresher
@@ -63,14 +64,8 @@ class PanelBorderElementTest {
         every { ChromeTintBlender.blend(any(), any<Color>(), any()) } returns blended
 
         mockkObject(LiveChromeRefresher)
-        every { LiveChromeRefresher.refreshByClassName(any(), any()) } returns Unit
-        every { LiveChromeRefresher.clearByClassName(any()) } returns Unit
-        every {
-            LiveChromeRefresher.refreshByClassNameInsideAncestorClass(any(), any(), any())
-        } returns Unit
-        every {
-            LiveChromeRefresher.clearByClassNameInsideAncestorClass(any(), any())
-        } returns Unit
+        every { LiveChromeRefresher.refresh(any(), any()) } returns Unit
+        every { LiveChromeRefresher.clear(any()) } returns Unit
     }
 
     @AfterTest
@@ -180,38 +175,42 @@ class PanelBorderElementTest {
 
         PanelBorderElement().apply(accent)
 
-        verify(exactly = 1) {
-            LiveChromeRefresher.refreshByClassNameInsideAncestorClass(
-                ClassFqn.require("com.intellij.openapi.ui.OnePixelDivider"),
-                ClassFqn.require("com.intellij.toolWindow.InternalDecoratorImpl"),
-                blended,
+        val expectedTarget =
+            ChromeTarget.ByClassNameInside(
+                target = ClassFqn.require("com.intellij.openapi.ui.OnePixelDivider"),
+                ancestor = ClassFqn.require("com.intellij.toolWindow.InternalDecoratorImpl"),
             )
-        }
-        verify(exactly = 0) { LiveChromeRefresher.clearByClassNameInsideAncestorClass(any(), any()) }
+        verify(exactly = 1) { LiveChromeRefresher.refresh(expectedTarget, blended) }
+        verify(exactly = 0) { LiveChromeRefresher.clear(any()) }
     }
 
     @Test
-    fun `apply must NOT invoke blind refreshByClassName (would over-tint IDE-wide dividers) (Round 2 A-1)`() {
+    fun `apply must NOT invoke blind ByClassName refresh (would over-tint IDE-wide dividers) (Round 2 A-1)`() {
         state.chromeTintIntensity = 30
 
         PanelBorderElement().apply(accent)
 
-        // Blind refresh would walk Window.getWindows() and paint every OnePixelDivider in
-        // the IDE — editor splitters, Settings dialog, diff gutter, Run/Debug splitter, etc.
-        verify(exactly = 0) { LiveChromeRefresher.refreshByClassName(any(), any()) }
+        // Blind ByClassName refresh would walk Window.getWindows() and paint every
+        // OnePixelDivider in the IDE — editor splitters, Settings dialog, diff gutter,
+        // Run/Debug splitter, etc. PanelBorder must use ByClassNameInside.
+        verify(exactly = 0) {
+            LiveChromeRefresher.refresh(
+                ChromeTarget.ByClassName(ClassFqn.require("com.intellij.openapi.ui.OnePixelDivider")),
+                any(),
+            )
+        }
     }
 
     @Test
     fun `revert invokes ancestor-scoped clear for OnePixelDivider inside tool-window decorator (D-14 symmetry)`() {
         PanelBorderElement().revert()
 
-        verify(exactly = 1) {
-            LiveChromeRefresher.clearByClassNameInsideAncestorClass(
-                ClassFqn.require("com.intellij.openapi.ui.OnePixelDivider"),
-                ClassFqn.require("com.intellij.toolWindow.InternalDecoratorImpl"),
+        val expectedTarget =
+            ChromeTarget.ByClassNameInside(
+                target = ClassFqn.require("com.intellij.openapi.ui.OnePixelDivider"),
+                ancestor = ClassFqn.require("com.intellij.toolWindow.InternalDecoratorImpl"),
             )
-        }
-        verify(exactly = 0) { LiveChromeRefresher.refreshByClassNameInsideAncestorClass(any(), any(), any()) }
-        verify(exactly = 0) { LiveChromeRefresher.clearByClassName(any()) }
+        verify(exactly = 1) { LiveChromeRefresher.clear(expectedTarget) }
+        verify(exactly = 0) { LiveChromeRefresher.refresh(any(), any()) }
     }
 }
