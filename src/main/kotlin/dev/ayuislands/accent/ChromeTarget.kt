@@ -38,9 +38,31 @@ sealed interface ChromeTarget {
         val fqn: ClassFqn,
     ) : ChromeTarget
 
-    /** Ancestor-constrained class-name lookup — [target] must sit inside a [ancestor]. */
-    data class ByClassNameInside(
+    /**
+     * Ancestor-constrained class-name lookup — [target] must sit inside a [ancestor].
+     *
+     * **Private constructor — use the companion `invoke(target = ..., ancestor = ...)`
+     * factory and pass named arguments.** Both fields are [ClassFqn], so positional
+     * construction (`ByClassNameInside(foo, bar)`) silently compiles with `foo` and
+     * `bar` swapped — which would walk the wrong ancestor chain and either over-tint
+     * every matching component across the IDE or under-tint (never find ancestor).
+     * The private ctor forces all call sites through [Companion.invoke], and the
+     * named-arg convention there is our last line of defense.
+     */
+    data class ByClassNameInside private constructor(
         val target: ClassFqn,
         val ancestor: ClassFqn,
-    ) : ChromeTarget
+    ) : ChromeTarget {
+        companion object {
+            /**
+             * Factory requiring named arguments at the call site. The `data class`
+             * copy/equals/hashCode contract is unchanged — only `new` construction
+             * is routed through this factory.
+             */
+            operator fun invoke(
+                target: ClassFqn,
+                ancestor: ClassFqn,
+            ): ByClassNameInside = ByClassNameInside(target = target, ancestor = ancestor)
+        }
+    }
 }

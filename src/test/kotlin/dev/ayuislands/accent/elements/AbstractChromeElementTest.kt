@@ -215,7 +215,7 @@ class AbstractChromeElementTest {
     fun `apply routes ByClassNameInside ancestor target through the refresh entry point`() {
         val target = ClassFqn.require("test.fake.Target")
         val ancestor = ClassFqn.require("test.fake.Ancestor")
-        val peerTarget = ChromeTarget.ByClassNameInside(target, ancestor)
+        val peerTarget = ChromeTarget.ByClassNameInside(target = target, ancestor = ancestor)
         val element =
             FakeElement(
                 backgroundKeys = listOf("Fake.background"),
@@ -232,7 +232,7 @@ class AbstractChromeElementTest {
     fun `revert routes ByClassNameInside ancestor target through the clear entry point`() {
         val target = ClassFqn.require("test.fake.Target")
         val ancestor = ClassFqn.require("test.fake.Ancestor")
-        val peerTarget = ChromeTarget.ByClassNameInside(target, ancestor)
+        val peerTarget = ChromeTarget.ByClassNameInside(target = target, ancestor = ancestor)
         val element =
             FakeElement(
                 backgroundKeys = listOf("Fake.background"),
