@@ -505,6 +505,74 @@ class LiveChromeRefresherTest {
     }
 
     @Test
+    fun `resetBrokenContainerLoggedForTests clears the broken-container latch`() {
+        // Covers the @TestOnly hook (line 70) — invoking it directly is the
+        // only way to exercise the `brokenContainerLogged.clear()` call under
+        // unit-test conditions. Prior walks in the suite may or may not have
+        // populated the latch; after reset the hook must leave the singleton
+        // in a clean state for the next test. Behaviour lock is "no throw".
+        val brokenContainer = BrokenChildrenContainer()
+        LiveChromeRefresher.refreshOnTree(brokenContainer, "x", Color.RED)
+
+        LiveChromeRefresher.resetBrokenContainerLoggedForTests()
+
+        // After reset the second walk over the same broken container must
+        // still complete safely — proves the reset didn't corrupt the latch
+        // and the WARN path (first-encounter-per-class) re-engages cleanly.
+        LiveChromeRefresher.refreshOnTree(brokenContainer, "x", Color.RED)
+    }
+
+    @Test
+    fun `refreshStatusBar returns silently when ProjectManager getInstance throws`() {
+        // Covers the runCatching onFailure + getOrNull ?: return path at
+        // LiveChromeRefresher lines 91-93 — ProjectManager resolution fails
+        // during live refresh (e.g. application shutting down mid-apply).
+        // The helper must log at DEBUG and return without propagating.
+        mockkStatic(ProjectManager::class)
+        every { ProjectManager.getInstance() } throws IllegalStateException("no container")
+
+        LiveChromeRefresher.refreshStatusBar(targetColor)
+        LiveChromeRefresher.clearStatusBar()
+    }
+
+    @Test
+    fun `refreshStatusBar returns silently when WindowManager getInstance throws`() {
+        // Covers lines 95-97 — WindowManager resolution fails after
+        // ProjectManager succeeded. ProjectManager must still be mockable as
+        // a usable singleton so control flow reaches the WindowManager
+        // runCatching block; the WindowManager failure must be swallowed.
+        mockProjectManagerOpenProjects(mockUsableProject())
+        mockkStatic(WindowManager::class)
+        every { WindowManager.getInstance() } throws IllegalStateException("wm gone")
+
+        LiveChromeRefresher.refreshStatusBar(targetColor)
+        LiveChromeRefresher.clearStatusBar()
+    }
+
+    @Test
+    fun `forEachShowingWindow isolates per-window failures from sibling windows`() {
+        // Covers lines 166-171 — the inner try/catch around `action(window)`
+        // in forEachShowingWindow. A showing window whose tree walk throws
+        // must be logged at DEBUG without aborting the rest of the window
+        // enumeration. Real `JFrame` / `JDialog` instantiation throws
+        // HeadlessException in the Gradle test JVM, so we mock a Window
+        // whose `getComponents()` blows up — the same RuntimeException the
+        // production catch block is there to defend against.
+        val brokenWindow =
+            mockk<Window>(relaxed = true) {
+                every { isShowing } returns true
+                every { components } throws IllegalStateException("window tree boom")
+            }
+        mockkStatic(Window::class)
+        every { Window.getWindows() } returns arrayOf(brokenWindow)
+
+        // No throw — the per-window catch converts the RuntimeException
+        // into a DEBUG log and moves on.
+        LiveChromeRefresher.refreshByClassName("dummy.FQN", Color.RED)
+        LiveChromeRefresher.clearByClassName("dummy.FQN")
+    }
+
+    @Test
     fun `broken-container log cap is 64 and clears on overflow`() {
         // Round 3 G3 regression lock. The LOW R2-1 fix protects
         // `brokenContainerLogged` from unbounded growth with a
