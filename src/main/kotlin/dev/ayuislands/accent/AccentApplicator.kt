@@ -740,10 +740,20 @@ object AccentApplicator {
                 log.warn("AccentApplicator.apply: invalid hex '$accentHex' — skipping apply")
                 // Phase 40.2 H-3: user-visible notification for the rejected hex so
                 // per-project XML corruption, manual edits, and rotation palette
-                // bugs do not silently turn chrome tinting off. Wrapped in
-                // runCatching so a notification subsystem hiccup cannot cascade
-                // into the caller (settings panel, rotation tick, startup).
-                runCatching {
+                // bugs do not silently turn chrome tinting off. Wrapped in a
+                // narrow try/catch so a notification subsystem hiccup cannot
+                // cascade into the caller (settings panel, rotation tick,
+                // startup).
+                //
+                // Pattern B + log-level escalation: narrow the catch to
+                // [RuntimeException] so [OutOfMemoryError] /
+                // [NoClassDefFoundError] propagate, and raise the fallback log
+                // from DEBUG to WARN — this is the user-visible fallback for
+                // per-project XML corruption / manual edits / rotation palette
+                // bugs. If THAT notification fails to post, the user sees a
+                // silent no-op; the WARN trace is the only thread to pull on
+                // during triage.
+                try {
                     Notifications.Bus.notify(
                         Notification(
                             NOTIFICATION_GROUP_ID,
@@ -752,8 +762,8 @@ object AccentApplicator {
                             NotificationType.WARNING,
                         ),
                     )
-                }.onFailure { exception ->
-                    log.debug("AccentApplicator invalid-hex notification failed to post", exception)
+                } catch (exception: RuntimeException) {
+                    log.warn("AccentApplicator invalid-hex notification failed to post", exception)
                 }
                 return false
             }
