@@ -1,12 +1,13 @@
 package dev.ayuislands.settings
 
-import com.intellij.openapi.util.SystemInfo
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.ChromeDecorationsProbe
+import dev.ayuislands.accent.ChromeSupport
 import dev.ayuislands.licensing.LicenseChecker
 import org.jetbrains.annotations.TestOnly
 import javax.swing.JLabel
@@ -168,6 +169,46 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
 
     override fun apply() {
         if (!isModified()) return
+        // License may have flipped mid-session (grace expired, entitlement revoked,
+        // user signed out of JBA). When the panel was built licensed but the gate
+        // has since closed, refuse to persist — otherwise chrome state writes keep
+        // happening behind a "requires Pro" UI the user can no longer interact with.
+        if (!LicenseChecker.isLicensedOrGrace()) {
+            LOG.info(
+                "AyuIslandsChromePanel.apply: license no longer active; " +
+                    "skipping chrome state persistence and refocus re-apply",
+            )
+            return
+        }
+        // Re-detect the variant at apply time so a LAF switch between buildPanel and
+        // apply (user flipped themes inside the same Settings session) doesn't drop
+        // the re-apply — the stored variant reference can go stale. If detection
+        // still returns null (no Ayu theme active), log at INFO and bail without
+        // persisting: H-1 from the Phase 40.2 audit forbade the earlier silent skip.
+        val resolvedVariant = variant ?: AyuVariant.detect()
+        if (resolvedVariant == null) {
+            LOG.info(
+                "AyuIslandsChromePanel.apply: no Ayu variant resolvable — " +
+                    "skipping chrome apply (theme may not be an Ayu variant)",
+            )
+            return
+        }
+
+        // H-4: run the EP chain FIRST so a throw from applyForFocusedProject leaves
+        // persisted state untouched and the user can retry after fixing the cause.
+        // Persisting only on success also gives isModified() an honest answer on the
+        // next panel open — if the apply failed, pending != stored so the Apply
+        // button re-offers the attempt.
+        try {
+            AccentApplicator.applyForFocusedProject(resolvedVariant)
+        } catch (exception: RuntimeException) {
+            LOG.warn(
+                "AyuIslandsChromePanel.apply: chrome re-apply threw; " +
+                    "leaving pending chrome state uncommitted so the user can retry",
+                exception,
+            )
+            return
+        }
         val state = AyuIslandsSettings.getInstance().state
         state.chromeStatusBar = pendingChromeStatusBar
         state.chromeMainToolbar = pendingChromeMainToolbar
@@ -176,13 +217,6 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
         state.chromePanelBorder = pendingChromePanelBorder
         state.chromeTintIntensity = pendingChromeTintIntensity
         loadStored(state)
-
-        // Re-run the EP chain so the 5 chrome AccentElement impls repaint now —
-        // mirrors AyuIslandsElementsPanel.apply, which also routes through
-        // applyForFocusedProject so per-project / per-language overrides are not
-        // stomped by the accent applied earlier in the Configurable.apply cycle.
-        val currentVariant = variant ?: return
-        AccentApplicator.applyForFocusedProject(currentVariant)
     }
 
     override fun reset() {
@@ -210,12 +244,17 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
         pendingChromePanelBorder = storedChromePanelBorder
         // Stored intensity mirrors whatever AyuIslandsState holds (including legacy
         // out-of-range values 51-100 from sessions predating the cap); the pending
-        // value is clamped down to [MAX_INTENSITY] so the slider can always display
-        // it. A legacy value > MAX_INTENSITY leaves stored != pending on purpose —
-        // isModified() reports true and the user sees a one-time Apply button that
-        // persists the capped value back into state.
+        // value is clamped into [MIN_INTENSITY, MAX_INTENSITY] so the slider can
+        // always display it. A legacy value outside that range leaves
+        // stored != pending on purpose — isModified() reports true and the user sees
+        // a one-time Apply button that persists the capped value back into state.
+        //
+        // coerceIn (not coerceAtMost) is load-bearing: a negative persisted value
+        // (corrupted XML, older schema, third-party migration) would otherwise slip
+        // through the cap and reach the JSlider constructor, which throws when
+        // value < min. The lower bound keeps the slider construction total.
         storedChromeTintIntensity = state.chromeTintIntensity
-        pendingChromeTintIntensity = state.chromeTintIntensity.coerceAtMost(MAX_INTENSITY)
+        pendingChromeTintIntensity = state.chromeTintIntensity.coerceIn(MIN_INTENSITY, MAX_INTENSITY)
     }
 
     /**
@@ -227,18 +266,24 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
      * option no longer exists on macOS, so the link navigated users to a panel with
      * nothing relevant to toggle. Instead, explain honestly per platform what the
      * situation is so the user knows why MainToolbar tint is disabled.
+     *
+     * Phase 40.3c Refactor 3: reads the reason code from [ChromeDecorationsProbe.probe]
+     * instead of re-sampling `SystemInfo` — keeps the probe as the single source of
+     * truth for "why chrome tinting is unavailable".
      */
-    private fun disabledMainToolbarComment(): String =
-        when {
-            SystemInfo.isMac ->
+    private fun disabledMainToolbarComment(): String {
+        val unsupported = ChromeDecorationsProbe.probe() as? ChromeSupport.Unsupported ?: return ""
+        return when (unsupported) {
+            ChromeSupport.Unsupported.NativeMacTitleBar ->
                 "Disabled: macOS paints the native title bar (IDE 2026.1+ no longer exposes a toggle)."
-            SystemInfo.isWindows ->
+            ChromeSupport.Unsupported.WindowsNoCustomHeader ->
                 "Disabled: your IDE is not using custom window decorations."
-            SystemInfo.isLinux ->
+            ChromeSupport.Unsupported.GnomeSsd ->
                 "Disabled: your window manager paints the native title bar."
-            else ->
+            ChromeSupport.Unsupported.UnknownOs ->
                 "Disabled: your OS paints the native title bar."
         }
+    }
 
     // ── @TestOnly seams ───────────────────────────────────────────────────────
     //
@@ -315,6 +360,7 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
     internal fun getPendingChromeTintIntensityForTest(): Int = pendingChromeTintIntensity
 
     companion object {
+        private val LOG = logger<AyuIslandsChromePanel>()
         private const val GROUP_TITLE = "Chrome Tinting"
         private const val MIN_INTENSITY = 10
 

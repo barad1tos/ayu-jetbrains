@@ -397,8 +397,12 @@ object ProjectLanguageDetector {
             // exception and risking the UI.
             val variant = AyuVariant.detect() ?: return@runCatchingPreservingCancellation
             val hex = AccentResolver.resolve(project, variant)
-            AccentApplicator.apply(hex)
-            ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
+            val applied = AccentApplicator.applyFromHexString(hex)
+            if (applied) {
+                ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
+            } else {
+                LOG.warn("Skipping swap publish: applyFromHexString rejected '$hex'")
+            }
         }.onFailure { exception ->
             LOG.warn("Post-scan accent refresh failed; cache is still warm", exception)
         }

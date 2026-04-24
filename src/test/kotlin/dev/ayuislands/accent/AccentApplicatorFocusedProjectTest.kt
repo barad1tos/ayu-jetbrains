@@ -7,9 +7,7 @@ import com.intellij.openapi.wm.IdeFrame
 import com.intellij.openapi.wm.WindowManager
 import com.intellij.testFramework.LoggedErrorProcessor
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
-import io.mockk.Runs
 import io.mockk.every
-import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
@@ -54,7 +52,7 @@ class AccentApplicatorFocusedProjectTest {
         mockkStatic(ProjectManager::class)
         mockkObject(AccentResolver)
         mockkObject(AccentApplicator, recordPrivateCalls = false)
-        every { AccentApplicator.apply(any()) } just Runs
+        every { AccentApplicator.apply(any()) } returns true
 
         mockkObject(ProjectAccentSwapService.Companion)
         swapService = mockk(relaxed = true)
@@ -101,7 +99,7 @@ class AccentApplicatorFocusedProjectTest {
         val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
 
         assertEquals("#ABCDEF", applied)
-        verify(exactly = 1) { AccentApplicator.apply("#ABCDEF") }
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("#ABCDEF") }
         verify(exactly = 1) { swapService.notifyExternalApply("#ABCDEF") }
     }
 
@@ -133,7 +131,7 @@ class AccentApplicatorFocusedProjectTest {
         val applied = AccentApplicator.applyForFocusedProject(AyuVariant.LIGHT)
 
         assertEquals("#F29718", applied)
-        verify(exactly = 1) { AccentApplicator.apply("#F29718") }
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("#F29718") }
         verify(exactly = 1) { swapService.notifyExternalApply("#F29718") }
     }
 
@@ -247,7 +245,7 @@ class AccentApplicatorFocusedProjectTest {
 
         io.mockk.verifyOrder {
             AccentResolver.resolve(focused, AyuVariant.MIRAGE)
-            AccentApplicator.apply("#FFCC66")
+            AccentApplicator.applyFromHexString("#FFCC66")
             swapService.notifyExternalApply("#FFCC66")
         }
     }
@@ -722,13 +720,89 @@ class AccentApplicatorFocusedProjectTest {
         )
     }
 
+    // ── Pattern D regression lock: swap publish must observe applyFromHexString's verdict ──
+
+    @Test
+    fun `applyForFocusedProject skips swap cache publish when applyFromHexString rejects the resolver output`() {
+        // Round 2 lifted `applyFromHexString` from Unit to Boolean and sealed the gap
+        // with `if (applied) { swapService.notifyExternalApply(hex) }` at line ~268 of
+        // AccentApplicator. A refactor that drops the gate would still compile green;
+        // this test forces the rejection branch (resolver hands back a malformed hex)
+        // and asserts that the swap cache is NOT told about a paint that never happened.
+        val focused = stubProject(isDefault = false, isDisposed = false)
+        val manager = mockk<ProjectManager>()
+        every { manager.openProjects } returns arrayOf(focused)
+        every { ProjectManager.getInstance() } returns manager
+        every { AccentResolver.resolve(focused, AyuVariant.MIRAGE) } returns "not-a-hex"
+
+        // Override the recordPrivateCalls=false BeforeTest default: we want the real
+        // applyFromHexString to run so its AccentHex.of shape-validation rejects the
+        // malformed input and returns false. The inner `apply(AccentHex)` must never
+        // be called because the hex never validates.
+        every { AccentApplicator.applyFromHexString("not-a-hex") } answers { callOriginal() }
+
+        val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
+
+        assertEquals("not-a-hex", applied)
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("not-a-hex") }
+        // The critical assertion — regression would surface as a non-zero count.
+        verify(exactly = 0) { swapService.notifyExternalApply(any()) }
+        // Sanity: apply(AccentHex) was never called — the hex was rejected before it.
+        verify(exactly = 0) { AccentApplicator.apply(any()) }
+    }
+
+    @Test
+    fun `AccentApplicator source retains the applied-gate around swap publish`() {
+        // Pattern L — source-regex regression lock. The `if (applied) { ... }` branch
+        // at the swap-publish site is today unreachable in unit tests without mocking
+        // the full applyFromHexString surface (above test does that), but we additionally
+        // grep the source so a refactor that removes the gate itself — not just the
+        // negative-path test — fails fast with a decoded reason.
+        val sourceFile = java.io.File("src/main/kotlin/dev/ayuislands/accent/AccentApplicator.kt")
+        assertTrue(
+            sourceFile.exists(),
+            "Could not locate AccentApplicator.kt for Pattern D source-regex regression lock",
+        )
+        val source = sourceFile.readText()
+        // Literal gate — if this match fails, the `if (applied)` wrapper was removed or
+        // renamed. The companion paragraph comment names this test as the alarm.
+        assertTrue(
+            source.contains("if (applied) {"),
+            "AccentApplicator.applyForFocusedProject must retain `if (applied) {` before " +
+                "`ProjectAccentSwapService.getInstance().notifyExternalApply(hex)` — removing the " +
+                "gate reintroduces Round 2 Pattern D regression (swap cache drifts from paint state).",
+        )
+        // Structural match — the `applied` flag must sit between the apply call and the
+        // notifyExternalApply call. A refactor that moves the gate elsewhere (e.g., outside
+        // the swap-publish branch) would still pass the literal match above.
+        val applyIndex = source.indexOf("val applied = applyFromHexString(hex)")
+        val gateIndex = source.indexOf("if (applied) {", applyIndex.takeIf { it >= 0 } ?: 0)
+        val notifyIndex =
+            source.indexOf(
+                "ProjectAccentSwapService.getInstance().notifyExternalApply(hex)",
+                gateIndex.takeIf { it >= 0 } ?: 0,
+            )
+        assertTrue(
+            applyIndex in 0 until gateIndex && gateIndex < notifyIndex,
+            "Pattern D structural lock: `val applied = applyFromHexString(hex)` must precede " +
+                "`if (applied) {` which must precede " +
+                "`ProjectAccentSwapService.getInstance().notifyExternalApply(hex)`. " +
+                "Got applyIndex=$applyIndex, gateIndex=$gateIndex, notifyIndex=$notifyIndex.",
+        )
+    }
+
     private fun stubProject(
         isDefault: Boolean,
         isDisposed: Boolean,
+        name: String = "stub-project",
     ): Project {
         val project = mockk<Project>()
         every { project.isDefault } returns isDefault
         every { project.isDisposed } returns isDisposed
+        // AccentApplicator.osActiveProjectFrame reads `project.name` directly (Pattern B
+        // fix — no runCatching wrapper) for the diagnostic probe. Stub it here so mocks
+        // don't throw MockKException when the code probes the name on a healthy frame.
+        every { project.name } returns name
         return project
     }
 

@@ -4,8 +4,11 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeBaseColors
+import dev.ayuislands.accent.ChromeTarget
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.ClassFqn
 import dev.ayuislands.accent.LiveChromeRefresher
+import dev.ayuislands.accent.TintIntensity
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -65,8 +68,8 @@ class NavBarElementTest {
         every { WcagForeground.pickForeground(any(), any()) } returns contrastFg
 
         mockkObject(LiveChromeRefresher)
-        every { LiveChromeRefresher.refreshByClassName(any(), any()) } returns Unit
-        every { LiveChromeRefresher.clearByClassName(any()) } returns Unit
+        every { LiveChromeRefresher.refresh(any(), any()) } returns Unit
+        every { LiveChromeRefresher.clear(any()) } returns Unit
     }
 
     @AfterTest
@@ -109,7 +112,7 @@ class NavBarElementTest {
     fun `apply passes intensity from state to blender per D-03`() {
         state.chromeTintIntensity = 42
 
-        val intensitySlot = slot<Int>()
+        val intensitySlot = slot<TintIntensity>()
         every {
             ChromeTintBlender.blend(any<Color>(), any<Color>(), capture(intensitySlot))
         } returns blended
@@ -117,7 +120,7 @@ class NavBarElementTest {
         NavBarElement().apply(accent)
 
         assertTrue(intensitySlot.isCaptured, "intensity must flow from state into blender")
-        assertEquals(42, intensitySlot.captured)
+        assertEquals(42, intensitySlot.captured.percent)
     }
 
     @Test
@@ -127,7 +130,7 @@ class NavBarElementTest {
         NavBarElement().apply(accent)
 
         // Called once per background key — 2 keys, both resolve to the same stubbed stockBase.
-        verify(exactly = 2) { ChromeTintBlender.blend(accent, stockBase, 50) }
+        verify(exactly = 2) { ChromeTintBlender.blend(accent, stockBase, TintIntensity.of(50)) }
     }
 
     @Test
@@ -163,27 +166,28 @@ class NavBarElementTest {
     }
 
     @Test
-    fun `apply invokes LiveChromeRefresher refreshByClassName for navbar peer (Gap 4)`() {
+    fun `apply invokes LiveChromeRefresher for navbar peer (Gap 4)`() {
         state.chromeTintIntensity = 40
 
         NavBarElement().apply(accent)
 
-        verify(exactly = 1) {
-            LiveChromeRefresher.refreshByClassName(
-                "com.intellij.platform.navbar.frontend.MyNavBarWrapperPanel",
-                blended,
+        val expectedTarget =
+            ChromeTarget.ByClassName(
+                ClassFqn.require("com.intellij.platform.navbar.frontend.MyNavBarWrapperPanel"),
             )
-        }
-        verify(exactly = 0) { LiveChromeRefresher.clearByClassName(any()) }
+        verify(exactly = 1) { LiveChromeRefresher.refresh(expectedTarget, blended) }
+        verify(exactly = 0) { LiveChromeRefresher.clear(any()) }
     }
 
     @Test
-    fun `revert invokes LiveChromeRefresher clearByClassName for navbar peer (D-14 symmetry)`() {
+    fun `revert invokes LiveChromeRefresher clear for navbar peer (D-14 symmetry)`() {
         NavBarElement().revert()
 
-        verify(exactly = 1) {
-            LiveChromeRefresher.clearByClassName("com.intellij.platform.navbar.frontend.MyNavBarWrapperPanel")
-        }
-        verify(exactly = 0) { LiveChromeRefresher.refreshByClassName(any(), any()) }
+        val expectedTarget =
+            ChromeTarget.ByClassName(
+                ClassFqn.require("com.intellij.platform.navbar.frontend.MyNavBarWrapperPanel"),
+            )
+        verify(exactly = 1) { LiveChromeRefresher.clear(expectedTarget) }
+        verify(exactly = 0) { LiveChromeRefresher.refresh(any(), any()) }
     }
 }

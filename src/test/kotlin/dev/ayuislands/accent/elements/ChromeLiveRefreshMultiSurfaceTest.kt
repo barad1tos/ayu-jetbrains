@@ -4,7 +4,9 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.accent.ChromeBaseColors
 import dev.ayuislands.accent.ChromeDecorationsProbe
+import dev.ayuislands.accent.ChromeTarget
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.ClassFqn
 import dev.ayuislands.accent.LiveChromeRefresher
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -57,16 +59,8 @@ class ChromeLiveRefreshMultiSurfaceTest {
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns true
 
         mockkObject(LiveChromeRefresher)
-        every { LiveChromeRefresher.refreshStatusBar(any()) } returns Unit
-        every { LiveChromeRefresher.clearStatusBar() } returns Unit
-        every { LiveChromeRefresher.refreshByClassName(any(), any()) } returns Unit
-        every { LiveChromeRefresher.clearByClassName(any()) } returns Unit
-        every {
-            LiveChromeRefresher.refreshByClassNameInsideAncestorClass(any(), any(), any())
-        } returns Unit
-        every {
-            LiveChromeRefresher.clearByClassNameInsideAncestorClass(any(), any())
-        } returns Unit
+        every { LiveChromeRefresher.refresh(any(), any()) } returns Unit
+        every { LiveChromeRefresher.clear(any()) } returns Unit
 
         mockState = AyuIslandsState().apply { chromeTintIntensity = 40 }
         mockSettings = mockk(relaxed = true)
@@ -83,6 +77,17 @@ class ChromeLiveRefreshMultiSurfaceTest {
         unmockkAll()
     }
 
+    private val navBarTarget =
+        ChromeTarget.ByClassName(ClassFqn.require("com.intellij.platform.navbar.frontend.MyNavBarWrapperPanel"))
+    private val stripeTarget = ChromeTarget.ByClassName(ClassFqn.require("com.intellij.toolWindow.Stripe"))
+    private val mainToolbarTarget =
+        ChromeTarget.ByClassName(ClassFqn.require("com.intellij.openapi.wm.impl.headertoolbar.MainToolbar"))
+    private val panelBorderTarget =
+        ChromeTarget.ByClassNameInside(
+            target = ClassFqn.require("com.intellij.openapi.ui.OnePixelDivider"),
+            ancestor = ClassFqn.require("com.intellij.toolWindow.InternalDecoratorImpl"),
+        )
+
     @Test
     fun `applying all five chrome elements routes each peer refresh exactly once`() {
         StatusBarElement().apply(testAccent)
@@ -91,41 +96,22 @@ class ChromeLiveRefreshMultiSurfaceTest {
         MainToolbarElement().apply(testAccent)
         PanelBorderElement().apply(testAccent)
 
-        // StatusBar uses its own public-API path (not class-name).
-        verify(exactly = 1) { LiveChromeRefresher.refreshStatusBar(blended) }
-        // The remaining four use class-name string match with distinct FQNs.
-        verify(exactly = 1) {
-            LiveChromeRefresher.refreshByClassName(
-                "com.intellij.platform.navbar.frontend.MyNavBarWrapperPanel",
-                blended,
-            )
-        }
-        verify(exactly = 1) {
-            LiveChromeRefresher.refreshByClassName("com.intellij.toolWindow.Stripe", blended)
-        }
-        verify(exactly = 1) {
-            LiveChromeRefresher.refreshByClassName(
-                "com.intellij.openapi.wm.impl.headertoolbar.MainToolbar",
-                blended,
-            )
-        }
-        // Round 2 A-1: PanelBorder now uses the ancestor-scoped variant to avoid
+        verify(exactly = 1) { LiveChromeRefresher.refresh(ChromeTarget.StatusBar, blended) }
+        verify(exactly = 1) { LiveChromeRefresher.refresh(navBarTarget, blended) }
+        verify(exactly = 1) { LiveChromeRefresher.refresh(stripeTarget, blended) }
+        verify(exactly = 1) { LiveChromeRefresher.refresh(mainToolbarTarget, blended) }
+        // Round 2 A-1: PanelBorder uses the ancestor-scoped variant to avoid
         // over-tinting OnePixelDivider instances outside tool windows.
-        verify(exactly = 1) {
-            LiveChromeRefresher.refreshByClassNameInsideAncestorClass(
-                "com.intellij.openapi.ui.OnePixelDivider",
-                "com.intellij.toolWindow.InternalDecoratorImpl",
-                blended,
+        verify(exactly = 1) { LiveChromeRefresher.refresh(panelBorderTarget, blended) }
+        // Guard: PanelBorder must NOT use the blind ByClassName target.
+        verify(exactly = 0) {
+            LiveChromeRefresher.refresh(
+                ChromeTarget.ByClassName(ClassFqn.require("com.intellij.openapi.ui.OnePixelDivider")),
+                any(),
             )
         }
-        verify(exactly = 0) {
-            LiveChromeRefresher.refreshByClassName("com.intellij.openapi.ui.OnePixelDivider", any())
-        }
-
-        // No cross-talk: no element should be invoking the clear path during apply.
-        verify(exactly = 0) { LiveChromeRefresher.clearStatusBar() }
-        verify(exactly = 0) { LiveChromeRefresher.clearByClassName(any()) }
-        verify(exactly = 0) { LiveChromeRefresher.clearByClassNameInsideAncestorClass(any(), any()) }
+        // No cross-talk: no element should be invoking clear during apply.
+        verify(exactly = 0) { LiveChromeRefresher.clear(any()) }
     }
 
     @Test
@@ -136,31 +122,17 @@ class ChromeLiveRefreshMultiSurfaceTest {
         MainToolbarElement().revert()
         PanelBorderElement().revert()
 
-        verify(exactly = 1) { LiveChromeRefresher.clearStatusBar() }
-        verify(exactly = 1) {
-            LiveChromeRefresher.clearByClassName("com.intellij.platform.navbar.frontend.MyNavBarWrapperPanel")
-        }
-        verify(exactly = 1) { LiveChromeRefresher.clearByClassName("com.intellij.toolWindow.Stripe") }
-        verify(exactly = 1) {
-            LiveChromeRefresher.clearByClassName("com.intellij.openapi.wm.impl.headertoolbar.MainToolbar")
-        }
-        // Round 2 A-1: PanelBorder uses the ancestor-scoped clear for D-14 symmetry.
-        verify(exactly = 1) {
-            LiveChromeRefresher.clearByClassNameInsideAncestorClass(
-                "com.intellij.openapi.ui.OnePixelDivider",
-                "com.intellij.toolWindow.InternalDecoratorImpl",
+        verify(exactly = 1) { LiveChromeRefresher.clear(ChromeTarget.StatusBar) }
+        verify(exactly = 1) { LiveChromeRefresher.clear(navBarTarget) }
+        verify(exactly = 1) { LiveChromeRefresher.clear(stripeTarget) }
+        verify(exactly = 1) { LiveChromeRefresher.clear(mainToolbarTarget) }
+        verify(exactly = 1) { LiveChromeRefresher.clear(panelBorderTarget) }
+        verify(exactly = 0) {
+            LiveChromeRefresher.clear(
+                ChromeTarget.ByClassName(ClassFqn.require("com.intellij.openapi.ui.OnePixelDivider")),
             )
         }
-        verify(exactly = 0) {
-            LiveChromeRefresher.clearByClassName("com.intellij.openapi.ui.OnePixelDivider")
-        }
-
-        // No cross-talk: revert must not invoke any refresh path.
-        verify(exactly = 0) { LiveChromeRefresher.refreshStatusBar(any()) }
-        verify(exactly = 0) { LiveChromeRefresher.refreshByClassName(any(), any()) }
-        verify(exactly = 0) {
-            LiveChromeRefresher.refreshByClassNameInsideAncestorClass(any(), any(), any())
-        }
+        verify(exactly = 0) { LiveChromeRefresher.refresh(any(), any()) }
     }
 
     @Test
@@ -176,35 +148,11 @@ class ChromeLiveRefreshMultiSurfaceTest {
         elements.forEach { it.apply(testAccent) }
         elements.forEach { it.revert() }
 
-        // StatusBar pair
-        verify(exactly = 1) { LiveChromeRefresher.refreshStatusBar(blended) }
-        verify(exactly = 1) { LiveChromeRefresher.clearStatusBar() }
-
-        // Three blind class-name pairs (NavBar / Stripe / MainToolbar)
-        val blindPeerClasses =
-            listOf(
-                "com.intellij.platform.navbar.frontend.MyNavBarWrapperPanel",
-                "com.intellij.toolWindow.Stripe",
-                "com.intellij.openapi.wm.impl.headertoolbar.MainToolbar",
-            )
-        for (fqn in blindPeerClasses) {
-            verify(exactly = 1) { LiveChromeRefresher.refreshByClassName(fqn, blended) }
-            verify(exactly = 1) { LiveChromeRefresher.clearByClassName(fqn) }
-        }
-
-        // PanelBorder pair — ancestor-scoped (Round 2 A-1)
-        verify(exactly = 1) {
-            LiveChromeRefresher.refreshByClassNameInsideAncestorClass(
-                "com.intellij.openapi.ui.OnePixelDivider",
-                "com.intellij.toolWindow.InternalDecoratorImpl",
-                blended,
-            )
-        }
-        verify(exactly = 1) {
-            LiveChromeRefresher.clearByClassNameInsideAncestorClass(
-                "com.intellij.openapi.ui.OnePixelDivider",
-                "com.intellij.toolWindow.InternalDecoratorImpl",
-            )
+        val targets =
+            listOf(ChromeTarget.StatusBar, navBarTarget, stripeTarget, mainToolbarTarget, panelBorderTarget)
+        for (target in targets) {
+            verify(exactly = 1) { LiveChromeRefresher.refresh(target, blended) }
+            verify(exactly = 1) { LiveChromeRefresher.clear(target) }
         }
     }
 
@@ -219,30 +167,12 @@ class ChromeLiveRefreshMultiSurfaceTest {
         PanelBorderElement().apply(testAccent)
 
         // MainToolbar short-circuits — all other peers still refresh.
-        verify(exactly = 1) { LiveChromeRefresher.refreshStatusBar(blended) }
-        verify(exactly = 1) {
-            LiveChromeRefresher.refreshByClassName(
-                "com.intellij.platform.navbar.frontend.MyNavBarWrapperPanel",
-                blended,
-            )
-        }
-        verify(exactly = 1) {
-            LiveChromeRefresher.refreshByClassName("com.intellij.toolWindow.Stripe", blended)
-        }
-        verify(exactly = 0) {
-            LiveChromeRefresher.refreshByClassName(
-                "com.intellij.openapi.wm.impl.headertoolbar.MainToolbar",
-                any(),
-            )
-        }
+        verify(exactly = 1) { LiveChromeRefresher.refresh(ChromeTarget.StatusBar, blended) }
+        verify(exactly = 1) { LiveChromeRefresher.refresh(navBarTarget, blended) }
+        verify(exactly = 1) { LiveChromeRefresher.refresh(stripeTarget, blended) }
+        verify(exactly = 0) { LiveChromeRefresher.refresh(mainToolbarTarget, any()) }
         // PanelBorder ancestor-scoped refresh still fires (Round 2 A-1) — MainToolbar gate
         // short-circuits MainToolbar only, not sibling peers.
-        verify(exactly = 1) {
-            LiveChromeRefresher.refreshByClassNameInsideAncestorClass(
-                "com.intellij.openapi.ui.OnePixelDivider",
-                "com.intellij.toolWindow.InternalDecoratorImpl",
-                blended,
-            )
-        }
+        verify(exactly = 1) { LiveChromeRefresher.refresh(panelBorderTarget, blended) }
     }
 }

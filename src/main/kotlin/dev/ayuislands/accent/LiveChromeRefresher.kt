@@ -9,6 +9,7 @@ import java.awt.Color
 import java.awt.Component
 import java.awt.Container
 import java.awt.Window
+import java.util.ArrayDeque
 import java.util.concurrent.ConcurrentHashMap
 import javax.swing.JComponent
 
@@ -70,31 +71,54 @@ internal object LiveChromeRefresher {
         brokenContainerLogged.clear()
     }
 
-    // --- StatusBar (resolvable via public WindowManager API) ---
+    // --- Typed entry points (Phase 40.3c Refactor 2) ---
+    //
+    // Sealed [ChromeTarget] collapses the prior 6-entry API (refresh/clear × 3
+    // peer strategies) into two methods. Dispatch is exhaustive — adding a new
+    // ChromeTarget variant is a compile-time pattern-match failure, not a silent
+    // new overload. Internal helpers (refreshOnTree*, clearOnTree*) stay
+    // `internal` for the tree-walk tests that build synthetic Container trees.
 
-    fun refreshStatusBar(color: Color) {
-        forEachUsableStatusBarComponent { component ->
-            component.background = color
-            component.repaint()
+    /** Refreshes the live peer described by [target] with [color]. */
+    fun refresh(
+        target: ChromeTarget,
+        color: Color,
+    ) {
+        when (target) {
+            ChromeTarget.StatusBar ->
+                forEachUsableStatusBarComponent { component ->
+                    component.background = color
+                    component.repaint()
+                }
+            is ChromeTarget.ByClassName ->
+                forEachShowingWindow { refreshOnTree(it, target.fqn, color) }
+            is ChromeTarget.ByClassNameInside ->
+                forEachShowingWindow {
+                    refreshOnTreeInsideAncestor(it, target.target, target.ancestor, color)
+                }
         }
     }
 
-    fun clearStatusBar() {
-        forEachUsableStatusBarComponent { component ->
-            component.background = null
-            component.repaint()
+    /** D-14 symmetry mirror of [refresh] — hands [target]'s peer back to LAF default. */
+    fun clear(target: ChromeTarget) {
+        when (target) {
+            ChromeTarget.StatusBar ->
+                forEachUsableStatusBarComponent { component ->
+                    component.background = null
+                    component.repaint()
+                }
+            is ChromeTarget.ByClassName ->
+                forEachShowingWindow { clearOnTree(it, target.fqn) }
+            is ChromeTarget.ByClassNameInside ->
+                forEachShowingWindow {
+                    clearOnTreeInsideAncestor(it, target.target, target.ancestor)
+                }
         }
     }
 
     private inline fun forEachUsableStatusBarComponent(action: (JComponent) -> Unit) {
-        val projectManager =
-            runCatching { ProjectManager.getInstance() }
-                .onFailure { log.debug("ProjectManager unavailable during live refresh", it) }
-                .getOrNull() ?: return
-        val windowManager =
-            runCatching { WindowManager.getInstance() }
-                .onFailure { log.debug("WindowManager unavailable during live refresh", it) }
-                .getOrNull() ?: return
+        val projectManager = safeService("ProjectManager") { ProjectManager.getInstance() } ?: return
+        val windowManager = safeService("WindowManager") { WindowManager.getInstance() } ?: return
         for (project in projectManager.openProjects) {
             if (!project.isUsable()) continue
             val statusBar = windowManager.getStatusBar(project) ?: continue
@@ -103,47 +127,33 @@ internal object LiveChromeRefresher {
         }
     }
 
-    // --- Class-name-based frame walk (internal platform peer types) ---
-
-    fun refreshByClassName(
-        classNameFqn: String,
-        color: Color,
-    ) {
-        forEachShowingWindow { refreshOnTree(it, classNameFqn, color) }
-    }
-
-    fun clearByClassName(classNameFqn: String) {
-        forEachShowingWindow { clearOnTree(it, classNameFqn) }
-    }
-
     /**
-     * Ancestor-constrained variant of [refreshByClassName]. Mutates a matching [targetFqn]
-     * only when the component sits inside a container whose runtime class name equals
-     * [ancestorFqn]. Used for shared peer types (`OnePixelDivider`) whose instances live
-     * all over the IDE — tinting every one of them would leak panel-border styling into
-     * editor splitters, diff gutters, Settings dialog splitters, etc. See Phase 40
-     * review Round 2 A-1.
+     * Pattern B: narrow the service-lookup catch to [RuntimeException] so
+     * [OutOfMemoryError] / [NoClassDefFoundError] during a shutdown race
+     * still propagate — the prior `runCatching { ... }.onFailure { log.debug(...) }`
+     * swallowed the full [Throwable] surface on the hot live-refresh path.
+     * The `?: return` on the callsite is expected during shutdown (both
+     * services can legitimately report null).
      */
-    fun refreshByClassNameInsideAncestorClass(
-        targetFqn: String,
-        ancestorFqn: String,
-        color: Color,
-    ) {
-        forEachShowingWindow { refreshOnTreeInsideAncestor(it, targetFqn, ancestorFqn, color) }
-    }
-
-    /** Mirror of [refreshByClassNameInsideAncestorClass] for the revert path. */
-    fun clearByClassNameInsideAncestorClass(
-        targetFqn: String,
-        ancestorFqn: String,
-    ) {
-        forEachShowingWindow { clearOnTreeInsideAncestor(it, targetFqn, ancestorFqn) }
-    }
+    private inline fun <T : Any> safeService(
+        name: String,
+        crossinline lookup: () -> T?,
+    ): T? =
+        try {
+            lookup()
+        } catch (exception: RuntimeException) {
+            log.debug("$name unavailable during live refresh", exception)
+            null
+        }
 
     /**
      * Iterates top-level windows, skipping ones that are not [Window.isShowing] (disposed,
      * hidden, pooled popups) and isolating per-window failures so one flaky peer doesn't
      * abort chrome apply for the rest of the desktop. See Phase 40 review Round 3 C-1, C-2.
+     *
+     * Uses [Window.getWindows] (broader than `WindowManager.allProjectFrames`) to catch
+     * pooled dialogs and detached popups that still cache stale chrome colors; the
+     * [Window.isShowing] filter keeps the walk safe by skipping disposed/hidden peers.
      *
      * Catches [RuntimeException] rather than using `runCatching` (which would also
      * swallow [Error] — [OutOfMemoryError], [StackOverflowError]) so catastrophic JVM
@@ -151,6 +161,15 @@ internal object LiveChromeRefresher {
      * AWT peer surface only throws [RuntimeException] subtypes (NPE on disposed peer,
      * ClassCast on reflective match, IllegalState on detached frame), so narrowing
      * the catch here also satisfies detekt's TooGenericExceptionCaught.
+     *
+     * The per-window catch around `action(window)` is defense-in-depth for callers
+     * that might pass an `action` lambda not wrapped in [walk]. Every current caller
+     * ([refreshOnTree], [clearOnTree], and the two `*InsideAncestor` variants)
+     * delegates to [walk], whose own per-component catch swallows broken peers
+     * before they can reach this layer — so the per-window catch is structurally
+     * unreachable today. Keep it: this is a `private inline fun` whose signature
+     * accepts an arbitrary `(Window) -> Unit`, and a future non-walk caller would
+     * otherwise regress the isolation guarantee.
      */
     private inline fun forEachShowingWindow(action: (Window) -> Unit) {
         val windows =
@@ -179,11 +198,11 @@ internal object LiveChromeRefresher {
      */
     internal fun refreshOnTree(
         root: Component,
-        classNameFqn: String,
+        classNameFqn: ClassFqn,
         color: Color,
     ) {
         walk(root) { component ->
-            if (component is JComponent && component.javaClass.name == classNameFqn) {
+            if (component is JComponent && component.javaClass.name == classNameFqn.value) {
                 component.background = color
                 component.repaint()
             }
@@ -193,10 +212,10 @@ internal object LiveChromeRefresher {
     /** Visible for tests — mirror of [refreshOnTree] for the revert path. */
     internal fun clearOnTree(
         root: Component,
-        classNameFqn: String,
+        classNameFqn: ClassFqn,
     ) {
         walk(root) { component ->
-            if (component is JComponent && component.javaClass.name == classNameFqn) {
+            if (component is JComponent && component.javaClass.name == classNameFqn.value) {
                 component.background = null
                 component.repaint()
             }
@@ -210,13 +229,13 @@ internal object LiveChromeRefresher {
      */
     internal fun refreshOnTreeInsideAncestor(
         root: Component,
-        targetFqn: String,
-        ancestorFqn: String,
+        targetFqn: ClassFqn,
+        ancestorFqn: ClassFqn,
         color: Color,
     ) {
         walk(root) { component ->
             if (component is JComponent &&
-                component.javaClass.name == targetFqn &&
+                component.javaClass.name == targetFqn.value &&
                 hasAncestorWithClassName(component, ancestorFqn)
             ) {
                 component.background = color
@@ -228,12 +247,12 @@ internal object LiveChromeRefresher {
     /** Visible for tests — mirror of [refreshOnTreeInsideAncestor] for the revert path. */
     internal fun clearOnTreeInsideAncestor(
         root: Component,
-        targetFqn: String,
-        ancestorFqn: String,
+        targetFqn: ClassFqn,
+        ancestorFqn: ClassFqn,
     ) {
         walk(root) { component ->
             if (component is JComponent &&
-                component.javaClass.name == targetFqn &&
+                component.javaClass.name == targetFqn.value &&
                 hasAncestorWithClassName(component, ancestorFqn)
             ) {
                 component.background = null
@@ -245,45 +264,58 @@ internal object LiveChromeRefresher {
     /** Walks the parent chain of [component] looking for a container whose runtime class name equals [ancestorFqn]. */
     private fun hasAncestorWithClassName(
         component: Component,
-        ancestorFqn: String,
+        ancestorFqn: ClassFqn,
     ): Boolean {
         var current: Container? = component.parent
         while (current != null) {
-            if (current.javaClass.name == ancestorFqn) return true
+            if (current.javaClass.name == ancestorFqn.value) return true
             current = current.parent
         }
         return false
     }
 
     /**
-     * Recursively walks [component] and its descendants, invoking [visit] per node.
+     * Iteratively walks [component] and its descendants, invoking [visit] per node.
+     * Phase 40.2 M-4 — converted from the prior recursive walk to an
+     * [ArrayDeque]-based BFS so a pathological deeply nested container tree
+     * cannot blow the JVM thread stack. The recursive version was capped only by
+     * whatever headroom the EDT happened to have and a malicious plugin could
+     * emit a container chain deep enough to trigger [StackOverflowError] mid-apply.
+     * Iterative traversal bounds growth to heap (orders of magnitude more slack)
+     * and keeps the per-visit try/catch + broken-container logging semantics
+     * exactly as before. See Phase 40 review Round 3 C-1.
+     *
      * Each visit is isolated so a single flaky peer (mid-dispose, ClassCast on
-     * reflective match, NPE inside repaint) doesn't abort the rest of the tree;
-     * see Phase 40 review Round 3 C-1. Catches [RuntimeException] rather than
-     * [Throwable] so [Error]s ([OutOfMemoryError], [StackOverflowError]) still
-     * propagate instead of being silently swallowed at DEBUG, and narrower than
-     * [Exception] so detekt's TooGenericExceptionCaught stays happy — the Swing
-     * peer surface only throws [RuntimeException] subtypes anyway.
+     * reflective match, NPE inside repaint) doesn't abort the rest of the tree.
+     * Catches [RuntimeException] rather than [Throwable] so [Error]s
+     * ([OutOfMemoryError], [StackOverflowError]) still propagate instead of being
+     * silently swallowed at DEBUG, and narrower than [Exception] so detekt's
+     * TooGenericExceptionCaught stays happy — the Swing peer surface only throws
+     * [RuntimeException] subtypes anyway.
      */
     private fun walk(
         component: Component,
         visit: (Component) -> Unit,
     ) {
-        try {
-            visit(component)
-        } catch (exception: RuntimeException) {
-            log.debug("Live refresh visit failed on ${component.javaClass.name}", exception)
-        }
-        if (component is Container) {
+        val queue: ArrayDeque<Component> = ArrayDeque()
+        queue.addLast(component)
+        while (queue.isNotEmpty()) {
+            val current = queue.removeFirst()
+            try {
+                visit(current)
+            } catch (exception: RuntimeException) {
+                log.debug("Live refresh visit failed on ${current.javaClass.name}", exception)
+            }
+            if (current !is Container) continue
             val children =
                 try {
-                    component.components
+                    current.components
                 } catch (exception: RuntimeException) {
-                    logBrokenContainer(component, exception)
-                    return
+                    logBrokenContainer(current, exception)
+                    continue
                 }
             for (child in children) {
-                walk(child, visit)
+                queue.addLast(child)
             }
         }
     }

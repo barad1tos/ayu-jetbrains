@@ -4,8 +4,11 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeBaseColors
+import dev.ayuislands.accent.ChromeTarget
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.ClassFqn
 import dev.ayuislands.accent.LiveChromeRefresher
+import dev.ayuislands.accent.TintIntensity
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -16,11 +19,14 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.Color
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.UIManager
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 /**
  * Tests for [ToolWindowStripeElement] — CHROME-03.
@@ -45,6 +51,10 @@ class ToolWindowStripeElementTest {
 
     @BeforeTest
     fun setUp() {
+        // Phase 40.2 M-3: reset the companion `firstApplyLogged` gate so first-apply
+        // diagnostic assertions are reachable regardless of ordering.
+        resetFirstApplyLoggedGate()
+
         mockkStatic(UIManager::class)
         every { UIManager.put(any<String>(), any()) } returns Unit
 
@@ -58,8 +68,8 @@ class ToolWindowStripeElementTest {
         every { WcagForeground.pickForeground(any(), any()) } returns contrastFg
 
         mockkObject(LiveChromeRefresher)
-        every { LiveChromeRefresher.refreshByClassName(any(), any()) } returns Unit
-        every { LiveChromeRefresher.clearByClassName(any()) } returns Unit
+        every { LiveChromeRefresher.refresh(any(), any()) } returns Unit
+        every { LiveChromeRefresher.clear(any()) } returns Unit
 
         // AyuIslandsSettings.getInstance() is backed by ApplicationManager.getService.
         // Mock the Application so the companion resolves without an IDE container.
@@ -103,7 +113,7 @@ class ToolWindowStripeElementTest {
         ToolWindowStripeElement().apply(testAccent)
 
         // All 3 keys resolve to the stubbed stockBase, so blend is invoked 3× with the same args.
-        verify(exactly = 3) { ChromeTintBlender.blend(testAccent, stockBase, 45) }
+        verify(exactly = 3) { ChromeTintBlender.blend(testAccent, stockBase, TintIntensity.of(45)) }
     }
 
     @Test
@@ -141,9 +151,9 @@ class ToolWindowStripeElementTest {
         every { ChromeBaseColors.get("ToolWindow.Stripe.background") } returns stripeBase
         every { ChromeBaseColors.get("ToolWindow.Button.selectedBackground") } returns selectedBase
         every { ChromeBaseColors.get("ToolWindow.Stripe.borderColor") } returns stockBase
-        every { ChromeTintBlender.blend(testAccent, stripeBase, 40) } returns stripeTinted
-        every { ChromeTintBlender.blend(testAccent, selectedBase, 40) } returns selectedTinted
-        every { ChromeTintBlender.blend(testAccent, stockBase, 40) } returns blended
+        every { ChromeTintBlender.blend(testAccent, stripeBase, TintIntensity.of(40)) } returns stripeTinted
+        every { ChromeTintBlender.blend(testAccent, selectedBase, TintIntensity.of(40)) } returns selectedTinted
+        every { ChromeTintBlender.blend(testAccent, stockBase, TintIntensity.of(40)) } returns blended
         every {
             WcagForeground.pickForeground(stripeTinted, WcagForeground.TextTarget.ICON)
         } returns stripeFg
@@ -206,22 +216,70 @@ class ToolWindowStripeElementTest {
     }
 
     @Test
-    fun `apply invokes LiveChromeRefresher refreshByClassName for stripe peer (Gap 4)`() {
+    fun `apply invokes LiveChromeRefresher for stripe peer (Gap 4)`() {
         mockState.chromeTintIntensity = 30
 
         ToolWindowStripeElement().apply(testAccent)
 
-        verify(exactly = 1) {
-            LiveChromeRefresher.refreshByClassName("com.intellij.toolWindow.Stripe", blended)
-        }
-        verify(exactly = 0) { LiveChromeRefresher.clearByClassName(any()) }
+        val expectedTarget = ChromeTarget.ByClassName(ClassFqn.require("com.intellij.toolWindow.Stripe"))
+        verify(exactly = 1) { LiveChromeRefresher.refresh(expectedTarget, blended) }
+        verify(exactly = 0) { LiveChromeRefresher.clear(any()) }
     }
 
     @Test
-    fun `revert invokes LiveChromeRefresher clearByClassName for stripe peer (D-14 symmetry)`() {
+    fun `revert invokes LiveChromeRefresher clear for stripe peer (D-14 symmetry)`() {
         ToolWindowStripeElement().revert()
 
-        verify(exactly = 1) { LiveChromeRefresher.clearByClassName("com.intellij.toolWindow.Stripe") }
-        verify(exactly = 0) { LiveChromeRefresher.refreshByClassName(any(), any()) }
+        val expectedTarget = ChromeTarget.ByClassName(ClassFqn.require("com.intellij.toolWindow.Stripe"))
+        verify(exactly = 1) { LiveChromeRefresher.clear(expectedTarget) }
+        verify(exactly = 0) { LiveChromeRefresher.refresh(any(), any()) }
+    }
+
+    @Test
+    fun `first apply flips the Phase 40-2 M-3 diagnostic gate to true`() {
+        // Phase 40.2 M-3 contract: the one-shot diagnostic gate stays false until
+        // the first apply() invocation — exactly when LOG.info fires with the
+        // `ToolWindowStripeElement first apply: keysSeen=...` line. If the
+        // `onBackgroundsTinted` override is deleted, the gate stays false and
+        // this test fails.
+        mockState.chromeTintIntensity = 30
+        assertFalse(readFirstApplyLoggedGate(), "gate must be reset before apply runs")
+
+        ToolWindowStripeElement().apply(testAccent)
+
+        assertTrue(
+            readFirstApplyLoggedGate(),
+            "onBackgroundsTinted must flip firstApplyLogged to true on first apply " +
+                "(Phase 40.2 M-3 diagnostic log)",
+        )
+    }
+
+    @Test
+    fun `second apply keeps the diagnostic gate true — one-shot contract`() {
+        mockState.chromeTintIntensity = 30
+
+        val element = ToolWindowStripeElement()
+        element.apply(testAccent)
+        assertTrue(readFirstApplyLoggedGate(), "gate must be true after first apply")
+
+        element.apply(testAccent)
+        assertTrue(
+            readFirstApplyLoggedGate(),
+            "gate must remain true on subsequent apply calls (one-shot contract)",
+        )
+    }
+
+    private fun readFirstApplyLoggedGate(): Boolean = firstApplyLoggedField().get()
+
+    private fun resetFirstApplyLoggedGate() {
+        firstApplyLoggedField().set(false)
+    }
+
+    private fun firstApplyLoggedField(): AtomicBoolean {
+        // Private companion `val` compiles to a private static field on the
+        // outer class. See `javap -p ToolWindowStripeElement.class`.
+        val field = ToolWindowStripeElement::class.java.getDeclaredField("firstApplyLogged")
+        field.isAccessible = true
+        return field.get(null) as AtomicBoolean
     }
 }

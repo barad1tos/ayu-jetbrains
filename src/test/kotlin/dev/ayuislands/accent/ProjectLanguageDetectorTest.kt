@@ -685,7 +685,7 @@ class ProjectLanguageDetectorTest {
         every { AccentMappingsSettings.getInstance() } returns settings
 
         mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } returns Unit
+        every { AccentApplicator.apply(any()) } returns true
 
         val project = stubProject("/tmp/refresh-miss-${System.nanoTime()}")
         ProjectLanguageDetector.refreshAccentOnEdt(project, "kotlin")
@@ -713,7 +713,7 @@ class ProjectLanguageDetectorTest {
         mockkObject(AccentResolver)
         every { AccentResolver.resolve(any(), any()) } returns "#FFCC66"
         mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } returns Unit
+        every { AccentApplicator.apply(any()) } returns true
         val swapService = mockk<dev.ayuislands.settings.mappings.ProjectAccentSwapService>(relaxed = true)
         mockkObject(dev.ayuislands.settings.mappings.ProjectAccentSwapService.Companion)
         every {
@@ -724,7 +724,7 @@ class ProjectLanguageDetectorTest {
         val project = stubProject("/tmp/refresh-hit-${System.nanoTime()}")
         ProjectLanguageDetector.refreshAccentOnEdt(project, "kotlin")
 
-        verify(exactly = 1) { AccentApplicator.apply("#FFCC66") }
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("#FFCC66") }
         verify(exactly = 1) { swapService.notifyExternalApply("#FFCC66") }
     }
 
@@ -768,7 +768,7 @@ class ProjectLanguageDetectorTest {
         every { AccentMappingsSettings.getInstance() } throws RuntimeException("plugin unload race")
 
         mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } returns Unit
+        every { AccentApplicator.apply(any()) } returns true
 
         val project = stubProject("/tmp/refresh-settings-boom-${System.nanoTime()}")
 
@@ -797,7 +797,7 @@ class ProjectLanguageDetectorTest {
         every { AyuVariant.detect() } returns null
 
         mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } returns Unit
+        every { AccentApplicator.apply(any()) } returns true
 
         val project = stubProject("/tmp/refresh-null-variant-${System.nanoTime()}")
         ProjectLanguageDetector.refreshAccentOnEdt(project, "kotlin")
@@ -819,7 +819,7 @@ class ProjectLanguageDetectorTest {
         every { AccentMappingsSettings.getInstance() } returns settings
 
         mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } returns Unit
+        every { AccentApplicator.apply(any()) } returns true
 
         val project = stubProject("/tmp/refresh-disposed-${System.nanoTime()}")
         every { project.isDisposed } returns true

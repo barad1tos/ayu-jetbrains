@@ -143,4 +143,119 @@ class ChromeDecorationsProbeTest {
             ChromeDecorationsProbe.computeOs(isMac = true, isWindows = true, isLinux = true),
         )
     }
+
+    // --- probe() typed result (Phase 40.3c Refactor 3) ---
+    //
+    // Every OS branch maps to a distinct ChromeSupport variant so the Settings UI
+    // can render a tailored "disabled" tooltip without re-sampling SystemInfo on
+    // its own. Tests lock one case per variant.
+
+    @Test
+    fun `probe returns Supported on macOS when unified-background is true`() {
+        ChromeDecorationsProbe.osSupplier = { ChromeDecorationsProbe.Os.MAC }
+        every { UIManager.getBoolean("TitlePane.unifiedBackground") } returns true
+
+        assertEquals(ChromeSupport.Supported, ChromeDecorationsProbe.probe())
+    }
+
+    @Test
+    fun `probe returns NativeMacTitleBar when macOS custom-header signals are both false`() {
+        ChromeDecorationsProbe.osSupplier = { ChromeDecorationsProbe.Os.MAC }
+        every { UIManager.getBoolean("TitlePane.unifiedBackground") } returns false
+        every { Registry.`is`("ide.mac.transparentTitleBarAppearance", false) } returns false
+
+        assertEquals(ChromeSupport.Unsupported.NativeMacTitleBar, ChromeDecorationsProbe.probe())
+    }
+
+    @Test
+    fun `probe returns Supported on Windows when CustomWindowHeader is true`() {
+        ChromeDecorationsProbe.osSupplier = { ChromeDecorationsProbe.Os.WINDOWS }
+        every { UIManager.getBoolean("CustomWindowHeader") } returns true
+
+        assertEquals(ChromeSupport.Supported, ChromeDecorationsProbe.probe())
+    }
+
+    @Test
+    fun `probe returns WindowsNoCustomHeader when CustomWindowHeader is false`() {
+        ChromeDecorationsProbe.osSupplier = { ChromeDecorationsProbe.Os.WINDOWS }
+        every { UIManager.getBoolean("CustomWindowHeader") } returns false
+
+        assertEquals(ChromeSupport.Unsupported.WindowsNoCustomHeader, ChromeDecorationsProbe.probe())
+    }
+
+    @Test
+    fun `probe returns Supported on Linux when the custom-title registry flag is true`() {
+        ChromeDecorationsProbe.osSupplier = { ChromeDecorationsProbe.Os.LINUX }
+        every { Registry.`is`("ide.linux.custom.title.bar", false) } returns true
+
+        assertEquals(ChromeSupport.Supported, ChromeDecorationsProbe.probe())
+    }
+
+    @Test
+    fun `probe returns GnomeSsd when the Linux custom-title registry flag is false`() {
+        ChromeDecorationsProbe.osSupplier = { ChromeDecorationsProbe.Os.LINUX }
+        every { Registry.`is`("ide.linux.custom.title.bar", false) } returns false
+
+        assertEquals(ChromeSupport.Unsupported.GnomeSsd, ChromeDecorationsProbe.probe())
+    }
+
+    @Test
+    fun `probe returns UnknownOs when osSupplier resolves to UNKNOWN`() {
+        ChromeDecorationsProbe.osSupplier = { ChromeDecorationsProbe.Os.UNKNOWN }
+
+        assertEquals(ChromeSupport.Unsupported.UnknownOs, ChromeDecorationsProbe.probe())
+    }
+
+    @Test
+    fun `osSupplier override on one thread does not leak into another thread`() {
+        // Phase 40.4 L-2 regression lock: the osSupplier seam is backed by a
+        // ThreadLocal so parallel JUnit workers cannot cross-contaminate pinned
+        // OS branches. Pin a deterministic sentinel on this thread, then capture
+        // what another thread sees — the sentinel lambda's reference identity
+        // must not leak across threads. A different lambda reference proves the
+        // other thread fell through to the (per-thread-isolated) default path.
+        val sentinel: () -> ChromeDecorationsProbe.Os = { ChromeDecorationsProbe.Os.UNKNOWN }
+        ChromeDecorationsProbe.osSupplier = sentinel
+
+        val observedFromOtherThread =
+            java.util.concurrent.atomic
+                .AtomicReference<(() -> ChromeDecorationsProbe.Os)?>()
+        val worker =
+            Thread {
+                observedFromOtherThread.set(ChromeDecorationsProbe.osSupplier)
+            }
+        worker.start()
+        worker.join()
+
+        val seen = observedFromOtherThread.get()
+        kotlin.test.assertNotSame(
+            sentinel,
+            seen,
+            "Another thread must not observe this thread's osSupplier override — " +
+                "ThreadLocal backing is load-bearing for parallel JUnit workers",
+        )
+        // Confirm the read still works — the other thread must get the non-null
+        // default supplier, not an uninitialized null.
+        assertTrue(
+            seen != null,
+            "Other thread must see a non-null default supplier (thread-local fallback)",
+        )
+    }
+
+    @Test
+    fun `ChromeSupport Unsupported variants are distinct object singletons`() {
+        // Regression guard: UI code pattern-matches on the subtype identity to
+        // render user-visible tooltips (see AyuIslandsChromePanel.disabledMainToolbarComment).
+        // If two variants collapsed into one object, the sealed `when` would silently
+        // stop covering the intended branch. Phase 40.4 R-3 lifted the display
+        // strings into the UI layer, so the probe-side invariant is subtype identity.
+        val variants =
+            setOf<ChromeSupport.Unsupported>(
+                ChromeSupport.Unsupported.NativeMacTitleBar,
+                ChromeSupport.Unsupported.GnomeSsd,
+                ChromeSupport.Unsupported.WindowsNoCustomHeader,
+                ChromeSupport.Unsupported.UnknownOs,
+            )
+        assertEquals(4, variants.size, "every Unsupported variant must be a distinct object")
+    }
 }

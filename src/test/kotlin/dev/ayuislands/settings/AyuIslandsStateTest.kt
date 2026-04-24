@@ -141,25 +141,59 @@ class AyuIslandsStateTest {
         val state = freshState()
 
         state.chromeTintIntensity = -10
-        assertEquals(0, state.effectiveChromeTintIntensity(), "negative values clamp to 0")
+        assertEquals(0, state.effectiveChromeTintIntensity().percent, "negative values clamp to 0")
 
         state.chromeTintIntensity = 500
-        assertEquals(cap, state.effectiveChromeTintIntensity(), "above-cap values clamp to the user-visible ceiling")
+        assertEquals(
+            cap,
+            state.effectiveChromeTintIntensity().percent,
+            "above-cap values clamp to the user-visible ceiling",
+        )
 
         state.chromeTintIntensity = 80
         assertEquals(
             cap,
-            state.effectiveChromeTintIntensity(),
+            state.effectiveChromeTintIntensity().percent,
             "legacy pre-cap persisted values observe the new ceiling",
         )
 
         state.chromeTintIntensity = 42
-        assertEquals(42, state.effectiveChromeTintIntensity(), "in-range values pass through unchanged")
+        assertEquals(42, state.effectiveChromeTintIntensity().percent, "in-range values pass through unchanged")
 
         state.chromeTintIntensity = 0
-        assertEquals(0, state.effectiveChromeTintIntensity())
+        assertEquals(0, state.effectiveChromeTintIntensity().percent)
         state.chromeTintIntensity = cap
-        assertEquals(cap, state.effectiveChromeTintIntensity())
+        assertEquals(cap, state.effectiveChromeTintIntensity().percent)
+    }
+
+    @Test
+    fun `effectiveLastAppliedAccentHex wraps valid persisted hex`() {
+        // Phase 40.3b: the AccentHex wrapper must treat the persisted String
+        // as the raw trust boundary. A valid #RRGGBB round-trips to a typed
+        // AccentHex whose .value matches the persisted field after trim().
+        val state = freshState()
+        state.lastAppliedAccentHex = "#5CCFE6"
+        val wrapped = state.effectiveLastAppliedAccentHex()
+        assertEquals("#5CCFE6", wrapped?.value)
+    }
+
+    @Test
+    fun `effectiveLastAppliedAccentHex returns null for corrupted persisted hex`() {
+        // A hand-edited / truncated / legacy ayu-islands.xml must NOT produce
+        // a usable AccentHex; the listener falls back to the resolver path
+        // whenever the helper returns null, so this contract is load-bearing.
+        val state = freshState()
+        state.lastAppliedAccentHex = "garbage"
+        kotlin.test.assertNull(state.effectiveLastAppliedAccentHex())
+        state.lastAppliedAccentHex = "#12345"
+        kotlin.test.assertNull(state.effectiveLastAppliedAccentHex(), "too-short hex must be rejected")
+    }
+
+    @Test
+    fun `effectiveLastAppliedAccentHex returns null when no hex is persisted`() {
+        val state = freshState()
+        state.lastAppliedAccentHex = null
+        kotlin.test.assertNull(state.effectiveLastAppliedAccentHex())
     }
 
     @Test

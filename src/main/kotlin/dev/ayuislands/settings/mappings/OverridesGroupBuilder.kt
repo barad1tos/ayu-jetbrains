@@ -354,8 +354,12 @@ class OverridesGroupBuilder {
                 // bound yet — same helper every apply path ultimately converges on.
                 val project = parentProject ?: AccentApplicator.resolveFocusedProject()
                 val hex = AccentResolver.resolve(project, variant)
-                AccentApplicator.apply(hex)
-                ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
+                val applied = AccentApplicator.applyFromHexString(hex)
+                if (applied) {
+                    ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
+                } else {
+                    LOG.warn("Skipping swap publish: applyFromHexString rejected '$hex'")
+                }
             }
         }.onFailure { exception ->
             LOG.warn("Re-apply after overrides commit failed; persisted state is saved, UI may need reopen", exception)

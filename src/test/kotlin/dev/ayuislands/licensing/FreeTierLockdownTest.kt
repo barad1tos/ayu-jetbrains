@@ -59,7 +59,7 @@ class FreeTierLockdownTest {
         every { AyuIslandsSettings.getInstance() } returns settings
 
         mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } just runs
+        every { AccentApplicator.apply(any()) } returns true
 
         mockkObject(GlowOverlayManager.Companion)
         every { GlowOverlayManager.syncGlowForAllProjects() } just runs

@@ -1,8 +1,11 @@
 package dev.ayuislands.accent
 
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.registry.Registry
+import org.jetbrains.annotations.TestOnly
 import org.jetbrains.annotations.VisibleForTesting
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.UIManager
 
 /**
@@ -33,7 +36,8 @@ import javax.swing.UIManager
  * probe therefore funnels OS detection through [osSupplier], an overridable seam in the
  * same shape as `LicenseChecker.nowMsSupplier`. Tests pin [osSupplier] to the desired
  * branch and must call [resetOsSupplierForTests] in `@AfterTest` to restore production
- * behavior.
+ * behavior. The override is held in a [ThreadLocal] so parallel JUnit workers cannot
+ * leak a pinned OS from one test into a concurrent sibling.
  */
 object ChromeDecorationsProbe {
     private const val MAC_UNIFIED_KEY = "TitlePane.unifiedBackground"
@@ -67,34 +71,121 @@ object ChromeDecorationsProbe {
     private val defaultOsSupplier: () -> Os = { computeOs() }
 
     /**
+     * Per-thread override storage for the OS-detection seam. `null` means "use the
+     * production supplier" — only tests ever write a non-null entry, and they must
+     * clear it in `@AfterTest` via [resetOsSupplierForTests].
+     *
+     * Why ThreadLocal rather than the prior `@Volatile var`? Gradle runs JUnit tests
+     * in parallel workers by default; a shared `@Volatile` supplier leaks a pinned
+     * OS from one test into a concurrent sibling's probe call, producing
+     * intermittent "looks like macOS in a Windows test" false negatives. The
+     * ThreadLocal isolates the override to the mutating test's own thread.
+     */
+    private val osSupplierOverride: ThreadLocal<(() -> Os)?> = ThreadLocal.withInitial { null }
+
+    /**
      * Test seam for OS detection. Production code reads [SystemInfo]; tests override this
      * supplier to exercise each branch. Always restore via [resetOsSupplierForTests] in
      * teardown to prevent leaking state across tests.
+     *
+     * Backed by a per-thread override ([osSupplierOverride]) so concurrent test
+     * workers cannot leak OS overrides into each other. The `var` shape with
+     * get/set accessors is preserved for test-API compatibility — `osSupplier = { ... }`
+     * on the mutating test's own thread writes into the thread-local; the read side
+     * falls back to [defaultOsSupplier] when the thread-local is null (production
+     * path and any thread that never set an override).
      */
-    @VisibleForTesting
-    @Volatile
-    internal var osSupplier: () -> Os = defaultOsSupplier
+    internal var osSupplier: () -> Os
+        @VisibleForTesting
+        get() = osSupplierOverride.get() ?: defaultOsSupplier
 
-    /** Restore the production [osSupplier]. Intended for test teardown. */
+        @VisibleForTesting
+        set(value) {
+            osSupplierOverride.set(value)
+        }
+
+    /** Restore the production [osSupplier] on the calling thread. Intended for test teardown. */
     @VisibleForTesting
     internal fun resetOsSupplierForTests() {
-        osSupplier = defaultOsSupplier
+        osSupplierOverride.remove()
+    }
+
+    private val log = logger<ChromeDecorationsProbe>()
+
+    /**
+     * One-shot gate for the per-session INFO diagnostic log (Phase 40.2 H-5). The
+     * first `isCustomHeaderActive()` call records which OS branch ran and which
+     * raw inputs fed the decision, so a user whose Main Toolbar row is disabled
+     * can point at their `idea.log` to see WHY the probe said no. Subsequent
+     * calls within the same session stay silent.
+     */
+    private val diagnosticLogged = AtomicBoolean(false)
+
+    /**
+     * Returns a typed [ChromeSupport] result describing whether chrome tinting can
+     * reach the title bar and, when it cannot, why. Never throws: a missing UIManager
+     * key resolves to `false`, and a missing Registry key returns the supplied default.
+     *
+     * Phase 40.3c Refactor 3: introduced so the Settings UI can read the reason code
+     * straight from the probe instead of re-sampling `SystemInfo.isMac/isWindows/isLinux`
+     * on its own to build the "disabled" tooltip.
+     */
+    fun probe(): ChromeSupport {
+        val os = osSupplier()
+        val unified = UIManager.getBoolean(MAC_UNIFIED_KEY)
+        val tpab = Registry.`is`(MAC_REGISTRY_KEY, false)
+        val winHeader = UIManager.getBoolean(WINDOWS_HEADER_KEY)
+        val linuxReg = Registry.`is`(LINUX_REGISTRY_KEY, false)
+        val result: ChromeSupport =
+            when (os) {
+                Os.MAC -> {
+                    if (unified || tpab) {
+                        ChromeSupport.Supported
+                    } else {
+                        ChromeSupport.Unsupported.NativeMacTitleBar
+                    }
+                }
+                Os.WINDOWS -> {
+                    if (winHeader) {
+                        ChromeSupport.Supported
+                    } else {
+                        ChromeSupport.Unsupported.WindowsNoCustomHeader
+                    }
+                }
+                Os.LINUX -> {
+                    if (linuxReg) {
+                        ChromeSupport.Supported
+                    } else {
+                        ChromeSupport.Unsupported.GnomeSsd
+                    }
+                }
+                Os.UNKNOWN -> ChromeSupport.Unsupported.UnknownOs
+            }
+        // H-5: one-shot INFO diagnostic per session so users can see WHY the
+        // Main Toolbar toggle was disabled (or enabled) from idea.log alone.
+        // Gate with AtomicBoolean.compareAndSet so concurrent first calls from
+        // settings panel + MainToolbarElement.apply can race without duplicate
+        // log lines.
+        if (diagnosticLogged.compareAndSet(false, true)) {
+            log.info(
+                "ChromeDecorationsProbe: os=$os result=$result sources=[" +
+                    "unified=$unified,tpab=$tpab,winHeader=$winHeader,linuxReg=$linuxReg]",
+            )
+        }
+        return result
     }
 
     /**
-     * Returns `true` when the IDE is currently painting a JBR custom window header for
-     * the current OS. Never throws: a missing UIManager key resolves to `false`, and a
-     * missing Registry key returns the supplied default (`false`).
+     * Back-compat boolean delegate — returns `true` iff [probe] reports [ChromeSupport.Supported].
+     * Call sites that only need the boolean answer (the Settings row `.enabledIf` predicate,
+     * MainToolbarElement's probe gate) keep using this method; [probe] is the typed entry for
+     * callers that also need the reason code.
      */
-    fun isCustomHeaderActive(): Boolean =
-        when (osSupplier()) {
-            Os.MAC -> macCustomHeader()
-            Os.WINDOWS -> UIManager.getBoolean(WINDOWS_HEADER_KEY)
-            Os.LINUX -> Registry.`is`(LINUX_REGISTRY_KEY, false)
-            Os.UNKNOWN -> false
-        }
+    fun isCustomHeaderActive(): Boolean = probe() is ChromeSupport.Supported
 
-    private fun macCustomHeader(): Boolean =
-        UIManager.getBoolean(MAC_UNIFIED_KEY) ||
-            Registry.`is`(MAC_REGISTRY_KEY, false)
+    /** Test-only reset for the one-shot diagnostic gate. */
+    @TestOnly
+    internal fun resetDiagnosticLoggedForTests() {
+        diagnosticLogged.set(false)
+    }
 }

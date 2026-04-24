@@ -2,6 +2,8 @@ package dev.ayuislands.settings
 
 import com.intellij.openapi.components.BaseState
 import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.AccentHex
+import dev.ayuislands.accent.TintIntensity
 import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
@@ -56,6 +58,19 @@ class AyuIslandsState : BaseState() {
      * serialization round-trip. `null` on first launch (pre-plugin-install history).
      */
     var lastAppliedAccentHex by string(null)
+
+    /**
+     * Whether the most recent [dev.ayuislands.accent.AccentApplicator.apply] call
+     * completed its full EP iteration cleanly. Used by
+     * [dev.ayuislands.AyuIslandsAppListener.appFrameCreated] as a trust gate around
+     * the cached [lastAppliedAccentHex]: persisting the hex BEFORE the EP iteration
+     * (Phase 40.2 H-2) makes startup anti-flicker robust to a failed apply, but
+     * the cached value is only reliable when the previous session actually finished
+     * painting. If a prior apply threw mid-EP and left the hex persisted without
+     * a matching true here, the next startup resolves fresh instead of trusting
+     * the partial cache.
+     */
+    var lastApplyOk by property(false)
 
     // Per-element accent toggles (all ON by default)
     var inlayHints by property(true)
@@ -259,8 +274,9 @@ class AyuIslandsState : BaseState() {
     var chromeTintingGroupExpanded by property(false)
 
     /**
-     * Returns [chromeTintIntensity] clamped to the user-visible slider range
-     * [0, MAX_CHROME_TINT_INTENSITY].
+     * Returns [chromeTintIntensity] wrapped in a [TintIntensity] — the wrapper's
+     * `of(raw)` factory clamps to the user-visible slider range
+     * `[TintIntensity.MIN, TintIntensity.MAX]`.
      *
      * The underlying field is delegated through [BaseState.property] which performs
      * no validation — a corrupted persisted XML (hand-edited, legacy-migrated, or
@@ -270,7 +286,22 @@ class AyuIslandsState : BaseState() {
      * this helper keeps every caller on the safe contract without breaking XML
      * serialization (which requires the raw delegate).
      */
-    fun effectiveChromeTintIntensity(): Int = chromeTintIntensity.coerceIn(0, MAX_CHROME_TINT_INTENSITY)
+    fun effectiveChromeTintIntensity(): TintIntensity = TintIntensity.of(chromeTintIntensity)
+
+    /**
+     * Returns [lastAppliedAccentHex] wrapped in an [AccentHex], or `null` when
+     * the persisted string is absent or corrupted. Mirrors the
+     * [effectiveChromeTintIntensity] pattern: the raw field stays `String?`
+     * for `BaseState` XML serialization, and every read path consults this
+     * helper instead of calling [AccentHex.of] at each site.
+     *
+     * Phase 40.3b: used by [dev.ayuislands.AyuIslandsAppListener.appFrameCreated]
+     * as the single trust boundary for the first-frame anti-flicker cache;
+     * [AccentHex.of] internally rejects hand-edited XML corruption and
+     * truncated writes so the resolver fallback fires whenever the cache is
+     * unusable.
+     */
+    fun effectiveLastAppliedAccentHex(): AccentHex? = AccentHex.of(lastAppliedAccentHex)
 
     fun isToggleEnabled(id: AccentElementId): Boolean =
         when (id) {

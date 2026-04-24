@@ -25,7 +25,7 @@ class AyuIslandsStateSnapshotTest {
         mockkObject(AccentApplicator)
         mockkObject(GlowOverlayManager.Companion)
         mockkStatic(ApplicationManager::class)
-        every { AccentApplicator.apply(any()) } just runs
+        every { AccentApplicator.apply(any()) } returns true
         every { GlowOverlayManager.syncGlowForAllProjects() } just runs
         val rotationService = mockk<AccentRotationService>(relaxed = true)
         val appMock = mockk<com.intellij.openapi.application.Application>(relaxed = true)

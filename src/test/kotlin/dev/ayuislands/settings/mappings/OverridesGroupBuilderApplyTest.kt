@@ -115,7 +115,7 @@ class OverridesGroupBuilderApplyTest {
         // swap-service notification, isModified() returns false.
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         every { AccentResolver.resolve(any(), any()) } returns "#AABBCC"
-        every { AccentApplicator.apply(any()) } returns Unit
+        every { AccentApplicator.apply(any()) } returns true
         val swapService = mockk<ProjectAccentSwapService>(relaxed = true)
         every { ProjectAccentSwapService.getInstance() } returns swapService
 
@@ -139,7 +139,7 @@ class OverridesGroupBuilderApplyTest {
 
         assertEquals(mapOf("/tmp/apply-ok-b" to "#AABBCC"), mappingsState.projectAccents)
         assertFalse(builder.isModified(), "stored snapshot must advance on happy path too")
-        io.mockk.verify(exactly = 1) { AccentApplicator.apply("#AABBCC") }
+        io.mockk.verify(exactly = 1) { AccentApplicator.applyFromHexString("#AABBCC") }
         io.mockk.verify(exactly = 1) { swapService.notifyExternalApply("#AABBCC") }
     }
 
@@ -160,7 +160,7 @@ class OverridesGroupBuilderApplyTest {
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         every { AccentApplicator.resolveFocusedProject() } returns focusedProject
         every { AccentResolver.resolve(focusedProject, AyuVariant.MIRAGE) } returns "#5CCFE6"
-        every { AccentApplicator.apply(any()) } returns Unit
+        every { AccentApplicator.apply(any()) } returns true
         val swapService = mockk<ProjectAccentSwapService>(relaxed = true)
         every { ProjectAccentSwapService.getInstance() } returns swapService
 
@@ -183,6 +183,6 @@ class OverridesGroupBuilderApplyTest {
 
         io.mockk.verify(exactly = 1) { AccentApplicator.resolveFocusedProject() }
         io.mockk.verify(exactly = 1) { AccentResolver.resolve(focusedProject, AyuVariant.MIRAGE) }
-        io.mockk.verify(exactly = 1) { AccentApplicator.apply("#5CCFE6") }
+        io.mockk.verify(exactly = 1) { AccentApplicator.applyFromHexString("#5CCFE6") }
     }
 }

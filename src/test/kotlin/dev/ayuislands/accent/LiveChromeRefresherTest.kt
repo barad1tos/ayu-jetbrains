@@ -71,7 +71,7 @@ class LiveChromeRefresherTest {
         val matchingBaseline = matching.setBackgroundCallCount
         val nonMatchingBaseline = nonMatching.setBackgroundCallCount
 
-        LiveChromeRefresher.refreshOnTree(parent, StripeLike::class.java.name, targetColor)
+        LiveChromeRefresher.refreshOnTree(parent, ClassFqn.require(StripeLike::class.java.name), targetColor)
 
         assertEquals(targetColor, matching.lastSetBackground)
         assertEquals(matchingBaseline + 1, matching.setBackgroundCallCount)
@@ -88,7 +88,7 @@ class LiveChromeRefresherTest {
         val mid = JPanel().apply { add(deep) }
         val root = JPanel().apply { add(mid) }
 
-        LiveChromeRefresher.refreshOnTree(root, StripeLike::class.java.name, targetColor)
+        LiveChromeRefresher.refreshOnTree(root, ClassFqn.require(StripeLike::class.java.name), targetColor)
 
         assertEquals(targetColor, deep.lastSetBackground)
     }
@@ -99,7 +99,7 @@ class LiveChromeRefresherTest {
         val root = JPanel().apply { add(unrelated) }
         val baseline = unrelated.setBackgroundCallCount
 
-        LiveChromeRefresher.refreshOnTree(root, StripeLike::class.java.name, targetColor)
+        LiveChromeRefresher.refreshOnTree(root, ClassFqn.require(StripeLike::class.java.name), targetColor)
 
         assertEquals(baseline, unrelated.setBackgroundCallCount, "class-name mismatch must skip peer")
     }
@@ -109,7 +109,7 @@ class LiveChromeRefresherTest {
         val matching = StripeLike().apply { background = Color.RED }
         val parent = JPanel().apply { add(matching) }
 
-        LiveChromeRefresher.clearOnTree(parent, StripeLike::class.java.name)
+        LiveChromeRefresher.clearOnTree(parent, ClassFqn.require(StripeLike::class.java.name))
 
         assertEquals(true, matching.wasExplicitlyClearedToNull)
         assertNull(matching.lastSetBackground)
@@ -126,7 +126,7 @@ class LiveChromeRefresherTest {
             }
         val untouchedSetCountBeforeWalk = untouched.setBackgroundCallCount
 
-        LiveChromeRefresher.clearOnTree(root, StripeLike::class.java.name)
+        LiveChromeRefresher.clearOnTree(root, ClassFqn.require(StripeLike::class.java.name))
 
         assertEquals(
             untouchedSetCountBeforeWalk,
@@ -142,7 +142,7 @@ class LiveChromeRefresherTest {
         val mid = JPanel().apply { add(deep) }
         val root = JPanel().apply { add(mid) }
 
-        LiveChromeRefresher.clearOnTree(root, StripeLike::class.java.name)
+        LiveChromeRefresher.clearOnTree(root, ClassFqn.require(StripeLike::class.java.name))
 
         assertEquals(true, deep.wasExplicitlyClearedToNull)
     }
@@ -165,7 +165,7 @@ class LiveChromeRefresherTest {
         every { WindowManager.getInstance() } returns windowManager
         mockProjectManagerOpenProjects(project)
 
-        LiveChromeRefresher.refreshStatusBar(targetColor)
+        LiveChromeRefresher.refresh(ChromeTarget.StatusBar, targetColor)
 
         assertEquals(targetColor, statusBarComponent.background)
     }
@@ -186,7 +186,7 @@ class LiveChromeRefresherTest {
         every { WindowManager.getInstance() } returns windowManager
         mockProjectManagerOpenProjects(project)
 
-        LiveChromeRefresher.clearStatusBar()
+        LiveChromeRefresher.clear(ChromeTarget.StatusBar)
 
         assertNull(statusBarComponent.background)
     }
@@ -203,7 +203,7 @@ class LiveChromeRefresherTest {
         mockProjectManagerOpenProjects(project)
 
         // No assertion needed beyond "does not throw".
-        LiveChromeRefresher.refreshStatusBar(targetColor)
+        LiveChromeRefresher.refresh(ChromeTarget.StatusBar, targetColor)
     }
 
     @Test
@@ -218,7 +218,7 @@ class LiveChromeRefresherTest {
         every { WindowManager.getInstance() } returns windowManager
         mockProjectManagerOpenProjects(disposedProject)
 
-        LiveChromeRefresher.refreshStatusBar(targetColor)
+        LiveChromeRefresher.refresh(ChromeTarget.StatusBar, targetColor)
 
         // Never resolved a status bar because project is unusable.
         io.mockk.verify(exactly = 0) { windowManager.getStatusBar(any<Project>()) }
@@ -240,7 +240,7 @@ class LiveChromeRefresherTest {
         mockProjectManagerOpenProjects(project)
 
         // No throw — null component path is safe.
-        LiveChromeRefresher.refreshStatusBar(targetColor)
+        LiveChromeRefresher.refresh(ChromeTarget.StatusBar, targetColor)
     }
 
     // --- helpers ---
@@ -264,8 +264,11 @@ class LiveChromeRefresherTest {
     fun `refreshByClassName walks every top-level window in Window getWindows`() {
         // Smoke test to ensure the public entry point does not throw when walking the real
         // AWT window list in a headless test JVM (getWindows returns a possibly-empty array).
-        LiveChromeRefresher.refreshByClassName("non.existent.ClassName.Z", targetColor)
-        LiveChromeRefresher.clearByClassName("non.existent.ClassName.Z")
+        LiveChromeRefresher.refresh(
+            ChromeTarget.ByClassName(ClassFqn.require("non.existent.ClassName.Z")),
+            targetColor,
+        )
+        LiveChromeRefresher.clear(ChromeTarget.ByClassName(ClassFqn.require("non.existent.ClassName.Z")))
     }
 
     // --- refreshOnTreeInsideAncestor / clearOnTreeInsideAncestor (Round 2 A-1) ---
@@ -288,8 +291,8 @@ class LiveChromeRefresherTest {
 
         LiveChromeRefresher.refreshOnTreeInsideAncestor(
             root,
-            DividerLike::class.java.name,
-            ToolWindowDecoratorLike::class.java.name,
+            ClassFqn.require(DividerLike::class.java.name),
+            ClassFqn.require(ToolWindowDecoratorLike::class.java.name),
             targetColor,
         )
 
@@ -306,8 +309,8 @@ class LiveChromeRefresherTest {
 
         LiveChromeRefresher.refreshOnTreeInsideAncestor(
             root,
-            DividerLike::class.java.name,
-            ToolWindowDecoratorLike::class.java.name,
+            ClassFqn.require(DividerLike::class.java.name),
+            ClassFqn.require(ToolWindowDecoratorLike::class.java.name),
             targetColor,
         )
 
@@ -328,8 +331,8 @@ class LiveChromeRefresherTest {
 
         LiveChromeRefresher.refreshOnTreeInsideAncestor(
             root,
-            DividerLike::class.java.name,
-            ToolWindowDecoratorLike::class.java.name,
+            ClassFqn.require(DividerLike::class.java.name),
+            ClassFqn.require(ToolWindowDecoratorLike::class.java.name),
             targetColor,
         )
 
@@ -351,8 +354,8 @@ class LiveChromeRefresherTest {
 
         LiveChromeRefresher.refreshOnTreeInsideAncestor(
             root,
-            DividerLike::class.java.name,
-            ToolWindowDecoratorLike::class.java.name,
+            ClassFqn.require(DividerLike::class.java.name),
+            ClassFqn.require(ToolWindowDecoratorLike::class.java.name),
             targetColor,
         )
 
@@ -379,8 +382,8 @@ class LiveChromeRefresherTest {
 
         LiveChromeRefresher.clearOnTreeInsideAncestor(
             root,
-            DividerLike::class.java.name,
-            ToolWindowDecoratorLike::class.java.name,
+            ClassFqn.require(DividerLike::class.java.name),
+            ClassFqn.require(ToolWindowDecoratorLike::class.java.name),
         )
 
         assertEquals(true, insideDivider.wasExplicitlyClearedToNull)
@@ -396,14 +399,18 @@ class LiveChromeRefresherTest {
     fun `refreshByClassNameInsideAncestorClass public entry does not throw in headless JVM`() {
         // Smoke test: the window walk over an empty (or near-empty) headless AWT window list
         // must complete without exceptions, just like the blind variant's smoke test above.
-        LiveChromeRefresher.refreshByClassNameInsideAncestorClass(
-            "non.existent.Target.Z",
-            "non.existent.Ancestor.Y",
+        LiveChromeRefresher.refresh(
+            ChromeTarget.ByClassNameInside(
+                target = ClassFqn.require("non.existent.Target.Z"),
+                ancestor = ClassFqn.require("non.existent.Ancestor.Y"),
+            ),
             targetColor,
         )
-        LiveChromeRefresher.clearByClassNameInsideAncestorClass(
-            "non.existent.Target.Z",
-            "non.existent.Ancestor.Y",
+        LiveChromeRefresher.clear(
+            ChromeTarget.ByClassNameInside(
+                target = ClassFqn.require("non.existent.Target.Z"),
+                ancestor = ClassFqn.require("non.existent.Ancestor.Y"),
+            ),
         )
     }
 
@@ -450,7 +457,7 @@ class LiveChromeRefresherTest {
 
         // No throw must propagate — the Round 3 C-2 guard converts the
         // enumeration failure into a WARN + early return.
-        LiveChromeRefresher.refreshByClassName("dummy.FQN", Color.RED)
+        LiveChromeRefresher.refresh(ChromeTarget.ByClassName(ClassFqn.require("dummy.FQN")), Color.RED)
     }
 
     @Test
@@ -464,7 +471,7 @@ class LiveChromeRefresherTest {
                 add(survivor)
             }
 
-        LiveChromeRefresher.refreshOnTree(parent, throwingFqn, Color.BLUE)
+        LiveChromeRefresher.refreshOnTree(parent, ClassFqn.require(throwingFqn), Color.BLUE)
 
         // Surviving sibling must have been painted — the per-visit try/catch
         // in `walk` (Round 3 C-1) isolates the throwing peer from the rest.
@@ -483,7 +490,7 @@ class LiveChromeRefresherTest {
                 add(siblingContainer)
             }
 
-        LiveChromeRefresher.refreshOnTree(parent, trackerFqn, Color.GREEN)
+        LiveChromeRefresher.refreshOnTree(parent, ClassFqn.require(trackerFqn), Color.GREEN)
 
         // The broken container's subtree is skipped, but the walk proceeds
         // to the next sibling and paints the tracker inside it. Without
@@ -500,8 +507,8 @@ class LiveChromeRefresherTest {
         // exercises the `brokenContainerLogged` latch demote-to-DEBUG branch
         // introduced in Round 3; the behaviour lock here is simply "no
         // throw on either call".
-        LiveChromeRefresher.refreshOnTree(brokenContainer, "x", Color.RED)
-        LiveChromeRefresher.refreshOnTree(brokenContainer, "x", Color.RED)
+        LiveChromeRefresher.refreshOnTree(brokenContainer, ClassFqn.require("x"), Color.RED)
+        LiveChromeRefresher.refreshOnTree(brokenContainer, ClassFqn.require("x"), Color.RED)
     }
 
     @Test
@@ -512,52 +519,60 @@ class LiveChromeRefresherTest {
         // populated the latch; after reset the hook must leave the singleton
         // in a clean state for the next test. Behaviour lock is "no throw".
         val brokenContainer = BrokenChildrenContainer()
-        LiveChromeRefresher.refreshOnTree(brokenContainer, "x", Color.RED)
+        LiveChromeRefresher.refreshOnTree(brokenContainer, ClassFqn.require("x"), Color.RED)
 
         LiveChromeRefresher.resetBrokenContainerLoggedForTests()
 
         // After reset the second walk over the same broken container must
         // still complete safely — proves the reset didn't corrupt the latch
         // and the WARN path (first-encounter-per-class) re-engages cleanly.
-        LiveChromeRefresher.refreshOnTree(brokenContainer, "x", Color.RED)
+        LiveChromeRefresher.refreshOnTree(brokenContainer, ClassFqn.require("x"), Color.RED)
     }
 
     @Test
     fun `refreshStatusBar returns silently when ProjectManager getInstance throws`() {
-        // Covers the runCatching onFailure + getOrNull ?: return path at
-        // LiveChromeRefresher lines 91-93 — ProjectManager resolution fails
-        // during live refresh (e.g. application shutting down mid-apply).
-        // The helper must log at DEBUG and return without propagating.
+        // Covers the `safeService("ProjectManager", ...) ?: return` path in
+        // `forEachUsableStatusBarComponent`. ProjectManager resolution fails
+        // during live refresh (e.g. application shutting down mid-apply) —
+        // the helper must log at DEBUG and return without propagating.
         mockkStatic(ProjectManager::class)
         every { ProjectManager.getInstance() } throws IllegalStateException("no container")
 
-        LiveChromeRefresher.refreshStatusBar(targetColor)
-        LiveChromeRefresher.clearStatusBar()
+        LiveChromeRefresher.refresh(ChromeTarget.StatusBar, targetColor)
+        LiveChromeRefresher.clear(ChromeTarget.StatusBar)
     }
 
     @Test
     fun `refreshStatusBar returns silently when WindowManager getInstance throws`() {
-        // Covers lines 95-97 — WindowManager resolution fails after
-        // ProjectManager succeeded. ProjectManager must still be mockable as
-        // a usable singleton so control flow reaches the WindowManager
-        // runCatching block; the WindowManager failure must be swallowed.
+        // Covers the `safeService("WindowManager", ...) ?: return` path in
+        // `forEachUsableStatusBarComponent`, which fires after the earlier
+        // ProjectManager lookup succeeded. ProjectManager must still be
+        // mockable as a usable singleton so control flow reaches the
+        // WindowManager safeService call; the WindowManager failure must be
+        // swallowed (DEBUG log inside the helper, early return in the caller).
         mockProjectManagerOpenProjects(mockUsableProject())
         mockkStatic(WindowManager::class)
         every { WindowManager.getInstance() } throws IllegalStateException("wm gone")
 
-        LiveChromeRefresher.refreshStatusBar(targetColor)
-        LiveChromeRefresher.clearStatusBar()
+        LiveChromeRefresher.refresh(ChromeTarget.StatusBar, targetColor)
+        LiveChromeRefresher.clear(ChromeTarget.StatusBar)
     }
 
     @Test
     fun `forEachShowingWindow isolates per-window failures from sibling windows`() {
-        // Covers lines 166-171 — the inner try/catch around `action(window)`
-        // in forEachShowingWindow. A showing window whose tree walk throws
-        // must be logged at DEBUG without aborting the rest of the window
-        // enumeration. Real `JFrame` / `JDialog` instantiation throws
-        // HeadlessException in the Gradle test JVM, so we mock a Window
-        // whose `getComponents()` blows up — the same RuntimeException the
-        // production catch block is there to defend against.
+        // Exercises the `walk()`-level per-container catch (see walk's inner
+        // try around `current.components` — the `brokenContainerLogged` DEBUG
+        // path). The test mocks a showing Window whose `getComponents()`
+        // throws; the throw surfaces inside walk's loop, is caught there, and
+        // never reaches `forEachShowingWindow`'s per-window catch block.
+        // The outer `forEachShowingWindow` catch is defense-in-depth for
+        // callers that might pass an `action` lambda NOT wrapped in `walk`;
+        // all current callers (`refreshOnTree`, `clearOnTree`, and the two
+        // `*InsideAncestor` variants) delegate to `walk`, so the outer catch
+        // is structurally unreachable today and intentionally has no direct
+        // test. Real `JFrame` / `JDialog` instantiation throws
+        // HeadlessException in the Gradle test JVM, so mocking the Window is
+        // the only way to simulate an in-the-field broken Swing peer.
         val brokenWindow =
             mockk<Window>(relaxed = true) {
                 every { isShowing } returns true
@@ -568,8 +583,8 @@ class LiveChromeRefresherTest {
 
         // No throw — the per-window catch converts the RuntimeException
         // into a DEBUG log and moves on.
-        LiveChromeRefresher.refreshByClassName("dummy.FQN", Color.RED)
-        LiveChromeRefresher.clearByClassName("dummy.FQN")
+        LiveChromeRefresher.refresh(ChromeTarget.ByClassName(ClassFqn.require("dummy.FQN")), Color.RED)
+        LiveChromeRefresher.clear(ChromeTarget.ByClassName(ClassFqn.require("dummy.FQN")))
     }
 
     @Test

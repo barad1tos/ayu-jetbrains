@@ -174,6 +174,29 @@ class AyuIslandsChromePanelTest {
     }
 
     @Test
+    fun `loadStored clamps negative legacy intensity up to MIN_INTENSITY so slider construction stays total`() {
+        // Corrupted XML or a third-party migration may persist a negative intensity.
+        // The prior coerceAtMost clamp only trimmed the upper bound, so a negative
+        // value would slip through to the JSlider(min, max, value) constructor which
+        // throws IllegalArgumentException when value < min. coerceIn fixes both sides.
+        state.chromeTintIntensity = -5
+        val chromePanel = AyuIslandsChromePanel()
+
+        buildPanel(chromePanel)
+
+        assertEquals(
+            10,
+            chromePanel.getPendingChromeTintIntensityForTest(),
+            "Negative legacy intensity must clamp up to MIN_INTENSITY so slider construction cannot throw",
+        )
+        assertEquals(
+            10,
+            chromePanel.intensitySliderForTest()?.value,
+            "Slider must display the floor-clamped pending value, not the raw negative stored value",
+        )
+    }
+
+    @Test
     fun `applying a clamped legacy intensity persists MAX_INTENSITY back into state`() {
         state.chromeTintIntensity = 90
         val chromePanel = AyuIslandsChromePanel()
@@ -306,6 +329,44 @@ class AyuIslandsChromePanelTest {
         verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any()) }
     }
 
+    // ── Phase 40.2 T-6: mid-session license flip must not persist ──────────────
+    //
+    // If the panel is built while licensed and the license flips to false
+    // before the user presses Apply, the panel MUST not persist chrome state
+    // fields AND must not invoke applyForFocusedProject. Prevents grace-expiry
+    // / sign-out scenarios where the UI is already built but the gate has
+    // since closed behind the user's back.
+
+    @Test
+    fun `apply refuses to persist chrome state when license flips to false mid-session`() {
+        // Panel built while licensed — all controls wired.
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        val chromePanel = AyuIslandsChromePanel()
+        buildPanel(chromePanel, AyuVariant.DARK)
+
+        // User makes a change.
+        chromePanel.setPendingChromeStatusBarForTest(true)
+        chromePanel.setPendingChromeTintIntensityForTest(35)
+
+        // License is revoked before apply() runs.
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+
+        chromePanel.apply()
+
+        // No state mutation.
+        assertFalse(
+            state.chromeStatusBar,
+            "Post-license-revocation apply must not persist chromeStatusBar",
+        )
+        assertEquals(
+            AyuIslandsState.DEFAULT_CHROME_TINT_INTENSITY,
+            state.chromeTintIntensity,
+            "Post-license-revocation apply must not persist chromeTintIntensity",
+        )
+        // No EP re-apply.
+        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any()) }
+    }
+
     // ── Test 9: premium gate (CONTEXT D-10) ────────────────────────────────────
 
     @Test
@@ -380,6 +441,120 @@ class AyuIslandsChromePanelTest {
             comment,
             "Main Toolbar row comment must match the per-OS branch of disabledMainToolbarComment()",
         )
+    }
+
+    // ── Per-OS disabledMainToolbarComment branch coverage (Pattern L + I) ─────
+    //
+    // The host-OS-dependent test above locks exactly one branch: whichever the CI
+    // runner happens to be. The three sibling `ChromeSupport.Unsupported` variants
+    // (`GnomeSsd`, `WindowsNoCustomHeader`, `UnknownOs`) plus the off-host major
+    // branch (e.g., `NativeMacTitleBar` when CI is Linux) must each be exercised
+    // explicitly so a refactor that mutates one per-OS copy string without
+    // touching the others cannot slip through.
+    //
+    // Each test pins `ChromeDecorationsProbe.osSupplier` to the desired branch
+    // and wraps the call in `try { … } finally { resetOsSupplierForTests() }`
+    // per Pattern I (JUnit's `@AfterTest` alone is insufficient — an assertion
+    // failure bypasses it and poisons the next test on the same worker).
+    //
+    // The probe's per-OS inputs (UIManager boolean key + Registry boolean key)
+    // are left at their default-false values so `probe()` returns the
+    // "unsupported" branch matching the pinned OS.
+    //
+    // `isCustomHeaderActive()` stays stubbed to `false` so the panel builds the
+    // disabled row (which is where `disabledMainToolbarComment()` is invoked).
+    // `probe()` itself is NOT stubbed — the real implementation runs so it reads
+    // our pinned `osSupplier` and the production UIManager/Registry defaults.
+    //
+    // The OS comments are read via `mainToolbarRowCommentForTest()`; the exact
+    // literal strings are duplicated from `AyuIslandsChromePanel` on purpose so
+    // a copy edit in the production source forces an intentional test update.
+    //
+    // Note: the probe's `diagnosticLogged` AtomicBoolean is per-process; we
+    // reset it before each test so the INFO-diagnostic gate doesn't vary with
+    // test ordering.
+    private fun pinProbeOsForTest(branch: ChromeDecorationsProbe.Os) {
+        ChromeDecorationsProbe.osSupplier = { branch }
+        ChromeDecorationsProbe.resetDiagnosticLoggedForTests()
+    }
+
+    @Test
+    fun `main toolbar comment on Linux with GNOME SSD reports window-manager native title bar`() {
+        every { ChromeDecorationsProbe.isCustomHeaderActive() } returns false
+        try {
+            pinProbeOsForTest(ChromeDecorationsProbe.Os.LINUX)
+            val chromePanel = AyuIslandsChromePanel()
+
+            buildPanel(chromePanel)
+
+            assertEquals(
+                "Disabled: your window manager paints the native title bar.",
+                chromePanel.mainToolbarRowCommentForTest(),
+                "Linux+GnomeSsd branch must render the window-manager copy",
+            )
+        } finally {
+            ChromeDecorationsProbe.resetOsSupplierForTests()
+        }
+    }
+
+    @Test
+    fun `main toolbar comment on Windows without custom header reports IDE-side decorations disabled`() {
+        every { ChromeDecorationsProbe.isCustomHeaderActive() } returns false
+        try {
+            pinProbeOsForTest(ChromeDecorationsProbe.Os.WINDOWS)
+            val chromePanel = AyuIslandsChromePanel()
+
+            buildPanel(chromePanel)
+
+            assertEquals(
+                "Disabled: your IDE is not using custom window decorations.",
+                chromePanel.mainToolbarRowCommentForTest(),
+                "Windows+WindowsNoCustomHeader branch must render the IDE-decorations copy",
+            )
+        } finally {
+            ChromeDecorationsProbe.resetOsSupplierForTests()
+        }
+    }
+
+    @Test
+    fun `main toolbar comment on unknown OS falls back to the generic native title bar copy`() {
+        every { ChromeDecorationsProbe.isCustomHeaderActive() } returns false
+        try {
+            pinProbeOsForTest(ChromeDecorationsProbe.Os.UNKNOWN)
+            val chromePanel = AyuIslandsChromePanel()
+
+            buildPanel(chromePanel)
+
+            assertEquals(
+                "Disabled: your OS paints the native title bar.",
+                chromePanel.mainToolbarRowCommentForTest(),
+                "UnknownOs branch must render the generic OS copy",
+            )
+        } finally {
+            ChromeDecorationsProbe.resetOsSupplierForTests()
+        }
+    }
+
+    @Test
+    fun `main toolbar comment on macOS native title bar reports the macOS-specific copy`() {
+        // Pins macOS regardless of the CI runner host so Linux / Windows runners still
+        // exercise the `NativeMacTitleBar` branch copy — the host-OS-dependent test
+        // above only hits this branch when CI happens to be macOS.
+        every { ChromeDecorationsProbe.isCustomHeaderActive() } returns false
+        try {
+            pinProbeOsForTest(ChromeDecorationsProbe.Os.MAC)
+            val chromePanel = AyuIslandsChromePanel()
+
+            buildPanel(chromePanel)
+
+            assertEquals(
+                "Disabled: macOS paints the native title bar (IDE 2026.1+ no longer exposes a toggle).",
+                chromePanel.mainToolbarRowCommentForTest(),
+                "Mac+NativeMacTitleBar branch must render the macOS-specific copy",
+            )
+        } finally {
+            ChromeDecorationsProbe.resetOsSupplierForTests()
+        }
     }
 
     // ── Test 12: persisted expanded state ──────────────────────────────────────

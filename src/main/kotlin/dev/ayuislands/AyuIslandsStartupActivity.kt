@@ -252,8 +252,8 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
                 runCatchingPreservingCancellation {
                     val focusedProject = AccentApplicator.resolveFocusedProject() ?: project
                     val resolved = AccentResolver.resolve(focusedProject, variant)
-                    AccentApplicator.apply(resolved)
-                    resolved
+                    val applied = AccentApplicator.applyFromHexString(resolved)
+                    if (applied) resolved else null
                 }
             applyOutcome.onFailure { exception ->
                 LOG.error(
@@ -265,14 +265,15 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
             val hex = applyOutcome.getOrNull()
             if (hex == null) {
                 // Round 2 MEDIUM R2-2: apply-failure already logged via onFailure
-                // above. This branch also fires for Success(null), which is not
-                // reachable today (AccentResolver returns non-null) but a future
-                // refactor making `resolved` nullable must not silently skip
-                // install/notify without a log trace.
+                // above. Hex is null in two cases: (a) the runCatching caught an
+                // exception, (b) applyFromHexString returned false (rejected
+                // hex — the user-facing notification already fired inside the
+                // applicator). In (b), suppress the install+notify because
+                // there's no applied color to publish to the swap cache.
                 if (applyOutcome.isSuccess) {
                     LOG.warn(
-                        "Startup accent apply returned a null hex unexpectedly " +
-                            "for project '$projectName'; skipping swap install",
+                        "Startup accent apply was rejected by applyFromHexString " +
+                            "for project '$projectName'; skipping swap install/notify",
                     )
                 }
                 return@withContext

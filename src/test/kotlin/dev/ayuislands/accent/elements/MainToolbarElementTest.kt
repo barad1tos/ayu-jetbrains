@@ -5,8 +5,11 @@ import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeBaseColors
 import dev.ayuislands.accent.ChromeDecorationsProbe
+import dev.ayuislands.accent.ChromeTarget
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.ClassFqn
 import dev.ayuislands.accent.LiveChromeRefresher
+import dev.ayuislands.accent.TintIntensity
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -75,8 +78,8 @@ class MainToolbarElementTest {
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns true
 
         mockkObject(LiveChromeRefresher)
-        every { LiveChromeRefresher.refreshByClassName(any(), any()) } returns Unit
-        every { LiveChromeRefresher.clearByClassName(any()) } returns Unit
+        every { LiveChromeRefresher.refresh(any(), any()) } returns Unit
+        every { LiveChromeRefresher.clear(any()) } returns Unit
 
         mockState = AyuIslandsState()
         mockSettings = mockk(relaxed = true)
@@ -172,23 +175,22 @@ class MainToolbarElementTest {
 
         MainToolbarElement().apply(testAccent)
 
-        verify(exactly = 1) { ChromeTintBlender.blend(testAccent, stockBase, 45) }
+        verify(exactly = 1) { ChromeTintBlender.blend(testAccent, stockBase, TintIntensity.of(45)) }
     }
 
     @Test
-    fun `apply invokes LiveChromeRefresher refreshByClassName for MainToolbar peer when probe active (Gap 4)`() {
+    fun `apply invokes LiveChromeRefresher for MainToolbar peer when probe active (Gap 4)`() {
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns true
         mockState.chromeTintIntensity = 30
 
         MainToolbarElement().apply(testAccent)
 
-        verify(exactly = 1) {
-            LiveChromeRefresher.refreshByClassName(
-                "com.intellij.openapi.wm.impl.headertoolbar.MainToolbar",
-                blended,
+        val expectedTarget =
+            ChromeTarget.ByClassName(
+                ClassFqn.require("com.intellij.openapi.wm.impl.headertoolbar.MainToolbar"),
             )
-        }
-        verify(exactly = 0) { LiveChromeRefresher.clearByClassName(any()) }
+        verify(exactly = 1) { LiveChromeRefresher.refresh(expectedTarget, blended) }
+        verify(exactly = 0) { LiveChromeRefresher.clear(any()) }
     }
 
     @Test
@@ -198,18 +200,20 @@ class MainToolbarElementTest {
 
         MainToolbarElement().apply(testAccent)
 
-        verify(exactly = 0) { LiveChromeRefresher.refreshByClassName(any(), any()) }
+        verify(exactly = 0) { LiveChromeRefresher.refresh(any(), any()) }
     }
 
     @Test
-    fun `revert invokes LiveChromeRefresher clearByClassName unconditionally (D-14 symmetry)`() {
+    fun `revert invokes LiveChromeRefresher clear unconditionally (D-14 symmetry)`() {
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns false
 
         MainToolbarElement().revert()
 
-        verify(exactly = 1) {
-            LiveChromeRefresher.clearByClassName("com.intellij.openapi.wm.impl.headertoolbar.MainToolbar")
-        }
+        val expectedTarget =
+            ChromeTarget.ByClassName(
+                ClassFqn.require("com.intellij.openapi.wm.impl.headertoolbar.MainToolbar"),
+            )
+        verify(exactly = 1) { LiveChromeRefresher.clear(expectedTarget) }
     }
 
     @Test

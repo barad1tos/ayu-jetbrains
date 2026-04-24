@@ -4,9 +4,7 @@ import com.intellij.testFramework.LoggedErrorProcessor
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
-import io.mockk.Runs
 import io.mockk.every
-import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkAll
@@ -63,14 +61,14 @@ class AyuIslandsAccentPanelTest {
         // to prevent (next WINDOW_ACTIVATED would redundantly re-apply).
         every { AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE) } throws
             IllegalStateException("override hex corrupted")
-        every { AccentApplicator.apply("#FFCC66") } just Runs
+        every { AccentApplicator.applyFromHexString("#FFCC66") } returns true
 
         val panel = AyuIslandsAccentPanel()
         LoggedErrorProcessor.executeWith<Throwable>(suppressLoggedErrors()) {
             panel.applyWithFallback(AyuVariant.MIRAGE, "#FFCC66")
         }
 
-        verify(exactly = 1) { AccentApplicator.apply("#FFCC66") }
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("#FFCC66") }
         verify(exactly = 1) { swapService.notifyExternalApply("#FFCC66") }
     }
 
@@ -82,7 +80,7 @@ class AyuIslandsAccentPanelTest {
         // "Can't save" dialog. The catch logs and leaves the visible accent unchanged.
         every { AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE) } throws
             IllegalStateException("override hex corrupted")
-        every { AccentApplicator.apply("#FFCC66") } throws
+        every { AccentApplicator.applyFromHexString("#FFCC66") } throws
             IllegalStateException("global hex also corrupted")
 
         val panel = AyuIslandsAccentPanel()
@@ -105,7 +103,7 @@ class AyuIslandsAccentPanelTest {
         // save" dialog on a path where the user's intent was actually applied.
         every { AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE) } throws
             IllegalStateException("override hex corrupted")
-        every { AccentApplicator.apply("#FFCC66") } just Runs
+        every { AccentApplicator.applyFromHexString("#FFCC66") } returns true
         every { swapService.notifyExternalApply("#FFCC66") } throws
             IllegalStateException("swap service disposed mid-save")
 
@@ -136,7 +134,7 @@ class AyuIslandsAccentPanelTest {
             panel.applyWithFallback(AyuVariant.MIRAGE, "#FFCC66")
         }
 
-        verify(exactly = 1) { AccentApplicator.apply("#FFCC66") }
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("#FFCC66") }
         verify(exactly = 1) { swapService.notifyExternalApply("#FFCC66") }
         kotlin.test.assertEquals(
             1,

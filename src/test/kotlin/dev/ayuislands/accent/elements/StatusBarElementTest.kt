@@ -4,8 +4,10 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeBaseColors
+import dev.ayuislands.accent.ChromeTarget
 import dev.ayuislands.accent.ChromeTintBlender
 import dev.ayuislands.accent.LiveChromeRefresher
+import dev.ayuislands.accent.TintIntensity
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -65,8 +67,8 @@ class StatusBarElementTest {
         every { WcagForeground.pickForeground(any(), any()) } returns Color.GREEN
 
         mockkObject(LiveChromeRefresher)
-        every { LiveChromeRefresher.refreshStatusBar(any()) } returns Unit
-        every { LiveChromeRefresher.clearStatusBar() } returns Unit
+        every { LiveChromeRefresher.refresh(any(), any()) } returns Unit
+        every { LiveChromeRefresher.clear(any()) } returns Unit
     }
 
     @AfterTest
@@ -152,7 +154,7 @@ class StatusBarElementTest {
     fun `apply passes intensity from state to blender per D-03`() {
         state.chromeTintIntensity = 37
 
-        val intensitySlot = slot<Int>()
+        val intensitySlot = slot<TintIntensity>()
         every {
             ChromeTintBlender.blend(any<Color>(), any<Color>(), capture(intensitySlot))
         } returns blended
@@ -160,7 +162,7 @@ class StatusBarElementTest {
         StatusBarElement().apply(accent)
 
         assertTrue(intensitySlot.isCaptured, "intensity should be forwarded to blender")
-        assertEquals(37, intensitySlot.captured, "element must read intensity from state, not from apply()")
+        assertEquals(37, intensitySlot.captured.percent, "element must read intensity from state, not from apply()")
     }
 
     @Test
@@ -199,20 +201,20 @@ class StatusBarElementTest {
     }
 
     @Test
-    fun `apply invokes LiveChromeRefresher refreshStatusBar once with tinted background (Gap 4)`() {
+    fun `apply invokes LiveChromeRefresher once with StatusBar target + tinted background (Gap 4)`() {
         state.chromeTintIntensity = 40
 
         StatusBarElement().apply(accent)
 
-        verify(exactly = 1) { LiveChromeRefresher.refreshStatusBar(blended) }
-        verify(exactly = 0) { LiveChromeRefresher.clearStatusBar() }
+        verify(exactly = 1) { LiveChromeRefresher.refresh(ChromeTarget.StatusBar, blended) }
+        verify(exactly = 0) { LiveChromeRefresher.clear(any()) }
     }
 
     @Test
-    fun `revert invokes LiveChromeRefresher clearStatusBar once (D-14 symmetry)`() {
+    fun `revert invokes LiveChromeRefresher clear with StatusBar target once (D-14 symmetry)`() {
         StatusBarElement().revert()
 
-        verify(exactly = 1) { LiveChromeRefresher.clearStatusBar() }
-        verify(exactly = 0) { LiveChromeRefresher.refreshStatusBar(any()) }
+        verify(exactly = 1) { LiveChromeRefresher.clear(ChromeTarget.StatusBar) }
+        verify(exactly = 0) { LiveChromeRefresher.refresh(any(), any()) }
     }
 }

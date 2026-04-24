@@ -121,8 +121,8 @@ class AyuIslandsStartupActivityTest {
     @Test
     fun `execute publishes swap-service cache inside the same EDT withContext block`() {
         // Regression guard for the PR #151 Round 2 Fix B-2: ProjectAccentSwapService has an
-        // EDT precondition for notifyExternalApply (per AccentApplicator KDoc lines 203-205,
-        // the cache write is a bare volatile with no dispatch and must publish in the same
+        // EDT precondition for notifyExternalApply (per the AccentApplicator.applyForFocusedProject
+        // KDoc — the cache write is a bare volatile with no dispatch and must publish in the same
         // ordering as the apply that preceded it).
         //
         // Phase 40 review-loop Round 2 HIGH R2-1 then split install and notifyExternalApply
@@ -134,7 +134,7 @@ class AyuIslandsStartupActivityTest {
         val edtTriplet =
             Regex(
                 """withContext\(Dispatchers\.EDT\).*?AccentApplicator\.resolveFocusedProject\(\)""" +
-                    """.*?AccentApplicator\.apply\(""" +
+                    """.*?AccentApplicator\.(apply|applyFromHexString)\(""" +
                     """.*?swapService\.install\(\)""" +
                     """.*?swapService\.notifyExternalApply\(""",
                 RegexOption.DOT_MATCHES_ALL,
@@ -265,18 +265,52 @@ class AyuIslandsStartupActivityTest {
     }
 
     @Test
-    fun `startup helper WARNs on Success-null hex as a defensive branch for future refactors`() {
-        // Round 3 G2 regression lock. MEDIUM R2-2 added a defensive branch:
-        // if applyOutcome.isSuccess but hex is null (not reachable today but
-        // reachable after any refactor that makes resolved nullable), WARN.
-        // The branch has NO behavioural test because the condition is not
-        // reachable today, so its only guard is a source-level lock on both
-        // the WARN literal AND the structural `applyOutcome.isSuccess` check
-        // inside the `hex == null` branch.
+    fun `install failure short-circuits before notifyExternalApply`() {
+        // TEST-IMPORTANT-3 regression lock: when `swapService.install()` fails,
+        // `installed` is false and the function MUST `return@withContext` before
+        // `swapService.notifyExternalApply(...)` executes. Behavioural form is
+        // impossible here (runStartupAccentOnEdt is a private suspend fun that
+        // touches Dispatchers.EDT + IntelliJ platform singletons — there is no
+        // test seam that exercises it in a unit harness). The contract is locked
+        // source-structurally: the `if (!installed) return@withContext` guard
+        // must sit between the install block's `.isSuccess` suffix and the
+        // notifyExternalApply call site. Removing or reordering that guard
+        // collapses HIGH R2-1 and reintroduces the bug where a failed install
+        // would still publish to the swap cache.
+        val source = readStartupActivitySource()
+        val guardBeforeNotify =
+            Regex(
+                """swapService\.install\(\)[^}]*\}\s*(\.onFailure\s*\{[^}]*\}\s*)?\.isSuccess""" +
+                    """\s*if\s*\(\s*!\s*installed\s*\)\s*return@withContext""" +
+                    """.*?swapService\.notifyExternalApply\(""",
+                RegexOption.DOT_MATCHES_ALL,
+            )
+        assertTrue(
+            guardBeforeNotify.containsMatchIn(source),
+            "install() failure path must `return@withContext` BEFORE notifyExternalApply " +
+                "runs — HIGH R2-1 contract",
+        )
+        // Belt-and-braces: the failure log text is specific, so lock on it too.
+        assertTrue(
+            source.contains(
+                "Startup accent-swap install failed for project",
+            ),
+            "install-failure ERROR message must remain to distinguish install-fail from apply-fail",
+        )
+    }
+
+    @Test
+    fun `startup helper WARNs when applyFromHexString rejects hex as a defensive branch`() {
+        // Round 3 G2 regression lock, updated for Phase 40.4 HIGH-1:
+        // `applyFromHexString` returns Boolean (false = rejected); when rejected,
+        // hex becomes null via `if (applied) resolved else null`. That branch
+        // must log a WARN so operators can tell rejected-hex from throw-hex.
+        // Source-level lock on the WARN literal AND the structural
+        // `applyOutcome.isSuccess` check inside `if (hex == null)`.
         val source = readStartupActivitySource()
         assertTrue(
-            source.contains("Startup accent apply returned a null hex unexpectedly"),
-            "WARN-on-null-hex defensive branch must remain against future nullable-refactor regressions",
+            source.contains("Startup accent apply was rejected by applyFromHexString"),
+            "WARN-on-rejected-hex branch must remain against Boolean-gating regressions",
         )
         val isSuccessInNullBranch =
             Regex(
@@ -286,7 +320,7 @@ class AyuIslandsStartupActivityTest {
         assertTrue(
             isSuccessInNullBranch.containsMatchIn(source),
             "isSuccess check must sit INSIDE the `if (hex == null)` block — " +
-                "that is the Success(null) discriminator; removing it collapses the MEDIUM R2-2 fix",
+                "that distinguishes Success(null=rejected) from Failure(throw)",
         )
     }
 
@@ -304,6 +338,32 @@ class AyuIslandsStartupActivityTest {
             source.contains("apply self-dispatches internally"),
             "Stale/false 'apply self-dispatches internally' comment must not reappear — " +
                 "AccentApplicator.apply is @RequiresEdt and requires callers to already be on EDT",
+        )
+    }
+
+    // Phase 40.2 T-2: lock the full 5-step order inside runStartupAccentOnEdt —
+    // resolveFocusedProject → AccentResolver.resolve → AccentApplicator.apply →
+    // swapService.install → swapService.notifyExternalApply. The existing
+    // "same EDT withContext block" test covers the last four; this one adds
+    // AccentResolver.resolve between them so a future refactor that drops the
+    // resolver step (and hands a stale accent hex directly to apply) surfaces
+    // here.
+    @Test
+    fun `runStartupAccentOnEdt invokes resolveFocusedProject, resolve, apply, install, notifyExternalApply in order`() {
+        val source = readStartupActivitySource()
+        val fullOrder =
+            Regex(
+                """AccentApplicator\.resolveFocusedProject\(\)""" +
+                    """.*?AccentResolver\.resolve\(""" +
+                    """.*?AccentApplicator\.(apply|applyFromHexString)\(""" +
+                    """.*?swapService\.install\(\)""" +
+                    """.*?swapService\.notifyExternalApply\(""",
+                RegexOption.DOT_MATCHES_ALL,
+            )
+        assertTrue(
+            fullOrder.containsMatchIn(source),
+            "runStartupAccentOnEdt must invoke resolveFocusedProject → AccentResolver.resolve → " +
+                "AccentApplicator.apply → swapService.install → swapService.notifyExternalApply in order",
         )
     }
 

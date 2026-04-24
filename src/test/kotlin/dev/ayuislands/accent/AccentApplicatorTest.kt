@@ -33,6 +33,8 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -126,7 +128,8 @@ class AccentApplicatorTest {
 
         // Replicate the always-on logic from AccentApplicator.apply() without
         // applyElements (requires EP_NAME) and syncCodeGlanceProViewport (requires CGP).
-        invokePrivate("applyAlwaysOnUiKeys", accent)
+        val state = AyuIslandsSettings.getInstance().state
+        invokePrivate("applyAlwaysOnUiKeys", state, accent)
         invokePrivate("applyAlwaysOnEditorKeys", accent)
         val windows = Window.getWindows()
         invokePrivate("repaintAllWindows", windows)
@@ -275,6 +278,7 @@ class AccentApplicatorTest {
     @Test
     fun `revertAll repaints windows`() {
         val mockWindow = mockk<Window>(relaxed = true)
+        every { mockWindow.isDisplayable } returns true
         every { Window.getWindows() } returns arrayOf(mockWindow)
 
         revertWithoutExtensions()
@@ -429,6 +433,10 @@ class AccentApplicatorTest {
         val window1 = mockk<Window>(relaxed = true)
         val window2 = mockk<Window>(relaxed = true)
         val window3 = mockk<Window>(relaxed = true)
+        // Phase 40.2 M-8: repaintAllWindows now skips non-displayable windows.
+        every { window1.isDisplayable } returns true
+        every { window2.isDisplayable } returns true
+        every { window3.isDisplayable } returns true
 
         invokePrivate("repaintAllWindows", arrayOf(window1, window2, window3))
 
@@ -483,13 +491,6 @@ class AccentApplicatorTest {
 
         // Should not throw
         invokeNeutralizeOrRevert(element, null)
-    }
-
-    // logCgpWarning
-
-    @Test
-    fun `logCgpWarning does not throw`() {
-        invokePrivate("logCgpWarning", "test action", RuntimeException("test message"))
     }
 
     // syncCodeGlanceProViewport early return when disabled
@@ -745,11 +746,6 @@ class AccentApplicatorTest {
         }
     }
 
-    @Test
-    fun `logCgpWarning handles exception with null message`() {
-        invokePrivate("logCgpWarning", "test action", RuntimeException())
-    }
-
     // syncCodeGlanceProViewport: various null method fields
 
     @Test
@@ -844,13 +840,43 @@ class AccentApplicatorTest {
     // Tests for public apply() method
 
     @Test
+    fun `applyAlwaysOnUiKeys accepts state as an explicit parameter (Phase 40_4 L-4)`() {
+        // Phase 40.4 L-4 regression lock: the outer apply() already captures
+        // AyuIslandsSettings.state at entry, so applyAlwaysOnUiKeys must thread
+        // that same state through rather than re-fetching via
+        // AyuIslandsSettings.getInstance(). A future refactor that drops the
+        // parameter would re-open the split-brain window where the EP chain and
+        // tab-mode resolution could observe different state snapshots if settings
+        // mutated mid-apply.
+        val method =
+            AccentApplicator::class.java.declaredMethods
+                .first { it.name == "applyAlwaysOnUiKeys" }
+        assertEquals(
+            2,
+            method.parameterCount,
+            "applyAlwaysOnUiKeys must accept (state, accent) so tab-mode resolution shares the same state snapshot " +
+                "as the outer apply() call and cannot drift mid-apply",
+        )
+        assertEquals(
+            AyuIslandsState::class.java,
+            method.parameterTypes[0],
+            "First parameter must be AyuIslandsState — threaded from apply()'s captured snapshot",
+        )
+        assertEquals(
+            Color::class.java,
+            method.parameterTypes[1],
+            "Second parameter must be the resolved accent Color",
+        )
+    }
+
+    @Test
     fun `apply calls applyAlwaysOnUiKeys and applyAlwaysOnEditorKeys on EDT`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
         every { IndentRainbowSync.apply(any(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
 
-        AccentApplicator.apply("#FFCC66")
+        AccentApplicator.applyFromHexString("#FFCC66")
 
         // Verify always-on UI keys were set (proves applyAlwaysOnUiKeys ran)
         verify(atLeast = 13) { UIManager.put(any<String>(), any<Color>()) }
@@ -870,7 +896,7 @@ class AccentApplicatorTest {
         state.cgpIntegrationEnabled = false
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
 
-        AccentApplicator.apply("#FFCC66")
+        AccentApplicator.applyFromHexString("#FFCC66")
 
         verify { IndentRainbowSync.apply(AyuVariant.MIRAGE, "#FFCC66") }
     }
@@ -882,7 +908,7 @@ class AccentApplicatorTest {
         state.cgpIntegrationEnabled = false
         every { AyuVariant.detect() } returns null
 
-        AccentApplicator.apply("#FFCC66")
+        AccentApplicator.applyFromHexString("#FFCC66")
 
         verify(exactly = 0) { IndentRainbowSync.apply(any(), any()) }
     }
@@ -894,9 +920,10 @@ class AccentApplicatorTest {
         every { IndentRainbowSync.apply(any(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
         val mockWindow = mockk<Window>(relaxed = true)
+        every { mockWindow.isDisplayable } returns true
         every { Window.getWindows() } returns arrayOf(mockWindow)
 
-        AccentApplicator.apply("#FFCC66")
+        AccentApplicator.applyFromHexString("#FFCC66")
 
         verify { mockWindow.repaint() }
     }
@@ -909,7 +936,7 @@ class AccentApplicatorTest {
         state.cgpIntegrationEnabled = false
         every { SwingUtilities.isEventDispatchThread() } returns true
 
-        AccentApplicator.apply("#FFCC66")
+        AccentApplicator.applyFromHexString("#FFCC66")
 
         // If on EDT, work runs synchronously, so UIManager.put should be called.
         verify(atLeast = 1) { UIManager.put(any<String>(), any()) }
@@ -926,7 +953,7 @@ class AccentApplicatorTest {
         every { IndentRainbowSync.apply(any(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
 
-        AccentApplicator.apply("#5CCFE6")
+        AccentApplicator.applyFromHexString("#5CCFE6")
 
         assertEquals("#5CCFE6", state.lastAppliedAccentHex)
     }
@@ -940,10 +967,10 @@ class AccentApplicatorTest {
         every { IndentRainbowSync.apply(any(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
 
-        AccentApplicator.apply("#5CCFE6")
+        AccentApplicator.applyFromHexString("#5CCFE6")
         assertEquals("#5CCFE6", state.lastAppliedAccentHex)
 
-        AccentApplicator.apply("#FF3333")
+        AccentApplicator.applyFromHexString("#FF3333")
         assertEquals("#FF3333", state.lastAppliedAccentHex)
     }
 
@@ -962,12 +989,12 @@ class AccentApplicatorTest {
         state.cgpIntegrationEnabled = false
 
         // None of these should throw; none should set the cached hex.
-        AccentApplicator.apply("garbage")
-        AccentApplicator.apply("")
-        AccentApplicator.apply("FFCC66") // missing leading #
-        AccentApplicator.apply("#12345") // 5 chars — too short
-        AccentApplicator.apply("#1234567") // 7 chars — too long
-        AccentApplicator.apply("#ZZZZZZ") // non-hex digits
+        AccentApplicator.applyFromHexString("garbage")
+        AccentApplicator.applyFromHexString("")
+        AccentApplicator.applyFromHexString("FFCC66") // missing leading #
+        AccentApplicator.applyFromHexString("#12345") // 5 chars — too short
+        AccentApplicator.applyFromHexString("#1234567") // 7 chars — too long
+        AccentApplicator.applyFromHexString("#ZZZZZZ") // non-hex digits
 
         // UIManager.put must not have been called for any of these (apply short-circuits
         // before applyAlwaysOnUiKeys). The cached hex stays whatever it was (default null).
@@ -984,7 +1011,7 @@ class AccentApplicatorTest {
 
         // Boundary: exactly #RRGGBB with valid hex digits. Must go through the full
         // apply flow (UIManager writes, lastAppliedAccentHex persisted).
-        AccentApplicator.apply("#123456")
+        AccentApplicator.applyFromHexString("#123456")
 
         verify(atLeast = 1) { UIManager.put(any<String>(), any<Color>()) }
         assertEquals("#123456", state.lastAppliedAccentHex)
@@ -998,27 +1025,31 @@ class AccentApplicatorTest {
         state.cgpIntegrationEnabled = false
 
         // Upper and lower case 0-9A-Fa-f are all valid per Color.decode.
-        AccentApplicator.apply("#AbCdEf")
+        AccentApplicator.applyFromHexString("#AbCdEf")
 
         assertEquals("#AbCdEf", state.lastAppliedAccentHex)
     }
 
     @Test
-    fun `HEX_COLOR_PATTERN matches expected shapes`() {
+    fun `AccentHex of matches expected shapes`() {
+        // Phase 40.3b: the shape check moved from AccentApplicator.HEX_COLOR_PATTERN
+        // onto AccentHex.of, which is now the single boundary that gates Color.decode.
+        // This test is retained under the applicator suite so the same contract the
+        // applicator used to own is still asserted in the applicator's coverage footprint.
         // Positive
-        assertTrue(AccentApplicator.HEX_COLOR_PATTERN.matches("#000000"))
-        assertTrue(AccentApplicator.HEX_COLOR_PATTERN.matches("#FFFFFF"))
-        assertTrue(AccentApplicator.HEX_COLOR_PATTERN.matches("#ffcc66"))
-        assertTrue(AccentApplicator.HEX_COLOR_PATTERN.matches("#5CCFE6"))
+        assertNotNull(AccentHex.of("#000000"))
+        assertNotNull(AccentHex.of("#FFFFFF"))
+        assertNotNull(AccentHex.of("#ffcc66"))
+        assertNotNull(AccentHex.of("#5CCFE6"))
 
         // Negative
-        assertEquals(false, AccentApplicator.HEX_COLOR_PATTERN.matches(""))
-        assertEquals(false, AccentApplicator.HEX_COLOR_PATTERN.matches("garbage"))
-        assertEquals(false, AccentApplicator.HEX_COLOR_PATTERN.matches("FFCC66"))
-        assertEquals(false, AccentApplicator.HEX_COLOR_PATTERN.matches("#12345"))
-        assertEquals(false, AccentApplicator.HEX_COLOR_PATTERN.matches("#1234567"))
-        assertEquals(false, AccentApplicator.HEX_COLOR_PATTERN.matches("#ZZZZZZ"))
-        assertEquals(false, AccentApplicator.HEX_COLOR_PATTERN.matches("#12 34 56"))
+        assertNull(AccentHex.of(""))
+        assertNull(AccentHex.of("garbage"))
+        assertNull(AccentHex.of("FFCC66"))
+        assertNull(AccentHex.of("#12345"))
+        assertNull(AccentHex.of("#1234567"))
+        assertNull(AccentHex.of("#ZZZZZZ"))
+        assertNull(AccentHex.of("#12 34 56"))
     }
 
     @Test
@@ -1032,7 +1063,7 @@ class AccentApplicatorTest {
             firstArg<Runnable>().run()
         }
 
-        AccentApplicator.apply("#FFCC66")
+        AccentApplicator.applyFromHexString("#FFCC66")
 
         verify { mockApplication.invokeLater(any(), any<ModalityState>()) }
         verify(exactly = 0) { SwingUtilities.invokeLater(any()) }
@@ -1790,6 +1821,52 @@ class AccentApplicatorTest {
         val resolvedField = AccentApplicator::class.java.getDeclaredField("cgpMethodsResolved")
         resolvedField.isAccessible = true
         resolvedField.set(AccentApplicator, false)
+    }
+
+    // Phase 40.2 T-3: apply() with an invalid hex returns false AND posts a
+    // user-visible notification on the "Ayu Islands" group. The pre-40.2
+    // apply returned Unit and silently swallowed corruption — a regression
+    // that let a single bad hex in per-project XML go undiagnosed.
+    @Test
+    fun `apply with invalid hex returns false and notifies the user`() {
+        mockkStatic(com.intellij.notification.Notifications.Bus::class)
+        try {
+            every {
+                com.intellij.notification.Notifications.Bus
+                    .notify(any())
+            } returns Unit
+
+            val result = AccentApplicator.applyFromHexString("garbage-hex")
+
+            assertEquals(false, result, "Invalid hex must return false from applyFromHexString()")
+            verify(exactly = 1) {
+                com.intellij.notification.Notifications.Bus
+                    .notify(any())
+            }
+        } finally {
+            // unmockkAll runs in @AfterTest already but mockkStatic is scoped;
+            // nothing extra needed here.
+        }
+    }
+
+    // Phase 40.2 T-5: applyForFocusedProject MUST carry @RequiresEdt so an
+    // off-EDT caller fails fast instead of throwing deep inside a platform
+    // API. Source-regex test because the annotation is a contract promise to
+    // callers, not a runtime check we can exercise cheaply.
+    @Test
+    fun `applyForFocusedProject carries RequiresEdt annotation in source`() {
+        val sourceFile = java.io.File("src/main/kotlin/dev/ayuislands/accent/AccentApplicator.kt")
+        assertTrue(sourceFile.exists(), "Could not locate AccentApplicator.kt for source-level guard")
+        val source = sourceFile.readText()
+        val edtGuard =
+            Regex(
+                """@RequiresEdt\s*\n\s*fun\s+applyForFocusedProject""",
+                RegexOption.DOT_MATCHES_ALL,
+            )
+        assertTrue(
+            edtGuard.containsMatchIn(source),
+            "applyForFocusedProject must be annotated @RequiresEdt so off-EDT callers fail fast",
+        )
     }
 
     companion object {

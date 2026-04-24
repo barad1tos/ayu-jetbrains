@@ -97,8 +97,12 @@ class ProjectAccentSwapService : Disposable {
 
         if (effectiveHex == lastAppliedHex) return
 
+        val applied = AccentApplicator.applyFromHexString(effectiveHex)
+        if (!applied) {
+            LOG.warn("Skipping swap publish: applyFromHexString rejected '$effectiveHex'")
+            return
+        }
         lastAppliedHex = effectiveHex
-        AccentApplicator.apply(effectiveHex)
 
         // AccentApplicator updates UIManager + editor scheme. UIManager-only components
         // (toolbar, tab underlines, scrollbar chrome, focus rings) hold cached JBColor

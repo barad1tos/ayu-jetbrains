@@ -29,15 +29,36 @@ internal class AyuIslandsAppListener : AppLifecycleListener {
         // through to the resolver path just like a fresh install.
         val settings = AyuIslandsSettings.getInstance()
         val cached = settings.state.lastAppliedAccentHex
-        val validCached = cached?.takeIf { AccentApplicator.HEX_COLOR_PATTERN.matches(it) }
+        val cleanCache = settings.state.lastApplyOk
+        val validCached = settings.state.effectiveLastAppliedAccentHex()
         if (cached != null && validCached == null) {
             LOG.warn("AyuIslandsAppListener: invalid cached hex '$cached'; clearing and re-resolving")
             settings.state.lastAppliedAccentHex = null
         }
-        val accentHex = validCached ?: AccentResolver.resolve(null, variant)
-        AccentApplicator.apply(accentHex)
-        val source = if (validCached != null) "cached" else "resolved"
-        LOG.info("Ayu Islands accent pre-applied in appFrameCreated ($source): $accentHex for ${variant.name}")
+        // Phase 40.2 H-2: trust the cached hex only when the previous session's
+        // apply finished cleanly (lastApplyOk=true). A mid-EP throw leaves the
+        // hex persisted without the clean flag, so we must fall back to the
+        // resolver rather than re-paint against a torn half-apply.
+        val trustedCached = validCached?.takeIf { cleanCache }
+        val accentHex = trustedCached?.value ?: AccentResolver.resolve(null, variant)
+        val applied = AccentApplicator.applyFromHexString(accentHex)
+        val source =
+            when {
+                trustedCached != null -> "cached"
+                validCached != null -> "cached-untrusted"
+                else -> "resolved"
+            }
+        if (applied) {
+            LOG.info(
+                "Ayu Islands accent applied in appFrameCreated " +
+                    "(source=$source, hex='$accentHex') for ${variant.name}",
+            )
+        } else {
+            LOG.warn(
+                "Ayu Islands accent rejected in appFrameCreated " +
+                    "(source=$source, hex='$accentHex') for ${variant.name}",
+            )
+        }
     }
 
     companion object {
