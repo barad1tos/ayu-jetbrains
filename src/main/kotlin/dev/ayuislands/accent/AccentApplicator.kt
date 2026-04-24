@@ -265,6 +265,12 @@ object AccentApplicator {
         // cache does not drift to a hex that was never actually painted. The apply
         // call itself already surfaces the user-visible notification.
         val applied = applyFromHexString(hex)
+        // Pattern D — regression lock: if you remove this gate, the swap cache
+        // will publish hexes that `applyFromHexString` rejected (malformed XML,
+        // manual edits, rotation palette bug) and drift from the paint state.
+        // `AccentApplicatorFocusedProjectTest.applyForFocusedProject skips swap
+        // cache publish when applyFromHexString rejects the resolver output`
+        // must fail first if you touch this branch.
         if (applied) {
             ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
         }
