@@ -4,9 +4,7 @@ import com.intellij.testFramework.LoggedErrorProcessor
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
-import io.mockk.Runs
 import io.mockk.every
-import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkAll
@@ -63,7 +61,7 @@ class AyuIslandsAccentPanelTest {
         // to prevent (next WINDOW_ACTIVATED would redundantly re-apply).
         every { AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE) } throws
             IllegalStateException("override hex corrupted")
-        every { AccentApplicator.apply("#FFCC66") } just Runs
+        every { AccentApplicator.apply("#FFCC66") } returns true
 
         val panel = AyuIslandsAccentPanel()
         LoggedErrorProcessor.executeWith<Throwable>(suppressLoggedErrors()) {
@@ -105,7 +103,7 @@ class AyuIslandsAccentPanelTest {
         // save" dialog on a path where the user's intent was actually applied.
         every { AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE) } throws
             IllegalStateException("override hex corrupted")
-        every { AccentApplicator.apply("#FFCC66") } just Runs
+        every { AccentApplicator.apply("#FFCC66") } returns true
         every { swapService.notifyExternalApply("#FFCC66") } throws
             IllegalStateException("swap service disposed mid-save")
 

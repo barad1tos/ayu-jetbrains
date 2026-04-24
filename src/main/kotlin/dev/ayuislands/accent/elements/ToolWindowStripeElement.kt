@@ -1,5 +1,6 @@
 package dev.ayuislands.accent.elements
 
+import com.intellij.openapi.diagnostic.logger
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeBaseColors
@@ -8,6 +9,7 @@ import dev.ayuislands.accent.LiveChromeRefresher
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.Color
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.UIManager
 
 /**
@@ -44,14 +46,30 @@ class ToolWindowStripeElement : AccentElement {
         val intensity = AyuIslandsSettings.getInstance().state.effectiveChromeTintIntensity()
         var tintedStripeBackground: Color? = null
         var tintedSelectedBackground: Color? = null
+        val keysSeen = mutableListOf<String>()
+        val keysMissed = mutableListOf<String>()
         for (key in backgroundKeys) {
-            val baseColor = ChromeBaseColors.get(key) ?: continue
+            val baseColor = ChromeBaseColors.get(key)
+            if (baseColor == null) {
+                keysMissed.add(key)
+                continue
+            }
+            keysSeen.add(key)
             val tinted = ChromeTintBlender.blend(color, baseColor, intensity)
             UIManager.put(key, tinted)
             when (key) {
                 STRIPE_BACKGROUND_KEY -> tintedStripeBackground = tinted
                 SELECTED_BACKGROUND_KEY -> tintedSelectedBackground = tinted
             }
+        }
+        // Phase 40.2 M-3: first-apply INFO diagnostic so a future platform FQN
+        // rename surfaces in idea.log (both the UIManager key resolution map
+        // and the live peer-walk target class).
+        if (firstApplyLogged.compareAndSet(false, true)) {
+            LOG.info(
+                "ToolWindowStripeElement first apply: keysSeen=$keysSeen keysMissed=$keysMissed " +
+                    "walkTargets=[stripe=$STRIPE_PEER_CLASS]",
+            )
         }
         // Round 2 review A-2 (CRITICAL correctness): stripe background and selected-button
         // background are DIFFERENT base colors — at non-trivial intensities their tinted
@@ -81,6 +99,15 @@ class ToolWindowStripeElement : AccentElement {
     }
 
     private companion object {
+        private val LOG = logger<ToolWindowStripeElement>()
+
+        /**
+         * One-shot gate for the per-session first-apply diagnostic log (Phase 40.2 M-3).
+         * Logs which UIManager keys resolved vs missed and the peer-walk target class
+         * so a future platform FQN rename is visible in idea.log.
+         */
+        private val firstApplyLogged = AtomicBoolean(false)
+
         /** Reference key for the selected-button contrast-foreground sample. */
         const val SELECTED_BACKGROUND_KEY = "ToolWindow.Button.selectedBackground"
         const val STRIPE_BACKGROUND_KEY = "ToolWindow.Stripe.background"

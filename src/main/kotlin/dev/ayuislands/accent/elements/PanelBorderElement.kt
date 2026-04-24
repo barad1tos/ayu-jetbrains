@@ -1,5 +1,6 @@
 package dev.ayuislands.accent.elements
 
+import com.intellij.openapi.diagnostic.logger
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeBaseColors
@@ -7,6 +8,7 @@ import dev.ayuislands.accent.ChromeTintBlender
 import dev.ayuislands.accent.LiveChromeRefresher
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.Color
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.UIManager
 
 /**
@@ -32,11 +34,29 @@ class PanelBorderElement : AccentElement {
     override fun apply(color: Color) {
         val intensity = AyuIslandsSettings.getInstance().state.effectiveChromeTintIntensity()
         var tintedHeaderBorder: Color? = null
+        val keysSeen = mutableListOf<String>()
+        val keysMissed = mutableListOf<String>()
         for (key in uiKeys) {
-            val baseColor = ChromeBaseColors.get(key) ?: continue
+            val baseColor = ChromeBaseColors.get(key)
+            if (baseColor == null) {
+                keysMissed.add(key)
+                continue
+            }
+            keysSeen.add(key)
             val tinted = ChromeTintBlender.blend(color, baseColor, intensity)
             UIManager.put(key, tinted)
             if (key == HEADER_BORDER_KEY) tintedHeaderBorder = tinted
+        }
+        // Phase 40.2 M-3: first-apply INFO diagnostic so a future platform FQN
+        // rename surfaces in idea.log. Includes the UIManager key matches/misses
+        // AND the peer-walk target classes we'll ask LiveChromeRefresher to
+        // find. Gated on a one-shot AtomicBoolean so repeated apply passes stay
+        // quiet.
+        if (firstApplyLogged.compareAndSet(false, true)) {
+            LOG.info(
+                "PanelBorderElement first apply: keysSeen=$keysSeen keysMissed=$keysMissed " +
+                    "walkTargets=[divider=$DIVIDER_PEER_CLASS,ancestor=$TOOL_WINDOW_ANCESTOR_CLASS]",
+            )
         }
         // Level 2 Gap-4: push tinted tool-window header border to the live OnePixelDivider
         // peer. The divider caches its color at construction and re-renders on repaint;
@@ -71,6 +91,16 @@ class PanelBorderElement : AccentElement {
     }
 
     private companion object {
+        private val LOG = logger<PanelBorderElement>()
+
+        /**
+         * One-shot gate for the per-session first-apply diagnostic log (Phase 40.2 M-3).
+         * Logs which UIManager keys resolved vs missed and which peer classes the
+         * refresher will walk for — so a future platform FQN rename surfaces in
+         * idea.log without needing a debugger attach.
+         */
+        private val firstApplyLogged = AtomicBoolean(false)
+
         const val HEADER_BORDER_KEY = "ToolWindow.Header.borderColor"
 
         /**

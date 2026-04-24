@@ -10,11 +10,9 @@ import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import dev.ayuislands.settings.mappings.AccentMappingsState
 import io.mockk.every
-import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
-import io.mockk.runs
 import io.mockk.unmockkAll
 import io.mockk.verify
 import kotlin.test.AfterTest
@@ -58,7 +56,7 @@ class AyuIslandsAppListenerTest {
 
         mockkStatic(LafManager::class)
         mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } just runs
+        every { AccentApplicator.apply(any()) } returns true
     }
 
     @AfterTest
@@ -139,6 +137,9 @@ class AyuIslandsAppListenerTest {
         // resolving against a null project context (which yields the global accent and
         // flashes Gold before per-project StartupActivity runs).
         state.lastAppliedAccentHex = "#5CCFE6"
+        // Phase 40.2 H-2: the listener trusts the cached hex only when the previous
+        // session's apply finished cleanly. Simulate that here.
+        state.lastApplyOk = true
         mockkObject(AccentResolver)
 
         val laf = mockk<UIThemeLookAndFeelInfo>()
@@ -243,6 +244,8 @@ class AyuIslandsAppListenerTest {
         // anti-flicker guarantee. Round 2 only hardens the NEGATIVE path; the positive
         // path must remain unchanged.
         state.lastAppliedAccentHex = "#5CCFE6"
+        // Phase 40.2 H-2: cache is trusted only when prior apply completed cleanly.
+        state.lastApplyOk = true
         mockkObject(AccentResolver)
 
         val laf = mockk<UIThemeLookAndFeelInfo>()

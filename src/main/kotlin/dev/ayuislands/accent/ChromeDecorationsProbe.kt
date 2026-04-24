@@ -1,8 +1,11 @@
 package dev.ayuislands.accent
 
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.registry.Registry
+import org.jetbrains.annotations.TestOnly
 import org.jetbrains.annotations.VisibleForTesting
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.UIManager
 
 /**
@@ -81,20 +84,52 @@ object ChromeDecorationsProbe {
         osSupplier = defaultOsSupplier
     }
 
+    private val log = logger<ChromeDecorationsProbe>()
+
+    /**
+     * One-shot gate for the per-session INFO diagnostic log (Phase 40.2 H-5). The
+     * first `isCustomHeaderActive()` call records which OS branch ran and which
+     * raw inputs fed the decision, so a user whose Main Toolbar row is disabled
+     * can point at their `idea.log` to see WHY the probe said no. Subsequent
+     * calls within the same session stay silent.
+     */
+    private val diagnosticLogged = AtomicBoolean(false)
+
     /**
      * Returns `true` when the IDE is currently painting a JBR custom window header for
      * the current OS. Never throws: a missing UIManager key resolves to `false`, and a
      * missing Registry key returns the supplied default (`false`).
      */
-    fun isCustomHeaderActive(): Boolean =
-        when (osSupplier()) {
-            Os.MAC -> macCustomHeader()
-            Os.WINDOWS -> UIManager.getBoolean(WINDOWS_HEADER_KEY)
-            Os.LINUX -> Registry.`is`(LINUX_REGISTRY_KEY, false)
-            Os.UNKNOWN -> false
+    fun isCustomHeaderActive(): Boolean {
+        val os = osSupplier()
+        val unified = UIManager.getBoolean(MAC_UNIFIED_KEY)
+        val tpab = Registry.`is`(MAC_REGISTRY_KEY, false)
+        val winHeader = UIManager.getBoolean(WINDOWS_HEADER_KEY)
+        val linuxReg = Registry.`is`(LINUX_REGISTRY_KEY, false)
+        val result =
+            when (os) {
+                Os.MAC -> unified || tpab
+                Os.WINDOWS -> winHeader
+                Os.LINUX -> linuxReg
+                Os.UNKNOWN -> false
+            }
+        // H-5: one-shot INFO diagnostic per session so users can see WHY the
+        // Main Toolbar toggle was disabled (or enabled) from idea.log alone.
+        // Gate with AtomicBoolean.compareAndSet so concurrent first calls from
+        // settings panel + MainToolbarElement.apply can race without duplicate
+        // log lines.
+        if (diagnosticLogged.compareAndSet(false, true)) {
+            log.info(
+                "ChromeDecorationsProbe: os=$os result=$result sources=[" +
+                    "unified=$unified,tpab=$tpab,winHeader=$winHeader,linuxReg=$linuxReg]",
+            )
         }
+        return result
+    }
 
-    private fun macCustomHeader(): Boolean =
-        UIManager.getBoolean(MAC_UNIFIED_KEY) ||
-            Registry.`is`(MAC_REGISTRY_KEY, false)
+    /** Test-only reset for the one-shot diagnostic gate. */
+    @TestOnly
+    internal fun resetDiagnosticLoggedForTests() {
+        diagnosticLogged.set(false)
+    }
 }

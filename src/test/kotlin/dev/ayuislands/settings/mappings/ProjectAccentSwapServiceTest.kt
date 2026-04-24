@@ -53,7 +53,7 @@ class ProjectAccentSwapServiceTest {
         mockkObject(AyuVariant.Companion)
         mockkObject(ComponentTreeRefresher)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-        every { AccentApplicator.apply(any()) } just Runs
+        every { AccentApplicator.apply(any()) } returns true
         every { ComponentTreeRefresher.walkAndNotify(any(), any()) } just Runs
 
         mockkStatic(WindowManager::class)

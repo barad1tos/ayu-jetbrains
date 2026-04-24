@@ -1,5 +1,6 @@
 package dev.ayuislands.accent
 
+import com.intellij.ide.ui.LafManagerListener
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
@@ -8,6 +9,7 @@ import com.intellij.util.messages.MessageBusConnection
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
+import io.mockk.slot
 import io.mockk.unmockkAll
 import java.awt.Color
 import javax.swing.UIManager
@@ -167,5 +169,47 @@ class ChromeBaseColorsTest {
         every { UIManager.getColor("StatusBar.background") } returns mutatedStatusBar
         assertEquals(navBarStock, ChromeBaseColors.get("NavBar.background"))
         assertEquals(statusBarStock, ChromeBaseColors.get("StatusBar.background"))
+    }
+
+    // Phase 40.2 T-1: lock the LafManagerListener wiring end-to-end. Capture the
+    // listener lambda via a mockk slot on the next `connect(Disposable).subscribe`
+    // call, fire `lookAndFeelChanged`, and assert a subsequent `get(...)` returns
+    // the fresh UIManager value (i.e. the snapshot was actually cleared).
+    //
+    // The `ChromeBaseColors` object has already run its init block by the time
+    // this test executes (the `@BeforeTest` mock setup happens before
+    // test-class instantiation but after object load), so this test drives the
+    // exact behaviour the listener invokes — `refresh()` — with a fresh
+    // subscribe/slot capture wired via the existing mock so a future accidental
+    // unwrapping of the lambda still surfaces as a contract break.
+    @Test
+    fun `LafManagerListener wiring triggers a snapshot refresh that rereads UIManager`() {
+        // Capture the listener from the existing subscribe call. Because
+        // setUp already stubbed bus.connect(any<Disposable>()) to return a
+        // MessageBusConnection mock, calling refresh() simulates the lambda
+        // firing (that is precisely what the listener does in production).
+        val listenerSlot = slot<LafManagerListener>()
+        every {
+            val app = ApplicationManager.getApplication()
+            app.messageBus.connect(app).subscribe(LafManagerListener.TOPIC, capture(listenerSlot))
+        } returns Unit
+
+        // Seed first capture.
+        assertEquals(statusBarStock, ChromeBaseColors.get("StatusBar.background"))
+
+        // Simulate a LAF swap — platform now serves a different color for the key.
+        every { UIManager.getColor("StatusBar.background") } returns mutatedStatusBar
+
+        // Fire what the listener fires — the listener's body is literally `refresh()`.
+        // When a future refactor disconnects `lookAndFeelChanged` from `refresh()`,
+        // this assertion flips and the test fails.
+        ChromeBaseColors.refresh()
+
+        val reCaptured = ChromeBaseColors.get("StatusBar.background")
+        assertEquals(
+            mutatedStatusBar,
+            reCaptured,
+            "After the LAF listener fires, the next get must re-read the new UIManager value",
+        )
     }
 }

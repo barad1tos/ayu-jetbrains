@@ -57,6 +57,19 @@ class AyuIslandsState : BaseState() {
      */
     var lastAppliedAccentHex by string(null)
 
+    /**
+     * Whether the most recent [dev.ayuislands.accent.AccentApplicator.apply] call
+     * completed its full EP iteration cleanly. Used by
+     * [dev.ayuislands.AyuIslandsAppListener.appFrameCreated] as a trust gate around
+     * the cached [lastAppliedAccentHex]: persisting the hex BEFORE the EP iteration
+     * (Phase 40.2 H-2) makes startup anti-flicker robust to a failed apply, but
+     * the cached value is only reliable when the previous session actually finished
+     * painting. If a prior apply threw mid-EP and left the hex persisted without
+     * a matching true here, the next startup resolves fresh instead of trusting
+     * the partial cache.
+     */
+    var lastApplyOk by property(false)
+
     // Per-element accent toggles (all ON by default)
     var inlayHints by property(true)
     var caretRow by property(true)

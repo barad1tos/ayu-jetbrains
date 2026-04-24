@@ -7,9 +7,7 @@ import com.intellij.openapi.wm.IdeFrame
 import com.intellij.openapi.wm.WindowManager
 import com.intellij.testFramework.LoggedErrorProcessor
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
-import io.mockk.Runs
 import io.mockk.every
-import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
@@ -54,7 +52,7 @@ class AccentApplicatorFocusedProjectTest {
         mockkStatic(ProjectManager::class)
         mockkObject(AccentResolver)
         mockkObject(AccentApplicator, recordPrivateCalls = false)
-        every { AccentApplicator.apply(any()) } just Runs
+        every { AccentApplicator.apply(any()) } returns true
 
         mockkObject(ProjectAccentSwapService.Companion)
         swapService = mockk(relaxed = true)

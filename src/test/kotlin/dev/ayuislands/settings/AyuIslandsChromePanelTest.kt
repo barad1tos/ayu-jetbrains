@@ -306,6 +306,44 @@ class AyuIslandsChromePanelTest {
         verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any()) }
     }
 
+    // ── Phase 40.2 T-6: mid-session license flip must not persist ──────────────
+    //
+    // If the panel is built while licensed and the license flips to false
+    // before the user presses Apply, the panel MUST not persist chrome state
+    // fields AND must not invoke applyForFocusedProject. Prevents grace-expiry
+    // / sign-out scenarios where the UI is already built but the gate has
+    // since closed behind the user's back.
+
+    @Test
+    fun `apply refuses to persist chrome state when license flips to false mid-session`() {
+        // Panel built while licensed — all controls wired.
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        val chromePanel = AyuIslandsChromePanel()
+        buildPanel(chromePanel, AyuVariant.DARK)
+
+        // User makes a change.
+        chromePanel.setPendingChromeStatusBarForTest(true)
+        chromePanel.setPendingChromeTintIntensityForTest(35)
+
+        // License is revoked before apply() runs.
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+
+        chromePanel.apply()
+
+        // No state mutation.
+        assertFalse(
+            state.chromeStatusBar,
+            "Post-license-revocation apply must not persist chromeStatusBar",
+        )
+        assertEquals(
+            AyuIslandsState.DEFAULT_CHROME_TINT_INTENSITY,
+            state.chromeTintIntensity,
+            "Post-license-revocation apply must not persist chromeTintIntensity",
+        )
+        // No EP re-apply.
+        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any()) }
+    }
+
     // ── Test 9: premium gate (CONTEXT D-10) ────────────────────────────────────
 
     @Test

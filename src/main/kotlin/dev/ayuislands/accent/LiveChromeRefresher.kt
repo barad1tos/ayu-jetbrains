@@ -9,6 +9,7 @@ import java.awt.Color
 import java.awt.Component
 import java.awt.Container
 import java.awt.Window
+import java.util.ArrayDeque
 import java.util.concurrent.ConcurrentHashMap
 import javax.swing.JComponent
 
@@ -256,34 +257,47 @@ internal object LiveChromeRefresher {
     }
 
     /**
-     * Recursively walks [component] and its descendants, invoking [visit] per node.
+     * Iteratively walks [component] and its descendants, invoking [visit] per node.
+     * Phase 40.2 M-4 — converted from the prior recursive walk to an
+     * [ArrayDeque]-based BFS so a pathological deeply nested container tree
+     * cannot blow the JVM thread stack. The recursive version was capped only by
+     * whatever headroom the EDT happened to have and a malicious plugin could
+     * emit a container chain deep enough to trigger [StackOverflowError] mid-apply.
+     * Iterative traversal bounds growth to heap (orders of magnitude more slack)
+     * and keeps the per-visit try/catch + broken-container logging semantics
+     * exactly as before. See Phase 40 review Round 3 C-1.
+     *
      * Each visit is isolated so a single flaky peer (mid-dispose, ClassCast on
-     * reflective match, NPE inside repaint) doesn't abort the rest of the tree;
-     * see Phase 40 review Round 3 C-1. Catches [RuntimeException] rather than
-     * [Throwable] so [Error]s ([OutOfMemoryError], [StackOverflowError]) still
-     * propagate instead of being silently swallowed at DEBUG, and narrower than
-     * [Exception] so detekt's TooGenericExceptionCaught stays happy — the Swing
-     * peer surface only throws [RuntimeException] subtypes anyway.
+     * reflective match, NPE inside repaint) doesn't abort the rest of the tree.
+     * Catches [RuntimeException] rather than [Throwable] so [Error]s
+     * ([OutOfMemoryError], [StackOverflowError]) still propagate instead of being
+     * silently swallowed at DEBUG, and narrower than [Exception] so detekt's
+     * TooGenericExceptionCaught stays happy — the Swing peer surface only throws
+     * [RuntimeException] subtypes anyway.
      */
     private fun walk(
         component: Component,
         visit: (Component) -> Unit,
     ) {
-        try {
-            visit(component)
-        } catch (exception: RuntimeException) {
-            log.debug("Live refresh visit failed on ${component.javaClass.name}", exception)
-        }
-        if (component is Container) {
+        val queue: ArrayDeque<Component> = ArrayDeque()
+        queue.addLast(component)
+        while (queue.isNotEmpty()) {
+            val current = queue.removeFirst()
+            try {
+                visit(current)
+            } catch (exception: RuntimeException) {
+                log.debug("Live refresh visit failed on ${current.javaClass.name}", exception)
+            }
+            if (current !is Container) continue
             val children =
                 try {
-                    component.components
+                    current.components
                 } catch (exception: RuntimeException) {
-                    logBrokenContainer(component, exception)
-                    return
+                    logBrokenContainer(current, exception)
+                    continue
                 }
             for (child in children) {
-                walk(child, visit)
+                queue.addLast(child)
             }
         }
     }

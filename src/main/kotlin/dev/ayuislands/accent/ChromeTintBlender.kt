@@ -124,6 +124,15 @@ object ChromeTintBlender {
             baseHsb[2] + (accentHsb[2] - baseHsb[2]) * ratio * BRIGHTNESS_PULL_RATIO
 
         // getHSBColor returns an opaque Color; no 4-arg ctor needed (D-05).
-        return Color.getHSBColor(outputHue, outputSaturation.coerceIn(0f, 1f), outputBrightness)
+        // Phase 40.2 M-5: clamp brightness to [0, 1] to mirror the saturation clamp
+        // above. `Color.getHSBColor` passes brightness unchanged into a linear ramp
+        // and then into byte-quantisation — out-of-range values from a future tweak
+        // to BRIGHTNESS_PULL_RATIO or a base-color extraction edge case would slide
+        // into negative/overflow RGB territory without this guard.
+        return Color.getHSBColor(
+            outputHue,
+            outputSaturation.coerceIn(0f, 1f),
+            outputBrightness.coerceIn(0f, 1f),
+        )
     }
 }

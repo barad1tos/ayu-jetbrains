@@ -332,7 +332,7 @@ class LicenseCheckerProDefaultsTest {
         every { settingsMock.state } returns state
         every { settingsMock.getAccentForVariant(any()) } returns "#FFCC66"
         mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } just runs
+        every { AccentApplicator.apply(any()) } returns true
 
         // Mock ApplicationManager for AccentRotationService.stopRotation() call
         mockkStatic(ApplicationManager::class)

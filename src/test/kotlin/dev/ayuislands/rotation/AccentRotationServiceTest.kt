@@ -173,7 +173,7 @@ class AccentRotationServiceTest {
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
 
         mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } just Runs
+        every { AccentApplicator.apply(any()) } returns true
 
         mockkObject(GlowOverlayManager.Companion)
         every { GlowOverlayManager.syncGlowForAllProjects() } just Runs
@@ -365,6 +365,7 @@ class AccentRotationServiceTest {
             if (applyCalls.size != THREE) {
                 throw RotationTestException("fail ${applyCalls.size}")
             }
+            true
         }
 
         val service = AccentRotationService()

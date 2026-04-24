@@ -275,6 +275,7 @@ class AccentApplicatorTest {
     @Test
     fun `revertAll repaints windows`() {
         val mockWindow = mockk<Window>(relaxed = true)
+        every { mockWindow.isDisplayable } returns true
         every { Window.getWindows() } returns arrayOf(mockWindow)
 
         revertWithoutExtensions()
@@ -429,6 +430,10 @@ class AccentApplicatorTest {
         val window1 = mockk<Window>(relaxed = true)
         val window2 = mockk<Window>(relaxed = true)
         val window3 = mockk<Window>(relaxed = true)
+        // Phase 40.2 M-8: repaintAllWindows now skips non-displayable windows.
+        every { window1.isDisplayable } returns true
+        every { window2.isDisplayable } returns true
+        every { window3.isDisplayable } returns true
 
         invokePrivate("repaintAllWindows", arrayOf(window1, window2, window3))
 
@@ -894,6 +899,7 @@ class AccentApplicatorTest {
         every { IndentRainbowSync.apply(any(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
         val mockWindow = mockk<Window>(relaxed = true)
+        every { mockWindow.isDisplayable } returns true
         every { Window.getWindows() } returns arrayOf(mockWindow)
 
         AccentApplicator.apply("#FFCC66")
@@ -1790,6 +1796,52 @@ class AccentApplicatorTest {
         val resolvedField = AccentApplicator::class.java.getDeclaredField("cgpMethodsResolved")
         resolvedField.isAccessible = true
         resolvedField.set(AccentApplicator, false)
+    }
+
+    // Phase 40.2 T-3: apply() with an invalid hex returns false AND posts a
+    // user-visible notification on the "Ayu Islands" group. The pre-40.2
+    // apply returned Unit and silently swallowed corruption — a regression
+    // that let a single bad hex in per-project XML go undiagnosed.
+    @Test
+    fun `apply with invalid hex returns false and notifies the user`() {
+        mockkStatic(com.intellij.notification.Notifications.Bus::class)
+        try {
+            every {
+                com.intellij.notification.Notifications.Bus
+                    .notify(any())
+            } returns Unit
+
+            val result = AccentApplicator.apply("garbage-hex")
+
+            assertEquals(false, result, "Invalid hex must return false from apply()")
+            verify(exactly = 1) {
+                com.intellij.notification.Notifications.Bus
+                    .notify(any())
+            }
+        } finally {
+            // unmockkAll runs in @AfterTest already but mockkStatic is scoped;
+            // nothing extra needed here.
+        }
+    }
+
+    // Phase 40.2 T-5: applyForFocusedProject MUST carry @RequiresEdt so an
+    // off-EDT caller fails fast instead of throwing deep inside a platform
+    // API. Source-regex test because the annotation is a contract promise to
+    // callers, not a runtime check we can exercise cheaply.
+    @Test
+    fun `applyForFocusedProject carries RequiresEdt annotation in source`() {
+        val sourceFile = java.io.File("src/main/kotlin/dev/ayuislands/accent/AccentApplicator.kt")
+        assertTrue(sourceFile.exists(), "Could not locate AccentApplicator.kt for source-level guard")
+        val source = sourceFile.readText()
+        val edtGuard =
+            Regex(
+                """@RequiresEdt\s*\n\s*fun\s+applyForFocusedProject""",
+                RegexOption.DOT_MATCHES_ALL,
+            )
+        assertTrue(
+            edtGuard.containsMatchIn(source),
+            "applyForFocusedProject must be annotated @RequiresEdt so off-EDT callers fail fast",
+        )
     }
 
     companion object {

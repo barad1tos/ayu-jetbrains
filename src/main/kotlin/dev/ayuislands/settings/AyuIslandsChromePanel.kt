@@ -1,5 +1,6 @@
 package dev.ayuislands.settings
 
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.dsl.builder.Align
@@ -168,6 +169,46 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
 
     override fun apply() {
         if (!isModified()) return
+        // License may have flipped mid-session (grace expired, entitlement revoked,
+        // user signed out of JBA). When the panel was built licensed but the gate
+        // has since closed, refuse to persist — otherwise chrome state writes keep
+        // happening behind a "requires Pro" UI the user can no longer interact with.
+        if (!LicenseChecker.isLicensedOrGrace()) {
+            LOG.info(
+                "AyuIslandsChromePanel.apply: license no longer active; " +
+                    "skipping chrome state persistence and refocus re-apply",
+            )
+            return
+        }
+        // Re-detect the variant at apply time so a LAF switch between buildPanel and
+        // apply (user flipped themes inside the same Settings session) doesn't drop
+        // the re-apply — the stored variant reference can go stale. If detection
+        // still returns null (no Ayu theme active), log at INFO and bail without
+        // persisting: H-1 from the Phase 40.2 audit forbade the earlier silent skip.
+        val resolvedVariant = variant ?: AyuVariant.detect()
+        if (resolvedVariant == null) {
+            LOG.info(
+                "AyuIslandsChromePanel.apply: no Ayu variant resolvable — " +
+                    "skipping chrome apply (theme may not be an Ayu variant)",
+            )
+            return
+        }
+
+        // H-4: run the EP chain FIRST so a throw from applyForFocusedProject leaves
+        // persisted state untouched and the user can retry after fixing the cause.
+        // Persisting only on success also gives isModified() an honest answer on the
+        // next panel open — if the apply failed, pending != stored so the Apply
+        // button re-offers the attempt.
+        try {
+            AccentApplicator.applyForFocusedProject(resolvedVariant)
+        } catch (exception: RuntimeException) {
+            LOG.warn(
+                "AyuIslandsChromePanel.apply: chrome re-apply threw; " +
+                    "leaving pending chrome state uncommitted so the user can retry",
+                exception,
+            )
+            return
+        }
         val state = AyuIslandsSettings.getInstance().state
         state.chromeStatusBar = pendingChromeStatusBar
         state.chromeMainToolbar = pendingChromeMainToolbar
@@ -176,13 +217,6 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
         state.chromePanelBorder = pendingChromePanelBorder
         state.chromeTintIntensity = pendingChromeTintIntensity
         loadStored(state)
-
-        // Re-run the EP chain so the 5 chrome AccentElement impls repaint now —
-        // mirrors AyuIslandsElementsPanel.apply, which also routes through
-        // applyForFocusedProject so per-project / per-language overrides are not
-        // stomped by the accent applied earlier in the Configurable.apply cycle.
-        val currentVariant = variant ?: return
-        AccentApplicator.applyForFocusedProject(currentVariant)
     }
 
     override fun reset() {
@@ -315,6 +349,7 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
     internal fun getPendingChromeTintIntensityForTest(): Int = pendingChromeTintIntensity
 
     companion object {
+        private val LOG = logger<AyuIslandsChromePanel>()
         private const val GROUP_TITLE = "Chrome Tinting"
         private const val MIN_INTENSITY = 10
 

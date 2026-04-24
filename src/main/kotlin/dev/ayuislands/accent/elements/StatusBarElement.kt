@@ -30,9 +30,9 @@ class StatusBarElement : AccentElement {
 
     private val backgroundKeys =
         listOf(
-            "StatusBar.background",
+            STATUS_BAR_BG_KEY,
             "StatusBar.borderColor",
-            "StatusBar.Widget.hoverBackground",
+            STATUS_WIDGET_HOVER_BG_KEY,
         )
 
     // Foreground keys receive the WcagForeground-picked contrast color sampled against
@@ -40,6 +40,16 @@ class StatusBarElement : AccentElement {
     // path breadcrumb ("project > build.gradle.kts") inherits the same contrast-aware
     // colour as the rest of the status bar widget text — without them, breadcrumbs
     // stayed LAF-grey and became unreadable once the status bar was tinted.
+    //
+    // Phase 40.2 M-1: foregrounds split into two pairs sampled against their own bg.
+    // Previously one contrast pick from StatusBar.background drove all four fg keys,
+    // but Widget.hoverForeground sits on StatusBar.Widget.hoverBackground — a
+    // different tinted surface. At non-trivial intensities the two bg tints diverge
+    // and a shared contrast pick can drop the hover foreground under the WCAG AA
+    // ratio. Mirrors the Round 2 A-2 split already applied in ToolWindowStripeElement.
+    //   - Normal pair: (Widget.foreground + Breadcrumbs.foreground) vs StatusBar.background
+    //   - Hover pair:  (Widget.hoverForeground + Breadcrumbs.hoverForeground)
+    //                  vs StatusBar.Widget.hoverBackground
     //
     // Only keys confirmed present in IntelliJPlatform.themeMetadata.json for
     // platformVersion 2026.1 (ide.impl/themes/metadata) are written. Verified via
@@ -52,27 +62,42 @@ class StatusBarElement : AccentElement {
     //   - Breadcrumbs.CurrentColor               — ABSENT in 2026.1
     //   - Breadcrumbs.InactiveColor              — ABSENT in 2026.1
     //   - Breadcrumbs.HoverColor                 — ABSENT in 2026.1
-    private val foregroundKeys =
+    private val normalForegroundKeys =
         listOf(
             "StatusBar.Widget.foreground",
-            "StatusBar.Widget.hoverForeground",
             "StatusBar.Breadcrumbs.foreground",
+        )
+
+    private val hoverForegroundKeys =
+        listOf(
+            "StatusBar.Widget.hoverForeground",
             "StatusBar.Breadcrumbs.hoverForeground",
         )
 
     override fun apply(color: Color) {
         val intensity = AyuIslandsSettings.getInstance().state.effectiveChromeTintIntensity()
         var tintedBackground: Color? = null
+        var tintedHoverBackground: Color? = null
         for (key in backgroundKeys) {
             val baseColor = ChromeBaseColors.get(key) ?: continue
             val tinted = ChromeTintBlender.blend(color, baseColor, intensity)
             UIManager.put(key, tinted)
-            if (key == "StatusBar.background") tintedBackground = tinted
+            when (key) {
+                STATUS_BAR_BG_KEY -> tintedBackground = tinted
+                STATUS_WIDGET_HOVER_BG_KEY -> tintedHoverBackground = tinted
+            }
         }
         if (tintedBackground != null) {
             val contrast = WcagForeground.pickForeground(tintedBackground, WcagForeground.TextTarget.PRIMARY_TEXT)
-            for (key in foregroundKeys) {
+            for (key in normalForegroundKeys) {
                 UIManager.put(key, contrast)
+            }
+        }
+        if (tintedHoverBackground != null) {
+            val hoverContrast =
+                WcagForeground.pickForeground(tintedHoverBackground, WcagForeground.TextTarget.PRIMARY_TEXT)
+            for (key in hoverForegroundKeys) {
+                UIManager.put(key, hoverContrast)
             }
         }
         // Level 2 Gap-4: push the tinted bg to the live IdeStatusBarImpl peer because
@@ -81,10 +106,15 @@ class StatusBarElement : AccentElement {
     }
 
     override fun revert() {
-        for (key in backgroundKeys + foregroundKeys) {
+        for (key in backgroundKeys + normalForegroundKeys + hoverForegroundKeys) {
             UIManager.put(key, null)
         }
         // D-14 symmetry: hand the status bar peer back to LAF default.
         LiveChromeRefresher.clearStatusBar()
+    }
+
+    private companion object {
+        const val STATUS_BAR_BG_KEY = "StatusBar.background"
+        const val STATUS_WIDGET_HOVER_BG_KEY = "StatusBar.Widget.hoverBackground"
     }
 }

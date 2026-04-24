@@ -307,6 +307,32 @@ class AyuIslandsStartupActivityTest {
         )
     }
 
+    // Phase 40.2 T-2: lock the full 5-step order inside runStartupAccentOnEdt —
+    // resolveFocusedProject → AccentResolver.resolve → AccentApplicator.apply →
+    // swapService.install → swapService.notifyExternalApply. The existing
+    // "same EDT withContext block" test covers the last four; this one adds
+    // AccentResolver.resolve between them so a future refactor that drops the
+    // resolver step (and hands a stale accent hex directly to apply) surfaces
+    // here.
+    @Test
+    fun `runStartupAccentOnEdt invokes resolveFocusedProject, resolve, apply, install, notifyExternalApply in order`() {
+        val source = readStartupActivitySource()
+        val fullOrder =
+            Regex(
+                """AccentApplicator\.resolveFocusedProject\(\)""" +
+                    """.*?AccentResolver\.resolve\(""" +
+                    """.*?AccentApplicator\.apply\(""" +
+                    """.*?swapService\.install\(\)""" +
+                    """.*?swapService\.notifyExternalApply\(""",
+                RegexOption.DOT_MATCHES_ALL,
+            )
+        assertTrue(
+            fullOrder.containsMatchIn(source),
+            "runStartupAccentOnEdt must invoke resolveFocusedProject → AccentResolver.resolve → " +
+                "AccentApplicator.apply → swapService.install → swapService.notifyExternalApply in order",
+        )
+    }
+
     private fun readStartupActivitySource(): String {
         val source =
             java.io

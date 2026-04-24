@@ -1,6 +1,9 @@
 package dev.ayuislands.accent
 
 import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.notification.Notification
+import com.intellij.notification.NotificationType
+import com.intellij.notification.Notifications
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.ReadAction
@@ -40,8 +43,17 @@ object AccentApplicator {
      * XML, truncated writes, rare partial-persist under IDE crash) before they reach the
      * decoder. Without this gate a single bad hex in `ayu-islands.xml` would abort the
      * very first frame paint and leave the plugin silently inert for the session.
+     *
+     * Phase 40.2 M-2: leading/trailing whitespace is tolerated in the match but callers
+     * MUST `.trim()` the input before handing it to [Color.decode] (the decoder itself
+     * does not accept padding). Shorthand `#RGB` is intentionally NOT accepted — every
+     * persisted value in `ayu-islands.xml` is emitted as `#RRGGBB` and expanding the
+     * pattern would silently forgive a new corruption mode.
      */
-    val HEX_COLOR_PATTERN = Regex("^#[0-9A-Fa-f]{6}$")
+    val HEX_COLOR_PATTERN = Regex("^\\s*#[0-9A-Fa-f]{6}\\s*$")
+
+    /** Notification group ID declared in plugin.xml — shared with [dev.ayuislands.rotation.AccentRotationService]. */
+    private const val NOTIFICATION_GROUP_ID = "Ayu Islands"
 
     private val EP_NAME =
         ExtensionPointName<AccentElement>(
@@ -140,21 +152,66 @@ object AccentApplicator {
             AttrOverride("WARNING_ATTRIBUTES", effectColor = true, errorStripe = true),
         )
 
-    fun apply(accentHex: String) {
+    /**
+     * Applies [accentHex] across UIManager, editor keys, and the EP chain.
+     *
+     * Phase 40.2 H-3 changed the return type to [Boolean]: `false` signals that the
+     * caller-provided hex failed shape validation and no apply work ran. Callers MUST
+     * surface a user-visible notification so settings-panel Apply, rotation ticks, and
+     * manual accent picks do not silently swallow corruption. `true` means the hex
+     * passed validation and the EP dispatch was scheduled (actual EP work may still
+     * happen asynchronously if the caller is off-EDT — the Boolean reports
+     * validation + scheduling, not end-to-end paint completion).
+     *
+     * Phase 40.2 H-2: [AyuIslandsState.lastAppliedAccentHex] is written BEFORE the EP
+     * iteration runs, not after — a mid-EP throw would otherwise drop the anti-flicker
+     * cache and re-flash Gold on the next startup. The paired
+     * [AyuIslandsState.lastApplyOk] flag is reset to `false` before EP iteration and
+     * flipped to `true` only after the full sequence completes, so the startup listener
+     * can distinguish "cached hex from a clean apply" from "cached hex from a torn
+     * apply" and fall back to the resolver in the torn case.
+     */
+    fun apply(accentHex: String): Boolean {
         // Reject garbage before it reaches [Color.decode], which throws
         // [NumberFormatException] on anything outside the `#RRGGBB` form. Callers
         // include [dev.ayuislands.AyuIslandsAppListener.appFrameCreated] feeding the
         // persisted `lastAppliedAccentHex` straight from XML — a corrupted or
         // hand-edited value must not abort the first frame paint. Warn so user-submitted
-        // idea.log captures the offending value for diagnosis, then bail; the next
-        // resolver-driven apply (StartupActivity) will write a clean hex.
+        // idea.log captures the offending value for diagnosis, surface a user-facing
+        // notification (Phase 40.2 H-3), then bail; the next resolver-driven apply
+        // (StartupActivity) will write a clean hex.
         if (!HEX_COLOR_PATTERN.matches(accentHex)) {
             log.warn("AccentApplicator.apply: invalid hex '$accentHex' — skipping apply")
-            return
+            // Phase 40.2 H-3: user-visible notification for the rejected hex so
+            // per-project XML corruption, manual edits, and rotation palette
+            // bugs do not silently turn chrome tinting off. Wrapped in
+            // runCatching so a notification subsystem hiccup cannot cascade
+            // into the caller (settings panel, rotation tick, startup).
+            runCatching {
+                Notifications.Bus.notify(
+                    Notification(
+                        NOTIFICATION_GROUP_ID,
+                        "Ayu Islands",
+                        "Ayu accent rejected — hex '$accentHex' is not a valid #RRGGBB.",
+                        NotificationType.WARNING,
+                    ),
+                )
+            }.onFailure { exception ->
+                log.debug("AccentApplicator invalid-hex notification failed to post", exception)
+            }
+            return false
         }
-        val accent = Color.decode(accentHex)
+        val trimmedHex = accentHex.trim()
+        val accent = Color.decode(trimmedHex)
         val state = AyuIslandsSettings.getInstance().state
         val variant = AyuVariant.detect()
+
+        // H-2: persist BEFORE the EP iteration so the cache survives a mid-EP
+        // throw. Clear the clean-apply flag here and only set it true after the
+        // full sequence completes — the startup listener reads the pair and
+        // falls through to the resolver when the flag is false.
+        state.lastAppliedAccentHex = trimmedHex
+        state.lastApplyOk = false
 
         // All work batched into a single EDT dispatch (UIManager.put is not
         // thread-safe, and elements previously posted their own invokeLater)
@@ -163,9 +220,9 @@ object AccentApplicator {
                 applyAlwaysOnUiKeys(accent)
 
                 applyElements(state, accent, variant)
-                syncCodeGlanceProViewport(accentHex)
+                syncCodeGlanceProViewport(trimmedHex)
                 if (variant != null) {
-                    IndentRainbowSync.apply(variant, accentHex)
+                    IndentRainbowSync.apply(variant, trimmedHex)
                 }
                 applyAlwaysOnEditorKeys(accent)
                 overrideTabUnderlineForOffMode(state, variant)
@@ -188,12 +245,12 @@ object AccentApplicator {
 
                 repaintAllWindows(Window.getWindows())
 
-                // Persist for next-startup anti-flicker: AyuIslandsAppListener.appFrameCreated
-                // reads this hex and applies it before any project context exists, so the first
-                // painted frame after IDE restart matches the eventual resolver output. Without
-                // this, multi-window setups flash the GLOBAL accent before each project's
-                // StartupActivity runs.
-                state.lastAppliedAccentHex = accentHex
+                // H-2: mark the apply clean only after the full EP sequence
+                // succeeded. A throw earlier leaves the flag false and the
+                // startup listener (AyuIslandsAppListener.appFrameCreated)
+                // will fall through to the resolver rather than trust the
+                // cached hex.
+                state.lastApplyOk = true
             }
 
         if (SwingUtilities.isEventDispatchThread()) {
@@ -201,9 +258,10 @@ object AccentApplicator {
         } else {
             invokeLaterSafe(work)
         }
+        return true
     }
 
-    /**
+/**
      * Convenience wrapper around [AccentResolver.resolve] + [apply] for the "currently focused
      * project" use case. Called from the settings panels (Accent / Elements / Plugins), the
      * LAF listener, and the rotation tick. Pre-helper, those sites hand-wired variants of
@@ -230,8 +288,15 @@ object AccentApplicator {
     fun applyForFocusedProject(variant: AyuVariant): String {
         val focusedProject = resolveFocusedProject()
         val hex = AccentResolver.resolve(focusedProject, variant)
-        apply(hex)
-        ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
+        // Phase 40.2 H-3: apply now returns a validation flag. If the resolver hands
+        // back a hex that fails shape validation (corrupted per-project override,
+        // manual XML edit, future resolver bug), skip the swap-cache publish so the
+        // cache does not drift to a hex that was never actually painted. The apply
+        // call itself already surfaces the user-visible notification.
+        val applied = apply(hex)
+        if (applied) {
+            ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
+        }
         return hex
     }
 
@@ -590,7 +655,15 @@ object AccentApplicator {
     }
 
     private fun repaintAllWindows(windows: Array<Window>) {
+        // Phase 40.2 M-8: filter by isDisplayable before repaint, mirroring
+        // LiveChromeRefresher.forEachShowingWindow. A disposed/undisplayed window still
+        // lingers in Window.getWindows() briefly during shutdown races; calling
+        // repaint() on it is a no-op at best and throws on some LAFs at worst. The
+        // isShowing check is stricter than we need here (pooled popups are fine to
+        // skip-repaint anyway), so isDisplayable captures the bare "not-yet-disposed"
+        // predicate for this write-side pass.
         for (window in windows) {
+            if (!window.isDisplayable) continue
             window.repaint()
         }
     }

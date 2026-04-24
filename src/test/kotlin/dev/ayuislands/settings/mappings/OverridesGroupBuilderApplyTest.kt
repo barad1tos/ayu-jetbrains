@@ -115,7 +115,7 @@ class OverridesGroupBuilderApplyTest {
         // swap-service notification, isModified() returns false.
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         every { AccentResolver.resolve(any(), any()) } returns "#AABBCC"
-        every { AccentApplicator.apply(any()) } returns Unit
+        every { AccentApplicator.apply(any()) } returns true
         val swapService = mockk<ProjectAccentSwapService>(relaxed = true)
         every { ProjectAccentSwapService.getInstance() } returns swapService
 
@@ -160,7 +160,7 @@ class OverridesGroupBuilderApplyTest {
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         every { AccentApplicator.resolveFocusedProject() } returns focusedProject
         every { AccentResolver.resolve(focusedProject, AyuVariant.MIRAGE) } returns "#5CCFE6"
-        every { AccentApplicator.apply(any()) } returns Unit
+        every { AccentApplicator.apply(any()) } returns true
         val swapService = mockk<ProjectAccentSwapService>(relaxed = true)
         every { ProjectAccentSwapService.getInstance() } returns swapService
 
