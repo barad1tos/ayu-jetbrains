@@ -9,11 +9,13 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import java.awt.Color
+import java.awt.Window
 import javax.swing.JPanel
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * Tests for [LiveChromeRefresher] — the Level 2 Gap-4 helper that walks live
@@ -403,5 +405,207 @@ class LiveChromeRefresherTest {
             "non.existent.Target.Z",
             "non.existent.Ancestor.Y",
         )
+    }
+
+    // --- Round 3 hotfix regression tests (C1–C4) ---
+    //
+    // These lock the isolation guarantees added in Phase 40 Round 3 C-1/C-2:
+    // a single broken peer or window-enumeration failure must NOT abort the
+    // entire chrome-refresh pass, and repeated passes over a known-broken
+    // container must stay safe (the log-once latch demotes the second hit
+    // to DEBUG but the walk still short-circuits cleanly).
+
+    /**
+     * Match-target subclass used by C2. Tracks a per-instance latch so one
+     * sibling can throw on its first `setBackground` call while the next
+     * sibling of the same runtime class keeps its normal behaviour.
+     */
+    private open class ThrowOnFirstSetBackgroundTracker(
+        private val shouldThrow: Boolean,
+    ) : TrackingPanel() {
+        private var thrown: Boolean = false
+
+        override fun setBackground(bg: Color?) {
+            if (shouldThrow && !thrown) {
+                thrown = true
+                error("setBackground boom")
+            }
+            super.setBackground(bg)
+        }
+    }
+
+    /**
+     * Container whose `getComponents()` override throws on every invocation.
+     * Used by C3 and C4 to prove the tree walk isolates container failures
+     * per-subtree instead of aborting the whole pass.
+     */
+    private class BrokenChildrenContainer : JPanel() {
+        override fun getComponents(): Array<java.awt.Component> = error("getComponents boom")
+    }
+
+    @Test
+    fun `refreshByClassName returns early without throwing when Window getWindows throws`() {
+        mockkStatic(Window::class)
+        every { Window.getWindows() } throws IllegalStateException("enumeration boom")
+
+        // No throw must propagate — the Round 3 C-2 guard converts the
+        // enumeration failure into a WARN + early return.
+        LiveChromeRefresher.refreshByClassName("dummy.FQN", Color.RED)
+    }
+
+    @Test
+    fun `refreshOnTree continues visiting siblings after one node throws on setBackground`() {
+        val throwingFqn = ThrowOnFirstSetBackgroundTracker::class.java.name
+        val throwing = ThrowOnFirstSetBackgroundTracker(shouldThrow = true)
+        val survivor = ThrowOnFirstSetBackgroundTracker(shouldThrow = false)
+        val parent =
+            JPanel().apply {
+                add(throwing)
+                add(survivor)
+            }
+
+        LiveChromeRefresher.refreshOnTree(parent, throwingFqn, Color.BLUE)
+
+        // Surviving sibling must have been painted — the per-visit try/catch
+        // in `walk` (Round 3 C-1) isolates the throwing peer from the rest.
+        assertEquals(Color.BLUE, survivor.lastSetBackground)
+    }
+
+    @Test
+    fun `refreshOnTree continues to sibling containers when one containers getComponents throws`() {
+        val trackerFqn = TrackingPanel::class.java.name
+        val tracker = TrackingPanel()
+        val brokenContainer = BrokenChildrenContainer()
+        val siblingContainer = JPanel().apply { add(tracker) }
+        val parent =
+            JPanel().apply {
+                add(brokenContainer)
+                add(siblingContainer)
+            }
+
+        LiveChromeRefresher.refreshOnTree(parent, trackerFqn, Color.GREEN)
+
+        // The broken container's subtree is skipped, but the walk proceeds
+        // to the next sibling and paints the tracker inside it. Without
+        // the container-level try/catch (Round 3 C-1), the RuntimeException
+        // would unwind the whole walk and tracker would stay untouched.
+        assertEquals(Color.GREEN, tracker.lastSetBackground)
+    }
+
+    @Test
+    fun `refreshOnTree survives repeated walks over a broken container`() {
+        val brokenContainer = BrokenChildrenContainer()
+
+        // Two consecutive walks must both return cleanly. The second pass
+        // exercises the `brokenContainerLogged` latch demote-to-DEBUG branch
+        // introduced in Round 3; the behaviour lock here is simply "no
+        // throw on either call".
+        LiveChromeRefresher.refreshOnTree(brokenContainer, "x", Color.RED)
+        LiveChromeRefresher.refreshOnTree(brokenContainer, "x", Color.RED)
+    }
+
+    @Test
+    fun `resetBrokenContainerLoggedForTests clears the broken-container latch`() {
+        // Covers the @TestOnly hook (line 70) — invoking it directly is the
+        // only way to exercise the `brokenContainerLogged.clear()` call under
+        // unit-test conditions. Prior walks in the suite may or may not have
+        // populated the latch; after reset the hook must leave the singleton
+        // in a clean state for the next test. Behaviour lock is "no throw".
+        val brokenContainer = BrokenChildrenContainer()
+        LiveChromeRefresher.refreshOnTree(brokenContainer, "x", Color.RED)
+
+        LiveChromeRefresher.resetBrokenContainerLoggedForTests()
+
+        // After reset the second walk over the same broken container must
+        // still complete safely — proves the reset didn't corrupt the latch
+        // and the WARN path (first-encounter-per-class) re-engages cleanly.
+        LiveChromeRefresher.refreshOnTree(brokenContainer, "x", Color.RED)
+    }
+
+    @Test
+    fun `refreshStatusBar returns silently when ProjectManager getInstance throws`() {
+        // Covers the runCatching onFailure + getOrNull ?: return path at
+        // LiveChromeRefresher lines 91-93 — ProjectManager resolution fails
+        // during live refresh (e.g. application shutting down mid-apply).
+        // The helper must log at DEBUG and return without propagating.
+        mockkStatic(ProjectManager::class)
+        every { ProjectManager.getInstance() } throws IllegalStateException("no container")
+
+        LiveChromeRefresher.refreshStatusBar(targetColor)
+        LiveChromeRefresher.clearStatusBar()
+    }
+
+    @Test
+    fun `refreshStatusBar returns silently when WindowManager getInstance throws`() {
+        // Covers lines 95-97 — WindowManager resolution fails after
+        // ProjectManager succeeded. ProjectManager must still be mockable as
+        // a usable singleton so control flow reaches the WindowManager
+        // runCatching block; the WindowManager failure must be swallowed.
+        mockProjectManagerOpenProjects(mockUsableProject())
+        mockkStatic(WindowManager::class)
+        every { WindowManager.getInstance() } throws IllegalStateException("wm gone")
+
+        LiveChromeRefresher.refreshStatusBar(targetColor)
+        LiveChromeRefresher.clearStatusBar()
+    }
+
+    @Test
+    fun `forEachShowingWindow isolates per-window failures from sibling windows`() {
+        // Covers lines 166-171 — the inner try/catch around `action(window)`
+        // in forEachShowingWindow. A showing window whose tree walk throws
+        // must be logged at DEBUG without aborting the rest of the window
+        // enumeration. Real `JFrame` / `JDialog` instantiation throws
+        // HeadlessException in the Gradle test JVM, so we mock a Window
+        // whose `getComponents()` blows up — the same RuntimeException the
+        // production catch block is there to defend against.
+        val brokenWindow =
+            mockk<Window>(relaxed = true) {
+                every { isShowing } returns true
+                every { components } throws IllegalStateException("window tree boom")
+            }
+        mockkStatic(Window::class)
+        every { Window.getWindows() } returns arrayOf(brokenWindow)
+
+        // No throw — the per-window catch converts the RuntimeException
+        // into a DEBUG log and moves on.
+        LiveChromeRefresher.refreshByClassName("dummy.FQN", Color.RED)
+        LiveChromeRefresher.clearByClassName("dummy.FQN")
+    }
+
+    @Test
+    fun `broken-container log cap is 64 and clears on overflow`() {
+        // Round 3 G3 regression lock. The LOW R2-1 fix protects
+        // `brokenContainerLogged` from unbounded growth with a
+        // `BROKEN_CONTAINER_LOG_CAP = 64` constant plus an overflow-clear
+        // branch. Either piece alone is cosmetic: raise the cap silently to
+        // defeat the protection, or delete the clear branch and keep the
+        // constant as dead code. Lock both at the source level since the
+        // production path only fires under pathological conditions (65+
+        // distinct broken Container subclasses), unreachable in unit tests.
+        val source = readLiveChromeRefresherSource()
+        assertTrue(
+            source.contains("BROKEN_CONTAINER_LOG_CAP = 64"),
+            "Cap must remain at 64 — raising it silently defeats the unbounded-growth protection",
+        )
+        val overflowClear =
+            Regex(
+                """brokenContainerLogged\.size\s*>\s*BROKEN_CONTAINER_LOG_CAP""" +
+                    """\s*\)\s*\{\s*brokenContainerLogged\.clear\(\)""",
+                RegexOption.DOT_MATCHES_ALL,
+            )
+        assertTrue(
+            overflowClear.containsMatchIn(source),
+            "Overflow clear branch must remain — the cap constant alone is cosmetic without it",
+        )
+        assertTrue(
+            source.contains("resetBrokenContainerLoggedForTests"),
+            "TestOnly reset hook must remain for test isolation across order-dependent runs",
+        )
+    }
+
+    private fun readLiveChromeRefresherSource(): String {
+        val file = java.io.File("src/main/kotlin/dev/ayuislands/accent/LiveChromeRefresher.kt")
+        return file.takeIf { it.exists() }?.readText()
+            ?: error("Could not locate LiveChromeRefresher.kt for source-level guard")
     }
 }

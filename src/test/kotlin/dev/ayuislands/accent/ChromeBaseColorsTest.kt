@@ -1,5 +1,6 @@
 package dev.ayuislands.accent
 
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.util.messages.MessageBus
@@ -36,7 +37,11 @@ class ChromeBaseColorsTest {
         val connection = mockk<MessageBusConnection>(relaxed = true)
         every { ApplicationManager.getApplication() } returns app
         every { app.messageBus } returns bus
+        // ChromeBaseColors now anchors its MessageBusConnection to the Application
+        // Disposable (Phase 40 Round 3 C-4), so the mock must match `connect(app)`
+        // as well as the bare `connect()` overload to stay forward-compatible.
         every { bus.connect() } returns connection
+        every { bus.connect(any<Disposable>()) } returns connection
         every { connection.subscribe(any(), any()) } returns Unit
 
         mockkStatic(UIManager::class)
@@ -103,6 +108,50 @@ class ChromeBaseColorsTest {
 
         // UIManager starts serving the key. No refresh required.
         every { UIManager.getColor("Lazy.key") } returns Color.RED
+        assertEquals(Color.RED, ChromeBaseColors.get("Lazy.key"))
+    }
+
+    // --- Round 3 hotfix regression tests (C5, C6) ---
+    //
+    // C5 locks that repeated `get` calls for a key UIManager does not serve
+    // stay silent after the first miss — the `missingKeyLogged` latch gate
+    // introduced in Round 3 C-3 must consistently return null for every
+    // follow-up read without flipping into a cached state.
+    //
+    // C6 locks the "clear latch BEFORE snapshot" ordering from Round 1
+    // MEDIUM-2 / Round 3 C-3: after `refresh()`, the next `get` must capture
+    // the current UIManager value (including a newly-populated key) AND
+    // subsequent `get` calls must return that same cached snapshot even if
+    // UIManager mutates afterwards.
+
+    @Test
+    fun `get returns null consistently across repeated calls on a missing key`() {
+        // UIManager returns null for "Missing.key" — see setUp. Repeated
+        // reads must all return null without caching any sentinel.
+        assertNull(ChromeBaseColors.get("Missing.key"))
+        assertNull(ChromeBaseColors.get("Missing.key"))
+        assertNull(ChromeBaseColors.get("Missing.key"))
+    }
+
+    @Test
+    fun `refresh clears the missing-key latch so a newly-populated key is picked up`() {
+        // UIManager starts with no entry for Lazy.key.
+        every { UIManager.getColor("Lazy.key") } returns null
+        assertNull(ChromeBaseColors.get("Lazy.key"))
+
+        // Clear the latch + snapshot. Now UIManager is populated.
+        ChromeBaseColors.refresh()
+        every { UIManager.getColor("Lazy.key") } returns Color.RED
+
+        val captured = ChromeBaseColors.get("Lazy.key")
+        assertEquals(Color.RED, captured)
+
+        // Snapshot invariant: once captured, a later UIManager mutation
+        // must NOT bleed through. This locks the "latch cleared before
+        // snapshot" ordering — refresh must first drop the latch, then
+        // drop the snapshot, so the next get re-captures from UIManager
+        // and the cache freezes that value for subsequent reads.
+        every { UIManager.getColor("Lazy.key") } returns Color.BLUE
         assertEquals(Color.RED, ChromeBaseColors.get("Lazy.key"))
     }
 

@@ -4,10 +4,12 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.wm.WindowManager
+import org.jetbrains.annotations.TestOnly
 import java.awt.Color
 import java.awt.Component
 import java.awt.Container
 import java.awt.Window
+import java.util.concurrent.ConcurrentHashMap
 import javax.swing.JComponent
 
 /**
@@ -34,6 +36,39 @@ import javax.swing.JComponent
  */
 internal object LiveChromeRefresher {
     private val log = Logger.getInstance(LiveChromeRefresher::class.java)
+
+    /**
+     * Set of Container class names that have already produced a WARN for a
+     * `.components` read failure. Subsequent failures on the same class drop to
+     * DEBUG to avoid log spam, but the first occurrence per container class is
+     * loud because it almost always indicates a broken custom `Container`
+     * override in a third-party plugin — reportable, not just defensive. See
+     * Phase 40 review-loop Round 1 MEDIUM-1 and Round 2 LOW R2-1.
+     *
+     * Capped at [BROKEN_CONTAINER_LOG_CAP] entries so a pathological IDE
+     * session (1000+ transient Container subclasses all throwing) cannot let
+     * the set grow unbounded; on overflow the latch resets and the next
+     * encounter of any class re-logs at WARN.
+     */
+    private val brokenContainerLogged: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    /**
+     * Upper bound on [brokenContainerLogged]. A typical IDE session sees
+     * ~5-10 distinct Container subclasses; 64 leaves plenty of headroom before
+     * the cap triggers.
+     */
+    private const val BROKEN_CONTAINER_LOG_CAP = 64
+
+    /**
+     * Test-only reset for [brokenContainerLogged]. `ChromeBaseColors` clears
+     * its sibling latch via `refresh()` (LAF-driven), but there is no
+     * equivalent trigger for a per-session container latch in production, so
+     * tests use this hook to isolate order-dependent assertions.
+     */
+    @TestOnly
+    internal fun resetBrokenContainerLoggedForTests() {
+        brokenContainerLogged.clear()
+    }
 
     // --- StatusBar (resolvable via public WindowManager API) ---
 
@@ -74,15 +109,11 @@ internal object LiveChromeRefresher {
         classNameFqn: String,
         color: Color,
     ) {
-        for (window in Window.getWindows()) {
-            refreshOnTree(window, classNameFqn, color)
-        }
+        forEachShowingWindow { refreshOnTree(it, classNameFqn, color) }
     }
 
     fun clearByClassName(classNameFqn: String) {
-        for (window in Window.getWindows()) {
-            clearOnTree(window, classNameFqn)
-        }
+        forEachShowingWindow { clearOnTree(it, classNameFqn) }
     }
 
     /**
@@ -98,9 +129,7 @@ internal object LiveChromeRefresher {
         ancestorFqn: String,
         color: Color,
     ) {
-        for (window in Window.getWindows()) {
-            refreshOnTreeInsideAncestor(window, targetFqn, ancestorFqn, color)
-        }
+        forEachShowingWindow { refreshOnTreeInsideAncestor(it, targetFqn, ancestorFqn, color) }
     }
 
     /** Mirror of [refreshByClassNameInsideAncestorClass] for the revert path. */
@@ -108,8 +137,39 @@ internal object LiveChromeRefresher {
         targetFqn: String,
         ancestorFqn: String,
     ) {
-        for (window in Window.getWindows()) {
-            clearOnTreeInsideAncestor(window, targetFqn, ancestorFqn)
+        forEachShowingWindow { clearOnTreeInsideAncestor(it, targetFqn, ancestorFqn) }
+    }
+
+    /**
+     * Iterates top-level windows, skipping ones that are not [Window.isShowing] (disposed,
+     * hidden, pooled popups) and isolating per-window failures so one flaky peer doesn't
+     * abort chrome apply for the rest of the desktop. See Phase 40 review Round 3 C-1, C-2.
+     *
+     * Catches [RuntimeException] rather than using `runCatching` (which would also
+     * swallow [Error] — [OutOfMemoryError], [StackOverflowError]) so catastrophic JVM
+     * failures still propagate and don't get quietly logged at DEBUG. The Swing /
+     * AWT peer surface only throws [RuntimeException] subtypes (NPE on disposed peer,
+     * ClassCast on reflective match, IllegalState on detached frame), so narrowing
+     * the catch here also satisfies detekt's TooGenericExceptionCaught.
+     */
+    private inline fun forEachShowingWindow(action: (Window) -> Unit) {
+        val windows =
+            try {
+                Window.getWindows()
+            } catch (exception: RuntimeException) {
+                log.warn(
+                    "Live refresh could not enumerate AWT windows; skipping pass",
+                    exception,
+                )
+                return
+            }
+        for (window in windows) {
+            if (!window.isShowing) continue
+            try {
+                action(window)
+            } catch (exception: RuntimeException) {
+                log.debug("Live refresh skipped for ${window.javaClass.simpleName}", exception)
+            }
         }
     }
 
@@ -195,15 +255,65 @@ internal object LiveChromeRefresher {
         return false
     }
 
+    /**
+     * Recursively walks [component] and its descendants, invoking [visit] per node.
+     * Each visit is isolated so a single flaky peer (mid-dispose, ClassCast on
+     * reflective match, NPE inside repaint) doesn't abort the rest of the tree;
+     * see Phase 40 review Round 3 C-1. Catches [RuntimeException] rather than
+     * [Throwable] so [Error]s ([OutOfMemoryError], [StackOverflowError]) still
+     * propagate instead of being silently swallowed at DEBUG, and narrower than
+     * [Exception] so detekt's TooGenericExceptionCaught stays happy — the Swing
+     * peer surface only throws [RuntimeException] subtypes anyway.
+     */
     private fun walk(
         component: Component,
         visit: (Component) -> Unit,
     ) {
-        visit(component)
+        try {
+            visit(component)
+        } catch (exception: RuntimeException) {
+            log.debug("Live refresh visit failed on ${component.javaClass.name}", exception)
+        }
         if (component is Container) {
-            for (child in component.components) {
+            val children =
+                try {
+                    component.components
+                } catch (exception: RuntimeException) {
+                    logBrokenContainer(component, exception)
+                    return
+                }
+            for (child in children) {
                 walk(child, visit)
             }
+        }
+    }
+
+    /**
+     * WARN on first encounter per container class, DEBUG thereafter. A throwing
+     * `Container.components` read is a reportable defect (likely a broken
+     * custom `Container` override in a third-party plugin) — the first
+     * occurrence must be loud; subsequent hits in the same session drop to
+     * DEBUG so the log doesn't flood. See Phase 40 review-loop Round 1 MEDIUM-1.
+     */
+    private fun logBrokenContainer(
+        component: Container,
+        exception: RuntimeException,
+    ) {
+        val className = component.javaClass.name
+        if (brokenContainerLogged.add(className)) {
+            log.warn(
+                "Live refresh could not read children of $className — " +
+                    "subtree will be skipped every apply; further hits log at DEBUG",
+                exception,
+            )
+        } else {
+            log.debug("Live refresh could not read children of $className", exception)
+        }
+        // Round 2 LOW R2-1: cap the set so a pathological session can't leak.
+        // On overflow we clear and the next encounter re-warns — acceptable
+        // trade-off vs unbounded memory growth.
+        if (brokenContainerLogged.size > BROKEN_CONTAINER_LOG_CAP) {
+            brokenContainerLogged.clear()
         }
     }
 

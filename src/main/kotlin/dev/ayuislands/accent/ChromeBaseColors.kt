@@ -30,6 +30,15 @@ object ChromeBaseColors {
     private val log = logger<ChromeBaseColors>()
     private val snapshot = ConcurrentHashMap<String, Color>()
 
+    /**
+     * Set of keys we've already logged a "UIManager has no entry" warning for.
+     * Cleared alongside [snapshot] on LAF refresh so a key that drops between themes
+     * gets its own fresh warning. Backed by `ConcurrentHashMap.newKeySet()` so
+     * `.add(key)` returns the log-once gate in a single atomic step. See Phase 40
+     * review Round 3 C-3 and Round 1 loop type-design finding.
+     */
+    private val missingKeyLogged: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
     init {
         // Tests that exercise ChromeBaseColors without an IDE container (no
         // MessageBus) swallow the subscription throw silently — the snapshot
@@ -39,10 +48,14 @@ object ChromeBaseColors {
         // changing theme. Log at WARN so the "chrome tints look stale after
         // theme change" report has a trace in idea.log.
         runCatching {
-            ApplicationManager
-                .getApplication()
+            val application = ApplicationManager.getApplication()
+            application
                 .messageBus
-                .connect()
+                // Anchor the subscription to the Application Disposable so the
+                // connection is disposed on plugin / application shutdown instead
+                // of leaking across dynamic plugin reloads. See Phase 40 review
+                // Round 3 C-4.
+                .connect(application)
                 .subscribe(LafManagerListener.TOPIC, LafManagerListener { refresh() })
         }.onFailure { exception ->
             log.warn(
@@ -56,11 +69,25 @@ object ChromeBaseColors {
      * Returns the stock color for [key] — captured the first time this method is
      * called (and every subsequent call returns the same value until the next
      * LAF change). Returns `null` if UIManager has no entry for [key] at capture
-     * time; callers fall back to their own default.
+     * time; callers fall back to their own default, and the first miss per key
+     * is logged at WARN so user-submitted idea.log captures which chrome surface
+     * silently skipped tint.
      */
     fun get(key: String): Color? {
         snapshot[key]?.let { return it }
-        val current = UIManager.getColor(key) ?: return null
+        val current = UIManager.getColor(key)
+        if (current == null) {
+            // `Set.add` returns `true` iff the element was newly inserted — that is
+            // exactly the log-once gate, in a single atomic step.
+            if (missingKeyLogged.add(key)) {
+                log.warn(
+                    "ChromeBaseColors: UIManager has no entry for '$key' — " +
+                        "chrome surface using this key will skip tint until " +
+                        "the next LAF event populates it",
+                )
+            }
+            return null
+        }
         // Retain first captured value even under concurrent first access.
         return snapshot.putIfAbsent(key, current) ?: current
     }
@@ -68,8 +95,24 @@ object ChromeBaseColors {
     /**
      * Clears the snapshot so the next `get` call re-captures from UIManager.
      * Invoked by the LAF listener; exposed for tests.
+     *
+     * Ordering note (Phase 40 review-loop Round 1 MEDIUM-2 / Round 2 S-2):
+     * the latch is cleared BEFORE the snapshot so a racing `get(key)` between
+     * the two clears cannot see a cleared snapshot with a stale latch still
+     * full (which would silence a WARN the new LAF cycle should emit). A
+     * symmetric residual race exists where a concurrent `get()` right after
+     * latch-clear re-populates the latch before snapshot-clear runs — the
+     * WARN still fires, it is just attributed to a cycle boundary that the
+     * reader happened to cross. Documented here rather than guarded with a
+     * lock because `refresh()` fires on EDT via the LAF listener and the
+     * cost of a briefly-skipped WARN line does not justify the synchronization.
      */
     fun refresh() {
+        // Clear the latch BEFORE the snapshot so a racing `get(key)` between the
+        // two clears cannot see a cleared snapshot with a stale latch still full
+        // (which would silence a WARN that the new LAF cycle should emit). See
+        // Phase 40 Round 1 review loop MEDIUM-2.
+        missingKeyLogged.clear()
         snapshot.clear()
     }
 }
