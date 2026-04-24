@@ -19,11 +19,14 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.Color
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.UIManager
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 /**
  * Tests for [ToolWindowStripeElement] — CHROME-03.
@@ -48,6 +51,10 @@ class ToolWindowStripeElementTest {
 
     @BeforeTest
     fun setUp() {
+        // Phase 40.2 M-3: reset the companion `firstApplyLogged` gate so first-apply
+        // diagnostic assertions are reachable regardless of ordering.
+        resetFirstApplyLoggedGate()
+
         mockkStatic(UIManager::class)
         every { UIManager.put(any<String>(), any()) } returns Unit
 
@@ -226,5 +233,53 @@ class ToolWindowStripeElementTest {
         val expectedTarget = ChromeTarget.ByClassName(ClassFqn.require("com.intellij.toolWindow.Stripe"))
         verify(exactly = 1) { LiveChromeRefresher.clear(expectedTarget) }
         verify(exactly = 0) { LiveChromeRefresher.refresh(any(), any()) }
+    }
+
+    @Test
+    fun `first apply flips the Phase 40-2 M-3 diagnostic gate to true`() {
+        // Phase 40.2 M-3 contract: the one-shot diagnostic gate stays false until
+        // the first apply() invocation — exactly when LOG.info fires with the
+        // `ToolWindowStripeElement first apply: keysSeen=...` line. If the
+        // `onBackgroundsTinted` override is deleted, the gate stays false and
+        // this test fails.
+        mockState.chromeTintIntensity = 30
+        assertFalse(readFirstApplyLoggedGate(), "gate must be reset before apply runs")
+
+        ToolWindowStripeElement().apply(testAccent)
+
+        assertTrue(
+            readFirstApplyLoggedGate(),
+            "onBackgroundsTinted must flip firstApplyLogged to true on first apply " +
+                "(Phase 40.2 M-3 diagnostic log)",
+        )
+    }
+
+    @Test
+    fun `second apply keeps the diagnostic gate true — one-shot contract`() {
+        mockState.chromeTintIntensity = 30
+
+        val element = ToolWindowStripeElement()
+        element.apply(testAccent)
+        assertTrue(readFirstApplyLoggedGate(), "gate must be true after first apply")
+
+        element.apply(testAccent)
+        assertTrue(
+            readFirstApplyLoggedGate(),
+            "gate must remain true on subsequent apply calls (one-shot contract)",
+        )
+    }
+
+    private fun readFirstApplyLoggedGate(): Boolean = firstApplyLoggedField().get()
+
+    private fun resetFirstApplyLoggedGate() {
+        firstApplyLoggedField().set(false)
+    }
+
+    private fun firstApplyLoggedField(): AtomicBoolean {
+        // Private companion `val` compiles to a private static field on the
+        // outer class. See `javap -p ToolWindowStripeElement.class`.
+        val field = ToolWindowStripeElement::class.java.getDeclaredField("firstApplyLogged")
+        field.isAccessible = true
+        return field.get(null) as AtomicBoolean
     }
 }

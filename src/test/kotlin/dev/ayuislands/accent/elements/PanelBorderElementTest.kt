@@ -20,6 +20,7 @@ import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.Color
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.UIManager
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -47,6 +48,11 @@ class PanelBorderElementTest {
 
     @BeforeTest
     fun setUp() {
+        // Phase 40.2 M-3: the companion `firstApplyLogged` gate is session-global
+        // across every PanelBorderElement instance and test. Reset it per test so
+        // first-apply diagnostic assertions are reachable regardless of ordering.
+        resetFirstApplyLoggedGate()
+
         mockkStatic(ApplicationManager::class)
         every { ApplicationManager.getApplication() } returns mockApplication
 
@@ -212,5 +218,57 @@ class PanelBorderElementTest {
             )
         verify(exactly = 1) { LiveChromeRefresher.clear(expectedTarget) }
         verify(exactly = 0) { LiveChromeRefresher.refresh(any(), any()) }
+    }
+
+    @Test
+    fun `first apply flips the Phase 40-2 M-3 diagnostic gate to true`() {
+        // Phase 40.2 M-3 contract: the one-shot diagnostic gate stays false until
+        // the first apply() invocation — exactly when LOG.info fires with the
+        // `PanelBorderElement first apply: keysSeen=...` line. Resetting the
+        // gate in setUp lets this assertion observe the transition. If the
+        // `onBackgroundsTinted` override is deleted, the gate stays false and
+        // this test fails.
+        state.chromeTintIntensity = 30
+        assertFalse(readFirstApplyLoggedGate(), "gate must be reset before apply runs")
+
+        PanelBorderElement().apply(accent)
+
+        assertTrue(
+            readFirstApplyLoggedGate(),
+            "onBackgroundsTinted must flip firstApplyLogged to true on first apply " +
+                "(Phase 40.2 M-3 diagnostic log)",
+        )
+    }
+
+    @Test
+    fun `second apply keeps the diagnostic gate true — one-shot contract`() {
+        // Companion to the test above: once set, the gate stays set across
+        // subsequent apply() calls. The one-shot contract guarantees the
+        // diagnostic line appears at most once per session per element.
+        state.chromeTintIntensity = 30
+
+        val element = PanelBorderElement()
+        element.apply(accent)
+        assertTrue(readFirstApplyLoggedGate(), "gate must be true after first apply")
+
+        element.apply(accent)
+        assertTrue(
+            readFirstApplyLoggedGate(),
+            "gate must remain true on subsequent apply calls (one-shot contract)",
+        )
+    }
+
+    private fun readFirstApplyLoggedGate(): Boolean = firstApplyLoggedField().get()
+
+    private fun resetFirstApplyLoggedGate() {
+        firstApplyLoggedField().set(false)
+    }
+
+    private fun firstApplyLoggedField(): AtomicBoolean {
+        // Private companion `val` compiles to a private static field on the
+        // outer class. See `javap -p PanelBorderElement.class`.
+        val field = PanelBorderElement::class.java.getDeclaredField("firstApplyLogged")
+        field.isAccessible = true
+        return field.get(null) as AtomicBoolean
     }
 }

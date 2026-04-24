@@ -265,6 +265,41 @@ class AyuIslandsStartupActivityTest {
     }
 
     @Test
+    fun `install failure short-circuits before notifyExternalApply`() {
+        // TEST-IMPORTANT-3 regression lock: when `swapService.install()` fails,
+        // `installed` is false and the function MUST `return@withContext` before
+        // `swapService.notifyExternalApply(...)` executes. Behavioural form is
+        // impossible here (runStartupAccentOnEdt is a private suspend fun that
+        // touches Dispatchers.EDT + IntelliJ platform singletons — there is no
+        // test seam that exercises it in a unit harness). The contract is locked
+        // source-structurally: the `if (!installed) return@withContext` guard
+        // must sit between the install block's `.isSuccess` suffix and the
+        // notifyExternalApply call site. Removing or reordering that guard
+        // collapses HIGH R2-1 and reintroduces the bug where a failed install
+        // would still publish to the swap cache.
+        val source = readStartupActivitySource()
+        val guardBeforeNotify =
+            Regex(
+                """swapService\.install\(\)[^}]*\}\s*(\.onFailure\s*\{[^}]*\}\s*)?\.isSuccess""" +
+                    """\s*if\s*\(\s*!\s*installed\s*\)\s*return@withContext""" +
+                    """.*?swapService\.notifyExternalApply\(""",
+                RegexOption.DOT_MATCHES_ALL,
+            )
+        assertTrue(
+            guardBeforeNotify.containsMatchIn(source),
+            "install() failure path must `return@withContext` BEFORE notifyExternalApply " +
+                "runs — HIGH R2-1 contract",
+        )
+        // Belt-and-braces: the failure log text is specific, so lock on it too.
+        assertTrue(
+            source.contains(
+                "Startup accent-swap install failed for project",
+            ),
+            "install-failure ERROR message must remain to distinguish install-fail from apply-fail",
+        )
+    }
+
+    @Test
     fun `startup helper WARNs when applyFromHexString rejects hex as a defensive branch`() {
         // Round 3 G2 regression lock, updated for Phase 40.4 HIGH-1:
         // `applyFromHexString` returns Boolean (false = rejected); when rejected,
