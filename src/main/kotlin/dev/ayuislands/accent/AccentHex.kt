@@ -16,7 +16,7 @@ import java.awt.Color
  * painted frame.
  *
  * Lifting the validation into the type means [AccentHex] can only be
- * constructed through [of] (validated) or [ofTrusted] (explicit trust for
+ * constructed through [of] (validated) or [unsafeOf] (explicit trust for
  * compile-time literals like [AyuVariant.defaultAccent] / [AccentColor.hex]).
  * The applicator's [toColor] is then total: there is no way to build an
  * `AccentHex` whose [value] fails `Color.decode`.
@@ -67,11 +67,13 @@ value class AccentHex private constructor(
         fun require(raw: String?): AccentHex = of(raw) ?: error("Invalid accent hex: '$raw' (expected #RRGGBB)")
 
         /**
-         * Wraps a known-good literal (e.g. [AyuVariant.defaultAccent] or
-         * an entry from [AYU_ACCENT_PRESETS]) without re-running validation.
-         * Callers assert the input is a compile-time constant `#RRGGBB` —
-         * use [of] for any runtime-sourced value.
+         * Escape-hatch wrapper for known-good literals (e.g. [AyuVariant.defaultAccent]
+         * or an entry from `AYU_ACCENT_PRESETS`). Skips validation — callers
+         * assert the input is a compile-time constant `#RRGGBB`. Prefixed
+         * `unsafe` per the Kotlin convention (`unsafeCast`, `unsafeLazy`) so
+         * IDE completion warns readers this is a bypass, not a sibling of [of].
+         * Use [of] for any runtime-sourced value.
          */
-        fun ofTrusted(raw: String): AccentHex = AccentHex(raw.trim())
+        fun unsafeOf(raw: String): AccentHex = AccentHex(raw.trim())
     }
 }

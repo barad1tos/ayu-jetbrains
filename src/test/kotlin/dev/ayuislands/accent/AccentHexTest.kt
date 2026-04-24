@@ -102,13 +102,15 @@ class AccentHexTest {
     }
 
     @Test
-    fun `ofTrusted wraps without validation for compile-time literals`() {
-        // ofTrusted is the explicit-trust escape hatch for constants like
+    fun `unsafeOf wraps without validation for compile-time literals`() {
+        // unsafeOf is the explicit-trust escape hatch for constants like
         // AyuVariant.defaultAccent. Its contract is "the caller has proven
         // the input is well-formed" — validation cost would be redundant.
         // We still trim() so an accidental whitespace-padded literal in
-        // source code doesn't leak past the type boundary.
-        val result = AccentHex.ofTrusted("  #FFCC66  ")
+        // source code doesn't leak past the type boundary. The `unsafe`
+        // prefix follows the Kotlin convention so IDE completion warns
+        // readers this is a bypass, not a sibling of `of`.
+        val result = AccentHex.unsafeOf("  #FFCC66  ")
         assertEquals("#FFCC66", result.value)
     }
 
@@ -124,7 +126,7 @@ class AccentHexTest {
     @Test
     fun `toColor on every Ayu preset produces a non-null Color`() {
         // Regression guard: the canonical preset list feeds the applicator
-        // via AccentColor.hex → AccentHex.ofTrusted(...). If any preset
+        // via AccentColor.hex → AccentHex.unsafeOf(...). If any preset
         // string drifts out of #RRGGBB form, this test catches it before
         // the applicator throws on the first painted frame.
         for (preset in AYU_ACCENT_PRESETS) {
