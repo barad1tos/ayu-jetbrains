@@ -8,17 +8,23 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
- * D-14 symmetry gate — locks the invariant that every chrome element file wires
- * BOTH a [dev.ayuislands.accent.LiveChromeRefresher] refresh call (in `apply`) AND
- * a matching clear call (in `revert`).
+ * D-14 symmetry gate — locks the invariant that every chrome element has a
+ * declared [dev.ayuislands.accent.ChromeTarget] `peerTarget`, and that the
+ * base [AbstractChromeElement] dispatches both refresh (in `apply`) and clear
+ * (in `revert`) for every ChromeTarget variant.
  *
- * Reads element source files as text and asserts the ratio refresh-to-clear. A
- * file with a refresh but no clear is a D-14 violation (stale explicit background
- * lingers on the peer after revert; user cannot turn off chrome tinting without
- * an IDE restart).
+ * Phase 40.3c Refactor 1 moved the per-element `LiveChromeRefresher.refresh*` /
+ * `clear*` calls into [AbstractChromeElement] — the subclasses now declare
+ * `peerTarget` and the base handles both sides of the symmetry. The invariant
+ * therefore splits in two:
  *
- * Comments are stripped so KDoc that documents the pattern doesn't false-pass a
- * regression where the actual call site was deleted.
+ *   1. Each element subclass declares a non-null `peerTarget` (else its peer
+ *      would never be mutated on apply, a Gap-4 regression).
+ *   2. The base class wires refresh + clear for every ChromeTarget variant
+ *      (StatusBar, ByClassName, ByClassNameInside) — a missing arm would leak
+ *      an explicit background color on the peer.
+ *
+ * Comments are stripped so KDoc that documents the pattern doesn't false-pass.
  */
 class ChromeLiveRefreshSymmetryTest {
     private val elementFiles =
@@ -31,45 +37,63 @@ class ChromeLiveRefreshSymmetryTest {
         )
 
     @Test
-    fun `every chrome element has at least one LiveChromeRefresher refresh invocation`() {
+    fun `every chrome element declares a ChromeTarget peerTarget`() {
         for (name in elementFiles) {
             val source = readStripped(name)
-            val refreshCount = refreshCallCount(source)
             assertTrue(
-                refreshCount >= 1,
-                "$name must wire at least one LiveChromeRefresher.refresh* call " +
-                    "in apply() (Gap 4). Found: $refreshCount",
+                Regex("""override\s+val\s+peerTarget""").containsMatchIn(source),
+                "$name must override `peerTarget` so the base class (AbstractChromeElement) " +
+                    "can dispatch the live peer refresh (Gap 4).",
+            )
+            assertTrue(
+                source.contains("ChromeTarget."),
+                "$name must reference a ChromeTarget variant (StatusBar / ByClassName / " +
+                    "ByClassNameInside) in its peerTarget declaration.",
             )
         }
     }
 
     @Test
-    fun `every chrome element has at least one LiveChromeRefresher clear invocation`() {
-        for (name in elementFiles) {
-            val source = readStripped(name)
-            val clearCount = clearCallCount(source)
+    fun `base AbstractChromeElement wires refresh and clear for every ChromeTarget variant`() {
+        val source = readAbstractBaseStripped()
+        val refreshRoutes =
+            listOf(
+                "LiveChromeRefresher.refreshStatusBar",
+                "LiveChromeRefresher.refreshByClassName",
+                "LiveChromeRefresher.refreshByClassNameInsideAncestorClass",
+            )
+        val clearRoutes =
+            listOf(
+                "LiveChromeRefresher.clearStatusBar",
+                "LiveChromeRefresher.clearByClassName",
+                "LiveChromeRefresher.clearByClassNameInsideAncestorClass",
+            )
+        for (entry in refreshRoutes) {
             assertTrue(
-                clearCount >= 1,
-                "$name must wire at least one LiveChromeRefresher.clear* call " +
-                    "in revert() (D-14 symmetry). Found: $clearCount",
+                source.contains(entry),
+                "AbstractChromeElement must wire $entry for its matching ChromeTarget variant.",
+            )
+        }
+        for (entry in clearRoutes) {
+            assertTrue(
+                source.contains(entry),
+                "AbstractChromeElement must wire $entry for D-14 symmetry on its matching " +
+                    "ChromeTarget variant.",
             )
         }
     }
 
     @Test
-    fun `every refresh invocation is paired with a matching clear in the same file`() {
-        for (name in elementFiles) {
-            val source = readStripped(name)
-            val refreshCount = refreshCallCount(source)
-            val clearCount = clearCallCount(source)
-            if (refreshCount != clearCount) {
-                fail(
-                    "$name has asymmetric LiveChromeRefresher wiring — " +
-                        "refresh=$refreshCount clear=$clearCount. " +
-                        "D-14 requires every refresh to have a matching clear so revert " +
-                        "hands the peer back to the LAF default.",
-                )
-            }
+    fun `base AbstractChromeElement refresh and clear routes are balanced`() {
+        val source = readAbstractBaseStripped()
+        val refreshCount = refreshCallCount(source)
+        val clearCount = clearCallCount(source)
+        if (refreshCount != clearCount) {
+            fail(
+                "AbstractChromeElement has asymmetric LiveChromeRefresher wiring — " +
+                    "refresh=$refreshCount clear=$clearCount. D-14 requires every refresh " +
+                    "to have a matching clear so revert hands the peer back to the LAF default.",
+            )
         }
     }
 
@@ -88,6 +112,8 @@ class ChromeLiveRefreshSymmetryTest {
             )
         return stripComments(Files.readString(path))
     }
+
+    private fun readAbstractBaseStripped(): String = readStripped("AbstractChromeElement")
 
     /** Strips `/* ... */` and `// ...` so KDoc mentioning banned/expected patterns can't swing the count. */
     private fun stripComments(input: String): String {

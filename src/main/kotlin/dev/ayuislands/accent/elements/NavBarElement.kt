@@ -1,70 +1,43 @@
 package dev.ayuislands.accent.elements
 
-import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
-import dev.ayuislands.accent.ChromeBaseColors
-import dev.ayuislands.accent.ChromeTintBlender
-import dev.ayuislands.accent.ClassFqn
-import dev.ayuislands.accent.LiveChromeRefresher
+import dev.ayuislands.accent.ChromeTarget
 import dev.ayuislands.accent.WcagForeground
-import dev.ayuislands.settings.AyuIslandsSettings
-import java.awt.Color
-import javax.swing.UIManager
 
 /**
  * Tints the Navigation Bar per CHROME-04.
  *
+ * Phase 40.3c Refactor 1: migrated to [AbstractChromeElement]. Subclass declares only
+ * the key lists + peer target; the base handles apply/revert.
+ *
  * Writes WCAG-picked foregrounds to `NavBar.foreground` +
  * `NavBar.selectedItemForeground` — closes VERIFICATION Gap 2 (navbar
  * breadcrumb text was unreadable at saturated accents + intensity >= 40%).
- * Intensity is read directly from [AyuIslandsSettings.state] per CONTEXT D-03.
+ * Intensity is read directly from [dev.ayuislands.settings.AyuIslandsSettings.state]
+ * per CONTEXT D-03.
  *
  * `revert()` nulls every touched key unconditionally so the LAF re-resolves
  * the stock theme value — CHROME-08 symmetry across bg + fg.
  */
-class NavBarElement : AccentElement {
+class NavBarElement : AbstractChromeElement() {
     override val id = AccentElementId.NAV_BAR
     override val displayName = "Navigation bar"
 
-    private val backgroundKeys =
+    override val backgroundKeys =
         listOf(
             "NavBar.background",
             "NavBar.borderColor",
         )
 
-    private val foregroundKeys =
+    override val foregroundKeys =
         listOf(
             "NavBar.foreground",
             "NavBar.selectedItemForeground",
         )
 
-    override fun apply(color: Color) {
-        val intensity = AyuIslandsSettings.getInstance().state.effectiveChromeTintIntensity()
-        var tintedBackground: Color? = null
-        for (key in backgroundKeys) {
-            val baseColor = ChromeBaseColors.get(key) ?: continue
-            val tinted = ChromeTintBlender.blend(color, baseColor, intensity)
-            UIManager.put(key, tinted)
-            if (key == "NavBar.background") tintedBackground = tinted
-        }
-        if (tintedBackground != null) {
-            val contrast =
-                WcagForeground.pickForeground(tintedBackground, WcagForeground.TextTarget.PRIMARY_TEXT)
-            for (key in foregroundKeys) {
-                UIManager.put(key, contrast)
-            }
-        }
-        // Level 2 Gap-4: push tinted bg to the live MyNavBarWrapperPanel peer.
-        tintedBackground?.let { LiveChromeRefresher.refreshByClassName(ClassFqn.require(NAVBAR_PEER_CLASS), it) }
-    }
+    override val foregroundTextTarget = WcagForeground.TextTarget.PRIMARY_TEXT
 
-    override fun revert() {
-        for (key in backgroundKeys + foregroundKeys) {
-            UIManager.put(key, null)
-        }
-        // D-14 symmetry: hand the navbar peer back to LAF default.
-        LiveChromeRefresher.clearByClassName(ClassFqn.require(NAVBAR_PEER_CLASS))
-    }
+    override val peerTarget: ChromeTarget = ChromeTarget.ByClassName(classFqn(NAVBAR_PEER_CLASS))
 
     private companion object {
         /**
