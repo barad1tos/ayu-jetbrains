@@ -243,16 +243,19 @@ class ChromeDecorationsProbeTest {
     }
 
     @Test
-    fun `ChromeSupport Unsupported variants expose distinct reason strings`() {
-        // Regression guard: UI code maps reason strings into user-visible tooltips,
-        // so collisions would make the tooltip lie about which OS branch fired.
-        val reasons =
-            setOf(
-                ChromeSupport.Unsupported.NativeMacTitleBar.reason,
-                ChromeSupport.Unsupported.GnomeSsd.reason,
-                ChromeSupport.Unsupported.WindowsNoCustomHeader.reason,
-                ChromeSupport.Unsupported.UnknownOs.reason,
+    fun `ChromeSupport Unsupported variants are distinct object singletons`() {
+        // Regression guard: UI code pattern-matches on the subtype identity to
+        // render user-visible tooltips (see AyuIslandsChromePanel.disabledMainToolbarComment).
+        // If two variants collapsed into one object, the sealed `when` would silently
+        // stop covering the intended branch. Phase 40.4 R-3 lifted the display
+        // strings into the UI layer, so the probe-side invariant is subtype identity.
+        val variants =
+            setOf<ChromeSupport.Unsupported>(
+                ChromeSupport.Unsupported.NativeMacTitleBar,
+                ChromeSupport.Unsupported.GnomeSsd,
+                ChromeSupport.Unsupported.WindowsNoCustomHeader,
+                ChromeSupport.Unsupported.UnknownOs,
             )
-        assertEquals(4, reasons.size, "every Unsupported variant must have a unique reason string")
+        assertEquals(4, variants.size, "every Unsupported variant must be a distinct object")
     }
 }
