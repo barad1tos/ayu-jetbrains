@@ -102,11 +102,11 @@ class AyuIslandsLafListenerTest {
     @Test
     fun `lookAndFeelChanged invokes binder BEFORE AccentApplicator on Ayu variant`() {
         // Pattern G ordering lock — the load-bearing invariant the listener KDoc
-        // claims to defend. AccentApplicator mutates globalScheme in-place via
-        // applyAlwaysOnEditorKeys; the binder MUST swap globalScheme first so
-        // the mutation lands on the freshly-swapped Ayu scheme, not the prior
-        // (Default/Darcula/another-Ayu) scheme that would otherwise be left
-        // polluted with accent overrides forever.
+        // claims to defend. `AccentApplicator` mutates `globalScheme` in-place
+        // via `applyAlwaysOnEditorKeys`; the binder MUST swap `globalScheme`
+        // first so the mutation lands on the freshly-swapped Ayu scheme, not
+        // the prior (`Default` / `Darcula` / another-Ayu) scheme that would
+        // otherwise be left polluted with accent overrides forever.
         state.syncEditorScheme = true
         every { AyuVariant.detect() } returns AyuVariant.LIGHT
         val mockLafManager = mockk<LafManager>(relaxed = true)

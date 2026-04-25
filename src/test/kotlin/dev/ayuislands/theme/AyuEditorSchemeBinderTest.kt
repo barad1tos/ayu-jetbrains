@@ -21,8 +21,8 @@ import kotlin.test.assertTrue
  * Behavior coverage for [AyuEditorSchemeBinder]. The binder is invoked from
  * `AyuIslandsLafListener.lookAndFeelChanged` BEFORE
  * `AccentApplicator.applyForFocusedProject` so the scheme swap lands first
- * and AccentApplicator's in-place mutation targets the correct (Ayu) scheme
- * — restoring revertAll symmetry.
+ * and `AccentApplicator`'s in-place mutation targets the correct (Ayu)
+ * scheme — restoring `revertAll` symmetry.
  *
  * Pattern J — gates verified explicitly. Pattern G — apply path locked
  * (revert path is intentionally out of scope per binder KDoc).
