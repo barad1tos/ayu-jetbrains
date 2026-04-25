@@ -94,7 +94,7 @@ class GlowOverlayManager(
             return
         }
 
-        if (AyuVariant.detect() == null) {
+        if (!AyuVariant.isAyuActive()) {
             log.info("No Ayu variant detected, skipping glow initialization")
             return
         }

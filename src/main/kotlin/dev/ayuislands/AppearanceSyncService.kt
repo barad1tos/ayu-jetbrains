@@ -29,7 +29,7 @@ class AppearanceSyncService {
 
         // Skip when no Ayu theme is active — don't update the lastSyncedAppearance
         // so sync triggers immediately when an Ayu theme becomes active
-        if (AyuVariant.detect() == null) return
+        if (!AyuVariant.isAyuActive()) return
 
         val settings = AyuIslandsSettings.getInstance()
         val targetThemeName =
