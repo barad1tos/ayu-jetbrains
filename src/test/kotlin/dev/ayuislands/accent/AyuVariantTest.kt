@@ -146,6 +146,45 @@ class AyuVariantTest {
         assertNull(AyuVariant.detect())
     }
 
+    // D-01 — `isAyuActive()` is the canonical Pattern J lifecycle predicate every
+    // integration funnels through. These tests pin its behavior so a future agent
+    // who reroutes integrations through `AyuVariant.detect() != null` (the older
+    // shape) gets a named regression instead of silent drift.
+
+    @Test
+    fun `isAyuActive returns true when detect returns a variant`() {
+        val themeLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
+        every { themeLaf.name } returns "Ayu Mirage"
+        every { lafManager.currentUIThemeLookAndFeel } returns themeLaf
+
+        assertTrue(AyuVariant.isAyuActive())
+    }
+
+    @Test
+    fun `isAyuActive returns false when detect returns null`() {
+        val themeLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
+        every { themeLaf.name } returns "Darcula"
+        every { lafManager.currentUIThemeLookAndFeel } returns themeLaf
+
+        assertFalse(AyuVariant.isAyuActive())
+    }
+
+    @Test
+    fun `isAyuActive matches detect for every known Ayu theme name`() {
+        for (variant in AyuVariant.entries) {
+            for (name in variant.themeNames) {
+                val themeLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
+                every { themeLaf.name } returns name
+                every { lafManager.currentUIThemeLookAndFeel } returns themeLaf
+
+                assertTrue(
+                    AyuVariant.isAyuActive(),
+                    "isAyuActive should be true for '$name' -> ${variant.name}",
+                )
+            }
+        }
+    }
+
     @Test
     fun `isIslandsUi returns true for Islands UI theme`() {
         val themeLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)

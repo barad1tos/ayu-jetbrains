@@ -44,11 +44,19 @@ object IndentRainbowSync {
 
     /**
      * Syncs Indent Rainbow's custom palette to [accentHex] for the given [variant].
-     * The caller (typically [dev.ayuislands.accent.AccentApplicator.apply]) passes the
-     * resolved accent — the one that just went through per-project / per-language
-     * override resolution — so IR reflects the SAME color the rest of the plugin just
-     * applied, not the global accent stored in settings (which rotation mutates to a
-     * different value from what the focused project actually shows).
+     *
+     * Production callers (CA-I2, plan 40.1-02 review-loop):
+     *   - [dev.ayuislands.accent.AccentApplicator.apply] — full theme apply path,
+     *     fires once per accent change with the resolved hex.
+     *   - [dev.ayuislands.settings.mappings.ProjectAccentSwapService.handleWindowActivated]
+     *     — same-hex focus-swap fast path (D-07), pushes the per-project hex into IR's
+     *     app-scoped IrConfig so the newly-focused project's indent palette matches
+     *     the visible chrome without re-running the full apply.
+     *
+     * Both callers pass the resolved accent — the one that went through per-project /
+     * per-language override resolution — so IR reflects the SAME color the rest of
+     * the plugin just applied, not the global accent stored in settings (which
+     * rotation mutates to a different value from what the focused project shows).
      */
     fun apply(
         variant: AyuVariant,
@@ -100,6 +108,22 @@ object IndentRainbowSync {
         }
     }
 
+    /**
+     * Revert IR's `paletteType` to its DEFAULT enum value, flush IR's reflection
+     * cache. Idempotent. EDT-safe — `IrConfig` writes are unsynchronized but
+     * IR itself reads paletteType only from EDT during paint.
+     *
+     * Reachable from:
+     * - [apply] when `irIntegrationEnabled` becomes false (settings toggle)
+     * - [dev.ayuislands.accent.AccentApplicator.revertAll] on theme-switch /
+     *   license loss (Phase 40.1 D-04 wiring — cross-object caller)
+     *
+     * Does NOT clear `customPalette` — IR ignores it unless `paletteType == CUSTOM`.
+     * If the user manually flips `paletteType` back to CUSTOM while a non-Ayu
+     * theme is active, stale Ayu palette will render until the next [apply]
+     * overwrites it. Accepted degradation per Phase 40.1 CONTEXT §specifics —
+     * regression-locked by `IndentRainbowSyncTest.revert does not clear customPalette`.
+     */
     fun revert() {
         val resolved = resolveOrReturn() ?: return
         val defaultEnum = defaultEnumValue ?: return

@@ -23,6 +23,17 @@ enum class AyuVariant(
 
         fun detect(): AyuVariant? = fromThemeName(currentThemeName())
 
+        /**
+         * Canonical lifecycle predicate — every integration and revert path funnels
+         * through this helper instead of inlining `detect() != null`. Single grep
+         * target for "is the plugin's managed state authoritative right now" per
+         * RECURRING_PITFALLS Pattern J (lifecycle gating).
+         *
+         * Safe on and off EDT — delegates to [detect], which reads `LafManager`
+         * (a ServiceManager lookup + property read, thread-safe per IntelliJ docs).
+         */
+        fun isAyuActive(): Boolean = detect() != null
+
         fun isIslandsUi(): Boolean = currentThemeName().contains(ISLANDS_UI_SUFFIX)
     }
 }

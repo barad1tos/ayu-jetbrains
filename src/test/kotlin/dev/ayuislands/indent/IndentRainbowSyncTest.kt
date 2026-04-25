@@ -210,6 +210,40 @@ class IndentRainbowSyncTest {
     }
 
     @Test
+    fun `revert does not clear customPalette`() {
+        // V-IR-lock regression: revert resets `paletteType` to DEFAULT but MUST NOT
+        // touch `customPalette`. Per CONTEXT.md §specifics, IR ignores
+        // `customPalette` unless `paletteType == CUSTOM`, so leaving the stale Ayu
+        // palette string in the field is the accepted-degradation path. This test
+        // locks the decision — a future agent who "helpfully" clears customPalette
+        // (thinking they're tidying up) must update CONTEXT first.
+        val mockConfig = Any()
+        val mockPaletteTypeField = mockField()
+        val mockCustomPaletteField = mockField()
+        val mockUpdateMethod = mockMethod()
+        val mockRefreshMethod = mockMethod()
+        val mockCompanion = Any()
+        val mockColorsInstance = Any()
+
+        setPrivateField("methodsResolved", true)
+        setPrivateField("irConfig", mockConfig)
+        setPrivateField("paletteTypeField", mockPaletteTypeField)
+        setPrivateField("customPaletteField", mockCustomPaletteField)
+        setPrivateField("defaultEnumValue", "DEFAULT_ENUM")
+        setPrivateField("cachedDataUpdateMethod", mockUpdateMethod)
+        setPrivateField("cachedDataCompanion", mockCompanion)
+        setPrivateField("refreshMethod", mockRefreshMethod)
+        setPrivateField("irColorsInstance", mockColorsInstance)
+
+        IndentRainbowSync.revert()
+
+        // paletteType MUST be reset to DEFAULT (existing expectation reinforced).
+        verify { mockPaletteTypeField[mockConfig] = "DEFAULT_ENUM" }
+        // customPalette MUST be untouched (the new V-IR-lock regression).
+        verify(exactly = 0) { mockCustomPaletteField[any()] = any() }
+    }
+
+    @Test
     fun `apply with disabled integration reverts to DEFAULT`() {
         state.irIntegrationEnabled = false
 

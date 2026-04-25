@@ -158,31 +158,55 @@ class AccentApplicatorTest {
         invokePrivate("repaintAllWindows", windows)
     }
 
+    /**
+     * Plan 40.1-02 extracted the CGP reflection chain into peer object
+     * [CgpIntegration] to keep [AccentApplicator] under the detekt
+     * `TooManyFunctions` cap. The `cgp*` fields (`cgpService`, `cgpGetState`,
+     * the four `cgpSetViewport*` slots, `cgpMethodsResolved`) and the methods
+     * `syncCodeGlanceProViewport` / `resolveCgpMethods` now live on
+     * [CgpIntegration]; everything else stays on [AccentApplicator]. The
+     * helpers below dispatch by name so existing tests can keep their
+     * AccentApplicator-flavoured reflection without re-templating every
+     * `setPrivateField("cgpService", …)` callsite.
+     */
+    private fun ownerForName(name: String): Any =
+        if (name.startsWith("cgp") ||
+            name == "syncCodeGlanceProViewport" ||
+            name == "resolveCgpMethods"
+        ) {
+            CgpIntegration
+        } else {
+            AccentApplicator
+        }
+
     private fun invokePrivate(
         methodName: String,
         vararg args: Any,
     ) {
+        val owner = ownerForName(methodName)
         val method =
-            AccentApplicator::class.java.declaredMethods
+            owner.javaClass.declaredMethods
                 .first { it.name == methodName }
         method.isAccessible = true
-        method.invoke(AccentApplicator, *args)
+        method.invoke(owner, *args)
     }
 
     @Suppress("UNCHECKED_CAST")
     private fun <T> getPrivateField(fieldName: String): T {
-        val field = AccentApplicator::class.java.getDeclaredField(fieldName)
+        val owner = ownerForName(fieldName)
+        val field = owner.javaClass.getDeclaredField(fieldName)
         field.isAccessible = true
-        return field.get(AccentApplicator) as T
+        return field.get(owner) as T
     }
 
     private fun setPrivateField(
         fieldName: String,
         value: Any?,
     ) {
-        val field = AccentApplicator::class.java.getDeclaredField(fieldName)
+        val owner = ownerForName(fieldName)
+        val field = owner.javaClass.getDeclaredField(fieldName)
         field.isAccessible = true
-        field.set(AccentApplicator, value)
+        field.set(owner, value)
     }
 
     @Test
@@ -1743,84 +1767,68 @@ class AccentApplicatorTest {
         assertEquals(8, AccentApplicator.resolveUnderlineHeight(state))
     }
 
-    // applyTabUnderlineStyle tests
+    // applyTabUnderline tests (merged from applyTabUnderlineStyle +
+    // overrideTabUnderlineForOffMode in plan 40.1-02 review-loop to keep
+    // AccentApplicator under detekt's TooManyFunctions cap)
 
     @Test
-    fun `applyTabUnderlineStyle sets underline height and arc via UIManager`() {
+    fun `applyTabUnderline sets underline height and arc via UIManager`() {
         state.glowTabMode = "MINIMAL"
         state.tabUnderlineHeight = 4
         state.tabUnderlineGlowSync = false
 
-        val method =
-            AccentApplicator::class.java.getDeclaredMethod(
-                "applyTabUnderlineStyle",
-                AyuIslandsState::class.java,
-            )
-        method.isAccessible = true
-        method.invoke(AccentApplicator, state)
+        invokeApplyTabUnderline(state, AyuVariant.MIRAGE)
 
         verify { UIManager.put("EditorTabs.underlineHeight", Integer.valueOf(4)) }
         verify { UIManager.put("EditorTabs.underlineArc", any<Int>()) }
     }
 
-    // overrideTabUnderlineForOffMode tests
-
     @Test
-    fun `overrideTabUnderlineForOffMode sets neutral gray when OFF and variant present`() {
+    fun `applyTabUnderline sets neutral gray when OFF and variant present`() {
         state.glowTabMode = "OFF"
 
-        val method =
-            AccentApplicator::class.java.declaredMethods
-                .first { it.name == "overrideTabUnderlineForOffMode" }
-        method.isAccessible = true
-        method.invoke(AccentApplicator, state, AyuVariant.MIRAGE)
+        invokeApplyTabUnderline(state, AyuVariant.MIRAGE)
 
         verify { mockScheme.setColor(any(), Color.decode(AyuVariant.MIRAGE.neutralGray)) }
     }
 
     @Test
-    fun `overrideTabUnderlineForOffMode does nothing when not OFF`() {
+    fun `applyTabUnderline skips neutral gray when not OFF`() {
         state.glowTabMode = "MINIMAL"
 
-        val method =
-            AccentApplicator::class.java.declaredMethods
-                .first { it.name == "overrideTabUnderlineForOffMode" }
-        method.isAccessible = true
-        method.invoke(AccentApplicator, state, AyuVariant.MIRAGE)
+        invokeApplyTabUnderline(state, AyuVariant.MIRAGE)
 
         verify(exactly = 0) { mockScheme.setColor(ColorKey.find("TAB_UNDERLINE"), any()) }
     }
 
     @Test
-    fun `overrideTabUnderlineForOffMode does nothing when variant is null`() {
+    fun `applyTabUnderline skips neutral gray when variant is null`() {
         state.glowTabMode = "OFF"
 
-        val method =
-            AccentApplicator::class.java.declaredMethods
-                .first { it.name == "overrideTabUnderlineForOffMode" }
-        method.isAccessible = true
-        method.invoke(AccentApplicator, state, null)
+        invokeApplyTabUnderline(state, null)
 
         verify(exactly = 0) { mockScheme.setColor(ColorKey.find("TAB_UNDERLINE"), any()) }
     }
 
+    private fun invokeApplyTabUnderline(
+        state: AyuIslandsState,
+        variant: AyuVariant?,
+    ) {
+        val method =
+            AccentApplicator::class.java.declaredMethods
+                .first { it.name == "applyTabUnderline" }
+        method.isAccessible = true
+        method.invoke(AccentApplicator, state, variant)
+    }
+
     private fun resetCgpState() {
-        val fields =
-            listOf(
-                "cgpService",
-                "cgpGetState",
-                "cgpSetViewportColor",
-                "cgpSetViewportBorderColor",
-                "cgpSetViewportBorderThickness",
-            )
-        for (fieldName in fields) {
-            val field = AccentApplicator::class.java.getDeclaredField(fieldName)
-            field.isAccessible = true
-            field.set(AccentApplicator, null)
-        }
-        val resolvedField = AccentApplicator::class.java.getDeclaredField("cgpMethodsResolved")
-        resolvedField.isAccessible = true
-        resolvedField.set(AccentApplicator, false)
+        // TD-I5 (plan 40.1-02 review-loop): drop hand-rolled raw-reflection
+        // writes in favour of the typed [CgpIntegration.resetReflectionCacheForTests]
+        // helper. The previous loop iterated five field names as raw strings;
+        // a typo or rename would silently leave stale state in the next test.
+        // The new helper lives next to the fields it resets — a Kotlin rename
+        // refactors both at once.
+        CgpIntegration.resetReflectionCacheForTests()
     }
 
     // Phase 40.2 T-3: apply() with an invalid hex returns false AND posts a

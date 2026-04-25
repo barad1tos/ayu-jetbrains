@@ -7,6 +7,9 @@ import com.intellij.testFramework.LoggedErrorProcessor
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.indent.IndentRainbowSync
+import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.ui.ComponentTreeRefresher
 import io.mockk.Runs
 import io.mockk.every
@@ -46,14 +49,33 @@ import kotlin.test.assertTrue
  * which is purely lightweight (no native peer) and works in headless.
  */
 class ProjectAccentSwapServiceTest {
+    private val mockSettings = mockk<AyuIslandsSettings>(relaxed = true)
+    private val state = AyuIslandsState()
+
     @BeforeTest
     fun setUp() {
+        // Default: IR integration enabled. SF-I3 tests flip this to assert the
+        // gate skips IR.apply on the same-hex branch.
+        state.irIntegrationEnabled = true
+
+        mockkObject(AyuIslandsSettings.Companion)
+        every { AyuIslandsSettings.getInstance() } returns mockSettings
+        every { mockSettings.state } returns state
+
         mockkObject(AccentResolver)
         mockkObject(AccentApplicator)
         mockkObject(AyuVariant.Companion)
         mockkObject(ComponentTreeRefresher)
-        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        // D-07 (40.1-03): handleWindowActivated now calls these directly on the
+        // same-hex branch to push the per-project hex into the app-scoped CGP
+        // and IR caches. Stub them globally so every test exercising the
+        // same-hex path runs cleanly; per-test verifies still scope the
+        // assertion to whichever case is under test.
+        mockkObject(IndentRainbowSync)
         every { AccentApplicator.applyFromHexString(any()) } returns true
+        every { AccentApplicator.syncCodeGlanceProViewportForSwap(any()) } just Runs
+        every { IndentRainbowSync.apply(any(), any()) } just Runs
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         every { ComponentTreeRefresher.walkAndNotify(any(), any()) } just Runs
 
         mockkStatic(WindowManager::class)
@@ -172,19 +194,35 @@ class ProjectAccentSwapServiceTest {
         // Same-project re-activation (alt-tab out to a non-IDE app and back) MUST re-resolve
         // because an external apply — rotation tick, settings panel — may have drifted the
         // JVM-wide UIManager/globalScheme color since the last activation. The apply itself
-        // is still skipped when the resolver output matches lastAppliedHex, so alt-tab within
-        // a stable project is cheap (one HashMap lookup, no component-tree walk).
+        // is still skipped when the resolver output matches lastAppliedHex.
+        //
+        // Post-40.1 D-07: walkAndNotify and the integration refresh path
+        // (`syncCodeGlanceProViewportForSwap` + `IndentRainbowSync.apply`) now fire on
+        // every activation regardless of hex change so the per-project hex is pushed into
+        // the app-scoped CGP/IR caches and the focused chrome repaints. Pre-40.1 the
+        // blanket `if (effectiveHex == lastAppliedHex) return` short-circuited everything;
+        // closing Bug B requires the walkAndNotify + integration writes to fire even on
+        // the same-hex branch.
         val (window, project) = wireMatchingFrame()
         every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
         val service = ProjectAccentSwapService()
         val event = makeEvent(window)
 
-        service.onWindowActivatedForTest(event) // primes cache
-        service.onWindowActivatedForTest(event) // same project — re-resolves, hex matches, skips apply
+        service.onWindowActivatedForTest(event) // primes cache (hexChanged=true → applyFromHexString)
+        service.onWindowActivatedForTest(event) // same project, hex matches → skip apply, still refresh
 
         verify(exactly = 2) { AccentResolver.resolve(project, AyuVariant.MIRAGE) }
         verify(exactly = 1) { AccentApplicator.applyFromHexString("#FFCC66") }
-        verify(exactly = 1) { ComponentTreeRefresher.walkAndNotify(project, window) }
+        // walkAndNotify fires on BOTH activations — D-07 invariant.
+        verify(exactly = 2) { ComponentTreeRefresher.walkAndNotify(project, window) }
+        // TA-I4 strict count: integration refresh fires EXACTLY ONCE — only
+        // on the second activation (same-hex branch). The first activation
+        // takes the changed-hex branch (delegating to applyFromHexString)
+        // which does NOT directly call these wrappers. A regression that
+        // moves the integration writes into the changed-hex branch would
+        // double-fire and the strict count catches that.
+        verify(exactly = 1) { AccentApplicator.syncCodeGlanceProViewportForSwap("#FFCC66") }
+        verify(exactly = 1) { IndentRainbowSync.apply(AyuVariant.MIRAGE, "#FFCC66") }
     }
 
     @Test
@@ -265,6 +303,106 @@ class ProjectAccentSwapServiceTest {
     }
 
     @Test
+    fun `same-hex focus swap re-syncs CGP and IR caches`() {
+        // D-07 Bug B trigger: alt-tab from project A (hex X) to project B which
+        // also resolves to hex X. Pre-40.1, the blanket short-circuit at :98
+        // skipped applyFromHexString AND walkAndNotify AND the integration
+        // writes — leaving CGP `CodeGlanceConfigService` and IR `IrConfig`
+        // app-scoped caches holding project A's hex while the user looked at
+        // project B.
+        //
+        // Post-40.1: applyFromHexString is still skipped (UIManager is already
+        // correct), but `syncCodeGlanceProViewportForSwap` and
+        // `IndentRainbowSync.apply` are called directly so the app-scoped
+        // caches re-receive the hex for the newly-focused project.
+        //
+        // References `AccentApplicator.syncCodeGlanceProViewportForSwap`, which
+        // is introduced in Wave 2 plan 03 — until then, this test fails to
+        // compile. That IS the red state.
+        val projectA = stubProject("project-a")
+        val projectB = stubProject("project-b")
+        val windowA = mockk<Window>(relaxed = true)
+        val windowB = mockk<Window>(relaxed = true)
+        val componentA = JPanel()
+        val componentB = JPanel()
+        every { SwingUtilities.getWindowAncestor(componentA) } returns windowA
+        every { SwingUtilities.getWindowAncestor(componentB) } returns windowB
+        val frameA = stubIdeFrame(projectA, componentA)
+        val frameB = stubIdeFrame(projectB, componentB)
+        every { WindowManager.getInstance().allProjectFrames } returns arrayOf(frameA, frameB)
+
+        val sharedHex = "#5CCFE6"
+        every { AccentResolver.resolve(projectA, AyuVariant.MIRAGE) } returns sharedHex
+        every { AccentResolver.resolve(projectB, AyuVariant.MIRAGE) } returns sharedHex
+
+        every { AccentApplicator.syncCodeGlanceProViewportForSwap(any()) } just Runs
+
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.apply(any(), any()) } just Runs
+
+        val service = ProjectAccentSwapService()
+
+        // Focus project A — first activation primes the cache.
+        service.onWindowActivatedForTest(makeEvent(windowA))
+
+        // Focus project B — same hex. applyFromHexString MUST NOT fire again
+        // (UIManager is already correct), but the integration refresh path
+        // MUST fire for B's project so the CGP/IR app-scoped caches receive
+        // the per-project accent.
+        service.onWindowActivatedForTest(makeEvent(windowB))
+
+        // applyFromHexString fires only for the first activation (hex change
+        // from null to sharedHex). The second activation skips it because the
+        // hex is unchanged.
+        verify(exactly = 1) { AccentApplicator.applyFromHexString(sharedHex) }
+
+        // TA-I4 strict count: integration refresh fires EXACTLY ONCE — only on
+        // the same-hex branch (project B's activation). The first activation
+        // takes the changed-hex branch which delegates to applyFromHexString
+        // and does NOT call these wrappers directly. A future regression that
+        // moves the integration writes into the changed-hex branch (or fires
+        // them twice somehow) would silently double-stamp the app-scoped
+        // caches; an exact count catches that drift.
+        verify(exactly = 1) { AccentApplicator.syncCodeGlanceProViewportForSwap(sharedHex) }
+        verify(exactly = 1) { IndentRainbowSync.apply(AyuVariant.MIRAGE, sharedHex) }
+
+        // walkAndNotify fires for BOTH activations — pre-40.1 the blanket
+        // return skipped this on the same-hex branch, leaving the per-project
+        // chrome stale.
+        verify(exactly = 2) { ComponentTreeRefresher.walkAndNotify(any(), any()) }
+    }
+
+    @Test
+    fun `different-hex focus swap applies and refreshes`() {
+        // Regression lock for the normal (pre-existing) case: a focus swap
+        // between projects with different hexes MUST still invoke
+        // applyFromHexString + walkAndNotify. Ensures the D-07 same-hex
+        // relaxation did not break the happy path.
+        val projectA = stubProject("project-a")
+        val projectB = stubProject("project-b")
+        val windowA = mockk<Window>(relaxed = true)
+        val windowB = mockk<Window>(relaxed = true)
+        val componentA = JPanel()
+        val componentB = JPanel()
+        every { SwingUtilities.getWindowAncestor(componentA) } returns windowA
+        every { SwingUtilities.getWindowAncestor(componentB) } returns windowB
+        val frameA = stubIdeFrame(projectA, componentA)
+        val frameB = stubIdeFrame(projectB, componentB)
+        every { WindowManager.getInstance().allProjectFrames } returns arrayOf(frameA, frameB)
+
+        every { AccentResolver.resolve(projectA, AyuVariant.MIRAGE) } returns "#5CCFE6"
+        every { AccentResolver.resolve(projectB, AyuVariant.MIRAGE) } returns "#DFBFFF"
+
+        val service = ProjectAccentSwapService()
+        service.onWindowActivatedForTest(makeEvent(windowA))
+        service.onWindowActivatedForTest(makeEvent(windowB))
+
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("#5CCFE6") }
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("#DFBFFF") }
+        verify(exactly = 2) { ComponentTreeRefresher.walkAndNotify(any(), any()) }
+    }
+
+    @Test
     fun `notifyExternalApply primes cache so next matching swap skips apply`() {
         // Exercises the cache-write contract end-to-end: after notifyExternalApply primes
         // lastAppliedHex, an onWindowActivated that resolves the same hex must skip apply.
@@ -284,7 +422,7 @@ class ProjectAccentSwapServiceTest {
     }
 
     @Test
-    fun `findProjectForWindow logs first-frame failure at WARN then dedups subsequent failures to DEBUG`() {
+    fun `findProjectForWindow logs first-frame failure at WARN then deduplicates subsequent failures to DEBUG`() {
         // The frameResolutionFailureLogged gate prevents log spam on every alt-tab when one
         // broken frame keeps throwing on access. First failure must produce a WARN; later
         // failures (same handler invocation or subsequent invocations) must NOT produce
@@ -361,6 +499,74 @@ class ProjectAccentSwapServiceTest {
         service.dispose()
 
         verify(exactly = 1) { toolkit.removeAWTEventListener(any<AWTEventListener>()) }
+    }
+
+    @Test
+    fun `handleWindowActivated returns gracefully when WindowManager is null (shutdown race)`() {
+        // SF-I1 regression lock. Pre-fix: WindowManager.getInstance() can return
+        // null during shutdown after services have started disposing but before
+        // AWT stops dispatching. Without a guard, findProjectForWindow's
+        // `windowManager.allProjectFrames` would NPE inside the
+        // RuntimeException-catching wrapper, surfacing every alt-tab during
+        // shutdown as a SEVERE in idea.log. Post-fix: graceful null guard,
+        // first-WARN-then-DEBUG dedup matching AccentApplicator's convention.
+        every { WindowManager.getInstance() } returns null
+
+        val capturedWarns = mutableListOf<String>()
+        val processor =
+            object : LoggedErrorProcessor() {
+                override fun processWarn(
+                    category: String,
+                    message: String,
+                    throwable: Throwable?,
+                ): Boolean {
+                    if (!message.contains("WindowManager unavailable")) return true
+                    capturedWarns += message
+                    return false
+                }
+            }
+
+        val service = ProjectAccentSwapService()
+        val event = makeEvent(mockk<Window>(relaxed = true))
+
+        LoggedErrorProcessor.executeWith<Throwable>(processor) {
+            service.onWindowActivatedForTest(event) // first call must NOT throw
+            service.onWindowActivatedForTest(event) // second call must dedup to DEBUG
+            service.onWindowActivatedForTest(event)
+        }
+
+        assertEquals(
+            1,
+            capturedWarns.size,
+            "WindowManager-unavailable dedup must collapse 3 shutdown-race events into 1 WARN; got: $capturedWarns",
+        )
+        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
+    }
+
+    @Test
+    fun `same-hex focus swap with irIntegrationEnabled false does not trigger IR side-effect`() {
+        // SF-I3 regression lock. Pre-fix: handleWindowActivated called
+        // IndentRainbowSync.apply on every same-hex focus swap regardless of
+        // the irIntegrationEnabled toggle. IR.apply itself reverts when its
+        // toggle is false — so each alt-tab from a user with IR disabled
+        // silently re-stamped IR's IrConfig with a DEFAULT palette write, a
+        // gratuitous side-effect on every focus swap.
+        // Post-fix: gate IR.apply on the toggle so disabled means disabled.
+        // CGP gates internally and short-circuits the same way; no analogous
+        // gate needed at this call site.
+        state.irIntegrationEnabled = false
+
+        val (window, project) = wireMatchingFrame()
+        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
+
+        val service = ProjectAccentSwapService()
+        service.onWindowActivatedForTest(makeEvent(window)) // primes cache
+        service.onWindowActivatedForTest(makeEvent(window)) // same-hex branch
+
+        verify(exactly = 0) { IndentRainbowSync.apply(any(), any()) }
+        // CGP integration call still fires — the gate is IR-only at this
+        // call site (CGP gates inside its own apply).
+        verify(atLeast = 1) { AccentApplicator.syncCodeGlanceProViewportForSwap("#FFCC66") }
     }
 
     // Test helpers

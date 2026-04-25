@@ -1,6 +1,5 @@
 package dev.ayuislands.accent
 
-import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
@@ -13,7 +12,6 @@ import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.extensions.ExtensionPointName
-import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.openapi.wm.WindowManager
@@ -27,9 +25,9 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import dev.ayuislands.ui.ComponentTreeRefresher
+import org.jetbrains.annotations.TestOnly
 import java.awt.Color
 import java.awt.Window
-import java.lang.reflect.Method
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
@@ -64,22 +62,46 @@ object AccentApplicator {
     private const val TAB_ACCENT_BG_ALPHA = 50
     private const val KEY_TAB_BACKGROUND = "EditorTabs.underlinedTabBackground"
     private const val DEFAULT_UNDERLINE_ARC = 8
-    private const val CGP_RESOLUTION_FAILED = "method resolution failed"
-    private const val CGP_SYNC_FAILED = "sync failed"
+
+    // CGP viewport defaults moved to [CgpIntegration] (TD-I1, plan 40.1-02
+    // review-loop). They are exclusively read inside that peer object; the
+    // prior placement here inverted the dependency direction. See
+    // [CgpIntegration.CGP_DEFAULT_VIEWPORT_COLOR] for the javap provenance and
+    // re-verification recipe.
+
     private val EMPTY_TEXT_ATTRIBUTES = TextAttributes()
 
-    // Cached CodeGlance Pro reflection objects (resolved once per session)
-    @Volatile private var cgpService: Any? = null
+    // CodeGlance Pro reflection state and apply/revert workers live in
+    // [CgpIntegration] to keep this object below the TooManyFunctions threshold.
+    // Only the cross-object test seam (`cgpRevertHook` + `resetCgpRevertHookForTests`)
+    // and the swap-path entry stay here because Wave 0 tests bind those names to
+    // `AccentApplicator`.
 
-    @Volatile private var cgpGetState: Method? = null
+    /**
+     * Per-thread revert observer for [CgpIntegration.revertCodeGlanceProViewport].
+     * Production path: null → reflection writes fire against the real CGP service.
+     * Test path: a non-null supplier records the three default values the revert
+     * would have written, bypassing the reflection chain because CGP is not on
+     * the test classpath.
+     *
+     * Why ThreadLocal rather than `@Volatile var`? Gradle runs JUnit tests in
+     * parallel workers; a shared volatile slot leaks a pinned observer from
+     * one test into a concurrent sibling's revert call, producing intermittent
+     * "looks like the other test's fake received my invocation" failures.
+     * Matches [ChromeDecorationsProbe.osSupplier] (Phase 40 Round 3).
+     *
+     * Tests MUST use try/finally + [resetCgpRevertHookForTests] — `@AfterEach`
+     * does NOT run after an assertion failure that exits the worker mid-test,
+     * so per-test cleanup is mandatory.
+     */
+    internal val cgpRevertHook: ThreadLocal<((String, String, Int) -> Unit)?> =
+        ThreadLocal.withInitial { null }
 
-    @Volatile private var cgpSetViewportColor: Method? = null
-
-    @Volatile private var cgpSetViewportBorderColor: Method? = null
-
-    @Volatile private var cgpSetViewportBorderThickness: Method? = null
-
-    @Volatile private var cgpMethodsResolved = false
+    /** Restore the production [cgpRevertHook] on the calling thread. Intended for test teardown. */
+    @TestOnly
+    internal fun resetCgpRevertHookForTests() {
+        cgpRevertHook.remove()
+    }
 
     // Always-on UIManager keys (not per-element toggleable)
     private val ALWAYS_ON_UI_KEYS =
@@ -168,8 +190,9 @@ object AccentApplicator {
      * reached via [applyForFocusedProject]): those callers MUST already be on
      * the EDT so their cache write happens after the full apply sequence.
      * Off-EDT callers get Boolean "validation + scheduling" semantics only —
-     * paint completion is asynchronous, and the [lastApplyOk] flag is the
-     * correct signal for "apply finished cleanly" in those flows.
+     * paint completion is asynchronous, and the `lastApplyOk` flag on
+     * [AyuIslandsState] is the correct signal for "apply finished cleanly"
+     * in those flows.
      */
     fun apply(accentHex: AccentHex): Boolean {
         val trimmedHex = accentHex.value
@@ -191,13 +214,20 @@ object AccentApplicator {
                 applyAlwaysOnUiKeys(state, accent)
 
                 applyElements(state, accent, variant)
-                syncCodeGlanceProViewport(trimmedHex)
+                // Pattern G + L — TA-I6 ordering lock. Apply path mirrors the
+                // revert path: IR before CGP before notifyOnly. The revert
+                // ordering is locked by AccentApplicatorRevertAllSymmetryTest;
+                // an inverted order on the apply side would silently let
+                // app-scoped state drift between the two paths (apply leaves
+                // CGP's cache holding what IR's cache pushed first; revert
+                // unwinds the other way). Keep both sequences identical so
+                // future debugging only has to reason about one ordering.
                 if (variant != null) {
                     IndentRainbowSync.apply(variant, trimmedHex)
                 }
+                CgpIntegration.syncCodeGlanceProViewport(trimmedHex)
                 applyAlwaysOnEditorKeys(accent)
-                overrideTabUnderlineForOffMode(state, variant)
-                applyTabUnderlineStyle(state)
+                applyTabUnderline(state, variant)
 
                 // Gap-4 mirror of the D-15 hook in revertAll. Re-publish
                 // ComponentTreeRefreshedTopic after EP apply so subscribers
@@ -385,31 +415,27 @@ object AccentApplicator {
         // All revert work batched into a single EDT dispatch
         val work =
             Runnable {
-                for (key in ALWAYS_ON_UI_KEYS) {
-                    UIManager.put(key, null)
-                }
-                UIManager.put("GotItTooltip.foreground", null)
-                UIManager.put("GotItTooltip.Button.foreground", null)
-                UIManager.put("GotItTooltip.Header.foreground", null)
-                UIManager.put("Button.default.focusedBorderColor", null)
-                UIManager.put("Button.default.startBorderColor", null)
-                UIManager.put("Button.default.endBorderColor", null)
-                UIManager.put(KEY_TAB_BACKGROUND, null)
-                UIManager.put("EditorTabs.underlineHeight", null)
-                UIManager.put("EditorTabs.underlineArc", null)
-
-                for (element in EP_NAME.extensionList) {
-                    try {
-                        element.revert()
-                    } catch (exception: RuntimeException) {
-                        log.warn(
-                            "Failed to revert ${element.displayName}",
-                            exception,
-                        )
-                    }
-                }
-
+                clearReverseUiAndExtensions()
                 revertAlwaysOnEditorKeys()
+
+                // Integration revert plumbing (Phase 40.1 D-04). Pattern G — apply
+                // path calls IndentRainbowSync.apply + syncCodeGlanceProViewport;
+                // revert path mirrors with IndentRainbowSync.revert + revertCodeGlanceProViewport.
+                // Each block isolated by RuntimeException catch (Pattern B) so one
+                // integration's failure cannot block the other or the downstream
+                // notifyOnly loop. Order — IR before CGP before notifyOnly — locked
+                // by AccentApplicatorRevertAllSymmetryTest source-regex.
+                try {
+                    IndentRainbowSync.revert()
+                } catch (exception: RuntimeException) {
+                    log.warn("Failed to revert Indent Rainbow integration", exception)
+                }
+
+                try {
+                    CgpIntegration.revertCodeGlanceProViewport()
+                } catch (exception: RuntimeException) {
+                    log.warn("Failed to revert CodeGlance Pro integration", exception)
+                }
 
                 // D-15: cached JBColor instances survive a bare UIManager.put(key, null)
                 // clear. Publish the refresh topic per usable open project so subscribers
@@ -435,6 +461,32 @@ object AccentApplicator {
             work.run()
         } else {
             invokeLaterSafe(work)
+        }
+    }
+
+    private fun clearReverseUiAndExtensions() {
+        for (key in ALWAYS_ON_UI_KEYS) {
+            UIManager.put(key, null)
+        }
+        UIManager.put("GotItTooltip.foreground", null)
+        UIManager.put("GotItTooltip.Button.foreground", null)
+        UIManager.put("GotItTooltip.Header.foreground", null)
+        UIManager.put("Button.default.focusedBorderColor", null)
+        UIManager.put("Button.default.startBorderColor", null)
+        UIManager.put("Button.default.endBorderColor", null)
+        UIManager.put(KEY_TAB_BACKGROUND, null)
+        UIManager.put("EditorTabs.underlineHeight", null)
+        UIManager.put("EditorTabs.underlineArc", null)
+
+        for (element in EP_NAME.extensionList) {
+            try {
+                element.revert()
+            } catch (exception: RuntimeException) {
+                log.warn(
+                    "Failed to revert ${element.displayName}",
+                    exception,
+                )
+            }
         }
     }
 
@@ -587,7 +639,16 @@ object AccentApplicator {
         }
     }
 
-    private fun applyTabUnderlineStyle(state: AyuIslandsState) {
+    private fun applyTabUnderline(
+        state: AyuIslandsState,
+        variant: AyuVariant?,
+    ) {
+        val tabMode = GlowTabMode.fromName(state.glowTabMode ?: "MINIMAL")
+        if (tabMode == GlowTabMode.OFF && variant != null) {
+            val scheme = EditorColorsManager.getInstance().globalScheme
+            scheme.setColor(ColorKey.find("TAB_UNDERLINE"), Color.decode(variant.neutralGray))
+        }
+
         val height = resolveUnderlineHeight(state)
         UIManager.put("EditorTabs.underlineHeight", Integer.valueOf(height))
 
@@ -595,16 +656,6 @@ object AccentApplicator {
         UIManager.put("EditorTabs.underlineArc", Integer.valueOf(arc))
 
         log.info("Tab underline: height=${height}px, arc=${arc}px")
-    }
-
-    private fun overrideTabUnderlineForOffMode(
-        state: AyuIslandsState,
-        variant: AyuVariant?,
-    ) {
-        val tabMode = GlowTabMode.fromName(state.glowTabMode ?: "MINIMAL")
-        if (tabMode != GlowTabMode.OFF || variant == null) return
-        val scheme = EditorColorsManager.getInstance().globalScheme
-        scheme.setColor(ColorKey.find("TAB_UNDERLINE"), Color.decode(variant.neutralGray))
     }
 
     private fun revertAlwaysOnEditorKeys() {
@@ -645,87 +696,51 @@ object AccentApplicator {
     }
 
     /**
-     * Pairs with [LiveChromeRefresher.forEachShowingWindow]'s `isShowing` filter —
-     * both paths must skip disposed/hidden peers so a future contributor doesn't
-     * regress one without the other.
+     * Write-side repaint pass over the JVM's window list. Filters by
+     * [Window.isDisplayable] — DELIBERATELY laxer than
+     * [LiveChromeRefresher.forEachShowingWindow]'s `isShowing` filter
+     * (CA-I1, plan 40.1-02 review-loop): a window that's displayable but
+     * not yet showing (e.g. mid-attach, popup behind a modal) still has a
+     * valid AWT peer, so calling `repaint()` is safe and the queued paint
+     * lands when the window flips to showing. The chrome refresher's
+     * `isShowing` filter is read-side — it walks descendants to collect
+     * peers, where an offscreen window has no useful contribution and
+     * skipping is correct. Two predicates, two purposes; do NOT collapse
+     * them into one helper.
+     *
+     * The `isDisplayable` check exists for a different reason: a disposed
+     * window lingers briefly in [Window.getWindows] during shutdown races,
+     * and calling `repaint()` on a disposed window is a no-op at best and
+     * throws on some LAFs at worst. So this filter rejects only fully
+     * disposed peers, NOT not-yet-shown ones.
      */
     private fun repaintAllWindows(windows: Array<Window>) {
-        // Phase 40.2 M-8: filter by isDisplayable before repaint, mirroring
-        // LiveChromeRefresher.forEachShowingWindow. A disposed/undisplayed window still
-        // lingers in Window.getWindows() briefly during shutdown races; calling
-        // repaint() on it is a no-op at best and throws on some LAFs at worst. The
-        // isShowing check is stricter than we need here (pooled popups are fine to
-        // skip-repaint anyway), so isDisplayable captures the bare "not-yet-disposed"
-        // predicate for this write-side pass.
+        // CA-I1: predicate intentionally differs from
+        // LiveChromeRefresher.forEachShowingWindow.isShowing (read-side).
+        // Write-side tolerates not-yet-showing windows so queued paint
+        // lands when the peer flips to showing — see KDoc above.
         for (window in windows) {
             if (!window.isDisplayable) continue
             window.repaint()
         }
     }
 
-    private fun resolveCgpMethods() {
-        if (cgpMethodsResolved) return
-        cgpMethodsResolved = true
-
-        try {
-            val pluginId = PluginId.getId("com.nasller.CodeGlancePro")
-            val cgpPlugin = PluginManagerCore.getPlugin(pluginId) ?: return
-            val cgpClassLoader = cgpPlugin.pluginClassLoader ?: return
-
-            val serviceClass =
-                Class.forName(
-                    "com.nasller.codeglance.config.CodeGlanceConfigService",
-                    true,
-                    cgpClassLoader,
-                )
-
-            val service = ApplicationManager.getApplication().getService(serviceClass) ?: return
-
-            cgpService = service
-            cgpGetState = service.javaClass.getMethod("getState")
-
-            // Resolve config methods from the state object's class
-            val config = cgpGetState!!.invoke(service) ?: return
-            val configClass = config.javaClass
-            cgpSetViewportColor = configClass.getMethod("setViewportColor", String::class.java)
-            cgpSetViewportBorderColor = configClass.getMethod("setViewportBorderColor", String::class.java)
-            cgpSetViewportBorderThickness = configClass.getMethod("setViewportBorderThickness", Int::class.java)
-        } catch (exception: ReflectiveOperationException) {
-            log.warn("CodeGlance Pro $CGP_RESOLUTION_FAILED: ${exception.javaClass.simpleName}: ${exception.message}")
-        } catch (exception: RuntimeException) {
-            log.warn("CodeGlance Pro $CGP_RESOLUTION_FAILED: ${exception.javaClass.simpleName}: ${exception.message}")
-        }
-    }
-
-    private fun syncCodeGlanceProViewport(accentHex: String) {
-        if (!AyuIslandsSettings.getInstance().state.cgpIntegrationEnabled) return
-
-        resolveCgpMethods()
-
-        val service = cgpService ?: return
-        val getState = cgpGetState ?: return
-        val setColor = cgpSetViewportColor ?: return
-        val setBorderColor = cgpSetViewportBorderColor ?: return
-        val setBorderThickness = cgpSetViewportBorderThickness ?: return
-
-        try {
-            val hexWithoutHash = accentHex.removePrefix("#")
-            val config = getState.invoke(service) ?: return
-
-            setColor.invoke(config, hexWithoutHash)
-            setBorderColor.invoke(config, hexWithoutHash)
-            setBorderThickness.invoke(config, 1)
-
-            // CGP panels repaint via globalSchemeChange notification (no manual walk needed)
-            log.info("CodeGlance Pro viewport color synced to $hexWithoutHash")
-        } catch (exception: java.lang.reflect.InvocationTargetException) {
-            val cause = exception.cause ?: exception
-            log.warn("CodeGlance Pro $CGP_SYNC_FAILED: ${cause.javaClass.simpleName}: ${cause.message}")
-        } catch (exception: ReflectiveOperationException) {
-            log.warn("CodeGlance Pro $CGP_SYNC_FAILED: ${exception.javaClass.simpleName}: ${exception.message}")
-        } catch (exception: RuntimeException) {
-            log.warn("CodeGlance Pro $CGP_SYNC_FAILED: ${exception.javaClass.simpleName}: ${exception.message}")
-        }
+    /**
+     * Public-to-the-module entry into [CgpIntegration.syncCodeGlanceProViewport]
+     * for the project-focus-swap path.
+     * [ProjectAccentSwapService.handleWindowActivated] calls this on a same-hex
+     * focus swap to push the per-project accent into the app-scoped CGP
+     * `CodeGlanceConfigService` cache without re-running the full UIManager
+     * apply (which is already correct for the unchanged hex).
+     *
+     * Resolves RESEARCH §Open Questions §1: `ComponentTreeRefresher.walkAndNotify`
+     * alone cannot push the new accent into the app-scoped CGP cache because
+     * CGP does not subscribe to `ComponentTreeRefreshedTopic`. Calling this
+     * wrapper directly from the swap service achieves the cache write without
+     * the apply path's redundant work.
+     */
+    internal fun syncCodeGlanceProViewportForSwap(hex: String) {
+        CgpIntegration.syncCodeGlanceProViewport(hex)
     }
 
     /**
@@ -736,7 +751,7 @@ object AccentApplicator {
      * notification + returns `false` on rejection, and forwards to [apply]
      * on success.
      *
-     * Deliberately NOT named `apply(String)` — mockk's `every { apply(any()) }`
+     * Deliberately NOT named `apply(String)` — MockK's `every { apply(any()) }`
      * can't resolve across overloads of the same name, so tests that lock in
      * the cache-publish ordering against the apply path would all break.
      */
@@ -763,8 +778,8 @@ object AccentApplicator {
                     Notifications.Bus.notify(
                         Notification(
                             NOTIFICATION_GROUP_ID,
-                            "Ayu Islands",
-                            "Ayu accent rejected — hex '$accentHex' is not a valid #RRGGBB.",
+                            "Ayu accent rejected",
+                            "Hex '$accentHex' is not a valid #RRGGBB.",
                             NotificationType.WARNING,
                         ),
                     )
