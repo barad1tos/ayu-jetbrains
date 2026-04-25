@@ -8,6 +8,7 @@ import com.intellij.openapi.wm.WindowManager
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.indent.IndentRainbowSync
 import dev.ayuislands.ui.ComponentTreeRefresher
 import org.jetbrains.annotations.TestOnly
 import java.awt.AWTEvent
@@ -91,27 +92,47 @@ class ProjectAccentSwapService : Disposable {
         // change — anything that reaches `notifyExternalApply`) may have pushed a different
         // color into the JVM-wide UIManager/globalScheme since the last activation. The
         // resolver call is cheap (canonicalPath + HashMap lookup); the hex gate below still
-        // skips the expensive apply + component-tree walk when the resolver output matches.
+        // skips the expensive apply when the resolver output matches.
         val variant = AyuVariant.detect() ?: return
         val effectiveHex = AccentResolver.resolve(project, variant)
 
-        if (effectiveHex == lastAppliedHex) return
-
-        val applied = AccentApplicator.applyFromHexString(effectiveHex)
-        if (!applied) {
-            LOG.warn("Skipping swap publish: applyFromHexString rejected '$effectiveHex'")
-            return
+        val hexChanged = effectiveHex != lastAppliedHex
+        if (hexChanged) {
+            // Different hex from last apply: re-run the full apply path. UIManager
+            // writes, EP elements, editor keys, AND integrations are all refreshed
+            // through AccentApplicator.applyFromHexString -> apply.
+            val applied = AccentApplicator.applyFromHexString(effectiveHex)
+            if (!applied) {
+                LOG.warn("Skipping swap publish: applyFromHexString rejected '$effectiveHex'")
+                return
+            }
+            lastAppliedHex = effectiveHex
+        } else {
+            // Same hex but a different project just gained focus (or alt-tab back to the
+            // same project). The app-scoped CGP `CodeGlanceConfigService` and IR `IrConfig`
+            // caches still hold whoever wrote last; force-refresh them so the newly-focused
+            // minimap + indent panels paint the correct per-project accent (Bug B fix, D-07).
+            //
+            // walkAndNotify alone CANNOT close Bug B because CGP and IR do not subscribe to
+            // ComponentTreeRefreshedTopic — they read from the app-scoped cache directly.
+            // The two calls below push the per-project hex into those caches without
+            // re-running the apply path's UIManager work (already correct for the unchanged
+            // hex). Resolves RESEARCH §Open Questions §1 (direct integration call).
+            AccentApplicator.syncCodeGlanceProViewportForSwap(effectiveHex)
+            IndentRainbowSync.apply(variant, effectiveHex)
         }
-        lastAppliedHex = effectiveHex
 
-        // AccentApplicator updates UIManager + editor scheme. UIManager-only components
-        // (toolbar, tab underlines, scrollbar chrome, focus rings) hold cached JBColor
-        // resolutions captured at construction time and will not re-read UIManager on a
-        // plain `repaint()`. ComponentTreeRefresher does the component-tree LAF refresh
-        // AND fires ComponentTreeRefreshedTopic so managers whose customizations got
-        // reset by the walk (scrollbar hiders etc.) reapply themselves.
+        // Always refresh the component tree on focus swap — preserves the
+        // "WINDOW_ACTIVATED always refreshes subscribers" invariant. AccentApplicator
+        // updates UIManager + editor scheme but UIManager-only components (toolbar, tab
+        // underlines, scrollbar chrome, focus rings) hold cached JBColor resolutions
+        // captured at construction time. ComponentTreeRefresher does the component-tree
+        // LAF refresh AND fires ComponentTreeRefreshedTopic so managers whose
+        // customizations got reset by the walk (scrollbar hiders etc.) reapply themselves.
         ComponentTreeRefresher.walkAndNotify(project, window)
-        LOG.info("Project accent swapped to $effectiveHex for ${project.name}")
+        LOG.info(
+            "Project accent refreshed for ${project.name} (hex=$effectiveHex, changed=$hexChanged)",
+        )
     }
 
     /**
