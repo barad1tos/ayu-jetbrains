@@ -100,6 +100,22 @@ object IndentRainbowSync {
         }
     }
 
+    /**
+     * Revert IR's `paletteType` to its DEFAULT enum value, flush IR's reflection
+     * cache. Idempotent. EDT-safe — `IrConfig` writes are unsynchronized but
+     * IR itself reads paletteType only from EDT during paint.
+     *
+     * Reachable from:
+     * - [apply] when `irIntegrationEnabled` becomes false (settings toggle)
+     * - [dev.ayuislands.accent.AccentApplicator.revertAll] on theme-switch /
+     *   license loss (Phase 40.1 D-04 wiring — cross-object caller)
+     *
+     * Does NOT clear `customPalette` — IR ignores it unless `paletteType == CUSTOM`.
+     * If the user manually flips `paletteType` back to CUSTOM while a non-Ayu
+     * theme is active, stale Ayu palette will render until the next [apply]
+     * overwrites it. Accepted degradation per Phase 40.1 CONTEXT §specifics —
+     * regression-locked by `IndentRainbowSyncTest.revert does not clear customPalette`.
+     */
     fun revert() {
         val resolved = resolveOrReturn() ?: return
         val defaultEnum = defaultEnumValue ?: return

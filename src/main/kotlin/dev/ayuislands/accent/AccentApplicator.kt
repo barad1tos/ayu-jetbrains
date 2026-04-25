@@ -451,6 +451,25 @@ object AccentApplicator {
 
                 revertAlwaysOnEditorKeys()
 
+                // Integration revert plumbing (Phase 40.1 D-04). Pattern G — apply
+                // path calls IndentRainbowSync.apply + syncCodeGlanceProViewport;
+                // revert path mirrors with IndentRainbowSync.revert + revertCodeGlanceProViewport.
+                // Each block isolated by RuntimeException catch (Pattern B) so one
+                // integration's failure cannot block the other or the downstream
+                // notifyOnly loop. Order — IR before CGP before notifyOnly — locked
+                // by AccentApplicatorRevertAllSymmetryTest source-regex.
+                try {
+                    IndentRainbowSync.revert()
+                } catch (exception: RuntimeException) {
+                    log.warn("Failed to revert Indent Rainbow integration", exception)
+                }
+
+                try {
+                    CgpIntegration.revertCodeGlanceProViewport()
+                } catch (exception: RuntimeException) {
+                    log.warn("Failed to revert CodeGlance Pro integration", exception)
+                }
+
                 // D-15: cached JBColor instances survive a bare UIManager.put(key, null)
                 // clear. Publish the refresh topic per usable open project so subscribers
                 // (e.g. EditorScrollbarManager) reapply their customizations against the
