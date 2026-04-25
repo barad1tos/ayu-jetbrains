@@ -21,9 +21,9 @@ import dev.ayuislands.accent.AyuVariant
  *
  * **Single responsibility.** Pure mapping + side-effect on
  * `EditorColorsManager.globalScheme`. No LAF event handling, no settings flag
- * checks (caller — typically [AyuThemeSchemeBinderListener] — owns the gate).
- * Pattern J — gate on [AyuVariant.isAyuActive] is the caller's job; this
- * object only does what it's told.
+ * checks (caller — `AyuIslandsLafListener` — owns the gate). Pattern J —
+ * gate on `AyuVariant.detect()` for null is the caller's job; this object
+ * only does what it's told.
  *
  * **Pattern G** — `bindForVariant` is the apply path. A revert path
  * (Ayu→non-Ayu transition restoring user's prior scheme) is intentionally NOT
@@ -36,11 +36,12 @@ internal object AyuEditorSchemeBinder {
     /**
      * Schemes the binder is allowed to overwrite. Includes our three Ayu
      * scheme names (so Ayu→Ayu transitions sync) and platform defaults
-     * (so first-time activation from Default/Darcula sticks). Anything else
-     * is treated as "user explicitly chose this" — binder must NOT touch it.
+     * (so first-time activation from `Default`/`Darcula` sticks). Anything
+     * else is treated as "user explicitly chose this" — binder must NOT
+     * touch it.
      *
-     * Pattern J — explicit allowlist over implicit prefix-match: prevents a
-     * future scheme named e.g. "Ayu Custom" from being silently overwritten.
+     * Explicit allowlist over implicit prefix-match: prevents a future
+     * scheme named e.g. `Ayu Custom` from being silently overwritten.
      */
     internal val NEUTRAL_SCHEMES: Set<String> =
         setOf(

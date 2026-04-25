@@ -27,14 +27,17 @@ class AyuIslandsLafListener : LafManagerListener {
 
         val settings = AyuIslandsSettings.getInstance()
 
-        // Bind matching editor color scheme BEFORE AccentApplicator mutates the
-        // global scheme. AccentApplicator.applyAlwaysOnEditorKeys writes to
-        // EditorColorsManager.globalScheme in-place; if the bind happened AFTER,
-        // the prior scheme (Default/Darcula/another Ayu) would be silently
-        // polluted with accent overrides on TAB_UNDERLINE / BUTTON_BACKGROUND /
-        // BOOKMARKS_ATTRIBUTES, while the freshly-swapped Ayu scheme would lack
-        // the user's accent. Pattern G — apply path symmetry: revertAll on
-        // LAF-back operates on the same scheme this mutation lands on.
+        // Bind matching editor color scheme BEFORE `AccentApplicator` mutates
+        // the global scheme. `AccentApplicator.applyAlwaysOnEditorKeys` writes
+        // to `EditorColorsManager.globalScheme` in-place; if the bind happened
+        // AFTER, the prior scheme (`Default` / `Darcula` / another Ayu) would
+        // be silently polluted with accent overrides on `TAB_UNDERLINE` /
+        // `BUTTON_BACKGROUND` / `BOOKMARKS_ATTRIBUTES`, while the
+        // freshly-swapped Ayu scheme would lack the user's accent. Pattern G
+        // — apply path symmetry: `revertAll` on LAF-back operates on the
+        // same scheme this mutation lands on. Boolean return ignored: all
+        // three return-false branches (already-matched, user-custom skip,
+        // target-missing) are safe to fall through; binder logs internally.
         if (settings.state.syncEditorScheme) {
             AyuEditorSchemeBinder.bindForVariant(variant)
         }
