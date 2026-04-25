@@ -17,11 +17,17 @@ import javax.swing.JComboBox
 typealias SystemAccentRowInstaller = (Panel) -> Unit
 
 /**
- * Hosts the shared macOS "System" collapsible group — appearance (Light/Dark) and
- * accent-color system integration. The accent-color checkbox is owned by
- * [AyuIslandsAccentPanel]; [systemAccentRowInstaller] is wired by the configurable
- * so the checkbox renders inside this group while its state and side-effects stay
- * with the accent panel.
+ * Hosts theme-related settings:
+ *   - Editor color scheme auto-bind on theme change (cross-platform).
+ *   - macOS "System" collapsible group — appearance (Light/Dark) and accent-color
+ *     system integration. The accent-color checkbox is owned by
+ *     [AyuIslandsAccentPanel]; [systemAccentRowInstaller] is wired by the
+ *     configurable so the checkbox renders inside this group while its state
+ *     and side-effects stay with the accent panel.
+ *
+ * The scheme-bind row is rendered FIRST so it surfaces above the macOS-only
+ * group when both apply. On non-macOS platforms only the scheme-bind row is
+ * rendered.
  */
 class AyuIslandsAppearancePanel : AyuIslandsSettingsPanel {
     private var pendingFollowAppearance: Boolean = false
@@ -31,6 +37,10 @@ class AyuIslandsAppearancePanel : AyuIslandsSettingsPanel {
     private var pendingNightTheme: String = "Mirage"
     private var storedNightTheme: String = "Mirage"
     private var nightThemeCombo: JComboBox<String>? = null
+
+    private var pendingSyncEditorScheme: Boolean = true
+    private var storedSyncEditorScheme: Boolean = true
+    private var syncEditorSchemeCheckbox: JBCheckBox? = null
 
     var systemAccentRowInstaller: SystemAccentRowInstaller? = null
 
@@ -46,6 +56,27 @@ class AyuIslandsAppearancePanel : AyuIslandsSettingsPanel {
         val currentNight = if (currentDarkTheme.contains("Dark")) "Dark" else "Mirage"
         storedNightTheme = currentNight
         pendingNightTheme = currentNight
+
+        storedSyncEditorScheme = settings.state.syncEditorScheme
+        pendingSyncEditorScheme = storedSyncEditorScheme
+
+        // Cross-platform: editor color scheme auto-bind. Renders above the macOS
+        // "System" group so it's discoverable on every platform.
+        panel.group("Theme Synchronization") {
+            row {
+                val cb =
+                    checkBox("Sync editor color scheme with active Ayu theme")
+                        .comment(
+                            "When on, switching between Ayu variants automatically applies " +
+                                "the matching editor color scheme. Off respects your custom scheme.",
+                        )
+                cb.component.isSelected = pendingSyncEditorScheme
+                cb.component.addActionListener {
+                    pendingSyncEditorScheme = cb.component.isSelected
+                }
+                syncEditorSchemeCheckbox = cb.component
+            }
+        }
 
         if (!SystemInfo.isMac) return
 
@@ -87,7 +118,8 @@ class AyuIslandsAppearancePanel : AyuIslandsSettingsPanel {
 
     override fun isModified(): Boolean =
         pendingFollowAppearance != storedFollowAppearance ||
-            pendingNightTheme != storedNightTheme
+            pendingNightTheme != storedNightTheme ||
+            pendingSyncEditorScheme != storedSyncEditorScheme
 
     override fun apply() {
         if (!isModified()) return
@@ -112,6 +144,11 @@ class AyuIslandsAppearancePanel : AyuIslandsSettingsPanel {
             settings.state.lastDarkAppearanceTheme = newDarkTheme
             storedNightTheme = pendingNightTheme
         }
+
+        if (pendingSyncEditorScheme != storedSyncEditorScheme) {
+            settings.state.syncEditorScheme = pendingSyncEditorScheme
+            storedSyncEditorScheme = pendingSyncEditorScheme
+        }
     }
 
     override fun reset() {
@@ -119,5 +156,7 @@ class AyuIslandsAppearancePanel : AyuIslandsSettingsPanel {
         followAppearanceCheckbox?.isSelected = storedFollowAppearance
         pendingNightTheme = storedNightTheme
         nightThemeCombo?.selectedItem = storedNightTheme
+        pendingSyncEditorScheme = storedSyncEditorScheme
+        syncEditorSchemeCheckbox?.isSelected = storedSyncEditorScheme
     }
 }

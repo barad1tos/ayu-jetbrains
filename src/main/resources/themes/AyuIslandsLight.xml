@@ -17,6 +17,9 @@
         <option name="SELECTED_INDENT_GUIDE" value="828E9F59" />
         <option name="VISUAL_INDENT_GUIDE" value="828E9F2E" />
         <option name="RIGHT_MARGIN_COLOR" value="E6E8E9" />
+        <option name="STICKY_LINES_BACKGROUND" value="F4F5F6" />
+        <option name="STICKY_LINES_HOVERED_COLOR" value="EBECED" />
+        <option name="STICKY_LINES_BORDER_COLOR" value="E0E2E4" />
         <option name="WHITESPACES" value="D6D9DC" />
         <option name="WHITESPACES_MODIFIED_LINES_COLOR" value="ECEDEE" />
         <option name="MATCHED_BRACES_INDENT_GUIDE_COLOR" value="D6D9DC" />

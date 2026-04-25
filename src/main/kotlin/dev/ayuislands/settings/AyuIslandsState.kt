@@ -131,6 +131,12 @@ class AyuIslandsState : BaseState() {
     // Indent Rainbow integration (opt-in, default OFF)
     var irIntegrationEnabled by property(false)
 
+    // Auto-apply matching `Ayu Islands {Variant}` editor color scheme on theme change.
+    // Default true — fixes the JetBrains UI/Editor decoupling where switching theme
+    // does NOT switch the active editor color scheme. Opt-out for users with their
+    // own preferred scheme (Solarized / Material / custom).
+    var syncEditorScheme by property(true)
+
     // Indent preset name (persisted)
     var indentPresetName by string("AMBIENT")
 
