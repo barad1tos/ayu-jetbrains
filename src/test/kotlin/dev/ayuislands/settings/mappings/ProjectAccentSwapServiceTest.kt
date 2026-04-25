@@ -215,10 +215,14 @@ class ProjectAccentSwapServiceTest {
         verify(exactly = 1) { AccentApplicator.applyFromHexString("#FFCC66") }
         // walkAndNotify fires on BOTH activations — D-07 invariant.
         verify(exactly = 2) { ComponentTreeRefresher.walkAndNotify(project, window) }
-        // Integration refresh fires at least once on the same-hex branch (second
-        // activation) so the CGP/IR app-scoped caches receive the per-project hex.
-        verify(atLeast = 1) { AccentApplicator.syncCodeGlanceProViewportForSwap("#FFCC66") }
-        verify(atLeast = 1) { IndentRainbowSync.apply(AyuVariant.MIRAGE, "#FFCC66") }
+        // TA-I4 strict count: integration refresh fires EXACTLY ONCE — only
+        // on the second activation (same-hex branch). The first activation
+        // takes the changed-hex branch (delegating to applyFromHexString)
+        // which does NOT directly call these wrappers. A regression that
+        // moves the integration writes into the changed-hex branch would
+        // double-fire and the strict count catches that.
+        verify(exactly = 1) { AccentApplicator.syncCodeGlanceProViewportForSwap("#FFCC66") }
+        verify(exactly = 1) { IndentRainbowSync.apply(AyuVariant.MIRAGE, "#FFCC66") }
     }
 
     @Test
@@ -352,13 +356,15 @@ class ProjectAccentSwapServiceTest {
         // hex is unchanged.
         verify(exactly = 1) { AccentApplicator.applyFromHexString(sharedHex) }
 
-        // Integration refresh fires at least once for the same-hex branch
-        // (project B's activation). Implementations may also fire it on the
-        // first activation as part of the changed-hex apply path; the test
-        // pins "fires when needed for B" rather than an exact count to allow
-        // either implementation choice.
-        verify(atLeast = 1) { AccentApplicator.syncCodeGlanceProViewportForSwap(sharedHex) }
-        verify(atLeast = 1) { IndentRainbowSync.apply(AyuVariant.MIRAGE, sharedHex) }
+        // TA-I4 strict count: integration refresh fires EXACTLY ONCE — only on
+        // the same-hex branch (project B's activation). The first activation
+        // takes the changed-hex branch which delegates to applyFromHexString
+        // and does NOT call these wrappers directly. A future regression that
+        // moves the integration writes into the changed-hex branch (or fires
+        // them twice somehow) would silently double-stamp the app-scoped
+        // caches; an exact count catches that drift.
+        verify(exactly = 1) { AccentApplicator.syncCodeGlanceProViewportForSwap(sharedHex) }
+        verify(exactly = 1) { IndentRainbowSync.apply(AyuVariant.MIRAGE, sharedHex) }
 
         // walkAndNotify fires for BOTH activations — pre-40.1 the blanket
         // return skipped this on the same-hex branch, leaving the per-project

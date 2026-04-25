@@ -142,6 +142,42 @@ class GlowOverlayManagerLifecycleTest {
     }
 
     @Test
+    fun `syncGlowForAllProjects continues to second project when first project updateGlow throws`() {
+        // TA-I1 regression lock for the existing companion-level RuntimeException
+        // catch. syncGlowForAllProjects iterates every open project; one
+        // project whose updateGlow throws (e.g. mid-dispose race) MUST NOT
+        // block the other projects from being disposed. Pattern B isolation
+        // — narrow RuntimeException catch, log warning, continue.
+        every { AyuVariant.isAyuActive() } returns false
+        every { AyuVariant.detect() } returns null
+
+        val project1 = stubProject("project-1")
+        val project2 = stubProject("project-2")
+        every { mockProjectManager.openProjects } returns arrayOf(project1, project2)
+
+        val manager1 = mockk<GlowOverlayManager>(relaxed = true)
+        val manager2 = GlowOverlayManager(project2)
+        seedOverlaysMap(manager2, "p2-sentinel")
+
+        // Project 1's updateGlow throws — must not bubble out of the loop.
+        every { manager1.updateGlow() } throws RuntimeException("project-1 glow exploded")
+
+        every { project1.getService(GlowOverlayManager::class.java) } returns manager1
+        every { project2.getService(GlowOverlayManager::class.java) } returns manager2
+
+        GlowOverlayManager.syncGlowForAllProjects() // MUST NOT throw
+
+        // Project 2's overlays still cleared — proves the loop continued
+        // past project 1's failure rather than aborting on the first throw.
+        assertTrue(
+            readOverlaysMap(manager2).isEmpty(),
+            "syncGlowForAllProjects MUST continue to project 2 after project 1 throws " +
+                "(TA-I1 isolation lock — Pattern B)",
+        )
+        verify(exactly = 1) { manager1.updateGlow() }
+    }
+
+    @Test
     fun `syncGlowForAllProjects disposes every project glow when variant becomes null`() {
         // D-03: when AyuIslandsLafListener detects a non-Ayu LAF, it calls
         // GlowOverlayManager.syncGlowForAllProjects() which iterates every open
