@@ -48,8 +48,7 @@ class AccentApplicatorRevertAllSymmetryTest {
         val noBlock = input.replace(Regex("/\\*[\\s\\S]*?\\*/"), "")
         return noBlock
             .lineSequence()
-            .map { line -> line.replaceFirst(Regex("//.*$"), "") }
-            .joinToString("\n")
+            .joinToString("\n") { line -> line.replaceFirst(Regex("//.*$"), "") }
     }
 
     private fun extractFunctionBody(

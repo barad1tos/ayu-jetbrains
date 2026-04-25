@@ -115,9 +115,9 @@ class AccentApplicatorRevertAllIntegrationTest {
         // an assertion failure that exits the worker mid-test. The class-level
         // teardown is the safety net.
         AccentApplicator.resetCgpRevertHookForTests()
-        // C-3 reflection-path tests stash mocks into CgpIntegration's private
-        // reflection cache. Without this reset, a test failure could leave
-        // pinned mocks visible to a subsequent test in the same worker JVM.
+        // C-3 reflection-path tests stash mocks into [CgpIntegration]'s
+        // private reflection cache. Without this reset, a test failure could
+        // leave pinned mocks visible to a subsequent test in the same worker JVM.
         CgpIntegration.resetReflectionCacheForTests()
         restoreOriginalEpName()
         unmockkAll()
@@ -254,14 +254,14 @@ class AccentApplicatorRevertAllIntegrationTest {
     @Test
     fun `revertCodeGlanceProViewport invokes hook even when cgpIntegrationEnabled false`() {
         // CR-I1 regression lock. Pre-fix: a `cgpIntegrationEnabled = false`
-        // gate at the top of revertCodeGlanceProViewport short-circuited every
-        // revert call, so a user who toggled CGP off after an apply was stuck
-        // with CGP's app-scoped cache holding the previous Ayu accent forever
-        // — the apply path stamped CGP, the toggle prevented further writes,
-        // and the revert path silently no-op'd. Post-fix: the gate moves to
-        // syncCodeGlanceProViewport's entry, which mirrors IndentRainbowSync.
-        // The revert path runs unconditionally so theme switch / license loss
-        // can clean up CGP regardless of toggle state.
+        // gate at the top of `revertCodeGlanceProViewport` short-circuited
+        // every revert call, so a user who toggled CGP off after an apply was
+        // stuck with CGP's app-scoped cache holding the previous Ayu accent
+        // forever — the apply path stamped CGP, the toggle prevented further
+        // writes, and the revert path silently became a no-op. Post-fix: the
+        // gate moves to `syncCodeGlanceProViewport`'s entry, which mirrors
+        // `IndentRainbowSync`. The revert path runs unconditionally so theme
+        // switch / license loss can clean up CGP regardless of toggle state.
         //
         // Pattern G + J — apply/revert symmetry. revertAll fires the hook
         // because the path is reachable from every revertAll call (theme
@@ -337,9 +337,9 @@ class AccentApplicatorRevertAllIntegrationTest {
         AccentApplicator.syncCodeGlanceProViewportForSwap("#5CCFE6")
 
         // Hex stripped of the # prefix per CGP's plain-string contract.
-        io.mockk.verify(exactly = 1) { mockSetColor.invoke(mockConfig, "5CCFE6") }
-        io.mockk.verify(exactly = 1) { mockSetBorderColor.invoke(mockConfig, "5CCFE6") }
-        io.mockk.verify(exactly = 1) { mockSetBorderThickness.invoke(mockConfig, 1) }
+        verify(exactly = 1) { mockSetColor.invoke(mockConfig, "5CCFE6") }
+        verify(exactly = 1) { mockSetBorderColor.invoke(mockConfig, "5CCFE6") }
+        verify(exactly = 1) { mockSetBorderThickness.invoke(mockConfig, 1) }
     }
 
     @Test
@@ -537,10 +537,11 @@ class AccentApplicatorRevertAllIntegrationTest {
         // Stage non-null reflection chain so [revertCodeGlanceProViewport] /
         // [syncCodeGlanceProViewport] reach the production reflection branch
         // instead of short-circuiting on `cgpService ?: return`. Mirrors the
-        // pattern AccentApplicatorTest used pre-TD-I5 (raw field writes), but
-        // routed through the typed [CgpIntegration.resetReflectionCacheForTests]
-        // helper for cleanup. Marks `cgpMethodsResolved = true` so resolveCgpMethods
-        // is a no-op (we already supplied the cached refs).
+        // pattern `AccentApplicatorTest` used pre-TD-I5 (raw field writes),
+        // but routed through the typed
+        // [CgpIntegration.resetReflectionCacheForTests] helper for cleanup.
+        // Marks `cgpMethodsResolved = true` so `resolveCgpMethods` is a no-op
+        // (we already supplied the cached refs).
         val ownerClass = CgpIntegration::class.java
         ownerClass.getDeclaredField("cgpService").apply {
             isAccessible = true
