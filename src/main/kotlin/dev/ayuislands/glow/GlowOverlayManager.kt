@@ -210,8 +210,8 @@ class GlowOverlayManager(
         val state = AyuIslandsSettings.getInstance().state
         if (!state.glowFocusRing) return
 
-        val variant = AyuVariant.detect()
-        val accentHex = if (variant != null) AccentResolver.resolve(project, variant) else DEFAULT_ACCENT_HEX
+        val variant = AyuVariant.detect() ?: return
+        val accentHex = AccentResolver.resolve(project, variant)
         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
         val accent = safeDecodeColor(accentHex)
         val intensity = state.getIntensityForStyle(style)
@@ -250,8 +250,8 @@ class GlowOverlayManager(
         val layeredPane = rootPane.layeredPane
 
         val state = AyuIslandsSettings.getInstance().state
-        val variant = AyuVariant.detect()
-        val accentHex = if (variant != null) AccentResolver.resolve(project, variant) else DEFAULT_ACCENT_HEX
+        val variant = AyuVariant.detect() ?: return
+        val accentHex = AccentResolver.resolve(project, variant)
         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
 
         val glassPane =
@@ -389,6 +389,10 @@ class GlowOverlayManager(
 
     fun updateGlow() {
         if (disposed) return
+        if (!AyuVariant.isAyuActive()) {
+            removeAllOverlays()
+            return
+        }
 
         val settings = AyuIslandsSettings.getInstance()
         val state = settings.state
@@ -397,8 +401,8 @@ class GlowOverlayManager(
             return
         }
 
-        val variant = AyuVariant.detect()
-        val accentHex = if (variant != null) AccentResolver.resolve(project, variant) else DEFAULT_ACCENT_HEX
+        val variant = AyuVariant.detect() ?: return
+        val accentHex = AccentResolver.resolve(project, variant)
         val accent = safeDecodeColor(accentHex)
         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
 
