@@ -1,6 +1,5 @@
 package dev.ayuislands.accent
 
-import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
@@ -13,7 +12,6 @@ import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.extensions.ExtensionPointName
-import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.openapi.wm.WindowManager
@@ -27,9 +25,9 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import dev.ayuislands.ui.ComponentTreeRefresher
+import org.jetbrains.annotations.TestOnly
 import java.awt.Color
 import java.awt.Window
-import java.lang.reflect.Method
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
@@ -64,22 +62,64 @@ object AccentApplicator {
     private const val TAB_ACCENT_BG_ALPHA = 50
     private const val KEY_TAB_BACKGROUND = "EditorTabs.underlinedTabBackground"
     private const val DEFAULT_UNDERLINE_ARC = 8
-    private const val CGP_RESOLUTION_FAILED = "method resolution failed"
-    private const val CGP_SYNC_FAILED = "sync failed"
+
+    /**
+     * CodeGlance Pro viewport defaults extracted via javap from
+     * `com.nasller.codeglance.config.CodeGlanceConfig.<init>` in `CodeGlancePro-2.0.2.jar`.
+     *
+     * Re-verification command (run on any dev machine with CGP installed; the bash
+     * backslash continuations keep the shell command runnable when copy-pasted):
+     * ```
+     * CGP_PLUGIN_DIR=~/Library/Application\ Support/JetBrains/IntelliJIdea2025.3/plugins
+     * CGP_JAR="$CGP_PLUGIN_DIR/CodeGlancePro/lib/CodeGlancePro-2.0.2.jar"
+     * unzip -p "$CGP_JAR" com/nasller/codeglance/config/CodeGlanceConfig.class \
+     *   > /tmp/CodeGlanceConfig.class && \
+     *   javap -c -p /tmp/CodeGlanceConfig.class \
+     *     | grep -A 2 -E "ldc.*(00FF00|A0A0A0)|iconst_0"
+     * ```
+     *
+     * No `#` prefix — CGP stores hex as plain uppercase 6-char strings.
+     * `setViewportColor("")` is NOT a reset sentinel — the setter stores the empty
+     * string as-is. When bumping CGP version, re-run the javap command and update
+     * these constants ONLY if upstream changed them.
+     */
+    internal const val CGP_DEFAULT_VIEWPORT_COLOR = "00FF00"
+    internal const val CGP_DEFAULT_VIEWPORT_BORDER_COLOR = "A0A0A0"
+    internal const val CGP_DEFAULT_VIEWPORT_BORDER_THICKNESS = 0
+
     private val EMPTY_TEXT_ATTRIBUTES = TextAttributes()
 
-    // Cached CodeGlance Pro reflection objects (resolved once per session)
-    @Volatile private var cgpService: Any? = null
+    // CodeGlance Pro reflection state and apply/revert workers live in
+    // [CgpIntegration] to keep this object below the TooManyFunctions threshold.
+    // Only the cross-object test seam (cgpRevertHook + resetCgpRevertHookForTests)
+    // and the swap-path entry stay here because Wave 0 tests bind those names to
+    // AccentApplicator.
 
-    @Volatile private var cgpGetState: Method? = null
+    /**
+     * Per-thread revert observer for [CgpIntegration.revertCodeGlanceProViewport].
+     * Production path: null → reflection writes fire against the real CGP service.
+     * Test path: a non-null supplier records the three default values the revert
+     * would have written, bypassing the reflection chain because CGP is not on
+     * the test classpath.
+     *
+     * Why ThreadLocal rather than `@Volatile var`? Gradle runs JUnit tests in
+     * parallel workers; a shared volatile slot leaks a pinned observer from
+     * one test into a concurrent sibling's revert call, producing intermittent
+     * "looks like the other test's fake received my invocation" failures.
+     * Matches [ChromeDecorationsProbe.osSupplier] (Phase 40 Round 3).
+     *
+     * Tests MUST use try/finally + [resetCgpRevertHookForTests] — `@AfterEach`
+     * does NOT run after an assertion failure that exits the worker mid-test,
+     * so per-test cleanup is mandatory.
+     */
+    internal val cgpRevertHook: ThreadLocal<((String, String, Int) -> Unit)?> =
+        ThreadLocal.withInitial { null }
 
-    @Volatile private var cgpSetViewportColor: Method? = null
-
-    @Volatile private var cgpSetViewportBorderColor: Method? = null
-
-    @Volatile private var cgpSetViewportBorderThickness: Method? = null
-
-    @Volatile private var cgpMethodsResolved = false
+    /** Restore the production [cgpRevertHook] on the calling thread. Intended for test teardown. */
+    @TestOnly
+    internal fun resetCgpRevertHookForTests() {
+        cgpRevertHook.remove()
+    }
 
     // Always-on UIManager keys (not per-element toggleable)
     private val ALWAYS_ON_UI_KEYS =
@@ -191,7 +231,7 @@ object AccentApplicator {
                 applyAlwaysOnUiKeys(state, accent)
 
                 applyElements(state, accent, variant)
-                syncCodeGlanceProViewport(trimmedHex)
+                CgpIntegration.syncCodeGlanceProViewport(trimmedHex)
                 if (variant != null) {
                     IndentRainbowSync.apply(variant, trimmedHex)
                 }
@@ -663,69 +703,22 @@ object AccentApplicator {
         }
     }
 
-    private fun resolveCgpMethods() {
-        if (cgpMethodsResolved) return
-        cgpMethodsResolved = true
-
-        try {
-            val pluginId = PluginId.getId("com.nasller.CodeGlancePro")
-            val cgpPlugin = PluginManagerCore.getPlugin(pluginId) ?: return
-            val cgpClassLoader = cgpPlugin.pluginClassLoader ?: return
-
-            val serviceClass =
-                Class.forName(
-                    "com.nasller.codeglance.config.CodeGlanceConfigService",
-                    true,
-                    cgpClassLoader,
-                )
-
-            val service = ApplicationManager.getApplication().getService(serviceClass) ?: return
-
-            cgpService = service
-            cgpGetState = service.javaClass.getMethod("getState")
-
-            // Resolve config methods from the state object's class
-            val config = cgpGetState!!.invoke(service) ?: return
-            val configClass = config.javaClass
-            cgpSetViewportColor = configClass.getMethod("setViewportColor", String::class.java)
-            cgpSetViewportBorderColor = configClass.getMethod("setViewportBorderColor", String::class.java)
-            cgpSetViewportBorderThickness = configClass.getMethod("setViewportBorderThickness", Int::class.java)
-        } catch (exception: ReflectiveOperationException) {
-            log.warn("CodeGlance Pro $CGP_RESOLUTION_FAILED: ${exception.javaClass.simpleName}: ${exception.message}")
-        } catch (exception: RuntimeException) {
-            log.warn("CodeGlance Pro $CGP_RESOLUTION_FAILED: ${exception.javaClass.simpleName}: ${exception.message}")
-        }
-    }
-
-    private fun syncCodeGlanceProViewport(accentHex: String) {
-        if (!AyuIslandsSettings.getInstance().state.cgpIntegrationEnabled) return
-
-        resolveCgpMethods()
-
-        val service = cgpService ?: return
-        val getState = cgpGetState ?: return
-        val setColor = cgpSetViewportColor ?: return
-        val setBorderColor = cgpSetViewportBorderColor ?: return
-        val setBorderThickness = cgpSetViewportBorderThickness ?: return
-
-        try {
-            val hexWithoutHash = accentHex.removePrefix("#")
-            val config = getState.invoke(service) ?: return
-
-            setColor.invoke(config, hexWithoutHash)
-            setBorderColor.invoke(config, hexWithoutHash)
-            setBorderThickness.invoke(config, 1)
-
-            // CGP panels repaint via globalSchemeChange notification (no manual walk needed)
-            log.info("CodeGlance Pro viewport color synced to $hexWithoutHash")
-        } catch (exception: java.lang.reflect.InvocationTargetException) {
-            val cause = exception.cause ?: exception
-            log.warn("CodeGlance Pro $CGP_SYNC_FAILED: ${cause.javaClass.simpleName}: ${cause.message}")
-        } catch (exception: ReflectiveOperationException) {
-            log.warn("CodeGlance Pro $CGP_SYNC_FAILED: ${exception.javaClass.simpleName}: ${exception.message}")
-        } catch (exception: RuntimeException) {
-            log.warn("CodeGlance Pro $CGP_SYNC_FAILED: ${exception.javaClass.simpleName}: ${exception.message}")
-        }
+    /**
+     * Public-to-the-module entry into [CgpIntegration.syncCodeGlanceProViewport]
+     * for the project-focus-swap path.
+     * [ProjectAccentSwapService.handleWindowActivated] calls this on a same-hex
+     * focus swap to push the per-project accent into the app-scoped CGP
+     * `CodeGlanceConfigService` cache without re-running the full UIManager
+     * apply (which is already correct for the unchanged hex).
+     *
+     * Resolves RESEARCH §Open Questions §1: `ComponentTreeRefresher.walkAndNotify`
+     * alone cannot push the new accent into the app-scoped CGP cache because
+     * CGP does not subscribe to `ComponentTreeRefreshedTopic`. Calling this
+     * wrapper directly from the swap service achieves the cache write without
+     * the apply path's redundant work.
+     */
+    internal fun syncCodeGlanceProViewportForSwap(hex: String) {
+        CgpIntegration.syncCodeGlanceProViewport(hex)
     }
 
     /**
