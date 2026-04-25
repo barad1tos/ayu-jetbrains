@@ -174,31 +174,40 @@ class GlowOverlayManagerLifecycleTest {
     /**
      * Reads the private `overlays` MutableMap from a [GlowOverlayManager] instance
      * via reflection. The map is the disposal contract's observable surface — an
-     * empty map after `updateGlow()` proves the guard fired.
+     * empty map after `updateGlow()` proves the guard fired. Star projection
+     * `Map<*, *>` keeps the cast checked-by-Kotlin (no UNCHECKED_CAST warning)
+     * since we only need `isEmpty()` and `containsKey(...)` from the read side.
      */
-    @Suppress("UNCHECKED_CAST")
-    private fun readOverlaysMap(manager: GlowOverlayManager): Map<String, *> {
+    private fun readOverlaysMap(manager: GlowOverlayManager): Map<*, *> {
         val field = GlowOverlayManager::class.java.getDeclaredField("overlays")
         field.isAccessible = true
-        return field.get(manager) as Map<String, *>
+        return field.get(manager) as Map<*, *>
     }
 
     /**
      * Inserts a sentinel value into the private `overlays` map so the disposal
-     * test can prove the map was cleared. The sentinel value is the manager
-     * itself cast to Any — the map's value type is the private `OverlayEntry`
-     * data class, but reflection bypasses the type check at write time and
-     * `removeAllOverlays()` only iterates entries to call `detachOverlayEntry`,
-     * which we don't reach because the disposal path clears the map directly.
+     * test can prove the map was cleared. The map's value type is the private
+     * `OverlayEntry` data class, but reflection bypasses the type check at
+     * write time — the JVM erases generics, so the slot accepts any reference
+     * type at runtime. We use `Method.invoke` to reach `Map.put` so the
+     * compile-time type stays at `Map<*, *>` and Kotlin doesn't need an
+     * unchecked cast. `removeAllOverlays()` only iterates entries to call
+     * `detachOverlayEntry`, which we never reach because the disposal path
+     * clears the map directly via `overlays.clear()`.
      */
-    @Suppress("UNCHECKED_CAST")
     private fun seedOverlaysMap(
         manager: GlowOverlayManager,
         key: String,
     ) {
         val field = GlowOverlayManager::class.java.getDeclaredField("overlays")
         field.isAccessible = true
-        val map = field.get(manager) as MutableMap<String, Any>
-        map[key] = manager
+        val map = field.get(manager) as Map<*, *>
+        val putMethod =
+            java.util.Map::class.java.getDeclaredMethod(
+                "put",
+                Any::class.java,
+                Any::class.java,
+            )
+        putMethod.invoke(map, key, manager)
     }
 }
