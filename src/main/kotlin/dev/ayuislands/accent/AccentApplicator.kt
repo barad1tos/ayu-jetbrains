@@ -63,29 +63,11 @@ object AccentApplicator {
     private const val KEY_TAB_BACKGROUND = "EditorTabs.underlinedTabBackground"
     private const val DEFAULT_UNDERLINE_ARC = 8
 
-    /**
-     * CodeGlance Pro viewport defaults extracted via javap from
-     * `com.nasller.codeglance.config.CodeGlanceConfig.<init>` in `CodeGlancePro-2.0.2.jar`.
-     *
-     * Re-verification command (run on any dev machine with CGP installed; the bash
-     * backslash continuations keep the shell command runnable when copy-pasted):
-     * ```
-     * CGP_PLUGIN_DIR=~/Library/Application\ Support/JetBrains/IntelliJIdea2025.3/plugins
-     * CGP_JAR="$CGP_PLUGIN_DIR/CodeGlancePro/lib/CodeGlancePro-2.0.2.jar"
-     * unzip -p "$CGP_JAR" com/nasller/codeglance/config/CodeGlanceConfig.class \
-     *   > /tmp/CodeGlanceConfig.class && \
-     *   javap -c -p /tmp/CodeGlanceConfig.class \
-     *     | grep -A 2 -E "ldc.*(00FF00|A0A0A0)|iconst_0"
-     * ```
-     *
-     * No `#` prefix — CGP stores hex as plain uppercase 6-char strings.
-     * `setViewportColor("")` is NOT a reset sentinel — the setter stores the empty
-     * string as-is. When bumping CGP version, re-run the javap command and update
-     * these constants ONLY if upstream changed them.
-     */
-    internal const val CGP_DEFAULT_VIEWPORT_COLOR = "00FF00"
-    internal const val CGP_DEFAULT_VIEWPORT_BORDER_COLOR = "A0A0A0"
-    internal const val CGP_DEFAULT_VIEWPORT_BORDER_THICKNESS = 0
+    // CGP viewport defaults moved to [CgpIntegration] (TD-I1, plan 40.1-02
+    // review-loop). They are exclusively read inside that peer object; the
+    // prior placement here inverted the dependency direction. See
+    // [CgpIntegration.CGP_DEFAULT_VIEWPORT_COLOR] for the javap provenance and
+    // re-verification recipe.
 
     private val EMPTY_TEXT_ATTRIBUTES = TextAttributes()
 

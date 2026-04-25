@@ -29,6 +29,11 @@ import kotlin.test.assertTrue
  */
 class AccentApplicatorCgpDefaultsDocTest {
     private val rawSource: String by lazy {
+        // TD-I1 (plan 40.1-02 review-loop): the three CGP viewport constants
+        // moved from [AccentApplicator] to [CgpIntegration] so they live next
+        // to their only readers. The provenance lock follows the constants —
+        // anyone re-running the javap recipe should land in the same file as
+        // the values they verify.
         val path: Path =
             Paths.get(
                 System.getProperty("user.dir"),
@@ -38,7 +43,7 @@ class AccentApplicatorCgpDefaultsDocTest {
                 "dev",
                 "ayuislands",
                 "accent",
-                "AccentApplicator.kt",
+                "CgpIntegration.kt",
             )
         Files.readString(path)
     }

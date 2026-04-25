@@ -28,6 +28,37 @@ internal object CgpIntegration {
     private const val CGP_RESOLUTION_FAILED = "method resolution failed"
     private const val CGP_SYNC_FAILED = "sync failed"
 
+    /**
+     * CodeGlance Pro viewport defaults extracted via javap from
+     * `com.nasller.codeglance.config.CodeGlanceConfig.<init>` in `CodeGlancePro-2.0.2.jar`.
+     *
+     * Re-verification command (run on any dev machine with CGP installed; the bash
+     * backslash continuations keep the shell command runnable when copy-pasted):
+     * ```
+     * CGP_PLUGIN_DIR=~/Library/Application\ Support/JetBrains/IntelliJIdea2025.3/plugins
+     * CGP_JAR="$CGP_PLUGIN_DIR/CodeGlancePro/lib/CodeGlancePro-2.0.2.jar"
+     * unzip -p "$CGP_JAR" com/nasller/codeglance/config/CodeGlanceConfig.class \
+     *   > /tmp/CodeGlanceConfig.class && \
+     *   javap -c -p /tmp/CodeGlanceConfig.class \
+     *     | grep -A 2 -E "ldc.*(00FF00|A0A0A0)|iconst_0"
+     * ```
+     *
+     * No `#` prefix — CGP stores hex as plain uppercase 6-char strings.
+     * `setViewportColor("")` is NOT a reset sentinel — the setter stores the empty
+     * string as-is. When bumping CGP version, re-run the javap command and update
+     * these constants ONLY if upstream changed them.
+     *
+     * Owned here in [CgpIntegration] (TD-I1, plan 40.1-02 review-loop). The
+     * constants are exclusively read inside this object; the prior placement on
+     * [AccentApplicator] inverted the dependency direction (peer object reaching
+     * into the orchestrator for CGP-private values). Source-regex provenance lock
+     * lives in [AccentApplicatorCgpDefaultsDocTest], rebound to this file in the
+     * same commit as the move.
+     */
+    internal const val CGP_DEFAULT_VIEWPORT_COLOR = "00FF00"
+    internal const val CGP_DEFAULT_VIEWPORT_BORDER_COLOR = "A0A0A0"
+    internal const val CGP_DEFAULT_VIEWPORT_BORDER_THICKNESS = 0
+
     // Cached CodeGlance Pro reflection objects (resolved once per session)
     @Volatile private var cgpService: Any? = null
 
@@ -126,9 +157,8 @@ internal object CgpIntegration {
 
     /**
      * Reset CodeGlance Pro viewport to its documented stock defaults
-     * ([AccentApplicator.CGP_DEFAULT_VIEWPORT_COLOR] /
-     * [AccentApplicator.CGP_DEFAULT_VIEWPORT_BORDER_COLOR] /
-     * [AccentApplicator.CGP_DEFAULT_VIEWPORT_BORDER_THICKNESS]) when Ayu's
+     * ([CGP_DEFAULT_VIEWPORT_COLOR] / [CGP_DEFAULT_VIEWPORT_BORDER_COLOR] /
+     * [CGP_DEFAULT_VIEWPORT_BORDER_THICKNESS]) when Ayu's
      * accent is being reverted (theme switch away from Ayu, license loss).
      * Mirror of [syncCodeGlanceProViewport]. Pattern G — apply/revert symmetry.
      *
@@ -158,9 +188,9 @@ internal object CgpIntegration {
         val hook = AccentApplicator.cgpRevertHook.get()
         if (hook != null) {
             hook.invoke(
-                AccentApplicator.CGP_DEFAULT_VIEWPORT_COLOR,
-                AccentApplicator.CGP_DEFAULT_VIEWPORT_BORDER_COLOR,
-                AccentApplicator.CGP_DEFAULT_VIEWPORT_BORDER_THICKNESS,
+                CGP_DEFAULT_VIEWPORT_COLOR,
+                CGP_DEFAULT_VIEWPORT_BORDER_COLOR,
+                CGP_DEFAULT_VIEWPORT_BORDER_THICKNESS,
             )
             return
         }
@@ -174,9 +204,9 @@ internal object CgpIntegration {
 
         try {
             val config = getState.invoke(service) ?: return
-            setColor.invoke(config, AccentApplicator.CGP_DEFAULT_VIEWPORT_COLOR)
-            setBorderColor.invoke(config, AccentApplicator.CGP_DEFAULT_VIEWPORT_BORDER_COLOR)
-            setBorderThickness.invoke(config, AccentApplicator.CGP_DEFAULT_VIEWPORT_BORDER_THICKNESS)
+            setColor.invoke(config, CGP_DEFAULT_VIEWPORT_COLOR)
+            setBorderColor.invoke(config, CGP_DEFAULT_VIEWPORT_BORDER_COLOR)
+            setBorderThickness.invoke(config, CGP_DEFAULT_VIEWPORT_BORDER_THICKNESS)
 
             log.info("CodeGlance Pro viewport reset to documented defaults")
         } catch (exception: java.lang.reflect.InvocationTargetException) {
