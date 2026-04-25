@@ -422,7 +422,7 @@ class ProjectAccentSwapServiceTest {
     }
 
     @Test
-    fun `findProjectForWindow logs first-frame failure at WARN then dedups subsequent failures to DEBUG`() {
+    fun `findProjectForWindow logs first-frame failure at WARN then deduplicates subsequent failures to DEBUG`() {
         // The frameResolutionFailureLogged gate prevents log spam on every alt-tab when one
         // broken frame keeps throwing on access. First failure must produce a WARN; later
         // failures (same handler invocation or subsequent invocations) must NOT produce

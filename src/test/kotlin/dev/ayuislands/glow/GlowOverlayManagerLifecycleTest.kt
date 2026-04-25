@@ -97,7 +97,7 @@ class GlowOverlayManagerLifecycleTest {
         val glassPane = mockk<GlowGlassPane>(relaxed = true)
         val host = mockk<javax.swing.JComponent>(relaxed = true)
         val layeredPane = mockk<javax.swing.JLayeredPane>(relaxed = true)
-        seedOverlaysMapWithMocks(manager, "DISPOSAL_TARGET", glassPane, host, layeredPane)
+        seedOverlaysMapWithMocks(manager, glassPane, host, layeredPane)
 
         manager.updateGlow()
 
@@ -179,11 +179,11 @@ class GlowOverlayManagerLifecycleTest {
 
     @Test
     fun `syncGlowForAllProjects disposes every project glow when variant becomes null`() {
-        // D-03: when AyuIslandsLafListener detects a non-Ayu LAF, it calls
-        // GlowOverlayManager.syncGlowForAllProjects() which iterates every open
-        // project and triggers per-project disposal via the new guard. This test
-        // pins the multi-project dispatch — without it, only the focused
-        // project's overlay would be disposed.
+        // D-03: when `AyuIslandsLafListener` detects a non-Ayu LAF, it calls
+        // `GlowOverlayManager.syncGlowForAllProjects()` which iterates every
+        // open project and triggers per-project disposal via the new guard.
+        // This test pins the multi-project dispatch — without it, only the
+        // focused project's overlay would be disposed.
         every { AyuVariant.isAyuActive() } returns false
         every { AyuVariant.detect() } returns null
 
@@ -261,8 +261,11 @@ class GlowOverlayManagerLifecycleTest {
         val field = GlowOverlayManager::class.java.getDeclaredField("overlays")
         field.isAccessible = true
         val map = field.get(manager) as Map<*, *>
+        // `MutableMap::class.java` resolves to the same JVM `java.util.Map`
+        // class but lets Kotlin's IDE tooling treat the lookup as
+        // collection-language-canonical rather than a bare java.* reference.
         val putMethod =
-            java.util.Map::class.java.getDeclaredMethod(
+            MutableMap::class.java.getDeclaredMethod(
                 "put",
                 Any::class.java,
                 Any::class.java,
@@ -273,14 +276,16 @@ class GlowOverlayManagerLifecycleTest {
     /**
      * C-4 strengthening: seed the overlays map with EXPLICIT mocks (rather
      * than the relaxed-mock anonymous trio inside [makeOverlayEntry]) so
-     * tests can verify detachOverlayEntry's side-effects against the same
+     * tests can verify `detachOverlayEntry`'s side-effects against the same
      * mock instances they passed in. The non-disposal-path
      * `updateOverlayStyles` iteration just assigns properties on the
      * glassPane mock, which relaxed-mock no-ops.
+     *
+     * Always seeds under the [DISPOSAL_TARGET_KEY] sentinel — the only
+     * caller is the disposal-path test, which doesn't need to vary the key.
      */
     private fun seedOverlaysMapWithMocks(
         manager: GlowOverlayManager,
-        key: String,
         glassPane: GlowGlassPane,
         host: javax.swing.JComponent,
         layeredPane: javax.swing.JLayeredPane,
@@ -288,13 +293,16 @@ class GlowOverlayManagerLifecycleTest {
         val field = GlowOverlayManager::class.java.getDeclaredField("overlays")
         field.isAccessible = true
         val map = field.get(manager) as Map<*, *>
+        // `MutableMap::class.java` resolves to the same JVM `java.util.Map`
+        // class but lets Kotlin's IDE tooling treat the lookup as
+        // collection-language-canonical rather than a bare java.* reference.
         val putMethod =
-            java.util.Map::class.java.getDeclaredMethod(
+            MutableMap::class.java.getDeclaredMethod(
                 "put",
                 Any::class.java,
                 Any::class.java,
             )
-        putMethod.invoke(map, key, makeOverlayEntryWith(glassPane, host, layeredPane))
+        putMethod.invoke(map, DISPOSAL_TARGET_KEY, makeOverlayEntryWith(glassPane, host, layeredPane))
     }
 
     private fun makeOverlayEntryWith(
@@ -345,5 +353,8 @@ class GlowOverlayManagerLifecycleTest {
     private companion object {
         /** Primary data-class ctor of OverlayEntry: 5 declared parameters. */
         private const val OVERLAY_ENTRY_PRIMARY_CTOR_ARITY = 5
+
+        /** Sentinel key for the disposal-path test seed. */
+        private const val DISPOSAL_TARGET_KEY = "DISPOSAL_TARGET"
     }
 }
