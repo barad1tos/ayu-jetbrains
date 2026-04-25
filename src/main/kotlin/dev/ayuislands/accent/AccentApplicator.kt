@@ -694,18 +694,29 @@ object AccentApplicator {
     }
 
     /**
-     * Pairs with [LiveChromeRefresher.forEachShowingWindow]'s `isShowing` filter —
-     * both paths must skip disposed/hidden peers so a future contributor doesn't
-     * regress one without the other.
+     * Write-side repaint pass over the JVM's window list. Filters by
+     * [Window.isDisplayable] — DELIBERATELY laxer than
+     * [LiveChromeRefresher.forEachShowingWindow]'s `isShowing` filter
+     * (CA-I1, plan 40.1-02 review-loop): a window that's displayable but
+     * not yet showing (e.g. mid-attach, popup behind a modal) still has a
+     * valid AWT peer, so calling `repaint()` is safe and the queued paint
+     * lands when the window flips to showing. The chrome refresher's
+     * `isShowing` filter is read-side — it walks descendants to collect
+     * peers, where an offscreen window has no useful contribution and
+     * skipping is correct. Two predicates, two purposes; do NOT collapse
+     * them into one helper.
+     *
+     * The `isDisplayable` check exists for a different reason: a disposed
+     * window lingers briefly in [Window.getWindows] during shutdown races,
+     * and calling `repaint()` on a disposed window is a no-op at best and
+     * throws on some LAFs at worst. So this filter rejects only fully
+     * disposed peers, NOT not-yet-shown ones.
      */
     private fun repaintAllWindows(windows: Array<Window>) {
-        // Phase 40.2 M-8: filter by isDisplayable before repaint, mirroring
-        // LiveChromeRefresher.forEachShowingWindow. A disposed/undisplayed window still
-        // lingers in Window.getWindows() briefly during shutdown races; calling
-        // repaint() on it is a no-op at best and throws on some LAFs at worst. The
-        // isShowing check is stricter than we need here (pooled popups are fine to
-        // skip-repaint anyway), so isDisplayable captures the bare "not-yet-disposed"
-        // predicate for this write-side pass.
+        // CA-I1: predicate intentionally differs from
+        // LiveChromeRefresher.forEachShowingWindow.isShowing (read-side).
+        // Write-side tolerates not-yet-showing windows so queued paint
+        // lands when the peer flips to showing — see KDoc above.
         for (window in windows) {
             if (!window.isDisplayable) continue
             window.repaint()

@@ -9,19 +9,32 @@ import org.jetbrains.annotations.TestOnly
 import java.lang.reflect.Method
 
 /**
- * CodeGlance Pro integration helper. Owns the reflection chain that talks to
- * `com.nasller.codeglance.config.CodeGlanceConfigService` and the apply / revert
- * paths the rest of the plugin invokes through [AccentApplicator].
+ * CodeGlance Pro integration helper. Owns the reflection chain that talks
+ * to BOTH CGP classes the integration depends on (CA-I3, plan 40.1-02
+ * review-loop):
  *
- * Extracted from [AccentApplicator] in Phase 40.1 plan 02 (D-04, D-05) to keep
- * AccentApplicator below the detekt `TooManyFunctions` threshold for objects.
- * The cross-object test seam ([AccentApplicator.cgpRevertHook] +
+ *   - `com.nasller.codeglance.config.CodeGlanceConfigService` — app-scoped
+ *     service, looked up via `ApplicationManager.getService(...)`.
+ *     `getState()` returns the cached state object below.
+ *   - `com.nasller.codeglance.config.CodeGlanceConfig` — the state value
+ *     class whose `<init>` bytecode supplies the documented viewport
+ *     defaults this object pins ([CGP_DEFAULT_VIEWPORT_COLOR] /
+ *     [CGP_DEFAULT_VIEWPORT_BORDER_COLOR] /
+ *     [CGP_DEFAULT_VIEWPORT_BORDER_THICKNESS]). Re-verifying the defaults
+ *     runs `javap` against `CodeGlanceConfig.class` specifically — a
+ *     future agent who bumps the CGP version must target the state class,
+ *     not the service class.
+ *
+ * Extracted from [AccentApplicator] in Phase 40.1 plan 02 (D-04, D-05) to
+ * keep AccentApplicator below the detekt `TooManyFunctions` threshold for
+ * objects. The cross-object test seam ([AccentApplicator.cgpRevertHook] +
  * [AccentApplicator.resetCgpRevertHookForTests]) stays on AccentApplicator
  * because Wave 0 source-regex tests bind those names there.
  *
  * Pattern G — apply/revert symmetry: every write path
- * ([syncCodeGlanceProViewport]) has a paired revert ([revertCodeGlanceProViewport])
- * so a theme switch / license loss closes the same surface that an apply opened.
+ * ([syncCodeGlanceProViewport]) has a paired revert
+ * ([revertCodeGlanceProViewport]) so a theme switch / license loss closes
+ * the same surface that an apply opened.
  */
 internal object CgpIntegration {
     private val log = logger<CgpIntegration>()

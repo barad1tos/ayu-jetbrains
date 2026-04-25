@@ -44,11 +44,19 @@ object IndentRainbowSync {
 
     /**
      * Syncs Indent Rainbow's custom palette to [accentHex] for the given [variant].
-     * The caller (typically [dev.ayuislands.accent.AccentApplicator.apply]) passes the
-     * resolved accent — the one that just went through per-project / per-language
-     * override resolution — so IR reflects the SAME color the rest of the plugin just
-     * applied, not the global accent stored in settings (which rotation mutates to a
-     * different value from what the focused project actually shows).
+     *
+     * Production callers (CA-I2, plan 40.1-02 review-loop):
+     *   - [dev.ayuislands.accent.AccentApplicator.apply] — full theme apply path,
+     *     fires once per accent change with the resolved hex.
+     *   - [dev.ayuislands.settings.mappings.ProjectAccentSwapService.handleWindowActivated]
+     *     — same-hex focus-swap fast path (D-07), pushes the per-project hex into IR's
+     *     app-scoped IrConfig so the newly-focused project's indent palette matches
+     *     the visible chrome without re-running the full apply.
+     *
+     * Both callers pass the resolved accent — the one that went through per-project /
+     * per-language override resolution — so IR reflects the SAME color the rest of
+     * the plugin just applied, not the global accent stored in settings (which
+     * rotation mutates to a different value from what the focused project shows).
      */
     fun apply(
         variant: AyuVariant,
