@@ -115,6 +115,10 @@ class AccentApplicatorRevertAllIntegrationTest {
         // an assertion failure that exits the worker mid-test. The class-level
         // teardown is the safety net.
         AccentApplicator.resetCgpRevertHookForTests()
+        // C-3 reflection-path tests stash mocks into CgpIntegration's private
+        // reflection cache. Without this reset, a test failure could leave
+        // pinned mocks visible to a subsequent test in the same worker JVM.
+        CgpIntegration.resetReflectionCacheForTests()
         restoreOriginalEpName()
         unmockkAll()
         clearAllMocks()
@@ -302,7 +306,267 @@ class AccentApplicatorRevertAllIntegrationTest {
         )
     }
 
+    @Test
+    fun `syncCodeGlanceProViewportForSwap delegates to CgpIntegration syncCodeGlanceProViewport`() {
+        // C-2 regression lock. Pre-fix: AccentApplicator.syncCodeGlanceProViewportForSwap
+        // was a one-line wrapper "verified by association" — its only test was
+        // that it did NOT throw. A future agent who deleted the wrapper or
+        // renamed the underlying call would silently break the swap path's
+        // CGP refresh. This test stages a non-null reflection chain via mocks,
+        // calls the wrapper directly, and verifies the inner setter receives
+        // the hex with the # prefix stripped (CGP rejects # silently).
+        val mockConfig = mockk<Any>(relaxed = true)
+        val mockService = mockk<Any>(relaxed = true)
+        val mockGetState = mockk<java.lang.reflect.Method>(relaxed = true)
+        val mockSetColor = mockk<java.lang.reflect.Method>(relaxed = true)
+        val mockSetBorderColor = mockk<java.lang.reflect.Method>(relaxed = true)
+        val mockSetBorderThickness = mockk<java.lang.reflect.Method>(relaxed = true)
+        every { mockGetState.invoke(mockService) } returns mockConfig
+        every { mockSetColor.invoke(mockConfig, any()) } returns null
+        every { mockSetBorderColor.invoke(mockConfig, any()) } returns null
+        every { mockSetBorderThickness.invoke(mockConfig, any()) } returns null
+
+        installCgpReflectionMocks(
+            service = mockService,
+            getState = mockGetState,
+            setColor = mockSetColor,
+            setBorderColor = mockSetBorderColor,
+            setBorderThickness = mockSetBorderThickness,
+        )
+
+        AccentApplicator.syncCodeGlanceProViewportForSwap("#5CCFE6")
+
+        // Hex stripped of the # prefix per CGP's plain-string contract.
+        io.mockk.verify(exactly = 1) { mockSetColor.invoke(mockConfig, "5CCFE6") }
+        io.mockk.verify(exactly = 1) { mockSetBorderColor.invoke(mockConfig, "5CCFE6") }
+        io.mockk.verify(exactly = 1) { mockSetBorderThickness.invoke(mockConfig, 1) }
+    }
+
+    @Test
+    fun `revertCodeGlanceProViewport via reflection writes documented defaults in order`() {
+        // C-3 — when CGP IS installed (reflection chain primed), revertAll
+        // exercises the reflection setters. cgpRevertHook stays null so the
+        // production path runs. Verifies the three setters fire with the
+        // exact javap-verified defaults AND in the documented order: color,
+        // border color, border thickness.
+        val mockConfig = mockk<Any>(relaxed = true)
+        val mockService = mockk<Any>(relaxed = true)
+        val mockGetState = mockk<java.lang.reflect.Method>(relaxed = true)
+        val mockSetColor = mockk<java.lang.reflect.Method>(relaxed = true)
+        val mockSetBorderColor = mockk<java.lang.reflect.Method>(relaxed = true)
+        val mockSetBorderThickness = mockk<java.lang.reflect.Method>(relaxed = true)
+        every { mockGetState.invoke(mockService) } returns mockConfig
+
+        val callOrder = mutableListOf<String>()
+        every { mockSetColor.invoke(mockConfig, "00FF00") } answers {
+            callOrder += "color"
+            null
+        }
+        every { mockSetBorderColor.invoke(mockConfig, "A0A0A0") } answers {
+            callOrder += "border-color"
+            null
+        }
+        every { mockSetBorderThickness.invoke(mockConfig, 0) } answers {
+            callOrder += "border-thickness"
+            null
+        }
+
+        installCgpReflectionMocks(
+            service = mockService,
+            getState = mockGetState,
+            setColor = mockSetColor,
+            setBorderColor = mockSetBorderColor,
+            setBorderThickness = mockSetBorderThickness,
+        )
+
+        CgpIntegration.revertCodeGlanceProViewport()
+
+        assertEquals(
+            listOf("color", "border-color", "border-thickness"),
+            callOrder,
+            "CGP revert MUST call setViewportColor, setViewportBorderColor, " +
+                "setViewportBorderThickness in that order with documented defaults — " +
+                "regression in order or values would silently re-paint the user's CGP " +
+                "viewport with whatever default the agent guessed.",
+        )
+    }
+
+    @Test
+    fun `revertCodeGlanceProViewport handles InvocationTargetException gracefully`() {
+        // C-3 catch-path coverage. CGP setters can throw via reflection if
+        // upstream renames or guards a setter. The InvocationTargetException
+        // catch must swallow the failure with a WARN — a thrown exception
+        // here would propagate up through revertAll and break theme switch.
+        val mockConfig = mockk<Any>(relaxed = true)
+        val mockService = mockk<Any>(relaxed = true)
+        val mockGetState = mockk<java.lang.reflect.Method>(relaxed = true)
+        val mockSetColor = mockk<java.lang.reflect.Method>(relaxed = true)
+        val mockSetBorderColor = mockk<java.lang.reflect.Method>(relaxed = true)
+        val mockSetBorderThickness = mockk<java.lang.reflect.Method>(relaxed = true)
+        every { mockGetState.invoke(mockService) } returns mockConfig
+        every { mockSetColor.invoke(mockConfig, any()) } throws
+            java.lang.reflect.InvocationTargetException(IllegalStateException("CGP setter rejected"))
+
+        installCgpReflectionMocks(
+            service = mockService,
+            getState = mockGetState,
+            setColor = mockSetColor,
+            setBorderColor = mockSetBorderColor,
+            setBorderThickness = mockSetBorderThickness,
+        )
+
+        // Expectation: no throw. Test fails (assertion in finally) only if
+        // the InvocationTargetException catch is dropped from the source.
+        CgpIntegration.revertCodeGlanceProViewport()
+    }
+
+    @Test
+    fun `revertCodeGlanceProViewport handles ReflectiveOperationException gracefully`() {
+        // C-3 catch-path coverage for the IllegalAccessException /
+        // NoSuchMethodException class. Same argument as the InvocationTargetException
+        // case — must swallow without propagating to revertAll.
+        val mockConfig = mockk<Any>(relaxed = true)
+        val mockService = mockk<Any>(relaxed = true)
+        val mockGetState = mockk<java.lang.reflect.Method>(relaxed = true)
+        val mockSetColor = mockk<java.lang.reflect.Method>(relaxed = true)
+        val mockSetBorderColor = mockk<java.lang.reflect.Method>(relaxed = true)
+        val mockSetBorderThickness = mockk<java.lang.reflect.Method>(relaxed = true)
+        every { mockGetState.invoke(mockService) } returns mockConfig
+        every { mockSetColor.invoke(mockConfig, any()) } throws
+            IllegalAccessException("CGP setter inaccessible")
+
+        installCgpReflectionMocks(
+            service = mockService,
+            getState = mockGetState,
+            setColor = mockSetColor,
+            setBorderColor = mockSetBorderColor,
+            setBorderThickness = mockSetBorderThickness,
+        )
+
+        CgpIntegration.revertCodeGlanceProViewport()
+    }
+
+    @Test
+    fun `revertCodeGlanceProViewport passes hex without hash prefix to CGP setters`() {
+        // C-3 contract lock. CGP rejects '#' silently — its setters store the
+        // value as-is, so '#5CCFE6' would be persisted as a literal 7-char
+        // string and the minimap would render with a broken hex. The defaults
+        // are pre-stripped (00FF00, A0A0A0); this test pins that the values
+        // passed have no '#' character regardless of how the constants were
+        // declared.
+        val passedValues = mutableListOf<Any?>()
+        val mockConfig = mockk<Any>(relaxed = true)
+        val mockService = mockk<Any>(relaxed = true)
+        val mockGetState = mockk<java.lang.reflect.Method>(relaxed = true)
+        val mockSetColor = mockk<java.lang.reflect.Method>(relaxed = true)
+        val mockSetBorderColor = mockk<java.lang.reflect.Method>(relaxed = true)
+        val mockSetBorderThickness = mockk<java.lang.reflect.Method>(relaxed = true)
+        every { mockGetState.invoke(mockService) } returns mockConfig
+        every { mockSetColor.invoke(mockConfig, any()) } answers {
+            passedValues += secondArg<Any?>()
+            null
+        }
+        every { mockSetBorderColor.invoke(mockConfig, any()) } answers {
+            passedValues += secondArg<Any?>()
+            null
+        }
+        every { mockSetBorderThickness.invoke(mockConfig, any()) } returns null
+
+        installCgpReflectionMocks(
+            service = mockService,
+            getState = mockGetState,
+            setColor = mockSetColor,
+            setBorderColor = mockSetBorderColor,
+            setBorderThickness = mockSetBorderThickness,
+        )
+
+        CgpIntegration.revertCodeGlanceProViewport()
+
+        for (value in passedValues) {
+            assertEquals(
+                false,
+                (value as? String)?.contains("#") ?: false,
+                "CGP setter MUST receive a hex without '#' prefix — got '$value'. " +
+                    "CGP would store '#XXXXXX' as a literal 7-char string and render broken hex.",
+            )
+        }
+    }
+
+    @Test
+    fun `revertAll continues integration revert after EP element revert throws`() {
+        // TA-I5 regression lock. Pre-fix observation: an EP element whose
+        // revert() throws RuntimeException must NOT block downstream
+        // integration reverts. The narrow catch in applyElements / EP loop
+        // already isolates per-element failures, but the contract that
+        // IR.revert + CGP revert still fire afterwards needed an explicit
+        // test. Pattern B isolation + Pattern G symmetry.
+        val brokenElement =
+            mockk<AccentElement>(relaxed = true) {
+                every { displayName } returns "broken-element"
+                every { revert() } throws RuntimeException("EP element exploded on revert")
+            }
+        mockEpExtensionList(listOf(brokenElement))
+
+        val cgpObserved = mutableListOf<Triple<String, String, Int>>()
+        AccentApplicator.cgpRevertHook.set { c, bc, bt -> cgpObserved += Triple(c, bc, bt) }
+        try {
+            AccentApplicator.revertAll() // MUST NOT throw
+        } finally {
+            AccentApplicator.resetCgpRevertHookForTests()
+        }
+
+        verify(exactly = 1) { brokenElement.revert() }
+        verify(exactly = 1) { IndentRainbowSync.revert() }
+        assertEquals(
+            1,
+            cgpObserved.size,
+            "CGP revert hook MUST still fire after EP element revert throws " +
+                "(TA-I5 isolation lock — Pattern B + G).",
+        )
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private fun installCgpReflectionMocks(
+        service: Any,
+        getState: java.lang.reflect.Method,
+        setColor: java.lang.reflect.Method,
+        setBorderColor: java.lang.reflect.Method,
+        setBorderThickness: java.lang.reflect.Method,
+    ) {
+        // Stage non-null reflection chain so [revertCodeGlanceProViewport] /
+        // [syncCodeGlanceProViewport] reach the production reflection branch
+        // instead of short-circuiting on `cgpService ?: return`. Mirrors the
+        // pattern AccentApplicatorTest used pre-TD-I5 (raw field writes), but
+        // routed through the typed [CgpIntegration.resetReflectionCacheForTests]
+        // helper for cleanup. Marks `cgpMethodsResolved = true` so resolveCgpMethods
+        // is a no-op (we already supplied the cached refs).
+        val ownerClass = CgpIntegration::class.java
+        ownerClass.getDeclaredField("cgpService").apply {
+            isAccessible = true
+            set(CgpIntegration, service)
+        }
+        ownerClass.getDeclaredField("cgpGetState").apply {
+            isAccessible = true
+            set(CgpIntegration, getState)
+        }
+        ownerClass.getDeclaredField("cgpSetViewportColor").apply {
+            isAccessible = true
+            set(CgpIntegration, setColor)
+        }
+        ownerClass.getDeclaredField("cgpSetViewportBorderColor").apply {
+            isAccessible = true
+            set(CgpIntegration, setBorderColor)
+        }
+        ownerClass.getDeclaredField("cgpSetViewportBorderThickness").apply {
+            isAccessible = true
+            set(CgpIntegration, setBorderThickness)
+        }
+        ownerClass.getDeclaredField("cgpMethodsResolved").apply {
+            isAccessible = true
+            set(CgpIntegration, true)
+        }
+    }
 
     private fun mockProject(): Project {
         val project = mockk<Project>(relaxed = true)

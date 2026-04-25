@@ -14,6 +14,7 @@ import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
+import io.mockk.verify
 import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -81,21 +82,36 @@ class GlowOverlayManagerLifecycleTest {
         // the `else DEFAULT_ACCENT_HEX` fallback and kept the orange glow painting
         // on top of Darcula's blue chrome. Post-40.1, the new guard at the head
         // disposes every overlay so the screen is left in the LAF's natural state.
+        //
+        // C-4 strengthening (review-loop): seed the overlay map with explicit
+        // glassPane/host/layeredPane mocks so we can assert detachOverlayEntry's
+        // expected side-effects fire — stopAnimation on the glassPane,
+        // remove + repaint on the layeredPane. Map empty stays as the sanity
+        // net but is no longer the only signal.
         every { AyuVariant.isAyuActive() } returns false
         every { AyuVariant.detect() } returns null
 
         val project = stubProject("test-project")
         val manager = GlowOverlayManager(project)
 
+        val glassPane = mockk<GlowGlassPane>(relaxed = true)
+        val host = mockk<javax.swing.JComponent>(relaxed = true)
+        val layeredPane = mockk<javax.swing.JLayeredPane>(relaxed = true)
+        seedOverlaysMapWithMocks(manager, "DISPOSAL_TARGET", glassPane, host, layeredPane)
+
         manager.updateGlow()
 
-        // Internal overlays map must be empty after the guard fires (the disposal
-        // code path runs `removeAllOverlays()` which clears the map).
         val overlaysAfter = readOverlaysMap(manager)
         assertTrue(
             overlaysAfter.isEmpty(),
             "updateGlow with isAyuActive=false MUST leave overlays map empty (D-02 disposal contract)",
         )
+        // C-4: detachOverlayEntry side-effects must fire on each entry —
+        // proves the disposal path actually walked the map rather than
+        // just clearing it.
+        verify { glassPane.stopAnimation() }
+        verify { layeredPane.remove(glassPane) }
+        verify { layeredPane.repaint(any<Int>(), any<Int>(), any<Int>(), any<Int>()) }
     }
 
     @Test
@@ -216,6 +232,48 @@ class GlowOverlayManagerLifecycleTest {
                 Any::class.java,
             )
         putMethod.invoke(map, key, makeOverlayEntry())
+    }
+
+    /**
+     * C-4 strengthening: seed the overlays map with EXPLICIT mocks (rather
+     * than the relaxed-mock anonymous trio inside [makeOverlayEntry]) so
+     * tests can verify detachOverlayEntry's side-effects against the same
+     * mock instances they passed in. The non-disposal-path
+     * `updateOverlayStyles` iteration just assigns properties on the
+     * glassPane mock, which relaxed-mock no-ops.
+     */
+    private fun seedOverlaysMapWithMocks(
+        manager: GlowOverlayManager,
+        key: String,
+        glassPane: GlowGlassPane,
+        host: javax.swing.JComponent,
+        layeredPane: javax.swing.JLayeredPane,
+    ) {
+        val field = GlowOverlayManager::class.java.getDeclaredField("overlays")
+        field.isAccessible = true
+        val map = field.get(manager) as Map<*, *>
+        val putMethod =
+            java.util.Map::class.java.getDeclaredMethod(
+                "put",
+                Any::class.java,
+                Any::class.java,
+            )
+        putMethod.invoke(map, key, makeOverlayEntryWith(glassPane, host, layeredPane))
+    }
+
+    private fun makeOverlayEntryWith(
+        glassPane: GlowGlassPane,
+        host: javax.swing.JComponent,
+        layeredPane: javax.swing.JLayeredPane,
+    ): Any {
+        val entryClass =
+            GlowOverlayManager::class.java.declaredClasses
+                .first { it.simpleName == "OverlayEntry" }
+        val ctor =
+            entryClass.declaredConstructors
+                .first { it.parameterCount == OVERLAY_ENTRY_PRIMARY_CTOR_ARITY }
+        ctor.isAccessible = true
+        return ctor.newInstance(glassPane, host, layeredPane, null, null)
     }
 
     /**

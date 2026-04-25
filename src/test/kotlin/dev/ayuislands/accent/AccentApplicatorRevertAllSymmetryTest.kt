@@ -119,6 +119,54 @@ class AccentApplicatorRevertAllSymmetryTest {
     }
 
     @Test
+    fun `apply body wraps IndentRainbowSync apply in if variant non-null check`() {
+        // C-1 regression lock. The behavioral test
+        // `apply skips IndentRainbowSync when variant is null` covers the
+        // runtime path; this source-regex pin guards against a refactor that
+        // drops the structural `if (variant != null)` wrapper. IR.apply takes
+        // a non-null AyuVariant; if the wrapper goes away the call would not
+        // compile, but a future change to IR.apply's signature (nullable
+        // variant) could silently re-introduce the unconditional invocation.
+        // Pattern L — defensive structural lock.
+        val body = extractFunctionBody(source, "fun apply(")
+        assertTrue(
+            Regex("""if\s*\(variant\s*!=\s*null\s*\)\s*\{\s*[\s\S]*?IndentRainbowSync\.apply""")
+                .containsMatchIn(body),
+            "apply body MUST wrap IndentRainbowSync.apply in `if (variant != null)` " +
+                "so a null variant (non-Ayu LAF) skips IR's reflection chain. " +
+                "Pattern L lock — keep the source structure explicit even when the " +
+                "current type system would catch a bare invocation.",
+        )
+    }
+
+    @Test
+    fun `apply body fires IR apply before CGP sync before notifyOnly`() {
+        // TA-I6 mirror of the revert-side ordering lock. Apply path order
+        // matches the revert path (IR -> CGP -> notifyOnly) so future debugging
+        // reasons about a single ordering rather than two inverse-mirrored
+        // sequences. Drift between apply and revert order is silently
+        // observable as app-scoped state where IR pushed first on apply but
+        // CGP unwinds first on revert. Pattern G + L — apply/revert symmetry
+        // and structural ordering lock.
+        val body = extractFunctionBody(source, "fun apply(")
+        val irIdx = body.indexOf("IndentRainbowSync.apply")
+        val cgpIdx = body.indexOf("CgpIntegration.syncCodeGlanceProViewport")
+        val notifyIdx = body.indexOf("ComponentTreeRefresher.notifyOnly")
+        assertTrue(
+            irIdx in 0 until cgpIdx,
+            "IndentRainbowSync.apply must come BEFORE CgpIntegration.syncCodeGlanceProViewport " +
+                "in apply body (TA-I6 ordering lock — found irIdx=$irIdx cgpIdx=$cgpIdx). " +
+                "Mirrors the revert-side ordering in revertAll body.",
+        )
+        assertTrue(
+            cgpIdx in 0 until notifyIdx,
+            "CgpIntegration.syncCodeGlanceProViewport must come BEFORE notifyOnly in apply body " +
+                "(TA-I6 ordering lock — found cgpIdx=$cgpIdx notifyIdx=$notifyIdx). Integrations " +
+                "stamp the app-scoped caches before the refresh broadcast.",
+        )
+    }
+
+    @Test
     fun `IR revert precedes CGP revert precedes notifyOnly in revertAll body`() {
         // RESEARCH §D-04 ordering lock: integrations BEFORE notifyOnly so
         // subscribers see consistent app-scoped state when the topic fires.

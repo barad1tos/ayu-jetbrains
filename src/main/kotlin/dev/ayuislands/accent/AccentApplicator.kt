@@ -213,10 +213,18 @@ object AccentApplicator {
                 applyAlwaysOnUiKeys(state, accent)
 
                 applyElements(state, accent, variant)
-                CgpIntegration.syncCodeGlanceProViewport(trimmedHex)
+                // Pattern G + L — TA-I6 ordering lock. Apply path mirrors the
+                // revert path: IR before CGP before notifyOnly. The revert
+                // ordering is locked by AccentApplicatorRevertAllSymmetryTest;
+                // an inverted order on the apply side would silently let
+                // app-scoped state drift between the two paths (apply leaves
+                // CGP's cache holding what IR's cache pushed first; revert
+                // unwinds the other way). Keep both sequences identical so
+                // future debugging only has to reason about one ordering.
                 if (variant != null) {
                     IndentRainbowSync.apply(variant, trimmedHex)
                 }
+                CgpIntegration.syncCodeGlanceProViewport(trimmedHex)
                 applyAlwaysOnEditorKeys(accent)
                 overrideTabUnderlineForOffMode(state, variant)
                 applyTabUnderlineStyle(state)
