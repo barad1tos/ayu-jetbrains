@@ -186,7 +186,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         // The downstream notifyOnly loop runs even when IR revert throws —
         // subscribers (EditorScrollbarManager etc.) need the refresh topic so
         // their customizations re-apply against the freshly-cleared UIManager.
-        val project = mockProject(usable = true)
+        val project = mockProject()
         every { mockProjectManager.openProjects } returns arrayOf(project)
         every { IndentRainbowSync.revert() } throws RuntimeException("IR exploded")
 
@@ -204,7 +204,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         // `verifyOrder { IR; notifyOnly }` + `cgpCalls.size == 1` pair would
         // still pass if CGP fired BEFORE IR (size stays 1, IR-before-notifyOnly
         // holds) — the explicit timeline closes that hole.
-        val project = mockProject(usable = true)
+        val project = mockProject()
         every { mockProjectManager.openProjects } returns arrayOf(project)
 
         val events = mutableListOf<String>()
@@ -269,10 +269,10 @@ class AccentApplicatorRevertAllIntegrationTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private fun mockProject(usable: Boolean): Project {
+    private fun mockProject(): Project {
         val project = mockk<Project>(relaxed = true)
-        every { project.isDefault } returns !usable
-        every { project.isDisposed } returns !usable
+        every { project.isDefault } returns false
+        every { project.isDisposed } returns false
         return project
     }
 
