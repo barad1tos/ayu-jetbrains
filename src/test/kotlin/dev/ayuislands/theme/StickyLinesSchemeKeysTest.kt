@@ -48,9 +48,9 @@ class StickyLinesSchemeKeysTest {
 
     @Test
     fun `STICKY_LINES_BACKGROUND values are distinct per variant to match each editor bg`() {
-        val mirageBg = extractValue("/themes/AyuIslandsMirage.xml", "STICKY_LINES_BACKGROUND")
-        val darkBg = extractValue("/themes/AyuIslandsDark.xml", "STICKY_LINES_BACKGROUND")
-        val lightBg = extractValue("/themes/AyuIslandsLight.xml", "STICKY_LINES_BACKGROUND")
+        val mirageBg = extractStickyBackground("/themes/AyuIslandsMirage.xml")
+        val darkBg = extractStickyBackground("/themes/AyuIslandsDark.xml")
+        val lightBg = extractStickyBackground("/themes/AyuIslandsLight.xml")
 
         assertNotNull(mirageBg)
         assertNotNull(darkBg)
@@ -73,13 +73,10 @@ class StickyLinesSchemeKeysTest {
         return stream.bufferedReader().use { it.readText() }
     }
 
-    private fun extractValue(
-        resource: String,
-        key: String,
-    ): String? {
+    private fun extractStickyBackground(resource: String): String? {
         val xml = readResource(resource)
         val match =
-            Regex("""<option\s+name="$key"\s+value="([0-9A-Fa-f]{6,8})"\s*/>""")
+            Regex("""<option\s+name="STICKY_LINES_BACKGROUND"\s+value="([0-9A-Fa-f]{6,8})"\s*/>""")
                 .find(xml)
         return match?.groupValues?.get(1)
     }

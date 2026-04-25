@@ -93,6 +93,22 @@ class AyuIslandsAppearancePanelSyncEditorSchemeTest {
     }
 
     @Test
+    fun `apply re-enables sync when user toggles from off back to on`() {
+        // Inverse-direction lock: user previously opted OUT (state=false),
+        // panel loads pending=stored=false, user toggles checkbox back ON,
+        // apply must flip state to true. Pattern G — symmetric to the
+        // disable path.
+        state.syncEditorScheme = false
+        setStored(false)
+        setPending(true)
+
+        panel.apply()
+
+        assertTrue(state.syncEditorScheme, "apply must flush pending=true to settings.state")
+        assertEquals(true, getStored(), "stored must converge with the new pending after apply")
+    }
+
+    @Test
     fun `apply is a no-op when pending matches stored`() {
         state.syncEditorScheme = true
         setStored(true)
