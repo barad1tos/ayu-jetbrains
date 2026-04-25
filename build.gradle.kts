@@ -39,7 +39,7 @@ dependencies {
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testImplementation("io.mockk:mockk:${providers.gradleProperty("mockkVersion").get()}")
     testImplementation("io.kotest:kotest-property-jvm:${providers.gradleProperty("kotestVersion").get()}")
-    testImplementation("junit:junit:4.13.2")
+    testImplementation("junit:junit:${providers.gradleProperty("junitVersion").get()}")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testRuntimeOnly("org.junit.vintage:junit-vintage-engine")
 }
@@ -208,13 +208,13 @@ kover {
                     $$"dev.ayuislands.whatsnew.WhatsNewPanel$1",
                     $$"dev.ayuislands.whatsnew.WhatsNewPanel$2",
                     "dev.ayuislands.whatsnew.WhatsNewSlideCard",
-                    $$"dev.ayuislands.whatsnew.WhatsNewSlideCard\$*",
+                    "dev.ayuislands.whatsnew.WhatsNewSlideCard$*",
                     "dev.ayuislands.whatsnew.WhatsNewImagePanel",
                     "dev.ayuislands.whatsnew.ShowWhatsNewButton",
                     $$"dev.ayuislands.whatsnew.ShowWhatsNewButton$1",
                     "dev.ayuislands.whatsnew.WhatsNewEditor",
                     "dev.ayuislands.whatsnew.WhatsNewLauncher",
-                    $$"dev.ayuislands.whatsnew.WhatsNewLauncher\$*",
+                    "dev.ayuislands.whatsnew.WhatsNewLauncher$*",
                     // Startup lifecycle (coroutine scheduling, project service init)
                     "dev.ayuislands.StartupLicenseHandler*",
                     // Onboarding data-class holders (generated constructors + getters only)
