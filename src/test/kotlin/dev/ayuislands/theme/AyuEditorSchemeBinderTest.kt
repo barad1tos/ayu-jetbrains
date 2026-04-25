@@ -1,16 +1,12 @@
 package dev.ayuislands.theme
 
-import com.intellij.ide.ui.LafManager
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import dev.ayuislands.accent.AyuVariant
-import dev.ayuislands.settings.AyuIslandsSettings
-import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
-import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
@@ -22,27 +18,22 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Behavior + structural coverage for [AyuEditorSchemeBinder] and the thin
- * adapter [AyuThemeSchemeBinderListener].
+ * Behavior coverage for [AyuEditorSchemeBinder]. The binder is invoked from
+ * `AyuIslandsLafListener.lookAndFeelChanged` BEFORE
+ * `AccentApplicator.applyForFocusedProject` so the scheme swap lands first
+ * and AccentApplicator's in-place mutation targets the correct (Ayu) scheme
+ * — restoring revertAll symmetry.
  *
  * Pattern J — gates verified explicitly. Pattern G — apply path locked
- * (revert path is intentionally out of scope per binder KDoc). Pattern L —
- * source-regex regression locks at the bottom.
+ * (revert path is intentionally out of scope per binder KDoc).
  */
 class AyuEditorSchemeBinderTest {
     private val mockEcm = mockk<EditorColorsManager>(relaxed = true)
-    private val mockSettings = mockk<AyuIslandsSettings>(relaxed = true)
-    private val state = AyuIslandsState()
 
     @BeforeTest
     fun setUp() {
         mockkStatic(EditorColorsManager::class)
         every { EditorColorsManager.getInstance() } returns mockEcm
-
-        mockkObject(AyuIslandsSettings.Companion)
-        every { AyuIslandsSettings.getInstance() } returns mockSettings
-        every { mockSettings.state } returns state
-        state.syncEditorScheme = true
     }
 
     @AfterTest
@@ -167,43 +158,6 @@ class AyuEditorSchemeBinderTest {
             )
         }
         verify(exactly = 0) { mockEcm.setGlobalScheme(any()) }
-    }
-
-    // ── Listener: gating + delegation ─────────────────────────────────────
-
-    @Test
-    fun `listener no-op when syncEditorScheme is false`() {
-        state.syncEditorScheme = false
-        mockkObject(AyuVariant.Companion)
-        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-
-        AyuThemeSchemeBinderListener().lookAndFeelChanged(mockk<LafManager>(relaxed = true))
-
-        verify(exactly = 0) { mockEcm.setGlobalScheme(any()) }
-    }
-
-    @Test
-    fun `listener no-op when no Ayu variant is active`() {
-        mockkObject(AyuVariant.Companion)
-        every { AyuVariant.detect() } returns null
-
-        AyuThemeSchemeBinderListener().lookAndFeelChanged(mockk<LafManager>(relaxed = true))
-
-        verify(exactly = 0) { mockEcm.setGlobalScheme(any()) }
-    }
-
-    @Test
-    fun `listener delegates to binder when flag enabled and variant present`() {
-        mockkObject(AyuVariant.Companion)
-        every { AyuVariant.detect() } returns AyuVariant.LIGHT
-        val targetScheme = mockScheme("Ayu Islands Light")
-        every { mockEcm.globalScheme } returns mockScheme("Default")
-        every { mockEcm.allSchemes } returns arrayOf(targetScheme)
-        every { mockEcm.setGlobalScheme(any()) } just Runs
-
-        AyuThemeSchemeBinderListener().lookAndFeelChanged(mockk<LafManager>(relaxed = true))
-
-        verify(exactly = 1) { mockEcm.setGlobalScheme(targetScheme) }
     }
 
     private fun mockScheme(name: String): EditorColorsScheme {
