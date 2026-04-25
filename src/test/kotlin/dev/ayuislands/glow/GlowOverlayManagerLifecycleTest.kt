@@ -185,15 +185,22 @@ class GlowOverlayManagerLifecycleTest {
     }
 
     /**
-     * Inserts a sentinel value into the private `overlays` map so the disposal
+     * Inserts a sentinel entry into the private `overlays` map so the disposal
      * test can prove the map was cleared. The map's value type is the private
-     * `OverlayEntry` data class, but reflection bypasses the type check at
-     * write time — the JVM erases generics, so the slot accepts any reference
-     * type at runtime. We use `Method.invoke` to reach `Map.put` so the
-     * compile-time type stays at `Map<*, *>` and Kotlin doesn't need an
-     * unchecked cast. `removeAllOverlays()` only iterates entries to call
-     * `detachOverlayEntry`, which we never reach because the disposal path
-     * clears the map directly via `overlays.clear()`.
+     * `OverlayEntry` data class. Plan 40.1-01 added a `removeAllOverlays()`
+     * disposal path inside `updateGlow()`'s new guard, AND `updateOverlayStyles`
+     * iterates the same map on the non-disposal branch — both destructure the
+     * value as `OverlayEntry` (`for ((_, entry) in overlays)`), so seeding a
+     * non-`OverlayEntry` value triggers a `ClassCastException` at runtime.
+     *
+     * We construct a real `OverlayEntry` via its synthetic data-class
+     * constructor (the class is `private`, so we reach it through
+     * `getDeclaredConstructors`) with mockk-relaxed Swing peers. The disposal
+     * path's `detachOverlayEntry(entry)` calls `glassPane.stopAnimation()`,
+     * `host.removeComponentListener(...)`, `layeredPane.remove(...)`, and
+     * `layeredPane.repaint(...)` — all no-ops against relaxed mocks. The
+     * non-disposal path's `updateOverlayStyles` only assigns properties on the
+     * mocked `glassPane`, also a no-op.
      */
     private fun seedOverlaysMap(
         manager: GlowOverlayManager,
@@ -208,6 +215,41 @@ class GlowOverlayManagerLifecycleTest {
                 Any::class.java,
                 Any::class.java,
             )
-        putMethod.invoke(map, key, manager)
+        putMethod.invoke(map, key, makeOverlayEntry())
+    }
+
+    /**
+     * Builds a real `GlowOverlayManager$OverlayEntry` via reflection. The
+     * primary data-class constructor takes 5 args (glassPane, host,
+     * layeredPane, componentListener, hierarchyBoundsListener). Kotlin also
+     * generates a synthetic default-argument constructor with extra
+     * (Int $mask, DefaultConstructorMarker) trailing slots — we pin to the
+     * exact 5-param ctor so the synthetic one is never picked. All five are
+     * mocked so `detachOverlayEntry` / `updateOverlayStyles` see well-typed
+     * objects but every call routes to a relaxed-mock no-op.
+     */
+    private fun makeOverlayEntry(): Any {
+        val entryClass =
+            GlowOverlayManager::class.java.declaredClasses
+                .first { it.simpleName == "OverlayEntry" }
+        val ctor =
+            entryClass.declaredConstructors
+                .first { it.parameterCount == OVERLAY_ENTRY_PRIMARY_CTOR_ARITY }
+        ctor.isAccessible = true
+        return ctor.newInstance(
+            mockk<GlowGlassPane>(relaxed = true),
+            mockk<javax.swing.JComponent>(relaxed = true),
+            mockk<javax.swing.JLayeredPane>(relaxed = true),
+            // Nullable componentListener / hierarchyBoundsListener — null
+            // matches the editor-overlay production branch and exercises the
+            // `?.let { ... }` guards inside detachOverlayEntry.
+            null,
+            null,
+        )
+    }
+
+    private companion object {
+        /** Primary data-class ctor of OverlayEntry: 5 declared parameters. */
+        private const val OVERLAY_ENTRY_PRIMARY_CTOR_ARITY = 5
     }
 }
