@@ -1767,65 +1767,58 @@ class AccentApplicatorTest {
         assertEquals(8, AccentApplicator.resolveUnderlineHeight(state))
     }
 
-    // applyTabUnderlineStyle tests
+    // applyTabUnderline tests (merged from applyTabUnderlineStyle +
+    // overrideTabUnderlineForOffMode in plan 40.1-02 review-loop to keep
+    // AccentApplicator under detekt's TooManyFunctions cap)
 
     @Test
-    fun `applyTabUnderlineStyle sets underline height and arc via UIManager`() {
+    fun `applyTabUnderline sets underline height and arc via UIManager`() {
         state.glowTabMode = "MINIMAL"
         state.tabUnderlineHeight = 4
         state.tabUnderlineGlowSync = false
 
-        val method =
-            AccentApplicator::class.java.getDeclaredMethod(
-                "applyTabUnderlineStyle",
-                AyuIslandsState::class.java,
-            )
-        method.isAccessible = true
-        method.invoke(AccentApplicator, state)
+        invokeApplyTabUnderline(state, AyuVariant.MIRAGE)
 
         verify { UIManager.put("EditorTabs.underlineHeight", Integer.valueOf(4)) }
         verify { UIManager.put("EditorTabs.underlineArc", any<Int>()) }
     }
 
-    // overrideTabUnderlineForOffMode tests
-
     @Test
-    fun `overrideTabUnderlineForOffMode sets neutral gray when OFF and variant present`() {
+    fun `applyTabUnderline sets neutral gray when OFF and variant present`() {
         state.glowTabMode = "OFF"
 
-        val method =
-            AccentApplicator::class.java.declaredMethods
-                .first { it.name == "overrideTabUnderlineForOffMode" }
-        method.isAccessible = true
-        method.invoke(AccentApplicator, state, AyuVariant.MIRAGE)
+        invokeApplyTabUnderline(state, AyuVariant.MIRAGE)
 
         verify { mockScheme.setColor(any(), Color.decode(AyuVariant.MIRAGE.neutralGray)) }
     }
 
     @Test
-    fun `overrideTabUnderlineForOffMode does nothing when not OFF`() {
+    fun `applyTabUnderline skips neutral gray when not OFF`() {
         state.glowTabMode = "MINIMAL"
 
-        val method =
-            AccentApplicator::class.java.declaredMethods
-                .first { it.name == "overrideTabUnderlineForOffMode" }
-        method.isAccessible = true
-        method.invoke(AccentApplicator, state, AyuVariant.MIRAGE)
+        invokeApplyTabUnderline(state, AyuVariant.MIRAGE)
 
         verify(exactly = 0) { mockScheme.setColor(ColorKey.find("TAB_UNDERLINE"), any()) }
     }
 
     @Test
-    fun `overrideTabUnderlineForOffMode does nothing when variant is null`() {
+    fun `applyTabUnderline skips neutral gray when variant is null`() {
         state.glowTabMode = "OFF"
 
-        val method =
-            AccentApplicator::class.java.declaredMethods
-                .first { it.name == "overrideTabUnderlineForOffMode" }
-        method.isAccessible = true
-        method.invoke(AccentApplicator, state, null)
+        invokeApplyTabUnderline(state, null)
 
         verify(exactly = 0) { mockScheme.setColor(ColorKey.find("TAB_UNDERLINE"), any()) }
+    }
+
+    private fun invokeApplyTabUnderline(
+        state: AyuIslandsState,
+        variant: AyuVariant?,
+    ) {
+        val method =
+            AccentApplicator::class.java.declaredMethods
+                .first { it.name == "applyTabUnderline" }
+        method.isAccessible = true
+        method.invoke(AccentApplicator, state, variant)
     }
 
     private fun resetCgpState() {

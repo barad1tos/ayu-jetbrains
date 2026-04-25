@@ -66,8 +66,8 @@ internal object CgpIntegration {
      * constants are exclusively read inside this object; the prior placement on
      * [AccentApplicator] inverted the dependency direction (peer object reaching
      * into the orchestrator for CGP-private values). Source-regex provenance lock
-     * lives in [AccentApplicatorCgpDefaultsDocTest], rebound to this file in the
-     * same commit as the move.
+     * lives in `AccentApplicatorCgpDefaultsDocTest` (test source set), rebound
+     * to this file in the same commit as the move.
      */
     internal const val CGP_DEFAULT_VIEWPORT_COLOR = "00FF00"
     internal const val CGP_DEFAULT_VIEWPORT_BORDER_COLOR = "A0A0A0"

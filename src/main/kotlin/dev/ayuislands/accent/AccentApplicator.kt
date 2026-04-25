@@ -190,8 +190,9 @@ object AccentApplicator {
      * reached via [applyForFocusedProject]): those callers MUST already be on
      * the EDT so their cache write happens after the full apply sequence.
      * Off-EDT callers get Boolean "validation + scheduling" semantics only —
-     * paint completion is asynchronous, and the [AyuIslandsState.lastApplyOk]
-     * flag is the correct signal for "apply finished cleanly" in those flows.
+     * paint completion is asynchronous, and the `lastApplyOk` flag on
+     * [AyuIslandsState] is the correct signal for "apply finished cleanly"
+     * in those flows.
      */
     fun apply(accentHex: AccentHex): Boolean {
         val trimmedHex = accentHex.value
@@ -226,8 +227,7 @@ object AccentApplicator {
                 }
                 CgpIntegration.syncCodeGlanceProViewport(trimmedHex)
                 applyAlwaysOnEditorKeys(accent)
-                overrideTabUnderlineForOffMode(state, variant)
-                applyTabUnderlineStyle(state)
+                applyTabUnderline(state, variant)
 
                 // Gap-4 mirror of the D-15 hook in revertAll. Re-publish
                 // ComponentTreeRefreshedTopic after EP apply so subscribers
@@ -415,30 +415,7 @@ object AccentApplicator {
         // All revert work batched into a single EDT dispatch
         val work =
             Runnable {
-                for (key in ALWAYS_ON_UI_KEYS) {
-                    UIManager.put(key, null)
-                }
-                UIManager.put("GotItTooltip.foreground", null)
-                UIManager.put("GotItTooltip.Button.foreground", null)
-                UIManager.put("GotItTooltip.Header.foreground", null)
-                UIManager.put("Button.default.focusedBorderColor", null)
-                UIManager.put("Button.default.startBorderColor", null)
-                UIManager.put("Button.default.endBorderColor", null)
-                UIManager.put(KEY_TAB_BACKGROUND, null)
-                UIManager.put("EditorTabs.underlineHeight", null)
-                UIManager.put("EditorTabs.underlineArc", null)
-
-                for (element in EP_NAME.extensionList) {
-                    try {
-                        element.revert()
-                    } catch (exception: RuntimeException) {
-                        log.warn(
-                            "Failed to revert ${element.displayName}",
-                            exception,
-                        )
-                    }
-                }
-
+                clearReverseUiAndExtensions()
                 revertAlwaysOnEditorKeys()
 
                 // Integration revert plumbing (Phase 40.1 D-04). Pattern G — apply
@@ -484,6 +461,32 @@ object AccentApplicator {
             work.run()
         } else {
             invokeLaterSafe(work)
+        }
+    }
+
+    private fun clearReverseUiAndExtensions() {
+        for (key in ALWAYS_ON_UI_KEYS) {
+            UIManager.put(key, null)
+        }
+        UIManager.put("GotItTooltip.foreground", null)
+        UIManager.put("GotItTooltip.Button.foreground", null)
+        UIManager.put("GotItTooltip.Header.foreground", null)
+        UIManager.put("Button.default.focusedBorderColor", null)
+        UIManager.put("Button.default.startBorderColor", null)
+        UIManager.put("Button.default.endBorderColor", null)
+        UIManager.put(KEY_TAB_BACKGROUND, null)
+        UIManager.put("EditorTabs.underlineHeight", null)
+        UIManager.put("EditorTabs.underlineArc", null)
+
+        for (element in EP_NAME.extensionList) {
+            try {
+                element.revert()
+            } catch (exception: RuntimeException) {
+                log.warn(
+                    "Failed to revert ${element.displayName}",
+                    exception,
+                )
+            }
         }
     }
 
@@ -636,7 +639,16 @@ object AccentApplicator {
         }
     }
 
-    private fun applyTabUnderlineStyle(state: AyuIslandsState) {
+    private fun applyTabUnderline(
+        state: AyuIslandsState,
+        variant: AyuVariant?,
+    ) {
+        val tabMode = GlowTabMode.fromName(state.glowTabMode ?: "MINIMAL")
+        if (tabMode == GlowTabMode.OFF && variant != null) {
+            val scheme = EditorColorsManager.getInstance().globalScheme
+            scheme.setColor(ColorKey.find("TAB_UNDERLINE"), Color.decode(variant.neutralGray))
+        }
+
         val height = resolveUnderlineHeight(state)
         UIManager.put("EditorTabs.underlineHeight", Integer.valueOf(height))
 
@@ -644,16 +656,6 @@ object AccentApplicator {
         UIManager.put("EditorTabs.underlineArc", Integer.valueOf(arc))
 
         log.info("Tab underline: height=${height}px, arc=${arc}px")
-    }
-
-    private fun overrideTabUnderlineForOffMode(
-        state: AyuIslandsState,
-        variant: AyuVariant?,
-    ) {
-        val tabMode = GlowTabMode.fromName(state.glowTabMode ?: "MINIMAL")
-        if (tabMode != GlowTabMode.OFF || variant == null) return
-        val scheme = EditorColorsManager.getInstance().globalScheme
-        scheme.setColor(ColorKey.find("TAB_UNDERLINE"), Color.decode(variant.neutralGray))
     }
 
     private fun revertAlwaysOnEditorKeys() {
