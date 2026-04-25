@@ -8,6 +8,8 @@ import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.indent.IndentRainbowSync
+import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.ui.ComponentTreeRefresher
 import io.mockk.Runs
 import io.mockk.every
@@ -47,8 +49,19 @@ import kotlin.test.assertTrue
  * which is purely lightweight (no native peer) and works in headless.
  */
 class ProjectAccentSwapServiceTest {
+    private val mockSettings = mockk<AyuIslandsSettings>(relaxed = true)
+    private val state = AyuIslandsState()
+
     @BeforeTest
     fun setUp() {
+        // Default: IR integration enabled. SF-I3 tests flip this to assert the
+        // gate skips IR.apply on the same-hex branch.
+        state.irIntegrationEnabled = true
+
+        mockkObject(AyuIslandsSettings.Companion)
+        every { AyuIslandsSettings.getInstance() } returns mockSettings
+        every { mockSettings.state } returns state
+
         mockkObject(AccentResolver)
         mockkObject(AccentApplicator)
         mockkObject(AyuVariant.Companion)
@@ -480,6 +493,74 @@ class ProjectAccentSwapServiceTest {
         service.dispose()
 
         verify(exactly = 1) { toolkit.removeAWTEventListener(any<AWTEventListener>()) }
+    }
+
+    @Test
+    fun `handleWindowActivated returns gracefully when WindowManager is null (shutdown race)`() {
+        // SF-I1 regression lock. Pre-fix: WindowManager.getInstance() can return
+        // null during shutdown after services have started disposing but before
+        // AWT stops dispatching. Without a guard, findProjectForWindow's
+        // `windowManager.allProjectFrames` would NPE inside the
+        // RuntimeException-catching wrapper, surfacing every alt-tab during
+        // shutdown as a SEVERE in idea.log. Post-fix: graceful null guard,
+        // first-WARN-then-DEBUG dedup matching AccentApplicator's convention.
+        every { WindowManager.getInstance() } returns null
+
+        val capturedWarns = mutableListOf<String>()
+        val processor =
+            object : LoggedErrorProcessor() {
+                override fun processWarn(
+                    category: String,
+                    message: String,
+                    throwable: Throwable?,
+                ): Boolean {
+                    if (!message.contains("WindowManager unavailable")) return true
+                    capturedWarns += message
+                    return false
+                }
+            }
+
+        val service = ProjectAccentSwapService()
+        val event = makeEvent(mockk<Window>(relaxed = true))
+
+        LoggedErrorProcessor.executeWith<Throwable>(processor) {
+            service.onWindowActivatedForTest(event) // first call must NOT throw
+            service.onWindowActivatedForTest(event) // second call must dedup to DEBUG
+            service.onWindowActivatedForTest(event)
+        }
+
+        assertEquals(
+            1,
+            capturedWarns.size,
+            "WindowManager-unavailable dedup must collapse 3 shutdown-race events into 1 WARN; got: $capturedWarns",
+        )
+        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
+    }
+
+    @Test
+    fun `same-hex focus swap with irIntegrationEnabled false does not trigger IR side-effect`() {
+        // SF-I3 regression lock. Pre-fix: handleWindowActivated called
+        // IndentRainbowSync.apply on every same-hex focus swap regardless of
+        // the irIntegrationEnabled toggle. IR.apply itself reverts when its
+        // toggle is false — so each alt-tab from a user with IR disabled
+        // silently re-stamped IR's IrConfig with a DEFAULT palette write, a
+        // gratuitous side-effect on every focus swap.
+        // Post-fix: gate IR.apply on the toggle so disabled means disabled.
+        // CGP gates internally and short-circuits the same way; no analogous
+        // gate needed at this call site.
+        state.irIntegrationEnabled = false
+
+        val (window, project) = wireMatchingFrame()
+        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
+
+        val service = ProjectAccentSwapService()
+        service.onWindowActivatedForTest(makeEvent(window)) // primes cache
+        service.onWindowActivatedForTest(makeEvent(window)) // same-hex branch
+
+        verify(exactly = 0) { IndentRainbowSync.apply(any(), any()) }
+        // CGP integration call still fires — the gate is IR-only at this
+        // call site (CGP gates inside its own apply).
+        verify(atLeast = 1) { AccentApplicator.syncCodeGlanceProViewportForSwap("#FFCC66") }
     }
 
     // Test helpers

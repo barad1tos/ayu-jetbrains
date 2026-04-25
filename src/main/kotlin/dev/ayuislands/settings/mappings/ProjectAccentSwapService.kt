@@ -9,6 +9,7 @@ import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.indent.IndentRainbowSync
+import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.ui.ComponentTreeRefresher
 import org.jetbrains.annotations.TestOnly
 import java.awt.AWTEvent
@@ -45,6 +46,16 @@ class ProjectAccentSwapService : Disposable {
      */
     @Volatile
     private var frameResolutionFailureLogged: Boolean = false
+
+    /**
+     * Paired gate for [WindowManager.getInstance] returning null on shutdown
+     * race. Mirrors the [AccentApplicator.windowManagerUnavailableLogged]
+     * convention — first failure WARN, subsequent DEBUG, so a user-submitted
+     * idea.log captures the pathology while every alt-tab during shutdown does
+     * not flood the log. Pattern A — log-once gate.
+     */
+    @Volatile
+    private var windowManagerUnavailableLogged: Boolean = false
 
     fun install() {
         if (listener != null) return
@@ -118,8 +129,17 @@ class ProjectAccentSwapService : Disposable {
             // The two calls below push the per-project hex into those caches without
             // re-running the apply path's UIManager work (already correct for the unchanged
             // hex). Resolves RESEARCH §Open Questions §1 (direct integration call).
+            //
+            // Pattern J — gate IR refresh on the integration toggle. IndentRainbowSync.apply
+            // itself reverts when irIntegrationEnabled is false, so calling it on every
+            // alt-tab from a user who disabled IR would silently re-stamp IR's IrConfig
+            // with a DEFAULT palette write per focus swap. Skip the call entirely so a
+            // disabled integration is truly disabled, not "disabled with a side-effect on
+            // every focus swap". CGP gates internally and short-circuits the same way.
             AccentApplicator.syncCodeGlanceProViewportForSwap(effectiveHex)
-            IndentRainbowSync.apply(variant, effectiveHex)
+            if (AyuIslandsSettings.getInstance().state.irIntegrationEnabled) {
+                IndentRainbowSync.apply(variant, effectiveHex)
+            }
         }
 
         // Always refresh the component tree on focus swap — preserves the
@@ -148,7 +168,25 @@ class ProjectAccentSwapService : Disposable {
         // closed between enumeration and access). Guard each frame access so one bad frame
         // doesn't escape the listener. Skip frames whose project is already disposed — we'd
         // short-circuit in handleWindowActivated anyway, but skipping here avoids pointless work.
-        val windowManager = WindowManager.getInstance()
+        //
+        // Pattern A — log-once gate. WindowManager.getInstance() can return null
+        // during application shutdown after services have started disposing but
+        // before AWT stops dispatching. Mirror the
+        // [AccentApplicator.osActiveProjectFrame] convention: WARN on the first
+        // race so user-submitted logs surface it, DEBUG thereafter.
+        val windowManager =
+            WindowManager.getInstance() ?: run {
+                if (!windowManagerUnavailableLogged) {
+                    windowManagerUnavailableLogged = true
+                    LOG.warn(
+                        "WindowManager unavailable during window-to-project resolution " +
+                            "(further occurrences logged at DEBUG)",
+                    )
+                } else {
+                    LOG.debug("WindowManager unavailable during window-to-project resolution")
+                }
+                return null
+            }
         for (frame in windowManager.allProjectFrames) {
             try {
                 val project = frame.project ?: continue

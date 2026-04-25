@@ -210,7 +210,15 @@ class GlowOverlayManager(
         val state = AyuIslandsSettings.getInstance().state
         if (!state.glowFocusRing) return
 
-        val variant = AyuVariant.detect() ?: return
+        // Pattern A — log-once gate. AyuVariant.detect() returns null only when
+        // a non-Ayu LAF is active; without the diagnostic, a user reporting
+        // "focus ring glow stopped working after theme tweak" hands us logs
+        // with no breadcrumb of which guard fired.
+        val variant =
+            AyuVariant.detect() ?: run {
+                log.debug("AyuVariant.detect() returned null in initializeFocusRingGlow, skipping focus-ring glow")
+                return
+            }
         val accentHex = AccentResolver.resolve(project, variant)
         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
         val accent = safeDecodeColor(accentHex)
@@ -250,7 +258,15 @@ class GlowOverlayManager(
         val layeredPane = rootPane.layeredPane
 
         val state = AyuIslandsSettings.getInstance().state
-        val variant = AyuVariant.detect() ?: return
+        // Pattern A — log-once gate. attachOverlay fires from message-bus
+        // callbacks (tool-window state change, editor selection); a silent
+        // skip on a non-Ayu LAF leaves the overlay un-attached without any
+        // trace in idea.log.
+        val variant =
+            AyuVariant.detect() ?: run {
+                log.debug("AyuVariant.detect() returned null in attachOverlay($id), skipping overlay attach")
+                return
+            }
         val accentHex = AccentResolver.resolve(project, variant)
         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
 
@@ -401,7 +417,15 @@ class GlowOverlayManager(
             return
         }
 
-        val variant = AyuVariant.detect() ?: return
+        // Pattern A — log-once gate. The isAyuActive() guard above already
+        // disposed overlays when the LAF is non-Ayu, so reaching here with a
+        // null detect() is the rare race window between guard and detect();
+        // surface a DEBUG breadcrumb instead of falling through silently.
+        val variant =
+            AyuVariant.detect() ?: run {
+                log.debug("AyuVariant.detect() returned null in updateGlow after isAyuActive guard, skipping refresh")
+                return
+            }
         val accentHex = AccentResolver.resolve(project, variant)
         val accent = safeDecodeColor(accentHex)
         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)

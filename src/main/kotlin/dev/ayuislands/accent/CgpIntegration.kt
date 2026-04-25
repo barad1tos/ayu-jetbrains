@@ -83,7 +83,18 @@ internal object CgpIntegration {
      * swap, same-hex fast path).
      */
     fun syncCodeGlanceProViewport(accentHex: String) {
-        if (!AyuIslandsSettings.getInstance().state.cgpIntegrationEnabled) return
+        if (!AyuIslandsSettings.getInstance().state.cgpIntegrationEnabled) {
+            // Pattern G + J — toggle-off symmetry. Mirror of
+            // [IndentRainbowSync.apply], which reverts when its integration is
+            // disabled. Without this, flipping the CGP toggle off after an
+            // apply leaves the minimap viewport tinted with the previous Ayu
+            // accent forever — the apply path stamped CGP's app-scoped cache
+            // and the toggle prevented any further write. Driving revert here
+            // restores the documented defaults so the visible state matches the
+            // user's "off" intent.
+            revertCodeGlanceProViewport()
+            return
+        }
 
         resolveCgpMethods()
 
@@ -131,7 +142,16 @@ internal object CgpIntegration {
      * documented defaults. Acceptable degradation — see CONTEXT.md §specifics.
      */
     fun revertCodeGlanceProViewport() {
-        if (!AyuIslandsSettings.getInstance().state.cgpIntegrationEnabled) return
+        // Pattern G + J — revert path MUST work regardless of the
+        // [cgpIntegrationEnabled] toggle. Driven from two distinct call sites:
+        //   1. [AccentApplicator.revertAll] on theme switch / license loss — at
+        //      this point the toggle state is irrelevant; the surface needs
+        //      cleanup so the next theme starts clean.
+        //   2. [syncCodeGlanceProViewport] when the toggle was just flipped to
+        //      false — the gate is checked at the apply entry, not here.
+        // Adding a gate here would silently skip case 1 when the user had the
+        // integration disabled at theme-switch time, leaving CGP tinted with
+        // the previous accent until the next apply re-fires.
 
         // Hook check BEFORE null-guards so tests observe revert without forcing
         // non-null reflection refs (RESEARCH §Edge Cases §3 resolution).

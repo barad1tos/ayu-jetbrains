@@ -29,7 +29,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 /**
  * D-04 + D-05 + D-09 behavioral coverage for [AccentApplicator.revertAll].
@@ -248,11 +248,20 @@ class AccentApplicatorRevertAllIntegrationTest {
     }
 
     @Test
-    fun `revertCodeGlanceProViewport does not invoke hook when cgpIntegrationEnabled is false`() {
-        // Pattern D regression lock: the cgpIntegrationEnabled flag gates the
-        // hook. A user who disabled the CGP integration in Settings must not
-        // see CGP defaults written on theme-switch — the gate must short-circuit
-        // BEFORE the hook is consulted.
+    fun `revertCodeGlanceProViewport invokes hook even when cgpIntegrationEnabled false`() {
+        // CR-I1 regression lock. Pre-fix: a `cgpIntegrationEnabled = false`
+        // gate at the top of revertCodeGlanceProViewport short-circuited every
+        // revert call, so a user who toggled CGP off after an apply was stuck
+        // with CGP's app-scoped cache holding the previous Ayu accent forever
+        // — the apply path stamped CGP, the toggle prevented further writes,
+        // and the revert path silently no-op'd. Post-fix: the gate moves to
+        // syncCodeGlanceProViewport's entry, which mirrors IndentRainbowSync.
+        // The revert path runs unconditionally so theme switch / license loss
+        // can clean up CGP regardless of toggle state.
+        //
+        // Pattern G + J — apply/revert symmetry. revertAll fires the hook
+        // because the path is reachable from every revertAll call (theme
+        // switch, license loss); the toggle does NOT gate cleanup.
         state.cgpIntegrationEnabled = false
         var hookInvoked = false
         AccentApplicator.cgpRevertHook.set { _, _, _ -> hookInvoked = true }
@@ -261,9 +270,35 @@ class AccentApplicatorRevertAllIntegrationTest {
         } finally {
             AccentApplicator.resetCgpRevertHookForTests()
         }
-        assertFalse(
+        assertTrue(
             hookInvoked,
-            "Hook MUST NOT fire when cgpIntegrationEnabled is false (Pattern D gate regression)",
+            "Hook MUST fire even when cgpIntegrationEnabled is false — revert path " +
+                "is reachable on theme-switch / license-loss regardless of toggle state " +
+                "(CR-I1 fix; Pattern G/J).",
+        )
+    }
+
+    @Test
+    fun `syncCodeGlanceProViewport with cgpIntegrationEnabled false fires revert path with documented defaults`() {
+        // CR-I1 — toggle-off after a previous apply. Without this fix, the
+        // disabled-branch returns silently, leaving CGP's app-scoped cache
+        // tinted with the previous Ayu accent forever. Mirrors
+        // IndentRainbowSync.apply, which already reverts on
+        // !irIntegrationEnabled.
+        state.cgpIntegrationEnabled = false
+        val observed = mutableListOf<Triple<String, String, Int>>()
+        AccentApplicator.cgpRevertHook.set { c, bc, bt -> observed += Triple(c, bc, bt) }
+        try {
+            CgpIntegration.syncCodeGlanceProViewport("#5CCFE6")
+        } finally {
+            AccentApplicator.resetCgpRevertHookForTests()
+        }
+        assertEquals(
+            listOf(Triple("00FF00", "A0A0A0", 0)),
+            observed,
+            "syncCodeGlanceProViewport with cgpIntegrationEnabled=false MUST drive " +
+                "the revert path with the documented javap-verified defaults — " +
+                "matches IndentRainbowSync.apply's same-shape symmetry (CR-I1, Pattern G).",
         )
     }
 
