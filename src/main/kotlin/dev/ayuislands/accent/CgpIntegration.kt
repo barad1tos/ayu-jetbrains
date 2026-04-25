@@ -5,6 +5,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.PluginId
 import dev.ayuislands.settings.AyuIslandsSettings
+import org.jetbrains.annotations.TestOnly
 import java.lang.reflect.Method
 
 /**
@@ -223,5 +224,27 @@ internal object CgpIntegration {
                 "CodeGlance Pro revert failed: ${exception.javaClass.simpleName}: ${exception.message}",
             )
         }
+    }
+
+    /**
+     * Test-only helper that resets the cached CGP reflection chain so a
+     * subsequent invocation re-runs [resolveCgpMethods]. Tests that drive the
+     * reflection path (CGP installed, real setters reachable via mocks)
+     * MUST call this in `@AfterTest` so subsequent tests start from a clean
+     * slate; without it, a leaked stub from one test poisons the next.
+     *
+     * Lives here rather than in the test file so the field set is owned by
+     * the producer of those fields — drift between test reflection and
+     * production declarations breaks at compile time, not at runtime.
+     * Pattern I — typed test seam matches the production state owner.
+     */
+    @TestOnly
+    internal fun resetReflectionCacheForTests() {
+        cgpService = null
+        cgpGetState = null
+        cgpSetViewportColor = null
+        cgpSetViewportBorderColor = null
+        cgpSetViewportBorderThickness = null
+        cgpMethodsResolved = false
     }
 }

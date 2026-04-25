@@ -1829,25 +1829,13 @@ class AccentApplicatorTest {
     }
 
     private fun resetCgpState() {
-        // Plan 40.1-02 moved the CGP reflection chain to peer object
-        // CgpIntegration; the helper now reflects on that owner. See
-        // ownerForName() for the dispatch table.
-        val fields =
-            listOf(
-                "cgpService",
-                "cgpGetState",
-                "cgpSetViewportColor",
-                "cgpSetViewportBorderColor",
-                "cgpSetViewportBorderThickness",
-            )
-        for (fieldName in fields) {
-            val field = CgpIntegration::class.java.getDeclaredField(fieldName)
-            field.isAccessible = true
-            field.set(CgpIntegration, null)
-        }
-        val resolvedField = CgpIntegration::class.java.getDeclaredField("cgpMethodsResolved")
-        resolvedField.isAccessible = true
-        resolvedField.set(CgpIntegration, false)
+        // TD-I5 (plan 40.1-02 review-loop): drop hand-rolled raw-reflection
+        // writes in favour of the typed [CgpIntegration.resetReflectionCacheForTests]
+        // helper. The previous loop iterated five field names as raw strings;
+        // a typo or rename would silently leave stale state in the next test.
+        // The new helper lives next to the fields it resets — a Kotlin rename
+        // refactors both at once.
+        CgpIntegration.resetReflectionCacheForTests()
     }
 
     // Phase 40.2 T-3: apply() with an invalid hex returns false AND posts a
