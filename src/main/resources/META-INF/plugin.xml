@@ -293,6 +293,12 @@
         <listener
                 class="dev.ayuislands.AyuIslandsLafListener"
                 topic="com.intellij.ide.ui.LafManagerListener"/>
+        <!-- Auto-applies the matching Ayu Islands editor color scheme on theme
+             change. Decoupled from AyuIslandsLafListener so scheme-binding has
+             its own SRP and test isolation (Pattern J — independent gate). -->
+        <listener
+                class="dev.ayuislands.theme.AyuThemeSchemeBinderListener"
+                topic="com.intellij.ide.ui.LafManagerListener"/>
         <listener
                 class="dev.ayuislands.AppearanceSyncListener"
                 topic="com.intellij.openapi.application.ApplicationActivationListener"/>
