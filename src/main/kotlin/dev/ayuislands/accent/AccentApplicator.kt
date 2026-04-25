@@ -73,9 +73,9 @@ object AccentApplicator {
 
     // CodeGlance Pro reflection state and apply/revert workers live in
     // [CgpIntegration] to keep this object below the TooManyFunctions threshold.
-    // Only the cross-object test seam (cgpRevertHook + resetCgpRevertHookForTests)
+    // Only the cross-object test seam (`cgpRevertHook` + `resetCgpRevertHookForTests`)
     // and the swap-path entry stay here because Wave 0 tests bind those names to
-    // AccentApplicator.
+    // `AccentApplicator`.
 
     /**
      * Per-thread revert observer for [CgpIntegration.revertCodeGlanceProViewport].
@@ -190,8 +190,8 @@ object AccentApplicator {
      * reached via [applyForFocusedProject]): those callers MUST already be on
      * the EDT so their cache write happens after the full apply sequence.
      * Off-EDT callers get Boolean "validation + scheduling" semantics only —
-     * paint completion is asynchronous, and the [lastApplyOk] flag is the
-     * correct signal for "apply finished cleanly" in those flows.
+     * paint completion is asynchronous, and the [AyuIslandsState.lastApplyOk]
+     * flag is the correct signal for "apply finished cleanly" in those flows.
      */
     fun apply(accentHex: AccentHex): Boolean {
         val trimmedHex = accentHex.value
@@ -749,7 +749,7 @@ object AccentApplicator {
      * notification + returns `false` on rejection, and forwards to [apply]
      * on success.
      *
-     * Deliberately NOT named `apply(String)` — mockk's `every { apply(any()) }`
+     * Deliberately NOT named `apply(String)` — MockK's `every { apply(any()) }`
      * can't resolve across overloads of the same name, so tests that lock in
      * the cache-publish ordering against the apply path would all break.
      */
@@ -776,8 +776,8 @@ object AccentApplicator {
                     Notifications.Bus.notify(
                         Notification(
                             NOTIFICATION_GROUP_ID,
-                            "Ayu Islands",
-                            "Ayu accent rejected — hex '$accentHex' is not a valid #RRGGBB.",
+                            "Ayu accent rejected",
+                            "Hex '$accentHex' is not a valid #RRGGBB.",
                             NotificationType.WARNING,
                         ),
                     )

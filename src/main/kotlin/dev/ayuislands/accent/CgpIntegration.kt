@@ -114,9 +114,17 @@ internal object CgpIntegration {
             cgpSetViewportBorderColor = configClass.getMethod("setViewportBorderColor", String::class.java)
             cgpSetViewportBorderThickness = configClass.getMethod("setViewportBorderThickness", Int::class.java)
         } catch (exception: ReflectiveOperationException) {
-            log.warn("CodeGlance Pro $CGP_RESOLUTION_FAILED: ${exception.javaClass.simpleName}: ${exception.message}")
+            log.warn(
+                "CodeGlance Pro $CGP_RESOLUTION_FAILED (reflective lookup, " +
+                    "CGP plugin API change suspected): " +
+                    "${exception.javaClass.simpleName}: ${exception.message}",
+            )
         } catch (exception: RuntimeException) {
-            log.warn("CodeGlance Pro $CGP_RESOLUTION_FAILED: ${exception.javaClass.simpleName}: ${exception.message}")
+            log.warn(
+                "CodeGlance Pro $CGP_RESOLUTION_FAILED (unexpected runtime error " +
+                    "during method resolution): " +
+                    "${exception.javaClass.simpleName}: ${exception.message}",
+            )
         }
     }
 
@@ -161,11 +169,23 @@ internal object CgpIntegration {
             log.info("CodeGlance Pro viewport color synced to $hexWithoutHash")
         } catch (exception: java.lang.reflect.InvocationTargetException) {
             val cause = exception.cause ?: exception
-            log.warn("CodeGlance Pro $CGP_SYNC_FAILED: ${cause.javaClass.simpleName}: ${cause.message}")
+            log.warn(
+                "CodeGlance Pro $CGP_SYNC_FAILED (setter invocation rejected by CGP, " +
+                    "cause unwrapped from InvocationTargetException): " +
+                    "${cause.javaClass.simpleName}: ${cause.message}",
+            )
         } catch (exception: ReflectiveOperationException) {
-            log.warn("CodeGlance Pro $CGP_SYNC_FAILED: ${exception.javaClass.simpleName}: ${exception.message}")
+            log.warn(
+                "CodeGlance Pro $CGP_SYNC_FAILED (reflective access denied or " +
+                    "method gone, CGP plugin API change suspected): " +
+                    "${exception.javaClass.simpleName}: ${exception.message}",
+            )
         } catch (exception: RuntimeException) {
-            log.warn("CodeGlance Pro $CGP_SYNC_FAILED: ${exception.javaClass.simpleName}: ${exception.message}")
+            log.warn(
+                "CodeGlance Pro $CGP_SYNC_FAILED (unexpected runtime error " +
+                    "during viewport sync): " +
+                    "${exception.javaClass.simpleName}: ${exception.message}",
+            )
         }
     }
 
@@ -226,15 +246,21 @@ internal object CgpIntegration {
         } catch (exception: java.lang.reflect.InvocationTargetException) {
             val cause = exception.cause ?: exception
             log.warn(
-                "CodeGlance Pro revert failed: ${cause.javaClass.simpleName}: ${cause.message}",
+                "CodeGlance Pro revert failed (setter invocation rejected by CGP, " +
+                    "cause unwrapped from InvocationTargetException): " +
+                    "${cause.javaClass.simpleName}: ${cause.message}",
             )
         } catch (exception: ReflectiveOperationException) {
             log.warn(
-                "CodeGlance Pro revert failed: ${exception.javaClass.simpleName}: ${exception.message}",
+                "CodeGlance Pro revert failed (reflective access denied or " +
+                    "method gone, CGP plugin API change suspected): " +
+                    "${exception.javaClass.simpleName}: ${exception.message}",
             )
         } catch (exception: RuntimeException) {
             log.warn(
-                "CodeGlance Pro revert failed: ${exception.javaClass.simpleName}: ${exception.message}",
+                "CodeGlance Pro revert failed (unexpected runtime error " +
+                    "during viewport reset): " +
+                    "${exception.javaClass.simpleName}: ${exception.message}",
             )
         }
     }
