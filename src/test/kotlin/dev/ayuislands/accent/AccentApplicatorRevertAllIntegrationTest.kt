@@ -23,7 +23,6 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
-import io.mockk.verifyOrder
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
 import kotlin.test.AfterTest
@@ -200,26 +199,51 @@ class AccentApplicatorRevertAllIntegrationTest {
     fun `revertAll orders IR revert before CGP revert before notifyOnly`() {
         // RESEARCH §D-04 ordering lock: integrations BEFORE notifyOnly so
         // subscribers see consistent app-scoped state when they decide to
-        // repaint.
+        // repaint. Pattern G + L: capture every observable side-effect on a
+        // single `events` timeline and assert the EXACT interleaving. A weaker
+        // `verifyOrder { IR; notifyOnly }` + `cgpCalls.size == 1` pair would
+        // still pass if CGP fired BEFORE IR (size stays 1, IR-before-notifyOnly
+        // holds) — the explicit timeline closes that hole.
         val project = mockProject(usable = true)
         every { mockProjectManager.openProjects } returns arrayOf(project)
 
+        val events = mutableListOf<String>()
+        every { IndentRainbowSync.revert() } answers {
+            events += "ir_revert"
+        }
+        every { ComponentTreeRefresher.notifyOnly(project) } answers {
+            events += "notify_only"
+        }
+
         val cgpCalls = mutableListOf<Triple<String, String, Int>>()
-        AccentApplicator.cgpRevertHook.set { c, bc, bt -> cgpCalls += Triple(c, bc, bt) }
+        AccentApplicator.cgpRevertHook.set { c, bc, bt ->
+            cgpCalls += Triple(c, bc, bt)
+            events += "cgp_revert"
+        }
         try {
             AccentApplicator.revertAll()
         } finally {
             AccentApplicator.resetCgpRevertHookForTests()
         }
 
-        verifyOrder {
-            IndentRainbowSync.revert()
-            ComponentTreeRefresher.notifyOnly(project)
-        }
+        // Sanity: every hook fired exactly once. Keeps the existing size gate
+        // honest so a future regression that drops a hook entirely still trips.
         assertEquals(
             1,
             cgpCalls.size,
-            "CGP revert hook must have fired between IR revert and notifyOnly",
+            "CGP revert hook must have fired exactly once (D-04 single-fire gate)",
+        )
+        verify(exactly = 1) { IndentRainbowSync.revert() }
+        verify(exactly = 1) { ComponentTreeRefresher.notifyOnly(project) }
+
+        // Exclusive ordering: IR -> CGP -> notifyOnly with NO interleaving.
+        // assertEquals on the literal list locks both relative position AND
+        // the absence of additional hooks firing in between.
+        assertEquals(
+            listOf("ir_revert", "cgp_revert", "notify_only"),
+            events,
+            "revertAll MUST fire IR revert -> CGP revert -> notifyOnly in that " +
+                "exact order with no interleaving (D-04 ordering lock — observed: $events)",
         )
     }
 
