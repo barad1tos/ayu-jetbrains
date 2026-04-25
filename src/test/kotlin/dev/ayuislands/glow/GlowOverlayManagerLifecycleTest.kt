@@ -1,0 +1,204 @@
+package dev.ayuislands.glow
+
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectManager
+import dev.ayuislands.accent.AccentResolver
+import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
+import io.mockk.clearAllMocks
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.mockkObject
+import io.mockk.mockkStatic
+import io.mockk.unmockkAll
+import javax.swing.SwingUtilities
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
+import kotlin.test.Test
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+
+/**
+ * D-02 + D-03 lifecycle integration coverage for [GlowOverlayManager].
+ *
+ * Pre-40.1: `updateGlow()` painted overlays even when no Ayu variant was active,
+ * relying on three `else DEFAULT_ACCENT_HEX` fallbacks at :214 / :254 / :401.
+ * Post-40.1: a single `if (!AyuVariant.isAyuActive()) { removeAllOverlays(); return }`
+ * guard at the head of `updateGlow()` disposes overlays when the user switches to a
+ * non-Ayu LAF — and the three fallbacks go away (regression-locked by
+ * [GlowFallbackBannedApiGuardTest]).
+ *
+ * These tests reference `AyuVariant.isAyuActive()` directly. The symbol does NOT
+ * exist in production until Wave 1 plan 01 lands the helper; until then, this file
+ * fails to compile. That IS the red state — the inverted-gate verification in
+ * Task 5 of plan 40.1-00 asserts an `unresolved reference: isAyuActive` error
+ * shows up in `compileTestKotlin`.
+ */
+class GlowOverlayManagerLifecycleTest {
+    private val mockApplication = mockk<com.intellij.openapi.application.Application>(relaxed = true)
+    private val mockSettings = mockk<AyuIslandsSettings>(relaxed = true)
+    private val state = AyuIslandsState()
+    private val mockProjectManager = mockk<ProjectManager>(relaxed = true)
+
+    @BeforeTest
+    fun setUp() {
+        mockkStatic(SwingUtilities::class)
+        every { SwingUtilities.isEventDispatchThread() } returns true
+
+        mockkStatic(ApplicationManager::class)
+        every { ApplicationManager.getApplication() } returns mockApplication
+
+        mockkObject(AyuIslandsSettings.Companion)
+        every { AyuIslandsSettings.getInstance() } returns mockSettings
+        every { mockSettings.state } returns state
+        state.glowEnabled = true
+
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+
+        mockkStatic(ProjectManager::class)
+        every { ProjectManager.getInstance() } returns mockProjectManager
+        every { mockProjectManager.openProjects } returns emptyArray()
+
+        mockkObject(AccentResolver)
+        every { AccentResolver.resolve(any(), any()) } returns "#5CCFE6"
+
+        mockkObject(AyuVariant.Companion)
+    }
+
+    @AfterTest
+    fun tearDown() {
+        unmockkAll()
+        clearAllMocks()
+    }
+
+    @Test
+    fun `updateGlow disposes overlays when AyuVariant isAyuActive is false`() {
+        // Bug A: user switches from Ayu to Darcula. Pre-40.1, `updateGlow` walked
+        // the `else DEFAULT_ACCENT_HEX` fallback and kept the orange glow painting
+        // on top of Darcula's blue chrome. Post-40.1, the new guard at the head
+        // disposes every overlay so the screen is left in the LAF's natural state.
+        every { AyuVariant.isAyuActive() } returns false
+        every { AyuVariant.detect() } returns null
+
+        val project = stubProject("test-project")
+        val manager = GlowOverlayManager(project)
+
+        manager.updateGlow()
+
+        // Internal overlays map must be empty after the guard fires (the disposal
+        // code path runs `removeAllOverlays()` which clears the map).
+        val overlaysAfter = readOverlaysMap(manager)
+        assertTrue(
+            overlaysAfter.isEmpty(),
+            "updateGlow with isAyuActive=false MUST leave overlays map empty (D-02 disposal contract)",
+        )
+    }
+
+    @Test
+    fun `updateGlow continues to paint when AyuVariant isAyuActive is true`() {
+        // Sanity: when the user IS on Ayu, the guard does NOT short-circuit and
+        // the rest of the method runs. We only assert the guard didn't dispose —
+        // overlay attachment requires a live Swing tree which is out of scope
+        // for this unit test.
+        every { AyuVariant.isAyuActive() } returns true
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+
+        val project = stubProject("test-project")
+        val manager = GlowOverlayManager(project)
+
+        // Seed the overlays map with a sentinel so we can prove the guard did
+        // NOT dispose. If updateGlow walked the disposal path, the sentinel
+        // would be cleared.
+        val sentinelKey = "GUARD_SENTINEL"
+        seedOverlaysMap(manager, sentinelKey)
+
+        manager.updateGlow()
+
+        val overlaysAfter = readOverlaysMap(manager)
+        assertFalse(
+            overlaysAfter.isEmpty() && !overlaysAfter.containsKey(sentinelKey),
+            "updateGlow with isAyuActive=true MUST NOT dispose pre-existing overlays",
+        )
+    }
+
+    @Test
+    fun `syncGlowForAllProjects disposes every project glow when variant becomes null`() {
+        // D-03: when AyuIslandsLafListener detects a non-Ayu LAF, it calls
+        // GlowOverlayManager.syncGlowForAllProjects() which iterates every open
+        // project and triggers per-project disposal via the new guard. This test
+        // pins the multi-project dispatch — without it, only the focused
+        // project's overlay would be disposed.
+        every { AyuVariant.isAyuActive() } returns false
+        every { AyuVariant.detect() } returns null
+
+        val project1 = stubProject("project-1")
+        val project2 = stubProject("project-2")
+        every { mockProjectManager.openProjects } returns arrayOf(project1, project2)
+
+        val manager1 = GlowOverlayManager(project1)
+        val manager2 = GlowOverlayManager(project2)
+        seedOverlaysMap(manager1, "p1-sentinel")
+        seedOverlaysMap(manager2, "p2-sentinel")
+
+        // Stub project.getService(GlowOverlayManager::class.java) so the
+        // companion's `getInstance(project)` lookup returns our seeded managers
+        // instead of trying to spin up a real ProjectComponent.
+        every { project1.getService(GlowOverlayManager::class.java) } returns manager1
+        every { project2.getService(GlowOverlayManager::class.java) } returns manager2
+
+        GlowOverlayManager.syncGlowForAllProjects()
+
+        assertTrue(
+            readOverlaysMap(manager1).isEmpty(),
+            "syncGlowForAllProjects MUST dispose overlays for project1 when variant null (D-03)",
+        )
+        assertTrue(
+            readOverlaysMap(manager2).isEmpty(),
+            "syncGlowForAllProjects MUST dispose overlays for project2 when variant null (D-03)",
+        )
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private fun stubProject(name: String): Project =
+        mockk(relaxed = true) {
+            every { isDisposed } returns false
+            every { isDefault } returns false
+            every { this@mockk.name } returns name
+        }
+
+    /**
+     * Reads the private `overlays` MutableMap from a [GlowOverlayManager] instance
+     * via reflection. The map is the disposal contract's observable surface — an
+     * empty map after `updateGlow()` proves the guard fired.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun readOverlaysMap(manager: GlowOverlayManager): Map<String, *> {
+        val field = GlowOverlayManager::class.java.getDeclaredField("overlays")
+        field.isAccessible = true
+        return field.get(manager) as Map<String, *>
+    }
+
+    /**
+     * Inserts a sentinel value into the private `overlays` map so the disposal
+     * test can prove the map was cleared. The sentinel value is the manager
+     * itself cast to Any — the map's value type is the private `OverlayEntry`
+     * data class, but reflection bypasses the type check at write time and
+     * `removeAllOverlays()` only iterates entries to call `detachOverlayEntry`,
+     * which we don't reach because the disposal path clears the map directly.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun seedOverlaysMap(
+        manager: GlowOverlayManager,
+        key: String,
+    ) {
+        val field = GlowOverlayManager::class.java.getDeclaredField("overlays")
+        field.isAccessible = true
+        val map = field.get(manager) as MutableMap<String, Any>
+        map[key] = manager
+    }
+}
