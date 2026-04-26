@@ -61,6 +61,24 @@ internal object LiveChromeRefresher {
     private const val BROKEN_CONTAINER_LOG_CAP = 64
 
     /**
+     * Fully-qualified class name of the IntelliJ 2026.1 Compact Navigation panel
+     * that hosts the path widget breadcrumb inside the status bar tree. Verified
+     * via UI Inspector against `IdeStatusBarImpl → StatusBarPanel → NavBarContainer
+     * → JBScrollPane → JBViewport → StaticNavBarPanel → NewNavBarPanel →
+     * NavBarItemComponent`.
+     *
+     * The panel pins its own `setBackground(JBUI.CurrentTheme.List.BACKGROUND)`
+     * inside its initialiser, so the chrome tint applied to the root status bar
+     * peer never reaches it through Swing inheritance. We have to set the
+     * panel's `background` directly on every `apply` and null it on `revert`.
+     *
+     * `@ApiStatus.Internal` (intellij-community commit `3ebc4199`, 2025-10-03) —
+     * runtime class-name match is the supported lookup pattern (same approach
+     * already used elsewhere in this file for `MainToolbar` / `OnePixelDivider`).
+     */
+    private const val NAVBAR_COMPACT_PANEL_FQN = "com.intellij.platform.navbar.frontend.ui.NewNavBarPanel"
+
+    /**
      * Test-only reset for [brokenContainerLogged]. `ChromeBaseColors` clears
      * its sibling latch via `refresh()` (LAF-driven), but there is no
      * equivalent trigger for a per-session container latch in production, so
@@ -88,6 +106,7 @@ internal object LiveChromeRefresher {
             ChromeTarget.StatusBar ->
                 forEachUsableStatusBarComponent { component ->
                     component.background = color
+                    paintNavBarCompactPanel(component, color)
                     component.repaint()
                 }
             is ChromeTarget.ByClassName ->
@@ -105,6 +124,7 @@ internal object LiveChromeRefresher {
             ChromeTarget.StatusBar ->
                 forEachUsableStatusBarComponent { component ->
                     component.background = null
+                    clearNavBarCompactPanel(component)
                     component.repaint()
                 }
             is ChromeTarget.ByClassName ->
@@ -116,13 +136,64 @@ internal object LiveChromeRefresher {
         }
     }
 
+    /**
+     * Phase 40.4 — IntelliJ 2026.1 Compact Navigation moved the path widget into
+     * the status bar tree as `NavBarItemComponent` instances under `NewNavBarPanel`.
+     * The panel pins its own bg to `List.background` in its initialiser, which
+     * shadows the chrome tint we set on the root status bar peer. Walk descends to
+     * the panel by class-name match and writes our tinted color directly. The
+     * `NavBarItemComponent` items remain transparent and inherit the panel bg, so
+     * we touch the panel only — no per-item iteration required.
+     *
+     * `repaint()` of the status bar root cascades to descendants, invalidating
+     * `NavBarItemComponent`'s internal `cache: EnumMap<ImageType, ScaleContextCache>`
+     * (per intellij-community master `NavBarItemComponent.kt`). No reflection into
+     * private fields needed.
+     *
+     * Tree walk reuses [walk]'s iterative `ArrayDeque` BFS so a pathological
+     * deeply nested status-bar subtree can't blow the EDT stack (Phase 40.2 M-4),
+     * and inherits its per-visit `try/catch` so one flaky descendant peer
+     * cannot abort tinting for the rest of the tree.
+     *
+     * Old NavBar wrapper (`MyNavBarWrapperPanel`) is still tinted via
+     * `dev.ayuislands.accent.elements.NavBarElement` for users on platforms older
+     * than the 2026.1 Compact Navigation rollout. Both peer types coexist
+     * gracefully — the walk simply doesn't find one when the other is in use.
+     */
+    private fun paintNavBarCompactPanel(
+        statusBarRoot: Container,
+        color: Color,
+    ) {
+        walk(statusBarRoot) { component ->
+            if (component.javaClass.name == NAVBAR_COMPACT_PANEL_FQN && component is JComponent) {
+                component.background = color
+                // Match `refreshOnTree`: the matched panel pins its own bg in init and
+                // ignores Swing inheritance, so a parent-only repaint is not enough.
+                component.repaint()
+            }
+        }
+    }
+
+    /**
+     * D-14 mirror of [paintNavBarCompactPanel] — walks [statusBarRoot] and
+     * nulls the bg of every NavBar Compact panel, repainting each.
+     */
+    private fun clearNavBarCompactPanel(statusBarRoot: Container) {
+        walk(statusBarRoot) { component ->
+            if (component.javaClass.name == NAVBAR_COMPACT_PANEL_FQN && component is JComponent) {
+                component.background = null
+                component.repaint()
+            }
+        }
+    }
+
     private inline fun forEachUsableStatusBarComponent(action: (JComponent) -> Unit) {
         val projectManager = safeService("ProjectManager") { ProjectManager.getInstance() } ?: return
         val windowManager = safeService("WindowManager") { WindowManager.getInstance() } ?: return
         for (project in projectManager.openProjects) {
             if (!project.isUsable()) continue
             val statusBar = windowManager.getStatusBar(project) ?: continue
-            val component = statusBar.component as? JComponent ?: continue
+            val component = statusBar.component ?: continue
             action(component)
         }
     }
@@ -132,7 +203,7 @@ internal object LiveChromeRefresher {
      * [OutOfMemoryError] / [NoClassDefFoundError] during a shutdown race
      * still propagate — the prior `runCatching { ... }.onFailure { log.debug(...) }`
      * swallowed the full [Throwable] surface on the hot live-refresh path.
-     * The `?: return` on the callsite is expected during shutdown (both
+     * The `?: return` on the call site is expected during shutdown (both
      * services can legitimately report null).
      */
     private inline fun <T : Any> safeService(

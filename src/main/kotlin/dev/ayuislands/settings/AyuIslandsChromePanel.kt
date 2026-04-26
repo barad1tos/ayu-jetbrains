@@ -1,5 +1,7 @@
 package dev.ayuislands.settings
 
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.dsl.builder.Align
@@ -8,6 +10,9 @@ import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.ChromeDecorationsProbe
 import dev.ayuislands.accent.ChromeSupport
+import dev.ayuislands.accent.ChromeTintContext
+import dev.ayuislands.accent.ChromeTintSnapshot
+import dev.ayuislands.accent.TintIntensity
 import dev.ayuislands.licensing.LicenseChecker
 import org.jetbrains.annotations.TestOnly
 import javax.swing.JLabel
@@ -194,19 +199,31 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
             return
         }
 
+        val chromeSnapshot =
+            ChromeTintSnapshot(
+                chromeStatusBar = pendingChromeStatusBar,
+                chromeMainToolbar = pendingChromeMainToolbar,
+                chromeToolWindowStripe = pendingChromeToolWindowStripe,
+                chromeNavBar = pendingChromeNavBar,
+                chromePanelBorder = pendingChromePanelBorder,
+                intensity = TintIntensity.of(pendingChromeTintIntensity),
+            )
+
         // H-4: run the EP chain FIRST so a throw from applyForFocusedProject leaves
         // persisted state untouched and the user can retry after fixing the cause.
-        // Persisting only on success also gives isModified() an honest answer on the
-        // next panel open — if the apply failed, pending != stored so the Apply
-        // button re-offers the attempt.
+        // The applicator consumes the pending chrome snapshot above, so this ordering
+        // no longer makes the visible tint one Apply behind the slider.
         try {
-            AccentApplicator.applyForFocusedProject(resolvedVariant)
+            ChromeTintContext.withSnapshot(chromeSnapshot) {
+                AccentApplicator.applyForFocusedProject(resolvedVariant)
+            }
         } catch (exception: RuntimeException) {
             LOG.warn(
                 "AyuIslandsChromePanel.apply: chrome re-apply threw; " +
                     "leaving pending chrome state uncommitted so the user can retry",
                 exception,
             )
+            notifyApplyFailed()
             return
         }
         val state = AyuIslandsSettings.getInstance().state
@@ -215,8 +232,37 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
         state.chromeToolWindowStripe = pendingChromeToolWindowStripe
         state.chromeNavBar = pendingChromeNavBar
         state.chromePanelBorder = pendingChromePanelBorder
-        state.chromeTintIntensity = pendingChromeTintIntensity
+        state.chromeTintIntensity = chromeSnapshot.intensity.percent
         loadStored(state)
+    }
+
+    /**
+     * Surface a balloon when the chrome re-apply fails so the user is not left
+     * staring at an unchanged Settings dialog wondering whether their click
+     * registered. The balloon points at idea.log for the actual stack — the
+     * `LOG.warn` at the catch site carries the original throwable there.
+     * Notification dispatch is itself wrapped in a try/catch so a
+     * notification-subsystem hiccup (rare, but possible in shutdown races)
+     * cannot mask the real apply failure.
+     */
+    private fun notifyApplyFailed() {
+        try {
+            NotificationGroupManager
+                .getInstance()
+                .getNotificationGroup("Ayu Islands")
+                .createNotification(
+                    "Chrome tint could not be applied",
+                    "Settings were not saved — see idea.log for details. " +
+                        "Adjust any value in the Chrome Tinting panel and click Apply again to retry.",
+                    NotificationType.WARNING,
+                ).notify(null)
+        } catch (notificationException: RuntimeException) {
+            LOG.warn(
+                "AyuIslandsChromePanel.apply: failed to surface chrome-apply error balloon " +
+                    "(original cause logged above)",
+                notificationException,
+            )
+        }
     }
 
     override fun reset() {
@@ -367,15 +413,16 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
         /**
          * User-facing cap for the chrome tint intensity slider.
          *
-         * Saturations above ~50 drive the tinted background so close to the raw accent
-         * that even the always-on WCAG foreground pick (see [WcagForeground]) cannot
-         * restore readable contrast on warm/pastel accents — the text ends up washed
-         * out against an almost-solid-accent chrome surface. Capping the slider at 50
-         * keeps the usable range inside the readable band.
+         * Saturation values above ~50 drive the tinted background so close to the raw
+         * accent that even the always-on WCAG foreground pick (see
+         * `dev.ayuislands.accent.WcagForeground`) cannot restore readable contrast on
+         * warm/pastel accents — the text ends up washed out against an almost-solid-accent
+         * chrome surface. Capping the slider at 50 keeps the usable range inside the
+         * readable band.
          *
-         * [ChromeTintBlender] still accepts intensities up to 100 internally — that's
-         * a math-safety clamp for the blend formula and intentionally unaffected by
-         * the user-visible cap here.
+         * `dev.ayuislands.accent.ChromeTintBlender` still accepts intensities up to 100
+         * internally — that's a math-safety clamp for the blend formula and intentionally
+         * unaffected by the user-visible cap here.
          *
          * Users returning from older sessions with a persisted
          * [AyuIslandsState.chromeTintIntensity] above this cap see the slider snap to

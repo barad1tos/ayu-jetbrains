@@ -94,7 +94,7 @@ object ChromeBaseColors {
      * write. Without this, a racing `refresh()` between those two lines would
      * let a stale pre-LAF color land in the post-LAF snapshot.
      */
-    fun get(key: String): Color? {
+    operator fun get(key: String): Color? {
         snapshot[key]?.let { return it }
         synchronized(snapshot) {
             // Re-check under the lock: a concurrent writer may have populated

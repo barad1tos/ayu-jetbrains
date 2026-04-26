@@ -1,20 +1,27 @@
 package dev.ayuislands.settings
 
+import com.intellij.notification.Notification
+import com.intellij.notification.NotificationGroup
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.openapi.util.SystemInfo
-import com.intellij.ui.ExperimentalUI
 import com.intellij.ui.dsl.builder.panel
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.ChromeDecorationsProbe
+import dev.ayuislands.accent.ChromeTintContext
 import dev.ayuislands.licensing.LicenseChecker
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkClass
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
+import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
 import kotlin.test.AfterTest
@@ -89,11 +96,12 @@ class AyuIslandsChromePanelTest {
         every { actionManagerMock.getAction(any()) } returns null
 
         // `Cell.comment(...)` and the unlicensed "requires Pro" row both call into
-        // `ExperimentalUI.getInstance()` for New-UI-aware styling. Same cast trap as
-        // ActionManager above — hand over a relaxed ExperimentalUI so the downcast
-        // inside `ExperimentalUI.getInstance()` succeeds.
-        val experimentalUiMock = mockk<ExperimentalUI>(relaxed = true)
-        every { appMock.getService(ExperimentalUI::class.java) } returns experimentalUiMock
+        // an internal New UI service. Resolve it by name so the test does not depend
+        // on the internal API at compile time.
+        @Suppress("UNCHECKED_CAST")
+        val experimentalUiClass = Class.forName("com.intellij.ui.ExperimentalUI") as Class<Any>
+        val experimentalUiMock = mockkClass(experimentalUiClass.kotlin, relaxed = true)
+        every { appMock.getService(experimentalUiClass) } returns experimentalUiMock
     }
 
     @AfterTest
@@ -141,7 +149,7 @@ class AyuIslandsChromePanelTest {
         assertEquals(
             10..50,
             slider?.let { it.minimum..it.maximum },
-            "Intensity slider user-facing range must be 10-50 — saturations above 50 " +
+            "Intensity slider user-facing range must be 10-50 — saturation levels above 50 " +
                 "produce near-accent chrome surfaces that fail the readable-contrast bar " +
                 "even with always-on WCAG foreground picks. ChromeTintBlender still accepts " +
                 "0-100 internally as a math-safety clamp; the 50 cap is the user-visible ceiling.",
@@ -295,6 +303,46 @@ class AyuIslandsChromePanelTest {
     }
 
     @Test
+    fun `apply passes pending chrome snapshot before committing state`() {
+        state.chromeStatusBar = false
+        state.chromeTintIntensity = 20
+        val chromePanel = AyuIslandsChromePanel()
+        buildPanel(chromePanel, AyuVariant.DARK)
+
+        chromePanel.setPendingChromeStatusBarForTest(true)
+        chromePanel.setPendingChromeTintIntensityForTest(45)
+
+        every {
+            AccentApplicator.applyForFocusedProject(AyuVariant.DARK)
+        } answers {
+            assertTrue(
+                ChromeTintContext.isToggleEnabled(state, AccentElementId.STATUS_BAR),
+                "Applicator must observe the pending status-bar toggle through chrome context",
+            )
+            assertEquals(
+                45,
+                ChromeTintContext.currentIntensity(state).percent,
+                "Applicator must observe pending intensity through chrome context",
+            )
+            assertFalse(
+                state.chromeStatusBar,
+                "State must remain uncommitted until the applicator succeeds",
+            )
+            assertEquals(
+                20,
+                state.chromeTintIntensity,
+                "State intensity must remain old while the applicator consumes the pending snapshot",
+            )
+            "#E6B450"
+        }
+
+        chromePanel.apply()
+
+        assertTrue(state.chromeStatusBar, "Successful apply must commit the pending toggle")
+        assertEquals(45, state.chromeTintIntensity, "Successful apply must commit pending intensity")
+    }
+
+    @Test
     fun `apply is a no-op when nothing changed`() {
         val chromePanel = AyuIslandsChromePanel()
         buildPanel(chromePanel)
@@ -303,6 +351,124 @@ class AyuIslandsChromePanelTest {
 
         // No mutation → no re-apply. Prevents T-40-26 (DoS on repeated clean apply).
         verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any()) }
+    }
+
+    @Test
+    fun `apply leaves stored state untouched when applicator throws`() {
+        // Phase 40.4 throw-safety contract (`H-4`): if `applyForFocusedProject`
+        // throws, no state field commits. The user's pending values stay diffed
+        // from stored so `isModified()` keeps reporting true and the Apply
+        // button re-offers a retry. The earlier "state.commit before applicator"
+        // ordering broke this — that path was reverted in favor of the snapshot
+        // pattern, which is what this test locks.
+        val chromePanel = AyuIslandsChromePanel()
+        buildPanel(chromePanel, AyuVariant.MIRAGE)
+
+        every { AccentApplicator.applyForFocusedProject(any()) } throws RuntimeException("simulated apply failure")
+
+        chromePanel.setPendingChromeStatusBarForTest(true)
+        chromePanel.setPendingChromeTintIntensityForTest(35)
+        // Pre-apply baseline — every state field at its default.
+        assertFalse(state.chromeStatusBar, "Baseline: default state has chromeStatusBar = false")
+        assertEquals(
+            AyuIslandsState.DEFAULT_CHROME_TINT_INTENSITY,
+            state.chromeTintIntensity,
+            "Baseline: state intensity at default before apply",
+        )
+
+        chromePanel.apply()
+
+        assertFalse(
+            state.chromeStatusBar,
+            "Throw-safety: state.chromeStatusBar must NOT commit when applicator throws",
+        )
+        assertEquals(
+            AyuIslandsState.DEFAULT_CHROME_TINT_INTENSITY,
+            state.chromeTintIntensity,
+            "Throw-safety: state.chromeTintIntensity must NOT commit when applicator throws",
+        )
+        // Pending values untouched too — user can retry without re-typing.
+        assertTrue(chromePanel.isModified(), "isModified must remain true so the user can retry")
+    }
+
+    @Test
+    fun `apply surfaces a WARNING balloon when applicator throws`() {
+        // Phase 40.4 user-space contract: a silent failure was the entire root
+        // cause of "I clicked Apply, nothing happened" reports prior to this fix.
+        // The WARNING balloon is the user-visible error path the project rule
+        // names explicitly. Asserting on the captured title/content/type catches
+        // copy regressions (changelog-relevant) and the wrong NotificationType
+        // (INFO would fail to surface), while verifying the dispatch happens at
+        // all locks the catch → notify wiring.
+        val titleSlot = slot<String>()
+        val contentSlot = slot<String>()
+        val typeSlot = slot<NotificationType>()
+        val notification = mockk<Notification>(relaxed = true)
+        val group =
+            mockk<NotificationGroup>(relaxed = true) {
+                every {
+                    createNotification(capture(titleSlot), capture(contentSlot), capture(typeSlot))
+                } returns notification
+            }
+        val groupManager =
+            mockk<NotificationGroupManager>(relaxed = true) {
+                every { getNotificationGroup("Ayu Islands") } returns group
+            }
+        mockkStatic(NotificationGroupManager::class)
+        every { NotificationGroupManager.getInstance() } returns groupManager
+
+        every { AccentApplicator.applyForFocusedProject(any()) } throws RuntimeException("simulated apply failure")
+
+        val chromePanel = AyuIslandsChromePanel()
+        buildPanel(chromePanel, AyuVariant.MIRAGE)
+        chromePanel.setPendingChromeTintIntensityForTest(35)
+
+        chromePanel.apply()
+
+        verify(exactly = 1) { group.createNotification(any<String>(), any<String>(), any<NotificationType>()) }
+        // Locks the .notify(null) call too — a future refactor that constructs
+        // the Notification but forgets to dispatch (e.g. switches to
+        // Notifications.Bus.notify and leaves a half-finished call) would
+        // otherwise pass the createNotification assertion silently.
+        verify(exactly = 1) { notification.notify(null as com.intellij.openapi.project.Project?) }
+        assertEquals("Chrome tint could not be applied", titleSlot.captured, "Title must match the user-facing message")
+        assertTrue(
+            contentSlot.captured.contains("idea.log") && contentSlot.captured.contains("Apply again"),
+            "Content must mention idea.log and the retry path",
+        )
+        assertEquals(NotificationType.WARNING, typeSlot.captured, "Apply failure must surface as WARNING, not INFO")
+    }
+
+    @Test
+    fun `apply does not propagate when notification subsystem itself throws`() {
+        // Defensive layer for the rare shutdown-race case where
+        // NotificationGroupManager.getInstance() / .getNotificationGroup
+        // throws. The inner try/catch must keep the whole apply() call
+        // total — losing the balloon is acceptable; crashing the Settings
+        // dialog is not. Also asserts the throw-safety state-untouched
+        // invariant survives a notification-subsystem crash.
+        mockkStatic(NotificationGroupManager::class)
+        every { NotificationGroupManager.getInstance() } throws RuntimeException("notification subsystem boom")
+        every { AccentApplicator.applyForFocusedProject(any()) } throws RuntimeException("apply boom")
+
+        val chromePanel = AyuIslandsChromePanel()
+        buildPanel(chromePanel, AyuVariant.MIRAGE)
+        chromePanel.setPendingChromeStatusBarForTest(true)
+
+        // The apply() call must return normally — exception escape would mean
+        // the Settings dialog crashes, defeating the user-retry contract.
+        chromePanel.apply()
+
+        assertFalse(
+            state.chromeStatusBar,
+            "State must remain untouched even when both applicator AND notification subsystem throw",
+        )
+        // Locks the inner-catch path explicitly: getInstance() must have been
+        // called from notifyApplyFailed (i.e. the outer applicator throw routed
+        // into the catch site). Without this, a future refactor that widens
+        // the outer catch to also swallow the notification dispatch would still
+        // pass — both paths would produce a quiet apply, indistinguishable.
+        verify(exactly = 1) { NotificationGroupManager.getInstance() }
     }
 
     // ── Test 8: reset() ────────────────────────────────────────────────────────

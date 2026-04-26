@@ -65,6 +65,7 @@ class StatusBarElementTest {
 
         mockkObject(WcagForeground)
         every { WcagForeground.pickForeground(any(), any()) } returns Color.GREEN
+        every { WcagForeground.pickLightFamilyForeground(any(), any()) } returns Color.GREEN
 
         mockkObject(LiveChromeRefresher)
         every { LiveChromeRefresher.refresh(any(), any()) } returns Unit
@@ -77,58 +78,141 @@ class StatusBarElementTest {
     }
 
     @Test
-    fun `apply writes blended color to every background key`() {
+    fun `apply tints opaque status bar surfaces and clears translucent overlay backgrounds`() {
         state.chromeTintIntensity = 40
 
         StatusBarElement().apply(accent)
 
+        // Phase 40.3c — root chrome surface
         verify { UIManager.put("StatusBar.background", blended) }
         verify { UIManager.put("StatusBar.borderColor", blended) }
-        verify { UIManager.put("StatusBar.Widget.hoverBackground", blended) }
+        verify { UIManager.put("StatusBar.Widget.hoverBackground", null) }
+        // Phase 40.4 — NavBar Compact (2026.1) state-specific bg keys read by
+        // `NavBarItemComponent.highlightColor()` are translucent overlays, not
+        // standalone surfaces. The compact panel receives the opaque tint directly;
+        // these keys must fall back to the LAF overlay so hover/selection does not
+        // become a bright opaque fill that forces dark breadcrumb text.
+        verify { UIManager.put("StatusBar.Breadcrumbs.hoverBackground", null) }
+        verify { UIManager.put("StatusBar.Breadcrumbs.selectionBackground", null) }
+        verify { UIManager.put("StatusBar.Breadcrumbs.selectionInactiveBackground", null) }
+        verify { UIManager.put("StatusBar.Breadcrumbs.floatingBackground", null) }
+    }
+
+    @Test
+    fun `apply still nulls every overlay background when ChromeBaseColors returns null for every key`() {
+        // Phase 40.4 contract: the overlay null sweep is unconditional. Even
+        // when every opaque base color resolves to null (theme metadata gap,
+        // non-Ayu LAF active mid-apply) the overlay keys must be cleared so a
+        // previously-applied plugin override cannot leak past a partial apply.
+        // Guards against a future refactor that "optimizes" the null sweep
+        // behind an `if (tinted.isNotEmpty())` check.
+        every { ChromeBaseColors.get(any()) } returns null
+        state.chromeTintIntensity = 30
+
+        StatusBarElement().apply(accent)
+
+        verify { UIManager.put("StatusBar.Breadcrumbs.hoverBackground", null) }
+        verify { UIManager.put("StatusBar.Breadcrumbs.selectionBackground", null) }
+        verify { UIManager.put("StatusBar.Breadcrumbs.selectionInactiveBackground", null) }
+        verify { UIManager.put("StatusBar.Breadcrumbs.floatingBackground", null) }
+        verify { UIManager.put("StatusBar.Widget.hoverBackground", null) }
+        // No opaque tint should have been written since the bases were absent.
+        verify(exactly = 0) { UIManager.put("StatusBar.background", blended) }
     }
 
     @Test
     fun `revert nulls every touched UIManager key`() {
         StatusBarElement().revert()
 
+        // Backgrounds (3 root + 4 Breadcrumbs state) — D-14 symmetry mirror of apply.
         verify { UIManager.put("StatusBar.background", null) }
         verify { UIManager.put("StatusBar.borderColor", null) }
         verify { UIManager.put("StatusBar.Widget.hoverBackground", null) }
+        verify { UIManager.put("StatusBar.Breadcrumbs.hoverBackground", null) }
+        verify { UIManager.put("StatusBar.Breadcrumbs.selectionBackground", null) }
+        verify { UIManager.put("StatusBar.Breadcrumbs.selectionInactiveBackground", null) }
+        verify { UIManager.put("StatusBar.Breadcrumbs.floatingBackground", null) }
+        // Foregrounds (2 Widget + 5 Breadcrumbs state) — every fg state the path
+        // widget can land in must be nulled so the LAF re-resolves stock when the
+        // user disables chrome tinting.
         verify { UIManager.put("StatusBar.Widget.foreground", null) }
         verify { UIManager.put("StatusBar.Widget.hoverForeground", null) }
-        // D-14 symmetry for breadcrumbs foreground fix — every new key written on
-        // apply must be nulled on revert so the LAF re-resolves the stock value.
         verify { UIManager.put("StatusBar.Breadcrumbs.foreground", null) }
         verify { UIManager.put("StatusBar.Breadcrumbs.hoverForeground", null) }
+        verify { UIManager.put("StatusBar.Breadcrumbs.floatingForeground", null) }
+        verify { UIManager.put("StatusBar.Breadcrumbs.selectionForeground", null) }
+        verify { UIManager.put("StatusBar.Breadcrumbs.selectionInactiveForeground", null) }
     }
 
     @Test
-    fun `apply always writes WcagForeground pick to both foreground keys`() {
+    fun `apply uses light-family pick for foreground keys (no BLACK)`() {
         state.chromeTintIntensity = 40
 
         StatusBarElement().apply(accent)
 
-        verify { WcagForeground.pickForeground(blended, WcagForeground.TextTarget.PRIMARY_TEXT) }
+        // Phase 40.4 — status bar fg uses pickLightFamilyForeground (palette
+        // [WHITE, DARK_FG], no BLACK) instead of the standard 3-color pick.
+        // Standard pickForeground would correctly land on BLACK on mid-luminance
+        // tinted bg — visually broken on a chrome surface we own as a dark band.
+        verify { WcagForeground.pickLightFamilyForeground(blended, WcagForeground.TextTarget.PRIMARY_TEXT) }
+        verify(exactly = 0) {
+            WcagForeground.pickForeground(any(), any())
+        }
         verify { UIManager.put("StatusBar.Widget.foreground", Color.GREEN) }
         verify { UIManager.put("StatusBar.Widget.hoverForeground", Color.GREEN) }
     }
 
     @Test
-    fun `apply extends WcagForeground pick to breadcrumb foreground keys present in 2026_1`() {
-        // Regression guard: path breadcrumbs ("project > build.gradle.kts") in the
-        // status bar used to stay LAF-grey against a tinted background. The fix
-        // re-uses the same contrast color the rest of the status bar widget text
-        // already receives, so breadcrumbs are legible at any supported tint.
-        //
-        // Only keys present in IntelliJPlatform.themeMetadata.json for platformVersion
-        // 2026.1 are asserted here — see StatusBarElement.foregroundKeys for the
-        // javap-verified presence list.
+    fun `apply extends light-family pick to all 5 breadcrumb foreground states`() {
+        // Phase 40.4 — NavBarItemComponent.update() (intellij 2026.1) cycles
+        // through 5 fg states based on hover/selected/focused/floating flags.
+        // Every state's UIDefault key must be written so the path widget never
+        // falls through to UIUtil.getLabelForeground() when transitioning states.
         state.chromeTintIntensity = 40
 
         StatusBarElement().apply(accent)
 
         verify(exactly = 1) { UIManager.put("StatusBar.Breadcrumbs.foreground", Color.GREEN) }
         verify(exactly = 1) { UIManager.put("StatusBar.Breadcrumbs.hoverForeground", Color.GREEN) }
+        verify(exactly = 1) { UIManager.put("StatusBar.Breadcrumbs.floatingForeground", Color.GREEN) }
+        verify(exactly = 1) { UIManager.put("StatusBar.Breadcrumbs.selectionForeground", Color.GREEN) }
+        verify(exactly = 1) { UIManager.put("StatusBar.Breadcrumbs.selectionInactiveForeground", Color.GREEN) }
+    }
+
+    @Test
+    fun `hover foreground uses root status bar contrast instead of translucent overlay contrast`() {
+        val rootTint = Color(0x24, 0x39, 0x44)
+        val hoverOverlayTint = Color(0xA8, 0xF0, 0xFF)
+        val rootForeground = Color.WHITE
+        val overlayForeground = Color(0x1F, 0x24, 0x30)
+        state.chromeTintIntensity = 40
+
+        every { ChromeBaseColors.get("StatusBar.background") } returns Color(0x24, 0x29, 0x36)
+        every { ChromeBaseColors.get("StatusBar.borderColor") } returns Color(0x24, 0x29, 0x36)
+        every { ChromeBaseColors.get("StatusBar.Widget.hoverBackground") } returns Color(0xFF, 0xFF, 0xFF, 0x18)
+        every {
+            ChromeTintBlender.blend(accent, Color(0x24, 0x29, 0x36), any())
+        } returns rootTint
+        every {
+            ChromeTintBlender.blend(accent, Color(0xFF, 0xFF, 0xFF, 0x18), any())
+        } returns hoverOverlayTint
+        every {
+            WcagForeground.pickLightFamilyForeground(rootTint, WcagForeground.TextTarget.PRIMARY_TEXT)
+        } returns rootForeground
+        every {
+            WcagForeground.pickLightFamilyForeground(hoverOverlayTint, WcagForeground.TextTarget.PRIMARY_TEXT)
+        } returns overlayForeground
+
+        StatusBarElement().apply(accent)
+
+        verify { UIManager.put("StatusBar.Widget.hoverForeground", rootForeground) }
+        verify { UIManager.put("StatusBar.Breadcrumbs.hoverForeground", rootForeground) }
+        verify(exactly = 0) {
+            UIManager.put("StatusBar.Widget.hoverForeground", overlayForeground)
+        }
+        verify(exactly = 0) {
+            UIManager.put("StatusBar.Breadcrumbs.hoverForeground", overlayForeground)
+        }
     }
 
     @Test
@@ -137,16 +221,17 @@ class StatusBarElementTest {
 
         StatusBarElement().apply(accent)
 
-        // StatusBar.Widget.foreground + StatusBar.Widget.hoverForeground share the
-        // same tinted sample, so pickForeground is invoked once per fg key at minimum.
+        // Light-family pick (Phase 40.4) — same target band as the standard
+        // picker, just a restricted palette. PRIMARY_TEXT (4.5:1) is the right
+        // floor for path widget breadcrumbs which paint readable-size text.
         verify(atLeast = 1) {
-            WcagForeground.pickForeground(any(), WcagForeground.TextTarget.PRIMARY_TEXT)
+            WcagForeground.pickLightFamilyForeground(any(), WcagForeground.TextTarget.PRIMARY_TEXT)
         }
         verify(exactly = 0) {
-            WcagForeground.pickForeground(any(), WcagForeground.TextTarget.ICON)
+            WcagForeground.pickLightFamilyForeground(any(), WcagForeground.TextTarget.ICON)
         }
         verify(exactly = 0) {
-            WcagForeground.pickForeground(any(), WcagForeground.TextTarget.SECONDARY_TEXT)
+            WcagForeground.pickLightFamilyForeground(any(), WcagForeground.TextTarget.SECONDARY_TEXT)
         }
     }
 
@@ -166,7 +251,7 @@ class StatusBarElementTest {
     }
 
     @Test
-    fun `revert symmetry — every key apply writes is nulled on revert`() {
+    fun `revert symmetry - every key apply writes is nulled on revert`() {
         state.chromeTintIntensity = 50
 
         val appliedKeys = mutableListOf<String>()

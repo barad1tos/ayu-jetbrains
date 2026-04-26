@@ -1,6 +1,7 @@
 package dev.ayuislands.accent
 
 import java.awt.Color
+import kotlin.math.pow
 
 /**
  * WCAG 2.1 contrast-ratio-aware foreground picker for Phase 40 chrome surfaces.
@@ -42,6 +43,17 @@ object WcagForeground {
     // surfaces.
     private val palette = listOf(Color.WHITE, Color(DARK_FOREGROUND_HEX), Color.BLACK)
 
+    // Phase 40.4 — light-family palette (no BLACK) for chrome surfaces the plugin
+    // semantically owns as "tinted dark bands" (status bar foregrounds). Without
+    // restricting the palette here, mid-luminance tints (status bar at >= 20%
+    // intensity on cyan/lime accents) push the WCAG sweep to BLACK because BLACK
+    // passes 4.5:1 there while WHITE drops to ~4:1 — the picker is doing its job,
+    // but on a chrome surface meant to read as dark the user expects light text.
+    // Pre-Phase 40 status bar fg was pinned to a light tone for exactly this
+    // reason; Phase 40 introduced WCAG-aware contrast picking but accidentally
+    // regressed the "always-light" contract. Restricting the palette restores it.
+    private val lightFamilyPalette = listOf(Color.WHITE, Color(DARK_FOREGROUND_HEX))
+
     /**
      * Returns the first palette color whose WCAG 2.1 contrast ratio against
      * [bg] meets [target].minRatio. If no candidate passes, returns the
@@ -50,10 +62,26 @@ object WcagForeground {
     fun pickForeground(
         bg: Color,
         target: TextTarget,
+    ): Color = pickFromPalette(bg, target, palette)
+
+    /**
+     * Same as [pickForeground] but restricted to the light-family palette
+     * (WHITE + Ayu dark foreground, NO black). Use for chrome surfaces the
+     * plugin owns as dark tinted bands. See [lightFamilyPalette] for rationale.
+     */
+    fun pickLightFamilyForeground(
+        bg: Color,
+        target: TextTarget,
+    ): Color = pickFromPalette(bg, target, lightFamilyPalette)
+
+    private fun pickFromPalette(
+        bg: Color,
+        target: TextTarget,
+        candidates: List<Color>,
     ): Color {
-        var best = palette.first()
+        var best = candidates.first()
         var bestRatio = -1.0
-        for (candidate in palette) {
+        for (candidate in candidates) {
             val ratio = contrastRatio(candidate, bg)
             if (ratio >= target.minRatio) return candidate
             if (ratio > bestRatio) {
@@ -89,7 +117,7 @@ object WcagForeground {
         return if (s <= LOW_GAMMA_THRESHOLD) {
             s / LOW_GAMMA_DIVISOR
         } else {
-            Math.pow((s + HIGH_GAMMA_OFFSET) / HIGH_GAMMA_DIVISOR, GAMMA_EXPONENT)
+            ((s + HIGH_GAMMA_OFFSET) / HIGH_GAMMA_DIVISOR).pow(GAMMA_EXPONENT)
         }
     }
 

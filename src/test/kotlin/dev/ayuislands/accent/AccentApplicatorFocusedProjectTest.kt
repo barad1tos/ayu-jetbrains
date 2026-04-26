@@ -775,7 +775,7 @@ class AccentApplicatorFocusedProjectTest {
         // Structural match — the `applied` flag must sit between the apply call and the
         // notifyExternalApply call. A refactor that moves the gate elsewhere (e.g., outside
         // the swap-publish branch) would still pass the literal match above.
-        val applyIndex = source.indexOf("val applied = applyFromHexString(hex)")
+        val applyIndex = source.indexOf("applyFromHexString(hex)")
         val gateIndex = source.indexOf("if (applied) {", applyIndex.takeIf { it >= 0 } ?: 0)
         val notifyIndex =
             source.indexOf(
@@ -784,7 +784,7 @@ class AccentApplicatorFocusedProjectTest {
             )
         assertTrue(
             applyIndex in 0 until gateIndex && gateIndex < notifyIndex,
-            "Pattern D structural lock: `val applied = applyFromHexString(hex)` must precede " +
+            "Pattern D structural lock: `applyFromHexString(hex)` must precede " +
                 "`if (applied) {` which must precede " +
                 "`ProjectAccentSwapService.getInstance().notifyExternalApply(hex)`. " +
                 "Got applyIndex=$applyIndex, gateIndex=$gateIndex, notifyIndex=$notifyIndex.",

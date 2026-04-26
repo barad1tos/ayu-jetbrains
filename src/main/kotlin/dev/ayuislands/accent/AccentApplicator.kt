@@ -511,7 +511,7 @@ object AccentApplicator {
         variant: AyuVariant?,
     ) {
         for (element in EP_NAME.extensionList) {
-            val enabled = state.isToggleEnabled(element.id)
+            val enabled = ChromeTintContext.isToggleEnabled(state, element.id)
             if (!enabled) {
                 neutralizeOrRevert(element, variant)
                 continue
