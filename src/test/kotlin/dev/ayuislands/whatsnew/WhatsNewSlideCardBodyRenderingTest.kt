@@ -197,18 +197,14 @@ class WhatsNewSlideCardBodyRenderingTest {
                 imageScale = null,
             )
 
-        val scalerWith = ContentScaler()
-        val scalerNo = ContentScaler()
-        WhatsNewSlideCard.build(withBody, RESOURCE_DIR, ACCENT, TITLE_COLOR, scalerWith)
-        WhatsNewSlideCard.build(noBody, RESOURCE_DIR, ACCENT, TITLE_COLOR, scalerNo)
-
-        // Sanity: body + no-image case has 1 gap (title→body); blank body
-        // + no-image has 0 gaps. Verifying the scaler responded
-        // differentially proves the gap-selection branch is exercised.
-        // Capture strut sizes at scale 1 and 2; the body case must show
-        // size deltas on at least one strut, blank-body case must not.
-        val strutsWith = collectStruts(WhatsNewSlideCard.build(withBody, RESOURCE_DIR, ACCENT, TITLE_COLOR, scalerWith))
-        val strutsNo = collectStruts(WhatsNewSlideCard.build(noBody, RESOURCE_DIR, ACCENT, TITLE_COLOR, scalerNo))
+        // Build both cards once (no scaler — gap REGISTRATION isn't what the
+        // strut-count differential measures; the struts physically exist in
+        // the component tree regardless of scaler). Body case adds a
+        // vertical strut between title and body; blank case skips that
+        // entire row. Differential count proves the gap-selection branch
+        // produced different layouts for the two slide shapes.
+        val strutsWith = collectStruts(WhatsNewSlideCard.build(withBody, RESOURCE_DIR, ACCENT, TITLE_COLOR))
+        val strutsNo = collectStruts(WhatsNewSlideCard.build(noBody, RESOURCE_DIR, ACCENT, TITLE_COLOR))
         assertTrue(
             strutsWith.size > strutsNo.size,
             "Slide with body must add at least one strut beyond the blank-body baseline; " +
