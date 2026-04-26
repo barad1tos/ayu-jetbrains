@@ -43,7 +43,16 @@ internal object WhatsNewSlideCard {
     private const val GAP_TITLE_BODY = 12
     private const val GAP_BODY_IMAGE = 16
     private const val GAP_TITLE_IMAGE = 16
-    private const val BODY_WRAP_WIDTH_PX = 720
+
+    // Body word-wrap budget in HTML CSS px (logical, NOT device px). The HTML
+    // renderer inside JLabel interprets `width:NNNpx` as logical pixels and
+    // applies its own HiDPI scaling on top, so this value must NOT be passed
+    // through `JBUI.scale()` — that would double-scale the wrap width and the
+    // text would collapse to a single column on Retina. Derived from
+    // [WhatsNewImagePanel.DEFAULT_IMAGE_WIDTH] minus an inset so prose visually
+    // aligns inside the screenshot column rather than overhanging it.
+    private const val BODY_WRAP_INSET_PX = 80
+    private const val BODY_WRAP_WIDTH_PX = WhatsNewImagePanel.DEFAULT_IMAGE_WIDTH - BODY_WRAP_INSET_PX
     private const val IMAGE_MAX_HEIGHT = 360
     private const val PLACEHOLDER_RADIUS = 8
 
