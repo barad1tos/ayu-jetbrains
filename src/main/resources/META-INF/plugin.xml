@@ -51,6 +51,12 @@
           live <b>language-proportions</b> breakdown for the current project
           so you can see which pin takes effect. <b>Rescan Project Language</b>
           on demand from the proportions row or the Tools menu.</li>
+      <li><b>Peacock-parity chrome tinting</b> — when a project / language
+          accent fires, every chrome surface (status bar, nav bar, tool
+          stripes, panel borders) tints automatically. Intensity slider in
+          Settings → Theme Synchronization. WCAG-aware foreground keeps
+          text readable at any saturation. Inspired by Peacock for VS Code
+          (johnpapa.net), built on JetBrains primitives — not ported.</li>
       <li><b>Workspace</b> — auto-fit or fixed width for Project View, Commit,
           and Git panels with min/max bounds. Git panel splitter control for
           branches and file changes trees. Hide the filesystem path and
@@ -86,6 +92,16 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.6.0</h3>
+    <ul>
+      <li>[Paid] <b>Peacock parity for JetBrains</b> — pin an accent to a project window or to a programming language and every chrome surface (status bar, nav bar, tool stripes, panel borders) tints with that accent automatically. WCAG-aware foreground keeps text readable at any saturation. Inspired by Peacock for VS Code (johnpapa.net) — built on JetBrains primitives, not ported.</li>
+      <li>Auto-bind the matching editor color scheme on theme change — switch Ayu Mirage / Dark / Light variants and the editor scheme follows. Default ON; opt-out toggle in Settings → Theme Synchronization preserves your custom scheme (Solarized, Material, etc.) untouched.</li>
+      <li>Fix glow lingering after switching to a non-Ayu theme — overlays now dispose cleanly when the active theme leaves the Ayu family</li>
+      <li>Fix sticky-line panel transparency in the editor — code under the scope-header line no longer bleeds through</li>
+      <li>Fix Indent Rainbow and CodeGlance Pro integrations not reverting cleanly when their sync toggles are turned off</li>
+      <li>Fix path widget breadcrumb on IntelliJ 2026.1 New UI Compact Navigation — chrome tinting reads with stable contrast at every intensity, slider visibly tints in a single Apply click</li>
+      <li><b>Coming next:</b> commit your accent into <code>.idea/</code> so a whole team sees one color · distinguish Remote / WSL / DevContainer / Code With Me windows at a glance · one-keystroke darken/lighten on the active accent · named favorite colors · every Peacock command available through Find Action</li>
+    </ul>
     <h3>2.5.3</h3>
     <ul>
       <li>[Paid] Rescan project language on demand — new "Rescan" link in the Overrides proportions row and "Tools → Ayu Islands → Rescan Project Language" menu action, for when you want the detected breakdown to refresh without waiting for the next Gradle sync</li>
@@ -175,8 +191,8 @@
 
     <product-descriptor
             code="PAYUISLANDS"
-            release-date="20260416"
-            release-version="25"
+            release-date="20260426"
+            release-version="26"
             optional="true"/>
 
     <extensionPoints>

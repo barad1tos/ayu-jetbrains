@@ -58,6 +58,14 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.6.0" to
+                "<ul>" +
+                "<li>Peacock parity — per-project / per-language chrome tinting, native to JetBrains</li>" +
+                "<li>Editor color scheme auto-binds on theme change</li>" +
+                "<li>Fix glow lingering after switching to a non-Ayu theme</li>" +
+                "<li>Fix sticky-line panel transparency in the editor</li>" +
+                "<li>Fix path widget breadcrumb tinting on IntelliJ 2026.1 New UI</li>" +
+                "</ul>",
             "2.5.3" to
                 "<ul>" +
                 "<li>Rescan project language on demand — new Rescan link and Tools menu action</li>" +

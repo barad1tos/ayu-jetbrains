@@ -215,8 +215,11 @@ internal class WhatsNewImagePanel(
 
     companion object {
         // Default natural width of a slide image in logical (non-UI-scaled) px.
-        // Manifest widthFactor values scale around this.
-        private const val DEFAULT_IMAGE_WIDTH = 800
+        // Manifest widthFactor values scale around this. Exposed as `internal`
+        // so [WhatsNewSlideCard] can derive its body word-wrap budget from the
+        // same constant — keeps prose and screenshot visually aligned even if
+        // this number is tuned in the future.
+        internal const val DEFAULT_IMAGE_WIDTH = 800
         private const val MIN_IMAGE_WIDTH = 200
         private const val MIN_WIDTH_FACTOR = 0.3f
         private const val MAX_WIDTH_FACTOR = 2.0f

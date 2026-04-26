@@ -136,6 +136,21 @@ categories:
           Ayu Islands → Rescan Project Language menu action, for when
           you don't want to wait for the next Gradle sync.
 
+      - id: chrome-tinting
+        title: "Peacock-parity chrome tinting"
+        keyword: "chrome tinting"
+        introduced: "2.6.0"
+        tier: paid
+        description: >
+          Per-project / per-language chrome tinting workflow native to
+          JetBrains. Pin an accent to a project window or programming
+          language and every chrome surface — status bar, nav bar,
+          tool stripes, panel borders — tints with that accent
+          automatically. WCAG-aware foreground keeps text readable at
+          any saturation. Configured from Settings → Ayu Islands →
+          Theme Synchronization. Inspired by Peacock for VS Code,
+          built on JetBrains platform primitives.
+
   glow:
     title: "Glow effects"
     features:

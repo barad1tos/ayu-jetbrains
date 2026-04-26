@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.6.0] - 2026-04-26
+
+### Added
+- [Paid] **Peacock parity for JetBrains** — pin an accent to a project window or to a programming language and every chrome surface (status bar, nav bar, tool stripes, panel borders) tints with that accent automatically. WCAG-aware foreground keeps text readable at any saturation. Inspired by Peacock for VS Code (johnpapa.net) — built on JetBrains platform primitives, not ported.
+- Auto-bind the matching editor color scheme on theme change — switching Ayu Mirage / Dark / Light variants now keeps theme + editor scheme in sync. Default ON; opt-out toggle in Settings → Theme Synchronization preserves your custom scheme (Solarized, Material, etc.) untouched.
+
+### Fixed
+- Glow overlays no longer linger after switching the active theme to a non-Ayu variant — overlays dispose cleanly the moment the theme leaves the Ayu family.
+- Sticky-line panel transparency in the editor — code under the scope-header line no longer bleeds through.
+- Indent Rainbow and CodeGlance Pro integrations now revert cleanly when their sync toggles are turned off in Settings.
+- Path widget breadcrumb on IntelliJ 2026.1 New UI Compact Navigation — chrome tinting reads with stable contrast across the full intensity range, and the slider visibly tints in a single Apply click instead of needing a second nudge.
+
+### Roadmap
+Next releases will close the remaining Peacock features — accent committed into `.idea/` so a team shares one color, visual distinction for Remote / WSL / DevContainer / Code With Me windows, keystroke darken / lighten on the active accent, named favorite colors with a community presets row, and every Peacock command surfaced through Find Action.
+
 ## [2.5.3] - 2026-04-20
 
 ### Added
