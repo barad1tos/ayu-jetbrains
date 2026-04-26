@@ -1,0 +1,20 @@
+{
+  "title": "Peacock parity",
+  "tagline": "Per-project color identity — the workflow Peacock pioneered, native to JetBrains.",
+  "slides": [
+    {
+      "title": "Per-project color, on by default",
+      "body": "If you've ever ran VS Code with Peacock, you know the moment: three IDE windows on three monitors, and a glance tells you which is which. Ayu Islands brings that workflow to JetBrains — built on the platform's primitives, not ported. Inspired by Peacock for VS Code (johnpapa.net).",
+      "image": "slide-chrome-collage.png",
+      "imageScale": 2.0
+    },
+    {
+      "title": "And what we did natively",
+      "body": "WCAG-aware foreground keeps text readable on any saturated accent. Per-language pins bind a color to a language so the IDE follows your file. Live chrome refresh keeps rotation, theme sync, CodeGlance, and Indent Rainbow in step — no reload. Thank you, John Papa. The workflow is alive in JetBrains. (Peacock: github.com/johnpapa/vscode-peacock)",
+      "image": "slide-chrome-depth.png",
+      "imageScale": 2.0
+    }
+  ],
+  "ctaOpenSettingsLabel": "Open Theme Synchronization",
+  "ctaOpenSettingsTargetId": "dev.ayuislands.settings.AyuIslandsConfigurable"
+}

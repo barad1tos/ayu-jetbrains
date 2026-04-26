@@ -423,3 +423,12 @@ asset_inventory:
     justification: >
       Hero-width (2:1) collage — used only in the in-IDE What's New tab.
       README's narrower column layout would downscale it to illegibility.
+  - path: src/main/resources/whatsnew/v2.6.0/slide-chrome-collage.png
+    referenced_by: [src/main/resources/whatsnew/v2.6.0/manifest.json]
+    justification: >
+      Hero-width (2:1) Peacock-parity collage — in-IDE What's New tab only.
+  - path: src/main/resources/whatsnew/v2.6.0/slide-chrome-depth.png
+    referenced_by: [src/main/resources/whatsnew/v2.6.0/manifest.json]
+    justification: >
+      Per-language + WCAG-aware foreground depth shot — in-IDE What's New
+      tab only; README's narrower column would downscale it to illegibility.
