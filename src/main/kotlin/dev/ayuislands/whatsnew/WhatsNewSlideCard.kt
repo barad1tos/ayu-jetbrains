@@ -143,7 +143,11 @@ internal object WhatsNewSlideCard {
 
             val bodyLabel =
                 JBLabel("<html><body style='width:${BODY_WRAP_WIDTH_PX}px'>${slide.body}</body></html>")
-            bodyLabel.font = bodyLabel.font.deriveFont(JBUI.scale(BODY_FONT_SIZE).toFloat())
+            // Force PLAIN style explicitly — JBLabel's default font on Linux
+            // can carry the BOLD bit from the system theme, which would
+            // visually compete with the bolded title above. macOS defaults
+            // to PLAIN, but cross-platform parity matters for tests + UX.
+            bodyLabel.font = bodyLabel.font.deriveFont(Font.PLAIN, JBUI.scale(BODY_FONT_SIZE).toFloat())
             bodyLabel.alignmentX = Component.LEFT_ALIGNMENT
             content.add(bodyLabel)
             scaler?.registerLabel(bodyLabel, BODY_FONT_SIZE, Font.PLAIN)
