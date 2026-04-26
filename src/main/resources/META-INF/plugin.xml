@@ -86,6 +86,12 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.6.0</h3>
+    <ul>
+      <li>Fix path widget breadcrumb on IntelliJ 2026.1 — when chrome tinting is on, the breadcrumb now reads with stable contrast across the full intensity range, and the slider visibly tints in a single click instead of needing a second nudge</li>
+      <li>What's New tab now shows the body paragraph for each slide — release showcases finally read with their full story, not just titles and screenshots</li>
+      <li>The first launch after this update opens a "Peacock parity" showcase tab covering per-project / per-language accent pins and the live chrome refresh that ties them together</li>
+    </ul>
     <h3>2.5.3</h3>
     <ul>
       <li>[Paid] Rescan project language on demand — new "Rescan" link in the Overrides proportions row and "Tools → Ayu Islands → Rescan Project Language" menu action, for when you want the detected breakdown to refresh without waiting for the next Gradle sync</li>
@@ -175,8 +181,8 @@
 
     <product-descriptor
             code="PAYUISLANDS"
-            release-date="20260416"
-            release-version="25"
+            release-date="20260426"
+            release-version="26"
             optional="true"/>
 
     <extensionPoints>
