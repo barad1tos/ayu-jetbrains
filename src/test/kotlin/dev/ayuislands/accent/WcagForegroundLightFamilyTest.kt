@@ -74,15 +74,31 @@ class WcagForegroundLightFamilyTest {
     }
 
     @Test
-    fun `pickLightFamilyForeground gracefully degrades when neither candidate meets the WCAG floor`() {
-        // Mid-luminance tinted bg where both WHITE (~4.05:1) and DARK_FG
-        // (~3.8:1) fall under the 4.5:1 PRIMARY_TEXT floor. The picker must
-        // still return the candidate with the HIGHER ratio (WHITE here) and
-        // never fall through to BLACK / throw / return null.
+    fun `pickLightFamilyForeground gracefully degrades to higher-ratio candidate (WHITE) on borderline bg`() {
+        // Mid-luminance tinted bg where neither WHITE nor DARK_FG meets the
+        // 4.5:1 PRIMARY_TEXT floor. The picker's deterministic fallback is
+        // "highest measured ratio wins" — and on this bg WHITE wins. Pinning
+        // the exact result locks the comparator (`>`, palette ordering) against
+        // a future refactor that flips it without anyone noticing.
         val borderlineBg = Color(0x45, 0x87, 0x94) // sampled from 25%-intensity cyan tint logs
+        val whiteRatio = WcagForeground.contrastRatio(Color.WHITE, borderlineBg)
+        val darkFgRatio = WcagForeground.contrastRatio(AYU_DARK_FG, borderlineBg)
+        check(whiteRatio < TextTarget.PRIMARY_TEXT.minRatio) {
+            "Test premise broken: WHITE ratio $whiteRatio already meets PRIMARY_TEXT — pick a more borderline bg"
+        }
+        check(darkFgRatio < TextTarget.PRIMARY_TEXT.minRatio) {
+            "Test premise broken: DARK_FG ratio $darkFgRatio already meets PRIMARY_TEXT — pick a more borderline bg"
+        }
+        check(whiteRatio > darkFgRatio) {
+            "Test premise broken: DARK_FG now has the higher ratio — flip expected pick"
+        }
+
         val pick = WcagForeground.pickLightFamilyForeground(borderlineBg, TextTarget.PRIMARY_TEXT)
-        assertNotEquals(Color.BLACK, pick, "Graceful degradation must not leak BLACK")
-        assertTrue(pick == Color.WHITE || pick == AYU_DARK_FG, "Pick must be from light family")
+        assertEquals(
+            Color.WHITE,
+            pick,
+            "Graceful degradation must return the candidate with the higher contrast ratio (WHITE here)",
+        )
     }
 
     @Test

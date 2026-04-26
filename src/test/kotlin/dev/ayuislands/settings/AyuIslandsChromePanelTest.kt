@@ -348,6 +348,44 @@ class AyuIslandsChromePanelTest {
         verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any()) }
     }
 
+    @Test
+    fun `apply leaves stored state untouched when applicator throws`() {
+        // Phase 40.4 throw-safety contract (`H-4`): if `applyForFocusedProject`
+        // throws, no state field commits. The user's pending values stay diffed
+        // from stored so `isModified()` keeps reporting true and the Apply
+        // button re-offers a retry. The earlier "state.commit before applicator"
+        // ordering broke this — that path was reverted in favor of the snapshot
+        // pattern, which is what this test locks.
+        val chromePanel = AyuIslandsChromePanel()
+        buildPanel(chromePanel, AyuVariant.MIRAGE)
+
+        every { AccentApplicator.applyForFocusedProject(any()) } throws RuntimeException("simulated apply failure")
+
+        chromePanel.setPendingChromeStatusBarForTest(true)
+        chromePanel.setPendingChromeTintIntensityForTest(35)
+        // Pre-apply baseline — every state field at its default.
+        assertFalse(state.chromeStatusBar, "Baseline: default state has chromeStatusBar = false")
+        assertEquals(
+            AyuIslandsState.DEFAULT_CHROME_TINT_INTENSITY,
+            state.chromeTintIntensity,
+            "Baseline: state intensity at default before apply",
+        )
+
+        chromePanel.apply()
+
+        assertFalse(
+            state.chromeStatusBar,
+            "Throw-safety: state.chromeStatusBar must NOT commit when applicator throws",
+        )
+        assertEquals(
+            AyuIslandsState.DEFAULT_CHROME_TINT_INTENSITY,
+            state.chromeTintIntensity,
+            "Throw-safety: state.chromeTintIntensity must NOT commit when applicator throws",
+        )
+        // Pending values untouched too — user can retry without re-typing.
+        assertTrue(chromePanel.isModified(), "isModified must remain true so the user can retry")
+    }
+
     // ── Test 8: reset() ────────────────────────────────────────────────────────
 
     @Test

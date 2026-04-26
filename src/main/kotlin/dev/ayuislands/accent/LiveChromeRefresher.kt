@@ -150,9 +150,10 @@ internal object LiveChromeRefresher {
      * (per intellij-community master `NavBarItemComponent.kt`). No reflection into
      * private fields needed.
      *
-     * Tree walk reuses [walk]'s defensive iteration — each container's `.components`
-     * read goes through the broken-container latch so a misbehaving custom layout
-     * cannot abort tinting for the rest of the status bar.
+     * Tree walk reuses [walk]'s iterative `ArrayDeque` BFS so a pathological
+     * deeply nested status-bar subtree can't blow the EDT stack (Phase 40.2 M-4),
+     * and inherits its per-visit `try/catch` so one flaky descendant peer
+     * cannot abort tinting for the rest of the tree.
      *
      * Old NavBar wrapper (`MyNavBarWrapperPanel`) is still tinted via
      * `dev.ayuislands.accent.elements.NavBarElement` for users on platforms older
@@ -163,41 +164,26 @@ internal object LiveChromeRefresher {
         statusBarRoot: Container,
         color: Color,
     ) {
-        walkOnContainer(statusBarRoot) { component ->
+        walk(statusBarRoot) { component ->
             if (component.javaClass.name == NAVBAR_COMPACT_PANEL_FQN && component is JComponent) {
                 component.background = color
-            }
-        }
-    }
-
-    /** D-14 mirror of [paintNavBarCompactPanel]. */
-    private fun clearNavBarCompactPanel(statusBarRoot: Container) {
-        walkOnContainer(statusBarRoot) { component ->
-            if (component.javaClass.name == NAVBAR_COMPACT_PANEL_FQN && component is JComponent) {
-                component.background = null
+                // Match `refreshOnTree`: the matched panel pins its own bg in init and
+                // ignores Swing inheritance, so a parent-only repaint is not enough.
+                component.repaint()
             }
         }
     }
 
     /**
-     * Recursively visits every component in the [root]'s subtree. Reuses the
-     * broken-container latch so a custom layout that throws on `.components` cannot
-     * derail tinting for the rest of the tree.
+     * D-14 mirror of [paintNavBarCompactPanel] — walks [statusBarRoot] and
+     * nulls the bg of every NavBar Compact panel, repainting each.
      */
-    private fun walkOnContainer(
-        root: Container,
-        action: (Component) -> Unit,
-    ) {
-        action(root)
-        val children =
-            try {
-                root.components
-            } catch (exception: RuntimeException) {
-                logBrokenContainer(root, exception)
-                return
+    private fun clearNavBarCompactPanel(statusBarRoot: Container) {
+        walk(statusBarRoot) { component ->
+            if (component.javaClass.name == NAVBAR_COMPACT_PANEL_FQN && component is JComponent) {
+                component.background = null
+                component.repaint()
             }
-        for (child in children) {
-            if (child is Container) walkOnContainer(child, action) else action(child)
         }
     }
 

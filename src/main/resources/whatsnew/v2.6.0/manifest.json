@@ -4,7 +4,7 @@
   "slides": [
     {
       "title": "Per-project color, on by default",
-      "body": "If you've ever ran VS Code with Peacock, you know the moment: three IDE windows on three monitors, and a glance tells you which is which. Ayu Islands brings that workflow to JetBrains — built on the platform's primitives, not ported. Inspired by Peacock for VS Code (johnpapa.net).",
+      "body": "If you've ever run VS Code with Peacock, you know the moment: three IDE windows on three monitors, and a glance tells you which is which. Ayu Islands brings that workflow to JetBrains — built on the platform's primitives, not ported. Inspired by Peacock for VS Code (johnpapa.net).",
       "image": "slide-chrome-collage.png",
       "imageScale": 2.0
     },

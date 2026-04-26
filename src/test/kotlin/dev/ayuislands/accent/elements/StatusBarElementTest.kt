@@ -99,6 +99,28 @@ class StatusBarElementTest {
     }
 
     @Test
+    fun `apply still nulls every overlay background when ChromeBaseColors returns null for every key`() {
+        // Phase 40.4 contract: the overlay null sweep is unconditional. Even
+        // when every opaque base color resolves to null (theme metadata gap,
+        // non-Ayu LAF active mid-apply) the overlay keys must be cleared so a
+        // previously-applied plugin override cannot leak past a partial apply.
+        // Guards against a future refactor that "optimizes" the null sweep
+        // behind an `if (tinted.isNotEmpty())` check.
+        every { ChromeBaseColors.get(any()) } returns null
+        state.chromeTintIntensity = 30
+
+        StatusBarElement().apply(accent)
+
+        verify { UIManager.put("StatusBar.Breadcrumbs.hoverBackground", null) }
+        verify { UIManager.put("StatusBar.Breadcrumbs.selectionBackground", null) }
+        verify { UIManager.put("StatusBar.Breadcrumbs.selectionInactiveBackground", null) }
+        verify { UIManager.put("StatusBar.Breadcrumbs.floatingBackground", null) }
+        verify { UIManager.put("StatusBar.Widget.hoverBackground", null) }
+        // No opaque tint should have been written since the bases were absent.
+        verify(exactly = 0) { UIManager.put("StatusBar.background", blended) }
+    }
+
+    @Test
     fun `revert nulls every touched UIManager key`() {
         StatusBarElement().revert()
 
@@ -229,7 +251,7 @@ class StatusBarElementTest {
     }
 
     @Test
-    fun `revert symmetry — every key apply writes is nulled on revert`() {
+    fun `revert symmetry - every key apply writes is nulled on revert`() {
         state.chromeTintIntensity = 50
 
         val appliedKeys = mutableListOf<String>()

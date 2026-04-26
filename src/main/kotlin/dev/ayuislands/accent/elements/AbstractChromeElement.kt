@@ -108,8 +108,10 @@ abstract class AbstractChromeElement : AccentElement {
     /**
      * Default single-contrast fg write: samples [WcagForeground.pickForeground]
      * against the first tinted background and writes that color to every entry
-     * in [foregroundKeys]. Subclasses with per-bg fg picks (StatusBar M-1,
-     * ToolWindowStripe A-2) override this.
+     * in [foregroundKeys]. Subclasses with non-default fg-pick semantics override
+     * this — currently `StatusBarElement` (single light-family pick against the
+     * opaque root bg, fan-out to every Breadcrumbs state) and
+     * `ToolWindowStripeElement` (per-stripe vs selected sample).
      */
     protected open fun writeForegrounds(tintedBackgrounds: Map<String, Color>) {
         if (foregroundKeys.isEmpty()) return

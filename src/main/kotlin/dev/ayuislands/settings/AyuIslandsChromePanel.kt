@@ -1,5 +1,7 @@
 package dev.ayuislands.settings
 
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.dsl.builder.Align
@@ -221,6 +223,7 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
                     "leaving pending chrome state uncommitted so the user can retry",
                 exception,
             )
+            notifyApplyFailed()
             return
         }
         val state = AyuIslandsSettings.getInstance().state
@@ -231,6 +234,34 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
         state.chromePanelBorder = pendingChromePanelBorder
         state.chromeTintIntensity = chromeSnapshot.intensity.percent
         loadStored(state)
+    }
+
+    /**
+     * Surface a balloon when the chrome re-apply fails so the user is not left
+     * staring at an unchanged Settings dialog wondering whether their click
+     * registered. The balloon points at idea.log for the actual stack — the
+     * `LOG.warn` at the catch site carries the original throwable there.
+     * Notification dispatch is itself wrapped in a try/catch so a
+     * notification-subsystem hiccup (rare, but possible in shutdown races)
+     * cannot mask the real apply failure.
+     */
+    private fun notifyApplyFailed() {
+        try {
+            NotificationGroupManager
+                .getInstance()
+                .getNotificationGroup("Ayu Islands")
+                .createNotification(
+                    "Chrome tint could not be applied",
+                    "Settings were not saved — see idea.log for details. " +
+                        "Adjust any value in the Chrome Tinting panel and click Apply again to retry.",
+                    NotificationType.WARNING,
+                ).notify(null)
+        } catch (notificationException: RuntimeException) {
+            LOG.warn(
+                "AyuIslandsChromePanel.apply: failed to surface chrome-apply error balloon " +
+                    "(original cause logged above): ${notificationException.message}",
+            )
+        }
     }
 
     override fun reset() {
@@ -381,15 +412,16 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
         /**
          * User-facing cap for the chrome tint intensity slider.
          *
-         * Saturations above ~50 drive the tinted background so close to the raw accent
-         * that even the always-on WCAG foreground pick (see [WcagForeground]) cannot
-         * restore readable contrast on warm/pastel accents — the text ends up washed
-         * out against an almost-solid-accent chrome surface. Capping the slider at 50
-         * keeps the usable range inside the readable band.
+         * Saturation values above ~50 drive the tinted background so close to the raw
+         * accent that even the always-on WCAG foreground pick (see
+         * `dev.ayuislands.accent.WcagForeground`) cannot restore readable contrast on
+         * warm/pastel accents — the text ends up washed out against an almost-solid-accent
+         * chrome surface. Capping the slider at 50 keeps the usable range inside the
+         * readable band.
          *
-         * [ChromeTintBlender] still accepts intensities up to 100 internally — that's
-         * a math-safety clamp for the blend formula and intentionally unaffected by
-         * the user-visible cap here.
+         * `dev.ayuislands.accent.ChromeTintBlender` still accepts intensities up to 100
+         * internally — that's a math-safety clamp for the blend formula and intentionally
+         * unaffected by the user-visible cap here.
          *
          * Users returning from older sessions with a persisted
          * [AyuIslandsState.chromeTintIntensity] above this cap see the slider snap to
