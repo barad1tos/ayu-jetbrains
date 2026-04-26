@@ -8,6 +8,9 @@ import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.ChromeDecorationsProbe
 import dev.ayuislands.accent.ChromeSupport
+import dev.ayuislands.accent.ChromeTintContext
+import dev.ayuislands.accent.ChromeTintSnapshot
+import dev.ayuislands.accent.TintIntensity
 import dev.ayuislands.licensing.LicenseChecker
 import org.jetbrains.annotations.TestOnly
 import javax.swing.JLabel
@@ -194,13 +197,24 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
             return
         }
 
+        val chromeSnapshot =
+            ChromeTintSnapshot(
+                chromeStatusBar = pendingChromeStatusBar,
+                chromeMainToolbar = pendingChromeMainToolbar,
+                chromeToolWindowStripe = pendingChromeToolWindowStripe,
+                chromeNavBar = pendingChromeNavBar,
+                chromePanelBorder = pendingChromePanelBorder,
+                intensity = TintIntensity.of(pendingChromeTintIntensity),
+            )
+
         // H-4: run the EP chain FIRST so a throw from applyForFocusedProject leaves
         // persisted state untouched and the user can retry after fixing the cause.
-        // Persisting only on success also gives isModified() an honest answer on the
-        // next panel open — if the apply failed, pending != stored so the Apply
-        // button re-offers the attempt.
+        // The applicator consumes the pending chrome snapshot above, so this ordering
+        // no longer makes the visible tint one Apply behind the slider.
         try {
-            AccentApplicator.applyForFocusedProject(resolvedVariant)
+            ChromeTintContext.withSnapshot(chromeSnapshot) {
+                AccentApplicator.applyForFocusedProject(resolvedVariant)
+            }
         } catch (exception: RuntimeException) {
             LOG.warn(
                 "AyuIslandsChromePanel.apply: chrome re-apply threw; " +
@@ -215,7 +229,7 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
         state.chromeToolWindowStripe = pendingChromeToolWindowStripe
         state.chromeNavBar = pendingChromeNavBar
         state.chromePanelBorder = pendingChromePanelBorder
-        state.chromeTintIntensity = pendingChromeTintIntensity
+        state.chromeTintIntensity = chromeSnapshot.intensity.percent
         loadStored(state)
     }
 

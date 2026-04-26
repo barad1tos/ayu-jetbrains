@@ -7,12 +7,32 @@ import java.awt.Color
 import javax.swing.UIManager
 
 /**
- * Tints the status bar background, border, and widget hover per CHROME-01 / CHROME-07.
+ * Tints the status bar surface per CHROME-01 / CHROME-07.
  *
  * Phase 40.3c Refactor 1: migrated to [AbstractChromeElement]. [writeForegrounds] is
- * overridden because StatusBar needs the Phase 40.2 M-1 split-fg pick — normal and
- * hover foregrounds are sampled against their own tinted backgrounds rather than
- * sharing a single contrast pick.
+ * overridden because StatusBar uses a light-family foreground and extends that pick
+ * across the 2026.1 Compact Navigation breadcrumb states.
+ *
+ * Phase 40.4 — extended key coverage for IntelliJ 2026.1 Compact Navigation. The path
+ * widget that used to live in `MyNavBarWrapperPanel` is now rendered by
+ * `com.intellij.platform.navbar.frontend.ui.NavBarItemComponent` mounted inside
+ * `NewNavBarPanel` in the status bar tree. Per
+ * `JBUI.CurrentTheme.StatusBar.Breadcrumbs` (intellij-community
+ * `platform/util/ui/src/com/intellij/util/ui/JBUI.java`), the widget reads colors
+ * state-dependent across **9 UIDefaults keys**:
+ *
+ *   - foreground / hoverForeground / floatingForeground / selectionForeground / selectionInactiveForeground
+ *   - hoverBackground / selectionBackground / selectionInactiveBackground / floatingBackground
+ *
+ * Foreground states receive the status-bar contrast color. Background states are
+ * translucent overlays in the LAF, so this element clears any stale plugin override
+ * and lets them render over the directly-tinted `NewNavBarPanel` background.
+ *
+ * Foreground contrast uses [WcagForeground.pickLightFamilyForeground] (palette WHITE
+ * + Ayu dark fg, NO black). The standard 3-color WCAG sweep correctly picks BLACK on
+ * mid-luminance tinted bg (BLACK passes 5:1 there while WHITE drops to ~4:1), but on
+ * a chrome surface we semantically own as a "dark tinted band" the user expects light
+ * text. Restricting the palette restores the pre-Phase 40 always-light contract.
  *
  * Intensity is read directly from [dev.ayuislands.settings.AyuIslandsSettings.state]
  * per CONTEXT D-03 — the `apply(color)` signature does not carry it, so every Phase
@@ -33,23 +53,35 @@ class StatusBarElement : AbstractChromeElement() {
         listOf(
             STATUS_BAR_BG_KEY,
             "StatusBar.borderColor",
-            STATUS_WIDGET_HOVER_BG_KEY,
         )
 
-    // Phase 40.2 M-1: foregrounds split into two pairs sampled against their own bg.
-    // Previously one contrast pick from StatusBar.background drove all four fg keys,
-    // but Widget.hoverForeground sits on StatusBar.Widget.hoverBackground — a
-    // different tinted surface. At non-trivial intensities the two bg tints diverge
-    // and a shared contrast pick can drop the hover foreground under the WCAG AA
-    // ratio. Mirrors the Round 2 A-2 split already applied in ToolWindowStripeElement.
-    //   - Normal pair: (Widget.foreground + Breadcrumbs.foreground) vs StatusBar.background
-    //   - Hover pair:  (Widget.hoverForeground + Breadcrumbs.hoverForeground)
-    //                  vs StatusBar.Widget.hoverBackground
+    private val overlayBackgroundKeys =
+        listOf(
+            "StatusBar.Widget.hoverBackground",
+            "StatusBar.Breadcrumbs.hoverBackground",
+            "StatusBar.Breadcrumbs.selectionBackground",
+            "StatusBar.Breadcrumbs.selectionInactiveBackground",
+            "StatusBar.Breadcrumbs.floatingBackground",
+        )
+
+    // Phase 40.4 — covers ALL 9 JBUI.CurrentTheme.StatusBar.Breadcrumbs.* fg states
+    // referenced by NavBarItemComponent.update(). Without writing every state, the
+    // path widget falls through to stock UIUtil.getLabelForeground() the moment the
+    // user hovers / NavBar promotes to floating mode / scope item is selected — a
+    // dark grey on Mirage that reads as "broken contrast" against the tinted bg.
     //
-    // Only keys confirmed present in IntelliJPlatform.themeMetadata.json for
-    // platformVersion 2026.1 (ide.impl/themes/metadata) are written. Keys that do NOT
-    // exist in 2026.1 metadata (do NOT add — silent writes to non-existent UIManager
-    // keys are dead bytes and lie to future readers):
+    // Source-of-truth: intellij-community `platform/navbar/frontend/src/ui/NavBarItemComponent.kt`
+    // `update()`:
+    //   when {
+    //     isHovered  -> Breadcrumbs.HOVER_FOREGROUND
+    //     selected   -> if (focused) SELECTION_FOREGROUND else SELECTION_INACTIVE_FOREGROUND
+    //     else       -> if (isFloating) FLOATING_FOREGROUND else FOREGROUND
+    //   }
+    //
+    // Only keys confirmed present in JBUI.CurrentTheme.StatusBar.Breadcrumbs interface
+    // (intellij-community `platform/util/ui/src/com/intellij/util/ui/JBUI.java`).
+    // Keys absent (do NOT add — silent writes to non-existent UIDefaults are dead
+    // bytes that lie to future readers):
     //   - Breadcrumbs.CurrentColor               — ABSENT in 2026.1
     //   - Breadcrumbs.InactiveColor              — ABSENT in 2026.1
     //   - Breadcrumbs.HoverColor                 — ABSENT in 2026.1
@@ -57,6 +89,9 @@ class StatusBarElement : AbstractChromeElement() {
         listOf(
             "StatusBar.Widget.foreground",
             "StatusBar.Breadcrumbs.foreground",
+            "StatusBar.Breadcrumbs.floatingForeground",
+            "StatusBar.Breadcrumbs.selectionForeground",
+            "StatusBar.Breadcrumbs.selectionInactiveForeground",
         )
 
     private val hoverForegroundKeys =
@@ -73,29 +108,35 @@ class StatusBarElement : AbstractChromeElement() {
     override val peerTarget: ChromeTarget = ChromeTarget.StatusBar
 
     /**
-     * M-1 split-fg pick: two independent contrast samples, one per tinted bg surface.
-     * Breadcrumb foregrounds are included so the path breadcrumb inherits the same
-     * contrast-aware color as the rest of the status bar widget text.
+     * Single foreground pick sampled against [STATUS_BAR_BG_KEY]. Hover/selection
+     * backgrounds are translucent overlays over the same chrome band, not opaque
+     * standalone fills; sampling them directly would choose the dark-family fallback
+     * for what is visually still a dark status-bar surface.
      */
     override fun writeForegrounds(tintedBackgrounds: Map<String, Color>) {
-        val tintedBg = tintedBackgrounds[STATUS_BAR_BG_KEY]
-        if (tintedBg != null) {
-            val contrast = WcagForeground.pickForeground(tintedBg, foregroundTextTarget)
-            for (key in normalForegroundKeys) {
-                UIManager.put(key, contrast)
-            }
+        val tintedBg = tintedBackgrounds[STATUS_BAR_BG_KEY] ?: return
+        val contrast = WcagForeground.pickLightFamilyForeground(tintedBg, foregroundTextTarget)
+        for (key in foregroundKeys) {
+            UIManager.put(key, contrast)
         }
-        val tintedHoverBg = tintedBackgrounds[STATUS_WIDGET_HOVER_BG_KEY]
-        if (tintedHoverBg != null) {
-            val hoverContrast = WcagForeground.pickForeground(tintedHoverBg, foregroundTextTarget)
-            for (key in hoverForegroundKeys) {
-                UIManager.put(key, hoverContrast)
-            }
+    }
+
+    override fun onBackgroundsTinted(tintedBackgrounds: Map<String, Color>) {
+        clearOverlayBackgrounds()
+    }
+
+    override fun revert() {
+        super.revert()
+        clearOverlayBackgrounds()
+    }
+
+    private fun clearOverlayBackgrounds() {
+        for (key in overlayBackgroundKeys) {
+            UIManager.put(key, null)
         }
     }
 
     private companion object {
         const val STATUS_BAR_BG_KEY = "StatusBar.background"
-        const val STATUS_WIDGET_HOVER_BG_KEY = "StatusBar.Widget.hoverBackground"
     }
 }

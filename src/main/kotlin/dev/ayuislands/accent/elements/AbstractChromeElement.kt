@@ -4,6 +4,7 @@ import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.ChromeBaseColors
 import dev.ayuislands.accent.ChromeTarget
 import dev.ayuislands.accent.ChromeTintBlender
+import dev.ayuislands.accent.ChromeTintContext
 import dev.ayuislands.accent.ClassFqn
 import dev.ayuislands.accent.LiveChromeRefresher
 import dev.ayuislands.accent.WcagForeground
@@ -68,7 +69,8 @@ abstract class AbstractChromeElement : AccentElement {
 
     override fun apply(color: Color) {
         if (!isEnabled) return
-        val intensity = AyuIslandsSettings.getInstance().state.effectiveChromeTintIntensity()
+        val state = AyuIslandsSettings.getInstance().state
+        val intensity = ChromeTintContext.currentIntensity(state)
         val tintedBackgrounds = LinkedHashMap<String, Color>()
         for (key in backgroundKeys) {
             val baseColor = ChromeBaseColors.get(key) ?: continue

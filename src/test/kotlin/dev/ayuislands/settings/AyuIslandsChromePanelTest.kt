@@ -5,14 +5,16 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.openapi.util.SystemInfo
-import com.intellij.ui.ExperimentalUI
 import com.intellij.ui.dsl.builder.panel
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.ChromeDecorationsProbe
+import dev.ayuislands.accent.ChromeTintContext
 import dev.ayuislands.licensing.LicenseChecker
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkClass
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
@@ -89,11 +91,12 @@ class AyuIslandsChromePanelTest {
         every { actionManagerMock.getAction(any()) } returns null
 
         // `Cell.comment(...)` and the unlicensed "requires Pro" row both call into
-        // `ExperimentalUI.getInstance()` for New-UI-aware styling. Same cast trap as
-        // ActionManager above — hand over a relaxed ExperimentalUI so the downcast
-        // inside `ExperimentalUI.getInstance()` succeeds.
-        val experimentalUiMock = mockk<ExperimentalUI>(relaxed = true)
-        every { appMock.getService(ExperimentalUI::class.java) } returns experimentalUiMock
+        // an internal New UI service. Resolve it by name so the test does not depend
+        // on the internal API at compile time.
+        @Suppress("UNCHECKED_CAST")
+        val experimentalUiClass = Class.forName("com.intellij.ui.ExperimentalUI") as Class<Any>
+        val experimentalUiMock = mockkClass(experimentalUiClass.kotlin, relaxed = true)
+        every { appMock.getService(experimentalUiClass) } returns experimentalUiMock
     }
 
     @AfterTest
@@ -141,7 +144,7 @@ class AyuIslandsChromePanelTest {
         assertEquals(
             10..50,
             slider?.let { it.minimum..it.maximum },
-            "Intensity slider user-facing range must be 10-50 — saturations above 50 " +
+            "Intensity slider user-facing range must be 10-50 — saturation levels above 50 " +
                 "produce near-accent chrome surfaces that fail the readable-contrast bar " +
                 "even with always-on WCAG foreground picks. ChromeTintBlender still accepts " +
                 "0-100 internally as a math-safety clamp; the 50 cap is the user-visible ceiling.",
@@ -292,6 +295,46 @@ class AyuIslandsChromePanelTest {
         // apply() must re-run the EP chain exactly once for the panel's variant so the
         // 5 chrome AccentElement impls repaint immediately (CONTEXT D-07 / must_have 4).
         verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AyuVariant.DARK) }
+    }
+
+    @Test
+    fun `apply passes pending chrome snapshot before committing state`() {
+        state.chromeStatusBar = false
+        state.chromeTintIntensity = 20
+        val chromePanel = AyuIslandsChromePanel()
+        buildPanel(chromePanel, AyuVariant.DARK)
+
+        chromePanel.setPendingChromeStatusBarForTest(true)
+        chromePanel.setPendingChromeTintIntensityForTest(45)
+
+        every {
+            AccentApplicator.applyForFocusedProject(AyuVariant.DARK)
+        } answers {
+            assertTrue(
+                ChromeTintContext.isToggleEnabled(state, AccentElementId.STATUS_BAR),
+                "Applicator must observe the pending status-bar toggle through chrome context",
+            )
+            assertEquals(
+                45,
+                ChromeTintContext.currentIntensity(state).percent,
+                "Applicator must observe pending intensity through chrome context",
+            )
+            assertFalse(
+                state.chromeStatusBar,
+                "State must remain uncommitted until the applicator succeeds",
+            )
+            assertEquals(
+                20,
+                state.chromeTintIntensity,
+                "State intensity must remain old while the applicator consumes the pending snapshot",
+            )
+            "#E6B450"
+        }
+
+        chromePanel.apply()
+
+        assertTrue(state.chromeStatusBar, "Successful apply must commit the pending toggle")
+        assertEquals(45, state.chromeTintIntensity, "Successful apply must commit pending intensity")
     }
 
     @Test
