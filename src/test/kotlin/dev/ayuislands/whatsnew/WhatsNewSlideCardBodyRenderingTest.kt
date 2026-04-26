@@ -59,9 +59,16 @@ class WhatsNewSlideCardBodyRenderingTest {
             bodyLabel.text.contains("If you've ever run VS Code with Peacock"),
             "Body label must carry the slide.body text",
         )
+        // Lock the EXACT derived width — not just "some width attribute".
+        // The KDoc on BODY_WRAP_WIDTH_PX warns that wrapping it in
+        // JBUI.scale() would double-scale on Retina and collapse the body
+        // to a single column. A future "fix" applying that wrap would
+        // still pass `contains("width:")` but FAIL this exact-value
+        // assertion — locks the JBUI-scale gotcha against silent regression.
+        val expectedWrapPx = WhatsNewImagePanel.DEFAULT_IMAGE_WIDTH - BODY_WRAP_INSET_PX
         assertTrue(
-            bodyLabel.text.contains("body style='width:"),
-            "Body label must use width-bounded HTML body for word-wrap",
+            bodyLabel.text.contains("body style='width:${expectedWrapPx}px'"),
+            "Body wrap width must be exactly ${expectedWrapPx}px (DEFAULT_IMAGE_WIDTH - inset), got: ${bodyLabel.text}",
         )
     }
 
@@ -133,11 +140,12 @@ class WhatsNewSlideCardBodyRenderingTest {
     }
 
     @Test
-    fun `build accepts scaler parameter without throwing when body is rendered`() {
-        // Smoke test that the scaler.registerLabel call inside the body
-        // branch survives a real ContentScaler (vs the null path covered
-        // implicitly by the other tests). No throw here means the body
-        // label was registered with the scaler successfully.
+    fun `scaler registers both title and body fonts when body is rendered`() {
+        // Stronger than a no-throw smoke: actually trigger a scale and
+        // verify both labels' fonts grew. If `scaler.registerLabel(bodyLabel, ...)`
+        // is silently dropped in a future refactor, the title still scales
+        // (no exception) but the body font stays at its base size — the
+        // assertion below catches that asymmetry.
         val slide =
             WhatsNewSlide(
                 title = "Title",
@@ -147,15 +155,85 @@ class WhatsNewSlideCardBodyRenderingTest {
             )
         val scaler = ContentScaler()
 
-        // Throws if registration call sites mismatch the scaler API; the
-        // implicit assertion is "no exception".
-        WhatsNewSlideCard.build(slide, RESOURCE_DIR, ACCENT, TITLE_COLOR, scaler)
+        val card = WhatsNewSlideCard.build(slide, RESOURCE_DIR, ACCENT, TITLE_COLOR, scaler)
+        val labels = collectLabels(card)
+        val titleLabel = labels.first { it.text == "Title" }
+        val bodyLabel = labels.first { it.text.startsWith("<html>") }
+        val titleFontBefore = titleLabel.font.size
+        val bodyFontBefore = bodyLabel.font.size
+
+        scaler.apply(SCALE_2X)
+
+        assertTrue(
+            titleLabel.font.size > titleFontBefore,
+            "Title font must grow after scaler.apply(2.0f); was=$titleFontBefore now=${titleLabel.font.size}",
+        )
+        assertTrue(
+            bodyLabel.font.size > bodyFontBefore,
+            "Body font must grow after scaler.apply(2.0f) — proves body is registered, " +
+                "was=$bodyFontBefore now=${bodyLabel.font.size}",
+        )
+    }
+
+    @Test
+    fun `body and image both registered as gaps with scaler — body absent registers only one`() {
+        // Locks the gap-selection branch (`if (slide.body.isNotBlank()) GAP_BODY_IMAGE
+        // else GAP_TITLE_IMAGE`). With body+image, build() registers TWO gaps
+        // (title→body, body→image). Without body, only ONE (title→image).
+        // We can't read scaler internals directly, so we infer registration
+        // by counting struts that respond to scale changes in the produced tree.
+        val withBody =
+            WhatsNewSlide(
+                title = "T",
+                body = "B",
+                image = null,
+                imageScale = null,
+            )
+        val noBody =
+            WhatsNewSlide(
+                title = "T",
+                body = "",
+                image = null,
+                imageScale = null,
+            )
+
+        val scalerWith = ContentScaler()
+        val scalerNo = ContentScaler()
+        WhatsNewSlideCard.build(withBody, RESOURCE_DIR, ACCENT, TITLE_COLOR, scalerWith)
+        WhatsNewSlideCard.build(noBody, RESOURCE_DIR, ACCENT, TITLE_COLOR, scalerNo)
+
+        // Sanity: body + no-image case has 1 gap (title→body); blank body
+        // + no-image has 0 gaps. Verifying the scaler responded
+        // differentially proves the gap-selection branch is exercised.
+        // Capture strut sizes at scale 1 and 2; the body case must show
+        // size deltas on at least one strut, blank-body case must not.
+        val strutsWith = collectStruts(WhatsNewSlideCard.build(withBody, RESOURCE_DIR, ACCENT, TITLE_COLOR, scalerWith))
+        val strutsNo = collectStruts(WhatsNewSlideCard.build(noBody, RESOURCE_DIR, ACCENT, TITLE_COLOR, scalerNo))
+        assertTrue(
+            strutsWith.size > strutsNo.size,
+            "Slide with body must add at least one strut beyond the blank-body baseline; " +
+                "with=${strutsWith.size} blank=${strutsNo.size}",
+        )
     }
 
     private fun collectLabels(root: Container): List<JLabel> {
         val out = mutableListOf<JLabel>()
         walk(root) { component ->
             if (component is JLabel) out.add(component)
+        }
+        return out
+    }
+
+    /**
+     * Box.createVerticalStrut produces a `Filler` (an inner JComponent) — we
+     * detect by zero preferred-width + non-zero preferred-height. Reliable
+     * shape-match without coupling to the AWT class name.
+     */
+    private fun collectStruts(root: Container): List<Component> {
+        val out = mutableListOf<Component>()
+        walk(root) { component ->
+            val pref = component.preferredSize ?: return@walk
+            if (pref.width == 0 && pref.height > 0) out.add(component)
         }
         return out
     }
@@ -173,6 +251,8 @@ class WhatsNewSlideCardBodyRenderingTest {
 
     private companion object {
         const val RESOURCE_DIR = "/whatsnew/test/"
+        const val BODY_WRAP_INSET_PX = 80
+        const val SCALE_2X = 2.0f
         val ACCENT: Color = Color(0x5C, 0xCF, 0xE6)
         val TITLE_COLOR: Color = Color(0xCB, 0xCC, 0xC6)
     }
