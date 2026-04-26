@@ -5,44 +5,47 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 
-class OnboardingVirtualFileTest {
+/**
+ * Locks the [FreeOnboardingVirtualFile] identity-based equals contract added in
+ * PR #160 to satisfy SonarCloud `kotlin:S2097`. Mirrors [OnboardingVirtualFileTest]
+ * and [WhatsNewVirtualFileTest] — same equals + hashCode + identity semantics.
+ */
+class FreeOnboardingVirtualFileTest {
     @Test
-    fun `file name is Ayu Islands Premium`() {
-        val file = OnboardingVirtualFile()
-        assertEquals("Ayu Islands Premium", file.name)
+    fun `file name is Welcome to Ayu Islands`() {
+        val file = FreeOnboardingVirtualFile()
+        assertEquals("Welcome to Ayu Islands", file.name)
     }
 
     @Test
     fun `file is not writable`() {
-        val file = OnboardingVirtualFile()
+        val file = FreeOnboardingVirtualFile()
         assertFalse(file.isWritable)
     }
 
     @Test
     fun `equals is identity-based`() {
-        val first = OnboardingVirtualFile()
-        val second = OnboardingVirtualFile()
+        val first = FreeOnboardingVirtualFile()
+        val second = FreeOnboardingVirtualFile()
         assertEquals(first, first)
         assertNotEquals(first, second)
     }
 
     @Test
     fun `equals rejects null and wrong-type instances`() {
-        // PR #160 added the `is OnboardingVirtualFile` type guard for SonarCloud S2097.
-        // Locks both branches of the guard against future revert/drop.
-        val file = OnboardingVirtualFile()
+        val file = FreeOnboardingVirtualFile()
         // Indirect null binding — direct `.equals(null)` trips detekt EqualsNullCall.
         val nullArg: Any? = null
         assertFalse(file.equals(nullArg), "Identity-only equals must reject null")
         assertFalse(
             file.equals("not a virtual file"),
-            "Identity-only equals must reject non-OnboardingVirtualFile types",
+            "Identity-only equals must reject non-FreeOnboardingVirtualFile types",
         )
     }
 
     @Test
     fun `hashCode is stable across calls on the same instance`() {
-        val file = OnboardingVirtualFile()
+        val file = FreeOnboardingVirtualFile()
         assertEquals(file.hashCode(), file.hashCode())
     }
 }
