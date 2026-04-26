@@ -23,10 +23,13 @@ import javax.swing.JComponent
 import javax.swing.JPanel
 
 /**
- * Builds one slide card: colorized title heading + optional screenshot,
- * wrapped in a card chrome panel that reuses [paintCardChrome] for visual
- * consistency with the onboarding wizard. Body prose is intentionally NOT
- * rendered — see the [WhatsNewSlide.body] KDoc for the rationale.
+ * Builds one slide card: colorized title heading, wrapped body paragraph,
+ * and optional screenshot, wrapped in a card chrome panel that reuses
+ * [paintCardChrome] for visual consistency with the onboarding wizard.
+ *
+ * Body text honors HTML markup (`<b>`, `<i>`) embedded in the manifest and
+ * word-wraps within [BODY_WRAP_WIDTH_PX] so paragraphs flow naturally on
+ * card resize.
  *
  * Image is loaded best-effort: a missing or broken file renders the slide
  * without an image and logs a single WARN. Other slides remain unaffected.
@@ -35,8 +38,12 @@ internal object WhatsNewSlideCard {
     private val LOG = logger<WhatsNewSlideCard>()
 
     private const val TITLE_FONT_SIZE = 18
+    private const val BODY_FONT_SIZE = 13
     private const val PADDING = 24
+    private const val GAP_TITLE_BODY = 12
+    private const val GAP_BODY_IMAGE = 16
     private const val GAP_TITLE_IMAGE = 16
+    private const val BODY_WRAP_WIDTH_PX = 720
     private const val IMAGE_MAX_HEIGHT = 360
     private const val PLACEHOLDER_RADIUS = 8
 
@@ -71,8 +78,8 @@ internal object WhatsNewSlideCard {
         )
 
     /**
-     * @param slide manifest entry; only `title` and `image` are rendered —
-     *   `body` is ignored (see [WhatsNewSlide.body] for rationale)
+     * @param slide manifest entry; `title`, `body` (HTML-aware, word-wrapped),
+     *   and `image` are all rendered. Empty body skips the prose row.
      * @param resourceDir manifest resource dir prefix (e.g. `/whatsnew/v2.5.0/`)
      *   used to resolve [WhatsNewSlide.image] relative paths
      * @param accentTint accent color for card border / hover state
@@ -115,16 +122,29 @@ internal object WhatsNewSlideCard {
         content.add(titleLabel)
         scaler?.registerLabel(titleLabel, TITLE_FONT_SIZE, Font.BOLD)
 
-        // Body paragraph intentionally dropped — a plugin targeted at
-        // developers doesn't need hand-holding prose; the title + screenshot
-        // convey the feature on their own, and Settings → Accent → Overrides
-        // is self-explanatory once opened. The WhatsNewSlide.body field stays
-        // in the data model so future releases can opt back in if needed.
+        // Body paragraph — wrapped in <html><body style="width:NNN"> so swing's
+        // JLabel-as-renderer engages its built-in word-wrapper; raw text would
+        // render single-line and clip on the card edge. The width budget is
+        // hand-tuned just under [WhatsNewImagePanel.DEFAULT_IMAGE_WIDTH] (800)
+        // so prose visually aligns with the screenshot below it.
+        if (slide.body.isNotBlank()) {
+            val bodyGap = Box.createVerticalStrut(JBUI.scale(GAP_TITLE_BODY))
+            content.add(bodyGap)
+            scaler?.registerGap(bodyGap, GAP_TITLE_BODY)
+
+            val bodyLabel =
+                JBLabel("<html><body style='width:${BODY_WRAP_WIDTH_PX}px'>${slide.body}</body></html>")
+            bodyLabel.font = bodyLabel.font.deriveFont(JBUI.scale(BODY_FONT_SIZE).toFloat())
+            bodyLabel.alignmentX = Component.LEFT_ALIGNMENT
+            content.add(bodyLabel)
+            scaler?.registerLabel(bodyLabel, BODY_FONT_SIZE, Font.PLAIN)
+        }
 
         if (slide.image != null) {
-            val imageGap = Box.createVerticalStrut(JBUI.scale(GAP_TITLE_IMAGE))
+            val gapPx = if (slide.body.isNotBlank()) GAP_BODY_IMAGE else GAP_TITLE_IMAGE
+            val imageGap = Box.createVerticalStrut(JBUI.scale(gapPx))
             content.add(imageGap)
-            scaler?.registerGap(imageGap, GAP_TITLE_IMAGE)
+            scaler?.registerGap(imageGap, gapPx)
 
             val effectiveScale = slide.imageScale ?: DEFAULT_IMAGE_FACTOR
             val imageComponent = loadImageComponent(resourceDir + slide.image, effectiveScale)

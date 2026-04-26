@@ -9,10 +9,11 @@ import com.intellij.openapi.diagnostic.logger
  *
  * @param title bold heading shown above the screenshot; rendered in a
  *   per-slide palette color (lavender / gold / cyan cycle) by [WhatsNewPanel]
- * @param body paragraph from the manifest; currently NOT rendered — the
- *   v2.5.0 design is "developer-targeted audience doesn't need prose, the
- *   title + screenshot carry the feature". Field is preserved in the schema
- *   so a future release can opt prose back in without a manifest migration.
+ * @param body paragraph from the manifest, rendered between the title and
+ *   the screenshot. Wrapped via JLabel HTML, so inline `<b>` / `<i>` survive
+ *   into the displayed text. Word-wrap budget is tuned to align with the
+ *   default image width. Empty / blank body skips the prose row, leaving
+ *   title + image at the legacy v2.5.0 spacing.
  * @param image filename relative to the manifest's resource directory
  *   (e.g. `slide-overrides.png`); resolved against `/whatsnew/v$version/`.
  *   Null means "render title without an image".
