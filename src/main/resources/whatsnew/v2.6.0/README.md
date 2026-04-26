@@ -67,7 +67,7 @@ caption. Footer = thank-you to John Papa.
 - **Width:** ≥1600 px (Retina-friendly). Panel scales proportionally.
 - **Height:** ≤900 px so the slide doesn't push the next off-screen on 13".
 - **Aspect:** 16:9 to 16:10 reads cleanest.
-- **Optimize** before commit: `pngcrush` or `imageoptim` to ≤500 KB each.
+- **Optimize** before commit: `pngcrush` or ImageOptim to ≤500 KB each.
 
 ## Footer attribution — non-negotiable
 
