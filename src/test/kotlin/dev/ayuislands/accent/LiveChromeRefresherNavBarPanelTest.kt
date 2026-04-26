@@ -84,8 +84,8 @@ class LiveChromeRefresherNavBarPanelTest {
     @Test
     fun `refresh tolerates deeply nested status bar trees without throwing`() {
         // Status bar children may be 5+ containers deep before reaching the
-        // Compact panel; `walkOnContainer` must traverse arbitrary depth without
-        // stack overflow or exception even if the target class isn't present.
+        // Compact panel; the iterative `walk` BFS must traverse arbitrary depth
+        // without stack overflow or exception even if the target class isn't present.
         val viewport = JPanel()
         val scrollPane = JPanel().apply { add(viewport) }
         val container = JPanel().apply { add(scrollPane) }
@@ -97,6 +97,32 @@ class LiveChromeRefresherNavBarPanelTest {
         LiveChromeRefresher.refresh(ChromeTarget.StatusBar, targetColor)
 
         assertEquals(targetColor, statusBarRoot.background, "Root tint must apply")
+    }
+
+    @Test
+    fun `refresh survives a 2000-level deep status bar tree (StackOverflow regression lock)`() {
+        // Phase 40.4 round-1 fix replaced a recursive walkOnContainer helper with
+        // the iterative `walk` BFS — restoring the Phase 40.2 M-4 stack-overflow
+        // bound. A naive recursive descent would blow the default ~512 KiB JVM
+        // thread stack at this depth, so this test is structurally a regression
+        // lock against any future "simplification" PR that re-introduces a
+        // recursive walker. With BFS the descent runs in O(depth) heap, not stack.
+        var current = JPanel()
+        val statusBarRoot = current
+        repeat(DEEP_TREE_DEPTH - 1) {
+            val child = JPanel()
+            current.add(child)
+            current = child
+        }
+        installMockStatusBar(statusBarRoot)
+
+        LiveChromeRefresher.refresh(ChromeTarget.StatusBar, targetColor)
+
+        assertEquals(
+            targetColor,
+            statusBarRoot.background,
+            "Root tint must still apply after a 2000-level descent",
+        )
     }
 
     @Test
@@ -176,4 +202,15 @@ class LiveChromeRefresherNavBarPanelTest {
      */
     @Suppress("ClassNaming")
     private class ImpostorPanel : JPanel()
+
+    private companion object {
+        /**
+         * Depth chosen well above what any realistic IDE chrome subtree reaches
+         * (~10-20 levels) but high enough that a recursive descent on a default
+         * JVM thread stack would overflow. Confirmed empirically: replacing
+         * the iterative `walk` BFS with a naive recursion blows the stack
+         * around ~1500-2000 frames depending on JVM build.
+         */
+        const val DEEP_TREE_DEPTH = 2000
+    }
 }

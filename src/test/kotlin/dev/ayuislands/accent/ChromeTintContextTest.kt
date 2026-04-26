@@ -176,6 +176,31 @@ class ChromeTintContextTest {
     }
 
     @Test
+    fun `currentIntensity stays pinned to snapshot even when fallback state mutates underneath`() {
+        // Phase 40.4 race-safety contract: a concurrent listener (LafManagerListener,
+        // theme switch, license event) writing to AyuIslandsState mid-apply must
+        // NOT change what the running applicator pipeline sees. The whole reason
+        // for the ThreadLocal is to insulate the apply window from state writes.
+        val state = AyuIslandsState().apply { chromeTintIntensity = 5 }
+        val snapshot = chromeSnapshot(intensityPercent = 47)
+
+        ChromeTintContext.withSnapshot(snapshot) {
+            assertEquals(47, ChromeTintContext.currentIntensity(state).percent)
+            // Simulate an unrelated subsystem committing a different intensity
+            // mid-flight. The snapshot must keep returning its captured value.
+            state.chromeTintIntensity = 35
+            assertEquals(
+                47,
+                ChromeTintContext.currentIntensity(state).percent,
+                "Snapshot must remain pinned even when fallback state mutates underneath",
+            )
+        }
+        // Once the snapshot frame exits, fallback state is the only source.
+        // (35 is within the user-visible cap; effectiveChromeTintIntensity returns it as-is.)
+        assertEquals(35, ChromeTintContext.currentIntensity(state).percent)
+    }
+
+    @Test
     fun `state remains untouched even though block executes`() {
         // Proves the snapshot path never writes through to AyuIslandsState —
         // the load-bearing "state untouched on throw" property of the apply

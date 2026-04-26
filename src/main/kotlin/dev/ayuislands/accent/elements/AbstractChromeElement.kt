@@ -73,7 +73,7 @@ abstract class AbstractChromeElement : AccentElement {
         val intensity = ChromeTintContext.currentIntensity(state)
         val tintedBackgrounds = LinkedHashMap<String, Color>()
         for (key in backgroundKeys) {
-            val baseColor = ChromeBaseColors.get(key) ?: continue
+            val baseColor = ChromeBaseColors[key] ?: continue
             val tinted = ChromeTintBlender.blend(color, baseColor, intensity)
             UIManager.put(key, tinted)
             tintedBackgrounds[key] = tinted

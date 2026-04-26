@@ -259,7 +259,8 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
         } catch (notificationException: RuntimeException) {
             LOG.warn(
                 "AyuIslandsChromePanel.apply: failed to surface chrome-apply error balloon " +
-                    "(original cause logged above): ${notificationException.message}",
+                    "(original cause logged above)",
+                notificationException,
             )
         }
     }

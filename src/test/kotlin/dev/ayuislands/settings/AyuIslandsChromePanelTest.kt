@@ -1,5 +1,9 @@
 package dev.ayuislands.settings
 
+import com.intellij.notification.Notification
+import com.intellij.notification.NotificationGroup
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
@@ -17,6 +21,7 @@ import io.mockk.mockk
 import io.mockk.mockkClass
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
+import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
 import kotlin.test.AfterTest
@@ -384,6 +389,75 @@ class AyuIslandsChromePanelTest {
         )
         // Pending values untouched too — user can retry without re-typing.
         assertTrue(chromePanel.isModified(), "isModified must remain true so the user can retry")
+    }
+
+    @Test
+    fun `apply surfaces a WARNING balloon when applicator throws`() {
+        // Phase 40.4 user-space contract: a silent failure was the entire root
+        // cause of "I clicked Apply, nothing happened" reports prior to this fix.
+        // The WARNING balloon is the user-visible error path the project rule
+        // names explicitly. Asserting on the captured title/content/type catches
+        // copy regressions (changelog-relevant) and the wrong NotificationType
+        // (INFO would fail to surface), while verifying the dispatch happens at
+        // all locks the catch → notify wiring.
+        val titleSlot = slot<String>()
+        val contentSlot = slot<String>()
+        val typeSlot = slot<NotificationType>()
+        val notification = mockk<Notification>(relaxed = true)
+        val group =
+            mockk<NotificationGroup>(relaxed = true) {
+                every {
+                    createNotification(capture(titleSlot), capture(contentSlot), capture(typeSlot))
+                } returns notification
+            }
+        val groupManager =
+            mockk<NotificationGroupManager>(relaxed = true) {
+                every { getNotificationGroup("Ayu Islands") } returns group
+            }
+        mockkStatic(NotificationGroupManager::class)
+        every { NotificationGroupManager.getInstance() } returns groupManager
+
+        every { AccentApplicator.applyForFocusedProject(any()) } throws RuntimeException("simulated apply failure")
+
+        val chromePanel = AyuIslandsChromePanel()
+        buildPanel(chromePanel, AyuVariant.MIRAGE)
+        chromePanel.setPendingChromeTintIntensityForTest(35)
+
+        chromePanel.apply()
+
+        verify(exactly = 1) { group.createNotification(any<String>(), any<String>(), any<NotificationType>()) }
+        assertEquals("Chrome tint could not be applied", titleSlot.captured, "Title must match the user-facing message")
+        assertTrue(
+            contentSlot.captured.contains("idea.log") && contentSlot.captured.contains("Apply again"),
+            "Content must mention idea.log and the retry path",
+        )
+        assertEquals(NotificationType.WARNING, typeSlot.captured, "Apply failure must surface as WARNING, not INFO")
+    }
+
+    @Test
+    fun `apply does not propagate when notification subsystem itself throws`() {
+        // Defensive layer for the rare shutdown-race case where
+        // NotificationGroupManager.getInstance() / .getNotificationGroup
+        // throws. The inner try/catch must keep the whole apply() call
+        // total — losing the balloon is acceptable; crashing the Settings
+        // dialog is not. Also asserts the throw-safety state-untouched
+        // invariant survives a notification-subsystem crash.
+        mockkStatic(NotificationGroupManager::class)
+        every { NotificationGroupManager.getInstance() } throws RuntimeException("notification subsystem boom")
+        every { AccentApplicator.applyForFocusedProject(any()) } throws RuntimeException("apply boom")
+
+        val chromePanel = AyuIslandsChromePanel()
+        buildPanel(chromePanel, AyuVariant.MIRAGE)
+        chromePanel.setPendingChromeStatusBarForTest(true)
+
+        // The apply() call must return normally — exception escape would mean
+        // the Settings dialog crashes, defeating the user-retry contract.
+        chromePanel.apply()
+
+        assertFalse(
+            state.chromeStatusBar,
+            "State must remain untouched even when both applicator AND notification subsystem throw",
+        )
     }
 
     // ── Test 8: reset() ────────────────────────────────────────────────────────
