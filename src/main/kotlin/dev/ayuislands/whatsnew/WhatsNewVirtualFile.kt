@@ -11,7 +11,7 @@ import com.intellij.testFramework.LightVirtualFile
 internal class WhatsNewVirtualFile : LightVirtualFile("What's New in Ayu Islands") {
     override fun isWritable(): Boolean = false
 
-    override fun equals(other: Any?): Boolean = other === this
+    override fun equals(other: Any?): Boolean = other is WhatsNewVirtualFile && other === this
 
     override fun hashCode(): Int = System.identityHashCode(this)
 }

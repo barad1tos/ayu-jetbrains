@@ -6,7 +6,7 @@ import com.intellij.testFramework.LightVirtualFile
 internal class FreeOnboardingVirtualFile : LightVirtualFile("Welcome to Ayu Islands") {
     override fun isWritable(): Boolean = false
 
-    override fun equals(other: Any?): Boolean = other === this
+    override fun equals(other: Any?): Boolean = other is FreeOnboardingVirtualFile && other === this
 
     override fun hashCode(): Int = System.identityHashCode(this)
 }
