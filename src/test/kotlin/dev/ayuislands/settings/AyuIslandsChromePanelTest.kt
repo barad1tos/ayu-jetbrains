@@ -426,6 +426,11 @@ class AyuIslandsChromePanelTest {
         chromePanel.apply()
 
         verify(exactly = 1) { group.createNotification(any<String>(), any<String>(), any<NotificationType>()) }
+        // Locks the .notify(null) call too — a future refactor that constructs
+        // the Notification but forgets to dispatch (e.g. switches to
+        // Notifications.Bus.notify and leaves a half-finished call) would
+        // otherwise pass the createNotification assertion silently.
+        verify(exactly = 1) { notification.notify(null as com.intellij.openapi.project.Project?) }
         assertEquals("Chrome tint could not be applied", titleSlot.captured, "Title must match the user-facing message")
         assertTrue(
             contentSlot.captured.contains("idea.log") && contentSlot.captured.contains("Apply again"),
@@ -458,6 +463,12 @@ class AyuIslandsChromePanelTest {
             state.chromeStatusBar,
             "State must remain untouched even when both applicator AND notification subsystem throw",
         )
+        // Locks the inner-catch path explicitly: getInstance() must have been
+        // called from notifyApplyFailed (i.e. the outer applicator throw routed
+        // into the catch site). Without this, a future refactor that widens
+        // the outer catch to also swallow the notification dispatch would still
+        // pass — both paths would produce a quiet apply, indistinguishable.
+        verify(exactly = 1) { NotificationGroupManager.getInstance() }
     }
 
     // ── Test 8: reset() ────────────────────────────────────────────────────────
