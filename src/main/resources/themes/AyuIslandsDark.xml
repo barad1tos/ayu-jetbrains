@@ -878,19 +878,19 @@
         </option>
         <option name="DIFF_DELETED">
             <value>
-                <option name="BACKGROUND" value="76070E" />
+                <option name="BACKGROUND" value="562E36" />
                 <option name="ERROR_STRIPE_COLOR" value="F26D78" />
             </value>
         </option>
         <option name="DIFF_INSERTED">
             <value>
-                <option name="BACKGROUND" value="0F6201" />
+                <option name="BACKGROUND" value="2D482B" />
                 <option name="ERROR_STRIPE_COLOR" value="70BF56" />
             </value>
         </option>
         <option name="DIFF_MODIFIED">
             <value>
-                <option name="BACKGROUND" value="152A48" />
+                <option name="BACKGROUND" value="25493D" />
                 <option name="ERROR_STRIPE_COLOR" value="59C2FF" />
             </value>
         </option>

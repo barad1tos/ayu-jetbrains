@@ -849,7 +849,7 @@
         </option>
         <option name="DIFF_DELETED">
             <value>
-                <option name="BACKGROUND" value="FF738320" />
+                <option name="BACKGROUND" value="FF738314" />
                 <option name="ERROR_STRIPE_COLOR" value="FF7383" />
             </value>
         </option>
@@ -861,7 +861,7 @@
         </option>
         <option name="DIFF_MODIFIED">
             <value>
-                <option name="BACKGROUND" value="478ACC30" />
+                <option name="BACKGROUND" value="478ACC1F" />
                 <option name="ERROR_STRIPE_COLOR" value="478ACC" />
             </value>
         </option>

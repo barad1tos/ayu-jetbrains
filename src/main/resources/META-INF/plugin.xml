@@ -92,6 +92,10 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.6.1</h3>
+    <ul>
+      <li>Calmed diff backgrounds across Dark, Light, and Mirage variants — modified diff no longer blends with text selection</li>
+    </ul>
     <h3>2.6.0</h3>
     <ul>
       <li>[Paid] <b>Peacock parity for JetBrains</b> — pin an accent to a project window or to a programming language and every chrome surface (status bar, nav bar, tool stripes, panel borders) tints with that accent automatically. WCAG-aware foreground keeps text readable at any saturation. Inspired by Peacock for VS Code (johnpapa.net) — built on JetBrains primitives, not ported.</li>
