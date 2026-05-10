@@ -4,43 +4,66 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class FontCatalogTest {
-    // ---- forPreset lookups ----
+    // ---- forPreset / requirePreset lookups ----
 
     @Test
     fun `forPreset WHISPER returns Victor Mono`() {
-        val entry = FontCatalog.forPreset(FontPreset.WHISPER)
+        val entry = FontCatalog.requirePreset(FontPreset.WHISPER)
         assertEquals("Victor Mono", entry.familyName)
         assertEquals("Victor Mono", entry.displayName)
     }
 
     @Test
     fun `forPreset AMBIENT returns Maple Mono`() {
-        val entry = FontCatalog.forPreset(FontPreset.AMBIENT)
+        val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
         assertEquals("Maple Mono", entry.familyName)
         assertEquals("Maple Mono", entry.displayName)
     }
 
     @Test
     fun `forPreset NEON returns Monaspace Neon`() {
-        val entry = FontCatalog.forPreset(FontPreset.NEON)
+        val entry = FontCatalog.requirePreset(FontPreset.NEON)
         assertEquals("Monaspace Neon", entry.familyName)
         assertEquals("Monaspace Neon", entry.displayName)
     }
 
     @Test
     fun `forPreset CYBERPUNK returns Monaspace Xenon`() {
-        val entry = FontCatalog.forPreset(FontPreset.CYBERPUNK)
+        val entry = FontCatalog.requirePreset(FontPreset.CYBERPUNK)
         assertEquals("Monaspace Xenon", entry.familyName)
         assertEquals("Monaspace Xenon", entry.displayName)
     }
 
     @Test
-    fun `forPreset CUSTOM throws IllegalStateException`() {
+    fun `forPreset CUSTOM returns null (issue #164 — non-curated has no catalog entry)`() {
+        // RED-test for issue #164: pre-2.6.2 forPreset threw IllegalStateException here,
+        // freezing the Settings page on "Loading…" forever for users with persisted
+        // fontPresetName="CUSTOM". forPreset must return null so defensive callers can
+        // gracefully skip the install pipeline for non-curated presets.
+        assertNull(FontCatalog.forPreset(FontPreset.CUSTOM))
+    }
+
+    @Test
+    fun `requirePreset CUSTOM throws (curated-only API contract)`() {
+        // requirePreset is the non-null variant for call sites that statically
+        // operate on curated presets only (onboarding cards iterating FONT_PRESETS,
+        // tests pinning known presets). Passing CUSTOM is a programmer error and
+        // must fail fast.
         assertFailsWith<IllegalStateException> {
-            FontCatalog.forPreset(FontPreset.CUSTOM)
+            FontCatalog.requirePreset(FontPreset.CUSTOM)
+        }
+    }
+
+    @Test
+    fun `forPreset returns non-null entry for every curated preset`() {
+        val curatedPresets = FontPreset.entries.filter { it.isCurated }
+        for (preset in curatedPresets) {
+            assertNotNull(FontCatalog.forPreset(preset), "curated preset $preset must resolve to a catalog entry")
         }
     }
 
@@ -99,20 +122,20 @@ class FontCatalogTest {
 
     @Test
     fun `AMBIENT assetPattern matches expected zip filename`() {
-        val pattern = FontCatalog.forPreset(FontPreset.AMBIENT).assetPattern
+        val pattern = FontCatalog.requirePreset(FontPreset.AMBIENT).assetPattern
         assertTrue(pattern.matches("MapleMono-TTF.zip"))
         assertFalse(pattern.matches("MapleMono-OTF.zip"))
     }
 
     @Test
     fun `NEON assetPattern matches variable font zip`() {
-        val pattern = FontCatalog.forPreset(FontPreset.NEON).assetPattern
+        val pattern = FontCatalog.requirePreset(FontPreset.NEON).assetPattern
         assertTrue(pattern.containsMatchIn("monaspace-variable-v1.400.zip"))
     }
 
     @Test
     fun `CYBERPUNK assetPattern matches variable font zip`() {
-        val pattern = FontCatalog.forPreset(FontPreset.CYBERPUNK).assetPattern
+        val pattern = FontCatalog.requirePreset(FontPreset.CYBERPUNK).assetPattern
         assertTrue(pattern.containsMatchIn("monaspace-variable-v1.400.zip"))
     }
 
@@ -120,52 +143,52 @@ class FontCatalogTest {
 
     @Test
     fun `WHISPER filesToKeep matches VictorMono-Light ttf`() {
-        val regexes = FontCatalog.forPreset(FontPreset.WHISPER).filesToKeep
+        val regexes = FontCatalog.requirePreset(FontPreset.WHISPER).filesToKeep
         assertTrue(regexes.any { it.matches("fonts/VictorMono-Light.ttf") })
         assertTrue(regexes.any { it.matches("VictorMono-Light.otf") })
     }
 
     @Test
     fun `WHISPER filesToKeep rejects VictorMono-Bold`() {
-        val regexes = FontCatalog.forPreset(FontPreset.WHISPER).filesToKeep
+        val regexes = FontCatalog.requirePreset(FontPreset.WHISPER).filesToKeep
         assertFalse(regexes.any { it.matches("VictorMono-Bold.ttf") })
     }
 
     @Test
     fun `AMBIENT filesToKeep matches MapleMono-Regular ttf`() {
-        val regexes = FontCatalog.forPreset(FontPreset.AMBIENT).filesToKeep
+        val regexes = FontCatalog.requirePreset(FontPreset.AMBIENT).filesToKeep
         assertTrue(regexes.any { it.matches("MapleMono-Regular.ttf") })
     }
 
     @Test
     fun `AMBIENT filesToKeep rejects MapleMono-Bold`() {
-        val regexes = FontCatalog.forPreset(FontPreset.AMBIENT).filesToKeep
+        val regexes = FontCatalog.requirePreset(FontPreset.AMBIENT).filesToKeep
         assertFalse(regexes.any { it.matches("MapleMono-Bold.ttf") })
     }
 
     @Test
     fun `NEON filesToKeep matches MonaspaceNeonVarVF ttf`() {
-        val regexes = FontCatalog.forPreset(FontPreset.NEON).filesToKeep
+        val regexes = FontCatalog.requirePreset(FontPreset.NEON).filesToKeep
         assertTrue(regexes.any { it.matches("MonaspaceNeonVarVF.ttf") })
         assertTrue(regexes.any { it.matches("path/to/MonaspaceNeonVarVF.otf") })
     }
 
     @Test
     fun `NEON filesToKeep rejects MonaspaceXenonVarVF`() {
-        val regexes = FontCatalog.forPreset(FontPreset.NEON).filesToKeep
+        val regexes = FontCatalog.requirePreset(FontPreset.NEON).filesToKeep
         assertFalse(regexes.any { it.matches("MonaspaceXenonVarVF.ttf") })
     }
 
     @Test
     fun `CYBERPUNK filesToKeep matches MonaspaceXenonVarVF ttf`() {
-        val regexes = FontCatalog.forPreset(FontPreset.CYBERPUNK).filesToKeep
+        val regexes = FontCatalog.requirePreset(FontPreset.CYBERPUNK).filesToKeep
         assertTrue(regexes.any { it.matches("MonaspaceXenonVarVF.ttf") })
         assertTrue(regexes.any { it.matches("fonts/MonaspaceXenonVarVF.otf") })
     }
 
     @Test
     fun `CYBERPUNK filesToKeep rejects MonaspaceNeonVarVF`() {
-        val regexes = FontCatalog.forPreset(FontPreset.CYBERPUNK).filesToKeep
+        val regexes = FontCatalog.requirePreset(FontPreset.CYBERPUNK).filesToKeep
         assertFalse(regexes.any { it.matches("MonaspaceNeonVarVF.ttf") })
     }
 
@@ -173,7 +196,7 @@ class FontCatalogTest {
 
     @Test
     fun `WHISPER uses direct URL`() {
-        assertTrue(FontCatalog.forPreset(FontPreset.WHISPER).useDirectUrl)
+        assertTrue(FontCatalog.requirePreset(FontPreset.WHISPER).useDirectUrl)
     }
 
     @Test
@@ -189,16 +212,16 @@ class FontCatalogTest {
 
     @Test
     fun `NEON and CYBERPUNK share the same GitHub repo`() {
-        val neon = FontCatalog.forPreset(FontPreset.NEON)
-        val cyberpunk = FontCatalog.forPreset(FontPreset.CYBERPUNK)
+        val neon = FontCatalog.requirePreset(FontPreset.NEON)
+        val cyberpunk = FontCatalog.requirePreset(FontPreset.CYBERPUNK)
         assertEquals(neon.githubOwner, cyberpunk.githubOwner)
         assertEquals(neon.githubRepo, cyberpunk.githubRepo)
     }
 
     @Test
     fun `NEON and CYBERPUNK share the same fallbackUrl`() {
-        val neon = FontCatalog.forPreset(FontPreset.NEON)
-        val cyberpunk = FontCatalog.forPreset(FontPreset.CYBERPUNK)
+        val neon = FontCatalog.requirePreset(FontPreset.NEON)
+        val cyberpunk = FontCatalog.requirePreset(FontPreset.CYBERPUNK)
         assertEquals(neon.fallbackUrl, cyberpunk.fallbackUrl)
     }
 
@@ -217,7 +240,7 @@ class FontCatalogTest {
     fun `every curated FontPreset has a catalog entry`() {
         val curatedPresets = FontPreset.entries.filter { it.isCurated }
         for (preset in curatedPresets) {
-            val entry = FontCatalog.forPreset(preset)
+            val entry = FontCatalog.requirePreset(preset)
             assertEquals(preset, entry.preset)
         }
     }

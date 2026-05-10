@@ -10,7 +10,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class FontInstallConsentTest {
-    private val mapleEntry = FontCatalog.forPreset(FontPreset.AMBIENT)
+    private val mapleEntry = FontCatalog.requirePreset(FontPreset.AMBIENT)
 
     @BeforeTest
     fun setup() {

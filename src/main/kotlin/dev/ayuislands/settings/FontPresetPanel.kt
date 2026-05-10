@@ -261,7 +261,12 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
         try {
             val preset = FontPreset.fromName(pendingPreset)
             val project = AccentApplicator.resolveFocusedProject()
-            val entry = FontCatalog.forPreset(preset)
+            // CUSTOM has no install pipeline (issue #164). The Install / Reinstall / Delete
+            // rows that route here are already gated by fontMissing/fontInstalled/fontCorrupted
+            // — none of which can be true for a non-curated preset (see updateFontMissing
+            // L491-494). Defensive null-check for completeness in case a future caller
+            // bypasses the visibility gate.
+            val entry = FontCatalog.forPreset(preset) ?: return
             val refresh = {
                 ApplicationManager.getApplication().invokeLater {
                     FontDetector.invalidateCache()
@@ -311,9 +316,16 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
         if (!IS_MAC) return
 
         row {
+            // Build the label eagerly so [installHintLabel] is captured for later
+            // updates from updateFontMissing (it lazily refreshes label.text whenever
+            // the active preset or install status changes). For CUSTOM the catalog
+            // entry is null (issue #164) — the row is also gated by fontMissing
+            // which is force-false for non-curated presets, so the empty text is
+            // never visible to the user. Eagerly evaluating brewCaskSlug here would
+            // otherwise NPE during panel build and freeze Settings on Loading.
             val label = JLabel()
-            val slug = FontCatalog.forPreset(FontPreset.fromName(pendingPreset)).brewCaskSlug
-            label.text = "Or via Homebrew: brew install --cask $slug"
+            val slug = FontCatalog.forPreset(FontPreset.fromName(pendingPreset))?.brewCaskSlug.orEmpty()
+            label.text = if (slug.isNotEmpty()) "Or via Homebrew: brew install --cask $slug" else ""
             installHintLabel = label
             cell(label)
         }.visibleIf(fontMissing)
@@ -321,12 +333,14 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
         row {
             link("Copy") {
                 val preset = FontPreset.fromName(pendingPreset)
-                val command = "brew install --cask ${FontCatalog.forPreset(preset).brewCaskSlug}"
+                val slug = FontCatalog.forPreset(preset)?.brewCaskSlug ?: return@link
+                val command = "brew install --cask $slug"
                 CopyPasteManager.getInstance().setContents(StringSelection(command))
             }
             link("Run in Terminal") {
                 val preset = FontPreset.fromName(pendingPreset)
-                val command = "brew install --cask ${FontCatalog.forPreset(preset).brewCaskSlug}"
+                val slug = FontCatalog.forPreset(preset)?.brewCaskSlug ?: return@link
+                val command = "brew install --cask $slug"
                 CopyPasteManager.getInstance().setContents(StringSelection(command))
                 val state = AyuIslandsSettings.getInstance().state
                 if (state.fontInstallTerminal == "SYSTEM") {
@@ -499,8 +513,12 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
 
         warningLabel?.let { it.text = "\u26A0 Requires ${preset.fontFamily}" }
         installHintLabel?.let {
-            val slug = FontCatalog.forPreset(preset).brewCaskSlug
-            it.text = "Or via Homebrew: brew install --cask $slug"
+            // Issue #164: CUSTOM has no catalog entry; null-coalesce to empty so the
+            // label refresh during preset changes can't crash. The owning row is
+            // visibleIf(fontMissing) which is force-false for non-curated presets,
+            // so an empty text is never on screen \u2014 but the lambda still runs.
+            val slug = FontCatalog.forPreset(preset)?.brewCaskSlug.orEmpty()
+            it.text = if (slug.isNotEmpty()) "Or via Homebrew: brew install --cask $slug" else ""
         }
         previewComponent?.updatePreset(preset, status == FontStatus.HEALTHY)
     }

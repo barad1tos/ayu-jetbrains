@@ -6,9 +6,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 
 class FontAssetResolverTest {
-    private val mapleEntry = FontCatalog.forPreset(FontPreset.AMBIENT)
-    private val victorEntry = FontCatalog.forPreset(FontPreset.WHISPER)
-    private val neonEntry = FontCatalog.forPreset(FontPreset.NEON)
+    private val mapleEntry = FontCatalog.requirePreset(FontPreset.AMBIENT)
+    private val victorEntry = FontCatalog.requirePreset(FontPreset.WHISPER)
+    private val neonEntry = FontCatalog.requirePreset(FontPreset.NEON)
 
     @Test
     fun `direct-url entry bypasses http client`() {

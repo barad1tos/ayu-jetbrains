@@ -80,7 +80,16 @@ object FontInstaller {
         project: Project?,
         onComplete: (InstallResult) -> Unit,
     ) {
-        val entry = FontCatalog.forPreset(preset)
+        // Non-curated presets (currently only CUSTOM) have no install pipeline —
+        // user already chose their own font. Reaching this from UI requires a
+        // visibility-gate bypass; log + drop the call rather than throw to keep
+        // hot paths defensive against future caller changes (issue #164).
+        val entry =
+            FontCatalog.forPreset(preset)
+                ?: run {
+                    LOG.warn("FontInstaller.install called for non-curated preset $preset; ignoring")
+                    return
+                }
         val task =
             object : Task.Backgroundable(project, "Installing ${entry.displayName}…", true) {
                 override fun run(indicator: ProgressIndicator) {
@@ -95,13 +104,19 @@ object FontInstaller {
         preset: FontPreset,
         project: Project?,
     ) {
+        // Same null-safe stance as install() — CUSTOM has no catalog entry, but
+        // applyOnly's branch CAN still call FontPresetApplicator (font preference
+        // is set via FontSettings.decode without needing install metadata). Skip
+        // only the failure-notification path that needs the entry's displayName.
         val entry = FontCatalog.forPreset(preset)
         ApplicationManager.getApplication().invokeLater {
             try {
                 FontPresetApplicator.apply(FontSettings.decode(null, preset))
             } catch (exception: RuntimeException) {
                 LOG.warn("FontPresetApplicator.apply failed (applyOnly)", exception)
-                notify(entry, project, FailureKind.APPLY_FAILED, NotificationType.WARNING)
+                if (entry != null) {
+                    notify(entry, project, FailureKind.APPLY_FAILED, NotificationType.WARNING)
+                }
             }
         }
     }

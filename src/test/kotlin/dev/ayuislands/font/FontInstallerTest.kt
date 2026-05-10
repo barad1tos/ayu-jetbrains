@@ -180,7 +180,7 @@ class FontInstallerTest {
                 ),
             )
         val extractDir = File(tmpRoot, "extracted").apply { mkdirs() }
-        val entry = FontCatalog.forPreset(FontPreset.AMBIENT)
+        val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
 
         val extracted = FontInstaller.extractFonts(zip, extractDir, entry)
 
@@ -197,7 +197,7 @@ class FontInstallerTest {
                 mapOf("README.md" to "docs".toByteArray()),
             )
         val extractDir = File(tmpRoot, "extracted-empty").apply { mkdirs() }
-        val entry = FontCatalog.forPreset(FontPreset.AMBIENT)
+        val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
 
         val thrown =
             runCatching { FontInstaller.extractFonts(zip, extractDir, entry) }

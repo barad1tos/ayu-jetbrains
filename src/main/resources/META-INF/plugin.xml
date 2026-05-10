@@ -92,6 +92,12 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.6.2</h3>
+    <ul>
+      <li>VCS modified-line color is now distinct from added — modified shifts to a saturated blue (Dark <code>#73B8FF</code>, Mirage <code>#80BFFF</code>) so it stops blending into the green added band on dense diffs. Bluer file-status colors in Project View and tabs as well.</li>
+      <li>Editor selection background returns to translucent (alpha 25%) on Dark and Mirage so highlighted text doesn't read as a solid blue block.</li>
+      <li>Settings page no longer freezes on "Loading…" forever when a Custom font preset is active (issue #164) — non-curated presets now skip the install pipeline cleanly instead of crashing the panel build.</li>
+    </ul>
     <h3>2.6.1</h3>
     <ul>
       <li>Calmed diff backgrounds across Dark, Light, and Mirage variants — modified diff no longer blends with text selection</li>
