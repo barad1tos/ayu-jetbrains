@@ -6,6 +6,7 @@
 - VCS modified-line color is now distinct from added — modified shifts to a saturated blue (Dark `#73B8FF`, Mirage `#80BFFF`) so it stops blending into the green added band on dense diffs. Also bluer file-status colors in Project View and tabs.
 - Editor selection background returns to translucent (alpha 25%) on Dark and Mirage so highlighted text doesn't read as a solid blue block.
 - Settings page no longer freezes on "Loading…" forever when a Custom font preset is active (issue #164) — non-curated presets now skip the install pipeline cleanly instead of crashing the panel build.
+- Font preview pane now renders the user's chosen Custom font family on Settings open instead of falling back to "Install JetBrains Mono to preview" — a UX bug previously masked by the panel-build freeze.
 
 ## [2.6.1] - 2026-04-27
 

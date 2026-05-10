@@ -524,20 +524,38 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
     }
 
     private fun refreshPreview(reloadPreset: Boolean = false) {
-        val settings = currentSettings
-        if (reloadPreset) {
-            val preset = FontPreset.fromName(pendingPreset)
-            previewComponent?.updatePreset(preset, availability[preset] == true)
-            if (!preset.isCurated) {
-                previewComponent?.updateFontFamily(settings.fontFamily)
+        // Defensive boundary mirrors triggerLifecycleAction's outer catch:
+        // refreshPreview runs in the panel-build closure (via buildPreviewRow
+        // → loadControlsFromPreset), and a propagating exception there is the
+        // documented issue #164 freeze hot-zone. Catch broadly, log, render no
+        // preview — the panel still finishes building.
+        try {
+            val settings = currentSettings
+            if (reloadPreset) {
+                val preset = FontPreset.fromName(pendingPreset)
+                // Same gate as updateFontMissing — both call sites must agree on
+                // whether the preview should render. For curated, derive a
+                // status proxy from the cached availability map (HEALTHY/
+                // NOT_INSTALLED is sufficient — CORRUPTED is signalled
+                // separately via fontCorrupted).
+                val statusProxy =
+                    if (availability[preset] == true) FontStatus.HEALTHY else FontStatus.NOT_INSTALLED
+                val available =
+                    previewInstalledFor(preset, statusProxy, pendingEnabled, settings.fontFamily)
+                previewComponent?.updatePreset(preset, available)
+                if (!preset.isCurated) {
+                    previewComponent?.updateFontFamily(settings.fontFamily)
+                }
             }
+            previewComponent?.updateSettings(
+                settings.fontSize,
+                settings.lineSpacing,
+                settings.enableLigatures,
+                settings.weight,
+            )
+        } catch (e: RuntimeException) {
+            LOG.warn("refreshPreview failed for preset=$pendingPreset; preview pane skipped", e)
         }
-        previewComponent?.updateSettings(
-            settings.fontSize,
-            settings.lineSpacing,
-            settings.enableLigatures,
-            settings.weight,
-        )
     }
 
     private fun updateFontMissing() {
@@ -565,7 +583,12 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
             val slug = FontCatalog.forPreset(preset)?.brewCaskSlug.orEmpty()
             it.text = if (slug.isNotEmpty()) "Or via Homebrew: brew install --cask $slug" else ""
         }
-        previewComponent?.updatePreset(preset, status == FontStatus.HEALTHY)
+        val previewInstalled =
+            previewInstalledFor(preset, status, pendingEnabled, currentSettings.fontFamily)
+        previewComponent?.updatePreset(preset, previewInstalled)
+        if (!preset.isCurated) {
+            previewComponent?.updateFontFamily(currentSettings.fontFamily)
+        }
     }
 
     override fun isModified(): Boolean {
@@ -634,3 +657,25 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
         suppressListeners = false
     }
 }
+
+/**
+ * Resolve whether the preview pane should render a live sample or fall back
+ * to "Install X to preview". Curated presets ask the catalog-aware status;
+ * non-curated (CUSTOM) ask the system about the user-chosen family — the
+ * catalog has nothing to say about it.
+ *
+ * Stateless pure function — no `this`, no field access, no side effects.
+ * File scope keeps it that way (a class member would silently allow `this`
+ * capture later) and is `internal` so unit tests can pin both branches.
+ */
+internal fun previewInstalledFor(
+    preset: FontPreset,
+    status: FontStatus,
+    enabled: Boolean,
+    family: String,
+): Boolean =
+    if (preset.isCurated) {
+        status == FontStatus.HEALTHY
+    } else {
+        enabled && FontDetector.isFamilyInstalled(family)
+    }

@@ -1,5 +1,6 @@
 package dev.ayuislands.font
 
+import com.intellij.openapi.diagnostic.logger
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import java.awt.Font
@@ -20,6 +21,8 @@ enum class FontStatus {
 
 /** Detects installed Nerd Fonts via GraphicsEnvironment. Caches results for the session. */
 object FontDetector {
+    private val LOG = logger<FontDetector>()
+
     private const val MONOSPACE_PROBE_SIZE = 12
     private const val MONOSPACE_WIDTH_TOLERANCE = 0.01
 
@@ -55,6 +58,36 @@ object FontDetector {
         monospaceCache = result
         return result
     }
+
+    /**
+     * Returns true if the JVM's `availableFontFamilyNames` contains [family]
+     * (case-insensitive). Use [isInstalled] when you have a [FontPreset] —
+     * that helper also walks `preset.fontAliases` AND the runtime
+     * `state.installedFonts` record, which this single-string lookup does
+     * NOT do. Calling this with a curated `preset.fontFamily` will return
+     * the wrong answer when the user has an alias installed or when the
+     * JVM cache lags a freshly-installed font.
+     *
+     * Wrapped in try/catch because `installedFonts()` calls
+     * `GraphicsEnvironment.getLocalGraphicsEnvironment()` which can throw
+     * `HeadlessException` (server JVMs, headless test harnesses) or
+     * `InternalError` (macOS font cache corruption — well-documented AWT
+     * failure mode). A throw here would propagate into the panel-build
+     * closure and reproduce the issue #164 "Loading…" freeze with a
+     * different exception class. Returning false on throw is the safe
+     * default — the preview shows "Install X to preview" rather than
+     * freezing the panel; the stack trace lands in idea.log.
+     */
+    fun isFamilyInstalled(family: String): Boolean =
+        try {
+            installedFonts().contains(family.lowercase())
+        } catch (e: java.awt.HeadlessException) {
+            LOG.warn("isFamilyInstalled: headless environment, treating '$family' as not installed", e)
+            false
+        } catch (e: RuntimeException) {
+            LOG.warn("isFamilyInstalled: GraphicsEnvironment query failed for '$family'", e)
+            false
+        }
 
     /**
      * Check if any alias of the preset's font is installed on the system OR has been

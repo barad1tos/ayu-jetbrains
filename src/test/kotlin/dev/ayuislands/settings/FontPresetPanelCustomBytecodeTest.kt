@@ -147,7 +147,7 @@ class FontPresetPanelCustomBytecodeTest {
         setPrivateField(panel, "installHintLabel", label)
         setPrivateField(panel, "availability", emptyMap<FontPreset, Boolean>())
 
-        invokePrivateMethod(panel, "updateFontMissing")
+        invokeUpdateFontMissing(panel)
 
         assertEquals(
             "",
@@ -180,11 +180,122 @@ class FontPresetPanelCustomBytecodeTest {
         setPrivateField(panel, "installHintLabel", JLabel())
         setPrivateField(panel, "availability", mapOf(FontPreset.WHISPER to true))
 
-        invokePrivateMethod(panel, "updateFontMissing")
+        invokeUpdateFontMissing(panel)
 
         assertFalse(getBooleanProperty(panel, "fontMissing"), "WHISPER healthy: fontMissing must be false")
         assertTrue(getBooleanProperty(panel, "fontInstalled"), "WHISPER healthy: fontInstalled must be true")
         assertFalse(getBooleanProperty(panel, "fontCorrupted"), "WHISPER healthy: fontCorrupted must be false")
+    }
+
+    @Test
+    fun `panel module bytecode references isFamilyInstalled (Custom-preview lock)`() {
+        // 2.6.2 follow-up: pre-fix updateFontMissing only called updatePreset,
+        // which sets fontInstalled=false for CUSTOM (no catalog availability)
+        // and the preview pane fell back to "Install <preset.fontFamily> to
+        // preview". The genuinely-new dependency Round 1 introduced is
+        // FontDetector.isFamilyInstalled, called from previewInstalledFor.
+        // previewInstalledFor lives at file scope, so its compiled bytes are
+        // on FontPresetPanelKt.class (Kotlin file-class), not FontPresetPanel
+        // itself. Search both — a refactor that reverts either the helper or
+        // the panel-side wiring would drop the symbol from the file-class
+        // module entirely. Behavior coverage for the gate logic lives in the
+        // runtime tests below, not this lock.
+        val combined = readClassBytes("FontPresetPanel") + readClassBytes("FontPresetPanelKt")
+        assertTrue(
+            combined.contains("isFamilyInstalled"),
+            "FontPresetPanel module (panel + Kt file-class) must call " +
+                "FontDetector.isFamilyInstalled to check whether the user-chosen " +
+                "Custom family is installed on the system. Without this, " +
+                "fontInstalled stays false for CUSTOM and the preview always " +
+                "falls back to 'Install X to preview'.",
+        )
+    }
+
+    @Test
+    fun `previewInstalledFor curated branch returns true for HEALTHY status`() {
+        assertTrue(previewInstalledFor(FontPreset.AMBIENT, FontStatus.HEALTHY, true, "anything"))
+    }
+
+    @Test
+    fun `previewInstalledFor curated branch returns false for non-HEALTHY status`() {
+        assertFalse(previewInstalledFor(FontPreset.AMBIENT, FontStatus.NOT_INSTALLED, true, "anything"))
+        assertFalse(previewInstalledFor(FontPreset.AMBIENT, FontStatus.CORRUPTED, true, "anything"))
+    }
+
+    @Test
+    fun `previewInstalledFor non-curated branch returns true when family is installed and enabled`() {
+        mockkObject(FontDetector)
+        every { FontDetector.isFamilyInstalled("MesloLGLDZ Nerd Font Mono") } returns true
+        // Status is ignored on the non-curated path — the curated/non-curated
+        // gate decides which input drives the answer.
+        assertTrue(
+            previewInstalledFor(
+                FontPreset.CUSTOM,
+                FontStatus.NOT_INSTALLED,
+                enabled = true,
+                family = "MesloLGLDZ Nerd Font Mono",
+            ),
+        )
+    }
+
+    @Test
+    fun `previewInstalledFor non-curated branch returns false when family is missing`() {
+        mockkObject(FontDetector)
+        every { FontDetector.isFamilyInstalled("MissingFont") } returns false
+        assertFalse(
+            previewInstalledFor(FontPreset.CUSTOM, FontStatus.NOT_INSTALLED, enabled = true, family = "MissingFont"),
+        )
+    }
+
+    @Test
+    fun `previewInstalledFor non-curated branch short-circuits on disabled even if family is installed`() {
+        // Mirrors the curated semantics (status collapses to NOT_INSTALLED
+        // when !pendingEnabled) — disabled preset never claims a live preview.
+        mockkObject(FontDetector)
+        // FontDetector should never be queried because the enabled gate fails first.
+        every { FontDetector.isFamilyInstalled(any()) } returns true
+        assertFalse(
+            previewInstalledFor(FontPreset.CUSTOM, FontStatus.HEALTHY, enabled = false, family = "InstalledFont"),
+        )
+    }
+
+    @Test
+    fun `updateFontMissing CUSTOM with installed family flips fontInstalled true`() {
+        // Round-3 runtime lock for the actual issue #168 user-visible bug.
+        // Pre-fix: CUSTOM with installed family → fontInstalled stayed false →
+        // preview rendered "Install X to preview" fallback. Round-1 fix wires
+        // FontDetector.isFamilyInstalled into the gate; this test pins the
+        // happy path through the panel's private updateFontMissing.
+        mockkObject(FontDetector)
+        every { FontDetector.isFamilyInstalled("MesloLGLDZ Nerd Font Mono") } returns true
+
+        val panel = FontPresetPanel()
+        setPrivateField(panel, "pendingPreset", FontPreset.CUSTOM.name)
+        setPrivateField(panel, "pendingEnabled", true)
+        setPrivateField(panel, "installHintLabel", JLabel())
+        setPrivateField(panel, "availability", emptyMap<FontPreset, Boolean>())
+        // Inject a customization map entry so currentSettings.fontFamily
+        // returns the user-chosen family the FontDetector mock is keyed on.
+        @Suppress("UNCHECKED_CAST")
+        val customizations =
+            FontPresetPanel::class.java.getDeclaredField("customizations").let { field ->
+                field.isAccessible = true
+                field.get(panel) as MutableMap<String, dev.ayuislands.font.FontSettings>
+            }
+        customizations[FontPreset.CUSTOM.name] =
+            dev.ayuislands.font.FontSettings
+                .fromPreset(FontPreset.CUSTOM)
+                .copy(fontFamily = "MesloLGLDZ Nerd Font Mono")
+
+        invokeUpdateFontMissing(panel)
+
+        // Visibility-gate booleans MUST stay false for non-curated, regardless
+        // of the family lookup — the row visibility logic still requires
+        // preset.isCurated. The fontInstalled-on-preview fix lives in
+        // previewInstalledFor / updatePreset, not in the visibility booleans.
+        assertFalse(getBooleanProperty(panel, "fontMissing"), "fontMissing must stay false for CUSTOM")
+        assertFalse(getBooleanProperty(panel, "fontInstalled"), "fontInstalled (visibility) stays false for CUSTOM")
+        assertFalse(getBooleanProperty(panel, "fontCorrupted"), "fontCorrupted must stay false for CUSTOM")
     }
 
     @Test
@@ -240,11 +351,8 @@ class FontPresetPanelCustomBytecodeTest {
         field.set(target, value)
     }
 
-    private fun invokePrivateMethod(
-        target: Any,
-        name: String,
-    ) {
-        val method = FontPresetPanel::class.java.getDeclaredMethod(name)
+    private fun invokeUpdateFontMissing(target: Any) {
+        val method = FontPresetPanel::class.java.getDeclaredMethod("updateFontMissing")
         method.isAccessible = true
         method.invoke(target)
     }

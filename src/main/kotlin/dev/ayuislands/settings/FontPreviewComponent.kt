@@ -103,7 +103,17 @@ class FontPreviewComponent : JComponent() {
                 ?: java.awt.Color.GRAY
         g2.color = disabledFg
         g2.font = JBUI.Fonts.smallFont().deriveFont(Font.ITALIC)
-        val message = "Install ${currentPreset.fontFamily} to preview"
+        // Curated presets advertise their canonical family as the install
+        // target; non-curated (CUSTOM) advertise whatever the user picked,
+        // since the live preview would have rendered with that family.
+        val displayedFamily =
+            if (currentPreset.isCurated) currentPreset.fontFamily else resolvedFontFamily
+        val message =
+            if (displayedFamily.isBlank()) {
+                "Choose a font family to preview"
+            } else {
+                "Install $displayedFamily to preview"
+            }
         val metrics = g2.fontMetrics
         g2.drawString(
             message,
