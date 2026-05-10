@@ -344,20 +344,44 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
         row {
             link("Copy") {
                 val preset = FontPreset.fromName(pendingPreset)
-                val slug = FontCatalog.forPreset(preset)?.brewCaskSlug ?: return@link
+                val slug =
+                    FontCatalog.forPreset(preset)?.brewCaskSlug
+                        ?: run {
+                            LOG.warn(
+                                "Brew Copy reached non-curated preset $preset — " +
+                                    "visibility gate bypassed; dropping click",
+                            )
+                            return@link
+                        }
                 val command = "brew install --cask $slug"
                 CopyPasteManager.getInstance().setContents(StringSelection(command))
             }
             link("Run in Terminal") {
                 val preset = FontPreset.fromName(pendingPreset)
-                val slug = FontCatalog.forPreset(preset)?.brewCaskSlug ?: return@link
+                val slug =
+                    FontCatalog.forPreset(preset)?.brewCaskSlug
+                        ?: run {
+                            LOG.warn(
+                                "Brew Run-in-Terminal reached non-curated preset $preset — " +
+                                    "visibility gate bypassed; dropping click",
+                            )
+                            return@link
+                        }
                 val command = "brew install --cask $slug"
                 CopyPasteManager.getInstance().setContents(StringSelection(command))
                 val state = AyuIslandsSettings.getInstance().state
                 if (state.fontInstallTerminal == "SYSTEM") {
                     ProcessBuilder("open", "-a", "Terminal").start()
                 } else {
-                    val project = AccentApplicator.resolveFocusedProject() ?: return@link
+                    val project =
+                        AccentApplicator.resolveFocusedProject()
+                            ?: run {
+                                LOG.warn(
+                                    "Run-in-Terminal could not resolve focused project; " +
+                                        "clipboard set, terminal not opened",
+                                )
+                                return@link
+                            }
                     ToolWindowManager.getInstance(project).getToolWindow("Terminal")?.activate(null)
                 }
             }

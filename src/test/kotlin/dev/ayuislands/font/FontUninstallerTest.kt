@@ -294,12 +294,12 @@ class FontUninstallerTest {
     }
 
     @Test
-    fun `uninstall fires Failure callback for non-curated preset and skips ProgressManager`() {
-        // Issue #164 follow-up — the non-curated defensive guard must invoke
-        // onComplete with a Failure rather than silently dropping the callback.
-        // Symmetric to FontInstaller.install(CUSTOM). Locks the contract at the
-        // public entry point so a future refactor can't strand a progress-
-        // tracking caller in a permanent in-flight state.
+    fun `uninstall fires Failure with CUSTOM sentinel familyName and skips ProgressManager`() {
+        // Round-2 review: familyName must use preset.name ("CUSTOM") sentinel,
+        // not preset.fontFamily — the latter is DEFAULT_CUSTOM_FONT
+        // ("JetBrains Mono") for CUSTOM, which lies to telemetry/logs about
+        // a removal that never happened. Symmetric to FontInstaller.install
+        // contract: callback fires, task is never queued.
         mockkStatic(ProgressManager::class)
         val progressMgr = mockk<ProgressManager>(relaxed = true)
         every { ProgressManager.getInstance() } returns progressMgr
@@ -307,9 +307,16 @@ class FontUninstallerTest {
         var captured: FontUninstaller.UninstallResult? = null
         FontUninstaller.uninstall(FontPreset.CUSTOM, null) { captured = it }
 
+        val failure = captured as? FontUninstaller.UninstallResult.Failure
+        assertTrue(failure != null, "non-curated uninstall must fire Failure callback, got: $captured")
+        assertEquals(
+            "CUSTOM",
+            failure.familyName,
+            "familyName must be the preset.name sentinel, not the default font family",
+        )
         assertTrue(
-            captured is FontUninstaller.UninstallResult.Failure,
-            "non-curated uninstall must fire Failure callback, got: $captured",
+            failure.message.contains("non-curated"),
+            "message must signal non-curated origin",
         )
         verify(exactly = 0) { progressMgr.run(any<Task.Backgroundable>()) }
     }

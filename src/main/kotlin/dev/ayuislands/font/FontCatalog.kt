@@ -1,5 +1,7 @@
 package dev.ayuislands.font
 
+import org.jetbrains.annotations.VisibleForTesting
+
 /**
  * Static catalog of fonts that the plugin can auto-install at runtime.
  *
@@ -45,7 +47,7 @@ object FontCatalog {
     private const val APPROX_MAPLE_MB = 2
     private const val APPROX_MONASPACE_MB = 4
 
-    @org.jetbrains.annotations.VisibleForTesting
+    @VisibleForTesting
     internal val entries: List<Entry> =
         listOf(
             Entry(

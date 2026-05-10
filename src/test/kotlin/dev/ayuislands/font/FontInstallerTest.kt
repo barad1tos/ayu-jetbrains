@@ -280,12 +280,11 @@ class FontInstallerTest {
     }
 
     @Test
-    fun `install fires Failure callback for non-curated preset and skips ProgressManager`() {
-        // Issue #164 follow-up — visibility-gate bypass with CUSTOM must NOT
-        // hang the caller waiting for a callback that never fires. The previous
-        // shape (LOG.warn + return) silently dropped onComplete, which would
-        // strand any progress-tracking caller (e.g. onboarding's installingFonts
-        // set + spinner). Lock the contract: callback fires, task is never queued.
+    fun `install fires NON_CURATED Failure callback and skips ProgressManager`() {
+        // Round-2 review: visibility-gate bypass with CUSTOM must NOT hang the
+        // caller waiting for a callback that never fires. Failure must use the
+        // typed NON_CURATED kind (not UNKNOWN — that copy reads "Please report",
+        // misleading users about an intentional skip). Task is never queued.
         mockkStatic(com.intellij.openapi.progress.ProgressManager::class)
         val progressMgr = mockk<com.intellij.openapi.progress.ProgressManager>(relaxed = true)
         every {
@@ -296,20 +295,18 @@ class FontInstallerTest {
         var captured: FontInstaller.InstallResult? = null
         FontInstaller.install(FontPreset.CUSTOM, project = null) { captured = it }
 
-        assertTrue(
-            captured is FontInstaller.InstallResult.Failure,
-            "non-curated install must fire Failure callback, got: $captured",
-        )
-        assertEquals(FontInstaller.FailureKind.UNKNOWN, (captured as FontInstaller.InstallResult.Failure).kind)
+        val failure = captured as? FontInstaller.InstallResult.Failure
+        assertTrue(failure != null, "non-curated install must fire Failure callback, got: $captured")
+        assertEquals(FontInstaller.FailureKind.NON_CURATED, failure.kind)
+        assertTrue(failure.message.contains("non-curated"), "message must signal non-curated origin")
         verify(exactly = 0) { progressMgr.run(any<com.intellij.openapi.progress.Task.Backgroundable>()) }
     }
 
     @Test
-    fun `applyOnly invokes applicator for non-curated preset without notification`() {
-        // Issue #164 follow-up — applyOnly is the asymmetric path: applicator
-        // still runs (the font family for CUSTOM lives in user settings, not
-        // the catalog), but the failure-notification needs entry.displayName
-        // and is skipped when entry is null. Lock both halves of that contract.
+    fun `applyOnly invokes applicator with CUSTOM-decoded settings for non-curated preset`() {
+        // Round-2 review: assert applicator runs with the RIGHT preset, not
+        // any preset. Previous test used `any()` and would pass on a future
+        // refactor that called apply with WHISPER instead of CUSTOM.
         mockkStatic(ApplicationManager::class)
         mockkStatic(Notifications.Bus::class)
         mockkObject(FontPresetApplicator)
@@ -321,16 +318,20 @@ class FontInstallerTest {
 
         FontInstaller.applyOnly(FontPreset.CUSTOM, project = null)
 
-        verify(exactly = 1) { FontPresetApplicator.apply(any()) }
+        verify(exactly = 1) {
+            FontPresetApplicator.apply(match { it.fontFamily == FontPreset.CUSTOM.fontFamily })
+        }
+        // Success path — no notification (the "couldn't apply" notification is
+        // for the catch branch, not the happy path).
         verify(exactly = 0) { Notifications.Bus.notify(any<Notification>(), null) }
     }
 
     @Test
-    fun `applyOnly skips notification when applicator throws and preset is non-curated`() {
-        // Same path, throwing case: applicator throws, entry is null, the
-        // catch block must log + skip notification (no displayName available).
-        // Verifies the silent-failure-hunter IMPORTANT-2 fix didn't introduce
-        // a notification-on-CUSTOM regression.
+    fun `applyOnly emits generic notification when applicator throws and preset is non-curated`() {
+        // Round-2 review: when entry is null AND apply throws, the user clicked
+        // something that visibly failed. Round 1 left this path silent (log
+        // only); Round 2 emits a generic notification pointing to manual
+        // recovery (Settings → Editor → Font). Lock the new contract.
         mockkStatic(ApplicationManager::class)
         mockkStatic(Notifications.Bus::class)
         mockkObject(FontPresetApplicator)
@@ -342,7 +343,14 @@ class FontInstallerTest {
 
         FontInstaller.applyOnly(FontPreset.CUSTOM, project = null)
 
-        verify(exactly = 0) { Notifications.Bus.notify(any<Notification>(), null) }
+        verify(exactly = 1) {
+            Notifications.Bus.notify(
+                match<Notification> {
+                    it.content.contains("Settings") && it.content.contains("Editor")
+                },
+                null,
+            )
+        }
     }
 
     @Test

@@ -56,6 +56,15 @@ object FontInstaller {
         PERMISSION_DENIED,
         DROPDOWN_STALE,
         APPLY_FAILED,
+
+        /**
+         * Caller invoked install/uninstall with a non-curated preset (CUSTOM)
+         * that has no install pipeline. Distinguishes "we deliberately skipped
+         * this" from `UNKNOWN` ("we have no idea what went wrong"). Notification
+         * code paths that route on `UNKNOWN` to "please file a bug" must not
+         * route on `NON_CURATED` — this is intentional plugin behaviour.
+         */
+        NON_CURATED,
         UNKNOWN,
     }
 
@@ -91,8 +100,8 @@ object FontInstaller {
                     LOG.warn("FontInstaller.install called for non-curated preset $preset; ignoring")
                     onComplete(
                         InstallResult.Failure(
-                            kind = FailureKind.UNKNOWN,
-                            message = "No catalog entry for preset $preset (non-curated)",
+                            kind = FailureKind.NON_CURATED,
+                            message = "No catalog entry for preset ${preset.name} (non-curated)",
                         ),
                     )
                     return
@@ -111,20 +120,34 @@ object FontInstaller {
         preset: FontPreset,
         project: Project?,
     ) {
-        // applyOnly does not need install metadata: FontSettings.decode + the
-        // applicator can run for any preset (the font family for CUSTOM lives
-        // in user settings, not the catalog). The catalog lookup is only used
-        // to surface a failure-notification with a real displayName when the
-        // applicator throws. For CUSTOM we still log the throw so a future
-        // regression surfaces in idea.log even without a notification.
+        // applyOnly does not need install metadata: FontSettings.decode +
+        // FontPresetApplicator can run for any preset — for CUSTOM the family
+        // is read from `preset.fontFamily` (default) or the encoded settings
+        // string when one is supplied. The catalog lookup only supplies the
+        // displayName for the rich failure notification. When the lookup is
+        // null and the applicator throws, we emit a generic notification so
+        // the user gets feedback instead of a silent log line.
         val entry = FontCatalog.forPreset(preset)
         ApplicationManager.getApplication().invokeLater {
             try {
                 FontPresetApplicator.apply(FontSettings.decode(null, preset))
             } catch (exception: RuntimeException) {
-                LOG.warn("FontPresetApplicator.apply failed (applyOnly, preset=$preset)", exception)
+                LOG.warn("FontPresetApplicator.apply failed (applyOnly, preset=${preset.name})", exception)
                 if (entry != null) {
                     notify(entry, project, FailureKind.APPLY_FAILED, NotificationType.WARNING)
+                } else {
+                    // No catalog entry — give the user a generic notification
+                    // pointing at Settings → Editor → Font, the manual recovery path.
+                    Notifications.Bus.notify(
+                        Notification(
+                            NOTIFICATION_GROUP,
+                            NOTIFICATION_TITLE,
+                            "Couldn't apply ${preset.fontFamily}. " +
+                                "Open Settings → Editor → Font to set it manually.",
+                            NotificationType.WARNING,
+                        ),
+                        project,
+                    )
                 }
             }
         }
@@ -421,6 +444,9 @@ object FontInstaller {
             FailureKind.APPLY_FAILED ->
                 "Installed, but couldn't apply automatically. " +
                     "Open Settings → Editor → Font to pick ${entry.familyName}."
+            FailureKind.NON_CURATED ->
+                "This preset has no install pipeline — set the editor font manually " +
+                    "in Settings → Editor → Font."
             FailureKind.UNKNOWN ->
                 "Unexpected error. Please report at $GH_ISSUES_URL."
         }

@@ -106,10 +106,14 @@ object FontUninstaller {
             FontCatalog.forPreset(preset)
                 ?: run {
                     LOG.warn("FontUninstaller.uninstall called for non-curated preset $preset; ignoring")
+                    // familyName uses preset.name (sentinel "CUSTOM") rather than
+                    // preset.fontFamily — the latter is `DEFAULT_CUSTOM_FONT` for
+                    // CUSTOM unless overridden, which would lie to telemetry/logs
+                    // about "we removed JetBrains Mono" when nothing was removed.
                     onComplete(
                         UninstallResult.Failure(
-                            familyName = preset.fontFamily,
-                            message = "No catalog entry for preset $preset (non-curated)",
+                            familyName = preset.name,
+                            message = "No catalog entry for preset ${preset.name} (non-curated)",
                         ),
                     )
                     return

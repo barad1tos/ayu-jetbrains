@@ -22,13 +22,36 @@ import kotlin.test.assertTrue
  */
 class VcsDiffSchemeColorsTest {
     @Test
-    fun `selections stay translucent across all variants (alpha-led, not solid)`() {
+    fun `selection backgrounds match upstream Ayu translucent values`() {
         assertColorOption("/themes/AyuIslandsDark.xml", "SELECTION_BACKGROUND", "3388FF40")
         assertColorOption("/themes/AyuIslandsDark.xml", "INACTIVE_SELECTION_BACKGROUND", "80B5FF26")
         assertColorOption("/themes/AyuIslandsMirage.xml", "SELECTION_BACKGROUND", "409FFF40")
         assertColorOption("/themes/AyuIslandsMirage.xml", "INACTIVE_SELECTION_BACKGROUND", "409FFF21")
         assertColorOption("/themes/AyuIslandsLight.xml", "SELECTION_BACKGROUND", "035BD626")
         assertColorOption("/themes/AyuIslandsLight.xml", "INACTIVE_SELECTION_BACKGROUND", "035BD612")
+    }
+
+    @Test
+    fun `selection backgrounds carry alpha less than fully opaque on every variant`() {
+        // Round-2 review: previous "alpha-led, not solid" test name promised an
+        // invariant the assertEquals(hex) didn't enforce — solid alpha 0xFF
+        // would have passed. This test names the actual constraint: highlighted
+        // text must NEVER read as a solid blue block on any variant.
+        listOf(
+            "/themes/AyuIslandsDark.xml",
+            "/themes/AyuIslandsMirage.xml",
+            "/themes/AyuIslandsLight.xml",
+        ).forEach { resource ->
+            listOf("SELECTION_BACKGROUND", "INACTIVE_SELECTION_BACKGROUND").forEach { key ->
+                val hex = colorOption(resource, key).hex
+                assertEquals(8, hex.length, "$resource $key must include alpha channel (8-char hex)")
+                val alpha = hex.takeLast(2).toInt(16)
+                assertTrue(
+                    alpha < 0xFF,
+                    "$resource $key alpha must be < 0xFF (translucent), got 0x${hex.takeLast(2)}",
+                )
+            }
+        }
     }
 
     @Test
