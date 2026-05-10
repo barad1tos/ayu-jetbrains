@@ -103,15 +103,17 @@ class FontPreviewComponent : JComponent() {
                 ?: java.awt.Color.GRAY
         g2.color = disabledFg
         g2.font = JBUI.Fonts.smallFont().deriveFont(Font.ITALIC)
-        // For curated presets the catalog family is the install target; for
-        // non-curated (CUSTOM) the user picked a family explicitly via
-        // updateFontFamily, so name THAT family in the fallback message
-        // instead of the catalog default ("JetBrains Mono"). Without this
-        // branch the user sees a confusing "Install JetBrains Mono to
-        // preview" while the summary line shows the family they chose.
+        // Curated presets advertise their canonical family as the install
+        // target; non-curated (CUSTOM) advertise whatever the user picked,
+        // since the live preview would have rendered with that family.
         val displayedFamily =
             if (currentPreset.isCurated) currentPreset.fontFamily else resolvedFontFamily
-        val message = "Install $displayedFamily to preview"
+        val message =
+            if (displayedFamily.isBlank()) {
+                "Choose a font family to preview"
+            } else {
+                "Install $displayedFamily to preview"
+            }
         val metrics = g2.fontMetrics
         g2.drawString(
             message,

@@ -8,6 +8,7 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.GraphicsEnvironment
+import java.awt.HeadlessException
 import java.io.File
 import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
@@ -215,6 +216,67 @@ class FontDetectorTest {
         every { GraphicsEnvironment.getLocalGraphicsEnvironment() } returns ge
         every { ge.availableFontFamilyNames } returns availableFonts
         FontDetector.invalidateCache()
+    }
+
+    // ---- isFamilyInstalled (Custom-preview lookup) ----
+
+    @Test
+    fun `isFamilyInstalled returns true when system font matches case-insensitively`() {
+        // installedFonts() lowercases the env names; the helper must lowercase
+        // the input symmetrically, otherwise uppercase user input ("Inter")
+        // never matches the cache.
+        stubSettingsAndGraphicsEnv(AyuIslandsState(), arrayOf("Inter", "Helvetica"))
+        assertTrue(FontDetector.isFamilyInstalled("Inter"))
+        assertTrue(FontDetector.isFamilyInstalled("INTER"))
+        assertTrue(FontDetector.isFamilyInstalled("inter"))
+    }
+
+    @Test
+    fun `isFamilyInstalled returns false for unknown family`() {
+        stubSettingsAndGraphicsEnv(AyuIslandsState(), arrayOf("Inter", "Helvetica"))
+        assertFalse(FontDetector.isFamilyInstalled("MesloLGLDZ Nerd Font Mono"))
+    }
+
+    @Test
+    fun `isFamilyInstalled returns false for blank input (defensive empty-state contract)`() {
+        // Locks the current contract: blank family is treated as not installed,
+        // not as a wildcard match. If a refactor ever adds an early return that
+        // short-circuits to true on blank, this test forces the discussion.
+        stubSettingsAndGraphicsEnv(AyuIslandsState(), arrayOf("Inter"))
+        assertFalse(FontDetector.isFamilyInstalled(""))
+        assertFalse(FontDetector.isFamilyInstalled("   "))
+    }
+
+    @Test
+    fun `isFamilyInstalled returns false on HeadlessException (does not propagate freeze)`() {
+        // Round-1 review CRITICAL #1: a propagating throw here would reproduce
+        // the issue #164 panel-build freeze with a different exception class.
+        // The helper must catch and return false so the preview falls back to
+        // "Install X to preview" instead of stranding the panel.
+        mockkObject(AyuIslandsSettings.Companion)
+        val settings = AyuIslandsSettings().apply { loadState(AyuIslandsState()) }
+        every { AyuIslandsSettings.getInstance() } returns settings
+
+        mockkStatic(GraphicsEnvironment::class)
+        every { GraphicsEnvironment.getLocalGraphicsEnvironment() } throws HeadlessException()
+        FontDetector.invalidateCache()
+
+        assertFalse(FontDetector.isFamilyInstalled("Inter"))
+    }
+
+    @Test
+    fun `isFamilyInstalled returns false on RuntimeException (does not propagate freeze)`() {
+        // Same defense for a generic AWT/JBR throw (e.g. macOS font cache
+        // corruption surfaces as InternalError or RuntimeException).
+        mockkObject(AyuIslandsSettings.Companion)
+        val settings = AyuIslandsSettings().apply { loadState(AyuIslandsState()) }
+        every { AyuIslandsSettings.getInstance() } returns settings
+
+        mockkStatic(GraphicsEnvironment::class)
+        every { GraphicsEnvironment.getLocalGraphicsEnvironment() } throws RuntimeException("boom")
+        FontDetector.invalidateCache()
+
+        assertFalse(FontDetector.isFamilyInstalled("Inter"))
     }
 
     @Test
