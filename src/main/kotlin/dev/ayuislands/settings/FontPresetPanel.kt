@@ -377,12 +377,21 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
                         AccentApplicator.resolveFocusedProject()
                             ?: run {
                                 LOG.warn(
-                                    "Run-in-Terminal could not resolve focused project; " +
-                                        "clipboard set, terminal not opened",
+                                    "Run-in-Terminal: visibility gate bypassed — focused project " +
+                                        "could not be resolved; clipboard set, terminal not opened",
                                 )
                                 return@link
                             }
-                    ToolWindowManager.getInstance(project).getToolWindow("Terminal")?.activate(null)
+                    val toolWindow =
+                        ToolWindowManager.getInstance(project).getToolWindow("Terminal")
+                            ?: run {
+                                LOG.warn(
+                                    "Run-in-Terminal: visibility gate bypassed — Terminal tool " +
+                                        "window unavailable; clipboard set, terminal not opened",
+                                )
+                                return@link
+                            }
+                    toolWindow.activate(null)
                 }
             }
             val combo = ComboBox(arrayOf("Built-in Terminal", "System Terminal"))

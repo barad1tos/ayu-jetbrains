@@ -318,8 +318,12 @@ class FontInstallerTest {
 
         FontInstaller.applyOnly(FontPreset.CUSTOM, project = null)
 
+        // Hard-coded "JetBrains Mono" rather than `FontPreset.CUSTOM.fontFamily`
+        // so the test fails loudly if either side (preset constant OR apply call)
+        // moves independently. Coupling to the same enum field both sides would
+        // weaken the lock to "they happen to agree right now".
         verify(exactly = 1) {
-            FontPresetApplicator.apply(match { it.fontFamily == FontPreset.CUSTOM.fontFamily })
+            FontPresetApplicator.apply(match { it.fontFamily == "JetBrains Mono" })
         }
         // Success path — no notification (the "couldn't apply" notification is
         // for the catch branch, not the happy path).

@@ -1,9 +1,20 @@
 package dev.ayuislands.settings
 
+import com.intellij.openapi.observable.properties.AtomicBooleanProperty
+import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.font.FontCatalog
+import dev.ayuislands.font.FontDetector
+import dev.ayuislands.font.FontInstaller
 import dev.ayuislands.font.FontPreset
+import dev.ayuislands.font.FontStatus
+import dev.ayuislands.font.FontUninstaller
 import dev.ayuislands.onboarding.PremiumOnboardingPanel
+import io.mockk.every
+import io.mockk.mockkObject
+import io.mockk.unmockkAll
+import io.mockk.verify
 import javax.swing.JLabel
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -31,6 +42,11 @@ import kotlin.test.assertTrue
  * raw bytes. No Swing / DSL runtime is required.
  */
 class FontPresetPanelCustomBytecodeTest {
+    @AfterTest
+    fun cleanup() {
+        unmockkAll()
+    }
+
     @Test
     fun `FontPresetPanel bytecode references nullable forPreset (issue #164 defensive lock)`() {
         // Defensive call sites in triggerLifecycleAction, buildInstallHintRow,
@@ -115,24 +131,20 @@ class FontPresetPanelCustomBytecodeTest {
 
     @Test
     fun `updateFontMissing runs without throwing when pendingPreset is CUSTOM (issue #164 runtime lock)`() {
-        // Round-2 review C1: bytecode tests above prove the symbols are right,
-        // but they pass even if a future regression writes
-        // `forPreset(preset)!!.brewCaskSlug` (still references "forPreset"). The
-        // actual freeze in 2.6.1 happened at panel-build time when the
+        // Round-2 C1: bytecode tests prove the symbols are right but pass on a
+        // future `forPreset(preset)!!.brewCaskSlug` regression. The actual
+        // 2.6.1 freeze happened at panel-build time when the
         // installHintLabel?.let { FontCatalog.forPreset(...).brewCaskSlug }
-        // lambda evaluated for CUSTOM. Run that lambda directly: set
-        // pendingPreset="CUSTOM", attach a real JLabel to installHintLabel,
-        // invoke updateFontMissing() — must not throw, must leave label.text
-        // empty (no Brew cask slug for non-curated).
+        // lambda evaluated for CUSTOM. Run that lambda directly with
+        // pendingPreset="CUSTOM" and assert the visibility-gate booleans
+        // collapse to false (Round-3 strengthening — the original test only
+        // asserted label.text==""; that left the `preset.isCurated &&` guard
+        // on the boolean assignments untested).
         val panel = FontPresetPanel()
         setPrivateField(panel, "pendingPreset", FontPreset.CUSTOM.name)
-        setPrivateField(panel, "pendingEnabled", false) // collapses to NOT_INSTALLED, skips FontDetector
+        setPrivateField(panel, "pendingEnabled", true) // would force-enable for curated; CUSTOM still collapses
         val label = JLabel("placeholder")
         setPrivateField(panel, "installHintLabel", label)
-
-        // Initialize the lateinit `availability` field so the previewComponent
-        // line at the bottom of updateFontMissing doesn't NPE — empty map is
-        // fine since updatePreset takes a preset parameter we don't care about.
         setPrivateField(panel, "availability", emptyMap<FontPreset, Boolean>())
 
         invokePrivateMethod(panel, "updateFontMissing")
@@ -142,28 +154,80 @@ class FontPresetPanelCustomBytecodeTest {
             label.text,
             "installHintLabel.text must be empty for CUSTOM (no Brew cask slug for non-curated)",
         )
+        // Visibility-gate invariant: all three booleans must be false for
+        // non-curated presets regardless of pendingEnabled. A future regression
+        // that strips `preset.isCurated &&` from the boolean assignments would
+        // re-expose the install row for CUSTOM and reproduce issue #164.
+        assertFalse(getBooleanProperty(panel, "fontMissing"), "fontMissing must be false for CUSTOM")
+        assertFalse(getBooleanProperty(panel, "fontInstalled"), "fontInstalled must be false for CUSTOM")
+        assertFalse(getBooleanProperty(panel, "fontCorrupted"), "fontCorrupted must be false for CUSTOM")
     }
 
     @Test
-    fun `triggerLifecycleAction does not throw when pendingPreset is CUSTOM`() {
-        // Round-2 review C1: the install-row link callback routes through
-        // triggerLifecycleAction. With pendingPreset=CUSTOM, the new LOG.warn
-        // path must run cleanly: forPreset returns null, the warn fires, the
-        // method returns without queuing any install/uninstall task. The catch
-        // block surrounding the body would also swallow any unexpected throw,
-        // but the goal here is to assert the happy path of the defensive guard.
+    fun `updateFontMissing handles curated preset with pendingEnabled and stubbed FontDetector`() {
+        // Round-3 I2: original updateFontMissing test ran with
+        // pendingEnabled=false to dodge FontDetector.status(). That left the
+        // FontDetector branch uncovered — exactly the kind of "build-time
+        // evaluation crashes" path issue #164 was about. Cover it explicitly
+        // here with a curated preset and stubbed status, asserting the boolean
+        // assignments mirror the status snapshot.
+        mockkObject(FontDetector)
+        every { FontDetector.status(FontPreset.WHISPER) } returns FontStatus.HEALTHY
+
+        val panel = FontPresetPanel()
+        setPrivateField(panel, "pendingPreset", FontPreset.WHISPER.name)
+        setPrivateField(panel, "pendingEnabled", true)
+        setPrivateField(panel, "installHintLabel", JLabel())
+        setPrivateField(panel, "availability", mapOf(FontPreset.WHISPER to true))
+
+        invokePrivateMethod(panel, "updateFontMissing")
+
+        assertFalse(getBooleanProperty(panel, "fontMissing"), "WHISPER healthy: fontMissing must be false")
+        assertTrue(getBooleanProperty(panel, "fontInstalled"), "WHISPER healthy: fontInstalled must be true")
+        assertFalse(getBooleanProperty(panel, "fontCorrupted"), "WHISPER healthy: fontCorrupted must be false")
+    }
+
+    @Test
+    fun `triggerLifecycleAction with CUSTOM hits visibility-gate guard and never dispatches install or uninstall`() {
+        // Round-3 C1: the original "does not throw" test was masked by the
+        // outer try/catch — AccentApplicator.resolveFocusedProject() throws on
+        // a plain JVM (no platform Application bootstrapped) and the catch
+        // swallows the throw, so the test passed without ever reaching the
+        // forPreset null-guard. Stub the platform call AND the install /
+        // uninstall objects, then assert via verify(exactly = 0) that no
+        // install/uninstall was dispatched. That's the actual behavior we
+        // want to lock for the CUSTOM defensive path.
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.resolveFocusedProject() } returns null
+        mockkObject(FontInstaller)
+        mockkObject(FontUninstaller)
+
         val panel = FontPresetPanel()
         setPrivateField(panel, "pendingPreset", FontPreset.CUSTOM.name)
         setPrivateField(panel, "pendingEnabled", false)
         setPrivateField(panel, "availability", emptyMap<FontPreset, Boolean>())
 
         val method =
-            FontPresetPanel::class.java.getDeclaredMethod("triggerLifecycleAction", Boolean::class.javaPrimitiveType)
+            FontPresetPanel::class.java.getDeclaredMethod(
+                "triggerLifecycleAction",
+                Boolean::class.javaPrimitiveType,
+            )
         method.isAccessible = true
-        // Should return cleanly — visibility-gate-bypass guard fires LOG.warn
-        // and returns without dispatching to FontInstaller / FontUninstaller.
-        method.invoke(panel, false)
-        method.invoke(panel, true)
+        method.invoke(panel, false) // install attempt
+        method.invoke(panel, true) // uninstall attempt
+
+        verify(exactly = 0) { FontInstaller.install(any(), any(), any()) }
+        verify(exactly = 0) { FontUninstaller.uninstall(any(), any(), any()) }
+    }
+
+    private fun getBooleanProperty(
+        target: Any,
+        name: String,
+    ): Boolean {
+        val field = FontPresetPanel::class.java.getDeclaredField(name)
+        field.isAccessible = true
+        val property = field.get(target) as AtomicBooleanProperty
+        return property.get()
     }
 
     private fun setPrivateField(
