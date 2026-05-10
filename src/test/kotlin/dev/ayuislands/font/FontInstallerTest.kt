@@ -280,6 +280,72 @@ class FontInstallerTest {
     }
 
     @Test
+    fun `install fires Failure callback for non-curated preset and skips ProgressManager`() {
+        // Issue #164 follow-up — visibility-gate bypass with CUSTOM must NOT
+        // hang the caller waiting for a callback that never fires. The previous
+        // shape (LOG.warn + return) silently dropped onComplete, which would
+        // strand any progress-tracking caller (e.g. onboarding's installingFonts
+        // set + spinner). Lock the contract: callback fires, task is never queued.
+        mockkStatic(com.intellij.openapi.progress.ProgressManager::class)
+        val progressMgr = mockk<com.intellij.openapi.progress.ProgressManager>(relaxed = true)
+        every {
+            com.intellij.openapi.progress.ProgressManager
+                .getInstance()
+        } returns progressMgr
+
+        var captured: FontInstaller.InstallResult? = null
+        FontInstaller.install(FontPreset.CUSTOM, project = null) { captured = it }
+
+        assertTrue(
+            captured is FontInstaller.InstallResult.Failure,
+            "non-curated install must fire Failure callback, got: $captured",
+        )
+        assertEquals(FontInstaller.FailureKind.UNKNOWN, (captured as FontInstaller.InstallResult.Failure).kind)
+        verify(exactly = 0) { progressMgr.run(any<com.intellij.openapi.progress.Task.Backgroundable>()) }
+    }
+
+    @Test
+    fun `applyOnly invokes applicator for non-curated preset without notification`() {
+        // Issue #164 follow-up — applyOnly is the asymmetric path: applicator
+        // still runs (the font family for CUSTOM lives in user settings, not
+        // the catalog), but the failure-notification needs entry.displayName
+        // and is skipped when entry is null. Lock both halves of that contract.
+        mockkStatic(ApplicationManager::class)
+        mockkStatic(Notifications.Bus::class)
+        mockkObject(FontPresetApplicator)
+        val appMock = mockk<Application>(relaxed = true)
+        every { ApplicationManager.getApplication() } returns appMock
+        every { appMock.invokeLater(any()) } answers { firstArg<Runnable>().run() }
+        every { FontPresetApplicator.apply(any()) } answers { /* no-op */ }
+        every { Notifications.Bus.notify(any<Notification>(), null) } answers { }
+
+        FontInstaller.applyOnly(FontPreset.CUSTOM, project = null)
+
+        verify(exactly = 1) { FontPresetApplicator.apply(any()) }
+        verify(exactly = 0) { Notifications.Bus.notify(any<Notification>(), null) }
+    }
+
+    @Test
+    fun `applyOnly skips notification when applicator throws and preset is non-curated`() {
+        // Same path, throwing case: applicator throws, entry is null, the
+        // catch block must log + skip notification (no displayName available).
+        // Verifies the silent-failure-hunter IMPORTANT-2 fix didn't introduce
+        // a notification-on-CUSTOM regression.
+        mockkStatic(ApplicationManager::class)
+        mockkStatic(Notifications.Bus::class)
+        mockkObject(FontPresetApplicator)
+        val appMock = mockk<Application>(relaxed = true)
+        every { ApplicationManager.getApplication() } returns appMock
+        every { appMock.invokeLater(any()) } answers { firstArg<Runnable>().run() }
+        every { FontPresetApplicator.apply(any()) } throws RuntimeException("boom")
+        every { Notifications.Bus.notify(any<Notification>(), null) } answers { }
+
+        FontInstaller.applyOnly(FontPreset.CUSTOM, project = null)
+
+        verify(exactly = 0) { Notifications.Bus.notify(any<Notification>(), null) }
+    }
+
+    @Test
     fun `applyOnly notifies user when apply fails (regression for silent warn)`() {
         mockkStatic(ApplicationManager::class)
         mockkStatic(Notifications.Bus::class)

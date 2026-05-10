@@ -80,14 +80,21 @@ object FontInstaller {
         project: Project?,
         onComplete: (InstallResult) -> Unit,
     ) {
-        // Non-curated presets (currently only CUSTOM) have no install pipeline —
-        // user already chose their own font. Reaching this from UI requires a
-        // visibility-gate bypass; log + drop the call rather than throw to keep
-        // hot paths defensive against future caller changes (issue #164).
+        // Non-curated presets (CUSTOM) have no install pipeline — the user
+        // already chose their own font. Reaching this from UI requires a
+        // visibility-gate bypass; log + fire onComplete with a Failure so
+        // callers that track progress (e.g. an onboarding spinner backed by
+        // installingFonts) don't hang waiting for a callback that never came.
         val entry =
             FontCatalog.forPreset(preset)
                 ?: run {
                     LOG.warn("FontInstaller.install called for non-curated preset $preset; ignoring")
+                    onComplete(
+                        InstallResult.Failure(
+                            kind = FailureKind.UNKNOWN,
+                            message = "No catalog entry for preset $preset (non-curated)",
+                        ),
+                    )
                     return
                 }
         val task =
@@ -104,16 +111,18 @@ object FontInstaller {
         preset: FontPreset,
         project: Project?,
     ) {
-        // Same null-safe stance as install() — CUSTOM has no catalog entry, but
-        // applyOnly's branch CAN still call FontPresetApplicator (font preference
-        // is set via FontSettings.decode without needing install metadata). Skip
-        // only the failure-notification path that needs the entry's displayName.
+        // applyOnly does not need install metadata: FontSettings.decode + the
+        // applicator can run for any preset (the font family for CUSTOM lives
+        // in user settings, not the catalog). The catalog lookup is only used
+        // to surface a failure-notification with a real displayName when the
+        // applicator throws. For CUSTOM we still log the throw so a future
+        // regression surfaces in idea.log even without a notification.
         val entry = FontCatalog.forPreset(preset)
         ApplicationManager.getApplication().invokeLater {
             try {
                 FontPresetApplicator.apply(FontSettings.decode(null, preset))
             } catch (exception: RuntimeException) {
-                LOG.warn("FontPresetApplicator.apply failed (applyOnly)", exception)
+                LOG.warn("FontPresetApplicator.apply failed (applyOnly, preset=$preset)", exception)
                 if (entry != null) {
                     notify(entry, project, FailureKind.APPLY_FAILED, NotificationType.WARNING)
                 }

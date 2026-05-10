@@ -4,7 +4,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -12,35 +11,35 @@ class FontCatalogTest {
     // ---- forPreset / requirePreset lookups ----
 
     @Test
-    fun `forPreset WHISPER returns Victor Mono`() {
+    fun `requirePreset WHISPER returns Victor Mono`() {
         val entry = FontCatalog.requirePreset(FontPreset.WHISPER)
         assertEquals("Victor Mono", entry.familyName)
         assertEquals("Victor Mono", entry.displayName)
     }
 
     @Test
-    fun `forPreset AMBIENT returns Maple Mono`() {
+    fun `requirePreset AMBIENT returns Maple Mono`() {
         val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
         assertEquals("Maple Mono", entry.familyName)
         assertEquals("Maple Mono", entry.displayName)
     }
 
     @Test
-    fun `forPreset NEON returns Monaspace Neon`() {
+    fun `requirePreset NEON returns Monaspace Neon`() {
         val entry = FontCatalog.requirePreset(FontPreset.NEON)
         assertEquals("Monaspace Neon", entry.familyName)
         assertEquals("Monaspace Neon", entry.displayName)
     }
 
     @Test
-    fun `forPreset CYBERPUNK returns Monaspace Xenon`() {
+    fun `requirePreset CYBERPUNK returns Monaspace Xenon`() {
         val entry = FontCatalog.requirePreset(FontPreset.CYBERPUNK)
         assertEquals("Monaspace Xenon", entry.familyName)
         assertEquals("Monaspace Xenon", entry.displayName)
     }
 
     @Test
-    fun `forPreset CUSTOM returns null (issue #164 — non-curated has no catalog entry)`() {
+    fun `forPreset CUSTOM returns null (issue #164 - non-curated has no catalog entry)`() {
         // RED-test for issue #164: pre-2.6.2 forPreset threw IllegalStateException here,
         // freezing the Settings page on "Loading…" forever for users with persisted
         // fontPresetName="CUSTOM". forPreset must return null so defensive callers can
@@ -56,14 +55,6 @@ class FontCatalogTest {
         // must fail fast.
         assertFailsWith<IllegalStateException> {
             FontCatalog.requirePreset(FontPreset.CUSTOM)
-        }
-    }
-
-    @Test
-    fun `forPreset returns non-null entry for every curated preset`() {
-        val curatedPresets = FontPreset.entries.filter { it.isCurated }
-        for (preset in curatedPresets) {
-            assertNotNull(FontCatalog.forPreset(preset), "curated preset $preset must resolve to a catalog entry")
         }
     }
 

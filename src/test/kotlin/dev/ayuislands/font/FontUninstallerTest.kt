@@ -293,6 +293,27 @@ class FontUninstallerTest {
         verify(exactly = 1) { progressMgr.run(any<Task.Backgroundable>()) }
     }
 
+    @Test
+    fun `uninstall fires Failure callback for non-curated preset and skips ProgressManager`() {
+        // Issue #164 follow-up — the non-curated defensive guard must invoke
+        // onComplete with a Failure rather than silently dropping the callback.
+        // Symmetric to FontInstaller.install(CUSTOM). Locks the contract at the
+        // public entry point so a future refactor can't strand a progress-
+        // tracking caller in a permanent in-flight state.
+        mockkStatic(ProgressManager::class)
+        val progressMgr = mockk<ProgressManager>(relaxed = true)
+        every { ProgressManager.getInstance() } returns progressMgr
+
+        var captured: FontUninstaller.UninstallResult? = null
+        FontUninstaller.uninstall(FontPreset.CUSTOM, null) { captured = it }
+
+        assertTrue(
+            captured is FontUninstaller.UninstallResult.Failure,
+            "non-curated uninstall must fire Failure callback, got: $captured",
+        )
+        verify(exactly = 0) { progressMgr.run(any<Task.Backgroundable>()) }
+    }
+
     // ---- user-related edge cases ----
 
     @Test

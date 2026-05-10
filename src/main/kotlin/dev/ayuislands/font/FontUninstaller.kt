@@ -97,14 +97,21 @@ object FontUninstaller {
         project: Project?,
         onComplete: (UninstallResult) -> Unit,
     ) {
-        // Issue #164: non-curated presets (CUSTOM) have no install metadata to
-        // uninstall against. UI rows that route here are gated by fontInstalled,
-        // which is force-false for non-curated, so this branch should be unreachable
-        // under normal flow. Defensive log + drop the call rather than throw.
+        // Non-curated presets (CUSTOM) have no install metadata to uninstall.
+        // UI rows that route here are gated by fontInstalled, which is
+        // force-false for non-curated; this is unreachable under normal flow.
+        // Defensive log + fire onComplete with a Failure so callers tracking
+        // progress don't hang waiting for a callback that never fires.
         val entry =
             FontCatalog.forPreset(preset)
                 ?: run {
                     LOG.warn("FontUninstaller.uninstall called for non-curated preset $preset; ignoring")
+                    onComplete(
+                        UninstallResult.Failure(
+                            familyName = preset.fontFamily,
+                            message = "No catalog entry for preset $preset (non-curated)",
+                        ),
+                    )
                     return
                 }
         val task =

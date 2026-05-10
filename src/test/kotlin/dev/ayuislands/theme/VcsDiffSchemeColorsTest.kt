@@ -13,21 +13,26 @@ import kotlin.test.assertTrue
 
 /**
  * Regression lock for VCS/diff colors that are easy to judge only after
- * opening a diff editor. Dark-family selections must stay translucent, and
- * modified highlights must stay visibly blue instead of drifting toward the
- * same green band used for added lines.
+ * opening a diff editor. Dark, Mirage, and Light variants share the same
+ * key set; this test pins the upstream Ayu blue ramp on every variant so a
+ * future palette tweak can't silently regress one family while the other
+ * stays correct. Modified backgrounds also stay visibly distinct from added
+ * (green) backgrounds — a colour-distance assertion catches "they look too
+ * similar on dense diffs" before users do.
  */
 class VcsDiffSchemeColorsTest {
     @Test
-    fun `dark-family selections match upstream Ayu translucent selection colors`() {
+    fun `selections stay translucent across all variants (alpha-led, not solid)`() {
         assertColorOption("/themes/AyuIslandsDark.xml", "SELECTION_BACKGROUND", "3388FF40")
         assertColorOption("/themes/AyuIslandsDark.xml", "INACTIVE_SELECTION_BACKGROUND", "80B5FF26")
         assertColorOption("/themes/AyuIslandsMirage.xml", "SELECTION_BACKGROUND", "409FFF40")
         assertColorOption("/themes/AyuIslandsMirage.xml", "INACTIVE_SELECTION_BACKGROUND", "409FFF21")
+        assertColorOption("/themes/AyuIslandsLight.xml", "SELECTION_BACKGROUND", "035BD626")
+        assertColorOption("/themes/AyuIslandsLight.xml", "INACTIVE_SELECTION_BACKGROUND", "035BD612")
     }
 
     @Test
-    fun `dark-family modified VCS accents use the upstream Ayu blue ramp`() {
+    fun `modified VCS accents use the upstream Ayu blue ramp on every variant`() {
         assertModifiedVcsRamp(
             resource = "/themes/AyuIslandsDark.xml",
             expectedBlue = "73B8FF",
@@ -38,12 +43,18 @@ class VcsDiffSchemeColorsTest {
             expectedBlue = "80BFFF",
             expectedDiffBackground = "405672",
         )
+        assertModifiedVcsRamp(
+            resource = "/themes/AyuIslandsLight.xml",
+            expectedBlue = "478ACC",
+            expectedDiffBackground = "478ACC1F",
+        )
     }
 
     @Test
     fun `modified diff backgrounds are blue-led and separated from added backgrounds`() {
         assertModifiedBackgroundContrast("/themes/AyuIslandsDark.xml")
         assertModifiedBackgroundContrast("/themes/AyuIslandsMirage.xml")
+        assertModifiedBackgroundContrast("/themes/AyuIslandsLight.xml")
     }
 
     private fun assertModifiedVcsRamp(

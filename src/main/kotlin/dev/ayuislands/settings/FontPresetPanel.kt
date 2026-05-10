@@ -261,12 +261,22 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
         try {
             val preset = FontPreset.fromName(pendingPreset)
             val project = AccentApplicator.resolveFocusedProject()
-            // CUSTOM has no install pipeline (issue #164). The Install / Reinstall / Delete
-            // rows that route here are already gated by fontMissing/fontInstalled/fontCorrupted
-            // — none of which can be true for a non-curated preset (see updateFontMissing
-            // L491-494). Defensive null-check for completeness in case a future caller
-            // bypasses the visibility gate.
-            val entry = FontCatalog.forPreset(preset) ?: return
+            // CUSTOM has no install pipeline. The Install / Reinstall / Delete
+            // rows that route here are gated by fontMissing/fontInstalled/
+            // fontCorrupted — none of which can be true for a non-curated
+            // preset (updateFontMissing forces all three to false when
+            // !preset.isCurated). Log + drop here if a future caller ever
+            // bypasses the visibility gate, so the bypass surfaces in idea.log
+            // instead of silently no-op'ing the user's click.
+            val entry =
+                FontCatalog.forPreset(preset)
+                    ?: run {
+                        LOG.warn(
+                            "triggerLifecycleAction reached non-curated preset $preset " +
+                                "(uninstall=$uninstall) — visibility gate bypassed; dropping click",
+                        )
+                        return
+                    }
             val refresh = {
                 ApplicationManager.getApplication().invokeLater {
                     FontDetector.invalidateCache()
@@ -317,12 +327,13 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
 
         row {
             // Build the label eagerly so [installHintLabel] is captured for later
-            // updates from updateFontMissing (it lazily refreshes label.text whenever
-            // the active preset or install status changes). For CUSTOM the catalog
-            // entry is null (issue #164) — the row is also gated by fontMissing
-            // which is force-false for non-curated presets, so the empty text is
-            // never visible to the user. Eagerly evaluating brewCaskSlug here would
-            // otherwise NPE during panel build and freeze Settings on Loading.
+            // updates from updateFontMissing (it lazily refreshes label.text
+            // whenever the active preset or install status changes). For CUSTOM
+            // the catalog entry is null — the row is also gated by fontMissing
+            // which is force-false for non-curated presets, so the empty text
+            // is never on screen. The null-coalesce on the lookup is what stops
+            // panel build from throwing IllegalStateException when CUSTOM is
+            // the persisted preset on first paint.
             val label = JLabel()
             val slug = FontCatalog.forPreset(FontPreset.fromName(pendingPreset))?.brewCaskSlug.orEmpty()
             label.text = if (slug.isNotEmpty()) "Or via Homebrew: brew install --cask $slug" else ""
@@ -513,10 +524,11 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
 
         warningLabel?.let { it.text = "\u26A0 Requires ${preset.fontFamily}" }
         installHintLabel?.let {
-            // Issue #164: CUSTOM has no catalog entry; null-coalesce to empty so the
-            // label refresh during preset changes can't crash. The owning row is
-            // visibleIf(fontMissing) which is force-false for non-curated presets,
-            // so an empty text is never on screen \u2014 but the lambda still runs.
+            // CUSTOM has no catalog entry; null-coalesce to empty so the label
+            // refresh during preset changes can't crash. The owning row is
+            // visibleIf(fontMissing) which is force-false for non-curated
+            // presets, so empty text is never on screen — but the lambda still
+            // runs on every preset switch, hence the defensive lookup.
             val slug = FontCatalog.forPreset(preset)?.brewCaskSlug.orEmpty()
             it.text = if (slug.isNotEmpty()) "Or via Homebrew: brew install --cask $slug" else ""
         }

@@ -45,7 +45,8 @@ object FontCatalog {
     private const val APPROX_MAPLE_MB = 2
     private const val APPROX_MONASPACE_MB = 4
 
-    val entries: List<Entry> =
+    @org.jetbrains.annotations.VisibleForTesting
+    internal val entries: List<Entry> =
         listOf(
             Entry(
                 preset = FontPreset.WHISPER,
