@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.6.2] - 2026-05-10
+
+### Fixed
+- VCS modified-line color is now distinct from added — modified shifts to a saturated blue (Dark `#73B8FF`, Mirage `#80BFFF`) so it stops blending into the green added band on dense diffs. Also bluer file-status colors in Project View and tabs.
+- Editor selection background returns to translucent (alpha 25%) on Dark and Mirage so highlighted text doesn't read as a solid blue block.
+- Settings page no longer freezes on "Loading…" forever when a Custom font preset is active (issue #164) — non-curated presets now skip the install pipeline cleanly instead of crashing the panel build.
+
+## [2.6.1] - 2026-04-27
+
+### Fixed
+- Calmer DIFF_MODIFIED / INSERTED / DELETED backgrounds across all three variants — diff viewer no longer washes the whole gutter when reviewing large patches.
+
 ## [2.6.0] - 2026-04-26
 
 ### Added

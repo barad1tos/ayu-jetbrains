@@ -180,7 +180,7 @@ class FontInstallerTest {
                 ),
             )
         val extractDir = File(tmpRoot, "extracted").apply { mkdirs() }
-        val entry = FontCatalog.forPreset(FontPreset.AMBIENT)
+        val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
 
         val extracted = FontInstaller.extractFonts(zip, extractDir, entry)
 
@@ -197,7 +197,7 @@ class FontInstallerTest {
                 mapOf("README.md" to "docs".toByteArray()),
             )
         val extractDir = File(tmpRoot, "extracted-empty").apply { mkdirs() }
-        val entry = FontCatalog.forPreset(FontPreset.AMBIENT)
+        val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
 
         val thrown =
             runCatching { FontInstaller.extractFonts(zip, extractDir, entry) }
@@ -277,6 +277,84 @@ class FontInstallerTest {
         FontInstaller.applyOnly(FontPreset.AMBIENT, project = null)
 
         verify(exactly = 1) { FontPresetApplicator.apply(any()) }
+    }
+
+    @Test
+    fun `install fires NON_CURATED Failure callback and skips ProgressManager`() {
+        // Round-2 review: visibility-gate bypass with CUSTOM must NOT hang the
+        // caller waiting for a callback that never fires. Failure must use the
+        // typed NON_CURATED kind (not UNKNOWN — that copy reads "Please report",
+        // misleading users about an intentional skip). Task is never queued.
+        mockkStatic(com.intellij.openapi.progress.ProgressManager::class)
+        val progressMgr = mockk<com.intellij.openapi.progress.ProgressManager>(relaxed = true)
+        every {
+            com.intellij.openapi.progress.ProgressManager
+                .getInstance()
+        } returns progressMgr
+
+        var captured: FontInstaller.InstallResult? = null
+        FontInstaller.install(FontPreset.CUSTOM, project = null) { captured = it }
+
+        val failure = captured as? FontInstaller.InstallResult.Failure
+        assertTrue(failure != null, "non-curated install must fire Failure callback, got: $captured")
+        assertEquals(FontInstaller.FailureKind.NON_CURATED, failure.kind)
+        assertTrue(failure.message.contains("non-curated"), "message must signal non-curated origin")
+        verify(exactly = 0) { progressMgr.run(any<com.intellij.openapi.progress.Task.Backgroundable>()) }
+    }
+
+    @Test
+    fun `applyOnly invokes applicator with CUSTOM-decoded settings for non-curated preset`() {
+        // Round-2 review: assert applicator runs with the RIGHT preset, not
+        // any preset. Previous test used `any()` and would pass on a future
+        // refactor that called apply with WHISPER instead of CUSTOM.
+        mockkStatic(ApplicationManager::class)
+        mockkStatic(Notifications.Bus::class)
+        mockkObject(FontPresetApplicator)
+        val appMock = mockk<Application>(relaxed = true)
+        every { ApplicationManager.getApplication() } returns appMock
+        every { appMock.invokeLater(any()) } answers { firstArg<Runnable>().run() }
+        every { FontPresetApplicator.apply(any()) } answers { /* no-op */ }
+        every { Notifications.Bus.notify(any<Notification>(), null) } answers { }
+
+        FontInstaller.applyOnly(FontPreset.CUSTOM, project = null)
+
+        // Hard-coded "JetBrains Mono" rather than `FontPreset.CUSTOM.fontFamily`
+        // so the test fails loudly if either side (preset constant OR apply call)
+        // moves independently. Coupling to the same enum field both sides would
+        // weaken the lock to "they happen to agree right now".
+        verify(exactly = 1) {
+            FontPresetApplicator.apply(match { it.fontFamily == "JetBrains Mono" })
+        }
+        // Success path — no notification (the "couldn't apply" notification is
+        // for the catch branch, not the happy path).
+        verify(exactly = 0) { Notifications.Bus.notify(any<Notification>(), null) }
+    }
+
+    @Test
+    fun `applyOnly emits generic notification when applicator throws and preset is non-curated`() {
+        // Round-2 review: when entry is null AND apply throws, the user clicked
+        // something that visibly failed. Round 1 left this path silent (log
+        // only); Round 2 emits a generic notification pointing to manual
+        // recovery (Settings → Editor → Font). Lock the new contract.
+        mockkStatic(ApplicationManager::class)
+        mockkStatic(Notifications.Bus::class)
+        mockkObject(FontPresetApplicator)
+        val appMock = mockk<Application>(relaxed = true)
+        every { ApplicationManager.getApplication() } returns appMock
+        every { appMock.invokeLater(any()) } answers { firstArg<Runnable>().run() }
+        every { FontPresetApplicator.apply(any()) } throws RuntimeException("boom")
+        every { Notifications.Bus.notify(any<Notification>(), null) } answers { }
+
+        FontInstaller.applyOnly(FontPreset.CUSTOM, project = null)
+
+        verify(exactly = 1) {
+            Notifications.Bus.notify(
+                match<Notification> {
+                    it.content.contains("Settings") && it.content.contains("Editor")
+                },
+                null,
+            )
+        }
     }
 
     @Test

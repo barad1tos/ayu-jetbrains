@@ -96,7 +96,7 @@ class FontLifecycleIntegrationTest {
             assertEquals(fontFile.absolutePath, state.installedFontFiles["Maple Mono"], "File path must be tracked")
 
             // Step 2: Simulate delete via Settings panel.
-            val entry = FontCatalog.forPreset(FontPreset.AMBIENT)
+            val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
             val indicator = mockk<ProgressIndicator>(relaxed = true)
             var result: FontUninstaller.UninstallResult? = null
             FontUninstaller.runUninstallPipeline(entry, null, indicator) { result = it }
@@ -142,7 +142,7 @@ class FontLifecycleIntegrationTest {
             assertTrue(state.installedFonts.contains("Victor Mono"))
 
             // Delete Maple Mono only.
-            val entry = FontCatalog.forPreset(FontPreset.AMBIENT) // Maple Mono
+            val entry = FontCatalog.requirePreset(FontPreset.AMBIENT) // Maple Mono
             val indicator = mockk<ProgressIndicator>(relaxed = true)
             FontUninstaller.runUninstallPipeline(entry, null, indicator) { }
 
@@ -215,7 +215,7 @@ class FontLifecycleIntegrationTest {
             // Install + delete via plugin.
             val fontFile = File(platformDir, "MapleMono-Regular.ttf").apply { writeText("font") }
             FontInstaller.persistFontState("Maple Mono", listOf(fontFile))
-            val entry = FontCatalog.forPreset(FontPreset.AMBIENT)
+            val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
             val indicator = mockk<ProgressIndicator>(relaxed = true)
             FontUninstaller.runUninstallPipeline(entry, null, indicator) { }
 
@@ -250,7 +250,7 @@ class FontLifecycleIntegrationTest {
             val fontFile = File(platformDir, "MapleMono-Regular.ttf").apply { writeText("font") }
             FontInstaller.persistFontState("Maple Mono", listOf(fontFile))
 
-            val entry = FontCatalog.forPreset(FontPreset.AMBIENT)
+            val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
             val indicator = mockk<ProgressIndicator>(relaxed = true)
             FontUninstaller.runUninstallPipeline(entry, null, indicator) { }
 
@@ -274,7 +274,7 @@ class FontLifecycleIntegrationTest {
             val fontFile = File(platformDir, "MapleMono-Regular.ttf").apply { writeText("font") }
             FontInstaller.persistFontState("Maple Mono", listOf(fontFile))
 
-            val entry = FontCatalog.forPreset(FontPreset.AMBIENT)
+            val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
             val indicator = mockk<ProgressIndicator>(relaxed = true)
             FontUninstaller.runUninstallPipeline(entry, null, indicator) { }
 

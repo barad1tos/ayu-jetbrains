@@ -97,7 +97,27 @@ object FontUninstaller {
         project: Project?,
         onComplete: (UninstallResult) -> Unit,
     ) {
-        val entry = FontCatalog.forPreset(preset)
+        // Non-curated presets (CUSTOM) have no install metadata to uninstall.
+        // UI rows that route here are gated by fontInstalled, which is
+        // force-false for non-curated; this is unreachable under normal flow.
+        // Defensive log + fire onComplete with a Failure so callers tracking
+        // progress don't hang waiting for a callback that never fires.
+        val entry =
+            FontCatalog.forPreset(preset)
+                ?: run {
+                    LOG.warn("FontUninstaller.uninstall called for non-curated preset $preset; ignoring")
+                    // familyName uses preset.name (sentinel "CUSTOM") rather than
+                    // preset.fontFamily — the latter is `DEFAULT_CUSTOM_FONT` for
+                    // CUSTOM unless overridden, which would lie to telemetry/logs
+                    // about "we removed JetBrains Mono" when nothing was removed.
+                    onComplete(
+                        UninstallResult.Failure(
+                            familyName = preset.name,
+                            message = "No catalog entry for preset ${preset.name} (non-curated)",
+                        ),
+                    )
+                    return
+                }
         val task =
             object : Task.Backgroundable(project, "Removing ${entry.displayName}…", true) {
                 override fun run(indicator: ProgressIndicator) {

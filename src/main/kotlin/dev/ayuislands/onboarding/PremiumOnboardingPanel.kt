@@ -469,7 +469,10 @@ internal class PremiumOnboardingPanel(
 
     @Suppress("LongMethod")
     private fun createFontCard(preset: FontPreset): JPanel {
-        val entry = FontCatalog.forPreset(preset)
+        // FONT_PRESETS hard-codes the four curated installable presets — CUSTOM
+        // is never passed in here. requirePreset encodes that invariant in the
+        // type and fails fast if someone ever adds CUSTOM to the curated list.
+        val entry = FontCatalog.requirePreset(preset)
         val state = AyuIslandsSettings.getInstance().state
         val installed = state.installedFonts.contains(entry.familyName)
         val installing = installingFonts.contains(preset)
@@ -565,7 +568,7 @@ internal class PremiumOnboardingPanel(
 
     private fun handleFontCardClick(preset: FontPreset) {
         if (preset in installingFonts) return
-        val entry = FontCatalog.forPreset(preset)
+        val entry = FontCatalog.requirePreset(preset)
         val state = AyuIslandsSettings.getInstance().state
         if (state.installedFonts.contains(entry.familyName)) {
             FontInstaller.applyOnly(preset, project)

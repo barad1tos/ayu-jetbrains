@@ -1,5 +1,7 @@
 package dev.ayuislands.font
 
+import org.jetbrains.annotations.VisibleForTesting
+
 /**
  * Static catalog of fonts that the plugin can auto-install at runtime.
  *
@@ -45,7 +47,8 @@ object FontCatalog {
     private const val APPROX_MAPLE_MB = 2
     private const val APPROX_MONASPACE_MB = 4
 
-    val entries: List<Entry> =
+    @VisibleForTesting
+    internal val entries: List<Entry> =
         listOf(
             Entry(
                 preset = FontPreset.WHISPER,
@@ -98,7 +101,33 @@ object FontCatalog {
             ),
         )
 
-    fun forPreset(preset: FontPreset): Entry =
-        entries.firstOrNull { it.preset == preset }
-            ?: error("No FontCatalog entry for preset $preset")
+    /**
+     * Returns the install metadata for [preset], or `null` for non-curated presets
+     * (currently only [FontPreset.CUSTOM]).
+     *
+     * Use this from user-facing code paths where `CUSTOM` is reachable — Settings
+     * panel rows, Install/Reinstall/Delete buttons, Brew-cask hints. Issue #164:
+     * pre-2.6.2 versions threw `IllegalStateException` from a non-null variant of
+     * this method, which froze the Settings page on "Loading…" forever once the
+     * user persisted `fontPresetName = "CUSTOM"` and reopened settings.
+     *
+     * If you can statically guarantee a curated preset (e.g. iterating a hardcoded
+     * `WHISPER, AMBIENT, NEON, CYBERPUNK` list), prefer [requirePreset] — it
+     * encodes that invariant in the type and fails fast on regression.
+     */
+    fun forPreset(preset: FontPreset): Entry? = entries.firstOrNull { it.preset == preset }
+
+    /**
+     * Non-null variant for call sites that statically operate on curated presets
+     * only — onboarding cards (which iterate a hardcoded `FONT_PRESETS` list) and
+     * tests (which pin known curated presets). Throws if [preset] resolves to no
+     * entry, which is a programmer error in these contexts (e.g. someone added
+     * `CUSTOM` to the curated list).
+     *
+     * Do NOT use from defensive paths where the user can drive [preset] toward
+     * `CUSTOM` — use [forPreset] there and null-check.
+     */
+    fun requirePreset(preset: FontPreset): Entry =
+        forPreset(preset)
+            ?: error("FontCatalog has no entry for preset $preset (curated-only API called with non-curated value)")
 }

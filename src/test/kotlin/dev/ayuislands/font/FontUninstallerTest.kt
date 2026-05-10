@@ -93,7 +93,7 @@ class FontUninstallerTest {
                 }
             stubUninstallPipeline(state, platformDir, activeEditorFont = "JetBrains Mono")
 
-            val entry = FontCatalog.forPreset(FontPreset.AMBIENT)
+            val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
             val indicator = mockk<ProgressIndicator>(relaxed = true)
             var result: FontUninstaller.UninstallResult? = null
             FontUninstaller.runUninstallPipeline(entry, null, indicator) { result = it }
@@ -120,7 +120,7 @@ class FontUninstallerTest {
                 }
             stubUninstallPipeline(state, platformDir, activeEditorFont = "JetBrains Mono")
 
-            val entry = FontCatalog.forPreset(FontPreset.AMBIENT)
+            val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
             val indicator = mockk<ProgressIndicator>(relaxed = true)
             FontUninstaller.runUninstallPipeline(entry, null, indicator) { }
 
@@ -147,7 +147,7 @@ class FontUninstallerTest {
                 }
             stubUninstallPipeline(state, platformDir, activeEditorFont = "Maple Mono")
 
-            val entry = FontCatalog.forPreset(FontPreset.AMBIENT)
+            val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
             val indicator = mockk<ProgressIndicator>(relaxed = true)
             FontUninstaller.runUninstallPipeline(entry, null, indicator) { }
 
@@ -169,7 +169,7 @@ class FontUninstallerTest {
                 }
             stubUninstallPipeline(state, platformDir, activeEditorFont = "JetBrains Mono")
 
-            val entry = FontCatalog.forPreset(FontPreset.AMBIENT)
+            val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
             val indicator = mockk<ProgressIndicator>(relaxed = true)
             FontUninstaller.runUninstallPipeline(entry, null, indicator) { }
 
@@ -193,7 +193,7 @@ class FontUninstallerTest {
                 }
             stubUninstallPipeline(state, platformDir, activeEditorFont = "JetBrains Mono")
 
-            val entry = FontCatalog.forPreset(FontPreset.AMBIENT)
+            val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
             val indicator = mockk<ProgressIndicator>(relaxed = true)
             var result: FontUninstaller.UninstallResult? = null
             FontUninstaller.runUninstallPipeline(entry, null, indicator) { result = it }
@@ -232,7 +232,7 @@ class FontUninstallerTest {
                 }
             stubUninstallPipeline(state, platformDir, activeEditorFont = "JetBrains Mono")
 
-            val entry = FontCatalog.forPreset(FontPreset.AMBIENT)
+            val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
             val indicator = mockk<ProgressIndicator>(relaxed = true)
             var result: FontUninstaller.UninstallResult? = null
             try {
@@ -265,7 +265,7 @@ class FontUninstallerTest {
                 }
             stubUninstallPipeline(state, platformDir, activeEditorFont = "JetBrains Mono")
 
-            val entry = FontCatalog.forPreset(FontPreset.AMBIENT)
+            val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
             val indicator = mockk<ProgressIndicator>(relaxed = true)
             var result: FontUninstaller.UninstallResult? = null
             FontUninstaller.runUninstallPipeline(entry, null, indicator) { result = it }
@@ -293,6 +293,34 @@ class FontUninstallerTest {
         verify(exactly = 1) { progressMgr.run(any<Task.Backgroundable>()) }
     }
 
+    @Test
+    fun `uninstall fires Failure with CUSTOM sentinel familyName and skips ProgressManager`() {
+        // Round-2 review: familyName must use preset.name ("CUSTOM") sentinel,
+        // not preset.fontFamily — the latter is DEFAULT_CUSTOM_FONT
+        // ("JetBrains Mono") for CUSTOM, which lies to telemetry/logs about
+        // a removal that never happened. Symmetric to FontInstaller.install
+        // contract: callback fires, task is never queued.
+        mockkStatic(ProgressManager::class)
+        val progressMgr = mockk<ProgressManager>(relaxed = true)
+        every { ProgressManager.getInstance() } returns progressMgr
+
+        var captured: FontUninstaller.UninstallResult? = null
+        FontUninstaller.uninstall(FontPreset.CUSTOM, null) { captured = it }
+
+        val failure = captured as? FontUninstaller.UninstallResult.Failure
+        assertTrue(failure != null, "non-curated uninstall must fire Failure callback, got: $captured")
+        assertEquals(
+            "CUSTOM",
+            failure.familyName,
+            "familyName must be the preset.name sentinel, not the default font family",
+        )
+        assertTrue(
+            failure.message.contains("non-curated"),
+            "message must signal non-curated origin",
+        )
+        verify(exactly = 0) { progressMgr.run(any<Task.Backgroundable>()) }
+    }
+
     // ---- user-related edge cases ----
 
     @Test
@@ -308,7 +336,7 @@ class FontUninstallerTest {
             stubUninstallPipeline(state, platformDir, activeEditorFont = "Maple Mono")
             every { FontPresetApplicator.revert() } throws RuntimeException("EDT crash")
 
-            val entry = FontCatalog.forPreset(FontPreset.AMBIENT)
+            val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
             val indicator = mockk<ProgressIndicator>(relaxed = true)
             var result: FontUninstaller.UninstallResult? = null
             FontUninstaller.runUninstallPipeline(entry, null, indicator) { result = it }
@@ -334,7 +362,7 @@ class FontUninstallerTest {
                 }
             stubUninstallPipeline(state, platformDir, activeEditorFont = "JetBrains Mono")
 
-            val entry = FontCatalog.forPreset(FontPreset.AMBIENT)
+            val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
             val indicator = mockk<ProgressIndicator>(relaxed = true)
             var result: FontUninstaller.UninstallResult? = null
             FontUninstaller.runUninstallPipeline(entry, null, indicator) { result = it }
@@ -371,7 +399,7 @@ class FontUninstallerTest {
         mockkStatic(Notifications.Bus::class)
         every { Notifications.Bus.notify(any<Notification>(), null) } answers { }
 
-        val entry = FontCatalog.forPreset(FontPreset.AMBIENT)
+        val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
         val indicator = mockk<ProgressIndicator>(relaxed = true)
         var result: FontUninstaller.UninstallResult? = null
         FontUninstaller.runUninstallPipeline(entry, null, indicator) { result = it }

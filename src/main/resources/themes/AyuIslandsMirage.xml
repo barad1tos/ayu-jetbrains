@@ -27,8 +27,8 @@
         <option name="TEARLINE_COLOR" value="282C34" />
 
         <!-- Selection & hover -->
-        <option name="SELECTION_BACKGROUND" value="409FFF" />
-        <option name="INACTIVE_SELECTION_BACKGROUND" value="409FFF" />
+        <option name="SELECTION_BACKGROUND" value="409FFF40" />
+        <option name="INACTIVE_SELECTION_BACKGROUND" value="409FFF21" />
         <option name="SELECTED_BACKGROUND" value="637599" />
         <option name="SELECTED_FOREGROUND" value="CCCAC2" />
         <option name="HOVER_BACKGROUND" value="637599" />
@@ -85,10 +85,10 @@
 
         <!-- VCS lines -->
         <option name="ADDED_LINES_COLOR" value="87D96C" />
-        <option name="MODIFIED_LINES_COLOR" value="73D0FF" />
+        <option name="MODIFIED_LINES_COLOR" value="80BFFF" />
         <option name="DELETED_LINES_COLOR" value="F27983" />
         <option name="IGNORED_ADDED_LINES_BORDER_COLOR" value="87D96C" />
-        <option name="IGNORED_MODIFIED_LINES_BORDER_COLOR" value="73D0FF" />
+        <option name="IGNORED_MODIFIED_LINES_BORDER_COLOR" value="80BFFF" />
         <option name="IGNORED_DELETED_LINES_BORDER_COLOR" value="F27983" />
 
         <!-- File status (matches Ayu Mirage Complete) -->
@@ -102,24 +102,24 @@
         <option name="FILESTATUS_IDEA_FILESTATUS_MERGED_WITH_CONFLICTS" value="F27983" />
         <option name="FILESTATUS_IDEA_FILESTATUS_MERGED_WITH_PROPERTY_CONFLICTS" value="F27983" />
         <option name="FILESTATUS_MERGED" value="6C71C4" />
-        <option name="FILESTATUS_MODIFIED" value="80CBC4" />
+        <option name="FILESTATUS_MODIFIED" value="80BFFF" />
         <option name="FILESTATUS_NOT_CHANGED" value="AFB9C3" />
-        <option name="FILESTATUS_NOT_CHANGED_IMMEDIATE" value="80CBC4" />
-        <option name="FILESTATUS_NOT_CHANGED_RECURSIVE" value="80CBC4" />
+        <option name="FILESTATUS_NOT_CHANGED_IMMEDIATE" value="80BFFF" />
+        <option name="FILESTATUS_NOT_CHANGED_RECURSIVE" value="80BFFF" />
         <option name="FILESTATUS_OBSOLETE" value="FFCB6B" />
-        <option name="FILESTATUS_RENAMED" value="80CBC4" />
+        <option name="FILESTATUS_RENAMED" value="80BFFF" />
         <option name="FILESTATUS_SUPPRESSED" value="546E7A" />
         <option name="FILESTATUS_SWITCHED" value="F77669" />
         <option name="FILESTATUS_UNKNOWN" value="F77669" />
         <option name="FILESTATUS_addedOutside" value="C3E887" />
         <option name="FILESTATUS_changelistConflict" value="F27983" />
-        <option name="FILESTATUS_modifiedOutside" value="80CBC4" />
+        <option name="FILESTATUS_modifiedOutside" value="80BFFF" />
 
         <!-- Diff -->
         <option name="DIFF_CONFLICT" value="FF6666" />
         <option name="DIFF_DELETED" value="F27983" />
         <option name="DIFF_INSERTED" value="87D96C" />
-        <option name="DIFF_MODIFIED" value="73D0FF" />
+        <option name="DIFF_MODIFIED" value="80BFFF" />
         <option name="DIFF_SEPARATORS_BACKGROUND" value="282E3B" />
 
         <!-- Borders & misc -->
@@ -801,8 +801,8 @@
         </option>
         <option name="DIFF_MODIFIED">
             <value>
-                <option name="BACKGROUND" value="3A5B72" />
-                <option name="ERROR_STRIPE_COLOR" value="73D0FF" />
+                <option name="BACKGROUND" value="405672" />
+                <option name="ERROR_STRIPE_COLOR" value="80BFFF" />
             </value>
         </option>
 
