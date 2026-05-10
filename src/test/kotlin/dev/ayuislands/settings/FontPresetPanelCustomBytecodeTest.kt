@@ -147,7 +147,7 @@ class FontPresetPanelCustomBytecodeTest {
         setPrivateField(panel, "installHintLabel", label)
         setPrivateField(panel, "availability", emptyMap<FontPreset, Boolean>())
 
-        invokePrivateMethod(panel, "updateFontMissing")
+        invokeUpdateFontMissing(panel)
 
         assertEquals(
             "",
@@ -180,11 +180,44 @@ class FontPresetPanelCustomBytecodeTest {
         setPrivateField(panel, "installHintLabel", JLabel())
         setPrivateField(panel, "availability", mapOf(FontPreset.WHISPER to true))
 
-        invokePrivateMethod(panel, "updateFontMissing")
+        invokeUpdateFontMissing(panel)
 
         assertFalse(getBooleanProperty(panel, "fontMissing"), "WHISPER healthy: fontMissing must be false")
         assertTrue(getBooleanProperty(panel, "fontInstalled"), "WHISPER healthy: fontInstalled must be true")
         assertFalse(getBooleanProperty(panel, "fontCorrupted"), "WHISPER healthy: fontCorrupted must be false")
+    }
+
+    @Test
+    fun `updateFontMissing forwards user family to preview for non-curated preset`() {
+        // 2.6.2 follow-up: pre-fix updateFontMissing only called updatePreset,
+        // which sets fontInstalled=false for CUSTOM (no catalog availability)
+        // and the preview pane fell back to "Install <preset.fontFamily> to
+        // preview" — i.e. "Install JetBrains Mono" even when the user had
+        // picked a different family. The fix has three structural pieces this
+        // test pins via bytecode references on the panel + detector + preview
+        // classes: FontPresetPanel pushes the user family via updateFontFamily,
+        // gates on isCurated, and asks FontDetector.isFamilyInstalled for a
+        // system-level install check (instead of leaving fontInstalled=false
+        // for CUSTOM).
+        val classText = readClassBytes("FontPresetPanel")
+        assertTrue(
+            classText.contains("updateFontFamily"),
+            "FontPresetPanel must call FontPreviewComponent.updateFontFamily " +
+                "so non-curated presets render with the user's actual family, not " +
+                "the catalog's default fontFamily constant.",
+        )
+        assertTrue(
+            classText.contains("isCurated"),
+            "FontPresetPanel must gate the updateFontFamily push on " +
+                "preset.isCurated so curated presets keep using the catalog default.",
+        )
+        assertTrue(
+            classText.contains("isFamilyInstalled"),
+            "FontPresetPanel must call FontDetector.isFamilyInstalled to check " +
+                "whether the user-chosen Custom family is installed on the system " +
+                "(without this, fontInstalled stays false for CUSTOM and the " +
+                "preview always falls back to 'Install X to preview').",
+        )
     }
 
     @Test
@@ -240,11 +273,8 @@ class FontPresetPanelCustomBytecodeTest {
         field.set(target, value)
     }
 
-    private fun invokePrivateMethod(
-        target: Any,
-        name: String,
-    ) {
-        val method = FontPresetPanel::class.java.getDeclaredMethod(name)
+    private fun invokeUpdateFontMissing(target: Any) {
+        val method = FontPresetPanel::class.java.getDeclaredMethod("updateFontMissing")
         method.isAccessible = true
         method.invoke(target)
     }

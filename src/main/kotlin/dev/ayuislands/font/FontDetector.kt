@@ -57,6 +57,15 @@ object FontDetector {
     }
 
     /**
+     * Check if a specific font family name is installed on the system. Used by the
+     * settings preview to decide whether to render the live preview or the
+     * "Install X to preview" fallback when the user has chosen a non-curated
+     * (CUSTOM) family — those don't have a `FontPreset` entry to feed into
+     * [isInstalled], but they still need a yes/no installed answer.
+     */
+    fun isFamilyInstalled(family: String): Boolean = installedFonts().contains(family.lowercase())
+
+    /**
      * Check if any alias of the preset's font is installed on the system OR has been
      * recorded as installed via the runtime [FontInstaller] (state.installedFonts).
      *

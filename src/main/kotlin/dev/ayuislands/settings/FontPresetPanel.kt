@@ -527,7 +527,13 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
         val settings = currentSettings
         if (reloadPreset) {
             val preset = FontPreset.fromName(pendingPreset)
-            previewComponent?.updatePreset(preset, availability[preset] == true)
+            val available =
+                if (preset.isCurated) {
+                    availability[preset] == true
+                } else {
+                    FontDetector.isFamilyInstalled(settings.fontFamily)
+                }
+            previewComponent?.updatePreset(preset, available)
             if (!preset.isCurated) {
                 previewComponent?.updateFontFamily(settings.fontFamily)
             }
@@ -565,7 +571,12 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
             val slug = FontCatalog.forPreset(preset)?.brewCaskSlug.orEmpty()
             it.text = if (slug.isNotEmpty()) "Or via Homebrew: brew install --cask $slug" else ""
         }
-        previewComponent?.updatePreset(preset, status == FontStatus.HEALTHY)
+        val previewInstalled =
+            previewInstalledFor(preset, status, pendingEnabled, currentSettings.fontFamily)
+        previewComponent?.updatePreset(preset, previewInstalled)
+        if (!preset.isCurated) {
+            previewComponent?.updateFontFamily(currentSettings.fontFamily)
+        }
     }
 
     override fun isModified(): Boolean {
@@ -634,3 +645,27 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
         suppressListeners = false
     }
 }
+
+/**
+ * Resolve whether the preview pane should render a live sample or fall back
+ * to "Install X to preview". Curated presets ask the catalog-aware status;
+ * non-curated (CUSTOM) ask the system about the user-chosen family — the
+ * catalog has nothing to say about it. Issue #164 follow-up: without this,
+ * opening Settings with a persisted Custom preset showed the
+ * "Install JetBrains Mono to preview" fallback even when the user's font
+ * was actually installed.
+ *
+ * Lives at file scope (not a class member) so the panel's
+ * `TooManyFunctions=25` cap stays under the detekt threshold.
+ */
+private fun previewInstalledFor(
+    preset: FontPreset,
+    status: FontStatus,
+    enabled: Boolean,
+    family: String,
+): Boolean =
+    if (preset.isCurated) {
+        status == FontStatus.HEALTHY
+    } else {
+        enabled && FontDetector.isFamilyInstalled(family)
+    }
