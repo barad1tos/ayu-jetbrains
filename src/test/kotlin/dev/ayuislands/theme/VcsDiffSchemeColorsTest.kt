@@ -66,13 +66,13 @@ class VcsDiffSchemeColorsTest {
         for (key in modifiedKeys) {
             assertColorOption(resource, key, expectedBlue)
         }
-        assertDiffAttributeOption(resource, "DIFF_MODIFIED", "BACKGROUND", expectedDiffBackground)
-        assertDiffAttributeOption(resource, "DIFF_MODIFIED", "ERROR_STRIPE_COLOR", expectedBlue)
+        assertDiffModifiedOption(resource, "BACKGROUND", expectedDiffBackground)
+        assertDiffModifiedOption(resource, "ERROR_STRIPE_COLOR", expectedBlue)
     }
 
     private fun assertModifiedBackgroundContrast(resource: String) {
         val added = colorOption(resource, "DIFF_INSERTED")
-        val modified = diffAttributeOption(resource, "DIFF_MODIFIED", "BACKGROUND")
+        val modified = diffModifiedOption(resource, "BACKGROUND")
 
         assertTrue(
             modified.blue > modified.green && modified.blue > modified.red,
@@ -93,16 +93,15 @@ class VcsDiffSchemeColorsTest {
         assertEquals(expected, colorOption(resource, key).hex, "$resource $key")
     }
 
-    private fun assertDiffAttributeOption(
+    private fun assertDiffModifiedOption(
         resource: String,
-        attribute: String,
         option: String,
         expected: String,
     ) {
         assertEquals(
             expected,
-            diffAttributeOption(resource, attribute, option).hex,
-            "$resource $attribute $option",
+            diffModifiedOption(resource, option).hex,
+            "$resource DIFF_MODIFIED $option",
         )
     }
 
@@ -117,17 +116,16 @@ class VcsDiffSchemeColorsTest {
     }
 
     /**
-     * Reads a nested attribute option (`<option name="$attribute"><value>
-     * <option name="$option" value="..."/></value></option>`) via DOM + XPath
-     * so the test stops being brittle to whitespace, attribute ordering, or
-     * intermediate `<option>` siblings inside `<value>`. Secure-XML defaults
-     * mirror [FreeTierLockdownTest]: DTDs disallowed, external entities off,
-     * FEATURE_SECURE_PROCESSING on — even though the XML lives on our own
-     * classpath, hardening the parser is a free habit.
+     * Reads a nested DIFF_MODIFIED attribute option (`<option name="DIFF_MODIFIED">
+     * <value><option name="$option" value="..."/></value></option>`) via DOM +
+     * XPath so the test stops being brittle to whitespace, attribute ordering,
+     * or intermediate `<option>` siblings inside `<value>`. Secure-XML defaults
+     * mirror the licensing free-tier lockdown reader: DTDs disallowed, external
+     * entities off, FEATURE_SECURE_PROCESSING on — the XML lives on our own
+     * classpath so the threat surface is zero, but the hardening is free.
      */
-    private fun diffAttributeOption(
+    private fun diffModifiedOption(
         resource: String,
-        attribute: String,
         option: String,
     ): HexColor {
         val factory =
@@ -144,15 +142,15 @@ class VcsDiffSchemeColorsTest {
                 .getResourceAsStream(resource)
                 ?.use { factory.newDocumentBuilder().parse(it) }
                 ?: error("Scheme XML not found on classpath: $resource")
-        val xpath = "//option[@name='$attribute']/value/option[@name='$option']"
+        val xpath = "//option[@name='DIFF_MODIFIED']/value/option[@name='$option']"
         val node =
             XPathFactory
                 .newInstance()
                 .newXPath()
                 .evaluate(xpath, document, XPathConstants.NODE) as? Element
-        assertNotNull(node, "$resource missing $option in $attribute attribute")
+        assertNotNull(node, "$resource missing $option in DIFF_MODIFIED attribute")
         val value = node.getAttribute("value")
-        assertTrue(value.isNotBlank(), "$resource $attribute/$option has blank value")
+        assertTrue(value.isNotBlank(), "$resource DIFF_MODIFIED/$option has blank value")
         return HexColor.from(value)
     }
 
