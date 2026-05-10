@@ -1,5 +1,10 @@
 package dev.ayuislands.theme
 
+import org.w3c.dom.Element
+import javax.xml.XMLConstants
+import javax.xml.parsers.DocumentBuilderFactory
+import javax.xml.xpath.XPathConstants
+import javax.xml.xpath.XPathFactory
 import kotlin.math.sqrt
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -111,20 +116,44 @@ class VcsDiffSchemeColorsTest {
         return HexColor.from(match.groupValues[1])
     }
 
+    /**
+     * Reads a nested attribute option (`<option name="$attribute"><value>
+     * <option name="$option" value="..."/></value></option>`) via DOM + XPath
+     * so the test stops being brittle to whitespace, attribute ordering, or
+     * intermediate `<option>` siblings inside `<value>`. Secure-XML defaults
+     * mirror [FreeTierLockdownTest]: DTDs disallowed, external entities off,
+     * FEATURE_SECURE_PROCESSING on — even though the XML lives on our own
+     * classpath, hardening the parser is a free habit.
+     */
     private fun diffAttributeOption(
         resource: String,
         attribute: String,
         option: String,
     ): HexColor {
-        val xml = readResource(resource)
-        val patternSource =
-            """<option\s+name="$attribute">\s*<value>""" +
-                """.*?<option\s+name="$option"\s+value="([0-9A-Fa-f]{6,8})"\s*/>""" +
-                """.*?</value>\s*</option>"""
-        val pattern = Regex(patternSource, RegexOption.DOT_MATCHES_ALL)
-        val match = pattern.find(xml)
-        assertNotNull(match, "$resource missing $option in $attribute attribute")
-        return HexColor.from(match.groupValues[1])
+        val factory =
+            DocumentBuilderFactory.newInstance().apply {
+                isNamespaceAware = false
+                isValidating = false
+                setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true)
+                setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+                setFeature("http://xml.org/sax/features/external-general-entities", false)
+                setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+            }
+        val document =
+            javaClass
+                .getResourceAsStream(resource)
+                ?.use { factory.newDocumentBuilder().parse(it) }
+                ?: error("Scheme XML not found on classpath: $resource")
+        val xpath = "//option[@name='$attribute']/value/option[@name='$option']"
+        val node =
+            XPathFactory
+                .newInstance()
+                .newXPath()
+                .evaluate(xpath, document, XPathConstants.NODE) as? Element
+        assertNotNull(node, "$resource missing $option in $attribute attribute")
+        val value = node.getAttribute("value")
+        assertTrue(value.isNotBlank(), "$resource $attribute/$option has blank value")
+        return HexColor.from(value)
     }
 
     private fun readResource(path: String): String {
