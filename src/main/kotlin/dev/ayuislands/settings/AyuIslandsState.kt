@@ -9,6 +9,9 @@ import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.indent.IndentPreset
 import dev.ayuislands.rotation.AccentRotationMode
+import dev.ayuislands.vcs.VcsColorCategory
+import dev.ayuislands.vcs.VcsColorPreset
+import dev.ayuislands.vcs.VcsIntensity
 import java.io.File
 
 enum class PanelWidthMode {
@@ -308,6 +311,87 @@ class AyuIslandsState : BaseState() {
      * unusable.
      */
     fun effectiveLastAppliedAccentHex(): AccentHex? = AccentHex.of(lastAppliedAccentHex)
+
+    // --- VCS color customization (Phase 40.2, premium) ---
+    // Master kill-switch. Default OFF so 2.6.2 upgraders observe byte-identical
+    // diff/file-status/gutter colors until they opt in via the VCS settings tab.
+    var vcsColorEnabled by property(false)
+
+    // Active preset choice. String-backed for BaseState XML serialization;
+    // resolved through [effectiveVcsColorPreset] which falls back to MUTED on
+    // corrupted or unknown values (legacy XML, hand-edited config).
+    var vcsColorPreset by string(VcsColorPreset.MUTED.name)
+
+    // VCS tab expanded state for the four collapsible sections. First section
+    // (Diff & File Status) starts expanded by design; others collapsed.
+    var vcsColorDiffSectionExpanded by property(true)
+    var vcsColorMergeSectionExpanded by property(false)
+    var vcsColorBlameSectionExpanded by property(false)
+    var vcsColorBranchSectionExpanded by property(false)
+
+    // Per-category intensities in `[0, 100]`. Defaults to 0 (Muted baseline)
+    // across the board; reads go through [effectiveVcsIntensityFor] so a
+    // corrupted persisted value can never reach the HSB blender out of range.
+    var vcsDiffIntensity by property(0)
+    var vcsProjectViewIntensity by property(0)
+    var vcsGutterIntensity by property(0)
+    var vcsConflictMarkerIntensity by property(0)
+    var vcsMerge3WayIntensity by property(0)
+    var vcsInlineDiffIntensity by property(0)
+    var vcsBlameIntensity by property(0)
+    var vcsLocalHistoryIntensity by property(0)
+    var vcsBranchIndicatorIntensity by property(0)
+    var vcsBranchesPopupIntensity by property(0)
+    var vcsCommitHighlightIntensity by property(0)
+
+    /**
+     * Returns [vcsColorPreset] resolved into a [VcsColorPreset] enum value,
+     * falling back to [VcsColorPreset.MUTED] on an unknown / corrupted string.
+     * Mirrors the [effectiveChromeTintIntensity] discipline: every read path
+     * uses this helper so a hand-edited XML never feeds an unknown preset name
+     * into the applier's `when` branches.
+     */
+    fun effectiveVcsColorPreset(): VcsColorPreset = VcsColorPreset.byName(vcsColorPreset)
+
+    /**
+     * Returns the per-category intensity map snapshot for the applier. The
+     * 11 individual properties are materialised into a [Map] keyed by
+     * [VcsColorCategory] so the applier and snapshot can iterate categories
+     * uniformly without 11 hand-written branches.
+     */
+    fun effectiveVcsPerCategoryIntensities(): Map<VcsColorCategory, Int> =
+        mapOf(
+            VcsColorCategory.DIFF_VIEWER to vcsDiffIntensity,
+            VcsColorCategory.PROJECT_VIEW_FILE_STATUS to vcsProjectViewIntensity,
+            VcsColorCategory.EDITOR_GUTTER to vcsGutterIntensity,
+            VcsColorCategory.CONFLICT_MARKERS to vcsConflictMarkerIntensity,
+            VcsColorCategory.MERGE_3WAY to vcsMerge3WayIntensity,
+            VcsColorCategory.INLINE_DIFF_POPUP to vcsInlineDiffIntensity,
+            VcsColorCategory.BLAME_GUTTER to vcsBlameIntensity,
+            VcsColorCategory.LOCAL_HISTORY to vcsLocalHistoryIntensity,
+            VcsColorCategory.BRANCH_INDICATOR to vcsBranchIndicatorIntensity,
+            VcsColorCategory.BRANCHES_POPUP to vcsBranchesPopupIntensity,
+            VcsColorCategory.COMMIT_HIGHLIGHTS to vcsCommitHighlightIntensity,
+        )
+
+    /**
+     * Returns the effective intensity for a single [category] as a clamped
+     * [VcsIntensity]. Branches on the active preset: Custom reads the per-
+     * category property directly, the other presets defer to
+     * [VcsColorPreset.intensityFor]. When [vcsColorEnabled] is `false` the
+     * helper short-circuits to `0` so the applier returns the stock XML color.
+     */
+    fun effectiveVcsIntensityFor(category: VcsColorCategory): VcsIntensity {
+        if (!vcsColorEnabled) return VcsIntensity.of(0)
+        val preset = effectiveVcsColorPreset()
+        val raw =
+            if (preset == VcsColorPreset.CUSTOM) {
+                effectiveVcsPerCategoryIntensities().getValue(category)
+            } else {
+                preset.intensityFor(category)
+            }
+        return VcsIntensity.of(raw)
+    }
 
     fun isToggleEnabled(id: AccentElementId): Boolean =
         when (id) {
