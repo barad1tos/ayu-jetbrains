@@ -317,23 +317,28 @@ class AyuIslandsState : BaseState() {
     // diff/file-status/gutter colors until they opt in via the VCS settings tab.
     var vcsColorEnabled by property(false)
 
-    // Active preset choice. String-backed for BaseState XML serialization;
-    // resolved through [effectiveVcsColorPreset] which falls back to AMBIENT on
-    // corrupted or unknown values (legacy XML, hand-edited config).
-    var vcsColorPreset by string(VcsColorPreset.AMBIENT.name)
+    // Per-section preset choice. Phase 40.2b redesign — each of the three VCS
+    // sections (Diff & File Status, Merge & Conflict, Blame & History) holds
+    // its own preset independently so users can mix intensities across surfaces
+    // (Diff on Neon, Blame on Whisper, etc.). String-backed for BaseState XML
+    // serialization; resolved through effectiveVcs*Preset() helpers that fall
+    // back to AMBIENT on unknown / corrupted strings.
+    var vcsDiffPreset by string(VcsColorPreset.AMBIENT.name)
+    var vcsMergePreset by string(VcsColorPreset.AMBIENT.name)
+    var vcsBlamePreset by string(VcsColorPreset.AMBIENT.name)
 
-    // VCS panel's "Diff & File Status" collapsible group expanded state.
+    // VCS panel's "Diff and File Status" collapsible group expanded state.
     // Defaults to true per the Phase 40.2 spec (first section opens expanded);
     // additional section-expanded flags land alongside their panels in waves 3-5.
     var vcsDiffSectionExpanded by property(true)
 
-    // VCS panel's "Merge & Conflict" collapsible group expanded state. Defaults
+    // VCS panel's "Merge and Conflict" collapsible group expanded state. Defaults
     // to false — the section opens collapsed so the panel reads as "primary
-    // Diff & File Status controls visible, secondary surfaces tucked away".
+    // Diff and File Status controls visible, secondary surfaces tucked away".
     var vcsMergeSectionExpanded by property(false)
 
-    // VCS panel's "Blame & History" collapsible group expanded state. Defaults
-    // to false for the same secondary-surface reason as Merge & Conflict.
+    // VCS panel's "Blame and History" collapsible group expanded state. Defaults
+    // to false for the same secondary-surface reason as Merge and Conflict.
     var vcsBlameSectionExpanded by property(false)
 
     // Per-category intensities in `[0, 100]`. Defaults to AMBIENT_SLIDER (33)
@@ -354,15 +359,47 @@ class AyuIslandsState : BaseState() {
     var vcsCommitHighlightIntensity by property(VcsColorPreset.AMBIENT_SLIDER)
 
     /**
-     * Returns [vcsColorPreset] resolved into a [VcsColorPreset] enum value,
-     * falling back to [VcsColorPreset.AMBIENT] on an unknown / corrupted string.
-     * Mirrors the [effectiveChromeTintIntensity] discipline: every read path
-     * uses this helper so a hand-edited XML never feeds an unknown preset name
-     * into the applier's `when` branches. Ambient is the no-op default so a
-     * corrupted persisted value doesn't accidentally tint surfaces a user
-     * never opted into.
+     * Returns the active preset for the Diff and File Status section, falling
+     * back to [VcsColorPreset.AMBIENT] on unknown / corrupted strings. Mirrors
+     * the [effectiveChromeTintIntensity] discipline — Ambient is the no-op
+     * default so corrupted persisted XML never accidentally tints surfaces
+     * the user didn't opt into.
      */
-    fun effectiveVcsColorPreset(): VcsColorPreset = VcsColorPreset.byName(vcsColorPreset)
+    fun effectiveVcsDiffPreset(): VcsColorPreset = VcsColorPreset.byName(vcsDiffPreset)
+
+    /** Returns the active preset for the Merge and Conflict section (defaults to AMBIENT). */
+    fun effectiveVcsMergePreset(): VcsColorPreset = VcsColorPreset.byName(vcsMergePreset)
+
+    /** Returns the active preset for the Blame and History section (defaults to AMBIENT). */
+    fun effectiveVcsBlamePreset(): VcsColorPreset = VcsColorPreset.byName(vcsBlamePreset)
+
+    /**
+     * Returns the preset governing [category]. Maps each color category to
+     * the section's preset field — DIFF_VIEWER / PROJECT_VIEW_FILE_STATUS /
+     * EDITOR_GUTTER live under [effectiveVcsDiffPreset], CONFLICT_MARKERS under
+     * [effectiveVcsMergePreset], BLAME_GUTTER under [effectiveVcsBlamePreset].
+     * The Wave 5+ placeholder categories (MERGE_3WAY, INLINE_DIFF_POPUP,
+     * LOCAL_HISTORY, BRANCH_INDICATOR, BRANCHES_POPUP, COMMIT_HIGHLIGHTS)
+     * default to AMBIENT until their respective sections wire up in v2.6.4+.
+     */
+    fun effectiveVcsPresetFor(category: VcsColorCategory): VcsColorPreset =
+        when (category) {
+            VcsColorCategory.DIFF_VIEWER,
+            VcsColorCategory.PROJECT_VIEW_FILE_STATUS,
+            VcsColorCategory.EDITOR_GUTTER,
+            -> effectiveVcsDiffPreset()
+            VcsColorCategory.CONFLICT_MARKERS,
+            VcsColorCategory.MERGE_3WAY,
+            VcsColorCategory.INLINE_DIFF_POPUP,
+            -> effectiveVcsMergePreset()
+            VcsColorCategory.BLAME_GUTTER,
+            VcsColorCategory.LOCAL_HISTORY,
+            -> effectiveVcsBlamePreset()
+            VcsColorCategory.BRANCH_INDICATOR,
+            VcsColorCategory.BRANCHES_POPUP,
+            VcsColorCategory.COMMIT_HIGHLIGHTS,
+            -> VcsColorPreset.AMBIENT
+        }
 
     /**
      * Returns the per-category intensity map snapshot for the applier. The
@@ -387,14 +424,15 @@ class AyuIslandsState : BaseState() {
 
     /**
      * Returns the effective intensity for a single [category] as a clamped
-     * [VcsIntensity]. Branches on the active preset: Custom reads the per-
-     * category property directly, the other presets defer to
-     * [VcsColorPreset.intensityFor]. When [vcsColorEnabled] is `false` the
-     * helper short-circuits to `0` so the applier returns the stock XML color.
+     * [VcsIntensity]. Branches on the per-section preset that governs
+     * [category] (see [effectiveVcsPresetFor]): Custom reads the per-category
+     * property directly, the other presets defer to [VcsColorPreset.intensityFor].
+     * When [vcsColorEnabled] is `false` the helper short-circuits to `0` so the
+     * applier returns the stock XML color.
      */
     fun effectiveVcsIntensityFor(category: VcsColorCategory): VcsIntensity {
         if (!vcsColorEnabled) return VcsIntensity.of(0)
-        val preset = effectiveVcsColorPreset()
+        val preset = effectiveVcsPresetFor(category)
         val raw =
             if (preset == VcsColorPreset.CUSTOM) {
                 effectiveVcsPerCategoryIntensities().getValue(category)

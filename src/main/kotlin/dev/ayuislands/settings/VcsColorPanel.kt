@@ -22,25 +22,32 @@ import javax.swing.JSlider
 /**
  * Phase 40.2 — settings panel for VCS color customization.
  *
- * Mirrors the [AyuIslandsChromePanel] structure:
+ * Phase 40.2b redesign — each section (Diff, Merge, Blame) carries its own
+ * preset segmented button. Users mix intensities across sections (Diff on
+ * Neon, Blame on Whisper, etc.). Inside each section, Custom mode reveals
+ * per-category sliders for that section's surfaces.
+ *
+ * Mirrors the [AyuIslandsChromePanel] discipline:
  *  - Pending / stored pairs per field so [isModified] can diff without
  *    touching the live [AyuIslandsState] until [apply] is called.
- *  - Premium gate per memory `feedback_monetization`: unlicensed users see
- *    the panel title plus a single "requires Pro license" comment with a
- *    Pro upgrade link; no controls render in the unlicensed path so there's
- *    no way to mutate VCS state without a license.
+ *  - Premium gate: unlicensed users see a placeholder comment + Pro upgrade
+ *    link instead of the full content — no controls bound, no way to mutate
+ *    VCS state without a license.
  *  - On [apply] the panel wraps the applier call in
- *    [VcsColorContext.withSnapshot] so the EP runs against the pending
- *    snapshot; if the apply throws, persisted state stays untouched and the
- *    user can retry. The pattern matches [AyuIslandsChromePanel.apply].
+ *    [VcsColorContext.withSnapshot] so a throw leaves persisted state
+ *    untouched and the user can retry.
  */
 class VcsColorPanel : AyuIslandsSettingsPanel {
     // ── Pending / stored state ────────────────────────────────────────────────
 
     private var pendingEnabled: Boolean = false
     private var storedEnabled: Boolean = false
-    private var pendingPreset: VcsColorPreset = VcsColorPreset.AMBIENT
-    private var storedPreset: VcsColorPreset = VcsColorPreset.AMBIENT
+    private var pendingDiffPreset: VcsColorPreset = VcsColorPreset.AMBIENT
+    private var storedDiffPreset: VcsColorPreset = VcsColorPreset.AMBIENT
+    private var pendingMergePreset: VcsColorPreset = VcsColorPreset.AMBIENT
+    private var storedMergePreset: VcsColorPreset = VcsColorPreset.AMBIENT
+    private var pendingBlamePreset: VcsColorPreset = VcsColorPreset.AMBIENT
+    private var storedBlamePreset: VcsColorPreset = VcsColorPreset.AMBIENT
     private var pendingDiffIntensity: Int = VcsColorPreset.AMBIENT_SLIDER
     private var storedDiffIntensity: Int = VcsColorPreset.AMBIENT_SLIDER
     private var pendingProjectViewIntensity: Int = VcsColorPreset.AMBIENT_SLIDER
@@ -57,7 +64,9 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
     private var variant: AyuVariant? = null
     private var licensed: Boolean = false
     private var enabledCheckbox: JBCheckBox? = null
-    private var presetSegmented: SegmentedButton<VcsColorPreset>? = null
+    private var diffPresetSegmented: SegmentedButton<VcsColorPreset>? = null
+    private var mergePresetSegmented: SegmentedButton<VcsColorPreset>? = null
+    private var blamePresetSegmented: SegmentedButton<VcsColorPreset>? = null
     private var diffSlider: JSlider? = null
     private var projectViewSlider: JSlider? = null
     private var gutterSlider: JSlider? = null
@@ -69,17 +78,18 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
     private var conflictMarkerValueLabel: JLabel? = null
     private var blameValueLabel: JLabel? = null
 
-    /** Drives `visibleIf(customSelected)` on the per-category slider rows. */
-    private val customSelected = AtomicBooleanProperty(pendingPreset == VcsColorPreset.CUSTOM)
+    /** Drives `visibleIf` on each section's Custom-mode slider rows. */
+    private val diffCustomSelected = AtomicBooleanProperty(pendingDiffPreset == VcsColorPreset.CUSTOM)
+    private val mergeCustomSelected = AtomicBooleanProperty(pendingMergePreset == VcsColorPreset.CUSTOM)
+    private val blameCustomSelected = AtomicBooleanProperty(pendingBlamePreset == VcsColorPreset.CUSTOM)
 
-    /** Drives `visibleIf(masterEnabled)` so the preset + sliders hide when master is off. */
+    /** Drives `visibleIf(masterEnabled)` so all sections collapse when master is off. */
     private val masterEnabled = AtomicBooleanProperty(pendingEnabled)
 
     /**
      * Tracks whether the panel is mid-listener-suppress (preset switch or
-     * reset). Prevents the slider's `addChangeListener` from feeding back
-     * into `pendingPreset = CUSTOM` when the preset cycle moves the sliders
-     * programmatically.
+     * reset). Prevents a slider's change listener from feeding back into the
+     * section preset when programmatic snap moves the slider.
      */
     private var suppressSliderListeners: Boolean = false
 
@@ -116,36 +126,9 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
 
     private fun Panel.buildLicensedContent(state: AyuIslandsState) {
         buildMasterToggleRow()
-        buildPresetRow()
-        buildSection(
-            title = DIFF_GROUP_TITLE,
-            initiallyExpanded = state.vcsDiffSectionExpanded,
-            persistExpanded = { expanded ->
-                AyuIslandsSettings.getInstance().state.vcsDiffSectionExpanded = expanded
-            },
-            sliders =
-                listOf(
-                    VcsColorCategory.DIFF_VIEWER to "Diff viewer:",
-                    VcsColorCategory.PROJECT_VIEW_FILE_STATUS to "Project View:",
-                    VcsColorCategory.EDITOR_GUTTER to "Editor gutter:",
-                ),
-        )
-        buildSection(
-            title = MERGE_GROUP_TITLE,
-            initiallyExpanded = state.vcsMergeSectionExpanded,
-            persistExpanded = { expanded ->
-                AyuIslandsSettings.getInstance().state.vcsMergeSectionExpanded = expanded
-            },
-            sliders = listOf(VcsColorCategory.CONFLICT_MARKERS to "Conflict markers:"),
-        )
-        buildSection(
-            title = BLAME_GROUP_TITLE,
-            initiallyExpanded = state.vcsBlameSectionExpanded,
-            persistExpanded = { expanded ->
-                AyuIslandsSettings.getInstance().state.vcsBlameSectionExpanded = expanded
-            },
-            sliders = listOf(VcsColorCategory.BLAME_GUTTER to "Blame gutter:"),
-        )
+        buildSection(VcsSection.DIFF, state)
+        buildSection(VcsSection.MERGE, state)
+        buildSection(VcsSection.BLAME, state)
     }
 
     private fun Panel.buildMasterToggleRow() {
@@ -160,40 +143,88 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
         }
     }
 
-    @Suppress("UnstableApiUsage")
-    private fun Panel.buildPresetRow() {
-        val presetRow =
-            row("Preset:") {
-                val segmented = segmentedButton(VcsColorPreset.entries) { preset -> text = preset.displayName }
-                segmented.maxButtonsCount(VcsColorPreset.entries.size)
-                segmented.selectedItem = pendingPreset
-                segmented.whenItemSelected { preset -> onPresetChosen(preset) }
-                presetSegmented = segmented
-            }
-        presetRow.visibleIf(masterEnabled)
-    }
-
     private fun Panel.buildSection(
-        title: String,
-        initiallyExpanded: Boolean,
-        persistExpanded: (Boolean) -> Unit,
-        sliders: List<Pair<VcsColorCategory, String>>,
+        section: VcsSection,
+        state: AyuIslandsState,
     ) {
+        val ctx = sectionContext(section)
         val collapsible =
-            collapsibleGroup(title) {
-                for ((category, label) in sliders) {
-                    buildPerCategorySliderRow(category, label)
+            collapsibleGroup(section.title) {
+                buildSectionPresetRow(
+                    initial = ctx.initialPreset,
+                    customVisible = ctx.customVisible,
+                    storeSegmented = ctx.storeSegmented,
+                    onPresetChosen = { preset -> onSectionPresetChosen(section, preset) },
+                )
+                for ((category, label) in section.sliders) {
+                    buildSliderRow(category, label, ctx.customVisible)
                 }
             }
-        collapsible.expanded = initiallyExpanded
-        collapsible.addExpandedListener { expanded -> persistExpanded(expanded) }
+        collapsible.expanded =
+            when (section) {
+                VcsSection.DIFF -> state.vcsDiffSectionExpanded
+                VcsSection.MERGE -> state.vcsMergeSectionExpanded
+                VcsSection.BLAME -> state.vcsBlameSectionExpanded
+            }
+        collapsible.addExpandedListener { expanded ->
+            val live = AyuIslandsSettings.getInstance().state
+            when (section) {
+                VcsSection.DIFF -> live.vcsDiffSectionExpanded = expanded
+                VcsSection.MERGE -> live.vcsMergeSectionExpanded = expanded
+                VcsSection.BLAME -> live.vcsBlameSectionExpanded = expanded
+            }
+        }
     }
 
-    private fun Panel.buildPerCategorySliderRow(
+    private data class SectionContext(
+        val initialPreset: VcsColorPreset,
+        val customVisible: AtomicBooleanProperty,
+        val storeSegmented: (SegmentedButton<VcsColorPreset>) -> Unit,
+    )
+
+    private fun sectionContext(section: VcsSection): SectionContext =
+        when (section) {
+            VcsSection.DIFF ->
+                SectionContext(pendingDiffPreset, diffCustomSelected) { diffPresetSegmented = it }
+            VcsSection.MERGE ->
+                SectionContext(pendingMergePreset, mergeCustomSelected) { mergePresetSegmented = it }
+            VcsSection.BLAME ->
+                SectionContext(pendingBlamePreset, blameCustomSelected) { blamePresetSegmented = it }
+        }
+
+    @Suppress("UnstableApiUsage")
+    private fun Panel.buildSectionPresetRow(
+        initial: VcsColorPreset,
+        customVisible: AtomicBooleanProperty,
+        onPresetChosen: (VcsColorPreset) -> Unit,
+        storeSegmented: (SegmentedButton<VcsColorPreset>) -> Unit,
+    ) {
+        row("Preset:") {
+            val segmented = segmentedButton(VcsColorPreset.entries) { preset -> text = preset.displayName }
+            segmented.maxButtonsCount(VcsColorPreset.entries.size)
+            segmented.selectedItem = initial
+            segmented.whenItemSelected { preset ->
+                onPresetChosen(preset)
+                customVisible.set(preset == VcsColorPreset.CUSTOM)
+            }
+            storeSegmented(segmented)
+        }
+    }
+
+    private fun Panel.buildSliderRow(
         category: VcsColorCategory,
         label: String,
+        sectionCustomVisible: AtomicBooleanProperty,
     ) {
-        val initialValue = pendingFor(category)
+        val initialValue =
+            when (category) {
+                VcsColorCategory.DIFF_VIEWER -> pendingDiffIntensity
+                VcsColorCategory.PROJECT_VIEW_FILE_STATUS -> pendingProjectViewIntensity
+                VcsColorCategory.EDITOR_GUTTER -> pendingGutterIntensity
+                VcsColorCategory.CONFLICT_MARKERS -> pendingConflictMarkerIntensity
+                VcsColorCategory.BLAME_GUTTER -> pendingBlameIntensity
+                else -> VcsColorPreset.AMBIENT_SLIDER
+            }
         val sliderRow =
             row(label) {
                 val slider =
@@ -209,57 +240,40 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
                 slider.addChangeListener { onSliderChanged(category, slider.value) }
                 cell(slider).resizableColumn().align(Align.FILL)
                 cell(valueLabel)
-                attachSliderHandles(category, slider, valueLabel)
+                // Stash Swing refs for reset() refresh + test seams.
+                when (category) {
+                    VcsColorCategory.DIFF_VIEWER -> {
+                        diffSlider = slider
+                        diffValueLabel = valueLabel
+                    }
+                    VcsColorCategory.PROJECT_VIEW_FILE_STATUS -> {
+                        projectViewSlider = slider
+                        projectViewValueLabel = valueLabel
+                    }
+                    VcsColorCategory.EDITOR_GUTTER -> {
+                        gutterSlider = slider
+                        gutterValueLabel = valueLabel
+                    }
+                    VcsColorCategory.CONFLICT_MARKERS -> {
+                        conflictMarkerSlider = slider
+                        conflictMarkerValueLabel = valueLabel
+                    }
+                    VcsColorCategory.BLAME_GUTTER -> {
+                        blameSlider = slider
+                        blameValueLabel = valueLabel
+                    }
+                    else -> Unit
+                }
             }
-        sliderRow.visibleIf(customSelected)
-    }
-
-    private fun pendingFor(category: VcsColorCategory): Int =
-        when (category) {
-            VcsColorCategory.DIFF_VIEWER -> pendingDiffIntensity
-            VcsColorCategory.PROJECT_VIEW_FILE_STATUS -> pendingProjectViewIntensity
-            VcsColorCategory.EDITOR_GUTTER -> pendingGutterIntensity
-            VcsColorCategory.CONFLICT_MARKERS -> pendingConflictMarkerIntensity
-            VcsColorCategory.BLAME_GUTTER -> pendingBlameIntensity
-            else -> VcsColorPreset.AMBIENT_SLIDER
-        }
-
-    private fun attachSliderHandles(
-        category: VcsColorCategory,
-        slider: JSlider,
-        valueLabel: JLabel,
-    ) {
-        when (category) {
-            VcsColorCategory.DIFF_VIEWER -> {
-                diffSlider = slider
-                diffValueLabel = valueLabel
-            }
-            VcsColorCategory.PROJECT_VIEW_FILE_STATUS -> {
-                projectViewSlider = slider
-                projectViewValueLabel = valueLabel
-            }
-            VcsColorCategory.EDITOR_GUTTER -> {
-                gutterSlider = slider
-                gutterValueLabel = valueLabel
-            }
-            VcsColorCategory.CONFLICT_MARKERS -> {
-                conflictMarkerSlider = slider
-                conflictMarkerValueLabel = valueLabel
-            }
-            VcsColorCategory.BLAME_GUTTER -> {
-                blameSlider = slider
-                blameValueLabel = valueLabel
-            }
-            else -> Unit
-        }
+        sliderRow.visibleIf(sectionCustomVisible)
     }
 
     /**
      * Handles a slider value change for [category]. Writes the new value into
      * the matching `pending*` field, refreshes the value label, and (if the
-     * change is a user gesture rather than programmatic) promotes the preset
-     * to [VcsColorPreset.CUSTOM] so the manual slider position actually takes
-     * effect on apply.
+     * change is a user gesture rather than programmatic) promotes the
+     * governing section's preset to [VcsColorPreset.CUSTOM] so the manual
+     * slider position actually takes effect on apply.
      */
     private fun onSliderChanged(
         category: VcsColorCategory,
@@ -288,15 +302,42 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
             }
             else -> return
         }
-        if (suppressSliderListeners || pendingPreset == VcsColorPreset.CUSTOM) return
-        pendingPreset = VcsColorPreset.CUSTOM
-        customSelected.set(true)
-        presetSegmented?.selectedItem = VcsColorPreset.CUSTOM
+        if (suppressSliderListeners) return
+        promoteSectionToCustom(category)
+    }
+
+    private fun promoteSectionToCustom(category: VcsColorCategory) {
+        when (category) {
+            VcsColorCategory.DIFF_VIEWER,
+            VcsColorCategory.PROJECT_VIEW_FILE_STATUS,
+            VcsColorCategory.EDITOR_GUTTER,
+            -> {
+                if (pendingDiffPreset == VcsColorPreset.CUSTOM) return
+                pendingDiffPreset = VcsColorPreset.CUSTOM
+                diffCustomSelected.set(true)
+                diffPresetSegmented?.selectedItem = VcsColorPreset.CUSTOM
+            }
+            VcsColorCategory.CONFLICT_MARKERS -> {
+                if (pendingMergePreset == VcsColorPreset.CUSTOM) return
+                pendingMergePreset = VcsColorPreset.CUSTOM
+                mergeCustomSelected.set(true)
+                mergePresetSegmented?.selectedItem = VcsColorPreset.CUSTOM
+            }
+            VcsColorCategory.BLAME_GUTTER -> {
+                if (pendingBlamePreset == VcsColorPreset.CUSTOM) return
+                pendingBlamePreset = VcsColorPreset.CUSTOM
+                blameCustomSelected.set(true)
+                blamePresetSegmented?.selectedItem = VcsColorPreset.CUSTOM
+            }
+            else -> Unit
+        }
     }
 
     override fun isModified(): Boolean =
         pendingEnabled != storedEnabled ||
-            pendingPreset != storedPreset ||
+            pendingDiffPreset != storedDiffPreset ||
+            pendingMergePreset != storedMergePreset ||
+            pendingBlamePreset != storedBlamePreset ||
             pendingDiffIntensity != storedDiffIntensity ||
             pendingProjectViewIntensity != storedProjectViewIntensity ||
             pendingGutterIntensity != storedGutterIntensity ||
@@ -305,9 +346,6 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
 
     override fun apply() {
         if (!isModified()) return
-        // License revalidation: a Pro user whose license expired mid-session must
-        // not be allowed to keep mutating VCS state behind a panel that's about to
-        // revert to the placeholder comment.
         if (!LicenseChecker.isLicensedOrGrace()) {
             LOG.info(
                 "VcsColorPanel.apply: license no longer active; " +
@@ -316,22 +354,12 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
             return
         }
 
-        val snapshot =
-            VcsColorSnapshot(
-                enabled = pendingEnabled,
-                preset = pendingPreset,
-                perCategoryIntensities =
-                    mapOf(
-                        VcsColorCategory.DIFF_VIEWER to pendingDiffIntensity,
-                        VcsColorCategory.PROJECT_VIEW_FILE_STATUS to pendingProjectViewIntensity,
-                        VcsColorCategory.EDITOR_GUTTER to pendingGutterIntensity,
-                        VcsColorCategory.CONFLICT_MARKERS to pendingConflictMarkerIntensity,
-                        VcsColorCategory.BLAME_GUTTER to pendingBlameIntensity,
-                    ),
-            )
+        // Resolve per-section preset choices into per-category intensities,
+        // then materialise the snapshot. The applier reads only per-category
+        // intensities — preset/custom branching is fully resolved here.
+        val resolved = resolveCategoryIntensitiesFromPendingState()
+        val snapshot = VcsColorSnapshot(enabled = pendingEnabled, perCategoryIntensities = resolved)
 
-        // H-4 (chrome pattern): run the applier first so a throw leaves the
-        // persisted state untouched and the user can retry after fixing the cause.
         try {
             VcsColorContext.withSnapshot(snapshot) {
                 VcsColorApplier.applyAll()
@@ -342,12 +370,29 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
                     "leaving pending VCS state uncommitted so the user can retry",
                 exception,
             )
-            notifyApplyFailed()
+            // Surface a balloon so the user knows their click was rejected.
+            // Notification dispatch is itself try-wrapped: a shutdown-race or
+            // notification-subsystem hiccup must not mask the apply failure.
+            try {
+                NotificationGroupManager
+                    .getInstance()
+                    .getNotificationGroup("Ayu Islands")
+                    .createNotification(
+                        "VCS colors could not be applied",
+                        "Settings were not saved — see idea.log for details. " +
+                            "Adjust any value in the VCS panel and click Apply again to retry.",
+                        NotificationType.WARNING,
+                    ).notify(null)
+            } catch (notificationException: RuntimeException) {
+                LOG.warn("VcsColorPanel.apply: failed to surface VCS-apply error balloon", notificationException)
+            }
             return
         }
         val state = AyuIslandsSettings.getInstance().state
         state.vcsColorEnabled = pendingEnabled
-        state.vcsColorPreset = pendingPreset.name
+        state.vcsDiffPreset = pendingDiffPreset.name
+        state.vcsMergePreset = pendingMergePreset.name
+        state.vcsBlamePreset = pendingBlamePreset.name
         state.vcsDiffIntensity = pendingDiffIntensity
         state.vcsProjectViewIntensity = pendingProjectViewIntensity
         state.vcsGutterIntensity = pendingGutterIntensity
@@ -356,15 +401,54 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
         loadStored(state)
     }
 
+    /**
+     * Computes the resolved per-category intensity for every wired category
+     * from the current pending per-section preset + per-category slider state.
+     * Non-Custom presets resolve via [VcsColorPreset.intensityFor]; Custom
+     * mode pulls the slider value directly. Placeholder categories
+     * (Wave 5+) stay at AMBIENT.
+     */
+    private fun resolveCategoryIntensitiesFromPendingState(): Map<VcsColorCategory, Int> {
+        val diffValue =
+            if (pendingDiffPreset == VcsColorPreset.CUSTOM) {
+                null
+            } else {
+                pendingDiffPreset.intensityFor(VcsColorCategory.DIFF_VIEWER)
+            }
+        val mergeValue =
+            if (pendingMergePreset == VcsColorPreset.CUSTOM) {
+                pendingConflictMarkerIntensity
+            } else {
+                pendingMergePreset.intensityFor(VcsColorCategory.CONFLICT_MARKERS)
+            }
+        val blameValue =
+            if (pendingBlamePreset == VcsColorPreset.CUSTOM) {
+                pendingBlameIntensity
+            } else {
+                pendingBlamePreset.intensityFor(VcsColorCategory.BLAME_GUTTER)
+            }
+        return mapOf(
+            VcsColorCategory.DIFF_VIEWER to (diffValue ?: pendingDiffIntensity),
+            VcsColorCategory.PROJECT_VIEW_FILE_STATUS to (diffValue ?: pendingProjectViewIntensity),
+            VcsColorCategory.EDITOR_GUTTER to (diffValue ?: pendingGutterIntensity),
+            VcsColorCategory.CONFLICT_MARKERS to mergeValue,
+            VcsColorCategory.BLAME_GUTTER to blameValue,
+        )
+    }
+
     override fun reset() {
         val state = AyuIslandsSettings.getInstance().state
         loadStored(state)
         suppressSliderListeners = true
         try {
             enabledCheckbox?.isSelected = pendingEnabled
-            presetSegmented?.selectedItem = pendingPreset
+            diffPresetSegmented?.selectedItem = pendingDiffPreset
+            mergePresetSegmented?.selectedItem = pendingMergePreset
+            blamePresetSegmented?.selectedItem = pendingBlamePreset
             masterEnabled.set(pendingEnabled)
-            customSelected.set(pendingPreset == VcsColorPreset.CUSTOM)
+            diffCustomSelected.set(pendingDiffPreset == VcsColorPreset.CUSTOM)
+            mergeCustomSelected.set(pendingMergePreset == VcsColorPreset.CUSTOM)
+            blameCustomSelected.set(pendingBlamePreset == VcsColorPreset.CUSTOM)
             diffSlider?.value = pendingDiffIntensity
             diffValueLabel?.text = "$pendingDiffIntensity"
             projectViewSlider?.value = pendingProjectViewIntensity
@@ -383,8 +467,12 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
     private fun loadStored(state: AyuIslandsState) {
         storedEnabled = state.vcsColorEnabled
         pendingEnabled = storedEnabled
-        storedPreset = state.effectiveVcsColorPreset()
-        pendingPreset = storedPreset
+        storedDiffPreset = state.effectiveVcsDiffPreset()
+        pendingDiffPreset = storedDiffPreset
+        storedMergePreset = state.effectiveVcsMergePreset()
+        pendingMergePreset = storedMergePreset
+        storedBlamePreset = state.effectiveVcsBlamePreset()
+        pendingBlamePreset = storedBlamePreset
         storedDiffIntensity = state.vcsDiffIntensity
         pendingDiffIntensity = state.vcsDiffIntensity.coerceIn(MIN_INTENSITY, MAX_INTENSITY)
         storedProjectViewIntensity = state.vcsProjectViewIntensity
@@ -396,64 +484,73 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
         storedBlameIntensity = state.vcsBlameIntensity
         pendingBlameIntensity = state.vcsBlameIntensity.coerceIn(MIN_INTENSITY, MAX_INTENSITY)
         masterEnabled.set(pendingEnabled)
-        customSelected.set(pendingPreset == VcsColorPreset.CUSTOM)
+        diffCustomSelected.set(pendingDiffPreset == VcsColorPreset.CUSTOM)
+        mergeCustomSelected.set(pendingMergePreset == VcsColorPreset.CUSTOM)
+        blameCustomSelected.set(pendingBlamePreset == VcsColorPreset.CUSTOM)
     }
 
     /**
-     * Switching presets (non-Custom) snaps every per-category slider to that
-     * preset's canonical position so the visible slider state always reflects
-     * what's being applied. Custom mode leaves sliders at their previous values
-     * so the user can fine-tune from the last preset they used.
+     * Switching a section's preset writes the new preset into that section's
+     * pending field, then (for non-Custom presets) snaps every slider owned by
+     * the section to the preset's canonical position. Custom mode leaves
+     * sliders alone so the user can fine-tune from the last preset.
      */
-    private fun onPresetChosen(preset: VcsColorPreset) {
-        pendingPreset = preset
-        customSelected.set(preset == VcsColorPreset.CUSTOM)
+    private fun onSectionPresetChosen(
+        section: VcsSection,
+        preset: VcsColorPreset,
+    ) {
+        when (section) {
+            VcsSection.DIFF -> pendingDiffPreset = preset
+            VcsSection.MERGE -> pendingMergePreset = preset
+            VcsSection.BLAME -> pendingBlamePreset = preset
+        }
         if (preset == VcsColorPreset.CUSTOM) return
-        val snapPosition = preset.intensityFor(VcsColorCategory.DIFF_VIEWER)
         suppressSliderListeners = true
         try {
-            pendingDiffIntensity = snapPosition
-            diffSlider?.value = snapPosition
-            diffValueLabel?.text = "$snapPosition"
-            pendingProjectViewIntensity = snapPosition
-            projectViewSlider?.value = snapPosition
-            projectViewValueLabel?.text = "$snapPosition"
-            pendingGutterIntensity = snapPosition
-            gutterSlider?.value = snapPosition
-            gutterValueLabel?.text = "$snapPosition"
-            pendingConflictMarkerIntensity = snapPosition
-            conflictMarkerSlider?.value = snapPosition
-            conflictMarkerValueLabel?.text = "$snapPosition"
-            pendingBlameIntensity = snapPosition
-            blameSlider?.value = snapPosition
-            blameValueLabel?.text = "$snapPosition"
+            for ((category, _) in section.sliders) {
+                val snap = preset.intensityFor(category)
+                writeSliderValue(category, snap)
+            }
         } finally {
             suppressSliderListeners = false
         }
     }
 
-    private fun notifyApplyFailed() {
-        try {
-            NotificationGroupManager
-                .getInstance()
-                .getNotificationGroup("Ayu Islands")
-                .createNotification(
-                    "VCS colors could not be applied",
-                    "Settings were not saved — see idea.log for details. " +
-                        "Adjust any value in the VCS panel and click Apply again to retry.",
-                    NotificationType.WARNING,
-                ).notify(null)
-        } catch (notificationException: RuntimeException) {
-            LOG.warn(
-                "VcsColorPanel.apply: failed to surface VCS-apply error balloon",
-                notificationException,
-            )
+    private fun writeSliderValue(
+        category: VcsColorCategory,
+        value: Int,
+    ) {
+        when (category) {
+            VcsColorCategory.DIFF_VIEWER -> {
+                pendingDiffIntensity = value
+                diffSlider?.value = value
+                diffValueLabel?.text = "$value"
+            }
+            VcsColorCategory.PROJECT_VIEW_FILE_STATUS -> {
+                pendingProjectViewIntensity = value
+                projectViewSlider?.value = value
+                projectViewValueLabel?.text = "$value"
+            }
+            VcsColorCategory.EDITOR_GUTTER -> {
+                pendingGutterIntensity = value
+                gutterSlider?.value = value
+                gutterValueLabel?.text = "$value"
+            }
+            VcsColorCategory.CONFLICT_MARKERS -> {
+                pendingConflictMarkerIntensity = value
+                conflictMarkerSlider?.value = value
+                conflictMarkerValueLabel?.text = "$value"
+            }
+            VcsColorCategory.BLAME_GUTTER -> {
+                pendingBlameIntensity = value
+                blameSlider?.value = value
+                blameValueLabel?.text = "$value"
+            }
+            else -> Unit
         }
     }
 
     // ── @TestOnly seams ───────────────────────────────────────────────────────
-
-    @TestOnly internal fun licensedForTest(): Boolean = licensed
 
     @TestOnly internal fun getPendingEnabledForTest(): Boolean = pendingEnabled
 
@@ -461,13 +558,33 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
         pendingEnabled = value
     }
 
-    @TestOnly internal fun getPendingPresetForTest(): VcsColorPreset = pendingPreset
+    @TestOnly internal fun getPendingPresetForTest(section: VcsSection): VcsColorPreset =
+        when (section) {
+            VcsSection.DIFF -> pendingDiffPreset
+            VcsSection.MERGE -> pendingMergePreset
+            VcsSection.BLAME -> pendingBlamePreset
+        }
 
-    @TestOnly internal fun setPendingPresetForTest(value: VcsColorPreset) {
-        pendingPreset = value
+    @TestOnly internal fun setPendingPresetForTest(
+        section: VcsSection,
+        preset: VcsColorPreset,
+    ) {
+        when (section) {
+            VcsSection.DIFF -> pendingDiffPreset = preset
+            VcsSection.MERGE -> pendingMergePreset = preset
+            VcsSection.BLAME -> pendingBlamePreset = preset
+        }
     }
 
-    @TestOnly internal fun getPendingIntensityForTest(category: VcsColorCategory): Int = pendingFor(category)
+    @TestOnly internal fun getPendingIntensityForTest(category: VcsColorCategory): Int =
+        when (category) {
+            VcsColorCategory.DIFF_VIEWER -> pendingDiffIntensity
+            VcsColorCategory.PROJECT_VIEW_FILE_STATUS -> pendingProjectViewIntensity
+            VcsColorCategory.EDITOR_GUTTER -> pendingGutterIntensity
+            VcsColorCategory.CONFLICT_MARKERS -> pendingConflictMarkerIntensity
+            VcsColorCategory.BLAME_GUTTER -> pendingBlameIntensity
+            else -> VcsColorPreset.AMBIENT_SLIDER
+        }
 
     @TestOnly internal fun setPendingIntensityForTest(
         category: VcsColorCategory,
@@ -483,18 +600,47 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
         }
     }
 
-    @TestOnly internal fun triggerPresetChosenForTest(preset: VcsColorPreset) {
-        onPresetChosen(preset)
+    @TestOnly internal fun triggerSectionPresetChosenForTest(
+        section: VcsSection,
+        preset: VcsColorPreset,
+    ) {
+        onSectionPresetChosen(section, preset)
     }
 
     companion object {
         private val LOG = logger<VcsColorPanel>()
-        private const val DIFF_GROUP_TITLE = "Diff & File Status"
-        private const val MERGE_GROUP_TITLE = "Merge & Conflict"
-        private const val BLAME_GROUP_TITLE = "Blame & History"
         internal const val MIN_INTENSITY = 0
         internal const val MAX_INTENSITY = 100
         private const val INTENSITY_MAJOR_TICK = 25
         private const val INTENSITY_MINOR_TICK = 5
     }
+}
+
+/**
+ * Selector for the three VCS panel sections. Encapsulates each section's
+ * user-visible title and the list of per-category sliders it owns in Custom
+ * mode, so the panel can iterate sections uniformly without a per-section
+ * `buildXSection` method.
+ */
+internal enum class VcsSection(
+    val title: String,
+    val sliders: List<Pair<VcsColorCategory, String>>,
+) {
+    DIFF(
+        title = "Diff and File Status",
+        sliders =
+            listOf(
+                VcsColorCategory.DIFF_VIEWER to "Diff viewer:",
+                VcsColorCategory.PROJECT_VIEW_FILE_STATUS to "Project View:",
+                VcsColorCategory.EDITOR_GUTTER to "Editor gutter:",
+            ),
+    ),
+    MERGE(
+        title = "Merge and Conflict",
+        sliders = listOf(VcsColorCategory.CONFLICT_MARKERS to "Conflict markers:"),
+    ),
+    BLAME(
+        title = "Blame and History",
+        sliders = listOf(VcsColorCategory.BLAME_GUTTER to "Blame gutter:"),
+    ),
 }

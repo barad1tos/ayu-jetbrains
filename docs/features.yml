@@ -151,6 +151,21 @@ categories:
           Theme Synchronization. Inspired by Peacock for VS Code,
           built on JetBrains platform primitives.
 
+      - id: vcs-color-customization
+        title: "VCS color customization"
+        keyword: "VCS color customization"
+        introduced: "2.6.3"
+        tier: paid
+        description: >
+          Tune VCS color intensity across five surfaces — diff viewer,
+          Project View file status, editor gutter, conflict markers, and
+          Git blame annotations. Each section carries its own profile:
+          Whisper (calmer), Ambient (2.6.2 defaults), Neon (brighter,
+          pre-2.6.2 punch), Cyberpunk (peak), or Custom with per-surface
+          sliders. Configured from Settings → Ayu Islands → VCS. Master
+          toggle off by default — 2.6.2 colors stay byte-identical until
+          users opt in.
+
   glow:
     title: "Glow effects"
     features:

@@ -278,13 +278,17 @@ object LicenseChecker {
 
             // Reset VCS color customization (Phase 40.2) — premium feature. The
             // master toggle goes off so the EditorColorsScheme falls back to stock
-            // XML on the next applier pass; preset returns to AMBIENT and the three
-            // Wave 2 sliders return to the no-op AMBIENT_SLIDER position.
+            // XML on the next applier pass; every per-section preset returns to
+            // AMBIENT and every per-category slider returns to AMBIENT_SLIDER.
             state.vcsColorEnabled = false
-            state.vcsColorPreset = VcsColorPreset.AMBIENT.name
+            state.vcsDiffPreset = VcsColorPreset.AMBIENT.name
+            state.vcsMergePreset = VcsColorPreset.AMBIENT.name
+            state.vcsBlamePreset = VcsColorPreset.AMBIENT.name
             state.vcsDiffIntensity = VcsColorPreset.AMBIENT_SLIDER
             state.vcsProjectViewIntensity = VcsColorPreset.AMBIENT_SLIDER
             state.vcsGutterIntensity = VcsColorPreset.AMBIENT_SLIDER
+            state.vcsConflictMarkerIntensity = VcsColorPreset.AMBIENT_SLIDER
+            state.vcsBlameIntensity = VcsColorPreset.AMBIENT_SLIDER
 
             // Reset workspace settings to free defaults
             state.projectPanelWidthMode = PanelWidthMode.DEFAULT.name

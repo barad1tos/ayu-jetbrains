@@ -11,50 +11,52 @@ import dev.ayuislands.settings.AyuIslandsState
  * persisted state mid-flight. The snapshot rides through [VcsColorContext] for
  * the duration of one apply pass.
  *
+ * Phase 40.2b redesign — snapshot carries the resolved per-category intensity
+ * map directly rather than a preset+per-category-overrides pair. The panel
+ * materialises per-section preset choices into per-category intensities BEFORE
+ * constructing the snapshot, so the applier and blender stay agnostic to
+ * preset/Custom branching.
+ *
  * @property enabled master kill-switch — when `false`, applier no-ops and
  *   surfaces revert to stock XML
- * @property preset active preset choice (Muted / Balanced / Vibrant / Custom)
- * @property perCategoryIntensities per-category overrides; consulted directly
- *   only when [preset] is [VcsColorPreset.CUSTOM]. For non-custom presets the
- *   snapshot delegates to [VcsColorPreset.intensityFor] so the preset's lookup
- *   table is the single source of truth.
+ * @property perCategoryIntensities resolved intensity per category. Missing
+ *   entries default to the no-op [VcsColorPreset.AMBIENT_SLIDER].
  */
 internal data class VcsColorSnapshot(
     val enabled: Boolean,
-    val preset: VcsColorPreset,
     val perCategoryIntensities: Map<VcsColorCategory, Int>,
 ) {
     /**
-     * Resolves the effective intensity for [category] under this snapshot.
-     *
-     * In [VcsColorPreset.CUSTOM] mode reads the per-category map; otherwise
-     * defers to the preset's static lookup. Missing map entries (defensive
-     * against migration / hand-edited XML) fall back to the preset's value
-     * for that category.
+     * Resolves the effective intensity for [category] under this snapshot. When
+     * disabled the snapshot returns zero across every category so the applier
+     * writes stock XML values back. Missing-entry fallback uses Ambient (no-op)
+     * for the same defensive reasoning the state's `effectiveVcs*Preset()`
+     * helpers apply.
      */
     fun intensityFor(category: VcsColorCategory): VcsIntensity {
         if (!enabled) return VcsIntensity.of(0)
-        val raw =
-            if (preset == VcsColorPreset.CUSTOM) {
-                perCategoryIntensities[category] ?: preset.intensityFor(category)
-            } else {
-                preset.intensityFor(category)
-            }
+        val raw = perCategoryIntensities[category] ?: VcsColorPreset.AMBIENT_SLIDER
         return VcsIntensity.of(raw)
     }
 
     companion object {
         /**
          * Captures the current state of [state] into an immutable snapshot.
-         * Used by callers outside the Settings-panel apply path that need to
-         * read the same "what would the applier do right now" view.
+         * Materialises every category's effective intensity upfront via
+         * [AyuIslandsState.effectiveVcsIntensityFor], so per-section preset +
+         * Custom-mode-slider resolution happens once at snapshot time rather
+         * than on every applier read.
          */
-        fun fromState(state: AyuIslandsState): VcsColorSnapshot =
-            VcsColorSnapshot(
+        fun fromState(state: AyuIslandsState): VcsColorSnapshot {
+            val intensities =
+                VcsColorCategory.entries.associateWith { category ->
+                    state.effectiveVcsIntensityFor(category).percent
+                }
+            return VcsColorSnapshot(
                 enabled = state.vcsColorEnabled,
-                preset = state.effectiveVcsColorPreset(),
-                perCategoryIntensities = state.effectiveVcsPerCategoryIntensities(),
+                perCategoryIntensities = intensities,
             )
+        }
     }
 }
 
