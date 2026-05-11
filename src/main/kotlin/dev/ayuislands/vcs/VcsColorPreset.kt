@@ -1,79 +1,89 @@
 package dev.ayuislands.vcs
 
 /**
- * Preset levels for VCS color intensity.
+ * Named intensity levels for VCS color customization.
  *
- * Each preset maps every [VcsColorCategory] to a percent in `[0, 100]` that the
- * applier feeds into [VcsColorBlender.blend] as the linear-interpolation ratio
- * between the stock 2.6.2 XML color (baseline) and the per-category vibrant
- * target.
+ * Mirrors the Font tab's preset-then-custom UX: instead of a generic
+ * "intensity %" knob, users pick a recognizable named profile, and only
+ * unlock per-category sliders via [CUSTOM] when they want to fine-tune.
+ * The four named presets sit at evenly-spaced slider positions so the
+ * step from one preset to the next is identical (33 slider units ≈
+ * 10% HSB saturation delta).
  *
- *  - [MUTED] — 0% across all categories. Default for upgraders from 2.6.2.
- *    Byte-identical to stock XML colors; no live theme change when the master
- *    toggle is off.
- *  - [BALANCED] — midpoint between Muted and Vibrant. Reasonable opening
- *    balance for users who want some life back without going to peak.
- *  - [VIBRANT] — 100% across all categories. Restores pre-2.6.2 cyan diff colors
- *    plus proportional boosts on the other ten surfaces.
- *  - [CUSTOM] — unlocks the per-category sliders in the settings panel; the
- *    snapshot's per-category map is consulted directly instead of the preset
- *    lookup table.
+ *  - [WHISPER]   → slider 0   — `-10%` saturation from 2.6.2 stock
+ *  - [AMBIENT]   → slider 33  — equals 2.6.2 XML stock (default for upgraders)
+ *  - [NEON]      → slider 67  — `+10%` saturation, restores pre-2.6.2 cyan punch
+ *  - [CYBERPUNK] → slider 100 — `+20%` saturation, peak vibrancy
+ *  - [CUSTOM]    → unlocks per-category sliders in the panel; the snapshot's
+ *    per-category map is consulted directly instead of the preset table
  *
- * Per-preset values are hand-tuned (not algorithmic): the vibrant targets per
- * category are defined separately in the applier, while the preset just declares
- * *how much* of that target to mix at this preset level.
+ * Per-preset slider positions are hand-tuned (not algorithmic). The actual
+ * HSB-saturation curve is implemented by [VcsColorPalette] — the preset
+ * declares *how far along the curve* this profile sits, while the palette
+ * declares *what the endpoints are* per (key × variant).
  */
 enum class VcsColorPreset {
-    MUTED,
-    BALANCED,
-    VIBRANT,
+    WHISPER,
+    AMBIENT,
+    NEON,
+    CYBERPUNK,
     CUSTOM,
     ;
 
     /**
-     * Returns the intensity percent this preset assigns to [category].
+     * Returns the slider position this preset assigns to [category].
      *
-     * For [CUSTOM], the call resolves to the same value as [BALANCED] as a
-     * sentinel — callers should branch on the preset and read the per-category
-     * map directly from the snapshot rather than invoke this method for
-     * [CUSTOM]. The fallback value protects against accidental fall-through
-     * when a future code path queries this method without checking the preset
-     * type first.
+     * For [CUSTOM], the call returns [AMBIENT_SLIDER] as a sentinel — callers
+     * should branch on the preset and read the per-category map directly from
+     * the snapshot rather than invoke this method for [CUSTOM]. The fallback
+     * value protects against accidental fall-through when a future code path
+     * queries this method without checking the preset type first.
      */
     fun intensityFor(category: VcsColorCategory): Int =
         when (this) {
-            MUTED -> MUTED_INTENSITIES.getValue(category)
-            BALANCED -> BALANCED_INTENSITIES.getValue(category)
-            VIBRANT -> VIBRANT_INTENSITIES.getValue(category)
-            CUSTOM -> BALANCED_INTENSITIES.getValue(category)
+            WHISPER -> WHISPER_INTENSITIES.getValue(category)
+            AMBIENT -> AMBIENT_INTENSITIES.getValue(category)
+            NEON -> NEON_INTENSITIES.getValue(category)
+            CYBERPUNK -> CYBERPUNK_INTENSITIES.getValue(category)
+            CUSTOM -> AMBIENT_INTENSITIES.getValue(category)
         }
 
     companion object {
+        /** Slider position for the [WHISPER] preset — `-10%` saturation endpoint. */
+        const val WHISPER_SLIDER: Int = 0
+
+        /** Slider position for the [AMBIENT] preset — `0%` (2.6.2 stock baseline). */
+        const val AMBIENT_SLIDER: Int = 33
+
+        /** Slider position for the [NEON] preset — `+10%` saturation. */
+        const val NEON_SLIDER: Int = 67
+
+        /** Slider position for the [CYBERPUNK] preset — `+20%` saturation. */
+        const val CYBERPUNK_SLIDER: Int = 100
+
         /**
          * Resolves a persisted preset string into the matching enum value,
-         * defaulting to [MUTED] when the string is `null`, empty, unknown, or
-         * corrupted (hand-edited XML, schema migration artifact).
+         * defaulting to [AMBIENT] when the string is `null`, empty, unknown, or
+         * corrupted (hand-edited XML, schema migration artifact). Ambient is
+         * the no-op default — falling back to it keeps a corrupted persisted
+         * value from accidentally tinting surfaces a user never opted into.
          */
-        fun byName(name: String?): VcsColorPreset = entries.firstOrNull { it.name == name } ?: MUTED
+        fun byName(name: String?): VcsColorPreset = entries.firstOrNull { it.name == name } ?: AMBIENT
 
-        /** Stock XML baseline — every category at 0%. */
-        private val MUTED_INTENSITIES: Map<VcsColorCategory, Int> =
-            VcsColorCategory.entries.associateWith { 0 }
+        /** Whisper — slider 0 across all categories. */
+        private val WHISPER_INTENSITIES: Map<VcsColorCategory, Int> =
+            VcsColorCategory.entries.associateWith { WHISPER_SLIDER }
 
-        /**
-         * Midpoint preset — 50% across all categories. Hand-tuned to be the
-         * "I want some life back, but not eye-bleeding" default that a Pro user
-         * would land on when they first open the panel.
-         */
-        private val BALANCED_INTENSITIES: Map<VcsColorCategory, Int> =
-            VcsColorCategory.entries.associateWith { 50 }
+        /** Ambient — slider 33 across all categories (= 2.6.2 XML stock). */
+        private val AMBIENT_INTENSITIES: Map<VcsColorCategory, Int> =
+            VcsColorCategory.entries.associateWith { AMBIENT_SLIDER }
 
-        /**
-         * Peak preset — 100% across all categories. Restores pre-2.6.2 cyan diff
-         * brightness and proportionally boosts the other surfaces toward their
-         * vibrant targets.
-         */
-        private val VIBRANT_INTENSITIES: Map<VcsColorCategory, Int> =
-            VcsColorCategory.entries.associateWith { 100 }
+        /** Neon — slider 67 across all categories (`+10%` saturation). */
+        private val NEON_INTENSITIES: Map<VcsColorCategory, Int> =
+            VcsColorCategory.entries.associateWith { NEON_SLIDER }
+
+        /** Cyberpunk — slider 100 across all categories (`+20%` saturation). */
+        private val CYBERPUNK_INTENSITIES: Map<VcsColorCategory, Int> =
+            VcsColorCategory.entries.associateWith { CYBERPUNK_SLIDER }
     }
 }

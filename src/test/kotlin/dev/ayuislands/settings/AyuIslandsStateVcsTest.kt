@@ -18,10 +18,11 @@ class AyuIslandsStateVcsTest {
     private fun freshState(): AyuIslandsState = AyuIslandsState()
 
     @Test
-    fun `default state has VCS disabled and Muted preset`() {
+    fun `default state has VCS disabled and Ambient preset at slider 33`() {
         val state = freshState()
         assertFalse(state.vcsColorEnabled, "Master kill-switch defaults off (2.6.2 byte-identical)")
-        assertEquals(VcsColorPreset.MUTED, state.effectiveVcsColorPreset())
+        assertEquals(VcsColorPreset.AMBIENT, state.effectiveVcsColorPreset())
+        // Master off => effective intensity is always 0, regardless of preset.
         for (category in VcsColorCategory.entries) {
             assertEquals(0, state.effectiveVcsIntensityFor(category).percent)
         }
@@ -30,28 +31,33 @@ class AyuIslandsStateVcsTest {
     @Test
     fun `effectiveVcsColorPreset resolves persisted enum name`() {
         val state = freshState()
-        state.vcsColorPreset = VcsColorPreset.BALANCED.name
-        assertEquals(VcsColorPreset.BALANCED, state.effectiveVcsColorPreset())
+        state.vcsColorPreset = VcsColorPreset.WHISPER.name
+        assertEquals(VcsColorPreset.WHISPER, state.effectiveVcsColorPreset())
 
-        state.vcsColorPreset = VcsColorPreset.VIBRANT.name
-        assertEquals(VcsColorPreset.VIBRANT, state.effectiveVcsColorPreset())
+        state.vcsColorPreset = VcsColorPreset.NEON.name
+        assertEquals(VcsColorPreset.NEON, state.effectiveVcsColorPreset())
+
+        state.vcsColorPreset = VcsColorPreset.CYBERPUNK.name
+        assertEquals(VcsColorPreset.CYBERPUNK, state.effectiveVcsColorPreset())
 
         state.vcsColorPreset = VcsColorPreset.CUSTOM.name
         assertEquals(VcsColorPreset.CUSTOM, state.effectiveVcsColorPreset())
     }
 
     @Test
-    fun `effectiveVcsColorPreset falls back to Muted on unknown persisted string`() {
+    fun `effectiveVcsColorPreset falls back to Ambient on unknown persisted string`() {
         // Hand-edited / migrated XML scenario: persisted value isn't an enum name.
+        // Ambient is the no-op default, keeping a corrupted XML from accidentally
+        // tinting surfaces the user never opted into.
         val state = freshState()
         state.vcsColorPreset = "GARBAGE_FROM_OLDER_SCHEMA"
-        assertEquals(VcsColorPreset.MUTED, state.effectiveVcsColorPreset())
+        assertEquals(VcsColorPreset.AMBIENT, state.effectiveVcsColorPreset())
     }
 
     @Test
     fun `effectiveVcsIntensityFor returns zero when master toggle is off regardless of preset`() {
         val state = freshState()
-        state.vcsColorPreset = VcsColorPreset.VIBRANT.name
+        state.vcsColorPreset = VcsColorPreset.CYBERPUNK.name
         // Master toggle still off — applier must see zero intensity for every category.
         for (category in VcsColorCategory.entries) {
             assertEquals(0, state.effectiveVcsIntensityFor(category).percent)
@@ -59,13 +65,28 @@ class AyuIslandsStateVcsTest {
     }
 
     @Test
-    fun `effectiveVcsIntensityFor reads preset table for non-Custom presets`() {
+    fun `effectiveVcsIntensityFor maps each preset to its canonical slider value`() {
         val state = freshState()
         state.vcsColorEnabled = true
-        state.vcsColorPreset = VcsColorPreset.BALANCED.name
-        // Balanced preset declares 50% across all categories.
+
+        state.vcsColorPreset = VcsColorPreset.WHISPER.name
         for (category in VcsColorCategory.entries) {
-            assertEquals(50, state.effectiveVcsIntensityFor(category).percent)
+            assertEquals(VcsColorPreset.WHISPER_SLIDER, state.effectiveVcsIntensityFor(category).percent)
+        }
+
+        state.vcsColorPreset = VcsColorPreset.AMBIENT.name
+        for (category in VcsColorCategory.entries) {
+            assertEquals(VcsColorPreset.AMBIENT_SLIDER, state.effectiveVcsIntensityFor(category).percent)
+        }
+
+        state.vcsColorPreset = VcsColorPreset.NEON.name
+        for (category in VcsColorCategory.entries) {
+            assertEquals(VcsColorPreset.NEON_SLIDER, state.effectiveVcsIntensityFor(category).percent)
+        }
+
+        state.vcsColorPreset = VcsColorPreset.CYBERPUNK.name
+        for (category in VcsColorCategory.entries) {
+            assertEquals(VcsColorPreset.CYBERPUNK_SLIDER, state.effectiveVcsIntensityFor(category).percent)
         }
     }
 
@@ -92,14 +113,14 @@ class AyuIslandsStateVcsTest {
     }
 
     @Test
-    fun `effectiveVcsPerCategoryIntensities returns every category`() {
+    fun `effectiveVcsPerCategoryIntensities returns every category at the Ambient default`() {
         val state = freshState()
         val map = state.effectiveVcsPerCategoryIntensities()
         for (category in VcsColorCategory.entries) {
             assertEquals(
-                0,
+                VcsColorPreset.AMBIENT_SLIDER,
                 map[category],
-                "category $category missing or non-zero on default state",
+                "category $category missing or not at Ambient default",
             )
         }
     }

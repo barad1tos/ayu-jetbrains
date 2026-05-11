@@ -19,7 +19,7 @@ class VcsColorSnapshotTest {
         val snapshot =
             VcsColorSnapshot(
                 enabled = false,
-                preset = VcsColorPreset.VIBRANT,
+                preset = VcsColorPreset.CYBERPUNK,
                 perCategoryIntensities = emptyMap(),
             )
         for (category in VcsColorCategory.entries) {
@@ -28,15 +28,28 @@ class VcsColorSnapshotTest {
     }
 
     @Test
-    fun `snapshot intensityFor uses preset table for non-Custom`() {
-        val snapshot =
-            VcsColorSnapshot(
-                enabled = true,
-                preset = VcsColorPreset.BALANCED,
-                perCategoryIntensities = mapOf(VcsColorCategory.DIFF_VIEWER to 99),
+    fun `snapshot intensityFor maps each preset to its canonical slider value`() {
+        val tested =
+            mapOf(
+                VcsColorPreset.WHISPER to VcsColorPreset.WHISPER_SLIDER,
+                VcsColorPreset.AMBIENT to VcsColorPreset.AMBIENT_SLIDER,
+                VcsColorPreset.NEON to VcsColorPreset.NEON_SLIDER,
+                VcsColorPreset.CYBERPUNK to VcsColorPreset.CYBERPUNK_SLIDER,
             )
-        // Balanced preset declares 50% — per-category map is ignored.
-        assertEquals(50, snapshot.intensityFor(VcsColorCategory.DIFF_VIEWER).percent)
+        for ((preset, expectedSlider) in tested) {
+            val snapshot =
+                VcsColorSnapshot(
+                    enabled = true,
+                    preset = preset,
+                    perCategoryIntensities = mapOf(VcsColorCategory.DIFF_VIEWER to 99),
+                )
+            // Non-Custom presets ignore the per-category map entirely.
+            assertEquals(
+                expectedSlider,
+                snapshot.intensityFor(VcsColorCategory.DIFF_VIEWER).percent,
+                "Preset $preset should map to slider $expectedSlider",
+            )
+        }
     }
 
     @Test
@@ -51,7 +64,7 @@ class VcsColorSnapshotTest {
     }
 
     @Test
-    fun `snapshot intensityFor falls back to preset for missing category in Custom`() {
+    fun `snapshot intensityFor falls back to Ambient slider for missing category in Custom`() {
         val snapshot =
             VcsColorSnapshot(
                 enabled = true,
@@ -59,8 +72,8 @@ class VcsColorSnapshotTest {
                 // Map missing BLAME_GUTTER — defensive fallback should kick in.
                 perCategoryIntensities = mapOf(VcsColorCategory.DIFF_VIEWER to 75),
             )
-        // CUSTOM.intensityFor falls back to BALANCED's value (50) per design.
-        assertEquals(50, snapshot.intensityFor(VcsColorCategory.BLAME_GUTTER).percent)
+        // CUSTOM.intensityFor falls back to Ambient slider per design.
+        assertEquals(VcsColorPreset.AMBIENT_SLIDER, snapshot.intensityFor(VcsColorCategory.BLAME_GUTTER).percent)
     }
 
     @Test
@@ -79,17 +92,20 @@ class VcsColorSnapshotTest {
     @Test
     fun `withSnapshot installs snapshot for the duration of the block`() {
         val state = AyuIslandsState()
-        // State says disabled; pending snapshot says enabled at Vibrant.
+        // State says disabled; pending snapshot says enabled at Cyberpunk.
         val pending =
             VcsColorSnapshot(
                 enabled = true,
-                preset = VcsColorPreset.VIBRANT,
+                preset = VcsColorPreset.CYBERPUNK,
                 perCategoryIntensities = emptyMap(),
             )
 
         VcsColorContext.withSnapshot(pending) {
             assertEquals(true, VcsColorContext.isEnabled(state))
-            assertEquals(100, VcsColorContext.currentIntensity(VcsColorCategory.DIFF_VIEWER, state).percent)
+            assertEquals(
+                VcsColorPreset.CYBERPUNK_SLIDER,
+                VcsColorContext.currentIntensity(VcsColorCategory.DIFF_VIEWER, state).percent,
+            )
         }
 
         // After the block: ThreadLocal cleared, fallback state visible.
@@ -102,7 +118,7 @@ class VcsColorSnapshotTest {
         val pending =
             VcsColorSnapshot(
                 enabled = true,
-                preset = VcsColorPreset.VIBRANT,
+                preset = VcsColorPreset.CYBERPUNK,
                 perCategoryIntensities = emptyMap(),
             )
 
@@ -134,24 +150,30 @@ class VcsColorSnapshotTest {
         val outer =
             VcsColorSnapshot(
                 enabled = true,
-                preset = VcsColorPreset.BALANCED,
+                preset = VcsColorPreset.AMBIENT,
                 perCategoryIntensities = emptyMap(),
             )
         val inner =
             VcsColorSnapshot(
                 enabled = true,
-                preset = VcsColorPreset.VIBRANT,
+                preset = VcsColorPreset.CYBERPUNK,
                 perCategoryIntensities = emptyMap(),
             )
 
         VcsColorContext.withSnapshot(outer) {
-            assertEquals(50, VcsColorContext.currentIntensity(VcsColorCategory.DIFF_VIEWER, state).percent)
+            assertEquals(
+                VcsColorPreset.AMBIENT_SLIDER,
+                VcsColorContext.currentIntensity(VcsColorCategory.DIFF_VIEWER, state).percent,
+            )
             VcsColorContext.withSnapshot(inner) {
-                assertEquals(100, VcsColorContext.currentIntensity(VcsColorCategory.DIFF_VIEWER, state).percent)
+                assertEquals(
+                    VcsColorPreset.CYBERPUNK_SLIDER,
+                    VcsColorContext.currentIntensity(VcsColorCategory.DIFF_VIEWER, state).percent,
+                )
             }
             // After inner block — outer must be restored.
             assertEquals(
-                50,
+                VcsColorPreset.AMBIENT_SLIDER,
                 VcsColorContext.currentIntensity(VcsColorCategory.DIFF_VIEWER, state).percent,
                 "outer snapshot must be restored after inner exit",
             )

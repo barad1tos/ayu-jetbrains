@@ -320,7 +320,7 @@ class AyuIslandsState : BaseState() {
     // Active preset choice. String-backed for BaseState XML serialization;
     // resolved through [effectiveVcsColorPreset] which falls back to MUTED on
     // corrupted or unknown values (legacy XML, hand-edited config).
-    var vcsColorPreset by string(VcsColorPreset.MUTED.name)
+    var vcsColorPreset by string(VcsColorPreset.AMBIENT.name)
 
     // VCS tab expanded state for the four collapsible sections. First section
     // (Diff & File Status) starts expanded by design; others collapsed.
@@ -329,20 +329,22 @@ class AyuIslandsState : BaseState() {
     var vcsColorBlameSectionExpanded by property(false)
     var vcsColorBranchSectionExpanded by property(false)
 
-    // Per-category intensities in `[0, 100]`. Defaults to 0 (Muted baseline)
-    // across the board; reads go through [effectiveVcsIntensityFor] so a
-    // corrupted persisted value can never reach the HSB blender out of range.
-    var vcsDiffIntensity by property(0)
-    var vcsProjectViewIntensity by property(0)
-    var vcsGutterIntensity by property(0)
-    var vcsConflictMarkerIntensity by property(0)
-    var vcsMerge3WayIntensity by property(0)
-    var vcsInlineDiffIntensity by property(0)
-    var vcsBlameIntensity by property(0)
-    var vcsLocalHistoryIntensity by property(0)
-    var vcsBranchIndicatorIntensity by property(0)
-    var vcsBranchesPopupIntensity by property(0)
-    var vcsCommitHighlightIntensity by property(0)
+    // Per-category intensities in `[0, 100]`. Defaults to AMBIENT_SLIDER (33)
+    // across the board so a Pro user enabling the master toggle observes no
+    // visible change until they cycle a preset or move a slider. Reads go
+    // through [effectiveVcsIntensityFor] so a corrupted persisted value can
+    // never reach the HSB blender out of range.
+    var vcsDiffIntensity by property(VcsColorPreset.AMBIENT_SLIDER)
+    var vcsProjectViewIntensity by property(VcsColorPreset.AMBIENT_SLIDER)
+    var vcsGutterIntensity by property(VcsColorPreset.AMBIENT_SLIDER)
+    var vcsConflictMarkerIntensity by property(VcsColorPreset.AMBIENT_SLIDER)
+    var vcsMerge3WayIntensity by property(VcsColorPreset.AMBIENT_SLIDER)
+    var vcsInlineDiffIntensity by property(VcsColorPreset.AMBIENT_SLIDER)
+    var vcsBlameIntensity by property(VcsColorPreset.AMBIENT_SLIDER)
+    var vcsLocalHistoryIntensity by property(VcsColorPreset.AMBIENT_SLIDER)
+    var vcsBranchIndicatorIntensity by property(VcsColorPreset.AMBIENT_SLIDER)
+    var vcsBranchesPopupIntensity by property(VcsColorPreset.AMBIENT_SLIDER)
+    var vcsCommitHighlightIntensity by property(VcsColorPreset.AMBIENT_SLIDER)
 
     /**
      * Returns [vcsColorPreset] resolved into a [VcsColorPreset] enum value,

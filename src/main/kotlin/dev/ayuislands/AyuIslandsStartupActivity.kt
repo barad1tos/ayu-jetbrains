@@ -25,6 +25,7 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import dev.ayuislands.ui.ComponentTreeRefresher
+import dev.ayuislands.vcs.VcsColorApplier
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.swing.SwingUtilities
@@ -202,6 +203,26 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
                 { GlowOverlayManager.getInstance(project).initialize() },
                 project.disposed,
             )
+        }
+
+        applyPersistedVcsColors(settings)
+    }
+
+    /**
+     * Re-apply persisted VCS color customization (Phase 40.2). Extracted from
+     * [execute] so the cyclomatic complexity stays under detekt's threshold —
+     * mirrors [runStartupAccentOnEdt]'s extraction rationale.
+     *
+     * Two gates here:
+     *  1. Master toggle — when off, [com.intellij.openapi.editor.colors.EditorColorsScheme]
+     *     has no plugin-owned VCS color writes to restore, so we skip the apply entirely.
+     *  2. License — a Pro user whose license expired between sessions sees their
+     *     VCS tinting revert to stock on the first post-expiry startup. Without
+     *     this gate we'd silently keep painting premium colors after a downgrade.
+     */
+    private fun applyPersistedVcsColors(settings: AyuIslandsSettings) {
+        if (settings.state.vcsColorEnabled && LicenseChecker.isLicensedOrGrace()) {
+            VcsColorApplier.applyAll()
         }
     }
 
