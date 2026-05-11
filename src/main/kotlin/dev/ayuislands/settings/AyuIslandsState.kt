@@ -318,16 +318,9 @@ class AyuIslandsState : BaseState() {
     var vcsColorEnabled by property(false)
 
     // Active preset choice. String-backed for BaseState XML serialization;
-    // resolved through [effectiveVcsColorPreset] which falls back to MUTED on
+    // resolved through [effectiveVcsColorPreset] which falls back to AMBIENT on
     // corrupted or unknown values (legacy XML, hand-edited config).
     var vcsColorPreset by string(VcsColorPreset.AMBIENT.name)
-
-    // VCS tab expanded state for the four collapsible sections. First section
-    // (Diff & File Status) starts expanded by design; others collapsed.
-    var vcsColorDiffSectionExpanded by property(true)
-    var vcsColorMergeSectionExpanded by property(false)
-    var vcsColorBlameSectionExpanded by property(false)
-    var vcsColorBranchSectionExpanded by property(false)
 
     // Per-category intensities in `[0, 100]`. Defaults to AMBIENT_SLIDER (33)
     // across the board so a Pro user enabling the master toggle observes no
@@ -348,10 +341,12 @@ class AyuIslandsState : BaseState() {
 
     /**
      * Returns [vcsColorPreset] resolved into a [VcsColorPreset] enum value,
-     * falling back to [VcsColorPreset.MUTED] on an unknown / corrupted string.
+     * falling back to [VcsColorPreset.AMBIENT] on an unknown / corrupted string.
      * Mirrors the [effectiveChromeTintIntensity] discipline: every read path
      * uses this helper so a hand-edited XML never feeds an unknown preset name
-     * into the applier's `when` branches.
+     * into the applier's `when` branches. Ambient is the no-op default so a
+     * corrupted persisted value doesn't accidentally tint surfaces a user
+     * never opted into.
      */
     fun effectiveVcsColorPreset(): VcsColorPreset = VcsColorPreset.byName(vcsColorPreset)
 
