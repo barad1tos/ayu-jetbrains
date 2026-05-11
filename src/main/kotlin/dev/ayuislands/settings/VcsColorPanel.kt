@@ -47,6 +47,8 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
     private var storedProjectViewIntensity: Int = VcsColorPreset.AMBIENT_SLIDER
     private var pendingGutterIntensity: Int = VcsColorPreset.AMBIENT_SLIDER
     private var storedGutterIntensity: Int = VcsColorPreset.AMBIENT_SLIDER
+    private var pendingConflictMarkerIntensity: Int = VcsColorPreset.AMBIENT_SLIDER
+    private var storedConflictMarkerIntensity: Int = VcsColorPreset.AMBIENT_SLIDER
 
     // ── Swing references (kept for reset-time refresh + test seams) ───────────
 
@@ -57,9 +59,11 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
     private var diffSlider: JSlider? = null
     private var projectViewSlider: JSlider? = null
     private var gutterSlider: JSlider? = null
+    private var conflictMarkerSlider: JSlider? = null
     private var diffValueLabel: JLabel? = null
     private var projectViewValueLabel: JLabel? = null
     private var gutterValueLabel: JLabel? = null
+    private var conflictMarkerValueLabel: JLabel? = null
 
     /** Drives `visibleIf(customSelected)` on the per-category slider rows. */
     private val customSelected = AtomicBooleanProperty(pendingPreset == VcsColorPreset.CUSTOM)
@@ -77,7 +81,6 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
 
     // ── Panel lifecycle ───────────────────────────────────────────────────────
 
-    @Suppress("UnstableApiUsage")
     override fun buildPanel(
         panel: Panel,
         variant: AyuVariant,
@@ -107,11 +110,30 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
         }
     }
 
-    @Suppress("UnstableApiUsage")
     private fun Panel.buildLicensedContent(state: AyuIslandsState) {
         buildMasterToggleRow()
         buildPresetRow()
-        buildDiffCollapsibleGroup(state)
+        buildSection(
+            title = DIFF_GROUP_TITLE,
+            initiallyExpanded = state.vcsDiffSectionExpanded,
+            persistExpanded = { expanded ->
+                AyuIslandsSettings.getInstance().state.vcsDiffSectionExpanded = expanded
+            },
+            sliders =
+                listOf(
+                    VcsColorCategory.DIFF_VIEWER to "Diff viewer:",
+                    VcsColorCategory.PROJECT_VIEW_FILE_STATUS to "Project View:",
+                    VcsColorCategory.EDITOR_GUTTER to "Editor gutter:",
+                ),
+        )
+        buildSection(
+            title = MERGE_GROUP_TITLE,
+            initiallyExpanded = state.vcsMergeSectionExpanded,
+            persistExpanded = { expanded ->
+                AyuIslandsSettings.getInstance().state.vcsMergeSectionExpanded = expanded
+            },
+            sliders = listOf(VcsColorCategory.CONFLICT_MARKERS to "Conflict markers:"),
+        )
     }
 
     private fun Panel.buildMasterToggleRow() {
@@ -139,17 +161,20 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
         presetRow.visibleIf(masterEnabled)
     }
 
-    private fun Panel.buildDiffCollapsibleGroup(state: AyuIslandsState) {
+    private fun Panel.buildSection(
+        title: String,
+        initiallyExpanded: Boolean,
+        persistExpanded: (Boolean) -> Unit,
+        sliders: List<Pair<VcsColorCategory, String>>,
+    ) {
         val collapsible =
-            collapsibleGroup(DIFF_GROUP_TITLE) {
-                buildPerCategorySliderRow(VcsColorCategory.DIFF_VIEWER, "Diff viewer:")
-                buildPerCategorySliderRow(VcsColorCategory.PROJECT_VIEW_FILE_STATUS, "Project View:")
-                buildPerCategorySliderRow(VcsColorCategory.EDITOR_GUTTER, "Editor gutter:")
+            collapsibleGroup(title) {
+                for ((category, label) in sliders) {
+                    buildPerCategorySliderRow(category, label)
+                }
             }
-        collapsible.expanded = state.vcsDiffSectionExpanded
-        collapsible.addExpandedListener { expanded ->
-            AyuIslandsSettings.getInstance().state.vcsDiffSectionExpanded = expanded
-        }
+        collapsible.expanded = initiallyExpanded
+        collapsible.addExpandedListener { expanded -> persistExpanded(expanded) }
     }
 
     private fun Panel.buildPerCategorySliderRow(
@@ -182,6 +207,7 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
             VcsColorCategory.DIFF_VIEWER -> pendingDiffIntensity
             VcsColorCategory.PROJECT_VIEW_FILE_STATUS -> pendingProjectViewIntensity
             VcsColorCategory.EDITOR_GUTTER -> pendingGutterIntensity
+            VcsColorCategory.CONFLICT_MARKERS -> pendingConflictMarkerIntensity
             else -> VcsColorPreset.AMBIENT_SLIDER
         }
 
@@ -202,6 +228,10 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
             VcsColorCategory.EDITOR_GUTTER -> {
                 gutterSlider = slider
                 gutterValueLabel = valueLabel
+            }
+            VcsColorCategory.CONFLICT_MARKERS -> {
+                conflictMarkerSlider = slider
+                conflictMarkerValueLabel = valueLabel
             }
             else -> Unit
         }
@@ -231,6 +261,10 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
                 pendingGutterIntensity = value
                 gutterValueLabel?.text = "$value"
             }
+            VcsColorCategory.CONFLICT_MARKERS -> {
+                pendingConflictMarkerIntensity = value
+                conflictMarkerValueLabel?.text = "$value"
+            }
             else -> return
         }
         if (suppressSliderListeners || pendingPreset == VcsColorPreset.CUSTOM) return
@@ -244,7 +278,8 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
             pendingPreset != storedPreset ||
             pendingDiffIntensity != storedDiffIntensity ||
             pendingProjectViewIntensity != storedProjectViewIntensity ||
-            pendingGutterIntensity != storedGutterIntensity
+            pendingGutterIntensity != storedGutterIntensity ||
+            pendingConflictMarkerIntensity != storedConflictMarkerIntensity
 
     override fun apply() {
         if (!isModified()) return
@@ -268,6 +303,7 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
                         VcsColorCategory.DIFF_VIEWER to pendingDiffIntensity,
                         VcsColorCategory.PROJECT_VIEW_FILE_STATUS to pendingProjectViewIntensity,
                         VcsColorCategory.EDITOR_GUTTER to pendingGutterIntensity,
+                        VcsColorCategory.CONFLICT_MARKERS to pendingConflictMarkerIntensity,
                     ),
             )
 
@@ -292,6 +328,7 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
         state.vcsDiffIntensity = pendingDiffIntensity
         state.vcsProjectViewIntensity = pendingProjectViewIntensity
         state.vcsGutterIntensity = pendingGutterIntensity
+        state.vcsConflictMarkerIntensity = pendingConflictMarkerIntensity
         loadStored(state)
     }
 
@@ -310,6 +347,8 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
             projectViewValueLabel?.text = "$pendingProjectViewIntensity"
             gutterSlider?.value = pendingGutterIntensity
             gutterValueLabel?.text = "$pendingGutterIntensity"
+            conflictMarkerSlider?.value = pendingConflictMarkerIntensity
+            conflictMarkerValueLabel?.text = "$pendingConflictMarkerIntensity"
         } finally {
             suppressSliderListeners = false
         }
@@ -326,6 +365,8 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
         pendingProjectViewIntensity = state.vcsProjectViewIntensity.coerceIn(MIN_INTENSITY, MAX_INTENSITY)
         storedGutterIntensity = state.vcsGutterIntensity
         pendingGutterIntensity = state.vcsGutterIntensity.coerceIn(MIN_INTENSITY, MAX_INTENSITY)
+        storedConflictMarkerIntensity = state.vcsConflictMarkerIntensity
+        pendingConflictMarkerIntensity = state.vcsConflictMarkerIntensity.coerceIn(MIN_INTENSITY, MAX_INTENSITY)
         masterEnabled.set(pendingEnabled)
         customSelected.set(pendingPreset == VcsColorPreset.CUSTOM)
     }
@@ -352,6 +393,9 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
             pendingGutterIntensity = snapPosition
             gutterSlider?.value = snapPosition
             gutterValueLabel?.text = "$snapPosition"
+            pendingConflictMarkerIntensity = snapPosition
+            conflictMarkerSlider?.value = snapPosition
+            conflictMarkerValueLabel?.text = "$snapPosition"
         } finally {
             suppressSliderListeners = false
         }
@@ -402,6 +446,7 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
             VcsColorCategory.DIFF_VIEWER -> pendingDiffIntensity = value
             VcsColorCategory.PROJECT_VIEW_FILE_STATUS -> pendingProjectViewIntensity = value
             VcsColorCategory.EDITOR_GUTTER -> pendingGutterIntensity = value
+            VcsColorCategory.CONFLICT_MARKERS -> pendingConflictMarkerIntensity = value
             else -> Unit
         }
     }
@@ -413,6 +458,7 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
     companion object {
         private val LOG = logger<VcsColorPanel>()
         private const val DIFF_GROUP_TITLE = "Diff & File Status"
+        private const val MERGE_GROUP_TITLE = "Merge & Conflict"
         internal const val MIN_INTENSITY = 0
         internal const val MAX_INTENSITY = 100
         private const val INTENSITY_MAJOR_TICK = 25

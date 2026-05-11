@@ -327,6 +327,11 @@ class AyuIslandsState : BaseState() {
     // additional section-expanded flags land alongside their panels in waves 3-5.
     var vcsDiffSectionExpanded by property(true)
 
+    // VCS panel's "Merge & Conflict" collapsible group expanded state. Defaults
+    // to false — the section opens collapsed so the panel reads as "primary
+    // Diff & File Status controls visible, secondary surfaces tucked away".
+    var vcsMergeSectionExpanded by property(false)
+
     // Per-category intensities in `[0, 100]`. Defaults to AMBIENT_SLIDER (33)
     // across the board so a Pro user enabling the master toggle observes no
     // visible change until they cycle a preset or move a slider. Reads go

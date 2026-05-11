@@ -133,23 +133,37 @@ class VcsColorPanelTest {
     }
 
     @Test
-    fun `triggering a non-Custom preset snaps all sliders to that preset's slider value`() {
+    fun `triggering a non-Custom preset snaps all wired sliders to that preset's slider value`() {
         val panel = newBuiltPanel()
         panel.triggerPresetChosenForTest(VcsColorPreset.NEON)
         assertEquals(VcsColorPreset.NEON, panel.getPendingPresetForTest())
-        val wave2Categories =
+        val wiredCategories =
             listOf(
                 VcsColorCategory.DIFF_VIEWER,
                 VcsColorCategory.PROJECT_VIEW_FILE_STATUS,
                 VcsColorCategory.EDITOR_GUTTER,
+                VcsColorCategory.CONFLICT_MARKERS,
             )
-        for (category in wave2Categories) {
+        for (category in wiredCategories) {
             assertEquals(
                 VcsColorPreset.NEON_SLIDER,
                 panel.getPendingIntensityForTest(category),
                 "$category should snap to NEON slider value",
             )
         }
+    }
+
+    @Test
+    fun `conflict markers slider participates in isModified and apply`() {
+        val panel = newBuiltPanel()
+        panel.setPendingIntensityForTest(VcsColorCategory.CONFLICT_MARKERS, 75)
+        assertTrue(panel.isModified(), "Conflict marker slider change must mark the panel modified")
+
+        panel.setPendingEnabledForTest(true)
+        panel.setPendingPresetForTest(VcsColorPreset.CUSTOM)
+        panel.apply()
+
+        assertEquals(75, state.vcsConflictMarkerIntensity, "apply must persist conflict marker intensity")
     }
 
     @Test

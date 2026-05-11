@@ -159,18 +159,30 @@ class VcsColorPaletteTest {
     }
 
     @Test
-    fun `palette covers exactly three categories in Wave 2 scope`() {
-        // Lock the Wave 2 category set so a future wave adding a fourth category
-        // doesn't accidentally land here without an explicit palette + applier extension.
+    fun `palette covers Wave 2 and Wave 3 categories`() {
+        // Lock the active category set so a future wave adding a fifth category
+        // doesn't accidentally land here without an explicit palette + applier
+        // extension. Wave 3 added CONFLICT_MARKERS; MERGE_3WAY and INLINE_DIFF_POPUP
+        // intentionally remain absent — merge viewer reuses Wave 2 diff keys, and
+        // the inline diff popup is a JBPopup UIManager surface outside this palette.
         assertEquals(
             setOf(
                 VcsColorCategory.DIFF_VIEWER,
                 VcsColorCategory.PROJECT_VIEW_FILE_STATUS,
                 VcsColorCategory.EDITOR_GUTTER,
+                VcsColorCategory.CONFLICT_MARKERS,
             ),
             VcsColorPalette.allCategoriesAndEntries().keys,
-            "Wave 2 palette must cover exactly DIFF_VIEWER + PROJECT_VIEW_FILE_STATUS + EDITOR_GUTTER",
+            "Palette must cover DIFF_VIEWER + PROJECT_VIEW_FILE_STATUS + EDITOR_GUTTER + CONFLICT_MARKERS",
         )
+    }
+
+    @Test
+    fun `conflict markers category includes both ColorKey and TextAttrBg entries`() {
+        val entries = VcsColorPalette.entriesFor(VcsColorCategory.CONFLICT_MARKERS)
+        val modes = entries.map { it.mode }.toSet()
+        assertTrue(VcsWriteMode.COLOR_KEY in modes, "CONFLICT_MARKERS must have ColorKey entries")
+        assertTrue(VcsWriteMode.TEXT_ATTR_BG in modes, "CONFLICT_MARKERS must have TextAttrBg entries")
     }
 
     @Test

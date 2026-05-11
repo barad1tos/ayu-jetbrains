@@ -141,6 +141,27 @@ object VcsColorPalette {
                         light = BLUE_LIGHT,
                     ),
                 ),
+            // Wave 3 — Merge & Conflict. Only DIFF_CONFLICT is themable via
+            // EditorColorsScheme; the merge 3-way viewer reuses DIFF_MODIFIED /
+            // INSERTED / DELETED from Wave 2, and the inline diff popup is a
+            // JBPopup UIManager surface that lives outside this palette.
+            VcsColorCategory.CONFLICT_MARKERS to
+                listOf(
+                    entry(
+                        "DIFF_CONFLICT",
+                        VcsWriteMode.COLOR_KEY,
+                        dark = "#D95757",
+                        mirage = "#FF6666",
+                        light = "#E65050",
+                    ),
+                    entry(
+                        "DIFF_CONFLICT",
+                        VcsWriteMode.TEXT_ATTR_BG,
+                        dark = "#701015",
+                        mirage = "#80202A",
+                        light = "#E6505020",
+                    ),
+                ),
         )
 
     /** Returns every palette entry for [category]; empty list if the category isn't in Wave 2's scope. */
