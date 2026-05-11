@@ -10,65 +10,55 @@ import kotlin.test.assertTrue
 /**
  * Algorithmic tests for [VcsColorPalette].
  *
- * Wave 2 covers nine ColorKey-based VCS surfaces across three Ayu variants
- * (Dark / Mirage / Light) — twenty-seven stock entries total. The palette
- * derives Whisper and Cyberpunk slider endpoints from those stock values via
- * HSB saturation offset; the tests pin:
+ * Wave 2 covers the three Diff & File Status user-task categories with both
+ * ColorKey-based and TextAttributesKey-based entries. The palette derives
+ * Whisper and Cyberpunk slider endpoints from each stock value via HSB
+ * saturation offset; the tests pin:
  *
- *  - completeness — every category × variant has a stock entry
+ *  - completeness — every category exposes at least one entry; every entry
+ *    has a stock color for every Ayu variant
  *  - endpoint relationships — Whisper has lower saturation, Cyberpunk higher
  *  - Ambient slider invariant — at [VcsColorPreset.AMBIENT_SLIDER], blending
  *    from `endpoints(...)` lands within rounding tolerance of the stock color
  *    so a Pro user observing the AMBIENT preset sees no visible change vs 2.6.2
+ *  - alpha preservation — Light variant ships translucent backgrounds; the
+ *    palette must round-trip the alpha channel through the saturation offset
  */
 class VcsColorPaletteTest {
     @Test
-    fun `palette covers every category key under every variant`() {
-        for ((category, keys) in VcsColorPalette.KEYS_BY_CATEGORY) {
-            for (keyName in keys) {
+    fun `palette covers every entry under every variant`() {
+        for ((category, entries) in VcsColorPalette.allCategoriesAndEntries()) {
+            assertTrue(
+                entries.isNotEmpty(),
+                "Category $category must have at least one palette entry",
+            )
+            for (entry in entries) {
                 for (variant in AyuVariant.entries) {
-                    // Throws if missing — drives a clear failure message via the catch.
-                    val stock = VcsColorPalette.stock(keyName, variant)
-                    assertEquals(255, stock.alpha, "Stock entries must be opaque: $keyName / $variant / $category")
+                    val stock = entry.stockFor(variant)
+                    // Alpha may be < 255 for translucent Light backgrounds; just ensure the
+                    // entry resolved a real color without throwing.
+                    assertTrue(
+                        stock.alpha in 1..ALPHA_MAX,
+                        "Stock alpha must lie in (0, 255]: ${entry.keyName}/${entry.mode}/$variant",
+                    )
                 }
             }
         }
     }
 
     @Test
-    fun `palette has no orphan stock entries outside the category-key map`() {
-        val declared =
-            VcsColorPalette.KEYS_BY_CATEGORY.values
-                .flatten()
-                .flatMap { keyName ->
-                    AyuVariant.entries.map { variant -> variant to keyName }
-                }.toSet()
-        val known = VcsColorPalette.knownPairs()
-        assertEquals(
-            declared,
-            known,
-            "Every stock entry must be reachable via KEYS_BY_CATEGORY (and vice versa) — " +
-                "extra: ${known - declared}, missing: ${declared - known}",
-        )
-    }
-
-    @Test
-    fun `Whisper endpoint has lower saturation than stock`() {
-        for ((_, keys) in VcsColorPalette.KEYS_BY_CATEGORY) {
-            for (keyName in keys) {
+    fun `Whisper endpoint has lower or equal saturation than stock`() {
+        for ((_, entries) in VcsColorPalette.allCategoriesAndEntries()) {
+            for (entry in entries) {
                 for (variant in AyuVariant.entries) {
-                    val stock = VcsColorPalette.stock(keyName, variant)
-                    val (whisper, _) = VcsColorPalette.endpoints(keyName, variant)
-                    if (saturationOf(stock) > 0.10f) {
-                        assertTrue(
-                            saturationOf(whisper) < saturationOf(stock),
-                            "$keyName / $variant: Whisper sat ${saturationOf(whisper)} should be " +
-                                "below stock sat ${saturationOf(stock)}",
-                        )
-                    }
-                    // Stock saturations under 0.10 hit the lower clamp at the Whisper offset;
-                    // the saturation can land at the clamp boundary, which is still a valid
-                    // endpoint but breaks the strict-less-than check above.
+                    val stock = entry.stockFor(variant)
+                    val (whisper, _) = VcsColorPalette.endpoints(entry, variant)
+                    if (saturationOf(stock) <= LOW_SAT_THRESHOLD) continue
+                    assertTrue(
+                        saturationOf(whisper) < saturationOf(stock),
+                        "${entry.keyName}/$variant: Whisper sat ${saturationOf(whisper)} " +
+                            "should be below stock sat ${saturationOf(stock)}",
+                    )
                 }
             }
         }
@@ -76,15 +66,15 @@ class VcsColorPaletteTest {
 
     @Test
     fun `Cyberpunk endpoint has higher or equal saturation vs stock`() {
-        for ((_, keys) in VcsColorPalette.KEYS_BY_CATEGORY) {
-            for (keyName in keys) {
+        for ((_, entries) in VcsColorPalette.allCategoriesAndEntries()) {
+            for (entry in entries) {
                 for (variant in AyuVariant.entries) {
-                    val stock = VcsColorPalette.stock(keyName, variant)
-                    val (_, cyberpunk) = VcsColorPalette.endpoints(keyName, variant)
+                    val stock = entry.stockFor(variant)
+                    val (_, cyberpunk) = VcsColorPalette.endpoints(entry, variant)
                     assertTrue(
                         saturationOf(cyberpunk) >= saturationOf(stock) - SAT_EPSILON,
-                        "$keyName / $variant: Cyberpunk sat ${saturationOf(cyberpunk)} should be " +
-                            ">= stock sat ${saturationOf(stock)} (within epsilon)",
+                        "${entry.keyName}/$variant: Cyberpunk sat ${saturationOf(cyberpunk)} " +
+                            "should be >= stock sat ${saturationOf(stock)}",
                     )
                 }
             }
@@ -92,29 +82,43 @@ class VcsColorPaletteTest {
     }
 
     @Test
+    fun `endpoints preserve stock alpha for translucent Light backgrounds`() {
+        // Light variant DIFF_*_BG entries ship as `#RRGGBBAA` with alpha < 255
+        // (12-13% overlay). The Whisper/Cyberpunk endpoints derive via HSB
+        // saturation offset and must NOT collapse alpha to 255 — otherwise
+        // tinted backgrounds would suddenly become opaque blocks of color.
+        for ((_, entries) in VcsColorPalette.allCategoriesAndEntries()) {
+            for (entry in entries) {
+                if (entry.mode != VcsWriteMode.TEXT_ATTR_BG) continue
+                val stock = entry.stockFor(AyuVariant.LIGHT)
+                if (stock.alpha == ALPHA_MAX) continue
+                val (whisper, cyberpunk) = VcsColorPalette.endpoints(entry, AyuVariant.LIGHT)
+                assertEquals(stock.alpha, whisper.alpha, "${entry.keyName}: Whisper alpha drift")
+                assertEquals(stock.alpha, cyberpunk.alpha, "${entry.keyName}: Cyberpunk alpha drift")
+            }
+        }
+    }
+
+    @Test
     fun `Ambient slider position blends to within rounding tolerance of stock`() {
-        // Slider position 33 sits at the integer-rounded midpoint of the Whisper→Cyberpunk
-        // saturation curve. The user-perceived invariant: AMBIENT preset == no visible change
-        // from 2.6.2 stock. We allow a small RGB tolerance because the slider position 33 is
-        // an integer approximation of the exact midpoint (33.33).
         val ambient = VcsIntensity.of(VcsColorPreset.AMBIENT_SLIDER)
-        for ((_, keys) in VcsColorPalette.KEYS_BY_CATEGORY) {
-            for (keyName in keys) {
+        for ((_, entries) in VcsColorPalette.allCategoriesAndEntries()) {
+            for (entry in entries) {
                 for (variant in AyuVariant.entries) {
-                    val stock = VcsColorPalette.stock(keyName, variant)
-                    val (base, target) = VcsColorPalette.endpoints(keyName, variant)
+                    val stock = entry.stockFor(variant)
+                    val (base, target) = VcsColorPalette.endpoints(entry, variant)
                     val blended = VcsColorBlender.blend(base, target, ambient)
                     assertTrue(
                         abs(blended.red - stock.red) <= AMBIENT_CHANNEL_TOLERANCE,
-                        "$keyName / $variant: red drift |${blended.red} - ${stock.red}| > tolerance",
+                        "${entry.keyName}/$variant: red drift |${blended.red} - ${stock.red}| > tolerance",
                     )
                     assertTrue(
                         abs(blended.green - stock.green) <= AMBIENT_CHANNEL_TOLERANCE,
-                        "$keyName / $variant: green drift |${blended.green} - ${stock.green}| > tolerance",
+                        "${entry.keyName}/$variant: green drift |${blended.green} - ${stock.green}| > tolerance",
                     )
                     assertTrue(
                         abs(blended.blue - stock.blue) <= AMBIENT_CHANNEL_TOLERANCE,
-                        "$keyName / $variant: blue drift |${blended.blue} - ${stock.blue}| > tolerance",
+                        "${entry.keyName}/$variant: blue drift |${blended.blue} - ${stock.blue}| > tolerance",
                     )
                 }
             }
@@ -124,15 +128,15 @@ class VcsColorPaletteTest {
     @Test
     fun `Whisper slider position blends to the Whisper endpoint`() {
         val whisper = VcsIntensity.of(VcsColorPreset.WHISPER_SLIDER)
-        for ((_, keys) in VcsColorPalette.KEYS_BY_CATEGORY) {
-            for (keyName in keys) {
+        for ((_, entries) in VcsColorPalette.allCategoriesAndEntries()) {
+            for (entry in entries) {
                 for (variant in AyuVariant.entries) {
-                    val (base, target) = VcsColorPalette.endpoints(keyName, variant)
+                    val (base, target) = VcsColorPalette.endpoints(entry, variant)
                     val blended = VcsColorBlender.blend(base, target, whisper)
                     // Slider 0 short-circuits to base per VcsColorBlender contract.
-                    assertEquals(base.red, blended.red, "$keyName / $variant: Whisper red mismatch")
-                    assertEquals(base.green, blended.green, "$keyName / $variant: Whisper green mismatch")
-                    assertEquals(base.blue, blended.blue, "$keyName / $variant: Whisper blue mismatch")
+                    assertEquals(base.red, blended.red, "${entry.keyName}/$variant: Whisper red mismatch")
+                    assertEquals(base.green, blended.green, "${entry.keyName}/$variant: Whisper green mismatch")
+                    assertEquals(base.blue, blended.blue, "${entry.keyName}/$variant: Whisper blue mismatch")
                 }
             }
         }
@@ -141,15 +145,14 @@ class VcsColorPaletteTest {
     @Test
     fun `Cyberpunk slider position blends to the Cyberpunk endpoint`() {
         val cyberpunk = VcsIntensity.of(VcsColorPreset.CYBERPUNK_SLIDER)
-        for ((_, keys) in VcsColorPalette.KEYS_BY_CATEGORY) {
-            for (keyName in keys) {
+        for ((_, entries) in VcsColorPalette.allCategoriesAndEntries()) {
+            for (entry in entries) {
                 for (variant in AyuVariant.entries) {
-                    val (base, target) = VcsColorPalette.endpoints(keyName, variant)
+                    val (base, target) = VcsColorPalette.endpoints(entry, variant)
                     val blended = VcsColorBlender.blend(base, target, cyberpunk)
-                    // Slider 100 short-circuits to target per VcsColorBlender contract.
-                    assertEquals(target.red, blended.red, "$keyName / $variant: Cyberpunk red mismatch")
-                    assertEquals(target.green, blended.green, "$keyName / $variant: Cyberpunk green mismatch")
-                    assertEquals(target.blue, blended.blue, "$keyName / $variant: Cyberpunk blue mismatch")
+                    assertEquals(target.red, blended.red, "${entry.keyName}/$variant: Cyberpunk red mismatch")
+                    assertEquals(target.green, blended.green, "${entry.keyName}/$variant: Cyberpunk green mismatch")
+                    assertEquals(target.blue, blended.blue, "${entry.keyName}/$variant: Cyberpunk blue mismatch")
                 }
             }
         }
@@ -165,38 +168,29 @@ class VcsColorPaletteTest {
                 VcsColorCategory.PROJECT_VIEW_FILE_STATUS,
                 VcsColorCategory.EDITOR_GUTTER,
             ),
-            VcsColorPalette.KEYS_BY_CATEGORY.keys,
+            VcsColorPalette.allCategoriesAndEntries().keys,
             "Wave 2 palette must cover exactly DIFF_VIEWER + PROJECT_VIEW_FILE_STATUS + EDITOR_GUTTER",
         )
+    }
+
+    @Test
+    fun `diff viewer category includes both ColorKey and TextAttrBg entries`() {
+        // Wave 2.5 invariant: DIFF_VIEWER must reach both the top-level ColorKey
+        // (file tab tints, scrollbar markers) and the TextAttributesKey BACKGROUND
+        // (visible row tint in the diff editor). If either disappears the visible
+        // signal of moving the Diff slider degrades materially.
+        val entries = VcsColorPalette.entriesFor(VcsColorCategory.DIFF_VIEWER)
+        val modes = entries.map { it.mode }.toSet()
+        assertTrue(VcsWriteMode.COLOR_KEY in modes, "DIFF_VIEWER must have ColorKey entries")
+        assertTrue(VcsWriteMode.TEXT_ATTR_BG in modes, "DIFF_VIEWER must have TextAttrBg entries")
     }
 
     private fun saturationOf(color: Color): Float = Color.RGBtoHSB(color.red, color.green, color.blue, null)[1]
 
     private companion object {
-        /**
-         * Saturation tolerance for the Cyberpunk-endpoint comparison. Some stock
-         * values already sit close to the saturation ceiling, so the +20% offset
-         * clamps at 1.0 — we accept landings within this much slack.
-         */
         const val SAT_EPSILON: Float = 0.001f
-
-        /**
-         * Per-channel RGB tolerance for the AMBIENT_SLIDER == stock invariant.
-         *
-         * Two sources of drift the tolerance has to swallow:
-         *  1. Slider position 33 approximates the exact saturation midpoint (33.33).
-         *  2. When a stock color sits near the saturation ceiling (e.g. Light
-         *     FILESTATUS_ADDED is fully saturated green), the `+20%` Cyberpunk
-         *     offset clamps at `S=1.0`. The lerp from Whisper(S=0.9) to that
-         *     clamped Cyberpunk(S=1.0) at slider 33 lands at S≈0.933, not the
-         *     original 1.0 — so the blended RGB picks up a slight desaturation
-         *     wash on already-saturated channels.
-         *
-         * `16` is the empirical ceiling across all 27 palette entries while still
-         * being well under the WCAG-just-noticeable-difference threshold of ~24
-         * per channel for sRGB. Gross palette drift (typo in stock hex, wrong
-         * variant index) trips at deltas well above this.
-         */
+        const val LOW_SAT_THRESHOLD: Float = 0.10f
         const val AMBIENT_CHANNEL_TOLERANCE: Int = 16
+        const val ALPHA_MAX: Int = 255
     }
 }

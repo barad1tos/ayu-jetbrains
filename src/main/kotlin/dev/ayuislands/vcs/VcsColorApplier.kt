@@ -4,6 +4,9 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.colors.ColorKey
 import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.openapi.editor.colors.EditorColorsScheme
+import com.intellij.openapi.editor.colors.TextAttributesKey
+import com.intellij.openapi.editor.markup.TextAttributes
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -12,22 +15,18 @@ import java.awt.Window
 
 /**
  * Phase 40.2 applier — writes blended VCS colors into the live
- * [com.intellij.openapi.editor.colors.EditorColorsScheme] based on the
- * current [VcsColorContext] snapshot (or persisted [AyuIslandsState] when no
- * snapshot is active).
+ * [EditorColorsScheme] based on the current [VcsColorContext] snapshot (or
+ * persisted [AyuIslandsState] when no snapshot is active).
  *
- * Wave 2 ColorKey scope (no TextAttributesKey writes yet — that's Wave 2.x):
- *  - For every (category, keyName) in [VcsColorPalette.KEYS_BY_CATEGORY], the
- *    applier reads the per-category slider via [VcsColorContext.currentIntensity],
- *    blends the palette's Whisper / Cyberpunk endpoints with [VcsColorBlender],
- *    and writes the result via `scheme.setColor(ColorKey.find(name), ...)`.
- *  - When master is OFF or the snapshot says "disabled", the applier issues
- *    null-writes (`setColor(key, null)`) so the scheme falls back to the stock
- *    XML values — no leftover tinted state when a user disables the feature.
+ * Wave 2 + 2.5 scope: dispatches per [VcsWriteMode]:
+ *  - [VcsWriteMode.COLOR_KEY] — `scheme.setColor(ColorKey.find(name), tinted)`
+ *  - [VcsWriteMode.TEXT_ATTR_BG] — read existing attributes, clone with the
+ *    blended background, preserve foreground / effect / error stripe / font
+ *    type, write back via `scheme.setAttributes`.
  *
- * Lives as an [object] mirroring [dev.ayuislands.accent.ChromeTintBlender] —
- * the applier holds no mutable state; the [VcsColorContext] ThreadLocal is the
- * only ephemeral channel, and the persisted [AyuIslandsState] is the durable one.
+ * When master is OFF or the snapshot says "disabled", the applier issues
+ * null-writes so the scheme falls back to the stock XML values — no leftover
+ * tinted state when a user disables the feature.
  */
 internal object VcsColorApplier {
     private val LOG = logger<VcsColorApplier>()
@@ -37,13 +36,11 @@ internal object VcsColorApplier {
      *
      * Reads the [AyuIslandsState] singleton, resolves the active [AyuVariant],
      * and writes a blended color (or null = stock revert) for every known
-     * ColorKey in [VcsColorPalette]. After writing, repaints all visible
-     * Windows so the gutter / Project View / scrollbar markers reflect the
-     * new palette without requiring a theme reload.
+     * palette entry. After writing, repaints all visible Windows so the
+     * gutter / Project View / diff viewer markers reflect the new palette
+     * without requiring a theme reload.
      *
-     * Safe to call from any thread — the EDT hop happens inside this method
-     * when needed. Callers do not need to wrap in [ApplicationManager.getApplication]
-     * `invokeLater`.
+     * Safe to call from any thread — the EDT hop happens inside this method.
      */
     fun applyAll() {
         val state = AyuIslandsSettings.getInstance().state
@@ -59,16 +56,17 @@ internal object VcsColorApplier {
     }
 
     /**
-     * Reverts every VCS ColorKey to stock — equivalent to writing `null` for
-     * each key so the scheme falls back to the XML baseline. Used when the
-     * master kill-switch flips from ON to OFF.
+     * Reverts every VCS color entry to stock — null-writes via
+     * `scheme.setColor` (for ColorKey entries) and `scheme.setAttributes`
+     * (for TextAttributesKey entries) so the scheme falls back to the XML
+     * baseline. Used when the master kill-switch flips ON → OFF.
      */
     fun revertAll() {
         ApplicationManager.getApplication().invokeLater {
             val scheme = EditorColorsManager.getInstance().globalScheme
-            for ((_, keys) in VcsColorPalette.KEYS_BY_CATEGORY) {
-                for (keyName in keys) {
-                    scheme.setColor(ColorKey.find(keyName), null)
+            for ((_, entries) in VcsColorPalette.allCategoriesAndEntries()) {
+                for (entry in entries) {
+                    revertEntry(scheme, entry)
                 }
             }
             repaintAllWindows()
@@ -79,40 +77,84 @@ internal object VcsColorApplier {
         state: AyuIslandsState,
         variant: AyuVariant,
     ) {
+        val scheme = EditorColorsManager.getInstance().globalScheme
         if (!VcsColorContext.isEnabled(state)) {
-            // Disabled — write nulls so the scheme falls back to XML stock.
-            val scheme = EditorColorsManager.getInstance().globalScheme
-            for ((_, keys) in VcsColorPalette.KEYS_BY_CATEGORY) {
-                for (keyName in keys) {
-                    scheme.setColor(ColorKey.find(keyName), null)
+            for ((_, entries) in VcsColorPalette.allCategoriesAndEntries()) {
+                for (entry in entries) {
+                    revertEntry(scheme, entry)
                 }
             }
             return
         }
-        val scheme = EditorColorsManager.getInstance().globalScheme
-        for ((category, keys) in VcsColorPalette.KEYS_BY_CATEGORY) {
+        for ((category, entries) in VcsColorPalette.allCategoriesAndEntries()) {
             val intensity = VcsColorContext.currentIntensity(category, state)
-            for (keyName in keys) {
-                val tinted = blendFor(keyName, variant, intensity)
-                scheme.setColor(ColorKey.find(keyName), tinted)
+            for (entry in entries) {
+                val tinted = blendFor(entry, variant, intensity)
+                writeEntry(scheme, entry, tinted)
             }
         }
     }
 
     private fun blendFor(
-        keyName: String,
+        entry: VcsPaletteEntry,
         variant: AyuVariant,
         intensity: VcsIntensity,
     ): Color {
-        val (base, target) = VcsColorPalette.endpoints(keyName, variant)
+        val (base, target) = VcsColorPalette.endpoints(entry, variant)
         return VcsColorBlender.blend(base, target, intensity)
+    }
+
+    private fun writeEntry(
+        scheme: EditorColorsScheme,
+        entry: VcsPaletteEntry,
+        tinted: Color,
+    ) {
+        when (entry.mode) {
+            VcsWriteMode.COLOR_KEY -> scheme.setColor(ColorKey.find(entry.keyName), tinted)
+            VcsWriteMode.TEXT_ATTR_BG -> writeTextAttrBackground(scheme, entry.keyName, tinted)
+        }
+    }
+
+    private fun revertEntry(
+        scheme: EditorColorsScheme,
+        entry: VcsPaletteEntry,
+    ) {
+        when (entry.mode) {
+            VcsWriteMode.COLOR_KEY -> scheme.setColor(ColorKey.find(entry.keyName), null)
+            VcsWriteMode.TEXT_ATTR_BG -> scheme.setAttributes(TextAttributesKey.find(entry.keyName), null)
+        }
+    }
+
+    /**
+     * Writes [background] into the BACKGROUND slot of [TextAttributesKey] named
+     * [keyName], preserving every other TextAttributes field (foreground, effect
+     * color/type, error stripe color, font type). Without the clone-preserve
+     * dance, our background write would clobber the existing error stripe color
+     * and any future foreground accent.
+     */
+    private fun writeTextAttrBackground(
+        scheme: EditorColorsScheme,
+        keyName: String,
+        background: Color,
+    ) {
+        val key = TextAttributesKey.find(keyName)
+        val existing = scheme.getAttributes(key)
+        val updated =
+            TextAttributes(
+                existing?.foregroundColor,
+                background,
+                existing?.effectColor,
+                existing?.effectType,
+                existing?.fontType ?: 0,
+            )
+        updated.errorStripeColor = existing?.errorStripeColor
+        scheme.setAttributes(key, updated)
     }
 
     /**
      * Repaints every visible top-level [Window] so the scheme writes propagate
      * without waiting for the next focus event. Mirrors the chrome applier's
-     * post-apply repaint discipline — without it, the gutter and Project View
-     * keep their cached tinted color until the user clicks somewhere.
+     * post-apply repaint discipline.
      */
     private fun repaintAllWindows() {
         for (window in Window.getWindows()) {
