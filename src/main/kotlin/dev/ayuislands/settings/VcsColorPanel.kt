@@ -49,6 +49,8 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
     private var storedGutterIntensity: Int = VcsColorPreset.AMBIENT_SLIDER
     private var pendingConflictMarkerIntensity: Int = VcsColorPreset.AMBIENT_SLIDER
     private var storedConflictMarkerIntensity: Int = VcsColorPreset.AMBIENT_SLIDER
+    private var pendingBlameIntensity: Int = VcsColorPreset.AMBIENT_SLIDER
+    private var storedBlameIntensity: Int = VcsColorPreset.AMBIENT_SLIDER
 
     // ── Swing references (kept for reset-time refresh + test seams) ───────────
 
@@ -60,10 +62,12 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
     private var projectViewSlider: JSlider? = null
     private var gutterSlider: JSlider? = null
     private var conflictMarkerSlider: JSlider? = null
+    private var blameSlider: JSlider? = null
     private var diffValueLabel: JLabel? = null
     private var projectViewValueLabel: JLabel? = null
     private var gutterValueLabel: JLabel? = null
     private var conflictMarkerValueLabel: JLabel? = null
+    private var blameValueLabel: JLabel? = null
 
     /** Drives `visibleIf(customSelected)` on the per-category slider rows. */
     private val customSelected = AtomicBooleanProperty(pendingPreset == VcsColorPreset.CUSTOM)
@@ -133,6 +137,14 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
                 AyuIslandsSettings.getInstance().state.vcsMergeSectionExpanded = expanded
             },
             sliders = listOf(VcsColorCategory.CONFLICT_MARKERS to "Conflict markers:"),
+        )
+        buildSection(
+            title = BLAME_GROUP_TITLE,
+            initiallyExpanded = state.vcsBlameSectionExpanded,
+            persistExpanded = { expanded ->
+                AyuIslandsSettings.getInstance().state.vcsBlameSectionExpanded = expanded
+            },
+            sliders = listOf(VcsColorCategory.BLAME_GUTTER to "Blame gutter:"),
         )
     }
 
@@ -208,6 +220,7 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
             VcsColorCategory.PROJECT_VIEW_FILE_STATUS -> pendingProjectViewIntensity
             VcsColorCategory.EDITOR_GUTTER -> pendingGutterIntensity
             VcsColorCategory.CONFLICT_MARKERS -> pendingConflictMarkerIntensity
+            VcsColorCategory.BLAME_GUTTER -> pendingBlameIntensity
             else -> VcsColorPreset.AMBIENT_SLIDER
         }
 
@@ -232,6 +245,10 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
             VcsColorCategory.CONFLICT_MARKERS -> {
                 conflictMarkerSlider = slider
                 conflictMarkerValueLabel = valueLabel
+            }
+            VcsColorCategory.BLAME_GUTTER -> {
+                blameSlider = slider
+                blameValueLabel = valueLabel
             }
             else -> Unit
         }
@@ -265,6 +282,10 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
                 pendingConflictMarkerIntensity = value
                 conflictMarkerValueLabel?.text = "$value"
             }
+            VcsColorCategory.BLAME_GUTTER -> {
+                pendingBlameIntensity = value
+                blameValueLabel?.text = "$value"
+            }
             else -> return
         }
         if (suppressSliderListeners || pendingPreset == VcsColorPreset.CUSTOM) return
@@ -279,7 +300,8 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
             pendingDiffIntensity != storedDiffIntensity ||
             pendingProjectViewIntensity != storedProjectViewIntensity ||
             pendingGutterIntensity != storedGutterIntensity ||
-            pendingConflictMarkerIntensity != storedConflictMarkerIntensity
+            pendingConflictMarkerIntensity != storedConflictMarkerIntensity ||
+            pendingBlameIntensity != storedBlameIntensity
 
     override fun apply() {
         if (!isModified()) return
@@ -304,6 +326,7 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
                         VcsColorCategory.PROJECT_VIEW_FILE_STATUS to pendingProjectViewIntensity,
                         VcsColorCategory.EDITOR_GUTTER to pendingGutterIntensity,
                         VcsColorCategory.CONFLICT_MARKERS to pendingConflictMarkerIntensity,
+                        VcsColorCategory.BLAME_GUTTER to pendingBlameIntensity,
                     ),
             )
 
@@ -329,6 +352,7 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
         state.vcsProjectViewIntensity = pendingProjectViewIntensity
         state.vcsGutterIntensity = pendingGutterIntensity
         state.vcsConflictMarkerIntensity = pendingConflictMarkerIntensity
+        state.vcsBlameIntensity = pendingBlameIntensity
         loadStored(state)
     }
 
@@ -349,6 +373,8 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
             gutterValueLabel?.text = "$pendingGutterIntensity"
             conflictMarkerSlider?.value = pendingConflictMarkerIntensity
             conflictMarkerValueLabel?.text = "$pendingConflictMarkerIntensity"
+            blameSlider?.value = pendingBlameIntensity
+            blameValueLabel?.text = "$pendingBlameIntensity"
         } finally {
             suppressSliderListeners = false
         }
@@ -367,6 +393,8 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
         pendingGutterIntensity = state.vcsGutterIntensity.coerceIn(MIN_INTENSITY, MAX_INTENSITY)
         storedConflictMarkerIntensity = state.vcsConflictMarkerIntensity
         pendingConflictMarkerIntensity = state.vcsConflictMarkerIntensity.coerceIn(MIN_INTENSITY, MAX_INTENSITY)
+        storedBlameIntensity = state.vcsBlameIntensity
+        pendingBlameIntensity = state.vcsBlameIntensity.coerceIn(MIN_INTENSITY, MAX_INTENSITY)
         masterEnabled.set(pendingEnabled)
         customSelected.set(pendingPreset == VcsColorPreset.CUSTOM)
     }
@@ -396,6 +424,9 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
             pendingConflictMarkerIntensity = snapPosition
             conflictMarkerSlider?.value = snapPosition
             conflictMarkerValueLabel?.text = "$snapPosition"
+            pendingBlameIntensity = snapPosition
+            blameSlider?.value = snapPosition
+            blameValueLabel?.text = "$snapPosition"
         } finally {
             suppressSliderListeners = false
         }
@@ -447,6 +478,7 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
             VcsColorCategory.PROJECT_VIEW_FILE_STATUS -> pendingProjectViewIntensity = value
             VcsColorCategory.EDITOR_GUTTER -> pendingGutterIntensity = value
             VcsColorCategory.CONFLICT_MARKERS -> pendingConflictMarkerIntensity = value
+            VcsColorCategory.BLAME_GUTTER -> pendingBlameIntensity = value
             else -> Unit
         }
     }
@@ -459,6 +491,7 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
         private val LOG = logger<VcsColorPanel>()
         private const val DIFF_GROUP_TITLE = "Diff & File Status"
         private const val MERGE_GROUP_TITLE = "Merge & Conflict"
+        private const val BLAME_GROUP_TITLE = "Blame & History"
         internal const val MIN_INTENSITY = 0
         internal const val MAX_INTENSITY = 100
         private const val INTENSITY_MAJOR_TICK = 25

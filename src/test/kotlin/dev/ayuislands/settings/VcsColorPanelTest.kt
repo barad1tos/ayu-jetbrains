@@ -143,6 +143,7 @@ class VcsColorPanelTest {
                 VcsColorCategory.PROJECT_VIEW_FILE_STATUS,
                 VcsColorCategory.EDITOR_GUTTER,
                 VcsColorCategory.CONFLICT_MARKERS,
+                VcsColorCategory.BLAME_GUTTER,
             )
         for (category in wiredCategories) {
             assertEquals(
@@ -164,6 +165,19 @@ class VcsColorPanelTest {
         panel.apply()
 
         assertEquals(75, state.vcsConflictMarkerIntensity, "apply must persist conflict marker intensity")
+    }
+
+    @Test
+    fun `blame slider participates in isModified and apply`() {
+        val panel = newBuiltPanel()
+        panel.setPendingIntensityForTest(VcsColorCategory.BLAME_GUTTER, 80)
+        assertTrue(panel.isModified(), "Blame slider change must mark the panel modified")
+
+        panel.setPendingEnabledForTest(true)
+        panel.setPendingPresetForTest(VcsColorPreset.CUSTOM)
+        panel.apply()
+
+        assertEquals(80, state.vcsBlameIntensity, "apply must persist blame intensity")
     }
 
     @Test

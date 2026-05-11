@@ -162,6 +162,66 @@ object VcsColorPalette {
                         light = "#E6505020",
                     ),
                 ),
+            // Wave 4 — Blame & History. Only annotate-blame surfaces are
+            // themable; Local History reuses Wave 2 diff colors when it shows
+            // its own diff dialog, so LOCAL_HISTORY stays a no-op placeholder.
+            //
+            // VCS_ANNOTATIONS_COLOR_1..5 form an age-graded ramp (most recent
+            // → oldest commit fade). Uniform HSB saturation offset across all
+            // five preserves the ramp while shifting chroma in lockstep, so
+            // the relative recency cue stays intact at every preset.
+            VcsColorCategory.BLAME_GUTTER to
+                listOf(
+                    entry(
+                        "ANNOTATIONS_COLOR",
+                        VcsWriteMode.COLOR_KEY,
+                        dark = "#4F5A6E",
+                        mirage = "#707A8C",
+                        light = "#828E9F",
+                    ),
+                    entry(
+                        "ANNOTATIONS_LAST_COMMIT_COLOR",
+                        VcsWriteMode.COLOR_KEY,
+                        dark = "#BFBDB6",
+                        mirage = "#CCCAC2",
+                        light = "#5C6166",
+                    ),
+                    entry(
+                        "VCS_ANNOTATIONS_COLOR_1",
+                        VcsWriteMode.COLOR_KEY,
+                        dark = "#1E3550",
+                        mirage = "#344B6B",
+                        light = "#D6E6F5",
+                    ),
+                    entry(
+                        "VCS_ANNOTATIONS_COLOR_2",
+                        VcsWriteMode.COLOR_KEY,
+                        dark = "#182D47",
+                        mirage = "#2D3F5D",
+                        light = "#E0ECFA",
+                    ),
+                    entry(
+                        "VCS_ANNOTATIONS_COLOR_3",
+                        VcsWriteMode.COLOR_KEY,
+                        dark = "#12253D",
+                        mirage = "#273750",
+                        light = "#EAF2FC",
+                    ),
+                    entry(
+                        "VCS_ANNOTATIONS_COLOR_4",
+                        VcsWriteMode.COLOR_KEY,
+                        dark = "#0E1D32",
+                        mirage = "#222D42",
+                        light = "#F2F6FE",
+                    ),
+                    entry(
+                        "VCS_ANNOTATIONS_COLOR_5",
+                        VcsWriteMode.COLOR_KEY,
+                        dark = "#0D1017",
+                        mirage = "#1F2430",
+                        light = "#F8F9FA",
+                    ),
+                ),
         )
 
     /** Returns every palette entry for [category]; empty list if the category isn't in Wave 2's scope. */

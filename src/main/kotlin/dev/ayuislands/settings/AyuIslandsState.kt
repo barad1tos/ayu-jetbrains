@@ -332,6 +332,10 @@ class AyuIslandsState : BaseState() {
     // Diff & File Status controls visible, secondary surfaces tucked away".
     var vcsMergeSectionExpanded by property(false)
 
+    // VCS panel's "Blame & History" collapsible group expanded state. Defaults
+    // to false for the same secondary-surface reason as Merge & Conflict.
+    var vcsBlameSectionExpanded by property(false)
+
     // Per-category intensities in `[0, 100]`. Defaults to AMBIENT_SLIDER (33)
     // across the board so a Pro user enabling the master toggle observes no
     // visible change until they cycle a preset or move a slider. Reads go
