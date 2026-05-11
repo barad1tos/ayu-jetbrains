@@ -322,6 +322,11 @@ class AyuIslandsState : BaseState() {
     // corrupted or unknown values (legacy XML, hand-edited config).
     var vcsColorPreset by string(VcsColorPreset.AMBIENT.name)
 
+    // VCS panel's "Diff & File Status" collapsible group expanded state.
+    // Defaults to true per the Phase 40.2 spec (first section opens expanded);
+    // additional section-expanded flags land alongside their panels in waves 3-5.
+    var vcsDiffSectionExpanded by property(true)
+
     // Per-category intensities in `[0, 100]`. Defaults to AMBIENT_SLIDER (33)
     // across the board so a Pro user enabling the master toggle observes no
     // visible change until they cycle a preset or move a slider. Reads go

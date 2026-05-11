@@ -22,12 +22,14 @@ package dev.ayuislands.vcs
  * declares *how far along the curve* this profile sits, while the palette
  * declares *what the endpoints are* per (key × variant).
  */
-enum class VcsColorPreset {
-    WHISPER,
-    AMBIENT,
-    NEON,
-    CYBERPUNK,
-    CUSTOM,
+enum class VcsColorPreset(
+    val displayName: String,
+) {
+    WHISPER("Whisper"),
+    AMBIENT("Ambient"),
+    NEON("Neon"),
+    CYBERPUNK("Cyberpunk"),
+    CUSTOM("Custom"),
     ;
 
     /**
