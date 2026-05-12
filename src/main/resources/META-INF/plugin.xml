@@ -103,6 +103,7 @@
     <ul>
       <li>[Paid] <b>New VCS tab</b> — tune VCS color intensity across five surfaces (diff viewer, Project View file status, editor gutter, conflict markers, Git blame annotations). Pick a named profile — <b>Whisper</b> (calmer), <b>Ambient</b> (2.6.2 defaults), <b>Neon</b> (brighter, pre-2.6.2 punch), or <b>Cyberpunk</b> (peak) — or dial each surface independently in Custom mode. Master toggle stays off by default, so colors are byte-identical to 2.6.2 until you opt in.</li>
       <li>Settings → Ayu Islands → <b>VCS</b> tab now lives between Glow and Workspace.</li>
+      <li>Project tool window no longer jumps width when toggled on/off in Mirage Islands UI under auto-fit mode (issue #169).</li>
     </ul>
     <h3>2.6.2</h3>
     <ul>
