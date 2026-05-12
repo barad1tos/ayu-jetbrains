@@ -35,6 +35,11 @@ class CommitPanelAutoFitManager(
                     changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
                 ) {
                     if (changeType == ToolWindowManagerListener.ToolWindowManagerEventType.MovedOrResized) return
+                    // ShowToolWindow fires every time the Commit tool window toggles visible.
+                    // Content is unchanged; re-measuring the JTree on show oscillates its width
+                    // because row bounds reflect cell-renderer extension under focus. Legitimate
+                    // re-applies still arrive via mode-switch in [apply] and expansion listener.
+                    if (changeType == ToolWindowManagerListener.ToolWindowManagerEventType.ShowToolWindow) return
                     val tw = toolWindowManager.getToolWindow("Commit") ?: return
                     if (!tw.isVisible) return
                     val mode =

@@ -27,6 +27,14 @@ class ToolWindowAutoFitter(
     private var expansionTree: JTree? = null
     private var retryTimer: Timer? = null
     private var isApplying = false
+
+    // Defensive idempotence: fingerprint of the last successfully-measured tree shape.
+    // Composed of (rowCount, maxRowWidth) — these are the only inputs that affect
+    // [applyAutoFitWidth]'s desired width. When a stray re-apply (e.g. focus swap,
+    // listener re-fire) arrives with unchanged content AND the resulting width would
+    // be within jitter of the current width, skip the stretchWidth call.
+    // Reset in [removeExpansionListener] so a re-installed listener forces a fresh measurement.
+    private var lastFingerprint: Int? = null
     private val debounceTimer =
         Timer(DEBOUNCE_DELAY_MS) { applyAutoFitWidth(maxWidthProvider()) }
             .apply { isRepeats = false }
@@ -54,6 +62,18 @@ class ToolWindowAutoFitter(
                     maxWidth,
                     minWidthProvider(),
                 )
+            // Fingerprint guard: when tree content is unchanged AND the resulting width
+            // would only differ by jitter, skip the stretchWidth call. Prevents stray
+            // re-applies (focus swap, listener re-fire) from oscillating the tool window
+            // because JTree row bounds extend slightly under focus.
+            val fingerprint = (tree.rowCount * FINGERPRINT_MIX) xor maxRowWidth
+            val currentWidth = toolWindowEx.component.width
+            if (fingerprint == lastFingerprint &&
+                AutoFitCalculator.isJitterOnly(currentWidth, desiredWidth)
+            ) {
+                return@findTreeWithRetry
+            }
+            lastFingerprint = fingerprint
             applyWidth(toolWindowEx, desiredWidth)
         }
     }
@@ -166,6 +186,10 @@ class ToolWindowAutoFitter(
     fun removeExpansionListener() {
         retryTimer?.stop()
         retryTimer = null
+        // Reset fingerprint so a future re-install forces a fresh measurement
+        // (the previous tree may have been disposed; its rowCount/maxRowWidth
+        // is stale).
+        lastFingerprint = null
         val tree = expansionTree ?: return
         val listener = expansionListener ?: return
         tree.removeTreeExpansionListener(listener)
@@ -246,5 +270,10 @@ class ToolWindowAutoFitter(
         private const val DEFAULT_MAX_WIDTH = 400
         private const val MAX_RETRIES = 3
         private const val RETRY_DELAY_MS = 200
+
+        // Odd multiplier to avoid collisions between common (rowCount, maxRowWidth)
+        // pairs. Mersenne-prime-adjacent — the actual value is arbitrary; only its
+        // role as a non-trivial mixer matters.
+        private const val FINGERPRINT_MIX = 31
     }
 }

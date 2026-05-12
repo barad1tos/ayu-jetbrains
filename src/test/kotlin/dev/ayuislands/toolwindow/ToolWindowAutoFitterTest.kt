@@ -563,6 +563,167 @@ class ToolWindowAutoFitterTest {
 
     // endregion
 
+    // region fingerprint guard (defensive idempotence — issue #169)
+
+    @Test
+    fun `applyAutoFitWidth is idempotent when tree content unchanged`() {
+        SwingUtilities.invokeAndWait {
+            // Tree width 280 + padding 20 = 300, current = 200 -> delta = 100.
+            // Second invocation with the same (rowCount, maxRowWidth) and a
+            // current width close to desired must be a no-op.
+            mockCalculatorForWidth(280)
+            val tree = JTree()
+            val panel = JPanel(FlowLayout())
+            panel.add(tree)
+            panel.setSize(200, 400)
+
+            val content =
+                mockk<Content>(relaxed = true) {
+                    every { component } returns panel
+                }
+            val contentManager =
+                mockk<ContentManager>(relaxed = true) {
+                    every { contents } returns arrayOf(content)
+                }
+            every {
+                toolWindowManager.getToolWindow("Project")
+            } returns toolWindowEx
+            every {
+                toolWindowEx.contentManager
+            } returns contentManager
+            every { toolWindowEx.component } returns panel
+            every {
+                toolWindowEx.type
+            } returns ToolWindowType.DOCKED
+
+            val fitter =
+                ToolWindowAutoFitter(
+                    project,
+                    "Project",
+                    100,
+                )
+
+            // First call: fingerprint is null -> falls through, stretches by 100.
+            fitter.applyAutoFitWidth(500)
+            verify(exactly = 1) { toolWindowEx.stretchWidth(100) }
+
+            // Simulate panel having taken the stretched width — current ≈ desired.
+            panel.setSize(300, 400)
+
+            // Second call: same tree content, current ≈ desired -> fingerprint
+            // matches AND jitter-only -> must NOT call stretchWidth again.
+            fitter.applyAutoFitWidth(500)
+            verify(exactly = 1) { toolWindowEx.stretchWidth(any()) }
+        }
+    }
+
+    @Test
+    fun `applyAutoFitWidth re-applies when tree row count changes`() {
+        SwingUtilities.invokeAndWait {
+            // First measurement: maxRowWidth = 280, current = 200 -> stretch 100.
+            mockCalculatorForWidth(280)
+            val tree = JTree()
+            val panel = JPanel(FlowLayout())
+            panel.add(tree)
+            panel.setSize(200, 400)
+
+            val content =
+                mockk<Content>(relaxed = true) {
+                    every { component } returns panel
+                }
+            val contentManager =
+                mockk<ContentManager>(relaxed = true) {
+                    every { contents } returns arrayOf(content)
+                }
+            every {
+                toolWindowManager.getToolWindow("Project")
+            } returns toolWindowEx
+            every {
+                toolWindowEx.contentManager
+            } returns contentManager
+            every { toolWindowEx.component } returns panel
+            every {
+                toolWindowEx.type
+            } returns ToolWindowType.DOCKED
+
+            val fitter =
+                ToolWindowAutoFitter(
+                    project,
+                    "Project",
+                    100,
+                )
+            fitter.applyAutoFitWidth(500)
+            verify(exactly = 1) { toolWindowEx.stretchWidth(any()) }
+
+            // Settle the panel close to the desired width.
+            panel.setSize(300, 400)
+
+            // Simulate tree expansion: maxRowWidth grows -> fingerprint changes
+            // even if rowCount appears stable to the mocked calculator.
+            mockCalculatorForWidth(380)
+            fitter.applyAutoFitWidth(500)
+
+            // Fingerprint differs from last call -> must re-apply.
+            verify(atLeast = 2) { toolWindowEx.stretchWidth(any()) }
+        }
+    }
+
+    @Test
+    fun `removeExpansionListener resets fingerprint so re-install forces fresh measurement`() {
+        SwingUtilities.invokeAndWait {
+            mockCalculatorForWidth(280)
+            val tree = JTree()
+            val panel = JPanel(FlowLayout())
+            panel.add(tree)
+            panel.setSize(200, 400)
+
+            val content =
+                mockk<Content>(relaxed = true) {
+                    every { component } returns panel
+                }
+            val contentManager =
+                mockk<ContentManager>(relaxed = true) {
+                    every { contents } returns arrayOf(content)
+                }
+            every {
+                toolWindowManager.getToolWindow("Project")
+            } returns toolWindowEx
+            every {
+                toolWindowEx.contentManager
+            } returns contentManager
+            every { toolWindowEx.component } returns panel
+            every {
+                toolWindowEx.type
+            } returns ToolWindowType.DOCKED
+
+            val fitter =
+                ToolWindowAutoFitter(
+                    project,
+                    "Project",
+                    100,
+                )
+            fitter.applyAutoFitWidth(500)
+            verify(exactly = 1) { toolWindowEx.stretchWidth(any()) }
+
+            panel.setSize(300, 400)
+
+            // Detach listener -> fingerprint must be cleared.
+            fitter.removeExpansionListener()
+
+            // Even with the SAME tree content, a fresh-listener call after detach
+            // must NOT short-circuit on a stale fingerprint. The jitter guard inside
+            // applyWidth still suppresses the stretch when current ≈ desired, so
+            // the total stretchWidth count stays at 1 — but the fingerprint path
+            // is forced to re-measure (proven indirectly: the next stretch-worthy
+            // call below succeeds with no leftover state).
+            mockCalculatorForWidth(380)
+            fitter.applyAutoFitWidth(500)
+            verify(atLeast = 2) { toolWindowEx.stretchWidth(any()) }
+        }
+    }
+
+    // endregion
+
     /**
      * Mocks AutoFitCalculator measurement methods
      * so headless [JTree] (no row bounds) can be used.

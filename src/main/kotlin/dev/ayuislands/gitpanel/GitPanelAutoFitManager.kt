@@ -37,6 +37,12 @@ class GitPanelAutoFitManager(
                     changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
                 ) {
                     if (changeType == ToolWindowManagerListener.ToolWindowManagerEventType.MovedOrResized) return
+                    // ShowToolWindow fires every time the Version Control tool window toggles visible.
+                    // Content is unchanged; re-running fitSplitters on show would re-measure JTree
+                    // row bounds which oscillate with cell-renderer focus extension, producing a
+                    // different splitter proportion each toggle. Mode-switch via [apply] remains
+                    // the legitimate trigger.
+                    if (changeType == ToolWindowManagerListener.ToolWindowManagerEventType.ShowToolWindow) return
                     val tw = toolWindowManager.getToolWindow("Version Control") ?: return
                     if (!tw.isVisible) return
                     val mode =

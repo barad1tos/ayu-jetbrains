@@ -55,6 +55,12 @@ class ProjectViewScrollbarManager(
                     changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
                 ) {
                     if (changeType == ToolWindowManagerListener.ToolWindowManagerEventType.MovedOrResized) return
+                    // ShowToolWindow fires every time the Project tool window is toggled visible.
+                    // The content is unchanged, but JTree row bounds reflect cell-renderer extension
+                    // (different when row has focus), so re-measuring on show oscillates the width.
+                    // Initial apply still fires from SwingUtilities.invokeLater (service ctor) and
+                    // ComponentTreeRefreshedTopic (LAF/focus swap) — those remain legitimate triggers.
+                    if (changeType == ToolWindowManagerListener.ToolWindowManagerEventType.ShowToolWindow) return
                     val tw = toolWindowManager.getToolWindow("Project") ?: return
                     if (!tw.isVisible) return
                     val state =
