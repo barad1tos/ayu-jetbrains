@@ -1,6 +1,7 @@
 package dev.ayuislands.vcs
 
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.util.withScopedValue
 
 /**
  * Immutable VCS color settings captured from the Settings panel's pending values.
@@ -99,18 +100,5 @@ internal object VcsColorContext {
     fun <T> withSnapshot(
         snapshot: VcsColorSnapshot?,
         block: () -> T,
-    ): T {
-        if (snapshot == null) return block()
-        val previous = current.get()
-        current.set(snapshot)
-        return try {
-            block()
-        } finally {
-            if (previous == null) {
-                current.remove()
-            } else {
-                current.set(previous)
-            }
-        }
-    }
+    ): T = current.withScopedValue(snapshot, block)
 }
