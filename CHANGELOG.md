@@ -8,7 +8,7 @@
 - [Paid] **Custom mode** — unlocks per-surface sliders inside each section for fine-grained control.
 
 ### Fixed
-- Project tool window no longer jumps width when toggled on/off in Mirage Islands UI under auto-fit mode (issue #169). Project View, Commit, and Git panel auto-fit managers now ignore show-toggle events that don't change content.
+- Project tool window no longer changes width when toggled on/off in Mirage Islands UI under auto-fit mode (issue #169). Project View, Commit, and Git panel auto-fit managers now ignore show-toggle events that don't change content.
 
 ### Compatibility
 - Master toggle stays off by default — 2.6.2 colors are **byte-identical** until you opt in. No surprise tints on upgrade.
