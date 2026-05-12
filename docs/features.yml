@@ -269,8 +269,8 @@ categories:
             - src/main/kotlin/dev/ayuislands/gitpanel
             - src/main/kotlin/dev/ayuislands/projectview
             - src/main/kotlin/dev/ayuislands/editor/EditorScrollbarManager.kt
-          last_verified_sha: "eacf7f6"
-          last_verified_date: "2026-04-16"
+          last_verified_sha: "767f914"
+          last_verified_date: "2026-05-12"
           content_sha256: "fc9ba63b9c9c53893a486a3c9055287bd6dc9c68f5439cae197efe5ae585d17c"
 
   tabs:
