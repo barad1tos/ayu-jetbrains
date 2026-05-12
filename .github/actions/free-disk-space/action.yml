@@ -1,0 +1,18 @@
+name: Free disk space
+description: >
+  Prune large pre-installed toolchains on GitHub-hosted ubuntu runners so the
+  Plugin Verifier has room to download + extract 11 IDE builds (~20 GB)
+  without hitting ClosedByInterruptException during JAR extraction.
+
+runs:
+  using: composite
+  steps:
+    - name: Prune unused toolchains
+      shell: bash
+      run: |
+        sudo rm -rf /opt/hostedtoolcache/CodeQL
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /usr/local/share/boost
+        df -h /
