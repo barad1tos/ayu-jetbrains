@@ -7,10 +7,10 @@ import kotlin.test.assertEquals
 /**
  * Tests for [VcsColorSnapshot] and the [VcsColorContext] scoped-override channel.
  *
- * Phase 40.2b redesign — the snapshot carries the resolved per-category
- * intensity map directly. Per-section preset choices live on the panel /
- * state side; by the time a snapshot exists, preset/Custom branching is
- * already collapsed into concrete intensity numbers.
+ * The snapshot carries the resolved per-category intensity map directly.
+ * Per-section preset choices live on the panel / state side; by the time a
+ * snapshot exists, preset/Custom branching is already collapsed into
+ * concrete intensity numbers.
  */
 class VcsColorSnapshotTest {
     @Test

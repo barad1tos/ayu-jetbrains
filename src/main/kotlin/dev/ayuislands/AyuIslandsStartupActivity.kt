@@ -386,8 +386,11 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
      * Invokes [block] with fine-grained error handling so each startup step gets its own
      * log line, and the JVM's error-escalation path stays intact for genuinely fatal errors.
      *
-     * All production call sites run inside `SwingUtilities.invokeLater { ... }` (see
-     * [checkLicenseState]), so the surrounding Runnable is dispatched by `IdeEventQueue`:
+     * Most production call sites (the license-handling block in [checkLicenseState]
+     * and friends) run inside `SwingUtilities.invokeLater { ... }`, so the surrounding
+     * Runnable is dispatched by `IdeEventQueue`. The `apply-persisted-vcs-colors` step
+     * runs from the coroutine body of [execute] instead — RuntimeException semantics
+     * are identical regardless of thread context:
      *
      *  - [RuntimeException] — logged, swallowed; the next step runs.
      *  - [VirtualMachineError] (OutOfMemoryError, StackOverflowError, InternalError,

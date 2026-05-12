@@ -11,7 +11,7 @@ import kotlin.test.assertTrue
  * XML baseline color with a per-category vibrant target by the user-configured
  * intensity percent.
  *
- * Semantics under test (locked by Phase 40.2 spec):
+ * Semantics under test (HSB lerp invariants for the VCS palette):
  *  - intensity=0 → base color per-channel, alpha from base
  *  - intensity=100 → target color per-channel, alpha from base
  *  - intensity=50 → midpoint via HSB lerp, alpha from base

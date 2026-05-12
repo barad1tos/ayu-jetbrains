@@ -10,10 +10,11 @@ import kotlin.test.assertTrue
 /**
  * Algorithmic tests for [VcsColorPalette].
  *
- * Wave 2 covers the three Diff & File Status user-task categories with both
- * ColorKey-based and TextAttributesKey-based entries. The palette derives
- * Whisper and Cyberpunk slider endpoints from each stock value via HSB
- * saturation offset; the tests pin:
+ * The palette covers five active VCS color categories (Diff & File Status,
+ * Conflict Markers, Blame Gutter) with both ColorKey-based and
+ * TextAttributesKey-based entries. Whisper and Cyberpunk slider endpoints
+ * are derived from each stock value via HSB saturation offset; the tests
+ * pin:
  *
  *  - completeness — every category exposes at least one entry; every entry
  *    has a stock color for every Ayu variant
@@ -159,12 +160,12 @@ class VcsColorPaletteTest {
     }
 
     @Test
-    fun `palette covers Wave 2 + Wave 3 + Wave 4 categories`() {
-        // Lock the active category set so a future wave addition lands intentionally
-        // rather than implicitly. Wave 4 added BLAME_GUTTER. MERGE_3WAY,
-        // INLINE_DIFF_POPUP, LOCAL_HISTORY, and the three Branch & Commit categories
-        // intentionally remain absent — they either reuse Wave 2 diff keys (merge,
-        // local history) or live on UIManager surfaces outside this palette (popup,
+    fun `palette covers exactly the five active VCS color categories`() {
+        // Lock the active category set so a future category addition lands
+        // intentionally rather than implicitly. MERGE_3WAY, INLINE_DIFF_POPUP,
+        // LOCAL_HISTORY, and the three Branch & Commit categories intentionally
+        // remain absent — they either reuse the diff-viewer keys (merge, local
+        // history) or live on UIManager surfaces outside this palette (popup,
         // branch indicator, branches popup, commit highlights).
         assertEquals(
             setOf(
@@ -175,7 +176,7 @@ class VcsColorPaletteTest {
                 VcsColorCategory.BLAME_GUTTER,
             ),
             VcsColorPalette.allCategoriesAndEntries().keys,
-            "Palette must cover the five active VCS color categories through Wave 4",
+            "Palette must cover exactly the five active VCS color categories",
         )
     }
 
@@ -189,9 +190,9 @@ class VcsColorPaletteTest {
 
     @Test
     fun `diff viewer category includes both ColorKey and TextAttrBg entries`() {
-        // Wave 2.5 invariant: DIFF_VIEWER must reach both the top-level ColorKey
-        // (file tab tints, scrollbar markers) and the TextAttributesKey BACKGROUND
-        // (visible row tint in the diff editor). If either disappears the visible
+        // DIFF_VIEWER must reach both the top-level ColorKey (file tab tints,
+        // scrollbar markers) and the TextAttributesKey BACKGROUND (visible row
+        // tint in the diff editor). If either disappears the visible
         // signal of moving the Diff slider degrades materially.
         val entries = VcsColorPalette.entriesFor(VcsColorCategory.DIFF_VIEWER)
         val modes = entries.map { it.mode }.toSet()
