@@ -87,18 +87,36 @@ intellijPlatform {
                 "ReleaseVersionAndPluginVersionMismatch,ExperimentalApiUsage",
             )
         ides {
+            // verifyGroup splits the 11 IDE targets across hosted runners to keep
+            // the per-runner disk and I/O budget under what GitHub Actions can
+            // sustain. A1/A2 split prevents the 6-way verifier-thread fan-out
+            // from saturating one runner's I/O and hitting ClosedByInterruptException
+            // on JAR extraction (observed three times on the unsplit Group A).
+            //
+            //   null  → every target (local dev: `./gradlew verifyPlugin`)
+            //   "A"   → A1 + A2 (back-compat with earlier matrix shape)
+            //   "A1"  → IntelliJ family (3 IDEs)
+            //   "A2"  → JetBrains pro IDEs on 2025.3 (3 IDEs)
+            //   "B"   → Language-specific IDEs on 2025.1 (5 IDEs)
             val group = providers.systemProperty("verifyGroup").orNull
-            if (group != "B") {
-                // Group A: IC/IU + major IDEs
+            val wanted =
+                when (group) {
+                    null -> setOf("A1", "A2", "B")
+                    "A" -> setOf("A1", "A2")
+                    "A1", "A2", "B" -> setOf(group)
+                    else -> error("Unknown verifyGroup '$group' — expected A1, A2, A, B, or unset")
+                }
+            if ("A1" in wanted) {
                 create(IntelliJPlatformType.IntellijIdeaCommunity, "2025.1")
                 create(IntelliJPlatformType.IntellijIdeaCommunity, "2025.2.3")
                 create(IntelliJPlatformType.IntellijIdea, "2025.3.3")
+            }
+            if ("A2" in wanted) {
                 create(IntelliJPlatformType.PhpStorm, "2025.3.3")
                 create(IntelliJPlatformType.WebStorm, "2025.3.3")
                 create(IntelliJPlatformType.CLion, "2025.3.3")
             }
-            if (group != "A") {
-                // Group B: Language-specific IDEs
+            if ("B" in wanted) {
                 // RustRover 2025.1.3 excluded: corrupted CDN artifact (InvalidIdeException: missing Core plugin)
                 create(IntelliJPlatformType.GoLand, "2025.1.3")
                 create(IntelliJPlatformType.PyCharm, "2025.1.3")

@@ -17,6 +17,19 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
+      # Plugin Verifier downloads + extracts 11 IDE builds (~20 GB) when called
+      # without -DverifyGroup. Hosted runners ship with ~25 GB of pre-installed
+      # toolchains we do not touch; pruning them gives the verifier room to
+      # extract every JAR without ClosedByInterruptException on full-disk.
+      # Same step is in build.yml's verify job — keep them in sync.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          df -h /
       - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
         with:
           distribution: temurin
