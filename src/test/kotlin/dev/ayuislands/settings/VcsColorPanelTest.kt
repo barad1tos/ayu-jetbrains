@@ -6,12 +6,15 @@ import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.vcs.VcsColorApplier
 import dev.ayuislands.vcs.VcsColorCategory
+import dev.ayuislands.vcs.VcsColorContext
 import dev.ayuislands.vcs.VcsColorPreset
+import dev.ayuislands.vcs.VcsColorSnapshot
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkClass
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
+import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
 import kotlin.test.AfterTest
@@ -22,14 +25,14 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Coverage for [VcsColorPanel] (Phase 40.2 / Wave 2b + per-section redesign):
+ * Coverage for [VcsColorPanel]:
  *
  *  - Default load: pending values match persisted [AyuIslandsState].
  *  - isModified: any pending-vs-stored divergence flips the panel as dirty.
  *  - Per-section preset cycle: switching a section's preset snaps that section's
  *    sliders to the canonical position; other sections stay untouched.
  *  - Apply persistence: master toggle, three section presets, and the five
- *    Wave 2+3+4 per-category intensities round-trip into [AyuIslandsState];
+ *    per-category intensities round-trip into [AyuIslandsState];
  *    [VcsColorApplier.applyAll] fires exactly once per modified apply.
  *  - Apply skip path: when nothing changed, `apply()` doesn't touch the applier.
  *  - License revoke: a license that flips from licensed → unlicensed between
@@ -274,6 +277,57 @@ class VcsColorPanelTest {
         assertEquals(VcsColorPreset.NEON.name, state.vcsDiffPreset)
         assertEquals(VcsColorPreset.CYBERPUNK.name, state.vcsMergePreset)
         assertEquals(VcsColorPreset.WHISPER.name, state.vcsBlamePreset)
+        verify(exactly = 1) { VcsColorApplier.applyAll() }
+    }
+
+    @Test
+    fun `apply snapshot maps per-category intensities according to section presets`() {
+        // Locks the resolveCategory(preset, category, customValue) branching at
+        // VcsColorPanel.apply: Custom-preset routes to the slider value, every
+        // other preset routes to preset.intensityFor(category). A regression
+        // that reused a single section's snap across all three diff categories
+        // (or that swapped the Custom branch with the preset branch) would
+        // ship a snapshot that does not match the user's section choices.
+        mockkObject(VcsColorContext)
+        val capturedSnapshot = slot<VcsColorSnapshot>()
+        every {
+            VcsColorContext.withSnapshot(capture(capturedSnapshot), any<() -> Any?>())
+        } answers {
+            // Run the block so the inner VcsColorApplier.applyAll mock still
+            // fires once — keeps the existing apply-fires-applier assertion
+            // semantics intact.
+            @Suppress("UNCHECKED_CAST")
+            (secondArg<() -> Any?>()).invoke()
+        }
+
+        val panel = newBuiltPanel()
+        panel.setPendingEnabledForTest(true)
+        // DIFF on CYBERPUNK — every diff-section category lands on CYBERPUNK_SLIDER
+        panel.setPendingPresetForTest(VcsSection.DIFF, VcsColorPreset.CYBERPUNK)
+        // MERGE on CUSTOM with a deliberately off-preset slider value — the
+        // snapshot must read the slider, not preset.intensityFor.
+        panel.setPendingPresetForTest(VcsSection.MERGE, VcsColorPreset.CUSTOM)
+        panel.setPendingIntensityForTest(VcsColorCategory.CONFLICT_MARKERS, 42)
+        // BLAME on WHISPER — BLAME_GUTTER lands on WHISPER_SLIDER (0).
+        panel.setPendingPresetForTest(VcsSection.BLAME, VcsColorPreset.WHISPER)
+
+        panel.apply()
+
+        assertTrue(capturedSnapshot.isCaptured, "withSnapshot must have been invoked")
+        val snap = capturedSnapshot.captured
+        assertTrue(snap.enabled, "Snapshot must carry the master-on flag")
+
+        val intensities = snap.perCategoryIntensities
+        // DIFF section → CYBERPUNK → every diff-section category lands on the
+        // CYBERPUNK slider position, not on the section's stored slider values.
+        assertEquals(VcsColorPreset.CYBERPUNK_SLIDER, intensities[VcsColorCategory.DIFF_VIEWER])
+        assertEquals(VcsColorPreset.CYBERPUNK_SLIDER, intensities[VcsColorCategory.PROJECT_VIEW_FILE_STATUS])
+        assertEquals(VcsColorPreset.CYBERPUNK_SLIDER, intensities[VcsColorCategory.EDITOR_GUTTER])
+        // MERGE section → CUSTOM → slider value (42), NOT preset.intensityFor.
+        assertEquals(42, intensities[VcsColorCategory.CONFLICT_MARKERS])
+        // BLAME section → WHISPER → BLAME_GUTTER lands on WHISPER_SLIDER.
+        assertEquals(VcsColorPreset.WHISPER_SLIDER, intensities[VcsColorCategory.BLAME_GUTTER])
+
         verify(exactly = 1) { VcsColorApplier.applyAll() }
     }
 

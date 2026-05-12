@@ -213,6 +213,32 @@ class VcsColorApplierTest {
     }
 
     @Test
+    fun `safeRevertEntry - one failing key does not poison the revert loop`() {
+        // Symmetric to safeWriteEntry: one failing scheme.setColor must not
+        // abandon the rest of the revert. Fire through applyAll with
+        // vcsColorEnabled=false (routes to revertEveryEntry).
+        state.vcsColorEnabled = false
+        val colorKeyEntries = partitionPaletteByMode().first
+        val poisonKeyName = colorKeyEntries.first().keyName
+        val poisonKey = ColorKey.find(poisonKeyName)
+        every { mockScheme.setColor(poisonKey, null) } throws RuntimeException("revert-boom on $poisonKeyName")
+
+        // No throw expected — safeRevertEntry swallows.
+        VcsColorApplier.applyAll()
+
+        val textAttrEntries = partitionPaletteByMode().second
+        // Same total-invocation invariant as the safeWriteEntry test: MockK
+        // records the throwing call, so total setColor invocations stay at
+        // colorKeyEntries.size. The remaining n-1 reverts landed successfully.
+        verify(exactly = colorKeyEntries.size) {
+            mockScheme.setColor(any<ColorKey>(), null)
+        }
+        verify(exactly = textAttrEntries.size) {
+            mockScheme.setAttributes(any<TextAttributesKey>(), null)
+        }
+    }
+
+    @Test
     fun `revertAll - iterates every palette entry with null`() {
         VcsColorApplier.revertAll()
 
