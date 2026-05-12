@@ -194,6 +194,63 @@ class VcsColorPanelTest {
     }
 
     @Test
+    fun `dragging Diff slider while preset is NEON promotes section to CUSTOM`() {
+        // Build panel, snap Diff section to NEON so every Diff slider lands on
+        // NEON_SLIDER and pendingDiffPreset != CUSTOM — exactly the state a user
+        // is in before they grab the slider thumb.
+        val panel = newBuiltPanel()
+        panel.triggerSectionPresetChosenForTest(VcsSection.DIFF, VcsColorPreset.NEON)
+        assertEquals(VcsColorPreset.NEON, panel.getPendingPresetForTest(VcsSection.DIFF))
+        val mergeBefore = panel.getPendingIntensityForTest(VcsColorCategory.CONFLICT_MARKERS)
+        val blameBefore = panel.getPendingIntensityForTest(VcsColorCategory.BLAME_GUTTER)
+        val projectViewBefore = panel.getPendingIntensityForTest(VcsColorCategory.PROJECT_VIEW_FILE_STATUS)
+        val gutterBefore = panel.getPendingIntensityForTest(VcsColorCategory.EDITOR_GUTTER)
+
+        // Simulate the user dragging the Diff viewer slider to 75. Reaching the
+        // private JSlider field via reflection is intentional — the @TestOnly
+        // setPendingIntensityForTest seam writes the backing field directly
+        // and bypasses the ChangeListener, so it cannot reproduce the
+        // promote-to-CUSTOM behaviour that lives in onSliderChanged. Mutating
+        // slider.value fires the registered ChangeListener synchronously on
+        // the calling thread.
+        val diffSliderField = VcsColorPanel::class.java.getDeclaredField("diffSlider")
+        diffSliderField.isAccessible = true
+        val diffSlider = diffSliderField.get(panel) as javax.swing.JSlider
+        diffSlider.value = 75
+
+        // Promotion: pendingDiffPreset flips to CUSTOM and diffCustomSelected
+        // notifies its bindings so the per-slider rows become visible.
+        assertEquals(
+            VcsColorPreset.CUSTOM,
+            panel.getPendingPresetForTest(VcsSection.DIFF),
+            "User-driven Diff slider drag must promote the Diff section to CUSTOM",
+        )
+        assertEquals(75, panel.getPendingIntensityForTest(VcsColorCategory.DIFF_VIEWER))
+        val diffCustomField = VcsColorPanel::class.java.getDeclaredField("diffCustomSelected")
+        diffCustomField.isAccessible = true
+        val diffCustom = diffCustomField.get(panel) as com.intellij.openapi.observable.properties.AtomicBooleanProperty
+        assertTrue(diffCustom.get(), "diffCustomSelected must flip true so Custom-mode slider rows surface")
+
+        // Sibling-section sliders stay where they were — promoting Diff to
+        // CUSTOM is per-section and must not touch Merge or Blame intensities.
+        assertEquals(
+            mergeBefore,
+            panel.getPendingIntensityForTest(VcsColorCategory.CONFLICT_MARKERS),
+            "Diff-slider drag must not touch the Merge section's conflict-marker intensity",
+        )
+        assertEquals(
+            blameBefore,
+            panel.getPendingIntensityForTest(VcsColorCategory.BLAME_GUTTER),
+            "Diff-slider drag must not touch the Blame section's blame-gutter intensity",
+        )
+        // Same-section siblings (PROJECT_VIEW_FILE_STATUS, EDITOR_GUTTER) are
+        // untouched by the DIFF_VIEWER slider — only the dragged slider's
+        // category writes pending intensity, even within the same section.
+        assertEquals(projectViewBefore, panel.getPendingIntensityForTest(VcsColorCategory.PROJECT_VIEW_FILE_STATUS))
+        assertEquals(gutterBefore, panel.getPendingIntensityForTest(VcsColorCategory.EDITOR_GUTTER))
+    }
+
+    @Test
     fun `Custom preset leaves that section's sliders untouched on snap`() {
         val panel = newBuiltPanel()
         panel.setPendingIntensityForTest(VcsColorCategory.DIFF_VIEWER, 42)
