@@ -47,6 +47,8 @@
 -keep enum dev.ayuislands.glow.GlowPreset { *; }
 -keep enum dev.ayuislands.font.FontWeight { *; }
 -keep enum dev.ayuislands.font.FontPreset { *; }
+-keep enum dev.ayuislands.vcs.VcsColorPreset { *; }
+-keep enum dev.ayuislands.vcs.VcsColorCategory { *; }
 
 # plugin.xml: projectService (Project View tweaks)
 -keep class dev.ayuislands.projectview.ProjectViewScrollbarManager { *; }

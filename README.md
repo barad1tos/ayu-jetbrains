@@ -61,6 +61,8 @@ Ayu Islands synchronizes palette, font, glow, and accent color into a cohesive l
 
 **Tab styling** — Islands UI offers underline, full accent bar, or none; Classic UI has underline thickness from hairline to bold.
 
+**VCS color customization** — *Settings → Ayu Islands → VCS* tunes intensity across five surfaces (diff viewer, Project View file status, editor gutter, conflict markers, Git blame annotations). Each section carries its own profile — **Whisper**, **Ambient**, **Neon**, **Cyberpunk**, or **Custom** with per-surface sliders. Master toggle off by default; 2.6.2 colors stay byte-identical until you opt in.
+
 **Onboarding wizard** — a full-tab welcome opens on first install with preset cards, theme variant picker, and accent swatches. After upgrades, a **release showcase** tab opens automatically with captioned screenshots of the marquee features; reopen anytime via *Tools → Ayu Islands → Show What's New*.
 
 ## Free — a complete theme, not a teaser

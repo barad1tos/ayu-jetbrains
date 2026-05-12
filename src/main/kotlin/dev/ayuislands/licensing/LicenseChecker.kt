@@ -30,6 +30,8 @@ import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.PanelWidthMode
+import dev.ayuislands.vcs.VcsColorApplier
+import dev.ayuislands.vcs.VcsColorPreset
 import org.jetbrains.annotations.VisibleForTesting
 import java.time.LocalDate
 import java.time.ZoneId
@@ -274,6 +276,40 @@ object LicenseChecker {
             state.chromeTintIntensity = AyuIslandsState.DEFAULT_CHROME_TINT_INTENSITY
             state.chromeTintingGroupExpanded = false
 
+            // Reset VCS color customization (Phase 40.2) — premium feature. The
+            // master toggle goes off so the EditorColorsScheme falls back to stock
+            // XML on the next applier pass; every per-section preset returns to
+            // AMBIENT, every per-category slider returns to AMBIENT_SLIDER, and
+            // every section-expanded flag returns to its default-constructor value.
+            //
+            // Reset covers all 11 categories — including the Wave 5+ placeholder
+            // intensities (merge 3-way, inline diff, local history, branch
+            // indicator, branches popup, commit highlights) — so when those
+            // categories ship in v2.6.4+, a user who downgraded mid-cycle starts
+            // from the same baseline as a fresh install. Without that, the
+            // re-purchase experience would surface non-default sliders from a
+            // stale premium session.
+            state.vcsColorEnabled = false
+            state.vcsDiffPreset = VcsColorPreset.AMBIENT.name
+            state.vcsMergePreset = VcsColorPreset.AMBIENT.name
+            state.vcsBlamePreset = VcsColorPreset.AMBIENT.name
+            state.vcsDiffIntensity = VcsColorPreset.AMBIENT_SLIDER
+            state.vcsProjectViewIntensity = VcsColorPreset.AMBIENT_SLIDER
+            state.vcsGutterIntensity = VcsColorPreset.AMBIENT_SLIDER
+            state.vcsConflictMarkerIntensity = VcsColorPreset.AMBIENT_SLIDER
+            state.vcsBlameIntensity = VcsColorPreset.AMBIENT_SLIDER
+            state.vcsMerge3WayIntensity = VcsColorPreset.AMBIENT_SLIDER
+            state.vcsInlineDiffIntensity = VcsColorPreset.AMBIENT_SLIDER
+            state.vcsLocalHistoryIntensity = VcsColorPreset.AMBIENT_SLIDER
+            state.vcsBranchIndicatorIntensity = VcsColorPreset.AMBIENT_SLIDER
+            state.vcsBranchesPopupIntensity = VcsColorPreset.AMBIENT_SLIDER
+            state.vcsCommitHighlightIntensity = VcsColorPreset.AMBIENT_SLIDER
+            // Diff section opens expanded by default per Phase 40.2 spec; the
+            // other two collapse on downgrade to match a fresh-install layout.
+            state.vcsDiffSectionExpanded = true
+            state.vcsMergeSectionExpanded = false
+            state.vcsBlameSectionExpanded = false
+
             // Reset workspace settings to free defaults
             state.projectPanelWidthMode = PanelWidthMode.DEFAULT.name
             state.commitPanelWidthMode = PanelWidthMode.DEFAULT.name
@@ -327,6 +363,15 @@ object LicenseChecker {
                         "Restart your IDE to complete the reset.",
                     NotificationType.WARNING,
                 ).notify(null)
+        }
+
+        // Phase 40.2: write nulls into the editor scheme for every VCS color key
+        // the plugin owns so the user sees stock 2.6.2 colors restore immediately,
+        // without waiting for a theme switch or restart.
+        try {
+            VcsColorApplier.revertAll()
+        } catch (exception: RuntimeException) {
+            LOG.warn("VCS color revert after license revert failed", exception)
         }
     }
 

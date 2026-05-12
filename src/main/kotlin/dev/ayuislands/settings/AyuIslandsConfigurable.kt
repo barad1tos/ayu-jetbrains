@@ -49,6 +49,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
     private val pluginsPanel = PluginsPanel()
     private val fontPresetPanel = FontPresetPanel()
     private val effectsPanel = AyuIslandsEffectsPanel()
+    private val vcsColorPanel = VcsColorPanel()
 
     private val panels: List<AyuIslandsSettingsPanel> =
         listOf(
@@ -58,6 +59,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
             elementsPanel,
             fontPresetPanel,
             effectsPanel,
+            vcsColorPanel,
             workspacePanel,
             pluginsPanel,
         )
@@ -141,6 +143,11 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                 effectsPanel.buildGlowPanel(this@panel)
             }
 
+        val vcsTab =
+            panel {
+                vcsColorPanel.buildPanel(this@panel, variant)
+            }
+
         val workspaceTab =
             panel {
                 workspacePanel.buildPanel(this@panel, variant)
@@ -167,6 +174,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         tabs.addTab("Accent", accentTab)
         tabs.addTab("Font", fontTab)
         tabs.addTab("Glow", glowTab)
+        tabs.addTab("VCS", vcsTab)
         tabs.addTab("Workspace", workspaceTab)
         tabs.addTab("Plugins", pluginsTab)
 
@@ -303,6 +311,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         elementsPanel.reset()
         fontPresetPanel.reset()
         effectsPanel.reset()
+        vcsColorPanel.reset()
         workspacePanel.reset()
         pluginsPanel.reset()
     }

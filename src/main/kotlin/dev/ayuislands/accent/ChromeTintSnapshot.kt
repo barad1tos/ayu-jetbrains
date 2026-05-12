@@ -1,6 +1,7 @@
 package dev.ayuislands.accent
 
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.util.withScopedValue
 
 /**
  * Immutable chrome settings captured from the Settings panel's pending values.
@@ -46,18 +47,5 @@ internal object ChromeTintContext {
     fun <T> withSnapshot(
         snapshot: ChromeTintSnapshot?,
         block: () -> T,
-    ): T {
-        if (snapshot == null) return block()
-        val previous = current.get()
-        current.set(snapshot)
-        return try {
-            block()
-        } finally {
-            if (previous == null) {
-                current.remove()
-            } else {
-                current.set(previous)
-            }
-        }
-    }
+    ): T = current.withScopedValue(snapshot, block)
 }

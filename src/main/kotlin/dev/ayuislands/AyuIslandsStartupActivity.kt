@@ -25,6 +25,7 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import dev.ayuislands.ui.ComponentTreeRefresher
+import dev.ayuislands.vcs.VcsColorApplier
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.swing.SwingUtilities
@@ -203,6 +204,26 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
                 project.disposed,
             )
         }
+
+        runStep("apply-persisted-vcs-colors") { applyPersistedVcsColors(settings) }
+    }
+
+    /**
+     * Re-apply persisted VCS color customization (Phase 40.2). Extracted from
+     * [execute] so the cyclomatic complexity stays under detekt's threshold —
+     * mirrors [runStartupAccentOnEdt]'s extraction rationale.
+     *
+     * Two gates here:
+     *  1. Master toggle — when off, [com.intellij.openapi.editor.colors.EditorColorsScheme]
+     *     has no plugin-owned VCS color writes to restore, so we skip the apply entirely.
+     *  2. License — a Pro user whose license expired between sessions sees their
+     *     VCS tinting revert to stock on the first post-expiry startup. Without
+     *     this gate we'd silently keep painting premium colors after a downgrade.
+     */
+    private fun applyPersistedVcsColors(settings: AyuIslandsSettings) {
+        if (settings.state.vcsColorEnabled && LicenseChecker.isLicensedOrGrace()) {
+            VcsColorApplier.applyAll()
+        }
     }
 
     /**
@@ -365,8 +386,11 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
      * Invokes [block] with fine-grained error handling so each startup step gets its own
      * log line, and the JVM's error-escalation path stays intact for genuinely fatal errors.
      *
-     * All production call sites run inside `SwingUtilities.invokeLater { ... }` (see
-     * [checkLicenseState]), so the surrounding Runnable is dispatched by `IdeEventQueue`:
+     * Most production call sites (the license-handling block in [checkLicenseState]
+     * and friends) run inside `SwingUtilities.invokeLater { ... }`, so the surrounding
+     * Runnable is dispatched by `IdeEventQueue`. The `apply-persisted-vcs-colors` step
+     * runs from the coroutine body of [execute] instead — RuntimeException semantics
+     * are identical regardless of thread context:
      *
      *  - [RuntimeException] — logged, swallowed; the next step runs.
      *  - [VirtualMachineError] (OutOfMemoryError, StackOverflowError, InternalError,

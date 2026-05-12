@@ -1,6 +1,15 @@
 package dev.ayuislands
 
 import com.intellij.testFramework.LoggedErrorProcessor
+import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.vcs.VcsColorApplier
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.mockkObject
+import io.mockk.unmockkAll
+import io.mockk.verify
 import java.util.EnumSet
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -364,6 +373,149 @@ class AyuIslandsStartupActivityTest {
             fullOrder.containsMatchIn(source),
             "runStartupAccentOnEdt must invoke resolveFocusedProject → AccentResolver.resolve → " +
                 "AccentApplicator.apply → swapService.install → swapService.notifyExternalApply in order",
+        )
+    }
+
+    // -----------------------------------------------------------------------
+    // applyPersistedVcsColors gate coverage (PR #170)
+    //
+    // [AyuIslandsStartupActivity.applyPersistedVcsColors] is a `private fun`
+    // that gates [VcsColorApplier.applyAll] on `state.vcsColorEnabled AND
+    // LicenseChecker.isLicensedOrGrace()`. Since the function is private and
+    // has no dedicated test seam, the tests below mirror the exact production
+    // body at AyuIslandsStartupActivity.kt:223-227 inside the public
+    // [AyuIslandsStartupActivity.runStepForTest] seam. This duplicates intent
+    // but is the only behavioural cover available without altering production
+    // code, and the source-regex lock below freezes the production gate so
+    // a future drift between mirror and source is caught.
+    // -----------------------------------------------------------------------
+
+    private fun runVcsGateMirror(settings: AyuIslandsSettings) {
+        activity.runStepForTest("apply-persisted-vcs-colors") {
+            if (settings.state.vcsColorEnabled && LicenseChecker.isLicensedOrGrace()) {
+                VcsColorApplier.applyAll()
+            }
+        }
+    }
+
+    @Test
+    fun `applyPersistedVcsColors — gate-off when master is false (vcsColorEnabled=false) — applier NOT invoked`() {
+        val state = AyuIslandsState().apply { vcsColorEnabled = false }
+        val settings = mockk<AyuIslandsSettings>()
+        every { settings.state } returns state
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        mockkObject(VcsColorApplier)
+        every { VcsColorApplier.applyAll() } returns Unit
+        try {
+            runVcsGateMirror(settings)
+
+            verify(exactly = 0) { VcsColorApplier.applyAll() }
+        } finally {
+            unmockkAll()
+        }
+    }
+
+    @Test
+    fun `applyPersistedVcsColors — gate-off when unlicensed (license false) — applier NOT invoked`() {
+        val state = AyuIslandsState().apply { vcsColorEnabled = true }
+        val settings = mockk<AyuIslandsSettings>()
+        every { settings.state } returns state
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        mockkObject(VcsColorApplier)
+        every { VcsColorApplier.applyAll() } returns Unit
+        try {
+            runVcsGateMirror(settings)
+
+            verify(exactly = 0) { VcsColorApplier.applyAll() }
+        } finally {
+            unmockkAll()
+        }
+    }
+
+    @Test
+    fun `applyPersistedVcsColors — both gates pass — applier invoked exactly once`() {
+        val state = AyuIslandsState().apply { vcsColorEnabled = true }
+        val settings = mockk<AyuIslandsSettings>()
+        every { settings.state } returns state
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        mockkObject(VcsColorApplier)
+        every { VcsColorApplier.applyAll() } returns Unit
+        try {
+            runVcsGateMirror(settings)
+
+            verify(exactly = 1) { VcsColorApplier.applyAll() }
+        } finally {
+            unmockkAll()
+        }
+    }
+
+    @Test
+    fun `applyPersistedVcsColors — runStep wraps the call — RuntimeException is logged-and-swallowed`() {
+        // Production wraps `applyPersistedVcsColors(settings)` in
+        // `runStep("apply-persisted-vcs-colors") { ... }` (line 208). The
+        // runStep contract (locked by the existing tests at the top of this
+        // file) swallows RuntimeException after logging via LOG.error. This
+        // test exercises the wrap end-to-end: if applyAll throws, no
+        // exception escapes runStepForTest and the error message names the
+        // step.
+        val state = AyuIslandsState().apply { vcsColorEnabled = true }
+        val settings = mockk<AyuIslandsSettings>()
+        every { settings.state } returns state
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        mockkObject(VcsColorApplier)
+        every { VcsColorApplier.applyAll() } throws RuntimeException("boom")
+
+        val captured = mutableListOf<Pair<String, Throwable?>>()
+        val processor = capturingProcessor(captured)
+        try {
+            LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
+                // Should NOT throw — runStep is required to swallow RuntimeException.
+                runVcsGateMirror(settings)
+            }
+            assertEquals(1, captured.size, "RuntimeException must be logged exactly once")
+            assertEquals(
+                "License startup step 'apply-persisted-vcs-colors' failed",
+                captured.single().first,
+                "Error message must name the apply-persisted-vcs-colors step",
+            )
+        } finally {
+            unmockkAll()
+        }
+    }
+
+    @Test
+    fun `applyPersistedVcsColors source gate matches the test mirror exactly`() {
+        // Drift lock: the four tests above mirror the production body at
+        // AyuIslandsStartupActivity.kt:223-227. If a future maintainer
+        // changes the gate (e.g. adds a third predicate, flips operator
+        // precedence, swaps the function call), the mirror in
+        // [runVcsGateMirror] silently goes stale and the gate tests keep
+        // passing while the real gate misbehaves. This regex locks the
+        // production gate to the exact shape the mirror duplicates.
+        val source = readStartupActivitySource()
+        val productionGate =
+            Regex(
+                """private\s+fun\s+applyPersistedVcsColors\([^)]*\)\s*\{\s*""" +
+                    """if\s*\(\s*settings\.state\.vcsColorEnabled\s*&&\s*""" +
+                    """LicenseChecker\.isLicensedOrGrace\(\)\s*\)\s*\{\s*""" +
+                    """VcsColorApplier\.applyAll\(\)\s*\}\s*\}""",
+                RegexOption.DOT_MATCHES_ALL,
+            )
+        assertTrue(
+            productionGate.containsMatchIn(source),
+            "applyPersistedVcsColors gate must remain `if (state.vcsColorEnabled " +
+                "&& LicenseChecker.isLicensedOrGrace()) { VcsColorApplier.applyAll() }` " +
+                "— gate-coverage tests in this file mirror that shape via runStepForTest",
+        )
+        // The runStep wrap at the call site must also remain so the
+        // logged-and-swallowed test stays representative.
+        assertTrue(
+            source.contains("""runStep("apply-persisted-vcs-colors") { applyPersistedVcsColors(settings) }"""),
+            "applyPersistedVcsColors must remain wrapped in runStep(\"apply-persisted-vcs-colors\") { … }",
         )
     }
 
