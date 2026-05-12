@@ -28,12 +28,12 @@ import javax.swing.JLabel
 import javax.swing.JSlider
 
 /**
- * Phase 40.2 — settings panel for VCS color customization.
+ * Settings panel for VCS color customization.
  *
- * Phase 40.2b redesign — each section (Diff, Merge, Blame) carries its own
- * preset segmented button. Users mix intensities across sections (Diff on
- * Neon, Blame on Whisper, etc.). Inside each section, Custom mode reveals
- * per-category sliders for that section's surfaces.
+ * Each section (Diff, Merge, Blame) carries its own preset segmented button.
+ * Users mix intensities across sections (Diff on Neon, Blame on Whisper,
+ * etc.). Inside each section, Custom mode reveals per-category sliders for
+ * that section's surfaces.
  *
  * Mirrors the [AyuIslandsChromePanel] discipline:
  *  - Pending / stored pairs per field so [isModified] can diff without

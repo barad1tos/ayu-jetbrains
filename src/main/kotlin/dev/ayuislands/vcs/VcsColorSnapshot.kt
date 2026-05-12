@@ -6,17 +6,17 @@ import dev.ayuislands.util.withScopedValue
 /**
  * Immutable VCS color settings captured from the Settings panel's pending values.
  *
- * Mirrors the [dev.ayuislands.accent.ChromeTintSnapshot] pattern from Phase 40:
- * the panel commits state only after the re-apply succeeds, so applier code
- * needs access to the *pending* values during apply without us mutating the
- * persisted state mid-flight. The snapshot rides through [VcsColorContext] for
- * the duration of one apply pass.
+ * Mirrors the [dev.ayuislands.accent.ChromeTintSnapshot] pattern: the panel
+ * commits state only after the re-apply succeeds, so applier code needs access
+ * to the *pending* values during apply without us mutating the persisted
+ * state mid-flight. The snapshot rides through [VcsColorContext] for the
+ * duration of one apply pass.
  *
- * Phase 40.2b redesign — snapshot carries the resolved per-category intensity
- * map directly rather than a preset+per-category-overrides pair. The panel
- * materialises per-section preset choices into per-category intensities BEFORE
- * constructing the snapshot, so the applier and blender stay agnostic to
- * preset/Custom branching.
+ * The snapshot carries the resolved per-category intensity map directly rather
+ * than a preset+per-category-overrides pair. The panel materialises per-section
+ * preset choices into per-category intensities BEFORE constructing the
+ * snapshot, so the applier and blender stay agnostic to preset/Custom
+ * branching.
  *
  * @property enabled master kill-switch — when `false`, applier no-ops and
  *   surfaces revert to stock XML

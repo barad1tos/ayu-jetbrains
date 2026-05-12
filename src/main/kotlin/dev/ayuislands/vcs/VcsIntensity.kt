@@ -4,10 +4,10 @@ package dev.ayuislands.vcs
  * Typed wrapper for the per-category VCS color intensity percent fed into
  * [VcsColorBlender.blend].
  *
- * Mirrors the [dev.ayuislands.accent.TintIntensity] pattern from Phase 40 chrome
- * tinting — the persisted `Int` fields on [dev.ayuislands.settings.AyuIslandsState]
- * stay raw for `BaseState` XML serialization, and every read path resolves through
- * this wrapper so a corrupted persisted value can never reach the HSB blender out
+ * Mirrors the [dev.ayuislands.accent.TintIntensity] pattern — the persisted
+ * `Int` fields on [dev.ayuislands.settings.AyuIslandsState] stay raw for
+ * `BaseState` XML serialization, and every read path resolves through this
+ * wrapper so a corrupted persisted value can never reach the HSB blender out
  * of range.
  *
  * Range `[MIN, MAX]` is `[0, 100]` — the full slider span. Unlike chrome tinting,

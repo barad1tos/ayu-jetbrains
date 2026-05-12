@@ -14,11 +14,11 @@ import java.awt.Color
 import java.awt.Window
 
 /**
- * Phase 40.2 applier — writes blended VCS colors into the live
- * [EditorColorsScheme] based on the current [VcsColorContext] snapshot (or
- * persisted [AyuIslandsState] when no snapshot is active).
+ * Applier — writes blended VCS colors into the live [EditorColorsScheme]
+ * based on the current [VcsColorContext] snapshot (or the persisted
+ * [AyuIslandsState] when no snapshot is active).
  *
- * Wave 2 + 2.5 scope: dispatches per [VcsWriteMode]:
+ * Dispatches per [VcsWriteMode]:
  *  - [VcsWriteMode.COLOR_KEY] — `scheme.setColor(ColorKey.find(name), tinted)`
  *  - [VcsWriteMode.TEXT_ATTR_BG] — read existing attributes, clone with the
  *    blended background, preserve foreground / effect / error stripe / font

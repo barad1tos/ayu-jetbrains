@@ -4,7 +4,7 @@ import dev.ayuislands.accent.AyuVariant
 import java.awt.Color
 
 /**
- * Phase 40.2 palette — stock 2.6.2 XML hex per (color key × Ayu variant) plus
+ * VCS color palette — stock 2.6.2 XML hex per (color key × Ayu variant) plus
  * the Whisper / Cyberpunk slider-endpoint colors computed via HSB-saturation
  * offset from those stock values.
  *
@@ -23,13 +23,13 @@ import java.awt.Color
  *    [com.intellij.openapi.editor.colors.TextAttributesKey], written via
  *    `scheme.setAttributes` after cloning the existing TextAttributes so
  *    foreground, effect colors, and the error stripe slot stay intact.
- *    Wave 2.5 covers diff-viewer row backgrounds — the biggest visual signal
- *    in the actual diff editor.
+ *    `TEXT_ATTR_BG` writes cover diff-viewer row backgrounds — the biggest
+ *    visual signal in the actual diff editor.
  *
  * The TextAttributes error-stripe slot matches the top-level ColorKey values
  * exactly in stock, so the COLOR_KEY tint already moves the right-margin
  * stripe markers in sync. Adding a dedicated TEXT_ATTR_STRIPE write mode is
- * a Wave 2.6+ amendment if a future change forces them out of sync.
+ * a follow-up amendment if a future change forces them out of sync.
  *
  * The Light variant uses 8-char alpha hex for backgrounds (12-13% overlay
  * over the editor surface). [parseHexColor] handles both 6-char opaque and
@@ -141,10 +141,11 @@ object VcsColorPalette {
                         light = BLUE_LIGHT,
                     ),
                 ),
-            // Wave 3 — Merge & Conflict. Only DIFF_CONFLICT is themable via
-            // EditorColorsScheme; the merge 3-way viewer reuses DIFF_MODIFIED /
-            // INSERTED / DELETED from Wave 2, and the inline diff popup is a
-            // JBPopup UIManager surface that lives outside this palette.
+            // Merge & Conflict — only DIFF_CONFLICT is themable via
+            // EditorColorsScheme; the merge 3-way viewer reuses the diff-viewer
+            // DIFF_MODIFIED / INSERTED / DELETED entries, and the inline diff
+            // popup is a JBPopup UIManager surface that lives outside this
+            // palette.
             VcsColorCategory.CONFLICT_MARKERS to
                 listOf(
                     entry(
@@ -162,9 +163,9 @@ object VcsColorPalette {
                         light = "#E6505020",
                     ),
                 ),
-            // Wave 4 — Blame & History. Only annotate-blame surfaces are
-            // themable; Local History reuses Wave 2 diff colors when it shows
-            // its own diff dialog, so LOCAL_HISTORY stays a no-op placeholder.
+            // Blame & History — only annotate-blame surfaces are themable;
+            // Local History reuses the diff-viewer colors when it shows its
+            // own diff dialog, so LOCAL_HISTORY stays a no-op placeholder.
             //
             // VCS_ANNOTATIONS_COLOR_1..5 form an age-graded ramp (most recent
             // → oldest commit fade). Uniform HSB saturation offset across all
@@ -224,7 +225,11 @@ object VcsColorPalette {
                 ),
         )
 
-    /** Returns every palette entry for [category]; empty list if the category isn't in Wave 2's scope. */
+    /**
+     * Returns every palette entry for [category]; empty list if the category
+     * has no palette entries (e.g. the Branch & Commit categories declared in
+     * [VcsColorCategory] but not yet wired into [PALETTE]).
+     */
     fun entriesFor(category: VcsColorCategory): List<VcsPaletteEntry> = PALETTE[category].orEmpty()
 
     /**
@@ -250,9 +255,10 @@ object VcsColorPalette {
     }
 
     /**
-     * Convenience overload for backward compat with the Wave 2 ColorKey-only test
-     * suite: looks up the first entry matching [keyName] with [VcsWriteMode.COLOR_KEY]
-     * across all categories and returns its stock color for [variant].
+     * Convenience overload for tests that need a single stock color by key
+     * name: looks up the first entry matching [keyName] with
+     * [VcsWriteMode.COLOR_KEY] across all categories and returns its stock
+     * color for [variant].
      */
     fun stock(
         keyName: String,
