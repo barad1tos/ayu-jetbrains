@@ -3,10 +3,12 @@
 ## [2.6.3] - 2026-05-12
 
 ### Added
-- [Paid] **New VCS tab** in Settings (between Glow and Workspace) — tune VCS color intensity across five surfaces: diff viewer, Project View file status, editor gutter, conflict markers, and Git blame annotations. Four named profiles — Whisper, Ambient, Neon, Cyberpunk — plus a Custom mode with per-surface sliders. Master toggle stays off by default, so 2.6.2 colors are byte-identical until you opt in.
+- [Paid] **New VCS tab in Settings** — *Settings → Ayu Islands → VCS*, between Glow and Workspace. Tune VCS color intensity across five surfaces: **diff viewer**, **Project View file status**, **editor gutter**, **conflict markers**, and **Git blame annotations**.
+- [Paid] **Four named profiles** — pick **Whisper** (calmer), **Ambient** (2.6.2 defaults), **Neon** (brighter, restores the pre-2.6.2 punch), or **Cyberpunk** (peak vibrancy). Each section (Diff, Merge, Blame) carries its own profile, so you can mix — Neon diffs with Whisper blame, for example.
+- [Paid] **Custom mode** — unlocks per-surface sliders inside each section for fine-grained control.
 
-### Roadmap
-Next patch wires the same intensity profile into the branch indicator, branches popup, and commit log highlights — they live on a different UI surface that needs its own platform research.
+### Compatibility
+- Master toggle stays off by default — 2.6.2 colors are **byte-identical** until you opt in. No surprise tints on upgrade.
 
 ## [2.6.2] - 2026-05-10
 
