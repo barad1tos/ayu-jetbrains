@@ -124,9 +124,8 @@ intellijPlatform {
                             IntelliJPlatformType.RubyMine to "2025.1.3",
                         ),
                 )
-            val group = providers.systemProperty("verifyGroup").orNull
             val wanted =
-                when (group) {
+                when (val group = providers.systemProperty("verifyGroup").orNull) {
                     null -> ideGroups.keys
                     "A" -> setOf("A1", "A2")
                     in ideGroups.keys -> setOf(group)
