@@ -65,8 +65,8 @@ class ToolWindowAutoFitter(
             // Fingerprint guard: when tree content is unchanged AND the resulting width
             // would only differ by jitter, skip the stretchWidth call. Prevents stray
             // re-applies (focus swap, listener re-fire) from oscillating the tool window
-            // because JTree row bounds extend slightly under focus.
-            val fingerprint = (tree.rowCount * FINGERPRINT_MIX) xor maxRowWidth
+            // because `JTree` row bounds extend slightly under focus.
+            val fingerprint = computeFingerprint(tree.rowCount, maxRowWidth)
             val currentWidth = toolWindowEx.component.width
             if (fingerprint == lastFingerprint &&
                 AutoFitCalculator.isJitterOnly(currentWidth, desiredWidth)
@@ -263,6 +263,18 @@ class ToolWindowAutoFitter(
                 ?: return null
         return AutoFitCalculator.findFirstOfType(content, JTree::class.java) as? JTree
     }
+
+    /**
+     * Deterministic mix keyed on the two dimensions that drive [applyAutoFitWidth]'s
+     * desired width: `rowCount` and `maxRowWidth`. The mix only needs collision
+     * resistance against common neighbouring tree shapes — not cryptographic strength.
+     * Centralised here so future tweaks (different multiplier, additional inputs such
+     * as expanded-row count) land in one place.
+     */
+    private fun computeFingerprint(
+        rowCount: Int,
+        maxRowWidth: Int,
+    ): Int = (rowCount * FINGERPRINT_MIX) xor maxRowWidth
 
     companion object {
         private val LOG = logger<ToolWindowAutoFitter>()

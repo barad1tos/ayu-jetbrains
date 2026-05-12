@@ -10,6 +10,7 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.PanelWidthMode
 import dev.ayuislands.toolwindow.AutoFitCalculator
 import dev.ayuislands.toolwindow.ToolWindowAutoFitter
+import dev.ayuislands.toolwindow.shouldTriggerAutoFit
 
 /** Per-project service that auto-fits the Commit tool window width to its tree content. */
 @Service(Service.Level.PROJECT)
@@ -34,12 +35,7 @@ class CommitPanelAutoFitManager(
                     toolWindowManager: ToolWindowManager,
                     changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
                 ) {
-                    if (changeType == ToolWindowManagerListener.ToolWindowManagerEventType.MovedOrResized) return
-                    // ShowToolWindow fires every time the Commit tool window toggles visible.
-                    // Content is unchanged; re-measuring the JTree on show oscillates its width
-                    // because row bounds reflect cell-renderer extension under focus. Legitimate
-                    // re-applies still arrive via mode-switch in [apply] and expansion listener.
-                    if (changeType == ToolWindowManagerListener.ToolWindowManagerEventType.ShowToolWindow) return
+                    if (!changeType.shouldTriggerAutoFit()) return
                     val tw = toolWindowManager.getToolWindow("Commit") ?: return
                     if (!tw.isVisible) return
                     val mode =

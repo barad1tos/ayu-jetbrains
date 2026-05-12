@@ -10,6 +10,7 @@ import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.PanelWidthMode
 import dev.ayuislands.toolwindow.AutoFitCalculator
+import dev.ayuislands.toolwindow.shouldTriggerAutoFit
 import javax.swing.JTable
 import javax.swing.JTree
 import javax.swing.Timer
@@ -36,13 +37,7 @@ class GitPanelAutoFitManager(
                     toolWindowManager: ToolWindowManager,
                     changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
                 ) {
-                    if (changeType == ToolWindowManagerListener.ToolWindowManagerEventType.MovedOrResized) return
-                    // ShowToolWindow fires every time the Version Control tool window toggles visible.
-                    // Content is unchanged; re-running fitSplitters on show would re-measure JTree
-                    // row bounds which oscillate with cell-renderer focus extension, producing a
-                    // different splitter proportion each toggle. Mode-switch via [apply] remains
-                    // the legitimate trigger.
-                    if (changeType == ToolWindowManagerListener.ToolWindowManagerEventType.ShowToolWindow) return
+                    if (!changeType.shouldTriggerAutoFit()) return
                     val tw = toolWindowManager.getToolWindow("Version Control") ?: return
                     if (!tw.isVisible) return
                     val mode =
