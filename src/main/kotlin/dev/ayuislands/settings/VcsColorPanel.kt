@@ -430,31 +430,36 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
         // Resolve per-section preset choices into per-category intensities,
         // then materialise the snapshot. The applier reads only per-category
         // intensities — preset/Custom branching is fully resolved here.
-        // Non-Custom presets defer to VcsColorPreset.intensityFor; Custom
-        // mode pulls the slider values directly.
-        val diffSnap =
-            if (pendingDiffPreset == VcsColorPreset.CUSTOM) {
-                null
-            } else {
-                pendingDiffPreset.intensityFor(VcsColorCategory.DIFF_VIEWER)
-            }
+        // Non-Custom presets defer to VcsColorPreset.intensityFor per
+        // category (so future preset variants that differentiate intensity
+        // across categories work correctly); Custom mode pulls the slider
+        // value for that specific category.
+        fun resolveCategory(
+            preset: VcsColorPreset,
+            category: VcsColorCategory,
+            customValue: Int,
+        ): Int = if (preset == VcsColorPreset.CUSTOM) customValue else preset.intensityFor(category)
+
         val resolved =
             mapOf(
-                VcsColorCategory.DIFF_VIEWER to (diffSnap ?: pendingDiffIntensity),
-                VcsColorCategory.PROJECT_VIEW_FILE_STATUS to (diffSnap ?: pendingProjectViewIntensity),
-                VcsColorCategory.EDITOR_GUTTER to (diffSnap ?: pendingGutterIntensity),
+                VcsColorCategory.DIFF_VIEWER to
+                    resolveCategory(pendingDiffPreset, VcsColorCategory.DIFF_VIEWER, pendingDiffIntensity),
+                VcsColorCategory.PROJECT_VIEW_FILE_STATUS to
+                    resolveCategory(
+                        pendingDiffPreset,
+                        VcsColorCategory.PROJECT_VIEW_FILE_STATUS,
+                        pendingProjectViewIntensity,
+                    ),
+                VcsColorCategory.EDITOR_GUTTER to
+                    resolveCategory(pendingDiffPreset, VcsColorCategory.EDITOR_GUTTER, pendingGutterIntensity),
                 VcsColorCategory.CONFLICT_MARKERS to
-                    if (pendingMergePreset == VcsColorPreset.CUSTOM) {
-                        pendingConflictMarkerIntensity
-                    } else {
-                        pendingMergePreset.intensityFor(VcsColorCategory.CONFLICT_MARKERS)
-                    },
+                    resolveCategory(
+                        pendingMergePreset,
+                        VcsColorCategory.CONFLICT_MARKERS,
+                        pendingConflictMarkerIntensity,
+                    ),
                 VcsColorCategory.BLAME_GUTTER to
-                    if (pendingBlamePreset == VcsColorPreset.CUSTOM) {
-                        pendingBlameIntensity
-                    } else {
-                        pendingBlamePreset.intensityFor(VcsColorCategory.BLAME_GUTTER)
-                    },
+                    resolveCategory(pendingBlamePreset, VcsColorCategory.BLAME_GUTTER, pendingBlameIntensity),
             )
         val snapshot = VcsColorSnapshot(enabled = pendingEnabled, perCategoryIntensities = resolved)
 
