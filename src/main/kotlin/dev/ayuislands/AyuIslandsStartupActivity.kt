@@ -205,7 +205,7 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
             )
         }
 
-        applyPersistedVcsColors(settings)
+        runStep("apply-persisted-vcs-colors") { applyPersistedVcsColors(settings) }
     }
 
     /**

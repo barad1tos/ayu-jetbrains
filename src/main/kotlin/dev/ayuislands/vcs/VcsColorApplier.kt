@@ -46,7 +46,7 @@ internal object VcsColorApplier {
         val state = AyuIslandsSettings.getInstance().state
         val variant = AyuVariant.detect()
         if (variant == null) {
-            LOG.info("VcsColorApplier.applyAll: no Ayu variant active; skipping")
+            LOG.debug("VcsColorApplier.applyAll: no Ayu variant active; skipping")
             return
         }
         ApplicationManager.getApplication().invokeLater {
@@ -64,11 +64,8 @@ internal object VcsColorApplier {
     fun revertAll() {
         ApplicationManager.getApplication().invokeLater {
             val scheme = EditorColorsManager.getInstance().globalScheme
-            for ((_, entries) in VcsColorPalette.allCategoriesAndEntries()) {
-                for (entry in entries) {
-                    revertEntry(scheme, entry)
-                }
-            }
+            val failed = revertEveryEntry(scheme)
+            if (failed > 0) LOG.warn("VcsColorApplier.revertAll: $failed entries failed to revert; see prior warnings")
             repaintAllWindows()
         }
     }
@@ -78,22 +75,64 @@ internal object VcsColorApplier {
         variant: AyuVariant,
     ) {
         val scheme = EditorColorsManager.getInstance().globalScheme
-        if (!VcsColorContext.isEnabled(state)) {
-            for ((_, entries) in VcsColorPalette.allCategoriesAndEntries()) {
-                for (entry in entries) {
-                    revertEntry(scheme, entry)
-                }
+        val failed =
+            if (VcsColorContext.isEnabled(state)) {
+                writeEveryEntry(scheme, state, variant)
+            } else {
+                revertEveryEntry(scheme)
             }
-            return
-        }
+        if (failed > 0) LOG.warn("VcsColorApplier.writeAll: $failed entries failed; see prior warnings")
+    }
+
+    private fun writeEveryEntry(
+        scheme: EditorColorsScheme,
+        state: AyuIslandsState,
+        variant: AyuVariant,
+    ): Int {
+        var failed = 0
         for ((category, entries) in VcsColorPalette.allCategoriesAndEntries()) {
             val intensity = VcsColorContext.currentIntensity(category, state)
             for (entry in entries) {
-                val tinted = blendFor(entry, variant, intensity)
-                writeEntry(scheme, entry, tinted)
+                if (!safeWriteEntry(scheme, entry, blendFor(entry, variant, intensity))) failed++
             }
         }
+        return failed
     }
+
+    private fun revertEveryEntry(scheme: EditorColorsScheme): Int {
+        var failed = 0
+        for ((_, entries) in VcsColorPalette.allCategoriesAndEntries()) {
+            for (entry in entries) {
+                if (!safeRevertEntry(scheme, entry)) failed++
+            }
+        }
+        return failed
+    }
+
+    private fun safeWriteEntry(
+        scheme: EditorColorsScheme,
+        entry: VcsPaletteEntry,
+        tinted: Color,
+    ): Boolean =
+        try {
+            writeEntry(scheme, entry, tinted)
+            true
+        } catch (exception: RuntimeException) {
+            LOG.warn("VcsColorApplier: writing ${entry.keyName} (${entry.mode}) failed", exception)
+            false
+        }
+
+    private fun safeRevertEntry(
+        scheme: EditorColorsScheme,
+        entry: VcsPaletteEntry,
+    ): Boolean =
+        try {
+            revertEntry(scheme, entry)
+            true
+        } catch (exception: RuntimeException) {
+            LOG.warn("VcsColorApplier: reverting ${entry.keyName} (${entry.mode}) failed", exception)
+            false
+        }
 
     private fun blendFor(
         entry: VcsPaletteEntry,
@@ -158,8 +197,10 @@ internal object VcsColorApplier {
      */
     private fun repaintAllWindows() {
         for (window in Window.getWindows()) {
-            if (window.isShowing) {
-                window.repaint()
+            try {
+                if (window.isShowing) window.repaint()
+            } catch (exception: RuntimeException) {
+                LOG.debug("VcsColorApplier.repaintAllWindows: window repaint failed", exception)
             }
         }
     }
