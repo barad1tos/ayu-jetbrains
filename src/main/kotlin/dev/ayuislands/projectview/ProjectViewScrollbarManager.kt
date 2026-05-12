@@ -15,6 +15,7 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.PanelWidthMode
 import dev.ayuislands.toolwindow.AutoFitCalculator
 import dev.ayuislands.toolwindow.ToolWindowAutoFitter
+import dev.ayuislands.toolwindow.shouldTriggerAutoFit
 import dev.ayuislands.ui.ComponentTreeRefreshedListener
 import dev.ayuislands.ui.ComponentTreeRefreshedTopic
 import java.awt.Component
@@ -54,7 +55,7 @@ class ProjectViewScrollbarManager(
                     toolWindowManager: ToolWindowManager,
                     changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
                 ) {
-                    if (changeType == ToolWindowManagerListener.ToolWindowManagerEventType.MovedOrResized) return
+                    if (!changeType.shouldTriggerAutoFit()) return
                     val tw = toolWindowManager.getToolWindow("Project") ?: return
                     if (!tw.isVisible) return
                     val state =

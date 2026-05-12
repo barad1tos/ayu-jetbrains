@@ -10,6 +10,7 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.PanelWidthMode
 import dev.ayuislands.toolwindow.AutoFitCalculator
 import dev.ayuislands.toolwindow.ToolWindowAutoFitter
+import dev.ayuislands.toolwindow.shouldTriggerAutoFit
 
 /** Per-project service that auto-fits the Commit tool window width to its tree content. */
 @Service(Service.Level.PROJECT)
@@ -34,7 +35,7 @@ class CommitPanelAutoFitManager(
                     toolWindowManager: ToolWindowManager,
                     changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
                 ) {
-                    if (changeType == ToolWindowManagerListener.ToolWindowManagerEventType.MovedOrResized) return
+                    if (!changeType.shouldTriggerAutoFit()) return
                     val tw = toolWindowManager.getToolWindow("Commit") ?: return
                     if (!tw.isVisible) return
                     val mode =
