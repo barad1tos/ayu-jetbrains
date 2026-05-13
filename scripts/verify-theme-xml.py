@@ -120,7 +120,9 @@ def compare_values(
     data: Dict[str, Dict[str, str]],
 ) -> Tuple[int, int]:
     """Compare key-value maps across variants, return (checked, mismatches)."""
-    all_keys = sorted(set().union(*data.values()))
+    all_keys: List[str] = sorted(
+        {key for variant_map in data.values() for key in variant_map}
+    )
     names = list(data.keys())
     mismatches = 0
 

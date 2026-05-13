@@ -11,13 +11,14 @@ from __future__ import annotations
 
 import re
 import sys
+from typing import Any
 
 from .features import iter_features
 from .git_utils import file_sha256, head_short_sha, is_ancestor_of_head
 from .paths import FEATURES_YAML, REPO_ROOT
 
 
-def update_hashes(data: dict) -> int:
+def update_hashes(data: dict[str, Any]) -> int:
     """Update content_sha256 values in-place, preserving the file's comments.
 
     PyYAML's safe_dump would rewrite the whole document and drop the header
@@ -28,8 +29,8 @@ def update_hashes(data: dict) -> int:
     text = FEATURES_YAML.read_text(encoding="utf-8")
     updated = 0
     for feat in iter_features(data):
-        shot = feat.get("screenshot") or {}
-        path = (shot.get("path") or "").strip()
+        shot: dict[str, Any] = feat.get("screenshot") or {}
+        path: str = (shot.get("path") or "").strip()
         if not path:
             continue
         screenshot_file = REPO_ROOT / path
@@ -45,7 +46,7 @@ def update_hashes(data: dict) -> int:
     return updated
 
 
-def restamp_orphaned(data: dict) -> int:
+def restamp_orphaned(data: dict[str, Any]) -> int:
     """Rewrite every orphaned `last_verified_sha` in features.yml to HEAD.
 
     "Orphaned" = `git merge-base --is-ancestor sha HEAD` returns non-zero.
@@ -66,9 +67,9 @@ def restamp_orphaned(data: dict) -> int:
     text = FEATURES_YAML.read_text(encoding="utf-8")
     updated = 0
     for feat in iter_features(data):
-        shot = feat.get("screenshot") or {}
-        stored_sha = (shot.get("last_verified_sha") or "").strip()
-        path = (shot.get("path") or "").strip()
+        shot: dict[str, Any] = feat.get("screenshot") or {}
+        stored_sha: str = (shot.get("last_verified_sha") or "").strip()
+        path: str = (shot.get("path") or "").strip()
         if not stored_sha or not path:
             continue
         if is_ancestor_of_head(stored_sha):

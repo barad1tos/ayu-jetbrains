@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
 from .features import iter_features
 from .git_utils import (
@@ -17,7 +18,7 @@ from .paths import REPO_ROOT
 from .report import Report
 
 
-def check_screenshots(data: dict, report: Report) -> None:
+def check_screenshots(data: dict[str, Any], report: Report) -> None:
     """Invariant 3: screenshot freshness via source stamp + byte hash.
 
     Split into per-check helpers so the orchestrator stays straight-line
@@ -25,14 +26,14 @@ def check_screenshots(data: dict, report: Report) -> None:
     """
     for feat in iter_features(data):
         if shot := feat.get("screenshot"):
-            _check_one_screenshot(feat["id"], shot, report)
+            _check_one_screenshot(feat["id"], cast(dict[str, Any], shot), report)
 
 
-def _check_one_screenshot(fid: str, shot: dict, report: Report) -> None:
-    path = shot.get("path", "").strip()
-    sha = shot.get("last_verified_sha", "").strip()
-    sources = shot.get("sources") or []
-    stored_hash = (shot.get("content_sha256") or "").strip()
+def _check_one_screenshot(fid: str, shot: dict[str, Any], report: Report) -> None:
+    path: str = (shot.get("path") or "").strip()
+    sha: str = (shot.get("last_verified_sha") or "").strip()
+    sources: list[str] = shot.get("sources") or []
+    stored_hash: str = (shot.get("content_sha256") or "").strip()
 
     if not path or not sha or not sources:
         report.error(

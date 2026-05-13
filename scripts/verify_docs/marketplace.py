@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import hashlib
+from typing import Any
 
 from .paths import GRADLE_PROPERTIES
 from .plugin_xml import extract_plugin_xml_description
@@ -27,7 +28,7 @@ def _read_plugin_version() -> str | None:
     return None
 
 
-def check_marketplace_sync(data: dict, report: Report) -> None:
+def check_marketplace_sync(data: dict[str, Any], report: Report) -> None:
     """Invariant 6: when gradle pluginVersion matches the last-published version,
     the current plugin.xml <description> hash must match what shipped.
 
@@ -38,9 +39,9 @@ def check_marketplace_sync(data: dict, report: Report) -> None:
     `release_sync.last_published_description_sha256` so this check stays
     silent during the window the published version == the on-disk version.
     """
-    sync = data.get("release_sync") or {}
-    expected_version = (sync.get("last_published_version") or "").strip()
-    expected_sha = (sync.get("last_published_description_sha256") or "").strip()
+    sync: dict[str, Any] = data.get("release_sync") or {}
+    expected_version: str = (sync.get("last_published_version") or "").strip()
+    expected_sha: str = (sync.get("last_published_description_sha256") or "").strip()
     if not expected_version or not expected_sha:
         return  # Bootstrap mode — no last-published state recorded yet.
 

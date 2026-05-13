@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from .paths import REPO_ROOT
 from .report import Report
@@ -11,7 +12,7 @@ _ASSET_EXTENSIONS = (".png", ".gif", ".svg", ".jpg", ".jpeg", ".webp")
 _ASSET_SEARCH_ROOTS = ("assets", "src/main/resources/whatsnew")
 
 
-def check_asset_inventory(data: dict, report: Report) -> None:
+def check_asset_inventory(data: dict[str, Any], report: Report) -> None:
     """Invariant 5: every on-disk image under the tracked roots is inventoried,
     and every inventory entry's `referenced_by` files actually mention the path.
 
@@ -22,17 +23,17 @@ def check_asset_inventory(data: dict, report: Report) -> None:
       - Missing justification: inventory entry has referenced_by=[] AND no
                                `justification` explaining why it's unused
     """
-    inventory = data.get("asset_inventory") or []
+    inventory: list[dict[str, Any]] = data.get("asset_inventory") or []
     _check_inventory_entries(inventory, report)
     _check_filesystem_orphans(inventory, report)
 
 
-def _check_inventory_entries(inventory: list[dict], report: Report) -> None:
+def _check_inventory_entries(inventory: list[dict[str, Any]], report: Report) -> None:
     for entry in inventory:
         _check_one_inventory_entry(entry, report)
 
 
-def _check_one_inventory_entry(entry: dict, report: Report) -> None:
+def _check_one_inventory_entry(entry: dict[str, Any], report: Report) -> None:
     path = (entry.get("path") or "").strip()
     if not path:
         report.error("_asset_inventory_", "inventory entry missing `path`")
@@ -44,7 +45,7 @@ def _check_one_inventory_entry(entry: dict, report: Report) -> None:
     # `referenced_by: [""]` would otherwise resolve to REPO_ROOT itself
     # (`Path / ""` == `Path`) and produce nonsense errors about the repo
     # root not containing the asset path.
-    raw_referenced_by = entry.get("referenced_by") or []
+    raw_referenced_by: list[Any] = entry.get("referenced_by") or []
     referenced_by = [
         ref.strip() for ref in raw_referenced_by if isinstance(ref, str) and ref.strip()
     ]
@@ -80,7 +81,7 @@ def _check_reference_in_file(
         )
 
 
-def _check_filesystem_orphans(inventory: list[dict], report: Report) -> None:
+def _check_filesystem_orphans(inventory: list[dict[str, Any]], report: Report) -> None:
     inventoried = {(entry.get("path") or "").strip() for entry in inventory}
     for root_rel in _ASSET_SEARCH_ROOTS:
         root = REPO_ROOT / root_rel

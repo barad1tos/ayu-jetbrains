@@ -27,6 +27,9 @@ package = false
 # script's directory to sys.path at runtime, but pyright's static analyzer
 # needs an explicit hint. `.` = the scripts/ dir (where pyproject.toml lives).
 extraPaths = ["."]
+# Strict mode catches partially-unknown types (YAML `dict.get()` returning
+# `Any | str` etc.) so docs-lint stays type-safe end-to-end.
+typeCheckingMode = "strict"
 # types-defusedxml ships stubs only (no source) — suppress the spurious
 # "source not found" warning that would otherwise fire on every import.
 reportMissingModuleSource = "none"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from .features import iter_features
 from .paths import CHANGELOG
@@ -25,7 +26,7 @@ def extract_latest_changelog_section() -> tuple[str, list[tuple[str, str]]]:
     return version, bullets
 
 
-def check_changelog_cross_ref(data: dict, report: Report) -> None:
+def check_changelog_cross_ref(data: dict[str, Any], report: Report) -> None:
     """Invariant 2: tier-tagged bullets in latest changelog map to features with matching `introduced`."""
     version, bullets = extract_latest_changelog_section()
     if not bullets:
