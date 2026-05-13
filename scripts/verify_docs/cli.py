@@ -17,18 +17,19 @@ from .stamps import restamp_orphaned, update_hashes
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(
+    """Run the orchestrator: parse args, either run invariant checks or mutate features.yml."""
+    parser = argparse.ArgumentParser(
         description=(
             "Verify that docs/features.yml stays in sync with README + plugin.xml + CHANGELOG."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ap.add_argument(
+    parser.add_argument(
         "--update-hashes",
         action="store_true",
         help="Recompute content_sha256 for every screenshot and rewrite features.yml",
     )
-    ap.add_argument(
+    parser.add_argument(
         "--restamp",
         action="store_true",
         help="Rewrite every screenshot's last_verified_sha to the current HEAD "
@@ -36,7 +37,7 @@ def main() -> int:
         "Use after a squash-merge rebase or when adopting the inherited "
         "stamp from main onto a fresh feature branch.",
     )
-    args = ap.parse_args()
+    args = parser.parse_args()
 
     data = load_features()
 

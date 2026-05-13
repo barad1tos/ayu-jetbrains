@@ -74,9 +74,9 @@ def diff_dicts(base: dict[str, Any], islands: dict[str, Any]) -> list[str]:
     """Return formatted lines for each differing key between the two dicts."""
     all_keys = sorted(set(base) | set(islands))
     return [
-        f"    {k}: base={base.get(k)!r}  islands={islands.get(k)!r}"
-        for k in all_keys
-        if base.get(k) != islands.get(k)
+        f"    {key}: base={base.get(key)!r}  islands={islands.get(key)!r}"
+        for key in all_keys
+        if base.get(key) != islands.get(key)
     ]
 
 
@@ -90,10 +90,8 @@ def check_pair(pair: ThemePair) -> int:
             print(f"MISSING: {path!s}")
             return 1
 
-    with open(base_path) as f:
-        base_data = json.load(f)
-    with open(islands_path) as f:
-        islands_data = json.load(f)
+    base_data = json.loads(base_path.read_text(encoding="utf-8"))
+    islands_data = json.loads(islands_path.read_text(encoding="utf-8"))
 
     errors = 0
 

@@ -32,17 +32,16 @@ def find_composed_jar() -> Path | None:
     dist-output layout changes — the composed JAR is always the biggest one
     (it bundles obfuscated classes + resources that the -base jar lacks).
     """
-    if candidates := [
-        p
-        for p in BUILD_LIBS.glob("ayu-jetbrains-*.jar")
-        if not any(p.stem.endswith(sfx) for sfx in _EXCLUDED_SUFFIXES)
-    ]:
-        return max(candidates, key=lambda p: p.stat().st_size)
-    else:
-        return None
+    candidates = [
+        path
+        for path in BUILD_LIBS.glob("ayu-jetbrains-*.jar")
+        if not any(path.stem.endswith(sfx) for sfx in _EXCLUDED_SUFFIXES)
+    ]
+    return max(candidates, key=lambda path: path.stat().st_size, default=None)
 
 
 def class_in_jar(jar: Path, fqn: str) -> bool:
+    """Return True if `fqn` is a public class inside `jar` (checked via javap)."""
     result = subprocess.run(
         ["javap", "-public", "-cp", str(jar), fqn],
         capture_output=True,
@@ -53,20 +52,20 @@ def class_in_jar(jar: Path, fqn: str) -> bool:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(
+    """Entry point: locate the composed JAR and verify every plugin.xml class is in it."""
+    parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ap.add_argument("jar", nargs="?", type=Path, help="Optional explicit JAR path")
-    args = ap.parse_args()
+    parser.add_argument("jar", nargs="?", type=Path, help="Optional explicit JAR path")
+    args = parser.parse_args()
 
     jar: Path | None = args.jar
     if jar is None:
         jar = find_composed_jar()
     if jar is None:
         print(
-            "ERROR: No composed JAR in build/libs/. "
-            "Run ./gradlew buildPlugin first.",
+            "ERROR: No composed JAR in build/libs/. Run ./gradlew buildPlugin first.",
             file=sys.stderr,
         )
         return 1
