@@ -16,20 +16,20 @@ def check_keywords(data: dict[str, Any], report: Report) -> None:
     description_text = extract_plugin_xml_description().lower()
 
     for feat in iter_features(data):
-        kw = feat.get("keyword", "").strip().lower()
-        fid = feat.get("id", "<missing-id>")
-        if not kw:
-            report.error(fid, "missing `keyword` field (feature.yml schema)")
+        keyword = feat.get("keyword", "").strip().lower()
+        feature_id = feat.get("id", "<missing-id>")
+        if not keyword:
+            report.error(feature_id, "missing `keyword` field (feature.yml schema)")
             continue
-        if kw not in readme_text:
+        if keyword not in readme_text:
             report.error(
-                fid,
+                feature_id,
                 f"keyword '{feat['keyword']}' not found in README.md — "
                 f"the feature is declared in features.yml but not mentioned in marketing copy",
             )
-        if kw not in description_text:
+        if keyword not in description_text:
             report.error(
-                fid,
+                feature_id,
                 f"keyword '{feat['keyword']}' not found in plugin.xml <description> — "
                 f"Marketplace 'About' page will not mention this feature",
             )

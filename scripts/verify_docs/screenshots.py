@@ -30,7 +30,7 @@ def check_screenshots(data: dict[str, Any], report: Report) -> None:
             _check_one_screenshot(feat["id"], cast(dict[str, Any], shot), report)
 
 
-def _check_one_screenshot(fid: str, shot: dict[str, Any], report: Report) -> None:
+def _check_one_screenshot(feature_id: str, shot: dict[str, Any], report: Report) -> None:
     path: str = (shot.get("path") or "").strip()
     sha: str = (shot.get("last_verified_sha") or "").strip()
     sources: list[str] = shot.get("sources") or []
@@ -38,31 +38,31 @@ def _check_one_screenshot(fid: str, shot: dict[str, Any], report: Report) -> Non
 
     if not path or not sha or not sources:
         report.error(
-            fid,
+            feature_id,
             "screenshot block incomplete — required: path, last_verified_sha, sources",
         )
         return
 
     screenshot_file = REPO_ROOT / path
     if not screenshot_file.exists():
-        report.error(fid, f"screenshot path '{path}' does not exist")
+        report.error(feature_id, f"screenshot path '{path}' does not exist")
         return
 
-    _check_source_paths_exist(fid, sources, report)
-    _check_freshness_by_state(fid, path, sha, sources, report)
-    _check_content_hash(fid, screenshot_file, stored_hash, report)
+    _check_source_paths_exist(feature_id, sources, report)
+    _check_freshness_by_state(feature_id, path, sha, sources, report)
+    _check_content_hash(feature_id, screenshot_file, stored_hash, report)
 
 
-def _check_source_paths_exist(fid: str, sources: list[str], report: Report) -> None:
+def _check_source_paths_exist(feature_id: str, sources: list[str], report: Report) -> None:
     for src in sources:
         if not (REPO_ROOT / src).exists():
             report.error(
-                fid, f"screenshot source '{src}' does not exist (renamed or deleted?)"
+                feature_id, f"screenshot source '{src}' does not exist (renamed or deleted?)"
             )
 
 
 def _check_freshness_by_state(
-    fid: str, path: str, sha: str, sources: list[str], report: Report
+    feature_id: str, path: str, sha: str, sources: list[str], report: Report
 ) -> None:
     """Dispatch source-freshness check based on how the stamp relates to HEAD.
 
@@ -80,19 +80,19 @@ def _check_freshness_by_state(
     """
     if not commit_exists(sha):
         _handle_orphan_stamp(
-            fid, path, sha, sources, report, reason="not in local git object db"
+            feature_id, path, sha, sources, report, reason="not in local git object db"
         )
         return
     if is_ancestor_of_head(sha):
-        _check_source_freshness_since(fid, path, sha, sources, report, strict_msg=True)
+        _check_source_freshness_since(feature_id, path, sha, sources, report, strict_msg=True)
         return
     _handle_orphan_stamp(
-        fid, path, sha, sources, report, reason="not an ancestor of HEAD"
+        feature_id, path, sha, sources, report, reason="not an ancestor of HEAD"
     )
 
 
 def _handle_orphan_stamp(
-    fid: str, path: str, sha: str, sources: list[str], report: Report, *, reason: str
+    feature_id: str, path: str, sha: str, sources: list[str], report: Report, *, reason: str
 ) -> None:
     # SHA-identity check instead of branch-name equality so the main path also
     # covers CI runs that check out `origin/main` in detached-HEAD state —
@@ -100,7 +100,7 @@ def _handle_orphan_stamp(
     # there and would misroute us into the feature-branch diff logic.
     if head_points_at_primary():
         report.warn(
-            fid,
+            feature_id,
             f"last_verified_sha '{sha[:8]}' is orphaned ({reason}) — expected on "
             f"the primary branch after a squash-merge + branch delete. "
             f"content_sha256 remains the pixel-drift guard; the next PR that "
@@ -110,19 +110,19 @@ def _handle_orphan_stamp(
     base = merge_base_with_primary()
     if base is None:
         report.warn(
-            fid,
+            feature_id,
             f"last_verified_sha '{sha[:8]}' is orphaned ({reason}) and the "
             f"primary branch ref is not fetched — cannot diff branch changes; "
             f"re-fetch or re-stamp.",
         )
         return
     _check_source_freshness_since(
-        fid, path, base, sources, report, strict_msg=False, orphan_sha=sha
+        feature_id, path, base, sources, report, strict_msg=False, orphan_sha=sha
     )
 
 
 def _check_source_freshness_since(
-    fid: str,
+    feature_id: str,
     path: str,
     since_ref: str,
     sources: list[str],
@@ -134,7 +134,7 @@ def _check_source_freshness_since(
     try:
         changed = changed_since(since_ref, sources)
     except RuntimeError as exc:
-        report.error(fid, f"git freshness check failed for {path}: {exc}")
+        report.error(feature_id, f"git freshness check failed for {path}: {exc}")
         return
     if not changed:
         return
@@ -142,7 +142,7 @@ def _check_source_freshness_since(
     more = f" (+{len(changed) - 3} more)" if len(changed) > 3 else ""
     if strict_msg:
         report.error(
-            fid,
+            feature_id,
             f"sources changed since last_verified_sha {since_ref[:8]}: {preview}{more}. "
             f"Re-capture {path} and bump last_verified_sha + content_sha256, "
             f"OR if the UI didn't visually change, re-stamp last_verified_sha "
@@ -150,7 +150,7 @@ def _check_source_freshness_since(
         )
     else:
         report.error(
-            fid,
+            feature_id,
             f"last_verified_sha '{(orphan_sha or since_ref)[:8]}' is orphaned AND "
             f"this branch touches tracked sources: {preview}{more}. Re-stamp to "
             f"current HEAD before pushing (`scripts/verify-docs.py --restamp`).",
@@ -158,19 +158,19 @@ def _check_source_freshness_since(
 
 
 def _check_content_hash(
-    fid: str, screenshot_file: Path, stored_hash: str, report: Report
+    feature_id: str, screenshot_file: Path, stored_hash: str, report: Report
 ) -> None:
     actual_hash = file_sha256(screenshot_file)
     if stored_hash and actual_hash != stored_hash:
         report.warn(
-            fid,
+            feature_id,
             f"content_sha256 in features.yml is '{stored_hash[:12]}...' but the "
             f"file hashes to '{actual_hash[:12]}...'. Run "
             f"`scripts/verify-docs.py --update-hashes` to sync.",
         )
     if not stored_hash:
         report.warn(
-            fid,
+            feature_id,
             "content_sha256 is empty (seed state). "
             "Run `scripts/verify-docs.py --update-hashes` after capturing.",
         )

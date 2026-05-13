@@ -83,49 +83,52 @@ def restamp_orphaned(data: dict[str, Any]) -> int:
     return updated
 
 
-def _replace_last_verified_sha(text: str, path: str, new_sha: str) -> tuple[str, bool]:
-    """Replace `last_verified_sha:` immediately following a given `path:` line.
+def _replace_field_after_path(
+    text: str,
+    path: str,
+    field_name: str,
+    new_value: str,
+    *,
+    preserve_quotes: bool,
+) -> tuple[str, bool]:
+    """Replace `{field_name}:` immediately following a given `path:` line.
 
-    Mirrors `_replace_content_hash`: regex anchor on the path to scope the
-    rewrite to one screenshot block, preserve surrounding YAML comments
-    and formatting. Returns (new_text, changed).
+    Regex anchors on the path so the rewrite stays scoped to one screenshot
+    block, preserving surrounding YAML comments and formatting. Returns
+    (new_text, changed). `changed` is False when the value already matches
+    (no-op) or the pattern didn't match (block not found).
+
+    When `preserve_quotes` is True the existing quote style is kept: an
+    existing `"abcdef1"` stays quoted, a bare `abcdef1` stays bare.
     """
     escaped = re.escape(path)
     pattern = re.compile(
-        rf"(path:\s*{escaped}\s*\n(?:.*\n){{0,40}}?\s*last_verified_sha:\s*)"
+        rf"(path:\s*{escaped}\s*\n(?:.*\n){{0,40}}?\s*{field_name}:\s*)"
         rf"\"?(?P<old>[0-9a-fA-F]*)\"?",
         re.MULTILINE,
     )
     match = pattern.search(text)
     if not match:
         return text, False
-    if match["old"] == new_sha:
+    if match["old"] == new_value:
         return text, False
-    # Preserve the quoted form: existing "abcdef1" stays quoted, bare abcdef1 stays bare.
-    quoted = match[0].rstrip().endswith('"')
-    replacement = f'"{new_sha}"' if quoted else new_sha
+    if preserve_quotes and match[0].rstrip().endswith('"'):
+        replacement = f'"{new_value}"'
+    else:
+        replacement = new_value
     new_text = text[: match.start()] + match[1] + replacement + text[match.end() :]
     return new_text, True
 
 
-def _replace_content_hash(text: str, path: str, new_hash: str) -> tuple[str, bool]:
-    """Replace the content_sha256 immediately following a given path: line.
-
-    Returns (new_text, changed). `changed` is False when the hash already
-    matches (no-op) or the pattern didn't match (block not found).
-    """
-    escaped = re.escape(path)
-    # Match: `path: <escaped>` followed within ~40 lines by `content_sha256:`.
-    # Capture the existing hash so we can detect no-op updates.
-    pattern = re.compile(
-        rf"(path:\s*{escaped}\s*\n(?:.*\n){{0,40}}?\s*content_sha256:\s*)"
-        rf"\"?(?P<old>[0-9a-fA-F]*)\"?",
-        re.MULTILINE,
+def _replace_last_verified_sha(text: str, path: str, new_sha: str) -> tuple[str, bool]:
+    """Replace `last_verified_sha:` for the given screenshot path; keep quote style."""
+    return _replace_field_after_path(
+        text, path, "last_verified_sha", new_sha, preserve_quotes=True
     )
-    match = pattern.search(text)
-    if not match:
-        return text, False
-    if match["old"] == new_hash:
-        return text, False
-    new_text = text[: match.start()] + match[1] + new_hash + text[match.end() :]
-    return new_text, True
+
+
+def _replace_content_hash(text: str, path: str, new_hash: str) -> tuple[str, bool]:
+    """Replace `content_sha256:` for the given screenshot path; emit bare value."""
+    return _replace_field_after_path(
+        text, path, "content_sha256", new_hash, preserve_quotes=False
+    )

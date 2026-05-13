@@ -10,7 +10,10 @@ from .paths import FEATURES_YAML
 
 
 def load_features() -> dict[str, Any]:
+    """Read and parse features.yml as a top-level mapping."""
     with FEATURES_YAML.open() as fh:
+        # YAML root in features.yml is always a top-level mapping by schema —
+        # the cast tells pyright strict that, since yaml.safe_load is `Any`.
         return cast(dict[str, Any], yaml.safe_load(fh))
 
 

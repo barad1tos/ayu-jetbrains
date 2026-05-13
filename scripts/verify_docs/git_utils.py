@@ -108,6 +108,7 @@ def merge_base_with_primary() -> str | None:
 
 
 def commit_exists(sha: str) -> bool:
+    """Return True when `sha` resolves to a commit object in the local repo."""
     result = subprocess.run(
         ["git", "rev-parse", "--verify", f"{sha}^{{commit}}"],
         cwd=REPO_ROOT,
@@ -151,8 +152,6 @@ def head_short_sha() -> str | None:
 
 
 def file_sha256(path: Path) -> str:
-    h = hashlib.sha256()
+    """Return hex-encoded SHA-256 digest of `path`'s bytes (streamed, no full read)."""
     with path.open("rb") as fh:
-        for chunk in iter(lambda: fh.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
+        return hashlib.file_digest(fh, "sha256").hexdigest()
