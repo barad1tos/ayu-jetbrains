@@ -66,7 +66,7 @@ def extract_block(data: dict[str, Any], keys: list[str]) -> dict[str, Any] | Non
         value = node.get(key)
         if not isinstance(value, dict):
             return None
-        node = cast("dict[str, Any]", value)
+        node = cast(dict[str, Any], value)
     return node
 
 

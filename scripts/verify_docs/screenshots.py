@@ -27,7 +27,7 @@ def check_screenshots(data: dict[str, Any], report: Report) -> None:
     for feat in iter_features(data):
         shot = feat.get("screenshot")
         if isinstance(shot, dict):
-            _check_one_screenshot(feat["id"], cast("dict[str, Any]", shot), report)
+            _check_one_screenshot(feat["id"], cast(dict[str, Any], shot), report)
 
 
 def _check_one_screenshot(fid: str, shot: dict[str, Any], report: Report) -> None:
