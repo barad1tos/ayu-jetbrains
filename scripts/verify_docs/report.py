@@ -12,9 +12,13 @@ class Finding:
     message: str
 
 
+def _empty_findings() -> list[Finding]:
+    return []
+
+
 @dataclass
 class Report:
-    findings: list[Finding] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=_empty_findings)
 
     def error(self, feature_id: str, message: str) -> None:
         self.findings.append(Finding("error", feature_id, message))

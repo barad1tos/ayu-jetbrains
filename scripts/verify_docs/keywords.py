@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from .features import iter_features
 from .paths import README
 from .plugin_xml import extract_plugin_xml_description
 from .report import Report
 
 
-def check_keywords(data: dict, report: Report) -> None:
+def check_keywords(data: dict[str, Any], report: Report) -> None:
     """Invariant 1: every feature keyword is present in README + plugin.xml description."""
     readme_text = README.read_text(encoding="utf-8").lower()
     description_text = extract_plugin_xml_description().lower()

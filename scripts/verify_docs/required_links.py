@@ -2,20 +2,23 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from .paths import REPO_ROOT
 from .report import Report
 
 
-def check_required_links(data: dict, report: Report) -> None:
+def check_required_links(data: dict[str, Any], report: Report) -> None:
     """Invariant 4: every required_links entry's substring appears in its `in` file.
 
     Catches "someone refactored the Community section and dropped the
     GitHub Discussions links", or "removed the Marketplace install badge".
     """
-    for entry in data.get("required_links") or []:
-        name = entry.get("name", "<unnamed>")
-        needle = (entry.get("substring") or "").strip().lower()
-        target_rel = (entry.get("in") or "").strip()
+    entries: list[dict[str, Any]] = data.get("required_links") or []
+    for entry in entries:
+        name: str = entry.get("name", "<unnamed>") or "<unnamed>"
+        needle: str = (entry.get("substring") or "").strip().lower()
+        target_rel: str = (entry.get("in") or "").strip()
         if not needle or not target_rel:
             report.error(name, "required_links entry missing `substring` or `in`")
             continue

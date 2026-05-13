@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-from typing import Iterator
+from typing import Any, Iterator, cast
 
 import yaml
 
 from .paths import FEATURES_YAML
 
 
-def load_features() -> dict:
+def load_features() -> dict[str, Any]:
     with FEATURES_YAML.open() as fh:
-        return yaml.safe_load(fh)
+        return cast(dict[str, Any], yaml.safe_load(fh))
 
 
-def iter_features(data: dict) -> Iterator[dict]:
+def iter_features(data: dict[str, Any]) -> Iterator[dict[str, Any]]:
     """Yield every feature dict, flattening across categories.
 
     Category metadata (id, title) isn't currently consumed by any check —

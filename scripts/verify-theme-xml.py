@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Set, Tuple
+from typing import TYPE_CHECKING
 
 # The defusedxml package replaces the stdlib xml.etree parser with a hardened
 # variant that rejects entity expansion and XML-bomb attacks. Our inputs are
@@ -32,14 +32,14 @@ if TYPE_CHECKING:
 REPO_ROOT = Path(__file__).resolve().parent.parent
 THEMES = REPO_ROOT / "src" / "main" / "resources" / "themes"
 
-VARIANTS: Dict[str, Path] = {
+VARIANTS: dict[str, Path] = {
     "Mirage": THEMES / "AyuIslandsMirage.xml",
     "Dark": THEMES / "AyuIslandsDark.xml",
     "Light": THEMES / "AyuIslandsLight.xml",
 }
 
 
-def parse_attributes(path: Path) -> Dict[str, Element]:
+def parse_attributes(path: Path) -> dict[str, Element]:
     """Return {name: <option> element} for top-level attributes."""
     tree = parse_xml(path)
     attrs_elem = tree.find(".//attributes")
@@ -52,9 +52,9 @@ def parse_attributes(path: Path) -> Dict[str, Element]:
     }
 
 
-def get_font_types(attrs: Dict[str, Element]) -> Dict[str, str]:
+def get_font_types(attrs: dict[str, Element]) -> dict[str, str]:
     """Extract FONT_TYPE value per attribute."""
-    result: Dict[str, str] = {}
+    result: dict[str, str] = {}
     for name, elem in attrs.items():
         value_elem = elem.find("value")
         if value_elem is None:
@@ -65,7 +65,7 @@ def get_font_types(attrs: Dict[str, Element]) -> Dict[str, str]:
     return result
 
 
-def get_base_attributes(attrs: Dict[str, Element]) -> Dict[str, str]:
+def get_base_attributes(attrs: dict[str, Element]) -> dict[str, str]:
     """Extract baseAttributes value per attribute."""
     return {
         name: elem.get("baseAttributes", "")
@@ -77,11 +77,11 @@ def get_base_attributes(attrs: Dict[str, Element]) -> Dict[str, str]:
 def format_set_diff(
     ref_name: str,
     other_name: str,
-    only_ref: Set[str],
-    only_other: Set[str],
-) -> List[str]:
+    only_ref: set[str],
+    only_other: set[str],
+) -> list[str]:
     """Format the diff between two attribute name sets as output lines."""
-    lines: List[str] = []
+    lines: list[str] = []
     if only_ref:
         lines.append(f"\nOnly in {ref_name} (not {other_name}):")
         lines.extend(f"  {attr}" for attr in sorted(only_ref))
@@ -91,7 +91,7 @@ def format_set_diff(
     return lines
 
 
-def compare_sets(data: Dict[str, Set[str]]) -> int:
+def compare_sets(data: dict[str, set[str]]) -> int:
     """Compare sets across variants, return error count."""
     names = list(data.keys())
     ref_name = names[0]
@@ -117,10 +117,12 @@ def compare_sets(data: Dict[str, Set[str]]) -> int:
 
 def compare_values(
     check_name: str,
-    data: Dict[str, Dict[str, str]],
-) -> Tuple[int, int]:
+    data: dict[str, dict[str, str]],
+) -> tuple[int, int]:
     """Compare key-value maps across variants, return (checked, mismatches)."""
-    all_keys = sorted(set().union(*data.values()))
+    all_keys: list[str] = sorted(
+        {key for variant_map in data.values() for key in variant_map}
+    )
     names = list(data.keys())
     mismatches = 0
 
@@ -140,7 +142,7 @@ def compare_values(
 def run_check(
     title: str,
     check_name: str,
-    data: Dict[str, Dict[str, str]],
+    data: dict[str, dict[str, str]],
 ) -> int:
     """Run a value-comparison check and print results."""
     print(f"--- {title} ---")

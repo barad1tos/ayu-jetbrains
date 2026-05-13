@@ -10,11 +10,13 @@ Usage: python3 scripts/verify-theme-json.py
 Exit code 0 = all checks pass, 1 = mismatches found
 """
 
+from __future__ import annotations
+
 import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, cast
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 THEMES = REPO_ROOT / "src" / "main" / "resources" / "themes"
@@ -30,7 +32,7 @@ class ThemePair:
 @dataclass(frozen=True)
 class BlockPath:
     label: str
-    keys: List[str]
+    keys: list[str]
 
 
 PAIRS = [
@@ -57,18 +59,18 @@ BLOCKS_TO_CHECK = [
 ]
 
 
-def extract_block(data: Dict[str, Any], keys: List[str]) -> Optional[Dict[str, Any]]:
+def extract_block(data: dict[str, Any], keys: list[str]) -> dict[str, Any] | None:
     """Walk nested keys, return the sub-dict or None."""
-    node = data  # type: Any
+    node: dict[str, Any] = data
     for key in keys:
-        if isinstance(node, dict) and key in node:
-            node = node[key]
-        else:
+        value = node.get(key)
+        if not isinstance(value, dict):
             return None
-    return node if isinstance(node, dict) else None
+        node = cast(dict[str, Any], value)
+    return node
 
 
-def diff_dicts(base: Dict[str, Any], islands: Dict[str, Any]) -> List[str]:
+def diff_dicts(base: dict[str, Any], islands: dict[str, Any]) -> list[str]:
     """Return formatted lines for each differing key between the two dicts."""
     all_keys = sorted(set(base) | set(islands))
     return [
@@ -89,9 +91,9 @@ def check_pair(pair: ThemePair) -> int:
             return 1
 
     with open(base_path) as f:
-        base_data = json.load(f)  # type: Dict[str, Any]
+        base_data = json.load(f)
     with open(islands_path) as f:
-        islands_data = json.load(f)  # type: Dict[str, Any]
+        islands_data = json.load(f)
 
     errors = 0
 
