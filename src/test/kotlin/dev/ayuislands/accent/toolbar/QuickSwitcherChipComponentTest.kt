@@ -209,11 +209,24 @@ class QuickSwitcherChipComponentTest {
     }
 
     @Test
-    fun `mousePressed right-click does NOT invoke popup (RMB is Wave 3 TODO)`() {
+    fun `mousePressed right-click does NOT invoke popup (RMB routes to context menu — Wave 3)`() {
         stubAyuActive(true)
         stubResolver(hex = "#FFCC66", source = AccentResolver.Source.GLOBAL)
         mockkObject(QuickSwitcherPopup)
         every { QuickSwitcherPopup.show(any()) } returns Unit
+        // Plan 48-03 Wave 3 routes RMB to ActionManager.createActionPopupMenu — stub it so
+        // dispatch through `mousePressed` does not NPE. The "RMB does NOT invoke popup"
+        // assertion stays — the popup is for LMB only. Detailed RMB→context-menu
+        // assertions live in `QuickSwitcherChipContextMenuTest`.
+        val mockActionManager = mockk<com.intellij.openapi.actionSystem.ActionManager>(relaxed = true)
+        val mockMenu = mockk<com.intellij.openapi.actionSystem.ActionPopupMenu>(relaxed = true)
+        every { mockActionManager.createActionPopupMenu(any(), any()) } returns mockMenu
+        every { mockMenu.component } returns mockk(relaxed = true)
+        mockkStatic(com.intellij.openapi.actionSystem.ActionManager::class)
+        every {
+            com.intellij.openapi.actionSystem.ActionManager
+                .getInstance()
+        } returns mockActionManager
 
         val chip = QuickSwitcherChipComponent()
         chip.dispatchEvent(rightClick(chip))

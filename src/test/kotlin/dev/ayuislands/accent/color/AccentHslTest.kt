@@ -1,0 +1,131 @@
+package dev.ayuislands.accent.color
+
+import com.intellij.ui.ColorUtil
+import dev.ayuislands.rotation.HslColor
+import java.nio.file.Files
+import java.nio.file.Paths
+import kotlin.math.abs
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+
+/**
+ * Locks the [AccentHsl] helper's clamp range, no-op-at-edge semantics, and the
+ * HSL-not-HSB invariant per Phase 43 `ADJUST-04` (folded forward into Phase 48
+ * via D-14a). Tests 1..9 in `48-03-PLAN.md` `<behavior>`.
+ */
+class AccentHslTest {
+    private val epsilon = 0.01f
+
+    @Test
+    fun `lighten on pure black clamps to MIN_LIGHTNESS`() {
+        // L=0 + STEP=0.05 -> coerceIn -> 0.10 (MIN_LIGHTNESS). Returns NEW hex
+        // because the post-clamp value differs from input lightness.
+        val result = AccentHsl.lighten("#000000")
+        val resultLightness = HslColor.fromColor(ColorUtil.fromHex(result)).lightness
+        assertTrue(
+            abs(resultLightness - AccentHsl.MIN_LIGHTNESS) < epsilon,
+            "Expected L=${AccentHsl.MIN_LIGHTNESS}, got L=$resultLightness for hex=$result",
+        )
+    }
+
+    @Test
+    fun `darken on pure white clamps to MAX_LIGHTNESS`() {
+        // L=1.0 - STEP=0.95 -> coerceIn -> 0.95 (MAX_LIGHTNESS). Returns NEW hex.
+        val result = AccentHsl.darken("#FFFFFF")
+        val resultLightness = HslColor.fromColor(ColorUtil.fromHex(result)).lightness
+        assertTrue(
+            abs(resultLightness - AccentHsl.MAX_LIGHTNESS) < epsilon,
+            "Expected L=${AccentHsl.MAX_LIGHTNESS}, got L=$resultLightness for hex=$result",
+        )
+    }
+
+    @Test
+    fun `lighten on pure white clamps step result to MAX_LIGHTNESS`() {
+        // L=1.0 + STEP=1.05 -> coerceIn -> 0.95. Returns NEW hex (post-clamp != input L).
+        val result = AccentHsl.lighten("#FFFFFF")
+        val resultLightness = HslColor.fromColor(ColorUtil.fromHex(result)).lightness
+        assertTrue(
+            abs(resultLightness - AccentHsl.MAX_LIGHTNESS) < epsilon,
+            "Expected L=${AccentHsl.MAX_LIGHTNESS}, got L=$resultLightness for hex=$result",
+        )
+    }
+
+    @Test
+    fun `lighten at MAX_LIGHTNESS edge returns INPUT unchanged (no-op detection)`() {
+        // Construct a hex at exactly L=MAX_LIGHTNESS so the post-clamp lightness equals
+        // the input lightness — `lighten` returns the original hex so callers can
+        // detect a no-op by hex equality and surface the ADJUST-04 balloon hint.
+        val ceilingHex = HslColor.toHex(0f, 0f, AccentHsl.MAX_LIGHTNESS)
+        val result = AccentHsl.lighten(ceilingHex)
+        assertEquals(ceilingHex, result, "Expected `lighten` at MAX_LIGHTNESS to return input unchanged")
+    }
+
+    @Test
+    fun `darken at MIN_LIGHTNESS edge returns INPUT unchanged (no-op detection)`() {
+        val floorHex = HslColor.toHex(0f, 0f, AccentHsl.MIN_LIGHTNESS)
+        val result = AccentHsl.darken(floorHex)
+        assertEquals(floorHex, result, "Expected `darken` at MIN_LIGHTNESS to return input unchanged")
+    }
+
+    @Test
+    fun `lighten on MIRAGE default accent shifts lightness by STEP`() {
+        // `#FFCC66` (MIRAGE default) has L ~ 0.70; result L ~ 0.75.
+        val input = "#FFCC66"
+        val inputLightness = HslColor.fromColor(ColorUtil.fromHex(input)).lightness
+        val result = AccentHsl.lighten(input)
+        val resultLightness = HslColor.fromColor(ColorUtil.fromHex(result)).lightness
+        assertTrue(
+            abs(resultLightness - (inputLightness + AccentHsl.STEP)) < epsilon,
+            "Expected delta=+${AccentHsl.STEP}, got from $inputLightness to $resultLightness",
+        )
+    }
+
+    @Test
+    fun `darken-then-lighten roundtrip on MIRAGE default returns within rounding tolerance`() {
+        // Per-channel rounding tolerance — one hex byte per channel is ±1/255.
+        val input = "#FFCC66"
+        val roundtrip = AccentHsl.darken(AccentHsl.lighten(input))
+        val inputColor = ColorUtil.fromHex(input)
+        val roundtripColor = ColorUtil.fromHex(roundtrip)
+        val tolerance = 2
+        assertTrue(
+            abs(inputColor.red - roundtripColor.red) <= tolerance,
+            "Red roundtrip drift: ${inputColor.red} -> ${roundtripColor.red}",
+        )
+        assertTrue(
+            abs(inputColor.green - roundtripColor.green) <= tolerance,
+            "Green roundtrip drift: ${inputColor.green} -> ${roundtripColor.green}",
+        )
+        assertTrue(
+            abs(inputColor.blue - roundtripColor.blue) <= tolerance,
+            "Blue roundtrip drift: ${inputColor.blue} -> ${roundtripColor.blue}",
+        )
+    }
+
+    @Test
+    fun `source uses HslColor and NOT ColorUtil HSB-brightness shifters (algorithmic lock)`() {
+        // Algorithmic regression lock — a future refactor switching to
+        // ColorUtil.darker / ColorUtil.brighter would silently swap HSL for HSB
+        // and bend hue saturation. Read the source at test time and grep for
+        // the forbidden symbols.
+        val source = Files.readString(Paths.get("src/main/kotlin/dev/ayuislands/accent/color/AccentHsl.kt"))
+        assertTrue(source.contains("HslColor"), "AccentHsl source must reference HslColor")
+        assertFalse(
+            source.contains("ColorUtil.darker") || source.contains("ColorUtil.brighter"),
+            "AccentHsl source must NOT use ColorUtil.darker / ColorUtil.brighter (HSB) — ADJUST-04 mandates HSL",
+        )
+    }
+
+    @Test
+    fun `clamp constants are frozen at STEP=0_05 MIN=0_10 MAX=0_95 (Pattern L)`() {
+        // Pattern L source-level regression lock — a casual edit to STEP / MIN /
+        // MAX shifts user-visible behaviour silently. Direct assertion against
+        // the published constants so the failure message points at the constant
+        // that drifted.
+        assertEquals(0.05f, AccentHsl.STEP, "AccentHsl.STEP must stay 0.05f per ADJUST-04 spec")
+        assertEquals(0.10f, AccentHsl.MIN_LIGHTNESS, "AccentHsl.MIN_LIGHTNESS must stay 0.10f per ADJUST-04 spec")
+        assertEquals(0.95f, AccentHsl.MAX_LIGHTNESS, "AccentHsl.MAX_LIGHTNESS must stay 0.95f per ADJUST-04 spec")
+    }
+}

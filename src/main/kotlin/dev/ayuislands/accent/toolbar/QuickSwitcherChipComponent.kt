@@ -1,6 +1,7 @@
 package dev.ayuislands.accent.toolbar
 
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.application.ApplicationActivationListener
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
@@ -15,6 +16,7 @@ import dev.ayuislands.accent.AccentChangeListener
 import dev.ayuislands.accent.AccentChangedTopic
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.toolbar.actions.QuickSwitcherActionGroup
 import java.awt.Dimension
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
@@ -46,10 +48,7 @@ internal class QuickSwitcherChipComponent :
                 override fun mousePressed(event: MouseEvent) {
                     if (!AyuVariant.isAyuActive()) return
                     when {
-                        SwingUtilities.isRightMouseButton(event) -> {
-                            // TODO Plan 48-03 (Wave 3) wires the right-click context menu via
-                            // ActionManager.createActionPopupMenu("AyuQuickSwitcher.ContextMenu", group).
-                        }
+                        SwingUtilities.isRightMouseButton(event) -> showContextMenu(event.x, event.y)
                         SwingUtilities.isLeftMouseButton(event) ->
                             QuickSwitcherPopup.show(this@QuickSwitcherChipComponent)
                     }
@@ -92,6 +91,23 @@ internal class QuickSwitcherChipComponent :
     }
 
     /**
+     * Build and show the right-click context menu via [ActionManager.createActionPopupMenu]
+     * with the canonical [QuickSwitcherActionGroup]. Pattern J gating lives inside each
+     * action's `update` — the menu surface is always built; individual items
+     * hide themselves when LAF is non-Ayu or license is invalid.
+     */
+    private fun showContextMenu(
+        x: Int,
+        y: Int,
+    ) {
+        val menu =
+            ActionManager
+                .getInstance()
+                .createActionPopupMenu(CONTEXT_MENU_PLACE, QuickSwitcherActionGroup.build())
+        menu.component.show(this, x, y)
+    }
+
+    /**
      * Re-resolve the focused project's accent and repaint. Runs on EDT — every caller is on
      * EDT already (`BGT.updateCustomComponent` hops via [SwingUtilities.invokeLater],
      * [ApplicationActivationListener] is EDT-bound per platform contract,
@@ -124,6 +140,9 @@ internal class QuickSwitcherChipComponent :
         // D-05 starting point — runIde checkpoint in Plan 48-06 tunes the exact values.
         internal const val CHIP_BOX_PX = 12
         internal const val CHIP_SWATCH_PX = 10
+
+        // Action place ID for the right-click context menu (Plan 48-03 D-14b).
+        private const val CONTEXT_MENU_PLACE = "AyuQuickSwitcher.ContextMenu"
         private val LOG = logger<QuickSwitcherChipComponent>()
     }
 }
