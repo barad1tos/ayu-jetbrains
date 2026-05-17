@@ -78,6 +78,10 @@ class AccentApplicatorChromeApplyRefreshTest {
         every { ApplicationManager.getApplication() } returns mockApplication
         every { mockApplication.messageBus } returns mockMessageBus
         every { mockMessageBus.syncPublisher(EditorColorsManager.TOPIC) } returns mockk(relaxed = true)
+        // Wave 1 (Plan 48-01) AccentChangedTopic publish — Apply path casts the
+        // syncPublisher return value to AccentChangeListener. Stub a relaxed mock so
+        // the cast succeeds in this legacy headless test.
+        every { mockMessageBus.syncPublisher(AccentChangedTopic.TOPIC) } returns mockk(relaxed = true)
 
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns mockSettings
