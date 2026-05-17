@@ -1,0 +1,5 @@
+# Phase 48 toolbar package placeholder.
+#
+# Plans 48-02 (AccentToolbarStripe — FREE) and 48-03 (AccentToolbarChipAction —
+# PREMIUM) will land their sources here in Wave 2. Keeping the directory committed
+# in Wave 1 avoids a directory-creation race if those plans ever execute in parallel.

@@ -64,6 +64,26 @@ object AccentResolver {
     fun source(project: Project?): Source = findOverride(project)?.first ?: Source.GLOBAL
 
     /**
+     * Human-readable label for [source], suitable for tooltips and Settings
+     * "Currently active: …" readouts. D-18: the Phase 48 chip tooltip
+     * (`"{hex} — {label}"`) consumes this label; the `AyuIslandsAccentPanel`
+     * "currently active" comment may be migrated to use this helper in a
+     * follow-up to deduplicate the [Source]-to-string mapping.
+     *
+     * Pure pattern-match over the closed [Source] enum; no IO, no reflection.
+     * Pattern L regression lock lives in `AccentResolverSourceLabelTest` —
+     * adding a new [Source] value without extending this helper fails the
+     * `Source.values().size == 3` assertion so silent "Global" fallback drift
+     * cannot land.
+     */
+    fun sourceLabel(source: Source): String =
+        when (source) {
+            Source.PROJECT_OVERRIDE -> "Project override"
+            Source.LANGUAGE_OVERRIDE -> "Language override"
+            Source.GLOBAL -> "Global"
+        }
+
+    /**
      * Single traversal of the override priority chain shared by [resolve] and [source].
      * Returns `null` when no override applies (global wins) — either because the license
      * check fails, the project is null/default/disposed, or no mapping matches.

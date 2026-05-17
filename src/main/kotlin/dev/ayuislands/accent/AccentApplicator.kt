@@ -252,6 +252,32 @@ object AccentApplicator {
                 // will fall through to the resolver rather than trust the
                 // cached hex.
                 state.lastApplyOk = true
+
+                // Phase 48 D-02 — publish AccentChangedTopic AFTER lastApplyOk = true
+                // so subscribers (toolbar stripe, toolbar chip in Wave 2) only fire on
+                // a fully-painted apply. Application-scoped (D-01), so one apply may
+                // legitimately affect every open window; per-project filtering belongs
+                // to the subscriber. Per-project try/catch isolates Pattern B — a
+                // throwing subscriber must NOT tear down the apply pipeline. Source is
+                // re-resolved per project so subscribers see THIS window's resolution
+                // layer (project A may carry a project-override while project B is global).
+                val accentChangedPublisher =
+                    ApplicationManager
+                        .getApplication()
+                        .messageBus
+                        .syncPublisher(AccentChangedTopic.TOPIC)
+                for (openProject in ProjectManager.getInstance().openProjects) {
+                    if (!openProject.isUsable()) continue
+                    try {
+                        val source = AccentResolver.source(openProject)
+                        accentChangedPublisher.accentChanged(openProject, trimmedHex, source)
+                    } catch (exception: RuntimeException) {
+                        log.warn(
+                            "AccentChangedTopic publish failed for ${openProject.name}",
+                            exception,
+                        )
+                    }
+                }
             }
 
         if (SwingUtilities.isEventDispatchThread()) {
