@@ -222,6 +222,17 @@ class AyuIslandsState : BaseState() {
     // plugin never re-adds a user-deleted font on a subsequent startup.
     var explicitlyUninstalledFonts by stringSet()
 
+    /**
+     * Master visibility toggle for the Ayu Quick Switcher widget in [MainToolbarRight].
+     *
+     * WIDGET-12 — gates the chip + popup behind a Settings checkbox so users who
+     * prefer a clean toolbar can hide the widget. Defaults to `true` (D-02) — the
+     * chip is FREE and exposed on first launch after install. Read by
+     * [dev.ayuislands.accent.toolbar.QuickSwitcherWidgetAction.update] as the
+     * second conjunct of the two-level visibility gate (LAF + this toggle).
+     */
+    var quickSwitcherWidgetEnabled by property(true)
+
     // Accent rotation
     var accentRotationEnabled by property(false)
     var accentRotationMode by string(AccentRotationMode.PRESET.name)

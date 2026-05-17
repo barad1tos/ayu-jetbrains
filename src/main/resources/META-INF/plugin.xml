@@ -364,5 +364,12 @@
                     text="Rescan Project Language"
                     description="Invalidate the cache and re-detect the dominant project language"/>
         </group>
+
+        <action id="AyuIslands.QuickSwitcher"
+                class="dev.ayuislands.accent.toolbar.QuickSwitcherWidgetAction"
+                text="Ayu Quick Switcher"
+                description="Switch Ayu variant and accent from the main toolbar">
+            <add-to-group group-id="MainToolbarRight" anchor="last"/>
+        </action>
     </actions>
 </idea-plugin>
