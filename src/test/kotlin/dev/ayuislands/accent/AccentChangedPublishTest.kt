@@ -7,6 +7,7 @@ import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.testFramework.LoggedErrorProcessor
@@ -51,9 +52,13 @@ class AccentChangedPublishTest {
     private val mockProjectManager = mockk<ProjectManager>(relaxed = true)
     private lateinit var listener: AccentChangeListener
     private lateinit var project: Project
+    private var originalEpName: ExtensionPointName<AccentElement>? = null
 
     @BeforeTest
     fun setUp() {
+        saveOriginalEpName()
+        mockEpExtensionList(emptyList())
+
         mockkStatic(SwingUtilities::class)
         every { SwingUtilities.isEventDispatchThread() } returns true
 
@@ -114,7 +119,44 @@ class AccentChangedPublishTest {
 
     @AfterTest
     fun tearDown() {
+        restoreOriginalEpName()
         unmockkAll()
+    }
+
+    private fun saveOriginalEpName() {
+        if (originalEpName != null) return
+        val epField = AccentApplicator::class.java.getDeclaredField("EP_NAME")
+        epField.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        originalEpName = epField.get(null) as ExtensionPointName<AccentElement>
+    }
+
+    private fun restoreOriginalEpName() {
+        val original = originalEpName ?: return
+        val epField = AccentApplicator::class.java.getDeclaredField("EP_NAME")
+        epField.isAccessible = true
+        unsafeWriteStaticField(epField, original)
+        originalEpName = null
+    }
+
+    private fun mockEpExtensionList(elements: List<AccentElement>) {
+        val epField = AccentApplicator::class.java.getDeclaredField("EP_NAME")
+        epField.isAccessible = true
+        val mockEp = mockk<ExtensionPointName<AccentElement>>(relaxed = true)
+        every { mockEp.extensionList } returns elements
+        unsafeWriteStaticField(epField, mockEp)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun unsafeWriteStaticField(
+        field: java.lang.reflect.Field,
+        value: Any?,
+    ) {
+        val unsafeField = sun.misc.Unsafe::class.java.getDeclaredField("theUnsafe")
+        unsafeField.isAccessible = true
+        val unsafe = unsafeField.get(null) as sun.misc.Unsafe
+        val offset = unsafe.staticFieldOffset(field)
+        unsafe.putObject(field.declaringClass, offset, value)
     }
 
     @Test
@@ -183,12 +225,12 @@ class AccentChangedPublishTest {
                 }
             }
 
-        val result =
-            LoggedErrorProcessor.executeWith<Throwable>(processor) {
-                AccentApplicator.apply(AccentHex.of("#DFBFFF")!!)
-            }
+        var applyResult = false
+        LoggedErrorProcessor.executeWith<Throwable>(processor) {
+            applyResult = AccentApplicator.apply(AccentHex.of("#DFBFFF")!!)
+        }
 
-        assertTrue(result, "AccentApplicator.apply must return true even when a subscriber throws")
+        assertTrue(applyResult, "AccentApplicator.apply must return true even when a subscriber throws")
         assertTrue(
             state.lastApplyOk,
             "state.lastApplyOk must remain true — the throw is contained by the per-project try/catch",
