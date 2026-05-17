@@ -6,6 +6,7 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.WindowManager
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentChangedTopic
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.indent.IndentRainbowSync
@@ -139,6 +140,26 @@ class ProjectAccentSwapService : Disposable {
             AccentApplicator.syncCodeGlanceProViewportForSwap(effectiveHex)
             if (AyuIslandsSettings.getInstance().state.irIntegrationEnabled) {
                 IndentRainbowSync.apply(variant, effectiveHex)
+            }
+
+            // Phase 48 D-03 — same-hex focus swap does NOT re-enter
+            // AccentApplicator.apply (whose D-02 publish would fire), so we publish
+            // AccentChangedTopic here. Without this, focus swap between two projects
+            // sharing a hex leaves chip / stripe stuck on the prior project's
+            // resolution source label (e.g. "Global" vs "Project override").
+            // Pattern B isolates a throwing subscriber.
+            try {
+                val source = AccentResolver.source(project)
+                ApplicationManager
+                    .getApplication()
+                    .messageBus
+                    .syncPublisher(AccentChangedTopic.TOPIC)
+                    .accentChanged(project, effectiveHex, source)
+            } catch (exception: RuntimeException) {
+                LOG.warn(
+                    "AccentChangedTopic publish failed in same-hex swap for ${project.name}",
+                    exception,
+                )
             }
         }
 
