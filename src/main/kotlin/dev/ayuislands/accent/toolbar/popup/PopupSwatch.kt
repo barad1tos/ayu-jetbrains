@@ -17,12 +17,12 @@ import java.awt.geom.RoundRectangle2D
 import javax.swing.JComponent
 
 /**
- * Compact 36x24 accent swatch for the redesigned popup grid per 48-REDESIGN-SPEC §3.4.
- * Mirrors the paint recipe from `dev.ayuislands.settings.AccentColorPanel`'s preset
- * component (`BORDER_RGB=0x4E5A6E`, `SELECTED_OVERLAY_ALPHA=0.55f`) so popup ↔ Settings
+ * Compact 36x24 accent swatch for the popup accent grid. Mirrors the paint
+ * recipe from `dev.ayuislands.settings.AccentColorPanel`'s preset component
+ * (`BORDER_RGB=0x4E5A6E`, `SELECTED_OVERLAY_ALPHA=0.55f`) so popup ↔ Settings
  * visuals stay in lockstep.
  *
- * State matrix (spec §3.4):
+ * State matrix:
  *
  * | State            | Fill                                  | Border               |
  * |------------------|---------------------------------------|----------------------|

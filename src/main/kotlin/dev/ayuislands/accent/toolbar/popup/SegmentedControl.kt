@@ -21,8 +21,8 @@ import javax.swing.JComponent
 import javax.swing.JPanel
 
 /**
- * 3-cell horizontal pill (Mirage / Dark / Light) per 48-REDESIGN-SPEC §3.3 — replaces
- * the Wave-2 trio of [javax.swing.JRadioButton] in the variant row.
+ * 3-cell horizontal pill (Mirage / Dark / Light) used as the variant row
+ * inside the quick-switcher popup.
  *
  * Selected cell paints [JBUI.CurrentTheme.ActionButton.pressedBackground] +
  * `pressedBorderColor`; hovered (non-selected) cell paints

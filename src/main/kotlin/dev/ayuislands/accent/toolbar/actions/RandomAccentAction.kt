@@ -12,8 +12,8 @@ import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 
 /**
  * Pick a random readable accent for the focused variant via
- * [ContrastAwareColorGenerator] and apply it. D-14a — reuse the existing
- * generator (Phase 39 rotation surface), do NOT introduce a parallel palette.
+ * [ContrastAwareColorGenerator] and apply it. Reuses the existing
+ * rotation-surface generator — do NOT introduce a parallel palette.
  *
  * Pattern J premium gate on `update`; Pattern B catches RuntimeException only
  * around the generator + apply chain; Pattern D Boolean gate on

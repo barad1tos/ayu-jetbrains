@@ -14,14 +14,16 @@ import java.awt.BorderLayout
 import javax.swing.JPanel
 
 /**
- * Wave-7 redesign of the variant row per 48-REDESIGN-SPEC §3.3: a 3-cell
- * [SegmentedControl] (Mirage / Dark / Light) on the left, plus an [IslandsUiPill]
- * toggle on the right. Replaces the Wave-2 trio-of-radios + classic-toggle layout.
+ * Variant row inside the quick-switcher popup: a 3-cell [SegmentedControl]
+ * (Mirage / Dark / Light) on the left, plus an [IslandsUiPill] toggle on the
+ * right.
  *
- * Both children share a single `applyVariantAndChrome(variant, islandsUi)` sink
- * that resolves the exact theme via [VariantThemeNameResolver.resolveThemeName] and
- * applies it through `LafManager.setCurrentLookAndFeel(laf, false)` (Pitfall 5
- * `lockEditorScheme=false` — same as Wave 2). The state machine is unchanged.
+ * Both children share a single `applyVariantAndChrome(variant, islandsUi)`
+ * sink that resolves the exact theme via
+ * [VariantThemeNameResolver.resolveThemeName] and applies it through
+ * `LafManager.setCurrentLookAndFeel(laf, false)`. The second argument is
+ * `lockEditorScheme = false` so the same-named editor scheme follows the
+ * theme switch instead of locking on the old.
  *
  * Pattern A — segmented/pill mouse callbacks run on EDT by Swing contract.
  */

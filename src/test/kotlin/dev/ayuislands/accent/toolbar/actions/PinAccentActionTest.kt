@@ -159,10 +159,11 @@ class PinAccentActionTest {
     }
 
     @Test
-    fun `source carries the Phase 41 split TODO marker (hand-off lock)`() {
-        // Test 24 — Phase 41 hand-off marker. Read the source file at test time
-        // so a future deletion of the marker fails the test, surfacing the
-        // integration point for the Phase 41 planner.
+    fun `source carries the shared vs personal pin-split TODO marker (hand-off lock)`() {
+        // Read the source file at test time so a future deletion of the
+        // marker fails the test, surfacing the integration point where the
+        // future shared (.idea/) vs personal (app-level) pin split must
+        // attach.
         val source =
             Files.readString(
                 Paths.get(
@@ -170,8 +171,9 @@ class PinAccentActionTest {
                 ),
             )
         assertTrue(
-            source.contains("TODO Phase 41"),
-            "PinAccentAction must keep the `TODO Phase 41` marker for the integration hand-off",
+            source.contains("FOLLOWUP-PIN-LANE-SPLIT"),
+            "PinAccentAction must keep the shared/personal pin-split follow-up marker " +
+                "(FOLLOWUP-PIN-LANE-SPLIT) for the integration hand-off",
         )
     }
 }

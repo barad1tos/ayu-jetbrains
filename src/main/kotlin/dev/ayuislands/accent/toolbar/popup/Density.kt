@@ -1,16 +1,13 @@
 package dev.ayuislands.accent.toolbar.popup
 
 /**
- * Single source of truth for all popup spacing constants. Every JBUI-scaled spacing
- * literal in the Wave-7 redesigned popup body MUST read from here — no bespoke `4`
- * / `6` / `8` / `18` ints scattered through the builders.
+ * Single source of truth for all popup spacing constants. Every JBUI-scaled
+ * spacing literal in the popup body MUST read from here — no bespoke `4` /
+ * `6` / `8` / `18` ints scattered through the builders.
  *
  * `Int` constants are pre-scale; the consumer wraps in `JBUI.scale(...)` at the
  * use site. [CARD_ARC] stays a `Float` because it feeds `RoundRectangle2D.Float`
  * directly, where the shape constructor takes raw float corner radii.
- *
- * See `48-REDESIGN-SPEC.md` §5 for the rationale and the per-constant target visual
- * outcome.
  */
 internal object Density {
     /** Outer padding inside the platform's `JBPopupFactory` chrome. */

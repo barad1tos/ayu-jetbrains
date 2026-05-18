@@ -15,7 +15,7 @@ import dev.ayuislands.settings.mappings.ProjectAccentSwapService
  * Lighten the focused project's resolved accent by one HSL-lightness step
  * (`AccentHsl.STEP = 0.05`). Clamped to `[0.10, 0.95]` by [AccentHsl] so
  * repeated clicks at the ceiling are no-ops (apply still fires with the
- * unchanged hex — Phase 43's "Already at maximum" balloon hint is a future
+ * unchanged hex — an "Already at maximum" balloon hint is a future
  * deliverable).
  */
 class LighterAccentAction : DumbAwareAction("Lighter", "Lighten the current accent by 5%", null) {

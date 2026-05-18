@@ -175,7 +175,7 @@ class QuickSwitcherRelatedTogglesSectionTest {
     }
 
     @Test
-    fun `source no longer exposes a public fun apply (dead code removed — CRIT-4)`() {
+    fun `source no longer exposes a public fun apply (dead code removed - CRIT-4)`() {
         // CRIT-4 — the `fun apply()` exposed on the section was never called
         // by QuickSwitcherPopup (per-tile-click persistence is the whole
         // contract). Lock its absence so a future "completeness" PR doesn't
@@ -183,7 +183,7 @@ class QuickSwitcherRelatedTogglesSectionTest {
         val source = Files.readString(Paths.get(SOURCE_PATH))
         // Only allow the private `persistenceRoot.apply()` calls inside the
         // listener body; no top-level `fun apply()` definition on the class.
-        val publicApplyDefs = "    fun apply\\(\\)".toRegex().findAll(source).count()
+        val publicApplyDefs = " {4}fun apply\\(\\)".toRegex().findAll(source).count()
         assertEquals(0, publicApplyDefs, "Public fun apply() must be deleted; persistence is per-tile-click")
     }
 

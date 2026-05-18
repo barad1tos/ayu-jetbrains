@@ -7,10 +7,9 @@ import dev.ayuislands.settings.AyuIslandsSettings
  * Standalone builder for the "Quick Switcher" group in Settings → Ayu Islands → Accent.
  * Mirrors [OverridesGroupBuilder]'s shape: `buildGroup` / `isModified` / `apply` / `reset`.
  *
- * Lives in its own file (D-17 extraction) to keep
- * [dev.ayuislands.settings.AyuIslandsAccentPanel] under detekt's `LargeClass` threshold —
- * the panel is already large (708 LOC at Wave 5 plan time); inlining the group body here
- * would risk breaching the cap as more Quick Switcher rows land in future micro-plans.
+ * Lives in its own file to keep [dev.ayuislands.settings.AyuIslandsAccentPanel]
+ * under detekt's `LargeClass` threshold — the panel is already long; inlining
+ * the group body would risk breaching the cap as more Quick Switcher rows land.
  *
  * The single row in this group exposes the master toggle for the Quick Switcher widget's
  * visibility in the main toolbar. The corresponding state field

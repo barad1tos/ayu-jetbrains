@@ -14,17 +14,16 @@ import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 /**
  * Pin the focused project's current accent into [AccentMappingsSettings].
  *
- * Wave 3 (Plan 48-03) ships the app-level personal-pin path per RESEARCH §6:
- * `AccentMappingsSettings.state.projectAccents[key] = hex`. Phase 41 will split
- * this into a Shared (`.idea/`) vs Personal (app-level) lane — the `TODO Phase
- * 41` marker below tells the Phase 41 planner the integration point. The
- * marker is locked by `PinAccentActionTest` so it cannot be removed without a
- * conscious decision.
+ * Writes the app-level personal-pin map:
+ * `AccentMappingsSettings.state.projectAccents[key] = hex`. A future split
+ * into a Shared (`.idea/`) vs Personal (app-level) lane is planned — the
+ * follow-up marker below pins the integration point and is held by
+ * `PinAccentActionTest` so it cannot be removed without a conscious decision.
  *
  * Premium gate via Pattern J two-level predicate
  * (`AyuVariant.isAyuActive() && LicenseChecker.isLicensedOrGrace()`) on every
- * `update` tick — the right-click context menu (Wave 3) and popup quick-action
- * row (Wave 4) must both go through this gate.
+ * `update` tick — both the right-click context menu and the popup quick-action
+ * row must go through this gate.
  */
 class PinAccentAction : DumbAwareAction("Pin Accent", "Pin the current accent to the focused project", null) {
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
@@ -50,8 +49,9 @@ class PinAccentAction : DumbAwareAction("Pin Accent", "Pin the current accent to
                 LOG.warn("Pin: projectKey null for ${project.name}")
                 return
             }
-        // TODO Phase 41 — split into Shared (.idea/) vs Personal (app-level).
-        // For now we write to the app-level personal-pin map per RESEARCH §6.
+        // Follow-up: split shared vs personal pin lanes — write to .idea/
+        // for shared pins, app-level state for personal. Today everything
+        // goes through the app-level map below (FOLLOWUP-PIN-LANE-SPLIT).
         AccentMappingsSettings.getInstance().state.projectAccents[key] = hex
         try {
             val applied = AccentApplicator.applyFromHexString(hex)

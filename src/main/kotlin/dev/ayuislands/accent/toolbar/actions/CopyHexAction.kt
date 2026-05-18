@@ -15,7 +15,7 @@ import java.awt.datatransfer.StringSelection
  * Copy the focused project's currently-resolved accent hex to the system
  * clipboard. Reads the hex AT INVOCATION TIME (no cached field) so a
  * programmatic burst across two windows never leaks a stale prior-window hex
- * (T-48-03-04 information-disclosure mitigation, locked by `CopyHexActionTest`).
+ * (information-disclosure mitigation locked by `CopyHexActionTest`).
  */
 class CopyHexAction : DumbAwareAction("Copy Hex", "Copy the current accent hex to the clipboard", null) {
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
@@ -31,8 +31,8 @@ class CopyHexAction : DumbAwareAction("Copy Hex", "Copy the current accent hex t
         val project = AccentApplicator.resolveFocusedProject()
         val hex =
             try {
-                // Read at invocation time — no cached state. Avoids stale-project
-                // leak per threat model T-48-03-04.
+                // Read at invocation time — no cached state. Avoids leaking
+                // a prior window's resolved hex on burst clipboard reads.
                 AccentResolver.resolve(project, variant)
             } catch (exception: RuntimeException) {
                 LOG.warn("CopyHex: resolve failed", exception)

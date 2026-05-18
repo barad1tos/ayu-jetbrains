@@ -22,17 +22,18 @@ import javax.swing.JLabel
 import javax.swing.JPanel
 
 /**
- * Wave-7 redesign of the accent grid per 48-REDESIGN-SPEC §3.4: a 2-row × 6-column
- * grid of 36×24 [PopupSwatch] cells, plus a "Custom… / More…" link row underneath
- * driven by the bundled `pipette.svg` icon (Locked Answer #1).
+ * Accent grid inside the quick-switcher popup: a 2-row × 6-column grid of
+ * 36×24 [PopupSwatch] cells, plus a "Custom… / More…" link row underneath
+ * driven by the bundled `pipette.svg` icon.
  *
- * Each swatch click flows through [AccentApplicator.applyFromHexString] and — gated
- * on the Boolean return per Pattern D — publishes via [ProjectAccentSwapService].
- * Pattern B catches transient [RuntimeException] so a one-off resolver hiccup does
- * not crash the popup.
+ * Each swatch click flows through [AccentApplicator.applyFromHexString] and —
+ * gated on the Boolean return per Pattern D — publishes via
+ * [ProjectAccentSwapService]. Pattern B catches transient [RuntimeException]
+ * so a one-off resolver hiccup does not crash the popup.
  *
- * Selection state mirrors the currently-resolved accent at construction; later
- * applies re-stamp every swatch's `selected` flag so the visual matches reality.
+ * Selection state mirrors the currently-resolved accent at construction;
+ * later applies re-stamp every swatch's `selected` flag so the visual matches
+ * reality.
  */
 internal class QuickSwitcherAccentGrid {
     private val swatches: List<PopupSwatch>

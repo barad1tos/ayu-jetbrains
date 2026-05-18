@@ -10,9 +10,8 @@ import java.awt.Graphics2D
 import javax.swing.JComponent
 
 /**
- * 1-px hairline that separates the FREE block (variant + accent) from the PREMIUM
- * block (toggles + quick actions) inside the redesigned quick-switcher popup, per
- * 48-REDESIGN-SPEC §2.1 / §2.2.
+ * 1-px hairline that separates the FREE block (variant + accent) from the
+ * PREMIUM block (toggles + quick actions) inside the quick-switcher popup.
  *
  * The line is insetted [Density.BLOCK_SEPARATOR_PAD] pixels on each side so it does
  * not flush into the section cards' rounded corners. The line color resolves through

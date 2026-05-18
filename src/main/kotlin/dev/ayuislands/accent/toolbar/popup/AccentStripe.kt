@@ -9,9 +9,10 @@ import java.awt.Graphics2D
 import javax.swing.JComponent
 
 /**
- * 2-px-tall stripe painted across the top edge of the Wave-7 quick-switcher popup.
- * The single accent-tinted chrome element in the popup container per Locked Answer #2
- * of `48-REDESIGN-SPEC.md` (§2.1).
+ * 2-px-tall stripe painted across the top edge of the quick-switcher popup.
+ * The single accent-tinted chrome element in the popup container — a thin
+ * accent band serves as the only visual cue tying the popup back to the
+ * chip's current color.
  *
  * The accent hex is resolved lazily inside [paintComponent] via the supplied lambda —
  * never cached at construction. A mid-LAF-swap repaint therefore picks up the resolved

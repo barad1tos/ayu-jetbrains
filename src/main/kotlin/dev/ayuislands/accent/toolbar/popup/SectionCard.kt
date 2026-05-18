@@ -21,8 +21,8 @@ import javax.swing.JPanel
 import javax.swing.SwingConstants
 
 /**
- * Sectioned wrapper for popup content per 48-REDESIGN-SPEC §3.2 — replaces the Wave-2
- * Kotlin UI DSL `group("...")` with a hand-built composition:
+ * Sectioned wrapper for popup content. Replaces a stock Kotlin UI DSL
+ * `group("...")` with a hand-built composition:
  *
  *  - NORTH = a caps-header strip ([Density.SECTION_HEADER_H] tall, opaque, slightly tinted
  *    relative to the popup body),

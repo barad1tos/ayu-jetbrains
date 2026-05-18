@@ -10,18 +10,20 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import javax.swing.JComponent
 
 /**
- * Toolbar widget that consolidates Ayu variant + accent + related toggles + quick actions
- * behind one chip in `MainToolbarRight`. The chip itself is FREE (D-06); premium gating
- * happens inside the popup body via `.visibleIf { LicenseChecker.isLicensedOrGrace() }`
- * (Wave 4 — Plan 48-04 owns the premium block).
+ * Toolbar widget that consolidates Ayu variant + accent + related toggles +
+ * quick actions behind one chip in `MainToolbarRight`. The chip itself is FREE;
+ * premium gating happens inside the popup body via
+ * `.visibleIf { LicenseChecker.isLicensedOrGrace() }`.
  *
  * Visibility is gated by a two-conjunct predicate on every BGT [update] tick:
- *   1. LAF must be Ayu — [AyuVariant.isAyuActive] (WIDGET-11 / D-03 — chip would lie otherwise).
- *   2. Settings toggle ON — `AyuIslandsState.quickSwitcherWidgetEnabled` (default ON per D-02).
+ *   1. LAF must be Ayu — [AyuVariant.isAyuActive] (chip would lie otherwise).
+ *   2. Settings toggle ON — `AyuIslandsState.quickSwitcherWidgetEnabled`
+ *      (default ON).
  *
- * No license predicate at chip level: the chip surface itself stays free so the user
- * sees value before any paywall. Pattern J discipline — single-source-of-truth
- * predicate, no third state field consulted at this layer.
+ * No license predicate at chip level: the chip surface itself stays free so
+ * the user sees value before any paywall. Pattern J discipline —
+ * single-source-of-truth predicate, no third state field consulted at this
+ * layer.
  */
 class QuickSwitcherWidgetAction :
     AnAction(),

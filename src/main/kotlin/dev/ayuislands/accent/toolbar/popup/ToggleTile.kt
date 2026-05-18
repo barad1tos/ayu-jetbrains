@@ -13,16 +13,16 @@ import javax.swing.JLabel
 import javax.swing.JPanel
 
 /**
- * Composite cell for the 2x2 toggles grid per 48-REDESIGN-SPEC §3.5: leading icon,
- * centre label, trailing [ToggleSwitch]. The entire tile is the click target — clicking
- * the icon or label flips the bound switch (long-standing usability win — users hit a
- * 32-px tile, not a 14-px glyph).
+ * Composite cell for the 2x2 toggles grid: leading icon, centre label,
+ * trailing [ToggleSwitch]. The entire tile is the click target — clicking the
+ * icon or label flips the bound switch (long-standing usability win — users
+ * hit a 32-px tile, not a 14-px glyph).
  *
  * Hover state paints the tile background with [JBUI.CurrentTheme.ActionButton.hoverBackground];
  * idle state leaves the tile transparent so the parent's background shows through. The
  * inner [toggleSwitch] is exposed as a `val` so the popup composition can bind it to a
  * hidden [javax.swing.JCheckBox] via the Kotlin UI DSL `bindSelected` plumbing — that
- * preserves D-13 persistence semantics.
+ * preserves the single-source-of-truth persistence semantics.
  *
  * Pattern A — mouse events already run on EDT.
  *

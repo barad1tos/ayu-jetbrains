@@ -3,11 +3,10 @@ package dev.ayuislands.accent.toolbar.actions
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 
 /**
- * Canonical [DefaultActionGroup] for the quick actions surface (D-14b). Both
- * the popup's quick-actions row (Wave 4) and the chip's right-click context
- * menu (Wave 3) MUST consume this group — D-14b forbids divergence between
- * the two surfaces; divergence is locked by
- * `QuickSwitcherActionParityTest`.
+ * Canonical [DefaultActionGroup] for the quick-actions surface. Both the
+ * popup's quick-actions row AND the chip's right-click context menu MUST
+ * consume this group so the two surfaces cannot diverge; the parity contract
+ * is locked by `QuickSwitcherActionParityTest`.
  *
  * Order is fixed: `Pin -> Random -> Lighter -> Darker -> Copy Hex`. Each
  * [build] call returns a NEW [DefaultActionGroup] instance so two surfaces

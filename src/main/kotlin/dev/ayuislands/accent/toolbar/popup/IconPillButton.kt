@@ -26,9 +26,8 @@ import javax.swing.JButton
 import javax.swing.JComponent
 
 /**
- * 28x28 icon-only pill that delegates to an [AnAction] when clicked, per
- * 48-REDESIGN-SPEC §3.6. Replaces the Wave-4 wide `JButton(label)` row inside the
- * quick-actions section.
+ * 28x28 icon-only pill that delegates to an [AnAction] when clicked. Used
+ * inside the quick-switcher popup's quick-actions row.
  *
  * Custom `paintComponent` paints a rounded background ONLY on hover / pressed —
  * idle reads as a transparent surface so the parent section card shows through.
@@ -36,7 +35,7 @@ import javax.swing.JComponent
  * `text` as fallback).
  *
  * Click handler uses the non-deprecated 6-arg event-factory form on
- * [AnActionEvent] (Wave-4 finding). The dispatch is wrapped in
+ * [AnActionEvent]. The dispatch is wrapped in
  * `try { ... } catch (exception: RuntimeException) { LOG.warn(...) }` per
  * Pattern B — a throwing action must NOT kill the EDT or crash the popup.
  *

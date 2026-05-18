@@ -20,8 +20,8 @@ import javax.accessibility.AccessibleRole
 import javax.swing.JComponent
 
 /**
- * "Islands UI" toggle pill per 48-REDESIGN-SPEC §3.3. Sits to the right of the
- * [SegmentedControl] inside the variant section card. Custom-painted because a
+ * "Islands UI" toggle pill. Sits to the right of the [SegmentedControl]
+ * inside the variant section card. Custom-painted because a
  * `JCheckBox` reads as a heavy debug control — the pill matches the segmented
  * control's visual language exactly.
  *
@@ -207,8 +207,8 @@ internal class IslandsUiPill(
             )
 
         /**
-         * Spawn-A finding: `JBUI.CurrentTheme.ActionButton.pressedBorderColor()` does
-         * NOT exist on 2025.1. Substitute `Popup.innerBorderColor` for the same visual
+         * `JBUI.CurrentTheme.ActionButton.pressedBorderColor()` does NOT exist
+         * on 2025.1; substitute `Popup.innerBorderColor` for the same visual
          * weight.
          */
         fun pressedBorderColor(): Color = popupInnerBorder()

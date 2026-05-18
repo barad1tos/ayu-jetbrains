@@ -65,7 +65,7 @@ object AccentResolver {
 
     /**
      * Human-readable label for [source], suitable for tooltips and Settings
-     * "Currently active: …" readouts. D-18: the Phase 48 chip tooltip
+     * "Currently active: …" readouts. The quick-switcher chip tooltip
      * (`"{hex} — {label}"`) consumes this label; the `AyuIslandsAccentPanel`
      * "currently active" comment may be migrated to use this helper in a
      * follow-up to deduplicate the [Source]-to-string mapping.

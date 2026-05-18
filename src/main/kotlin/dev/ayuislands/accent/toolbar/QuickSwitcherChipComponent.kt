@@ -97,8 +97,8 @@ internal class QuickSwitcherChipComponent : JLabel() {
      * future consumer of `isPopupAttached` (a custom ring, a tinted icon, etc.)
      * updates in-place. Today the only visual response is the platform's own
      * MainToolbar hover/pressed highlight, which the platform manages — this
-     * setter is kept for the Wave-6 lifecycle test contract and any later
-     * iteration that wants chip-level pressed feedback.
+     * setter is kept for the lifecycle test contract and any later iteration
+     * that wants chip-level pressed feedback.
      */
     internal fun setPopupAttached(active: Boolean) {
         if (isPopupAttached == active) return
@@ -191,13 +191,13 @@ internal class QuickSwitcherChipComponent : JLabel() {
     }
 
     companion object {
-        // WIDGET-02 closure — final dimensions: a 13 × 13 JBUI-scaled cell whose
-        // ColorIcon fills the full bounds (no inner-disc inset). 13 px matches
-        // the visual size of neighbouring MainToolbar icons (Add, Search,
+        // Final chip dimensions: a 13 × 13 JBUI-scaled cell whose ColorIcon
+        // fills the full bounds (no inner-disc inset). 13 px matches the
+        // visual size of neighbouring MainToolbar icons (Add, Search,
         // overflow); larger values (14–16 px) read as oversized against them.
         internal const val CHIP_BOX_PX = 13
 
-        // Action place ID for the right-click context menu (Plan 48-03 D-14b).
+        // Action place ID for the right-click context menu.
         private const val CONTEXT_MENU_PLACE = "AyuQuickSwitcher.ContextMenu"
 
         private val LOG = logger<QuickSwitcherChipComponent>()

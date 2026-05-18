@@ -74,8 +74,8 @@ object AccentApplicator {
     // CodeGlance Pro reflection state and apply/revert workers live in
     // [CgpIntegration] to keep this object below the TooManyFunctions threshold.
     // Only the cross-object test seam (`cgpRevertHook` + `resetCgpRevertHookForTests`)
-    // and the swap-path entry stay here because Wave 0 tests bind those names to
-    // `AccentApplicator`.
+    // and the swap-path entry stay here because existing tests bind those names
+    // to `AccentApplicator`.
 
     /**
      * Per-thread revert observer for [CgpIntegration.revertCodeGlanceProViewport].
@@ -253,14 +253,14 @@ object AccentApplicator {
                 // cached hex.
                 state.lastApplyOk = true
 
-                // Phase 48 D-02 — publish AccentChangedTopic AFTER lastApplyOk = true
-                // so subscribers (toolbar stripe, toolbar chip in Wave 2) only fire on
-                // a fully-painted apply. Application-scoped (D-01), so one apply may
-                // legitimately affect every open window; per-project filtering belongs
-                // to the subscriber. Per-project try/catch isolates Pattern B — a
-                // throwing subscriber must NOT tear down the apply pipeline. Source is
-                // re-resolved per project so subscribers see THIS window's resolution
-                // layer (project A may carry a project-override while project B is global).
+                // Publish AccentChangedTopic AFTER lastApplyOk = true so subscribers
+                // (toolbar stripe, toolbar chip) only fire on a fully-painted apply.
+                // Application-scoped: one apply may legitimately affect every open
+                // window; per-project filtering belongs to the subscriber. Per-project
+                // try/catch isolates Pattern B — a throwing subscriber must NOT tear
+                // down the apply pipeline. Source is re-resolved per project so
+                // subscribers see THIS window's resolution layer (project A may carry
+                // a project-override while project B is global).
                 val accentChangedPublisher =
                     ApplicationManager
                         .getApplication()
@@ -759,11 +759,11 @@ object AccentApplicator {
      * `CodeGlanceConfigService` cache without re-running the full UIManager
      * apply (which is already correct for the unchanged hex).
      *
-     * Resolves RESEARCH §Open Questions §1: `ComponentTreeRefresher.walkAndNotify`
-     * alone cannot push the new accent into the app-scoped CGP cache because
-     * CGP does not subscribe to `ComponentTreeRefreshedTopic`. Calling this
-     * wrapper directly from the swap service achieves the cache write without
-     * the apply path's redundant work.
+     * `ComponentTreeRefresher.walkAndNotify` alone cannot push the new accent
+     * into the app-scoped CGP cache because CGP does not subscribe to
+     * `ComponentTreeRefreshedTopic`. Calling this wrapper directly from the
+     * swap service achieves the cache write without the apply path's
+     * redundant work.
      */
     internal fun syncCodeGlanceProViewportForSwap(hex: String) {
         CgpIntegration.syncCodeGlanceProViewport(hex)
