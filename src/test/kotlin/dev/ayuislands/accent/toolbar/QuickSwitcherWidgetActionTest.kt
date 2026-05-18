@@ -90,6 +90,26 @@ class QuickSwitcherWidgetActionTest {
     }
 
     @Test
+    fun `update sets invisible when BOTH LAF inactive AND toggle off (F,F locks AND vs OR — CRIT-7)`() {
+        // CRIT-7 — without this case a future `&&` → `||` regression would land
+        // silently because every other case (T,T enables, single-off disables)
+        // is consistent with both AND and OR semantics. (F,F) is the only case
+        // that distinguishes them.
+        stubAyuActive(false)
+        stubSettingsState(quickSwitcherEnabled = false)
+        val presentation = Presentation()
+        val event = mockk<AnActionEvent>(relaxed = true)
+        every { event.presentation } returns presentation
+
+        action.update(event)
+
+        assertFalse(
+            presentation.isEnabledAndVisible,
+            "(F,F) both off must disable — proves the gate is AND, not OR",
+        )
+    }
+
+    @Test
     fun `createCustomComponent returns a QuickSwitcherChipComponent instance`() {
         val component = action.createCustomComponent(Presentation(), "MainToolbarRight")
         assertTrue(

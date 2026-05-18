@@ -71,18 +71,32 @@ class CopyHexActionTest {
     }
 
     @Test
-    fun `update Pattern J two-level gate exhaustive`() {
+    fun `update Pattern J two-level gate exhaustive (T,T) (F,T) (T,F) (F,F)`() {
+        // CRIT-7 — full 4-case truth table. A future `&&` → `||` regression would
+        // be invisible without the (F,F) case (any single-conjunct test would
+        // still pass under an OR gate).
         val action = CopyHexAction()
         val event = newEvent()
+
+        every { AyuVariant.isAyuActive() } returns true
+        every { LicenseChecker.isLicensedOrGrace() } returns true
         action.update(event)
-        assertTrue(event.presentation.isEnabledAndVisible)
+        assertTrue(event.presentation.isEnabledAndVisible, "(T,T) must enable")
+
+        every { AyuVariant.isAyuActive() } returns false
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        action.update(event)
+        assertFalse(event.presentation.isEnabledAndVisible, "(F,T) inactive variant must disable")
+
+        every { AyuVariant.isAyuActive() } returns true
         every { LicenseChecker.isLicensedOrGrace() } returns false
         action.update(event)
-        assertFalse(event.presentation.isEnabledAndVisible)
-        every { LicenseChecker.isLicensedOrGrace() } returns true
+        assertFalse(event.presentation.isEnabledAndVisible, "(T,F) unlicensed must disable")
+
         every { AyuVariant.isAyuActive() } returns false
+        every { LicenseChecker.isLicensedOrGrace() } returns false
         action.update(event)
-        assertFalse(event.presentation.isEnabledAndVisible)
+        assertFalse(event.presentation.isEnabledAndVisible, "(F,F) both off must disable — locks AND vs OR")
     }
 
     @Test
