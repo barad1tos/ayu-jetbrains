@@ -3,6 +3,7 @@ package dev.ayuislands.accent.toolbar.popup
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AyuVariant
+import org.jetbrains.annotations.TestOnly
 import java.awt.BasicStroke
 import java.awt.Color
 import java.awt.Cursor
@@ -66,7 +67,7 @@ internal class SegmentedControl(
         cells.forEach { it.repaint() }
     }
 
-    private inner class VariantCell(
+    internal inner class VariantCell(
         private val variant: AyuVariant,
     ) : JComponent() {
         private var isHovered: Boolean = false
@@ -123,6 +124,26 @@ internal class SegmentedControl(
                 paintCell(g2)
             } finally {
                 g2.dispose()
+            }
+        }
+
+        /**
+         * Test seam — Pattern I. Lets unit tests sample paint state per
+         * (selected, hovered) pair via a `BufferedImage` `Graphics2D` without
+         * booting Swing. The hovered flag is set inside the seam (try/finally
+         * resets) so tests don't need to dispatch real mouse events.
+         */
+        @TestOnly
+        internal fun paintForTest(
+            g2: Graphics2D,
+            hovered: Boolean = false,
+        ) {
+            val previous = isHovered
+            isHovered = hovered
+            try {
+                paintCell(g2)
+            } finally {
+                isHovered = previous
             }
         }
 
