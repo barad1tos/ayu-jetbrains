@@ -252,9 +252,22 @@ class QuickSwitcherChipComponentTest {
     }
 
     @Test
-    fun `Wave 7 CHIP_BOX_PX equals 16 and CHIP_SWATCH_PX equals 12 (WIDGET-02 closure)`() {
+    fun `CHIP_BOX_PX equals 16 and icon fills full cell (WIDGET-02 closure)`() {
         assertEquals(16, QuickSwitcherChipComponent.CHIP_BOX_PX)
-        assertEquals(12, QuickSwitcherChipComponent.CHIP_SWATCH_PX)
+        // Wave 7 follow-up: icon is sized to the full cell (`CHIP_BOX_PX`), not an
+        // inner-disc inset, so it does not look small against the platform's
+        // pressed/hover highlight that paints around the cell. The earlier
+        // `CHIP_SWATCH_PX = 12` inner-disc constant was removed.
+        val source = Files.readString(Paths.get(CHIP_SOURCE_PATH))
+        assertTrue(
+            source.contains("ColorIcon(JBUI.scale(CHIP_BOX_PX)"),
+            "Chip ColorIcon must size to CHIP_BOX_PX (full cell), not an inner-disc constant",
+        )
+        assertEquals(
+            0,
+            "CHIP_SWATCH_PX".toRegex().findAll(source).count(),
+            "Inner-disc constant CHIP_SWATCH_PX must be fully removed",
+        )
     }
 
     @Test

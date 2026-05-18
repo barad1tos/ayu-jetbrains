@@ -17,34 +17,31 @@ import dev.ayuislands.accent.AccentChangedTopic
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.toolbar.actions.QuickSwitcherActionGroup
-import java.awt.BasicStroke
 import java.awt.Dimension
-import java.awt.Graphics
-import java.awt.Graphics2D
-import java.awt.RenderingHints
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.JLabel
 import javax.swing.SwingUtilities
 
 /**
- * Main-toolbar chip that reflects the focused project's resolved accent. Wave-7
- * bumps the dimensions to a `16 × 16` outer box / `12 × 12` inner disc (WIDGET-02
- * closure) and turns the `ColorIcon` border on so the disc reads as a deliberate
- * UI element next to neighbouring widgets.
+ * Main-toolbar chip that reflects the focused project's resolved accent. The
+ * chip is a `JLabel` sized to the standard MainToolbar icon cell (`16 × 16`,
+ * JBUI-scaled) with a `ColorIcon` that fills the full bounds (no inner disc
+ * inset), so the icon does not appear small against the platform's pressed /
+ * hover highlight that surrounds the cell when the popup is open.
+ *
+ * The popup-attached visual feedback is delegated to the platform — IntelliJ
+ * paints its standard MainToolbar action-button hover / pressed background
+ * around the chip cell while the popup it anchors is open. No custom focused
+ * ring is drawn here; an earlier Wave-7 attempt at a 2-px overlay misaligned
+ * with the platform highlight and was removed.
  *
  * Subscribes to [AccentChangedTopic] (Wave 1) AND [ApplicationActivationListener.TOPIC]
  * (Wave 2) via a single per-instance [Disposable] parent — Pattern E. Mouse routes
  * LMB to the popup (with `this` passed so the popup can wire a per-popup
  * [com.intellij.openapi.ui.popup.JBPopupListener] that toggles popup-attached
- * state) and RMB to the right-click context menu (Wave 3).
- *
- * Popup-attached state — a Boolean flipped by the popup's [com.intellij.openapi.ui.popup.JBPopupListener]
- * via `setPopupAttached(true|false)` — is painted as a 2-px focused ring in
- * `JBUI.CurrentTheme.ActionButton.focusedBorder()` so the chip reads as the
- * popup's anchor while it is open. The listener lives on the POPUP (auto-disposes
- * on popup close) — never on the chip's `MessageBusConnection`, which would
- * inflate the Wave-6 lifecycle test's subscription count beyond the locked 2.
+ * state for any future consumers that depend on it) and RMB to the right-click
+ * context menu (Wave 3).
  */
 internal class QuickSwitcherChipComponent :
     JLabel(),
@@ -57,7 +54,7 @@ internal class QuickSwitcherChipComponent :
     init {
         val box = JBUI.scale(CHIP_BOX_PX)
         preferredSize = Dimension(box, box)
-        icon = ColorIcon(JBUI.scale(CHIP_SWATCH_PX), JBColor.GRAY, true)
+        icon = ColorIcon(JBUI.scale(CHIP_BOX_PX), JBColor.GRAY, true)
         toolTipText = ""
         addMouseListener(
             object : MouseAdapter() {
@@ -75,36 +72,17 @@ internal class QuickSwitcherChipComponent :
 
     /**
      * Toggled by the popup's [com.intellij.openapi.ui.popup.JBPopupListener] when
-     * the chip is the anchor of an opened/closed popup. Repaints the chip so the
-     * 2-px focused ring overlay updates in-place. Pattern E discipline: the
-     * listener is registered on the popup, NEVER on the chip's MessageBus.
+     * the chip is the anchor of an opened/closed popup. Repaints the chip so any
+     * future consumer of `isPopupAttached` (a custom ring, a tinted icon, etc.)
+     * updates in-place. Today the only visual response is the platform's own
+     * MainToolbar hover/pressed highlight, which the platform manages — this
+     * setter is kept for the Wave-6 lifecycle test contract and any later
+     * iteration that wants chip-level pressed feedback.
      */
     internal fun setPopupAttached(active: Boolean) {
         if (isPopupAttached == active) return
         isPopupAttached = active
         repaint()
-    }
-
-    override fun paintComponent(g: Graphics) {
-        super.paintComponent(g)
-        if (!isPopupAttached) return
-        val g2 = g.create() as Graphics2D
-        try {
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            g2.color = JBUI.CurrentTheme.ActionButton.focusedBorder()
-            g2.stroke = BasicStroke(JBUI.scale(RING_THICKNESS_PX).toFloat())
-            val inset = RING_INSET_PX
-            g2.drawRoundRect(
-                inset,
-                inset,
-                width - inset * 2,
-                height - inset * 2,
-                JBUI.scale(RING_ARC_PX),
-                JBUI.scale(RING_ARC_PX),
-            )
-        } finally {
-            g2.dispose()
-        }
     }
 
     override fun addNotify() {
@@ -173,25 +151,21 @@ internal class QuickSwitcherChipComponent :
                 return
             }
         val color = ColorUtil.fromHex(hex)
-        icon = ColorIcon(JBUI.scale(CHIP_SWATCH_PX), color, true)
+        icon = ColorIcon(JBUI.scale(CHIP_BOX_PX), color, true)
         val source = AccentResolver.source(project)
         toolTipText = "$hex — ${AccentResolver.sourceLabel(source)}"
         repaint()
     }
 
     companion object {
-        // WIDGET-02 closure (Wave 7) — final dimensions per 48-REDESIGN-SPEC §3.1.
-        // Was: CHIP_BOX_PX = 12, CHIP_SWATCH_PX = 10 (Wave 2 starting point).
+        // WIDGET-02 closure — final dimensions: a 16 × 16 JBUI-scaled cell whose
+        // ColorIcon fills the full bounds (no inner-disc inset), so the icon
+        // does not look small against the platform's pressed/hover highlight
+        // that paints around the cell.
         internal const val CHIP_BOX_PX = 16
-        internal const val CHIP_SWATCH_PX = 12
 
         // Action place ID for the right-click context menu (Plan 48-03 D-14b).
         private const val CONTEXT_MENU_PLACE = "AyuQuickSwitcher.ContextMenu"
-
-        // Popup-attached focused ring geometry.
-        private const val RING_THICKNESS_PX = 2
-        private const val RING_INSET_PX = 1
-        private const val RING_ARC_PX = 4
 
         private val LOG = logger<QuickSwitcherChipComponent>()
     }
