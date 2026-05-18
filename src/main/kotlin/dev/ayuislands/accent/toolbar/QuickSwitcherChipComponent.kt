@@ -128,11 +128,19 @@ internal class QuickSwitcherChipComponent :
         x: Int,
         y: Int,
     ) {
-        val menu =
-            ActionManager
-                .getInstance()
-                .createActionPopupMenu(CONTEXT_MENU_PLACE, QuickSwitcherActionGroup.build())
-        menu.component.show(this, x, y)
+        // Pattern B — [ActionManager.createActionPopupMenu] can throw
+        // [RuntimeException] during IDE shutdown (action-group resolution
+        // races) and `JPopupMenu.show` can throw on a disposed peer. Swallow
+        // so the chip mouse-handler stays responsive for the next attempt.
+        try {
+            val menu =
+                ActionManager
+                    .getInstance()
+                    .createActionPopupMenu(CONTEXT_MENU_PLACE, QuickSwitcherActionGroup.build())
+            menu.component.show(this, x, y)
+        } catch (exception: RuntimeException) {
+            LOG.warn("QuickSwitcher chip context menu failed to show", exception)
+        }
     }
 
     /**

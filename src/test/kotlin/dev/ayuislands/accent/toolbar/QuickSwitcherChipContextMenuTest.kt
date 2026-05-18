@@ -121,6 +121,34 @@ class QuickSwitcherChipContextMenuTest {
     }
 
     @Test
+    fun `showContextMenu swallows RuntimeException from createActionPopupMenu (Pattern B)`() {
+        // Pattern B regression lock — the ActionManager can throw on a
+        // mid-shutdown action-group resolution race. The chip mouse handler
+        // must absorb the throw so the chip stays usable for the next click.
+        every {
+            mockActionManager.createActionPopupMenu(any(), any())
+        } throws RuntimeException("shutdown race")
+
+        val chip = QuickSwitcherChipComponent()
+        // Must NOT throw.
+        chip.dispatchEvent(rightClick(chip))
+    }
+
+    @Test
+    fun `showContextMenu swallows RuntimeException from menu show on disposed peer (Pattern B)`() {
+        // Pattern B — `JPopupMenu.show` can throw on a disposed AWT peer.
+        every {
+            mockMenuComponent.show(any<Component>(), any(), any())
+        } throws RuntimeException("disposed peer")
+
+        val chip = QuickSwitcherChipComponent()
+        // Must NOT throw.
+        chip.dispatchEvent(rightClick(chip))
+        // The menu build still succeeded; only the `show` call threw.
+        verify(exactly = 1) { mockActionManager.createActionPopupMenu(any(), any()) }
+    }
+
+    @Test
     fun `mousePressed RMB is a no-op when AyuVariant detect returns null (WIDGET-11)`() {
         // Test 40 — Wave 2 guard. createActionPopupMenu must NOT be reached
         // when LAF is non-Ayu; the early return in `mousePressed` short-circuits.

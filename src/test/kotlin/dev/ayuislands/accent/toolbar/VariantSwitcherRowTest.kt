@@ -106,6 +106,72 @@ class VariantSwitcherRowTest {
     }
 
     @Test
+    fun `applyVariantAndChrome swallows RuntimeException from installedThemes lookup`() {
+        // Pattern B regression lock — `installedThemes` access throws a
+        // RuntimeException (e.g. plugin reload race). Must NOT propagate to
+        // the segment-click handler; chip stays usable.
+        every { lafManager.installedThemes } throws RuntimeException("install race")
+
+        val row = VariantSwitcherRow(AyuVariant.MIRAGE)
+        val segmented =
+            row.component.components
+                .filterIsInstance<SegmentedControl>()
+                .single()
+        val darkCell = segmented.components[1]
+        val click =
+            java.awt.event.MouseEvent(
+                darkCell,
+                java.awt.event.MouseEvent.MOUSE_CLICKED,
+                0L,
+                0,
+                5,
+                5,
+                1,
+                false,
+                java.awt.event.MouseEvent.BUTTON1,
+            )
+        // Must NOT throw.
+        darkCell.dispatchEvent(click)
+        verify(exactly = 0) { lafManager.setCurrentLookAndFeel(any<UIThemeLookAndFeelInfo>(), any()) }
+    }
+
+    @Test
+    fun `applyVariantAndChrome swallows RuntimeException from setCurrentLookAndFeel`() {
+        // Pattern B — the platform LAF setter can throw on a malformed
+        // UIThemeLookAndFeelInfo. The chip must absorb the throw and log,
+        // not crash the popup mouse chain.
+        val darkTheme = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
+        every { darkTheme.name } returns "Ayu Dark"
+        every { lafManager.installedThemes } returns sequenceOf(mirageTheme, darkTheme)
+        every {
+            lafManager.setCurrentLookAndFeel(any<UIThemeLookAndFeelInfo>(), any())
+        } throws RuntimeException("malformed LAF")
+
+        val row = VariantSwitcherRow(AyuVariant.MIRAGE)
+        val segmented =
+            row.component.components
+                .filterIsInstance<SegmentedControl>()
+                .single()
+        val darkCell = segmented.components[1]
+        val click =
+            java.awt.event.MouseEvent(
+                darkCell,
+                java.awt.event.MouseEvent.MOUSE_CLICKED,
+                0L,
+                0,
+                5,
+                5,
+                1,
+                false,
+                java.awt.event.MouseEvent.BUTTON1,
+            )
+        // Must NOT throw.
+        darkCell.dispatchEvent(click)
+        // updateUI must NOT run when setCurrentLookAndFeel threw.
+        verify(exactly = 0) { lafManager.updateUI() }
+    }
+
+    @Test
     fun `missing theme in installedThemes is a warn-and-return no-op (Pitfall 7)`() {
         every { lafManager.installedThemes } returns emptySequence()
 

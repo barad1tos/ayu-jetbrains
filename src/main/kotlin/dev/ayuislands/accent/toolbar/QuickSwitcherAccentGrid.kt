@@ -119,7 +119,18 @@ internal class QuickSwitcherAccentGrid {
 
     private fun openAyuSettings() {
         val project = AccentApplicator.resolveFocusedProject()
-        ShowSettingsUtil.getInstance().showSettingsDialog(project, "Ayu Islands")
+        // Pattern B — [ShowSettingsUtil.showSettingsDialog] throws
+        // [IllegalArgumentException] when the configurable id cannot be resolved
+        // (plugin reload mid-flight, malformed plugin.xml) and the platform's
+        // `ProcessCanceledException` (a [RuntimeException] subclass on 2025.1+)
+        // when the user dismisses the dialog mid-build. Neither is a programming
+        // error worth bubbling — the link handler stays clickable for the next
+        // attempt.
+        try {
+            ShowSettingsUtil.getInstance().showSettingsDialog(project, "Ayu Islands")
+        } catch (exception: RuntimeException) {
+            LOG.warn("Failed to open Ayu Islands settings dialog", exception)
+        }
     }
 
     private companion object {

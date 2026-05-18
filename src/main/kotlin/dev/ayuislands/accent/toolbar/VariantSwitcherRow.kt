@@ -80,22 +80,39 @@ internal class VariantSwitcherRow(
         variant: AyuVariant,
         islandsUi: Boolean,
     ) {
-        val themeName = VariantThemeNameResolver.resolveThemeName(variant, islandsUi)
-        val lafManager = LafManager.getInstance()
-        // `findLaf(String)` on IDEA 2026.1 expects the platform theme *id* (e.g.
-        // `com.ayuislands.theme.mirage`), not the user-visible *name* ("Ayu Mirage").
-        // Match by name across the installed-themes sequence so this stays decoupled
-        // from plugin.xml `themeProvider` ids — if those ids ever change, this still
-        // resolves as long as the display names in `themes/*.theme.json` match.
-        val laf =
-            lafManager.installedThemes.firstOrNull { it.name == themeName } ?: run {
-                LOG.warn("Theme not found for variant=$variant islandsUi=$islandsUi name='$themeName'")
-                return
-            }
-        // Pitfall 5 — second arg is `lockEditorScheme = false` so the same-named
-        // editor scheme follows the theme switch instead of locking on the old.
-        lafManager.setCurrentLookAndFeel(laf, false)
-        lafManager.updateUI()
+        // Pattern B — every API call in this body can throw RuntimeException:
+        //   - `VariantThemeNameResolver.resolveThemeName` raises
+        //     [IllegalStateException] when the [AyuVariant.themeNames] set drifts
+        //     (enum-rename regression).
+        //   - `LafManager.setCurrentLookAndFeel` / `updateUI` can throw on a
+        //     plugin install/uninstall race or a malformed `UIThemeLookAndFeelInfo`.
+        // Without this wrapper, a transient throw lands as SEVERE in idea.log and
+        // tears down the popup mouse-handler chain. The user-visible failure mode
+        // is "popup goes blank after one click". Swallow and WARN so the next
+        // attempt succeeds.
+        try {
+            val themeName = VariantThemeNameResolver.resolveThemeName(variant, islandsUi)
+            val lafManager = LafManager.getInstance()
+            // `findLaf(String)` on IDEA 2026.1 expects the platform theme *id* (e.g.
+            // `com.ayuislands.theme.mirage`), not the user-visible *name* ("Ayu Mirage").
+            // Match by name across the installed-themes sequence so this stays decoupled
+            // from plugin.xml `themeProvider` ids — if those ids ever change, this still
+            // resolves as long as the display names in `themes/*.theme.json` match.
+            val laf =
+                lafManager.installedThemes.firstOrNull { it.name == themeName } ?: run {
+                    LOG.warn("Theme not found for variant=$variant islandsUi=$islandsUi name='$themeName'")
+                    return
+                }
+            // Second arg is `lockEditorScheme = false` so the same-named editor
+            // scheme follows the theme switch instead of locking on the old.
+            lafManager.setCurrentLookAndFeel(laf, false)
+            lafManager.updateUI()
+        } catch (exception: RuntimeException) {
+            LOG.warn(
+                "Variant/Islands apply failed (variant=$variant islandsUi=$islandsUi)",
+                exception,
+            )
+        }
     }
 
     private companion object {

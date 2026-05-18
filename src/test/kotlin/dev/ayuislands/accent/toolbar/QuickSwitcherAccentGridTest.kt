@@ -147,6 +147,89 @@ class QuickSwitcherAccentGridTest {
     }
 
     @Test
+    fun `openAyuSettings link click swallows RuntimeException from ShowSettingsUtil (Pattern B)`() {
+        // Pattern B — the platform's ShowSettingsUtil throws
+        // IllegalArgumentException if a configurable id is unknown, and
+        // ProcessCanceledException (a RuntimeException subclass on 2025.1+) if
+        // the dialog is dismissed mid-build. Click handler must absorb both so
+        // the chip stays responsive.
+        mockkStatic(com.intellij.openapi.options.ShowSettingsUtil::class)
+        val showUtil = mockk<com.intellij.openapi.options.ShowSettingsUtil>(relaxed = true)
+        every {
+            com.intellij.openapi.options.ShowSettingsUtil
+                .getInstance()
+        } returns showUtil
+        every {
+            showUtil.showSettingsDialog(any(), any<String>())
+        } throws RuntimeException("configurable not found")
+
+        val grid = QuickSwitcherAccentGrid()
+        val south = (grid.component as JPanel).components.filterIsInstance<JPanel>().last()
+        val link = collectActionLinks(south).first()
+        // Must NOT throw out of the click.
+        link.doClick()
+        verify(exactly = 1) { showUtil.showSettingsDialog(any(), eq("Ayu Islands")) }
+    }
+
+    @Test
+    fun `Custom and More links open the Ayu Islands settings dialog (user-space)`() {
+        // IMP-6 — user-space coverage. The Custom and More links must reach
+        // ShowSettingsUtil.showSettingsDialog with the canonical "Ayu Islands"
+        // group id. Without this test, a rename of the link wiring would land
+        // silently and the link would become inert.
+        mockkStatic(com.intellij.openapi.options.ShowSettingsUtil::class)
+        val showUtil = mockk<com.intellij.openapi.options.ShowSettingsUtil>(relaxed = true)
+        every {
+            com.intellij.openapi.options.ShowSettingsUtil
+                .getInstance()
+        } returns showUtil
+
+        val grid = QuickSwitcherAccentGrid()
+        val south = (grid.component as JPanel).components.filterIsInstance<JPanel>().last()
+        val links = collectActionLinks(south)
+        assertEquals(2, links.size, "Expected exactly two ActionLink components (Custom and More)")
+        for (link in links) link.doClick()
+        verify(exactly = 2) { showUtil.showSettingsDialog(any(), eq("Ayu Islands")) }
+    }
+
+    @Test
+    fun `clicking a swatch restamps selected flag so exactly one swatch is selected`() {
+        // IMP-6 — user-space restamp coverage. After applyPreset(hex), exactly one
+        // swatch is selected (the clicked one); previously-selected swatches clear.
+        // Locks the for-each restamp at QuickSwitcherAccentGrid.kt:111.
+        every { AccentApplicator.applyFromHexString(any()) } returns true
+        mockkObject(ProjectAccentSwapService.Companion)
+        val swapService = mockk<ProjectAccentSwapService>(relaxed = true)
+        every { ProjectAccentSwapService.getInstance() } returns swapService
+
+        val grid = QuickSwitcherAccentGrid()
+        val north = (grid.component as JPanel).components.filterIsInstance<JPanel>().first()
+        val swatches = north.components.filterIsInstance<PopupSwatch>()
+        val secondHex = swatches[1].hex
+        // Click the second swatch.
+        swatches[1].setSize(36, 24)
+        swatches[1].dispatchEvent(makePress(swatches[1]))
+        swatches[1].dispatchEvent(makeRelease(swatches[1]))
+
+        val selectedCount = swatches.count { it.selected }
+        assertEquals(1, selectedCount, "Exactly one swatch must be selected after apply; got $selectedCount")
+        assertTrue(swatches[1].selected, "Clicked swatch must be selected after apply")
+        // Belt-and-braces: prior selection (index 0 by default) must have cleared.
+        assertTrue(!swatches[0].selected || swatches[0].hex.equals(secondHex, ignoreCase = true))
+    }
+
+    private fun collectActionLinks(
+        root: java.awt.Container,
+        out: MutableList<com.intellij.ui.components.ActionLink> = mutableListOf(),
+    ): List<com.intellij.ui.components.ActionLink> {
+        for (child in root.components) {
+            if (child is com.intellij.ui.components.ActionLink) out.add(child)
+            if (child is java.awt.Container) collectActionLinks(child, out)
+        }
+        return out
+    }
+
+    @Test
     fun `click swallows RuntimeException from applyFromHexString (Pattern B)`() {
         every { AccentApplicator.applyFromHexString(any()) } throws RuntimeException("transient")
         mockkObject(ProjectAccentSwapService.Companion)
