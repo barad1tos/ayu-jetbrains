@@ -270,7 +270,11 @@ object AccentApplicator {
                     if (!openProject.isUsable()) continue
                     try {
                         val source = AccentResolver.source(openProject)
-                        accentChangedPublisher.accentChanged(openProject, trimmedHex, source)
+                        // Pattern K — the [AccentHex] parameter is the
+                        // validated proof; pass it straight through to the
+                        // listener so subscribers receive the typed wrapper
+                        // and never see a raw `String`.
+                        accentChangedPublisher.accentChanged(openProject, accentHex, source)
                     } catch (exception: RuntimeException) {
                         log.warn(
                             "AccentChangedTopic publish failed for ${openProject.name}",

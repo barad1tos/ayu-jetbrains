@@ -7,6 +7,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.WindowManager
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentChangedTopic
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.indent.IndentRainbowSync
@@ -150,11 +151,14 @@ class ProjectAccentSwapService : Disposable {
             // subscriber.
             try {
                 val source = AccentResolver.source(project)
+                // Pattern K — `effectiveHex` comes from `AccentResolver.resolve`
+                // whose contract guarantees a validated `#RRGGBB` string;
+                // wrap via `unsafeOf` to surface the contract in the type.
                 ApplicationManager
                     .getApplication()
                     .messageBus
                     .syncPublisher(AccentChangedTopic.TOPIC)
-                    .accentChanged(project, effectiveHex, source)
+                    .accentChanged(project, AccentHex.unsafeOf(effectiveHex), source)
             } catch (exception: RuntimeException) {
                 LOG.warn(
                     "AccentChangedTopic publish failed in same-hex swap for ${project.name}",

@@ -115,10 +115,21 @@ internal class QuickSwitcherChipComponent : JLabel() {
         connectionParent = parent
         val conn = ApplicationManager.getApplication().messageBus.connect(parent)
         connection = conn
+        // Object expression rather than SAM lambda — [AccentChangeListener]
+        // is no longer a `fun interface` because Kotlin's SAM conversion of a
+        // value-class parameter (`AccentHex`) mangles the JVM name and the
+        // metafactory-generated lambda fails to bridge, throwing
+        // [AbstractMethodError] at fan-out time. See KDoc on the interface.
         conn.subscribe(
             AccentChangedTopic.TOPIC,
-            AccentChangeListener { _, _, _ ->
-                SwingUtilities.invokeLater { refreshFromFocusedProject() }
+            object : AccentChangeListener {
+                override fun accentChanged(
+                    project: com.intellij.openapi.project.Project,
+                    hex: dev.ayuislands.accent.AccentHex,
+                    source: AccentResolver.Source,
+                ) {
+                    SwingUtilities.invokeLater { refreshFromFocusedProject() }
+                }
             },
         )
         conn.subscribe(

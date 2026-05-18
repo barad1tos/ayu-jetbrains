@@ -163,10 +163,13 @@ class AccentChangedPublishTest {
     fun `apply publishes AccentChangedTopic exactly once per usable open project`() {
         // D-02 invariant: one publish per usable project, with the post-resolution
         // source (so subscribers can render the "Project override" / "Global" label).
-        AccentApplicator.apply(AccentHex.of("#FFCC66")!!)
+        // CRIT-6: payload is now AccentHex, not raw String — assertion matches by
+        // wrapping the literal via the same factory the publisher uses.
+        val accentHex = AccentHex.of("#FFCC66")!!
+        AccentApplicator.apply(accentHex)
 
         verify(exactly = 1) {
-            listener.accentChanged(project, "#FFCC66", AccentResolver.Source.GLOBAL)
+            listener.accentChanged(project, accentHex, AccentResolver.Source.GLOBAL)
         }
     }
 
@@ -189,12 +192,13 @@ class AccentChangedPublishTest {
         every { mockProjectManager.openProjects } returns arrayOf(disposed, default, project)
         every { AccentResolver.source(project) } returns AccentResolver.Source.PROJECT_OVERRIDE
 
-        AccentApplicator.apply(AccentHex.of("#5CCFE6")!!)
+        val accentHex = AccentHex.of("#5CCFE6")!!
+        AccentApplicator.apply(accentHex)
 
         verify(exactly = 0) { listener.accentChanged(disposed, any(), any()) }
         verify(exactly = 0) { listener.accentChanged(default, any(), any()) }
         verify(exactly = 1) {
-            listener.accentChanged(project, "#5CCFE6", AccentResolver.Source.PROJECT_OVERRIDE)
+            listener.accentChanged(project, accentHex, AccentResolver.Source.PROJECT_OVERRIDE)
         }
     }
 

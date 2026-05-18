@@ -8,6 +8,7 @@ import com.intellij.ui.components.ActionLink
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.toolbar.popup.Density
@@ -43,8 +44,11 @@ internal class QuickSwitcherAccentGrid {
         val resolvedHex = resolveCurrentAccent()
         swatches =
             AYU_ACCENT_PRESETS.map { preset ->
+                // Pattern K — `preset.hex` is a compile-time literal from
+                // `AYU_ACCENT_PRESETS`; `unsafeOf` is the documented escape
+                // hatch for known-good values.
                 PopupSwatch(
-                    hex = preset.hex,
+                    hex = AccentHex.unsafeOf(preset.hex),
                     isSelected = preset.hex.equals(resolvedHex, ignoreCase = true),
                     onClick = { applyPreset(it) },
                 )
@@ -104,17 +108,18 @@ internal class QuickSwitcherAccentGrid {
         }
     }
 
-    private fun applyPreset(hex: String) {
+    private fun applyPreset(hex: AccentHex) {
+        val raw = hex.value
         try {
-            val applied = AccentApplicator.applyFromHexString(hex)
+            val applied = AccentApplicator.applyFromHexString(raw)
             if (applied) {
-                ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
-                swatches.forEach { swatch -> swatch.setSelected(swatch.hex.equals(hex, ignoreCase = true)) }
+                ProjectAccentSwapService.getInstance().notifyExternalApply(raw)
+                swatches.forEach { swatch -> swatch.setSelected(swatch.hex.value.equals(raw, ignoreCase = true)) }
             } else {
-                LOG.warn("Accent preset apply rejected hex=$hex")
+                LOG.warn("Accent preset apply rejected hex=$raw")
             }
         } catch (exception: RuntimeException) {
-            LOG.warn("Accent preset apply failed hex=$hex", exception)
+            LOG.warn("Accent preset apply failed hex=$raw", exception)
         }
     }
 

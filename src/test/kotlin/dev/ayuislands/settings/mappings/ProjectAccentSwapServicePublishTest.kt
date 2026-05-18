@@ -9,6 +9,7 @@ import com.intellij.util.messages.MessageBus
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentChangeListener
 import dev.ayuislands.accent.AccentChangedTopic
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.indent.IndentRainbowSync
@@ -111,7 +112,9 @@ class ProjectAccentSwapServicePublishTest {
         service.onWindowActivatedForTest(makeEvent(window))
 
         verify(exactly = 1) {
-            listener.accentChanged(project, "#FFCC66", AccentResolver.Source.PROJECT_OVERRIDE)
+            // CRIT-6: same-hex publisher now wraps via AccentHex.unsafeOf —
+            // assertion mirrors the call site.
+            listener.accentChanged(project, AccentHex.unsafeOf("#FFCC66"), AccentResolver.Source.PROJECT_OVERRIDE)
         }
     }
 
@@ -158,7 +161,7 @@ class ProjectAccentSwapServicePublishTest {
         verify(exactly = 2) { ComponentTreeRefresher.walkAndNotify(project, window) }
         // The publisher was invoked on the same-hex branch (second activation).
         verify(exactly = 1) {
-            listener.accentChanged(project, "#FFCC66", AccentResolver.Source.GLOBAL)
+            listener.accentChanged(project, AccentHex.unsafeOf("#FFCC66"), AccentResolver.Source.GLOBAL)
         }
     }
 

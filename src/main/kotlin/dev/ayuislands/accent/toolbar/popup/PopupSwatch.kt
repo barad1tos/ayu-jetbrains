@@ -2,6 +2,7 @@ package dev.ayuislands.accent.toolbar.popup
 
 import com.intellij.ui.ColorUtil
 import com.intellij.util.ui.JBUI
+import dev.ayuislands.accent.AccentHex
 import org.jetbrains.annotations.TestOnly
 import java.awt.AlphaComposite
 import java.awt.BasicStroke
@@ -35,14 +36,14 @@ import javax.swing.JComponent
  * Pattern A — mouse events run on EDT by Swing contract. Pattern Q — every
  * `Graphics.create()` block dismisses in `finally`.
  *
- * @param hex preset accent hex (e.g. `#FFB454`).
+ * @param hex preset accent as a validated [AccentHex] (e.g. `#FFB454`).
  * @param isSelected starting selected state (matches active accent).
  * @param onClick fires on mouse-release inside bounds with the swatch's [hex].
  */
 internal class PopupSwatch(
-    val hex: String,
+    val hex: AccentHex,
     isSelected: Boolean,
-    private val onClick: (String) -> Unit,
+    private val onClick: (AccentHex) -> Unit,
 ) : JComponent() {
     var selected: Boolean = isSelected
         private set
@@ -53,7 +54,7 @@ internal class PopupSwatch(
         isOpaque = false
         preferredSize = Dimension(JBUI.scale(WIDTH_PX), JBUI.scale(HEIGHT_PX))
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        toolTipText = hex
+        toolTipText = hex.value
         addMouseListener(
             object : MouseAdapter() {
                 override fun mouseEntered(event: MouseEvent) {
@@ -135,7 +136,7 @@ internal class PopupSwatch(
                 arc,
             )
 
-        val accent = ColorUtil.fromHex(hex)
+        val accent = ColorUtil.fromHex(hex.value)
         val borderColor = Color(BORDER_RGB)
 
         g2.color = accent

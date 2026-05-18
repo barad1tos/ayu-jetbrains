@@ -2,6 +2,7 @@ package dev.ayuislands.accent.toolbar.popup
 
 import com.intellij.ui.ColorUtil
 import com.intellij.util.ui.JBUI
+import dev.ayuislands.accent.AccentHex
 import java.awt.Color
 import java.awt.Dimension
 import java.awt.image.BufferedImage
@@ -26,7 +27,7 @@ import kotlin.test.assertTrue
 class PopupSwatchTest {
     @Test
     fun `preferred size is 36 x 24 JBUI scaled`() {
-        val swatch = PopupSwatch("#FFB454", isSelected = false, onClick = {})
+        val swatch = PopupSwatch(AccentHex.unsafeOf("#FFB454"), isSelected = false, onClick = {})
         assertEquals(Dimension(JBUI.scale(36), JBUI.scale(24)), swatch.preferredSize)
     }
 
@@ -36,7 +37,7 @@ class PopupSwatchTest {
         val height = JBUI.scale(24)
         val image = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
         val swatch =
-            PopupSwatch("#FFB454", isSelected = false, onClick = {}).apply {
+            PopupSwatch(AccentHex.unsafeOf("#FFB454"), isSelected = false, onClick = {}).apply {
                 setSize(width, height)
             }
         val g2 = image.createGraphics()
@@ -56,7 +57,7 @@ class PopupSwatchTest {
         val height = JBUI.scale(24)
         val image = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
         val swatch =
-            PopupSwatch("#FFB454", isSelected = true, onClick = {}).apply {
+            PopupSwatch(AccentHex.unsafeOf("#FFB454"), isSelected = true, onClick = {}).apply {
                 setSize(width, height)
             }
         val g2 = image.createGraphics()
@@ -80,7 +81,7 @@ class PopupSwatchTest {
         val height = JBUI.scale(24)
         val image = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
         val swatch =
-            PopupSwatch("#FFB454", isSelected = false, onClick = {}).apply {
+            PopupSwatch(AccentHex.unsafeOf("#FFB454"), isSelected = false, onClick = {}).apply {
                 setSize(width, height)
                 setPressedForTest(true)
             }
@@ -105,7 +106,7 @@ class PopupSwatchTest {
 
     @Test
     fun `setSelected flips the internal flag and triggers repaint`() {
-        val swatch = PopupSwatch("#FFB454", isSelected = false, onClick = {})
+        val swatch = PopupSwatch(AccentHex.unsafeOf("#FFB454"), isSelected = false, onClick = {})
         assertFalse(swatch.selected)
         swatch.setSelected(true)
         assertTrue(swatch.selected)
@@ -116,11 +117,13 @@ class PopupSwatchTest {
 
     @Test
     fun `click invokes onClick with the swatch hex exactly once`() {
-        // Spawn-A finding #2: `mockk<(String) -> Unit>(relaxed=true)` throws
+        // Spawn-A finding #2: `mockk<(AccentHex) -> Unit>(relaxed=true)` throws
         // UnsupportedOperationException on Kotlin function types. Use a capture list.
-        val captured = mutableListOf<String>()
+        // CRIT-6: onClick now receives AccentHex, not raw String — capture wraps to match.
+        val captured = mutableListOf<AccentHex>()
+        val hex = AccentHex.unsafeOf("#73D0FF")
         val swatch =
-            PopupSwatch("#73D0FF", isSelected = false, onClick = { captured.add(it) }).apply {
+            PopupSwatch(hex, isSelected = false, onClick = { captured.add(it) }).apply {
                 setSize(JBUI.scale(36), JBUI.scale(24))
             }
         val press =
@@ -149,7 +152,7 @@ class PopupSwatchTest {
             )
         swatch.dispatchEvent(press)
         swatch.dispatchEvent(release)
-        assertEquals(listOf("#73D0FF"), captured)
+        assertEquals(listOf(hex), captured)
     }
 
     private fun blend(

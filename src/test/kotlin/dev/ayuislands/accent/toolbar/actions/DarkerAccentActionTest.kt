@@ -7,6 +7,7 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.color.AccentHsl
@@ -102,8 +103,9 @@ class DarkerAccentActionTest {
 
     @Test
     fun `actionPerformed feeds AccentHsl darken output into applyFromHexString (Pattern D gated)`() {
-        // Test 29
-        val expected = AccentHsl.darken("#FFCC66")
+        // Test 29 — CRIT-6: darken now takes/returns AccentHex; unwrap via .value
+        // to match the String-typed apply boundary.
+        val expected = AccentHsl.darken(AccentHex.unsafeOf("#FFCC66")).value
         DarkerAccentAction().actionPerformed(newEvent())
         verify(exactly = 1) { AccentApplicator.applyFromHexString(expected) }
         verify(exactly = 1) { mockSwap.notifyExternalApply(expected) }

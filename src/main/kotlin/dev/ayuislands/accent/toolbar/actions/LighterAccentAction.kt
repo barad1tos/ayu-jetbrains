@@ -5,6 +5,7 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.DumbAwareAction
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.color.AccentHsl
@@ -37,7 +38,9 @@ class LighterAccentAction : DumbAwareAction("Lighter", "Lighten the current acce
                 LOG.warn("Lighter: resolve failed", exception)
                 return
             }
-        val newHex = AccentHsl.lighten(currentHex)
+        // `AccentResolver.resolve` contract guarantees a validated `#RRGGBB`;
+        // wrap via `unsafeOf` to lift the contract into the type (Pattern K).
+        val newHex = AccentHsl.lighten(AccentHex.unsafeOf(currentHex)).value
         try {
             val applied = AccentApplicator.applyFromHexString(newHex)
             if (applied) {

@@ -205,7 +205,9 @@ class QuickSwitcherAccentGridTest {
         val grid = QuickSwitcherAccentGrid()
         val north = (grid.component as JPanel).components.filterIsInstance<JPanel>().first()
         val swatches = north.components.filterIsInstance<PopupSwatch>()
-        val secondHex = swatches[1].hex
+        // CRIT-6: `swatch.hex` is now [AccentHex]; unwrap via `.value` for case-
+        // insensitive String comparison at the test boundary.
+        val secondHex = swatches[1].hex.value
         // Click the second swatch.
         swatches[1].setSize(36, 24)
         swatches[1].dispatchEvent(makePress(swatches[1]))
@@ -215,7 +217,7 @@ class QuickSwitcherAccentGridTest {
         assertEquals(1, selectedCount, "Exactly one swatch must be selected after apply; got $selectedCount")
         assertTrue(swatches[1].selected, "Clicked swatch must be selected after apply")
         // Belt-and-braces: prior selection (index 0 by default) must have cleared.
-        assertTrue(!swatches[0].selected || swatches[0].hex.equals(secondHex, ignoreCase = true))
+        assertTrue(!swatches[0].selected || swatches[0].hex.value.equals(secondHex, ignoreCase = true))
     }
 
     private fun collectActionLinks(

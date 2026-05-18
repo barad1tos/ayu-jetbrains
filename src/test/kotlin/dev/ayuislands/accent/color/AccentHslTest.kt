@@ -1,6 +1,7 @@
 package dev.ayuislands.accent.color
 
 import com.intellij.ui.ColorUtil
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.rotation.HslColor
 import java.nio.file.Files
 import java.nio.file.Paths
@@ -22,7 +23,8 @@ class AccentHslTest {
     fun `lighten on pure black clamps to MIN_LIGHTNESS`() {
         // L=0 + STEP=0.05 -> coerceIn -> 0.10 (MIN_LIGHTNESS). Returns NEW hex
         // because the post-clamp value differs from input lightness.
-        val result = AccentHsl.lighten("#000000")
+        // CRIT-6: lighten/darken now take and return AccentHex.
+        val result = AccentHsl.lighten(AccentHex.unsafeOf("#000000")).value
         val resultLightness = HslColor.fromColor(ColorUtil.fromHex(result)).lightness
         assertTrue(
             abs(resultLightness - AccentHsl.MIN_LIGHTNESS) < epsilon,
@@ -33,7 +35,7 @@ class AccentHslTest {
     @Test
     fun `darken on pure white clamps to MAX_LIGHTNESS`() {
         // L=1.0 - STEP=0.95 -> coerceIn -> 0.95 (MAX_LIGHTNESS). Returns NEW hex.
-        val result = AccentHsl.darken("#FFFFFF")
+        val result = AccentHsl.darken(AccentHex.unsafeOf("#FFFFFF")).value
         val resultLightness = HslColor.fromColor(ColorUtil.fromHex(result)).lightness
         assertTrue(
             abs(resultLightness - AccentHsl.MAX_LIGHTNESS) < epsilon,
@@ -44,7 +46,7 @@ class AccentHslTest {
     @Test
     fun `lighten on pure white clamps step result to MAX_LIGHTNESS`() {
         // L=1.0 + STEP=1.05 -> coerceIn -> 0.95. Returns NEW hex (post-clamp != input L).
-        val result = AccentHsl.lighten("#FFFFFF")
+        val result = AccentHsl.lighten(AccentHex.unsafeOf("#FFFFFF")).value
         val resultLightness = HslColor.fromColor(ColorUtil.fromHex(result)).lightness
         assertTrue(
             abs(resultLightness - AccentHsl.MAX_LIGHTNESS) < epsilon,
@@ -55,16 +57,16 @@ class AccentHslTest {
     @Test
     fun `lighten at MAX_LIGHTNESS edge returns INPUT unchanged (no-op detection)`() {
         // Construct a hex at exactly L=MAX_LIGHTNESS so the post-clamp lightness equals
-        // the input lightness — `lighten` returns the original hex so callers can
-        // detect a no-op by hex equality and surface the ADJUST-04 balloon hint.
-        val ceilingHex = HslColor.toHex(0f, 0f, AccentHsl.MAX_LIGHTNESS)
+        // the input lightness — `lighten` returns the original AccentHex so callers can
+        // detect a no-op by value equality and surface the ADJUST-04 balloon hint.
+        val ceilingHex = AccentHex.unsafeOf(HslColor.toHex(0f, 0f, AccentHsl.MAX_LIGHTNESS))
         val result = AccentHsl.lighten(ceilingHex)
         assertEquals(ceilingHex, result, "Expected `lighten` at MAX_LIGHTNESS to return input unchanged")
     }
 
     @Test
     fun `darken at MIN_LIGHTNESS edge returns INPUT unchanged (no-op detection)`() {
-        val floorHex = HslColor.toHex(0f, 0f, AccentHsl.MIN_LIGHTNESS)
+        val floorHex = AccentHex.unsafeOf(HslColor.toHex(0f, 0f, AccentHsl.MIN_LIGHTNESS))
         val result = AccentHsl.darken(floorHex)
         assertEquals(floorHex, result, "Expected `darken` at MIN_LIGHTNESS to return input unchanged")
     }
@@ -72,9 +74,9 @@ class AccentHslTest {
     @Test
     fun `lighten on MIRAGE default accent shifts lightness by STEP`() {
         // `#FFCC66` (MIRAGE default) has L ~ 0.70; result L ~ 0.75.
-        val input = "#FFCC66"
-        val inputLightness = HslColor.fromColor(ColorUtil.fromHex(input)).lightness
-        val result = AccentHsl.lighten(input)
+        val input = AccentHex.unsafeOf("#FFCC66")
+        val inputLightness = HslColor.fromColor(ColorUtil.fromHex(input.value)).lightness
+        val result = AccentHsl.lighten(input).value
         val resultLightness = HslColor.fromColor(ColorUtil.fromHex(result)).lightness
         assertTrue(
             abs(resultLightness - (inputLightness + AccentHsl.STEP)) < epsilon,
@@ -85,9 +87,9 @@ class AccentHslTest {
     @Test
     fun `darken-then-lighten roundtrip on MIRAGE default returns within rounding tolerance`() {
         // Per-channel rounding tolerance — one hex byte per channel is ±1/255.
-        val input = "#FFCC66"
-        val roundtrip = AccentHsl.darken(AccentHsl.lighten(input))
-        val inputColor = ColorUtil.fromHex(input)
+        val input = AccentHex.unsafeOf("#FFCC66")
+        val roundtrip = AccentHsl.darken(AccentHsl.lighten(input)).value
+        val inputColor = ColorUtil.fromHex(input.value)
         val roundtripColor = ColorUtil.fromHex(roundtrip)
         val tolerance = 2
         assertTrue(

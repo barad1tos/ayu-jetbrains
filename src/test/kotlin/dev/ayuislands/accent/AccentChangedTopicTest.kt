@@ -54,20 +54,53 @@ class AccentChangedTopicTest {
             "AccentChangeListener must expose exactly one abstract method; got: $abstractMethods",
         )
         val method = abstractMethods.single()
-        assertEquals(
-            "accentChanged",
-            method.name,
-            "The single abstract method must be named accentChanged so the topic fan-out signature is stable",
+        // CRIT-6: Kotlin mangles the JVM name of functions that take a value
+        // class parameter (`AccentHex` → `accentChanged-Czfobf0`). The Kotlin
+        // source-level name is still `accentChanged`; the JVM-visible mangled
+        // suffix is the value-class fingerprint. Assert prefix so the test
+        // tolerates the documented mangle but still locks the source identifier.
+        assertTrue(
+            method.name.startsWith("accentChanged"),
+            "The single abstract method's JVM name must start with `accentChanged` " +
+                "(mangle suffix is value-class fingerprint); got: ${method.name}",
         )
-        // Payload signature: (project, hex, source) — load-bearing for D-01 / D-02 / D-03.
+        // Payload signature: (project, AccentHex erased to String, source) — load-bearing for D-01 / D-02 / D-03.
+        // CRIT-6: hex parameter lifted from raw String to the validated [AccentHex]
+        // value class. JVM bytecode erases value classes to their underlying type
+        // (`String`), but the mangled method name (`accentChanged-Czfobf0`,
+        // asserted above) carries the value-class fingerprint and prevents an
+        // accidental rewind to a raw-String signature.
         val params = method.parameterTypes
         assertEquals(3, params.size, "accentChanged must take exactly three parameters; got: ${params.toList()}")
         assertEquals(Project::class.java, params[0], "First parameter must be Project")
-        assertEquals(String::class.java, params[1], "Second parameter must be the hex String")
+        assertEquals(
+            String::class.java,
+            params[1],
+            "Second parameter is `AccentHex` at Kotlin source, erased to `String` at JVM " +
+                "(see mangled method-name check above for the value-class lock)",
+        )
         assertEquals(
             AccentResolver.Source::class.java,
             params[2],
             "Third parameter must be AccentResolver.Source so subscribers can filter by resolution layer",
+        )
+    }
+
+    @Test
+    fun `accentChanged JVM name carries value-class mangle suffix (Pattern K lock)`() {
+        // Pattern K source-level regression lock — a casual refactor that
+        // changes the hex parameter back to a raw String would also remove
+        // the `-Czfobf0` mangle suffix from the method name, because Kotlin
+        // mangles JVM names for any function taking a value-class parameter.
+        // Locking on `contains("-")` proves at least one value-class parameter
+        // remains in the signature.
+        val method =
+            AccentChangeListener::class.java.declaredMethods
+                .single { Modifier.isAbstract(it.modifiers) }
+        assertTrue(
+            method.name.contains("-"),
+            "accentChanged must carry a Kotlin value-class mangle suffix " +
+                "(proves at least one parameter is an AccentHex/value class); got: ${method.name}",
         )
     }
 }

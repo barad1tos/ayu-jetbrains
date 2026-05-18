@@ -14,6 +14,7 @@ import com.intellij.util.ui.ColorIcon
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentChangeListener
 import dev.ayuislands.accent.AccentChangedTopic
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import io.mockk.every
@@ -150,7 +151,8 @@ class QuickSwitcherChipFocusSwapTest {
         assertTrue(accentListenerSlot.isCaptured, "AccentChangeListener must be captured")
 
         // Fire the publish (Wave 1 publisher signature: project, hex, source).
-        accentListenerSlot.captured.accentChanged(project, "#DFBFFF", AccentResolver.Source.GLOBAL)
+        // CRIT-6: hex parameter is now AccentHex — wrap the literal to match.
+        accentListenerSlot.captured.accentChanged(project, AccentHex.unsafeOf("#DFBFFF"), AccentResolver.Source.GLOBAL)
         // Handler wraps in SwingUtilities.invokeLater; flush.
         SwingUtilities.invokeAndWait { /* flush */ }
 
@@ -175,7 +177,7 @@ class QuickSwitcherChipFocusSwapTest {
         val chip = QuickSwitcherChipComponent()
         chip.addNotify()
         chip.refreshFromFocusedProject()
-        accentListenerSlot.captured.accentChanged(project, "#FFCC66", AccentResolver.Source.GLOBAL)
+        accentListenerSlot.captured.accentChanged(project, AccentHex.unsafeOf("#FFCC66"), AccentResolver.Source.GLOBAL)
         SwingUtilities.invokeAndWait { /* flush */ }
         activationListenerSlot.captured.applicationActivated(mockk(relaxed = true))
 
