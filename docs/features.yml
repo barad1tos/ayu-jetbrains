@@ -89,7 +89,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "e543bc6"
+          last_verified_sha: "34dd6bd"
           last_verified_date: "2026-05-18"
           content_sha256: "4c86c5d855c6dcefd703f647451bac4117397e435b05dd9cae6b9cbc7f479616"
 
@@ -110,7 +110,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "e543bc6"
+          last_verified_sha: "34dd6bd"
           last_verified_date: "2026-05-18"
           content_sha256: "ea83498db84a5cd122dd1d09132d74774c6e24295188b93464fddb0d784bf4e1"
 
@@ -165,6 +165,20 @@ categories:
           sliders. Configured from Settings → Ayu Islands → VCS. Master
           toggle off by default — 2.6.2 colors stay byte-identical until
           users opt in.
+
+      - id: quick-switcher-widget
+        title: "Quick-Switcher Widget"
+        keyword: "Quick-Switcher Widget"
+        introduced: "2.6.4"
+        tier: free
+        description: >
+          A chip in the main toolbar reflects the focused project's
+          accent. Left-click opens a popup with variant + Islands UI
+          toggle and the full accent grid (FREE). Right-click opens the
+          same quick actions as a context menu for keyboard-friendly
+          workflows. Hide the widget from Settings → Ayu Islands →
+          General. Premium-tier rows (related toggles + quick actions)
+          appear inside the popup when the license is active or in trial.
 
   glow:
     title: "Glow effects"
