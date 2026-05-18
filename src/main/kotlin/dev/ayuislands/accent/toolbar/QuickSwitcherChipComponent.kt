@@ -1,6 +1,5 @@
 package dev.ayuislands.accent.toolbar
 
-import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.application.ApplicationActivationListener
 import com.intellij.openapi.application.ApplicationManager
@@ -33,20 +32,42 @@ import javax.swing.SwingUtilities
  * The popup-attached visual feedback is delegated to the platform — IntelliJ
  * paints its standard MainToolbar action-button hover / pressed background
  * around the chip cell while the popup it anchors is open. No custom focused
- * ring is drawn here; an earlier Wave-7 attempt at a 2-px overlay misaligned
- * with the platform highlight and was removed.
+ * ring is drawn here; an earlier attempt at a 2-px overlay misaligned with
+ * the platform highlight and was removed.
  *
- * Subscribes to [AccentChangedTopic] (Wave 1) AND [ApplicationActivationListener.TOPIC]
- * (Wave 2) via a single per-instance [Disposable] parent — Pattern E. Mouse routes
- * LMB to the popup (with `this` passed so the popup can wire a per-popup
+ * **Lifecycle.** The chip is a pure Swing component: `addNotify` opens the
+ * [com.intellij.openapi.application.ApplicationManager]-scoped
+ * [MessageBusConnection] (Pattern E parent = `this` JLabel, which is also a
+ * platform `Disposable` via the JBComponent contract — but the chip does NOT
+ * implement [com.intellij.openapi.Disposable] explicitly, because nobody
+ * registers it with [com.intellij.openapi.util.Disposer]. An earlier draft
+ * exposed an `override fun dispose()` that was never invoked by the platform;
+ * removing it removes the misleading API surface). `removeNotify` disconnects.
+ * The 10-cycle subscribe/disconnect contract locked by
+ * `QuickSwitcherWidgetLifecycleTest` runs purely against `addNotify` /
+ * `removeNotify`.
+ *
+ * Subscribes to [AccentChangedTopic] AND [ApplicationActivationListener.TOPIC]
+ * via a single per-instance [MessageBusConnection]. Mouse routes LMB to the
+ * popup (with `this` passed so the popup can wire a per-popup
  * [com.intellij.openapi.ui.popup.JBPopupListener] that toggles popup-attached
  * state for any future consumers that depend on it) and RMB to the right-click
- * context menu (Wave 3).
+ * context menu.
  */
-internal class QuickSwitcherChipComponent :
-    JLabel(),
-    Disposable {
+internal class QuickSwitcherChipComponent : JLabel() {
     private var connection: MessageBusConnection? = null
+
+    /**
+     * Owned [com.intellij.openapi.Disposable] handed to
+     * [com.intellij.util.messages.MessageBus.connect] as the subscription's
+     * lifetime parent. Disposed inside [removeNotify] to tear down the
+     * connection's parent contract cleanly — the chip itself does NOT need to
+     * be a [com.intellij.openapi.Disposable]; pulling the lifetime out into a
+     * dedicated holder lets the chip stay a pure Swing component while still
+     * giving the message bus a proper parent (no Application-scoped lifetime
+     * leak across plugin reloads — Pattern E discipline).
+     */
+    private var connectionParent: com.intellij.openapi.Disposable? = null
 
     internal var isPopupAttached: Boolean = false
         private set
@@ -87,8 +108,12 @@ internal class QuickSwitcherChipComponent :
 
     override fun addNotify() {
         super.addNotify()
-        if (connection != null) return // re-attach idempotency — see RESEARCH §7
-        val conn = ApplicationManager.getApplication().messageBus.connect(this)
+        if (connection != null) return // re-attach idempotency
+        val parent =
+            com.intellij.openapi.util.Disposer
+                .newDisposable("QuickSwitcherChip.connection")
+        connectionParent = parent
+        val conn = ApplicationManager.getApplication().messageBus.connect(parent)
         connection = conn
         conn.subscribe(
             AccentChangedTopic.TOPIC,
@@ -110,12 +135,12 @@ internal class QuickSwitcherChipComponent :
     override fun removeNotify() {
         connection?.disconnect()
         connection = null
+        connectionParent?.let {
+            com.intellij.openapi.util.Disposer
+                .dispose(it)
+        }
+        connectionParent = null
         super.removeNotify()
-    }
-
-    override fun dispose() {
-        connection?.disconnect()
-        connection = null
     }
 
     /**

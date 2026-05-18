@@ -134,14 +134,16 @@ class QuickSwitcherChipComponentTest {
     }
 
     @Test
-    fun `addNotify opens exactly one MessageBusConnection with chip as parent`() {
+    fun `addNotify opens exactly one MessageBusConnection with an owned Disposable parent (CRIT-5)`() {
         stubAyuActive(true)
         stubResolver(hex = "#FFCC66", source = AccentResolver.Source.GLOBAL)
 
         val chip = QuickSwitcherChipComponent()
         chip.addNotify()
 
-        verify(exactly = 1) { mockMessageBus.connect(chip as Disposable) }
+        // After CRIT-5 the parent is an owned Disposable (not the chip itself),
+        // so we match on the Disposable interface only.
+        verify(exactly = 1) { mockMessageBus.connect(any<Disposable>()) }
     }
 
     @Test
@@ -166,8 +168,8 @@ class QuickSwitcherChipComponentTest {
         chip.addNotify()
 
         // Only one connect call across the two addNotify invocations — the
-        // `if (connection != null) return` early-return per RESEARCH §7.
-        verify(exactly = 1) { mockMessageBus.connect(chip as Disposable) }
+        // `if (connection != null) return` early-return guard.
+        verify(exactly = 1) { mockMessageBus.connect(any<Disposable>()) }
     }
 
     @Test
@@ -182,19 +184,34 @@ class QuickSwitcherChipComponentTest {
         verify(atLeast = 1) { mockConnection.disconnect() }
         // After removeNotify, addNotify can subscribe again — proves connection is null.
         chip.addNotify()
-        verify(exactly = 2) { mockMessageBus.connect(chip as Disposable) }
+        verify(exactly = 2) { mockMessageBus.connect(any<Disposable>()) }
     }
 
     @Test
-    fun `dispose disconnects the connection`() {
+    fun `removeNotify owns the only teardown path (no Disposable surface — CRIT-5)`() {
+        // CRIT-5: the chip is no longer `Disposable` itself — the platform's
+        // lifecycle for a CustomComponentAction component is purely
+        // addNotify/removeNotify. The owned `connectionParent` Disposable is
+        // disposed inside removeNotify; the chip exposes no dispose() method.
         stubAyuActive(true)
         stubResolver(hex = "#FFCC66", source = AccentResolver.Source.GLOBAL)
 
         val chip = QuickSwitcherChipComponent()
         chip.addNotify()
-        chip.dispose()
+        chip.removeNotify()
 
         verify(atLeast = 1) { mockConnection.disconnect() }
+        // Belt-and-braces: chip must NOT implement Disposable (would invite
+        // platform code to Disposer.register the chip and break the
+        // addNotify/removeNotify-owned lifecycle). Reflective check so the
+        // assertion survives a future Kotlin compiler that hard-errors on
+        // "is always false" smart-cast checks.
+        val isDisposable =
+            com.intellij.openapi.Disposable::class.java.isAssignableFrom(chip.javaClass)
+        assertFalse(
+            isDisposable,
+            "Chip must NOT be Disposable — lifecycle is Swing-owned per CRIT-5",
+        )
     }
 
     @Test

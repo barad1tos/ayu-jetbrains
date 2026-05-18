@@ -150,11 +150,15 @@ class QuickSwitcherWidgetLifecycleTest {
     }
 
     @Test
-    fun `dispose disconnects the connection even when removeNotify did not fire`() {
-        // Cover the abnormal teardown path — plugin reload, GC before removeNotify.
+    fun `removeNotify disposes the connection parent (Pattern E)`() {
+        // After CRIT-5: chip is no longer Disposable itself; instead it owns a
+        // dedicated `connectionParent` Disposable whose lifetime equals the
+        // message-bus subscription lifetime. removeNotify disposes that holder
+        // AND calls disconnect. Either path alone would be sufficient at the
+        // platform level; both run for belt-and-braces symmetry.
         val chip = QuickSwitcherChipComponent()
         chip.addNotify()
-        chip.dispose()
+        chip.removeNotify()
 
         verify(exactly = 1) { connection.disconnect() }
     }
