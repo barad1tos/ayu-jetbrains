@@ -1,10 +1,16 @@
 package dev.ayuislands.accent.toolbar
 
 import com.intellij.ide.ui.LafManager
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.application.Application
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.ui.popup.ComponentPopupBuilder
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -51,6 +57,21 @@ class QuickSwitcherPopupTest {
         val lafManager = mockk<LafManager>(relaxed = true)
         every { LafManager.getInstance() } returns lafManager
         every { lafManager.currentUIThemeLookAndFeel } returns null
+        // Wave 4 premium block reads `AyuIslandsSettings.state` (related toggles
+        // bindSelected backing) and `LicenseChecker.isLicensedOrGrace()` (premium
+        // gate). Stub both so the popup body builds in a headless harness.
+        val settings = mockk<AyuIslandsSettings>(relaxed = true)
+        every { settings.state } returns AyuIslandsState()
+        mockkObject(AyuIslandsSettings.Companion)
+        every { AyuIslandsSettings.getInstance() } returns settings
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        // Wave 4 quick-actions row instantiates the five DumbAwareAction subclasses
+        // which reach for ApplicationManager.getApplication() during construction.
+        mockkStatic(ApplicationManager::class)
+        val mockApp = mockk<Application>(relaxed = true)
+        every { ApplicationManager.getApplication() } returns mockApp
+        every { mockApp.getService(ActionManager::class.java) } returns mockk<ActionManager>(relaxed = true)
 
         mockkStatic(JBPopupFactory::class)
         val factory = mockk<JBPopupFactory>(relaxed = true)
