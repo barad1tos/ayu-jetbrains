@@ -75,15 +75,20 @@ internal class VariantSwitcherRow(
         }
     }
 
-    @Suppress("UnstableApiUsage") // findLaf + setCurrentLookAndFeel(UIThemeLookAndFeelInfo, Boolean)
+    @Suppress("UnstableApiUsage") // getInstalledThemes + setCurrentLookAndFeel(UIThemeLookAndFeelInfo, Boolean)
     private fun applyVariantAndChrome(
         variant: AyuVariant,
         islandsUi: Boolean,
     ) {
         val themeName = VariantThemeNameResolver.resolveThemeName(variant, islandsUi)
         val lafManager = LafManager.getInstance()
+        // `findLaf(String)` on IDEA 2026.1 expects the platform theme *id* (e.g.
+        // `com.ayuislands.theme.mirage`), not the user-visible *name* ("Ayu Mirage").
+        // Match by name across the installed-themes sequence so this stays decoupled
+        // from plugin.xml `themeProvider` ids — if those ids ever change, this still
+        // resolves as long as the display names in `themes/*.theme.json` match.
         val laf =
-            lafManager.findLaf(themeName) ?: run {
+            lafManager.installedThemes.firstOrNull { it.name == themeName } ?: run {
                 LOG.warn("Theme not found for variant=$variant islandsUi=$islandsUi name='$themeName'")
                 return
             }

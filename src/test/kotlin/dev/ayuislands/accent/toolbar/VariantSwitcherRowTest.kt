@@ -27,7 +27,7 @@ import kotlin.test.assertTrue
  *     `JCheckBox` left in the file),
  *   - selecting a segment calls `applyVariantAndChrome` via
  *     `LafManager.setCurrentLookAndFeel(laf, false)` (Pitfall 5 lock),
- *   - null `findLaf` is a warn-and-return no-op (Pitfall 7 fail-safe).
+ *   - missing theme in `installedThemes` is a warn-and-return no-op (Pitfall 7 fail-safe).
  */
 class VariantSwitcherRowTest {
     private val lafManager = mockk<LafManager>(relaxed = true)
@@ -39,7 +39,7 @@ class VariantSwitcherRowTest {
         every { LafManager.getInstance() } returns lafManager
         every { lafManager.currentUIThemeLookAndFeel } returns mirageTheme
         every { mirageTheme.name } returns "Ayu Mirage"
-        every { lafManager.findLaf(any()) } returns mirageTheme
+        every { lafManager.installedThemes } returns sequenceOf(mirageTheme)
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns null
         mockkObject(AccentResolver)
@@ -70,9 +70,10 @@ class VariantSwitcherRowTest {
     }
 
     @Test
-    fun `selecting a SegmentedControl cell calls findLaf and setCurrentLookAndFeel`() {
+    fun `selecting a SegmentedControl cell resolves theme by name and calls setCurrentLookAndFeel`() {
         val darkTheme = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
-        every { lafManager.findLaf("Ayu Dark") } returns darkTheme
+        every { darkTheme.name } returns "Ayu Dark"
+        every { lafManager.installedThemes } returns sequenceOf(mirageTheme, darkTheme)
 
         val row = VariantSwitcherRow(AyuVariant.MIRAGE)
         val segmented =
@@ -100,14 +101,13 @@ class VariantSwitcherRowTest {
             )
         darkCell.dispatchEvent(click)
 
-        verify { lafManager.findLaf("Ayu Dark") }
         verify { lafManager.setCurrentLookAndFeel(darkTheme, false) }
         verify { lafManager.updateUI() }
     }
 
     @Test
-    fun `null findLaf result is a warn-and-return no-op (Pitfall 7)`() {
-        every { lafManager.findLaf(any()) } returns null
+    fun `missing theme in installedThemes is a warn-and-return no-op (Pitfall 7)`() {
+        every { lafManager.installedThemes } returns emptySequence()
 
         val row = VariantSwitcherRow(AyuVariant.MIRAGE)
         val segmented =
@@ -136,7 +136,8 @@ class VariantSwitcherRowTest {
     @Test
     fun `toggling IslandsUiPill re-applies the currently selected variant with the new flavour`() {
         val islandsTheme = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
-        every { lafManager.findLaf("Ayu Mirage (Islands UI)") } returns islandsTheme
+        every { islandsTheme.name } returns "Ayu Mirage (Islands UI)"
+        every { lafManager.installedThemes } returns sequenceOf(mirageTheme, islandsTheme)
 
         val row = VariantSwitcherRow(AyuVariant.MIRAGE)
         val pill =
@@ -157,7 +158,7 @@ class VariantSwitcherRowTest {
             )
         pill.dispatchEvent(click)
 
-        verify { lafManager.findLaf("Ayu Mirage (Islands UI)") }
+        verify { lafManager.setCurrentLookAndFeel(islandsTheme, false) }
     }
 
     private companion object {
