@@ -120,4 +120,55 @@ class QuickSwitcherActionParityTest {
         // bugs. Each consumer (chip RMB, popup row) gets its own instance.
         assertNotSame(QuickSwitcherActionGroup.build(), QuickSwitcherActionGroup.build())
     }
+
+    @Test
+    fun `popup quick-actions row uses each Wave 3 action class exactly once`() {
+        // Test 15 — D-14b parity invariant for the Wave 4 popup row.
+        // QuickSwitcherQuickActionsRow.kt instantiates the five action classes
+        // directly (NOT via the group, because the popup row is a Swing JPanel
+        // of JButtons, not a DefaultActionGroup). Source-grep at test time is
+        // the regression lock — any future edit that drops, duplicates, or
+        // swaps a constructor breaks the parity invariant.
+        val rowPath = Paths.get("src/main/kotlin/dev/ayuislands/accent/toolbar/QuickSwitcherQuickActionsRow.kt")
+        val body = Files.readString(rowPath)
+        for (ctor in CANONICAL_CONSTRUCTORS) {
+            val matches = body.split(ctor).size - 1
+            assertEquals(1, matches, "Expected exactly one `$ctor` in QuickSwitcherQuickActionsRow.kt, got $matches")
+        }
+    }
+
+    @Test
+    fun `quick-actions row constructor order matches QuickSwitcherActionGroup build order`() {
+        // Test 16 — D-14b ordering invariant. Read both files, regex-collect
+        // the (Pin|Random|Lighter|Darker)AccentAction()|CopyHexAction()
+        // constructor calls (trailing `()` excludes import statements which
+        // share the class names but appear alphabetically sorted in imports).
+        val groupPath = Paths.get("src/main/kotlin/dev/ayuislands/accent/toolbar/actions/QuickSwitcherActionGroup.kt")
+        val rowPath = Paths.get("src/main/kotlin/dev/ayuislands/accent/toolbar/QuickSwitcherQuickActionsRow.kt")
+        val classRegex = "((Pin|Random|Lighter|Darker)AccentAction|CopyHexAction)\\(\\)".toRegex()
+        val groupOrder = classRegex.findAll(Files.readString(groupPath)).map { it.groupValues[1] }.toList()
+        val rowOrder = classRegex.findAll(Files.readString(rowPath)).map { it.groupValues[1] }.toList()
+        val expected =
+            listOf(
+                "PinAccentAction",
+                "RandomAccentAction",
+                "LighterAccentAction",
+                "DarkerAccentAction",
+                "CopyHexAction",
+            )
+        assertEquals(expected, groupOrder, "QuickSwitcherActionGroup constructor order drifted (D-14b)")
+        assertEquals(expected, rowOrder, "QuickSwitcherQuickActionsRow constructor order drifted (D-14b)")
+        assertEquals(groupOrder, rowOrder, "Group and row constructor orders MUST match (D-14b)")
+    }
+
+    private companion object {
+        val CANONICAL_CONSTRUCTORS =
+            listOf(
+                "PinAccentAction()",
+                "RandomAccentAction()",
+                "LighterAccentAction()",
+                "DarkerAccentAction()",
+                "CopyHexAction()",
+            )
+    }
 }
