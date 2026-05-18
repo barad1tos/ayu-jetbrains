@@ -6,6 +6,7 @@ import com.intellij.ui.dsl.builder.bindSelected
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentDefaults
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.toolbar.popup.Density
@@ -50,7 +51,7 @@ internal class QuickSwitcherRelatedTogglesSection {
                 AccentResolver.resolve(AccentApplicator.resolveFocusedProject(), variant)
             } catch (exception: RuntimeException) {
                 LOG.warn("Toggles section accent resolve failed", exception)
-                DEFAULT_ACCENT_FALLBACK
+                AccentDefaults.MIRAGE_HEX
             }
         }
 
@@ -159,7 +160,6 @@ internal class QuickSwitcherRelatedTogglesSection {
     private companion object {
         const val GRID_ROWS = 2
         const val GRID_COLS = 2
-        const val DEFAULT_ACCENT_FALLBACK = "#FFB454"
         val LOG = logger<QuickSwitcherRelatedTogglesSection>()
     }
 }

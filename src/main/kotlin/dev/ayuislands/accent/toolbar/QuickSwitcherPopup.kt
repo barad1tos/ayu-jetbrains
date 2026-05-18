@@ -1,7 +1,6 @@
 package dev.ayuislands.accent.toolbar
 
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.JBPopupListener
@@ -13,6 +12,7 @@ import com.intellij.ui.dsl.builder.panel
 import com.intellij.ui.layout.ComponentPredicate
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentDefaults
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.toolbar.popup.AccentStripe
@@ -134,11 +134,5 @@ internal object QuickSwitcherPopup {
             DEFAULT_ACCENT_FALLBACK
         }
 
-    @Suppress("unused")
-    private fun openAyuSettings() {
-        val project = AccentApplicator.resolveFocusedProject()
-        ShowSettingsUtil.getInstance().showSettingsDialog(project, "Ayu Islands")
-    }
-
-    private const val DEFAULT_ACCENT_FALLBACK: String = "#FFB454"
+    private const val DEFAULT_ACCENT_FALLBACK: String = AccentDefaults.MIRAGE_HEX
 }

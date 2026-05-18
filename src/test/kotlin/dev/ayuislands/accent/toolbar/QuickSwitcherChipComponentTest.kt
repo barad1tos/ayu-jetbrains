@@ -24,7 +24,6 @@ import java.awt.Dimension
 import java.awt.event.MouseEvent
 import java.nio.file.Files
 import java.nio.file.Paths
-import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -358,13 +357,6 @@ class QuickSwitcherChipComponentTest {
             false,
             MouseEvent.BUTTON3,
         )
-
-    @Suppress("unused")
-    private fun edtAssertion(captured: () -> Unit) {
-        // Convenience for any future test needing EDT verification — invokeAndWait
-        // is the simplest path under a headless harness.
-        SwingUtilities.invokeAndWait(captured)
-    }
 
     private companion object {
         const val CHIP_SOURCE_PATH = "src/main/kotlin/dev/ayuislands/accent/toolbar/QuickSwitcherChipComponent.kt"

@@ -4,6 +4,7 @@ import com.intellij.ide.ui.LafManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentDefaults
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.toolbar.popup.Density
@@ -70,7 +71,7 @@ internal class VariantSwitcherRow(
             AccentResolver.resolve(project, variant)
         } catch (exception: RuntimeException) {
             LOG.warn("Variant row accent resolve failed", exception)
-            DEFAULT_ACCENT_FALLBACK
+            AccentDefaults.MIRAGE_HEX
         }
     }
 
@@ -94,7 +95,6 @@ internal class VariantSwitcherRow(
 
     private companion object {
         const val ISLANDS_UI_SUFFIX = "(Islands UI)"
-        const val DEFAULT_ACCENT_FALLBACK = "#FFB454"
         val LOG = logger<VariantSwitcherRow>()
     }
 }
