@@ -70,6 +70,7 @@ internal object QuickSwitcherPopup {
 
         val stripe = AccentStripe { resolveCurrentAccentHex(variant) }
 
+        val licenseGate = licenseGate()
         val content =
             panel {
                 row { cell(stripe).align(AlignX.FILL) }
@@ -84,15 +85,15 @@ internal object QuickSwitcherPopup {
                 row { cell(BlockSeparator()).align(AlignX.FILL) }
                     .topGap(TopGap.NONE)
                     .bottomGap(BottomGap.NONE)
-                    .visibleIf(ComponentPredicate.fromValue(LicenseChecker.isLicensedOrGrace()))
+                    .visibleIf(licenseGate)
                 row { cell(togglesCard).align(AlignX.FILL) }
                     .topGap(TopGap.NONE)
                     .bottomGap(BottomGap.NONE)
-                    .visibleIf(ComponentPredicate.fromValue(LicenseChecker.isLicensedOrGrace()))
+                    .visibleIf(licenseGate)
                 row { cell(actionsCard).align(AlignX.FILL) }
                     .topGap(TopGap.NONE)
                     .bottomGap(BottomGap.NONE)
-                    .visibleIf(ComponentPredicate.fromValue(LicenseChecker.isLicensedOrGrace()))
+                    .visibleIf(licenseGate)
             }.apply {
                 border = JBUI.Borders.empty(JBUI.scale(Density.POPUP_PAD))
             }
@@ -132,6 +133,30 @@ internal object QuickSwitcherPopup {
         } catch (exception: RuntimeException) {
             LOG.warn("AccentStripe resolve failed", exception)
             DEFAULT_ACCENT_FALLBACK
+        }
+
+    /**
+     * Live license predicate — re-evaluates [LicenseChecker.isLicensedOrGrace]
+     * per `invoke()`. Replaces the original `ComponentPredicate.fromValue(...)`
+     * snapshot, which captured the license state at panel-build time and went
+     * stale when the trial expired (or a license was activated) while the popup
+     * was open.
+     *
+     * All three premium gates (separator + toggles card + actions card) share
+     * one instance so they cannot drift; if one card hides on trial expiry,
+     * the other two AND the separator hide in the same paint pass.
+     *
+     * `addListener` is intentionally a no-op — the popup is short-lived (closes
+     * on outside click), there is no model whose change would fan out to the
+     * predicate's subscribers, and the predicate is re-asked by the DSL on each
+     * `update` tick anyway. Wiring a real listener here would risk a leaked
+     * subscription against [LicenseChecker]'s global state.
+     */
+    private fun licenseGate(): ComponentPredicate =
+        object : ComponentPredicate() {
+            override fun invoke(): Boolean = LicenseChecker.isLicensedOrGrace()
+
+            override fun addListener(listener: (Boolean) -> Unit) = Unit
         }
 
     private const val DEFAULT_ACCENT_FALLBACK: String = AccentDefaults.MIRAGE_HEX

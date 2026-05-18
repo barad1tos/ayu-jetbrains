@@ -20,21 +20,32 @@ import javax.swing.JComponent
 import javax.swing.JPanel
 
 /**
- * Wave-7 redesign of the toggles section per 48-REDESIGN-SPEC §3.5: 2-column ×
- * 2-row grid of [ToggleTile] composites (icon + label + [ToggleSwitch]) — replaces
- * the Wave-4 vertical [JCheckBox] stack.
+ * 2-column × 2-row grid of [ToggleTile] composites (icon + label +
+ * [ToggleSwitch]) — replaces an earlier vertical [JCheckBox] stack.
  *
- * Per Locked Answer #3, "Chrome tinting" still binds to `state.chromeStatusBar`
- * ONLY (the most user-visible chrome surface); the full 5-surface granularity
- * stays in Settings. Other tiles bind to `glowEnabled`, `accentRotationEnabled`,
- * `followSystemAccent` respectively.
+ * "Chrome tinting" binds to `state.chromeStatusBar` ONLY (the most user-visible
+ * chrome surface); the full 5-surface granularity stays in Settings. Other
+ * tiles bind to `glowEnabled`, `accentRotationEnabled`, `followSystemAccent`
+ * respectively.
  *
- * D-13 single-source-of-truth: each tile owns a hidden [JCheckBox] driven by the
+ * Single-source-of-truth: each tile owns a hidden [JCheckBox] driven by the
  * Kotlin UI DSL `bindSelected({ state.X }, { state.X = it })` — the visual is a
  * custom switch but the binding sink stays the DSL-managed checkbox, so the
  * existing persistence path keeps working. The hidden checkbox lives inside a
- * tiny [com.intellij.openapi.ui.DialogPanel] held by [persistenceRoot] so
- * `apply()` flushes the pending writes back into `AyuIslandsSettings.state`.
+ * tiny [com.intellij.openapi.ui.DialogPanel] held by [persistenceRoot].
+ *
+ * **Persistence model.** Each tile click is its own commit: the user-facing
+ * [ToggleSwitch] flip writes back to the hidden binding checkbox and then calls
+ * `persistenceRoot.apply()` synchronously — the popup container does NOT need
+ * to run any close-time flush. No external `fun apply()` is exposed because no
+ * caller needs one; per-tile-click persistence is the whole contract.
+ *
+ * **Re-entry guard.** A lexical `suppressEvents` flag protects the bi-directional
+ * binding ↔ switch link from a `flip()` → `isSelected = ...` → `ItemEvent` →
+ * `flip()` ping-pong if an external Settings-page edit fires the binding's
+ * `ItemEvent` while the popup is open. The equality guard (`if (switch.isSelected
+ * != binding.isSelected) flip()`) by itself is fragile — `suppressEvents` makes
+ * the no-loop invariant load-bearing on the lexical scope, not on equality.
  *
  * Pattern A — every paint mutation calls `repaint()` on the calling thread
  * (already EDT for mouse events).
@@ -42,6 +53,15 @@ import javax.swing.JPanel
 internal class QuickSwitcherRelatedTogglesSection {
     val component: JComponent
     private val persistenceRoot: com.intellij.openapi.ui.DialogPanel
+
+    /**
+     * Re-entry guard around the bi-directional binding ↔ switch link. Set to
+     * `true` for the lexical scope of any write that would otherwise re-trigger
+     * the sibling listener (switch → binding, or binding → switch). The
+     * sibling listener checks this flag first and short-circuits when set,
+     * preventing the ItemEvent ping-pong cycle.
+     */
+    private var suppressEvents: Boolean = false
 
     init {
         val state = AyuIslandsSettings.getInstance().state
@@ -122,16 +142,6 @@ internal class QuickSwitcherRelatedTogglesSection {
             }
     }
 
-    /**
-     * Flushes pending [bindSelected] writes back into `AyuIslandsSettings.state`.
-     * Exposed so callers (popup container) can trigger the apply on popup-close.
-     * The DSL contract requires `apply()` to commit pending writes; tile clicks
-     * mutate the hidden checkbox's `isSelected`, then this call propagates them.
-     */
-    fun apply() {
-        persistenceRoot.apply()
-    }
-
     private fun buildTile(
         icon: Icon,
         label: String,
@@ -143,15 +153,31 @@ internal class QuickSwitcherRelatedTogglesSection {
                 initialSelected = binding.isSelected,
                 accentSupplier = accentSupplier,
                 listener = { newValue ->
-                    binding.isSelected = newValue
-                    persistenceRoot.apply()
+                    // suppressEvents wraps the binding write so the binding's
+                    // ItemListener (below) does NOT re-fire switch.flip() in
+                    // response — which would loop through this listener again.
+                    suppressEvents = true
+                    try {
+                        binding.isSelected = newValue
+                        persistenceRoot.apply()
+                    } finally {
+                        suppressEvents = false
+                    }
                 },
             )
         // Mirror reverse: if the hidden checkbox flips externally (Settings page
-        // edit), the ToggleSwitch follows.
+        // edit fired through the same state), the ToggleSwitch follows. The
+        // suppressEvents guard short-circuits the loopback when the switch's
+        // own listener (above) wrote the binding.
         binding.addItemListener { _ ->
+            if (suppressEvents) return@addItemListener
             if (switch.isSelected != binding.isSelected) {
-                switch.flip()
+                suppressEvents = true
+                try {
+                    switch.flip()
+                } finally {
+                    suppressEvents = false
+                }
             }
         }
         return ToggleTile(icon, label, switch)

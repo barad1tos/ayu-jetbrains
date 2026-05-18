@@ -125,6 +125,69 @@ class QuickSwitcherRelatedTogglesSectionTest {
     }
 
     @Test
+    fun `external binding write does not loop through switch flip (re-entry guard)`() {
+        // CRIT-4 regression lock — Pattern that previously broke: the per-tile
+        // listener writes `binding.isSelected = newValue` which fires
+        // `ItemEvent` on the binding; the binding's ItemListener catches it and
+        // calls `switch.flip()`; `flip()` writes back to binding → ping-pong.
+        // The equality guard (`if (switch.isSelected != binding.isSelected)`)
+        // saves the case where both already agree, but a future refactor that
+        // breaks the equality check leaves the loop open. The lexical
+        // `suppressEvents` guard makes the no-loop invariant unconditional.
+        //
+        // Simulate an external write: flip the binding directly (as a Settings
+        // page edit would do via bindSelected's setter), then assert that the
+        // switch follows once — NOT twice (which would indicate ping-pong).
+        val section = QuickSwitcherRelatedTogglesSection()
+        val tiles = (section.component as JPanel).components.filterIsInstance<ToggleTile>()
+        val chromeTile = tiles.first { tile -> labelOf(tile) == "Chrome tinting" }
+        val switch = chromeTile.toggleSwitch
+        val startState = switch.isSelected
+
+        // Reach the hidden binding via reflection on the section's
+        // persistenceRoot — its first child is the chrome binding.
+        val persistenceRootField =
+            QuickSwitcherRelatedTogglesSection::class.java.getDeclaredField("persistenceRoot")
+        persistenceRootField.isAccessible = true
+        val persistenceRoot =
+            persistenceRootField.get(section) as com.intellij.openapi.ui.DialogPanel
+        val chromeBinding =
+            collectCheckBoxes(persistenceRoot).first { box ->
+                box.text.contains("Chrome tinting")
+            }
+
+        // External edit: write directly to the binding. The switch must follow
+        // once. If suppressEvents is broken, this would either:
+        //   (a) infinite-loop and StackOverflow during dispatch, or
+        //   (b) toggle the switch back to startState (binding listener flips
+        //       switch, switch's listener flips binding back, equality check
+        //       sees match and stops — net result is no change).
+        chromeBinding.isSelected = !startState
+
+        // Switch must mirror the new binding state — exactly one flip.
+        assertEquals(
+            !startState,
+            switch.isSelected,
+            "Switch must mirror external binding write; ping-pong would reset to startState=$startState",
+        )
+        // Binding state must equal switch state — no drift.
+        assertEquals(switch.isSelected, chromeBinding.isSelected, "Binding and switch must agree post-write")
+    }
+
+    @Test
+    fun `source no longer exposes a public fun apply (dead code removed — CRIT-4)`() {
+        // CRIT-4 — the `fun apply()` exposed on the section was never called
+        // by QuickSwitcherPopup (per-tile-click persistence is the whole
+        // contract). Lock its absence so a future "completeness" PR doesn't
+        // re-add a misleading dead method.
+        val source = Files.readString(Paths.get(SOURCE_PATH))
+        // Only allow the private `persistenceRoot.apply()` calls inside the
+        // listener body; no top-level `fun apply()` definition on the class.
+        val publicApplyDefs = "    fun apply\\(\\)".toRegex().findAll(source).count()
+        assertEquals(0, publicApplyDefs, "Public fun apply() must be deleted; persistence is per-tile-click")
+    }
+
+    @Test
     fun `density grid gap matches Density TILE_GAP`() {
         val section = QuickSwitcherRelatedTogglesSection()
         val layout = (section.component as JPanel).layout as GridLayout
@@ -133,6 +196,19 @@ class QuickSwitcherRelatedTogglesSectionTest {
                 .scale(Density.TILE_GAP)
         assertEquals(expected, layout.hgap)
         assertEquals(expected, layout.vgap)
+    }
+
+    private fun labelOf(tile: ToggleTile): String = findLabelText(tile)
+
+    private fun collectCheckBoxes(
+        root: Container,
+        out: MutableList<javax.swing.JCheckBox> = mutableListOf(),
+    ): List<javax.swing.JCheckBox> {
+        for (child in root.components) {
+            if (child is javax.swing.JCheckBox) out.add(child)
+            if (child is Container) collectCheckBoxes(child, out)
+        }
+        return out
     }
 
     private fun findLabelText(tile: ToggleTile): String {

@@ -10,6 +10,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 /**
  * Plan 48-04 Task 3 (extended Wave 7) — Pattern J gate regression lock for the
@@ -35,19 +36,37 @@ class QuickSwitcherPremiumBlockGateTest {
     }
 
     @Test
-    fun `premium block predicate evaluates to true when license is in grace`() {
-        // Test 17a
+    fun `live licenseGate invoke returns true when license is in grace, false when expired`() {
+        // Behavior test (replaces tautological Tests 17a/17b that mocked
+        // isLicensedOrGrace and asserted the mock returns the mocked value).
+        // Reflects into the popup's private `licenseGate()` helper and asserts
+        // its `invoke()` follows live license state — which is the actual
+        // production contract per CRIT-1 fix: trial expiring (or license
+        // activating) while the popup is open MUST flip the premium rows on
+        // the next paint.
         mockkObject(LicenseChecker)
-        every { LicenseChecker.isLicensedOrGrace() } returns true
-        assertEquals(true, LicenseChecker.isLicensedOrGrace())
-    }
 
-    @Test
-    fun `premium block predicate evaluates to false when license expired`() {
-        // Test 17b
-        mockkObject(LicenseChecker)
+        val popupClass = QuickSwitcherPopup::class.java
+        val gateMethod = popupClass.getDeclaredMethod("licenseGate")
+        gateMethod.isAccessible = true
+        val predicate =
+            gateMethod.invoke(QuickSwitcherPopup) as com.intellij.ui.layout.ComponentPredicate
+
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        assertTrue(predicate.invoke(), "Live gate must follow license=true")
+
         every { LicenseChecker.isLicensedOrGrace() } returns false
-        assertEquals(false, LicenseChecker.isLicensedOrGrace())
+        assertFalse(predicate.invoke(), "Live gate must follow license=false")
+
+        // Transition through the lifecycle: grace → expired → licensed → grace
+        // (CRIT-1 user scenario — trial expires while popup open, then user
+        // activates a license; premium rows must follow each flip in turn).
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        assertTrue(predicate.invoke())
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        assertFalse(predicate.invoke())
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        assertTrue(predicate.invoke())
     }
 
     @Test
@@ -60,14 +79,25 @@ class QuickSwitcherPremiumBlockGateTest {
     }
 
     @Test
-    fun `each visibleIf gate references LicenseChecker isLicensedOrGrace`() {
-        // Test 19 — count occurrences of the license-check token. The lambda
-        // form `.visibleIf { LicenseChecker.isLicensedOrGrace() }` puts one
-        // reference per gate; the ComponentPredicate.fromValue(...) form would
-        // also put one reference per gate.
+    fun `popup source defines exactly one shared live licenseGate helper`() {
+        // CRIT-1 — the three premium gates MUST share one helper so they cannot
+        // drift (a future edit that re-inlines one gate would re-introduce the
+        // stale-snapshot bug). Lock the shared-helper pattern by source-grep.
         val source = Files.readString(Paths.get(POPUP_SOURCE_PATH))
-        val licenseRefs = "isLicensedOrGrace".toRegex().findAll(source).count()
-        assertEquals(EXPECTED_GATE_COUNT, licenseRefs, "Each .visibleIf must reference isLicensedOrGrace")
+        val helperDefs = "private fun licenseGate".toRegex().findAll(source).count()
+        assertEquals(1, helperDefs, "Expected exactly one licenseGate() helper definition")
+        // All three `.visibleIf` calls must pass the helper-returned predicate,
+        // not a `ComponentPredicate.fromValue(...)` snapshot.
+        val snapshots =
+            "ComponentPredicate\\.fromValue\\(LicenseChecker"
+                .toRegex()
+                .findAll(source)
+                .count()
+        assertEquals(
+            0,
+            snapshots,
+            "CRIT-1 lock: no fromValue snapshot of LicenseChecker may leak back into the popup body",
+        )
     }
 
     @Test
