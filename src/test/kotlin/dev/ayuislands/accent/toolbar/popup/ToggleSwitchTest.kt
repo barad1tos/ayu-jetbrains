@@ -1,8 +1,6 @@
 package dev.ayuislands.accent.toolbar.popup
 
 import com.intellij.util.ui.JBUI
-import io.mockk.mockk
-import io.mockk.verify
 import java.awt.Color
 import java.awt.Dimension
 import java.awt.Graphics2D
@@ -54,8 +52,11 @@ class ToggleSwitchTest {
 
     @Test
     fun `clicking the switch flips isSelected and calls listener exactly once`() {
-        val listener = mockk<(Boolean) -> Unit>(relaxed = true)
-        val switch = ToggleSwitch(initialSelected = false, accentSupplier = { "#FFB454" }, listener = listener)
+        val capturedValues = mutableListOf<Boolean>()
+        val switch =
+            ToggleSwitch(initialSelected = false, accentSupplier = { "#FFB454" }) { newValue ->
+                capturedValues += newValue
+            }
         switch.setSize(JBUI.scale(SWITCH_WIDTH), JBUI.scale(SWITCH_HEIGHT))
         assertFalse(switch.isSelected)
 
@@ -74,7 +75,7 @@ class ToggleSwitchTest {
         )
 
         assertTrue(switch.isSelected, "click should flip isSelected to true")
-        verify(exactly = 1) { listener.invoke(true) }
+        assertEquals(listOf(true), capturedValues, "listener should fire exactly once with new value")
     }
 
     @Test
