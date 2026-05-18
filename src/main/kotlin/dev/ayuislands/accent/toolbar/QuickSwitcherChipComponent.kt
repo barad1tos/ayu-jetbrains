@@ -25,10 +25,10 @@ import javax.swing.SwingUtilities
 
 /**
  * Main-toolbar chip that reflects the focused project's resolved accent. The
- * chip is a `JLabel` sized to the standard MainToolbar icon cell (`16 × 16`,
- * JBUI-scaled) with a `ColorIcon` that fills the full bounds (no inner disc
- * inset), so the icon does not appear small against the platform's pressed /
- * hover highlight that surrounds the cell when the popup is open.
+ * chip is a `JLabel` sized to match the neighbouring MainToolbar icon cells
+ * (`14 × 14`, JBUI-scaled) with a `ColorIcon` that fills the full bounds (no
+ * inner disc inset), so the icon does not appear small against the platform's
+ * pressed / hover highlight that surrounds the cell when the popup is open.
  *
  * The popup-attached visual feedback is delegated to the platform — IntelliJ
  * paints its standard MainToolbar action-button hover / pressed background
@@ -158,11 +158,11 @@ internal class QuickSwitcherChipComponent :
     }
 
     companion object {
-        // WIDGET-02 closure — final dimensions: a 16 × 16 JBUI-scaled cell whose
-        // ColorIcon fills the full bounds (no inner-disc inset), so the icon
-        // does not look small against the platform's pressed/hover highlight
-        // that paints around the cell.
-        internal const val CHIP_BOX_PX = 16
+        // WIDGET-02 closure — final dimensions: a 14 × 14 JBUI-scaled cell whose
+        // ColorIcon fills the full bounds (no inner-disc inset). 14 px matches
+        // the visual size of neighbouring MainToolbar icons (Add, Search,
+        // overflow); larger values (16 px) read as oversized against them.
+        internal const val CHIP_BOX_PX = 14
 
         // Action place ID for the right-click context menu (Plan 48-03 D-14b).
         private const val CONTEXT_MENU_PLACE = "AyuQuickSwitcher.ContextMenu"
