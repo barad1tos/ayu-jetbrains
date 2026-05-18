@@ -7,6 +7,8 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.ui.popup.ComponentPopupBuilder
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
+import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -52,6 +54,11 @@ class QuickSwitcherPopupTest {
     fun `show builds the popup with the exact RESEARCH §3 flag combo (Pitfall 4 lock)`() {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        // Wave 7 grid resolves the current accent at construction — stub the chain.
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.resolveFocusedProject() } returns null
+        mockkObject(AccentResolver)
+        every { AccentResolver.resolve(any(), any()) } returns "#FFB454"
         // VariantSwitcherRow reads LafManager during construction — stub via relaxed mock.
         mockkStatic(LafManager::class)
         val lafManager = mockk<LafManager>(relaxed = true)

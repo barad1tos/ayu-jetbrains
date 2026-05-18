@@ -22,11 +22,14 @@ import io.mockk.verify
 import java.awt.Color
 import java.awt.Dimension
 import java.awt.event.MouseEvent
+import java.nio.file.Files
+import java.nio.file.Paths
 import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -196,16 +199,18 @@ class QuickSwitcherChipComponentTest {
     }
 
     @Test
-    fun `mousePressed left-click invokes QuickSwitcherPopup show`() {
+    fun `mousePressed left-click invokes QuickSwitcherPopup show with chip self-arg`() {
         stubAyuActive(true)
         stubResolver(hex = "#FFCC66", source = AccentResolver.Source.GLOBAL)
         mockkObject(QuickSwitcherPopup)
-        every { QuickSwitcherPopup.show(any()) } returns Unit
+        every { QuickSwitcherPopup.show(any(), any()) } returns Unit
 
         val chip = QuickSwitcherChipComponent()
         chip.dispatchEvent(leftClick(chip))
 
-        verify(exactly = 1) { QuickSwitcherPopup.show(chip) }
+        // Wave 7: chip passes itself as the second arg so the popup can wire a
+        // per-popup JBPopupListener that flips popup-attached state.
+        verify(exactly = 1) { QuickSwitcherPopup.show(chip, chip) }
     }
 
     @Test
@@ -213,7 +218,7 @@ class QuickSwitcherChipComponentTest {
         stubAyuActive(true)
         stubResolver(hex = "#FFCC66", source = AccentResolver.Source.GLOBAL)
         mockkObject(QuickSwitcherPopup)
-        every { QuickSwitcherPopup.show(any()) } returns Unit
+        every { QuickSwitcherPopup.show(any(), any()) } returns Unit
         // Plan 48-03 Wave 3 routes RMB to ActionManager.createActionPopupMenu — stub it so
         // dispatch through `mousePressed` does not NPE. The "RMB does NOT invoke popup"
         // assertion stays — the popup is for LMB only. Detailed RMB→context-menu
@@ -231,20 +236,71 @@ class QuickSwitcherChipComponentTest {
         val chip = QuickSwitcherChipComponent()
         chip.dispatchEvent(rightClick(chip))
 
-        verify(exactly = 0) { QuickSwitcherPopup.show(any()) }
+        verify(exactly = 0) { QuickSwitcherPopup.show(any(), any()) }
     }
 
     @Test
     fun `mousePressed is a no-op when AyuVariant detect returns null (WIDGET-11 belt-and-braces)`() {
         stubAyuActive(false)
         mockkObject(QuickSwitcherPopup)
-        every { QuickSwitcherPopup.show(any()) } returns Unit
+        every { QuickSwitcherPopup.show(any(), any()) } returns Unit
 
         val chip = QuickSwitcherChipComponent()
         chip.dispatchEvent(leftClick(chip))
         chip.dispatchEvent(rightClick(chip))
 
-        verify(exactly = 0) { QuickSwitcherPopup.show(any()) }
+        verify(exactly = 0) { QuickSwitcherPopup.show(any(), any()) }
+    }
+
+    @Test
+    fun `Wave 7 CHIP_BOX_PX equals 16 and CHIP_SWATCH_PX equals 12 (WIDGET-02 closure)`() {
+        assertEquals(16, QuickSwitcherChipComponent.CHIP_BOX_PX)
+        assertEquals(12, QuickSwitcherChipComponent.CHIP_SWATCH_PX)
+    }
+
+    @Test
+    fun `Wave 7 setPopupAttached toggles ring state on the chip`() {
+        stubAyuActive(true)
+        val chip = QuickSwitcherChipComponent()
+        assertFalse(chip.isPopupAttached, "Fresh chip must start with no popup attached")
+        chip.setPopupAttached(true)
+        assertTrue(chip.isPopupAttached)
+        chip.setPopupAttached(false)
+        assertFalse(chip.isPopupAttached)
+    }
+
+    @Test
+    fun `Wave 7 chip ColorIcon constructor uses 3-arg border-on form`() {
+        val source = Files.readString(Paths.get(CHIP_SOURCE_PATH))
+        // Locate every `ColorIcon(` call site; count those whose closing arg is the
+        // boolean `true` (border-on overload).
+        val matches =
+            "ColorIcon\\([^\\n]*?,\\s*true\\)".toRegex().findAll(source).count()
+        assertTrue(matches >= 1, "Expected ≥1 3-arg ColorIcon(..., true) call, got $matches")
+    }
+
+    @Test
+    fun `Wave 7 JBPopupListener is registered on the popup not on chip Disposable (Pattern E)`() {
+        val popupSource = Files.readString(Paths.get(POPUP_SOURCE_PATH))
+        assertTrue(
+            popupSource.contains("popup.addListener"),
+            "Popup must register JBPopupListener via popup.addListener (auto-disposes with popup)",
+        )
+        val chipSource = Files.readString(Paths.get(CHIP_SOURCE_PATH))
+        assertFalse(
+            chipSource.contains("Disposer.register"),
+            "Chip must NOT wire any Disposer.register for the popup listener (Pattern E discipline)",
+        )
+    }
+
+    @Test
+    fun `Wave 7 setPopupAttached calls from JBPopupListener wrap SwingUtilities invokeLater (T-48-07-03)`() {
+        val popupSource = Files.readString(Paths.get(POPUP_SOURCE_PATH))
+        val listenerBlock = popupSource.substringAfter("object : JBPopupListener", "")
+        assertTrue(
+            listenerBlock.contains("SwingUtilities.invokeLater"),
+            "Chip setPopupAttached invocation from JBPopupListener must hop to EDT (T-48-07-03 mitigation)",
+        )
     }
 
     @Test
@@ -308,5 +364,10 @@ class QuickSwitcherChipComponentTest {
         // Convenience for any future test needing EDT verification — invokeAndWait
         // is the simplest path under a headless harness.
         SwingUtilities.invokeAndWait(captured)
+    }
+
+    private companion object {
+        const val CHIP_SOURCE_PATH = "src/main/kotlin/dev/ayuislands/accent/toolbar/QuickSwitcherChipComponent.kt"
+        const val POPUP_SOURCE_PATH = "src/main/kotlin/dev/ayuislands/accent/toolbar/QuickSwitcherPopup.kt"
     }
 }

@@ -12,14 +12,18 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 
 /**
- * Plan 48-04 Task 3 — Pattern J gate regression lock for the popup's premium
- * block. The popup wraps both premium groups (related toggles + quick actions)
- * in `.visibleIf { LicenseChecker.isLicensedOrGrace() }` per D-07 / D-09.
+ * Plan 48-04 Task 3 (extended Wave 7) — Pattern J gate regression lock for the
+ * popup's premium block. The popup wraps the premium SectionCards (related
+ * toggles + quick actions) AND the BlockSeparator between FREE/PREMIUM in
+ * `.visibleIf(ComponentPredicate.fromValue(LicenseChecker.isLicensedOrGrace()))`
+ * per D-07 / D-09 / spec §2.2. Wave 7 bumps `EXPECTED_GATE_COUNT` from 2 to 3
+ * because the separator row now joins the gated rows so a free user does NOT
+ * see an orphaned hairline above the missing premium block.
  *
  * Tests 17..21 lock the gate against four classes of regressions:
  *   - 17: predicate sanity — mocking `isLicensedOrGrace` flips visibility,
- *   - 18: source-grep gate count — exactly two `.visibleIf` calls,
- *   - 19: source-grep license-ref count — both gates reference license check,
+ *   - 18: source-grep gate count — exactly three `.visibleIf` calls,
+ *   - 19: source-grep license-ref count — three gates reference license check,
  *   - 20: Pattern J two-conjunct invariant — no chip-level state leaks into
  *     the popup gate body,
  *   - 21: D-07 NO upgrade-promo lock — forbidden tokens have zero matches.
@@ -47,8 +51,9 @@ class QuickSwitcherPremiumBlockGateTest {
     }
 
     @Test
-    fun `QuickSwitcherPopup source body wraps premium groups in two visibleIf gates`() {
-        // Test 18
+    fun `QuickSwitcherPopup source body wraps premium rows in three visibleIf gates`() {
+        // Test 18 — Wave 7 bumped the expected count to 3 (toggles + actions +
+        // BlockSeparator).
         val source = Files.readString(Paths.get(POPUP_SOURCE_PATH))
         val gateCount = "\\.visibleIf".toRegex().findAll(source).count()
         assertEquals(EXPECTED_GATE_COUNT, gateCount, "Expected exactly $EXPECTED_GATE_COUNT .visibleIf gates")
@@ -102,7 +107,12 @@ class QuickSwitcherPremiumBlockGateTest {
 
     private companion object {
         const val POPUP_SOURCE_PATH = "src/main/kotlin/dev/ayuislands/accent/toolbar/QuickSwitcherPopup.kt"
-        const val EXPECTED_GATE_COUNT = 2
+
+        // Wave 7 bumped the count from 2 to 3: toggles SectionCard + actions
+        // SectionCard + BlockSeparator row are all wrapped in `.visibleIf(
+        // ComponentPredicate.fromValue(LicenseChecker.isLicensedOrGrace()))`
+        // per 48-REDESIGN-SPEC §2.2.
+        const val EXPECTED_GATE_COUNT = 3
         const val GATE_BODY_SPAN = 200
     }
 }
