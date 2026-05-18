@@ -252,8 +252,8 @@ class QuickSwitcherChipComponentTest {
     }
 
     @Test
-    fun `CHIP_BOX_PX equals 14 and icon fills full cell (WIDGET-02 closure)`() {
-        assertEquals(14, QuickSwitcherChipComponent.CHIP_BOX_PX)
+    fun `CHIP_BOX_PX equals 13 and icon fills full cell (WIDGET-02 closure)`() {
+        assertEquals(13, QuickSwitcherChipComponent.CHIP_BOX_PX)
         // Wave 7 follow-up: icon is sized to the full cell (`CHIP_BOX_PX`), not an
         // inner-disc inset, so it does not look small against the platform's
         // pressed/hover highlight that paints around the cell. The earlier
