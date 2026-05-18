@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.6.4] - 2026-05-18
+
+### Added
+- [Free] **Quick-Switcher Widget** — a new chip in the main toolbar reflects the focused project's accent. Left-click opens a popup with variant + Islands UI toggle, the full accent grid, related toggles (Chrome tinting, Glow, Accent rotation, Follow system), and quick actions (Pin, Random, Lighter, Darker, Copy Hex).
+- [Free] **Right-click context menu** on the chip exposes the same quick actions for a keyboard-friendly workflow.
+- [Paid] Premium rows in the popup (related toggles + quick actions) appear when your license is active or in trial; the FREE block (variant + accent grid) is available to everyone.
+- [Free] Hide the widget anytime from Settings → Ayu Islands → General if you prefer a cleaner toolbar.
+
 ## [2.6.3] - 2026-05-12
 
 ### Added

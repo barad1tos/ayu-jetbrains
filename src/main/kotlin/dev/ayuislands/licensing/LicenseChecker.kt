@@ -321,6 +321,12 @@ object LicenseChecker {
             state.cgpIntegrationEnabled = false
             state.irIntegrationEnabled = false
 
+            // Restore the Quick Switcher widget to its free-tier default (visible by
+            // default per D-02). A user who hid the chip while licensed and then
+            // downgraded would otherwise lose their only Settings affordance to re-
+            // enable it; Pattern G symmetric reset puts the chip back per default.
+            state.quickSwitcherWidgetEnabled = true
+
             // Stop accent rotation (premium feature)
             state.accentRotationEnabled = false
         }

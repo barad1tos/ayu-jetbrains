@@ -222,6 +222,18 @@ class AyuIslandsState : BaseState() {
     // plugin never re-adds a user-deleted font on a subsequent startup.
     var explicitlyUninstalledFonts by stringSet()
 
+    /**
+     * Master visibility toggle for the Ayu Quick Switcher widget in the
+     * `MainToolbarRight` action group.
+     *
+     * Gates the chip + popup behind a Settings checkbox so users who prefer a
+     * clean toolbar can hide the widget. Defaults to `true` — the chip is FREE
+     * and exposed on first launch after install. Read by
+     * [dev.ayuislands.accent.toolbar.QuickSwitcherWidgetAction.update] as the
+     * second conjunct of the two-level visibility gate (LAF + this toggle).
+     */
+    var quickSwitcherWidgetEnabled by property(true)
+
     // Accent rotation
     var accentRotationEnabled by property(false)
     var accentRotationMode by string(AccentRotationMode.PRESET.name)
@@ -378,9 +390,9 @@ class AyuIslandsState : BaseState() {
      * the section's preset field — DIFF_VIEWER / PROJECT_VIEW_FILE_STATUS /
      * EDITOR_GUTTER live under [effectiveVcsDiffPreset], CONFLICT_MARKERS under
      * [effectiveVcsMergePreset], BLAME_GUTTER under [effectiveVcsBlamePreset].
-     * The Wave 5+ placeholder categories (MERGE_3WAY, INLINE_DIFF_POPUP,
-     * LOCAL_HISTORY, BRANCH_INDICATOR, BRANCHES_POPUP, COMMIT_HIGHLIGHTS)
-     * default to AMBIENT until their respective sections wire up in v2.6.4+.
+     * Placeholder categories (MERGE_3WAY, INLINE_DIFF_POPUP, LOCAL_HISTORY,
+     * BRANCH_INDICATOR, BRANCHES_POPUP, COMMIT_HIGHLIGHTS) default to
+     * AMBIENT until their respective sections wire up in a future release.
      */
     fun effectiveVcsPresetFor(category: VcsColorCategory): VcsColorPreset =
         when (category) {
