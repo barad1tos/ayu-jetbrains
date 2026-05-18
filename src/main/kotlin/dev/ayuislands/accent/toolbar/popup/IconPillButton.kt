@@ -10,7 +10,6 @@ import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.util.ui.JBUI
-import org.jetbrains.annotations.TestOnly
 import java.awt.Color
 import java.awt.Cursor
 import java.awt.Dimension
@@ -125,28 +124,6 @@ internal class IconPillButton(
             g2.dispose()
         }
         super.paintComponent(g)
-    }
-
-    /**
-     * Test seam — Pattern I. Lets unit tests sample background pixels for each
-     * state without a full Swing event loop. Hover / pressed are flipped via
-     * [setHoveredForTest] / [setPressedForTest].
-     */
-    @TestOnly
-    internal fun paintForTest(g: Graphics2D) {
-        paintPillBackground(g)
-    }
-
-    /** Test seam — flip the hover flag without dispatching `MouseEntered`. */
-    @TestOnly
-    internal fun setHoveredForTest(hovered: Boolean) {
-        isHovered = hovered
-    }
-
-    /** Test seam — flip the pressed flag without dispatching `MousePressed`. */
-    @TestOnly
-    internal fun setPressedForTest(pressed: Boolean) {
-        isPressed = pressed
     }
 
     private fun paintPillBackground(g2: Graphics2D) {
