@@ -112,12 +112,6 @@ internal class PopupSwatch(
         paintSwatch(g)
     }
 
-    /** Test seam — flip the hover flag without dispatching a real `MouseEntered`. */
-    @TestOnly
-    internal fun setHoveredForTest(hovered: Boolean) {
-        isHovered = hovered
-    }
-
     /** Test seam — flip the pressed flag without dispatching a real `MousePressed`. */
     @TestOnly
     internal fun setPressedForTest(pressed: Boolean) {

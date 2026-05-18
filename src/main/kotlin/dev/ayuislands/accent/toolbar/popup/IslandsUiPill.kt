@@ -50,7 +50,7 @@ internal class IslandsUiPill(
         isOpaque = false
         preferredSize = Dimension(JBUI.scale(PILL_WIDTH_PX), JBUI.scale(PILL_HEIGHT_PX))
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        toolTipText = "Islands UI"
+        toolTipText = LABEL
         addMouseListener(
             object : MouseAdapter() {
                 override fun mouseEntered(event: MouseEvent) {
@@ -83,14 +83,14 @@ internal class IslandsUiPill(
     override fun getAccessibleContext(): AccessibleContext {
         val existing = super.getAccessibleContext()
         if (existing != null) {
-            if (existing.accessibleName == null) existing.accessibleName = "Islands UI"
+            if (existing.accessibleName == null) existing.accessibleName = LABEL
             return existing
         }
         val fresh =
             object : AccessibleJComponent() {
                 override fun getAccessibleRole(): AccessibleRole = AccessibleRole.TOGGLE_BUTTON
             }
-        fresh.accessibleName = "Islands UI"
+        fresh.accessibleName = LABEL
         accessibleContext = fresh
         return fresh
     }
