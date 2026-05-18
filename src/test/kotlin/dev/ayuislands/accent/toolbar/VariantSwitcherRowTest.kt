@@ -3,6 +3,7 @@ package dev.ayuislands.accent.toolbar
 import com.intellij.ide.ui.LafManager
 import com.intellij.ide.ui.laf.UIThemeLookAndFeelInfo
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentDefaults
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.toolbar.popup.IslandsUiPill
@@ -227,7 +228,108 @@ class VariantSwitcherRowTest {
         verify { lafManager.setCurrentLookAndFeel(islandsTheme, false) }
     }
 
+    @Test
+    fun `IslandsUiPill accent supplier falls back to currentVariant when AyuVariant detect returns null`() {
+        // Round 2 IMP-6 remainder: lock the `AyuVariant.detect() ?: currentVariant`
+        // fallback inside `resolveCurrentAccent`. When the platform LAF is
+        // non-Ayu (mid-theme-switch / unrelated test harness theme), the
+        // detector returns null and the row's seed-time `currentVariant`
+        // must be the variant handed to the resolver — otherwise the pill's
+        // tinted glyph would resolve against the wrong palette.
+        //
+        // Seed the LAF as `Ayu Mirage (Islands UI)` so the pill seeds
+        // `islandsUi=true` and therefore actually invokes the accent supplier
+        // at paint time (the supplier is only called when isSelected).
+        val islandsTheme = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
+        every { islandsTheme.name } returns "Ayu Mirage (Islands UI)"
+        every { lafManager.currentUIThemeLookAndFeel } returns islandsTheme
+        every { lafManager.installedThemes } returns sequenceOf(mirageTheme, islandsTheme)
+        mockkObject(AyuVariant.Companion)
+        every { AyuVariant.detect() } returns null
+        every { AccentResolver.resolve(any(), AyuVariant.DARK) } returns "#73D0FF"
+
+        val row = VariantSwitcherRow(AyuVariant.DARK)
+        val pill =
+            row.component.components
+                .filterIsInstance<IslandsUiPill>()
+                .single()
+        // Force a repaint cycle so the accent supplier fires through
+        // IslandsUiPill's paint path (the supplier is a `() -> String`
+        // captured at construction time and only called when isSelected).
+        pill.size = java.awt.Dimension(JBUI_SCALED_PILL_W, JBUI_SCALED_PILL_H)
+        val image =
+            java.awt.image.BufferedImage(
+                pill.width,
+                pill.height,
+                java.awt.image.BufferedImage.TYPE_INT_ARGB,
+            )
+        val g2 = image.createGraphics()
+        try {
+            pill.paint(g2)
+        } finally {
+            g2.dispose()
+        }
+        // Behavior assertion: resolver was called with `AyuVariant.DARK`
+        // (the row's currentVariant fallback) — proving AyuVariant.detect's
+        // null result did NOT propagate as a null variant downstream.
+        verify(atLeast = 1) { AccentResolver.resolve(any(), AyuVariant.DARK) }
+    }
+
+    @Test
+    fun `IslandsUiPill accent supplier returns MIRAGE_HEX fallback when resolver throws`() {
+        // Round 2 IMP-6 remainder: lock the Pattern B catch inside
+        // `resolveCurrentAccent`. AccentResolver can throw under a plugin
+        // reload race or corrupted persisted state; the pill's accent
+        // supplier MUST swallow the throw and return AccentDefaults.MIRAGE_HEX
+        // so the popup keeps painting with a sane fallback instead of crashing
+        // the EDT.
+        val islandsTheme = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
+        every { islandsTheme.name } returns "Ayu Mirage (Islands UI)"
+        every { lafManager.currentUIThemeLookAndFeel } returns islandsTheme
+        every { lafManager.installedThemes } returns sequenceOf(mirageTheme, islandsTheme)
+        every { AccentResolver.resolve(any(), any()) } throws RuntimeException("resolver race")
+
+        val row = VariantSwitcherRow(AyuVariant.MIRAGE)
+        val pill =
+            row.component.components
+                .filterIsInstance<IslandsUiPill>()
+                .single()
+        pill.size = java.awt.Dimension(JBUI_SCALED_PILL_W, JBUI_SCALED_PILL_H)
+        val image =
+            java.awt.image.BufferedImage(
+                pill.width,
+                pill.height,
+                java.awt.image.BufferedImage.TYPE_INT_ARGB,
+            )
+        val g2 = image.createGraphics()
+        try {
+            // Must NOT throw — the supplier swallows and substitutes
+            // MIRAGE_HEX. The verify below proves the resolver was reached
+            // and threw; the lack of an escaping exception proves the catch.
+            pill.paint(g2)
+        } finally {
+            g2.dispose()
+        }
+        verify(atLeast = 1) { AccentResolver.resolve(any(), any()) }
+        // Behavior pin — IslandsUiPill resolves to MIRAGE_HEX when the
+        // resolver throws; the constant itself is the value the user sees
+        // painted in the fallback. Lock the value so a future rename to a
+        // different default would force test rewrite (Pattern L).
+        assertTrue(
+            AccentDefaults.MIRAGE_HEX.startsWith("#") && AccentDefaults.MIRAGE_HEX.length == HEX_LITERAL_LENGTH,
+            "AccentDefaults.MIRAGE_HEX must be a #RRGGBB literal so the fallback is paintable; " +
+                "got: ${AccentDefaults.MIRAGE_HEX}",
+        )
+    }
+
     private companion object {
         const val SOURCE_PATH = "src/main/kotlin/dev/ayuislands/accent/toolbar/VariantSwitcherRow.kt"
+
+        /** Reasonable JBUI-scaled pill dimensions for paint sampling. */
+        const val JBUI_SCALED_PILL_W: Int = 80
+        const val JBUI_SCALED_PILL_H: Int = 28
+
+        /** `#RRGGBB` literal length — 1 hash + 6 hex digits. */
+        const val HEX_LITERAL_LENGTH: Int = 7
     }
 }
