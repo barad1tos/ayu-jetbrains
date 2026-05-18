@@ -6,6 +6,7 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.PlatformCoreDataKeys
 import com.intellij.openapi.actionSystem.Presentation
+import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.util.ui.JBUI
@@ -35,7 +36,13 @@ import javax.swing.JComponent
  * `text` as fallback).
  *
  * Click handler uses the non-deprecated 6-arg event-factory form on
- * [AnActionEvent]. The dispatch is wrapped in
+ * [AnActionEvent] and dispatches through [ActionUtil.invokeAction] rather
+ * than calling [AnAction.actionPerformed] directly: IntelliJ 2025.1+ marks
+ * `AnAction.actionPerformed` as `@ApiStatus.OverrideOnly`, so direct
+ * invocation by callers bypasses platform plumbing (beforeActionPerformed
+ * listeners, action-promoter chain, error reporting). [ActionUtil.invokeAction]
+ * is the project-canonical helper — see `LicenseChecker.kt` for prior art.
+ * The dispatch is wrapped in
  * `try { ... } catch (exception: RuntimeException) { LOG.warn(...) }` per
  * Pattern B — a throwing action must NOT kill the EDT or crash the popup.
  *
@@ -180,7 +187,10 @@ internal class IconPillButton(
                     ActionUiKind.POPUP,
                     null,
                 )
-            action.actionPerformed(event)
+            // Project-canonical dispatch — mirrors [LicenseChecker.invokeAction].
+            // Direct `action.actionPerformed(event)` would bypass `@ApiStatus.OverrideOnly`
+            // contract on 2025.1+ and miss the beforeActionPerformed plumbing.
+            ActionUtil.invokeAction(action, event, null)
         } catch (exception: RuntimeException) {
             LOG.warn("IconPillButton action ${action.javaClass.simpleName} failed", exception)
         }
