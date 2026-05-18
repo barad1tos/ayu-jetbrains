@@ -253,35 +253,7 @@ object AccentApplicator {
                 // cached hex.
                 state.lastApplyOk = true
 
-                // Publish AccentChangedTopic AFTER lastApplyOk = true so subscribers
-                // (toolbar stripe, toolbar chip) only fire on a fully-painted apply.
-                // Application-scoped: one apply may legitimately affect every open
-                // window; per-project filtering belongs to the subscriber. Per-project
-                // try/catch isolates Pattern B — a throwing subscriber must NOT tear
-                // down the apply pipeline. Source is re-resolved per project so
-                // subscribers see THIS window's resolution layer (project A may carry
-                // a project-override while project B is global).
-                val accentChangedPublisher =
-                    ApplicationManager
-                        .getApplication()
-                        .messageBus
-                        .syncPublisher(AccentChangedTopic.TOPIC)
-                for (openProject in ProjectManager.getInstance().openProjects) {
-                    if (!openProject.isUsable()) continue
-                    try {
-                        val source = AccentResolver.source(openProject)
-                        // Pattern K — the [AccentHex] parameter is the
-                        // validated proof; pass it straight through to the
-                        // listener so subscribers receive the typed wrapper
-                        // and never see a raw `String`.
-                        accentChangedPublisher.accentChanged(openProject, accentHex, source)
-                    } catch (exception: RuntimeException) {
-                        log.warn(
-                            "AccentChangedTopic publish failed for ${openProject.name}",
-                            exception,
-                        )
-                    }
-                }
+                publishAccentChanged(accentHex)
             }
 
         if (SwingUtilities.isEventDispatchThread()) {
@@ -293,6 +265,43 @@ object AccentApplicator {
     }
 
 /**
+     * Publish [AccentChangedTopic.TOPIC] once per usable open project AFTER
+     * `state.lastApplyOk = true` so subscribers (toolbar stripe, toolbar chip)
+     * only fire on a fully-painted apply. Extracted from [apply] to keep the
+     * outer method's cognitive complexity below the IDE inspector's cap.
+     *
+     * Application-scoped: one apply may legitimately affect every open window;
+     * per-project filtering belongs to the subscriber. Per-project try/catch
+     * isolates Pattern B — a throwing subscriber must NOT tear down the apply
+     * pipeline. Source is re-resolved per project so subscribers see THIS
+     * window's resolution layer (project A may carry a project-override while
+     * project B is global).
+     */
+    private fun publishAccentChanged(accentHex: AccentHex) {
+        val publisher =
+            ApplicationManager
+                .getApplication()
+                .messageBus
+                .syncPublisher(AccentChangedTopic.TOPIC)
+        for (openProject in ProjectManager.getInstance().openProjects) {
+            if (!openProject.isUsable()) continue
+            try {
+                val source = AccentResolver.source(openProject)
+                // Pattern K — the [AccentHex] parameter is the validated
+                // proof; pass it straight through to the listener so
+                // subscribers receive the typed wrapper and never see a raw
+                // `String`.
+                publisher.accentChanged(openProject, accentHex, source)
+            } catch (exception: RuntimeException) {
+                log.warn(
+                    "AccentChangedTopic publish failed for ${openProject.name}",
+                    exception,
+                )
+            }
+        }
+    }
+
+    /**
      * Convenience wrapper around [AccentResolver.resolve] + [apply] for the "currently focused
      * project" use case. Called from the settings panels (Accent / Elements / Plugins), the
      * LAF listener, and the rotation tick. Pre-helper, those sites hand-wired variants of
@@ -438,8 +447,6 @@ object AccentApplicator {
         }
         return null
     }
-
-    private fun com.intellij.openapi.project.Project.isUsable(): Boolean = !isDefault && !isDisposed
 
     fun revertAll() {
         // All revert work batched into a single EDT dispatch
@@ -821,3 +828,12 @@ object AccentApplicator {
         return apply(accent)
     }
 }
+
+/**
+ * File-scope extension because [AccentApplicator] is at the cap of its
+ * `TooManyFunctions` budget; moving this trivial guard out of the object
+ * frees one function slot for `publishAccentChanged` extracted from [AccentApplicator.apply].
+ * Shape preserved exactly so the 6+ existing call-sites and the tests'
+ * commentary stay accurate.
+ */
+private fun com.intellij.openapi.project.Project.isUsable(): Boolean = !isDefault && !isDisposed
