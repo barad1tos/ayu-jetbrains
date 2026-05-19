@@ -37,10 +37,9 @@ internal object AyuPlugin {
      * `Application` whose `getService` returns a `java.lang.Object` (not
      * a real [PluginManager]) triggers a `ClassCastException` inside the
      * platform-side cast in `getInstance()`. We catch + log + return null
-     * so unrelated tests that mocked `ApplicationManager` for their own
-     * reasons do not crash on the cast. Production never sees this path;
-     * the WARN exists so a real production CCE (e.g. a future platform
-     * refactor) is still auditable.
+     * so a partially-mocked Application in unit tests does not crash this
+     * wrapper. Production never sees this path; the WARN keeps a future
+     * platform CCE auditable.
      */
     fun findEnabledPlugin(pluginId: PluginId): IdeaPluginDescriptor? {
         ApplicationManager.getApplication() ?: return null

@@ -25,9 +25,6 @@ import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
-import dev.ayuislands.licensing.LicenseChecker.getTrialDaysRemaining
-import dev.ayuislands.licensing.LicenseChecker.isLicensedOrGrace
-import dev.ayuislands.licensing.LicenseChecker.nowMsSupplier
 import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -469,19 +466,22 @@ object LicenseChecker {
         if (System.getProperty("ayu.islands.dev") != "true") return false
         val configPath = PathManager.getConfigPath()
         if (!configPath.contains("idea-sandbox")) return false
+        // Reaching this branch means the operator explicitly requested dev
+        // mode AND IDE is in a sandbox config — so a `false` return from here
+        // is a SURPRISING demotion and must be auditable. INFO (not DEBUG)
+        // so the message lands in `idea.log` without enabling category-level
+        // debug; the two preconditions above guarantee this branch can't spam
+        // regular users (only dev sandboxes ever reach it). Both descriptor-
+        // null and pluginPath-null paths are logged for symmetry.
         val descriptor = AyuPlugin.findEnabledPlugin(AyuPlugin.ID)
-        if (descriptor == null) {
-            // Defensive: if the Application is mid-bootstrap or the descriptor
-            // lookup returns null for any reason, the gate falls through to
-            // `false` instead of trusting the sandbox-only config path. Log at
-            // DEBUG so the gate decision is traceable in `idea.log` without
-            // spamming production users whose descriptor is always present.
-            LOG.debug("isDevBuild: descriptor unavailable; treating as non-dev")
-            return false
+        val pluginPath = descriptor?.pluginPath?.toString().orEmpty()
+        val isDev = pluginPath.contains("idea-sandbox")
+        if (!isDev) {
+            LOG.info(
+                "isDevBuild: returning false despite dev sandbox request — " +
+                    "descriptor=${descriptor != null}, pluginPath=$pluginPath",
+            )
         }
-        return descriptor.pluginPath
-            ?.toString()
-            .orEmpty()
-            .contains("idea-sandbox")
+        return isDev
     }
 }

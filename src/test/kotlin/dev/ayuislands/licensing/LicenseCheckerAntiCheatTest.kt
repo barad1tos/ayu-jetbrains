@@ -254,9 +254,7 @@ class LicenseCheckerAntiCheatTest {
         val pluginPath = mockk<Path>()
         every { pluginPath.toString() } returns path
         every { descriptor.pluginPath } returns pluginPath
-        every {
-            AyuPlugin.findEnabledPlugin(PluginId.getId("com.ayuislands.theme"))
-        } returns descriptor
+        every { AyuPlugin.findEnabledPlugin(AyuPlugin.ID) } returns descriptor
     }
 
     @Test
@@ -309,8 +307,10 @@ class LicenseCheckerAntiCheatTest {
 
     @Test
     fun `dev bypass rejected when plugin descriptor is null`() {
-        // PluginManager returns null if the plugin id can't be found — unusual but
-        // possible during early classloader init. Triple-gate must not crash and must reject.
+        // `AyuPlugin.findEnabledPlugin` returns null if the plugin id can't be
+        // found, is disabled, or the Application is not bootstrapped — unusual
+        // but possible during early classloader init. Triple-gate must not
+        // crash and must reject.
         System.setProperty("ayu.islands.dev", "true")
         every { PathManager.getConfigPath() } returns devSandboxConfigPath
         setPluginPath(null)
