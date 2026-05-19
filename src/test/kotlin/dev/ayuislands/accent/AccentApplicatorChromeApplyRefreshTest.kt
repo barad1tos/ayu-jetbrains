@@ -28,7 +28,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 
 /**
- * Integration coverage for the Gap 4 D-15 mirror hook in [AccentApplicator.apply].
+ * Integration coverage for the apply-path refresh mirror hook in [AccentApplicator.apply].
  *
  * Locks in the architectural symmetry promise: `apply` must republish
  * [ComponentTreeRefresher.notifyOnly] for every usable open project so existing
@@ -44,10 +44,9 @@ import kotlin.test.Test
  *  3. `notifyOnly` runs AFTER `applyElements` so subscribers see the freshly-written
  *     UIManager state when they decide to repaint.
  *
- * Per 40-12 research §A (verdict=UNSAFE), this hook MUST NOT publish
- * `LafManagerListener.TOPIC` — that broadcast would re-enter the LAF cycle and
- * recurse. Apply-path symmetry uses notifyOnly only. Banned-API regression guards
- * live in [AccentApplicatorBannedApiGuardTest].
+ * This hook MUST NOT publish `LafManagerListener.TOPIC` — that broadcast would
+ * re-enter the LAF cycle and recurse. Apply-path symmetry uses notifyOnly only.
+ * Banned-API regression guards live in [AccentApplicatorBannedApiGuardTest].
  */
 class AccentApplicatorChromeApplyRefreshTest {
     private val mockScheme = mockk<EditorColorsScheme>(relaxed = true)
@@ -78,9 +77,9 @@ class AccentApplicatorChromeApplyRefreshTest {
         every { ApplicationManager.getApplication() } returns mockApplication
         every { mockApplication.messageBus } returns mockMessageBus
         every { mockMessageBus.syncPublisher(EditorColorsManager.TOPIC) } returns mockk(relaxed = true)
-        // Wave 1 (Plan 48-01) AccentChangedTopic publish — Apply path casts the
-        // syncPublisher return value to AccentChangeListener. Stub a relaxed mock so
-        // the cast succeeds in this legacy headless test.
+        // AccentChangedTopic publish — Apply path casts the syncPublisher return
+        // value to AccentChangeListener. Stub a relaxed mock so the cast succeeds
+        // in this legacy headless test.
         every { mockMessageBus.syncPublisher(AccentChangedTopic.TOPIC) } returns mockk(relaxed = true)
 
         mockkObject(AyuIslandsSettings.Companion)

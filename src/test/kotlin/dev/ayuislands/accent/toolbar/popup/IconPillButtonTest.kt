@@ -28,10 +28,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Locks the [IconPillButton] click + paint contract per 48-REDESIGN-SPEC §3.6.
- * Click dispatch goes through `AnActionEvent.createEvent` (non-deprecated 6-arg
- * form, Wave-4 finding); RuntimeException in the action's `actionPerformed` is
- * caught per Pattern B so the button stays enabled.
+ * Locks the [IconPillButton] click + paint contract.
+ * Click dispatch goes through `AnActionEvent.createEvent` (non-deprecated
+ * 6-arg form); RuntimeException in the action's `actionPerformed` is caught
+ * per Pattern B so the button stays enabled.
  */
 class IconPillButtonTest {
     @BeforeTest
@@ -69,9 +69,8 @@ class IconPillButtonTest {
 
     @Test
     fun `click dispatches the action through ActionUtil invokeAction with the 6-arg event`() {
-        // Round 2: replaces the Wave-4 source-grep test with a behavior test.
-        // IDE inspector flagged direct `action.actionPerformed(event)` as a
-        // call to an `@ApiStatus.OverrideOnly` member on 2025.1+. Round-2 fix
+        // Behavior test: direct `action.actionPerformed(event)` is a call to
+        // an `@ApiStatus.OverrideOnly` member on 2025.1+, so the dispatch
         // routes through [ActionUtil.invokeAction] (same helper LicenseChecker
         // uses).
         //
@@ -115,8 +114,8 @@ class IconPillButtonTest {
 
     @Test
     fun `click swallows RuntimeException from the action without crashing the button`() {
-        // Round 2 — Pattern B behavior lock. A throwing action must NOT escape
-        // the button or leave it disabled.
+        // Pattern B behavior lock. A throwing action must NOT escape the
+        // button or leave it disabled.
         mockkStatic(ActionUtil::class)
         mockkStatic(SimpleDataContext::class)
         val stubBuilder = mockk<SimpleDataContext.Builder>(relaxed = true)

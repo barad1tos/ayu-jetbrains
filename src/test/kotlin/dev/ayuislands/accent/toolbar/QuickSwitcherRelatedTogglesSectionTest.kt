@@ -24,13 +24,13 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Wave-7 redesign coverage per 48-REDESIGN-SPEC §3.5:
+ * Related-toggles section coverage:
  *   - layout is a 2 × 2 [GridLayout] of [ToggleTile] composites,
  *   - tile labels in fixed top-to-bottom / left-to-right order,
- *   - Chrome tinting still binds to `chromeStatusBar` ONLY (Locked Answer #3 —
- *     `chromeMainToolbar` / `chromeToolWindowStripe` / `chromeNavBar` /
- *     `chromePanelBorder` are forbidden in this file),
- *   - D-13 single-source-of-truth bindSelected plumbing preserved.
+ *   - Chrome tinting binds to `chromeStatusBar` ONLY (`chromeMainToolbar` /
+ *     `chromeToolWindowStripe` / `chromeNavBar` / `chromePanelBorder` are
+ *     forbidden in this file),
+ *   - single-source-of-truth `bindSelected` plumbing preserved.
  */
 class QuickSwitcherRelatedTogglesSectionTest {
     @BeforeTest
@@ -74,22 +74,22 @@ class QuickSwitcherRelatedTogglesSectionTest {
         val labels = collectLabelTexts(section.component as Container)
         val expected = listOf("Chrome tinting", "Glow", "Accent rotation", "Follow system accent")
         assertTrue(labels.containsAll(expected), "Tile labels drifted; got=$labels expected to include $expected")
-        // Preserve the visual D-09 / D-13 order.
+        // Preserve the visual tile order.
         assertEquals(
             expected,
             labels.filter { it in expected },
-            "Order drifted from D-09/D-13",
+            "Tile order drifted",
         )
     }
 
     @Test
-    fun `Chrome tinting binds to chromeStatusBar only (Locked Answer 3)`() {
+    fun `Chrome tinting binds to chromeStatusBar only`() {
         val source = Files.readString(Paths.get(SOURCE_PATH))
         val statusBarRefs = "chromeStatusBar".toRegex().findAll(source).count()
         assertTrue(statusBarRefs >= 2, "Expected ≥2 chromeStatusBar refs (getter + setter), got $statusBarRefs")
         for (forbidden in FORBIDDEN_SURFACES) {
             val count = forbidden.toRegex().findAll(source).count()
-            assertEquals(0, count, "Locked Answer #3: must NOT reference $forbidden (count=$count)")
+            assertEquals(0, count, "Toggles section must NOT reference $forbidden (count=$count)")
         }
     }
 
@@ -126,7 +126,7 @@ class QuickSwitcherRelatedTogglesSectionTest {
 
     @Test
     fun `external binding write does not loop through switch flip (re-entry guard)`() {
-        // CRIT-4 regression lock — Pattern that previously broke: the per-tile
+        // Regression lock — pattern that previously broke: the per-tile
         // listener writes `binding.isSelected = newValue` which fires
         // `ItemEvent` on the binding; the binding's ItemListener catches it and
         // calls `switch.flip()`; `flip()` writes back to binding → ping-pong.

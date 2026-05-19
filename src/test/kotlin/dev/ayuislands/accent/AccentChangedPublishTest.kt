@@ -31,11 +31,11 @@ import kotlin.test.Test
 import kotlin.test.assertTrue
 
 /**
- * D-02 invariant lock: [AccentApplicator.apply] publishes [AccentChangedTopic.TOPIC]
+ * Invariant lock: [AccentApplicator.apply] publishes [AccentChangedTopic.TOPIC]
  * exactly once per open usable project, on the EDT, AFTER `state.lastApplyOk = true`.
  *
  * The publish call has to live inside the same EDT Runnable that flips `lastApplyOk`
- * so subscribers (toolbar stripe + chip in Wave 2) only fire on a fully-painted apply.
+ * so subscribers (toolbar stripe + chip) only fire on a fully-painted apply.
  * Per-project try/catch (Pattern B) prevents a single throwing subscriber from
  * tearing down the apply pipeline mid-EDT and leaving the IDE in a half-applied state.
  *
@@ -161,10 +161,10 @@ class AccentChangedPublishTest {
 
     @Test
     fun `apply publishes AccentChangedTopic exactly once per usable open project`() {
-        // D-02 invariant: one publish per usable project, with the post-resolution
-        // source (so subscribers can render the "Project override" / "Global" label).
-        // CRIT-6: payload is now AccentHex, not raw String — assertion matches by
-        // wrapping the literal via the same factory the publisher uses.
+        // One publish per usable project, with the post-resolution source (so
+        // subscribers can render the "Project override" / "Global" label).
+        // Payload is the AccentHex value class, not raw String — assertion
+        // matches by wrapping the literal via the same factory the publisher uses.
         val accentHex = AccentHex.of("#FFCC66")!!
         AccentApplicator.apply(accentHex)
 

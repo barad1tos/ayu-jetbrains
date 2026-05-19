@@ -99,7 +99,7 @@ class VariantThemeNameResolverTest {
         // Simulate a hypothetical schema drift where a variant lost its Islands UI
         // entry. Mocking `AyuVariant.MIRAGE`'s `themeNames` (object-scoped enum
         // instance) keeps the production enum pristine while exercising the
-        // resolver's `error(...)` branch — the failsafe Pitfall 7 would otherwise
+        // resolver's `error(...)` branch — the missing-theme guard would otherwise
         // bypass silently at the `LafManager.findLaf` null return.
         mockkObject(AyuVariant.MIRAGE)
         every { AyuVariant.MIRAGE.themeNames } returns setOf("Ayu Mirage")

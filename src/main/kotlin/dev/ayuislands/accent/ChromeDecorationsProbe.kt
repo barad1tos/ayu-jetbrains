@@ -18,16 +18,16 @@ import javax.swing.UIManager
  *
  * Called from `MainToolbarElement.apply` (short-circuits) and from `AyuIslandsChromePanel`'s
  * Main Toolbar row `.enabledIf` predicate so users see a disabled toggle with a comment
- * instead of a silent no-op (CHROME-02).
+ * instead of a silent no-op.
  *
  * ### Key verification
  *
- * Per D-11/D-12 and the VERIFY-BEFORE-ASSUMING rule, the probe only relies on platform
- * primitives whose presence was javap-verified against platformVersion 2025.1:
- * `SystemInfo.isMac/isWindows/isLinux` (util-8.jar) and `Registry.is(String, Boolean)`
- * (util-8.jar). The per-OS probe keys below are read via `UIManager.getBoolean(key)` and
- * `Registry.is(key, false)`; both APIs return `false` safely when the key is absent,
- * which is the production fallthrough when a user switches off custom decorations.
+ * The probe only relies on platform primitives whose presence was javap-verified
+ * against platformVersion 2025.1: `SystemInfo.isMac/isWindows/isLinux` (util-8.jar)
+ * and `Registry.is(String, Boolean)` (util-8.jar). The per-OS probe keys below are
+ * read via `UIManager.getBoolean(key)` and `Registry.is(key, false)`; both APIs
+ * return `false` safely when the key is absent, which is the production fallthrough
+ * when a user switches off custom decorations.
  *
  * ### OS dispatch seam
  *
@@ -113,8 +113,8 @@ object ChromeDecorationsProbe {
     private val log = logger<ChromeDecorationsProbe>()
 
     /**
-     * One-shot gate for the per-session INFO diagnostic log (Phase 40.2 H-5). The
-     * first `isCustomHeaderActive()` call records which OS branch ran and which
+     * One-shot gate for the per-session INFO diagnostic log. The first
+     * `isCustomHeaderActive()` call records which OS branch ran and which
      * raw inputs fed the decision, so a user whose Main Toolbar row is disabled
      * can point at their `idea.log` to see WHY the probe said no. Subsequent
      * calls within the same session stay silent.
@@ -126,9 +126,9 @@ object ChromeDecorationsProbe {
      * reach the title bar and, when it cannot, why. Never throws: a missing UIManager
      * key resolves to `false`, and a missing Registry key returns the supplied default.
      *
-     * Phase 40.3c Refactor 3: introduced so the Settings UI can read the reason code
-     * straight from the probe instead of re-sampling `SystemInfo.isMac/isWindows/isLinux`
-     * on its own to build the "disabled" tooltip.
+     * The Settings UI reads the reason code straight from the probe instead
+     * of re-sampling `SystemInfo.isMac/isWindows/isLinux` on its own to
+     * build the "disabled" tooltip.
      */
     fun probe(): ChromeSupport {
         val os = osSupplier()
@@ -161,7 +161,7 @@ object ChromeDecorationsProbe {
                 }
                 Os.UNKNOWN -> ChromeSupport.Unsupported.UnknownOs
             }
-        // H-5: one-shot INFO diagnostic per session so users can see WHY the
+        // One-shot INFO diagnostic per session so users can see WHY the
         // Main Toolbar toggle was disabled (or enabled) from idea.log alone.
         // Gate with AtomicBoolean.compareAndSet so concurrent first calls from
         // settings panel + MainToolbarElement.apply can race without duplicate

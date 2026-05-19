@@ -28,13 +28,11 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * User-space + algorithmic coverage for [NavBarElement] per CHROME-04.
+ * User-space + algorithmic coverage for [NavBarElement].
  *
- * Phase 40-10 (Gap 2) — the legacy "no foreground contract" invariant is
- * retired; the NavBar now writes `NavBar.foreground` and
- * `NavBar.selectedItemForeground` via [WcagForeground.pickForeground] under
- * the contrast gate. Tests here lock both the new fg writes and the
- * revert-symmetry for those new keys.
+ * The NavBar writes `NavBar.foreground` and `NavBar.selectedItemForeground`
+ * via [WcagForeground.pickForeground] under the contrast gate. Tests here
+ * lock both the fg writes and the revert-symmetry for those keys.
  */
 class NavBarElementTest {
     private val mockApplication = mockk<Application>(relaxed = true)
@@ -109,7 +107,7 @@ class NavBarElementTest {
     }
 
     @Test
-    fun `apply passes intensity from state to blender per D-03`() {
+    fun `apply passes intensity from state to blender`() {
         state.chromeTintIntensity = 42
 
         val intensitySlot = slot<TintIntensity>()
@@ -158,7 +156,7 @@ class NavBarElementTest {
     }
 
     @Test
-    fun `id and displayName match the CHROME registry entry`() {
+    fun `id and displayName match the chrome registry entry`() {
         val element = NavBarElement()
 
         assertEquals(AccentElementId.NAV_BAR, element.id)
@@ -166,7 +164,7 @@ class NavBarElementTest {
     }
 
     @Test
-    fun `apply invokes LiveChromeRefresher for navbar peer (Gap 4)`() {
+    fun `apply invokes LiveChromeRefresher for navbar peer`() {
         state.chromeTintIntensity = 40
 
         NavBarElement().apply(accent)
@@ -180,7 +178,7 @@ class NavBarElementTest {
     }
 
     @Test
-    fun `revert invokes LiveChromeRefresher clear for navbar peer (D-14 symmetry)`() {
+    fun `revert invokes LiveChromeRefresher clear for navbar peer for apply revert symmetry`() {
         NavBarElement().revert()
 
         val expectedTarget =

@@ -10,7 +10,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Locks the [SectionCard] contract per 48-REDESIGN-SPEC §3.2:
+ * Locks the [SectionCard] contract:
  *  - BorderLayout NORTH = caps-header strip; CENTER = content slot,
  *  - header strip preferred height == JBUI.scale(Density.SECTION_HEADER_H),
  *  - header text is uppercase (caps treatment),

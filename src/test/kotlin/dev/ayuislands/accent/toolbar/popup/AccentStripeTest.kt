@@ -12,10 +12,10 @@ import kotlin.test.assertEquals
  *  - preferred height is exactly `JBUI.scale(2)`,
  *  - `paintForTest` fills the whole bar with the provided hex via `ColorUtil.fromHex`.
  *
- * The stripe is the single accent-tinted chrome element in the popup container
- * (Locked Answer #2 in `48-REDESIGN-SPEC.md`). Color reads via the accent supplier
- * lambda at paint time — never cached at construction — so a mid-LAF-swap repaint
- * picks up the resolved accent immediately.
+ * The stripe is the single accent-tinted chrome element in the popup container.
+ * Color reads via the accent supplier lambda at paint time — never cached at
+ * construction — so a mid-LAF-swap repaint picks up the resolved accent
+ * immediately.
  */
 class AccentStripeTest {
     @Test

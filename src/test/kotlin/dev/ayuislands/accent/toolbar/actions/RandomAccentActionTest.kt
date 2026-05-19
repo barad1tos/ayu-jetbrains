@@ -71,7 +71,7 @@ class RandomAccentActionTest {
 
     @Test
     fun `update Pattern J two-level gate exhaustive (T,T) (F,T) (T,F) (F,F)`() {
-        // CRIT-7 — full 4-case truth table; (F,F) locks AND-not-OR.
+        // Full 4-case truth table; (F,F) locks AND-not-OR.
         val action = RandomAccentAction()
         val event = newEvent()
 

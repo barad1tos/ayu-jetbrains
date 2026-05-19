@@ -13,8 +13,7 @@ import kotlin.test.assertTrue
 
 /**
  * Locks the [AccentHsl] helper's clamp range, no-op-at-edge semantics, and the
- * HSL-not-HSB invariant per Phase 43 `ADJUST-04` (folded forward into Phase 48
- * via D-14a). Tests 1..9 in `48-03-PLAN.md` `<behavior>`.
+ * HSL-not-HSB invariant.
  */
 class AccentHslTest {
     private val epsilon = 0.01f
@@ -23,7 +22,7 @@ class AccentHslTest {
     fun `lighten on pure black clamps to MIN_LIGHTNESS`() {
         // L=0 + STEP=0.05 -> coerceIn -> 0.10 (MIN_LIGHTNESS). Returns NEW hex
         // because the post-clamp value differs from input lightness.
-        // CRIT-6: lighten/darken now take and return AccentHex.
+        // lighten/darken take and return AccentHex.
         val result = AccentHsl.lighten(AccentHex.unsafeOf("#000000")).value
         val resultLightness = HslColor.fromColor(ColorUtil.fromHex(result)).lightness
         assertTrue(
@@ -58,7 +57,7 @@ class AccentHslTest {
     fun `lighten at MAX_LIGHTNESS edge returns INPUT unchanged (no-op detection)`() {
         // Construct a hex at exactly L=MAX_LIGHTNESS so the post-clamp lightness equals
         // the input lightness — `lighten` returns the original AccentHex so callers can
-        // detect a no-op by value equality and surface the ADJUST-04 balloon hint.
+        // detect a no-op by value equality and surface the balloon hint.
         val ceilingHex = AccentHex.unsafeOf(HslColor.toHex(0f, 0f, AccentHsl.MAX_LIGHTNESS))
         val result = AccentHsl.lighten(ceilingHex)
         assertEquals(ceilingHex, result, "Expected `lighten` at MAX_LIGHTNESS to return input unchanged")
@@ -116,7 +115,7 @@ class AccentHslTest {
         assertTrue(source.contains("HslColor"), "AccentHsl source must reference HslColor")
         assertFalse(
             source.contains("ColorUtil.darker") || source.contains("ColorUtil.brighter"),
-            "AccentHsl source must NOT use ColorUtil.darker / ColorUtil.brighter (HSB) — ADJUST-04 mandates HSL",
+            "AccentHsl source must NOT use ColorUtil.darker / ColorUtil.brighter (HSB) — HSL is mandated",
         )
     }
 
@@ -126,8 +125,8 @@ class AccentHslTest {
         // MAX shifts user-visible behaviour silently. Direct assertion against
         // the published constants so the failure message points at the constant
         // that drifted.
-        assertEquals(0.05f, AccentHsl.STEP, "AccentHsl.STEP must stay 0.05f per ADJUST-04 spec")
-        assertEquals(0.10f, AccentHsl.MIN_LIGHTNESS, "AccentHsl.MIN_LIGHTNESS must stay 0.10f per ADJUST-04 spec")
-        assertEquals(0.95f, AccentHsl.MAX_LIGHTNESS, "AccentHsl.MAX_LIGHTNESS must stay 0.95f per ADJUST-04 spec")
+        assertEquals(0.05f, AccentHsl.STEP, "AccentHsl.STEP must stay 0.05f per spec")
+        assertEquals(0.10f, AccentHsl.MIN_LIGHTNESS, "AccentHsl.MIN_LIGHTNESS must stay 0.10f per spec")
+        assertEquals(0.95f, AccentHsl.MAX_LIGHTNESS, "AccentHsl.MAX_LIGHTNESS must stay 0.95f per spec")
     }
 }

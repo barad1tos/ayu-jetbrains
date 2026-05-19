@@ -6,11 +6,8 @@ import kotlin.test.assertEquals
 /**
  * Locks every spacing constant in [Density] against accidental drift. All ten constants
  * are pre-scale (consumer wraps in `JBUI.scale(...)`); `CARD_ARC` stays a `Float`
- * because it feeds `RoundRectangle2D.Float` directly.
- *
- * See `48-REDESIGN-SPEC.md` §5 for the rationale behind each value — every literal
- * here mirrors a spec line, so a test failure means either the spec changed or a
- * stray sub-agent edit slipped past review.
+ * because it feeds `RoundRectangle2D.Float` directly. A test failure means the
+ * constant table was mutated unintentionally.
  */
 class DensityTest {
     @Test

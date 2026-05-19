@@ -7,10 +7,10 @@ import kotlin.test.Test
 import kotlin.test.assertTrue
 
 /**
- * Pattern G apply/revert symmetry source-regex regression lock for D-04.
+ * Pattern G apply/revert symmetry source-regex regression lock.
  *
  * Every key written by `apply()` MUST have a matching reverse op in
- * `revertAll()`. Pre-40.1, two integrations broke that invariant:
+ * `revertAll()`. Two integrations previously broke that invariant:
  *
  *   apply  -> IndentRainbowSync.apply(variant, hex)
  *   revert -> (nothing)                                 <- BUG
@@ -18,15 +18,15 @@ import kotlin.test.assertTrue
  *   apply  -> syncCodeGlanceProViewport(hex)
  *   revert -> (nothing)                                 <- BUG
  *
- * Wave 1 plan 02 closes both pairs by inserting `IndentRainbowSync.revert()`
- * and `revertCodeGlanceProViewport()` into the `revertAll` body. This test
- * locks the symmetry: a future agent who deletes either revert call (or moves
- * it outside `revertAll`) gets a named regression that points at the exact
+ * Both pairs are now closed by inserting `IndentRainbowSync.revert()` and
+ * `revertCodeGlanceProViewport()` into the `revertAll` body. This test locks
+ * the symmetry: a future agent who deletes either revert call (or moves it
+ * outside `revertAll`) gets a named regression that points at the exact
  * apply/revert pair the symmetry breaks.
  *
- * Also locks the RESEARCH §D-04 ordering: integrations BEFORE the per-project
- * `notifyOnly` loop, so subscribers (EditorScrollbarManager etc.) see
- * consistent app-scoped state when the topic fires.
+ * Also locks the ordering: integrations BEFORE the per-project `notifyOnly`
+ * loop, so subscribers (EditorScrollbarManager etc.) see consistent
+ * app-scoped state when the topic fires.
  */
 class AccentApplicatorRevertAllSymmetryTest {
     private val source: String by lazy {
@@ -78,10 +78,10 @@ class AccentApplicatorRevertAllSymmetryTest {
         assertTrue(
             Regex("""IndentRainbowSync\.revert\(\)""").containsMatchIn(body),
             "revertAll MUST call IndentRainbowSync.revert() — Pattern G symmetry " +
-                "with `IndentRainbowSync.apply(...)` in the apply path. Pre-40.1, " +
-                "the apply path wrote the indent palette but the revert path never " +
-                "cleared it, leaving stale Ayu colors in IR's app-scoped IrConfig " +
-                "after the user switched to a non-Ayu LAF.",
+                "with `IndentRainbowSync.apply(...)` in the apply path. Without " +
+                "this, the apply path writes the indent palette but the revert " +
+                "path never clears it, leaving stale Ayu colors in IR's " +
+                "app-scoped IrConfig after the user switches to a non-Ayu LAF.",
         )
     }
 
@@ -91,9 +91,9 @@ class AccentApplicatorRevertAllSymmetryTest {
         assertTrue(
             Regex("""revertCodeGlanceProViewport\(\)""").containsMatchIn(body),
             "revertAll MUST call revertCodeGlanceProViewport() — Pattern G symmetry " +
-                "with `syncCodeGlanceProViewport(...)` in the apply path. Pre-40.1, " +
-                "the apply path tinted CGP's minimap viewport but the revert path " +
-                "never restored it, leaving the orange viewport painted over " +
+                "with `syncCodeGlanceProViewport(...)` in the apply path. Without " +
+                "this, the apply path tints CGP's minimap viewport but the revert " +
+                "path never restores it, leaving the orange viewport painted over " +
                 "Darcula chrome after a theme switch.",
         )
     }
@@ -119,14 +119,13 @@ class AccentApplicatorRevertAllSymmetryTest {
 
     @Test
     fun `apply body wraps IndentRainbowSync apply in if variant non-null check`() {
-        // C-1 regression lock. The behavioral test
-        // `apply skips IndentRainbowSync when variant is null` covers the
-        // runtime path; this source-regex pin guards against a refactor that
-        // drops the structural `if (variant != null)` wrapper. IR.apply takes
-        // a non-null AyuVariant; if the wrapper goes away the call would not
-        // compile, but a future change to IR.apply's signature (nullable
-        // variant) could silently re-introduce the unconditional invocation.
-        // Pattern L — defensive structural lock.
+        // The behavioral test `apply skips IndentRainbowSync when variant is
+        // null` covers the runtime path; this source-regex pin guards against
+        // a refactor that drops the structural `if (variant != null)` wrapper.
+        // IR.apply takes a non-null AyuVariant; if the wrapper goes away the
+        // call would not compile, but a future change to IR.apply's signature
+        // (nullable variant) could silently re-introduce the unconditional
+        // invocation. Pattern L — defensive structural lock.
         val body = extractFunctionBody(source, "fun apply(")
         assertTrue(
             Regex("""if\s*\(variant\s*!=\s*null\s*\)\s*\{\s*[\s\S]*?IndentRainbowSync\.apply""")
@@ -140,8 +139,8 @@ class AccentApplicatorRevertAllSymmetryTest {
 
     @Test
     fun `apply body fires IR apply before CGP sync before notifyOnly`() {
-        // TA-I6 mirror of the revert-side ordering lock. Apply path order
-        // matches the revert path (IR -> CGP -> notifyOnly) so future debugging
+        // Mirror of the revert-side ordering lock. Apply path order matches
+        // the revert path (IR -> CGP -> notifyOnly) so future debugging
         // reasons about a single ordering rather than two inverse-mirrored
         // sequences. Drift between apply and revert order is silently
         // observable as app-scoped state where IR pushed first on apply but
@@ -154,23 +153,22 @@ class AccentApplicatorRevertAllSymmetryTest {
         assertTrue(
             irIdx in 0 until cgpIdx,
             "IndentRainbowSync.apply must come BEFORE CodeGlanceProIntegration.syncCodeGlanceProViewport " +
-                "in apply body (TA-I6 ordering lock — found irIdx=$irIdx cgpIdx=$cgpIdx). " +
+                "in apply body (ordering lock — found irIdx=$irIdx cgpIdx=$cgpIdx). " +
                 "Mirrors the revert-side ordering in revertAll body.",
         )
         assertTrue(
             cgpIdx in 0 until notifyIdx,
             "CodeGlanceProIntegration.syncCodeGlanceProViewport must come BEFORE notifyOnly in apply body " +
-                "(TA-I6 ordering lock — found cgpIdx=$cgpIdx notifyIdx=$notifyIdx). Integrations " +
+                "(ordering lock — found cgpIdx=$cgpIdx notifyIdx=$notifyIdx). Integrations " +
                 "stamp the app-scoped caches before the refresh broadcast.",
         )
     }
 
     @Test
     fun `IR revert precedes CGP revert precedes notifyOnly in revertAll body`() {
-        // RESEARCH §D-04 ordering lock: integrations BEFORE notifyOnly so
-        // subscribers see consistent app-scoped state when the topic fires.
-        // Reordering would silently re-introduce the stale-cache class of bugs
-        // we're closing.
+        // Ordering lock: integrations BEFORE notifyOnly so subscribers see
+        // consistent app-scoped state when the topic fires. Reordering would
+        // silently re-introduce the stale-cache class of bugs this closes.
         val body = extractFunctionBody(source, "fun revertAll(")
         val irIdx = body.indexOf("IndentRainbowSync.revert()")
         val cgpIdx = body.indexOf("revertCodeGlanceProViewport()")
@@ -178,12 +176,12 @@ class AccentApplicatorRevertAllSymmetryTest {
         assertTrue(
             irIdx in 0 until cgpIdx,
             "IR revert must come BEFORE CGP revert in revertAll body " +
-                "(RESEARCH §D-04 ordering lock — found irIdx=$irIdx cgpIdx=$cgpIdx)",
+                "(ordering lock — found irIdx=$irIdx cgpIdx=$cgpIdx)",
         )
         assertTrue(
             cgpIdx in 0 until notifyIdx,
             "CGP revert must come BEFORE notifyOnly in revertAll body " +
-                "(RESEARCH §D-04 ordering lock — found cgpIdx=$cgpIdx notifyIdx=$notifyIdx)",
+                "(ordering lock — found cgpIdx=$cgpIdx notifyIdx=$notifyIdx)",
         )
     }
 }

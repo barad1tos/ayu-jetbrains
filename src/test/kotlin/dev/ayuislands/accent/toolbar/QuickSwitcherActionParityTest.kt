@@ -24,21 +24,18 @@ import kotlin.test.assertNotSame
 import kotlin.test.assertTrue
 
 /**
- * D-14b parity lock — the single most important test in Plan 48-03.
+ * Quick-switcher action parity lock.
  *
  * `QuickSwitcherActionGroup.build()` is the SINGLE source of truth for the
  * five quick-action classes that appear in BOTH the chip's right-click
- * context menu (Wave 3, this Plan) AND the popup's premium quick-actions
- * row (Wave 4, Plan 48-04). Divergence between the two surfaces is
- * forbidden by D-14b; this test reads the consumer files at test time and
- * asserts they reference the canonical group, NOT inline action
- * constructors.
+ * context menu AND the popup's premium quick-actions row. Divergence
+ * between the two surfaces is forbidden; this test reads the consumer
+ * files at test time and asserts they reference the canonical group, NOT
+ * inline action constructors.
  *
- * A future Wave 4 edit that inlines `PinAccentAction()` directly in the
- * popup row (bypassing the group) fails this test — that is the intended
+ * A future edit that inlines `PinAccentAction()` directly in the popup
+ * row (bypassing the group) fails this test — that is the intended
  * regression signal.
- *
- * Tests 34..37 per `48-03-PLAN.md` `<behavior>`.
  */
 class QuickSwitcherActionParityTest {
     private val mockApp = mockk<Application>(relaxed = true)
@@ -60,7 +57,6 @@ class QuickSwitcherActionParityTest {
 
     @Test
     fun `QuickSwitcherActionGroup build has exactly 5 children`() {
-        // Test 34
         val group = QuickSwitcherActionGroup.build()
         val children = group.childActionsOrStubs.toList()
         assertEquals(5, children.size, "Expected 5 children, got: $children")
@@ -68,7 +64,6 @@ class QuickSwitcherActionParityTest {
 
     @Test
     fun `children appear in fixed order Pin Random Lighter Darker CopyHex`() {
-        // Test 35
         val group = QuickSwitcherActionGroup.build()
         val expected =
             listOf(
@@ -79,22 +74,21 @@ class QuickSwitcherActionParityTest {
                 CopyHexAction::class.java.simpleName,
             )
         val actual = group.childActionsOrStubs.map { it::class.java.simpleName }
-        assertEquals(expected, actual, "QuickSwitcherActionGroup child order drifted (D-14b violation)")
+        assertEquals(expected, actual, "QuickSwitcherActionGroup child order drifted")
     }
 
     @Test
-    fun `consumer files reference QuickSwitcherActionGroup and avoid inline action constructors (D-14b)`() {
-        // Test 36 — parity grep. The chip (Wave 3) MUST reference the
-        // canonical group. The popup (Wave 2 placeholder, Wave 4 fills the
-        // premium row) MUST NOT inline any of the five action class names
-        // outside the group — Wave 4 should also reach for `QuickSwitcherActionGroup`.
+    fun `consumer files reference QuickSwitcherActionGroup and avoid inline action constructors`() {
+        // Parity grep. The chip MUST reference the canonical group. The popup
+        // MUST NOT inline any of the five action class names outside the group
+        // — popup consumers should also reach for `QuickSwitcherActionGroup`.
         val chipPath = Paths.get("src/main/kotlin/dev/ayuislands/accent/toolbar/QuickSwitcherChipComponent.kt")
         val popupPath = Paths.get("src/main/kotlin/dev/ayuislands/accent/toolbar/QuickSwitcherPopup.kt")
 
         val chipSource = Files.readString(chipPath)
         assertTrue(
             chipSource.contains("QuickSwitcherActionGroup"),
-            "QuickSwitcherChipComponent must reference QuickSwitcherActionGroup (D-14b)",
+            "QuickSwitcherChipComponent must reference QuickSwitcherActionGroup",
         )
 
         val popupSource = Files.readString(popupPath)
@@ -109,26 +103,26 @@ class QuickSwitcherActionParityTest {
         for (forbidden in inlineForbidden) {
             assertFalse(
                 popupSource.contains(forbidden),
-                "QuickSwitcherPopup must NOT inline `$forbidden` — go through QuickSwitcherActionGroup (D-14b)",
+                "QuickSwitcherPopup must NOT inline `$forbidden` — go through QuickSwitcherActionGroup",
             )
         }
     }
 
     @Test
     fun `build returns a fresh DefaultActionGroup on each call (no shared mutable state)`() {
-        // Test 37 — sharing one group between two surfaces creates double-fire
-        // bugs. Each consumer (chip RMB, popup row) gets its own instance.
+        // Sharing one group between two surfaces creates double-fire bugs.
+        // Each consumer (chip RMB, popup row) gets its own instance.
         assertNotSame(QuickSwitcherActionGroup.build(), QuickSwitcherActionGroup.build())
     }
 
     @Test
-    fun `popup quick-actions row uses each Wave 3 action class exactly once`() {
-        // Test 15 — D-14b parity invariant for the Wave 4 popup row.
-        // QuickSwitcherQuickActionsRow.kt instantiates the five action classes
-        // directly (NOT via the group, because the popup row is a Swing JPanel
-        // of JButtons, not a DefaultActionGroup). Source-grep at test time is
-        // the regression lock — any future edit that drops, duplicates, or
-        // swaps a constructor breaks the parity invariant.
+    fun `popup quick-actions row uses each action class exactly once`() {
+        // Parity invariant for the popup row.
+        // `QuickSwitcherQuickActionsRow` instantiates the five action classes
+        // directly (NOT via the group, because the popup row is a Swing
+        // `JPanel` of `JButton`s, not a `DefaultActionGroup`). Source-grep at
+        // test time is the regression lock — any future edit that drops,
+        // duplicates, or swaps a constructor breaks the parity invariant.
         val rowPath = Paths.get("src/main/kotlin/dev/ayuislands/accent/toolbar/QuickSwitcherQuickActionsRow.kt")
         val body = Files.readString(rowPath)
         for (ctor in CANONICAL_CONSTRUCTORS) {
@@ -139,8 +133,8 @@ class QuickSwitcherActionParityTest {
 
     @Test
     fun `quick-actions row constructor order matches QuickSwitcherActionGroup build order`() {
-        // Test 16 — D-14b ordering invariant. Read both files, regex-collect
-        // the (Pin|Random|Lighter|Darker)AccentAction()|CopyHexAction()
+        // Ordering invariant. Read both files, regex-collect the
+        // `(Pin|Random|Lighter|Darker)AccentAction()|CopyHexAction()`
         // constructor calls (trailing `()` excludes import statements which
         // share the class names but appear alphabetically sorted in imports).
         val groupPath = Paths.get("src/main/kotlin/dev/ayuislands/accent/toolbar/actions/QuickSwitcherActionGroup.kt")
@@ -156,9 +150,9 @@ class QuickSwitcherActionParityTest {
                 "DarkerAccentAction",
                 "CopyHexAction",
             )
-        assertEquals(expected, groupOrder, "QuickSwitcherActionGroup constructor order drifted (D-14b)")
-        assertEquals(expected, rowOrder, "QuickSwitcherQuickActionsRow constructor order drifted (D-14b)")
-        assertEquals(groupOrder, rowOrder, "Group and row constructor orders MUST match (D-14b)")
+        assertEquals(expected, groupOrder, "QuickSwitcherActionGroup constructor order drifted")
+        assertEquals(expected, rowOrder, "QuickSwitcherQuickActionsRow constructor order drifted")
+        assertEquals(groupOrder, rowOrder, "Group and row constructor orders MUST match")
     }
 
     private companion object {

@@ -54,8 +54,8 @@ class ProjectAccentSwapServiceTest {
 
     @BeforeTest
     fun setUp() {
-        // Default: IR integration enabled. SF-I3 tests flip this to assert the
-        // gate skips IR.apply on the same-hex branch.
+        // Default: IR integration enabled. The disabled-IR test flips this to
+        // assert the gate skips `IR.apply` on the same-hex branch.
         state.irIntegrationEnabled = true
 
         mockkObject(AyuIslandsSettings.Companion)
@@ -66,11 +66,11 @@ class ProjectAccentSwapServiceTest {
         mockkObject(AccentApplicator)
         mockkObject(AyuVariant.Companion)
         mockkObject(ComponentTreeRefresher)
-        // D-07 (40.1-03): handleWindowActivated now calls these directly on the
-        // same-hex branch to push the per-project hex into the app-scoped CGP
-        // and IR caches. Stub them globally so every test exercising the
-        // same-hex path runs cleanly; per-test verifies still scope the
-        // assertion to whichever case is under test.
+        // `handleWindowActivated` calls these directly on the same-hex branch
+        // to push the per-project hex into the app-scoped CGP and IR caches.
+        // Stub them globally so every test exercising the same-hex path runs
+        // cleanly; per-test verifies still scope the assertion to whichever
+        // case is under test.
         mockkObject(IndentRainbowSync)
         every { AccentApplicator.applyFromHexString(any()) } returns true
         every { AccentApplicator.syncCodeGlanceProViewportForSwap(any()) } just Runs
@@ -196,13 +196,12 @@ class ProjectAccentSwapServiceTest {
         // JVM-wide UIManager/globalScheme color since the last activation. The apply itself
         // is still skipped when the resolver output matches lastAppliedHex.
         //
-        // Post-40.1 D-07: walkAndNotify and the integration refresh path
-        // (`syncCodeGlanceProViewportForSwap` + `IndentRainbowSync.apply`) now fire on
+        // `walkAndNotify` and the integration refresh path
+        // (`syncCodeGlanceProViewportForSwap` + `IndentRainbowSync.apply`) fire on
         // every activation regardless of hex change so the per-project hex is pushed into
-        // the app-scoped CGP/IR caches and the focused chrome repaints. Pre-40.1 the
+        // the app-scoped CGP/IR caches and the focused chrome repaints. Historically the
         // blanket `if (effectiveHex == lastAppliedHex) return` short-circuited everything;
-        // closing Bug B requires the walkAndNotify + integration writes to fire even on
-        // the same-hex branch.
+        // the same-hex branch now still fires the `walkAndNotify` + integration writes.
         val (window, project) = wireMatchingFrame()
         every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
         val service = ProjectAccentSwapService()
@@ -213,14 +212,14 @@ class ProjectAccentSwapServiceTest {
 
         verify(exactly = 2) { AccentResolver.resolve(project, AyuVariant.MIRAGE) }
         verify(exactly = 1) { AccentApplicator.applyFromHexString("#FFCC66") }
-        // walkAndNotify fires on BOTH activations — D-07 invariant.
+        // walkAndNotify fires on BOTH activations.
         verify(exactly = 2) { ComponentTreeRefresher.walkAndNotify(project, window) }
-        // TA-I4 strict count: integration refresh fires EXACTLY ONCE — only
-        // on the second activation (same-hex branch). The first activation
-        // takes the changed-hex branch (delegating to applyFromHexString)
-        // which does NOT directly call these wrappers. A regression that
-        // moves the integration writes into the changed-hex branch would
-        // double-fire and the strict count catches that.
+        // Strict count: integration refresh fires EXACTLY ONCE — only on the
+        // second activation (same-hex branch). The first activation takes the
+        // changed-hex branch (delegating to `applyFromHexString`) which does
+        // NOT directly call these wrappers. A regression that moves the
+        // integration writes into the changed-hex branch would double-fire
+        // and the strict count catches that.
         verify(exactly = 1) { AccentApplicator.syncCodeGlanceProViewportForSwap("#FFCC66") }
         verify(exactly = 1) { IndentRainbowSync.apply(AyuVariant.MIRAGE, "#FFCC66") }
     }
@@ -304,21 +303,16 @@ class ProjectAccentSwapServiceTest {
 
     @Test
     fun `same-hex focus swap re-syncs CGP and IR caches`() {
-        // D-07 Bug B trigger: alt-tab from project A (hex X) to project B which
-        // also resolves to hex X. Pre-40.1, the blanket short-circuit at :98
-        // skipped applyFromHexString AND walkAndNotify AND the integration
-        // writes — leaving CGP `CodeGlanceConfigService` and IR `IrConfig`
-        // app-scoped caches holding project A's hex while the user looked at
-        // project B.
+        // Alt-tab from project A (hex X) to project B which also resolves to
+        // hex X. The blanket short-circuit historically skipped
+        // `applyFromHexString` AND `walkAndNotify` AND the integration writes —
+        // leaving CGP `CodeGlanceConfigService` and IR `IrConfig` app-scoped
+        // caches holding project A's hex while the user looked at project B.
         //
-        // Post-40.1: applyFromHexString is still skipped (UIManager is already
-        // correct), but `syncCodeGlanceProViewportForSwap` and
+        // Current shape: `applyFromHexString` is still skipped (UIManager is
+        // already correct), but `syncCodeGlanceProViewportForSwap` and
         // `IndentRainbowSync.apply` are called directly so the app-scoped
         // caches re-receive the hex for the newly-focused project.
-        //
-        // References `AccentApplicator.syncCodeGlanceProViewportForSwap`, which
-        // is introduced in Wave 2 plan 03 — until then, this test fails to
-        // compile. That IS the red state.
         val projectA = stubProject("project-a")
         val projectB = stubProject("project-b")
         val windowA = mockk<Window>(relaxed = true)
@@ -356,9 +350,9 @@ class ProjectAccentSwapServiceTest {
         // hex is unchanged.
         verify(exactly = 1) { AccentApplicator.applyFromHexString(sharedHex) }
 
-        // TA-I4 strict count: integration refresh fires EXACTLY ONCE — only on
+        // Strict count: integration refresh fires EXACTLY ONCE — only on
         // the same-hex branch (project B's activation). The first activation
-        // takes the changed-hex branch which delegates to applyFromHexString
+        // takes the changed-hex branch which delegates to `applyFromHexString`
         // and does NOT call these wrappers directly. A future regression that
         // moves the integration writes into the changed-hex branch (or fires
         // them twice somehow) would silently double-stamp the app-scoped
@@ -366,7 +360,7 @@ class ProjectAccentSwapServiceTest {
         verify(exactly = 1) { AccentApplicator.syncCodeGlanceProViewportForSwap(sharedHex) }
         verify(exactly = 1) { IndentRainbowSync.apply(AyuVariant.MIRAGE, sharedHex) }
 
-        // walkAndNotify fires for BOTH activations — pre-40.1 the blanket
+        // walkAndNotify fires for BOTH activations — historically the blanket
         // return skipped this on the same-hex branch, leaving the per-project
         // chrome stale.
         verify(exactly = 2) { ComponentTreeRefresher.walkAndNotify(any(), any()) }
@@ -374,10 +368,10 @@ class ProjectAccentSwapServiceTest {
 
     @Test
     fun `different-hex focus swap applies and refreshes`() {
-        // Regression lock for the normal (pre-existing) case: a focus swap
-        // between projects with different hexes MUST still invoke
-        // applyFromHexString + walkAndNotify. Ensures the D-07 same-hex
-        // relaxation did not break the happy path.
+        // Regression lock for the normal case: a focus swap between projects
+        // with different hexes MUST still invoke `applyFromHexString` +
+        // `walkAndNotify`. Ensures the same-hex relaxation did not break the
+        // happy path.
         val projectA = stubProject("project-a")
         val projectB = stubProject("project-b")
         val windowA = mockk<Window>(relaxed = true)
@@ -503,13 +497,13 @@ class ProjectAccentSwapServiceTest {
 
     @Test
     fun `handleWindowActivated returns gracefully when WindowManager is null (shutdown race)`() {
-        // SF-I1 regression lock. Pre-fix: WindowManager.getInstance() can return
-        // null during shutdown after services have started disposing but before
-        // AWT stops dispatching. Without a guard, findProjectForWindow's
-        // `windowManager.allProjectFrames` would NPE inside the
-        // RuntimeException-catching wrapper, surfacing every alt-tab during
-        // shutdown as a SEVERE in idea.log. Post-fix: graceful null guard,
-        // first-WARN-then-DEBUG dedup matching AccentApplicator's convention.
+        // `WindowManager.getInstance()` can return null during shutdown after
+        // services have started disposing but before AWT stops dispatching.
+        // Without a guard, `findProjectForWindow`'s `windowManager.allProjectFrames`
+        // would NPE inside the `RuntimeException`-catching wrapper, surfacing
+        // every alt-tab during shutdown as a SEVERE in idea.log. The graceful
+        // null guard logs the first occurrence at WARN then DEBUG-dedups
+        // subsequent ones, matching `AccentApplicator`'s convention.
         every { WindowManager.getInstance() } returns null
 
         val capturedWarns = mutableListOf<String>()
@@ -545,15 +539,15 @@ class ProjectAccentSwapServiceTest {
 
     @Test
     fun `same-hex focus swap with irIntegrationEnabled false does not trigger IR side-effect`() {
-        // SF-I3 regression lock. Pre-fix: handleWindowActivated called
-        // IndentRainbowSync.apply on every same-hex focus swap regardless of
-        // the irIntegrationEnabled toggle. IR.apply itself reverts when its
+        // Historically `handleWindowActivated` called `IndentRainbowSync.apply`
+        // on every same-hex focus swap regardless of the
+        // `irIntegrationEnabled` toggle. `IR.apply` itself reverts when its
         // toggle is false — so each alt-tab from a user with IR disabled
-        // silently re-stamped IR's IrConfig with a DEFAULT palette write, a
+        // silently re-stamped IR's `IrConfig` with a DEFAULT palette write, a
         // gratuitous side-effect on every focus swap.
-        // Post-fix: gate IR.apply on the toggle so disabled means disabled.
-        // CGP gates internally and short-circuits the same way; no analogous
-        // gate needed at this call site.
+        // The toggle now gates `IR.apply` so disabled means disabled. CGP gates
+        // internally and short-circuits the same way; no analogous gate is
+        // needed at this call site.
         state.irIntegrationEnabled = false
 
         val (window, project) = wireMatchingFrame()
@@ -565,7 +559,7 @@ class ProjectAccentSwapServiceTest {
 
         verify(exactly = 0) { IndentRainbowSync.apply(any(), any()) }
         // CGP integration call still fires — the gate is IR-only at this
-        // call site (CGP gates inside its own apply).
+        // call site (CGP gates inside its own `apply`).
         verify(atLeast = 1) { AccentApplicator.syncCodeGlanceProViewportForSwap("#FFCC66") }
     }
 

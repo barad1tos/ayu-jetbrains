@@ -16,7 +16,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Behaviour lock for [AyuIslandsQuickSwitcherGroupBuilder] (Phase 48 Wave 5 — D-17 extraction).
+ * Behaviour lock for [AyuIslandsQuickSwitcherGroupBuilder].
  *
  * The builder mirrors [OverridesGroupBuilder]'s `buildGroup` / `isModified` / `apply` /
  * `reset` shape. Tests exercise the lifecycle round-trip via the public surface plus
@@ -24,7 +24,7 @@ import kotlin.test.assertTrue
  * a real `Panel` outside the IDE harness — pulls in the Kotlin UI DSL bootstrap and is
  * heavier than the field probe).
  *
- * Pattern G adjacency lock (test #5): the builder source MUST NOT call `AccentApplicator` /
+ * Pattern G adjacency lock: the builder source MUST NOT call `AccentApplicator` /
  * `LafManager` / `applyFromHexString` — those would double-apply on top of the BGT-tick
  * cascade that already polls `state.quickSwitcherWidgetEnabled`.
  */

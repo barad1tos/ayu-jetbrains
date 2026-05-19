@@ -66,12 +66,12 @@ class VariantSwitcherRowTest {
     }
 
     @Test
-    fun `source contains zero JRadioButton or JCheckBox references (Wave 7 redesign)`() {
+    fun `source contains zero JRadioButton or JCheckBox references`() {
         val source = Files.readString(Paths.get(SOURCE_PATH))
         val radioCount = "JRadioButton".toRegex().findAll(source).count()
         val checkboxCount = "JCheckBox".toRegex().findAll(source).count()
-        assertEquals(0, radioCount, "Wave 7 redesign: zero JRadioButton references allowed")
-        assertEquals(0, checkboxCount, "Wave 7 redesign: zero JCheckBox references allowed")
+        assertEquals(0, radioCount, "Variant row: zero JRadioButton references allowed")
+        assertEquals(0, checkboxCount, "Variant row: zero JCheckBox references allowed")
     }
 
     @Test
@@ -177,7 +177,7 @@ class VariantSwitcherRowTest {
     }
 
     @Test
-    fun `missing theme in installedThemes is a warn-and-return no-op (Pitfall 7)`() {
+    fun `missing theme in installedThemes is a warn-and-return no-op`() {
         every { lafManager.installedThemes } returns emptySequence()
 
         val row = VariantSwitcherRow(AyuVariant.MIRAGE)
@@ -234,12 +234,12 @@ class VariantSwitcherRowTest {
 
     @Test
     fun `IslandsUiPill accent supplier falls back to currentVariant when AyuVariant detect returns null`() {
-        // Round 2 IMP-6 remainder: lock the `AyuVariant.detect() ?: currentVariant`
-        // fallback inside `resolveCurrentAccent`. When the platform LAF is
-        // non-Ayu (mid-theme-switch / unrelated test harness theme), the
-        // detector returns null and the row's seed-time `currentVariant`
-        // must be the variant handed to the resolver — otherwise the pill's
-        // tinted glyph would resolve against the wrong palette.
+        // Locks the `AyuVariant.detect() ?: currentVariant` fallback inside
+        // `resolveCurrentAccent`. When the platform LAF is non-Ayu (mid-
+        // theme-switch / unrelated test harness theme), the detector returns
+        // null and the row's seed-time `currentVariant` must be the variant
+        // handed to the resolver — otherwise the pill's tinted glyph would
+        // resolve against the wrong palette.
         //
         // Seed the LAF as `Ayu Mirage (Islands UI)` so the pill seeds
         // `islandsUi=true` and therefore actually invokes the accent supplier
@@ -281,12 +281,11 @@ class VariantSwitcherRowTest {
 
     @Test
     fun `IslandsUiPill accent supplier returns MIRAGE_HEX fallback when resolver throws`() {
-        // Round 2 IMP-6 remainder: lock the Pattern B catch inside
-        // `resolveCurrentAccent`. AccentResolver can throw under a plugin
-        // reload race or corrupted persisted state; the pill's accent
-        // supplier MUST swallow the throw and return AccentDefaults.MIRAGE_HEX
-        // so the popup keeps painting with a sane fallback instead of crashing
-        // the EDT.
+        // Locks the Pattern B catch inside `resolveCurrentAccent`.
+        // `AccentResolver` can throw under a plugin reload race or corrupted
+        // persisted state; the pill's accent supplier MUST swallow the throw
+        // and return `AccentDefaults.MIRAGE_HEX` so the popup keeps painting
+        // with a sane fallback instead of crashing the EDT.
         val islandsTheme = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
         every { islandsTheme.name } returns "Ayu Mirage (Islands UI)"
         every { lafManager.currentUIThemeLookAndFeel } returns islandsTheme

@@ -76,7 +76,7 @@ class DarkerAccentActionTest {
 
     @Test
     fun `update Pattern J two-level gate exhaustive (T,T) (F,T) (T,F) (F,F)`() {
-        // CRIT-7 — full 4-case truth table; (F,F) locks AND-not-OR.
+        // Full 4-case truth table; (F,F) locks AND-not-OR.
         val action = DarkerAccentAction()
         val event = newEvent()
 
@@ -103,8 +103,8 @@ class DarkerAccentActionTest {
 
     @Test
     fun `actionPerformed feeds AccentHsl darken output into applyFromHexString (Pattern D gated)`() {
-        // Test 29 — CRIT-6: darken now takes/returns AccentHex; unwrap via .value
-        // to match the String-typed apply boundary.
+        // `darken` takes/returns [AccentHex]; unwrap via .value to match the
+        // String-typed apply boundary.
         val expected = AccentHsl.darken(AccentHex.unsafeOf("#FFCC66")).value
         DarkerAccentAction().actionPerformed(newEvent())
         verify(exactly = 1) { AccentApplicator.applyFromHexString(expected) }

@@ -132,13 +132,13 @@ class AyuIslandsAppListenerTest {
 
     @Test
     fun `appFrameCreated applies cached hex directly when lastAppliedAccentHex is set`() {
-        // Phase 40 anti-flicker: when a previous session persisted the last-applied hex,
+        // Anti-flicker: when a previous session persisted the last-applied hex,
         // the listener MUST apply that hex directly on the first frame rather than
         // resolving against a null project context (which yields the global accent and
         // flashes Gold before per-project StartupActivity runs).
         state.lastAppliedAccentHex = "#5CCFE6"
-        // Phase 40.2 H-2: the listener trusts the cached hex only when the previous
-        // session's apply finished cleanly. Simulate that here.
+        // The listener trusts the cached hex only when the previous session's
+        // apply finished cleanly. Simulate that here.
         state.lastApplyOk = true
         mockkObject(AccentResolver)
 
@@ -179,12 +179,12 @@ class AyuIslandsAppListenerTest {
 
     @Test
     fun `appFrameCreated skips invalid cached hex and falls through to resolver`() {
-        // Phase 40 Round 2 Fix B-1: a corrupted `lastAppliedAccentHex` (truncated
-        // persist, hand-edited XML, legacy format) used to feed straight into
-        // AccentApplicator.apply and throw NumberFormatException inside Color.decode.
-        // The listener now shape-checks the cached value before use; invalid values are
-        // cleared so they can't re-poison subsequent boots, and the resolver path runs
-        // instead — identical to a fresh install's first frame.
+        // A corrupted `lastAppliedAccentHex` (truncated persist, hand-edited
+        // XML, legacy format) used to feed straight into `AccentApplicator.apply`
+        // and throw `NumberFormatException` inside `Color.decode`. The listener
+        // now shape-checks the cached value before use; invalid values are
+        // cleared so they can't re-poison subsequent boots, and the resolver
+        // path runs instead — identical to a fresh install's first frame.
         state.lastAppliedAccentHex = "garbage"
         mockkObject(AccentResolver)
         every { AccentResolver.resolve(null, AyuVariant.MIRAGE) } returns "#FF0000"
@@ -240,11 +240,11 @@ class AyuIslandsAppListenerTest {
     @Test
     fun `appFrameCreated preserves valid cached hex`() {
         // Positive counterpart: a well-shaped cached hex must not be cleared and must
-        // be applied directly without consulting the resolver — that's the Round 1
-        // anti-flicker guarantee. Round 2 only hardens the NEGATIVE path; the positive
-        // path must remain unchanged.
+        // be applied directly without consulting the resolver — that's the
+        // anti-flicker guarantee. The hardening of the negative path leaves
+        // the positive path unchanged.
         state.lastAppliedAccentHex = "#5CCFE6"
-        // Phase 40.2 H-2: cache is trusted only when prior apply completed cleanly.
+        // Cache is trusted only when prior apply completed cleanly.
         state.lastApplyOk = true
         mockkObject(AccentResolver)
 

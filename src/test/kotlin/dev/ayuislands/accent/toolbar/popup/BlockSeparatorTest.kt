@@ -8,7 +8,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Locks the [BlockSeparator] hairline contract per 48-REDESIGN-SPEC §2.1:
+ * Locks the [BlockSeparator] hairline contract:
  *   - preferred height is 1 px JBUI-scaled,
  *   - inset BLOCK_SEPARATOR_PAD pixels on each side (transparent on the inset),
  *   - line color falls back to a non-transparent pixel inside the painted band.

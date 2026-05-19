@@ -17,38 +17,37 @@ import java.io.File
 import java.io.IOException
 
 /**
- * Filesystem delete pipeline for curated font presets (D-07).
+ * Filesystem delete pipeline for curated font presets.
  *
  * Separation from [FontInstaller] is deliberate — install and uninstall are
  * opposite lifecycle operations with independent test surfaces and different
  * failure modes. [FontInstaller.persistFontState] remains the sole writer of
- * `state.installedFonts` on the install path (D-14); this object is the sole
- * remover via [runUninstallPipeline].
+ * `state.installedFonts` on the install path; this object is the sole remover
+ * via [runUninstallPipeline].
  *
  * Pipeline:
  * 1. Consent dialog via [FontInstallConsent.confirmUninstall] — **caller responsibility**.
  *    This object ASSUMES consent has been obtained. Consent is NOT inside the
  *    pipeline because [Task.Backgroundable] queue indirection would surface the
  *    dialog from a background thread, which either deadlocks on EDT or silently
- *    skips. See threat T-25-10.
+ *    skips.
  * 2. Off-EDT filesystem work in [Task.Backgroundable], matching [FontInstaller.install]'s
  *    threading.
  * 3. Reads authoritative paths from `AyuIslandsState.installedFontFiles` — never
- *    re-derives from regex (D-08).
+ *    re-derives from regex.
  * 4. Rejects any persisted path not canonically under [FontInstaller.platformFontDir]
- *    (path-traversal guard, T-25-01). Rejection returns [UninstallResult.Failure]
- *    WITHOUT mutating state.
+ *    (path-traversal guard). Rejection returns [UninstallResult.Failure] WITHOUT
+ *    mutating state.
  * 5. State mutation on EDT: removes from `AyuIslandsState.installedFonts`, adds to
- *    `AyuIslandsState.explicitlyUninstalledFonts` (D-09 guard), clears the
+ *    `AyuIslandsState.explicitlyUninstalledFonts` (resurrection guard), clears the
  *    `AyuIslandsState.installedFontFiles` entry, calls [FontDetector.invalidateCache].
  * 6. Conditionally calls [FontPresetApplicator.revert] when the deleted family
  *    matches the active editor font name.
  * 7. Notifies outcome — success, partial (file lock), or failure (path rejection).
  *
- * **Residual risk (T-25-11):** TOCTOU between canonical-path check and
- * `File.delete()` via symlink swap. Accepted — requires local fs write access
- * to race the delete in milliseconds, and the attacker can already delete the
- * target directly.
+ * **Residual risk:** TOCTOU between canonical-path check and `File.delete()` via
+ * symlink swap. Accepted — requires local fs write access to race the delete in
+ * milliseconds, and the attacker can already delete the target directly.
  *
  * No exception ever escapes to the caller; `onComplete` always fires with an
  * [UninstallResult].
@@ -141,9 +140,9 @@ object FontUninstaller {
 
         val rawPaths = AyuIslandsState.decodeFontPaths(state.installedFontFiles[family])
 
-        // D-08 path-traversal guard (T-25-01): reject any path that escapes
-        // platformFontDir. Runs BEFORE any File.delete() call so a malicious
-        // ayuIslands.xml can never make us touch /etc/passwd or anywhere else.
+        // Path-traversal guard: reject any path that escapes platformFontDir.
+        // Runs BEFORE any File.delete() call so a malicious ayuIslands.xml can
+        // never make us touch /etc/passwd or anywhere else.
         val platformDirCanonical =
             try {
                 FontInstaller.platformFontDir().canonicalPath

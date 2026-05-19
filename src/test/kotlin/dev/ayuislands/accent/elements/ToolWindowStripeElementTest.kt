@@ -29,7 +29,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Tests for [ToolWindowStripeElement] — CHROME-03.
+ * Tests for [ToolWindowStripeElement].
  *
  * Locks:
  *  - 3 UIManager background keys tinted (Stripe.background, Stripe.borderColor, Button.selectedBackground)
@@ -51,7 +51,7 @@ class ToolWindowStripeElementTest {
 
     @BeforeTest
     fun setUp() {
-        // Phase 40.2 M-3: reset the companion `firstApplyLogged` gate so first-apply
+        // Reset the companion `firstApplyLogged` gate so first-apply
         // diagnostic assertions are reachable regardless of ordering.
         resetFirstApplyLoggedGate()
 
@@ -117,12 +117,12 @@ class ToolWindowStripeElementTest {
     }
 
     @Test
-    fun `apply samples WcagForeground ICON independently for each bg (Round 2 A-2)`() {
+    fun `apply samples WcagForeground ICON independently for each bg`() {
         mockState.chromeTintIntensity = 40
 
         ToolWindowStripeElement().apply(testAccent)
 
-        // Round 2 A-2 CRITICAL: stripe bg and selected-button bg are DIFFERENT base colors;
+        // CRITICAL: stripe bg and selected-button bg are DIFFERENT base colors;
         // fg must be sampled against each bg independently, not reused across both.
         // With the current stub all three bg keys resolve to the same stubbed base+blend,
         // so the two pickForeground calls receive the same input. The important invariant
@@ -135,7 +135,7 @@ class ToolWindowStripeElementTest {
     }
 
     @Test
-    fun `apply picks DISTINCT fg colors when stripe bg and selected bg differ (Round 2 A-2)`() {
+    fun `apply picks DISTINCT fg colors when stripe bg and selected bg differ`() {
         mockState.chromeTintIntensity = 40
 
         // Return different base colors for the two foreground-bearing background keys so the
@@ -216,7 +216,7 @@ class ToolWindowStripeElementTest {
     }
 
     @Test
-    fun `apply invokes LiveChromeRefresher for stripe peer (Gap 4)`() {
+    fun `apply invokes LiveChromeRefresher for stripe peer`() {
         mockState.chromeTintIntensity = 30
 
         ToolWindowStripeElement().apply(testAccent)
@@ -227,7 +227,7 @@ class ToolWindowStripeElementTest {
     }
 
     @Test
-    fun `revert invokes LiveChromeRefresher clear for stripe peer (D-14 symmetry)`() {
+    fun `revert invokes LiveChromeRefresher clear for stripe peer for apply revert symmetry`() {
         ToolWindowStripeElement().revert()
 
         val expectedTarget = ChromeTarget.ByClassName(ClassFqn.require("com.intellij.toolWindow.Stripe"))
@@ -236,9 +236,9 @@ class ToolWindowStripeElementTest {
     }
 
     @Test
-    fun `first apply flips the Phase 40-2 M-3 diagnostic gate to true`() {
-        // Phase 40.2 M-3 contract: the one-shot diagnostic gate stays false until
-        // the first apply() invocation — exactly when LOG.info fires with the
+    fun `first apply flips the diagnostic gate to true`() {
+        // One-shot contract: the diagnostic gate stays false until the first
+        // apply() invocation — exactly when LOG.info fires with the
         // `ToolWindowStripeElement first apply: keysSeen=...` line. If the
         // `onBackgroundsTinted` override is deleted, the gate stays false and
         // this test fails.
@@ -249,8 +249,7 @@ class ToolWindowStripeElementTest {
 
         assertTrue(
             readFirstApplyLoggedGate(),
-            "onBackgroundsTinted must flip firstApplyLogged to true on first apply " +
-                "(Phase 40.2 M-3 diagnostic log)",
+            "onBackgroundsTinted must flip firstApplyLogged to true on first apply (diagnostic log)",
         )
     }
 

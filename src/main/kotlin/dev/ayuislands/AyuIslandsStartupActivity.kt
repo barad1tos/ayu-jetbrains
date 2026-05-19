@@ -76,8 +76,7 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         // subscribe, scrollbar manager init, ComponentTreeRefresher,
         // ConflictRegistry, license checks, onboarding). Extracted into
         // `runStartupAccentOnEdt` to keep `execute` within detekt's cyclomatic
-        // complexity budget. See Phase 40 review Round 3 C-5 and review-loop
-        // Round 1 HIGH-2/HIGH-3/MEDIUM-3.
+        // complexity budget.
         runStartupAccentOnEdt(project, variant)
 
         // Warm the language-detector cache so Settings → Accent → Overrides
@@ -209,9 +208,9 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
     }
 
     /**
-     * Re-apply persisted VCS color customization (Phase 40.2). Extracted from
-     * [execute] so the cyclomatic complexity stays under detekt's threshold —
-     * mirrors [runStartupAccentOnEdt]'s extraction rationale.
+     * Re-apply persisted VCS color customization. Extracted from [execute] so the
+     * cyclomatic complexity stays under detekt's threshold — mirrors
+     * [runStartupAccentOnEdt]'s extraction rationale.
      *
      * Two gates here:
      *  1. Master toggle — when off, [com.intellij.openapi.editor.colors.EditorColorsScheme]
@@ -231,30 +230,29 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
      * focused project, apply the accent, then install the focus-swap listener
      * and publish the swap cache. Split from [execute] to keep cyclomatic
      * complexity under detekt's threshold and to let the tests exercise this
-     * sequence in isolation (see Phase 40 review-loop Round 1 test-gap list).
+     * sequence in isolation.
      *
-     * Round 1 refinements on top of the initial Round 3 C-5 fix:
+     * Design invariants:
      *  - Capture projectName BEFORE the EDT hop so a mid-hop `project.isDisposed`
      *    race cannot NPE inside the error logger and swallow the original
-     *    exception (MEDIUM-3).
+     *    exception.
      *  - Split apply-vs-install into two [runCatchingPreservingCancellation]
      *    blocks so the ERROR message pins which half failed — apply fail is a
      *    visual regression the user sees; install fail silently disables
-     *    focus-swap cycling for the session (HIGH-2).
+     *    focus-swap cycling for the session.
      *  - Bail early if project/application already disposed to avoid hitting
      *    platform APIs that rewrap PCE as AlreadyDisposedException, which the
-     *    coroutine cancellation helper can't unwrap (HIGH-3 mitigation at the
-     *    call site).
+     *    coroutine cancellation helper can't unwrap.
      */
     private suspend fun runStartupAccentOnEdt(
         project: Project,
         variant: AyuVariant,
     ) {
-        // Round 2 MEDIUM R2-1: narrow the projectName capture catch to
-        // RuntimeException so CancellationException propagates instead of
-        // being swallowed into the "<disposed>" fallback. `project.name`
-        // access is non-suspend; catching Throwable here was asymmetric
-        // with every other catch in this file.
+        // Narrow the projectName capture catch to RuntimeException so
+        // CancellationException propagates instead of being swallowed into
+        // the "<disposed>" fallback. `project.name` access is non-suspend;
+        // catching Throwable here would be asymmetric with every other catch
+        // in this file.
         val projectName =
             try {
                 project.name
@@ -285,12 +283,12 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
             }
             val hex = applyOutcome.getOrNull()
             if (hex == null) {
-                // Round 2 MEDIUM R2-2: apply-failure already logged via onFailure
-                // above. Hex is null in two cases: (a) the runCatching caught an
-                // exception, (b) applyFromHexString returned false (rejected
-                // hex — the user-facing notification already fired inside the
-                // applicator). In (b), suppress the install+notify because
-                // there's no applied color to publish to the swap cache.
+                // apply-failure already logged via onFailure above. Hex is null
+                // in two cases: (a) the runCatching caught an exception,
+                // (b) applyFromHexString returned false (rejected hex — the
+                // user-facing notification already fired inside the applicator).
+                // In (b), suppress the install+notify because there's no applied
+                // color to publish to the swap cache.
                 if (applyOutcome.isSuccess) {
                     LOG.warn(
                         "Startup accent apply was rejected by applyFromHexString " +
@@ -305,7 +303,6 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
             // cycling will be inert" — factually wrong, because the listener IS
             // live; only the swap-cache publish step failed, so the first
             // activation will redundantly re-apply but the cycling itself works.
-            // See Phase 40 review-loop Round 2 HIGH R2-1.
             val swapService = ProjectAccentSwapService.getInstance()
             val installed =
                 runCatchingPreservingCancellation {

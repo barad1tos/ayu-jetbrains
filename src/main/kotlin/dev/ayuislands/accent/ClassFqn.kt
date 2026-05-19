@@ -10,7 +10,7 @@ package dev.ayuislands.accent
  * `String` parameters with identical type (`targetFqn`, `ancestorFqn`).
  * Swapping them compiles, unit tests still pass (both sides are just string
  * match + tree walk), but production silently over-tints the wrong peers —
- * exactly the positional-arg footgun Phase 40.3 was chartered to kill.
+ * exactly the positional-arg footgun this wrapper exists to kill.
  * Wrapping the FQN in a dedicated type forces call sites to tag each
  * argument, so a swap becomes a compile error.
  *

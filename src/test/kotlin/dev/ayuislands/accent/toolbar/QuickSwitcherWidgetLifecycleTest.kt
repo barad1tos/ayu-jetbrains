@@ -20,18 +20,18 @@ import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 
 /**
- * WIDGET-13 lifecycle integrity test. Simulates 10 install-disable-uninstall cycles on
+ * Lifecycle integrity test. Simulates 10 install-disable-uninstall cycles on
  * [QuickSwitcherChipComponent]. Each cycle:
  *   1. `chip.addNotify()` — should open ONE [MessageBusConnection] via
  *      `application.messageBus.connect(chip)`.
  *   2. `chip.removeNotify()` — should call `connection.disconnect()` exactly once.
  *
- * After 10 cycles, `MockK` verifies:
+ * After 10 cycles, MockK verifies:
  *   - `application.messageBus.connect(chip)` was called exactly 10 times.
  *   - `connection.disconnect()` was called exactly 10 times.
  *   - BOTH topic subscriptions happened exactly 10 times each
  *     ([AccentChangedTopic.TOPIC] AND [ApplicationActivationListener.TOPIC] —
- *     Wave 2 wired both, see [QuickSwitcherChipComponent.addNotify]).
+ *     the chip wires both; see [QuickSwitcherChipComponent.addNotify]).
  *
  * Pattern E (per-instance `Disposable` parent) is the contract; a leak appears as
  * connect-count > disconnect-count, OR as either topic's subscribe count exceeding 10.
@@ -44,13 +44,13 @@ import kotlin.test.assertEquals
  * `MessageBus.connect(Disposable)` is the JVM overload Kotlin resolves to
  * (verified via `javap` on `com.intellij.util.messages.MessageBus`). The chip is
  * both `JComponent` AND `Disposable`; matching against `Disposable` aligns with
- * the platform interface AND the Wave 2 sibling test `QuickSwitcherChipComponentTest`.
+ * the platform interface AND the sibling test `QuickSwitcherChipComponentTest`.
  *
  * `AyuVariant.detect()` is stubbed to `null` so the tail of `addNotify` —
  * `refreshFromFocusedProject()` — early-returns before touching `LafManager`, the
  * `EditorColorsManager`, or `AccentResolver`. The lifecycle contract under test
  * is purely the connection bookkeeping; the refresh body is exercised by the
- * Wave 2 sibling `QuickSwitcherChipComponentTest`.
+ * sibling `QuickSwitcherChipComponentTest`.
  */
 class QuickSwitcherWidgetLifecycleTest {
     private val application = mockk<Application>(relaxed = true)
@@ -116,8 +116,8 @@ class QuickSwitcherWidgetLifecycleTest {
         assertEquals(CYCLES, connectCount, "Final connect count != $CYCLES")
         assertEquals(CYCLES, disconnectCount, "Final disconnect count != $CYCLES")
 
-        // Verify BOTH topics subscribed each cycle (Wave 2 chip contract — see
-        // QuickSwitcherChipComponent.addNotify). The explicit `verify(exactly = CYCLES)`
+        // Verify BOTH topics subscribed each cycle (chip contract — see
+        // `QuickSwitcherChipComponent.addNotify`). The explicit `verify(exactly = CYCLES)`
         // is deliberate: silent consolidation of topics into one subscribe call
         // would still fail the test, which is the strictness contract this lock intends.
         verify(exactly = CYCLES) {
@@ -130,7 +130,7 @@ class QuickSwitcherWidgetLifecycleTest {
 
     @Test
     fun `addNotify is idempotent — calling twice in a row subscribes only once`() {
-        // RESEARCH §7 — the chip's `connection != null` early-return protects against
+        // The chip's `connection != null` early-return protects against
         // double-subscribe within one widget lifetime.
         var connectCount = 0
         every { messageBus.connect(any<Disposable>()) } answers {
@@ -151,11 +151,11 @@ class QuickSwitcherWidgetLifecycleTest {
 
     @Test
     fun `removeNotify disposes the connection parent (Pattern E)`() {
-        // After CRIT-5: chip is no longer Disposable itself; instead it owns a
-        // dedicated `connectionParent` Disposable whose lifetime equals the
-        // message-bus subscription lifetime. removeNotify disposes that holder
-        // AND calls disconnect. Either path alone would be sufficient at the
-        // platform level; both run for belt-and-braces symmetry.
+        // The chip is not Disposable itself; instead it owns a dedicated
+        // `connectionParent` Disposable whose lifetime equals the message-bus
+        // subscription lifetime. `removeNotify` disposes that holder AND calls
+        // disconnect. Either path alone would be sufficient at the platform
+        // level; both run for belt-and-braces symmetry.
         val chip = QuickSwitcherChipComponent()
         chip.addNotify()
         chip.removeNotify()

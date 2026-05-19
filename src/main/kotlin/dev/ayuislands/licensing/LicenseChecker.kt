@@ -263,8 +263,8 @@ object LicenseChecker {
 
             // Reset per-element toggles to defaults. VISUAL/INTERACTIVE groups are
             // free-tier features that default to ON; the CHROME group is a premium-only
-            // chrome-tinting surface (phase 40) that must be forcibly disabled on the
-            // free tier so unlicensed users never see tinted chrome after a downgrade.
+            // chrome-tinting surface that must be forcibly disabled on the free tier
+            // so unlicensed users never see tinted chrome after a downgrade.
             for (id in AccentElementId.entries) {
                 val defaultForFree = id.group != AccentGroup.CHROME
                 state.setToggle(id, defaultForFree)
@@ -276,19 +276,19 @@ object LicenseChecker {
             state.chromeTintIntensity = AyuIslandsState.DEFAULT_CHROME_TINT_INTENSITY
             state.chromeTintingGroupExpanded = false
 
-            // Reset VCS color customization (Phase 40.2) — premium feature. The
-            // master toggle goes off so the EditorColorsScheme falls back to stock
-            // XML on the next applier pass; every per-section preset returns to
-            // AMBIENT, every per-category slider returns to AMBIENT_SLIDER, and
-            // every section-expanded flag returns to its default-constructor value.
+            // Reset VCS color customization — premium feature. The master toggle
+            // goes off so the EditorColorsScheme falls back to stock XML on the
+            // next applier pass; every per-section preset returns to AMBIENT,
+            // every per-category slider returns to AMBIENT_SLIDER, and every
+            // section-expanded flag returns to its default-constructor value.
             //
-            // Reset covers all 11 categories — including the Wave 5+ placeholder
+            // Reset covers all 11 categories — including the placeholder
             // intensities (merge 3-way, inline diff, local history, branch
             // indicator, branches popup, commit highlights) — so when those
-            // categories ship in v2.6.4+, a user who downgraded mid-cycle starts
-            // from the same baseline as a fresh install. Without that, the
-            // re-purchase experience would surface non-default sliders from a
-            // stale premium session.
+            // categories ship, a user who downgraded mid-cycle starts from the
+            // same baseline as a fresh install. Without that, the re-purchase
+            // experience would surface non-default sliders from a stale premium
+            // session.
             state.vcsColorEnabled = false
             state.vcsDiffPreset = VcsColorPreset.AMBIENT.name
             state.vcsMergePreset = VcsColorPreset.AMBIENT.name
@@ -304,8 +304,8 @@ object LicenseChecker {
             state.vcsBranchIndicatorIntensity = VcsColorPreset.AMBIENT_SLIDER
             state.vcsBranchesPopupIntensity = VcsColorPreset.AMBIENT_SLIDER
             state.vcsCommitHighlightIntensity = VcsColorPreset.AMBIENT_SLIDER
-            // Diff section opens expanded by default per Phase 40.2 spec; the
-            // other two collapse on downgrade to match a fresh-install layout.
+            // Diff section opens expanded by default; the other two collapse on
+            // downgrade to match a fresh-install layout.
             state.vcsDiffSectionExpanded = true
             state.vcsMergeSectionExpanded = false
             state.vcsBlameSectionExpanded = false
@@ -321,10 +321,10 @@ object LicenseChecker {
             state.cgpIntegrationEnabled = false
             state.irIntegrationEnabled = false
 
-            // Restore the Quick Switcher widget to its free-tier default (visible by
-            // default per D-02). A user who hid the chip while licensed and then
-            // downgraded would otherwise lose their only Settings affordance to re-
-            // enable it; Pattern G symmetric reset puts the chip back per default.
+            // Restore the Quick Switcher widget to its free-tier default (visible
+            // by default). A user who hid the chip while licensed and then
+            // downgraded would otherwise lose their only Settings affordance to
+            // re-enable it; Pattern G symmetric reset puts the chip back per default.
             state.quickSwitcherWidgetEnabled = true
 
             // Stop accent rotation (premium feature)
@@ -371,9 +371,9 @@ object LicenseChecker {
                 ).notify(null)
         }
 
-        // Phase 40.2: write nulls into the editor scheme for every VCS color key
-        // the plugin owns so the user sees stock 2.6.2 colors restore immediately,
-        // without waiting for a theme switch or restart.
+        // Write nulls into the editor scheme for every VCS color key the plugin
+        // owns so the user sees stock colors restore immediately, without
+        // waiting for a theme switch or restart.
         try {
             VcsColorApplier.revertAll()
         } catch (exception: RuntimeException) {

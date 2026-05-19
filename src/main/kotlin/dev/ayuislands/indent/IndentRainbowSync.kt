@@ -45,11 +45,11 @@ object IndentRainbowSync {
     /**
      * Syncs Indent Rainbow's custom palette to [accentHex] for the given [variant].
      *
-     * Production callers (CA-I2, plan 40.1-02 review-loop):
+     * Production callers:
      *   - [dev.ayuislands.accent.AccentApplicator.apply] — full theme apply path,
      *     fires once per accent change with the resolved hex.
      *   - [dev.ayuislands.settings.mappings.ProjectAccentSwapService.handleWindowActivated]
-     *     — same-hex focus-swap fast path (D-07), pushes the per-project hex into IR's
+     *     — same-hex focus-swap fast path, pushes the per-project hex into IR's
      *     app-scoped IrConfig so the newly-focused project's indent palette matches
      *     the visible chrome without re-running the full apply.
      *
@@ -116,13 +116,13 @@ object IndentRainbowSync {
      * Reachable from:
      * - [apply] when `irIntegrationEnabled` becomes false (settings toggle)
      * - [dev.ayuislands.accent.AccentApplicator.revertAll] on theme-switch /
-     *   license loss (Phase 40.1 D-04 wiring — cross-object caller)
+     *   license loss (cross-object caller)
      *
      * Does NOT clear `customPalette` — IR ignores it unless `paletteType == CUSTOM`.
      * If the user manually flips `paletteType` back to CUSTOM while a non-Ayu
      * theme is active, stale Ayu palette will render until the next [apply]
-     * overwrites it. Accepted degradation per Phase 40.1 CONTEXT §specifics —
-     * regression-locked by `IndentRainbowSyncTest.revert does not clear customPalette`.
+     * overwrites it. Accepted degradation; regression-locked by
+     * `IndentRainbowSyncTest.revert does not clear customPalette`.
      */
     fun revert() {
         val resolved = resolveOrReturn() ?: return

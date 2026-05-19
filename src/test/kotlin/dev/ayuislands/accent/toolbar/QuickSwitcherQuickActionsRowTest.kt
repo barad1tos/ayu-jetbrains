@@ -22,9 +22,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Wave-7 redesign coverage per 48-REDESIGN-SPEC §3.6:
+ * Quick-actions row coverage:
  *   - exactly five [IconPillButton] children in fixed left-to-right order matching
- *     `QuickSwitcherActionGroup.build()` (D-14b parity invariant),
+ *     `QuickSwitcherActionGroup.build()` (parity invariant),
  *   - each button is 28x28 icon-only with a non-empty tooltip,
  *   - source-grep locks the exact constructor count + Pattern B catch contract.
  */
@@ -71,7 +71,7 @@ class QuickSwitcherQuickActionsRowTest {
     }
 
     @Test
-    fun `source contains exactly one Pin Random Lighter Darker CopyHex constructor each (D-14b parity grep)`() {
+    fun `source contains exactly one Pin Random Lighter Darker CopyHex constructor each (parity grep)`() {
         val source = Files.readString(Paths.get(ROW_SOURCE_PATH))
         val constructors =
             listOf(

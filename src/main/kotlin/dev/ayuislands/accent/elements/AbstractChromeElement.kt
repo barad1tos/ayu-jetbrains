@@ -13,16 +13,15 @@ import java.awt.Color
 import javax.swing.UIManager
 
 /**
- * Base class for chrome tinting [AccentElement]s (Phase 40.3c Refactor 1).
+ * Base class for chrome tinting [AccentElement]s.
  *
- * Before this extraction, `StatusBarElement`, `MainToolbarElement`, `NavBarElement`,
- * `PanelBorderElement`, and `ToolWindowStripeElement` each replicated the same
- * ~40-line recipe: read intensity → for each bg key → [ChromeBaseColors.get] →
+ * The five chrome elements (`StatusBarElement`, `MainToolbarElement`,
+ * `NavBarElement`, `PanelBorderElement`, `ToolWindowStripeElement`) share the
+ * same recipe: read intensity → for each bg key → [ChromeBaseColors.get] →
  * [ChromeTintBlender.blend] → [UIManager.put] → sample WCAG foreground → write to
  * fg keys → push tinted background to the live peer via [LiveChromeRefresher].
- * Revert mirrors it: null every key, clear the peer.
- *
- * Subclasses declare *what* to tint (keys, peer target) and the base handles *how*:
+ * Revert mirrors it: null every key, clear the peer. This base centralises the
+ * template so subclasses declare *what* to tint:
  *
  *  - [backgroundKeys] — every UIManager key that receives a tinted color on apply
  *    and is nulled on revert.
@@ -32,20 +31,20 @@ import javax.swing.UIManager
  *    `PRIMARY_TEXT` for widget text (4.5:1), `ICON` for stripe buttons (3.0:1).
  *  - [peerTarget] — typed description of the Swing peer to refresh. `null` means
  *    no live peer walk (element only writes UIManager keys).
- *  - [isEnabled] — optional gate. `MainToolbarElement` overrides this to short-circuit
- *    `apply` when JBR custom decorations are inactive (D-13). `revert` ignores it so
- *    keys written before the gate flipped are still cleaned up.
+ *  - [isEnabled] — optional gate. `MainToolbarElement` overrides this to
+ *    short-circuit `apply` when JBR custom decorations are inactive. `revert`
+ *    ignores it so keys written before the gate flipped are still cleaned up.
  *
- * Elements with split-fg pick requirements (StatusBar's normal vs hover fg from
- * Phase 40.2 M-1; ToolWindowStripe's stripe vs selected fg from Round 2 A-2)
- * override [writeForegrounds] to pick the contrast per sampling-bg; the default
- * implementation picks one contrast color against the first tinted background
- * key and writes it to every entry in [foregroundKeys].
+ * Elements with split-fg pick requirements (StatusBar's normal vs hover fg,
+ * ToolWindowStripe's stripe vs selected fg) override [writeForegrounds] to pick
+ * the contrast per sampling-bg; the default implementation picks one contrast
+ * color against the first tinted background key and writes it to every entry in
+ * [foregroundKeys].
  *
- * Elements with first-apply diagnostic logging (PanelBorder, ToolWindowStripe —
- * Phase 40.2 M-3) stay in their own subclass because the one-shot gate is
- * per-element state and the logged fields (keysSeen / keysMissed / walk target
- * class) differ per element.
+ * Elements with first-apply diagnostic logging (PanelBorder, ToolWindowStripe)
+ * stay in their own subclass because the one-shot gate is per-element state and
+ * the logged fields (keysSeen / keysMissed / walk target class) differ per
+ * element.
  *
  * EDT: callers are already on EDT (AccentApplicator dispatches through
  * `invokeLaterSafe`), so [UIManager.put] + peer mutation are safe.
@@ -124,16 +123,15 @@ abstract class AbstractChromeElement : AccentElement {
 
     /**
      * Dispatches the live peer refresh to [LiveChromeRefresher] per the typed
-     * [peerTarget]. Phase 40.3c Refactor 2 collapsed the six entry points into
-     * `LiveChromeRefresher.refresh(target, color)`; subclasses never touch the
-     * LiveChromeRefresher surface directly.
+     * [peerTarget]. Subclasses never touch the [LiveChromeRefresher] surface
+     * directly.
      */
     private fun refreshPeer(color: Color) {
         val target = peerTarget ?: return
         LiveChromeRefresher.refresh(target, color)
     }
 
-    /** D-14 symmetry mirror of [refreshPeer] — unconditional, ignores [isEnabled]. */
+    /** Pattern G mirror of [refreshPeer] — unconditional, ignores [isEnabled]. */
     private fun clearPeer() {
         val target = peerTarget ?: return
         LiveChromeRefresher.clear(target)

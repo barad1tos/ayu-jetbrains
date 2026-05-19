@@ -29,10 +29,8 @@ import kotlin.test.assertTrue
 
 /**
  * Locks [PinAccentAction]'s Pattern J two-level gate (`isAyuActive && licensed`),
- * `AccentMappingsState.projectAccents` writer path (RESEARCH §6 — Phase 41 split
- * deferred), and Pattern D Boolean gate on `notifyExternalApply`. Tests 10..14
- * (per-action Pattern J), 15..19 (per-action BGT), 20..24 (Pin-specific) in
- * `48-03-PLAN.md` `<behavior>`.
+ * `AccentMappingsState.projectAccents` writer path (shared / personal pin-lane
+ * split deferred), and Pattern D Boolean gate on `notifyExternalApply`.
  */
 class PinAccentActionTest {
     private val mockApp = mockk<Application>(relaxed = true)
@@ -88,13 +86,12 @@ class PinAccentActionTest {
 
     @Test
     fun `getActionUpdateThread is BGT`() {
-        // Test 15
         assertEquals(ActionUpdateThread.BGT, PinAccentAction().getActionUpdateThread())
     }
 
     @Test
     fun `update enables and shows action only when BOTH AyuActive AND licensed (Pattern J)`() {
-        // Test 10 — exhaustive two-conjunct gate verification.
+        // Exhaustive two-conjunct gate verification.
         val action = PinAccentAction()
         val event = newEvent()
 
@@ -121,14 +118,13 @@ class PinAccentActionTest {
 
     @Test
     fun `actionPerformed writes the resolved hex to projectAccents under the projectKey`() {
-        // Test 20
         PinAccentAction().actionPerformed(newEvent())
         assertEquals("#7F52FF", state.projectAccents["/path/to/project"])
     }
 
     @Test
     fun `actionPerformed calls notifyExternalApply only when applyFromHexString returns true (Pattern D)`() {
-        // Test 21 — Pattern D Boolean gate
+        // Pattern D Boolean gate.
         every { AccentApplicator.applyFromHexString("#7F52FF") } returns true
         PinAccentAction().actionPerformed(newEvent())
         verify(exactly = 1) { mockSwap.notifyExternalApply("#7F52FF") }
@@ -142,7 +138,6 @@ class PinAccentActionTest {
 
     @Test
     fun `actionPerformed is a no-op when resolveFocusedProject returns null`() {
-        // Test 22
         every { AccentApplicator.resolveFocusedProject() } returns null
         PinAccentAction().actionPerformed(newEvent())
         assertTrue(state.projectAccents.isEmpty(), "Must not write state when no focused project")
@@ -151,7 +146,6 @@ class PinAccentActionTest {
 
     @Test
     fun `actionPerformed is a no-op when projectKey returns null (defensive)`() {
-        // Test 23
         every { AccentResolver.projectKey(any()) } returns null
         PinAccentAction().actionPerformed(newEvent())
         assertTrue(state.projectAccents.isEmpty(), "Must not write state when projectKey null")

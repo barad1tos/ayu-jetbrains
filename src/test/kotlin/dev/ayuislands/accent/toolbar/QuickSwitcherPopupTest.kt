@@ -24,9 +24,9 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 
 /**
- * Plan 48-02 Task 3 — locks the popup smoke contract:
- *   - early-return when `AyuVariant.detect() == null` (WIDGET-11 belt-and-braces),
- *   - the exact six-flag builder combination from RESEARCH §3 (Pitfall 4 lock).
+ * Locks the popup smoke contract:
+ *   - early-return when `AyuVariant.detect() == null` (non-Ayu belt-and-braces),
+ *   - the exact six-flag builder combination required by the JBPopup contract.
  *
  * Does NOT exercise variant/accent grid wiring — those have their own tests; this
  * file only verifies the popup envelope.
@@ -38,7 +38,7 @@ class QuickSwitcherPopupTest {
     }
 
     @Test
-    fun `show is a no-op when AyuVariant detect returns null (WIDGET-11)`() {
+    fun `show is a no-op when AyuVariant detect returns null`() {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns null
         mockkStatic(JBPopupFactory::class)
@@ -51,10 +51,10 @@ class QuickSwitcherPopupTest {
     }
 
     @Test
-    fun `show builds the popup with the exact RESEARCH §3 flag combo (Pitfall 4 lock)`() {
+    fun `show builds the popup with the exact six-flag JBPopup builder combo`() {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-        // Wave 7 grid resolves the current accent at construction — stub the chain.
+        // The grid resolves the current accent at construction — stub the chain.
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns null
         mockkObject(AccentResolver)
@@ -64,7 +64,7 @@ class QuickSwitcherPopupTest {
         val lafManager = mockk<LafManager>(relaxed = true)
         every { LafManager.getInstance() } returns lafManager
         every { lafManager.currentUIThemeLookAndFeel } returns null
-        // Wave 4 premium block reads `AyuIslandsSettings.state` (related toggles
+        // The premium block reads `AyuIslandsSettings.state` (related toggles
         // bindSelected backing) and `LicenseChecker.isLicensedOrGrace()` (premium
         // gate). Stub both so the popup body builds in a headless harness.
         val settings = mockk<AyuIslandsSettings>(relaxed = true)
@@ -73,8 +73,8 @@ class QuickSwitcherPopupTest {
         every { AyuIslandsSettings.getInstance() } returns settings
         mockkObject(LicenseChecker)
         every { LicenseChecker.isLicensedOrGrace() } returns false
-        // Wave 4 quick-actions row instantiates the five DumbAwareAction subclasses
-        // which reach for ApplicationManager.getApplication() during construction.
+        // The quick-actions row instantiates the five `DumbAwareAction` subclasses
+        // which reach for `ApplicationManager.getApplication()` during construction.
         mockkStatic(ApplicationManager::class)
         val mockApp = mockk<Application>(relaxed = true)
         every { ApplicationManager.getApplication() } returns mockApp

@@ -5,19 +5,15 @@ import dev.ayuislands.accent.ChromeTarget
 import dev.ayuislands.accent.WcagForeground
 
 /**
- * Tints the Navigation Bar per CHROME-04.
- *
- * Phase 40.3c Refactor 1: migrated to [AbstractChromeElement]. Subclass declares only
- * the key lists + peer target; the base handles apply/revert.
+ * Tints the Navigation Bar.
  *
  * Writes WCAG-picked foregrounds to `NavBar.foreground` +
- * `NavBar.selectedItemForeground` — closes VERIFICATION Gap 2 (navbar
- * breadcrumb text was unreadable at saturated accents + intensity >= 40%).
- * Intensity is read directly from [dev.ayuislands.settings.AyuIslandsSettings.state]
- * per CONTEXT D-03.
+ * `NavBar.selectedItemForeground` so navbar breadcrumb text stays readable
+ * at saturated accents + high intensity. Intensity is read directly from
+ * [dev.ayuislands.settings.AyuIslandsSettings.state].
  *
  * `revert()` nulls every touched key unconditionally so the LAF re-resolves
- * the stock theme value — CHROME-08 symmetry across bg + fg.
+ * the stock theme value — Pattern G symmetry across bg + fg.
  */
 class NavBarElement : AbstractChromeElement() {
     override val id = AccentElementId.NAV_BAR
@@ -41,9 +37,9 @@ class NavBarElement : AbstractChromeElement() {
 
     private companion object {
         /**
-         * Fully-qualified class name of the New-UI navbar wrapper panel — package-private
-         * so we cannot import the type. Runtime class-name string match is the supported
-         * lookup (see 40-12 §B).
+         * Fully-qualified class name of the New-UI navbar wrapper panel — the
+         * type is package-private so we cannot import it. Runtime class-name
+         * string match is the supported lookup pattern.
          */
         const val NAVBAR_PEER_CLASS = "com.intellij.platform.navbar.frontend.MyNavBarWrapperPanel"
     }

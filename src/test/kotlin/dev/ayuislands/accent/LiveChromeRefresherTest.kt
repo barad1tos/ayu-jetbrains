@@ -18,9 +18,9 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Tests for [LiveChromeRefresher] — the Level 2 Gap-4 helper that walks live
- * Swing peers and sets their background directly because UIManager writes do
- * not propagate to already-rendered components.
+ * Tests for [LiveChromeRefresher] — the Level 2 helper that walks live Swing
+ * peers and sets their background directly because UIManager writes do not
+ * propagate to already-rendered components.
  *
  * Tree-walk tests use a mock Container tree of [JPanel] subclasses with
  * class names crafted to match (or not match) the runtime string-match
@@ -271,7 +271,7 @@ class LiveChromeRefresherTest {
         LiveChromeRefresher.clear(ChromeTarget.ByClassName(ClassFqn.require("non.existent.ClassName.Z")))
     }
 
-    // --- refreshOnTreeInsideAncestor / clearOnTreeInsideAncestor (Round 2 A-1) ---
+    // --- refreshOnTreeInsideAncestor / clearOnTreeInsideAncestor ---
     //
     // Ancestor-constrained variants prevent shared peer types (OnePixelDivider) from being
     // tinted IDE-wide — only instances inside a specific container ancestor are touched.
@@ -414,18 +414,19 @@ class LiveChromeRefresherTest {
         )
     }
 
-    // --- Round 3 hotfix regression tests (C1–C4) ---
+    // --- Per-peer isolation regression tests ---
     //
-    // These lock the isolation guarantees added in Phase 40 Round 3 C-1/C-2:
-    // a single broken peer or window-enumeration failure must NOT abort the
-    // entire chrome-refresh pass, and repeated passes over a known-broken
-    // container must stay safe (the log-once latch demotes the second hit
-    // to DEBUG but the walk still short-circuits cleanly).
+    // These lock the isolation guarantees: a single broken peer or window-
+    // enumeration failure must NOT abort the entire chrome-refresh pass, and
+    // repeated passes over a known-broken container must stay safe (the
+    // log-once latch demotes the second hit to DEBUG but the walk still
+    // short-circuits cleanly).
 
     /**
-     * Match-target subclass used by C2. Tracks a per-instance latch so one
-     * sibling can throw on its first `setBackground` call while the next
-     * sibling of the same runtime class keeps its normal behaviour.
+     * Match-target subclass used to lock per-peer isolation. Tracks a
+     * per-instance latch so one sibling can throw on its first `setBackground`
+     * call while the next sibling of the same runtime class keeps its normal
+     * behaviour.
      */
     private open class ThrowOnFirstSetBackgroundTracker(
         private val shouldThrow: Boolean,
@@ -443,8 +444,8 @@ class LiveChromeRefresherTest {
 
     /**
      * Container whose `getComponents()` override throws on every invocation.
-     * Used by C3 and C4 to prove the tree walk isolates container failures
-     * per-subtree instead of aborting the whole pass.
+     * Used to prove the tree walk isolates container failures per-subtree
+     * instead of aborting the whole pass.
      */
     private class BrokenChildrenContainer : JPanel() {
         override fun getComponents(): Array<java.awt.Component> = error("getComponents boom")
@@ -455,8 +456,8 @@ class LiveChromeRefresherTest {
         mockkStatic(Window::class)
         every { Window.getWindows() } throws IllegalStateException("enumeration boom")
 
-        // No throw must propagate — the Round 3 C-2 guard converts the
-        // enumeration failure into a WARN + early return.
+        // No throw must propagate — the guard converts the enumeration
+        // failure into a WARN + early return.
         LiveChromeRefresher.refresh(ChromeTarget.ByClassName(ClassFqn.require("dummy.FQN")), Color.RED)
     }
 
@@ -474,7 +475,7 @@ class LiveChromeRefresherTest {
         LiveChromeRefresher.refreshOnTree(parent, ClassFqn.require(throwingFqn), Color.BLUE)
 
         // Surviving sibling must have been painted — the per-visit try/catch
-        // in `walk` (Round 3 C-1) isolates the throwing peer from the rest.
+        // in `walk` isolates the throwing peer from the rest.
         assertEquals(Color.BLUE, survivor.lastSetBackground)
     }
 
@@ -494,8 +495,8 @@ class LiveChromeRefresherTest {
 
         // The broken container's subtree is skipped, but the walk proceeds
         // to the next sibling and paints the tracker inside it. Without
-        // the container-level try/catch (Round 3 C-1), the RuntimeException
-        // would unwind the whole walk and tracker would stay untouched.
+        // the container-level try/catch, the RuntimeException would unwind
+        // the whole walk and tracker would stay untouched.
         assertEquals(Color.GREEN, tracker.lastSetBackground)
     }
 
@@ -504,9 +505,8 @@ class LiveChromeRefresherTest {
         val brokenContainer = BrokenChildrenContainer()
 
         // Two consecutive walks must both return cleanly. The second pass
-        // exercises the `brokenContainerLogged` latch demote-to-DEBUG branch
-        // introduced in Round 3; the behaviour lock here is simply "no
-        // throw on either call".
+        // exercises the `brokenContainerLogged` latch demote-to-DEBUG branch;
+        // the behaviour lock here is simply "no throw on either call".
         LiveChromeRefresher.refreshOnTree(brokenContainer, ClassFqn.require("x"), Color.RED)
         LiveChromeRefresher.refreshOnTree(brokenContainer, ClassFqn.require("x"), Color.RED)
     }
@@ -589,14 +589,13 @@ class LiveChromeRefresherTest {
 
     @Test
     fun `broken-container log cap is 64 and clears on overflow`() {
-        // Round 3 G3 regression lock. The LOW R2-1 fix protects
-        // `brokenContainerLogged` from unbounded growth with a
-        // `BROKEN_CONTAINER_LOG_CAP = 64` constant plus an overflow-clear
-        // branch. Either piece alone is cosmetic: raise the cap silently to
-        // defeat the protection, or delete the clear branch and keep the
-        // constant as dead code. Lock both at the source level since the
-        // production path only fires under pathological conditions (65+
-        // distinct broken Container subclasses), unreachable in unit tests.
+        // Unbounded-growth regression lock. `brokenContainerLogged` is
+        // protected by a `BROKEN_CONTAINER_LOG_CAP = 64` constant plus an
+        // overflow-clear branch. Either piece alone is cosmetic: raise the
+        // cap silently to defeat the protection, or delete the clear branch
+        // and keep the constant as dead code. Lock both at the source level
+        // since the production path only fires under pathological conditions
+        // (65+ distinct broken Container subclasses), unreachable in unit tests.
         val source = readLiveChromeRefresherSource()
         assertTrue(
             source.contains("BROKEN_CONTAINER_LOG_CAP = 64"),

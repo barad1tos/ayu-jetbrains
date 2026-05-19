@@ -114,15 +114,15 @@ object FontDetector {
     }
 
     /**
-     * Three-state font health check (D-10).
+     * Three-state font health check.
      *
      * - [FontStatus.NOT_INSTALLED]: the plugin has no record of this family AND
      *   the JVM doesn't see it. Settings UI shows "Install automatically".
      * - [FontStatus.HEALTHY]: the plugin recorded this family AND either (a) no
-     *   file paths are persisted (legacy Phase 24 installs), (b) every persisted
-     *   path still exists on disk, or (c) files are missing but
-     *   `availableFontFamilyNames` still registers the family (per RESEARCH A3
-     *   — JVM font registration survives file deletion until next restart).
+     *   file paths are persisted (legacy installs), (b) every persisted path
+     *   still exists on disk, or (c) files are missing but
+     *   `availableFontFamilyNames` still registers the family (JVM font
+     *   registration survives file deletion until next restart).
      * - [FontStatus.CORRUPTED]: the plugin recorded this family, at least one
      *   persisted file is missing from disk, AND `availableFontFamilyNames` no
      *   longer contains the family. Settings UI shows "file missing — Reinstall".
@@ -139,15 +139,13 @@ object FontDetector {
      * `~/Library/Fonts` does NOT propagate to `availableFontFamilyNames` within
      * the same JVM session. As a result, CORRUPTED is usually only reachable on
      * the next IDE launch — the "file gone but JVM still sees it" branch is
-     * hit first during the current session (returns HEALTHY). Verified in
-     * Phase 25 smoke test.
+     * hit first during the current session (returns HEALTHY).
      *
-     * **Security note (T-25-05):** this function reads paths from
-     * `state.installedFontFiles` and probes them with `File.exists()`. It
-     * assumes trusted state input — an attacker with write access to
-     * `ayuIslands.xml` already has local file access, so probing paths outside
-     * the plugin sandbox is not a privilege elevation. Never follow the paths
-     * for read / execute / delete here.
+     * **Security note:** this function reads paths from `state.installedFontFiles`
+     * and probes them with `File.exists()`. It assumes trusted state input — an
+     * attacker with write access to `ayuIslands.xml` already has local file
+     * access, so probing paths outside the plugin sandbox is not a privilege
+     * elevation. Never follow the paths for read / execute / delete here.
      */
     fun status(preset: FontPreset): FontStatus {
         if (!isInstalled(preset)) return FontStatus.NOT_INSTALLED

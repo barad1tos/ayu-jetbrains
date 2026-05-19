@@ -4,7 +4,7 @@ import java.awt.Color
 import kotlin.math.pow
 
 /**
- * WCAG 2.1 contrast-ratio-aware foreground picker for Phase 40 chrome surfaces.
+ * WCAG 2.1 contrast-ratio-aware foreground picker for chrome surfaces.
  *
  * Spec: https://www.w3.org/TR/WCAG21/#contrast-minimum
  *
@@ -12,14 +12,13 @@ import kotlin.math.pow
  *   L = 0.2126*R_lin + 0.7152*G_lin + 0.0722*B_lin
  *   channel_lin = if (c <= 0.03928) c / 12.92 else ((c + 0.055) / 1.055)^2.4
  *
- * Closes VERIFICATION Gap 2 — the legacy static `ColorUtil.isDark` two-way
- * pick (the retired `ChromeTintBlender.contrastForeground`) was insufficient
- * for saturated mid-luminance tinted backgrounds where both white and the
- * Ayu dark foreground could undershoot WCAG AA. The picker sweeps a
- * deterministic palette (white → Ayu dark foreground → black) and returns
- * the first candidate meeting the [TextTarget]'s minimum ratio; if none
- * pass it falls through to the candidate that measured the highest ratio
- * (graceful degradation — the picker NEVER throws).
+ * A static `ColorUtil.isDark` two-way pick is insufficient for saturated
+ * mid-luminance tinted backgrounds where both white and the Ayu dark
+ * foreground can undershoot WCAG AA. The picker sweeps a deterministic
+ * palette (white → Ayu dark foreground → black) and returns the first
+ * candidate meeting the [TextTarget]'s minimum ratio; if none pass it falls
+ * through to the candidate that measured the highest ratio (graceful
+ * degradation — the picker NEVER throws).
  */
 object WcagForeground {
     /**
@@ -43,15 +42,13 @@ object WcagForeground {
     // surfaces.
     private val palette = listOf(Color.WHITE, Color(DARK_FOREGROUND_HEX), Color.BLACK)
 
-    // Phase 40.4 — light-family palette (no BLACK) for chrome surfaces the plugin
+    // Light-family palette (no BLACK) for chrome surfaces the plugin
     // semantically owns as "tinted dark bands" (status bar foregrounds). Without
     // restricting the palette here, mid-luminance tints (status bar at >= 20%
     // intensity on cyan/lime accents) push the WCAG sweep to BLACK because BLACK
     // passes 4.5:1 there while WHITE drops to ~4:1 — the picker is doing its job,
     // but on a chrome surface meant to read as dark the user expects light text.
-    // Pre-Phase 40 status bar fg was pinned to a light tone for exactly this
-    // reason; Phase 40 introduced WCAG-aware contrast picking but accidentally
-    // regressed the "always-light" contract. Restricting the palette restores it.
+    // Restricting the palette preserves the "always-light" contract.
     private val lightFamilyPalette = listOf(Color.WHITE, Color(DARK_FOREGROUND_HEX))
 
     /**

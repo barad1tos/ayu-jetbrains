@@ -30,7 +30,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * User-space + algorithmic coverage for [PanelBorderElement] per CHROME-05.
+ * User-space + algorithmic coverage for [PanelBorderElement].
  *
  * Two invariants lock this element in addition to the standard apply/revert shape:
  * 1. `OnePixelDivider.background` is NEVER in `uiKeys` (AccentApplicator owns it).
@@ -48,9 +48,9 @@ class PanelBorderElementTest {
 
     @BeforeTest
     fun setUp() {
-        // Phase 40.2 M-3: the companion `firstApplyLogged` gate is session-global
-        // across every PanelBorderElement instance and test. Reset it per test so
-        // first-apply diagnostic assertions are reachable regardless of ordering.
+        // The companion `firstApplyLogged` gate is session-global across every
+        // PanelBorderElement instance and test. Reset it per test so first-apply
+        // diagnostic assertions are reachable regardless of ordering.
         resetFirstApplyLoggedGate()
 
         mockkStatic(ApplicationManager::class)
@@ -98,7 +98,7 @@ class PanelBorderElementTest {
     }
 
     @Test
-    fun `apply passes intensity from state to blender per D-03`() {
+    fun `apply passes intensity from state to blender`() {
         state.chromeTintIntensity = 45
 
         val intensitySlot = slot<TintIntensity>()
@@ -138,7 +138,7 @@ class PanelBorderElementTest {
     }
 
     @Test
-    fun `id and displayName match the CHROME registry entry`() {
+    fun `id and displayName match the chrome registry entry`() {
         val element = PanelBorderElement()
 
         assertEquals(AccentElementId.PANEL_BORDER, element.id)
@@ -176,7 +176,7 @@ class PanelBorderElementTest {
     }
 
     @Test
-    fun `apply invokes ancestor-scoped refresh for OnePixelDivider inside tool-window decorator (Round 2 A-1)`() {
+    fun `apply invokes ancestor-scoped refresh for OnePixelDivider inside tool-window decorator`() {
         state.chromeTintIntensity = 30
 
         PanelBorderElement().apply(accent)
@@ -191,7 +191,7 @@ class PanelBorderElementTest {
     }
 
     @Test
-    fun `apply must NOT invoke blind ByClassName refresh (would over-tint IDE-wide dividers) (Round 2 A-1)`() {
+    fun `apply must NOT invoke blind ByClassName refresh (would over-tint IDE-wide dividers)`() {
         state.chromeTintIntensity = 30
 
         PanelBorderElement().apply(accent)
@@ -208,7 +208,7 @@ class PanelBorderElementTest {
     }
 
     @Test
-    fun `revert invokes ancestor-scoped clear for OnePixelDivider inside tool-window decorator (D-14 symmetry)`() {
+    fun `revert clears OnePixelDivider inside tool-window decorator for apply revert symmetry`() {
         PanelBorderElement().revert()
 
         val expectedTarget =
@@ -221,9 +221,9 @@ class PanelBorderElementTest {
     }
 
     @Test
-    fun `first apply flips the Phase 40-2 M-3 diagnostic gate to true`() {
-        // Phase 40.2 M-3 contract: the one-shot diagnostic gate stays false until
-        // the first apply() invocation — exactly when LOG.info fires with the
+    fun `first apply flips the diagnostic gate to true`() {
+        // One-shot contract: the diagnostic gate stays false until the first
+        // apply() invocation — exactly when LOG.info fires with the
         // `PanelBorderElement first apply: keysSeen=...` line. Resetting the
         // gate in setUp lets this assertion observe the transition. If the
         // `onBackgroundsTinted` override is deleted, the gate stays false and
@@ -235,8 +235,7 @@ class PanelBorderElementTest {
 
         assertTrue(
             readFirstApplyLoggedGate(),
-            "onBackgroundsTinted must flip firstApplyLogged to true on first apply " +
-                "(Phase 40.2 M-3 diagnostic log)",
+            "onBackgroundsTinted must flip firstApplyLogged to true on first apply (diagnostic log)",
         )
     }
 

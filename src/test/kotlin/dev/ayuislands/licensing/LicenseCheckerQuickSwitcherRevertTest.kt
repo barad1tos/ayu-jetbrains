@@ -29,8 +29,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Pattern G symmetric-reset lock for `state.quickSwitcherWidgetEnabled` (D-02 default ON,
- * D-08 revert symmetry). Mirrors the harness of [LicenseCheckerVcsRevokeTest] (Phase 40.2).
+ * Pattern G symmetric-reset lock for `state.quickSwitcherWidgetEnabled` (default ON,
+ * revert symmetry on downgrade). Mirrors the harness of [LicenseCheckerVcsRevokeTest].
  *
  * A user who hides the chip while licensed and then downgrades would otherwise lose their
  * only Settings affordance to re-enable it (the chip is the entry point to the popup; with
@@ -84,7 +84,7 @@ class LicenseCheckerQuickSwitcherRevertTest {
     }
 
     @Test
-    fun `revertToFreeDefaults resets quickSwitcherWidgetEnabled to true (D-02 default)`() {
+    fun `revertToFreeDefaults resets quickSwitcherWidgetEnabled to true (free-tier default)`() {
         state.quickSwitcherWidgetEnabled = false
         assertEquals(false, state.quickSwitcherWidgetEnabled)
 
@@ -106,7 +106,7 @@ class LicenseCheckerQuickSwitcherRevertTest {
 
     @Test
     fun `quickSwitcherWidgetEnabled reset lives inside the synchronized state block (Pattern G)`() {
-        // Pattern G + DoS T-48-05-04 lock: the new reset line MUST land inside
+        // Pattern G + DoS lock: the reset line MUST land inside
         // `synchronized(state) { ... }`. Outside the lock races with concurrent Settings
         // reads (the chip's BGT update tick polls `state.quickSwitcherWidgetEnabled`
         // every ~500 ms). Verified by line-number brace-counting.

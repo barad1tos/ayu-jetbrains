@@ -30,7 +30,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * VCS revoke cascade for [LicenseChecker.revertToFreeDefaults] (Phase 40.2).
+ * VCS revoke cascade for [LicenseChecker.revertToFreeDefaults].
  *
  * Locks the 15-field VCS reset triplet:
  *  - 1 master toggle (`vcsColorEnabled`)
@@ -40,8 +40,8 @@ import kotlin.test.assertTrue
  *    `vcsBlameSectionExpanded`=false)
  *
  * Plus the downstream call to [VcsColorApplier.revertAll] which nulls every VCS
- * `ColorKey` on the active `EditorColorsScheme` so the user sees stock 2.6.2
- * colors restored immediately on downgrade — no theme-switch or restart required.
+ * `ColorKey` on the active `EditorColorsScheme` so the user sees stock colors
+ * restored immediately on downgrade — no theme-switch or restart required.
  *
  * Mirrors the harness from `FreeTierLockdownTest` for setup parity.
  */

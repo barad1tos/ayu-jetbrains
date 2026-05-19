@@ -155,12 +155,11 @@ class AyuIslandsAccentPanelTest {
 
     // ── Injection-hook wiring ───────────────────────────────────────────────
     //
-    // Phase 40 / Plan 08 moved Chrome Tinting from BEFORE Overrides to AFTER
-    // Overrides by splitting the AccentPanel injection into two parallel hooks:
-    // `beforeOverridesInjection` (still fed by AppearancePanel's System group)
-    // and a new `afterOverridesInjection` (fed by ChromePanel). The hooks are
-    // plain nullable `((Panel) -> Unit)` fields, so wiring correctness has two
-    // failure modes worth locking in:
+    // Chrome Tinting renders AFTER Overrides — the AccentPanel injection is
+    // split into two parallel hooks: `beforeOverridesInjection` (fed by
+    // AppearancePanel's System group) and `afterOverridesInjection` (fed by
+    // ChromePanel). The hooks are plain nullable `((Panel) -> Unit)` fields,
+    // so wiring correctness has two failure modes worth locking in:
     //
     //  1. Both hooks exist on the class as public Kotlin properties — a future
     //     refactor that accidentally deletes one (or renames it) would silently
@@ -189,7 +188,7 @@ class AyuIslandsAccentPanelTest {
 
     @Test
     fun `beforeOverridesInjection property still exists alongside afterOverridesInjection`() {
-        // Regression guard: the Phase 40 refactor split a single hook into two.
+        // Regression guard: the injection refactor split a single hook into two.
         // If someone collapses them back or deletes beforeOverridesInjection, the
         // System collapsible (AppearancePanel) loses its render slot silently.
         val panel = AyuIslandsAccentPanel()
@@ -209,8 +208,8 @@ class AyuIslandsAccentPanelTest {
         // `beforeOverridesInjection` and `afterOverridesInjection` getters AND the
         // OverridesGroupBuilder.buildGroup call. Without this test, a refactor
         // that drops one hook (or reorders the three calls) would regress the
-        // Phase 40 visual order without a compile-time failure — the hooks are
-        // nullable so an unused field still compiles cleanly.
+        // visual order without a compile-time failure — the hooks are nullable
+        // so an unused field still compiles cleanly.
         val classBytes =
             AyuIslandsAccentPanel::class.java
                 .getResourceAsStream("AyuIslandsAccentPanel.class")
@@ -265,7 +264,7 @@ class AyuIslandsAccentPanelTest {
         kotlin.test.assertEquals(
             listOf("before", "overrides", "after"),
             callOrder,
-            "Hook invocation order must be before → overrides → after so the Phase 40 " +
+            "Hook invocation order must be before → overrides → after so the visible " +
                 "render order (Accent → System → Overrides → Chrome Tinting → Rotation) is preserved",
         )
     }

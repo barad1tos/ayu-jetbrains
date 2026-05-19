@@ -34,13 +34,13 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 
 /**
- * D-03 invariant lock: when [ProjectAccentSwapService.handleWindowActivated] takes
+ * Invariant lock: when [ProjectAccentSwapService.handleWindowActivated] takes
  * the same-hex branch (`hexChanged == false`), the service publishes
  * [AccentChangedTopic.TOPIC] exactly once for the activated project with the
  * post-swap resolution source.
  *
  * The hex-changed branch is unaffected — that path re-enters
- * [AccentApplicator.applyFromHexString] (whose own D-02 publisher fires), so
+ * [AccentApplicator.applyFromHexString] (whose own publisher fires), so
  * `ProjectAccentSwapService` itself must NOT publish a second time. Pattern B
  * try/catch protects the publish call from a malicious subscriber.
  */
@@ -95,11 +95,11 @@ class ProjectAccentSwapServicePublishTest {
 
     @Test
     fun `same-hex branch publishes AccentChangedTopic with post-swap source`() {
-        // D-03 invariant: the same-hex branch updates per-project CGP/IR caches
-        // WITHOUT re-entering AccentApplicator.apply (whose own publisher would
-        // otherwise fire). Subscribers must still learn about the focus swap so
-        // the chip's source label updates from "Global" to "Project override"
-        // when the activated project carries an override.
+        // Invariant: the same-hex branch updates per-project CGP/IR caches
+        // WITHOUT re-entering `AccentApplicator.apply` (whose own publisher
+        // would otherwise fire). Subscribers must still learn about the focus
+        // swap so the chip's source label updates from "Global" to "Project
+        // override" when the activated project carries an override.
         val (window, project) = wireMatchingFrame()
         every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
         every { AccentResolver.source(project) } returns AccentResolver.Source.PROJECT_OVERRIDE
@@ -112,20 +112,20 @@ class ProjectAccentSwapServicePublishTest {
         service.onWindowActivatedForTest(makeEvent(window))
 
         verify(exactly = 1) {
-            // CRIT-6: same-hex publisher now wraps via AccentHex.unsafeOf —
-            // assertion mirrors the call site.
+            // Same-hex publisher wraps via `AccentHex.unsafeOf` — assertion
+            // mirrors the call site.
             listener.accentChanged(project, AccentHex.unsafeOf("#FFCC66"), AccentResolver.Source.PROJECT_OVERRIDE)
         }
     }
 
     @Test
     fun `hex-changed branch does NOT publish a second time from the swap service`() {
-        // D-03 scope guard: the hex-changed branch already re-enters
-        // AccentApplicator.applyFromHexString → apply, which publishes via D-02.
-        // `ProjectAccentSwapService` itself must NOT publish on the changed-hex
-        // branch — otherwise subscribers fire twice (once from the apply pipeline,
-        // once from the swap service) and the chip momentarily renders the wrong
-        // label / repaints redundantly.
+        // Scope guard: the hex-changed branch already re-enters
+        // `AccentApplicator.applyFromHexString` → `apply`, which publishes
+        // through the apply pipeline. `ProjectAccentSwapService` itself must
+        // NOT publish on the changed-hex branch — otherwise subscribers fire
+        // twice (once from the apply pipeline, once from the swap service) and
+        // the chip momentarily renders the wrong label / repaints redundantly.
         val (window, project) = wireMatchingFrame()
         every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#5CCFE6"
         every { AccentResolver.source(project) } returns AccentResolver.Source.GLOBAL
@@ -133,15 +133,16 @@ class ProjectAccentSwapServicePublishTest {
         val service = ProjectAccentSwapService()
         service.onWindowActivatedForTest(makeEvent(window)) // hexChanged=true → delegates to apply
 
-        // `applyFromHexString` is stubbed so the D-02 publisher does NOT run here.
-        // We are asserting that the swap service itself stays silent on the
-        // changed-hex branch — the publish belongs to the apply path exclusively.
+        // `applyFromHexString` is stubbed so the apply-pipeline publisher does
+        // NOT run here. We are asserting that the swap service itself stays
+        // silent on the changed-hex branch — the publish belongs to the apply
+        // path exclusively.
         verify(exactly = 0) { listener.accentChanged(any(), any(), any()) }
     }
 
     @Test
     fun `same-hex branch survives a throwing subscriber without aborting the swap pipeline`() {
-        // Pattern B regression lock at the D-03 publish site. A malicious
+        // Pattern B regression lock at the same-hex publish site. A malicious
         // subscriber must NOT prevent the swap service from running its post-
         // publish bookkeeping (walkAndNotify already ran before the publish, and
         // the handler still returns gracefully from `handleWindowActivated`).

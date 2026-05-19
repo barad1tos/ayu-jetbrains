@@ -34,29 +34,26 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * D-04 + D-05 + D-09 behavioral coverage for [AccentApplicator.revertAll].
+ * Behavioral coverage for [AccentApplicator.revertAll] integration revert wiring.
  *
- * Pre-40.1, `revertAll()` cleared UIManager keys but never reverted the two
+ * Pre-fix, `revertAll()` cleared UIManager keys but never reverted the two
  * integrations that read app-scoped state — IndentRainbow's `IrConfig` and
  * CodeGlance Pro's `CodeGlanceConfigService`. After a theme switch, the user
  * still saw the old Ayu accent in the indent palette and the CGP minimap
  * viewport because both integrations' app-scoped caches kept the last
  * apply()'d hex.
  *
- * Wave 1 plan 02 wires:
+ * The integration revert wiring covers:
  *   - `IndentRainbowSync.revert()` — already public, never wired before
- *   - `revertCodeGlanceProViewport()` — new private helper, mirror of
- *     `syncCodeGlanceProViewport`, restores documented javap-verified defaults
- *     ("00FF00", "A0A0A0", 0)
- *   - `codeGlanceProRevertHook` ThreadLocal observer (D-09) — lets tests assert the
+ *   - `revertCodeGlanceProViewport()` — mirror of `syncCodeGlanceProViewport`,
+ *     restores documented javap-verified defaults ("00FF00", "A0A0A0", 0)
+ *   - `codeGlanceProRevertHook` ThreadLocal observer — lets tests assert the
  *     three default values are written without bringing CGP into the test
  *     classpath (matches the [ChromeDecorationsProbe.osSupplier] template)
  *
- * The tests reference symbols introduced in Wave 1 plan 02:
+ * The tests rely on:
  *   - `AccentApplicator.codeGlanceProRevertHook` (ThreadLocal)
  *   - `AccentApplicator.resetCodeGlanceProRevertHookForTests`
- * The references compile only after that plan lands; until then the file is
- * red, which is the entire point of Wave 0.
  */
 class AccentApplicatorRevertAllIntegrationTest {
     private val mockScheme = mockk<EditorColorsScheme>(relaxed = true)
@@ -112,12 +109,12 @@ class AccentApplicatorRevertAllIntegrationTest {
 
     @AfterTest
     fun tearDown() {
-        // Pattern I + Shared Pattern 3: ThreadLocal seam reset is mandatory
-        // because per-test try/finally inside the test body cannot recover from
-        // an assertion failure that exits the worker mid-test. The class-level
-        // teardown is the safety net.
+        // Pattern I: ThreadLocal seam reset is mandatory because per-test
+        // try/finally inside the test body cannot recover from an assertion
+        // failure that exits the worker mid-test. The class-level teardown is
+        // the safety net.
         AccentApplicator.resetCodeGlanceProRevertHookForTests()
-        // C-3 reflection-path tests stash mocks into [CodeGlanceProIntegration]'s
+        // Reflection-path tests stash mocks into [CodeGlanceProIntegration]'s
         // private reflection cache. Without this reset, a test failure could
         // leave pinned mocks visible to a subsequent test in the same worker JVM.
         CodeGlanceProIntegration.resetReflectionCacheForTests()
@@ -145,16 +142,16 @@ class AccentApplicatorRevertAllIntegrationTest {
         assertEquals(
             1,
             observed.size,
-            "revertCodeGlanceProViewport must fire exactly once from revertAll (D-04 wiring)",
+            "revertCodeGlanceProViewport must fire exactly once from revertAll",
         )
     }
 
     @Test
     fun `revertCodeGlanceProViewport writes documented defaults via hook`() {
-        // V-D05a + V-D09b: the three defaults are javap-verified from
-        // CodeGlanceConfig-2.0.2 (CONTEXT.md §specifics). The test pins the
-        // exact tuple — drift on any value would silently re-paint the user's
-        // CGP viewport with whatever default the agent guessed.
+        // The three defaults are javap-verified from CodeGlanceConfig-2.0.2.
+        // The test pins the exact tuple — drift on any value would silently
+        // re-paint the user's CGP viewport with whatever default the agent
+        // guessed.
         val observed = mutableListOf<Triple<String, String, Int>>()
         AccentApplicator.codeGlanceProRevertHook.set { c, bc, bt -> observed += Triple(c, bc, bt) }
         try {
@@ -169,7 +166,7 @@ class AccentApplicatorRevertAllIntegrationTest {
     fun `each integration revert is isolated by RuntimeException catch`() {
         // Pattern B regression lock: IR's revert throwing must NOT block CGP's
         // revert. Both integrations are wrapped in narrow `RuntimeException`
-        // catches per RESEARCH §D-04.
+        // catches.
         every { IndentRainbowSync.revert() } throws RuntimeException("IR exploded")
 
         val cgpObserved = mutableListOf<Triple<String, String, Int>>()
@@ -203,10 +200,10 @@ class AccentApplicatorRevertAllIntegrationTest {
 
     @Test
     fun `revertAll orders IR revert before CGP revert before notifyOnly`() {
-        // RESEARCH §D-04 ordering lock: integrations BEFORE notifyOnly so
-        // subscribers see consistent app-scoped state when they decide to
-        // repaint. Pattern G + L: capture every observable side-effect on a
-        // single `events` timeline and assert the EXACT interleaving. A weaker
+        // Ordering lock: integrations BEFORE notifyOnly so subscribers see
+        // consistent app-scoped state when they decide to repaint. Pattern G + L:
+        // capture every observable side-effect on a single `events` timeline and
+        // assert the EXACT interleaving. A weaker
         // `verifyOrder { IR; notifyOnly }` + `cgpCalls.size == 1` pair would
         // still pass if CGP fired BEFORE IR (size stays 1, IR-before-notifyOnly
         // holds) — the explicit timeline closes that hole.
@@ -237,7 +234,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         assertEquals(
             1,
             cgpCalls.size,
-            "CGP revert hook must have fired exactly once (D-04 single-fire gate)",
+            "CGP revert hook must have fired exactly once (single-fire gate)",
         )
         verify(exactly = 1) { IndentRainbowSync.revert() }
         verify(exactly = 1) { ComponentTreeRefresher.notifyOnly(project) }
@@ -249,13 +246,13 @@ class AccentApplicatorRevertAllIntegrationTest {
             listOf("ir_revert", "cgp_revert", "notify_only"),
             events,
             "revertAll MUST fire IR revert -> CGP revert -> notifyOnly in that " +
-                "exact order with no interleaving (D-04 ordering lock — observed: $events)",
+                "exact order with no interleaving (ordering lock — observed: $events)",
         )
     }
 
     @Test
     fun `revertCodeGlanceProViewport invokes hook even when cgpIntegrationEnabled false`() {
-        // CR-I1 regression lock. Pre-fix: a `cgpIntegrationEnabled = false`
+        // Regression lock. Pre-fix: a `cgpIntegrationEnabled = false`
         // gate at the top of `revertCodeGlanceProViewport` short-circuited
         // every revert call, so a user who toggled CGP off after an apply was
         // stuck with CGP's app-scoped cache holding the previous Ayu accent
@@ -280,13 +277,13 @@ class AccentApplicatorRevertAllIntegrationTest {
             hookInvoked,
             "Hook MUST fire even when cgpIntegrationEnabled is false — revert path " +
                 "is reachable on theme-switch / license-loss regardless of toggle state " +
-                "(CR-I1 fix; Pattern G/J).",
+                "(Pattern G/J).",
         )
     }
 
     @Test
     fun `syncCodeGlanceProViewport with cgpIntegrationEnabled false fires revert path with documented defaults`() {
-        // CR-I1 — toggle-off after a previous apply. Without this fix, the
+        // Toggle-off after a previous apply. Without this fix, the
         // disabled-branch returns silently, leaving CGP's app-scoped cache
         // tinted with the previous Ayu accent forever. Mirrors
         // IndentRainbowSync.apply, which already reverts on
@@ -304,13 +301,13 @@ class AccentApplicatorRevertAllIntegrationTest {
             observed,
             "syncCodeGlanceProViewport with cgpIntegrationEnabled=false MUST drive " +
                 "the revert path with the documented javap-verified defaults — " +
-                "matches IndentRainbowSync.apply's same-shape symmetry (CR-I1, Pattern G).",
+                "matches IndentRainbowSync.apply's same-shape symmetry (Pattern G).",
         )
     }
 
     @Test
     fun `syncCodeGlanceProViewportForSwap delegates to CodeGlanceProIntegration syncCodeGlanceProViewport`() {
-        // C-2 regression lock. Pre-fix: AccentApplicator.syncCodeGlanceProViewportForSwap
+        // Regression lock. Pre-fix: AccentApplicator.syncCodeGlanceProViewportForSwap
         // was a one-line wrapper "verified by association" — its only test was
         // that it did NOT throw. A future agent who deleted the wrapper or
         // renamed the underlying call would silently break the swap path's
@@ -346,11 +343,11 @@ class AccentApplicatorRevertAllIntegrationTest {
 
     @Test
     fun `revertCodeGlanceProViewport via reflection writes documented defaults in order`() {
-        // C-3 — when CGP IS installed (reflection chain primed), revertAll
-        // exercises the reflection setters. codeGlanceProRevertHook stays null so the
-        // production path runs. Verifies the three setters fire with the
-        // exact javap-verified defaults AND in the documented order: color,
-        // border color, border thickness.
+        // When CGP IS installed (reflection chain primed), revertAll exercises
+        // the reflection setters. codeGlanceProRevertHook stays null so the
+        // production path runs. Verifies the three setters fire with the exact
+        // javap-verified defaults AND in the documented order: color, border
+        // color, border thickness.
         val mockConfig = mockk<Any>(relaxed = true)
         val mockService = mockk<Any>(relaxed = true)
         val mockGetState = mockk<java.lang.reflect.Method>(relaxed = true)
@@ -395,10 +392,10 @@ class AccentApplicatorRevertAllIntegrationTest {
 
     @Test
     fun `revertCodeGlanceProViewport handles InvocationTargetException gracefully`() {
-        // C-3 catch-path coverage. CGP setters can throw via reflection if
-        // upstream renames or guards a setter. The InvocationTargetException
-        // catch must swallow the failure with a WARN — a thrown exception
-        // here would propagate up through revertAll and break theme switch.
+        // Catch-path coverage. CGP setters can throw via reflection if upstream
+        // renames or guards a setter. The InvocationTargetException catch must
+        // swallow the failure with a WARN — a thrown exception here would
+        // propagate up through revertAll and break theme switch.
         val mockConfig = mockk<Any>(relaxed = true)
         val mockService = mockk<Any>(relaxed = true)
         val mockGetState = mockk<java.lang.reflect.Method>(relaxed = true)
@@ -424,7 +421,7 @@ class AccentApplicatorRevertAllIntegrationTest {
 
     @Test
     fun `revertCodeGlanceProViewport handles ReflectiveOperationException gracefully`() {
-        // C-3 catch-path coverage for the IllegalAccessException /
+        // Catch-path coverage for the IllegalAccessException /
         // NoSuchMethodException class. Same argument as the InvocationTargetException
         // case — must swallow without propagating to revertAll.
         val mockConfig = mockk<Any>(relaxed = true)
@@ -450,12 +447,11 @@ class AccentApplicatorRevertAllIntegrationTest {
 
     @Test
     fun `revertCodeGlanceProViewport passes hex without hash prefix to CGP setters`() {
-        // C-3 contract lock. CGP rejects '#' silently — its setters store the
-        // value as-is, so '#5CCFE6' would be persisted as a literal 7-char
-        // string and the minimap would render with a broken hex. The defaults
-        // are pre-stripped (00FF00, A0A0A0); this test pins that the values
-        // passed have no '#' character regardless of how the constants were
-        // declared.
+        // Contract lock. CGP rejects '#' silently — its setters store the value
+        // as-is, so '#5CCFE6' would be persisted as a literal 7-char string and
+        // the minimap would render with a broken hex. The defaults are
+        // pre-stripped (00FF00, A0A0A0); this test pins that the values passed
+        // have no '#' character regardless of how the constants were declared.
         val passedValues = mutableListOf<Any?>()
         val mockConfig = mockk<Any>(relaxed = true)
         val mockService = mockk<Any>(relaxed = true)
@@ -496,7 +492,7 @@ class AccentApplicatorRevertAllIntegrationTest {
 
     @Test
     fun `syncCodeGlanceProViewport via reflection writes hex without hash to setters in order`() {
-        // Patch coverage: mirrors the existing C-3 reflection test for
+        // Mirrors the reflection test for
         // [CodeGlanceProIntegration.revertCodeGlanceProViewport]. Pre-test, the
         // `syncCodeGlanceProViewport` reflection happy path (CodeGlanceProIntegration.kt
         // lines ~152-169) had no behavior-locked test — only the
@@ -551,13 +547,13 @@ class AccentApplicatorRevertAllIntegrationTest {
 
     @Test
     fun `syncCodeGlanceProViewport via reflection accepts bare hex with no hash prefix`() {
-        // Patch coverage + Pattern L source-regex lock for
-        // `accentHex.removePrefix("#")` (CodeGlanceProIntegration.kt line 161). When the
-        // caller passes a bare hex (no `#`), removePrefix is a no-op and the
-        // raw 6-char string flows to the setter unchanged. Locks the contract
-        // that production accepts BOTH `#XXXXXX` and `XXXXXX` forms — a
-        // regression to `accentHex.substring(1)` would silently drop the
-        // first character of the bare-hex callsite.
+        // Pattern L source-regex lock for `accentHex.removePrefix("#")`
+        // (CodeGlanceProIntegration.kt line 161). When the caller passes a bare
+        // hex (no `#`), removePrefix is a no-op and the raw 6-char string flows
+        // to the setter unchanged. Locks the contract that production accepts
+        // BOTH `#XXXXXX` and `XXXXXX` forms — a regression to
+        // `accentHex.substring(1)` would silently drop the first character of
+        // the bare-hex callsite.
         val mockConfig = mockk<Any>(relaxed = true)
         val mockService = mockk<Any>(relaxed = true)
         val mockGetState = mockk<java.lang.reflect.Method>(relaxed = true)
@@ -586,13 +582,13 @@ class AccentApplicatorRevertAllIntegrationTest {
 
     @Test
     fun `syncCodeGlanceProViewport via reflection short-circuits when getState returns null`() {
-        // Patch coverage + Pattern L: defensive guard at
-        // `getState.invoke(service) ?: return` (CodeGlanceProIntegration.kt line 162).
-        // Unreachable in production today (CGP's getState always returns the
-        // cached state object), but the guard exists so a future CGP version
-        // that returns null mid-init does not NPE through to the setters.
-        // This test pins the branch so a refactor that drops `?: return`
-        // would visibly call setters on a null config.
+        // Pattern L: defensive guard at `getState.invoke(service) ?: return`
+        // (CodeGlanceProIntegration.kt line 162). Unreachable in production
+        // today (CGP's getState always returns the cached state object), but
+        // the guard exists so a future CGP version that returns null mid-init
+        // does not NPE through to the setters. This test pins the branch so a
+        // refactor that drops `?: return` would visibly call setters on a null
+        // config.
         val mockService = mockk<Any>(relaxed = true)
         val mockGetState = mockk<java.lang.reflect.Method>(relaxed = true)
         val mockSetColor = mockk<java.lang.reflect.Method>(relaxed = true)
@@ -617,9 +613,9 @@ class AccentApplicatorRevertAllIntegrationTest {
 
     @Test
     fun `syncCodeGlanceProViewport via reflection handles InvocationTargetException gracefully`() {
-        // Patch coverage + Pattern B isolation: CGP's setters can throw via
-        // reflection if upstream guards a setter. The `InvocationTargetException`
-        // catch at CodeGlanceProIntegration.kt lines 170-176 must swallow the failure
+        // Pattern B isolation: CGP's setters can throw via reflection if
+        // upstream guards a setter. The `InvocationTargetException` catch at
+        // CodeGlanceProIntegration.kt lines 170-176 must swallow the failure
         // with a WARN — a thrown exception here would propagate up through
         // `AccentApplicator.apply` and break a theme apply.
         val mockConfig = mockk<Any>(relaxed = true)
@@ -647,9 +643,9 @@ class AccentApplicatorRevertAllIntegrationTest {
 
     @Test
     fun `syncCodeGlanceProViewport via reflection handles ReflectiveOperationException gracefully`() {
-        // Patch coverage + Pattern B isolation: catch path at
-        // CodeGlanceProIntegration.kt lines 177-182 must swallow `IllegalAccessException`
-        // / `NoSuchMethodException` without re-throwing.
+        // Pattern B isolation: catch path at CodeGlanceProIntegration.kt
+        // lines 177-182 must swallow `IllegalAccessException` /
+        // `NoSuchMethodException` without re-throwing.
         val mockConfig = mockk<Any>(relaxed = true)
         val mockService = mockk<Any>(relaxed = true)
         val mockGetState = mockk<java.lang.reflect.Method>(relaxed = true)
@@ -673,11 +669,10 @@ class AccentApplicatorRevertAllIntegrationTest {
 
     @Test
     fun `syncCodeGlanceProViewport via reflection handles RuntimeException gracefully`() {
-        // Patch coverage + Pattern B isolation: the third catch at
-        // CodeGlanceProIntegration.kt lines 183-189 covers a plain `RuntimeException`
-        // bubbling out of the reflective invoke (e.g. CGP's setter
-        // dereferences a stale field internally). Must NOT propagate to the
-        // theme apply caller.
+        // Pattern B isolation: the third catch at CodeGlanceProIntegration.kt
+        // lines 183-189 covers a plain `RuntimeException` bubbling out of the
+        // reflective invoke (e.g. CGP's setter dereferences a stale field
+        // internally). Must NOT propagate to the theme apply caller.
         val mockConfig = mockk<Any>(relaxed = true)
         val mockService = mockk<Any>(relaxed = true)
         val mockGetState = mockk<java.lang.reflect.Method>(relaxed = true)
@@ -701,10 +696,10 @@ class AccentApplicatorRevertAllIntegrationTest {
 
     @Test
     fun `revertCodeGlanceProViewport via reflection short-circuits when getState returns null`() {
-        // Patch coverage + Pattern L: defensive guard at
-        // `getState.invoke(service) ?: return` (CodeGlanceProIntegration.kt line 240).
-        // Mirror of the sync-side getState-null lock — Pattern G symmetry.
-        // `codeGlanceProRevertHook` left null so the production reflection path runs.
+        // Pattern L: defensive guard at `getState.invoke(service) ?: return`
+        // (CodeGlanceProIntegration.kt line 240). Mirror of the sync-side
+        // getState-null lock — Pattern G symmetry. `codeGlanceProRevertHook`
+        // left null so the production reflection path runs.
         val mockService = mockk<Any>(relaxed = true)
         val mockGetState = mockk<java.lang.reflect.Method>(relaxed = true)
         val mockSetColor = mockk<java.lang.reflect.Method>(relaxed = true)
@@ -729,12 +724,13 @@ class AccentApplicatorRevertAllIntegrationTest {
 
     @Test
     fun `revertCodeGlanceProViewport via reflection handles RuntimeException gracefully`() {
-        // Patch coverage + Pattern B + G symmetry: existing C-3 tests cover
-        // the `InvocationTargetException` and `ReflectiveOperationException`
+        // Pattern B + G symmetry: existing reflection tests cover the
+        // `InvocationTargetException` and `ReflectiveOperationException`
         // catches on revert; this pins the third catch
-        // (CodeGlanceProIntegration.kt lines 259-265) so a regression that narrows the
-        // catch surface back to two clauses would surface here instead of
-        // breaking the user's theme switch when CGP's setter NPEs internally.
+        // (CodeGlanceProIntegration.kt lines 259-265) so a regression that
+        // narrows the catch surface back to two clauses would surface here
+        // instead of breaking the user's theme switch when CGP's setter NPEs
+        // internally.
         val mockConfig = mockk<Any>(relaxed = true)
         val mockService = mockk<Any>(relaxed = true)
         val mockGetState = mockk<java.lang.reflect.Method>(relaxed = true)
@@ -760,7 +756,7 @@ class AccentApplicatorRevertAllIntegrationTest {
 
     @Test
     fun `revertAll continues integration revert after EP element revert throws`() {
-        // TA-I5 regression lock. Pre-fix observation: an EP element whose
+        // Regression lock. Pre-fix observation: an EP element whose
         // revert() throws RuntimeException must NOT block downstream
         // integration reverts. The narrow catch in applyElements / EP loop
         // already isolates per-element failures, but the contract that
@@ -787,18 +783,17 @@ class AccentApplicatorRevertAllIntegrationTest {
             1,
             cgpObserved.size,
             "CGP revert hook MUST still fire after EP element revert throws " +
-                "(TA-I5 isolation lock — Pattern B + G).",
+                "(isolation lock — Pattern B + G).",
         )
     }
 
     @Test
     fun `syncCodeGlanceProViewport resolveCgpMethods catches ReflectiveOperationException when CGP class missing`() {
-        // Patch coverage + Pattern B isolation: drives the
-        // `ReflectiveOperationException` catch inside `resolveCgpMethods`
-        // (CodeGlanceProIntegration.kt lines 116-121). When the CGP plugin reports a
-        // classloader but `Class.forName` cannot locate
-        // `com.nasller.codeglance.config.CodeGlanceConfigService` (the test
-        // classpath has no CGP), `Class.forName` throws
+        // Pattern B isolation: drives the `ReflectiveOperationException` catch
+        // inside `resolveCgpMethods` (CodeGlanceProIntegration.kt lines 116-121).
+        // When the CGP plugin reports a classloader but `Class.forName` cannot
+        // locate `com.nasller.codeglance.config.CodeGlanceConfigService` (the
+        // test classpath has no CGP), `Class.forName` throws
         // `ClassNotFoundException`. The catch must swallow with a WARN —
         // a propagated exception would break theme apply for users without
         // CGP installed but with a stale plugin entry.
@@ -832,8 +827,8 @@ class AccentApplicatorRevertAllIntegrationTest {
 
     @Test
     fun `syncCodeGlanceProViewport resolveCgpMethods catches RuntimeException when classloader misbehaves`() {
-        // Patch coverage + Pattern B isolation: drives the `RuntimeException`
-        // catch inside `resolveCgpMethods` (CodeGlanceProIntegration.kt lines 122-127).
+        // Pattern B isolation: drives the `RuntimeException` catch inside
+        // `resolveCgpMethods` (CodeGlanceProIntegration.kt lines 122-127).
         // A classloader subclass that throws `IllegalStateException` from
         // `loadClass` exercises the second catch — covers a CGP plugin in a
         // weird state (corrupt jar, security manager rejection) where the
@@ -873,9 +868,8 @@ class AccentApplicatorRevertAllIntegrationTest {
     ) {
         // Stage non-null reflection chain so [revertCodeGlanceProViewport] /
         // [syncCodeGlanceProViewport] reach the production reflection branch
-        // instead of short-circuiting on `cgpService ?: return`. Mirrors the
-        // pattern `AccentApplicatorTest` used pre-TD-I5 (raw field writes),
-        // but routed through the typed
+        // instead of short-circuiting on `cgpService ?: return`. Uses raw
+        // field writes routed through the typed
         // [CodeGlanceProIntegration.resetReflectionCacheForTests] helper for cleanup.
         // Marks `cgpMethodsResolved = true` so `resolveCgpMethods` is a no-op
         // (we already supplied the cached refs).

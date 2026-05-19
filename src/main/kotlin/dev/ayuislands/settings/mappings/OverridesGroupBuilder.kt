@@ -442,10 +442,9 @@ class OverridesGroupBuilder {
      * passed through [StringUtil.escapeXmlEntities] — the current icon-row
      * renderer uses plain-text `JBLabel`s that never parse HTML, so the escape
      * is not load-bearing for the production UI, but this helper survives as a
-     * regression guard that locks the T-26-01 threat model (a third-party
-     * language plugin registering a display name containing markup): the
-     * escape keeps the text projection safe against a future render path that
-     * switches back to an HTML-capable label.
+     * regression guard against a third-party language plugin registering a
+     * display name containing markup: the escape keeps the text projection safe
+     * against a future render path that switches back to an HTML-capable label.
      *
      * O(1) HashMap probe plus a bounded formatter pass; safe to call on EDT.
      *
@@ -977,9 +976,9 @@ class OverridesGroupBuilder {
          * Fixed status-line copy rendered under Per-Language Accent Pins when the
          * detector has no warm weights for the focused project — cache is cold, the
          * most recent scan produced no dominant winner, or the legacy SDK / module
-         * fallback path was used (no weights to proportion). Exact string is locked
-         * per phase-26 D-05 / ROADMAP success criterion. NOT i18n'd, NOT
-         * user-configurable. The em-dash is U+2014, not a hyphen.
+         * fallback path was used (no weights to proportion). Exact string is
+         * locked. NOT i18n'd, NOT user-configurable. The em-dash is U+2014, not a
+         * hyphen.
          */
         const val POLYGLOT_COPY: String =
             "Polyglot — no single dominant language; global accent applies"

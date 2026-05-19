@@ -22,13 +22,13 @@ class ChromeTintBlenderTest {
         assertEquals(darkBase.red, result.red)
         assertEquals(darkBase.green, result.green)
         assertEquals(darkBase.blue, result.blue)
-        assertEquals(255, result.alpha, "Result must be opaque (D-05)")
+        assertEquals(255, result.alpha, "Result must be opaque")
     }
 
     @Test
     fun `blend at intensity 100 output hue matches accent hue`() {
-        // Phase 40-09 contract: at max intensity the blender returns the accent
-        // HUE on the base's luminance (target = HSB(accent.H, accent.S, base.B)),
+        // Contract: at max intensity the blender returns the accent HUE on
+        // the base's luminance (target = HSB(accent.H, accent.S, base.B)),
         // NOT the accent's RGB per-channel. The legacy per-channel identity
         // was superseded by the hue-uniformity invariant — see
         // ChromeTintBlenderHueUniformityTest for the 5-surface lock.
@@ -39,14 +39,14 @@ class ChromeTintBlenderTest {
             hueDelta(resultHue, accentHue) <= HUE_EPSILON,
             "intensity=100 hue should match accent hue: got $resultHue vs $accentHue",
         )
-        assertEquals(255, result.alpha, "Result must be opaque (D-05)")
+        assertEquals(255, result.alpha, "Result must be opaque")
     }
 
     @Test
     fun `blend at intensity 50 output hue converges toward accent hue`() {
-        // Phase 40-09 contract: the new blender does NOT produce an RGB midpoint
-        // between base and accent — it lerps the base toward a synthesised HSB
-        // target (accent.H, accent.S, base.B), so the output hue converges from
+        // Contract: the blender does NOT produce an RGB midpoint between base
+        // and accent — it lerps the base toward a synthesised HSB target
+        // (accent.H, accent.S, base.B), so the output hue converges from
         // the base hue toward the accent hue. The neutral darkBase has S≈0
         // (undefined hue), so any tint moves the output toward the accent hue
         // within ε at 50%.
@@ -57,7 +57,7 @@ class ChromeTintBlenderTest {
             hueDelta(resultHue, accentHue) <= HUE_EPSILON,
             "intensity=50 hue should converge toward accent: got $resultHue vs $accentHue",
         )
-        assertEquals(255, result.alpha, "Result must be opaque (D-05)")
+        assertEquals(255, result.alpha, "Result must be opaque")
     }
 
     @Test
@@ -82,7 +82,7 @@ class ChromeTintBlenderTest {
     fun `blend always returns opaque alpha 255 even with translucent accent input`() {
         val translucentAccent = Color(0, 0, 0, 0x80)
         val result = ChromeTintBlender.blend(translucentAccent, darkBase, TintIntensity.of(50))
-        assertEquals(255, result.alpha, "D-05 enforces opaque RGB output")
+        assertEquals(255, result.alpha, "Blender contract enforces opaque RGB output")
     }
 
     @Test
@@ -98,7 +98,7 @@ class ChromeTintBlenderTest {
         assertEquals(0, result.blue)
     }
 
-    // --- Phase 40-09 helpers (hue-space invariants) ---
+    // --- Hue-space invariant helpers ---
 
     private fun hueOf(color: Color): Float {
         val hsb = FloatArray(3)

@@ -28,10 +28,10 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * Wave-7 redesign coverage per 48-REDESIGN-SPEC §3.4:
+ * Quick-switcher redesign coverage:
  *   - grid is 2 × 6 [PopupSwatch] cells (was 3 × 4 of `JButton` / `ColorIcon`),
  *   - each preset hex maps to exactly one swatch,
- *   - the Custom… link uses the bundled `pipette.svg` (Locked Answer #1),
+ *   - the Custom… link uses the bundled `pipette.svg`,
  *   - click flow through `applyFromHexString` + Pattern D + Pattern B preserved.
  */
 class QuickSwitcherAccentGridTest {
@@ -89,7 +89,7 @@ class QuickSwitcherAccentGridTest {
     fun `component renders exactly one PopupSwatch per AYU_ACCENT_PRESETS entry`() {
         val grid = QuickSwitcherAccentGrid()
         val north = (grid.component as JPanel).components.filterIsInstance<JPanel>().first()
-        assertEquals(12, north.components.size, "Expected 12 presets per D-12 / RESEARCH §4")
+        assertEquals(12, north.components.size, "Expected 12 presets")
     }
 
     @Test
@@ -105,7 +105,7 @@ class QuickSwitcherAccentGridTest {
     }
 
     @Test
-    fun `source loads pipette dot svg via IconLoader (Locked Answer 1)`() {
+    fun `source loads pipette dot svg via IconLoader`() {
         val source = Files.readString(Paths.get(GRID_SOURCE_PATH))
         assertTrue(source.contains("pipette.svg"), "Custom… link must reuse the bundled pipette.svg")
         assertTrue(source.contains("IconLoader.getIcon"), "Must load via IconLoader.getIcon")
@@ -173,7 +173,7 @@ class QuickSwitcherAccentGridTest {
 
     @Test
     fun `Custom and More links open the Ayu Islands settings dialog (user-space)`() {
-        // IMP-6 — user-space coverage. The Custom and More links must reach
+        // User-space coverage. The Custom and More links must reach
         // ShowSettingsUtil.showSettingsDialog with the canonical "Ayu Islands"
         // group id. Without this test, a rename of the link wiring would land
         // silently and the link would become inert.
@@ -194,9 +194,9 @@ class QuickSwitcherAccentGridTest {
 
     @Test
     fun `clicking a swatch restamps selected flag so exactly one swatch is selected`() {
-        // IMP-6 — user-space restamp coverage. After applyPreset(hex), exactly one
+        // User-space restamp coverage. After applyPreset(hex), exactly one
         // swatch is selected (the clicked one); previously-selected swatches clear.
-        // Locks the for-each restamp at QuickSwitcherAccentGrid.kt:111.
+        // Locks the for-each restamp in `QuickSwitcherAccentGrid`.
         every { AccentApplicator.applyFromHexString(any()) } returns true
         mockkObject(ProjectAccentSwapService.Companion)
         val swapService = mockk<ProjectAccentSwapService>(relaxed = true)
@@ -205,8 +205,8 @@ class QuickSwitcherAccentGridTest {
         val grid = QuickSwitcherAccentGrid()
         val north = (grid.component as JPanel).components.filterIsInstance<JPanel>().first()
         val swatches = north.components.filterIsInstance<PopupSwatch>()
-        // CRIT-6: `swatch.hex` is now [AccentHex]; unwrap via `.value` for case-
-        // insensitive String comparison at the test boundary.
+        // `swatch.hex` is the [AccentHex] value class; unwrap via `.value` for
+        // case-insensitive String comparison at the test boundary.
         val secondHex = swatches[1].hex.value
         // Click the second swatch.
         swatches[1].setSize(36, 24)

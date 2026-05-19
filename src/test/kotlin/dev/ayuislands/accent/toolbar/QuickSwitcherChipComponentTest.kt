@@ -33,13 +33,13 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Locks the chip's render, lifecycle, and mouse-routing contracts (Plan 48-02 Task 2).
+ * Locks the chip's render, lifecycle, and mouse-routing contracts.
  *
  * The chip is a [javax.swing.JLabel] + [Disposable]; its `addNotify` opens a single
  * [MessageBusConnection] (Pattern E — per-instance parent) and subscribes to BOTH
  * [AccentChangedTopic.TOPIC] and [ApplicationActivationListener.TOPIC]. `removeNotify`
  * and `dispose` disconnect and null the connection. `mousePressed` left-routes to the
- * popup and right-routes to a Wave 3 TODO.
+ * popup; right-click routes to the context menu.
  *
  * Mirrors `AccentChangedPublishTest`'s [mockkStatic]([ApplicationManager.Companion])
  * harness so the suite runs headless without booting the IntelliJ application.
@@ -129,20 +129,20 @@ class QuickSwitcherChipComponentTest {
 
         chip.refreshFromFocusedProject()
 
-        assertEquals(initialIcon, chip.icon, "Icon must not change when LAF is non-Ayu (WIDGET-11)")
+        assertEquals(initialIcon, chip.icon, "Icon must not change when LAF is non-Ayu")
         assertEquals(initialTooltip, chip.toolTipText)
     }
 
     @Test
-    fun `addNotify opens exactly one MessageBusConnection with an owned Disposable parent (CRIT-5)`() {
+    fun `addNotify opens exactly one MessageBusConnection with an owned Disposable parent`() {
         stubAyuActive(true)
         stubResolver(hex = "#FFCC66", source = AccentResolver.Source.GLOBAL)
 
         val chip = QuickSwitcherChipComponent()
         chip.addNotify()
 
-        // After CRIT-5 the parent is an owned Disposable (not the chip itself),
-        // so we match on the Disposable interface only.
+        // The parent is an owned Disposable (not the chip itself), so we match
+        // on the Disposable interface only.
         verify(exactly = 1) { mockMessageBus.connect(any<Disposable>()) }
     }
 
@@ -188,11 +188,11 @@ class QuickSwitcherChipComponentTest {
     }
 
     @Test
-    fun `removeNotify owns the only teardown path (no Disposable surface — CRIT-5)`() {
-        // CRIT-5: the chip is no longer `Disposable` itself — the platform's
-        // lifecycle for a CustomComponentAction component is purely
-        // addNotify/removeNotify. The owned `connectionParent` Disposable is
-        // disposed inside removeNotify; the chip exposes no dispose() method.
+    fun `removeNotify owns the only teardown path (no Disposable surface)`() {
+        // The chip is not `Disposable` itself — the platform's lifecycle for a
+        // `CustomComponentAction` component is purely addNotify/removeNotify.
+        // The owned `connectionParent` Disposable is disposed inside
+        // removeNotify; the chip exposes no `dispose()` method.
         stubAyuActive(true)
         stubResolver(hex = "#FFCC66", source = AccentResolver.Source.GLOBAL)
 
@@ -210,7 +210,7 @@ class QuickSwitcherChipComponentTest {
             com.intellij.openapi.Disposable::class.java.isAssignableFrom(chip.javaClass)
         assertFalse(
             isDisposable,
-            "Chip must NOT be Disposable — lifecycle is Swing-owned per CRIT-5",
+            "Chip must NOT be Disposable — lifecycle is Swing-owned",
         )
     }
 
@@ -224,21 +224,21 @@ class QuickSwitcherChipComponentTest {
         val chip = QuickSwitcherChipComponent()
         chip.dispatchEvent(leftClick(chip))
 
-        // Wave 7: chip passes itself as the second arg so the popup can wire a
+        // Chip passes itself as the second arg so the popup can wire a
         // per-popup JBPopupListener that flips popup-attached state.
         verify(exactly = 1) { QuickSwitcherPopup.show(chip, chip) }
     }
 
     @Test
-    fun `mousePressed right-click does NOT invoke popup (RMB routes to context menu — Wave 3)`() {
+    fun `mousePressed right-click does NOT invoke popup (RMB routes to context menu)`() {
         stubAyuActive(true)
         stubResolver(hex = "#FFCC66", source = AccentResolver.Source.GLOBAL)
         mockkObject(QuickSwitcherPopup)
         every { QuickSwitcherPopup.show(any(), any()) } returns Unit
-        // Plan 48-03 Wave 3 routes RMB to ActionManager.createActionPopupMenu — stub it so
-        // dispatch through `mousePressed` does not NPE. The "RMB does NOT invoke popup"
-        // assertion stays — the popup is for LMB only. Detailed RMB→context-menu
-        // assertions live in `QuickSwitcherChipContextMenuTest`.
+        // RMB is routed to `ActionManager.createActionPopupMenu` — stub it so
+        // dispatch through `mousePressed` does not NPE. The "RMB does NOT
+        // invoke popup" assertion stays — the popup is for LMB only. Detailed
+        // RMB→context-menu assertions live in `QuickSwitcherChipContextMenuTest`.
         val mockActionManager = mockk<com.intellij.openapi.actionSystem.ActionManager>(relaxed = true)
         val mockMenu = mockk<com.intellij.openapi.actionSystem.ActionPopupMenu>(relaxed = true)
         every { mockActionManager.createActionPopupMenu(any(), any()) } returns mockMenu
@@ -256,7 +256,7 @@ class QuickSwitcherChipComponentTest {
     }
 
     @Test
-    fun `mousePressed is a no-op when AyuVariant detect returns null (WIDGET-11 belt-and-braces)`() {
+    fun `mousePressed is a no-op when AyuVariant detect returns null`() {
         stubAyuActive(false)
         mockkObject(QuickSwitcherPopup)
         every { QuickSwitcherPopup.show(any(), any()) } returns Unit
@@ -269,10 +269,10 @@ class QuickSwitcherChipComponentTest {
     }
 
     @Test
-    fun `CHIP_BOX_PX equals 13 and icon fills full cell (WIDGET-02 closure)`() {
+    fun `CHIP_BOX_PX equals 13 and icon fills full cell`() {
         assertEquals(13, QuickSwitcherChipComponent.CHIP_BOX_PX)
-        // Wave 7 follow-up: icon is sized to the full cell (`CHIP_BOX_PX`), not an
-        // inner-disc inset, so it does not look small against the platform's
+        // Icon is sized to the full cell (`CHIP_BOX_PX`), not an inner-disc
+        // inset, so it does not look small against the platform's
         // pressed/hover highlight that paints around the cell. The earlier
         // `CHIP_SWATCH_PX = 12` inner-disc constant was removed.
         val source = Files.readString(Paths.get(CHIP_SOURCE_PATH))
@@ -288,7 +288,7 @@ class QuickSwitcherChipComponentTest {
     }
 
     @Test
-    fun `Wave 7 setPopupAttached toggles ring state on the chip`() {
+    fun `setPopupAttached toggles ring state on the chip`() {
         stubAyuActive(true)
         val chip = QuickSwitcherChipComponent()
         assertFalse(chip.isPopupAttached, "Fresh chip must start with no popup attached")
@@ -299,7 +299,7 @@ class QuickSwitcherChipComponentTest {
     }
 
     @Test
-    fun `Wave 7 chip ColorIcon constructor uses 3-arg border-on form`() {
+    fun `chip ColorIcon constructor uses 3-arg border-on form`() {
         val source = Files.readString(Paths.get(CHIP_SOURCE_PATH))
         // Locate every `ColorIcon(` call site; count those whose closing arg is the
         // boolean `true` (border-on overload).
@@ -309,7 +309,7 @@ class QuickSwitcherChipComponentTest {
     }
 
     @Test
-    fun `Wave 7 JBPopupListener is registered on the popup not on chip Disposable (Pattern E)`() {
+    fun `JBPopupListener is registered on the popup not on chip Disposable (Pattern E)`() {
         val popupSource = Files.readString(Paths.get(POPUP_SOURCE_PATH))
         assertTrue(
             popupSource.contains("popup.addListener"),
@@ -323,12 +323,12 @@ class QuickSwitcherChipComponentTest {
     }
 
     @Test
-    fun `Wave 7 setPopupAttached calls from JBPopupListener wrap SwingUtilities invokeLater (T-48-07-03)`() {
+    fun `setPopupAttached calls from JBPopupListener wrap SwingUtilities invokeLater`() {
         val popupSource = Files.readString(Paths.get(POPUP_SOURCE_PATH))
         val listenerBlock = popupSource.substringAfter("object : JBPopupListener", "")
         assertTrue(
             listenerBlock.contains("SwingUtilities.invokeLater"),
-            "Chip setPopupAttached invocation from JBPopupListener must hop to EDT (T-48-07-03 mitigation)",
+            "Chip setPopupAttached invocation from JBPopupListener must hop to EDT",
         )
     }
 

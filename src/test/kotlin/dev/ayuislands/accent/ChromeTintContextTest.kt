@@ -8,8 +8,8 @@ import kotlin.test.assertTrue
 
 /**
  * Locks the [ChromeTintContext] / [ChromeTintSnapshot] contract on which the
- * Phase 40.4 "settings panel apply uses pending values without committing
- * state" guarantee depends. Each test isolates one ThreadLocal invariant —
+ * "settings panel apply uses pending values without committing state"
+ * guarantee depends. Each test isolates one ThreadLocal invariant —
  * pass-through, single-frame override, nesting restoration, and `try/finally`
  * pop on `block` throw.
  *
@@ -49,8 +49,8 @@ class ChromeTintContextTest {
 
     @Test
     fun `withSnapshot null is a pass-through that does not mutate the slot`() {
-        // The Phase 40.4 contract for `withSnapshot(null)` is "use existing
-        // context, do not clear" — important so a nested chrome apply pipeline
+        // The contract for `withSnapshot(null)` is "use existing context,
+        // do not clear" — important so a nested chrome apply pipeline
         // running outside Settings still sees state, not a transiently-empty
         // ThreadLocal frame.
         val state = AyuIslandsState().apply { chromeTintIntensity = 21 }
@@ -149,7 +149,7 @@ class ChromeTintContextTest {
 
     @Test
     fun `isToggleEnabled falls back to state for non-chrome ids even with active snapshot`() {
-        // The Phase 40.4 snapshot owns CHROME ids only. Non-chrome ids
+        // The snapshot owns CHROME ids only. Non-chrome ids
         // (Inlay hints, caret row, links, etc.) must still pull from state —
         // this proves the `else` branch in [ChromeTintSnapshot.isToggleEnabled].
         val state = AyuIslandsState()
@@ -177,7 +177,7 @@ class ChromeTintContextTest {
 
     @Test
     fun `currentIntensity stays pinned to snapshot even when fallback state mutates underneath`() {
-        // Phase 40.4 race-safety contract: a concurrent listener (LafManagerListener,
+        // Race-safety contract: a concurrent listener (LafManagerListener,
         // theme switch, license event) writing to AyuIslandsState mid-apply must
         // NOT change what the running applicator pipeline sees. The whole reason
         // for the ThreadLocal is to insulate the apply window from state writes.

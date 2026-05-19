@@ -7,8 +7,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 
 /**
- * Tests for the Phase 40.2 VCS color customization state helpers, including
- * the Phase 40.2b per-section preset redesign.
+ * Tests for the VCS color customization state helpers, including the
+ * per-section preset redesign.
  *
  * Covers the same defensive-read pattern Chrome Tinting established in
  * [AyuIslandsStateTest]: every read site for a value the applier consumes
@@ -21,7 +21,7 @@ class AyuIslandsStateVcsTest {
     @Test
     fun `default state has VCS disabled and all three sections on Ambient`() {
         val state = freshState()
-        assertFalse(state.vcsColorEnabled, "Master kill-switch defaults off (2.6.2 byte-identical)")
+        assertFalse(state.vcsColorEnabled, "Master kill-switch defaults off (byte-identical to prior release)")
         assertEquals(VcsColorPreset.AMBIENT, state.effectiveVcsDiffPreset())
         assertEquals(VcsColorPreset.AMBIENT, state.effectiveVcsMergePreset())
         assertEquals(VcsColorPreset.AMBIENT, state.effectiveVcsBlamePreset())

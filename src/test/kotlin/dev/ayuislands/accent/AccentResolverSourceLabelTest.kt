@@ -4,8 +4,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * Locks the D-18 contract: a stable, human-readable label per [AccentResolver.Source]
- * value. Consumed by the Phase 48 chip tooltip and (in a follow-up) the AccentPanel
+ * Locks the contract: a stable, human-readable label per [AccentResolver.Source]
+ * value. Consumed by the chip tooltip and (in a follow-up) the AccentPanel
  * "currently active" comment.
  *
  * Pattern L from `RECURRING_PITFALLS.md` — `enum-size regression lock`. If a future
@@ -39,12 +39,12 @@ class AccentResolverSourceLabelTest {
 
     @Test
     fun `Source enum size lock — three values exactly`() {
-        // Pattern L regression lock. If you add a new Source value (e.g. REMOTE for
-        // Phase 42 remote-environment awareness), this test fails on purpose so you
-        // are forced to extend [AccentResolver.sourceLabel] with the new case in the
-        // same commit. Without the lock, a missing branch would land at runtime as
-        // "Global" via a future `else ->` fallback, silently mislabelling every
-        // remote-resolved accent.
+        // Pattern L regression lock. If you add a new Source value (e.g.
+        // REMOTE for remote-environment awareness), this test fails on
+        // purpose so you are forced to extend [AccentResolver.sourceLabel]
+        // with the new case in the same commit. Without the lock, a missing
+        // branch would land at runtime as "Global" via a future `else ->`
+        // fallback, silently mislabelling every remote-resolved accent.
         assertEquals(
             3,
             AccentResolver.Source.values().size,

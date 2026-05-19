@@ -14,7 +14,7 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 /**
- * Locks the [SegmentedControl] contract per 48-REDESIGN-SPEC §3.3:
+ * Locks the [SegmentedControl] contract:
  *  - exactly 3 child cells in display order MIRAGE / DARK / LIGHT,
  *  - each cell's accessibleName follows the "Variant: Mirage" / "Variant: Dark" /
  *    "Variant: Light" ARIA-equivalent format,
@@ -102,11 +102,11 @@ class SegmentedControlTest {
     }
 
     @Test
-    fun `selected cell paints pressedBackground at the centre pixel (IMP-4 paint state)`() {
-        // Round 2 IMP-4: behavior lock for the selected branch of `paintCell`.
-        // Construct a control whose MIRAGE cell is the selected one, render
-        // via the `paintForTest` seam, then sample the centre pixel and
-        // confirm it differs from a fully transparent fill — meaning the
+    fun `selected cell paints pressedBackground at the centre pixel`() {
+        // Behavior lock for the selected branch of `paintCell`. Construct a
+        // control whose MIRAGE cell is the selected one, render via the
+        // `paintForTest` seam, then sample the centre pixel and confirm it
+        // differs from a fully transparent fill — meaning the
         // `JBUI.CurrentTheme.ActionButton.pressedBackground` fill was
         // applied.
         val control = SegmentedControl(initialVariant = AyuVariant.MIRAGE) {}
@@ -129,11 +129,11 @@ class SegmentedControlTest {
     }
 
     @Test
-    fun `hovered non-selected cell paints hoverBackground (IMP-4 hover branch)`() {
-        // Round 2 IMP-4: behavior lock for the hover branch. Select MIRAGE so
-        // the DARK cell is non-selected, then render the DARK cell with
-        // hovered=true through the seam. Idle paint would leave the centre
-        // transparent; hover paint composites `ActionButton.hoverBackground`.
+    fun `hovered non-selected cell paints hoverBackground`() {
+        // Behavior lock for the hover branch. Select MIRAGE so the DARK cell
+        // is non-selected, then render the DARK cell with hovered=true through
+        // the seam. Idle paint would leave the centre transparent; hover paint
+        // composites `ActionButton.hoverBackground`.
         val control = SegmentedControl(initialVariant = AyuVariant.MIRAGE) {}
         val cells = collectCells(control)
         val darkCell = cells[1]
@@ -151,12 +151,11 @@ class SegmentedControlTest {
     }
 
     @Test
-    fun `idle non-selected non-hovered cell paints no background (IMP-4 idle branch)`() {
-        // Round 2 IMP-4: idle branch is `else -> Unit` — no fill, no border.
-        // Sample a CORNER pixel (label centred so it doesn't reach the
-        // corner). Idle alpha must be 0 (transparent); the centre pixel
-        // would carry label-rendering alpha and is not a valid background-only
-        // sample.
+    fun `idle non-selected non-hovered cell paints no background`() {
+        // Idle branch is `else -> Unit` — no fill, no border. Sample a CORNER
+        // pixel (label centred so it doesn't reach the corner). Idle alpha
+        // must be 0 (transparent); the centre pixel would carry
+        // label-rendering alpha and is not a valid background-only sample.
         val control = SegmentedControl(initialVariant = AyuVariant.MIRAGE) {}
         val cells = collectCells(control)
         val darkCell = cells[1]
@@ -178,10 +177,10 @@ class SegmentedControlTest {
     }
 
     @Test
-    fun `label colour differs between selected and non-selected cells (IMP-4 label flip)`() {
-        // Round 2 IMP-4: label flips between `Label.foreground` (selected) and
-        // `Label.disabledForeground` (non-selected). Render the same cell
-        // both ways and assert the painted text region differs.
+    fun `label colour differs between selected and non-selected cells`() {
+        // Label flips between `Label.foreground` (selected) and
+        // `Label.disabledForeground` (non-selected). Render the same cell both
+        // ways and assert the painted text region differs.
         val control = SegmentedControl(initialVariant = AyuVariant.MIRAGE) {}
         val cells = collectCells(control)
         val mirageCell = cells.first() as SegmentedControl.VariantCell

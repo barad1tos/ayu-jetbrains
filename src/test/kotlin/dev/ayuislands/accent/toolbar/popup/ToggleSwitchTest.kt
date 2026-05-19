@@ -12,7 +12,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Locks the macOS-style [ToggleSwitch] contract per 48-REDESIGN-SPEC §3.5:
+ * Locks the macOS-style [ToggleSwitch] contract:
  *  - 28x14 JBUI-scaled preferred size,
  *  - ON state fill = accent supplier value (resolved lazily at paint),
  *  - OFF state fill = subtle pressed background with 1-px inner border,

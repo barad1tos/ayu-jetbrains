@@ -34,7 +34,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Coverage for [AyuIslandsChromePanel] (Phase 40 / Plan 07):
+ * Coverage for [AyuIslandsChromePanel]:
  *
  *  - Build contract: panel renders the "Chrome Tinting" collapsible group with 5 per-surface
  *    checkboxes, an intensity slider (10-100), and a "Keep foreground readable" checkbox when
@@ -44,10 +44,10 @@ import kotlin.test.assertTrue
  *    [AyuIslandsState]; [AccentApplicator.applyForFocusedProject] fires exactly once per
  *    modified apply and does NOT fire when there is no diff.
  *  - Reset: pending is restored to stored.
- *  - Premium gate (CONTEXT D-10): unlicensed users see no chrome tinting controls — the
+ *  - Premium gate: unlicensed users see no chrome tinting controls — the
  *    collapsible content collapses to a single "requires Pro" comment row so the gate is
  *    visible as a hint but none of the underlying bindings surface.
- *  - Probe gate (CONTEXT D-09 / CHROME-02): the Main Toolbar row is enabled when
+ *  - Probe gate: the Main Toolbar row is enabled when
  *    [ChromeDecorationsProbe.isCustomHeaderActive] returns `true` and disabled (with a
  *    per-OS honest comment) when it returns `false` — present but disabled, never hidden.
  *  - Persisted expanded state: toggling the collapsible writes
@@ -298,7 +298,7 @@ class AyuIslandsChromePanelTest {
         assertEquals(45, state.chromeTintIntensity, "chromeTintIntensity not persisted")
 
         // apply() must re-run the EP chain exactly once for the panel's variant so the
-        // 5 chrome AccentElement impls repaint immediately (CONTEXT D-07 / must_have 4).
+        // 5 chrome AccentElement impls repaint immediately.
         verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AyuVariant.DARK) }
     }
 
@@ -349,18 +349,18 @@ class AyuIslandsChromePanelTest {
 
         chromePanel.apply()
 
-        // No mutation → no re-apply. Prevents T-40-26 (DoS on repeated clean apply).
+        // No mutation → no re-apply. Prevents DoS on repeated clean apply.
         verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any()) }
     }
 
     @Test
     fun `apply leaves stored state untouched when applicator throws`() {
-        // Phase 40.4 throw-safety contract (`H-4`): if `applyForFocusedProject`
-        // throws, no state field commits. The user's pending values stay diffed
-        // from stored so `isModified()` keeps reporting true and the Apply
-        // button re-offers a retry. The earlier "state.commit before applicator"
-        // ordering broke this — that path was reverted in favor of the snapshot
-        // pattern, which is what this test locks.
+        // Throw-safety contract: if `applyForFocusedProject` throws, no state
+        // field commits. The user's pending values stay diffed from stored so
+        // `isModified()` keeps reporting true and the Apply button re-offers a
+        // retry. The earlier "state.commit before applicator" ordering broke
+        // this — that path was reverted in favor of the snapshot pattern,
+        // which is what this test locks.
         val chromePanel = AyuIslandsChromePanel()
         buildPanel(chromePanel, AyuVariant.MIRAGE)
 
@@ -393,8 +393,8 @@ class AyuIslandsChromePanelTest {
 
     @Test
     fun `apply surfaces a WARNING balloon when applicator throws`() {
-        // Phase 40.4 user-space contract: a silent failure was the entire root
-        // cause of "I clicked Apply, nothing happened" reports prior to this fix.
+        // User-space contract: a silent failure was the entire root cause of
+        // "I clicked Apply, nothing happened" reports prior to this fix.
         // The WARNING balloon is the user-visible error path the project rule
         // names explicitly. Asserting on the captured title/content/type catches
         // copy regressions (changelog-relevant) and the wrong NotificationType
@@ -495,7 +495,7 @@ class AyuIslandsChromePanelTest {
         verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any()) }
     }
 
-    // ── Phase 40.2 T-6: mid-session license flip must not persist ──────────────
+    // ── Mid-session license flip must not persist ──────────────────────────────
     //
     // If the panel is built while licensed and the license flips to false
     // before the user presses Apply, the panel MUST not persist chrome state
@@ -533,7 +533,7 @@ class AyuIslandsChromePanelTest {
         verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any()) }
     }
 
-    // ── Test 9: premium gate (CONTEXT D-10) ────────────────────────────────────
+    // ── Test 9: premium gate ──────────────────────────────────────────────────
 
     @Test
     fun `unlicensed build hides chrome tinting controls behind a 'requires Pro' comment`() {
@@ -544,7 +544,7 @@ class AyuIslandsChromePanelTest {
 
         assertFalse(
             chromePanel.collapsibleRenderedLicensedForTest(),
-            "Unlicensed build must not render the chrome tinting controls (D-10 premium gate)",
+            "Unlicensed build must not render the chrome tinting controls (premium gate)",
         )
         assertEquals(
             0,
@@ -557,7 +557,7 @@ class AyuIslandsChromePanelTest {
         )
     }
 
-    // ── Test 10-11: probe-driven enabledIf (CONTEXT D-09 / CHROME-02) ──────────
+    // ── Test 10-11: probe-driven enabledIf ────────────────────────────────────
 
     @Test
     fun `main toolbar row is enabled when ChromeDecorationsProbe reports a custom header`() {
@@ -581,7 +581,7 @@ class AyuIslandsChromePanelTest {
 
         assertFalse(
             chromePanel.mainToolbarRowEnabledForTest(),
-            "Main Toolbar row must be disabled when the OS paints the native title bar (CHROME-02)",
+            "Main Toolbar row must be disabled when the OS paints the native title bar",
         )
         val comment = chromePanel.mainToolbarRowCommentForTest()
         assertNotNull(
@@ -754,12 +754,12 @@ class AyuIslandsChromePanelTest {
         )
     }
 
-    // ── Static regression guard for plan 40-11 supersede ──────────────────────
+    // ── Static regression guard for the retired merged-menu offer link ─────────
     //
     // After the 2026-04-22 supersede (link retracted, per-OS comment added), the panel
     // source must NOT reference any of the following — they are the removed machinery
     // for the merged-menu offer link that IDE 2026.1+ made dead-letter. A static
-    // substring check provides defence-in-depth beyond the `rg` command in SUMMARY.
+    // substring check provides defence-in-depth beyond the `rg` command.
 
     @Test
     fun `panel source contains no merged-menu offer residue after supersede`() {
@@ -799,7 +799,7 @@ class AyuIslandsChromePanelTest {
         ) {
             assertFalse(
                 onDisk.contains(forbidden),
-                "Panel source must not contain '$forbidden' after plan 40-11 supersede",
+                "Panel source must not contain '$forbidden' after the merged-menu offer was retired",
             )
         }
     }

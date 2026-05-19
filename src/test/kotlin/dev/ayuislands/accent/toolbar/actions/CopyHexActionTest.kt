@@ -27,9 +27,8 @@ import kotlin.test.assertTrue
 
 /**
  * Locks [CopyHexAction]: Pattern J gate, BGT thread, clipboard write at
- * invocation time (no cached state — T-48-03-04 stale-state lock), and
- * non-Ayu belt-and-braces no-op. Tests 14, 19, 31, 32, 33 per
- * `48-03-PLAN.md` `<behavior>`.
+ * invocation time (no cached state — stale-state lock), and non-Ayu
+ * belt-and-braces no-op.
  */
 class CopyHexActionTest {
     private val mockClipboard = mockk<CopyPasteManager>(relaxed = true)
@@ -72,8 +71,8 @@ class CopyHexActionTest {
 
     @Test
     fun `update Pattern J two-level gate exhaustive (T,T) (F,T) (T,F) (F,F)`() {
-        // CRIT-7 — full 4-case truth table. A future `&&` → `||` regression would
-        // be invisible without the (F,F) case (any single-conjunct test would
+        // Full 4-case truth table. A future `&&` → `||` regression would be
+        // invisible without the (F,F) case (any single-conjunct test would
         // still pass under an OR gate).
         val action = CopyHexAction()
         val event = newEvent()
@@ -101,7 +100,6 @@ class CopyHexActionTest {
 
     @Test
     fun `actionPerformed writes resolved hex to clipboard via StringSelection`() {
-        // Test 31
         val captured = slot<Transferable>()
         every { mockClipboard.setContents(capture(captured)) } returns Unit
         CopyHexAction().actionPerformed(newEvent())
@@ -110,10 +108,10 @@ class CopyHexActionTest {
     }
 
     @Test
-    fun `actionPerformed reads hex at invocation time so consecutive calls reflect fresh resolution (T-48-03-04)`() {
-        // Test 32 — stale-state regression lock. Two invocations with different
-        // resolver answers must produce two distinct clipboard writes; a cached
-        // field implementation would write the first value twice.
+    fun `actionPerformed reads hex at invocation time so consecutive calls reflect fresh resolution`() {
+        // Stale-state regression lock. Two invocations with different resolver
+        // answers must produce two distinct clipboard writes; a cached field
+        // implementation would write the first value twice.
         val captured = mutableListOf<Transferable>()
         every { mockClipboard.setContents(any()) } answers {
             captured += firstArg<Transferable>()
@@ -129,7 +127,6 @@ class CopyHexActionTest {
 
     @Test
     fun `actionPerformed is a no-op when AyuVariant detect returns null (belt-and-braces)`() {
-        // Test 33
         every { AyuVariant.detect() } returns null
         CopyHexAction().actionPerformed(newEvent())
         verify(exactly = 0) { mockClipboard.setContents(any()) }

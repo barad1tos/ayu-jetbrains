@@ -9,9 +9,9 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * Locks the [IslandsUiPill] state-toggle contract per 48-REDESIGN-SPEC §3.3.
- * Lambda-callback assertions use a `mutableListOf<Boolean>()` capture (Spawn-A
- * finding #2 — `mockk` cannot proxy Kotlin function types).
+ * Locks the [IslandsUiPill] state-toggle contract.
+ * Lambda-callback assertions use a `mutableListOf<Boolean>()` capture because
+ * `mockk` cannot proxy Kotlin function types.
  */
 class IslandsUiPillTest {
     @Test

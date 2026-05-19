@@ -365,7 +365,7 @@ object FontInstaller {
         state.installedFonts.add(canonicalFamily)
         state.installedFontFiles[canonicalFamily] =
             AyuIslandsState.encodeFontPaths(installedFiles)
-        // D-09: reinstalling a previously-deleted font clears the guard so future
+        // Reinstalling a previously-deleted font clears the guard so future
         // seeder runs treat this family as first-class again.
         state.explicitlyUninstalledFonts.remove(canonicalFamily)
         FontDetector.invalidateCache()

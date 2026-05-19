@@ -201,7 +201,7 @@ class FontDetectorTest {
         }
     }
 
-    // ---- status (three-tier health check, D-10) ----
+    // ---- status (three-tier health check) ----
 
     private fun stubSettingsAndGraphicsEnv(
         state: AyuIslandsState,
@@ -249,10 +249,10 @@ class FontDetectorTest {
 
     @Test
     fun `isFamilyInstalled returns false on HeadlessException (does not propagate freeze)`() {
-        // Round-1 review CRITICAL #1: a propagating throw here would reproduce
-        // the issue #164 panel-build freeze with a different exception class.
-        // The helper must catch and return false so the preview falls back to
-        // "Install X to preview" instead of stranding the panel.
+        // A propagating throw here would reproduce the issue #164 panel-build
+        // freeze with a different exception class. The helper must catch and
+        // return false so the preview falls back to "Install X to preview"
+        // instead of stranding the panel.
         mockkObject(AyuIslandsSettings.Companion)
         val settings = AyuIslandsSettings().apply { loadState(AyuIslandsState()) }
         every { AyuIslandsSettings.getInstance() } returns settings

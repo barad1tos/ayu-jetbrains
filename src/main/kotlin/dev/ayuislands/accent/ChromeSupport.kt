@@ -3,19 +3,12 @@ package dev.ayuislands.accent
 /**
  * Result type for [ChromeDecorationsProbe.probe].
  *
- * Phase 40.3c Refactor 3 — the prior probe collapsed four OS / decoration
- * branches (native macOS title bar, GNOME SSD, Windows native header,
- * unknown OS) into a single boolean. Settings UI then had to re-derive the
- * reason code with its own per-OS `when` (`SystemInfo.isMac/isWindows/isLinux`)
- * to compose the user-visible "disabled" tooltip — a second source of truth
- * that could easily drift from the probe's decision.
- *
- * Modeling the outcome as a sealed hierarchy gives the probe a single place
- * to distinguish *why* chrome tinting is unavailable. Phase 40.4 R-3 then
- * lifted the user-visible display strings into the UI layer
- * ([dev.ayuislands.settings.AyuIslandsChromePanel]) — a sealed `when` on
- * the subtype is total, so the mapping is still compile-time exhaustive
- * but the display copy lives next to the UI code that owns its wording.
+ * The outcome is modeled as a sealed hierarchy so the probe is the single place
+ * that distinguishes *why* chrome tinting is unavailable. User-visible display
+ * strings live in the UI layer ([dev.ayuislands.settings.AyuIslandsChromePanel])
+ * — a sealed `when` on the subtype is total, so the mapping is still
+ * compile-time exhaustive but the display copy lives next to the UI code that
+ * owns its wording.
  *
  * Back-compat: [ChromeDecorationsProbe.isCustomHeaderActive] is kept as a
  * thin delegate (`probe() is Supported`) for call sites that only need the

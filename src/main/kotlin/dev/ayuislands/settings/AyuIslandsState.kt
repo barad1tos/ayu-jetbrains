@@ -67,11 +67,10 @@ class AyuIslandsState : BaseState() {
      * completed its full EP iteration cleanly. Used by
      * [dev.ayuislands.AyuIslandsAppListener.appFrameCreated] as a trust gate around
      * the cached [lastAppliedAccentHex]: persisting the hex BEFORE the EP iteration
-     * (Phase 40.2 H-2) makes startup anti-flicker robust to a failed apply, but
-     * the cached value is only reliable when the previous session actually finished
-     * painting. If a prior apply threw mid-EP and left the hex persisted without
-     * a matching true here, the next startup resolves fresh instead of trusting
-     * the partial cache.
+     * makes startup anti-flicker robust to a failed apply, but the cached value is
+     * only reliable when the previous session actually finished painting. If a prior
+     * apply threw mid-EP and left the hex persisted without a matching true here,
+     * the next startup resolves fresh instead of trusting the partial cache.
      */
     var lastApplyOk by property(false)
 
@@ -208,7 +207,7 @@ class AyuIslandsState : BaseState() {
     // re-prompted. Set to true after the first successful seed.
     var installedFontsSeeded by property(false)
 
-    // Authoritative list of absolute file paths per installed family (D-08).
+    // Authoritative list of absolute file paths per installed family.
     // Values are "\n"-joined absolute paths. Flat map<String, String> shape matches
     // the existing `fontPresetCustomizations` encoding precedent and avoids
     // nested-collection XML serialization risk (BaseState silently drops
@@ -217,7 +216,7 @@ class AyuIslandsState : BaseState() {
     // inline.
     var installedFontFiles by map<String, String>()
 
-    // Families the user has explicitly deleted via the Settings lifecycle UI (D-09).
+    // Families the user has explicitly deleted via the Settings lifecycle UI.
     // seedInstalledFontsFromDiskIfNeeded() must skip any family in this set so the
     // plugin never re-adds a user-deleted font on a subsequent startup.
     var explicitlyUninstalledFonts by stringSet()
@@ -228,9 +227,8 @@ class AyuIslandsState : BaseState() {
      *
      * Gates the chip + popup behind a Settings checkbox so users who prefer a
      * clean toolbar can hide the widget. Defaults to `true` — the chip is FREE
-     * and exposed on first launch after install. Read by
-     * [dev.ayuislands.accent.toolbar.QuickSwitcherWidgetAction.update] as the
-     * second conjunct of the two-level visibility gate (LAF + this toggle).
+     * and exposed on first launch after install. Read by `QuickSwitcherWidgetAction.update`
+     * as the second conjunct of the two-level visibility gate (LAF + this toggle).
      */
     var quickSwitcherWidgetEnabled by property(true)
 
@@ -271,7 +269,7 @@ class AyuIslandsState : BaseState() {
     // Force overrides for conflicting elements (element ID names)
     var forceOverrides by stringSet()
 
-    // Chrome tinting (phase 40). Per-surface opt-in toggles and a global intensity.
+    // Chrome tinting: per-surface opt-in toggles and a global intensity.
     // WCAG foreground contrast is always-on (no persisted toggle). CHROME-group
     // AccentElementIds are driven by these fields — NOT by the Elements-panel toggle
     // map — so they never leak into the VISUAL/INTERACTIVE checkbox list. Defaults
@@ -316,32 +314,31 @@ class AyuIslandsState : BaseState() {
      * for `BaseState` XML serialization, and every read path consults this
      * helper instead of calling [AccentHex.of] at each site.
      *
-     * Phase 40.3b: used by [dev.ayuislands.AyuIslandsAppListener.appFrameCreated]
-     * as the single trust boundary for the first-frame anti-flicker cache;
-     * [AccentHex.of] internally rejects hand-edited XML corruption and
-     * truncated writes so the resolver fallback fires whenever the cache is
-     * unusable.
+     * Used by [dev.ayuislands.AyuIslandsAppListener.appFrameCreated] as the
+     * single trust boundary for the first-frame anti-flicker cache; [AccentHex.of]
+     * internally rejects hand-edited XML corruption and truncated writes so the
+     * resolver fallback fires whenever the cache is unusable.
      */
     fun effectiveLastAppliedAccentHex(): AccentHex? = AccentHex.of(lastAppliedAccentHex)
 
-    // --- VCS color customization (Phase 40.2, premium) ---
-    // Master kill-switch. Default OFF so 2.6.2 upgraders observe byte-identical
+    // --- VCS color customization (premium) ---
+    // Master kill-switch. Default OFF so upgraders observe byte-identical
     // diff/file-status/gutter colors until they opt in via the VCS settings tab.
     var vcsColorEnabled by property(false)
 
-    // Per-section preset choice. Phase 40.2b redesign — each of the three VCS
-    // sections (Diff & File Status, Merge & Conflict, Blame & History) holds
-    // its own preset independently so users can mix intensities across surfaces
-    // (Diff on Neon, Blame on Whisper, etc.). String-backed for BaseState XML
-    // serialization; resolved through effectiveVcs*Preset() helpers that fall
-    // back to AMBIENT on unknown / corrupted strings.
+    // Per-section preset choice. Each of the three VCS sections (Diff & File
+    // Status, Merge & Conflict, Blame & History) holds its own preset
+    // independently so users can mix intensities across surfaces (Diff on Neon,
+    // Blame on Whisper, etc.). String-backed for BaseState XML serialization;
+    // resolved through effectiveVcs*Preset() helpers that fall back to AMBIENT
+    // on unknown / corrupted strings.
     var vcsDiffPreset by string(VcsColorPreset.AMBIENT.name)
     var vcsMergePreset by string(VcsColorPreset.AMBIENT.name)
     var vcsBlamePreset by string(VcsColorPreset.AMBIENT.name)
 
     // VCS panel's "Diff and File Status" collapsible group expanded state.
-    // Defaults to true per the Phase 40.2 spec (first section opens expanded);
-    // additional section-expanded flags land alongside their panels in waves 3-5.
+    // Defaults to true (first section opens expanded); additional
+    // section-expanded flags land alongside their panels in later releases.
     var vcsDiffSectionExpanded by property(true)
 
     // VCS panel's "Merge and Conflict" collapsible group expanded state. Defaults
@@ -588,13 +585,12 @@ class AyuIslandsState : BaseState() {
 
         /**
          * Chrome tint intensity default (0-100). `40` is the Peacock-parity
-         * opening balance per Phase 40 `CONTEXT.md §specifics` and sits above
-         * VERIFICATION Gap 1's recommended floor of `35` — at `20` the tint
-         * read as a 5% wash on the Mirage + Cyan pairing (runIde smoke
-         * 2026-04-22), which failed the user-space quality bar. The HSB-space
-         * blender (Phase 40-09 Task 2) makes this value visibly chromatic
-         * across all 5 chrome surfaces without sacrificing foreground
-         * readability. Users can adjust via the Chrome tinting settings slider.
+         * opening balance and sits above the recommended floor of `35` — at
+         * `20` the tint read as a 5% wash on the Mirage + Cyan pairing
+         * (runIde smoke 2026-04-22), which failed the user-space quality bar.
+         * The HSB-space blender makes this value visibly chromatic across all
+         * 5 chrome surfaces without sacrificing foreground readability. Users
+         * can adjust via the Chrome tinting settings slider.
          */
         const val DEFAULT_CHROME_TINT_INTENSITY = 40
 

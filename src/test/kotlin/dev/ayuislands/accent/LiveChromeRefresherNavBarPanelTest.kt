@@ -17,7 +17,7 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 
 /**
- * Locks the Phase 40.4 NavBar Compact (IntelliJ 2026.1) extensions to
+ * Locks the NavBar Compact (IntelliJ 2026.1) extensions to
  * [LiveChromeRefresher.refresh] / `.clear` for `ChromeTarget.StatusBar`.
  *
  * The Compact Navigation refactor moved the path widget breadcrumb out of
@@ -33,8 +33,8 @@ import kotlin.test.assertNull
  * collide with the platform JAR on the test classpath, so this suite locks the
  * regressing behaviours we CAN verify without that collision:
  *
- *  1. The status bar root tinting still works after the Phase 40.4 walk was
- *     added (regression guard for the prior root-only path).
+ *  1. The status bar root tinting still works after the descent walk was added
+ *     (regression guard for the prior root-only path).
  *  2. The walk completes gracefully on trees that do NOT contain the Compact
  *     panel (pre-2026.1 platforms, headless test JVM, custom IDE skins).
  *  3. Classes whose FQN does not match the production constant are NOT tinted
@@ -42,8 +42,8 @@ import kotlin.test.assertNull
  *  4. The FQN constant string is correct (the production class name).
  *
  * Verifying that the walk DOES tint a real `NewNavBarPanel` peer requires the
- * production classpath, so it lives in the manual smoke matrix in the Phase
- * 40.4 plan rather than this suite.
+ * production classpath, so it lives in the manual smoke matrix rather than
+ * this suite.
  */
 class LiveChromeRefresherNavBarPanelTest {
     private val targetColor = Color(0x44, 0x83, 0x8F)
@@ -55,10 +55,10 @@ class LiveChromeRefresherNavBarPanelTest {
 
     @Test
     fun `refresh tints status bar root when no NavBar Compact descendant exists`() {
-        // Regression guard: Phase 40.4 added the descent walk inside the
-        // StatusBar branch. The walk must NOT prevent the existing root-tint
-        // behaviour from completing — every existing user with a pre-2026.1
-        // platform (or a stripped headless tree) still sees the chrome tint.
+        // Regression guard: the descent walk lives inside the StatusBar
+        // branch. It must NOT prevent the existing root-tint behaviour from
+        // completing — every existing user with a pre-2026.1 platform (or a
+        // stripped headless tree) still sees the chrome tint.
         val plainStatusBarRoot = JPanel()
         installMockStatusBar(plainStatusBarRoot)
 
@@ -67,7 +67,7 @@ class LiveChromeRefresherNavBarPanelTest {
         assertEquals(
             targetColor,
             plainStatusBarRoot.background,
-            "Phase 40.4 descent walk must NOT regress the existing root tint",
+            "Descent walk must NOT regress the existing root tint",
         )
     }
 
@@ -101,12 +101,12 @@ class LiveChromeRefresherNavBarPanelTest {
 
     @Test
     fun `refresh survives a 2000-level deep status bar tree (StackOverflow regression lock)`() {
-        // Phase 40.4 round-1 fix replaced a recursive walkOnContainer helper with
-        // the iterative `walk` BFS — restoring the Phase 40.2 M-4 stack-overflow
-        // bound. A naive recursive descent would blow the default ~512 KiB JVM
-        // thread stack at this depth, so this test is structurally a regression
-        // lock against any future "simplification" PR that re-introduces a
-        // recursive walker. With BFS the descent runs in O(depth) heap, not stack.
+        // The recursive `walkOnContainer` helper was replaced with the iterative
+        // `walk` BFS to restore the stack-overflow bound. A naive recursive
+        // descent would blow the default ~512 KiB JVM thread stack at this
+        // depth, so this test is structurally a regression lock against any
+        // future "simplification" PR that re-introduces a recursive walker.
+        // With BFS the descent runs in O(depth) heap, not stack.
         var current = JPanel()
         val statusBarRoot = current
         repeat(DEEP_TREE_DEPTH - 1) {

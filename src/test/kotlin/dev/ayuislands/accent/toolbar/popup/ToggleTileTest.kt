@@ -15,10 +15,10 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
- * Locks the [ToggleTile] composite per 48-REDESIGN-SPEC §3.5:
- *  - composite has icon + label + ToggleSwitch in horizontal layout,
- *  - clicking anywhere on the tile flips the bound switch (Tile is the click target,
- *    not only the switch glyph — long-standing usability win called out in spec),
+ * Locks the [ToggleTile] composite:
+ *  - composite has icon + label + [ToggleSwitch] in horizontal layout,
+ *  - clicking anywhere on the tile flips the bound switch (tile is the click target,
+ *    not only the switch glyph — a long-standing usability win),
  *  - hover state fills tile background with hoverBackground,
  *  - bound state field survives a tile click (binding sink works end-to-end).
  */

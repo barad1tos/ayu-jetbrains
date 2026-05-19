@@ -30,8 +30,7 @@ import kotlin.test.assertTrue
 /**
  * Locks [LighterAccentAction]: Pattern J gate, BGT thread, [AccentHsl.lighten]
  * + apply chain (Pattern D), and the no-op-at-clamp branch (still apply, do
- * not skip — Phase 43 ADJUST-04 spec says the balloon hint is a future
- * deliverable). Tests 12, 17, 27, 28 per `48-03-PLAN.md` `<behavior>`.
+ * not skip — the balloon hint is a future deliverable).
  */
 class LighterAccentActionTest {
     private val mockApp = mockk<Application>(relaxed = true)
@@ -77,7 +76,7 @@ class LighterAccentActionTest {
 
     @Test
     fun `update Pattern J two-level gate exhaustive (T,T) (F,T) (T,F) (F,F)`() {
-        // CRIT-7 — full 4-case truth table; (F,F) locks AND-not-OR.
+        // Full 4-case truth table; (F,F) locks AND-not-OR.
         val action = LighterAccentAction()
         val event = newEvent()
 
@@ -104,8 +103,8 @@ class LighterAccentActionTest {
 
     @Test
     fun `actionPerformed feeds AccentHsl lighten output into applyFromHexString (Pattern D gated)`() {
-        // Test 27 — CRIT-6: lighten now takes/returns AccentHex; unwrap via .value
-        // to match the String-typed apply boundary.
+        // `lighten` takes/returns `AccentHex`; unwrap via `.value` to match the
+        // String-typed apply boundary.
         val expected = AccentHsl.lighten(AccentHex.unsafeOf("#FFCC66")).value
         LighterAccentAction().actionPerformed(newEvent())
         verify(exactly = 1) { AccentApplicator.applyFromHexString(expected) }
@@ -114,8 +113,8 @@ class LighterAccentActionTest {
 
     @Test
     fun `actionPerformed at MAX_LIGHTNESS clamp still calls applyFromHexString with the unchanged hex`() {
-        // Test 28 — Phase 43 ADJUST-04: at the clamp the action runs; balloon
-        // hint is a future deliverable, not in scope here.
+        // At the clamp the action runs; the balloon hint is a future
+        // deliverable, not in scope here.
         val ceilingHex = HslColor.toHex(0f, 0f, AccentHsl.MAX_LIGHTNESS)
         every { AccentResolver.resolve(any(), any()) } returns ceilingHex
         LighterAccentAction().actionPerformed(newEvent())

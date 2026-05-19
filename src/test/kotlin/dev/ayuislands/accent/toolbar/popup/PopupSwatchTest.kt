@@ -13,16 +13,16 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Locks the [PopupSwatch] paint + state contract per 48-REDESIGN-SPEC §3.4.
+ * Locks the [PopupSwatch] paint + state contract.
  *
  * Pattern-I test-seam coverage:
  *   - preferred size matches 36 x 24 JBUI-scaled,
  *   - idle paint fills the centre with `ColorUtil.fromHex(hex)`,
  *   - selected paint composites a 0.55-alpha overlay using `BORDER_RGB=0x4E5A6E`,
  *   - pressed paint composites a 0.70-alpha overlay (deeper than selected),
- *   - click invokes `onClick(hex)` exactly once (lambda-list workaround per
- *     Spawn-A finding #2 — `mockk<(String) -> Unit>(relaxed=true)` throws
- *     `UnsupportedOperationException`).
+ *   - click invokes `onClick(hex)` exactly once (lambda-list workaround —
+ *     `mockk<(String) -> Unit>(relaxed=true)` throws
+ *     `UnsupportedOperationException` for Kotlin function types).
  */
 class PopupSwatchTest {
     @Test
@@ -117,9 +117,10 @@ class PopupSwatchTest {
 
     @Test
     fun `click invokes onClick with the swatch hex exactly once`() {
-        // Spawn-A finding #2: `mockk<(AccentHex) -> Unit>(relaxed=true)` throws
-        // UnsupportedOperationException on Kotlin function types. Use a capture list.
-        // CRIT-6: onClick now receives AccentHex, not raw String — capture wraps to match.
+        // `mockk<(AccentHex) -> Unit>(relaxed=true)` throws
+        // UnsupportedOperationException on Kotlin function types — use a
+        // capture list. `onClick` receives [AccentHex], not raw [String], so
+        // the capture wraps to match.
         val captured = mutableListOf<AccentHex>()
         val hex = AccentHex.unsafeOf("#73D0FF")
         val swatch =

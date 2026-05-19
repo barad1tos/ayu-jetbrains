@@ -33,18 +33,18 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * WIDGET-04 — focus-tracking guarantee. The chip must reflect the FOCUSED project's
+ * Focus-tracking guarantee. The chip must reflect the FOCUSED project's
  * accent, swapping within one EDT cycle on:
  *   1. `ApplicationActivationListener.applicationActivated(...)` — alt-tab / Cmd+\` switch
  *   2. `AccentChangedTopic` publish — the user changed accent in another project
  *
- * D-04 regression lock — the chip resolves through [AccentApplicator.resolveFocusedProject]
+ * Regression lock — the chip resolves through [AccentApplicator.resolveFocusedProject]
  * (the canonical OS-active + IdeFocusManager + openProjects cascade), NOT through
  * `ProjectManager.openProjects.firstOrNull` which was explicitly rejected.
  *
- * Captures the listener instances handed to `MessageBusConnection.subscribe` via mockk
- * `slot`s, then fires them by hand — exercises the same code path the platform takes
- * without booting the IntelliJ application.
+ * Captures the listener instances handed to `MessageBusConnection.subscribe` via [io.mockk.slot]s,
+ * then fires them by hand — exercises the same code path the platform takes without booting
+ * the IntelliJ application.
  */
 class QuickSwitcherChipFocusSwapTest {
     private val mockApplication = mockk<Application>(relaxed = true)
@@ -150,8 +150,8 @@ class QuickSwitcherChipFocusSwapTest {
 
         assertTrue(accentListenerSlot.isCaptured, "AccentChangeListener must be captured")
 
-        // Fire the publish (Wave 1 publisher signature: project, hex, source).
-        // CRIT-6: hex parameter is now AccentHex — wrap the literal to match.
+        // Fire the publish — publisher signature: project, hex, source.
+        // The hex parameter is the [AccentHex] value class — wrap the literal to match.
         accentListenerSlot.captured.accentChanged(project, AccentHex.unsafeOf("#DFBFFF"), AccentResolver.Source.GLOBAL)
         // Handler wraps in SwingUtilities.invokeLater; flush.
         SwingUtilities.invokeAndWait { /* flush */ }
@@ -165,7 +165,7 @@ class QuickSwitcherChipFocusSwapTest {
     }
 
     @Test
-    fun `chip refresh path does NOT call ProjectManager openProjects (D-04 regression lock)`() {
+    fun `chip refresh path does NOT call ProjectManager openProjects (regression lock)`() {
         val project =
             mockk<Project>(relaxed = true) {
                 every { isDisposed } returns false

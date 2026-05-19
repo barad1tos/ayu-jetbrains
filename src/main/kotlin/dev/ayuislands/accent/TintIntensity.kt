@@ -45,8 +45,8 @@ value class TintIntensity private constructor(
         const val MAX: Int = 50
 
         /**
-         * Default intensity for newly-enabled chrome tinting — the Peacock-parity
-         * opening balance per Phase 40 `CONTEXT.md §specifics`. Matches the
+         * Default intensity for newly-enabled chrome tinting — the
+         * Peacock-parity opening balance. Matches the
          * `DEFAULT_CHROME_TINT_INTENSITY` constant exposed on `AyuIslandsState`.
          */
         val DEFAULT: TintIntensity = of(40)

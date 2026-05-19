@@ -5,9 +5,9 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * D-02 invariant lock: `quickSwitcherWidgetEnabled` defaults to `true` (the chip
- * is FREE and surfaces on first launch after install) AND survives the
- * save/reload cycle via [com.intellij.openapi.components.SimplePersistentStateComponent.loadState]
+ * Invariant lock: `quickSwitcherWidgetEnabled` defaults to `true` (the chip is
+ * FREE and surfaces on first launch after install) AND survives the save/reload
+ * cycle via [com.intellij.openapi.components.SimplePersistentStateComponent.loadState]
  * so a user who explicitly disables the chip never sees it re-enable itself
  * on the next IDE restart.
  *
@@ -27,11 +27,11 @@ class AyuIslandsStateQuickSwitcherTest {
     }
 
     @Test
-    fun `quickSwitcherWidgetEnabled defaults to true on a fresh state (D-02)`() {
+    fun `quickSwitcherWidgetEnabled defaults to true on a fresh state`() {
         val settings = AyuIslandsSettings()
         assertTrue(
             settings.state.quickSwitcherWidgetEnabled,
-            "D-02: chip is FREE and surfaces on first launch — the toggle must default to true",
+            "Chip is FREE and surfaces on first launch — the toggle must default to true",
         )
     }
 

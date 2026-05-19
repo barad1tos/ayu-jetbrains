@@ -6,17 +6,17 @@ import java.nio.file.Paths
 import kotlin.test.assertTrue
 
 /**
- * D-15 placement lock + D-17 extraction discipline regression locks for
+ * Placement + extraction discipline regression locks for
  * [AyuIslandsAccentPanel]'s Quick Switcher composition.
  *
  *  - Composition order: the Quick Switcher group sits between Chrome Tinting
  *    injection (`afterOverridesInjection?.invoke`) and Accent Rotation
  *    (`panel.buildAccentRotationGroup`).
- *  - D-17 extraction: the panel references `AyuIslandsQuickSwitcherGroupBuilder`
+ *  - Extraction: the panel references `AyuIslandsQuickSwitcherGroupBuilder`
  *    (i.e. the builder lives in its own file, not inlined into the panel).
  *  - LargeClass discipline: the panel's file LOC stays under a soft ceiling so a
- *    future Wave that wants to grow it substantially must explicitly raise this
- *    constant (NEVER raise detekt's threshold).
+ *    future change that wants to grow it substantially must explicitly raise
+ *    this constant (NEVER raise detekt's threshold).
  *
  * All three are source-grep / line-count assertions — no platform mocking, no
  * Kotlin UI DSL bootstrap.
@@ -52,27 +52,26 @@ class AyuIslandsAccentPanelGroupOrderTest {
     }
 
     @Test
-    fun `AyuIslandsAccentPanel references AyuIslandsQuickSwitcherGroupBuilder (D-17 extraction)`() {
+    fun `AyuIslandsAccentPanel references AyuIslandsQuickSwitcherGroupBuilder (extracted builder)`() {
         val source = Files.readString(Paths.get(ACCENT_PANEL_PATH))
         val matches = "AyuIslandsQuickSwitcherGroupBuilder".toRegex().findAll(source).count()
         assertTrue(
             matches >= 1,
-            "AyuIslandsAccentPanel must instantiate AyuIslandsQuickSwitcherGroupBuilder (D-17)",
+            "AyuIslandsAccentPanel must instantiate AyuIslandsQuickSwitcherGroupBuilder",
         )
     }
 
     @Test
     fun `AyuIslandsAccentPanel LOC stays under the soft ceiling post-extraction`() {
-        // Plan-time pre-extraction LOC = 708. Wave 5 adds ~4 LOC (import, field, buildGroup
-        // call, and 3 lifecycle threading lines spread across isModified/apply/reset).
-        // Cap at 720 — a future Wave that needs to grow the file substantially must raise
+        // The extracted builder keeps the panel slim — current file sits around 712 LOC.
+        // Cap at 720 — a future change that needs to grow the file substantially must raise
         // this constant explicitly with reviewer approval (NEVER raise detekt's LargeClass
         // threshold, per CLAUDE.md).
         val lineCount = Files.lines(Paths.get(ACCENT_PANEL_PATH)).count()
         assertTrue(
             lineCount < SOFT_CEILING,
             "AyuIslandsAccentPanel grew to $lineCount LOC (soft ceiling = $SOFT_CEILING) — " +
-                "D-17 extraction discipline violated",
+                "extraction discipline violated",
         )
     }
 

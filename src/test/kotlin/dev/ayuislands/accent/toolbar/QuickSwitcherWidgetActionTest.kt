@@ -21,9 +21,9 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * D-02 + D-03 + D-06 two-conjunct visibility gate lock. The widget's `update()` must
- * read EXACTLY `AyuVariant.isAyuActive() && state.quickSwitcherWidgetEnabled` — no
- * license predicate (D-06 keeps the chip FREE), no third state field.
+ * Two-conjunct visibility gate lock. The widget's `update()` must read EXACTLY
+ * `AyuVariant.isAyuActive() && state.quickSwitcherWidgetEnabled` — no license
+ * predicate (the chip is FREE), no third state field.
  *
  * Pattern J discipline — single-source-of-truth predicate, asserted by toggling
  * each conjunct independently and verifying the presentation flips correctly.
@@ -58,7 +58,7 @@ class QuickSwitcherWidgetActionTest {
     }
 
     @Test
-    fun `update sets invisible when Ayu LAF inactive (WIDGET-11)`() {
+    fun `update sets invisible when Ayu LAF inactive`() {
         stubAyuActive(false)
         stubSettingsState(quickSwitcherEnabled = true)
         val presentation = Presentation()
@@ -69,12 +69,12 @@ class QuickSwitcherWidgetActionTest {
 
         assertFalse(
             presentation.isEnabledAndVisible,
-            "AyuVariant.isAyuActive() false => chip hidden, even if toggle on (WIDGET-11)",
+            "AyuVariant.isAyuActive() false => chip hidden, even if toggle on",
         )
     }
 
     @Test
-    fun `update sets invisible when settings toggle off (D-02 inverse)`() {
+    fun `update sets invisible when settings toggle off`() {
         stubAyuActive(true)
         stubSettingsState(quickSwitcherEnabled = false)
         val presentation = Presentation()
@@ -90,10 +90,10 @@ class QuickSwitcherWidgetActionTest {
     }
 
     @Test
-    fun `update sets invisible when BOTH LAF inactive AND toggle off (F,F locks AND vs OR — CRIT-7)`() {
-        // CRIT-7 — without this case a future `&&` → `||` regression would land
-        // silently because every other case (T,T enables, single-off disables)
-        // is consistent with both AND and OR semantics. (F,F) is the only case
+    fun `update sets invisible when BOTH LAF inactive AND toggle off (F,F locks AND vs OR)`() {
+        // Without this case a future `&&` → `||` regression would land silently
+        // because every other case (T,T enables, single-off disables) is
+        // consistent with both AND and OR semantics. (F,F) is the only case
         // that distinguishes them.
         stubAyuActive(false)
         stubSettingsState(quickSwitcherEnabled = false)

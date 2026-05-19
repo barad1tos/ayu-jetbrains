@@ -8,12 +8,12 @@ import kotlin.test.Test
 import kotlin.test.assertTrue
 
 /**
- * Aggregate WCAG-contrast matrix for Phase 40 chrome foreground picks.
+ * Aggregate WCAG-contrast matrix for chrome foreground picks.
  *
- * Closes VERIFICATION Gap 2 at the algorithmic level: across every
- * supported `(element × accent × intensity)` tuple the blender produces a
- * tinted background which, when fed to [WcagForeground.pickForeground],
- * returns a foreground meeting the target WCAG 2.1 AA threshold.
+ * Closes the contrast gap at the algorithmic level: across every supported
+ * `(element × accent × intensity)` tuple the blender produces a tinted
+ * background which, when fed to [WcagForeground.pickForeground], returns a
+ * foreground meeting the target WCAG 2.1 AA threshold.
  *
  * Scope:
  *  - Elements: `StatusBar`, `NavBar`, `ToolWindowStripe`, `MainToolbar`
@@ -30,21 +30,21 @@ import kotlin.test.assertTrue
  * message names the exact `element / accent / intensity / ratio /
  * threshold` so a regression pinpoints the offending combination.
  *
- * Also locks the spot-check from plan 40-10 W-3: the canonical Ayu dark
- * foreground `Color(0x1F2430)` on pure white exceeds 14.0 (actual ≈ 14.7).
- * This protects the WcagForeground palette from accidental drift — if
- * someone edits `DARK_FOREGROUND_HEX`, the absolute-contrast lock fails
- * before the matrix even runs.
+ * Also locks a spot-check: the canonical Ayu dark foreground `Color(0x1F2430)`
+ * on pure white exceeds 14.0 (actual ≈ 14.7). This protects the
+ * WcagForeground palette from accidental drift — if someone edits
+ * `DARK_FOREGROUND_HEX`, the absolute-contrast lock fails before the matrix
+ * even runs.
  */
 class ChromeForegroundWcagMatrixTest {
     private val darkBase = Color(0x1F, 0x24, 0x30)
 
     @Test
-    fun `W-3 spot check — Ayu dark foreground on white exceeds 14 to 1`() {
+    fun `Ayu dark foreground on white exceeds 14 to 1`() {
         val ratio = WcagForeground.contrastRatio(Color.WHITE, darkBase)
         assertTrue(
-            ratio >= W3_MIN_RATIO,
-            "W-3 lock: contrast(WHITE, 0x1F2430) = $ratio, expected >= $W3_MIN_RATIO",
+            ratio >= MIN_DARK_ON_WHITE_RATIO,
+            "contrast(WHITE, 0x1F2430) = $ratio, expected >= $MIN_DARK_ON_WHITE_RATIO",
         )
     }
 
@@ -88,8 +88,8 @@ class ChromeForegroundWcagMatrixTest {
     )
 
     private companion object {
-        /** WCAG ratio that the Ayu dark foreground on pure white must exceed (plan 40-10 W-3). */
-        private const val W3_MIN_RATIO = 14.0
+        /** WCAG ratio that the Ayu dark foreground on pure white must exceed. */
+        private const val MIN_DARK_ON_WHITE_RATIO = 14.0
 
         private val ELEMENT_SPECS =
             listOf(

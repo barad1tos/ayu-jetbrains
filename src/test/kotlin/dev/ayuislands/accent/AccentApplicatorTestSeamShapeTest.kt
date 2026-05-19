@@ -8,10 +8,10 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Pattern I source-regex regression lock for D-09.
+ * Pattern I source-regex regression lock.
  *
- * The `codeGlanceProRevertHook` test seam introduced in Wave 1 plan 02 MUST be backed by
- * a `ThreadLocal<...>` — never a `@Volatile var ... -> ((...) -> Unit)?`.
+ * The `codeGlanceProRevertHook` test seam MUST be backed by a
+ * `ThreadLocal<...>` — never a `@Volatile var ... -> ((...) -> Unit)?`.
  *
  * Why ThreadLocal? Gradle runs JUnit 5 tests in parallel workers by default. A
  * shared `@Volatile` supplier leaks pinned observers from one test into a
@@ -21,8 +21,8 @@ import kotlin.test.assertTrue
  * shape so a future agent who "simplifies" by collapsing the ThreadLocal into
  * a `@Volatile var` re-opens the parallel-worker leak under a named regression.
  *
- * Mirrors the canonical [ChromeDecorationsProbe.osSupplier] template (the
- * Phase 40.4 L-2 fix that introduced this rule for the OS-detection seam).
+ * Mirrors the canonical [ChromeDecorationsProbe.osSupplier] template that
+ * introduced this rule for the OS-detection seam.
  */
 class AccentApplicatorTestSeamShapeTest {
     private val source: String by lazy {

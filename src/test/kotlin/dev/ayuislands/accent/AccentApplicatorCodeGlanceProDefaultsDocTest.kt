@@ -8,16 +8,16 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Pattern L source-regex regression lock for D-05.
+ * Pattern L source-regex regression lock for the CGP viewport defaults.
  *
- * The three CGP viewport defaults landed via Wave 1 plan 02:
+ * The three CGP viewport defaults are:
  *   - `CGP_DEFAULT_VIEWPORT_COLOR        = "00FF00"`
  *   - `CGP_DEFAULT_VIEWPORT_BORDER_COLOR = "A0A0A0"`
  *   - `CGP_DEFAULT_VIEWPORT_BORDER_THICKNESS = 0`
  *
  * Each value was extracted via `javap` from
  * `com.nasller.codeglance.config.CodeGlanceConfig.<init>` in
- * `CodeGlancePro-2.0.2.jar` (CONTEXT.md §specifics). This test pins both:
+ * `CodeGlancePro-2.0.2.jar`. This test pins both:
  *   1. The exact constant values (no `#` prefix, no off-by-one digits).
  *   2. The KDoc provenance reference — `javap` / `CodeGlanceConfig` / `2.0.2`
  *      must remain in the comment block above the constants so a future agent
@@ -29,11 +29,10 @@ import kotlin.test.assertTrue
  */
 class AccentApplicatorCodeGlanceProDefaultsDocTest {
     private val rawSource: String by lazy {
-        // TD-I1 (plan 40.1-02 review-loop): the three CGP viewport constants
-        // moved from [AccentApplicator] to [CodeGlanceProIntegration] so they live next
-        // to their only readers. The provenance lock follows the constants —
-        // anyone re-running the javap recipe should land in the same file as
-        // the values they verify.
+        // The three CGP viewport constants live in [CodeGlanceProIntegration] so
+        // they sit next to their only readers. The provenance lock follows the
+        // constants — anyone re-running the javap recipe should land in the same
+        // file as the values they verify.
         val path: Path =
             Paths.get(
                 System.getProperty("user.dir"),
@@ -107,8 +106,7 @@ class AccentApplicatorCodeGlanceProDefaultsDocTest {
         assertTrue(
             Regex("""javap""").containsMatchIn(rawSource),
             "CGP defaults KDoc must reference `javap` so the re-verification command " +
-                "stays discoverable. See CONTEXT.md §specifics for the original " +
-                "extraction recipe.",
+                "stays discoverable.",
         )
         assertTrue(
             Regex("""CodeGlanceConfig""").containsMatchIn(rawSource),

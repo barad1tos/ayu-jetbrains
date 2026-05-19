@@ -31,14 +31,12 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * Locks the chip's right-click context-menu wiring (Plan 48-03 Wave 3).
+ * Locks the chip's right-click context-menu wiring.
  *
  *  - RMB invokes `ActionManager.createActionPopupMenu("AyuQuickSwitcher.ContextMenu", group)`.
  *  - The passed group has 5 children matching the canonical order.
  *  - When LAF is non-Ayu (`AyuVariant.detect() == null`), RMB is a no-op —
  *    early return in `mousePressed` before reaching `showContextMenu`.
- *
- * Tests 38..40 per `48-03-PLAN.md` `<behavior>`.
  */
 class QuickSwitcherChipContextMenuTest {
     private val mockApplication = mockk<Application>(relaxed = true)
@@ -86,7 +84,6 @@ class QuickSwitcherChipContextMenuTest {
 
     @Test
     fun `mousePressed RMB invokes ActionManager createActionPopupMenu with the AyuQuickSwitcher ContextMenu place`() {
-        // Test 38
         val chip = QuickSwitcherChipComponent()
         chip.dispatchEvent(rightClick(chip))
 
@@ -98,8 +95,8 @@ class QuickSwitcherChipContextMenuTest {
 
     @Test
     fun `passed ActionGroup has 5 children in the canonical Pin-Random-Lighter-Darker-CopyHex order`() {
-        // Test 39 — capture the group passed to ActionManager and verify
-        // child shape; the same predicate the parity test uses.
+        // Capture the group passed to ActionManager and verify child shape;
+        // the same predicate the parity test uses.
         val captured = slot<ActionGroup>()
         every { mockActionManager.createActionPopupMenu(any(), capture(captured)) } returns mockMenu
 
@@ -149,9 +146,9 @@ class QuickSwitcherChipContextMenuTest {
     }
 
     @Test
-    fun `mousePressed RMB is a no-op when AyuVariant detect returns null (WIDGET-11)`() {
-        // Test 40 — Wave 2 guard. createActionPopupMenu must NOT be reached
-        // when LAF is non-Ayu; the early return in `mousePressed` short-circuits.
+    fun `mousePressed RMB is a no-op when AyuVariant detect returns null`() {
+        // Non-Ayu guard. `createActionPopupMenu` must NOT be reached when LAF
+        // is non-Ayu; the early return in `mousePressed` short-circuits.
         every { AyuVariant.isAyuActive() } returns false
         every { AyuVariant.detect() } returns null
 
