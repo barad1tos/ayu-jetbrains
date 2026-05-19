@@ -40,22 +40,16 @@ class AccentApplicatorTestSeamShapeTest {
         stripComments(Files.readString(path))
     }
 
-    private fun stripComments(input: String): String {
-        val noBlock = input.replace(Regex("/\\*[\\s\\S]*?\\*/"), "")
-        return noBlock
-            .lineSequence()
-            .map { line -> line.replaceFirst(Regex("//.*$"), "") }
-            .joinToString("\n")
-    }
+    private fun stripComments(input: String): String =
+        input
+            .replace(Regex("/\\*[\\s\\S]*?\\*/"), "")
+            .replace(Regex("(?m)//.*$"), "")
 
-    private fun extractFunctionBody(
-        source: String,
-        signaturePrefix: String,
-    ): String {
-        val start = source.indexOf(signaturePrefix)
-        require(start >= 0) { "Could not locate '$signaturePrefix' in stripped source" }
+    private fun extractResetSeamBody(source: String): String {
+        val start = source.indexOf(SIGNATURE_PREFIX)
+        require(start >= 0) { "Could not locate '$SIGNATURE_PREFIX' in stripped source" }
         val openBrace = source.indexOf('{', start)
-        require(openBrace >= 0) { "Could not locate opening brace for '$signaturePrefix'" }
+        require(openBrace >= 0) { "Could not locate opening brace for '$SIGNATURE_PREFIX'" }
         var depth = 1
         var i = openBrace + 1
         while (i < source.length && depth > 0) {
@@ -66,7 +60,7 @@ class AccentApplicatorTestSeamShapeTest {
             if (depth == 0) return source.substring(openBrace + 1, i)
             i++
         }
-        error("Unbalanced braces while extracting body for '$signaturePrefix'")
+        error("Unbalanced braces while extracting body for '$SIGNATURE_PREFIX'")
     }
 
     @Test
@@ -99,12 +93,16 @@ class AccentApplicatorTestSeamShapeTest {
         // The teardown helper must clear the per-thread override so a test that
         // forgets the inline try/finally still leaves the seam in production
         // shape for the next sibling test on the same worker.
-        val body = extractFunctionBody(source, "fun resetCodeGlanceProRevertHookForTests(")
+        val body = extractResetSeamBody(source)
         assertTrue(
             Regex("""codeGlanceProRevertHook\.remove\(\)""").containsMatchIn(body),
             "resetCodeGlanceProRevertHookForTests MUST call codeGlanceProRevertHook.remove() — the " +
                 "ThreadLocal teardown contract (Pattern I). `set(null)` would not " +
                 "release the entry on the worker thread; only `.remove()` does.",
         )
+    }
+
+    private companion object {
+        const val SIGNATURE_PREFIX: String = "fun resetCodeGlanceProRevertHookForTests("
     }
 }

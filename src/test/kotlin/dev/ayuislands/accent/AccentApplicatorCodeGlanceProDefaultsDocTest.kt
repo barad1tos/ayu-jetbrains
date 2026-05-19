@@ -50,13 +50,10 @@ class AccentApplicatorCodeGlanceProDefaultsDocTest {
 
     private val strippedSource: String by lazy { stripComments(rawSource) }
 
-    private fun stripComments(input: String): String {
-        val noBlock = input.replace(Regex("/\\*[\\s\\S]*?\\*/"), "")
-        return noBlock
-            .lineSequence()
-            .map { line -> line.replaceFirst(Regex("//.*$"), "") }
-            .joinToString("\n")
-    }
+    private fun stripComments(input: String): String =
+        input
+            .replace(Regex("/\\*[\\s\\S]*?\\*/"), "")
+            .replace(Regex("(?m)//.*$"), "")
 
     @Test
     fun `CGP_DEFAULT_VIEWPORT_COLOR constant exists with exact value 00FF00`() {
