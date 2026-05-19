@@ -63,22 +63,22 @@ object AccentApplicator {
     private const val KEY_TAB_BACKGROUND = "EditorTabs.underlinedTabBackground"
     private const val DEFAULT_UNDERLINE_ARC = 8
 
-    // CGP viewport defaults moved to [CgpIntegration] (TD-I1, plan 40.1-02
+    // CGP viewport defaults moved to [CodeGlanceProIntegration] (TD-I1, plan 40.1-02
     // review-loop). They are exclusively read inside that peer object; the
     // prior placement here inverted the dependency direction. See
-    // [CgpIntegration.CGP_DEFAULT_VIEWPORT_COLOR] for the javap provenance and
+    // [CodeGlanceProIntegration.CGP_DEFAULT_VIEWPORT_COLOR] for the javap provenance and
     // re-verification recipe.
 
     private val EMPTY_TEXT_ATTRIBUTES = TextAttributes()
 
     // CodeGlance Pro reflection state and apply/revert workers live in
-    // [CgpIntegration] to keep this object below the TooManyFunctions threshold.
-    // Only the cross-object test seam (`cgpRevertHook` + `resetCgpRevertHookForTests`)
+    // [CodeGlanceProIntegration] to keep this object below the TooManyFunctions threshold.
+    // Only the cross-object test seam (`codeGlanceProRevertHook` + `resetCodeGlanceProRevertHookForTests`)
     // and the swap-path entry stay here because existing tests bind those names
     // to `AccentApplicator`.
 
     /**
-     * Per-thread revert observer for [CgpIntegration.revertCodeGlanceProViewport].
+     * Per-thread revert observer for [CodeGlanceProIntegration.revertCodeGlanceProViewport].
      * Production path: null → reflection writes fire against the real CGP service.
      * Test path: a non-null supplier records the three default values the revert
      * would have written, bypassing the reflection chain because CGP is not on
@@ -90,17 +90,17 @@ object AccentApplicator {
      * "looks like the other test's fake received my invocation" failures.
      * Matches [ChromeDecorationsProbe.osSupplier] (Phase 40 Round 3).
      *
-     * Tests MUST use try/finally + [resetCgpRevertHookForTests] — `@AfterEach`
+     * Tests MUST use try/finally + [resetCodeGlanceProRevertHookForTests] — `@AfterEach`
      * does NOT run after an assertion failure that exits the worker mid-test,
      * so per-test cleanup is mandatory.
      */
-    internal val cgpRevertHook: ThreadLocal<((String, String, Int) -> Unit)?> =
+    internal val codeGlanceProRevertHook: ThreadLocal<((String, String, Int) -> Unit)?> =
         ThreadLocal.withInitial { null }
 
-    /** Restore the production [cgpRevertHook] on the calling thread. Intended for test teardown. */
+    /** Restore the production [codeGlanceProRevertHook] on the calling thread. Intended for test teardown. */
     @TestOnly
-    internal fun resetCgpRevertHookForTests() {
-        cgpRevertHook.remove()
+    internal fun resetCodeGlanceProRevertHookForTests() {
+        codeGlanceProRevertHook.remove()
     }
 
     // Always-on UIManager keys (not per-element toggleable)
@@ -225,7 +225,7 @@ object AccentApplicator {
                 if (variant != null) {
                     IndentRainbowSync.apply(variant, trimmedHex)
                 }
-                CgpIntegration.syncCodeGlanceProViewport(trimmedHex)
+                CodeGlanceProIntegration.syncCodeGlanceProViewport(trimmedHex)
                 applyAlwaysOnEditorKeys(accent)
                 applyTabUnderline(state, variant)
 
@@ -469,7 +469,7 @@ object AccentApplicator {
                 }
 
                 try {
-                    CgpIntegration.revertCodeGlanceProViewport()
+                    CodeGlanceProIntegration.revertCodeGlanceProViewport()
                 } catch (exception: RuntimeException) {
                     log.warn("Failed to revert CodeGlance Pro integration", exception)
                 }
@@ -763,7 +763,7 @@ object AccentApplicator {
     }
 
     /**
-     * Public-to-the-module entry into [CgpIntegration.syncCodeGlanceProViewport]
+     * Public-to-the-module entry into [CodeGlanceProIntegration.syncCodeGlanceProViewport]
      * for the project-focus-swap path.
      * [ProjectAccentSwapService.handleWindowActivated] calls this on a same-hex
      * focus swap to push the per-project accent into the app-scoped CGP
@@ -777,7 +777,7 @@ object AccentApplicator {
      * redundant work.
      */
     internal fun syncCodeGlanceProViewportForSwap(hex: String) {
-        CgpIntegration.syncCodeGlanceProViewport(hex)
+        CodeGlanceProIntegration.syncCodeGlanceProViewport(hex)
     }
 
     /**

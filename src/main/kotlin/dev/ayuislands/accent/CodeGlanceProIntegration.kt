@@ -27,8 +27,8 @@ import java.lang.reflect.Method
  *
  * Extracted from [AccentApplicator] in Phase 40.1 plan 02 (D-04, D-05) to
  * keep AccentApplicator below the detekt `TooManyFunctions` threshold for
- * objects. The cross-object test seam ([AccentApplicator.cgpRevertHook] +
- * [AccentApplicator.resetCgpRevertHookForTests]) stays on AccentApplicator
+ * objects. The cross-object test seam ([AccentApplicator.codeGlanceProRevertHook] +
+ * [AccentApplicator.resetCodeGlanceProRevertHookForTests]) stays on AccentApplicator
  * because Wave 0 source-regex tests bind those names there.
  *
  * Pattern G — apply/revert symmetry: every write path
@@ -36,8 +36,8 @@ import java.lang.reflect.Method
  * ([revertCodeGlanceProViewport]) so a theme switch / license loss closes
  * the same surface that an apply opened.
  */
-internal object CgpIntegration {
-    private val log = logger<CgpIntegration>()
+internal object CodeGlanceProIntegration {
+    private val log = logger<CodeGlanceProIntegration>()
 
     private const val CGP_RESOLUTION_FAILED = "method resolution failed"
     private const val CGP_SYNC_FAILED = "sync failed"
@@ -62,7 +62,7 @@ internal object CgpIntegration {
      * string as-is. When bumping CGP version, re-run the javap command and update
      * these constants ONLY if upstream changed them.
      *
-     * Owned here in [CgpIntegration] (TD-I1, plan 40.1-02 review-loop). The
+     * Owned here in [CodeGlanceProIntegration] (TD-I1, plan 40.1-02 review-loop). The
      * constants are exclusively read inside this object; the prior placement on
      * [AccentApplicator] inverted the dependency direction (peer object reaching
      * into the orchestrator for CGP-private values). Source-regex provenance lock
@@ -196,7 +196,7 @@ internal object CgpIntegration {
      * accent is being reverted (theme switch away from Ayu, license loss).
      * Mirror of [syncCodeGlanceProViewport]. Pattern G — apply/revert symmetry.
      *
-     * The [AccentApplicator.cgpRevertHook] check runs BEFORE the [cgpService]
+     * The [AccentApplicator.codeGlanceProRevertHook] check runs BEFORE the [cgpService]
      * null-guard chain so tests can observe the revert without injecting
      * non-null reflection refs (matches [ChromeDecorationsProbe.osSupplier]
      * precedent — RESEARCH §Edge Cases §3 resolution).
@@ -219,7 +219,7 @@ internal object CgpIntegration {
 
         // Hook check BEFORE null-guards so tests observe revert without forcing
         // non-null reflection refs (RESEARCH §Edge Cases §3 resolution).
-        val hook = AccentApplicator.cgpRevertHook.get()
+        val hook = AccentApplicator.codeGlanceProRevertHook.get()
         if (hook != null) {
             hook.invoke(
                 CGP_DEFAULT_VIEWPORT_COLOR,

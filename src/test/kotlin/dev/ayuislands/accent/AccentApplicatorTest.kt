@@ -164,11 +164,11 @@ class AccentApplicatorTest {
 
     /**
      * Plan 40.1-02 extracted the CGP reflection chain into peer object
-     * [CgpIntegration] to keep [AccentApplicator] under the detekt
+     * [CodeGlanceProIntegration] to keep [AccentApplicator] under the detekt
      * `TooManyFunctions` cap. The `cgp*` fields (`cgpService`, `cgpGetState`,
      * the four `cgpSetViewport*` slots, `cgpMethodsResolved`) and the methods
      * `syncCodeGlanceProViewport` / `resolveCgpMethods` now live on
-     * [CgpIntegration]; everything else stays on [AccentApplicator]. The
+     * [CodeGlanceProIntegration]; everything else stays on [AccentApplicator]. The
      * helpers below dispatch by name so existing tests can keep their
      * AccentApplicator-flavoured reflection without re-templating every
      * `setPrivateField("cgpService", …)` callsite.
@@ -178,7 +178,7 @@ class AccentApplicatorTest {
             name == "syncCodeGlanceProViewport" ||
             name == "resolveCgpMethods"
         ) {
-            CgpIntegration
+            CodeGlanceProIntegration
         } else {
             AccentApplicator
         }
@@ -1827,12 +1827,12 @@ class AccentApplicatorTest {
 
     private fun resetCgpState() {
         // TD-I5 (plan 40.1-02 review-loop): drop hand-rolled raw-reflection
-        // writes in favour of the typed [CgpIntegration.resetReflectionCacheForTests]
+        // writes in favour of the typed [CodeGlanceProIntegration.resetReflectionCacheForTests]
         // helper. The previous loop iterated five field names as raw strings;
         // a typo or rename would silently leave stale state in the next test.
         // The new helper lives next to the fields it resets — a Kotlin rename
         // refactors both at once.
-        CgpIntegration.resetReflectionCacheForTests()
+        CodeGlanceProIntegration.resetReflectionCacheForTests()
     }
 
     // Phase 40.2 T-3: apply() with an invalid hex returns false AND posts a

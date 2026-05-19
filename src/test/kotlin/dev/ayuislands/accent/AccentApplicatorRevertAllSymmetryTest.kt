@@ -149,17 +149,17 @@ class AccentApplicatorRevertAllSymmetryTest {
         // and structural ordering lock.
         val body = extractFunctionBody(source, "fun apply(")
         val irIdx = body.indexOf("IndentRainbowSync.apply")
-        val cgpIdx = body.indexOf("CgpIntegration.syncCodeGlanceProViewport")
+        val cgpIdx = body.indexOf("CodeGlanceProIntegration.syncCodeGlanceProViewport")
         val notifyIdx = body.indexOf("ComponentTreeRefresher.notifyOnly")
         assertTrue(
             irIdx in 0 until cgpIdx,
-            "IndentRainbowSync.apply must come BEFORE CgpIntegration.syncCodeGlanceProViewport " +
+            "IndentRainbowSync.apply must come BEFORE CodeGlanceProIntegration.syncCodeGlanceProViewport " +
                 "in apply body (TA-I6 ordering lock — found irIdx=$irIdx cgpIdx=$cgpIdx). " +
                 "Mirrors the revert-side ordering in revertAll body.",
         )
         assertTrue(
             cgpIdx in 0 until notifyIdx,
-            "CgpIntegration.syncCodeGlanceProViewport must come BEFORE notifyOnly in apply body " +
+            "CodeGlanceProIntegration.syncCodeGlanceProViewport must come BEFORE notifyOnly in apply body " +
                 "(TA-I6 ordering lock — found cgpIdx=$cgpIdx notifyIdx=$notifyIdx). Integrations " +
                 "stamp the app-scoped caches before the refresh broadcast.",
         )

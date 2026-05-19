@@ -27,10 +27,10 @@ import kotlin.test.assertTrue
  * The KDoc-reference checks read the RAW source (NOT stripped) because
  * `stripComments` discards the very block that contains the provenance.
  */
-class AccentApplicatorCgpDefaultsDocTest {
+class AccentApplicatorCodeGlanceProDefaultsDocTest {
     private val rawSource: String by lazy {
         // TD-I1 (plan 40.1-02 review-loop): the three CGP viewport constants
-        // moved from [AccentApplicator] to [CgpIntegration] so they live next
+        // moved from [AccentApplicator] to [CodeGlanceProIntegration] so they live next
         // to their only readers. The provenance lock follows the constants —
         // anyone re-running the javap recipe should land in the same file as
         // the values they verify.
@@ -43,7 +43,7 @@ class AccentApplicatorCgpDefaultsDocTest {
                 "dev",
                 "ayuislands",
                 "accent",
-                "CgpIntegration.kt",
+                "CodeGlanceProIntegration.kt",
             )
         Files.readString(path)
     }

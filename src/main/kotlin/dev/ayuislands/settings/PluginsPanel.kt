@@ -21,8 +21,8 @@ class PluginsPanel : AyuIslandsSettingsPanel {
     private var storedPreset: String = IndentPreset.AMBIENT.name
     private var pendingCustomAlpha: Int = IndentPreset.DEFAULT_ALPHA
     private var storedCustomAlpha: Int = IndentPreset.DEFAULT_ALPHA
-    private var pendingCgpIntegration: Boolean = false
-    private var storedCgpIntegration: Boolean = false
+    private var pendingCodeGlanceProIntegration: Boolean = false
+    private var storedCodeGlanceProIntegration: Boolean = false
     private var pendingErrorHighlight: Boolean = true
     private var storedErrorHighlight: Boolean = true
 
@@ -44,8 +44,8 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         val state = AyuIslandsSettings.getInstance().state
         val licensed = LicenseChecker.isLicensedOrGrace()
 
-        storedCgpIntegration = state.cgpIntegrationEnabled
-        pendingCgpIntegration = storedCgpIntegration
+        storedCodeGlanceProIntegration = state.cgpIntegrationEnabled
+        pendingCodeGlanceProIntegration = storedCodeGlanceProIntegration
         storedEnabled = state.irIntegrationEnabled
         pendingEnabled = storedEnabled
         storedErrorHighlight = state.irErrorHighlightEnabled
@@ -84,10 +84,10 @@ class PluginsPanel : AyuIslandsSettingsPanel {
                     val cb =
                         checkBox("Sync color with CodeGlance")
                             .comment("Apply accent color to CodeGlance Pro viewport")
-                    cb.component.isSelected = pendingCgpIntegration
+                    cb.component.isSelected = pendingCodeGlanceProIntegration
                     cb.component.isEnabled = licensed
                     cb.component.addActionListener {
-                        pendingCgpIntegration = cb.component.isSelected
+                        pendingCodeGlanceProIntegration = cb.component.isSelected
                     }
                     cgpCheckbox = cb.component
 
@@ -172,7 +172,7 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         pendingEnabled != storedEnabled ||
             pendingPreset != storedPreset ||
             pendingCustomAlpha != storedCustomAlpha ||
-            pendingCgpIntegration != storedCgpIntegration ||
+            pendingCodeGlanceProIntegration != storedCodeGlanceProIntegration ||
             pendingErrorHighlight != storedErrorHighlight
 
     override fun apply() {
@@ -182,13 +182,13 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         state.irIntegrationEnabled = pendingEnabled
         state.indentPresetName = pendingPreset
         state.indentCustomAlpha = pendingCustomAlpha
-        state.cgpIntegrationEnabled = pendingCgpIntegration
+        state.cgpIntegrationEnabled = pendingCodeGlanceProIntegration
         state.irErrorHighlightEnabled = pendingErrorHighlight
 
         storedEnabled = pendingEnabled
         storedPreset = pendingPreset
         storedCustomAlpha = pendingCustomAlpha
-        storedCgpIntegration = pendingCgpIntegration
+        storedCodeGlanceProIntegration = pendingCodeGlanceProIntegration
         storedErrorHighlight = pendingErrorHighlight
 
         // Route through AccentApplicator.applyForFocusedProject so per-project/per-language
@@ -202,12 +202,12 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         pendingEnabled = storedEnabled
         pendingPreset = storedPreset
         pendingCustomAlpha = storedCustomAlpha
-        pendingCgpIntegration = storedCgpIntegration
+        pendingCodeGlanceProIntegration = storedCodeGlanceProIntegration
         pendingErrorHighlight = storedErrorHighlight
 
         suppressListeners = true
         enabledCheckbox?.isSelected = storedEnabled
-        cgpCheckbox?.isSelected = storedCgpIntegration
+        cgpCheckbox?.isSelected = storedCodeGlanceProIntegration
         errorHighlightCheckbox?.isSelected = storedErrorHighlight
         presetSegmented?.selectedItem = IndentPreset.fromName(storedPreset)
         alphaSlider?.value = storedCustomAlpha

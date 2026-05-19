@@ -10,7 +10,7 @@ import kotlin.test.assertTrue
 /**
  * Pattern I source-regex regression lock for D-09.
  *
- * The `cgpRevertHook` test seam introduced in Wave 1 plan 02 MUST be backed by
+ * The `codeGlanceProRevertHook` test seam introduced in Wave 1 plan 02 MUST be backed by
  * a `ThreadLocal<...>` — never a `@Volatile var ... -> ((...) -> Unit)?`.
  *
  * Why ThreadLocal? Gradle runs JUnit 5 tests in parallel workers by default. A
@@ -70,16 +70,16 @@ class AccentApplicatorTestSeamShapeTest {
     }
 
     @Test
-    fun `cgpRevertHook is a ThreadLocal not @Volatile var`() {
+    fun `codeGlanceProRevertHook is a ThreadLocal not @Volatile var`() {
         // The declaration must use `ThreadLocal<...>` somewhere on its right-hand
         // side. Any of the canonical shapes pass:
-        //   `internal val cgpRevertHook: ThreadLocal<...> = ThreadLocal.withInitial { null }`
-        //   `private val cgpRevertHook = ThreadLocal.withInitial<...> { null }`
+        //   `internal val codeGlanceProRevertHook: ThreadLocal<...> = ThreadLocal.withInitial { null }`
+        //   `private val codeGlanceProRevertHook = ThreadLocal.withInitial<...> { null }`
         // The match window deliberately spans newlines because the property
         // declaration may break across lines for readability.
         assertTrue(
-            Regex("""cgpRevertHook[\s\S]{0,200}ThreadLocal<""").containsMatchIn(source),
-            "cgpRevertHook MUST be declared as ThreadLocal<...> per Pattern I — " +
+            Regex("""codeGlanceProRevertHook[\s\S]{0,200}ThreadLocal<""").containsMatchIn(source),
+            "codeGlanceProRevertHook MUST be declared as ThreadLocal<...> per Pattern I — " +
                 "Gradle parallel JUnit workers leak across siblings on a shared " +
                 "@Volatile var. See ChromeDecorationsProbe.osSupplier for the " +
                 "canonical template.",
@@ -88,21 +88,21 @@ class AccentApplicatorTestSeamShapeTest {
         // Forbid the @Volatile var shape explicitly so a "simplification"
         // refactor can't silently downgrade the seam.
         assertFalse(
-            Regex("""@Volatile\s+var\s+cgpRevertHook""").containsMatchIn(source),
-            "cgpRevertHook MUST NOT be declared as @Volatile var — that shape " +
+            Regex("""@Volatile\s+var\s+codeGlanceProRevertHook""").containsMatchIn(source),
+            "codeGlanceProRevertHook MUST NOT be declared as @Volatile var — that shape " +
                 "leaks across Gradle parallel workers (Pattern I). Use ThreadLocal.",
         )
     }
 
     @Test
-    fun `resetCgpRevertHookForTests exists and calls remove on the ThreadLocal`() {
+    fun `resetCodeGlanceProRevertHookForTests exists and calls remove on the ThreadLocal`() {
         // The teardown helper must clear the per-thread override so a test that
         // forgets the inline try/finally still leaves the seam in production
         // shape for the next sibling test on the same worker.
-        val body = extractFunctionBody(source, "fun resetCgpRevertHookForTests(")
+        val body = extractFunctionBody(source, "fun resetCodeGlanceProRevertHookForTests(")
         assertTrue(
-            Regex("""cgpRevertHook\.remove\(\)""").containsMatchIn(body),
-            "resetCgpRevertHookForTests MUST call cgpRevertHook.remove() — the " +
+            Regex("""codeGlanceProRevertHook\.remove\(\)""").containsMatchIn(body),
+            "resetCodeGlanceProRevertHookForTests MUST call codeGlanceProRevertHook.remove() — the " +
                 "ThreadLocal teardown contract (Pattern I). `set(null)` would not " +
                 "release the entry on the worker thread; only `.remove()` does.",
         )
