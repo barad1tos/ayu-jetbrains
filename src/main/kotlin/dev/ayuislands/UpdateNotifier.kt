@@ -55,6 +55,13 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.6.4" to
+                "<ul>" +
+                "<li>Quick-Switcher Widget — chip in the main toolbar with variant + accent grid (free)</li>" +
+                "<li>Right-click context menu on the chip exposes the same quick actions</li>" +
+                "<li>Premium rows in the popup unlock when license is active or in trial</li>" +
+                "<li>Hide the widget anytime from Settings → Ayu Islands → General</li>" +
+                "</ul>",
             "2.6.0" to
                 "<ul>" +
                 "<li>Peacock parity — per-project / per-language chrome tinting, native to JetBrains</li>" +

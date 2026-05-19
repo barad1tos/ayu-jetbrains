@@ -37,8 +37,8 @@ schema_version: 1
 # release. Between releases the hash is intentionally frozen to the last
 # published state — any copy edit without a version bump fails lint.
 release_sync:
-  last_published_version: "2.5.1"
-  last_published_description_sha256: "8d8996c596cacd275b73d104db05ed775649489c3f6aaae408914dfe598f6e8b"
+  last_published_version: "2.6.4"
+  last_published_description_sha256: "1a82d3d65aecbfbfdf86762d5ef5df584e1cdd14b7177f94f778d6e1a2e26839"
 
 categories:
   accent:
