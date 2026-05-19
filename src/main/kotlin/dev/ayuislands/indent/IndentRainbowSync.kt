@@ -1,11 +1,11 @@
 package dev.ayuislands.indent
 
-import com.intellij.ide.plugins.PluginManager
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.PluginId
+import dev.ayuislands.AyuPlugin
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.lang.reflect.Field
@@ -172,7 +172,7 @@ object IndentRainbowSync {
 
         try {
             val pluginId = PluginId.getId(IR_PLUGIN_ID)
-            val irPlugin = PluginManager.getPlugin(pluginId) ?: return
+            val irPlugin = AyuPlugin.findEnabledPlugin(pluginId) ?: return
             val classLoader = irPlugin.pluginClassLoader ?: return
 
             val configClass =
@@ -251,8 +251,8 @@ object IndentRainbowSync {
     private fun notifyFailure() {
         val state = AyuIslandsSettings.getInstance().state
         val currentVersion =
-            PluginManager
-                .getPlugin(PluginId.getId(IR_PLUGIN_ID))
+            AyuPlugin
+                .findEnabledPlugin(PluginId.getId(IR_PLUGIN_ID))
                 ?.version
 
         if (state.irFailedVersion == currentVersion) return

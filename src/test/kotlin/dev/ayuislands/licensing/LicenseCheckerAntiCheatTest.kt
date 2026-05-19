@@ -1,10 +1,10 @@
 package dev.ayuislands.licensing
 
 import com.intellij.ide.plugins.IdeaPluginDescriptor
-import com.intellij.ide.plugins.PluginManager
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.ui.LicensingFacade
+import dev.ayuislands.AyuPlugin
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import io.kotest.property.Arb
@@ -56,8 +56,8 @@ class LicenseCheckerAntiCheatTest {
         mockkStatic(PathManager::class)
         every { PathManager.getConfigPath() } returns "/home/user/.config/JetBrains/IntelliJIdea2025.1"
 
-        mockkStatic(PluginManager::class)
-        every { PluginManager.getPlugin(any<PluginId>()) } returns null
+        mockkObject(AyuPlugin)
+        every { AyuPlugin.findEnabledPlugin(any<PluginId>()) } returns null
 
         // Pin the clock through LicenseCheckerClockSeam so restore stays centralized
         // and the production defaults come back from exactly one place in tearDown.
@@ -247,7 +247,7 @@ class LicenseCheckerAntiCheatTest {
 
     private fun setPluginPath(path: String?) {
         if (path == null) {
-            every { PluginManager.getPlugin(any<PluginId>()) } returns null
+            every { AyuPlugin.findEnabledPlugin(any<PluginId>()) } returns null
             return
         }
         val descriptor = mockk<IdeaPluginDescriptor>()
@@ -255,7 +255,7 @@ class LicenseCheckerAntiCheatTest {
         every { pluginPath.toString() } returns path
         every { descriptor.pluginPath } returns pluginPath
         every {
-            PluginManager.getPlugin(PluginId.getId("com.ayuislands.theme"))
+            AyuPlugin.findEnabledPlugin(PluginId.getId("com.ayuislands.theme"))
         } returns descriptor
     }
 

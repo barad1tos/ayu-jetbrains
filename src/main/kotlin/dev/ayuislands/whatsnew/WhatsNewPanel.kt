@@ -7,6 +7,7 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
+import dev.ayuislands.AyuPlugin
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.onboarding.ContentScaler
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -310,11 +311,7 @@ internal class WhatsNewPanel(
             .getOrDefault(FALLBACK_ACCENT)
     }
 
-    private fun pluginDescriptor() =
-        com.intellij.ide.plugins.PluginManager.getPlugin(
-            com.intellij.openapi.extensions.PluginId
-                .getId("com.ayuislands.theme"),
-        )
+    private fun pluginDescriptor() = AyuPlugin.findEnabledPlugin(AyuPlugin.ID)
 
     companion object {
         private val LOG = logger<WhatsNewPanel>()

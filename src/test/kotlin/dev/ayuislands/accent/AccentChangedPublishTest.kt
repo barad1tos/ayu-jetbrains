@@ -1,6 +1,5 @@
 package dev.ayuislands.accent
 
-import com.intellij.ide.plugins.PluginManager
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.colors.EditorColorsManager
@@ -12,6 +11,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.testFramework.LoggedErrorProcessor
 import com.intellij.util.messages.MessageBus
+import dev.ayuislands.AyuPlugin
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -94,8 +94,8 @@ class AccentChangedPublishTest {
         mockkStatic(Window::class)
         every { Window.getWindows() } returns emptyArray()
 
-        mockkStatic(PluginManager::class)
-        every { PluginManager.getPlugin(any()) } returns null
+        mockkObject(AyuPlugin)
+        every { AyuPlugin.findEnabledPlugin(any()) } returns null
 
         // ProjectManager.openProjects drives the per-project publish loop.
         project =

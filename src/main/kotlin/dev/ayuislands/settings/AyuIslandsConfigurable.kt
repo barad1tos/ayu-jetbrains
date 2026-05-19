@@ -1,9 +1,7 @@
 package dev.ayuislands.settings
 
 import com.intellij.ide.BrowserUtil
-import com.intellij.ide.plugins.PluginManager
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.options.BoundConfigurable
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.Messages
@@ -11,6 +9,7 @@ import com.intellij.ui.components.JBTabbedPane
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
+import dev.ayuislands.AyuPlugin
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.runCatchingPreservingCancellation
 import dev.ayuislands.glow.GlowOverlayManager
@@ -66,8 +65,8 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
 
     override fun createPanel(): com.intellij.openapi.ui.DialogPanel {
         val pluginVersion =
-            PluginManager
-                .getPlugin(PluginId.getId("com.ayuislands.theme"))
+            AyuPlugin
+                .findEnabledPlugin(AyuPlugin.ID)
                 ?.version ?: "unknown"
 
         val variant =

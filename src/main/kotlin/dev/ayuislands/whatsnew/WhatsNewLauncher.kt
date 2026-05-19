@@ -7,6 +7,7 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.IdeFocusManager
+import dev.ayuislands.AyuPlugin
 import dev.ayuislands.onboarding.OnboardingSchedulerService
 import dev.ayuislands.settings.AyuIslandsSettings
 import kotlinx.coroutines.CancellationException
@@ -201,11 +202,5 @@ internal object WhatsNewLauncher {
         }
     }
 
-    private fun pluginDescriptor() =
-        com.intellij.ide.plugins.PluginManager.getPlugin(
-            com.intellij.openapi.extensions.PluginId
-                .getId(PLUGIN_ID),
-        )
-
-    private const val PLUGIN_ID = "com.ayuislands.theme"
+    private fun pluginDescriptor() = AyuPlugin.findEnabledPlugin(AyuPlugin.ID)
 }

@@ -1,10 +1,10 @@
 package dev.ayuislands.accent.conflict
 
-import com.intellij.ide.plugins.PluginManager
 import com.intellij.openapi.extensions.PluginId
+import dev.ayuislands.AyuPlugin
 import dev.ayuislands.accent.AccentElementId
 import io.mockk.every
-import io.mockk.mockkStatic
+import io.mockk.mockkObject
 import io.mockk.unmockkAll
 import io.mockk.verify
 import kotlin.test.AfterTest
@@ -27,6 +27,8 @@ class ConflictRegistryTest {
     @BeforeTest
     fun setUp() {
         ConflictRegistry.resetCachedConflictsForTesting()
+        mockkObject(AyuPlugin)
+        every { AyuPlugin.findEnabledPlugin(any<PluginId>()) } returns null
     }
 
     @AfterTest
@@ -103,9 +105,6 @@ class ConflictRegistryTest {
      */
     @Test
     fun `detectConflicts returns empty list when no conflict plugins installed`() {
-        mockkStatic(PluginManager::class)
-        every { PluginManager.getPlugin(any<PluginId>()) } returns null
-
         val conflicts = ConflictRegistry.detectConflicts()
 
         assertTrue(conflicts.isEmpty(), "Expected no conflicts when plugins are absent")
@@ -114,18 +113,15 @@ class ConflictRegistryTest {
     /**
      * Caching regression: `detectConflicts` consults the plugin registry only
      * once per session. The second call returns the exact same list instance
-     * and does NOT trigger additional `PluginManager.getPlugin` lookups.
+     * and does NOT trigger additional `findEnabledPlugin` lookups.
      */
     @Test
     fun `detectConflicts result is cached across calls`() {
-        mockkStatic(PluginManager::class)
-        every { PluginManager.getPlugin(any<PluginId>()) } returns null
-
         val first = ConflictRegistry.detectConflicts()
         val second = ConflictRegistry.detectConflicts()
 
         assertSame(first, second, "Cached result must be reused across calls")
-        verify(exactly = 2) { PluginManager.getPlugin(any<PluginId>()) }
+        verify(exactly = 2) { AyuPlugin.findEnabledPlugin(any<PluginId>()) }
     }
 
     /**
@@ -134,15 +130,12 @@ class ConflictRegistryTest {
      */
     @Test
     fun `resetCachedConflictsForTesting clears cache so next call re-queries plugins`() {
-        mockkStatic(PluginManager::class)
-        every { PluginManager.getPlugin(any<PluginId>()) } returns null
-
         val firstBatch = ConflictRegistry.detectConflicts()
         ConflictRegistry.resetCachedConflictsForTesting()
         val secondBatch = ConflictRegistry.detectConflicts()
 
         // Two separate computations: 2 entries x 2 calls = 4 lookups
-        verify(exactly = 4) { PluginManager.getPlugin(any<PluginId>()) }
+        verify(exactly = 4) { AyuPlugin.findEnabledPlugin(any<PluginId>()) }
         // Same content, different instances (cache was cleared)
         assertEquals(firstBatch, secondBatch)
     }

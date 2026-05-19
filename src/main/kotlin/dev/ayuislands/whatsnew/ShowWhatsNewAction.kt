@@ -4,6 +4,7 @@ import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.DumbAwareAction
+import dev.ayuislands.AyuPlugin
 
 /**
  * Tools-menu action that re-opens the What's New tab on demand.
@@ -25,11 +26,7 @@ internal class ShowWhatsNewAction : DumbAwareAction() {
         // when the descriptor is observed non-null again) so each real
         // disable-enable cycle gets its own signal without spamming every
         // BGT update tick.
-        val descriptor =
-            com.intellij.ide.plugins.PluginManager.getPlugin(
-                com.intellij.openapi.extensions.PluginId
-                    .getId("com.ayuislands.theme"),
-            )
+        val descriptor = AyuPlugin.findEnabledPlugin(AyuPlugin.ID)
         if (descriptor == null) {
             if (descriptorNullLogged.compareAndSet(false, true)) {
                 LOG.warn("Ayu What's New: plugin descriptor lookup returned null in update()")
@@ -41,7 +38,7 @@ internal class ShowWhatsNewAction : DumbAwareAction() {
         // compareAndSet(true, false) documents the semantics: the reset is a
         // no-op when the latch was already false (the common path — descriptor
         // stayed non-null). Note: concurrent BGT update()s can still observe
-        // interleavings that produce two WARNs within one real null streak;
+        // interleaved schedules that produce two WARNs within one real null streak;
         // this is a narrow BGT race the latch doesn't defend against, but the
         // signal is at worst duplicated, never lost.
         descriptorNullLogged.compareAndSet(true, false)
@@ -58,7 +55,7 @@ internal class ShowWhatsNewAction : DumbAwareAction() {
             // two cases: descriptor missing (a real anomaly — WARN) or no
             // manifest for current version (expected on patches — INFO).
             val descriptor =
-                com.intellij.ide.plugins.PluginManager.getPlugin(
+                AyuPlugin.findEnabledPlugin(
                     com.intellij.openapi.extensions.PluginId
                         .getId("com.ayuislands.theme"),
                 )
