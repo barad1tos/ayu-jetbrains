@@ -30,7 +30,7 @@ import kotlin.test.Test
  * correct peer identifier (class-name string OR direct StatusBar API).
  *
  * Covers the multi-surface invariant: no cross-talk between elements, no
- * duplicate/missed peer refresh, D-14 clear symmetry across every surface.
+ * duplicate/missed peer refresh, clear symmetry across every surface.
  */
 class ChromeLiveRefreshMultiSurfaceTest {
     private lateinit var mockSettings: AyuIslandsSettings
@@ -100,8 +100,8 @@ class ChromeLiveRefreshMultiSurfaceTest {
         verify(exactly = 1) { LiveChromeRefresher.refresh(navBarTarget, blended) }
         verify(exactly = 1) { LiveChromeRefresher.refresh(stripeTarget, blended) }
         verify(exactly = 1) { LiveChromeRefresher.refresh(mainToolbarTarget, blended) }
-        // Round 2 A-1: PanelBorder uses the ancestor-scoped variant to avoid
-        // over-tinting OnePixelDivider instances outside tool windows.
+        // PanelBorder uses the ancestor-scoped variant to avoid over-tinting
+        // OnePixelDivider instances outside tool windows.
         verify(exactly = 1) { LiveChromeRefresher.refresh(panelBorderTarget, blended) }
         // Guard: PanelBorder must NOT use the blind ByClassName target.
         verify(exactly = 0) {
@@ -171,7 +171,7 @@ class ChromeLiveRefreshMultiSurfaceTest {
         verify(exactly = 1) { LiveChromeRefresher.refresh(navBarTarget, blended) }
         verify(exactly = 1) { LiveChromeRefresher.refresh(stripeTarget, blended) }
         verify(exactly = 0) { LiveChromeRefresher.refresh(mainToolbarTarget, any()) }
-        // PanelBorder ancestor-scoped refresh still fires (Round 2 A-1) — MainToolbar gate
+        // PanelBorder ancestor-scoped refresh still fires — MainToolbar gate
         // short-circuits MainToolbar only, not sibling peers.
         verify(exactly = 1) { LiveChromeRefresher.refresh(panelBorderTarget, blended) }
     }

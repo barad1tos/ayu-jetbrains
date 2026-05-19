@@ -6,8 +6,7 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 /**
- * Locks the [ChromeTarget.ByClassNameInside] private-constructor contract added in
- * Phase 40.4 R-1.
+ * Locks the [ChromeTarget.ByClassNameInside] private-constructor contract.
  *
  * Contract:
  *  1. The public factory `invoke(target = ..., ancestor = ...)` returns a valid

@@ -28,13 +28,13 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 
 /**
- * Integration coverage for the D-15 revert hook in [AccentApplicator.revertAll].
+ * Integration coverage for the revert refresh hook in [AccentApplicator.revertAll].
  *
- * Locks in the CHROME-08 promise that reverting all accent state leaves zero residual
- * UIManager keys and repaints every open project's cached JBColor graph. Without the
- * [ComponentTreeRefresher.notifyOnly] loop, cached color instances survive the
- * `UIManager.put(key, null)` clear and the user sees "half-reverted" chrome until the
- * next LAF change.
+ * Locks in the promise that reverting all accent state leaves zero residual
+ * UIManager keys and repaints every open project's cached JBColor graph. Without
+ * the [ComponentTreeRefresher.notifyOnly] loop, cached color instances survive the
+ * `UIManager.put(key, null)` clear and the user sees "half-reverted" chrome until
+ * the next LAF change.
  *
  * Four scenarios pin down the behavior:
  *  1. `notifyOnly` fires once per usable open project so every window refreshes.

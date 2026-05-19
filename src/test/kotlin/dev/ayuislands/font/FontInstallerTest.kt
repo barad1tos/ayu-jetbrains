@@ -281,9 +281,9 @@ class FontInstallerTest {
 
     @Test
     fun `install fires NON_CURATED Failure callback and skips ProgressManager`() {
-        // Round-2 review: visibility-gate bypass with CUSTOM must NOT hang the
-        // caller waiting for a callback that never fires. Failure must use the
-        // typed NON_CURATED kind (not UNKNOWN — that copy reads "Please report",
+        // Visibility-gate bypass with CUSTOM must NOT hang the caller waiting
+        // for a callback that never fires. Failure must use the typed
+        // NON_CURATED kind (not UNKNOWN — that copy reads "Please report",
         // misleading users about an intentional skip). Task is never queued.
         mockkStatic(com.intellij.openapi.progress.ProgressManager::class)
         val progressMgr = mockk<com.intellij.openapi.progress.ProgressManager>(relaxed = true)
@@ -304,9 +304,9 @@ class FontInstallerTest {
 
     @Test
     fun `applyOnly invokes applicator with CUSTOM-decoded settings for non-curated preset`() {
-        // Round-2 review: assert applicator runs with the RIGHT preset, not
-        // any preset. Previous test used `any()` and would pass on a future
-        // refactor that called apply with WHISPER instead of CUSTOM.
+        // Assert applicator runs with the RIGHT preset, not any preset. An
+        // earlier version used `any()` and would pass on a future refactor
+        // that called `apply` with WHISPER instead of CUSTOM.
         mockkStatic(ApplicationManager::class)
         mockkStatic(Notifications.Bus::class)
         mockkObject(FontPresetApplicator)
@@ -332,10 +332,10 @@ class FontInstallerTest {
 
     @Test
     fun `applyOnly emits generic notification when applicator throws and preset is non-curated`() {
-        // Round-2 review: when entry is null AND apply throws, the user clicked
-        // something that visibly failed. Round 1 left this path silent (log
-        // only); Round 2 emits a generic notification pointing to manual
-        // recovery (Settings → Editor → Font). Lock the new contract.
+        // When entry is null AND apply throws, the user clicked something that
+        // visibly failed. An earlier version left this path silent (log only);
+        // the current contract emits a generic notification pointing to manual
+        // recovery (Settings → Editor → Font). Lock that contract.
         mockkStatic(ApplicationManager::class)
         mockkStatic(Notifications.Bus::class)
         mockkObject(FontPresetApplicator)
@@ -378,7 +378,7 @@ class FontInstallerTest {
         }
     }
 
-    // ---- persistFontState (Plan 25-03 Task 1) ----
+    // ---- persistFontState ----
 
     private fun stubPersistFontStateSettings(state: AyuIslandsState = AyuIslandsState()): AyuIslandsState {
         mockkObject(AyuIslandsSettings.Companion)
@@ -405,7 +405,7 @@ class FontInstallerTest {
     }
 
     @Test
-    fun `persistFontState stillWritesInstalledFonts (D-14 invariant)`() {
+    fun `persistFontState stillWritesInstalledFonts`() {
         val state = stubPersistFontStateSettings()
 
         FontInstaller.persistFontState("Victor Mono", listOf(File("/tmp/victor.ttf")))

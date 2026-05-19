@@ -8,8 +8,8 @@ import kotlin.test.assertNull
 /**
  * Tests for [ClassFqn] — the typed wrapper that kills the
  * `refreshByClassNameInsideAncestorClass(target, ancestor, color)` positional
- * footgun introduced in Phase 40 (two adjacent `String` params of identical
- * type, swapping them compiled + silently over-tinted the wrong peers).
+ * footgun (two adjacent `String` params of identical type, swapping them
+ * compiled + silently over-tinted the wrong peers).
  */
 class ClassFqnTest {
     @Test

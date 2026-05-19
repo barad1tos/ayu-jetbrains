@@ -146,7 +146,7 @@ class AyuVariantTest {
         assertNull(AyuVariant.detect())
     }
 
-    // D-01 — `isAyuActive()` is the canonical Pattern J lifecycle predicate every
+    // `isAyuActive()` is the canonical Pattern J lifecycle predicate every
     // integration funnels through. These tests pin its behavior so a future agent
     // who reroutes integrations through `AyuVariant.detect() != null` (the older
     // shape) gets a named regression instead of silent drift.

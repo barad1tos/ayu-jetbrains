@@ -6,24 +6,24 @@ import kotlin.test.Test
 import kotlin.test.assertTrue
 
 /**
- * Algorithmic lock on the uniform-hue invariant that Phase 40-09 introduces:
+ * Algorithmic lock on the uniform-hue invariant:
  * `ChromeTintBlender.blend` must produce the SAME hue across the five real
  * chrome base colors at any intensity value, while preserving each base's
  * original luminance so the existing visual hierarchy (status bar darker than
  * toolbar, etc.) survives the rework.
  *
- * VERIFICATION Gap 1 (40-VERIFICATION.md, runIde smoke 2026-04-22) surfaced the
- * regression — at intensity=20 each surface rendered as a visibly different
- * color because per-channel RGB lerp mixed each base toward the accent without
- * homogenising hue. This suite RED-locks the corrected algorithm.
+ * A runIde smoke previously surfaced a regression — at intensity=20 each
+ * surface rendered as a visibly different color because per-channel RGB lerp
+ * mixed each base toward the accent without homogenising hue. This suite
+ * RED-locks the corrected algorithm.
  *
- * After the 40-chrome refactor the blender takes `baseColor: Color` directly
- * (no UIManager reads), so the test feeds stock values as literal [Color]s
- * instead of mocking `UIManager.getColor`.
+ * The blender takes `baseColor: Color` directly (no UIManager reads), so
+ * the test feeds stock values as literal [Color]s instead of mocking
+ * `UIManager.getColor`.
  */
 class ChromeTintBlenderHueUniformityTest {
-    // Stock base table drawn from VERIFICATION Gap 1 — the five real chrome surfaces
-    // observed in the runIde sandbox (Mirage LAF).
+    // Stock base table — the five real chrome surfaces observed in the runIde
+    // sandbox (Mirage LAF).
     private val chromeBases: Map<String, Color> =
         mapOf(
             "StatusBar.background" to Color(0x1F, 0x24, 0x30),
@@ -121,7 +121,7 @@ class ChromeTintBlenderHueUniformityTest {
                     result.blue == base.blue,
                     "blue mismatch for $key: expected ${base.blue}, got ${result.blue}",
                 )
-                assertTrue(result.alpha == OPAQUE_ALPHA, "alpha must stay 255 (D-05)")
+                assertTrue(result.alpha == OPAQUE_ALPHA, "alpha must stay 255 (opaque RGB output)")
             }
         }
     }

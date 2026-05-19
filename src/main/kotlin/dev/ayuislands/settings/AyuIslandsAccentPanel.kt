@@ -19,6 +19,7 @@ import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.rotation.AccentRotationMode
 import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.rotation.ContrastAwareColorGenerator
+import dev.ayuislands.settings.mappings.AyuIslandsQuickSwitcherGroupBuilder
 import dev.ayuislands.settings.mappings.OverridesGroupBuilder
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import java.awt.Color
@@ -46,6 +47,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
     private var rotationEnabledCheckbox: JBCheckBox? = null
 
     internal val overrides = OverridesGroupBuilder()
+    internal val quickSwitcher = AyuIslandsQuickSwitcherGroupBuilder()
     private var contextProject: Project? = null
     private var currentlyActiveLabel: JEditorPane? = null
 
@@ -85,6 +87,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         beforeOverridesInjection?.invoke(panel)
         overrides.buildGroup(panel, contextProject)
         afterOverridesInjection?.invoke(panel)
+        quickSwitcher.buildGroup(panel)
         panel.buildAccentRotationGroup()
 
         val externalAccentListener = onAccentChanged
@@ -479,6 +482,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         if (pendingRotationMode != storedRotationMode) return true
         if (pendingRotationInterval != storedRotationInterval) return true
         if (overrides.isModified()) return true
+        if (quickSwitcher.isModified()) return true
         if (pendingFollowSystem) return false
         return pendingAccent != storedAccent
     }
@@ -573,6 +577,9 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         if (overridesDirty) {
             overrides.apply()
         }
+        // quickSwitcher.apply() is idempotent (pending=stored after the write); skipping the
+        // `isModified` guard here keeps the function under detekt's CyclomaticComplexMethod cap.
+        quickSwitcher.apply()
         updateCurrentlyActiveLabel()
     }
 
@@ -586,6 +593,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         rotationEnabledCheckbox?.isSelected = storedRotationEnabled
         accentPanel?.let { applyInitialSelection(it, storedAccent) }
         overrides.reset()
+        quickSwitcher.reset()
         updateHeroGlow()
         updatePanelEnabled()
         updateCurrentlyActiveLabel()

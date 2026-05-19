@@ -14,22 +14,23 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.swing.JComponent
 
 /**
- * Level 2 Gap-4 helper — finds live Swing peers of chrome surfaces and mutates their
+ * Live Swing peer refresher for chrome surfaces — finds peers and mutates their
  * `background` directly + forces a `repaint`.
  *
- * Why is this needed on top of UIManager writes + the apply-path `notifyOnly` hook
- * from plan 40-13? Platform chrome peers (`IdeStatusBarImpl`, `MyNavBarWrapperPanel`,
+ * Why is this needed on top of UIManager writes + the apply-path `notifyOnly` hook?
+ * Platform chrome peers (`IdeStatusBarImpl`, `MyNavBarWrapperPanel`,
  * `com.intellij.toolWindow.Stripe`, internal `MainToolbar`, `OnePixelDivider`) cache
  * colors at creation or on the prior LAF event — UIManager.put alone does NOT cause
- * already-rendered components to re-read the key. See VERIFICATION Gap 4.
+ * already-rendered components to re-read the key.
  *
- * Per plan 40-14 (research §B), most target peer classes are internal / package-private
- * (`Stripe`, `MainToolbar`, `OnePixelDivider`, `MyNavBarWrapperPanel`), so we cannot
- * import them. All lookups walk `Window.getWindows()` and match by runtime class-name
- * string. `JComponent#setBackground` is safe on any live peer on the EDT.
+ * Most target peer classes are internal / package-private (`Stripe`, `MainToolbar`,
+ * `OnePixelDivider`, `MyNavBarWrapperPanel`), so we cannot import them. All lookups
+ * walk `Window.getWindows()` and match by runtime class-name string.
+ * `JComponent#setBackground` is safe on any live peer on the EDT.
  *
- * D-14 symmetry: every `refresh*` has a matching `clear*` that sets the background to
- * `null` (returns the component to LAF default). Callers wire both apply and revert.
+ * Pattern G symmetry: every `refresh*` has a matching `clear*` that sets the
+ * background to `null` (returns the component to LAF default). Callers wire both
+ * apply and revert.
  *
  * EDT: callers MUST already be on EDT — Swing background mutation + repaint are
  * EDT-only. `AccentApplicator` dispatches its apply/revert Runnable through
@@ -43,8 +44,7 @@ internal object LiveChromeRefresher {
      * `.components` read failure. Subsequent failures on the same class drop to
      * DEBUG to avoid log spam, but the first occurrence per container class is
      * loud because it almost always indicates a broken custom `Container`
-     * override in a third-party plugin — reportable, not just defensive. See
-     * Phase 40 review-loop Round 1 MEDIUM-1 and Round 2 LOW R2-1.
+     * override in a third-party plugin — reportable, not just defensive.
      *
      * Capped at [BROKEN_CONTAINER_LOG_CAP] entries so a pathological IDE
      * session (1000+ transient Container subclasses all throwing) cannot let
@@ -89,7 +89,7 @@ internal object LiveChromeRefresher {
         brokenContainerLogged.clear()
     }
 
-    // --- Typed entry points (Phase 40.3c Refactor 2) ---
+    // --- Typed entry points ---
     //
     // Sealed [ChromeTarget] collapses the prior 6-entry API (refresh/clear × 3
     // peer strategies) into two methods. Dispatch is exhaustive — adding a new
@@ -118,7 +118,7 @@ internal object LiveChromeRefresher {
         }
     }
 
-    /** D-14 symmetry mirror of [refresh] — hands [target]'s peer back to LAF default. */
+    /** Pattern G mirror of [refresh] — hands [target]'s peer back to LAF default. */
     fun clear(target: ChromeTarget) {
         when (target) {
             ChromeTarget.StatusBar ->
@@ -137,8 +137,8 @@ internal object LiveChromeRefresher {
     }
 
     /**
-     * Phase 40.4 — IntelliJ 2026.1 Compact Navigation moved the path widget into
-     * the status bar tree as `NavBarItemComponent` instances under `NewNavBarPanel`.
+     * IntelliJ 2026.1 Compact Navigation moved the path widget into the
+     * status bar tree as `NavBarItemComponent` instances under `NewNavBarPanel`.
      * The panel pins its own bg to `List.background` in its initialiser, which
      * shadows the chrome tint we set on the root status bar peer. Walk descends to
      * the panel by class-name match and writes our tinted color directly. The
@@ -151,9 +151,9 @@ internal object LiveChromeRefresher {
      * private fields needed.
      *
      * Tree walk reuses [walk]'s iterative `ArrayDeque` BFS so a pathological
-     * deeply nested status-bar subtree can't blow the EDT stack (Phase 40.2 M-4),
-     * and inherits its per-visit `try/catch` so one flaky descendant peer
-     * cannot abort tinting for the rest of the tree.
+     * deeply nested status-bar subtree can't blow the EDT stack, and inherits
+     * its per-visit `try/catch` so one flaky descendant peer cannot abort
+     * tinting for the rest of the tree.
      *
      * Old NavBar wrapper (`MyNavBarWrapperPanel`) is still tinted via
      * `dev.ayuislands.accent.elements.NavBarElement` for users on platforms older
@@ -175,8 +175,8 @@ internal object LiveChromeRefresher {
     }
 
     /**
-     * D-14 mirror of [paintNavBarCompactPanel] — walks [statusBarRoot] and
-     * nulls the bg of every NavBar Compact panel, repainting each.
+     * Pattern G mirror of [paintNavBarCompactPanel] — walks [statusBarRoot]
+     * and nulls the bg of every NavBar Compact panel, repainting each.
      */
     private fun clearNavBarCompactPanel(statusBarRoot: Container) {
         walk(statusBarRoot) { component ->
@@ -220,7 +220,7 @@ internal object LiveChromeRefresher {
     /**
      * Iterates top-level windows, skipping ones that are not [Window.isShowing] (disposed,
      * hidden, pooled popups) and isolating per-window failures so one flaky peer doesn't
-     * abort chrome apply for the rest of the desktop. See Phase 40 review Round 3 C-1, C-2.
+     * abort chrome apply for the rest of the desktop.
      *
      * Uses [Window.getWindows] (broader than `WindowManager.allProjectFrames`) to catch
      * pooled dialogs and detached popups that still cache stale chrome colors; the
@@ -347,14 +347,13 @@ internal object LiveChromeRefresher {
 
     /**
      * Iteratively walks [component] and its descendants, invoking [visit] per node.
-     * Phase 40.2 M-4 — converted from the prior recursive walk to an
      * [ArrayDeque]-based BFS so a pathological deeply nested container tree
-     * cannot blow the JVM thread stack. The recursive version was capped only by
-     * whatever headroom the EDT happened to have and a malicious plugin could
-     * emit a container chain deep enough to trigger [StackOverflowError] mid-apply.
-     * Iterative traversal bounds growth to heap (orders of magnitude more slack)
-     * and keeps the per-visit try/catch + broken-container logging semantics
-     * exactly as before. See Phase 40 review Round 3 C-1.
+     * cannot blow the JVM thread stack. A naïve recursive version would be
+     * capped only by whatever headroom the EDT happened to have, and a
+     * malicious plugin could emit a container chain deep enough to trigger
+     * [StackOverflowError] mid-apply. Iterative traversal bounds growth to
+     * heap (orders of magnitude more slack) and keeps per-visit try/catch +
+     * broken-container logging semantics.
      *
      * Each visit is isolated so a single flaky peer (mid-dispose, ClassCast on
      * reflective match, NPE inside repaint) doesn't abort the rest of the tree.
@@ -396,7 +395,7 @@ internal object LiveChromeRefresher {
      * `Container.components` read is a reportable defect (likely a broken
      * custom `Container` override in a third-party plugin) — the first
      * occurrence must be loud; subsequent hits in the same session drop to
-     * DEBUG so the log doesn't flood. See Phase 40 review-loop Round 1 MEDIUM-1.
+     * DEBUG so the log doesn't flood.
      */
     private fun logBrokenContainer(
         component: Container,
@@ -412,9 +411,9 @@ internal object LiveChromeRefresher {
         } else {
             log.debug("Live refresh could not read children of $className", exception)
         }
-        // Round 2 LOW R2-1: cap the set so a pathological session can't leak.
-        // On overflow we clear and the next encounter re-warns — acceptable
-        // trade-off vs unbounded memory growth.
+        // Cap the set so a pathological session can't leak. On overflow we
+        // clear and the next encounter re-warns — acceptable trade-off vs
+        // unbounded memory growth.
         if (brokenContainerLogged.size > BROKEN_CONTAINER_LOG_CAP) {
             brokenContainerLogged.clear()
         }

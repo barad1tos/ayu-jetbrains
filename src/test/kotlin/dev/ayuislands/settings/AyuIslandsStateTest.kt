@@ -16,7 +16,7 @@ class AyuIslandsStateTest {
     @Test
     fun `isToggleEnabled defaults true for VISUAL INTERACTIVE and false for CHROME`() {
         // VISUAL/INTERACTIVE group elements default ON — part of the free accent surface.
-        // CHROME group (phase 40) defaults OFF — premium, opt-in chrome tinting.
+        // CHROME group defaults OFF — premium, opt-in chrome tinting.
         val state = freshState()
         for (id in AccentElementId.entries.filter { it.group != AccentGroup.CHROME }) {
             assertTrue(state.isToggleEnabled(id), "${id.name} should be enabled by default")
@@ -37,7 +37,7 @@ class AyuIslandsStateTest {
         }
     }
 
-    // ---------- Chrome tinting (phase 40) — per-id branch coverage + defaults ----------
+    // ---------- Chrome tinting — per-id branch coverage + defaults ----------
 
     @Test
     fun `setToggle routes STATUS_BAR to chromeStatusBar field`() {
@@ -124,13 +124,14 @@ class AyuIslandsStateTest {
 
     @Test
     fun `effectiveChromeTintIntensity coerces corrupted persisted values to user-visible range`() {
-        // Regression guard for PR #151 Round 1 Fix 2: a corrupted or legacy persisted
-        // intensity (negative, above the user-visible slider cap) must never flow into
-        // the HSB blender as-is. The raw BaseState `property(...)` delegate can't
-        // validate at the setter boundary without breaking XML deserialization, so the
-        // state class exposes an `effective*` helper that clamps at READ time. Every
-        // chrome-element apply site reads through this helper, so garbage or legacy
-        // values in the XML cannot desaturate / over-saturate chrome surfaces.
+        // Regression guard: a corrupted or legacy persisted intensity (negative,
+        // above the user-visible slider cap) must never flow into the HSB
+        // blender as-is. The raw BaseState `property(...)` delegate can't
+        // validate at the setter boundary without breaking XML deserialization,
+        // so the state class exposes an `effective*` helper that clamps at READ
+        // time. Every chrome-element apply site reads through this helper, so
+        // garbage or legacy values in the XML cannot desaturate or
+        // over-saturate chrome surfaces.
         //
         // The upper bound here is the USER-VISIBLE `MAX_CHROME_TINT_INTENSITY` (50),
         // not the blender's internal math clamp (0-100). Keeping state aligned with
@@ -168,9 +169,9 @@ class AyuIslandsStateTest {
 
     @Test
     fun `effectiveLastAppliedAccentHex wraps valid persisted hex`() {
-        // Phase 40.3b: the AccentHex wrapper must treat the persisted String
-        // as the raw trust boundary. A valid #RRGGBB round-trips to a typed
-        // AccentHex whose .value matches the persisted field after trim().
+        // The AccentHex wrapper must treat the persisted String as the raw
+        // trust boundary. A valid #RRGGBB round-trips to a typed AccentHex
+        // whose .value matches the persisted field after trim().
         val state = freshState()
         state.lastAppliedAccentHex = "#5CCFE6"
         val wrapped = state.effectiveLastAppliedAccentHex()
@@ -412,7 +413,7 @@ class AyuIslandsStateTest {
         assertFalse(state.proDefaultsApplied)
     }
 
-    // migrateWidthModes (BAR-142)
+    // migrateWidthModes
 
     @Test
     fun `migrateWidthModes converts legacy autoFitProjectPanelWidth to AUTO_FIT mode`() {

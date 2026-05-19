@@ -23,20 +23,15 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * D-02 + D-03 lifecycle integration coverage for [GlowOverlayManager].
+ * Lifecycle integration coverage for [GlowOverlayManager].
  *
- * Pre-40.1: `updateGlow()` painted overlays even when no Ayu variant was active,
- * relying on three `else DEFAULT_ACCENT_HEX` fallbacks at :214 / :254 / :401.
- * Post-40.1: a single `if (!AyuVariant.isAyuActive()) { removeAllOverlays(); return }`
- * guard at the head of `updateGlow()` disposes overlays when the user switches to a
- * non-Ayu LAF — and the three fallbacks go away (regression-locked by
+ * Historically `updateGlow()` painted overlays even when no Ayu variant was
+ * active, relying on three `else DEFAULT_ACCENT_HEX` fallbacks. The current
+ * shape pulls that into a single
+ * `if (!AyuVariant.isAyuActive()) { removeAllOverlays(); return }` guard at the
+ * head of `updateGlow()` — overlays get disposed when the user switches to a
+ * non-Ayu LAF, and the three fallbacks are gone (regression-locked by
  * [GlowFallbackBannedApiGuardTest]).
- *
- * These tests reference `AyuVariant.isAyuActive()` directly. The symbol does NOT
- * exist in production until Wave 1 plan 01 lands the helper; until then, this file
- * fails to compile. That IS the red state — the inverted-gate verification in
- * Task 5 of plan 40.1-00 asserts an `unresolved reference: isAyuActive` error
- * shows up in `compileTestKotlin`.
  */
 class GlowOverlayManagerLifecycleTest {
     private val mockApplication = mockk<com.intellij.openapi.application.Application>(relaxed = true)
@@ -78,16 +73,17 @@ class GlowOverlayManagerLifecycleTest {
 
     @Test
     fun `updateGlow disposes overlays when AyuVariant isAyuActive is false`() {
-        // Bug A: user switches from Ayu to Darcula. Pre-40.1, `updateGlow` walked
-        // the `else DEFAULT_ACCENT_HEX` fallback and kept the orange glow painting
-        // on top of Darcula's blue chrome. Post-40.1, the new guard at the head
-        // disposes every overlay so the screen is left in the LAF's natural state.
+        // User switches from Ayu to Darcula. Historically `updateGlow` walked
+        // the `else DEFAULT_ACCENT_HEX` fallback and kept the orange glow
+        // painting on top of Darcula's blue chrome. The guard at the head
+        // disposes every overlay so the screen is left in the LAF's natural
+        // state.
         //
-        // C-4 strengthening (review-loop): seed the overlay map with explicit
-        // glassPane/host/layeredPane mocks so we can assert detachOverlayEntry's
-        // expected side-effects fire — stopAnimation on the glassPane,
-        // remove + repaint on the layeredPane. Map empty stays as the sanity
-        // net but is no longer the only signal.
+        // Seed the overlay map with explicit glassPane/host/layeredPane mocks
+        // so we can assert `detachOverlayEntry`'s expected side-effects fire —
+        // `stopAnimation` on the glassPane, `remove` + `repaint` on the
+        // layeredPane. Map-empty stays as the sanity net but is no longer the
+        // only signal.
         every { AyuVariant.isAyuActive() } returns false
         every { AyuVariant.detect() } returns null
 
@@ -104,11 +100,11 @@ class GlowOverlayManagerLifecycleTest {
         val overlaysAfter = readOverlaysMap(manager)
         assertTrue(
             overlaysAfter.isEmpty(),
-            "updateGlow with isAyuActive=false MUST leave overlays map empty (D-02 disposal contract)",
+            "updateGlow with isAyuActive=false MUST leave overlays map empty (disposal contract)",
         )
-        // C-4: detachOverlayEntry side-effects must fire on each entry —
-        // proves the disposal path actually walked the map rather than
-        // just clearing it.
+        // `detachOverlayEntry` side-effects must fire on each entry — proves
+        // the disposal path actually walked the map rather than just clearing
+        // it.
         verify { glassPane.stopAnimation() }
         verify { layeredPane.remove(glassPane) }
         verify { layeredPane.repaint(any<Int>(), any<Int>(), any<Int>(), any<Int>()) }
@@ -143,11 +139,11 @@ class GlowOverlayManagerLifecycleTest {
 
     @Test
     fun `syncGlowForAllProjects continues to second project when first project updateGlow throws`() {
-        // TA-I1 regression lock for the existing companion-level RuntimeException
-        // catch. syncGlowForAllProjects iterates every open project; one
-        // project whose updateGlow throws (e.g. mid-dispose race) MUST NOT
-        // block the other projects from being disposed. Pattern B isolation
-        // — narrow RuntimeException catch, log warning, continue.
+        // Regression lock for the companion-level RuntimeException catch.
+        // `syncGlowForAllProjects` iterates every open project; one project
+        // whose `updateGlow` throws (e.g. mid-dispose race) MUST NOT block the
+        // other projects from being disposed. Pattern B isolation — narrow
+        // `RuntimeException` catch, log warning, continue.
         every { AyuVariant.isAyuActive() } returns false
         every { AyuVariant.detect() } returns null
 
@@ -172,18 +168,18 @@ class GlowOverlayManagerLifecycleTest {
         assertTrue(
             readOverlaysMap(manager2).isEmpty(),
             "syncGlowForAllProjects MUST continue to project 2 after project 1 throws " +
-                "(TA-I1 isolation lock — Pattern B)",
+                "(isolation lock — Pattern B)",
         )
         verify(exactly = 1) { manager1.updateGlow() }
     }
 
     @Test
     fun `syncGlowForAllProjects disposes every project glow when variant becomes null`() {
-        // D-03: when `AyuIslandsLafListener` detects a non-Ayu LAF, it calls
+        // When `AyuIslandsLafListener` detects a non-Ayu LAF, it calls
         // `GlowOverlayManager.syncGlowForAllProjects()` which iterates every
-        // open project and triggers per-project disposal via the new guard.
-        // This test pins the multi-project dispatch — without it, only the
-        // focused project's overlay would be disposed.
+        // open project and triggers per-project disposal via the guard. This
+        // test pins the multi-project dispatch — without it, only the focused
+        // project's overlay would be disposed.
         every { AyuVariant.isAyuActive() } returns false
         every { AyuVariant.detect() } returns null
 
@@ -206,11 +202,11 @@ class GlowOverlayManagerLifecycleTest {
 
         assertTrue(
             readOverlaysMap(manager1).isEmpty(),
-            "syncGlowForAllProjects MUST dispose overlays for project1 when variant null (D-03)",
+            "syncGlowForAllProjects MUST dispose overlays for project1 when variant null",
         )
         assertTrue(
             readOverlaysMap(manager2).isEmpty(),
-            "syncGlowForAllProjects MUST dispose overlays for project2 when variant null (D-03)",
+            "syncGlowForAllProjects MUST dispose overlays for project2 when variant null",
         )
     }
 
@@ -239,10 +235,10 @@ class GlowOverlayManagerLifecycleTest {
     /**
      * Inserts a sentinel entry into the private `overlays` map so the disposal
      * test can prove the map was cleared. The map's value type is the private
-     * `OverlayEntry` data class. Plan 40.1-01 added a `removeAllOverlays()`
-     * disposal path inside `updateGlow()`'s new guard, AND `updateOverlayStyles`
-     * iterates the same map on the non-disposal branch — both destructure the
-     * value as `OverlayEntry` (`for ((_, entry) in overlays)`), so seeding a
+     * `OverlayEntry` data class. A `removeAllOverlays()` disposal path runs
+     * inside `updateGlow()`'s guard, AND `updateOverlayStyles` iterates the
+     * same map on the non-disposal branch — both destructure the value as
+     * `OverlayEntry` (`for ((_, entry) in overlays)`), so seeding a
      * non-`OverlayEntry` value triggers a `ClassCastException` at runtime.
      *
      * We construct a real `OverlayEntry` via its synthetic data-class
@@ -274,12 +270,11 @@ class GlowOverlayManagerLifecycleTest {
     }
 
     /**
-     * C-4 strengthening: seed the overlays map with EXPLICIT mocks (rather
-     * than the relaxed-mock anonymous trio inside [makeOverlayEntry]) so
-     * tests can verify `detachOverlayEntry`'s side-effects against the same
-     * mock instances they passed in. The non-disposal-path
-     * `updateOverlayStyles` iteration just assigns properties on the
-     * glassPane mock, which relaxed-mock no-ops.
+     * Seed the overlays map with EXPLICIT mocks (rather than the relaxed-mock
+     * anonymous trio inside [makeOverlayEntry]) so tests can verify
+     * `detachOverlayEntry`'s side-effects against the same mock instances they
+     * passed in. The non-disposal-path `updateOverlayStyles` iteration just
+     * assigns properties on the glassPane mock, which relaxed-mock no-ops.
      *
      * Always seeds under the [DISPOSAL_TARGET_KEY] sentinel — the only
      * caller is the disposal-path test, which doesn't need to vary the key.

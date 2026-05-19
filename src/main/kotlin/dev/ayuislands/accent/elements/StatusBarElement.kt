@@ -7,19 +7,17 @@ import java.awt.Color
 import javax.swing.UIManager
 
 /**
- * Tints the status bar surface per CHROME-01 / CHROME-07.
+ * Tints the status bar surface. [writeForegrounds] is overridden because
+ * StatusBar uses a light-family foreground and extends that pick across the
+ * 2026.1 Compact Navigation breadcrumb states.
  *
- * Phase 40.3c Refactor 1: migrated to [AbstractChromeElement]. [writeForegrounds] is
- * overridden because StatusBar uses a light-family foreground and extends that pick
- * across the 2026.1 Compact Navigation breadcrumb states.
- *
- * Phase 40.4 — extended key coverage for IntelliJ 2026.1 Compact Navigation. The path
+ * Extended key coverage for IntelliJ 2026.1 Compact Navigation: the path
  * widget that used to live in `MyNavBarWrapperPanel` is now rendered by
- * `com.intellij.platform.navbar.frontend.ui.NavBarItemComponent` mounted inside
- * `NewNavBarPanel` in the status bar tree. Per
+ * `com.intellij.platform.navbar.frontend.ui.NavBarItemComponent` mounted
+ * inside `NewNavBarPanel` in the status bar tree. Per
  * `JBUI.CurrentTheme.StatusBar.Breadcrumbs` (intellij-community
- * `platform/util/ui/src/com/intellij/util/ui/JBUI.java`), the widget reads colors
- * state-dependent across **9 UIDefaults keys**:
+ * `platform/util/ui/src/com/intellij/util/ui/JBUI.java`), the widget reads
+ * colors state-dependent across **9 UIDefaults keys**:
  *
  *   - foreground / hoverForeground / floatingForeground / selectionForeground / selectionInactiveForeground
  *   - hoverBackground / selectionBackground / selectionInactiveBackground / floatingBackground
@@ -32,16 +30,15 @@ import javax.swing.UIManager
  * + Ayu dark fg, NO black). The standard 3-color WCAG sweep correctly picks BLACK on
  * mid-luminance tinted bg (BLACK passes 5:1 there while WHITE drops to ~4:1), but on
  * a chrome surface we semantically own as a "dark tinted band" the user expects light
- * text. Restricting the palette restores the pre-Phase 40 always-light contract.
+ * text. Restricting the palette preserves the always-light contract.
  *
  * Intensity is read directly from [dev.ayuislands.settings.AyuIslandsSettings.state]
- * per CONTEXT D-03 — the `apply(color)` signature does not carry it, so every Phase
- * 40 chrome element pulls the same live settings. WCAG-aware foreground contrast is
- * always applied — the earlier opt-out toggle was retired because saturated tints
- * without readable foregrounds failed the user-space quality bar.
+ * — the `apply(color)` signature does not carry it, so every chrome element pulls
+ * the same live settings. WCAG-aware foreground contrast is always applied —
+ * saturated tints without readable foregrounds fail the user-space quality bar.
  *
  * `revert()` nulls every touched UIManager key so the LAF re-resolves the stock
- * theme value (D-14 / CHROME-08). Both the background keys and the foreground keys
+ * theme value (Pattern G). Both the background keys and the foreground keys
  * are nulled unconditionally so a previously-applied contrast color cannot leak
  * after the user disables chrome tinting.
  */
@@ -64,7 +61,7 @@ class StatusBarElement : AbstractChromeElement() {
             "StatusBar.Breadcrumbs.floatingBackground",
         )
 
-    // Phase 40.4 — covers ALL 9 JBUI.CurrentTheme.StatusBar.Breadcrumbs.* fg states
+    // Covers ALL 9 JBUI.CurrentTheme.StatusBar.Breadcrumbs.* fg states
     // referenced by NavBarItemComponent.update(). Without writing every state, the
     // path widget falls through to stock UIUtil.getLabelForeground() the moment the
     // user hovers / NavBar promotes to floating mode / scope item is selected — a

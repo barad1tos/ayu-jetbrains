@@ -246,7 +246,7 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
     }
 
     /**
-     * Consent-gated lifecycle action (D-04 fix + D-07 + D-12).
+     * Consent-gated lifecycle action.
      *
      * Handles both install and uninstall paths because both (a) share the same
      * post-action refresh boilerplate and (b) both must run through FontInstallConsent
@@ -254,8 +254,8 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
      * FontPresetPanel under the detekt TooManyFunctions threshold.
      *
      * Install path is used by "Install automatically" on the missing row and by
-     * "Reinstall" on both the healthy and corrupted rows — D-12 requires every
-     * reinstall to be user-triggered through this same consent helper.
+     * "Reinstall" on both the healthy and corrupted rows — every reinstall must
+     * be user-triggered through this same consent helper.
      */
     private fun triggerLifecycleAction(uninstall: Boolean) {
         try {
@@ -298,15 +298,14 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
     }
 
     private fun Panel.buildInstallHintRow() {
-        // D-04 fix: install path is consent-gated via FontInstallConsent.
-        // Previous behavior called FontInstaller.install() directly with no dialog,
-        // violating "never touch userspace without consent".
+        // Install path is consent-gated via FontInstallConsent so the plugin
+        // never touches userspace (font files on disk) without explicit consent.
         row {
             link("Install automatically") { triggerLifecycleAction(uninstall = false) }
             comment("Downloads, installs, and registers the font with no restart")
         }.visibleIf(fontMissing)
 
-        // D-02: installed-healthy row with Reinstall + Delete actions (mutually exclusive
+        // Installed-healthy row with Reinstall + Delete actions (mutually exclusive
         // with fontMissing via the three-way status() snapshot in updateFontMissing).
         row {
             label("Installed ✓")
@@ -315,8 +314,8 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
             comment("Reinstall re-downloads the font; Delete removes the installed files (restart required)")
         }.visibleIf(fontInstalled)
 
-        // D-02: corrupted row — state says installed, but the file is gone from disk
-        // and the JVM no longer sees the family. User-triggered repair only (D-12).
+        // Corrupted row — state says installed, but the file is gone from disk
+        // and the JVM no longer sees the family. User-triggered repair only.
         row {
             label("\u26A0 Installed file missing")
             link("Reinstall") { triggerLifecycleAction(uninstall = false) }
@@ -560,7 +559,7 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
 
     private fun updateFontMissing() {
         val preset = FontPreset.fromName(pendingPreset)
-        // D-01/D-03: compute all three booleans atomically from a SINGLE status snapshot
+        // Compute all three booleans atomically from a SINGLE status snapshot
         // so the three .visibleIf() rows are always mutually exclusive — no race window.
         // Non-curated presets and disabled state collapse to NOT_INSTALLED.
         val status =

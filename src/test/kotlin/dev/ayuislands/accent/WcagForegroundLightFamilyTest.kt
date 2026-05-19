@@ -8,7 +8,7 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 /**
- * Locks Phase 40.4's light-family palette contract for [WcagForeground].
+ * Locks the light-family palette contract for [WcagForeground].
  *
  * The full 3-color WCAG palette `[WHITE, DARK_FG #1F2430, BLACK]` correctly
  * picks BLACK on mid-luminance backgrounds (e.g. cyan accent at intensity ≥
@@ -35,9 +35,9 @@ import kotlin.test.assertTrue
 class WcagForegroundLightFamilyTest {
     @Test
     fun `pickLightFamilyForeground never returns BLACK on cyan-tinted Mirage bg sweep`() {
-        // Phase 40.4 regression lock: the user-reported "white at 0-10%, black
-        // at 20%+" symptom traced to the standard 3-color sweep landing on BLACK
-        // once the tinted bg luminance crossed ~0.20. Light-family must NEVER do
+        // Regression lock: the user-reported "white at 0-10%, black at 20%+"
+        // symptom traced to the standard 3-color sweep landing on BLACK once
+        // the tinted bg luminance crossed ~0.20. Light-family must NEVER do
         // that — the user expects light text on a dark band at every intensity.
         for (percent in INTENSITY_SWEEP) {
             val tintedBg = blend(MIRAGE_STATUS_BAR_BG, CYAN_ACCENT, percent)

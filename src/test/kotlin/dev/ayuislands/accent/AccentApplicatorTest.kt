@@ -73,6 +73,10 @@ class AccentApplicatorTest {
         every { ApplicationManager.getApplication() } returns mockApplication
         every { mockApplication.messageBus } returns mockMessageBus
         every { mockMessageBus.syncPublisher(EditorColorsManager.TOPIC) } returns mockk(relaxed = true)
+        // AccentChangedTopic publish — Apply path casts the syncPublisher
+        // return value to AccentChangeListener. Stub a relaxed mock so the
+        // cast succeeds in this legacy headless test.
+        every { mockMessageBus.syncPublisher(AccentChangedTopic.TOPIC) } returns mockk(relaxed = true)
 
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns mockSettings
@@ -90,10 +94,10 @@ class AccentApplicatorTest {
         mockkStatic(PluginManagerCore::class)
         every { PluginManagerCore.getPlugin(any()) } returns null
 
-        // D-15 plumbing: revertAll iterates ProjectManager.openProjects and calls
-        // ComponentTreeRefresher.notifyOnly per usable project. Unit tests don't boot
-        // the platform, so both must be stubbed or the new notifyOnly loop blows up
-        // with "Can't get extension point" / a null ProjectManager.
+        // Per-project notify plumbing: revertAll iterates ProjectManager.openProjects
+        // and calls ComponentTreeRefresher.notifyOnly per usable project. Unit tests
+        // don't boot the platform, so both must be stubbed or the notifyOnly loop
+        // blows up with "Can't get extension point" / a null ProjectManager.
         mockkStatic(com.intellij.openapi.project.ProjectManager::class)
         val mockProjectManager = mockk<com.intellij.openapi.project.ProjectManager>(relaxed = true)
         every {
@@ -159,22 +163,21 @@ class AccentApplicatorTest {
     }
 
     /**
-     * Plan 40.1-02 extracted the CGP reflection chain into peer object
-     * [CgpIntegration] to keep [AccentApplicator] under the detekt
-     * `TooManyFunctions` cap. The `cgp*` fields (`cgpService`, `cgpGetState`,
-     * the four `cgpSetViewport*` slots, `cgpMethodsResolved`) and the methods
-     * `syncCodeGlanceProViewport` / `resolveCgpMethods` now live on
-     * [CgpIntegration]; everything else stays on [AccentApplicator]. The
-     * helpers below dispatch by name so existing tests can keep their
-     * AccentApplicator-flavoured reflection without re-templating every
-     * `setPrivateField("cgpService", …)` callsite.
+     * The CGP reflection chain lives on the peer object [CodeGlanceProIntegration]
+     * to keep [AccentApplicator] under the detekt `TooManyFunctions` cap. The
+     * `cgp*` fields (`cgpService`, `cgpGetState`, the four `cgpSetViewport*`
+     * slots, `cgpMethodsResolved`) and the methods `syncCodeGlanceProViewport`
+     * / `resolveCgpMethods` live on [CodeGlanceProIntegration]; everything else
+     * stays on [AccentApplicator]. The helpers below dispatch by name so existing
+     * tests can keep their AccentApplicator-flavoured reflection without
+     * re-templating every `setPrivateField("cgpService", …)` callsite.
      */
     private fun ownerForName(name: String): Any =
         if (name.startsWith("cgp") ||
             name == "syncCodeGlanceProViewport" ||
             name == "resolveCgpMethods"
         ) {
-            CgpIntegration
+            CodeGlanceProIntegration
         } else {
             AccentApplicator
         }
@@ -457,7 +460,7 @@ class AccentApplicatorTest {
         val window1 = mockk<Window>(relaxed = true)
         val window2 = mockk<Window>(relaxed = true)
         val window3 = mockk<Window>(relaxed = true)
-        // Phase 40.2 M-8: repaintAllWindows now skips non-displayable windows.
+        // repaintAllWindows skips non-displayable windows.
         every { window1.isDisplayable } returns true
         every { window2.isDisplayable } returns true
         every { window3.isDisplayable } returns true
@@ -864,8 +867,8 @@ class AccentApplicatorTest {
     // Tests for public apply() method
 
     @Test
-    fun `applyAlwaysOnUiKeys accepts state as an explicit parameter (Phase 40_4 L-4)`() {
-        // Phase 40.4 L-4 regression lock: the outer apply() already captures
+    fun `applyAlwaysOnUiKeys accepts state as an explicit parameter (state-snapshot lock)`() {
+        // Regression lock: the outer apply() already captures
         // AyuIslandsSettings.state at entry, so applyAlwaysOnUiKeys must thread
         // that same state through rather than re-fetching via
         // AyuIslandsSettings.getInstance(). A future refactor that drops the
@@ -968,7 +971,7 @@ class AccentApplicatorTest {
 
     @Test
     fun `apply persists accent hex to lastAppliedAccentHex for next-startup anti-flicker`() {
-        // Regression guard for Phase 40-anti-flicker: AyuIslandsAppListener.appFrameCreated
+        // Regression guard for anti-flicker on next startup: AyuIslandsAppListener.appFrameCreated
         // reads state.lastAppliedAccentHex on the next IDE restart to paint the first frame
         // without a global-accent flash. If a refactor drops the state write inside apply(),
         // multi-window restores would flicker Gold before each StartupActivity ran.
@@ -998,15 +1001,15 @@ class AccentApplicatorTest {
         assertEquals("#FF3333", state.lastAppliedAccentHex)
     }
 
-    // Hex validation — Phase 40 Round 2 Fix B-1
+    // Hex validation
 
     @Test
     fun `apply rejects invalid hex strings without throwing or mutating UIManager`() {
-        // Phase 40 Round 2 Fix B-1: corrupted / hand-edited persisted hex must not
-        // abort the first frame paint. AccentApplicator.apply now rejects anything that
-        // doesn't match HEX_COLOR_PATTERN before reaching Color.decode (which would
-        // throw NumberFormatException). Covers "garbage", empty string, and malformed
-        // shapes that used to crash the applier.
+        // Corrupted / hand-edited persisted hex must not abort the first
+        // frame paint. AccentApplicator.apply rejects anything that doesn't
+        // match HEX_COLOR_PATTERN before reaching Color.decode (which would
+        // throw NumberFormatException). Covers "garbage", empty string, and
+        // malformed shapes that used to crash the applier.
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
         every { IndentRainbowSync.apply(any(), any()) } returns Unit
@@ -1056,10 +1059,10 @@ class AccentApplicatorTest {
 
     @Test
     fun `AccentHex of matches expected shapes`() {
-        // Phase 40.3b: the shape check moved from AccentApplicator.HEX_COLOR_PATTERN
-        // onto AccentHex.of, which is now the single boundary that gates Color.decode.
-        // This test is retained under the applicator suite so the same contract the
-        // applicator used to own is still asserted in the applicator's coverage footprint.
+        // The shape check lives on AccentHex.of, which is the single boundary
+        // that gates Color.decode. This test is retained under the applicator
+        // suite so the same contract the applicator used to own is still
+        // asserted in the applicator's coverage footprint.
         // Positive
         assertNotNull(AccentHex.of("#000000"))
         assertNotNull(AccentHex.of("#FFFFFF"))
@@ -1436,21 +1439,21 @@ class AccentApplicatorTest {
         verify(exactly = 0) { element.applyNeutral(any()) }
     }
 
-    // --- Round 3 hotfix regression tests (C7, C8) ---
+    // --- Revert-on-apply-fail regression tests ---
     //
-    // Locks the revert-on-apply-fail block introduced in Phase 40 Round 3 M-7:
-    // when an element's `apply` throws, `applyElements` must roll that element
-    // back with `revert()` so a partial mutation doesn't leave UIManager +
-    // live peers in a mixed tinted+stock state (which would then poison
-    // `ChromeBaseColors` on the next capture). The PRE-EXISTING
-    // "catches RuntimeException from element apply" test passes even if the
-    // revert block is deleted — these tests fail if the block is removed.
+    // Locks the revert-on-apply-fail block: when an element's `apply` throws,
+    // `applyElements` must roll that element back with `revert()` so a partial
+    // mutation doesn't leave UIManager + live peers in a mixed tinted+stock
+    // state (which would then poison `ChromeBaseColors` on the next capture).
+    // The PRE-EXISTING "catches RuntimeException from element apply" test
+    // passes even if the revert block is deleted — these tests fail if the
+    // block is removed.
 
     /**
-     * C7 — when an element's `apply` throws, `applyElements` must call
-     * `revert()` on the same element AND continue to the next element in
-     * the extension list. Without the revert block, the partial mutation
-     * would stay visible until the next full apply/revert cycle.
+     * When an element's `apply` throws, `applyElements` must call `revert()`
+     * on the same element AND continue to the next element in the extension
+     * list. Without the revert block, the partial mutation would stay visible
+     * until the next full apply/revert cycle.
      */
     @Test
     fun `applyElements calls revert on an element whose apply throws`() {
@@ -1464,7 +1467,7 @@ class AccentApplicatorTest {
         invokeApplyElements(state, accent, AyuVariant.MIRAGE)
 
         // Revert was invoked exactly once on the throwing element — this is
-        // the Round 3 M-7 lock; if the new try/revert block is deleted,
+        // the revert-on-apply-fail lock; if the try/revert block is deleted,
         // this verification fails.
         verify(exactly = 1) { throwingElement.revert() }
         // Dispatch proceeded to the next element despite the failure above.
@@ -1472,7 +1475,7 @@ class AccentApplicatorTest {
     }
 
     /**
-     * C8 — when `apply` throws AND the fallback `revert()` also throws,
+     * When `apply` throws AND the fallback `revert()` also throws,
      * `applyElements` must still move on to the next element. Locks the
      * nested try/catch around the cleanup path so a doubly-broken element
      * does not take the whole dispatch loop down with it.
@@ -1768,8 +1771,8 @@ class AccentApplicatorTest {
     }
 
     // applyTabUnderline tests (merged from applyTabUnderlineStyle +
-    // overrideTabUnderlineForOffMode in plan 40.1-02 review-loop to keep
-    // AccentApplicator under detekt's TooManyFunctions cap)
+    // overrideTabUnderlineForOffMode to keep AccentApplicator under detekt's
+    // TooManyFunctions cap)
 
     @Test
     fun `applyTabUnderline sets underline height and arc via UIManager`() {
@@ -1822,19 +1825,18 @@ class AccentApplicatorTest {
     }
 
     private fun resetCgpState() {
-        // TD-I5 (plan 40.1-02 review-loop): drop hand-rolled raw-reflection
-        // writes in favour of the typed [CgpIntegration.resetReflectionCacheForTests]
-        // helper. The previous loop iterated five field names as raw strings;
-        // a typo or rename would silently leave stale state in the next test.
-        // The new helper lives next to the fields it resets — a Kotlin rename
-        // refactors both at once.
-        CgpIntegration.resetReflectionCacheForTests()
+        // Use the typed [CodeGlanceProIntegration.resetReflectionCacheForTests]
+        // helper instead of hand-rolled raw-reflection writes. A field loop
+        // that iterated five field names as raw strings would silently leave
+        // stale state in the next test on rename. The helper lives next to
+        // the fields it resets — a Kotlin rename refactors both at once.
+        CodeGlanceProIntegration.resetReflectionCacheForTests()
     }
 
-    // Phase 40.2 T-3: apply() with an invalid hex returns false AND posts a
-    // user-visible notification on the "Ayu Islands" group. The pre-40.2
-    // apply returned Unit and silently swallowed corruption — a regression
-    // that let a single bad hex in per-project XML go undiagnosed.
+    // apply() with an invalid hex returns false AND posts a user-visible
+    // notification on the "Ayu Islands" group. A prior apply() returned Unit
+    // and silently swallowed corruption — a regression that let a single bad
+    // hex in per-project XML go undiagnosed.
     @Test
     fun `apply with invalid hex returns false and notifies the user`() {
         mockkStatic(com.intellij.notification.Notifications.Bus::class)
@@ -1857,10 +1859,10 @@ class AccentApplicatorTest {
         }
     }
 
-    // Phase 40.2 T-5: applyForFocusedProject MUST carry @RequiresEdt so an
-    // off-EDT caller fails fast instead of throwing deep inside a platform
-    // API. Source-regex test because the annotation is a contract promise to
-    // callers, not a runtime check we can exercise cheaply.
+    // applyForFocusedProject MUST carry @RequiresEdt so an off-EDT caller
+    // fails fast instead of throwing deep inside a platform API. Source-regex
+    // test because the annotation is a contract promise to callers, not a
+    // runtime check we can exercise cheaply.
     @Test
     fun `applyForFocusedProject carries RequiresEdt annotation in source`() {
         val sourceFile = java.io.File("src/main/kotlin/dev/ayuislands/accent/AccentApplicator.kt")

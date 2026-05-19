@@ -93,10 +93,11 @@ class AyuIslandsStartupActivityTest {
 
     @Test
     fun `execute dispatches AccentApplicator resolveFocusedProject via withContext Dispatchers EDT`() {
-        // Regression guard for the PR #151 Round 1 fix: AccentApplicator.resolveFocusedProject
-        // is @RequiresEdt (IdeFocusManager touches Swing focus state), but ProjectActivity.execute
-        // runs on a background coroutine by default. Without a withContext(Dispatchers.EDT) wrap
-        // the call throws a threading assertion inside the IDE under fleetMode/assertions.
+        // Regression guard: `AccentApplicator.resolveFocusedProject` is `@RequiresEdt`
+        // (`IdeFocusManager` touches Swing focus state), but `ProjectActivity.execute`
+        // runs on a background coroutine by default. Without a
+        // `withContext(Dispatchers.EDT)` wrap the call throws a threading assertion
+        // inside the IDE under fleetMode / assertions.
         //
         // The invariant is source-level — dynamically invoking execute() requires a project
         // fixture, DumbService, LafManager, and a fully wired message bus, none of which are
@@ -129,16 +130,16 @@ class AyuIslandsStartupActivityTest {
 
     @Test
     fun `execute publishes swap-service cache inside the same EDT withContext block`() {
-        // Regression guard for the PR #151 Round 2 Fix B-2: ProjectAccentSwapService has an
-        // EDT precondition for notifyExternalApply (per the AccentApplicator.applyForFocusedProject
-        // KDoc — the cache write is a bare volatile with no dispatch and must publish in the same
-        // ordering as the apply that preceded it).
+        // Regression guard: `ProjectAccentSwapService` has an EDT precondition for
+        // `notifyExternalApply` (per `AccentApplicator.applyForFocusedProject` KDoc —
+        // the cache write is a bare volatile with no dispatch and must publish in the
+        // same ordering as the apply that preceded it).
         //
-        // Phase 40 review-loop Round 2 HIGH R2-1 then split install and notifyExternalApply
-        // into two runCatchingPreservingCancellation blocks for better error attribution,
-        // so the regex tolerates intermediate braces — the only invariant that matters is
-        // that all four operations appear in order inside the EDT turn, not that they
-        // share a single inner block.
+        // Install and notifyExternalApply later split into two
+        // `runCatchingPreservingCancellation` blocks for better error attribution,
+        // so the regex tolerates intermediate braces — the only invariant that
+        // matters is that all four operations appear in order inside the EDT turn,
+        // not that they share a single inner block.
         val source = readStartupActivitySource()
         val edtTriplet =
             Regex(
@@ -157,12 +158,12 @@ class AyuIslandsStartupActivityTest {
 
     @Test
     fun `startup accent helper emits distinct error messages per failure branch`() {
-        // Round 2 HIGH R2-1 regression lock. The Round 1 loop fix split one
-        // runCatching into three (apply / install / notifyExternalApply) so
-        // triage can tell which half of the startup triplet failed from the
-        // log line alone. A maintainer who collapses the three branches back
-        // into one message, or who accidentally swaps the strings, would
-        // silently break that attribution contract.
+        // Regression lock. The loop fix split one `runCatching` into three
+        // (`apply` / `install` / `notifyExternalApply`) so triage can tell
+        // which half of the startup triplet failed from the log line alone.
+        // A maintainer who collapses the three branches back into one message,
+        // or who accidentally swaps the strings, would silently break that
+        // attribution contract.
         val source = readStartupActivitySource()
         assertTrue(
             source.contains("Startup accent apply failed for project"),
@@ -186,12 +187,11 @@ class AyuIslandsStartupActivityTest {
 
     @Test
     fun `startup EDT block bails early when project or application is disposed`() {
-        // Round 2 HIGH R2-2 regression lock. The disposal bail must be the
-        // FIRST statement inside the withContext(Dispatchers.EDT) body so a
-        // mid-hop disposal can't reach platform APIs that would rewrap
-        // ProcessCanceledException as AlreadyDisposedException (which the
-        // coroutine cancellation helper cannot unwrap). Locks both presence
-        // AND position of the guard.
+        // Regression lock. The disposal bail must be the FIRST statement inside
+        // the `withContext(Dispatchers.EDT)` body so a mid-hop disposal can't
+        // reach platform APIs that would rewrap `ProcessCanceledException` as
+        // `AlreadyDisposedException` (which the coroutine cancellation helper
+        // cannot unwrap). Locks both presence AND position of the guard.
         val source = readStartupActivitySource()
         val disposedBail =
             Regex(
@@ -207,11 +207,11 @@ class AyuIslandsStartupActivityTest {
 
     @Test
     fun `startup projectName is captured before the EDT hop`() {
-        // Round 2 HIGH R2-3 regression lock. `projectName` MUST be captured
-        // OUTSIDE `withContext(Dispatchers.EDT)` so a mid-hop disposal cannot
-        // NPE inside the error logger and swallow the original exception
-        // (the MEDIUM-3 failure mode). Tempting to move it inside since
-        // projectName is only read there — this guard catches that.
+        // Regression lock. `projectName` MUST be captured OUTSIDE
+        // `withContext(Dispatchers.EDT)` so a mid-hop disposal cannot NPE
+        // inside the error logger and swallow the original exception.
+        // Tempting to move it inside since `projectName` is only read there —
+        // this guard catches that.
         val source = readStartupActivitySource()
         val beforeEdt =
             Regex(
@@ -226,11 +226,10 @@ class AyuIslandsStartupActivityTest {
 
     @Test
     fun `startup projectName capture uses disposed fallback when project name access throws`() {
-        // Round 2 S-3 lock for MEDIUM-3 fix. The projectName capture uses a
-        // try/catch with RuntimeException (narrowed from runCatching-Throwable
-        // in Round 2 MEDIUM R2-1) and falls back to the "<disposed>" literal
-        // when project.name access blows up. Lock both the narrowed catch and
-        // the literal fallback.
+        // The `projectName` capture uses a `try/catch` with `RuntimeException`
+        // (narrowed from `runCatching` over `Throwable`) and falls back to the
+        // `"<disposed>"` literal when `project.name` access blows up. Lock
+        // both the narrowed catch and the literal fallback.
         val source = readStartupActivitySource()
         assertTrue(
             source.contains("\"<disposed>\""),
@@ -250,13 +249,14 @@ class AyuIslandsStartupActivityTest {
 
     @Test
     fun `install and notifyExternalApply are structurally separated by a short-circuit bail`() {
-        // Round 3 G1 regression lock. The R2-1 fix depends on install() and
-        // notifyExternalApply() sitting in SEPARATE runCatchingPreservingCancellation
-        // blocks with an `if (!installed) return@withContext` short-circuit
-        // between them. A "simplify" refactor that collapses them back into
-        // one block would keep both error literals (as dead code inside one
-        // runCatching body) while silently restoring the exact bug R2-1 fixed.
-        // Lock the structural pattern.
+        // Regression lock. The split-block fix depends on `install()` and
+        // `notifyExternalApply()` sitting in SEPARATE
+        // `runCatchingPreservingCancellation` blocks with an
+        // `if (!installed) return@withContext` short-circuit between them. A
+        // "simplify" refactor that collapses them back into one block would
+        // keep both error literals (as dead code inside one `runCatching` body)
+        // while silently restoring the bug — publish to swap cache despite a
+        // failed install. Lock the structural pattern.
         val source = readStartupActivitySource()
         val structural =
             Regex(
@@ -275,17 +275,17 @@ class AyuIslandsStartupActivityTest {
 
     @Test
     fun `install failure short-circuits before notifyExternalApply`() {
-        // TEST-IMPORTANT-3 regression lock: when `swapService.install()` fails,
-        // `installed` is false and the function MUST `return@withContext` before
+        // Regression lock: when `swapService.install()` fails, `installed` is
+        // false and the function MUST `return@withContext` before
         // `swapService.notifyExternalApply(...)` executes. Behavioural form is
-        // impossible here (runStartupAccentOnEdt is a private suspend fun that
-        // touches Dispatchers.EDT + IntelliJ platform singletons — there is no
-        // test seam that exercises it in a unit harness). The contract is locked
-        // source-structurally: the `if (!installed) return@withContext` guard
-        // must sit between the install block's `.isSuccess` suffix and the
-        // notifyExternalApply call site. Removing or reordering that guard
-        // collapses HIGH R2-1 and reintroduces the bug where a failed install
-        // would still publish to the swap cache.
+        // impossible here (`runStartupAccentOnEdt` is a private suspend fun
+        // that touches `Dispatchers.EDT` + IntelliJ platform singletons —
+        // there is no test seam that exercises it in a unit harness). The
+        // contract is locked source-structurally: the
+        // `if (!installed) return@withContext` guard must sit between the
+        // install block's `.isSuccess` suffix and the `notifyExternalApply`
+        // call site. Removing or reordering that guard reintroduces the bug
+        // where a failed install would still publish to the swap cache.
         val source = readStartupActivitySource()
         val guardBeforeNotify =
             Regex(
@@ -296,8 +296,7 @@ class AyuIslandsStartupActivityTest {
             )
         assertTrue(
             guardBeforeNotify.containsMatchIn(source),
-            "install() failure path must `return@withContext` BEFORE notifyExternalApply " +
-                "runs — HIGH R2-1 contract",
+            "install() failure path must `return@withContext` BEFORE notifyExternalApply runs",
         )
         // Belt-and-braces: the failure log text is specific, so lock on it too.
         assertTrue(
@@ -310,12 +309,12 @@ class AyuIslandsStartupActivityTest {
 
     @Test
     fun `startup helper WARNs when applyFromHexString rejects hex as a defensive branch`() {
-        // Round 3 G2 regression lock, updated for Phase 40.4 HIGH-1:
-        // `applyFromHexString` returns Boolean (false = rejected); when rejected,
-        // hex becomes null via `if (applied) resolved else null`. That branch
-        // must log a WARN so operators can tell rejected-hex from throw-hex.
-        // Source-level lock on the WARN literal AND the structural
-        // `applyOutcome.isSuccess` check inside `if (hex == null)`.
+        // Regression lock: `applyFromHexString` returns Boolean (false =
+        // rejected); when rejected, `hex` becomes null via
+        // `if (applied) resolved else null`. That branch must log a WARN so
+        // operators can tell rejected-hex from throw-hex. Source-level lock on
+        // the WARN literal AND the structural `applyOutcome.isSuccess` check
+        // inside `if (hex == null)`.
         val source = readStartupActivitySource()
         assertTrue(
             source.contains("Startup accent apply was rejected by applyFromHexString"),
@@ -335,12 +334,12 @@ class AyuIslandsStartupActivityTest {
 
     @Test
     fun `execute does not claim AccentApplicator apply self-dispatches`() {
-        // Regression guard for the PR #151 Round 2 Fix B-2: the old comment above the
-        // withContext block asserted "AccentApplicator.apply self-dispatches internally",
-        // which contradicts [AccentApplicator.apply]'s @RequiresEdt annotation and its
-        // KDoc explicitly stating the helper does NOT self-dispatch pre-apply steps.
-        // A future maintainer reading the false comment would be tempted to unwrap the
-        // withContext — exactly the regression this guard prevents.
+        // Regression guard: the old comment above the `withContext` block asserted
+        // "AccentApplicator.apply self-dispatches internally", which contradicts
+        // [AccentApplicator.apply]'s `@RequiresEdt` annotation and its KDoc
+        // explicitly stating the helper does NOT self-dispatch pre-apply steps.
+        // A future maintainer reading the false comment would be tempted to
+        // unwrap the `withContext` — exactly the regression this guard prevents.
         val source = readStartupActivitySource()
         assertEquals(
             false,
@@ -350,13 +349,13 @@ class AyuIslandsStartupActivityTest {
         )
     }
 
-    // Phase 40.2 T-2: lock the full 5-step order inside runStartupAccentOnEdt —
-    // resolveFocusedProject → AccentResolver.resolve → AccentApplicator.apply →
-    // swapService.install → swapService.notifyExternalApply. The existing
+    // Lock the full 5-step order inside `runStartupAccentOnEdt`:
+    // `resolveFocusedProject` → `AccentResolver.resolve` → `AccentApplicator.apply`
+    // → `swapService.install` → `swapService.notifyExternalApply`. The existing
     // "same EDT withContext block" test covers the last four; this one adds
-    // AccentResolver.resolve between them so a future refactor that drops the
-    // resolver step (and hands a stale accent hex directly to apply) surfaces
-    // here.
+    // `AccentResolver.resolve` between them so a future refactor that drops
+    // the resolver step (and hands a stale accent hex directly to apply)
+    // surfaces here.
     @Test
     fun `runStartupAccentOnEdt invokes resolveFocusedProject, resolve, apply, install, notifyExternalApply in order`() {
         val source = readStartupActivitySource()
@@ -377,17 +376,17 @@ class AyuIslandsStartupActivityTest {
     }
 
     // -----------------------------------------------------------------------
-    // applyPersistedVcsColors gate coverage (PR #170)
+    // applyPersistedVcsColors gate coverage.
     //
     // [AyuIslandsStartupActivity.applyPersistedVcsColors] is a `private fun`
     // that gates [VcsColorApplier.applyAll] on `state.vcsColorEnabled AND
     // LicenseChecker.isLicensedOrGrace()`. Since the function is private and
     // has no dedicated test seam, the tests below mirror the exact production
-    // body at AyuIslandsStartupActivity.kt:223-227 inside the public
-    // [AyuIslandsStartupActivity.runStepForTest] seam. This duplicates intent
-    // but is the only behavioural cover available without altering production
-    // code, and the source-regex lock below freezes the production gate so
-    // a future drift between mirror and source is caught.
+    // body inside the public [AyuIslandsStartupActivity.runStepForTest] seam.
+    // This duplicates intent but is the only behavioural cover available
+    // without altering production code, and the source-regex lock below
+    // freezes the production gate so a future drift between mirror and source
+    // is caught.
     // -----------------------------------------------------------------------
 
     private fun runVcsGateMirror(settings: AyuIslandsSettings) {
@@ -489,13 +488,13 @@ class AyuIslandsStartupActivityTest {
 
     @Test
     fun `applyPersistedVcsColors source gate matches the test mirror exactly`() {
-        // Drift lock: the four tests above mirror the production body at
-        // AyuIslandsStartupActivity.kt:223-227. If a future maintainer
-        // changes the gate (e.g. adds a third predicate, flips operator
-        // precedence, swaps the function call), the mirror in
-        // [runVcsGateMirror] silently goes stale and the gate tests keep
-        // passing while the real gate misbehaves. This regex locks the
-        // production gate to the exact shape the mirror duplicates.
+        // Drift lock: the four tests above mirror the production body of
+        // `applyPersistedVcsColors`. If a future maintainer changes the gate
+        // (e.g. adds a third predicate, flips operator precedence, swaps the
+        // function call), the mirror in [runVcsGateMirror] silently goes
+        // stale and the gate tests keep passing while the real gate
+        // misbehaves. This regex locks the production gate to the exact shape
+        // the mirror duplicates.
         val source = readStartupActivitySource()
         val productionGate =
             Regex(

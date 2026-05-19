@@ -85,6 +85,9 @@
 # plugin.xml: action (Tools → Ayu Islands → Rescan Project Language)
 -keep class dev.ayuislands.actions.RescanLanguageAction { *; }
 
+# plugin.xml: action + CustomComponentAction (MainToolbarRight Quick-Switcher chip)
+-keep class dev.ayuislands.accent.toolbar.QuickSwitcherWidgetAction { *; }
+
 # Public API singletons (called from kept classes)
 -keep class dev.ayuislands.accent.AccentApplicator { *; }
 -keep class dev.ayuislands.accent.AccentColor { *; }

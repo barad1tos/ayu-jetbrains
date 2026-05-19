@@ -30,8 +30,8 @@ import kotlin.test.assertTrue
 
 /**
  * Unit tests for [FontUninstaller.runUninstallPipeline] and the public
- * [FontUninstaller.uninstall] dispatcher. Covers D-07 uninstall pipeline,
- * D-08 path-traversal guard (T-25-01), D-09 explicit-uninstall guard.
+ * [FontUninstaller.uninstall] dispatcher. Covers the uninstall pipeline,
+ * the path-traversal guard, and the explicit-uninstall guard.
  */
 class FontUninstallerTest {
     @AfterTest
@@ -128,7 +128,7 @@ class FontUninstallerTest {
             assertFalse(state.installedFontFiles.containsKey("Maple Mono"), "path entry must be cleared")
             assertTrue(
                 state.explicitlyUninstalledFonts.contains("Maple Mono"),
-                "family must be added to D-09 guard",
+                "family must be added to the explicit-uninstall guard",
             )
         } finally {
             platformDir.deleteRecursively()
@@ -295,10 +295,10 @@ class FontUninstallerTest {
 
     @Test
     fun `uninstall fires Failure with CUSTOM sentinel familyName and skips ProgressManager`() {
-        // Round-2 review: familyName must use preset.name ("CUSTOM") sentinel,
-        // not preset.fontFamily — the latter is DEFAULT_CUSTOM_FONT
+        // `familyName` must use the `preset.name` ("CUSTOM") sentinel, not
+        // `preset.fontFamily` — the latter is `DEFAULT_CUSTOM_FONT`
         // ("JetBrains Mono") for CUSTOM, which lies to telemetry/logs about
-        // a removal that never happened. Symmetric to FontInstaller.install
+        // a removal that never happened. Symmetric to the `FontInstaller.install`
         // contract: callback fires, task is never queued.
         mockkStatic(ProgressManager::class)
         val progressMgr = mockk<ProgressManager>(relaxed = true)

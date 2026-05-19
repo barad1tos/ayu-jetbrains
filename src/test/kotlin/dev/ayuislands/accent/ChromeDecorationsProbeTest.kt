@@ -144,7 +144,7 @@ class ChromeDecorationsProbeTest {
         )
     }
 
-    // --- probe() typed result (Phase 40.3c Refactor 3) ---
+    // --- probe() typed result ---
     //
     // Every OS branch maps to a distinct ChromeSupport variant so the Settings UI
     // can render a tailored "disabled" tooltip without re-sampling SystemInfo on
@@ -208,7 +208,7 @@ class ChromeDecorationsProbeTest {
 
     @Test
     fun `osSupplier override on one thread does not leak into another thread`() {
-        // Phase 40.4 L-2 regression lock: the osSupplier seam is backed by a
+        // Pattern I regression lock: the osSupplier seam is backed by a
         // ThreadLocal so parallel JUnit workers cannot cross-contaminate pinned
         // OS branches. Pin a deterministic sentinel on this thread, then capture
         // what another thread sees — the sentinel lambda's reference identity
@@ -247,8 +247,8 @@ class ChromeDecorationsProbeTest {
         // Regression guard: UI code pattern-matches on the subtype identity to
         // render user-visible tooltips (see AyuIslandsChromePanel.disabledMainToolbarComment).
         // If two variants collapsed into one object, the sealed `when` would silently
-        // stop covering the intended branch. Phase 40.4 R-3 lifted the display
-        // strings into the UI layer, so the probe-side invariant is subtype identity.
+        // stop covering the intended branch. The display strings live in the
+        // UI layer, so the probe-side invariant is subtype identity.
         val variants =
             setOf<ChromeSupport.Unsupported>(
                 ChromeSupport.Unsupported.NativeMacTitleBar,

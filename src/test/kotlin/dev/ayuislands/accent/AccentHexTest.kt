@@ -31,9 +31,9 @@ class AccentHexTest {
 
     @Test
     fun `of trims leading and trailing whitespace before matching`() {
-        // Phase 40.2 M-2: a persisted XML with accidental whitespace must not
-        // silently fall through to the resolver. trim() is part of the type's
-        // canonical form so the stored .value is the bare hex.
+        // A persisted XML with accidental whitespace must not silently fall
+        // through to the resolver. trim() is part of the type's canonical
+        // form so the stored .value is the bare hex.
         val result = AccentHex.of("  #FFCC66\t")
         assertNotNull(result, "whitespace-padded hex must be accepted after trim")
         assertEquals("#FFCC66", result?.value)

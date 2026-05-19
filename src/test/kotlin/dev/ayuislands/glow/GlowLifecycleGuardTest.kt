@@ -7,11 +7,11 @@ import kotlin.test.Test
 import kotlin.test.fail
 
 /**
- * Pattern L structural lock for the D-02 lifecycle guard.
+ * Pattern L structural lock for the glow lifecycle guard.
  *
- * Companion to [GlowFallbackBannedApiGuardTest], which forbids the OLD shape
- * (DEFAULT_ACCENT_HEX fallbacks). This test pins the NEW shape: the head of
- * `updateGlow()` must open with the literal sequence
+ * Companion to [GlowFallbackBannedApiGuardTest], which forbids the old shape
+ * (`DEFAULT_ACCENT_HEX` fallbacks). This test pins the current shape: the head
+ * of `updateGlow()` must open with the literal sequence
  *
  *   if (!AyuVariant.isAyuActive()) {
  *       removeAllOverlays()
@@ -76,7 +76,7 @@ class GlowLifecycleGuardTest {
         // and the surrounding `if (...) { ... }` braces between them. A regex
         // alternative that allowed `return` before `removeAllOverlays` would
         // accept a broken guard where the function exits without disposing
-        // overlays — the whole point of D-02.
+        // overlays — the whole point of the lifecycle gate.
         val guardPattern =
             Regex("""!AyuVariant\.isAyuActive\(\)[\s\S]*?removeAllOverlays\(\)[\s\S]*?return""")
         if (!guardPattern.containsMatchIn(body)) {
@@ -86,8 +86,7 @@ class GlowLifecycleGuardTest {
                     "as the lifecycle gate. The guard was either missing, used the " +
                     "wrong predicate (use isAyuActive(), not detect() == null — " +
                     "Pattern J), or the order of `removeAllOverlays()` and `return` " +
-                    "was inverted. See D-02 in 40.1-CONTEXT.md and Pattern L in " +
-                    "RECURRING_PITFALLS.md.",
+                    "was inverted. See Pattern L in RECURRING_PITFALLS.md.",
             )
         }
     }

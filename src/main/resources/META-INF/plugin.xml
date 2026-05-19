@@ -83,6 +83,10 @@
           <b>Install, delete, or reinstall fonts</b> directly from Settings —
           every filesystem change gets a consent dialog showing the exact
           folder path.</li>
+      <li><b>Quick-Switcher Widget</b> — a chip in the main toolbar reflects
+          your current accent. Left-click for variant, accent, related toggles,
+          and quick actions; right-click for the same actions in a keyboard-
+          friendly context menu.</li>
     </ul>
 
     <p><b>Try everything free for 30 days.</b> No credit card.
@@ -99,6 +103,12 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.6.4</h3>
+    <ul>
+      <li>[Free] <b>Quick-Switcher Widget</b> — a new chip in the main toolbar reflects the focused project's accent. Left-click opens a popup with variant + Islands UI toggle, the full accent grid, related toggles (Chrome tinting, Glow, Accent rotation, Follow system), and quick actions (Pin, Random, Lighter, Darker, Copy Hex). Right-click opens the same actions as a context menu for a keyboard-friendly workflow.</li>
+      <li>Premium rows (toggles + quick actions) appear when your license is active or in trial; the FREE block (variant + accent grid) is available to everyone.</li>
+      <li>Hide the widget anytime from Settings → Ayu Islands → General if you prefer a cleaner toolbar.</li>
+    </ul>
     <h3>2.6.3</h3>
     <ul>
       <li>[Paid] <b>New VCS tab</b> — tune VCS color intensity across five surfaces (diff viewer, Project View file status, editor gutter, conflict markers, Git blame annotations). Pick a named profile — <b>Whisper</b> (calmer), <b>Ambient</b> (2.6.2 defaults), <b>Neon</b> (brighter, pre-2.6.2 punch), or <b>Cyberpunk</b> (peak) — or dial each surface independently in Custom mode. Master toggle stays off by default, so colors are byte-identical to 2.6.2 until you opt in.</li>
@@ -364,5 +374,12 @@
                     text="Rescan Project Language"
                     description="Invalidate the cache and re-detect the dominant project language"/>
         </group>
+
+        <action id="AyuIslands.QuickSwitcher"
+                class="dev.ayuislands.accent.toolbar.QuickSwitcherWidgetAction"
+                text="Ayu Quick Switcher"
+                description="Switch Ayu variant and accent from the main toolbar">
+            <add-to-group group-id="MainToolbarRight" anchor="last"/>
+        </action>
     </actions>
 </idea-plugin>

@@ -11,17 +11,17 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Wiring coverage for the Phase 40 Chrome Tinting injection into
+ * Wiring coverage for the Chrome Tinting injection into
  * [AyuIslandsConfigurable].
  *
  * `AyuIslandsConfigurable` aggregates its sub-panels through a `panels: List<
  * AyuIslandsSettingsPanel>` field: `isModified()` / `apply()` / `reset()`
  * iterate this list, and the private `resetAllSettings()` helper invokes each
- * premium panel's reset directly. The Chrome Tinting collapsible is a new
- * premium surface (Phase 40 / Plan 07), so every aggregation path must include
- * it. Without this test any future refactor that drops `chromePanel` from
- * either the `panels` list or `resetAllSettings` would silently regress the
- * Settings "Apply" / "Reset" buttons for chrome state.
+ * premium panel's reset directly. The Chrome Tinting collapsible is a premium
+ * surface, so every aggregation path must include it. Without this test any
+ * future refactor that drops `chromePanel` from either the `panels` list or
+ * `resetAllSettings` would silently regress the Settings "Apply" / "Reset"
+ * buttons for chrome state.
  *
  * Tests reach the private `chromePanel` field and `panels` list via reflection
  * so no Swing / platform startup is required — the DialogPanel wiring is
@@ -137,13 +137,14 @@ class AyuIslandsConfigurableChromeWiringTest {
 
     @Test
     fun `Configurable bytecode wires chromePanel to afterOverridesInjection not before`() {
-        // Regression guard for the Phase 40 / Plan 08 reorder: Chrome Tinting
-        // moved from BEFORE Overrides to AFTER Overrides by rewiring the
-        // chromePanel.buildPanel call from the shared beforeOverridesInjection
-        // callback to a new, parallel afterOverridesInjection callback. If a
-        // future refactor moves chrome back under beforeOverrides (or drops the
-        // new hook), the visual order silently regresses — chrome tinting would
-        // render before the user sets the per-project overrides it depends on.
+        // Regression guard for the Chrome Tinting placement: chrome moved from
+        // BEFORE Overrides to AFTER Overrides by rewiring the
+        // `chromePanel.buildPanel` call from the shared
+        // `beforeOverridesInjection` callback to a parallel
+        // `afterOverridesInjection` callback. If a future refactor moves chrome
+        // back under `beforeOverrides` (or drops the hook), the visual order
+        // silently regresses — chrome tinting would render before the user sets
+        // the per-project overrides it depends on.
         //
         // Checking bytecode keeps this test hermetic (no Swing/DSL runtime) and
         // catches reorders that leave Kotlin source compiling cleanly.

@@ -6,6 +6,8 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.WindowManager
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentChangedTopic
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.indent.IndentRainbowSync
@@ -122,13 +124,13 @@ class ProjectAccentSwapService : Disposable {
             // Same hex but a different project just gained focus (or alt-tab back to the
             // same project). The app-scoped CGP `CodeGlanceConfigService` and IR `IrConfig`
             // caches still hold whoever wrote last; force-refresh them so the newly-focused
-            // minimap + indent panels paint the correct per-project accent (Bug B fix, D-07).
+            // minimap + indent panels paint the correct per-project accent.
             //
-            // walkAndNotify alone CANNOT close Bug B because CGP and IR do not subscribe to
-            // ComponentTreeRefreshedTopic — they read from the app-scoped cache directly.
+            // walkAndNotify alone CANNOT close this gap because CGP and IR do not subscribe
+            // to ComponentTreeRefreshedTopic — they read from the app-scoped cache directly.
             // The two calls below push the per-project hex into those caches without
             // re-running the apply path's UIManager work (already correct for the unchanged
-            // hex). Resolves RESEARCH §Open Questions §1 (direct integration call).
+            // hex).
             //
             // Pattern J — gate IR refresh on the integration toggle. IndentRainbowSync.apply
             // itself reverts when irIntegrationEnabled is false, so calling it on every
@@ -139,6 +141,29 @@ class ProjectAccentSwapService : Disposable {
             AccentApplicator.syncCodeGlanceProViewportForSwap(effectiveHex)
             if (AyuIslandsSettings.getInstance().state.irIntegrationEnabled) {
                 IndentRainbowSync.apply(variant, effectiveHex)
+            }
+
+            // Same-hex focus swap does NOT re-enter AccentApplicator.apply (whose
+            // publish would fire), so we publish AccentChangedTopic here. Without
+            // this, focus swap between two projects sharing a hex leaves chip /
+            // stripe stuck on the prior project's resolution source label (e.g.
+            // "Global" vs "Project override"). Pattern B isolates a throwing
+            // subscriber.
+            try {
+                val source = AccentResolver.source(project)
+                // Pattern K — `effectiveHex` comes from `AccentResolver.resolve`
+                // whose contract guarantees a validated `#RRGGBB` string;
+                // wrap via `unsafeOf` to surface the contract in the type.
+                ApplicationManager
+                    .getApplication()
+                    .messageBus
+                    .syncPublisher(AccentChangedTopic.TOPIC)
+                    .accentChanged(project, AccentHex.unsafeOf(effectiveHex), source)
+            } catch (exception: RuntimeException) {
+                LOG.warn(
+                    "AccentChangedTopic publish failed in same-hex swap for ${project.name}",
+                    exception,
+                )
             }
         }
 

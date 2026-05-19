@@ -89,8 +89,8 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "24b5a3e"
-          last_verified_date: "2026-04-25"
+          last_verified_sha: "0ad5b6a"
+          last_verified_date: "2026-05-19"
           content_sha256: "4c86c5d855c6dcefd703f647451bac4117397e435b05dd9cae6b9cbc7f479616"
 
       - id: accent-scoped-language
@@ -110,8 +110,8 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "24b5a3e"
-          last_verified_date: "2026-04-25"
+          last_verified_sha: "0ad5b6a"
+          last_verified_date: "2026-05-19"
           content_sha256: "ea83498db84a5cd122dd1d09132d74774c6e24295188b93464fddb0d784bf4e1"
 
       - id: accent-language-breakdown
@@ -165,6 +165,20 @@ categories:
           sliders. Configured from Settings → Ayu Islands → VCS. Master
           toggle off by default — 2.6.2 colors stay byte-identical until
           users opt in.
+
+      - id: quick-switcher-widget
+        title: "Quick-Switcher Widget"
+        keyword: "Quick-Switcher Widget"
+        introduced: "2.6.4"
+        tier: free
+        description: >
+          A chip in the main toolbar reflects the focused project's
+          accent. Left-click opens a popup with variant + Islands UI
+          toggle and the full accent grid (FREE). Right-click opens the
+          same quick actions as a context menu for keyboard-friendly
+          workflows. Hide the widget from Settings → Ayu Islands →
+          General. Premium-tier rows (related toggles + quick actions)
+          appear inside the popup when the license is active or in trial.
 
   glow:
     title: "Glow effects"
@@ -226,8 +240,8 @@ categories:
           sources:
             - src/main/kotlin/dev/ayuislands/settings/FontPresetPanel.kt
             - src/main/kotlin/dev/ayuislands/font
-          last_verified_sha: "24b5a3e"
-          last_verified_date: "2026-05-10"
+          last_verified_sha: "0ad5b6a"
+          last_verified_date: "2026-05-19"
           content_sha256: "2303011928e4246c32edfcc3c4caa923d536aa73f848e225708da4374ce17b41"
 
   workspace:
@@ -269,7 +283,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/gitpanel
             - src/main/kotlin/dev/ayuislands/projectview
             - src/main/kotlin/dev/ayuislands/editor/EditorScrollbarManager.kt
-          last_verified_sha: "24b5a3e"
+          last_verified_sha: "ea7020f"
           last_verified_date: "2026-05-12"
           content_sha256: "fc9ba63b9c9c53893a486a3c9055287bd6dc9c68f5439cae197efe5ae585d17c"
 
@@ -322,8 +336,8 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/PluginsPanel.kt
             - src/main/kotlin/dev/ayuislands/indent
             - src/main/kotlin/dev/ayuislands/accent/elements/BracketScopeRenderer.kt
-          last_verified_sha: "e17a675"
-          last_verified_date: "2026-04-25"
+          last_verified_sha: "0ad5b6a"
+          last_verified_date: "2026-05-19"
           content_sha256: "c5c1eea5a119bd19bf98518d394d698bf09983a1e0a3472e255358c50e41ed16"
 
   onboarding:

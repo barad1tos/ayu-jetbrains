@@ -48,7 +48,7 @@ class AyuIslandsSettings : SimplePersistentStateComponent<AyuIslandsState>(AyuIs
      *
      * Gated on [AyuIslandsState.installedFontsSeeded] — runs once per install.
      *
-     * **D-09 guard:** families recorded in [AyuIslandsState.explicitlyUninstalledFonts]
+     * **Resurrection guard:** families recorded in [AyuIslandsState.explicitlyUninstalledFonts]
      * (i.e. the user explicitly deleted them via the Settings lifecycle UI) are NEVER
      * re-seeded, even if the JVM still sees them in the font family list. This preserves
      * the invariant that the plugin never undoes a user-initiated uninstall.

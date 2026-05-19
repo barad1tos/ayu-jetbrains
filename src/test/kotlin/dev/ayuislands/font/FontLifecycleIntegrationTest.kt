@@ -113,7 +113,7 @@ class FontLifecycleIntegrationTest {
             assertTrue(state.installedFonts.contains("Maple Mono"), "Font must be back in installedFonts")
             assertFalse(
                 state.explicitlyUninstalledFonts.contains("Maple Mono"),
-                "Reinstall must clear the D-09 uninstall guard",
+                "Reinstall must clear the explicit-uninstall guard",
             )
         } finally {
             platformDir.deleteRecursively()
@@ -199,7 +199,7 @@ class FontLifecycleIntegrationTest {
     /**
      * User deletes a font, then restarts the IDE. The seeder runs on startup.
      * Even if the JVM still sees the font (cached registration), the seeder
-     * must NOT re-add it because of the D-09 explicit-uninstall guard.
+     * must NOT re-add it because of the explicit-uninstall guard.
      */
     @Test
     fun `deleted font survives IDE restart seeder`() {
@@ -227,7 +227,7 @@ class FontLifecycleIntegrationTest {
 
             assertFalse(
                 state.installedFonts.contains("Maple Mono"),
-                "Seeder must NOT re-add a font the user explicitly deleted (D-09)",
+                "Seeder must NOT re-add a font the user explicitly deleted",
             )
             assertTrue(state.installedFontsSeeded, "Seeded flag must be set regardless")
         } finally {

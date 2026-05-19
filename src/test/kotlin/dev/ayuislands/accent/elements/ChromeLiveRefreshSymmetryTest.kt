@@ -8,18 +8,17 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
- * D-14 symmetry gate — locks the invariant that every chrome element has a
+ * Symmetry gate — locks the invariant that every chrome element has a
  * declared [dev.ayuislands.accent.ChromeTarget] `peerTarget`, and that the
  * base [AbstractChromeElement] dispatches both refresh (in `apply`) and clear
  * (in `revert`) for every ChromeTarget variant.
  *
- * Phase 40.3c Refactor 1 moved the per-element `LiveChromeRefresher.refresh*` /
- * `clear*` calls into [AbstractChromeElement] — the subclasses now declare
- * `peerTarget` and the base handles both sides of the symmetry. The invariant
- * therefore splits in two:
+ * The per-element `LiveChromeRefresher.refresh*` / `clear*` calls live in
+ * [AbstractChromeElement] — the subclasses declare `peerTarget` and the base
+ * handles both sides of the symmetry. The invariant therefore splits in two:
  *
  *   1. Each element subclass declares a non-null `peerTarget` (else its peer
- *      would never be mutated on apply, a Gap-4 regression).
+ *      would never be mutated on apply, a regression that leaks stock chrome).
  *   2. The base class wires refresh + clear for every ChromeTarget variant
  *      (StatusBar, ByClassName, ByClassNameInside) — a missing arm would leak
  *      an explicit background color on the peer.
@@ -43,7 +42,7 @@ class ChromeLiveRefreshSymmetryTest {
             assertTrue(
                 Regex("""override\s+val\s+peerTarget""").containsMatchIn(source),
                 "$name must override `peerTarget` so the base class (AbstractChromeElement) " +
-                    "can dispatch the live peer refresh (Gap 4).",
+                    "can dispatch the live peer refresh.",
             )
             assertTrue(
                 source.contains("ChromeTarget."),
@@ -59,12 +58,12 @@ class ChromeLiveRefreshSymmetryTest {
         assertTrue(
             source.contains("LiveChromeRefresher.refresh("),
             "AbstractChromeElement must call LiveChromeRefresher.refresh(target, color) so " +
-                "apply can reach the live peer (Gap 4).",
+                "apply can reach the live peer.",
         )
         assertTrue(
             source.contains("LiveChromeRefresher.clear("),
             "AbstractChromeElement must call LiveChromeRefresher.clear(target) so revert " +
-                "hands the peer back to the LAF default (D-14 symmetry).",
+                "hands the peer back to the LAF default (apply/revert symmetry).",
         )
     }
 
@@ -76,8 +75,8 @@ class ChromeLiveRefreshSymmetryTest {
         if (refreshCount != clearCount) {
             fail(
                 "AbstractChromeElement has asymmetric LiveChromeRefresher wiring — " +
-                    "refresh=$refreshCount clear=$clearCount. D-14 requires every refresh " +
-                    "to have a matching clear so revert hands the peer back to the LAF default.",
+                    "refresh=$refreshCount clear=$clearCount. Apply/revert symmetry requires " +
+                    "every refresh to have a matching clear so revert hands the peer back to the LAF default.",
             )
         }
     }
@@ -110,7 +109,7 @@ class ChromeLiveRefreshSymmetryTest {
     }
 
     private fun refreshCallCount(source: String): Int {
-        // Match both the Refactor 2 typed entry (`refresh(`) and any legacy variant
+        // Match both the typed entry (`refresh(`) and any legacy variant
         // with a method-name suffix (`refreshStatusBar(`, `refreshByClassName(`).
         val pattern = Regex("""LiveChromeRefresher\.refresh[A-Za-z]*\(""")
         return pattern.findAll(source).count()

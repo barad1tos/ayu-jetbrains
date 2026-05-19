@@ -8,14 +8,13 @@ import kotlin.test.assertFalse
 /**
  * Regression guards that freeze the banned-API profile of [AccentApplicator].
  *
- * Per 40-12 research §A (verdict=UNSAFE), the apply-path Gap-4 hook in 40-13
- * uses [dev.ayuislands.ui.ComponentTreeRefresher.notifyOnly] only — never a
- * [com.intellij.ide.ui.LafManagerListener.TOPIC] publish or a
+ * The apply-path refresh hook uses [dev.ayuislands.ui.ComponentTreeRefresher.notifyOnly]
+ * only — never a [com.intellij.ide.ui.LafManagerListener.TOPIC] publish or a
  * [javax.swing.SwingUtilities.updateComponentTreeUI] /
  * [com.intellij.ide.ui.LafManager.updateUI] refresh. Those alternatives either
  * recurse through the LAF cycle (LafManagerListener) or crash mid-LAF
- * (updateComponentTreeUI — see the D-15 comment in revertAll). The project
- * CLAUDE.md pins this as a permanent constraint:
+ * (updateComponentTreeUI — see the revertAll comment naming this constraint).
+ * Project policy pins this as a permanent constraint:
  *
  *   "NEVER use `SwingUtilities.updateComponentTreeUI()` in JetBrains plugins —
  *    triggers ActionToolbar.updateUI → SlowOperations SEVERE crash."
@@ -44,8 +43,8 @@ class AccentApplicatorBannedApiGuardTest {
      * source. Keeps string literals intact because the banned APIs are always
      * code references, never in user-visible strings in this file. The guard
      * tests would otherwise false-positive on KDoc that documents the very
-     * banned APIs they forbid (e.g. the D-15 comment in `revertAll` naming
-     * `updateComponentTreeUI`).
+     * banned APIs they forbid (e.g. the explanatory comment in `revertAll`
+     * naming `updateComponentTreeUI`).
      */
     private fun stripComments(input: String): String {
         val noBlock = input.replace(Regex("/\\*[\\s\\S]*?\\*/"), "")
@@ -79,8 +78,8 @@ class AccentApplicatorBannedApiGuardTest {
         assertFalse(
             source.contains("LafManagerListener"),
             "AccentApplicator.kt must not publish or subscribe to LafManagerListener.TOPIC. " +
-                "Per 40-12 research §A verdict=UNSAFE, publishing lookAndFeelChanged from " +
-                "the apply path would recurse. notifyOnly only.",
+                "Publishing lookAndFeelChanged from the apply path would recurse. " +
+                "notifyOnly only.",
         )
     }
 }

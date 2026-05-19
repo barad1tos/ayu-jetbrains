@@ -39,9 +39,9 @@ class ChromeBaseColorsTest {
         val connection = mockk<MessageBusConnection>(relaxed = true)
         every { ApplicationManager.getApplication() } returns app
         every { app.messageBus } returns bus
-        // ChromeBaseColors now anchors its MessageBusConnection to the Application
-        // Disposable (Phase 40 Round 3 C-4), so the mock must match `connect(app)`
-        // as well as the bare `connect()` overload to stay forward-compatible.
+        // ChromeBaseColors anchors its MessageBusConnection to the Application
+        // Disposable (Pattern E), so the mock must match `connect(app)` as well
+        // as the bare `connect()` overload to stay forward-compatible.
         every { bus.connect() } returns connection
         every { bus.connect(any<Disposable>()) } returns connection
         every { connection.subscribe(any(), any()) } returns Unit
@@ -113,18 +113,17 @@ class ChromeBaseColorsTest {
         assertEquals(Color.RED, ChromeBaseColors.get("Lazy.key"))
     }
 
-    // --- Round 3 hotfix regression tests (C5, C6) ---
+    // --- Missing-key latch + clear-ordering regression locks ---
     //
-    // C5 locks that repeated `get` calls for a key UIManager does not serve
-    // stay silent after the first miss — the `missingKeyLogged` latch gate
-    // introduced in Round 3 C-3 must consistently return null for every
-    // follow-up read without flipping into a cached state.
+    // First: repeated `get` calls for a key UIManager does not serve stay
+    // silent after the first miss — the `missingKeyLogged` latch gate must
+    // consistently return null for every follow-up read without flipping
+    // into a cached state.
     //
-    // C6 locks the "clear latch BEFORE snapshot" ordering from Round 1
-    // MEDIUM-2 / Round 3 C-3: after `refresh()`, the next `get` must capture
-    // the current UIManager value (including a newly-populated key) AND
-    // subsequent `get` calls must return that same cached snapshot even if
-    // UIManager mutates afterwards.
+    // Second: "clear latch BEFORE snapshot" ordering: after `refresh()`, the
+    // next `get` must capture the current UIManager value (including a
+    // newly-populated key) AND subsequent `get` calls must return that same
+    // cached snapshot even if UIManager mutates afterwards.
 
     @Test
     fun `get returns null consistently across repeated calls on a missing key`() {
@@ -171,10 +170,10 @@ class ChromeBaseColorsTest {
         assertEquals(statusBarStock, ChromeBaseColors.get("StatusBar.background"))
     }
 
-    // Phase 40.2 T-1: lock the LafManagerListener wiring end-to-end. Capture the
-    // listener lambda via a mockk slot on the next `connect(Disposable).subscribe`
-    // call, fire `lookAndFeelChanged`, and assert a subsequent `get(...)` returns
-    // the fresh UIManager value (i.e. the snapshot was actually cleared).
+    // Lock the LafManagerListener wiring end-to-end. Capture the listener
+    // lambda via a mockk slot on the next `connect(Disposable).subscribe`
+    // call, fire `lookAndFeelChanged`, and assert a subsequent `get(...)`
+    // returns the fresh UIManager value (i.e. the snapshot was actually cleared).
     //
     // The `ChromeBaseColors` object has already run its init block by the time
     // this test executes (the `@BeforeTest` mock setup happens before

@@ -8,25 +8,23 @@ import java.awt.Color
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Tints panel / tool-window borders per CHROME-05.
- *
- * Phase 40.3c Refactor 1: migrated to [AbstractChromeElement]. This element has no
- * foreground — [foregroundKeys] is intentionally empty.
+ * Tints panel / tool-window borders. This element has no foreground —
+ * [foregroundKeys] is intentionally empty.
  *
  * NB: `OnePixelDivider.background` is deliberately excluded — it is already
  * managed by [dev.ayuislands.accent.AccentApplicator]'s `ALWAYS_ON_UI_KEYS`
  * list. Double-writing from two sources would make revert ambiguous (whose
  * null wins?), so this element owns only the tool-window-level border keys.
  *
- * Intensity is read directly from [dev.ayuislands.settings.AyuIslandsSettings.state]
- * per CONTEXT D-03.
+ * Intensity is read directly from [dev.ayuislands.settings.AyuIslandsSettings.state].
  *
- * Round 2 review A-1 (CRITICAL correctness): `OnePixelDivider` is used IDE-wide —
- * editor splitters, Project/editor divider, Settings dialog splitters, diff gutter,
- * Run/Debug splitter, file-chooser splitter. A blind class-name walk would tint every
- * divider in every window, not just tool-window header borders. The [ChromeTarget.ByClassNameInside]
- * variant constrains the walk to dividers whose ancestor chain contains the tool-window
- * decorator (`com.intellij.toolWindow.InternalDecoratorImpl`, javap-verified against
+ * Ancestor-scoped walk: `OnePixelDivider` is used IDE-wide — editor splitters,
+ * Project/editor divider, Settings dialog splitters, diff gutter, Run/Debug
+ * splitter, file-chooser splitter. A blind class-name walk would tint every
+ * divider in every window, not just tool-window header borders. The
+ * [ChromeTarget.ByClassNameInside] variant constrains the walk to dividers
+ * whose ancestor chain contains the tool-window decorator
+ * (`com.intellij.toolWindow.InternalDecoratorImpl`, javap-verified against
  * `intellij.platform.ide.impl.jar` in 2026.1).
  */
 class PanelBorderElement : AbstractChromeElement() {
@@ -55,10 +53,10 @@ class PanelBorderElement : AbstractChromeElement() {
         )
 
     override fun onBackgroundsTinted(tintedBackgrounds: Map<String, Color>) {
-        // Phase 40.2 M-3: first-apply INFO diagnostic so a future platform FQN
-        // rename surfaces in idea.log. Includes the UIManager key matches/misses
-        // AND the peer-walk target classes we'll ask LiveChromeRefresher to
-        // find. Gated on a one-shot AtomicBoolean so repeated apply passes stay
+        // First-apply INFO diagnostic so a future platform FQN rename surfaces
+        // in idea.log. Includes the UIManager key matches/misses AND the
+        // peer-walk target classes we'll ask LiveChromeRefresher to find.
+        // Gated on a one-shot AtomicBoolean so repeated apply passes stay
         // quiet.
         if (firstApplyLogged.compareAndSet(false, true)) {
             val keysSeen = tintedBackgrounds.keys.toList()
@@ -74,7 +72,7 @@ class PanelBorderElement : AbstractChromeElement() {
         private val LOG = logger<PanelBorderElement>()
 
         /**
-         * One-shot gate for the per-session first-apply diagnostic log (Phase 40.2 M-3).
+         * One-shot gate for the per-session first-apply diagnostic log.
          * Logs which UIManager keys resolved vs missed and which peer classes the
          * refresher will walk for — so a future platform FQN rename surfaces in
          * idea.log without needing a debugger attach.
@@ -82,8 +80,9 @@ class PanelBorderElement : AbstractChromeElement() {
         private val firstApplyLogged = AtomicBoolean(false)
 
         /**
-         * FQN of the internal 1-pixel divider used for tool-window panel borders — package-private,
-         * so runtime class-name string match is the supported lookup (see 40-12 §B).
+         * FQN of the internal 1-pixel divider used for tool-window panel
+         * borders — the type is package-private, so runtime class-name string
+         * match is the supported lookup pattern.
          */
         const val DIVIDER_PEER_CLASS = "com.intellij.openapi.ui.OnePixelDivider"
 

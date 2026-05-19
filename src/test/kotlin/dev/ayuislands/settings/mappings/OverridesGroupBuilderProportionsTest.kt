@@ -30,7 +30,6 @@ import kotlin.test.assertTrue
  * does NOT spin up the Swing panel (no `BasePlatformTestCase` per project
  * `TESTING.md`).
  *
- * Covers VALIDATION tasks 26-02-01 through 26-02-05.
  */
 class OverridesGroupBuilderProportionsTest {
     private lateinit var mappingsState: AccentMappingsState
@@ -71,7 +70,7 @@ class OverridesGroupBuilderProportionsTest {
 
     @Test
     fun `proportions text uses warm cache single-language weights`() {
-        // VALIDATION 26-02-01 — warm cache with a single code language renders as
+        // Warm cache with a single code language renders as
         // "Detected in this project: Kotlin (100%)".
         val project = stubProject("/tmp/prop-single-${System.nanoTime()}")
         every { ProjectLanguageDetector.proportions(project) } returns mapOf("kotlin" to 1_000L)
@@ -86,9 +85,9 @@ class OverridesGroupBuilderProportionsTest {
 
     @Test
     fun `proportions text renders fixed polyglot copy when detector returns null`() {
-        // VALIDATION 26-02-02 — cold cache / polyglot no-winner / legacy-SDK fallback
-        // all surface as null from ProjectLanguageDetector.proportions. The builder
-        // must render the exact D-05 polyglot literal, em-dash included.
+        // Cold cache / polyglot no-winner / legacy-SDK fallback all surface as
+        // null from `ProjectLanguageDetector.proportions`. The builder must
+        // render the exact polyglot literal, em-dash included.
         val project = stubProject("/tmp/prop-polyglot-${System.nanoTime()}")
         every { ProjectLanguageDetector.proportions(project) } returns null
 
@@ -114,10 +113,10 @@ class OverridesGroupBuilderProportionsTest {
 
     @Test
     fun `proportions text shows only code tier on code-plus-markup projects`() {
-        // Reinforces VALIDATION 26-02-01 at the builder layer: the two-tier filter
-        // from D-06 drops XML out of the display base when any code language is
-        // present. Prevents the misleading "Kotlin (40%) • XML (60%)" surface on
-        // Android-style projects called out by Phase 26 success criterion #4.
+        // Reinforces the builder-layer two-tier filter: it drops XML out of the
+        // display base when any code language is present. Prevents the
+        // misleading "Kotlin (40%) • XML (60%)" surface on Android-style
+        // projects.
         val project = stubProject("/tmp/prop-code-markup-${System.nanoTime()}")
         every { ProjectLanguageDetector.proportions(project) } returns
             mapOf("kotlin" to 400L, "xml" to 600L)
@@ -130,13 +129,13 @@ class OverridesGroupBuilderProportionsTest {
         )
     }
 
-    // ── Refresh lifecycle (D-03) ──────────────────────────────────────────────
+    // ── Refresh lifecycle ─────────────────────────────────────────────────────
 
     @Test
     fun `refresh re-reads detector cache so focus-swap shows new project proportions`() {
-        // VALIDATION 26-02-03 — focus-swap path. The orchestrator rebinds
-        // parentProject on Settings re-open; the refresh helper must re-read from
-        // the detector cache rather than cache a stale snapshot inside the builder.
+        // Focus-swap path. The orchestrator rebinds parentProject on Settings
+        // re-open; the refresh helper must re-read from the detector cache
+        // rather than cache a stale snapshot inside the builder.
         val projectA = stubProject("/tmp/prop-a-${System.nanoTime()}")
         val projectB = stubProject("/tmp/prop-b-${System.nanoTime()}")
         every { ProjectLanguageDetector.proportions(projectA) } returns mapOf("kotlin" to 1_000L)
@@ -158,15 +157,15 @@ class OverridesGroupBuilderProportionsTest {
         )
     }
 
-    // ── HTML-safety (T-26-01, post icon-row redesign) ─────────────────────────
+    // ── HTML-safety (post icon-row redesign) ──────────────────────────────────
 
     @Test
     fun `JBLabel renders malicious display name literally without HTML interpretation`() {
-        // VALIDATION 26-02-04 — threat T-26-01 under the icon-row redesign.
-        // Post-refinement, entry labels show only the percentage — language name
-        // moved into the JBLabel.toolTipText. Both `.text` (icon+percent) and
-        // `.toolTipText` (display name) are plain-text by default in Swing: neither
-        // starts with `<html>`, so a Language whose displayName contains markup
+        // HTML-injection threat under the icon-row redesign. Entry labels show
+        // only the percentage — language name moved into the
+        // `JBLabel.toolTipText`. Both `.text` (icon+percent) and `.toolTipText`
+        // (display name) are plain-text by default in Swing: neither starts
+        // with `<html>`, so a Language whose displayName contains markup
         // renders literally with no HTML parsing.
         //
         // The security invariant is now: display names appear ONLY in tooltip,
@@ -259,7 +258,7 @@ class OverridesGroupBuilderProportionsTest {
         assertEquals(
             OverridesGroupBuilder.POLYGLOT_COPY,
             labels.first().second,
-            "polyglot label carries the exact D-05 copy",
+            "polyglot label carries the exact polyglot copy",
         )
         assertEquals(
             com.intellij.icons.AllIcons.General.Information,
@@ -355,7 +354,7 @@ class OverridesGroupBuilderProportionsTest {
         )
     }
 
-    // ── Rescan affordance (Phase 29) ──────────────────────────────────────────
+    // ── Rescan affordance ─────────────────────────────────────────────────────
 
     @Test
     fun `Rescan label triggers ProjectLanguageDetector rescan on click`() {
@@ -423,10 +422,10 @@ class OverridesGroupBuilderProportionsTest {
     fun `Rescan label hover flips foreground to currentAccent then reverts on exit`() {
         // Hover contract: muted foreground by default (blends with the
         // detected-proportions row), currently-applied accent on hover (signals
-        // which color the click will influence). Locks the mouseEntered /
-        // mouseExited round-trip so a regression that drops either branch gets
-        // caught — e.g. a refactor that leaves the label permanently accent-tinted
-        // after the first hover.
+        // which color the click will influence). Locks the `mouseEntered` /
+        // `mouseExited` round-trip so a regression that drops either branch
+        // gets caught — e.g. a refactor that leaves the label permanently
+        // accent-tinted after the first hover.
         val project = stubProject("/tmp/rescan-hover-${System.nanoTime()}")
         every { ProjectLanguageDetector.proportions(project) } returns mapOf("kotlin" to 1_000L)
 
@@ -464,12 +463,11 @@ class OverridesGroupBuilderProportionsTest {
 
     @Test
     fun `Rescan label hover falls back to subdued when AccentResolver throws`() {
-        // Defensive lock on the runCatchingPreservingCancellation wrap
+        // Defensive lock on the `runCatchingPreservingCancellation` wrap
         // inside the hover handler. If `AccentResolver.resolve` throws
         // (malformed stored hex, plugin-unload race on EDT), the handler
         // must fall back to the subdued foreground rather than propagate
-        // an uncaught EDT exception that would break the entire
-        // Settings row.
+        // an uncaught EDT exception that would break the entire Settings row.
         val project = stubProject("/tmp/rescan-hover-throw-${System.nanoTime()}")
         every { ProjectLanguageDetector.proportions(project) } returns mapOf("kotlin" to 1_000L)
 
@@ -701,12 +699,12 @@ class OverridesGroupBuilderProportionsTest {
 
     @Test
     fun `dispose swallows a throwing disconnect without propagating`() {
-        // Round 3 defence: wrap the disconnect in
-        // `runCatchingPreservingCancellation` so a platform regression
-        // throwing `AlreadyDisposedException` from `disconnect()` does
-        // not break the Configurable's disposeUIResources chain. Without
-        // the wrap, `super.disposeUIResources()` would be skipped and
-        // BoundConfigurable's binding cleanup would leak.
+        // Defence: wrap the disconnect in `runCatchingPreservingCancellation`
+        // so a platform regression throwing `AlreadyDisposedException` from
+        // `disconnect()` does not break the Configurable's
+        // `disposeUIResources` chain. Without the wrap,
+        // `super.disposeUIResources()` would be skipped and BoundConfigurable's
+        // binding cleanup would leak.
         val builder = OverridesGroupBuilder()
         val connection = mockk<MessageBusConnection>(relaxed = true)
         every { connection.disconnect() } throws IllegalStateException("already disposed")
@@ -731,14 +729,14 @@ class OverridesGroupBuilderProportionsTest {
         builder.dispose()
     }
 
-    // ── No scanner call from read path (SC-05 / T-26-02) ──────────────────────
+    // ── No scanner call from read path ────────────────────────────────────────
 
     @Test
     fun `proportions read does not invoke ProjectLanguageScanner scan`() {
-        // VALIDATION 26-02-05 — the builder MUST NOT trigger a scan from the
-        // status-line read path; proportions() is the read-only projection by
-        // contract. A regression (e.g. calling scan(project) as a "warm" path)
-        // would reintroduce EDT blocking on Settings open.
+        // The builder MUST NOT trigger a scan from the status-line read path;
+        // `proportions()` is the read-only projection by contract. A regression
+        // (e.g. calling `scan(project)` as a "warm" path) would reintroduce EDT
+        // blocking on Settings open.
         mockkObject(ProjectLanguageScanner)
         every { ProjectLanguageScanner.scan(any()) } returns emptyMap()
 

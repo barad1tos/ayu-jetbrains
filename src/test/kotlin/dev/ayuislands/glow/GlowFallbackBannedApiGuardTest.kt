@@ -8,21 +8,20 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Pattern L source-regex regression lock for D-02.
+ * Pattern L source-regex regression lock for the glow lifecycle gate.
  *
- * Pre-40.1, three sites in [GlowOverlayManager] used a defensive
+ * Historically, three sites in [GlowOverlayManager] used a defensive
  * `if (variant != null) AccentResolver.resolve(...) else DEFAULT_ACCENT_HEX`
- * fallback at lines :214 (initializeFocusRingGlow), :254 (attachOverlay), and
- * :401 (updateGlow). Those branches were dead code reachable only after a
- * theme-switch race that the new `isAyuActive` lifecycle gate now resolves
- * (D-02). Wave 1 plan 01 deletes them.
+ * fallback in `initializeFocusRingGlow`, `attachOverlay`, and `updateGlow`.
+ * Those branches were dead code reachable only after a theme-switch race that
+ * the `isAyuActive` lifecycle gate now resolves, so they were deleted.
  *
  * This test pins the deletion: a future agent who "helpfully" reintroduces a
  * `DEFAULT_ACCENT_HEX` fallback in any of these three function bodies gets a
- * named regression instead of silently re-opening Bug A. The companion-object
- * declaration of the constant stays whitelisted because `safeDecodeColor`
- * still uses it as a `Color.decode` fallback for malformed hex strings — that
- * path is unrelated to the lifecycle gate.
+ * named regression instead of silently re-opening the orange-glow-on-Darcula
+ * bug. The companion-object declaration of the constant stays whitelisted
+ * because `safeDecodeColor` still uses it as a `Color.decode` fallback for
+ * malformed hex strings — that path is unrelated to the lifecycle gate.
  */
 class GlowFallbackBannedApiGuardTest {
     private val source: String by lazy {
@@ -43,7 +42,7 @@ class GlowFallbackBannedApiGuardTest {
     /**
      * Strips block comments `/* ... */` and line comments `// ...` so KDoc that
      * documents the very banned API it forbids cannot false-positive a guard.
-     * Mirrors the canonical helper in [dev.ayuislands.accent.Gap4BannedApiGuardTest].
+     * Mirrors the canonical helper in `dev.ayuislands.accent.Gap4BannedApiGuardTest`.
      */
     private fun stripComments(input: String): String {
         val noBlock = input.replace(Regex("/\\*[\\s\\S]*?\\*/"), "")
@@ -86,9 +85,8 @@ class GlowFallbackBannedApiGuardTest {
         assertFalse(
             body.contains("DEFAULT_ACCENT_HEX"),
             "initializeFocusRingGlow MUST NOT use DEFAULT_ACCENT_HEX as a fallback — " +
-                "the new `if (!AyuVariant.isAyuActive())` guard makes this branch unreachable. " +
-                "If you reintroduced it, you re-opened Bug A (orange glow on Darcula). " +
-                "See D-02 in 40.1-CONTEXT.md.",
+                "the `if (!AyuVariant.isAyuActive())` guard makes this branch unreachable. " +
+                "Reintroducing it re-opens the orange-glow-on-Darcula bug.",
         )
     }
 
@@ -97,7 +95,7 @@ class GlowFallbackBannedApiGuardTest {
         val body = extractFunctionBody(source, "fun attachOverlay(")
         assertFalse(
             body.contains("DEFAULT_ACCENT_HEX"),
-            "attachOverlay MUST NOT use DEFAULT_ACCENT_HEX as a fallback (D-02 regression).",
+            "attachOverlay MUST NOT use DEFAULT_ACCENT_HEX as a fallback (lifecycle-gate regression).",
         )
     }
 
@@ -106,7 +104,7 @@ class GlowFallbackBannedApiGuardTest {
         val body = extractFunctionBody(source, "fun updateGlow(")
         assertFalse(
             body.contains("DEFAULT_ACCENT_HEX"),
-            "updateGlow MUST NOT use DEFAULT_ACCENT_HEX as a fallback (D-02 regression).",
+            "updateGlow MUST NOT use DEFAULT_ACCENT_HEX as a fallback (lifecycle-gate regression).",
         )
     }
 
@@ -122,7 +120,7 @@ class GlowFallbackBannedApiGuardTest {
             Regex("""private\s+const\s+val\s+DEFAULT_ACCENT_HEX""").containsMatchIn(source),
             "DEFAULT_ACCENT_HEX MUST remain declared in the companion object — " +
                 "safeDecodeColor uses it as a Color.decode fallback for malformed hex strings. " +
-                "Only the three function-body fallback branches are forbidden by D-02.",
+                "Only the three function-body fallback branches are forbidden.",
         )
     }
 }

@@ -9,11 +9,10 @@ import java.awt.Color
  *
  * Accent hex strings flow through many call sites (settings panels,
  * rotation, LAF listener, startup, applicator, resolver) as raw `String`.
- * Phase 40.2 M-2 introduced a single shape check at the
- * [AccentApplicator.apply] boundary — but every other caller still had
- * to remember to respect the same contract. A single bad hex reaching
- * [Color.decode] throws [NumberFormatException] and aborts the first
- * painted frame.
+ * Historically only [AccentApplicator.apply] validated the shape at its
+ * boundary — every other caller had to remember to respect the same
+ * contract. A single bad hex reaching [Color.decode] throws
+ * [NumberFormatException] and aborts the first painted frame.
  *
  * Lifting the validation into the type means [AccentHex] can only be
  * constructed through [of] (validated) or [unsafeOf] (explicit trust for
@@ -48,8 +47,8 @@ value class AccentHex private constructor(
     companion object {
         /**
          * Accepted shape: `#` + exactly six hex digits. Leading/trailing
-         * whitespace is tolerated per the Phase 40.2 M-2 fix; [of] trims
-         * before matching.
+         * whitespace is tolerated — [of] trims before matching so
+         * persisted values whose XML serializer added padding still parse.
          */
         private val PATTERN = Regex("^\\s*#[0-9A-Fa-f]{6}\\s*$")
 

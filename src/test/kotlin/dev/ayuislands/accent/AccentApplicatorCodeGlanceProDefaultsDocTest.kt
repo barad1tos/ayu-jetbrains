@@ -8,16 +8,16 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Pattern L source-regex regression lock for D-05.
+ * Pattern L source-regex regression lock for the CGP viewport defaults.
  *
- * The three CGP viewport defaults landed via Wave 1 plan 02:
+ * The three CGP viewport defaults are:
  *   - `CGP_DEFAULT_VIEWPORT_COLOR        = "00FF00"`
  *   - `CGP_DEFAULT_VIEWPORT_BORDER_COLOR = "A0A0A0"`
  *   - `CGP_DEFAULT_VIEWPORT_BORDER_THICKNESS = 0`
  *
  * Each value was extracted via `javap` from
  * `com.nasller.codeglance.config.CodeGlanceConfig.<init>` in
- * `CodeGlancePro-2.0.2.jar` (CONTEXT.md §specifics). This test pins both:
+ * `CodeGlancePro-2.0.2.jar`. This test pins both:
  *   1. The exact constant values (no `#` prefix, no off-by-one digits).
  *   2. The KDoc provenance reference — `javap` / `CodeGlanceConfig` / `2.0.2`
  *      must remain in the comment block above the constants so a future agent
@@ -27,13 +27,12 @@ import kotlin.test.assertTrue
  * The KDoc-reference checks read the RAW source (NOT stripped) because
  * `stripComments` discards the very block that contains the provenance.
  */
-class AccentApplicatorCgpDefaultsDocTest {
+class AccentApplicatorCodeGlanceProDefaultsDocTest {
     private val rawSource: String by lazy {
-        // TD-I1 (plan 40.1-02 review-loop): the three CGP viewport constants
-        // moved from [AccentApplicator] to [CgpIntegration] so they live next
-        // to their only readers. The provenance lock follows the constants —
-        // anyone re-running the javap recipe should land in the same file as
-        // the values they verify.
+        // The three CGP viewport constants live in [CodeGlanceProIntegration] so
+        // they sit next to their only readers. The provenance lock follows the
+        // constants — anyone re-running the javap recipe should land in the same
+        // file as the values they verify.
         val path: Path =
             Paths.get(
                 System.getProperty("user.dir"),
@@ -43,20 +42,17 @@ class AccentApplicatorCgpDefaultsDocTest {
                 "dev",
                 "ayuislands",
                 "accent",
-                "CgpIntegration.kt",
+                "CodeGlanceProIntegration.kt",
             )
         Files.readString(path)
     }
 
     private val strippedSource: String by lazy { stripComments(rawSource) }
 
-    private fun stripComments(input: String): String {
-        val noBlock = input.replace(Regex("/\\*[\\s\\S]*?\\*/"), "")
-        return noBlock
-            .lineSequence()
-            .map { line -> line.replaceFirst(Regex("//.*$"), "") }
-            .joinToString("\n")
-    }
+    private fun stripComments(input: String): String =
+        input
+            .replace(Regex("/\\*[\\s\\S]*?\\*/"), "")
+            .replace(Regex("(?m)//.*$"), "")
 
     @Test
     fun `CGP_DEFAULT_VIEWPORT_COLOR constant exists with exact value 00FF00`() {
@@ -110,8 +106,7 @@ class AccentApplicatorCgpDefaultsDocTest {
         assertTrue(
             Regex("""javap""").containsMatchIn(rawSource),
             "CGP defaults KDoc must reference `javap` so the re-verification command " +
-                "stays discoverable. See CONTEXT.md §specifics for the original " +
-                "extraction recipe.",
+                "stays discoverable.",
         )
         assertTrue(
             Regex("""CodeGlanceConfig""").containsMatchIn(rawSource),

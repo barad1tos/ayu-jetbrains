@@ -19,23 +19,23 @@ import javax.swing.JLabel
 import javax.swing.JSlider
 
 /**
- * Settings panel rendering the "Chrome Tinting" collapsible group inside the Accent tab
- * (phase 40). Follows the same shape as [AyuIslandsElementsPanel]:
+ * Settings panel rendering the "Chrome Tinting" collapsible group inside the Accent
+ * tab. Follows the same shape as [AyuIslandsElementsPanel]:
  *
  *  - Pending/stored pairs for each state field so [isModified] can diff without touching
  *    the live [AyuIslandsState] until [apply] is called.
- *  - Premium gate per decision D-10: unlicensed users see the collapsible header with a
- *    single "requires Pro license" comment instead of the full content. The underlying
- *    controls are not wired at all in the unlicensed path so there is no way to mutate
- *    chrome state without a license.
- *  - Probe gate per decision D-09 / requirement CHROME-02: the Main Toolbar row is
- *    present but disabled (never hidden) with a user-visible comment when
- *    [ChromeDecorationsProbe.isCustomHeaderActive] reports native OS chrome. The row
- *    stays in the panel so users understand why toolbar tinting is unavailable rather
- *    than silently disappearing. The disabled-state comment is per-OS honest: on
- *    IDE 2026.1+ JetBrains removed the "Merge main menu with window title" toggle and
- *    the corresponding custom-header registry entries, making custom title bar painting
- *    impossible on macOS — the comment explains this without pointing users at a setting
+ *  - Premium gate: unlicensed users see the collapsible header with a single
+ *    "requires Pro license" comment instead of the full content. The underlying
+ *    controls are not wired at all in the unlicensed path so there is no way to
+ *    mutate chrome state without a license.
+ *  - Probe gate: the Main Toolbar row is present but disabled (never hidden) with
+ *    a user-visible comment when [ChromeDecorationsProbe.isCustomHeaderActive]
+ *    reports native OS chrome. The row stays in the panel so users understand why
+ *    toolbar tinting is unavailable rather than silently disappearing. The
+ *    disabled-state comment is per-OS honest: on IDE 2026.1+ JetBrains removed
+ *    the "Merge main menu with window title" toggle and the corresponding
+ *    custom-header registry entries, making custom title bar painting impossible
+ *    on macOS — the comment explains this without pointing users at a setting
  *    that no longer exists.
  *  - On [apply], after the 6 chrome fields persist into [AyuIslandsState], the panel calls
  *    [AccentApplicator.applyForFocusedProject] so the 5 chrome AccentElement impls repaint
@@ -189,7 +189,7 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
         // apply (user flipped themes inside the same Settings session) doesn't drop
         // the re-apply — the stored variant reference can go stale. If detection
         // still returns null (no Ayu theme active), log at INFO and bail without
-        // persisting: H-1 from the Phase 40.2 audit forbade the earlier silent skip.
+        // persisting (silent skip would mask broken state).
         val resolvedVariant = variant ?: AyuVariant.detect()
         if (resolvedVariant == null) {
             LOG.info(
@@ -209,7 +209,7 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
                 intensity = TintIntensity.of(pendingChromeTintIntensity),
             )
 
-        // H-4: run the EP chain FIRST so a throw from applyForFocusedProject leaves
+        // Run the EP chain FIRST so a throw from applyForFocusedProject leaves
         // persisted state untouched and the user can retry after fixing the cause.
         // The applicator consumes the pending chrome snapshot above, so this ordering
         // no longer makes the visible tint one Apply behind the slider.
@@ -304,7 +304,7 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
     }
 
     /**
-     * Per-OS honest comment for the disabled Main Toolbar row (CHROME-02).
+     * Per-OS honest comment for the disabled Main Toolbar row.
      *
      * IDE 2026.1+ removed the "Merge main menu with window title" toggle from Appearance
      * Settings AND the underlying custom-header registry entries. An earlier revision of
@@ -313,9 +313,9 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
      * nothing relevant to toggle. Instead, explain honestly per platform what the
      * situation is so the user knows why MainToolbar tint is disabled.
      *
-     * Phase 40.3c Refactor 3: reads the reason code from [ChromeDecorationsProbe.probe]
-     * instead of re-sampling `SystemInfo` — keeps the probe as the single source of
-     * truth for "why chrome tinting is unavailable".
+     * Reads the reason code from [ChromeDecorationsProbe.probe] instead of re-sampling
+     * `SystemInfo` — keeps the probe as the single source of truth for "why chrome
+     * tinting is unavailable".
      */
     private fun disabledMainToolbarComment(): String {
         val unsupported = ChromeDecorationsProbe.probe() as? ChromeSupport.Unsupported ?: return ""

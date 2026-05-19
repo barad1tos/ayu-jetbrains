@@ -24,7 +24,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 
 /**
- * Tests for the Phase 40.3c Refactor 1 [AbstractChromeElement] base class.
+ * Tests for the [AbstractChromeElement] base class.
  *
  * Locks the shared recipe that every chrome element inherits: apply walks
  * [AbstractChromeElement.backgroundKeys], blends + writes to UIManager, then

@@ -40,8 +40,7 @@ object ChromeBaseColors {
      * Set of keys we've already logged a "UIManager has no entry" warning for.
      * Cleared alongside [snapshot] on LAF refresh so a key that drops between themes
      * gets its own fresh warning. Backed by `ConcurrentHashMap.newKeySet()` so
-     * `.add(key)` returns the log-once gate in a single atomic step. See Phase 40
-     * review Round 3 C-3 and Round 1 loop type-design finding.
+     * `.add(key)` returns the log-once gate in a single atomic step.
      */
     private val missingKeyLogged: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
@@ -66,8 +65,7 @@ object ChromeBaseColors {
                 .messageBus
                 // Anchor the subscription to the Application Disposable so the
                 // connection is disposed on plugin / application shutdown instead
-                // of leaking across dynamic plugin reloads. See Phase 40 review
-                // Round 3 C-4.
+                // of leaking across dynamic plugin reloads (Pattern E).
                 .connect(application)
                 .subscribe(LafManagerListener.TOPIC, LafManagerListener { refresh() })
         } catch (exception: RuntimeException) {
@@ -86,9 +84,9 @@ object ChromeBaseColors {
      * is logged at WARN so user-submitted idea.log captures which chrome surface
      * silently skipped tint.
      *
-     * Phase 40.2 M-6: the fast-path `snapshot[key]?.let { return it }` stays
-     * outside the lock (already thread-safe via [ConcurrentHashMap]) so repeat
-     * reads — the common case — hit no contention. The composite read-UIManager
+     * The fast-path `snapshot[key]?.let { return it }` stays outside the lock
+     * (already thread-safe via [ConcurrentHashMap]) so repeat reads — the
+     * common case — hit no contention. The composite read-UIManager
      * -putIfAbsent for first capture runs inside `synchronized(snapshot)` so
      * [refresh] cannot interleave between the UIManager read and the snapshot
      * write. Without this, a racing `refresh()` between those two lines would
@@ -122,23 +120,19 @@ object ChromeBaseColors {
      * Clears the snapshot so the next `get` call re-captures from UIManager.
      * Invoked by the LAF listener; exposed for tests.
      *
-     * Phase 40.2 M-6: the clear pair now runs inside `synchronized(snapshot)`
-     * so a `get()` in first-capture mode cannot interleave its
-     * read-UIManager-putIfAbsent composite and land a pre-LAF color into the
-     * post-LAF snapshot. The prior in-flight-race note has been tightened
-     * accordingly: the latch is still cleared BEFORE the snapshot so a racing
-     * `get()` entering the lock just AFTER refresh's latch-clear but BEFORE
-     * its snapshot-clear still sees an empty latch and (re-)warns on the
-     * next miss. The "missed WARN attributed to cycle boundary" residual
-     * race documented in prior rounds is now impossible because both clears
+     * The clear pair runs inside `synchronized(snapshot)` so a `get()` in
+     * first-capture mode cannot interleave its read-UIManager-putIfAbsent
+     * composite and land a pre-LAF color into the post-LAF snapshot. The
+     * latch is still cleared BEFORE the snapshot so a racing `get()` entering
+     * the lock just AFTER refresh's latch-clear but BEFORE its snapshot-clear
+     * still sees an empty latch and (re-)warns on the next miss. Both clears
      * are visible to the next entrant atomically under the same monitor.
      */
     fun refresh() {
         synchronized(snapshot) {
             // Clear the latch BEFORE the snapshot so a racing `get(key)` between the
             // two clears cannot see a cleared snapshot with a stale latch still full
-            // (which would silence a WARN that the new LAF cycle should emit). See
-            // Phase 40 Round 1 review loop MEDIUM-2.
+            // (which would silence a WARN that the new LAF cycle should emit).
             missingKeyLogged.clear()
             snapshot.clear()
         }

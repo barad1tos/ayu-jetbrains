@@ -63,22 +63,21 @@ object AccentApplicator {
     private const val KEY_TAB_BACKGROUND = "EditorTabs.underlinedTabBackground"
     private const val DEFAULT_UNDERLINE_ARC = 8
 
-    // CGP viewport defaults moved to [CgpIntegration] (TD-I1, plan 40.1-02
-    // review-loop). They are exclusively read inside that peer object; the
-    // prior placement here inverted the dependency direction. See
-    // [CgpIntegration.CGP_DEFAULT_VIEWPORT_COLOR] for the javap provenance and
+    // CGP viewport defaults live in [CodeGlanceProIntegration] — they are
+    // exclusively read inside that peer object. See
+    // [CodeGlanceProIntegration.CGP_DEFAULT_VIEWPORT_COLOR] for the javap provenance and
     // re-verification recipe.
 
     private val EMPTY_TEXT_ATTRIBUTES = TextAttributes()
 
     // CodeGlance Pro reflection state and apply/revert workers live in
-    // [CgpIntegration] to keep this object below the TooManyFunctions threshold.
-    // Only the cross-object test seam (`cgpRevertHook` + `resetCgpRevertHookForTests`)
-    // and the swap-path entry stay here because Wave 0 tests bind those names to
-    // `AccentApplicator`.
+    // [CodeGlanceProIntegration] to keep this object below the TooManyFunctions threshold.
+    // Only the cross-object test seam (`codeGlanceProRevertHook` + `resetCodeGlanceProRevertHookForTests`)
+    // and the swap-path entry stay here because existing tests bind those names
+    // to `AccentApplicator`.
 
     /**
-     * Per-thread revert observer for [CgpIntegration.revertCodeGlanceProViewport].
+     * Per-thread revert observer for [CodeGlanceProIntegration.revertCodeGlanceProViewport].
      * Production path: null → reflection writes fire against the real CGP service.
      * Test path: a non-null supplier records the three default values the revert
      * would have written, bypassing the reflection chain because CGP is not on
@@ -88,19 +87,19 @@ object AccentApplicator {
      * parallel workers; a shared volatile slot leaks a pinned observer from
      * one test into a concurrent sibling's revert call, producing intermittent
      * "looks like the other test's fake received my invocation" failures.
-     * Matches [ChromeDecorationsProbe.osSupplier] (Phase 40 Round 3).
+     * Matches [ChromeDecorationsProbe.osSupplier].
      *
-     * Tests MUST use try/finally + [resetCgpRevertHookForTests] — `@AfterEach`
+     * Tests MUST use try/finally + [resetCodeGlanceProRevertHookForTests] — `@AfterEach`
      * does NOT run after an assertion failure that exits the worker mid-test,
      * so per-test cleanup is mandatory.
      */
-    internal val cgpRevertHook: ThreadLocal<((String, String, Int) -> Unit)?> =
+    internal val codeGlanceProRevertHook: ThreadLocal<((String, String, Int) -> Unit)?> =
         ThreadLocal.withInitial { null }
 
-    /** Restore the production [cgpRevertHook] on the calling thread. Intended for test teardown. */
+    /** Restore the production [codeGlanceProRevertHook] on the calling thread. Intended for test teardown. */
     @TestOnly
-    internal fun resetCgpRevertHookForTests() {
-        cgpRevertHook.remove()
+    internal fun resetCodeGlanceProRevertHookForTests() {
+        codeGlanceProRevertHook.remove()
     }
 
     // Always-on UIManager keys (not per-element toggleable)
@@ -163,16 +162,16 @@ object AccentApplicator {
      * Takes an [AccentHex] whose `#RRGGBB` shape is proven by construction —
      * no internal regex, no `NumberFormatException` path through [Color.decode].
      * Callers with a raw `String` from an untrusted boundary should use the
-     * top-level [applyFromHexString] helper which centralizes the Phase 40.2
-     * H-3 notification-on-bad-hex + `false` return contract.
+     * top-level [applyFromHexString] helper which centralizes the
+     * notification-on-bad-hex + `false` return contract.
      *
-     * Phase 40.2 H-3 preserved: `true` means the hex passed validation and the
+     * Return contract: `true` means the hex passed validation and the
      * EP dispatch was scheduled (actual EP work may still happen asynchronously
      * if the caller is off-EDT — the Boolean reports validation + scheduling,
      * not end-to-end paint completion). The return stays `Boolean` rather than
      * `Unit` so the string-wrapper's `false` path can bubble up.
      *
-     * Phase 40.2 H-2: [AyuIslandsState.lastAppliedAccentHex] is written BEFORE the EP
+     * Cache write ordering: [AyuIslandsState.lastAppliedAccentHex] is written BEFORE the EP
      * iteration runs, not after — a mid-EP throw would otherwise drop the anti-flicker
      * cache and re-flash Gold on the next startup. The paired
      * [AyuIslandsState.lastApplyOk] flag is reset to `false` before EP iteration and
@@ -200,7 +199,7 @@ object AccentApplicator {
         val state = AyuIslandsSettings.getInstance().state
         val variant = AyuVariant.detect()
 
-        // H-2: persist BEFORE the EP iteration so the cache survives a mid-EP
+        // Persist BEFORE the EP iteration so the cache survives a mid-EP
         // throw. Clear the clean-apply flag here and only set it true after the
         // full sequence completes — the startup listener reads the pair and
         // falls through to the resolver when the flag is false.
@@ -214,7 +213,7 @@ object AccentApplicator {
                 applyAlwaysOnUiKeys(state, accent)
 
                 applyElements(state, accent, variant)
-                // Pattern G + L — TA-I6 ordering lock. Apply path mirrors the
+                // Pattern G + L — ordering lock. Apply path mirrors the
                 // revert path: IR before CGP before notifyOnly. The revert
                 // ordering is locked by AccentApplicatorRevertAllSymmetryTest;
                 // an inverted order on the apply side would silently let
@@ -225,20 +224,19 @@ object AccentApplicator {
                 if (variant != null) {
                     IndentRainbowSync.apply(variant, trimmedHex)
                 }
-                CgpIntegration.syncCodeGlanceProViewport(trimmedHex)
+                CodeGlanceProIntegration.syncCodeGlanceProViewport(trimmedHex)
                 applyAlwaysOnEditorKeys(accent)
                 applyTabUnderline(state, variant)
 
-                // Gap-4 mirror of the D-15 hook in revertAll. Re-publish
+                // Mirror of the refresh hook in revertAll. Re-publish
                 // ComponentTreeRefreshedTopic after EP apply so subscribers
                 // (EditorScrollbarManager, ProjectViewScrollbarManager) re-read
                 // UIManager state. Chrome surfaces do NOT subscribe to this topic —
-                // their live-refresh happens in plan 40-14 Level 2. This hook is the
-                // architectural symmetry primitive; 40-14 is the visible fix.
+                // they own their own live-refresh path. This hook is the
+                // architectural symmetry primitive.
                 //
-                // Per 40-12 research §A verdict=UNSAFE, this site MUST NOT publish
-                // LafManagerListener.TOPIC — that broadcast would re-enter the LAF
-                // cycle. notifyOnly only.
+                // This site MUST NOT publish LafManagerListener.TOPIC — that broadcast
+                // would re-enter the LAF cycle. notifyOnly only.
                 for (project in ProjectManager.getInstance().openProjects) {
                     if (!project.isUsable()) continue
                     ComponentTreeRefresher.notifyOnly(project)
@@ -246,12 +244,14 @@ object AccentApplicator {
 
                 repaintAllWindows(Window.getWindows())
 
-                // H-2: mark the apply clean only after the full EP sequence
+                // Mark the apply clean only after the full EP sequence
                 // succeeded. A throw earlier leaves the flag false and the
                 // startup listener (AyuIslandsAppListener.appFrameCreated)
                 // will fall through to the resolver rather than trust the
                 // cached hex.
                 state.lastApplyOk = true
+
+                publishAccentChanged(accentHex)
             }
 
         if (SwingUtilities.isEventDispatchThread()) {
@@ -263,6 +263,43 @@ object AccentApplicator {
     }
 
 /**
+     * Publish [AccentChangedTopic.TOPIC] once per usable open project AFTER
+     * `state.lastApplyOk = true` so subscribers (toolbar stripe, toolbar chip)
+     * only fire on a fully-painted apply. Extracted from [apply] to keep the
+     * outer method's cognitive complexity below the IDE inspector's cap.
+     *
+     * Application-scoped: one apply may legitimately affect every open window;
+     * per-project filtering belongs to the subscriber. Per-project try/catch
+     * isolates Pattern B — a throwing subscriber must NOT tear down the apply
+     * pipeline. Source is re-resolved per project so subscribers see THIS
+     * window's resolution layer (project A may carry a project-override while
+     * project B is global).
+     */
+    private fun publishAccentChanged(accentHex: AccentHex) {
+        val publisher =
+            ApplicationManager
+                .getApplication()
+                .messageBus
+                .syncPublisher(AccentChangedTopic.TOPIC)
+        for (openProject in ProjectManager.getInstance().openProjects) {
+            if (!openProject.isUsable()) continue
+            try {
+                val source = AccentResolver.source(openProject)
+                // Pattern K — the [AccentHex] parameter is the validated
+                // proof; pass it straight through to the listener so
+                // subscribers receive the typed wrapper and never see a raw
+                // `String`.
+                publisher.accentChanged(openProject, accentHex, source)
+            } catch (exception: RuntimeException) {
+                log.warn(
+                    "AccentChangedTopic publish failed for ${openProject.name}",
+                    exception,
+                )
+            }
+        }
+    }
+
+    /**
      * Convenience wrapper around [AccentResolver.resolve] + [apply] for the "currently focused
      * project" use case. Called from the settings panels (Accent / Elements / Plugins), the
      * LAF listener, and the rotation tick. Pre-helper, those sites hand-wired variants of
@@ -289,18 +326,18 @@ object AccentApplicator {
     fun applyForFocusedProject(variant: AyuVariant): String {
         val focusedProject = resolveFocusedProject()
         val hex = AccentResolver.resolve(focusedProject, variant)
-        // Phase 40.2 H-3: apply now returns a validation flag. If the resolver hands
-        // back a hex that fails shape validation (corrupted per-project override,
-        // manual XML edit, future resolver bug), skip the swap-cache publish so the
-        // cache does not drift to a hex that was never actually painted. The apply
-        // call itself already surfaces the user-visible notification.
+        // apply returns a validation flag. If the resolver hands back a hex
+        // that fails shape validation (corrupted per-project override, manual
+        // XML edit, future resolver bug), skip the swap-cache publish so the
+        // cache does not drift to a hex that was never actually painted. The
+        // apply call itself already surfaces the user-visible notification.
         val applied = applyFromHexString(hex)
         // Pattern D — regression lock: if you remove this gate, the swap cache
         // will publish hexes that `applyFromHexString` rejected (malformed XML,
         // manual edits, rotation palette bug) and drift from the paint state.
-        // `AccentApplicatorFocusedProjectTest.applyForFocusedProject skips swap
-        // cache publish when applyFromHexString rejects the resolver output`
-        // must fail first if you touch this branch.
+        // The `AccentApplicatorFocusedProjectTest` "skips swap cache publish
+        // when applyFromHexString rejects the resolver output" test must fail
+        // first if you touch this branch.
         if (applied) {
             ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
         }
@@ -409,8 +446,6 @@ object AccentApplicator {
         return null
     }
 
-    private fun com.intellij.openapi.project.Project.isUsable(): Boolean = !isDefault && !isDisposed
-
     fun revertAll() {
         // All revert work batched into a single EDT dispatch
         val work =
@@ -418,7 +453,7 @@ object AccentApplicator {
                 clearReverseUiAndExtensions()
                 revertAlwaysOnEditorKeys()
 
-                // Integration revert plumbing (Phase 40.1 D-04). Pattern G — apply
+                // Integration revert plumbing. Pattern G — apply
                 // path calls IndentRainbowSync.apply + syncCodeGlanceProViewport;
                 // revert path mirrors with IndentRainbowSync.revert + revertCodeGlanceProViewport.
                 // Each block isolated by RuntimeException catch (Pattern B) so one
@@ -432,12 +467,12 @@ object AccentApplicator {
                 }
 
                 try {
-                    CgpIntegration.revertCodeGlanceProViewport()
+                    CodeGlanceProIntegration.revertCodeGlanceProViewport()
                 } catch (exception: RuntimeException) {
                     log.warn("Failed to revert CodeGlance Pro integration", exception)
                 }
 
-                // D-15: cached JBColor instances survive a bare UIManager.put(key, null)
+                // Cached JBColor instances survive a bare UIManager.put(key, null)
                 // clear. Publish the refresh topic per usable open project so subscribers
                 // (e.g. EditorScrollbarManager) reapply their customizations against the
                 // freshly-reverted UIManager state. notifyOnly stops short of
@@ -538,10 +573,10 @@ object AccentApplicator {
                 // mixed tinted+stock state; a subsequent `ChromeBaseColors.get()`
                 // would capture those tinted values as the stock baseline and
                 // poison the cache for the rest of the session. Roll back this
-                // element so the next apply starts from a clean slate. See Phase 40
-                // review Round 3 M-7. Narrow the catch to RuntimeException so
+                // element so the next apply starts from a clean slate.
+                // Narrow the catch to RuntimeException so
                 // Error / CancellationException still propagate and don't get
-                // demoted to a WARN line (Round 1 review-loop HIGH-1).
+                // demoted to a WARN line.
                 try {
                     element.revert()
                 } catch (revertException: RuntimeException) {
@@ -698,15 +733,14 @@ object AccentApplicator {
     /**
      * Write-side repaint pass over the JVM's window list. Filters by
      * [Window.isDisplayable] — DELIBERATELY laxer than
-     * [LiveChromeRefresher.forEachShowingWindow]'s `isShowing` filter
-     * (CA-I1, plan 40.1-02 review-loop): a window that's displayable but
-     * not yet showing (e.g. mid-attach, popup behind a modal) still has a
-     * valid AWT peer, so calling `repaint()` is safe and the queued paint
-     * lands when the window flips to showing. The chrome refresher's
-     * `isShowing` filter is read-side — it walks descendants to collect
-     * peers, where an offscreen window has no useful contribution and
-     * skipping is correct. Two predicates, two purposes; do NOT collapse
-     * them into one helper.
+     * [LiveChromeRefresher.forEachShowingWindow]'s `isShowing` filter:
+     * a window that's displayable but not yet showing (e.g. mid-attach,
+     * popup behind a modal) still has a valid AWT peer, so calling
+     * `repaint()` is safe and the queued paint lands when the window flips
+     * to showing. The chrome refresher's `isShowing` filter is read-side —
+     * it walks descendants to collect peers, where an offscreen window has
+     * no useful contribution and skipping is correct. Two predicates, two
+     * purposes; do NOT collapse them into one helper.
      *
      * The `isDisplayable` check exists for a different reason: a disposed
      * window lingers briefly in [Window.getWindows] during shutdown races,
@@ -715,7 +749,7 @@ object AccentApplicator {
      * disposed peers, NOT not-yet-shown ones.
      */
     private fun repaintAllWindows(windows: Array<Window>) {
-        // CA-I1: predicate intentionally differs from
+        // Predicate intentionally differs from
         // LiveChromeRefresher.forEachShowingWindow.isShowing (read-side).
         // Write-side tolerates not-yet-showing windows so queued paint
         // lands when the peer flips to showing — see KDoc above.
@@ -726,28 +760,28 @@ object AccentApplicator {
     }
 
     /**
-     * Public-to-the-module entry into [CgpIntegration.syncCodeGlanceProViewport]
+     * Public-to-the-module entry into [CodeGlanceProIntegration.syncCodeGlanceProViewport]
      * for the project-focus-swap path.
      * [ProjectAccentSwapService.handleWindowActivated] calls this on a same-hex
      * focus swap to push the per-project accent into the app-scoped CGP
      * `CodeGlanceConfigService` cache without re-running the full UIManager
      * apply (which is already correct for the unchanged hex).
      *
-     * Resolves RESEARCH §Open Questions §1: `ComponentTreeRefresher.walkAndNotify`
-     * alone cannot push the new accent into the app-scoped CGP cache because
-     * CGP does not subscribe to `ComponentTreeRefreshedTopic`. Calling this
-     * wrapper directly from the swap service achieves the cache write without
-     * the apply path's redundant work.
+     * `ComponentTreeRefresher.walkAndNotify` alone cannot push the new accent
+     * into the app-scoped CGP cache because CGP does not subscribe to
+     * `ComponentTreeRefreshedTopic`. Calling this wrapper directly from the
+     * swap service achieves the cache write without the apply path's
+     * redundant work.
      */
     internal fun syncCodeGlanceProViewportForSwap(hex: String) {
-        CgpIntegration.syncCodeGlanceProViewport(hex)
+        CodeGlanceProIntegration.syncCodeGlanceProViewport(hex)
     }
 
     /**
      * String-accepting entry point for callers that hold a raw hex from an
      * untrusted boundary (persisted XML, settings-panel input, resolver
-     * output that is still `String` until Phase 40.3b migration completes).
-     * Validates the shape via [AccentHex.of], surfaces the Phase 40.2 H-3
+     * output that is still `String`).
+     * Validates the shape via [AccentHex.of], surfaces the user-visible
      * notification + returns `false` on rejection, and forwards to [apply]
      * on success.
      *
@@ -759,12 +793,11 @@ object AccentApplicator {
         val accent =
             AccentHex.of(accentHex) ?: run {
                 log.warn("AccentApplicator.apply: invalid hex '$accentHex' — skipping apply")
-                // Phase 40.2 H-3: user-visible notification for the rejected hex so
-                // per-project XML corruption, manual edits, and rotation palette
-                // bugs do not silently turn chrome tinting off. Wrapped in a
-                // narrow try/catch so a notification subsystem hiccup cannot
-                // cascade into the caller (settings panel, rotation tick,
-                // startup).
+                // User-visible notification for the rejected hex so per-project
+                // XML corruption, manual edits, and rotation palette bugs do not
+                // silently turn chrome tinting off. Wrapped in a narrow try/catch
+                // so a notification subsystem hiccup cannot cascade into the
+                // caller (settings panel, rotation tick, startup).
                 //
                 // Pattern B + log-level escalation: narrow the catch to
                 // [RuntimeException] so [OutOfMemoryError] /
@@ -791,3 +824,12 @@ object AccentApplicator {
         return apply(accent)
     }
 }
+
+/**
+ * File-scope extension because [AccentApplicator] is at the cap of its
+ * `TooManyFunctions` budget; moving this trivial guard out of the object
+ * frees one function slot for `publishAccentChanged` extracted from [AccentApplicator.apply].
+ * Shape preserved exactly so the 6+ existing call-sites and the tests'
+ * commentary stay accurate.
+ */
+private fun com.intellij.openapi.project.Project.isUsable(): Boolean = !isDefault && !isDisposed

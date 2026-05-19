@@ -28,10 +28,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 
 /**
- * Tests for [MainToolbarElement] — CHROME-02.
+ * Tests for [MainToolbarElement].
  *
  * Locks:
- *  - Probe gate on `apply` (no UIManager writes when JBR custom decorations inactive — D-13)
+ *  - Probe gate on `apply` (no UIManager writes when JBR custom decorations inactive)
  *  - Unconditional `revert` regardless of probe (cleans up if probe flips between calls)
  *  - Forbidden-key invariant: never touches `MainToolbar.Dropdown.transparentHoverBackground`
  *    (intentional translucency) or any `RecentProject.Color*.MainToolbarGradient*` key
@@ -39,15 +39,15 @@ import kotlin.test.assertFalse
  *  - Intensity sourced from `AyuIslandsSettings.state.chromeTintIntensity`
  *  - Optional contrast-foreground write on `MainToolbar.foreground`
  *  - `MainToolbar.Icon.foreground` is NEVER written — javap-verified absent from
- *    platformVersion 2026.1 metadata + lib JAR string tables (drop-icon decision
- *    on plan 40-10). The regression guard below makes a future platform addition
- *    fail loudly so it must be opted-in explicitly rather than silently activated.
+ *    platformVersion 2026.1 metadata + lib JAR string tables. The regression guard
+ *    below makes a future platform addition fail loudly so it must be opted-in
+ *    explicitly rather than silently activated.
  *
  * Key scope is limited to javap-verified platform 2025.1 UIManager keys:
  * `MainToolbar.background` is registered in `IntelliJPlatform.themeMetadata.json`
  * (since 2022.3) and `MainToolbar.foreground` is a live string literal inside
  * `app-client.jar`. `MainToolbar.borderColor` was NOT found in platform metadata
- * or JAR string tables at 2025.1 — see 40-06-SUMMARY "Deviation from PLAN".
+ * or JAR string tables at 2025.1.
  */
 class MainToolbarElementTest {
     private lateinit var mockSettings: AyuIslandsSettings
@@ -120,7 +120,7 @@ class MainToolbarElementTest {
 
         MainToolbarElement().apply(testAccent)
 
-        // Silent no-op at element level per D-13
+        // Silent no-op at element level when probe reports native chrome.
         verify(exactly = 0) { UIManager.put(any<String>(), any()) }
         verify(exactly = 0) { ChromeTintBlender.blend(any(), any(), any()) }
         verify(exactly = 0) { WcagForeground.pickForeground(any(), any()) }
@@ -179,7 +179,7 @@ class MainToolbarElementTest {
     }
 
     @Test
-    fun `apply invokes LiveChromeRefresher for MainToolbar peer when probe active (Gap 4)`() {
+    fun `apply invokes LiveChromeRefresher for MainToolbar peer when probe active`() {
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns true
         mockState.chromeTintIntensity = 30
 
@@ -194,7 +194,7 @@ class MainToolbarElementTest {
     }
 
     @Test
-    fun `apply skips LiveChromeRefresher when probe reports native chrome (D-13 gate)`() {
+    fun `apply skips LiveChromeRefresher when probe reports native chrome`() {
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns false
         mockState.chromeTintIntensity = 30
 
@@ -204,7 +204,7 @@ class MainToolbarElementTest {
     }
 
     @Test
-    fun `revert invokes LiveChromeRefresher clear unconditionally (D-14 symmetry)`() {
+    fun `revert invokes LiveChromeRefresher clear unconditionally for apply revert symmetry`() {
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns false
 
         MainToolbarElement().revert()

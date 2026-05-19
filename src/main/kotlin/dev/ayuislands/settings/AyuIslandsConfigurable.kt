@@ -89,7 +89,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         // AccentPanel renders Accent Color → (beforeOverrides) → Overrides →
         // (afterOverrides) → Rotation. The beforeOverrides hook hosts
         // AppearancePanel's "System" collapsibleGroup; the afterOverrides hook hosts
-        // the Phase 40 Chrome Tinting collapsible.
+        // the Chrome Tinting collapsible.
         //
         // Chrome Tinting renders AFTER Overrides and BEFORE Rotation because it
         // consumes the *resolved* accent produced by override rules — mirroring the
@@ -97,7 +97,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         // accent → system integrations → scope overrides → chrome surface toggles →
         // rotation schedule → per-element toggles. The two parallel injection hooks
         // keep AccentPanel composition-friendly without turning the order into a
-        // free-form list (see PATTERNS.md 349-362).
+        // free-form list.
         accentPanel.beforeOverridesInjection = { injectionPanel ->
             appearancePanel.buildPanel(injectionPanel, variant)
         }

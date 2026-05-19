@@ -6,7 +6,7 @@ import com.intellij.openapi.util.SystemInfo
 import org.jetbrains.annotations.TestOnly
 
 /**
- * Shared consent dialogs for font install/uninstall lifecycle (D-05).
+ * Shared consent dialogs for font install/uninstall lifecycle.
  *
  * Called from both [dev.ayuislands.onboarding.PremiumOnboardingPanel] (wizard,
  * `compact = false`) and [dev.ayuislands.settings.FontPresetPanel] (settings,
@@ -15,15 +15,15 @@ import org.jetbrains.annotations.TestOnly
  * see consistent wording whether they trigger a lifecycle action from the
  * wizard or from Settings.
  *
- * The `compact` flag (D-06) shortens the message for the Settings modal
- * context where the user is already in a technical surface and the license
- * blurb / admin-rights reassurance would be noise.
+ * The `compact` flag shortens the message for the Settings modal context
+ * where the user is already in a technical surface and the license blurb /
+ * admin-rights reassurance would be noise.
  *
- * **Uninstall warning contract (D-07):** the uninstall dialog MUST include
- * the phrase "IDE restart" and the absolute platform font directory path,
+ * **Uninstall warning contract:** the uninstall dialog MUST include the
+ * phrase "IDE restart" and the absolute platform font directory path,
  * because `java.awt.GraphicsEnvironment` has NO unregister API. A deleted
  * font file is not fully unregistered from the JVM until the next IDE
- * startup. See RESEARCH.md A3.
+ * startup.
  */
 object FontInstallConsent {
     /**

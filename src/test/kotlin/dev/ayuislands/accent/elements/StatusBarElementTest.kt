@@ -27,14 +27,14 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * User-space + algorithmic coverage for [StatusBarElement] per CHROME-01 / CHROME-07.
+ * User-space + algorithmic coverage for [StatusBarElement].
  *
  * Verifies that `apply` routes every background key through [ChromeTintBlender.blend],
  * that the foreground-contrast branch always fires (the legacy
  * `chromeTintKeepForegroundReadable` toggle was retired — WCAG contrast is
- * always-on), that intensity is pulled from state per D-03 (not from the
- * `apply` signature), and that `revert` nulls every touched UIManager key so
- * the LAF re-resolves the stock theme value.
+ * always-on), that intensity is pulled from state (not from the `apply`
+ * signature), and that `revert` nulls every touched UIManager key so the LAF
+ * re-resolves the stock theme value.
  */
 class StatusBarElementTest {
     private val mockApplication = mockk<Application>(relaxed = true)
@@ -83,11 +83,11 @@ class StatusBarElementTest {
 
         StatusBarElement().apply(accent)
 
-        // Phase 40.3c — root chrome surface
+        // Root chrome surface.
         verify { UIManager.put("StatusBar.background", blended) }
         verify { UIManager.put("StatusBar.borderColor", blended) }
         verify { UIManager.put("StatusBar.Widget.hoverBackground", null) }
-        // Phase 40.4 — NavBar Compact (2026.1) state-specific bg keys read by
+        // NavBar Compact (2026.1) state-specific bg keys read by
         // `NavBarItemComponent.highlightColor()` are translucent overlays, not
         // standalone surfaces. The compact panel receives the opaque tint directly;
         // these keys must fall back to the LAF overlay so hover/selection does not
@@ -100,12 +100,12 @@ class StatusBarElementTest {
 
     @Test
     fun `apply still nulls every overlay background when ChromeBaseColors returns null for every key`() {
-        // Phase 40.4 contract: the overlay null sweep is unconditional. Even
-        // when every opaque base color resolves to null (theme metadata gap,
-        // non-Ayu LAF active mid-apply) the overlay keys must be cleared so a
-        // previously-applied plugin override cannot leak past a partial apply.
-        // Guards against a future refactor that "optimizes" the null sweep
-        // behind an `if (tinted.isNotEmpty())` check.
+        // Contract: the overlay null sweep is unconditional. Even when every
+        // opaque base color resolves to null (theme metadata gap, non-Ayu LAF
+        // active mid-apply) the overlay keys must be cleared so a previously
+        // applied plugin override cannot leak past a partial apply. Guards
+        // against a future refactor that "optimizes" the null sweep behind an
+        // `if (tinted.isNotEmpty())` check.
         every { ChromeBaseColors.get(any()) } returns null
         state.chromeTintIntensity = 30
 
@@ -124,7 +124,7 @@ class StatusBarElementTest {
     fun `revert nulls every touched UIManager key`() {
         StatusBarElement().revert()
 
-        // Backgrounds (3 root + 4 Breadcrumbs state) — D-14 symmetry mirror of apply.
+        // Backgrounds (3 root + 4 Breadcrumbs state) — symmetry mirror of apply.
         verify { UIManager.put("StatusBar.background", null) }
         verify { UIManager.put("StatusBar.borderColor", null) }
         verify { UIManager.put("StatusBar.Widget.hoverBackground", null) }
@@ -150,7 +150,7 @@ class StatusBarElementTest {
 
         StatusBarElement().apply(accent)
 
-        // Phase 40.4 — status bar fg uses pickLightFamilyForeground (palette
+        // Status bar fg uses pickLightFamilyForeground (palette
         // [WHITE, DARK_FG], no BLACK) instead of the standard 3-color pick.
         // Standard pickForeground would correctly land on BLACK on mid-luminance
         // tinted bg — visually broken on a chrome surface we own as a dark band.
@@ -164,10 +164,10 @@ class StatusBarElementTest {
 
     @Test
     fun `apply extends light-family pick to all 5 breadcrumb foreground states`() {
-        // Phase 40.4 — NavBarItemComponent.update() (intellij 2026.1) cycles
-        // through 5 fg states based on hover/selected/focused/floating flags.
-        // Every state's UIDefault key must be written so the path widget never
-        // falls through to UIUtil.getLabelForeground() when transitioning states.
+        // `NavBarItemComponent.update()` (intellij 2026.1) cycles through 5 fg
+        // states based on hover/selected/focused/floating flags. Every state's
+        // UIDefault key must be written so the path widget never falls through
+        // to `UIUtil.getLabelForeground()` when transitioning states.
         state.chromeTintIntensity = 40
 
         StatusBarElement().apply(accent)
@@ -221,9 +221,9 @@ class StatusBarElementTest {
 
         StatusBarElement().apply(accent)
 
-        // Light-family pick (Phase 40.4) — same target band as the standard
-        // picker, just a restricted palette. PRIMARY_TEXT (4.5:1) is the right
-        // floor for path widget breadcrumbs which paint readable-size text.
+        // Light-family pick — same target band as the standard picker, just a
+        // restricted palette. PRIMARY_TEXT (4.5:1) is the right floor for path
+        // widget breadcrumbs which paint readable-size text.
         verify(atLeast = 1) {
             WcagForeground.pickLightFamilyForeground(any(), WcagForeground.TextTarget.PRIMARY_TEXT)
         }
@@ -236,7 +236,7 @@ class StatusBarElementTest {
     }
 
     @Test
-    fun `apply passes intensity from state to blender per D-03`() {
+    fun `apply passes intensity from state to blender`() {
         state.chromeTintIntensity = 37
 
         val intensitySlot = slot<TintIntensity>()
@@ -278,7 +278,7 @@ class StatusBarElementTest {
     }
 
     @Test
-    fun `id and displayName match the CHROME registry entry`() {
+    fun `id and displayName match the chrome registry entry`() {
         val element = StatusBarElement()
 
         assertEquals(AccentElementId.STATUS_BAR, element.id)
@@ -286,7 +286,7 @@ class StatusBarElementTest {
     }
 
     @Test
-    fun `apply invokes LiveChromeRefresher once with StatusBar target + tinted background (Gap 4)`() {
+    fun `apply invokes LiveChromeRefresher once with StatusBar target + tinted background`() {
         state.chromeTintIntensity = 40
 
         StatusBarElement().apply(accent)
@@ -296,7 +296,7 @@ class StatusBarElementTest {
     }
 
     @Test
-    fun `revert invokes LiveChromeRefresher clear with StatusBar target once (D-14 symmetry)`() {
+    fun `revert invokes LiveChromeRefresher clear with StatusBar target once for apply revert symmetry`() {
         StatusBarElement().revert()
 
         verify(exactly = 1) { LiveChromeRefresher.clear(ChromeTarget.StatusBar) }

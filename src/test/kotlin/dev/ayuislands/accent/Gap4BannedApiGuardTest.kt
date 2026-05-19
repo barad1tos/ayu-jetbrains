@@ -8,9 +8,9 @@ import kotlin.test.Test
 import kotlin.test.assertFalse
 
 /**
- * Banned-API regression guard for the Level 2 Gap-4 surface (plan 40-14).
+ * Banned-API regression guard for the Level 2 direct Swing peer mutation hook.
  *
- * The 40-14 hook MUST stay strictly on direct Swing peer mutation
+ * The hook MUST stay strictly on direct Swing peer mutation
  * (`setBackground` + `repaint`). Any reach back into LAF refresh paths is a
  * regression — `SwingUtilities.updateComponentTreeUI` crashes via
  * `ActionToolbar.updateUI → SlowOperations` (per project CLAUDE.md), and
@@ -44,8 +44,8 @@ class Gap4BannedApiGuardTest {
 
     /**
      * Strips block comments `/* ... */` and line comments `// ...` so KDoc that
-     * documents the very banned APIs they forbid (e.g. AccentApplicator's D-15
-     * comment naming `updateComponentTreeUI`) cannot false-positive a guard.
+     * documents the very banned APIs they forbid (e.g. `AccentApplicator`'s
+     * KDoc naming `updateComponentTreeUI`) cannot false-positive a guard.
      */
     private fun stripComments(input: String): String {
         val noBlock = input.replace(Regex("/\\*[\\s\\S]*?\\*/"), "")
@@ -85,14 +85,14 @@ class Gap4BannedApiGuardTest {
     @Test
     fun `accent module must not publish LafManagerListener broadcasts`() {
         // Subscribing to the LAF topic is SAFE — a passive cache-invalidation
-        // listener cannot recurse through the apply/revert path. What 40-12 §A
-        // verdict=UNSAFE actually banned was *publishing* lookAndFeelChanged
-        // from the apply path (the `syncPublisher(LafManagerListener.TOPIC)`
-        // shape), which would recurse through ProcessPopup's handler that
-        // calls IJSwingUtilities.updateComponentTreeUI.
+        // listener cannot recurse through the apply/revert path. What is
+        // actually banned is *publishing* lookAndFeelChanged from the apply
+        // path (the `syncPublisher(LafManagerListener.TOPIC)` shape), which
+        // would recurse through `ProcessPopup`'s handler that calls
+        // `IJSwingUtilities.updateComponentTreeUI`.
         //
         // This guard catches the unsafe shape while allowing the safe
-        // ChromeBaseColors subscriber pattern (`subscribe(LafManagerListener.TOPIC, …)`).
+        // `ChromeBaseColors` subscriber pattern (`subscribe(LafManagerListener.TOPIC, …)`).
         val offenders =
             accentSources.filter { (_, source) ->
                 source.contains("syncPublisher(LafManagerListener.TOPIC") ||
@@ -100,17 +100,17 @@ class Gap4BannedApiGuardTest {
             }
         assertFalse(
             offenders.isNotEmpty(),
-            "Files publishing LafManagerListener broadcasts (per 40-12 §A verdict=UNSAFE, " +
-                "publishing lookAndFeelChanged from apply path would recurse): " +
+            "Files publishing LafManagerListener broadcasts (UNSAFE — publishing " +
+                "lookAndFeelChanged from apply path would recurse): " +
                 "${offenders.map { it.first.fileName }}",
         )
     }
 
     @Test
-    fun `coverage thresholds and ignore lists in build gradle kts unchanged from 40-14 baseline`() {
+    fun `coverage thresholds and ignore lists in build gradle kts unchanged from baseline`() {
         // Read koverVerify line to detect a smuggled threshold drop. The number
         // (80) is the project-wide floor per CLAUDE.md "Coverage Floors". Any
-        // reduction to bypass Gap-4 hook coverage is a violation.
+        // reduction to bypass hook coverage is a violation.
         val buildGradle =
             Files.readString(
                 Paths.get(System.getProperty("user.dir"), "build.gradle.kts"),
