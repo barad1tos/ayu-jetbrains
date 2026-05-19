@@ -177,17 +177,17 @@ class ProjectAccentSwapServicePublishTest {
         val window = mockk<Window>(relaxed = true)
         val component = JPanel()
         every { SwingUtilities.getWindowAncestor(component) } returns window
-        val project = stubProject("publish-project")
+        val project = stubProject()
         val frame = stubIdeFrame(project, component)
         every { WindowManager.getInstance().allProjectFrames } returns arrayOf(frame)
         return window to project
     }
 
-    private fun stubProject(name: String): Project =
+    private fun stubProject(): Project =
         mockk {
             every { isDisposed } returns false
             every { isDefault } returns false
-            every { this@mockk.name } returns name
+            every { this@mockk.name } returns "publish-project"
         }
 
     private fun stubIdeFrame(

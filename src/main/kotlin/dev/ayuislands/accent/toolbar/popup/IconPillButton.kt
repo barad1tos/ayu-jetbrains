@@ -36,11 +36,12 @@ import javax.swing.JComponent
  *
  * Click handler uses the non-deprecated 6-arg event-factory form on
  * [AnActionEvent] and dispatches through [ActionUtil.invokeAction] rather
- * than calling [AnAction.actionPerformed] directly: IntelliJ 2025.1+ marks
- * `AnAction.actionPerformed` as `@ApiStatus.OverrideOnly`, so direct
- * invocation by callers bypasses platform plumbing (beforeActionPerformed
- * listeners, action-promoter chain, error reporting). [ActionUtil.invokeAction]
- * is the project-canonical helper — see `LicenseChecker.kt` for prior art.
+ * than calling the action's perform method directly: IntelliJ 2025.1+
+ * marks `AnAction.actionPerformed` as `@ApiStatus.OverrideOnly`, so
+ * direct invocation by callers bypasses platform plumbing
+ * (beforeActionPerformed listeners, action-promoter chain, error
+ * reporting). [ActionUtil.invokeAction] is the project-canonical
+ * helper — see `LicenseChecker.kt` for prior art.
  * The dispatch is wrapped in
  * `try { ... } catch (exception: RuntimeException) { LOG.warn(...) }` per
  * Pattern B — a throwing action must NOT kill the EDT or crash the popup.

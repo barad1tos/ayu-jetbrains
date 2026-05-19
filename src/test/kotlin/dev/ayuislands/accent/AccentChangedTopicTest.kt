@@ -16,11 +16,15 @@ import kotlin.test.assertTrue
  * would surface as `NoClassDefFoundError` deep inside a subscriber's `init {}`),
  * the `displayName` is the human-readable tag JetBrains' bus diagnostics use,
  * and the listener class must be a real `fun interface` so consumers can use
- * SAM lambdas without ceremony.
+ * SAM lambdas without ceremony. The topic is application-scoped so subscribers
+ * connected on either `Application.messageBus` or any `Project.messageBus`
+ * receive the event.
  *
- * Phase 48 D-01: application-scoped fan-out so subscribers connected on either
- * `Application.messageBus` or any `Project.messageBus` receive the event.
+ * `Topic.getListenerClass()` is `@ApiStatus.Internal` — used here only as a
+ * reflective contract lock for the topic's listener type. No public equivalent
+ * exists; the alternative is no regression coverage on the SAM identity.
  */
+@Suppress("UnstableApiUsage")
 class AccentChangedTopicTest {
     @Test
     fun `topic exists with stable display name`() {

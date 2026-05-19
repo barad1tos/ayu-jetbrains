@@ -48,7 +48,7 @@ class PopupSwatchTest {
         }
         val expected = ColorUtil.fromHex("#FFB454")
         val actual = Color(image.getRGB(width / 2, height / 2), true)
-        assertColorClose(expected, actual, tolerance = 4)
+        assertColorClose(expected, actual)
     }
 
     @Test
@@ -72,7 +72,7 @@ class PopupSwatchTest {
         val expectedG = blend(accent.green, border.green, 0.55f)
         val expectedB = blend(accent.blue, border.blue, 0.55f)
         val actual = Color(image.getRGB(width / 2, height / 2), true)
-        assertColorClose(Color(expectedR, expectedG, expectedB), actual, tolerance = 4)
+        assertColorClose(Color(expectedR, expectedG, expectedB), actual)
     }
 
     @Test
@@ -164,13 +164,19 @@ class PopupSwatchTest {
     private fun assertColorClose(
         expected: Color,
         actual: Color,
-        tolerance: Int,
     ) {
         val r = expected.red to actual.red
         val g = expected.green to actual.green
         val b = expected.blue to actual.blue
-        assertTrue(abs(r.first - r.second) <= tolerance, "R: expected=${r.first} actual=${r.second}")
-        assertTrue(abs(g.first - g.second) <= tolerance, "G: expected=${g.first} actual=${g.second}")
-        assertTrue(abs(b.first - b.second) <= tolerance, "B: expected=${b.first} actual=${b.second}")
+        assertTrue(abs(r.first - r.second) <= COLOR_TOLERANCE, "R: expected=${r.first} actual=${r.second}")
+        assertTrue(abs(g.first - g.second) <= COLOR_TOLERANCE, "G: expected=${g.first} actual=${g.second}")
+        assertTrue(abs(b.first - b.second) <= COLOR_TOLERANCE, "B: expected=${b.first} actual=${b.second}")
+    }
+
+    private companion object {
+        // Pixel sampling on rounded swatches drifts a couple of units from the
+        // ideal blend due to RoundRectangle2D anti-aliasing; 4 covers the
+        // observed spread without masking a real color regression.
+        const val COLOR_TOLERANCE: Int = 4
     }
 }

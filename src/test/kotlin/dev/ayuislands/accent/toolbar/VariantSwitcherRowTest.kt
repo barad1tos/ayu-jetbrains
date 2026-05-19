@@ -23,13 +23,17 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Wave-7 redesign coverage per 48-REDESIGN-SPEC §3.3:
- *   - layout is [SegmentedControl] + [IslandsUiPill] (no `JRadioButton` /
- *     `JCheckBox` left in the file),
- *   - selecting a segment calls `applyVariantAndChrome` via
- *     `LafManager.setCurrentLookAndFeel(laf, false)` (Pitfall 5 lock),
- *   - missing theme in `installedThemes` is a warn-and-return no-op (Pitfall 7 fail-safe).
+ * Coverage for the variant row's `SegmentedControl` + `IslandsUiPill` layout,
+ * the theme apply path via `LafManager.setCurrentLookAndFeel(laf, false)`
+ * (locks in the `lockEditorScheme = false` second arg), and the warn-and-return
+ * no-op when the requested theme is missing from `installedThemes`.
+ *
+ * Mirrors the `@Suppress("UnstableApiUsage")` on the production `VariantSwitcherRow.applyVariantAndChrome` —
+ * the experimental theme API (`UIThemeLookAndFeelInfo`, `getInstalledThemes`,
+ * `setCurrentLookAndFeel(UIThemeLookAndFeelInfo, Boolean)`) is the canonical Ayu
+ * path with no stable alternative on the current platform target.
  */
+@Suppress("UnstableApiUsage")
 class VariantSwitcherRowTest {
     private val lafManager = mockk<LafManager>(relaxed = true)
     private val mirageTheme = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
@@ -313,12 +317,12 @@ class VariantSwitcherRowTest {
         verify(atLeast = 1) { AccentResolver.resolve(any(), any()) }
         // Behavior pin — IslandsUiPill resolves to MIRAGE_HEX when the
         // resolver throws; the constant itself is the value the user sees
-        // painted in the fallback. Lock the value so a future rename to a
-        // different default would force test rewrite (Pattern L).
-        assertTrue(
-            AccentDefaults.MIRAGE_HEX.startsWith("#") && AccentDefaults.MIRAGE_HEX.length == HEX_LITERAL_LENGTH,
-            "AccentDefaults.MIRAGE_HEX must be a #RRGGBB literal so the fallback is paintable; " +
-                "got: ${AccentDefaults.MIRAGE_HEX}",
+        // painted in the fallback. Lock the exact literal so any future
+        // rename or hex bump forces a deliberate test update (Pattern L).
+        assertEquals(
+            "#FFB454",
+            AccentDefaults.MIRAGE_HEX,
+            "AccentDefaults.MIRAGE_HEX is the canonical Ayu Mirage default — changing it requires updating this lock.",
         )
     }
 
@@ -328,8 +332,5 @@ class VariantSwitcherRowTest {
         /** Reasonable JBUI-scaled pill dimensions for paint sampling. */
         const val JBUI_SCALED_PILL_W: Int = 80
         const val JBUI_SCALED_PILL_H: Int = 28
-
-        /** `#RRGGBB` literal length — 1 hash + 6 hex digits. */
-        const val HEX_LITERAL_LENGTH: Int = 7
     }
 }
