@@ -1,6 +1,5 @@
 package dev.ayuislands.licensing
 
-import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
@@ -15,9 +14,9 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
 import com.intellij.ui.LicensingFacade
+import dev.ayuislands.AyuPlugin
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AccentGroup
@@ -467,13 +466,22 @@ object LicenseChecker {
         if (System.getProperty("ayu.islands.dev") != "true") return false
         val configPath = PathManager.getConfigPath()
         if (!configPath.contains("idea-sandbox")) return false
-        val pluginId = PluginId.getId("com.ayuislands.theme")
-        val pluginPath =
-            PluginManagerCore
-                .getPlugin(pluginId)
-                ?.pluginPath
-                ?.toString()
-                .orEmpty()
-        return pluginPath.contains("idea-sandbox")
+        // Reaching this branch means the operator explicitly requested dev
+        // mode AND IDE is in a sandbox config — so a `false` return from here
+        // is a SURPRISING demotion and must be auditable. INFO (not DEBUG)
+        // so the message lands in `idea.log` without enabling category-level
+        // debug; the two preconditions above guarantee this branch can't spam
+        // regular users (only dev sandboxes ever reach it). Both descriptor-
+        // null and pluginPath-null paths are logged for symmetry.
+        val descriptor = AyuPlugin.findEnabledPlugin(AyuPlugin.ID)
+        val pluginPath = descriptor?.pluginPath?.toString().orEmpty()
+        val isDev = pluginPath.contains("idea-sandbox")
+        if (!isDev) {
+            LOG.info(
+                "isDevBuild: returning false despite dev sandbox request — " +
+                    "descriptor=${descriptor != null}, pluginPath=$pluginPath",
+            )
+        }
+        return isDev
     }
 }

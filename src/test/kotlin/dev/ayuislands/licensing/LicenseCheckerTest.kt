@@ -1,10 +1,10 @@
 package dev.ayuislands.licensing
 
 import com.intellij.ide.plugins.IdeaPluginDescriptor
-import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.ui.LicensingFacade
+import dev.ayuislands.AyuPlugin
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.every
@@ -23,7 +23,7 @@ import kotlin.test.assertTrue
 
 class LicenseCheckerTest {
     private val defaultSettings =
-        io.mockk.mockk<AyuIslandsSettings>(relaxed = true).also {
+        mockk<AyuIslandsSettings>(relaxed = true).also {
             every { it.state } returns AyuIslandsState()
         }
 
@@ -31,8 +31,8 @@ class LicenseCheckerTest {
     fun setUp() {
         mockkStatic(PathManager::class)
         mockkStatic(LicensingFacade::class)
-        mockkStatic(PluginManagerCore::class)
-        every { PluginManagerCore.getPlugin(any<PluginId>()) } returns null
+        mockkObject(AyuPlugin)
+        every { AyuPlugin.findEnabledPlugin(any<PluginId>()) } returns null
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns defaultSettings
     }
@@ -42,7 +42,7 @@ class LicenseCheckerTest {
         val path = mockk<Path>()
         every { path.toString() } returns "/repo/build/idea-sandbox/plugins/ayuIslands/lib/ayuIslands.jar"
         every { descriptor.pluginPath } returns path
-        every { PluginManagerCore.getPlugin(PluginId.getId("com.ayuislands.theme")) } returns descriptor
+        every { AyuPlugin.findEnabledPlugin(AyuPlugin.ID) } returns descriptor
     }
 
     @AfterTest
@@ -98,7 +98,7 @@ class LicenseCheckerTest {
     @Test
     fun `isLicensed returns false when no confirmation stamp`() {
         every { PathManager.getConfigPath() } returns "/home/user/.config/JetBrains/IntelliJIdea2025.1"
-        val facade = io.mockk.mockk<LicensingFacade>()
+        val facade = mockk<LicensingFacade>()
         every { LicensingFacade.getInstance() } returns facade
         every { facade.getConfirmationStamp(LicenseChecker.PRODUCT_CODE) } returns null
 
@@ -110,7 +110,7 @@ class LicenseCheckerTest {
     @Test
     fun `isLicensed returns true for eval stamp`() {
         every { PathManager.getConfigPath() } returns "/home/user/.config/JetBrains/IntelliJIdea2025.1"
-        val facade = io.mockk.mockk<LicensingFacade>()
+        val facade = mockk<LicensingFacade>()
         every { LicensingFacade.getInstance() } returns facade
         every { facade.getConfirmationStamp(LicenseChecker.PRODUCT_CODE) } returns "eval:12345"
 
@@ -122,7 +122,7 @@ class LicenseCheckerTest {
     @Test
     fun `isLicensed returns false for unknown stamp prefix`() {
         every { PathManager.getConfigPath() } returns "/home/user/.config/JetBrains/IntelliJIdea2025.1"
-        val facade = io.mockk.mockk<LicensingFacade>()
+        val facade = mockk<LicensingFacade>()
         every { LicensingFacade.getInstance() } returns facade
         every { facade.getConfirmationStamp(LicenseChecker.PRODUCT_CODE) } returns "unknown:data"
 
@@ -145,7 +145,7 @@ class LicenseCheckerTest {
     @Test
     fun `isLicensedOrGrace returns false when explicitly not licensed`() {
         every { PathManager.getConfigPath() } returns "/home/user/.config/JetBrains/IntelliJIdea2025.1"
-        val facade = io.mockk.mockk<LicensingFacade>()
+        val facade = mockk<LicensingFacade>()
         every { LicensingFacade.getInstance() } returns facade
         every { facade.getConfirmationStamp(LicenseChecker.PRODUCT_CODE) } returns null
 
@@ -165,11 +165,11 @@ class LicenseCheckerTest {
     @Test
     fun `isLicensedOrGrace returns true within 47h 59m of last licensed check`() {
         val realState = AyuIslandsState()
-        val settingsMock = io.mockk.mockk<AyuIslandsSettings>()
+        val settingsMock = mockk<AyuIslandsSettings>()
         every { AyuIslandsSettings.getInstance() } returns settingsMock
         every { settingsMock.state } returns realState
         every { PathManager.getConfigPath() } returns "/home/user/.config/JetBrains/IntelliJIdea2025.1"
-        val facade = io.mockk.mockk<LicensingFacade>()
+        val facade = mockk<LicensingFacade>()
         every { LicensingFacade.getInstance() } returns facade
         every { facade.getConfirmationStamp(LicenseChecker.PRODUCT_CODE) } returns null
 
@@ -184,11 +184,11 @@ class LicenseCheckerTest {
     @Test
     fun `isLicensedOrGrace returns false at exact 48h boundary`() {
         val realState = AyuIslandsState()
-        val settingsMock = io.mockk.mockk<AyuIslandsSettings>()
+        val settingsMock = mockk<AyuIslandsSettings>()
         every { AyuIslandsSettings.getInstance() } returns settingsMock
         every { settingsMock.state } returns realState
         every { PathManager.getConfigPath() } returns "/home/user/.config/JetBrains/IntelliJIdea2025.1"
-        val facade = io.mockk.mockk<LicensingFacade>()
+        val facade = mockk<LicensingFacade>()
         every { LicensingFacade.getInstance() } returns facade
         every { facade.getConfirmationStamp(LicenseChecker.PRODUCT_CODE) } returns null
 
@@ -203,11 +203,11 @@ class LicenseCheckerTest {
     @Test
     fun `isLicensedOrGrace writes lastKnownLicensedMs monotonically on each licensed call`() {
         val realState = AyuIslandsState()
-        val settingsMock = io.mockk.mockk<AyuIslandsSettings>()
+        val settingsMock = mockk<AyuIslandsSettings>()
         every { AyuIslandsSettings.getInstance() } returns settingsMock
         every { settingsMock.state } returns realState
         every { PathManager.getConfigPath() } returns "/home/user/.config/JetBrains/IntelliJIdea2025.1"
-        val facade = io.mockk.mockk<LicensingFacade>()
+        val facade = mockk<LicensingFacade>()
         every { LicensingFacade.getInstance() } returns facade
         every { facade.getConfirmationStamp(LicenseChecker.PRODUCT_CODE) } returns "eval:1"
 
@@ -231,7 +231,7 @@ class LicenseCheckerTest {
     @Test
     fun `enableProDefaults sets all glow flags to true`() {
         val realState = AyuIslandsState()
-        val settingsMock = io.mockk.mockk<AyuIslandsSettings>()
+        val settingsMock = mockk<AyuIslandsSettings>()
         every { AyuIslandsSettings.getInstance() } returns settingsMock
         every { settingsMock.state } returns realState
 

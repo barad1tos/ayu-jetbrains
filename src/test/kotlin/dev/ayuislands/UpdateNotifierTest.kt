@@ -1,13 +1,13 @@
 package dev.ayuislands
 
 import com.intellij.ide.plugins.IdeaPluginDescriptor
-import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationGroup
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
+import dev.ayuislands.AyuPlugin
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.whatsnew.WhatsNewLauncher
@@ -30,7 +30,7 @@ class UpdateNotifierTest {
 
     @BeforeTest
     fun setUp() {
-        mockkStatic(PluginManagerCore::class)
+        mockkObject(AyuPlugin)
         mockkObject(AyuIslandsSettings.Companion)
         mockkStatic(NotificationGroupManager::class)
 
@@ -53,7 +53,7 @@ class UpdateNotifierTest {
     @Test
     fun `no-op when plugin descriptor not found`() {
         every {
-            PluginManagerCore.getPlugin(any<PluginId>())
+            AyuPlugin.findEnabledPlugin(any<PluginId>())
         } returns null
 
         UpdateNotifier.showIfUpdated(project)
@@ -65,7 +65,7 @@ class UpdateNotifierTest {
     fun `no-op when version already seen`() {
         state.lastSeenVersion = "2.2.0"
         every {
-            PluginManagerCore.getPlugin(any<PluginId>())
+            AyuPlugin.findEnabledPlugin(any<PluginId>())
         } returns descriptor
         every { descriptor.version } returns "2.2.0"
 
@@ -78,7 +78,7 @@ class UpdateNotifierTest {
     fun `updates lastSeenVersion on first install without notification`() {
         state.lastSeenVersion = null
         every {
-            PluginManagerCore.getPlugin(any<PluginId>())
+            AyuPlugin.findEnabledPlugin(any<PluginId>())
         } returns descriptor
         every { descriptor.version } returns "2.2.0"
 
@@ -91,7 +91,7 @@ class UpdateNotifierTest {
     fun `no notification when no release notes for version`() {
         state.lastSeenVersion = "2.1.0"
         every {
-            PluginManagerCore.getPlugin(any<PluginId>())
+            AyuPlugin.findEnabledPlugin(any<PluginId>())
         } returns descriptor
         every { descriptor.version } returns "9.9.9"
 
@@ -104,7 +104,7 @@ class UpdateNotifierTest {
     fun `shows notification when upgrading to version with release notes`() {
         state.lastSeenVersion = "2.1.0"
         every {
-            PluginManagerCore.getPlugin(any<PluginId>())
+            AyuPlugin.findEnabledPlugin(any<PluginId>())
         } returns descriptor
         every { descriptor.version } returns "2.2.0"
 
@@ -139,7 +139,7 @@ class UpdateNotifierTest {
     fun `updates state before checking release notes`() {
         state.lastSeenVersion = "2.0.0"
         every {
-            PluginManagerCore.getPlugin(any<PluginId>())
+            AyuPlugin.findEnabledPlugin(any<PluginId>())
         } returns descriptor
         every { descriptor.version } returns "2.1.0"
 
@@ -154,7 +154,7 @@ class UpdateNotifierTest {
         // lastSeen already matches current — line 21 should short-circuit every call.
         state.lastSeenVersion = "2.4.0"
         every {
-            PluginManagerCore.getPlugin(any<PluginId>())
+            AyuPlugin.findEnabledPlugin(any<PluginId>())
         } returns descriptor
         every { descriptor.version } returns "2.4.0"
 
@@ -182,7 +182,7 @@ class UpdateNotifierTest {
         // even when release notes exist for the current version.
         state.lastSeenVersion = null
         every {
-            PluginManagerCore.getPlugin(any<PluginId>())
+            AyuPlugin.findEnabledPlugin(any<PluginId>())
         } returns descriptor
         every { descriptor.version } returns "2.4.0"
 
@@ -211,7 +211,7 @@ class UpdateNotifierTest {
         // Session 2 and 3 read the persisted state — must stay silent.
         state.lastSeenVersion = "2.3.7"
         every {
-            PluginManagerCore.getPlugin(any<PluginId>())
+            AyuPlugin.findEnabledPlugin(any<PluginId>())
         } returns descriptor
         every { descriptor.version } returns "2.4.0"
 
@@ -246,7 +246,7 @@ class UpdateNotifierTest {
         // the target version, not an intermediate one.
         state.lastSeenVersion = "2.3.5"
         every {
-            PluginManagerCore.getPlugin(any<PluginId>())
+            AyuPlugin.findEnabledPlugin(any<PluginId>())
         } returns descriptor
         every { descriptor.version } returns "2.4.0"
 
@@ -283,7 +283,7 @@ class UpdateNotifierTest {
         // path entirely — no double-signal to the user.
         state.lastSeenVersion = "2.4.2"
         every {
-            PluginManagerCore.getPlugin(any<PluginId>())
+            AyuPlugin.findEnabledPlugin(any<PluginId>())
         } returns descriptor
         every { descriptor.version } returns "2.5.0"
         every { WhatsNewLauncher.openIfEligible(project, "2.5.0") } returns true
@@ -317,7 +317,7 @@ class UpdateNotifierTest {
         // exist. Regression guard for breaking the existing balloon flow.
         state.lastSeenVersion = "2.1.0"
         every {
-            PluginManagerCore.getPlugin(any<PluginId>())
+            AyuPlugin.findEnabledPlugin(any<PluginId>())
         } returns descriptor
         every { descriptor.version } returns "2.2.0"
         every { WhatsNewLauncher.openIfEligible(project, "2.2.0") } returns false
@@ -349,7 +349,7 @@ class UpdateNotifierTest {
         // Current version is not in RELEASE_NOTES — state must update but notification must NOT fire.
         state.lastSeenVersion = "2.3.7"
         every {
-            PluginManagerCore.getPlugin(any<PluginId>())
+            AyuPlugin.findEnabledPlugin(any<PluginId>())
         } returns descriptor
         every { descriptor.version } returns "2.9.99"
 
