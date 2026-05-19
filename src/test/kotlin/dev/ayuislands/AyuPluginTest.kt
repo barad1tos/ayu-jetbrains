@@ -12,7 +12,6 @@ import io.mockk.unmockkAll
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 
@@ -77,10 +76,15 @@ class AyuPluginTest {
         every { PluginManager.getInstance() } returns pluginManager
         every { pluginManager.findEnabledPlugin(AyuPlugin.ID) } returns descriptor
 
-        assertNotNull(
+        // Identity assertion (not just non-null) — a future refactor that
+        // accidentally wrapped the descriptor (e.g. in a Decorator) would
+        // silently change the type read by `.version`/`.pluginPath`/
+        // `.pluginClassLoader` callers; assertSame catches that drift.
+        assertSame(
+            descriptor,
             AyuPlugin.findEnabledPlugin(AyuPlugin.ID),
-            "The wrapper must surface the live descriptor — callers read .version, " +
-                ".pluginPath, .pluginClassLoader off it.",
+            "The wrapper must surface the live descriptor verbatim — callers read " +
+                ".version, .pluginPath, .pluginClassLoader off it.",
         )
     }
 
@@ -128,13 +132,17 @@ class AyuPluginTest {
 
     @Test
     fun `findEnabledPlugin survives a mocked Application whose getService returns Object`() {
-        // Real test-suite scenario: another test in the JVM mocked
-        // `ApplicationManager.getApplication()` to return an Application whose
-        // `getService(PluginManager::class.java)` returns a bare Object. That
-        // shape triggers a ClassCastException inside `PluginManager.getInstance`.
-        // The wrapper catches it so unrelated tests (Chrome refresh,
-        // ConflictRegistry probes) don't crash with platform-internal errors
-        // they don't actually exercise.
+        // Pins the `catch (_: ClassCastException)` branch in
+        // [AyuPlugin.findEnabledPlugin]. Real test-suite scenario: another
+        // test in the JVM mocked `ApplicationManager.getApplication()` to
+        // return an Application whose `getService(PluginManager::class.java)`
+        // returns a bare Object. That shape triggers a ClassCastException
+        // inside `PluginManager.getInstance()` (one frame deeper than where
+        // we observe it). The wrapper catches it so unrelated tests (Chrome
+        // refresh, ConflictRegistry probes) don't crash with platform-
+        // internal errors they don't actually exercise.
+        //
+        // Deleting the production catch will fail this test.
         val app = mockk<Application>()
         mockkStatic(ApplicationManager::class)
         mockkStatic(PluginManager::class)

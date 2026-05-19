@@ -14,7 +14,6 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
 import com.intellij.ui.LicensingFacade
 import dev.ayuislands.AyuPlugin
@@ -26,6 +25,9 @@ import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
+import dev.ayuislands.licensing.LicenseChecker.getTrialDaysRemaining
+import dev.ayuislands.licensing.LicenseChecker.isLicensedOrGrace
+import dev.ayuislands.licensing.LicenseChecker.nowMsSupplier
 import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -467,13 +469,19 @@ object LicenseChecker {
         if (System.getProperty("ayu.islands.dev") != "true") return false
         val configPath = PathManager.getConfigPath()
         if (!configPath.contains("idea-sandbox")) return false
-        val pluginId = PluginId.getId("com.ayuislands.theme")
-        val pluginPath =
-            AyuPlugin
-                .findEnabledPlugin(pluginId)
-                ?.pluginPath
-                ?.toString()
-                .orEmpty()
-        return pluginPath.contains("idea-sandbox")
+        val descriptor = AyuPlugin.findEnabledPlugin(AyuPlugin.ID)
+        if (descriptor == null) {
+            // Defensive: if the Application is mid-bootstrap or the descriptor
+            // lookup returns null for any reason, the gate falls through to
+            // `false` instead of trusting the sandbox-only config path. Log at
+            // DEBUG so the gate decision is traceable in `idea.log` without
+            // spamming production users whose descriptor is always present.
+            LOG.debug("isDevBuild: descriptor unavailable; treating as non-dev")
+            return false
+        }
+        return descriptor.pluginPath
+            ?.toString()
+            .orEmpty()
+            .contains("idea-sandbox")
     }
 }

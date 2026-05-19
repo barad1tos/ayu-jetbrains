@@ -11,10 +11,10 @@ import dev.ayuislands.AyuPlugin
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.onboarding.ContentScaler
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.whatsnew.WhatsNewPanel.Companion.MAX_SCALE
+import dev.ayuislands.whatsnew.WhatsNewPanel.Companion.MIN_SCALE
 import java.awt.BorderLayout
 import java.awt.Color
-import java.awt.Component.CENTER_ALIGNMENT
-import java.awt.Component.LEFT_ALIGNMENT
 import java.awt.FlowLayout
 import java.awt.Font
 import java.awt.event.ComponentAdapter

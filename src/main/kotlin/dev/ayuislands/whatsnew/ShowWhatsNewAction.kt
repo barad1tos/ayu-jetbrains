@@ -54,11 +54,7 @@ internal class ShowWhatsNewAction : DumbAwareAction() {
             // BGT update can race with the click. The launcher returns false in
             // two cases: descriptor missing (a real anomaly — WARN) or no
             // manifest for current version (expected on patches — INFO).
-            val descriptor =
-                AyuPlugin.findEnabledPlugin(
-                    com.intellij.openapi.extensions.PluginId
-                        .getId("com.ayuislands.theme"),
-                )
+            val descriptor = AyuPlugin.findEnabledPlugin(AyuPlugin.ID)
             if (descriptor == null) {
                 LOG.warn("Ayu What's New: manual open declined — plugin descriptor missing")
             } else {
