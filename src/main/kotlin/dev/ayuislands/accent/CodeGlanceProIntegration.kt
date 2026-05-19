@@ -1,6 +1,6 @@
 package dev.ayuislands.accent
 
-import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.plugins.PluginManager
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.PluginId
@@ -88,7 +88,7 @@ internal object CodeGlanceProIntegration {
 
         try {
             val pluginId = PluginId.getId("com.nasller.CodeGlancePro")
-            val cgpPlugin = PluginManagerCore.getPlugin(pluginId) ?: return
+            val cgpPlugin = PluginManager.getPlugin(pluginId) ?: return
             val cgpClassLoader = cgpPlugin.pluginClassLoader ?: return
 
             val serviceClass =

@@ -1,7 +1,7 @@
 package dev.ayuislands.accent
 
 import com.intellij.ide.plugins.IdeaPluginDescriptor
-import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.plugins.PluginManager
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.editor.colors.ColorKey
@@ -91,8 +91,8 @@ class AccentApplicatorTest {
         mockkStatic(Window::class)
         every { Window.getWindows() } returns emptyArray()
 
-        mockkStatic(PluginManagerCore::class)
-        every { PluginManagerCore.getPlugin(any()) } returns null
+        mockkStatic(PluginManager::class)
+        every { PluginManager.getPlugin(any()) } returns null
 
         // Per-project notify plumbing: revertAll iterates ProjectManager.openProjects
         // and calls ComponentTreeRefresher.notifyOnly per usable project. Unit tests
@@ -818,7 +818,7 @@ class AccentApplicatorTest {
     @Test
     fun `resolveCgpMethods returns when plugin classloader is null`() {
         val mockPlugin = mockk<IdeaPluginDescriptor>(relaxed = true)
-        every { PluginManagerCore.getPlugin(any()) } returns mockPlugin
+        every { PluginManager.getPlugin(any()) } returns mockPlugin
         every { mockPlugin.pluginClassLoader } returns null
 
         invokePrivate("resolveCgpMethods")

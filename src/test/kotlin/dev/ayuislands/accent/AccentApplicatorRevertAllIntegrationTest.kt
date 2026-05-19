@@ -1,7 +1,7 @@
 package dev.ayuislands.accent
 
 import com.intellij.ide.plugins.IdeaPluginDescriptor
-import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.plugins.PluginManager
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.colors.EditorColorsManager
@@ -803,9 +803,9 @@ class AccentApplicatorRevertAllIntegrationTest {
         // `cgpMethodsResolved = true` flag set on entry would leak into
         // the next test.
         CodeGlanceProIntegration.resetReflectionCacheForTests()
-        mockkStatic(PluginManagerCore::class)
+        mockkStatic(PluginManager::class)
         val mockPlugin = mockk<IdeaPluginDescriptor>(relaxed = true)
-        every { PluginManagerCore.getPlugin(any()) } returns mockPlugin
+        every { PluginManager.getPlugin(any()) } returns mockPlugin
         // Use the test's own classloader — it does not contain the CGP class,
         // so `Class.forName` throws `ClassNotFoundException` (a subtype of
         // `ReflectiveOperationException`).
@@ -837,9 +837,9 @@ class AccentApplicatorRevertAllIntegrationTest {
         // Reflection cache is reset in `@AfterTest` via
         // `CodeGlanceProIntegration.resetReflectionCacheForTests()`.
         CodeGlanceProIntegration.resetReflectionCacheForTests()
-        mockkStatic(PluginManagerCore::class)
+        mockkStatic(PluginManager::class)
         val mockPlugin = mockk<IdeaPluginDescriptor>(relaxed = true)
-        every { PluginManagerCore.getPlugin(any()) } returns mockPlugin
+        every { PluginManager.getPlugin(any()) } returns mockPlugin
         every { mockPlugin.pluginClassLoader } returns BrokenClassLoader
 
         // No throw expected. `IllegalStateException` is a `RuntimeException`,

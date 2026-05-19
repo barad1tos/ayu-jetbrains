@@ -1,6 +1,6 @@
 package dev.ayuislands
 
-import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.plugins.PluginManager
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.diagnostic.logger
@@ -15,7 +15,7 @@ internal object UpdateNotifier {
 
     fun showIfUpdated(project: Project) {
         val descriptor =
-            PluginManagerCore.getPlugin(PluginId.getId(PLUGIN_ID))
+            PluginManager.getPlugin(PluginId.getId(PLUGIN_ID))
                 ?: return
         val currentVersion = descriptor.version
         val state = AyuIslandsSettings.getInstance().state

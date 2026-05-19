@@ -26,7 +26,7 @@ internal class ShowWhatsNewAction : DumbAwareAction() {
         // disable-enable cycle gets its own signal without spamming every
         // BGT update tick.
         val descriptor =
-            com.intellij.ide.plugins.PluginManagerCore.getPlugin(
+            com.intellij.ide.plugins.PluginManager.getPlugin(
                 com.intellij.openapi.extensions.PluginId
                     .getId("com.ayuislands.theme"),
             )
@@ -58,7 +58,7 @@ internal class ShowWhatsNewAction : DumbAwareAction() {
             // two cases: descriptor missing (a real anomaly — WARN) or no
             // manifest for current version (expected on patches — INFO).
             val descriptor =
-                com.intellij.ide.plugins.PluginManagerCore.getPlugin(
+                com.intellij.ide.plugins.PluginManager.getPlugin(
                     com.intellij.openapi.extensions.PluginId
                         .getId("com.ayuislands.theme"),
                 )

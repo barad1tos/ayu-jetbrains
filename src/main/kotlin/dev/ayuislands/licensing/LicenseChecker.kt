@@ -1,6 +1,6 @@
 package dev.ayuislands.licensing
 
-import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.plugins.PluginManager
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
@@ -469,7 +469,7 @@ object LicenseChecker {
         if (!configPath.contains("idea-sandbox")) return false
         val pluginId = PluginId.getId("com.ayuislands.theme")
         val pluginPath =
-            PluginManagerCore
+            PluginManager
                 .getPlugin(pluginId)
                 ?.pluginPath
                 ?.toString()

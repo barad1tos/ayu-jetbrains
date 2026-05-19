@@ -1,6 +1,6 @@
 package dev.ayuislands.indent
 
-import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.plugins.PluginManager
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
@@ -172,7 +172,7 @@ object IndentRainbowSync {
 
         try {
             val pluginId = PluginId.getId(IR_PLUGIN_ID)
-            val irPlugin = PluginManagerCore.getPlugin(pluginId) ?: return
+            val irPlugin = PluginManager.getPlugin(pluginId) ?: return
             val classLoader = irPlugin.pluginClassLoader ?: return
 
             val configClass =
@@ -251,7 +251,7 @@ object IndentRainbowSync {
     private fun notifyFailure() {
         val state = AyuIslandsSettings.getInstance().state
         val currentVersion =
-            PluginManagerCore
+            PluginManager
                 .getPlugin(PluginId.getId(IR_PLUGIN_ID))
                 ?.version
 

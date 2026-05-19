@@ -1,7 +1,7 @@
 package dev.ayuislands.licensing
 
 import com.intellij.ide.plugins.IdeaPluginDescriptor
-import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.plugins.PluginManager
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.ui.LicensingFacade
@@ -31,8 +31,8 @@ class LicenseCheckerTest {
     fun setUp() {
         mockkStatic(PathManager::class)
         mockkStatic(LicensingFacade::class)
-        mockkStatic(PluginManagerCore::class)
-        every { PluginManagerCore.getPlugin(any<PluginId>()) } returns null
+        mockkStatic(PluginManager::class)
+        every { PluginManager.getPlugin(any<PluginId>()) } returns null
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns defaultSettings
     }
@@ -42,7 +42,9 @@ class LicenseCheckerTest {
         val path = mockk<Path>()
         every { path.toString() } returns "/repo/build/idea-sandbox/plugins/ayuIslands/lib/ayuIslands.jar"
         every { descriptor.pluginPath } returns path
-        every { PluginManagerCore.getPlugin(PluginId.getId("com.ayuislands.theme")) } returns descriptor
+        every {
+            PluginManager.getPlugin(PluginId.getId("com.ayuislands.theme"))
+        } returns descriptor
     }
 
     @AfterTest

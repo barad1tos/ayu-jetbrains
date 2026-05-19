@@ -1,7 +1,7 @@
 package dev.ayuislands.indent
 
 import com.intellij.ide.plugins.IdeaPluginDescriptor
-import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.plugins.PluginManager
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationGroup
 import com.intellij.notification.NotificationGroupManager
@@ -43,8 +43,8 @@ class IndentRainbowSyncTest {
         // itself. After the resolver refactor the caller passes the resolved hex in; the
         // mock becomes dead code. Removed to keep setUp honest.
 
-        mockkStatic(PluginManagerCore::class)
-        every { PluginManagerCore.getPlugin(any()) } returns null
+        mockkStatic(PluginManager::class)
+        every { PluginManager.getPlugin(any()) } returns null
 
         resetSyncState()
     }
@@ -115,7 +115,7 @@ class IndentRainbowSyncTest {
     @Test
     fun `resolveReflection returns when plugin classloader is null`() {
         val mockPlugin = mockk<IdeaPluginDescriptor>(relaxed = true)
-        every { PluginManagerCore.getPlugin(any()) } returns mockPlugin
+        every { PluginManager.getPlugin(any()) } returns mockPlugin
         every { mockPlugin.pluginClassLoader } returns null
 
         invokePrivate("resolveReflection")
@@ -532,7 +532,7 @@ class IndentRainbowSyncTest {
     @Test
     fun `resolveReflection catches ClassNotFoundException when plugin found`() {
         val mockPlugin = mockk<IdeaPluginDescriptor>(relaxed = true)
-        every { PluginManagerCore.getPlugin(any()) } returns mockPlugin
+        every { PluginManager.getPlugin(any()) } returns mockPlugin
         every { mockPlugin.pluginClassLoader } returns this::class.java.classLoader
 
         // Class.forName("indent.rainbow.settings.IrConfig") will throw

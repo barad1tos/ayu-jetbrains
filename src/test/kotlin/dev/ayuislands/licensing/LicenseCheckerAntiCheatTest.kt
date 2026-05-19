@@ -1,7 +1,7 @@
 package dev.ayuislands.licensing
 
 import com.intellij.ide.plugins.IdeaPluginDescriptor
-import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.plugins.PluginManager
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.ui.LicensingFacade
@@ -56,8 +56,8 @@ class LicenseCheckerAntiCheatTest {
         mockkStatic(PathManager::class)
         every { PathManager.getConfigPath() } returns "/home/user/.config/JetBrains/IntelliJIdea2025.1"
 
-        mockkStatic(PluginManagerCore::class)
-        every { PluginManagerCore.getPlugin(any<PluginId>()) } returns null
+        mockkStatic(PluginManager::class)
+        every { PluginManager.getPlugin(any<PluginId>()) } returns null
 
         // Pin the clock through LicenseCheckerClockSeam so restore stays centralized
         // and the production defaults come back from exactly one place in tearDown.
@@ -247,14 +247,16 @@ class LicenseCheckerAntiCheatTest {
 
     private fun setPluginPath(path: String?) {
         if (path == null) {
-            every { PluginManagerCore.getPlugin(any<PluginId>()) } returns null
+            every { PluginManager.getPlugin(any<PluginId>()) } returns null
             return
         }
         val descriptor = mockk<IdeaPluginDescriptor>()
         val pluginPath = mockk<Path>()
         every { pluginPath.toString() } returns path
         every { descriptor.pluginPath } returns pluginPath
-        every { PluginManagerCore.getPlugin(PluginId.getId("com.ayuislands.theme")) } returns descriptor
+        every {
+            PluginManager.getPlugin(PluginId.getId("com.ayuislands.theme"))
+        } returns descriptor
     }
 
     @Test
@@ -307,7 +309,7 @@ class LicenseCheckerAntiCheatTest {
 
     @Test
     fun `dev bypass rejected when plugin descriptor is null`() {
-        // PluginManagerCore returns null if the plugin id can't be found — unusual but
+        // PluginManager returns null if the plugin id can't be found — unusual but
         // possible during early classloader init. Triple-gate must not crash and must reject.
         System.setProperty("ayu.islands.dev", "true")
         every { PathManager.getConfigPath() } returns devSandboxConfigPath

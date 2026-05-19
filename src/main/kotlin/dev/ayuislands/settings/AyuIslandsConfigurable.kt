@@ -1,7 +1,7 @@
 package dev.ayuislands.settings
 
 import com.intellij.ide.BrowserUtil
-import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.plugins.PluginManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.options.BoundConfigurable
@@ -66,7 +66,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
 
     override fun createPanel(): com.intellij.openapi.ui.DialogPanel {
         val pluginVersion =
-            PluginManagerCore
+            PluginManager
                 .getPlugin(PluginId.getId("com.ayuislands.theme"))
                 ?.version ?: "unknown"
 

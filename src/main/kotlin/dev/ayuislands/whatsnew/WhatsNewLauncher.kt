@@ -202,7 +202,7 @@ internal object WhatsNewLauncher {
     }
 
     private fun pluginDescriptor() =
-        com.intellij.ide.plugins.PluginManagerCore.getPlugin(
+        com.intellij.ide.plugins.PluginManager.getPlugin(
             com.intellij.openapi.extensions.PluginId
                 .getId(PLUGIN_ID),
         )

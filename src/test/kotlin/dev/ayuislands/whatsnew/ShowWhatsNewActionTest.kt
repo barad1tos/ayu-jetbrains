@@ -1,7 +1,7 @@
 package dev.ayuislands.whatsnew
 
 import com.intellij.ide.plugins.IdeaPluginDescriptor
-import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.plugins.PluginManager
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.Presentation
 import com.intellij.openapi.extensions.PluginId
@@ -28,7 +28,7 @@ class ShowWhatsNewActionTest {
 
     @BeforeTest
     fun setUp() {
-        mockkStatic(PluginManagerCore::class)
+        mockkStatic(PluginManager::class)
         every { event.presentation } returns presentation
         every { event.project } returns project
     }
@@ -47,7 +47,7 @@ class ShowWhatsNewActionTest {
         // Test resources include /whatsnew/v9.9.0/manifest.json — when the
         // plugin descriptor reports that version, the action must be visible
         // and enabled in the Tools menu.
-        every { PluginManagerCore.getPlugin(any<PluginId>()) } returns descriptor
+        every { PluginManager.getPlugin(any<PluginId>()) } returns descriptor
         every { descriptor.version } returns "9.9.0"
 
         action.update(event)
@@ -60,7 +60,7 @@ class ShowWhatsNewActionTest {
     fun `update disables the action when no manifest for current version`() {
         // Patch releases or any version without a manifest hide the menu item —
         // better than a dead-clickable item that opens an empty tab.
-        every { PluginManagerCore.getPlugin(any<PluginId>()) } returns descriptor
+        every { PluginManager.getPlugin(any<PluginId>()) } returns descriptor
         every { descriptor.version } returns "0.0.0"
 
         action.update(event)
@@ -73,7 +73,7 @@ class ShowWhatsNewActionTest {
     fun `update disables the action when plugin descriptor is missing`() {
         // Defense in depth — plugin classloader registry could theoretically
         // not list us during early startup or under PluginManager edge cases.
-        every { PluginManagerCore.getPlugin(any<PluginId>()) } returns null
+        every { PluginManager.getPlugin(any<PluginId>()) } returns null
 
         action.update(event)
 
@@ -112,7 +112,7 @@ class ShowWhatsNewActionTest {
         // hits Show What's New… and openManually returns false (manifest gone),
         // we leave an INFO breadcrumb — but NOT a WARN, since this is an
         // expected race, not an anomaly.
-        every { PluginManagerCore.getPlugin(any<PluginId>()) } returns descriptor
+        every { PluginManager.getPlugin(any<PluginId>()) } returns descriptor
         every { descriptor.version } returns "0.0.0"
         mockkObject(WhatsNewLauncher)
         every { WhatsNewLauncher.openManually(project) } returns false
@@ -159,7 +159,7 @@ class ShowWhatsNewActionTest {
             }
         LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
             // First null observation — expect ONE WARN.
-            every { PluginManagerCore.getPlugin(any<PluginId>()) } returns null
+            every { PluginManager.getPlugin(any<PluginId>()) } returns null
             action.update(event)
             action.update(event)
             action.update(event)
@@ -167,13 +167,13 @@ class ShowWhatsNewActionTest {
             kotlin.test.assertEquals(1, firstStreak, "streak of null-observations must produce ONE WARN")
 
             // Descriptor comes back — action re-arms the latch silently.
-            every { PluginManagerCore.getPlugin(any<PluginId>()) } returns descriptor
+            every { PluginManager.getPlugin(any<PluginId>()) } returns descriptor
             every { descriptor.version } returns "9.9.0"
             action.update(event)
             kotlin.test.assertEquals(1, captured.size, "recovery must not log WARN")
 
             // Descriptor goes null again — latch re-armed, expect a SECOND WARN.
-            every { PluginManagerCore.getPlugin(any<PluginId>()) } returns null
+            every { PluginManager.getPlugin(any<PluginId>()) } returns null
             action.update(event)
             kotlin.test.assertEquals(2, captured.size, "second null streak must re-arm and log once")
         }
@@ -185,7 +185,7 @@ class ShowWhatsNewActionTest {
         // platform can't find OUR OWN plugin, which is a real anomaly worth
         // surfacing as WARN so a future "menu does nothing" report has a
         // diagnostic that distinguishes "patch release" from "platform broken".
-        every { PluginManagerCore.getPlugin(any<PluginId>()) } returns null
+        every { PluginManager.getPlugin(any<PluginId>()) } returns null
         mockkObject(WhatsNewLauncher)
         every { WhatsNewLauncher.openManually(project) } returns false
 

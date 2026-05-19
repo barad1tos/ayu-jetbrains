@@ -1,6 +1,6 @@
 package dev.ayuislands.accent.conflict
 
-import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.plugins.PluginManager
 import com.intellij.openapi.extensions.PluginId
 import dev.ayuislands.accent.AccentElementId
 import io.mockk.every
@@ -103,9 +103,8 @@ class ConflictRegistryTest {
      */
     @Test
     fun `detectConflicts returns empty list when no conflict plugins installed`() {
-        mockkStatic(PluginManagerCore::class)
-        every { PluginManagerCore.getPlugin(any<PluginId>()) } returns null
-        every { PluginManagerCore.isDisabled(any<PluginId>()) } returns false
+        mockkStatic(PluginManager::class)
+        every { PluginManager.getPlugin(any<PluginId>()) } returns null
 
         val conflicts = ConflictRegistry.detectConflicts()
 
@@ -115,19 +114,18 @@ class ConflictRegistryTest {
     /**
      * Caching regression: `detectConflicts` consults the plugin registry only
      * once per session. The second call returns the exact same list instance
-     * and does NOT trigger additional `PluginManagerCore.getPlugin` lookups.
+     * and does NOT trigger additional `PluginManager.getPlugin` lookups.
      */
     @Test
     fun `detectConflicts result is cached across calls`() {
-        mockkStatic(PluginManagerCore::class)
-        every { PluginManagerCore.getPlugin(any<PluginId>()) } returns null
-        every { PluginManagerCore.isDisabled(any<PluginId>()) } returns false
+        mockkStatic(PluginManager::class)
+        every { PluginManager.getPlugin(any<PluginId>()) } returns null
 
         val first = ConflictRegistry.detectConflicts()
         val second = ConflictRegistry.detectConflicts()
 
         assertSame(first, second, "Cached result must be reused across calls")
-        verify(exactly = 2) { PluginManagerCore.getPlugin(any<PluginId>()) }
+        verify(exactly = 2) { PluginManager.getPlugin(any<PluginId>()) }
     }
 
     /**
@@ -136,16 +134,15 @@ class ConflictRegistryTest {
      */
     @Test
     fun `resetCachedConflictsForTesting clears cache so next call re-queries plugins`() {
-        mockkStatic(PluginManagerCore::class)
-        every { PluginManagerCore.getPlugin(any<PluginId>()) } returns null
-        every { PluginManagerCore.isDisabled(any<PluginId>()) } returns false
+        mockkStatic(PluginManager::class)
+        every { PluginManager.getPlugin(any<PluginId>()) } returns null
 
         val firstBatch = ConflictRegistry.detectConflicts()
         ConflictRegistry.resetCachedConflictsForTesting()
         val secondBatch = ConflictRegistry.detectConflicts()
 
         // Two separate computations: 2 entries x 2 calls = 4 lookups
-        verify(exactly = 4) { PluginManagerCore.getPlugin(any<PluginId>()) }
+        verify(exactly = 4) { PluginManager.getPlugin(any<PluginId>()) }
         // Same content, different instances (cache was cleared)
         assertEquals(firstBatch, secondBatch)
     }

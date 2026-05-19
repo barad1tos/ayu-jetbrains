@@ -1,6 +1,6 @@
 package dev.ayuislands.accent
 
-import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.plugins.PluginManager
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.colors.EditorColorsManager
@@ -94,8 +94,8 @@ class AccentChangedPublishTest {
         mockkStatic(Window::class)
         every { Window.getWindows() } returns emptyArray()
 
-        mockkStatic(PluginManagerCore::class)
-        every { PluginManagerCore.getPlugin(any()) } returns null
+        mockkStatic(PluginManager::class)
+        every { PluginManager.getPlugin(any()) } returns null
 
         // ProjectManager.openProjects drives the per-project publish loop.
         project =

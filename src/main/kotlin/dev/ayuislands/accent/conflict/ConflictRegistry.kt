@@ -1,6 +1,7 @@
 package dev.ayuislands.accent.conflict
 
-import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.plugins.PluginEnabler
+import com.intellij.ide.plugins.PluginManager
 import com.intellij.openapi.extensions.PluginId
 import dev.ayuislands.accent.AccentElementId
 import org.jetbrains.annotations.TestOnly
@@ -45,7 +46,11 @@ object ConflictRegistry {
     private fun computeConflicts(): List<ConflictEntry> =
         entries.filter { entry ->
             val pluginId = PluginId.getId(entry.pluginId)
-            PluginManagerCore.getPlugin(pluginId) != null && !PluginManagerCore.isDisabled(pluginId)
+            // `PluginManager.getPlugin` returns the descriptor even for disabled
+            // plugins (its underlying `findPlugin` falls back to `findInstalledPlugin`),
+            // so we must additionally check `PluginEnabler.HEADLESS.isDisabled`
+            // to skip disabled installations.
+            PluginManager.getPlugin(pluginId) != null && !PluginEnabler.HEADLESS.isDisabled(pluginId)
         }
 
     fun detectConflicts(): List<ConflictEntry> = getCachedConflicts()
