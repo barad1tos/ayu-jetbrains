@@ -15,6 +15,7 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
+import java.awt.Color
 import java.awt.GridLayout
 import java.nio.file.Files
 import java.nio.file.Paths
@@ -223,8 +224,9 @@ class QuickSwitcherAccentGridTest {
         // silently and the link would become inert.
         //
         // The Custom… link no longer routes here — it opens ColorPicker
-        // directly (covered by the next test). This test now only verifies
-        // the More… link still reaches settings.
+        // directly (covered by `Custom link opens ColorPicker dialog seeded
+        // with current accent (user-space)` below). This test now only
+        // verifies the More… link still reaches settings.
         mockkStatic(com.intellij.openapi.options.ShowSettingsUtil::class)
         val showUtil = mockk<com.intellij.openapi.options.ShowSettingsUtil>(relaxed = true)
         every {
@@ -248,10 +250,17 @@ class QuickSwitcherAccentGridTest {
         // can pick a colour without navigating into Settings → Ayu Islands.
         // Locks the wiring so a future refactor that silently routes Custom…
         // back to openAyuSettings fails this test.
+        //
+        // Stubs `showDialog` to return null (user cancels) and additionally
+        // verifies `AccentApplicator.applyFromHexString` is NOT called — the
+        // null-return-skip path at `QuickSwitcherAccentGrid.kt:164`
+        // (`if (chosen == null) return`) must short-circuit before
+        // `applyPreset` so cancellation does not mutate accent state.
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns null
+        every { AccentApplicator.applyFromHexString(any()) } returns true
         mockkObject(AccentResolver)
         every { AccentResolver.resolve(any(), AyuVariant.MIRAGE) } returns "#FFB454"
         mockkStatic(com.intellij.ui.ColorPicker::class)
@@ -276,6 +285,90 @@ class QuickSwitcherAccentGridTest {
                 any(),
                 eq("Choose Accent Color"),
                 any(),
+                any<Boolean>(),
+                any(),
+                any<Boolean>(),
+            )
+        }
+        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
+    }
+
+    @Test
+    fun `Custom link click applies the chosen Color via applyFromHexString (happy path user-space)`() {
+        // User-space happy path. When the picker returns a Color, the wrapper
+        // must convert it via colorToHex(...) and route through
+        // `AccentApplicator.applyFromHexString` with the canonical `#RRGGBB`
+        // form. A regression in colorToHex (lowercase, missing leading-zero
+        // pad) or in the apply call would silently break custom accents.
+        //
+        // Picks Color(0x0F, 0x00, 0xAB) on purpose: the 0x0F + 0x00 channels
+        // require zero-padding ("%02X"), so a regression to "%X" would
+        // produce "#F00AB" and surface here.
+        mockkObject(AyuVariant.Companion)
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.resolveFocusedProject() } returns null
+        every { AccentApplicator.applyFromHexString(any()) } returns true
+        mockkObject(AccentResolver)
+        every { AccentResolver.resolve(any(), AyuVariant.MIRAGE) } returns "#FFB454"
+        mockkObject(ProjectAccentSwapService.Companion)
+        val swap = mockk<ProjectAccentSwapService>(relaxed = true)
+        every { ProjectAccentSwapService.getInstance() } returns swap
+        mockkStatic(com.intellij.ui.ColorPicker::class)
+        every {
+            com.intellij.ui.ColorPicker.showDialog(
+                any(),
+                any<String>(),
+                any(),
+                any<Boolean>(),
+                any(),
+                any<Boolean>(),
+            )
+        } returns Color(0x0F, 0x00, 0xAB)
+
+        val grid = QuickSwitcherAccentGrid()
+        val south = (grid.component as JPanel).components.filterIsInstance<JPanel>().last()
+        val links = collectActionLinks(south)
+        links[0].doClick()
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("#0F00AB") }
+        verify(exactly = 1) { swap.notifyExternalApply("#0F00AB") }
+    }
+
+    @Test
+    fun `Custom link opens picker with null seed when resolver returns invalid hex (Pattern B)`() {
+        // Algorithmic branch coverage for the [ColorUtil.fromHex] catch in
+        // `openCustomColorPicker`. When the resolver returns a string that is
+        // not a `#RRGGBB`, the wrapper must still open the picker (with a
+        // null seed → defaults to white) instead of crashing the popup.
+        // Without this test, deleting the try/catch would pass all other
+        // tests and only surface as a popup-crash incident in production.
+        mockkObject(AyuVariant.Companion)
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.resolveFocusedProject() } returns null
+        mockkObject(AccentResolver)
+        every { AccentResolver.resolve(any(), AyuVariant.MIRAGE) } returns "not-a-hex"
+        mockkStatic(com.intellij.ui.ColorPicker::class)
+        every {
+            com.intellij.ui.ColorPicker.showDialog(
+                any(),
+                any<String>(),
+                isNull(),
+                any<Boolean>(),
+                any(),
+                any<Boolean>(),
+            )
+        } returns null
+
+        val grid = QuickSwitcherAccentGrid()
+        val south = (grid.component as JPanel).components.filterIsInstance<JPanel>().last()
+        val links = collectActionLinks(south)
+        links[0].doClick()
+        verify(exactly = 1) {
+            com.intellij.ui.ColorPicker.showDialog(
+                any(),
+                eq("Choose Accent Color"),
+                isNull(),
                 any<Boolean>(),
                 any(),
                 any<Boolean>(),

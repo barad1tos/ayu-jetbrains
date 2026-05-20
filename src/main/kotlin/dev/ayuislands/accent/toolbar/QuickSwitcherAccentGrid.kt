@@ -136,12 +136,21 @@ internal class QuickSwitcherAccentGrid {
                 ColorUtil.fromHex(seedHex)
             } catch (exception: IllegalArgumentException) {
                 // Resolver should never produce an invalid hex, but the API
-                // throws on malformed input — fall through to a neutral seed
-                // so the dialog still opens instead of crashing the popup.
+                // throws on malformed input — fall through to a `null` seed
+                // (ColorPicker accepts null → defaults to white) so the dialog
+                // still opens instead of crashing the popup.
                 LOG.warn("Custom picker seed hex '$seedHex' rejected by ColorUtil", exception)
                 null
             }
         val parent = component.topLevelAncestor ?: component
+        // `enableOpacity=false` is deliberate and differs from the other 3
+        // ColorPicker callers in this codebase (AccentColorPanel,
+        // EditAccentColorDialog, AccentSwatchPickerRow). [AccentHex] is locked
+        // to `#RRGGBB` (opaque only); allowing the opacity slider would let
+        // the user pick a translucent colour that this code would silently
+        // truncate via [colorToHex]. Disabling the slider prevents the picker
+        // from offering an unreachable affordance. The legacy callers should
+        // align eventually — out of scope for this hotfix.
         val chosen: Color? =
             try {
                 ColorPicker.showDialog(
@@ -153,16 +162,28 @@ internal class QuickSwitcherAccentGrid {
                     false,
                 )
             } catch (exception: RuntimeException) {
-                // Platform raises `ProcessCanceledException` (a RuntimeException
-                // subclass) when the popup is dismissed mid-build, and various
-                // `IllegalStateException` shapes during plugin reload. Treat
-                // every transient as "no colour chosen" so the popup link stays
-                // responsive for the next attempt.
+                // Broader `RuntimeException` net matches the sibling click
+                // handlers in this file (Pattern B). Platform raises
+                // `ProcessCanceledException` (a RuntimeException subclass) on
+                // dialog dismissal mid-build; any other RuntimeException from
+                // the picker would also surface as a popup crash without this
+                // catch. Real bugs surface via WARN in `idea.log`, not via the
+                // popup going inert.
                 LOG.warn("ColorPicker.showDialog failed for custom accent", exception)
                 null
             }
         if (chosen == null) return
-        applyPreset(AccentHex.unsafeOf(colorToHex(chosen)))
+        // `chosen` is a runtime-sourced colour from the dialog; honour
+        // [AccentHex.of]'s "use `of` for any runtime-sourced value" contract.
+        // `colorToHex` always produces a syntactically-valid `#RRGGBB`, so
+        // `of` should never return null in practice — the elvis branch logs
+        // and bails if a future format regression breaks that invariant.
+        val pickedHex =
+            AccentHex.of(colorToHex(chosen)) ?: run {
+                LOG.warn("colorToHex produced unparseable hex for picked Color=$chosen")
+                return
+            }
+        applyPreset(pickedHex)
     }
 
     private fun colorToHex(color: Color): String = "#%02X%02X%02X".format(color.red, color.green, color.blue)
