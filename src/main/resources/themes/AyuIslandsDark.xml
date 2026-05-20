@@ -3222,7 +3222,7 @@
             </value>
         </option>
 
-        <!-- YAML — keys mirror org.jetbrains.yaml.YAMLHighlighter platform IDs (verified via javap on PhpStorm-2025.3.3 yaml.jar). Prior names (YAML_KEY / YAML_STRING / YAML_NUMBER / YAML_BOOLEAN) matched zero platform IDs and only "worked" by accidental fallback through the highlighter's hardcoded base-key chain. -->
+        <!-- YAML — keys mirror org.jetbrains.yaml.YAMLHighlighter platform IDs (verified via javap). Prior names (YAML_KEY / YAML_STRING / YAML_NUMBER / YAML_BOOLEAN) matched zero platform IDs and only "worked" by accidental fallback through the highlighter's hardcoded base-key chain. -->
         <option name="YAML_SCALAR_KEY">
             <value><option name="FOREGROUND" value="39BAE6" /></value>
         </option>
