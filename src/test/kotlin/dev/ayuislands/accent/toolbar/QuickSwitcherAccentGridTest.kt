@@ -4,6 +4,7 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.toolbar.popup.Density
@@ -15,6 +16,7 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
+import java.awt.Color
 import java.awt.GridLayout
 import java.nio.file.Files
 import java.nio.file.Paths
@@ -147,12 +149,12 @@ class QuickSwitcherAccentGridTest {
     }
 
     @Test
-    fun `openAyuSettings link click swallows RuntimeException from ShowSettingsUtil (Pattern B)`() {
+    fun `More link click swallows RuntimeException from ShowSettingsUtil (Pattern B)`() {
         // Pattern B — the platform's ShowSettingsUtil throws
         // IllegalArgumentException if a configurable id is unknown, and
         // ProcessCanceledException (a RuntimeException subclass on 2025.1+) if
-        // the dialog is dismissed mid-build. Click handler must absorb both so
-        // the chip stays responsive.
+        // the dialog is dismissed mid-build. The More… click handler must
+        // absorb both so the chip stays responsive.
         mockkStatic(com.intellij.openapi.options.ShowSettingsUtil::class)
         val showUtil = mockk<com.intellij.openapi.options.ShowSettingsUtil>(relaxed = true)
         every {
@@ -165,18 +167,67 @@ class QuickSwitcherAccentGridTest {
 
         val grid = QuickSwitcherAccentGrid()
         val south = (grid.component as JPanel).components.filterIsInstance<JPanel>().last()
-        val link = collectActionLinks(south).first()
+        val links = collectActionLinks(south)
+        // The More… link is the second one (Custom… first per declaration order).
         // Must NOT throw out of the click.
-        link.doClick()
+        links[1].doClick()
         verify(exactly = 1) { showUtil.showSettingsDialog(any(), eq("Ayu Islands")) }
     }
 
     @Test
-    fun `Custom and More links open the Ayu Islands settings dialog (user-space)`() {
-        // User-space coverage. The Custom and More links must reach
+    fun `Custom link click swallows RuntimeException from ColorPicker (Pattern B)`() {
+        // Pattern B — the platform's ColorPicker dialog can throw
+        // ProcessCanceledException (a RuntimeException subclass) when the
+        // popup chain is dismissed mid-build. The Custom… click handler
+        // must absorb the throw so the chip stays responsive for the next
+        // click.
+        mockkObject(AyuVariant.Companion)
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.resolveFocusedProject() } returns null
+        mockkObject(AccentResolver)
+        every { AccentResolver.resolve(any(), AyuVariant.MIRAGE) } returns "#FFB454"
+        mockkStatic(com.intellij.ui.ColorPicker::class)
+        every {
+            com.intellij.ui.ColorPicker.showDialog(
+                any(),
+                any<String>(),
+                any(),
+                any<Boolean>(),
+                any(),
+                any<Boolean>(),
+            )
+        } throws RuntimeException("user dismissed mid-build")
+
+        val grid = QuickSwitcherAccentGrid()
+        val south = (grid.component as JPanel).components.filterIsInstance<JPanel>().last()
+        val links = collectActionLinks(south)
+        // The Custom… link is the first one.
+        // Must NOT throw out of the click.
+        links[0].doClick()
+        verify(exactly = 1) {
+            com.intellij.ui.ColorPicker.showDialog(
+                any(),
+                eq("Choose Accent Color"),
+                any(),
+                any<Boolean>(),
+                any(),
+                any<Boolean>(),
+            )
+        }
+    }
+
+    @Test
+    fun `More link opens the Ayu Islands settings dialog (user-space)`() {
+        // User-space coverage. The More… link must reach
         // ShowSettingsUtil.showSettingsDialog with the canonical "Ayu Islands"
         // group id. Without this test, a rename of the link wiring would land
         // silently and the link would become inert.
+        //
+        // The Custom… link no longer routes here — it opens ColorPicker
+        // directly (covered by `Custom link opens ColorPicker dialog seeded
+        // with current accent (user-space)` below). This test now only
+        // verifies the More… link still reaches settings.
         mockkStatic(com.intellij.openapi.options.ShowSettingsUtil::class)
         val showUtil = mockk<com.intellij.openapi.options.ShowSettingsUtil>(relaxed = true)
         every {
@@ -188,8 +239,192 @@ class QuickSwitcherAccentGridTest {
         val south = (grid.component as JPanel).components.filterIsInstance<JPanel>().last()
         val links = collectActionLinks(south)
         assertEquals(2, links.size, "Expected exactly two ActionLink components (Custom and More)")
-        for (link in links) link.doClick()
-        verify(exactly = 2) { showUtil.showSettingsDialog(any(), eq("Ayu Islands")) }
+        // The More… link is the second one (Custom… first per declaration order).
+        links[1].doClick()
+        verify(exactly = 1) { showUtil.showSettingsDialog(any(), eq("Ayu Islands")) }
+    }
+
+    @Test
+    fun `Custom link opens ColorPicker dialog seeded with current accent (user-space)`() {
+        // User-space coverage. The Custom… link must open the native
+        // ColorPicker dialog directly — not the Settings dialog — so users
+        // can pick a colour without navigating into Settings → Ayu Islands.
+        // Locks the wiring so a future refactor that silently routes Custom…
+        // back to openAyuSettings fails this test.
+        //
+        // Stubs `showDialog` to return null (user cancels) and additionally
+        // verifies `AccentApplicator.applyFromHexString` is NOT called — the
+        // null-return-skip path at `QuickSwitcherAccentGrid.kt:164`
+        // (`if (chosen == null) return`) must short-circuit before
+        // `applyPreset` so cancellation does not mutate accent state.
+        mockkObject(AyuVariant.Companion)
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.resolveFocusedProject() } returns null
+        every { AccentApplicator.applyFromHexString(any()) } returns true
+        mockkObject(AccentResolver)
+        every { AccentResolver.resolve(any(), AyuVariant.MIRAGE) } returns "#FFB454"
+        mockkStatic(com.intellij.ui.ColorPicker::class)
+        every {
+            com.intellij.ui.ColorPicker.showDialog(
+                any(),
+                any<String>(),
+                any(),
+                any<Boolean>(),
+                any(),
+                any<Boolean>(),
+            )
+        } returns null
+
+        val grid = QuickSwitcherAccentGrid()
+        val south = (grid.component as JPanel).components.filterIsInstance<JPanel>().last()
+        val links = collectActionLinks(south)
+        // The Custom… link is the first one (per declaration order).
+        links[0].doClick()
+        verify(exactly = 1) {
+            com.intellij.ui.ColorPicker.showDialog(
+                any(),
+                eq("Choose Accent Color"),
+                any(),
+                any<Boolean>(),
+                any(),
+                any<Boolean>(),
+            )
+        }
+        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
+    }
+
+    @Test
+    fun `Custom link click applies the chosen Color via applyFromHexString (happy path user-space)`() {
+        // User-space happy path. When the picker returns a Color, the wrapper
+        // must convert it via colorToHex(...) and route through
+        // `AccentApplicator.applyFromHexString` with the canonical `#RRGGBB`
+        // form. A regression in colorToHex (lowercase, missing leading-zero
+        // pad) or in the apply call would silently break custom accents.
+        //
+        // Picks Color(0x0F, 0x00, 0xAB) on purpose: the 0x0F + 0x00 channels
+        // require zero-padding ("%02X"), so a regression to "%X" would
+        // produce "#F00AB" and surface here.
+        mockkObject(AyuVariant.Companion)
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.resolveFocusedProject() } returns null
+        every { AccentApplicator.applyFromHexString(any()) } returns true
+        mockkObject(AccentResolver)
+        every { AccentResolver.resolve(any(), AyuVariant.MIRAGE) } returns "#FFB454"
+        mockkObject(ProjectAccentSwapService.Companion)
+        val swap = mockk<ProjectAccentSwapService>(relaxed = true)
+        every { ProjectAccentSwapService.getInstance() } returns swap
+        mockkStatic(com.intellij.ui.ColorPicker::class)
+        every {
+            com.intellij.ui.ColorPicker.showDialog(
+                any(),
+                any<String>(),
+                any(),
+                any<Boolean>(),
+                any(),
+                any<Boolean>(),
+            )
+        } returns Color(0x0F, 0x00, 0xAB)
+
+        val grid = QuickSwitcherAccentGrid()
+        val south = (grid.component as JPanel).components.filterIsInstance<JPanel>().last()
+        val links = collectActionLinks(south)
+        links[0].doClick()
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("#0F00AB") }
+        verify(exactly = 1) { swap.notifyExternalApply("#0F00AB") }
+    }
+
+    @Test
+    fun `Custom link skips applyPreset when AccentHex of returns null (algorithmic floor)`() {
+        // Algorithmic floor coverage for the elvis-guarded branch in
+        // `openCustomColorPicker`:
+        //   val pickedHex = AccentHex.of(colorToHex(chosen)) ?: run {
+        //       LOG.warn(...)
+        //       return
+        //   }
+        //
+        // The branch is unreachable today — `colorToHex` always emits a
+        // `#RRGGBB` literal that `AccentHex.of` accepts. The defensive
+        // elvis exists to defend against a future `colorToHex` regression
+        // (e.g. switching to `Integer.toHexString` which drops leading
+        // zeros, or appending alpha). Per CLAUDE.md "Coverage Floors":
+        // defensive fallbacks (`?: run { ... }` markers) need direct
+        // red/green tests even when no user can trigger them — the branch
+        // exists to defend against caller regressions; this test exists
+        // to defend against the branch being deleted.
+        //
+        // Stubs `AccentHex.of` to return null for any input, then verifies
+        // `applyFromHexString` is NOT called even though the picker
+        // returned a non-null Color.
+        mockkObject(AyuVariant.Companion)
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.resolveFocusedProject() } returns null
+        every { AccentApplicator.applyFromHexString(any()) } returns true
+        mockkObject(AccentResolver)
+        every { AccentResolver.resolve(any(), AyuVariant.MIRAGE) } returns "#FFB454"
+        mockkObject(AccentHex.Companion)
+        every { AccentHex.of(any<String>()) } returns null
+        mockkStatic(com.intellij.ui.ColorPicker::class)
+        every {
+            com.intellij.ui.ColorPicker.showDialog(
+                any(),
+                any<String>(),
+                any(),
+                any<Boolean>(),
+                any(),
+                any<Boolean>(),
+            )
+        } returns Color(0x12, 0x34, 0x56)
+
+        val grid = QuickSwitcherAccentGrid()
+        val south = (grid.component as JPanel).components.filterIsInstance<JPanel>().last()
+        val links = collectActionLinks(south)
+        links[0].doClick()
+        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
+    }
+
+    @Test
+    fun `Custom link opens picker with null seed when resolver returns invalid hex (Pattern B)`() {
+        // Algorithmic branch coverage for the [ColorUtil.fromHex] catch in
+        // `openCustomColorPicker`. When the resolver returns a string that is
+        // not a `#RRGGBB`, the wrapper must still open the picker (with a
+        // null seed → defaults to white) instead of crashing the popup.
+        // Without this test, deleting the try/catch would pass all other
+        // tests and only surface as a popup-crash incident in production.
+        mockkObject(AyuVariant.Companion)
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.resolveFocusedProject() } returns null
+        mockkObject(AccentResolver)
+        every { AccentResolver.resolve(any(), AyuVariant.MIRAGE) } returns "not-a-hex"
+        mockkStatic(com.intellij.ui.ColorPicker::class)
+        every {
+            com.intellij.ui.ColorPicker.showDialog(
+                any(),
+                any<String>(),
+                isNull(),
+                any<Boolean>(),
+                any(),
+                any<Boolean>(),
+            )
+        } returns null
+
+        val grid = QuickSwitcherAccentGrid()
+        val south = (grid.component as JPanel).components.filterIsInstance<JPanel>().last()
+        val links = collectActionLinks(south)
+        links[0].doClick()
+        verify(exactly = 1) {
+            com.intellij.ui.ColorPicker.showDialog(
+                any(),
+                eq("Choose Accent Color"),
+                isNull(),
+                any<Boolean>(),
+                any(),
+                any<Boolean>(),
+            )
+        }
     }
 
     @Test
