@@ -3,10 +3,15 @@ package dev.ayuislands.accent.toolbar
 import com.intellij.ui.ColorUtil
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.color.AccentHsl
+import io.mockk.every
+import io.mockk.mockkObject
+import io.mockk.unmockkAll
 import java.awt.Color
 import java.awt.image.BufferedImage
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
@@ -27,6 +32,11 @@ import kotlin.test.assertTrue
  * `BufferedImage` without booting an IDE.
  */
 class LayeredAccentIconTest {
+    @AfterTest
+    fun tearDown() {
+        unmockkAll()
+    }
+
     @Test
     fun `accentColor exposes the constructor hex as a java awt Color`() {
         val icon = LayeredAccentIcon(SIZE_PX, AccentHex.unsafeOf("#FFB454"), pinned = true)
@@ -98,6 +108,53 @@ class LayeredAccentIconTest {
         // Outline colour matches the outer ring (accent), not the darkened inner.
         assertNotEquals(0, sampled.alpha, "Unpinned outline must be opaque at the inner-square edge")
         assertEquals(accent.value, "#%02X%02X%02X".format(sampled.red, sampled.green, sampled.blue))
+    }
+
+    @Test
+    fun `pinned inner colour falls back to lighten when darken is a no-op (algorithmic floor)`() {
+        // Algorithmic-floor coverage for the `darken` clamp-edge fallback to
+        // `lighten` at `LayeredAccentIcon.kt:59-66`. `AccentHsl.darken` is a
+        // no-op when the input lightness is already at `MIN_LIGHTNESS` (the
+        // coerce-in clamp folds the step back to the input). Without the
+        // fallback, the inner island would render the same colour as the
+        // outer ring and the pinned-vs-unpinned distinction would collapse.
+        //
+        // Mocks `AccentHsl` to force the no-op branch deterministically —
+        // avoids brittleness around which specific hex sits exactly on the
+        // 0.10 lightness clamp in HSL float arithmetic.
+        val accent = AccentHex.unsafeOf("#FFB454")
+        val lighter = AccentHex.unsafeOf("#FFCC99")
+        mockkObject(AccentHsl)
+        every { AccentHsl.darken(accent) } returns accent
+        every { AccentHsl.lighten(accent) } returns lighter
+
+        val icon = LayeredAccentIcon(SIZE_PX, accent, pinned = true)
+        val image = paint(icon)
+        val centre = Color(image.getRGB(SIZE_PX / 2, SIZE_PX / 2), true)
+        assertNotEquals(
+            icon.accentColor,
+            centre,
+            "Pinned inner must fall back to `lighten` when `darken` is a no-op at the clamp edge — " +
+                "regression would silently render an indistinguishable inner island for dark accents",
+        )
+        // Tighter assertion: the centre pixel must match the lighten-fallback colour.
+        assertEquals(ColorUtil.fromHex(lighter.value), centre)
+    }
+
+    @Test
+    fun `constructor rejects non-positive sizePx with IllegalArgumentException`() {
+        // Algorithmic-floor coverage for the `require(sizePx > 0)` precondition
+        // at `LayeredAccentIcon.kt:51`. Per CLAUDE.md "validation guards need
+        // direct red/green tests even when no user can trigger them" — JBUI.scale
+        // never returns ≤ 0 today, but the guard exists to catch a future
+        // refactor that lets a zero-or-negative size leak through and silently
+        // paint a zero-area icon.
+        assertFailsWith<IllegalArgumentException> {
+            LayeredAccentIcon(0, AccentHex.unsafeOf("#FFB454"), pinned = false)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            LayeredAccentIcon(-1, AccentHex.unsafeOf("#FFB454"), pinned = false)
+        }
     }
 
     @Test

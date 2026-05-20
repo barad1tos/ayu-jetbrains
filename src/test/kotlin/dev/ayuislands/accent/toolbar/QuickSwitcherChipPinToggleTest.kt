@@ -35,13 +35,15 @@ import kotlin.test.assertTrue
  * visually (filled inner = pinned, hollow = no pin).
  *
  * Covers:
- *  - **Pin** (no pin → click inner-square): writes
- *    `AccentMappingsState.projectAccents[key] = currentHex`, calls
+ *  - **Pin** (no pin → click inner-square): writes the project's hex
+ *    into `AccentMappingsState.projectAccents` under the
+ *    `AccentResolver.projectKey` entry, calls
  *    `AccentApplicator.applyFromHexString(hex)`, and (Pattern D)
  *    publishes via `ProjectAccentSwapService.notifyExternalApply`.
  *  - **Unpin** (pin active → click inner-square): removes the
- *    `projectAccents[key]` entry, re-applies the resolved global,
- *    publishes the global hex via `notifyExternalApply`.
+ *    `projectAccents` entry under the same key, re-applies the
+ *    resolved global, publishes the global hex via
+ *    `notifyExternalApply`.
  *  - **Outer-region click** (no pin or pin): existing popup-open path
  *    survives; no pin mutation.
  *  - **Pattern J gate**: `LicenseChecker.isLicensedOrGrace() = false`
