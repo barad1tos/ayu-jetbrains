@@ -1088,13 +1088,13 @@
         <option name="GO_EXPORTED_FUNCTION">
             <value>
                 <option name="FOREGROUND" value="FFB454" />
-                <option name="FONT_TYPE" value="1" />
+                <option name="FONT_TYPE" value="2" />
             </value>
         </option>
         <option name="GO_EXPORTED_FUNCTION_CALL">
             <value>
                 <option name="FOREGROUND" value="FFB454" />
-                <option name="FONT_TYPE" value="1" />
+                <option name="FONT_TYPE" value="2" />
             </value>
         </option>
         <option name="GO_FUNCTION_CALL">
@@ -1142,13 +1142,13 @@
         <option name="GO_PACKAGE_EXPORTED_CONSTANT">
             <value>
                 <option name="FOREGROUND" value="D2A6FF" />
-                <option name="FONT_TYPE" value="1" />
+                <option name="FONT_TYPE" value="2" />
             </value>
         </option>
         <option name="GO_PACKAGE_EXPORTED_VARIABLE">
             <value>
                 <option name="FOREGROUND" value="BFBDB6" />
-                <option name="FONT_TYPE" value="1" />
+                <option name="FONT_TYPE" value="2" />
             </value>
         </option>
         <option name="GO_PACKAGE_LOCAL_CONSTANT">
@@ -1172,7 +1172,7 @@
         <option name="GO_STRUCT_EXPORTED_MEMBER">
             <value>
                 <option name="FOREGROUND" value="F07178" />
-                <option name="FONT_TYPE" value="1" />
+                <option name="FONT_TYPE" value="2" />
             </value>
         </option>
         <option name="GO_STRUCT_LOCAL_MEMBER">
