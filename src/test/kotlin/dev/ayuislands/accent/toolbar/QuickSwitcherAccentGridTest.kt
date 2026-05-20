@@ -4,6 +4,7 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.toolbar.popup.Density
@@ -332,6 +333,56 @@ class QuickSwitcherAccentGridTest {
         links[0].doClick()
         verify(exactly = 1) { AccentApplicator.applyFromHexString("#0F00AB") }
         verify(exactly = 1) { swap.notifyExternalApply("#0F00AB") }
+    }
+
+    @Test
+    fun `Custom link skips applyPreset when AccentHex of returns null (algorithmic floor)`() {
+        // Algorithmic floor coverage for the elvis-guarded branch in
+        // `openCustomColorPicker`:
+        //   val pickedHex = AccentHex.of(colorToHex(chosen)) ?: run {
+        //       LOG.warn(...)
+        //       return
+        //   }
+        //
+        // The branch is unreachable today — `colorToHex` always emits a
+        // `#RRGGBB` literal that `AccentHex.of` accepts. The defensive
+        // elvis exists to defend against a future `colorToHex` regression
+        // (e.g. switching to `Integer.toHexString` which drops leading
+        // zeros, or appending alpha). Per CLAUDE.md "Coverage Floors":
+        // defensive fallbacks (`?: run { ... }` markers) need direct
+        // red/green tests even when no user can trigger them — the branch
+        // exists to defend against caller regressions; this test exists
+        // to defend against the branch being deleted.
+        //
+        // Stubs `AccentHex.of` to return null for any input, then verifies
+        // `applyFromHexString` is NOT called even though the picker
+        // returned a non-null Color.
+        mockkObject(AyuVariant.Companion)
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.resolveFocusedProject() } returns null
+        every { AccentApplicator.applyFromHexString(any()) } returns true
+        mockkObject(AccentResolver)
+        every { AccentResolver.resolve(any(), AyuVariant.MIRAGE) } returns "#FFB454"
+        mockkObject(AccentHex.Companion)
+        every { AccentHex.of(any<String>()) } returns null
+        mockkStatic(com.intellij.ui.ColorPicker::class)
+        every {
+            com.intellij.ui.ColorPicker.showDialog(
+                any(),
+                any<String>(),
+                any(),
+                any<Boolean>(),
+                any(),
+                any<Boolean>(),
+            )
+        } returns Color(0x12, 0x34, 0x56)
+
+        val grid = QuickSwitcherAccentGrid()
+        val south = (grid.component as JPanel).components.filterIsInstance<JPanel>().last()
+        val links = collectActionLinks(south)
+        links[0].doClick()
+        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
     }
 
     @Test
