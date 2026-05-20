@@ -10,7 +10,6 @@ import com.intellij.openapi.wm.IdeFrame
 import com.intellij.util.messages.MessageBus
 import com.intellij.util.messages.MessageBusConnection
 import com.intellij.util.messages.Topic
-import com.intellij.util.ui.ColorIcon
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentChangeListener
 import dev.ayuislands.accent.AccentChangedTopic
@@ -127,10 +126,10 @@ class QuickSwitcherChipFocusSwapTest {
         activation.applicationActivated(frame)
         SwingUtilities.invokeAndWait { /* flush */ }
 
-        val icon = chip.icon as ColorIcon
+        val icon = chip.icon as LayeredAccentIcon
         assertEquals(
             Color(0x5C, 0xCF, 0xE6),
-            icon.iconColor,
+            icon.accentColor,
             "Chip must reflect projectB's accent after second activation",
         )
     }
@@ -156,8 +155,8 @@ class QuickSwitcherChipFocusSwapTest {
         // Handler wraps in SwingUtilities.invokeLater; flush.
         SwingUtilities.invokeAndWait { /* flush */ }
 
-        val icon = chip.icon as ColorIcon
-        assertEquals(Color(0xDF, 0xBF, 0xFF), icon.iconColor)
+        val icon = chip.icon as LayeredAccentIcon
+        assertEquals(Color(0xDF, 0xBF, 0xFF), icon.accentColor)
         assertTrue(
             chip.toolTipText.contains("#DFBFFF"),
             "Tooltip must reflect the post-publish hex; got '${chip.toolTipText}'",

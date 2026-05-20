@@ -7,7 +7,6 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.util.messages.MessageBus
 import com.intellij.util.messages.MessageBusConnection
-import com.intellij.util.ui.ColorIcon
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentChangedTopic
@@ -72,34 +71,64 @@ class QuickSwitcherChipComponentTest {
     }
 
     @Test
-    fun `initial icon is a ColorIcon`() {
+    fun `initial icon is a LayeredAccentIcon (idle placeholder, unpinned)`() {
         stubAyuActive(true)
         val chip = QuickSwitcherChipComponent()
-        assertTrue(chip.icon is ColorIcon, "Initial icon must be a ColorIcon; got ${chip.icon?.javaClass}")
+        val icon = chip.icon
+        assertTrue(icon is LayeredAccentIcon, "Initial icon must be a LayeredAccentIcon; got ${icon?.javaClass}")
+        // Smart-cast carries `icon` as `LayeredAccentIcon` through the next
+        // assertion — no explicit cast needed.
+        assertFalse(
+            icon.isPinned,
+            "Pre-resolve placeholder must render as unpinned (hollow inner)",
+        )
     }
 
     @Test
-    fun `refreshFromFocusedProject updates icon color and tooltip`() {
+    fun `refreshFromFocusedProject updates icon color and tooltip (GLOBAL = unpinned)`() {
         stubAyuActive(true)
         stubResolver(hex = "#FFCC66", source = AccentResolver.Source.GLOBAL)
 
         val chip = QuickSwitcherChipComponent()
         chip.refreshFromFocusedProject()
 
-        val icon = chip.icon as ColorIcon
-        assertEquals(Color(0xFF, 0xCC, 0x66), icon.iconColor)
+        val icon = chip.icon as LayeredAccentIcon
+        assertEquals(Color(0xFF, 0xCC, 0x66), icon.accentColor)
+        assertFalse(icon.isPinned, "GLOBAL source must render the inner island as hollow (unpinned)")
         assertEquals("#FFCC66 — Global", chip.toolTipText)
     }
 
     @Test
-    fun `refreshFromFocusedProject surfaces tooltip source label for project override`() {
+    fun `refreshFromFocusedProject renders PROJECT_OVERRIDE as a pinned LayeredAccentIcon`() {
         stubAyuActive(true)
         stubResolver(hex = "#5CCFE6", source = AccentResolver.Source.PROJECT_OVERRIDE)
 
         val chip = QuickSwitcherChipComponent()
         chip.refreshFromFocusedProject()
 
+        val icon = chip.icon as LayeredAccentIcon
+        assertTrue(
+            icon.isPinned,
+            "PROJECT_OVERRIDE source must render the inner island as filled (pinned)",
+        )
         assertEquals("#5CCFE6 — Project override", chip.toolTipText)
+    }
+
+    @Test
+    fun `refreshFromFocusedProject renders LANGUAGE_OVERRIDE as unpinned LayeredAccentIcon`() {
+        // Language overrides count as "no project pin" — the inner-island
+        // indicator is project-scoped, not language-scoped.
+        stubAyuActive(true)
+        stubResolver(hex = "#73D0FF", source = AccentResolver.Source.LANGUAGE_OVERRIDE)
+
+        val chip = QuickSwitcherChipComponent()
+        chip.refreshFromFocusedProject()
+
+        val icon = chip.icon as LayeredAccentIcon
+        assertFalse(
+            icon.isPinned,
+            "LANGUAGE_OVERRIDE must render the inner island as hollow (no project-specific pin)",
+        )
     }
 
     @Test
@@ -206,8 +235,7 @@ class QuickSwitcherChipComponentTest {
         // addNotify/removeNotify-owned lifecycle). Reflective check so the
         // assertion survives a future Kotlin compiler that hard-errors on
         // "is always false" smart-cast checks.
-        val isDisposable =
-            com.intellij.openapi.Disposable::class.java.isAssignableFrom(chip.javaClass)
+        val isDisposable = Disposable::class.java.isAssignableFrom(chip.javaClass)
         assertFalse(
             isDisposable,
             "Chip must NOT be Disposable — lifecycle is Swing-owned",
@@ -277,8 +305,8 @@ class QuickSwitcherChipComponentTest {
         // `CHIP_SWATCH_PX = 12` inner-disc constant was removed.
         val source = Files.readString(Paths.get(CHIP_SOURCE_PATH))
         assertTrue(
-            source.contains("ColorIcon(JBUI.scale(CHIP_BOX_PX)"),
-            "Chip ColorIcon must size to CHIP_BOX_PX (full cell), not an inner-disc constant",
+            source.contains("LayeredAccentIcon(JBUI.scale(CHIP_BOX_PX)"),
+            "Chip LayeredAccentIcon must size to CHIP_BOX_PX (full cell), not an inner-disc constant",
         )
         assertEquals(
             0,
@@ -299,13 +327,33 @@ class QuickSwitcherChipComponentTest {
     }
 
     @Test
-    fun `chip ColorIcon constructor uses 3-arg border-on form`() {
+    fun `chip uses LayeredAccentIcon with the pinned flag on every construction site`() {
         val source = Files.readString(Paths.get(CHIP_SOURCE_PATH))
-        // Locate every `ColorIcon(` call site; count those whose closing arg is the
-        // boolean `true` (border-on overload).
-        val matches =
-            "ColorIcon\\([^\\n]*?,\\s*true\\)".toRegex().findAll(source).count()
-        assertTrue(matches >= 1, "Expected ≥1 3-arg ColorIcon(..., true) call, got $matches")
+        // Every LayeredAccentIcon(...) construction site in the chip must
+        // pass an explicit `pinned = ...` argument — defends against a
+        // future refactor that forgets the pin flag and silently always
+        // renders the unpinned (hollow) state. Counted as construction
+        // sites (`LayeredAccentIcon(`) and `pinned =` arguments separately
+        // since the constructor's first arg `JBUI.scale(CHIP_BOX_PX)`
+        // contains a `)` that would break a single greedy regex.
+        val constructionCount =
+            "LayeredAccentIcon\\(".toRegex().findAll(source).count()
+        val pinnedArgCount =
+            "pinned\\s*=".toRegex().findAll(source).count()
+        assertTrue(
+            constructionCount >= 2,
+            "Expected ≥2 LayeredAccentIcon(...) call sites (idle init + refresh); got $constructionCount",
+        )
+        assertTrue(
+            pinnedArgCount >= constructionCount,
+            "Every LayeredAccentIcon construction must pass `pinned = …`; " +
+                "found $constructionCount calls but only $pinnedArgCount `pinned =` args",
+        )
+        assertEquals(
+            0,
+            "ColorIcon\\(".toRegex().findAll(source).count(),
+            "Chip must not reference ColorIcon — the layered icon replaces it completely",
+        )
     }
 
     @Test
