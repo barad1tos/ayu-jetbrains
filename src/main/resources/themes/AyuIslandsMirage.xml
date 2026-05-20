@@ -1241,7 +1241,10 @@
             </value>
         </option>
         <option name="HCL.BLOCK_NAME_KEY">
-            <value />
+            <value>
+                <option name="FOREGROUND" value="FFD173" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
         </option>
         <option name="HCL.BLOCK_SECOND_TYPE_KEY">
             <value>
@@ -3219,18 +3222,18 @@
             </value>
         </option>
 
-        <!-- YAML -->
-        <option name="YAML_BOOLEAN">
-            <value><option name="FOREGROUND" value="DFBFFF" /></value>
-        </option>
-        <option name="YAML_KEY">
+        <!-- YAML — keys mirror org.jetbrains.yaml.YAMLHighlighter platform IDs (verified via javap on PhpStorm-2025.3.3 yaml.jar). Prior names (YAML_KEY / YAML_STRING / YAML_NUMBER / YAML_BOOLEAN) matched zero platform IDs and only "worked" by accidental fallback through the highlighter's hardcoded base-key chain. -->
+        <option name="YAML_SCALAR_KEY">
             <value><option name="FOREGROUND" value="5CCFE6" /></value>
         </option>
-        <option name="YAML_NUMBER">
-            <value><option name="FOREGROUND" value="DFBFFF" /></value>
-        </option>
-        <option name="YAML_STRING">
+        <option name="YAML_SCALAR_STRING">
             <value><option name="FOREGROUND" value="D5FF80" /></value>
+        </option>
+        <option name="YAML_SCALAR_DSTRING">
+            <value><option name="FOREGROUND" value="D5FF80" /></value>
+        </option>
+        <option name="YAML_SCALAR_VALUE">
+            <value><option name="FOREGROUND" value="DFBFFF" /></value>
         </option>
     </attributes>
 </scheme>
