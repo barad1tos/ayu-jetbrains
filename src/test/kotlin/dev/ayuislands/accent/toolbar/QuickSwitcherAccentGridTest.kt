@@ -147,12 +147,12 @@ class QuickSwitcherAccentGridTest {
     }
 
     @Test
-    fun `openAyuSettings link click swallows RuntimeException from ShowSettingsUtil (Pattern B)`() {
+    fun `More link click swallows RuntimeException from ShowSettingsUtil (Pattern B)`() {
         // Pattern B — the platform's ShowSettingsUtil throws
         // IllegalArgumentException if a configurable id is unknown, and
         // ProcessCanceledException (a RuntimeException subclass on 2025.1+) if
-        // the dialog is dismissed mid-build. Click handler must absorb both so
-        // the chip stays responsive.
+        // the dialog is dismissed mid-build. The More… click handler must
+        // absorb both so the chip stays responsive.
         mockkStatic(com.intellij.openapi.options.ShowSettingsUtil::class)
         val showUtil = mockk<com.intellij.openapi.options.ShowSettingsUtil>(relaxed = true)
         every {
@@ -165,18 +165,66 @@ class QuickSwitcherAccentGridTest {
 
         val grid = QuickSwitcherAccentGrid()
         val south = (grid.component as JPanel).components.filterIsInstance<JPanel>().last()
-        val link = collectActionLinks(south).first()
+        val links = collectActionLinks(south)
+        // The More… link is the second one (Custom… first per declaration order).
         // Must NOT throw out of the click.
-        link.doClick()
+        links[1].doClick()
         verify(exactly = 1) { showUtil.showSettingsDialog(any(), eq("Ayu Islands")) }
     }
 
     @Test
-    fun `Custom and More links open the Ayu Islands settings dialog (user-space)`() {
-        // User-space coverage. The Custom and More links must reach
+    fun `Custom link click swallows RuntimeException from ColorPicker (Pattern B)`() {
+        // Pattern B — the platform's ColorPicker dialog can throw
+        // ProcessCanceledException (a RuntimeException subclass) when the
+        // popup chain is dismissed mid-build. The Custom… click handler
+        // must absorb the throw so the chip stays responsive for the next
+        // click.
+        mockkObject(AyuVariant.Companion)
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.resolveFocusedProject() } returns null
+        mockkObject(AccentResolver)
+        every { AccentResolver.resolve(any(), AyuVariant.MIRAGE) } returns "#FFB454"
+        mockkStatic(com.intellij.ui.ColorPicker::class)
+        every {
+            com.intellij.ui.ColorPicker.showDialog(
+                any(),
+                any<String>(),
+                any(),
+                any<Boolean>(),
+                any(),
+                any<Boolean>(),
+            )
+        } throws RuntimeException("user dismissed mid-build")
+
+        val grid = QuickSwitcherAccentGrid()
+        val south = (grid.component as JPanel).components.filterIsInstance<JPanel>().last()
+        val links = collectActionLinks(south)
+        // The Custom… link is the first one.
+        // Must NOT throw out of the click.
+        links[0].doClick()
+        verify(exactly = 1) {
+            com.intellij.ui.ColorPicker.showDialog(
+                any(),
+                eq("Choose Accent Color"),
+                any(),
+                any<Boolean>(),
+                any(),
+                any<Boolean>(),
+            )
+        }
+    }
+
+    @Test
+    fun `More link opens the Ayu Islands settings dialog (user-space)`() {
+        // User-space coverage. The More… link must reach
         // ShowSettingsUtil.showSettingsDialog with the canonical "Ayu Islands"
         // group id. Without this test, a rename of the link wiring would land
         // silently and the link would become inert.
+        //
+        // The Custom… link no longer routes here — it opens ColorPicker
+        // directly (covered by the next test). This test now only verifies
+        // the More… link still reaches settings.
         mockkStatic(com.intellij.openapi.options.ShowSettingsUtil::class)
         val showUtil = mockk<com.intellij.openapi.options.ShowSettingsUtil>(relaxed = true)
         every {
@@ -188,8 +236,51 @@ class QuickSwitcherAccentGridTest {
         val south = (grid.component as JPanel).components.filterIsInstance<JPanel>().last()
         val links = collectActionLinks(south)
         assertEquals(2, links.size, "Expected exactly two ActionLink components (Custom and More)")
-        for (link in links) link.doClick()
-        verify(exactly = 2) { showUtil.showSettingsDialog(any(), eq("Ayu Islands")) }
+        // The More… link is the second one (Custom… first per declaration order).
+        links[1].doClick()
+        verify(exactly = 1) { showUtil.showSettingsDialog(any(), eq("Ayu Islands")) }
+    }
+
+    @Test
+    fun `Custom link opens ColorPicker dialog seeded with current accent (user-space)`() {
+        // User-space coverage. The Custom… link must open the native
+        // ColorPicker dialog directly — not the Settings dialog — so users
+        // can pick a colour without navigating into Settings → Ayu Islands.
+        // Locks the wiring so a future refactor that silently routes Custom…
+        // back to openAyuSettings fails this test.
+        mockkObject(AyuVariant.Companion)
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.resolveFocusedProject() } returns null
+        mockkObject(AccentResolver)
+        every { AccentResolver.resolve(any(), AyuVariant.MIRAGE) } returns "#FFB454"
+        mockkStatic(com.intellij.ui.ColorPicker::class)
+        every {
+            com.intellij.ui.ColorPicker.showDialog(
+                any(),
+                any<String>(),
+                any(),
+                any<Boolean>(),
+                any(),
+                any<Boolean>(),
+            )
+        } returns null
+
+        val grid = QuickSwitcherAccentGrid()
+        val south = (grid.component as JPanel).components.filterIsInstance<JPanel>().last()
+        val links = collectActionLinks(south)
+        // The Custom… link is the first one (per declaration order).
+        links[0].doClick()
+        verify(exactly = 1) {
+            com.intellij.ui.ColorPicker.showDialog(
+                any(),
+                eq("Choose Accent Color"),
+                any(),
+                any<Boolean>(),
+                any(),
+                any<Boolean>(),
+            )
+        }
     }
 
     @Test

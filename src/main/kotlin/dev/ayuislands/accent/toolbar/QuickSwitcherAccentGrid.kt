@@ -4,6 +4,8 @@ import com.intellij.icons.AllIcons
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.util.IconLoader
+import com.intellij.ui.ColorPicker
+import com.intellij.ui.ColorUtil
 import com.intellij.ui.components.ActionLink
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
@@ -15,6 +17,7 @@ import dev.ayuislands.accent.toolbar.popup.Density
 import dev.ayuislands.accent.toolbar.popup.PopupSwatch
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import java.awt.BorderLayout
+import java.awt.Color
 import java.awt.FlowLayout
 import java.awt.GridLayout
 import javax.swing.Icon
@@ -69,7 +72,7 @@ internal class QuickSwitcherAccentGrid {
         val customRow =
             JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(CUSTOM_ROW_GAP), 0)).apply {
                 isOpaque = false
-                add(iconLink("Custom…", pipetteIcon) { openAyuSettings() })
+                add(iconLink("Custom…", pipetteIcon) { openCustomColorPicker() })
                 add(iconLink("More…", AllIcons.Actions.More) { openAyuSettings() })
             }
         component =
@@ -122,6 +125,47 @@ internal class QuickSwitcherAccentGrid {
             LOG.warn("Accent preset apply failed hex=$raw", exception)
         }
     }
+
+    private fun openCustomColorPicker() {
+        // Seed the dialog with the currently-resolved accent so the user lands
+        // on their existing colour, not white. Parent is the popup's own
+        // component so the dialog is modal to the popup chain.
+        val seedHex = resolveCurrentAccent()
+        val seedColor =
+            try {
+                ColorUtil.fromHex(seedHex)
+            } catch (exception: IllegalArgumentException) {
+                // Resolver should never produce an invalid hex, but the API
+                // throws on malformed input — fall through to a neutral seed
+                // so the dialog still opens instead of crashing the popup.
+                LOG.warn("Custom picker seed hex '$seedHex' rejected by ColorUtil", exception)
+                null
+            }
+        val parent = component.topLevelAncestor ?: component
+        val chosen: Color? =
+            try {
+                ColorPicker.showDialog(
+                    parent,
+                    "Choose Accent Color",
+                    seedColor,
+                    false,
+                    emptyList(),
+                    false,
+                )
+            } catch (exception: RuntimeException) {
+                // Platform raises `ProcessCanceledException` (a RuntimeException
+                // subclass) when the popup is dismissed mid-build, and various
+                // `IllegalStateException` shapes during plugin reload. Treat
+                // every transient as "no colour chosen" so the popup link stays
+                // responsive for the next attempt.
+                LOG.warn("ColorPicker.showDialog failed for custom accent", exception)
+                null
+            }
+        if (chosen == null) return
+        applyPreset(AccentHex.unsafeOf(colorToHex(chosen)))
+    }
+
+    private fun colorToHex(color: Color): String = "#%02X%02X%02X".format(color.red, color.green, color.blue)
 
     private fun openAyuSettings() {
         val project = AccentApplicator.resolveFocusedProject()
