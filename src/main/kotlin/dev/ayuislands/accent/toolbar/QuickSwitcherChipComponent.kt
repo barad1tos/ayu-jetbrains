@@ -16,6 +16,7 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.toolbar.actions.QuickSwitcherActionGroup
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
+import dev.ayuislands.settings.mappings.AccentMappingsState
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import java.awt.Dimension
 import java.awt.event.MouseAdapter
@@ -96,22 +97,13 @@ internal class QuickSwitcherChipComponent : JLabel() {
         )
     }
 
-    /**
-     * Inner-island click → pin toggle (premium-gated via Pattern J); outer
-     * region click → open the existing popup.
-     *
-     * Hit-test uses [LayeredAccentIcon.isInsideInnerSquare] against the
-     * chip's actual pixel size so the differentiator matches what the user
-     * sees rendered. Pattern J gate (`AyuVariant.isAyuActive() &&
-     * LicenseChecker.isLicensedOrGrace()`) gates the pin toggle ONLY —
-     * popup open stays free.
-     */
+    /** Inner-island click → licence-gated pin toggle; outer click → existing popup. */
     private fun handleLeftClick(
         x: Int,
         y: Int,
     ) {
         val size = JBUI.scale(CHIP_BOX_PX)
-        val onInner = LayeredAccentIcon.isInsideInnerSquare(x, y, size)
+        val onInner = LayeredAccentIcon.isInsideInnerIslandHitBox(x, y, size)
         if (onInner && LicenseChecker.isLicensedOrGrace()) {
             togglePin()
             return
@@ -120,16 +112,17 @@ internal class QuickSwitcherChipComponent : JLabel() {
     }
 
     /**
-     * Inner-island action: if a per-project pin is active, remove it (chip
-     * falls back to global accent on next resolve); if no pin, write the
-     * current accent as the pin. Mirrors [dev.ayuislands.accent.toolbar.actions.PinAccentAction]
-     * for the write path so behaviour stays consistent across the popup
-     * quick-action row, the right-click context menu, and the chip's
-     * inner-island click.
+     * Pin / unpin the focused project's accent and roll back the persisted
+     * `projectAccents` mutation if [AccentApplicator.applyFromHexString]
+     * rejects the hex or any of the resolve / apply / notify calls throw —
+     * keeps the persisted store consistent with the live accent state at
+     * all times. Mirrors [dev.ayuislands.accent.toolbar.actions.PinAccentAction]
+     * for the write path so all three pin entry points (popup quick-action,
+     * right-click context menu, chip inner click) stay consistent.
      *
-     * Pattern B catches transient [RuntimeException] from the resolver,
-     * apply, or notify paths so the chip mouse handler stays responsive
-     * for the next attempt.
+     * The Pattern B `RuntimeException` catch wraps the entire toggle so
+     * a single restore-pin helper handles both the rejection branch
+     * (`applied == false`) and the thrown-exception branch the same way.
      */
     private fun togglePin() {
         val variant = AyuVariant.detect() ?: return
@@ -139,33 +132,44 @@ internal class QuickSwitcherChipComponent : JLabel() {
                 LOG.warn("Pin toggle: projectKey null for ${project.name}")
                 return
             }
+        val mappings = AccentMappingsSettings.getInstance().state
+        val previousPin: String? = mappings.projectAccents[key]
         try {
-            val mappings = AccentMappingsSettings.getInstance().state
-            val source = AccentResolver.source(project)
-            if (source == AccentResolver.Source.PROJECT_OVERRIDE) {
-                // Unpin path: drop the override; resolver will return the
-                // language pin (if any) or the global accent next refresh.
+            val unpinPath = AccentResolver.source(project) == AccentResolver.Source.PROJECT_OVERRIDE
+            if (unpinPath) {
                 mappings.projectAccents.remove(key)
-                val globalHex = AccentResolver.resolve(project, variant)
-                val applied = AccentApplicator.applyFromHexString(globalHex)
-                if (applied) {
-                    ProjectAccentSwapService.getInstance().notifyExternalApply(globalHex)
-                } else {
-                    LOG.warn("Pin toggle (unpin): applyFromHexString rejected hex=$globalHex")
-                }
             } else {
-                // Pin path: write current resolved accent as the project pin.
-                val currentHex = AccentResolver.resolve(project, variant)
-                mappings.projectAccents[key] = currentHex
-                val applied = AccentApplicator.applyFromHexString(currentHex)
-                if (applied) {
-                    ProjectAccentSwapService.getInstance().notifyExternalApply(currentHex)
-                } else {
-                    LOG.warn("Pin toggle (pin): applyFromHexString rejected hex=$currentHex")
-                }
+                mappings.projectAccents[key] = AccentResolver.resolve(project, variant)
+            }
+            // Resolve target hex AFTER the mutation so the unpin path lands
+            // on the (now-uncovered) language pin or global accent and the
+            // pin path lands on the just-written override — `AccentResolver`
+            // reads `mappings` directly.
+            val targetHex = AccentResolver.resolve(project, variant)
+            val applied = AccentApplicator.applyFromHexString(targetHex)
+            if (applied) {
+                ProjectAccentSwapService.getInstance().notifyExternalApply(targetHex)
+            } else {
+                LOG.warn("Pin toggle: applyFromHexString rejected hex=$targetHex; rolling back")
+                restorePin(mappings, key, previousPin)
             }
         } catch (exception: RuntimeException) {
-            LOG.warn("Pin toggle failed", exception)
+            LOG.warn("Pin toggle failed; rolling back", exception)
+            restorePin(mappings, key, previousPin)
+        }
+    }
+
+    /** Restore [previous] under [key] (or remove the key entry) so the persisted store
+     *  matches the runtime accent after a rejected / thrown apply. */
+    private fun restorePin(
+        mappings: AccentMappingsState,
+        key: String,
+        previous: String?,
+    ) {
+        if (previous == null) {
+            mappings.projectAccents.remove(key)
+        } else {
+            mappings.projectAccents[key] = previous
         }
     }
 

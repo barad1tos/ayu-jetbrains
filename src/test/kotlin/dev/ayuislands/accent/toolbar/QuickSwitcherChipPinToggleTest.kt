@@ -172,6 +172,84 @@ class QuickSwitcherChipPinToggleTest {
         assertTrue(state.projectAccents.isEmpty(), "Invalid licence must not write projectAccents")
     }
 
+    @Test
+    fun `pin path rolls back projectAccents when applyFromHexString returns false`() {
+        // Pin from unpinned + apply rejects (e.g. corrupted upstream
+        // settings produce an invalid hex). The pin write must NOT persist
+        // ahead of runtime state — restore the pre-toggle map and skip the
+        // notify so the persisted store stays consistent with what the
+        // accent applicator actually applied.
+        every { AccentResolver.source(mockProject) } returns AccentResolver.Source.GLOBAL
+        every { AccentApplicator.applyFromHexString(any()) } returns false
+
+        val chip = QuickSwitcherChipComponent()
+        chip.dispatchEvent(innerClick(chip))
+
+        assertTrue(
+            state.projectAccents.isEmpty(),
+            "Pin path rejection must roll back the projectAccents write (pre-state had no pin)",
+        )
+        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
+    }
+
+    @Test
+    fun `unpin path rolls back projectAccents when applyFromHexString returns false`() {
+        // Unpin + apply rejects. The pin must be RESTORED (not just left
+        // removed) so the next focus refresh re-resolves through the same
+        // override the user thought they were unpinning.
+        state.projectAccents[PROJECT_KEY] = "#FFB454"
+        every { AccentResolver.source(mockProject) } returns AccentResolver.Source.PROJECT_OVERRIDE
+        every { AccentResolver.resolve(any(), any()) } returns "#73D0FF"
+        every { AccentApplicator.applyFromHexString(any()) } returns false
+
+        val chip = QuickSwitcherChipComponent()
+        chip.dispatchEvent(innerClick(chip))
+
+        assertEquals(
+            "#FFB454",
+            state.projectAccents[PROJECT_KEY],
+            "Unpin path rejection must restore the pre-toggle pin hex under the project key",
+        )
+        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
+    }
+
+    @Test
+    fun `pin toggle swallows RuntimeException from applyFromHexString and rolls back (Pattern B)`() {
+        // Pattern B parity with sibling chip handlers (refresh, openAyuSettings,
+        // applyPreset, openCustomColorPicker). A throw from the apply
+        // chain MUST NOT propagate out of the click handler AND the pin
+        // write must NOT persist past the failure.
+        every { AccentResolver.source(mockProject) } returns AccentResolver.Source.GLOBAL
+        every { AccentApplicator.applyFromHexString(any()) } throws RuntimeException("transient mid-LAF-swap")
+
+        val chip = QuickSwitcherChipComponent()
+        // Must NOT throw out of the click.
+        chip.dispatchEvent(innerClick(chip))
+
+        assertTrue(
+            state.projectAccents.isEmpty(),
+            "RuntimeException from apply must roll back the projectAccents write",
+        )
+        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
+    }
+
+    @Test
+    fun `inner click with null projectKey is a NO-OP (no pin mutation, no apply)`() {
+        // Defensive early-return when `AccentResolver.projectKey` returns
+        // null (race with project dispose, basePath read failure). The
+        // chip must not crash and must not write a stale pin under a
+        // null/empty key.
+        every { AccentResolver.projectKey(any()) } returns null
+        every { AccentResolver.source(mockProject) } returns AccentResolver.Source.GLOBAL
+
+        val chip = QuickSwitcherChipComponent()
+        chip.dispatchEvent(innerClick(chip))
+
+        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
+        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
+        assertTrue(state.projectAccents.isEmpty(), "projectKey null must skip projectAccents write entirely")
+    }
+
     private fun innerClick(source: JComponent): MouseEvent {
         // Centre pixel of the chip is always inside the inner-square bounds.
         val centre = JBUI.scale(QuickSwitcherChipComponent.CHIP_BOX_PX) / 2

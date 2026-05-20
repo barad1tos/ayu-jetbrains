@@ -37,9 +37,9 @@ import javax.swing.Icon
  * square), the first control offset from each midpoint toward the corner is
  * 76 px (= 0.304 × side length). The icon scales that ratio to any [sizePx].
  *
- * Paint is split into [paintIcon] (Swing entry point) and [paintForTest]
- * (Pattern I seam — tests rasterize into a `BufferedImage` and assert on the
- * outer-ring and inner-square pixels). Identical to the seam pattern in
+ * Paint is split into [paintIcon] (Swing entry point) and a `@TestOnly`
+ * [paintForTest] render seam — tests rasterize into a `BufferedImage` and
+ * assert on the outer-ring and inner-square pixels. Mirrors the seam in
  * `PopupSwatch`.
  */
 internal class LayeredAccentIcon(
@@ -47,14 +47,23 @@ internal class LayeredAccentIcon(
     accent: AccentHex,
     private val pinned: Boolean,
 ) : Icon {
-    // [accent] is a constructor-only parameter — both colours are resolved
-    // once at construction so the icon paint path can stay branch-free on
-    // the colour derivation. `darken` returns the input unchanged at the
-    // lightness clamp edge (see `AccentHsl` KDoc), so very dark accents may
-    // produce an inner island identical to the outer ring — acceptable;
-    // the pinned state is still distinguishable by silhouette.
+    init {
+        require(sizePx > 0) { "sizePx must be positive, got $sizePx" }
+    }
+
+    // Both colours are resolved once at construction so the paint path is
+    // branch-free on colour derivation. `AccentHsl.darken` returns the input
+    // unchanged at the lightness clamp edge; fall back to `lighten` so very
+    // dark accents still produce a distinguishable inner island.
     private val outerColor: Color = ColorUtil.fromHex(accent.value)
-    private val innerColor: Color = ColorUtil.fromHex(AccentHsl.darken(accent).value)
+    private val innerColor: Color =
+        ColorUtil.fromHex(
+            AccentHsl
+                .darken(accent)
+                .takeIf { it.value != accent.value }
+                ?.value
+                ?: AccentHsl.lighten(accent).value,
+        )
 
     /** Exposed so chip-level tests can assert the active accent without re-deriving from the hex string. */
     internal val accentColor: Color get() = outerColor
@@ -114,18 +123,7 @@ internal class LayeredAccentIcon(
         }
     }
 
-    /**
-     * One squircle layer built as 4 cubic Bézier curves whose control points
-     * sit on the bounding square's edges — the SVG reference shape. This is
-     * the iOS-app-icon "soft rectangle" that reads as a rounded square at a
-     * glance but is mathematically different from `RoundRectangle2D` (whose
-     * sides are straight, terminated by quarter-circle arcs).
-     *
-     * Ratio `0.304 × side` for the first control offset is read directly off
-     * the SVG: at viewBox 300 × 300 with side 250, the original control point
-     * for the top-right corner sits 76 px right of the top midpoint
-     * (`76 / 250 = 0.304`).
-     */
+    /** One squircle layer (4 cubic Béziers) — see class header for geometry. */
     private fun squirclePath(
         inset: Float,
         side: Float,
@@ -166,18 +164,16 @@ internal class LayeredAccentIcon(
         private const val MIN_STROKE_PX = 1f
 
         /**
-         * `true` when the local mouse point `(x, y)` falls inside the inner-
-         * squircle bounding box of a chip rendered at [size]. Used by the
-         * chip's `mousePressed` handler to differentiate inner-island clicks
-         * (pin toggle) from outer-region clicks (open popup).
-         *
-         * The bounding-box approximation is intentional — the inner squircle
-         * is almost-square at the centre, and the few near-corner pixels that
-         * fall outside the squircle but inside its bounding box are a
-         * negligible click-target loss compared to the cost of running a
-         * point-in-Bezier-region check on every `mousePressed`.
+         * Chip's hit-test contract: `true` when the local mouse point
+         * `(x, y)` falls inside the inner-island bounding box of a chip
+         * rendered at [size]. Bounding box rather than the squircle path
+         * itself — the near-corner overshoot is sub-pixel at 13px and the
+         * cost of a point-in-Bezier check on every `mousePressed` is not
+         * worth the precision. Owned by the icon because the rectangle's
+         * inset is dictated by the icon's geometry; the chip is the only
+         * caller.
          */
-        internal fun isInsideInnerSquare(
+        internal fun isInsideInnerIslandHitBox(
             x: Int,
             y: Int,
             size: Int,

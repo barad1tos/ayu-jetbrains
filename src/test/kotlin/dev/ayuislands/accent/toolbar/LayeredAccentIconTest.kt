@@ -19,7 +19,7 @@ import kotlin.test.assertTrue
  *  - Inner-square paint differs by `pinned` flag — filled with
  *    `AccentHsl.darken(accent)` when pinned, outlined in the outer-ring
  *    colour when unpinned.
- *  - Geometry helper `isInsideInnerSquare` matches the actual inner-
+ *  - Geometry helper `isInsideInnerIslandHitBox` matches the actual inner-
  *    square paint bounds — the chip's `mousePressed` differentiator
  *    must agree with what the user sees.
  *
@@ -101,16 +101,16 @@ class LayeredAccentIconTest {
     }
 
     @Test
-    fun `isInsideInnerSquare returns true for the centre and false for the outer ring`() {
+    fun `isInsideInnerIslandHitBox returns true for the centre and false for the outer ring`() {
         val size = SIZE_PX
         // Centre is inside.
-        assertTrue(LayeredAccentIcon.isInsideInnerSquare(size / 2, size / 2, size))
+        assertTrue(LayeredAccentIcon.isInsideInnerIslandHitBox(size / 2, size / 2, size))
         // Edge of the chip is outside.
-        assertFalse(LayeredAccentIcon.isInsideInnerSquare(0, 0, size))
-        assertFalse(LayeredAccentIcon.isInsideInnerSquare(size - 1, size - 1, size))
+        assertFalse(LayeredAccentIcon.isInsideInnerIslandHitBox(0, 0, size))
+        assertFalse(LayeredAccentIcon.isInsideInnerIslandHitBox(size - 1, size - 1, size))
         // Just outside the inner-square boundary (within outer ring) is also outside.
         val outsideInner = (size * LayeredAccentIcon.INNER_INSET_RATIO - 1).toInt()
-        assertFalse(LayeredAccentIcon.isInsideInnerSquare(outsideInner, outsideInner, size))
+        assertFalse(LayeredAccentIcon.isInsideInnerIslandHitBox(outsideInner, outsideInner, size))
     }
 
     private fun paint(icon: LayeredAccentIcon): BufferedImage {
