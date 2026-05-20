@@ -225,6 +225,18 @@
                 <option name="FONT_TYPE" value="2" />
             </value>
         </option>
+        <option name="BASH.VAR_USE">
+            <value>
+                <option name="FOREGROUND" value="A37ACC" />
+            </value>
+        </option>
+        <option name="BASH.VAR_DEF">
+            <value>
+                <option name="FOREGROUND" value="A37ACC" />
+                <option name="EFFECT_COLOR" value="A37ACC" />
+                <option name="EFFECT_TYPE" value="1" />
+            </value>
+        </option>
 
         <!-- Bookmarks -->
         <option name="BOOKMARKS_ATTRIBUTES">
@@ -591,6 +603,30 @@
         <option name="DART_TOP_LEVEL_FUNCTION_DECLARATION">
             <value>
                 <option name="FOREGROUND" value="EBA400" />
+            </value>
+        </option>
+        <option name="DART_STATIC_METHOD_DECLARATION">
+            <value>
+                <option name="FOREGROUND" value="EBA400" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="DART_STATIC_METHOD_REFERENCE">
+            <value>
+                <option name="FOREGROUND" value="EBA400" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="DART_STATIC_FIELD_DECLARATION">
+            <value>
+                <option name="FOREGROUND" value="A37ACC" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="DART_STATIC_GETTER_DECLARATION">
+            <value>
+                <option name="FOREGROUND" value="A37ACC" />
+                <option name="FONT_TYPE" value="2" />
             </value>
         </option>
 
@@ -1052,11 +1088,13 @@
         <option name="GO_EXPORTED_FUNCTION">
             <value>
                 <option name="FOREGROUND" value="EBA400" />
+                <option name="FONT_TYPE" value="1" />
             </value>
         </option>
         <option name="GO_EXPORTED_FUNCTION_CALL">
             <value>
                 <option name="FOREGROUND" value="EBA400" />
+                <option name="FONT_TYPE" value="1" />
             </value>
         </option>
         <option name="GO_FUNCTION_CALL">
@@ -1104,11 +1142,13 @@
         <option name="GO_PACKAGE_EXPORTED_CONSTANT">
             <value>
                 <option name="FOREGROUND" value="A37ACC" />
+                <option name="FONT_TYPE" value="1" />
             </value>
         </option>
         <option name="GO_PACKAGE_EXPORTED_VARIABLE">
             <value>
                 <option name="FOREGROUND" value="5C6166" />
+                <option name="FONT_TYPE" value="1" />
             </value>
         </option>
         <option name="GO_PACKAGE_LOCAL_CONSTANT">
@@ -1132,6 +1172,7 @@
         <option name="GO_STRUCT_EXPORTED_MEMBER">
             <value>
                 <option name="FOREGROUND" value="F07171" />
+                <option name="FONT_TYPE" value="1" />
             </value>
         </option>
         <option name="GO_STRUCT_LOCAL_MEMBER">
@@ -1475,6 +1516,83 @@
                 <option name="FONT_TYPE" value="2" />
             </value>
         </option>
+        <option name="TS.INTERFACE">
+            <value>
+                <option name="FOREGROUND" value="22A4E6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="TS.ENUM">
+            <value>
+                <option name="FOREGROUND" value="22A4E6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="TS.TYPE_PARAMETER">
+            <value>
+                <option name="FOREGROUND" value="22A4E6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="TS.TYPE_GUARD">
+            <value>
+                <option name="FOREGROUND" value="22A4E6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="TS.MODULE_NAME">
+            <value>
+                <option name="FOREGROUND" value="22A4E6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="TS.KEYWORD">
+            <value>
+                <option name="FOREGROUND" value="FA8532" />
+                <option name="FONT_TYPE" value="1" />
+            </value>
+        </option>
+
+        <!-- Angular -->
+        <option name="NG.PROPERTY_BINDING_ATTR_NAME">
+            <value>
+                <option name="FOREGROUND" value="E59645" />
+            </value>
+        </option>
+        <option name="NG.EVENT_BINDING_ATTR_NAME">
+            <value>
+                <option name="FOREGROUND" value="E59645" />
+            </value>
+        </option>
+        <option name="NG.BANANA_BINDING_ATTR_NAME">
+            <value>
+                <option name="FOREGROUND" value="E59645" />
+            </value>
+        </option>
+        <option name="NG.SIGNAL">
+            <value>
+                <option name="FOREGROUND" value="E59645" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="NG.BLOCK_NAME">
+            <value>
+                <option name="FOREGROUND" value="FA8532" />
+                <option name="FONT_TYPE" value="1" />
+            </value>
+        </option>
+        <option name="NG.BLOCK_BRACES">
+            <value>
+                <option name="FOREGROUND" value="FA8532" />
+            </value>
+        </option>
+
+        <!-- Vue -->
+        <option name="VUE.SCRIPT_DELIMITERS">
+            <value>
+                <option name="FOREGROUND" value="FA8532" />
+            </value>
+        </option>
 
         <!-- JSON -->
         <option name="JSON.BOOLEAN">
@@ -1737,6 +1855,18 @@
                 <option name="FOREGROUND" value="4CBF99" />
             </value>
         </option>
+        <option name="INHERITED_METHOD_ATTRIBUTES">
+            <value>
+                <option name="FOREGROUND" value="EBA400" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="ABSTRACT_METHOD_ATTRIBUTES">
+            <value>
+                <option name="FOREGROUND" value="BC8400" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
 
         <!-- Kotlin -->
         <option name="KOTLIN_ABSTRACT_CLASS">
@@ -1753,6 +1883,13 @@
         <option name="KOTLIN_BACKING_FIELD_VARIABLE">
             <value>
                 <option name="FOREGROUND" value="F07171" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="KOTLIN_SUSPEND_FUNCTION_CALL">
+            <value>
+                <option name="FOREGROUND" value="36A3D9" />
+                <option name="FONT_TYPE" value="2" />
             </value>
         </option>
         <option name="KOTLIN_BLOCK_COMMENT" baseAttributes="DEFAULT_BLOCK_COMMENT" />
@@ -1981,25 +2118,37 @@
         <option name="MARKDOWN_HEADER_LEVEL_3">
             <value>
                 <option name="FOREGROUND" value="86B300" />
-                <option name="FONT_TYPE" value="1" />
+                <option name="FONT_TYPE" value="3" />
             </value>
         </option>
         <option name="MARKDOWN_HEADER_LEVEL_4">
             <value>
                 <option name="FOREGROUND" value="86B300" />
-                <option name="FONT_TYPE" value="1" />
+                <option name="FONT_TYPE" value="3" />
             </value>
         </option>
         <option name="MARKDOWN_HEADER_LEVEL_5">
             <value>
                 <option name="FOREGROUND" value="86B300" />
-                <option name="FONT_TYPE" value="1" />
+                <option name="FONT_TYPE" value="2" />
             </value>
         </option>
         <option name="MARKDOWN_HEADER_LEVEL_6">
             <value>
                 <option name="FOREGROUND" value="86B300" />
-                <option name="FONT_TYPE" value="1" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="MARKDOWN_CODE_SPAN">
+            <value>
+                <option name="BACKGROUND" value="F0F1F2" />
+            </value>
+        </option>
+        <option name="MARKDOWN_STRIKE_THROUGH">
+            <value>
+                <option name="FOREGROUND" value="5C6166" />
+                <option name="EFFECT_COLOR" value="5C6166" />
+                <option name="EFFECT_TYPE" value="3" />
             </value>
         </option>
         <option name="MARKDOWN_IMAGE">
@@ -2159,6 +2308,12 @@
         <option name="PY.METHOD_CALL">
             <value><option name="FOREGROUND" value="EBA400" /></value>
         </option>
+        <option name="PY.STATIC_METHOD">
+            <value>
+                <option name="FOREGROUND" value="EBA400" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
         <option name="PY.NUMBER">
             <value><option name="FOREGROUND" value="A37ACC" /></value>
         </option>
@@ -2251,6 +2406,35 @@
         <option name="PHP_VAR">
             <value>
                 <option name="FOREGROUND" value="F07171" />
+            </value>
+        </option>
+        <option name="PHP_CLASS">
+            <value>
+                <option name="FOREGROUND" value="22A4E6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="PHP_INTERFACE">
+            <value>
+                <option name="FOREGROUND" value="22A4E6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="PHP_INSTANCE_METHOD">
+            <value>
+                <option name="FOREGROUND" value="EBA400" />
+            </value>
+        </option>
+        <option name="PHP_STATIC_METHOD">
+            <value>
+                <option name="FOREGROUND" value="EBA400" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="PHP_ATTRIBUTE">
+            <value>
+                <option name="FOREGROUND" value="787B80" />
+                <option name="FONT_TYPE" value="2" />
             </value>
         </option>
 
@@ -2736,6 +2920,22 @@
                 <option name="FOREGROUND" value="A37ACC" />
             </value>
         </option>
+        <option name="RUBY_PRIVATE_CALL">
+            <value>
+                <option name="FOREGROUND" value="EBA400" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="RUBY_PROTECTED_CALL">
+            <value>
+                <option name="FOREGROUND" value="EBA400" />
+            </value>
+        </option>
+        <option name="RUBY_PUBLIC_CALL">
+            <value>
+                <option name="FOREGROUND" value="EBA400" />
+            </value>
+        </option>
 
         <!-- Rust -->
         <option name="org.rust.ASSOC_FUNCTION">
@@ -3010,6 +3210,50 @@
                 <option name="FONT_TYPE" value="2" />
             </value>
         </option>
+        <option name="Scala Class">
+            <value>
+                <option name="FOREGROUND" value="22A4E6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="Scala Trait">
+            <value>
+                <option name="FOREGROUND" value="22A4E6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="Scala Object">
+            <value>
+                <option name="FOREGROUND" value="22A4E6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="Scala Method declaration">
+            <value>
+                <option name="FOREGROUND" value="EBA400" />
+            </value>
+        </option>
+        <option name="Scala Class method call">
+            <value>
+                <option name="FOREGROUND" value="EBA400" />
+            </value>
+        </option>
+        <option name="Scala Object method call">
+            <value>
+                <option name="FOREGROUND" value="EBA400" />
+            </value>
+        </option>
+        <option name="Scala Local method call">
+            <value>
+                <option name="FOREGROUND" value="EBA400" />
+            </value>
+        </option>
+        <option name="Scala Given">
+            <value>
+                <option name="FOREGROUND" value="FA8532" />
+                <option name="FONT_TYPE" value="3" />
+            </value>
+        </option>
 
         <!-- Search results -->
         <option name="SEARCH_RESULT_ATTRIBUTES">
@@ -3234,6 +3478,12 @@
         </option>
         <option name="YAML_SCALAR_VALUE">
             <value><option name="FOREGROUND" value="A37ACC" /></value>
+        </option>
+        <option name="YAML_ANCHOR">
+            <value>
+                <option name="FOREGROUND" value="F07171" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
         </option>
     </attributes>
 </scheme>
