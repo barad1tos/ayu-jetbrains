@@ -5,17 +5,18 @@ import com.intellij.openapi.application.ApplicationActivationListener
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.wm.IdeFrame
-import com.intellij.ui.ColorUtil
-import com.intellij.ui.JBColor
 import com.intellij.util.messages.MessageBusConnection
-import com.intellij.util.ui.ColorIcon
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentChangeListener
 import dev.ayuislands.accent.AccentChangedTopic
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.toolbar.actions.QuickSwitcherActionGroup
+import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.settings.mappings.AccentMappingsSettings
+import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import java.awt.Dimension
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
@@ -75,7 +76,12 @@ internal class QuickSwitcherChipComponent : JLabel() {
     init {
         val box = JBUI.scale(CHIP_BOX_PX)
         preferredSize = Dimension(box, box)
-        icon = ColorIcon(JBUI.scale(CHIP_BOX_PX), JBColor.GRAY, true)
+        // Idle (pre-resolve) icon: a neutral grey layered island so the chip
+        // has a real silhouette before the first `refreshFromFocusedProject`
+        // call replaces it with the project's accent. Using the layered icon
+        // for the idle state too means the chip never flashes a different
+        // visual shape between construction and the first refresh.
+        icon = LayeredAccentIcon(JBUI.scale(CHIP_BOX_PX), AccentHex.unsafeOf(IDLE_ACCENT_HEX), pinned = false)
         toolTipText = ""
         addMouseListener(
             object : MouseAdapter() {
@@ -83,12 +89,84 @@ internal class QuickSwitcherChipComponent : JLabel() {
                     if (!AyuVariant.isAyuActive()) return
                     when {
                         SwingUtilities.isRightMouseButton(event) -> showContextMenu(event.x, event.y)
-                        SwingUtilities.isLeftMouseButton(event) ->
-                            QuickSwitcherPopup.show(this@QuickSwitcherChipComponent, this@QuickSwitcherChipComponent)
+                        SwingUtilities.isLeftMouseButton(event) -> handleLeftClick(event.x, event.y)
                     }
                 }
             },
         )
+    }
+
+    /**
+     * Inner-island click → pin toggle (premium-gated via Pattern J); outer
+     * region click → open the existing popup.
+     *
+     * Hit-test uses [LayeredAccentIcon.isInsideInnerSquare] against the
+     * chip's actual pixel size so the differentiator matches what the user
+     * sees rendered. Pattern J gate (`AyuVariant.isAyuActive() &&
+     * LicenseChecker.isLicensedOrGrace()`) gates the pin toggle ONLY —
+     * popup open stays free.
+     */
+    private fun handleLeftClick(
+        x: Int,
+        y: Int,
+    ) {
+        val size = JBUI.scale(CHIP_BOX_PX)
+        val onInner = LayeredAccentIcon.isInsideInnerSquare(x, y, size)
+        if (onInner && LicenseChecker.isLicensedOrGrace()) {
+            togglePin()
+            return
+        }
+        QuickSwitcherPopup.show(this, this)
+    }
+
+    /**
+     * Inner-island action: if a per-project pin is active, remove it (chip
+     * falls back to global accent on next resolve); if no pin, write the
+     * current accent as the pin. Mirrors [dev.ayuislands.accent.toolbar.actions.PinAccentAction]
+     * for the write path so behaviour stays consistent across the popup
+     * quick-action row, the right-click context menu, and the chip's
+     * inner-island click.
+     *
+     * Pattern B catches transient [RuntimeException] from the resolver,
+     * apply, or notify paths so the chip mouse handler stays responsive
+     * for the next attempt.
+     */
+    private fun togglePin() {
+        val variant = AyuVariant.detect() ?: return
+        val project = AccentApplicator.resolveFocusedProject() ?: return
+        val key =
+            AccentResolver.projectKey(project) ?: run {
+                LOG.warn("Pin toggle: projectKey null for ${project.name}")
+                return
+            }
+        try {
+            val mappings = AccentMappingsSettings.getInstance().state
+            val source = AccentResolver.source(project)
+            if (source == AccentResolver.Source.PROJECT_OVERRIDE) {
+                // Unpin path: drop the override; resolver will return the
+                // language pin (if any) or the global accent next refresh.
+                mappings.projectAccents.remove(key)
+                val globalHex = AccentResolver.resolve(project, variant)
+                val applied = AccentApplicator.applyFromHexString(globalHex)
+                if (applied) {
+                    ProjectAccentSwapService.getInstance().notifyExternalApply(globalHex)
+                } else {
+                    LOG.warn("Pin toggle (unpin): applyFromHexString rejected hex=$globalHex")
+                }
+            } else {
+                // Pin path: write current resolved accent as the project pin.
+                val currentHex = AccentResolver.resolve(project, variant)
+                mappings.projectAccents[key] = currentHex
+                val applied = AccentApplicator.applyFromHexString(currentHex)
+                if (applied) {
+                    ProjectAccentSwapService.getInstance().notifyExternalApply(currentHex)
+                } else {
+                    LOG.warn("Pin toggle (pin): applyFromHexString rejected hex=$currentHex")
+                }
+            }
+        } catch (exception: RuntimeException) {
+            LOG.warn("Pin toggle failed", exception)
+        }
     }
 
     /**
@@ -125,7 +203,7 @@ internal class QuickSwitcherChipComponent : JLabel() {
             object : AccentChangeListener {
                 override fun accentChanged(
                     project: com.intellij.openapi.project.Project,
-                    hex: dev.ayuislands.accent.AccentHex,
+                    hex: AccentHex,
                     source: AccentResolver.Source,
                 ) {
                     SwingUtilities.invokeLater { refreshFromFocusedProject() }
@@ -194,19 +272,28 @@ internal class QuickSwitcherChipComponent : JLabel() {
                 LOG.warn("QuickSwitcher chip resolve failed", exception)
                 return
             }
-        val color = ColorUtil.fromHex(hex)
-        icon = ColorIcon(JBUI.scale(CHIP_BOX_PX), color, true)
         val source = AccentResolver.source(project)
+        val pinned = source == AccentResolver.Source.PROJECT_OVERRIDE
+        // [AccentResolver.resolve] returns a validated `#RRGGBB` (resolver
+        // produces either a stored override or `AyuIslandsSettings.getAccentForVariant`,
+        // both of which are validated upstream), so `unsafeOf` is safe here.
+        icon = LayeredAccentIcon(JBUI.scale(CHIP_BOX_PX), AccentHex.unsafeOf(hex), pinned = pinned)
         toolTipText = "$hex — ${AccentResolver.sourceLabel(source)}"
         repaint()
     }
 
     companion object {
-        // Final chip dimensions: a 13 × 13 JBUI-scaled cell whose ColorIcon
+        // Final chip dimensions: a 13 × 13 JBUI-scaled cell whose icon
         // fills the full bounds (no inner-disc inset). 13 px matches the
         // visual size of neighbouring MainToolbar icons (Add, Search,
         // overflow); larger values (14–16 px) read as oversized against them.
         internal const val CHIP_BOX_PX = 13
+
+        // Idle accent for the pre-resolve placeholder icon. Mirage gold —
+        // chosen for visibility against any LAF; first `refreshFromFocusedProject`
+        // call (in `addNotify` or via an activation event) replaces it with
+        // the resolved per-project accent within milliseconds of attach.
+        internal const val IDLE_ACCENT_HEX = "#FFB454"
 
         // Action place ID for the right-click context menu.
         private const val CONTEXT_MENU_PLACE = "AyuQuickSwitcher.ContextMenu"
