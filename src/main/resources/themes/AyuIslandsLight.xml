@@ -3952,5 +3952,254 @@
                 <option name="EFFECT_TYPE" value="1" />
             </value>
         </option>
+        <!-- EXPANSION-3 additions: Scala ScalaDoc/Implicit/CLI, Kotlin gap, Dart getters/setters, Groovy gap -->
+        <option name="ScalaDoc comment">
+            <value>
+                <option name="FOREGROUND" value="787B80" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="ScalaDoc comment tag">
+            <value>
+                <option name="FOREGROUND" value="787B80" />
+                <option name="FONT_TYPE" value="3" />
+            </value>
+        </option>
+        <option name="ScalaDoc @param value">
+            <value>
+                <option name="FOREGROUND" value="D87F00" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="ScalaDoc html tag">
+            <value>
+                <option name="FOREGROUND" value="22A4E6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="ScalaDoc wiki syntax elements">
+            <value>
+                <option name="FOREGROUND" value="D87F00" />
+            </value>
+        </option>
+        <option name="ScalaDoc html escape sequences">
+            <value>
+                <option name="FOREGROUND" value="86B300" />
+            </value>
+        </option>
+        <option name="ScalaDoc comment markup">
+            <value>
+                <option name="FOREGROUND" value="D87F00" />
+            </value>
+        </option>
+        <option name="ScalaDoc list item head">
+            <value>
+                <option name="FOREGROUND" value="FA8532" />
+                <option name="FONT_TYPE" value="1" />
+            </value>
+        </option>
+        <option name="Implicit conversion">
+            <value>
+                <option name="FOREGROUND" value="A37ACC" />
+                <option name="EFFECT_COLOR" value="A37ACC" />
+                <option name="EFFECT_TYPE" value="1" />
+            </value>
+        </option>
+        <option name="Implicit conversion first part">
+            <value>
+                <option name="FOREGROUND" value="A37ACC" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="Implicit conversion second part">
+            <value>
+                <option name="FOREGROUND" value="F07171" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="Scalatest keyword">
+            <value>
+                <option name="FOREGROUND" value="FA8532" />
+                <option name="FONT_TYPE" value="3" />
+            </value>
+        </option>
+        <option name="Scala directive prefix">
+            <value>
+                <option name="FOREGROUND" value="787B80" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="Scala directive command">
+            <value>
+                <option name="FOREGROUND" value="FA8532" />
+                <option name="FONT_TYPE" value="1" />
+            </value>
+        </option>
+        <option name="Scala directive key">
+            <value>
+                <option name="FOREGROUND" value="55B4D4" />
+            </value>
+        </option>
+        <option name="Scala directive value">
+            <value>
+                <option name="FOREGROUND" value="86B300" />
+            </value>
+        </option>
+        <option name="KOTLIN_KEYWORD_VAL">
+            <value>
+                <option name="FOREGROUND" value="FA8532" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="KOTLIN_KEYWORD_VAR">
+            <value>
+                <option name="FOREGROUND" value="FA8532" />
+                <option name="FONT_TYPE" value="2" />
+                <option name="EFFECT_COLOR" value="FA8532" />
+                <option name="EFFECT_TYPE" value="1" />
+            </value>
+        </option>
+        <option name="KOTLIN_TYPE_ALIAS">
+            <value>
+                <option name="FOREGROUND" value="22A4E6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="KOTLIN_PACKAGE_PROPERTY">
+            <value>
+                <option name="FOREGROUND" value="F07171" />
+            </value>
+        </option>
+        <option name="KOTLIN_INSTANCE_PROPERTY_CUSTOM_PROPERTY_DECLARATION">
+            <value>
+                <option name="FOREGROUND" value="F07171" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="KOTLIN_PACKAGE_PROPERTY_CUSTOM_PROPERTY_DECLARATION">
+            <value>
+                <option name="FOREGROUND" value="F07171" />
+                <option name="FONT_TYPE" value="3" />
+            </value>
+        </option>
+        <option name="KOTLIN_CONSTRUCTOR">
+            <value>
+                <option name="FOREGROUND" value="EBA400" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="DART_INSTANCE_GETTER_DECLARATION">
+            <value>
+                <option name="FOREGROUND" value="F07171" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="DART_INSTANCE_GETTER_REFERENCE">
+            <value>
+                <option name="FOREGROUND" value="F07171" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="DART_INSTANCE_SETTER_DECLARATION">
+            <value>
+                <option name="FOREGROUND" value="F07171" />
+                <option name="FONT_TYPE" value="2" />
+                <option name="EFFECT_COLOR" value="F07171" />
+                <option name="EFFECT_TYPE" value="1" />
+            </value>
+        </option>
+        <option name="DART_INSTANCE_SETTER_REFERENCE">
+            <value>
+                <option name="FOREGROUND" value="F07171" />
+                <option name="FONT_TYPE" value="2" />
+                <option name="EFFECT_COLOR" value="F07171" />
+                <option name="EFFECT_TYPE" value="1" />
+            </value>
+        </option>
+        <option name="DART_STATIC_GETTER_REFERENCE">
+            <value>
+                <option name="FOREGROUND" value="F07171" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="DART_STATIC_SETTER_DECLARATION">
+            <value>
+                <option name="FOREGROUND" value="F07171" />
+                <option name="FONT_TYPE" value="2" />
+                <option name="EFFECT_COLOR" value="F07171" />
+                <option name="EFFECT_TYPE" value="1" />
+            </value>
+        </option>
+        <option name="DART_STATIC_SETTER_REFERENCE">
+            <value>
+                <option name="FOREGROUND" value="F07171" />
+                <option name="FONT_TYPE" value="2" />
+                <option name="EFFECT_COLOR" value="F07171" />
+                <option name="EFFECT_TYPE" value="1" />
+            </value>
+        </option>
+        <option name="DART_TOP_LEVEL_GETTER_DECLARATION">
+            <value>
+                <option name="FOREGROUND" value="F07171" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="DART_TOP_LEVEL_GETTER_REFERENCE">
+            <value>
+                <option name="FOREGROUND" value="F07171" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="DART_TOP_LEVEL_SETTER_DECLARATION">
+            <value>
+                <option name="FOREGROUND" value="F07171" />
+                <option name="FONT_TYPE" value="2" />
+                <option name="EFFECT_COLOR" value="F07171" />
+                <option name="EFFECT_TYPE" value="1" />
+            </value>
+        </option>
+        <option name="DART_TOP_LEVEL_SETTER_REFERENCE">
+            <value>
+                <option name="FOREGROUND" value="F07171" />
+                <option name="FONT_TYPE" value="2" />
+                <option name="EFFECT_COLOR" value="F07171" />
+                <option name="EFFECT_TYPE" value="1" />
+            </value>
+        </option>
+        <option name="DART_EXTENSION_TYPE">
+            <value>
+                <option name="FOREGROUND" value="22A4E6" />
+                <option name="FONT_TYPE" value="3" />
+            </value>
+        </option>
+        <option name="Trait name">
+            <value>
+                <option name="FOREGROUND" value="22A4E6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="Annotation">
+            <value>
+                <option name="FOREGROUND" value="D87F00" />
+            </value>
+        </option>
+        <option name="Interface name">
+            <value>
+                <option name="FOREGROUND" value="22A4E6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="Enum name">
+            <value>
+                <option name="FOREGROUND" value="22A4E6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="Anonymous class name">
+            <value>
+                <option name="FOREGROUND" value="55B4D4" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
     </attributes>
 </scheme>
