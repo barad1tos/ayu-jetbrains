@@ -1022,7 +1022,7 @@
         <option name="GHERKIN_KEYWORD">
             <value>
                 <option name="FOREGROUND" value="FA8532" />
-                <option name="FONT_TYPE" value="1" />
+                <option name="FONT_TYPE" value="3" />
             </value>
         </option>
         <option name="GHERKIN_OUTLINE_PARAMETER_SUBSTITUTION">
@@ -1607,7 +1607,7 @@
         <option name="NG.BLOCK_NAME">
             <value>
                 <option name="FOREGROUND" value="FA8532" />
-                <option name="FONT_TYPE" value="1" />
+                <option name="FONT_TYPE" value="3" />
             </value>
         </option>
         <option name="NG.BLOCK_BRACES">
@@ -1654,7 +1654,7 @@
         <option name="JSP_DIRECTIVE_NAME">
             <value>
                 <option name="FOREGROUND" value="FA8532" />
-                <option name="FONT_TYPE" value="1" />
+                <option name="FONT_TYPE" value="3" />
             </value>
         </option>
 
@@ -4594,7 +4594,7 @@
         <option name="DOCKER_KEYWORD">
             <value>
                 <option name="FOREGROUND" value="FA8532" />
-                <option name="FONT_TYPE" value="1" />
+                <option name="FONT_TYPE" value="3" />
             </value>
         </option>
         <option name="DOCKER_KEYWORD_OPERATIONS">
@@ -4636,19 +4636,19 @@
         <option name="MAKEFILE_KEYWORD">
             <value>
                 <option name="FOREGROUND" value="FA8532" />
-                <option name="FONT_TYPE" value="1" />
+                <option name="FONT_TYPE" value="3" />
             </value>
         </option>
         <option name="MAKEFILE_TARGET">
             <value>
                 <option name="FOREGROUND" value="EBA400" />
-                <option name="FONT_TYPE" value="1" />
+                <option name="FONT_TYPE" value="3" />
             </value>
         </option>
         <option name="MAKEFILE_SPECIAL_TARGET">
             <value>
                 <option name="FOREGROUND" value="FA8532" />
-                <option name="FONT_TYPE" value="1" />
+                <option name="FONT_TYPE" value="3" />
             </value>
         </option>
         <option name="MAKEFILE_PREREQUISITE">
@@ -4846,7 +4846,7 @@
         <option name="HTTP_REQUEST_METHOD_TYPE">
             <value>
                 <option name="FOREGROUND" value="FA8532" />
-                <option name="FONT_TYPE" value="1" />
+                <option name="FONT_TYPE" value="3" />
             </value>
         </option>
         <option name="HTTP_REQUEST_KEYWORD">
@@ -5104,7 +5104,7 @@
         <option name="FTL_DIRECTIVE">
             <value>
                 <option name="FOREGROUND" value="FA8532" />
-                <option name="FONT_TYPE" value="1" />
+                <option name="FONT_TYPE" value="3" />
             </value>
         </option>
         <option name="FTL_REFERENCE">
@@ -5134,7 +5134,7 @@
         <option name="CRONEXP.IDENTIFIER">
             <value>
                 <option name="FOREGROUND" value="FA8532" />
-                <option name="FONT_TYPE" value="1" />
+                <option name="FONT_TYPE" value="3" />
             </value>
         </option>
         <option name="CRONEXP.NUMBER">
@@ -5452,7 +5452,7 @@
         <option name="PROGUARD_DIRECTIVE">
             <value>
                 <option name="FOREGROUND" value="FA8532" />
-                <option name="FONT_TYPE" value="1" />
+                <option name="FONT_TYPE" value="3" />
             </value>
         </option>
         <option name="PROGUARD_CLASS">
@@ -5512,19 +5512,19 @@
         <option name="IGNORE.HEADER">
             <value>
                 <option name="FOREGROUND" value="FA8532" />
-                <option name="FONT_TYPE" value="1" />
+                <option name="FONT_TYPE" value="3" />
             </value>
         </option>
         <option name="IGNORE.SECTION">
             <value>
                 <option name="FOREGROUND" value="D89400" />
-                <option name="FONT_TYPE" value="1" />
+                <option name="FONT_TYPE" value="3" />
             </value>
         </option>
         <option name="IGNORE.NEGATION">
             <value>
                 <option name="FOREGROUND" value="F07171" />
-                <option name="FONT_TYPE" value="1" />
+                <option name="FONT_TYPE" value="3" />
             </value>
         </option>
         <option name="IGNORE.SYNTAX">
@@ -5656,7 +5656,7 @@
         <option name="BATCH.KEYWORD">
             <value>
                 <option name="FOREGROUND" value="FA8532" />
-                <option name="FONT_TYPE" value="1" />
+                <option name="FONT_TYPE" value="3" />
             </value>
         </option>
         <option name="BATCH.NUMBER">
@@ -5674,7 +5674,7 @@
         <option name="BATCH.LABEL">
             <value>
                 <option name="FOREGROUND" value="EBA400" />
-                <option name="FONT_TYPE" value="1" />
+                <option name="FONT_TYPE" value="3" />
             </value>
         </option>
         <option name="BATCH.LABEL_REFERENCE">
@@ -6004,7 +6004,7 @@
         <option name="GOTO_LABEL">
             <value>
                 <option name="FOREGROUND" value="D89400" />
-                <option name="FONT_TYPE" value="1" />
+                <option name="FONT_TYPE" value="3" />
             </value>
         </option>
         <option name="PHP_PREDEFINED SYMBOL">
@@ -6437,5 +6437,52 @@
         </option>
         <option name="PY.VALID_STRING_ESCAPE" baseAttributes="DEFAULT_VALID_STRING_ESCAPE" />
         <option name="PY.INVALID_STRING_ESCAPE" baseAttributes="DEFAULT_INVALID_STRING_ESCAPE" />
+        <!-- EXPANSION-5: bare keys for ProguardR8 + generic fallthrough -->
+        <option name="KEYWORD">
+            <value>
+                <option name="FOREGROUND" value="FA8532" />
+                <option name="FONT_TYPE" value="3" />
+            </value>
+        </option>
+        <option name="FLAG">
+            <value>
+                <option name="FOREGROUND" value="A37ACC" />
+                <option name="FONT_TYPE" value="1" />
+            </value>
+        </option>
+        <option name="ANNOTATION">
+            <value>
+                <option name="FOREGROUND" value="D87F00" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="METHOD_FIELD_WILDCARDS">
+            <value>
+                <option name="FOREGROUND" value="FA8532" />
+            </value>
+        </option>
+        <option name="METADATA">
+            <value>
+                <option name="FOREGROUND" value="787B80" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="CONSTANT">
+            <value>
+                <option name="FOREGROUND" value="A37ACC" />
+                <option name="FONT_TYPE" value="1" />
+            </value>
+        </option>
+        <option name="INSTANCE_FIELD">
+            <value>
+                <option name="FOREGROUND" value="F07171" />
+            </value>
+        </option>
+        <option name="STATIC_FIELD">
+            <value>
+                <option name="FOREGROUND" value="F07171" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
     </attributes>
 </scheme>
