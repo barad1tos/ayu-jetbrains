@@ -13,6 +13,7 @@ import io.mockk.verify
 import io.mockk.verifyOrder
 import java.nio.file.Files
 import java.nio.file.Path
+import javax.swing.JRadioButton
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -189,6 +190,11 @@ class AyuIslandsSyntaxPanelTest {
         stateBase.axes.clear()
         stateBase.axes.addAll(setOf("ITALIC_DECLARATIONS"))
         val panel = panelWithLoadedState()
+        // Seed a single radio + checkbox so reset() passes the moodRadios.isEmpty()
+        // null-guard and exercises the buffer-revert + UI-refresh path. The
+        // separate `reset_before_buildPanel_is_noop_does_not_throw` test covers
+        // the deviated-lifecycle no-op contract.
+        seedSingleRadio(panel)
         writePendingMood(panel, SyntaxMood.MAXIMUM)
         writePendingAxes(panel, mutableSetOf(StyleAxis.BOLD_TYPE_REFERENCES))
 
@@ -301,4 +307,18 @@ class AyuIslandsSyntaxPanelTest {
         Files.readString(
             Path.of("src/main/kotlin/dev/ayuislands/settings/AyuIslandsSyntaxPanel.kt"),
         )
+
+    /**
+     * Seeds a single entry into the private moodRadios map so reset() bypasses
+     * the warning-#8 null-guard and exercises the buffer-revert path. A real
+     * JRadioButton is used; reset() only sets `isSelected` on it which is
+     * harmless off-EDT for a never-displayed Swing component.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun seedSingleRadio(panel: AyuIslandsSyntaxPanel) {
+        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("moodRadios")
+        field.isAccessible = true
+        val map = field.get(panel) as MutableMap<SyntaxMood, JRadioButton>
+        map[SyntaxMood.MAXIMUM] = JRadioButton()
+    }
 }
