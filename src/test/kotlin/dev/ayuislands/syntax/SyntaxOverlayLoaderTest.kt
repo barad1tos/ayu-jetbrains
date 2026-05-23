@@ -1,10 +1,13 @@
 package dev.ayuislands.syntax
 
+import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.util.JDOMUtil
 import io.mockk.every
+import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -27,6 +30,24 @@ class SyntaxOverlayLoaderTest {
     companion object {
         private const val TEST_BASE = "/themes/extended-test"
         private const val MISSING_TIER_BASE = "/themes/extended-missing-tier"
+    }
+
+    @BeforeTest
+    fun setUp() {
+        // TextAttributesKey.find calls into ApplicationManager.getApplication()
+        // which is null in plain kotlin.test JVM (no IntelliJ platform fixture).
+        // Stub it to return mocks keyed by externalName so the loader can build
+        // its overlay/tier/axis maps without booting LightPlatformTestCase.
+        mockkStatic(TextAttributesKey::class)
+        val cache = mutableMapOf<String, TextAttributesKey>()
+        every { TextAttributesKey.find(any<String>()) } answers {
+            val name = firstArg<String>()
+            cache.getOrPut(name) {
+                mockk(relaxed = true) {
+                    every { externalName } returns name
+                }
+            }
+        }
     }
 
     @AfterTest
@@ -86,7 +107,7 @@ class SyntaxOverlayLoaderTest {
 
     @Test
     fun `MINIMAL tier returns empty set (empty subset of overlay)`() {
-        assertEquals(emptySet<Any>(), loader().tierKeys(SyntaxMood.MINIMAL))
+        assertTrue(loader().tierKeys(SyntaxMood.MINIMAL).isEmpty())
     }
 
     @Test
@@ -96,13 +117,13 @@ class SyntaxOverlayLoaderTest {
         mockkStatic(JDOMUtil::class)
         every { JDOMUtil.load(any<java.io.InputStream>()) } throws RuntimeException("simulated parse failure")
         val overlay = loader().loadOverlayForVariant("Mirage")
-        assertEquals(emptyMap<Any, Any>(), overlay)
+        assertTrue(overlay.isEmpty())
     }
 
     @Test
     fun `missing mood-tier in txt returns empty set for that tier`() {
         val l = loader(base = MISSING_TIER_BASE)
-        assertEquals(emptySet<Any>(), l.tierKeys(SyntaxMood.RICH))
+        assertTrue(l.tierKeys(SyntaxMood.RICH).isEmpty())
         assertTrue(l.tierKeys(SyntaxMood.STANDARD).isNotEmpty())
         assertTrue(l.tierKeys(SyntaxMood.MAXIMUM).isNotEmpty())
     }
@@ -110,10 +131,10 @@ class SyntaxOverlayLoaderTest {
     @Test
     fun `missing resource file returns empty result without throw`() {
         val l = SyntaxOverlayLoader(resourceBase = "/themes/nonexistent-base")
-        assertEquals(emptyMap<Any, Any>(), l.loadOverlayForVariant("Mirage"))
-        assertEquals(emptySet<Any>(), l.tierKeys(SyntaxMood.STANDARD))
+        assertTrue(l.loadOverlayForVariant("Mirage").isEmpty())
+        assertTrue(l.tierKeys(SyntaxMood.STANDARD).isEmpty())
         StyleAxis.entries.forEach { axis ->
-            assertEquals(emptySet<Any>(), l.axisKeys(axis))
+            assertTrue(l.axisKeys(axis).isEmpty(), "axis $axis must be empty for nonexistent base")
         }
     }
 

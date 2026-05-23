@@ -1,5 +1,21 @@
 package dev.ayuislands.syntax
 
+/*
+ * Approximate key counts shown in the Syntax tab radio labels. Promoted to
+ * file-level `private const val` (not companion) because Kotlin 2.x forbids
+ * referencing companion members from enum-entry constructors (companion is
+ * uninitialized at the point enum entries are constructed). File-level
+ * `const val` satisfies the detekt MagicNumber rule while remaining usable
+ * from the [SyntaxMood] enum constructor arguments below.
+ *
+ * The exact semantics of these numbers (UI-rounded labels vs canonical key
+ * counts) are documented on the [SyntaxMood] KDoc.
+ */
+private const val APPROX_MINIMAL_KEYS = 1500
+private const val APPROX_STANDARD_KEYS = 1550
+private const val APPROX_RICH_KEYS = 1700
+private const val APPROX_MAXIMUM_KEYS = 2100
+
 /**
  * Phase 49 mood tiers. Applied additively: [MINIMAL] is the empty subset of the
  * extended overlay; subsequent tiers expand the whitelist. Default fallback is
@@ -32,14 +48,6 @@ enum class SyntaxMood(
     ;
 
     companion object {
-        // Approximate key counts shown in the Syntax tab radio labels.
-        // See class KDoc — these are UI-rounded; canonical counts live in
-        // SyntaxOverlayLoader.tierKeys(mood).size + 1488 baseline.
-        internal const val APPROX_MINIMAL_KEYS = 1500
-        internal const val APPROX_STANDARD_KEYS = 1550
-        internal const val APPROX_RICH_KEYS = 1700
-        internal const val APPROX_MAXIMUM_KEYS = 2100
-
         fun fromName(name: String?): SyntaxMood = entries.firstOrNull { it.name == name } ?: MAXIMUM
     }
 }
