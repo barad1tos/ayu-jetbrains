@@ -279,6 +279,14 @@
         <applicationService
                 serviceImplementation="dev.ayuislands.rotation.AccentRotationService"/>
 
+        <!-- Phase 49: Syntax Moods overlay -->
+        <applicationService
+                serviceImplementation="dev.ayuislands.syntax.SyntaxOverlayLoader"/>
+        <applicationService
+                serviceImplementation="dev.ayuislands.syntax.SyntaxModeService"/>
+        <applicationService
+                serviceImplementation="dev.ayuislands.syntax.SyntaxModeState"/>
+
         <!-- Glow overlay manager (per-project lifecycle) -->
         <projectService
                 serviceImplementation="dev.ayuislands.glow.GlowOverlayManager"/>
