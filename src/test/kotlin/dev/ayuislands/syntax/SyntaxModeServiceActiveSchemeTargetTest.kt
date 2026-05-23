@@ -36,6 +36,12 @@ import kotlin.test.Test
  * so the writes always reach the active rendering chain regardless of how
  * the user-derived scheme inherits.
  *
+ * Post-H10 contract: the active-scheme writeback also carries a non-null
+ * `TextAttributes` clear payload for non-whitelisted keys (empty
+ * `TextAttributes()` here, since the baseline mock is empty). The legacy
+ * `setAttributes(any(), null)` assertion has been replaced with the
+ * `setAttributes(any(), any<TextAttributes>())` shape.
+ *
  * Pre-fix: globalScheme is never touched → these tests FAIL (RED).
  * Post-fix: globalScheme also receives the same per-key writes → GREEN.
  */
@@ -97,6 +103,8 @@ class SyntaxModeServiceActiveSchemeTargetTest {
         val overlay = mapOf(key("GO_FUNCTION_DECLARATION") to attrs(0xFF, 0xCC, 0x66))
         for (variant in listOf("Mirage", "Dark", "Light")) {
             every { loader.loadOverlayForVariant(variant) } returns overlay
+            // Empty baseline → clear payload is an empty TextAttributes (still non-null).
+            every { loader.loadBaselineForVariant(variant) } returns emptyMap()
         }
         every { loader.tierKeys(SyntaxMood.MINIMAL) } returns emptySet()
         every { loader.tierKeys(SyntaxMood.STANDARD) } returns setOf(key("GO_FUNCTION_DECLARATION"))
@@ -141,14 +149,19 @@ class SyntaxModeServiceActiveSchemeTargetTest {
     }
 
     @Test
-    fun `apply with MINIMAL clears overlay keys on globalScheme too (user-derived active path)`() {
+    fun `apply with MINIMAL writes non-null clear payload on globalScheme (H10 @NotNull contract)`() {
         // The MINIMAL → clear-everything path is what the user clicks when
-        // they want a clean baseline. Without the active-scheme write, the
-        // user's editor keeps the overlay forever.
+        // they want a clean baseline. Post-H10 it must reach the active
+        // scheme with a non-null `TextAttributes` clear payload — the legacy
+        // `setAttributes(any(), null)` shape would violate the platform
+        // `@NotNull` contract and the throw would be silently swallowed
+        // (leaving the editor stuck at MAXIMUM forever).
         SyntaxModeService().apply(SyntaxMood.MINIMAL, emptySet())
 
         verify(atLeast = 1) { mockManager.globalScheme }
-        verify(atLeast = 1) { mockActive.setAttributes(any(), null) }
+        verify(atLeast = 1) { mockActive.setAttributes(any(), any<TextAttributes>()) }
+        // Explicit regression guard: the legacy null-clear shape must never appear.
+        verify(exactly = 0) { mockActive.setAttributes(any(), null) }
     }
 
     @Test

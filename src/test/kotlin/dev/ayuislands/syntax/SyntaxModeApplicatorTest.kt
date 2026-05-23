@@ -20,6 +20,13 @@ import kotlin.test.assertTrue
  *
  * Pure-functions object: no platform deps in core. Loader is mocked so
  * compute() works without booting LightPlatformTestCase.
+ *
+ * Post-H10 contract: non-whitelisted overlay keys produce a non-null clear
+ * payload (baseline clone when available, otherwise empty `TextAttributes()`).
+ * The baseline mock in this file is intentionally empty so every clear maps
+ * to empty `TextAttributes` — keeps the assertions focused on the
+ * whitelist/clear decision rather than baseline restoration (which has
+ * dedicated coverage in `SyntaxModeApplicatorClearByBaselineTest`).
  */
 class SyntaxModeApplicatorTest {
     private lateinit var loader: SyntaxOverlayLoader
@@ -46,6 +53,10 @@ class SyntaxModeApplicatorTest {
                 key("UNRELATED") to attrs(0x00, 0xFF, 0x00),
             )
         every { loader.loadOverlayForVariant("Mirage") } returns overlay
+        // Empty baseline — every clear becomes an empty TextAttributes (the
+        // pure overlay-only branch). Baseline restoration is covered by
+        // SyntaxModeApplicatorClearByBaselineTest.
+        every { loader.loadBaselineForVariant("Mirage") } returns emptyMap()
         every { loader.tierKeys(SyntaxMood.MINIMAL) } returns emptySet()
         every { loader.tierKeys(SyntaxMood.STANDARD) } returns standardKeys
         every { loader.tierKeys(SyntaxMood.RICH) } returns richKeys
@@ -70,39 +81,49 @@ class SyntaxModeApplicatorTest {
             fontType = 0
         }
 
-    @Test
-    fun `mood MINIMAL clears every overlay key (all keys map to null)`() {
-        val result = SyntaxModeApplicator.compute(SyntaxMood.MINIMAL, emptySet(), "Mirage", loader)
-        // All four overlay keys should be in the result, mapped to null
-        // (caller translates null to scheme.setAttributes(key, null) clear)
-        assertEquals(4, result.size, "every overlay key must appear in the result")
-        result.values.forEach { assertNull(it, "MINIMAL must map every key to null") }
+    private fun assertClearedToEmpty(
+        attrs: TextAttributes?,
+        keyName: String,
+    ) {
+        assertNotNull(attrs, "$keyName must be present (non-null) — @NotNull setAttributes contract")
+        assertNull(attrs.foregroundColor, "$keyName clear payload must have null foreground (empty TextAttributes)")
+        assertNull(attrs.backgroundColor, "$keyName clear payload must have null background (empty TextAttributes)")
+        assertEquals(0, attrs.fontType, "$keyName clear payload must have default fontType")
     }
 
     @Test
-    fun `mood STANDARD keeps only the STANDARD whitelist (others mapped to null)`() {
+    fun `mood MINIMAL clears every overlay key to empty TextAttributes (no nulls)`() {
+        val result = SyntaxModeApplicator.compute(SyntaxMood.MINIMAL, emptySet(), "Mirage", loader)
+        // All four overlay keys must appear and be non-null. With an empty
+        // baseline fixture each clear maps to an empty `TextAttributes()`.
+        assertEquals(4, result.size, "every overlay key must appear in the result")
+        result.forEach { (k, v) -> assertClearedToEmpty(v, k.externalName) }
+    }
+
+    @Test
+    fun `mood STANDARD keeps STANDARD whitelist and clears others to empty TextAttributes`() {
         val result = SyntaxModeApplicator.compute(SyntaxMood.STANDARD, emptySet(), "Mirage", loader)
         assertNotNull(result[key("STD_DECL")], "STD_DECL must be in active whitelist")
-        assertNull(result[key("RICH_REF")], "RICH_REF must be cleared at STANDARD")
-        assertNull(result[key("MAX_DOC")], "MAX_DOC must be cleared at STANDARD")
-        assertNull(result[key("UNRELATED")], "UNRELATED must be cleared at STANDARD")
+        assertClearedToEmpty(result[key("RICH_REF")], "RICH_REF")
+        assertClearedToEmpty(result[key("MAX_DOC")], "MAX_DOC")
+        assertClearedToEmpty(result[key("UNRELATED")], "UNRELATED")
     }
 
     @Test
-    fun `mood RICH keeps STANDARD plus RICH whitelist (cumulative)`() {
+    fun `mood RICH keeps STANDARD plus RICH and MAX_DOC clears to empty TextAttributes`() {
         val result = SyntaxModeApplicator.compute(SyntaxMood.RICH, emptySet(), "Mirage", loader)
         assertNotNull(result[key("STD_DECL")], "STD_DECL must remain at RICH (cumulative)")
         assertNotNull(result[key("RICH_REF")], "RICH_REF must be in active whitelist at RICH")
-        assertNull(result[key("MAX_DOC")], "MAX_DOC must be cleared at RICH")
+        assertClearedToEmpty(result[key("MAX_DOC")], "MAX_DOC")
     }
 
     @Test
-    fun `mood MAXIMUM keeps every overlay key (full whitelist)`() {
+    fun `mood MAXIMUM keeps every tiered key and UNRELATED clears to empty TextAttributes`() {
         val result = SyntaxModeApplicator.compute(SyntaxMood.MAXIMUM, emptySet(), "Mirage", loader)
         assertNotNull(result[key("STD_DECL")], "STD_DECL must remain at MAXIMUM")
         assertNotNull(result[key("RICH_REF")], "RICH_REF must remain at MAXIMUM")
         assertNotNull(result[key("MAX_DOC")], "MAX_DOC must be in active whitelist at MAXIMUM")
-        assertNull(result[key("UNRELATED")], "UNRELATED is NOT in any tier — must be cleared")
+        assertClearedToEmpty(result[key("UNRELATED")], "UNRELATED")
     }
 
     @Test
@@ -127,11 +148,11 @@ class SyntaxModeApplicatorTest {
         val a = SyntaxModeApplicator.compute(SyntaxMood.RICH, emptySet(), "Mirage", loader)
         val b = SyntaxModeApplicator.compute(SyntaxMood.RICH, emptySet(), "Mirage", loader)
         assertEquals(a.keys, b.keys)
-        // Active-whitelist entries must clone to equal foreground + fontType
-        a.entries.filter { it.value != null }.forEach { (k, attrsA) ->
+        // Every entry must clone to equal foreground + fontType across re-computes.
+        a.entries.forEach { (k, attrsA) ->
             val attrsB = b[k]
             assertNotNull(attrsB)
-            assertEquals(attrsA!!.foregroundColor, attrsB.foregroundColor)
+            assertEquals(attrsA.foregroundColor, attrsB.foregroundColor)
             assertEquals(attrsA.fontType, attrsB.fontType)
         }
     }
@@ -139,6 +160,7 @@ class SyntaxModeApplicatorTest {
     @Test
     fun `unknown variant returns empty result (loader returns empty overlay)`() {
         every { loader.loadOverlayForVariant("Unknown") } returns emptyMap()
+        every { loader.loadBaselineForVariant("Unknown") } returns emptyMap()
         val result = SyntaxModeApplicator.compute(SyntaxMood.MAXIMUM, emptySet(), "Unknown", loader)
         assertTrue(result.isEmpty(), "no overlay → no keys to write")
     }

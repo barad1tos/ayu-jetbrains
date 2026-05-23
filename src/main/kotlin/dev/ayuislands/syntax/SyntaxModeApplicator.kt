@@ -6,20 +6,33 @@ import java.awt.Color
 import java.awt.Font
 
 /**
- * Pure computation of `(mood, axes) → Map<TextAttributesKey, TextAttributes?>`.
+ * Pure computation of `(mood, axes) → Map<TextAttributesKey, TextAttributes>`.
  *
  * Zero platform dependencies in the core. Only consumes a [SyntaxOverlayLoader]
  * for tier/axis/overlay/baseline data. [SyntaxModeService] owns the per-scheme
  * write + publish.
+ *
+ * Non-null output contract (H10 fix, debug `syntax-mood-noop-on-editor`
+ * round 2): `EditorColorsSchemeImpl.setAttributes(key, attrs)` declares the
+ * second parameter `@NotNull` (verified via `javap -c -p` against the 2025.2.3
+ * `app-client.jar`: bytecode at offset 8–13 calls `$$$reportNull$$$0` on a
+ * null arg). The legacy `Map<..., TextAttributes?>` contract therefore caused
+ * a flood of swallowed `IllegalArgumentException` whenever the user dropped
+ * below MAXIMUM. The active scheme stayed pinned at MAXIMUM forever and the
+ * mood radio appeared to be a no-op. We now emit a non-null clear payload
+ * for every key: a baseline clone when available, otherwise an empty
+ * `TextAttributes()` (no foreground / background / fontType override — the
+ * IDE's language default takes over).
  *
  * Output contract (two merged sources, Option C — axes orthogonal to mood):
  *
  * Source 1 — overlay-driven (mood path):
  * - Keys in the active mood's whitelist → cloned overlay TextAttributes,
  *   possibly mutated by axes. Caller writes them to the per-variant scheme.
- * - Keys present in the overlay but NOT in the active mood's whitelist → `null`.
- *   Caller clears them on the scheme so JetBrains' parent inheritance walks
- *   to the baseline value.
+ * - Keys present in the overlay but NOT in the active mood's whitelist →
+ *   baseline clone (axis-transformed) when the baseline holds a counterpart,
+ *   otherwise empty `TextAttributes()`. Caller writes these unconditionally;
+ *   the @NotNull contract holds.
  *
  * Source 2 — baseline-driven (axis path; Option C fix for
  * `syntax-mood-noop-on-editor` Bug #3):
@@ -35,7 +48,7 @@ import java.awt.Font
  *   → not emitted (don't touch unrelated keys).
  *
  * Tier semantics (D-04 — additive whitelists):
- * - MINIMAL = empty subset (every overlay key is cleared)
+ * - MINIMAL = empty subset (every overlay key clears to baseline / empty)
  * - STANDARD = tier-keys(STANDARD)
  * - RICH = tier-keys(STANDARD) ∪ tier-keys(RICH)
  * - MAXIMUM = tier-keys(STANDARD) ∪ tier-keys(RICH) ∪ tier-keys(MAXIMUM)
@@ -53,41 +66,73 @@ import java.awt.Font
 object SyntaxModeApplicator {
     private const val DIM_FACTOR = 0.6
 
+    /**
+     * Bundles the two attribute sources used by [compute] — the variant's
+     * mood overlay and its parsed baseline scheme. Pre-resolved once per
+     * call so both Source 1 (overlay mood path) and Source 2 (baseline axis
+     * path) share the same map instances and the helper signatures stay
+     * inside the LongParameterList detekt threshold.
+     */
+    private data class Sources(
+        val overlay: Map<TextAttributesKey, TextAttributes>,
+        val baseline: Map<TextAttributesKey, TextAttributes>,
+    )
+
     fun compute(
         mood: SyntaxMood,
         axes: Set<StyleAxis>,
         variantName: String,
         loader: SyntaxOverlayLoader,
-    ): Map<TextAttributesKey, TextAttributes?> {
-        val overlay = loader.loadOverlayForVariant(variantName)
-        val result = mutableMapOf<TextAttributesKey, TextAttributes?>()
-        appendOverlayEntries(result, overlay, mood, axes, loader)
-        appendBaselineAxisEntries(result, overlay, axes, variantName, loader)
+    ): Map<TextAttributesKey, TextAttributes> {
+        val sources =
+            Sources(
+                overlay = loader.loadOverlayForVariant(variantName),
+                baseline = loader.loadBaselineForVariant(variantName),
+            )
+        val result = mutableMapOf<TextAttributesKey, TextAttributes>()
+        appendOverlayEntries(result, sources, mood, axes, loader)
+        appendBaselineAxisEntries(result, sources, axes, loader)
         return result
     }
 
     /**
      * Source 1 — overlay-driven mood path. Iterates every overlay key and
-     * emits either a cloned + axis-transformed value (whitelisted) or `null`
-     * (cleared on the active scheme so inheritance walks to baseline).
+     * emits either a cloned + axis-transformed value (whitelisted) or a
+     * clear payload (non-whitelisted). The clear payload is the baseline
+     * clone when one exists, otherwise an empty `TextAttributes()` — never
+     * `null`, which would violate the `@NotNull` parameter on
+     * `EditorColorsSchemeImpl.setAttributes`.
      */
     private fun appendOverlayEntries(
-        result: MutableMap<TextAttributesKey, TextAttributes?>,
-        overlay: Map<TextAttributesKey, TextAttributes>,
+        result: MutableMap<TextAttributesKey, TextAttributes>,
+        sources: Sources,
         mood: SyntaxMood,
         axes: Set<StyleAxis>,
         loader: SyntaxOverlayLoader,
     ) {
-        if (overlay.isEmpty()) return
+        if (sources.overlay.isEmpty()) return
         val whitelist = effectiveWhitelist(mood, loader)
-        for ((key, attrs) in overlay) {
+        for ((key, attrs) in sources.overlay) {
             if (key !in whitelist) {
-                result[key] = null
+                result[key] = applyAxes(clearPayloadFor(key, sources.baseline), key, axes, loader)
                 continue
             }
             result[key] = applyAxes(attrs.clone(), key, axes, loader)
         }
     }
+
+    /**
+     * Returns the non-null clear payload for an overlay key the active mood
+     * does NOT whitelist. Prefers the baseline clone (so the user keeps the
+     * Ayu palette for that key) and falls back to an empty `TextAttributes`
+     * for overlay-only keys with no baseline counterpart — empty attrs are
+     * the platform's "no override" signal, leaving the IDE's language
+     * default in place.
+     */
+    private fun clearPayloadFor(
+        key: TextAttributesKey,
+        baseline: Map<TextAttributesKey, TextAttributes>,
+    ): TextAttributes = baseline[key]?.clone() ?: TextAttributes()
 
     /**
      * Source 2 — baseline-driven axis path (Option C). For every key listed in
@@ -107,18 +152,16 @@ object SyntaxModeApplicator {
      * still emit the pristine clone so the previous transform is reverted.
      */
     private fun appendBaselineAxisEntries(
-        result: MutableMap<TextAttributesKey, TextAttributes?>,
-        overlay: Map<TextAttributesKey, TextAttributes>,
+        result: MutableMap<TextAttributesKey, TextAttributes>,
+        sources: Sources,
         axes: Set<StyleAxis>,
-        variantName: String,
         loader: SyntaxOverlayLoader,
     ) {
-        val baselineAxisTargets = collectAllAxisTargets(loader, overlay)
+        val baselineAxisTargets = collectAllAxisTargets(loader, sources.overlay)
         if (baselineAxisTargets.isEmpty()) return
-        val baseline = loader.loadBaselineForVariant(variantName)
-        if (baseline.isEmpty()) return
+        if (sources.baseline.isEmpty()) return
         for (key in baselineAxisTargets) {
-            val baselineAttrs = baseline[key] ?: continue
+            val baselineAttrs = sources.baseline[key] ?: continue
             result[key] = applyAxes(baselineAttrs.clone(), key, axes, loader)
         }
     }

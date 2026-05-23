@@ -28,6 +28,12 @@ import kotlin.test.assertFailsWith
  * by name (R-5) and verifies a single ReadAction-wrapped globalSchemeChange
  * publish (R-7) per apply() invocation.
  *
+ * Post-H10 contract: every `setAttributes` call carries a non-null
+ * `TextAttributes` — the clear path now writes either a baseline clone or
+ * an empty `TextAttributes()` rather than `null`. The `setAttributes(any(),
+ * null)` assertions from the legacy contract have been replaced with
+ * `setAttributes(any(), any<TextAttributes>())`.
+ *
  * Plain kotlin.test + MockK — no LightPlatformTestCase. Static mocks for
  * EditorColorsManager / ApplicationManager / ReadAction follow the
  * AccentElementsTest pattern.
@@ -83,6 +89,8 @@ class SyntaxModeServiceTest {
         val overlay = mapOf(key("K1") to attrs(0xFF, 0xCC, 0x66))
         for (variant in listOf("Mirage", "Dark", "Light")) {
             every { loader.loadOverlayForVariant(variant) } returns overlay
+            // Empty baseline → clear payload is an empty TextAttributes (still non-null).
+            every { loader.loadBaselineForVariant(variant) } returns emptyMap()
         }
         every { loader.tierKeys(SyntaxMood.MINIMAL) } returns emptySet()
         every { loader.tierKeys(SyntaxMood.STANDARD) } returns emptySet()
@@ -150,11 +158,28 @@ class SyntaxModeServiceTest {
     }
 
     @Test
-    fun `apply with mood MINIMAL clears overlay keys (writes null)`() {
+    fun `apply with mood MINIMAL clears overlay keys (writes non-null TextAttributes per H10)`() {
         SyntaxModeService().apply(SyntaxMood.MINIMAL, emptySet())
-        verify(atLeast = 1) { mockMirage.setAttributes(any(), null) }
-        verify(atLeast = 1) { mockDark.setAttributes(any(), null) }
-        verify(atLeast = 1) { mockLight.setAttributes(any(), null) }
+        // Post-H10: clears emit an empty TextAttributes (or baseline clone),
+        // never null. EditorColorsSchemeImpl.setAttributes has @NotNull on
+        // the second parameter; writing null produces IllegalArgumentException.
+        verify(atLeast = 1) { mockMirage.setAttributes(any(), any<TextAttributes>()) }
+        verify(atLeast = 1) { mockDark.setAttributes(any(), any<TextAttributes>()) }
+        verify(atLeast = 1) { mockLight.setAttributes(any(), any<TextAttributes>()) }
+    }
+
+    @Test
+    fun `apply never passes null TextAttributes to any scheme (H10 @NotNull contract)`() {
+        // Hard guard against accidental regression: verify the legacy
+        // `setAttributes(any(), null)` call shape NEVER occurs at any mood or
+        // axis combination. If a future refactor reintroduces the null-clear
+        // pattern, this assertion fires before the IDE swallow path masks it.
+        for (mood in listOf(SyntaxMood.MINIMAL, SyntaxMood.STANDARD, SyntaxMood.RICH, SyntaxMood.MAXIMUM)) {
+            SyntaxModeService().apply(mood, emptySet())
+        }
+        verify(exactly = 0) { mockMirage.setAttributes(any(), null) }
+        verify(exactly = 0) { mockDark.setAttributes(any(), null) }
+        verify(exactly = 0) { mockLight.setAttributes(any(), null) }
     }
 
     @Test
@@ -225,7 +250,9 @@ class SyntaxModeServiceTest {
     @Test
     fun `clearAll routes through apply with MINIMAL mood and empty axes`() {
         SyntaxModeService().clearAll()
-        verify(atLeast = 1) { mockMirage.setAttributes(any(), null) }
+        // Post-H10: MINIMAL emits non-null clear payload (empty TextAttributes
+        // or baseline clone). Verify the non-null shape is invoked.
+        verify(atLeast = 1) { mockMirage.setAttributes(any(), any<TextAttributes>()) }
         verify(exactly = 1) { mockPublisher.globalSchemeChange(null) }
     }
 

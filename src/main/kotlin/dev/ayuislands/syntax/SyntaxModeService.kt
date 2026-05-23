@@ -25,6 +25,16 @@ import java.util.concurrent.ConcurrentHashMap
  * scheme is NOT one of the three named instances we already touched
  * (identity dedup — no double-write on a clean install).
  *
+ * Clear-by-baseline writeback (H10 fix, debug `syntax-mood-noop-on-editor`
+ * round 2): the payload coming out of [SyntaxModeApplicator.compute] now
+ * carries a non-null `TextAttributes` for every key — either the cloned
+ * overlay value (mood-whitelisted), the cloned baseline value (cleared with
+ * a baseline counterpart), or an empty `TextAttributes()` (cleared without
+ * a baseline counterpart — pure overlay-only key). This honours the
+ * `@NotNull` parameter on `EditorColorsSchemeImpl.setAttributes` and stops
+ * the `IllegalArgumentException` floods that previously froze the active
+ * scheme at MAXIMUM.
+ *
  * Lifecycle gating (Pattern J) lives in `dev.ayuislands.AyuIslandsLafListener`,
  * not here — the service is callable from the Settings Apply path even
  * mid-LAF-switch (D-09).
@@ -117,7 +127,7 @@ class SyntaxModeService {
 
     private fun writeSchemeAttributes(
         scheme: EditorColorsScheme,
-        computed: Map<TextAttributesKey, TextAttributes?>,
+        computed: Map<TextAttributesKey, TextAttributes>,
         variantName: String,
     ) {
         for ((key, attrs) in computed) {

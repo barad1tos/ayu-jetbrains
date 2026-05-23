@@ -34,6 +34,10 @@ import kotlin.test.assertTrue
  * MAXIMUM has 5 (total 10) so we can verify cumulative whitelist application
  * (D-04 additive semantics).
  *
+ * Post-H10 contract: every write carries a non-null `TextAttributes`. The
+ * partition is now whitelisted-overlay-clone (foreground color matches the
+ * overlay) vs cleared-payload (empty `TextAttributes()` — null foreground).
+ *
  * Plain `kotlin.test` + MockK — no platform fixture. Mirrors [AccentElementsTest]
  * static-mock pattern.
  */
@@ -97,6 +101,10 @@ class SyntaxModeServiceLifecycleTest {
             }
         for (variant in listOf("Mirage", "Dark", "Light")) {
             every { loader.loadOverlayForVariant(variant) } returns overlay
+            // Empty baseline → clear payload is an empty `TextAttributes()` whose
+            // foregroundColor is null. That is the discriminator the tests use to
+            // partition whitelisted (overlay clone, fg!=null) from cleared (fg==null).
+            every { loader.loadBaselineForVariant(variant) } returns emptyMap()
         }
         every { loader.tierKeys(SyntaxMood.MINIMAL) } returns emptySet()
         every { loader.tierKeys(SyntaxMood.STANDARD) } returns standardKeyNames.map { key(it) }.toSet()
@@ -124,97 +132,93 @@ class SyntaxModeServiceLifecycleTest {
 
     private fun key(name: String): TextAttributesKey = TextAttributesKey.find(name)
 
+    /**
+     * Captures every `setAttributes` invocation made against [scheme] into a
+     * list of `(key, attrs)` pairs. With the post-H10 contract `attrs` is
+     * always non-null — callers partition on `attrs.foregroundColor` to tell
+     * a whitelisted overlay clone (non-null fg) from a cleared payload (null
+     * fg from the empty `TextAttributes()` fallback when no baseline exists).
+     */
+    private fun captureWrites(scheme: EditorColorsScheme): MutableList<Pair<TextAttributesKey, TextAttributes>> {
+        val writes = mutableListOf<Pair<TextAttributesKey, TextAttributes>>()
+        every { scheme.setAttributes(any<TextAttributesKey>(), any<TextAttributes>()) } answers {
+            writes += firstArg<TextAttributesKey>() to secondArg<TextAttributes>()
+        }
+        return writes
+    }
+
     @Test
     fun `apply with default mood MAXIMUM and empty axes writes overlay attrs for every key in cumulative tiers`() {
         // D-02 default mood — MAXIMUM cumulative whitelist = STANDARD ∪ RICH ∪ MAXIMUM = all 10 keys.
-        val writes = mutableListOf<Pair<TextAttributesKey, TextAttributes?>>()
-        every {
-            mockMirage.setAttributes(any<TextAttributesKey>(), any())
-        } answers {
-            writes += firstArg<TextAttributesKey>() to secondArg<TextAttributes?>()
-        }
+        val writes = captureWrites(mockMirage)
 
         SyntaxModeService().apply(SyntaxMood.MAXIMUM, emptySet())
 
-        // Every overlay key should receive a non-null TextAttributes write.
-        val nonNullWrites = writes.filter { it.second != null }
+        // Every overlay key should receive a whitelisted clone (foreground set).
+        val whitelistedKeys = writes.filter { it.second.foregroundColor != null }.map { it.first.externalName }.toSet()
         assertEquals(
-            allKeyNames.size,
-            nonNullWrites.size,
+            allKeyNames.toSet(),
+            whitelistedKeys,
             "MAXIMUM cumulative whitelist must cover all 10 overlay keys (D-04)",
         )
-        // Zero null writes — every key is in the active mood's whitelist.
-        val nullWrites = writes.filter { it.second == null }
+        // Zero cleared payloads — every key is in the active mood's whitelist.
+        val clearedKeys = writes.filter { it.second.foregroundColor == null }
         assertTrue(
-            nullWrites.isEmpty(),
-            "MAXIMUM mood must NOT emit any null (clear) writes — every overlay key is whitelisted",
+            clearedKeys.isEmpty(),
+            "MAXIMUM mood must NOT emit any clear payloads — every overlay key is whitelisted",
         )
     }
 
     @Test
-    fun `apply with MINIMAL clears every overlay key (writes null sentinels)`() {
-        val writes = mutableListOf<Pair<TextAttributesKey, TextAttributes?>>()
-        every {
-            mockMirage.setAttributes(any<TextAttributesKey>(), any())
-        } answers {
-            writes += firstArg<TextAttributesKey>() to secondArg<TextAttributes?>()
-        }
+    fun `apply with MINIMAL clears every overlay key (non-null empty TextAttributes per H10)`() {
+        val writes = captureWrites(mockMirage)
 
         SyntaxModeService().apply(SyntaxMood.MINIMAL, emptySet())
 
-        // MINIMAL = empty whitelist → every overlay key cleared via null.
+        // MINIMAL = empty whitelist → every overlay key cleared via empty TextAttributes
+        // (post-H10: never null — would violate the platform @NotNull contract).
         assertEquals(
             allKeyNames.size,
             writes.size,
-            "MINIMAL must emit one write per overlay key (the null clear sentinel)",
+            "MINIMAL must emit one write per overlay key (the empty-TextAttributes clear payload)",
         )
         assertTrue(
-            writes.all { it.second == null },
-            "MINIMAL writes must all be null sentinels (per D-04 + applicator contract)",
+            writes.all { it.second.foregroundColor == null },
+            "MINIMAL clear payloads must all have null foreground (empty TextAttributes — no override)",
         )
     }
 
     @Test
-    fun `apply with STANDARD writes 2 keys non-null and clears the remaining 8`() {
-        val writes = mutableListOf<Pair<TextAttributesKey, TextAttributes?>>()
-        every {
-            mockMirage.setAttributes(any<TextAttributesKey>(), any())
-        } answers {
-            writes += firstArg<TextAttributesKey>() to secondArg<TextAttributes?>()
-        }
+    fun `apply with STANDARD writes 2 keys with overlay clone and clears the remaining 8`() {
+        val writes = captureWrites(mockMirage)
 
         SyntaxModeService().apply(SyntaxMood.STANDARD, emptySet())
 
-        val nonNullKeys = writes.filter { it.second != null }.map { it.first.externalName }.toSet()
-        val nullKeys = writes.filter { it.second == null }.map { it.first.externalName }.toSet()
+        val whitelistedKeys = writes.filter { it.second.foregroundColor != null }.map { it.first.externalName }.toSet()
+        val clearedKeys = writes.filter { it.second.foregroundColor == null }.map { it.first.externalName }.toSet()
 
         // STANDARD whitelist = exactly the 2 STD_* keys.
-        assertEquals(standardKeyNames.toSet(), nonNullKeys, "STANDARD whitelist must be the 2 STD_* keys")
+        assertEquals(standardKeyNames.toSet(), whitelistedKeys, "STANDARD whitelist must be the 2 STD_* keys")
         // The remaining 8 keys (RICH + MAXIMUM tiers) must be cleared.
         assertEquals(
             (richKeyNames + maximumKeyNames).toSet(),
-            nullKeys,
-            "Keys outside the STANDARD whitelist must be cleared (null write)",
+            clearedKeys,
+            "Keys outside the STANDARD whitelist must be cleared via empty TextAttributes",
         )
     }
 
     @Test
-    fun `apply with RICH writes 5 keys non-null (STANDARD plus RICH cumulative) and clears 5 MAXIMUM keys`() {
-        val writes = mutableListOf<Pair<TextAttributesKey, TextAttributes?>>()
-        every {
-            mockDark.setAttributes(any<TextAttributesKey>(), any())
-        } answers {
-            writes += firstArg<TextAttributesKey>() to secondArg<TextAttributes?>()
-        }
+    fun `apply with RICH writes 5 keys with overlay clone (STANDARD plus RICH) and clears 5 MAXIMUM keys`() {
+        val writes = captureWrites(mockDark)
 
         SyntaxModeService().apply(SyntaxMood.RICH, emptySet())
 
-        val nonNullKeys = writes.filter { it.second != null }.map { it.first.externalName }.toSet()
-        val nullKeys = writes.filter { it.second == null }.map { it.first.externalName }.toSet()
+        val whitelistedKeys = writes.filter { it.second.foregroundColor != null }.map { it.first.externalName }.toSet()
+        val clearedKeys = writes.filter { it.second.foregroundColor == null }.map { it.first.externalName }.toSet()
         // RICH cumulative = STANDARD ∪ RICH = 5 keys.
-        assertEquals((standardKeyNames + richKeyNames).toSet(), nonNullKeys)
+        assertEquals((standardKeyNames + richKeyNames).toSet(), whitelistedKeys)
         // MAXIMUM tier keys cleared.
-        assertEquals(maximumKeyNames.toSet(), nullKeys)
+        assertEquals(maximumKeyNames.toSet(), clearedKeys)
     }
 
     @Test
