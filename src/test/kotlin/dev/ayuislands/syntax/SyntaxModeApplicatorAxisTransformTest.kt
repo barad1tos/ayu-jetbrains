@@ -220,7 +220,7 @@ class SyntaxModeApplicatorAxisTransformTest {
     }
 
     @Test
-    fun `no axes: declaration key fontType is exactly the overlay baseline`() {
+    fun `no axes leaves declaration key fontType at overlay baseline`() {
         val result = SyntaxModeApplicator.compute(SyntaxMood.MAXIMUM, emptySet(), "Mirage", loader)
         val decl = result[key("DECL_KEY")]
         assertNotNull(decl)
