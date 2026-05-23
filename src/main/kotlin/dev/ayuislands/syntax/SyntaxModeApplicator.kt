@@ -8,16 +8,15 @@ import java.awt.Font
 /**
  * Pure computation of `(mood, axes) → Map<TextAttributesKey, TextAttributes?>`.
  *
- * No platform deps in the core: no [com.intellij.openapi.editor.colors.EditorColorsManager],
- * no `setAttributes`, no `messageBus`. Only consumes a [SyntaxOverlayLoader] for
- * tier/axis data. [SyntaxModeService] does the per-scheme write + publish.
+ * Zero platform dependencies in the core. Only consumes a [SyntaxOverlayLoader]
+ * for tier/axis data. [SyntaxModeService] owns the per-scheme write + publish.
  *
  * Output contract:
  * - Keys in the active mood's whitelist → cloned overlay TextAttributes,
- *   possibly mutated by axes. Caller writes these via `scheme.setAttributes(key, attrs)`.
+ *   possibly mutated by axes. Caller writes them to the per-variant scheme.
  * - Keys present in the overlay but NOT in the active mood's whitelist → `null`.
- *   Caller writes these via `scheme.setAttributes(key, null)` which clears the
- *   per-scheme override and falls back to parent scheme inheritance.
+ *   Caller clears them on the scheme so JetBrains' parent inheritance walks
+ *   to the baseline value.
  * - Keys not in the overlay → not in the returned map (don't touch unrelated keys).
  *
  * Tier semantics (D-04 — additive whitelists):
@@ -47,8 +46,8 @@ object SyntaxModeApplicator {
         val result = mutableMapOf<TextAttributesKey, TextAttributes?>()
         for ((key, attrs) in overlay) {
             if (key !in whitelist) {
-                // Out of active mood — clear via null sentinel (caller translates
-                // to scheme.setAttributes(key, null) → parent scheme inheritance).
+                // Out of active mood — emit null sentinel; caller clears the key
+                // on each scheme so parent inheritance falls back to baseline.
                 result[key] = null
                 continue
             }
