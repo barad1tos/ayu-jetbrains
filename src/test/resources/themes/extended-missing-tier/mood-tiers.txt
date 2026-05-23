@@ -1,0 +1,7 @@
+# Test fixture: RICH section omitted entirely. Loader must return empty set for RICH.
+
+# TIER: STANDARD
+FAKE_KEY_X
+
+# TIER: MAXIMUM
+FAKE_KEY_X

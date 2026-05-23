@@ -1,0 +1,33 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<scheme name="Ayu Islands Mirage Extended" version="142">
+  <attributes>
+    <option name="FAKE_KEY_DECL_1">
+      <value>
+        <option name="FOREGROUND" value="FFD580" />
+        <option name="FONT_TYPE" value="0" />
+      </value>
+    </option>
+    <option name="FAKE_KEY_DECL_2">
+      <value>
+        <option name="FOREGROUND" value="FFCC66" />
+        <option name="FONT_TYPE" value="0" />
+      </value>
+    </option>
+    <option name="FAKE_KEY_REF_1">
+      <value>
+        <option name="FOREGROUND" value="80D0FF" />
+      </value>
+    </option>
+    <option name="FAKE_KEY_COMMENT_1">
+      <value>
+        <option name="FOREGROUND" value="888888" />
+      </value>
+    </option>
+    <option name="FAKE_KEY_DOC_1">
+      <value>
+        <option name="FOREGROUND" value="9966CC" />
+      </value>
+    </option>
+    <option name="FAKE_KEY_WITH_BASE_REF" baseAttributes="JAVA_KEYWORD" />
+  </attributes>
+</scheme>

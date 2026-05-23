@@ -1,0 +1,14 @@
+# Test fixture for SyntaxOverlayLoader. Four axis sections matching StyleAxis entries.
+
+# AXIS: ITALIC_DECLARATIONS
+FAKE_KEY_DECL_1
+FAKE_KEY_DECL_2
+
+# AXIS: BOLD_TYPE_REFERENCES
+FAKE_KEY_REF_1
+
+# AXIS: DIMMED_COMMENTS
+FAKE_KEY_COMMENT_1
+
+# AXIS: ITALIC_DOC_TAGS
+FAKE_KEY_DOC_1
