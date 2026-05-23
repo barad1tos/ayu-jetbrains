@@ -1,0 +1,10 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<scheme name="Ayu Islands Dark" version="142" parent_scheme="Darcula">
+    <attributes>
+        <option name="FAKE_BASELINE_COMMENT_1">
+            <value>
+                <option name="FOREGROUND" value="ACB6BF" />
+            </value>
+        </option>
+    </attributes>
+</scheme>

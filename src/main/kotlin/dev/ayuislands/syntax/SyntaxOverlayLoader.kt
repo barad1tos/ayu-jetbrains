@@ -11,15 +11,18 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * Phase 49 overlay loader. Parses the three `AyuIslands{Variant}.extended.xml`
  * scheme overlays plus `mood-tiers.txt` and `axis-keys.txt` into cached
- * in-memory maps. All four public accessors return cached results after the
- * first call (per-instance cache — each [SyntaxOverlayLoader] instance owns its
- * own cache, so tests using the [resourceBase] seam get isolation).
+ * in-memory maps. All public accessors return cached results after the first
+ * call (per-instance cache — each [SyntaxOverlayLoader] instance owns its own
+ * cache, so tests using the [resourceBase] seam get isolation).
  *
  * **Test seam (warning #2):** the [resourceBase] constructor parameter lets
  * tests inject `/themes/extended-test` or `/themes/extended-missing-tier` so
  * the loader exercises edge paths (missing tier, unknown key, base-attribute
  * reference) against controlled fixtures instead of production XMLs. The
- * default `/themes/extended` matches the production resource layout.
+ * default `/themes/extended` matches the production resource layout. The
+ * [baselineResourceBase] seam mirrors the same pattern for the baseline
+ * scheme XMLs (`AyuIslands{Variant}.xml`) consumed by
+ * [loadBaselineForVariant].
  *
  * **Graceful degradation (T-49-05, T-49-06):**
  * - Malformed XML or missing resource files → log WARN once per resource via
@@ -30,16 +33,28 @@ import java.util.concurrent.ConcurrentHashMap
  * - `baseAttributes="REF"` entries: resolve via `TextAttributesKey.find(REF)
  *   .defaultAttributes`. If null (plugin absent), fall back to empty
  *   `TextAttributes()` and continue (no throw).
+ *
+ * **Axes-orthogonal-to-mood path (debug `syntax-mood-noop-on-editor` fix):**
+ * [loadBaselineForVariant] returns the variant's baseline `<attributes>`
+ * section so [SyntaxModeApplicator] can apply axis transforms (dim, italic,
+ * bold) to keys that live ONLY in baseline (e.g. `DEFAULT_LINE_COMMENT`,
+ * `JAVA_LINE_COMMENT`) and are not present in any mood overlay. This makes
+ * style axes independent of the mood whitelist — toggling DIMMED_COMMENTS
+ * dims comments regardless of whether MINIMAL/STANDARD/RICH/MAXIMUM is
+ * active, because the transform operates on a baseline clone rather than on
+ * an overlay clone.
  */
 @Service(Service.Level.APP)
 class SyntaxOverlayLoader internal constructor(
     internal val resourceBase: String = DEFAULT_RESOURCE_BASE,
+    internal val baselineResourceBase: String = DEFAULT_BASELINE_BASE,
 ) {
     private val log = logger<SyntaxOverlayLoader>()
     private val warnedResources = ConcurrentHashMap.newKeySet<String>()
     private val warnedUnknownKeys = ConcurrentHashMap.newKeySet<String>()
 
     private val overlayCache = ConcurrentHashMap<String, Map<TextAttributesKey, TextAttributes>>()
+    private val baselineCache = ConcurrentHashMap<String, Map<TextAttributesKey, TextAttributes>>()
     private val tierCache = ConcurrentHashMap<SyntaxMood, Set<TextAttributesKey>>()
     private val axisCache = ConcurrentHashMap<StyleAxis, Set<TextAttributesKey>>()
 
@@ -48,6 +63,20 @@ class SyntaxOverlayLoader internal constructor(
 
     fun loadOverlayForVariant(variantName: String): Map<TextAttributesKey, TextAttributes> =
         overlayCache.computeIfAbsent(variantName) { parseOverlayXml(it) }
+
+    /**
+     * Loads the baseline scheme `<attributes>` section for [variantName] from
+     * `$baselineResourceBase/AyuIslands{Variant}.xml`. Cached per variant.
+     *
+     * Returns empty map on missing/malformed resource (same graceful-degradation
+     * contract as [loadOverlayForVariant]).
+     *
+     * Consumed by [SyntaxModeApplicator] to make style axes orthogonal to the
+     * mood whitelist — axis transforms (dim, italic, bold) apply equally to
+     * baseline-only keys and overlay keys.
+     */
+    fun loadBaselineForVariant(variantName: String): Map<TextAttributesKey, TextAttributes> =
+        baselineCache.computeIfAbsent(variantName) { parseBaselineXml(it) }
 
     fun tierKeys(tier: SyntaxMood): Set<TextAttributesKey> {
         if (tier == SyntaxMood.MINIMAL) return emptySet()
@@ -58,9 +87,18 @@ class SyntaxOverlayLoader internal constructor(
 
     private fun parseOverlayXml(variantName: String): Map<TextAttributesKey, TextAttributes> {
         val path = "$resourceBase/AyuIslands$variantName.extended.xml"
+        return parseAttributesXml(path)
+    }
+
+    private fun parseBaselineXml(variantName: String): Map<TextAttributesKey, TextAttributes> {
+        val path = "$baselineResourceBase/AyuIslands$variantName.xml"
+        return parseAttributesXml(path)
+    }
+
+    private fun parseAttributesXml(path: String): Map<TextAttributesKey, TextAttributes> {
         val stream =
             openClasspathResource(path) ?: run {
-                logResourceOnce(path, "overlay XML resource not found")
+                logResourceOnce(path, "scheme XML resource not found")
                 return emptyMap()
             }
         return runCatching {
@@ -68,7 +106,7 @@ class SyntaxOverlayLoader internal constructor(
             val attributesEl = root.getChild("attributes") ?: return@runCatching emptyMap()
             buildOverlayMap(attributesEl)
         }.getOrElse { error ->
-            logResourceOnce(path, "failed to parse overlay XML: ${error.message}")
+            logResourceOnce(path, "failed to parse scheme XML: ${error.message}")
             emptyMap()
         }
     }
@@ -127,7 +165,7 @@ class SyntaxOverlayLoader internal constructor(
     }
 
     private fun parseAxisFile(): Map<StyleAxis, Set<TextAttributesKey>> {
-        val knownKeys = collectKnownKeys()
+        val knownKeys = collectKnownAxisKeys()
         val sections = parseSectionFile(AXIS_FILE, AXIS_HEADER_PREFIX)
         val result = mutableMapOf<StyleAxis, Set<TextAttributesKey>>()
         for ((sectionName, names) in sections) {
@@ -141,6 +179,25 @@ class SyntaxOverlayLoader internal constructor(
         val combined = mutableMapOf<String, TextAttributesKey>()
         for (variant in VARIANT_NAMES) {
             for ((key, _) in loadOverlayForVariant(variant)) {
+                combined.putIfAbsent(key.externalName, key)
+            }
+        }
+        return combined
+    }
+
+    /**
+     * Axis-keys can reference EITHER overlay keys (existing path) OR baseline-only
+     * keys (Option C — axes-orthogonal-to-mood fix for `syntax-mood-noop-on-editor`).
+     * Returns the union so DIMMED_COMMENTS / ITALIC_DECLARATIONS / etc. can list
+     * baseline comment / declaration keys without tripping the unknown-key skip.
+     */
+    private fun collectKnownAxisKeys(): Map<String, TextAttributesKey> {
+        val combined = mutableMapOf<String, TextAttributesKey>()
+        for (variant in VARIANT_NAMES) {
+            for ((key, _) in loadOverlayForVariant(variant)) {
+                combined.putIfAbsent(key.externalName, key)
+            }
+            for ((key, _) in loadBaselineForVariant(variant)) {
                 combined.putIfAbsent(key.externalName, key)
             }
         }
@@ -215,6 +272,7 @@ class SyntaxOverlayLoader internal constructor(
 
     companion object {
         internal const val DEFAULT_RESOURCE_BASE = "/themes/extended"
+        internal const val DEFAULT_BASELINE_BASE = "/themes"
         private const val TIER_FILE = "mood-tiers.txt"
         private const val AXIS_FILE = "axis-keys.txt"
         private const val TIER_HEADER_PREFIX = "# TIER:"
