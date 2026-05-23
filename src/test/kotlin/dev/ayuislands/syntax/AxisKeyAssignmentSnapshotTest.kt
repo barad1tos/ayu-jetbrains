@@ -10,13 +10,22 @@ import kotlin.test.fail
  *
  * Invariants enforced (D-06):
  *  - The file has EXACTLY 4 `# AXIS:` sections, one per [StyleAxis] entry.
- *  - Every key listed under any axis section exists in the union of overlay
- *    keys (extracted from `extended/AyuIslands{Variant}.extended.xml`). No
- *    dangling references that the runtime would silently drop.
+ *  - Every key listed under any axis section exists in the union of BASELINE
+ *    keys (extracted from `themes/AyuIslands{Variant}.xml`) ∪ overlay keys
+ *    (extracted from `themes/extended/AyuIslands{Variant}.extended.xml`).
+ *    No dangling references that the runtime would silently drop.
  *  - The `DIMMED_COMMENTS` section contains no doc-tag keys (no `*DOC*`,
  *    `*KDoc*`, `*Groovydoc*`, `*JavaDoc*`, `*Scaladoc*` substrings) —
  *    keeps the Comments and DocTags axes semantically disjoint per D-06.
  *  - Each axis section is non-empty.
+ *
+ * Contract change (Option C — axes-orthogonal-to-mood fix for the
+ * `syntax-mood-noop-on-editor` bug): the dangling-reference invariant now
+ * validates against `baseline ∪ overlay`, not overlay alone. Axes are
+ * allowed to target baseline-only keys (e.g. `DEFAULT_LINE_COMMENT`,
+ * `JAVA_LINE_COMMENT`) because [SyntaxModeApplicator] applies axis
+ * transforms to a baseline clone whenever the target is absent from the
+ * overlay.
  *
  * Plain `kotlin.test` + JDOMUtil + classpath resources. No platform fixture.
  */
@@ -60,12 +69,14 @@ class AxisKeyAssignmentSnapshotTest {
     }
 
     @Test
-    fun `every axis-keys key exists in the extended overlay (no dangling references)`() {
+    fun `every axis-keys key exists in baseline or extended overlay (no dangling references)`() {
+        val baseline = loadBaselineKeys()
         val overlay = loadOverlayKeys()
+        val combined = baseline + overlay
         val axes = loadAxisMap()
         val dangling = mutableMapOf<String, List<String>>()
         for ((axisName, keys) in axes) {
-            val missing = keys.filterNot { it in overlay }
+            val missing = keys.filterNot { it in combined }
             if (missing.isNotEmpty()) dangling[axisName] = missing
         }
         if (dangling.isNotEmpty()) {
@@ -74,10 +85,10 @@ class AxisKeyAssignmentSnapshotTest {
                     "$axis dangling=${keys.size} firstFew=${keys.take(5)}"
                 }
             fail(
-                "axis-keys.txt references keys NOT present in any extended overlay XML:\n" +
+                "axis-keys.txt references keys NOT present in baseline or any extended overlay XML:\n" +
                     summary +
-                    "\n\nFix: remove the dangling key from axis-keys.txt OR add it to the " +
-                    "extended overlay XML for at least one variant.",
+                    "\n\nFix: remove the dangling key from axis-keys.txt OR add it to the baseline " +
+                    "AyuIslands{Variant}.xml or the extended overlay XML for at least one variant.",
             )
         }
     }
@@ -138,6 +149,24 @@ class AxisKeyAssignmentSnapshotTest {
         variants
             .flatMap { variant ->
                 val resourcePath = "/themes/extended/AyuIslands$variant.extended.xml"
+                val stream =
+                    javaClass.getResourceAsStream(resourcePath)
+                        ?: fail("Missing classpath resource: $resourcePath")
+                val root: Element = stream.use { JDOMUtil.load(it) }
+                val attrs = root.getChild("attributes") ?: return@flatMap emptyList()
+                attrs.getChildren("option").mapNotNull { it.getAttributeValue("name") }
+            }.toSet()
+
+    /**
+     * Option C contract — axes may reference baseline-only keys. Reads the
+     * `<attributes>` section from each variant's baseline scheme XML at
+     * `themes/AyuIslands{Variant}.xml` so the dangling-reference check
+     * validates axis keys against the full reachable surface.
+     */
+    private fun loadBaselineKeys(): Set<String> =
+        variants
+            .flatMap { variant ->
+                val resourcePath = "/themes/AyuIslands$variant.xml"
                 val stream =
                     javaClass.getResourceAsStream(resourcePath)
                         ?: fail("Missing classpath resource: $resourcePath")

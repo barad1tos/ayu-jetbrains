@@ -3,9 +3,12 @@
 #   ITALIC_DECLARATIONS / ITALIC_DOC_TAGS: clone.fontType = baseline.fontType or Font.ITALIC
 #   BOLD_TYPE_REFERENCES:                  clone.fontType = baseline.fontType or Font.BOLD
 #   DIMMED_COMMENTS:                       clone.foregroundColor = Color(r*0.6, g*0.6, b*0.6, a)
-# CI gate: AxisKeyAssignmentSnapshotTest (Plan 49-04).
-# DIMMED_COMMENTS matchers extended to cover JetBrains human-readable scheme comment keys
-# (e.g. "Scala Line comment", "Groovydoc comment") in addition to uppercase _COMMENT suffixes.
+# CI gate: AxisKeyAssignmentSnapshotTest validates each entry exists in
+# baseline (themes/AyuIslands{Variant}.xml) OR overlay
+# (themes/extended/AyuIslands{Variant}.extended.xml).
+# Option C — axes orthogonal to mood: keys listed here apply to baseline
+# clones when absent from overlay, so DIMMED_COMMENTS dims comments at
+# every mood (Minimal/Standard/Rich/Maximum) regardless of the whitelist.
 
 # AXIS: ITALIC_DECLARATIONS
 DART_DYNAMIC_LOCAL_VARIABLE_DECLARATION
@@ -47,6 +50,23 @@ SWIFT_TYPE_PARAMETER
 TIL.RESOURCE_TYPE_REFERENCE
 
 # AXIS: DIMMED_COMMENTS
+# Baseline platform comment keys (cascade via baseAttributes in
+# baseline XML to many languages — JAVA, KOTLIN, RUBY, PHP, Rust,
+# SASS, SCALA, ReSharper C#, Go all inherit from DEFAULT_LINE_COMMENT
+# or DEFAULT_BLOCK_COMMENT). Dimming the defaults dims every language
+# that delegates via baseAttributes.
+DEFAULT_LINE_COMMENT
+DEFAULT_BLOCK_COMMENT
+DEFAULT_COMMENT
+# Concrete baseline comment keys whose languages do NOT cascade via
+# baseAttributes — they carry their own concrete value blocks in the
+# baseline XML, so they need explicit listing for DIMMED to reach them.
+DJANGO_COMMENT
+HAML_COMMENT
+PY.LINE_COMMENT
+SLIM_COMMENT
+# Overlay Scala comment keys (already in overlay via baseAttributes —
+# preserved from the original Phase 49 curation for D-06 disjointness).
 Scala Block comment
 Scala Line comment
 Scala XML comment
