@@ -15,6 +15,16 @@ import java.util.concurrent.ConcurrentHashMap
  * Ayu scheme variants by name (R-5) and fires a single scheme-change publish
  * wrapped in [ReadAction] (R-7).
  *
+ * Active-scheme write (H5 fix, debug `syntax-mood-noop-on-editor`): the IDE
+ * may persist a `_@user_Ayu Islands {Variant}` derived scheme whose
+ * `parent_scheme` is `Darcula` rather than our registered Ayu variant. That
+ * derived scheme sits in the rendering chain instead of the named one we
+ * write to by-name, so by-name writes alone produce zero visual change.
+ * After the by-name loop, apply() also writes the same computed payload to
+ * `EditorColorsManager.getInstance().globalScheme` whenever the active
+ * scheme is NOT one of the three named instances we already touched
+ * (identity dedup — no double-write on a clean install).
+ *
  * Lifecycle gating (Pattern J) lives in `dev.ayuislands.AyuIslandsLafListener`,
  * not here — the service is callable from the Settings Apply path even
  * mid-LAF-switch (D-09).
@@ -35,8 +45,10 @@ class SyntaxModeService {
         axes: Set<StyleAxis>,
     ) {
         val loader = SyntaxOverlayLoader.getInstance()
+        val manager = EditorColorsManager.getInstance()
+        val touched = mutableSetOf<EditorColorsScheme>()
         for ((schemeName, overlayVariant) in AYU_SCHEMES) {
-            val scheme = EditorColorsManager.getInstance().getScheme(schemeName)
+            val scheme = manager.getScheme(schemeName)
             if (scheme == null) {
                 if (missingSchemeLogged.add(schemeName)) {
                     log.warn("Ayu scheme '$schemeName' not registered — skipping syntax overlay")
@@ -45,7 +57,9 @@ class SyntaxModeService {
             }
             val computed = SyntaxModeApplicator.compute(mood, axes, overlayVariant, loader)
             writeSchemeAttributes(scheme, computed, schemeName)
+            touched.add(scheme)
         }
+        writeActiveSchemeIfNotTouched(manager, mood, axes, loader, touched)
         publishSchemeChange()
     }
 
@@ -61,6 +75,44 @@ class SyntaxModeService {
 
     fun clearAll() {
         apply(SyntaxMood.MINIMAL, emptySet())
+    }
+
+    /**
+     * H5 fix path. When the active editor scheme is a user-derived
+     * `_@user_Ayu Islands {Variant}` (parent_scheme=Darcula, originalScheme=ours)
+     * none of the three named schemes sits in the rendering chain. The fix
+     * is to ALSO write the computed payload to whatever scheme the IDE is
+     * actually rendering from. Identity dedup against [touched] avoids a
+     * double-write on the clean-install path where the active scheme IS one
+     * of the three named instances we already wrote to.
+     *
+     * Variant selection: matches the user-derived suffix against the known
+     * Ayu variant tokens. Falls back to Mirage (the historical default) when
+     * the active scheme name is unrecognized — the worst case is the
+     * Mirage overlay's tier whitelist applied to a different scheme, which
+     * the user can correct by re-picking the editor scheme.
+     */
+    private fun writeActiveSchemeIfNotTouched(
+        manager: EditorColorsManager,
+        mood: SyntaxMood,
+        axes: Set<StyleAxis>,
+        loader: SyntaxOverlayLoader,
+        touched: Set<EditorColorsScheme>,
+    ) {
+        val active = manager.globalScheme
+        if (active in touched) return
+        val variant = resolveOverlayVariant(active.name)
+        val computed = SyntaxModeApplicator.compute(mood, axes, variant, loader)
+        writeSchemeAttributes(active, computed, active.name)
+    }
+
+    private fun resolveOverlayVariant(activeSchemeName: String): String {
+        for ((_, overlayVariant) in AYU_SCHEMES) {
+            if (activeSchemeName.contains(overlayVariant, ignoreCase = true)) {
+                return overlayVariant
+            }
+        }
+        return "Mirage"
     }
 
     private fun writeSchemeAttributes(

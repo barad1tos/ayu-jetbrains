@@ -122,12 +122,16 @@ class SyntaxModeServiceTest {
         }
 
     @Test
-    fun `apply iterates all 3 Ayu scheme variants by name (not globalScheme)`() {
+    fun `apply iterates all 3 Ayu scheme variants by name AND also reads globalScheme (H5 active-scheme write)`() {
         SyntaxModeService().apply(SyntaxMood.MAXIMUM, emptySet())
         verify(exactly = 1) { mockManager.getScheme("Ayu Islands Mirage") }
         verify(exactly = 1) { mockManager.getScheme("Ayu Islands Dark") }
         verify(exactly = 1) { mockManager.getScheme("Ayu Islands Light") }
-        verify(exactly = 0) { mockManager.globalScheme }
+        // H5 fix: the service additionally writes to globalScheme so user-derived
+        // active schemes (`_@user_Ayu Islands {Variant}` with parent_scheme=Darcula)
+        // also receive the payload. See SyntaxModeServiceActiveSchemeTargetTest
+        // for the full regression coverage.
+        verify(atLeast = 1) { mockManager.globalScheme }
     }
 
     @Test
