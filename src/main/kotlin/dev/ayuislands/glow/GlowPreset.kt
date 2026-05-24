@@ -1,5 +1,7 @@
 package dev.ayuislands.glow
 
+import dev.ayuislands.preset.ColorPreset
+
 private const val WHISPER_INTENSITY = 35
 private const val WHISPER_WIDTH = 8
 private const val AMBIENT_INTENSITY = 45
@@ -10,12 +12,12 @@ private const val CYBERPUNK_INTENSITY = 85
 private const val CYBERPUNK_WIDTH = 10
 
 enum class GlowPreset(
-    val displayName: String,
+    override val displayName: String,
     val style: GlowStyle?,
     val intensity: Int?,
     val width: Int?,
     val animation: GlowAnimation?,
-) {
+) : ColorPreset {
     WHISPER("Whisper", GlowStyle.SOFT, WHISPER_INTENSITY, WHISPER_WIDTH, GlowAnimation.NONE),
     AMBIENT("Ambient", GlowStyle.GRADIENT, AMBIENT_INTENSITY, AMBIENT_WIDTH, GlowAnimation.BREATHE),
     NEON("Neon", GlowStyle.SHARP_NEON, NEON_INTENSITY, NEON_WIDTH, GlowAnimation.NONE),
