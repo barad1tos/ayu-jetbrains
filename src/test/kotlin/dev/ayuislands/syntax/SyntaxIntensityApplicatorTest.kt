@@ -5,13 +5,13 @@ import com.intellij.openapi.editor.markup.TextAttributes
 import dev.ayuislands.rotation.HslColor
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
-import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.Color
 import kotlin.math.abs
+import kotlin.test.assertNotNull
 
 /**
  * RED-gate test set for [SyntaxIntensityApplicator].
@@ -106,8 +106,11 @@ class SyntaxIntensityApplicatorTest {
                 baseline = baseline,
                 overlay = emptyMap(),
             )
-        val output = result[javaKeywordKey]?.foregroundColor
-        assertNotNull(output, "Whisper must emit a foreground for JAVA_KEYWORD")
+        val output =
+            assertNotNull(
+                result[javaKeywordKey]?.foregroundColor,
+                "Whisper must emit a foreground for JAVA_KEYWORD",
+            )
         assertChannelDiff(expected, output, CHANNEL_TOLERANCE)
     }
 
@@ -227,7 +230,7 @@ class SyntaxIntensityApplicatorTest {
     // --- Test 7 — Pattern B clone discipline ----------------------------
 
     @Test
-    fun `baseline TextAttributes are never mutated; output is a distinct instance`() {
+    fun `baseline TextAttributes are never mutated — output is a distinct instance`() {
         val baselineFg = Color(0xCC, 0xCA, 0xC2)
         val baselineAttrs = attrsWithFg(baselineFg)
         val baseline = mapOf(javaKeywordKey to baselineAttrs)
