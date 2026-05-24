@@ -4,6 +4,7 @@ import dev.ayuislands.font.FontPreset
 import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
+import dev.ayuislands.syntax.SyntaxPreset
 import dev.ayuislands.vcs.VcsColorPreset
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -60,6 +61,13 @@ class ColorPresetMarkerTest {
     fun `every FontPreset entry implements ColorPreset marker`() {
         for (entry in FontPreset.entries) {
             assertTrue(entry is ColorPreset, "FontPreset.$entry must implement ColorPreset")
+        }
+    }
+
+    @Test
+    fun `every SyntaxPreset entry implements ColorPreset marker (INTENSITY-18 4-of-4)`() {
+        for (entry in SyntaxPreset.entries) {
+            assertTrue(entry is ColorPreset, "SyntaxPreset.$entry must implement ColorPreset")
         }
     }
 
