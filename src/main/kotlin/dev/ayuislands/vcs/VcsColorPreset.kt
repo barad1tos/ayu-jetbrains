@@ -1,5 +1,7 @@
 package dev.ayuislands.vcs
 
+import dev.ayuislands.preset.ColorPreset
+
 /**
  * Named intensity levels for VCS color customization.
  *
@@ -23,8 +25,8 @@ package dev.ayuislands.vcs
  * declares *what the endpoints are* per (key × variant).
  */
 enum class VcsColorPreset(
-    val displayName: String,
-) {
+    override val displayName: String,
+) : ColorPreset {
     WHISPER("Whisper"),
     AMBIENT("Ambient"),
     NEON("Neon"),
