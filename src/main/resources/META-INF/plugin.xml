@@ -286,6 +286,12 @@
                 serviceImplementation="dev.ayuislands.syntax.SyntaxModeService"/>
         <applicationService
                 serviceImplementation="dev.ayuislands.syntax.SyntaxModeState"/>
+        <!-- Syntax intensity preset row (dual-registration window — Phase 49
+             services remain registered until the atomic sunset). -->
+        <applicationService
+                serviceImplementation="dev.ayuislands.syntax.SyntaxIntensityService"/>
+        <applicationService
+                serviceImplementation="dev.ayuislands.syntax.SyntaxIntensityState"/>
 
         <!-- Glow overlay manager (per-project lifecycle) -->
         <projectService
