@@ -6,9 +6,8 @@ import kotlin.test.assertEquals
 /**
  * RED → GREEN coverage for [RgbBlend.fallbackEditorBgFor]. Verifies the per-variant
  * editor-background fallback constants used when `scheme.defaultBackground` is
- * unusable (R-1 mitigation per Phase 50 RESEARCH OQ-02). Unknown variants must
- * resolve to the Mirage hex — the same safe default Phase 49
- * `SyntaxModeService.resolveOverlayVariant` uses.
+ * unusable (R-1 mitigation). Unknown variants must resolve to the Mirage hex —
+ * the same safe default the syntax intensity service uses on resolve.
  */
 class EditorBackgroundFallbackTest {
     @Test

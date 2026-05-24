@@ -235,9 +235,9 @@ class SyntaxPresetCurvesTest {
     }
 
     /**
-     * Reproduces the Phase 49 `SyntaxModeApplicator.DIM_FACTOR = 0.6` per-channel
-     * RGB scale used by DIMMED_COMMENTS. Uses `.toInt()` truncation to match
-     * the historic Phase 49 implementation byte-for-byte.
+     * Reproduces the legacy `DIM_FACTOR = 0.6` per-channel RGB scale used by
+     * the prior DIMMED_COMMENTS implementation. Uses `.toInt()` truncation
+     * to match the historic baseline byte-for-byte.
      */
     private fun dimByPhase49Factor(baseline: Color): Color =
         Color(

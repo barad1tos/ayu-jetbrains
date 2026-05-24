@@ -6,20 +6,9 @@ import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.settings.AyuIslandsSettings
-import dev.ayuislands.syntax.SyntaxModeUpgradeNotifier
 
 internal class AyuIslandsAppListener : AppLifecycleListener {
     override fun appFrameCreated(commandLineArgs: MutableList<String>) {
-        // Phase 49 (SYNTAX-07 / D-10) — one-shot Syntax Moods upgrade notification.
-        // Notification must fire on first launch regardless of active theme
-        // (SYNTAX-07 + iteration-1 BLOCKER fix). It MUST run BEFORE the
-        // AyuVariant.fromThemeName() early-return below because the notification
-        // is feature discovery (theme-agnostic): a user on a non-Ayu theme still
-        // learns that the Syntax tab exists and can opt into an Ayu theme to try
-        // it. Re-placing this call below the `?: return` would silently break
-        // first-launch discovery for the majority of new users — do not move.
-        SyntaxModeUpgradeNotifier.maybeFire()
-
         val themeName = AyuVariant.currentThemeName()
         val variant = AyuVariant.fromThemeName(themeName) ?: return
 

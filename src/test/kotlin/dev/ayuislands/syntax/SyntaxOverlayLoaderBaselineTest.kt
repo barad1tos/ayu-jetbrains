@@ -14,8 +14,7 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
- * Phase 49+ baseline-loader behavior — Option C fix for the
- * `syntax-mood-noop-on-editor` bug. Validates [SyntaxOverlayLoader]
+ * Baseline-loader behaviour for [SyntaxOverlayLoader]. Validates
  * [loadBaselineForVariant] returns the parsed baseline `<attributes>` section
  * for each Ayu variant from the `baselineResourceBase` path, caches per
  * variant, and degrades gracefully on missing/malformed resources.
@@ -104,28 +103,6 @@ class SyntaxOverlayLoaderBaselineTest {
             "/themes",
             instance.baselineResourceBase,
             "default baselineResourceBase must point at production /themes",
-        )
-    }
-
-    @Test
-    fun `axis-keys section can reference baseline-only keys after fix`() {
-        // Contract: axis-keys.txt references keys that exist in baseline OR
-        // overlay. The loader's collectKnownAxisKeys() merges both sources so
-        // a baseline-only key listed under # AXIS: DIMMED_COMMENTS is resolved
-        // rather than dropped as "unknown".
-        //
-        // This test validates the loader-side contract; the snapshot test
-        // (AxisKeyAssignmentSnapshotTest) enforces the same invariant against
-        // the production axis-keys.txt.
-        //
-        // We can't easily inject a custom axis-keys.txt here without rewiring
-        // resourceBase, so we just assert the loader exposes the seam needed
-        // for the contract change to succeed.
-        val l = loader()
-        // Baseline non-empty → collectKnownAxisKeys() will see baseline keys.
-        assertTrue(
-            l.loadBaselineForVariant("Mirage").isNotEmpty(),
-            "loader must be able to enumerate baseline keys for axis-keys resolution",
         )
     }
 }

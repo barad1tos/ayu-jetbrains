@@ -279,15 +279,10 @@
         <applicationService
                 serviceImplementation="dev.ayuislands.rotation.AccentRotationService"/>
 
-        <!-- Phase 49: Syntax Moods overlay -->
+        <!-- Syntax overlay loader (loads baseline + extended scheme XMLs) -->
         <applicationService
                 serviceImplementation="dev.ayuislands.syntax.SyntaxOverlayLoader"/>
-        <applicationService
-                serviceImplementation="dev.ayuislands.syntax.SyntaxModeService"/>
-        <applicationService
-                serviceImplementation="dev.ayuislands.syntax.SyntaxModeState"/>
-        <!-- Syntax intensity preset row (dual-registration window — Phase 49
-             services remain registered until the atomic sunset). -->
+        <!-- Syntax intensity preset row + persistent state -->
         <applicationService
                 serviceImplementation="dev.ayuislands.syntax.SyntaxIntensityService"/>
         <applicationService

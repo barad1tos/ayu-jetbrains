@@ -9,7 +9,7 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.settings.AyuIslandsSettings
-import dev.ayuislands.syntax.SyntaxModeService
+import dev.ayuislands.syntax.SyntaxIntensityService
 import dev.ayuislands.theme.AyuEditorSchemeBinder
 import dev.ayuislands.ui.ComponentTreeRefresher
 
@@ -73,13 +73,13 @@ class AyuIslandsLafListener : LafManagerListener {
         // Update glow overlays with new accent color
         GlowOverlayManager.syncGlowForAllProjects()
 
-        // Phase 49: re-apply syntax mood + axes after LAF switch back to Ayu (SYNTAX-10, D-09).
+        // Re-apply syntax intensity preset after LAF switch back to Ayu (Pattern J).
         // The [AyuVariant.isAyuActive] gate is structurally redundant with the early-return
-        // above (this block only executes when variant != null) but D-09 / R-9 mandate it as
-        // the Pattern J source-grep anchor for future audits. The listener is the lifecycle
-        // owner; `SyntaxModeService.reapplyForActiveLaf` itself stays lifecycle-agnostic.
+        // above (this block only executes when variant != null) but is preserved as the
+        // Pattern J source-grep anchor for future audits. The listener owns lifecycle;
+        // `SyntaxIntensityService.reapplyForActiveLaf` itself stays lifecycle-agnostic.
         if (AyuVariant.isAyuActive()) {
-            SyntaxModeService.getInstance().reapplyForActiveLaf()
+            SyntaxIntensityService.getInstance().reapplyForActiveLaf()
         }
     }
 
