@@ -20,8 +20,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Unit tests for [SyntaxIntensityMigrationNotifier]. Mirrors the
- * [SyntaxModeUpgradeNotifierTest] MockK harness — `mockkStatic` for
+ * Unit tests for [SyntaxIntensityMigrationNotifier]. Uses the same
+ * upgrade-notifier MockK harness as prior notifiers — `mockkStatic` for
  * `PropertiesComponent` + `Notifications.Bus`, `slot<Notification>()` for
  * payload capture, and Pattern L source-regex locks for the flag-key
  * literal and the `notificationGroup` plugin.xml registration binding.

@@ -9,7 +9,6 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import dev.ayuislands.settings.mappings.AccentMappingsState
-import dev.ayuislands.syntax.SyntaxModeUpgradeNotifier
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -58,15 +57,6 @@ class AyuIslandsAppListenerTest {
         mockkStatic(LafManager::class)
         mockkObject(AccentApplicator)
         every { AccentApplicator.applyFromHexString(any()) } returns true
-
-        // Stub SyntaxModeUpgradeNotifier.maybeFire — it calls
-        // PropertiesComponent.getInstance() which routes through
-        // ApplicationManager.getApplication(), null in unit-test context. Without
-        // this stub the appFrameCreated callback raises NPE before the assertion
-        // surface is reached (regression introduced by Plan 49-03's notifier
-        // hoist above the variant guard — covered by Rule 1 auto-fix in Plan 49-04).
-        mockkObject(SyntaxModeUpgradeNotifier)
-        every { SyntaxModeUpgradeNotifier.maybeFire(any()) } returns Unit
     }
 
     @AfterTest

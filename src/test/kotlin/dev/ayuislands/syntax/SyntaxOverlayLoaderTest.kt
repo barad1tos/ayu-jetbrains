@@ -16,8 +16,8 @@ import kotlin.test.assertTrue
 
 /**
  * Algorithmic tests for [SyntaxOverlayLoader]. Uses the `resourceBase`
- * constructor seam (warning #2 fix) to point at test fixtures in
- * `src/test/resources/themes/extended-{test,missing-tier}/`.
+ * constructor seam to point at test fixtures in
+ * `src/test/resources/themes/extended-test/`.
  *
  * Plain `kotlin.test` — no platform fixture required: JDOMUtil and
  * TextAttributesKey.find are static platform calls that work in the
@@ -29,7 +29,6 @@ import kotlin.test.assertTrue
 class SyntaxOverlayLoaderTest {
     companion object {
         private const val TEST_BASE = "/themes/extended-test"
-        private const val MISSING_TIER_BASE = "/themes/extended-missing-tier"
     }
 
     @BeforeTest
@@ -37,7 +36,7 @@ class SyntaxOverlayLoaderTest {
         // TextAttributesKey.find calls into ApplicationManager.getApplication()
         // which is null in plain kotlin.test JVM (no IntelliJ platform fixture).
         // Stub it to return mocks keyed by externalName so the loader can build
-        // its overlay/tier/axis maps without booting LightPlatformTestCase.
+        // its overlay maps without booting LightPlatformTestCase.
         mockkStatic(TextAttributesKey::class)
         val cache = mutableMapOf<String, TextAttributesKey>()
         every { TextAttributesKey.find(any<String>()) } answers {
@@ -58,7 +57,7 @@ class SyntaxOverlayLoaderTest {
     private fun loader(base: String = TEST_BASE): SyntaxOverlayLoader = SyntaxOverlayLoader(resourceBase = base)
 
     @Test
-    fun `constructor accepts resourceBase override (revision iteration 1, warning 2)`() {
+    fun `constructor accepts resourceBase override`() {
         val instance = SyntaxOverlayLoader(resourceBase = "/some/test/base")
         assertNotNull(instance)
     }
@@ -87,30 +86,6 @@ class SyntaxOverlayLoaderTest {
     }
 
     @Test
-    fun `parses mood-tiers txt into three non-empty tier sets`() {
-        val l = loader()
-        assertTrue(l.tierKeys(SyntaxMood.STANDARD).isNotEmpty())
-        assertTrue(l.tierKeys(SyntaxMood.RICH).isNotEmpty())
-        assertTrue(l.tierKeys(SyntaxMood.MAXIMUM).isNotEmpty())
-    }
-
-    @Test
-    fun `parses axis-keys txt into four axis sets matching StyleAxis entries`() {
-        val l = loader()
-        StyleAxis.entries.forEach { axis ->
-            assertTrue(
-                l.axisKeys(axis).isNotEmpty(),
-                "axis $axis must have at least one key in test fixture",
-            )
-        }
-    }
-
-    @Test
-    fun `MINIMAL tier returns empty set (empty subset of overlay)`() {
-        assertTrue(loader().tierKeys(SyntaxMood.MINIMAL).isEmpty())
-    }
-
-    @Test
     fun `malformed XML returns empty map and logs WARN (no throw)`() {
         // Inject parse failure via mockkStatic — avoids checking in a malformed
         // .xml fixture (pre-commit check-xml hook rejects malformed XML on disk).
@@ -121,21 +96,9 @@ class SyntaxOverlayLoaderTest {
     }
 
     @Test
-    fun `missing mood-tier in txt returns empty set for that tier`() {
-        val l = loader(base = MISSING_TIER_BASE)
-        assertTrue(l.tierKeys(SyntaxMood.RICH).isEmpty())
-        assertTrue(l.tierKeys(SyntaxMood.STANDARD).isNotEmpty())
-        assertTrue(l.tierKeys(SyntaxMood.MAXIMUM).isNotEmpty())
-    }
-
-    @Test
     fun `missing resource file returns empty result without throw`() {
         val l = SyntaxOverlayLoader(resourceBase = "/themes/nonexistent-base")
         assertTrue(l.loadOverlayForVariant("Mirage").isEmpty())
-        assertTrue(l.tierKeys(SyntaxMood.STANDARD).isEmpty())
-        StyleAxis.entries.forEach { axis ->
-            assertTrue(l.axisKeys(axis).isEmpty(), "axis $axis must be empty for nonexistent base")
-        }
     }
 
     @Test
@@ -143,14 +106,6 @@ class SyntaxOverlayLoaderTest {
         val l = loader()
         val first = l.loadOverlayForVariant("Mirage")
         val second = l.loadOverlayForVariant("Mirage")
-        assertSame(first, second)
-    }
-
-    @Test
-    fun `loader caches tier maps (second call returns same reference)`() {
-        val l = loader()
-        val first = l.tierKeys(SyntaxMood.STANDARD)
-        val second = l.tierKeys(SyntaxMood.STANDARD)
         assertSame(first, second)
     }
 

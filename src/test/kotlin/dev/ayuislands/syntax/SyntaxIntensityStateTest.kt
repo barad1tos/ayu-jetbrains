@@ -10,40 +10,34 @@ import java.nio.file.Path
 import kotlin.test.assertNotNull
 
 /**
- * RED-gate test set for [SyntaxIntensityState].
+ * Test set for [SyntaxIntensityState].
  *
- * Uses the same in-memory loadState round-trip pattern as
- * [SyntaxModeStatePersistenceRoundTripTest] — the
+ * Uses an in-memory loadState round-trip pattern — the
  * `XmlSerializerUtil.copyBean` path inside [SimplePersistentStateComponent]
  * matches the on-disk persistence shape and avoids the platform-fixture
- * boot pain documented in Plan 49-04 SUMMARY (warning 5 fallback). Tests
- * that would need a live `@Service` container (Test 10 `getInstance()`)
- * fall back to Pattern L source-grep regression locks per the same SUMMARY.
+ * boot pain seen elsewhere. Tests that would need a live `@Service`
+ * container fall back to Pattern L source-grep regression locks.
  *
- * 10 invariants per the plan spec — see PLAN 50-04 Task 2 `<behavior>`:
+ * 10 invariants per the plan spec:
  *  1.  Default state: `selectedPreset == "AMBIENT"`, `customOverrides`
  *      empty, `schemaVersion == 1`.
  *  2.  `selectedPreset` round-trip via in-memory loadState.
  *  3.  `SyntaxPreset.fromName` integration — tampered preset name falls
- *      back to `AMBIENT` (D-23).
+ *      back to `AMBIENT`.
  *  4.  Pattern L source-regex lock — `@Storage(value = "ayu-islands-syntax-intensity.xml")`
- *      literal present in source (D-13).
+ *      literal present in source.
  *  5.  Pattern L source-regex lock — `@State(name = "AyuIslandsSyntaxIntensityState")`
  *      literal present in source.
- *  6.  Flat composite-key `customOverrides` round-trip (Gemini + OpenCode
- *      consensus — replaces nested-map spike).
+ *  6.  Flat composite-key `customOverrides` round-trip.
  *  7.  `schemaVersion` round-trip.
  *  8.  `toPresetConfig()` bridge — adapts flat composite-key map back to
- *      nested `Map<String, Map<String, Int>>` consumed by
- *      `SyntaxIntensityApplicator` + `SyntaxPreset.detect` (Codex HIGH #1
- *      continuation).
+ *      nested `Map<String, Map<String, Int>>` consumed by the applicator
+ *      and `SyntaxPreset.detect`.
  *  9.  `toPresetConfig()` skips malformed flat keys / non-Int values
  *      silently (forward-compat / tamper resistance).
  * 10.  Pattern L source-regex lock for `getInstance()` companion — the
  *      live application-service lookup is exercised in integration tests
- *      under `src/test/kotlin/dev/ayuislands/integration/` (per the
- *      Plan 49-04 warning 5 fallback documented in
- *      [SyntaxModeStatePersistenceRoundTripTest]).
+ *      under `src/test/kotlin/dev/ayuislands/integration/`.
  */
 class SyntaxIntensityStateTest {
     // --- Test 1 — defaults --------------------------------------------------

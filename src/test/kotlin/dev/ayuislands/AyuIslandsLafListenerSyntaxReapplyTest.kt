@@ -8,7 +8,7 @@ import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
-import dev.ayuislands.syntax.SyntaxModeService
+import dev.ayuislands.syntax.SyntaxIntensityService
 import dev.ayuislands.theme.AyuEditorSchemeBinder
 import io.mockk.every
 import io.mockk.mockk
@@ -25,19 +25,13 @@ import kotlin.test.assertTrue
 
 /**
  * Verifies that [AyuIslandsLafListener.lookAndFeelChanged] invokes
- * [SyntaxModeService.reapplyForActiveLaf] when [AyuVariant.isAyuActive] is
- * true (Phase 49 SYNTAX-10, D-09 Pattern J anchor), AND that the plugin.xml
- * does NOT register a duplicate `LafManagerListener` for the listener class
- * (Pattern L source-regex regression lock for D-09 "extend, do not duplicate").
- *
- * File ownership: this test file was CREATED IN PLAN 49-05 (revision iteration
- * 1, warning #3 fix). Plan 49-04 originally proposed shipping a `@Disabled`
- * scaffold here pending this plan's listener extension; the revision moved
- * ownership to 49-05 so the test starts life green and the repo never holds
- * an `@Disabled` scaffold.
+ * [SyntaxIntensityService.reapplyForActiveLaf] when [AyuVariant.isAyuActive] is
+ * true (Pattern J anchor), AND that the plugin.xml does NOT register a
+ * duplicate `LafManagerListener` for the listener class (Pattern L
+ * source-regex regression lock — extend, do not duplicate).
  *
  * Mock surface: mirrors [AyuIslandsLafListenerTest] (all listener
- * dependencies stubbed) and adds [SyntaxModeService.Companion] so the new
+ * dependencies stubbed) and adds [SyntaxIntensityService.Companion] so the
  * `getInstance()` call site resolves without an [IllegalStateException]
  * from the platform `ApplicationManager`.
  */
@@ -46,7 +40,7 @@ class AyuIslandsLafListenerSyntaxReapplyTest {
     private val state = AyuIslandsState()
     private val mockSettings = mockk<AyuIslandsSettings>(relaxed = true)
     private val mockProjectManager = mockk<ProjectManager>(relaxed = true)
-    private val mockSyntaxService = mockk<SyntaxModeService>(relaxed = true)
+    private val mockSyntaxService = mockk<SyntaxIntensityService>(relaxed = true)
 
     @BeforeTest
     fun setUp() {
@@ -64,7 +58,7 @@ class AyuIslandsLafListenerSyntaxReapplyTest {
         mockkObject(FontPresetApplicator)
         mockkObject(GlowOverlayManager)
         mockkObject(AppearanceSyncService.Companion)
-        mockkObject(SyntaxModeService.Companion)
+        mockkObject(SyntaxIntensityService.Companion)
 
         every { AccentApplicator.applyForFocusedProject(any()) } returns "#FFCC66"
         every { AccentApplicator.revertAll() } returns Unit
@@ -72,7 +66,7 @@ class AyuIslandsLafListenerSyntaxReapplyTest {
         every { FontPresetApplicator.revert() } returns Unit
         every { GlowOverlayManager.syncGlowForAllProjects() } returns Unit
         every { AyuEditorSchemeBinder.bindForVariant(any()) } returns true
-        every { SyntaxModeService.getInstance() } returns mockSyntaxService
+        every { SyntaxIntensityService.getInstance() } returns mockSyntaxService
 
         val mockSyncService = mockk<AppearanceSyncService>(relaxed = true)
         every { AppearanceSyncService.getInstance() } returns mockSyncService
@@ -116,8 +110,8 @@ class AyuIslandsLafListenerSyntaxReapplyTest {
 
     @Test
     fun `plugin xml does NOT register a duplicate LafManagerListener (Pattern L)`() {
-        // Pattern L source-regex regression lock — `D-09` mandates that Phase
-        // 49 EXTEND the existing listener rather than register a parallel one.
+        // Pattern L source-regex regression lock — the syntax intensity wiring
+        // must EXTEND the existing listener rather than register a parallel one.
         // A second `<listener class="dev.ayuislands.AyuIslandsLafListener" .../>`
         // would cause the platform to fire the callback twice per LAF event,
         // doubling overlay writes and the reapply cost.
@@ -131,7 +125,7 @@ class AyuIslandsLafListenerSyntaxReapplyTest {
         assertTrue(
             matches == 1,
             "Expected EXACTLY ONE `AyuIslandsLafListener` registration, got $matches " +
-                "— Phase 49 must extend the existing listener, not duplicate it (D-09).",
+                "— the syntax intensity wiring must extend the existing listener, not duplicate it.",
         )
     }
 }

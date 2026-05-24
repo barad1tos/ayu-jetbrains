@@ -49,9 +49,8 @@ object RgbBlend {
      *
      * Mirage / Dark / Light variants map to their canonical hex constants;
      * any unknown variant tag falls back to the Mirage hex — the same safe
-     * default Phase 49 `SyntaxModeService.resolveOverlayVariant` uses, so the
-     * downstream applicator does not see a brand-new color for a brand-new
-     * variant name.
+     * default the syntax intensity service uses on resolve, so the downstream
+     * applicator does not see a brand-new color for a brand-new variant name.
      */
     fun fallbackEditorBgFor(variantTag: String): Color =
         when (variantTag) {

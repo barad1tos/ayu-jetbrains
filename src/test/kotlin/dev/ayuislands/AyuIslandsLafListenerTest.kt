@@ -8,7 +8,7 @@ import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
-import dev.ayuislands.syntax.SyntaxModeService
+import dev.ayuislands.syntax.SyntaxIntensityService
 import dev.ayuislands.theme.AyuEditorSchemeBinder
 import io.mockk.every
 import io.mockk.mockk
@@ -39,7 +39,7 @@ class AyuIslandsLafListenerTest {
     private val state = AyuIslandsState()
     private val mockSettings = mockk<AyuIslandsSettings>(relaxed = true)
     private val mockProjectManager = mockk<ProjectManager>(relaxed = true)
-    private val mockSyntaxService = mockk<SyntaxModeService>(relaxed = true)
+    private val mockSyntaxService = mockk<SyntaxIntensityService>(relaxed = true)
 
     @BeforeTest
     fun setUp() {
@@ -57,10 +57,10 @@ class AyuIslandsLafListenerTest {
         mockkObject(FontPresetApplicator)
         mockkObject(GlowOverlayManager)
         mockkObject(AppearanceSyncService.Companion)
-        // Phase 49 — listener now invokes `SyntaxModeService.getInstance().reapplyForActiveLaf`
-        // after the glow sync (D-09 Pattern J anchor). Stub the companion so the call site
+        // Listener invokes `SyntaxIntensityService.getInstance().reapplyForActiveLaf`
+        // after the glow sync (Pattern J anchor). Stub the companion so the call site
         // resolves without reaching into `ApplicationManager.getApplication().getService(...)`.
-        mockkObject(SyntaxModeService.Companion)
+        mockkObject(SyntaxIntensityService.Companion)
 
         every { AccentApplicator.applyForFocusedProject(any()) } returns "#FFCC66"
         every { AccentApplicator.revertAll() } returns Unit
@@ -68,7 +68,7 @@ class AyuIslandsLafListenerTest {
         every { FontPresetApplicator.revert() } returns Unit
         every { GlowOverlayManager.syncGlowForAllProjects() } returns Unit
         every { AyuEditorSchemeBinder.bindForVariant(any()) } returns true
-        every { SyntaxModeService.getInstance() } returns mockSyntaxService
+        every { SyntaxIntensityService.getInstance() } returns mockSyntaxService
 
         val mockSyncService = mockk<AppearanceSyncService>(relaxed = true)
         every { AppearanceSyncService.getInstance() } returns mockSyncService

@@ -26,8 +26,8 @@ import kotlin.test.Test
 import kotlin.test.assertFailsWith
 
 /**
- * Orchestration tests for [SyntaxIntensityService]. Mirrors the
- * [SyntaxModeServiceTest] MockK harness — mocks the three named Ayu schemes
+ * Orchestration tests for [SyntaxIntensityService]. Reuses the prior
+ * service-orchestrator MockK harness — mocks the three named Ayu schemes
  * via `EditorColorsManager.getScheme(...)` plus the active `globalScheme`,
  * verifies a single `ReadAction`-wrapped `globalSchemeChange` publish per
  * `apply()` invocation (R-7), and pins the R-1 fallback + service-layer
