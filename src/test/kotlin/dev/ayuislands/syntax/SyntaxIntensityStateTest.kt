@@ -181,9 +181,15 @@ class SyntaxIntensityStateTest {
     fun `getInstance companion is wired via ApplicationManager getService (source-regex lock)`() {
         val source = readStateSource()
         assertTrue(source.contains("fun getInstance"), "Pattern L lock — companion getInstance() must be present")
+        // The source may split the chain across local-val lines to satisfy
+        // detekt MaxLineLength; lock both fragments instead of the full chain.
         assertTrue(
-            source.contains("ApplicationManager.getApplication().getService(SyntaxIntensityState::class.java)"),
-            "Pattern L lock — getInstance() must resolve via ApplicationManager.getService " +
+            source.contains("ApplicationManager.getApplication()"),
+            "Pattern L lock — getInstance() must call ApplicationManager.getApplication()",
+        )
+        assertTrue(
+            source.contains("getService(SyntaxIntensityState::class.java)"),
+            "Pattern L lock — getInstance() must resolve via getService(SyntaxIntensityState::class.java) " +
                 "(live integration tested under src/test/kotlin/dev/ayuislands/integration/)",
         )
         // Sanity — assertNotNull on the source to keep the import referenced.
