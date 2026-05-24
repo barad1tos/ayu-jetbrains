@@ -1,10 +1,10 @@
 package dev.ayuislands.settings
 
-import dev.ayuislands.syntax.StyleAxis
-import dev.ayuislands.syntax.SyntaxModeBaseState
-import dev.ayuislands.syntax.SyntaxModeService
-import dev.ayuislands.syntax.SyntaxModeState
-import dev.ayuislands.syntax.SyntaxMood
+import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.syntax.SyntaxIntensityBaseState
+import dev.ayuislands.syntax.SyntaxIntensityService
+import dev.ayuislands.syntax.SyntaxIntensityState
+import dev.ayuislands.syntax.SyntaxPreset
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -13,49 +13,61 @@ import io.mockk.verify
 import io.mockk.verifyOrder
 import java.nio.file.Files
 import java.nio.file.Path
-import javax.swing.JRadioButton
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
- * Unit tests for [AyuIslandsSyntaxPanel] (Phase 49, Plan 49-03).
+ * Unit tests for [AyuIslandsSyntaxPanel] — pill row + Custom premium gate.
  *
- * Coverage targets:
- *  - D-02 default mood (MAXIMUM) on null `state.mood`.
- *  - Apply-before-persist ordering (Anti-Pattern #4): [SyntaxModeService.apply]
- *    MUST run BEFORE the state.mood / state.axes mutation.
- *  - Null-safe `reset()` (warning #8 fix): calling reset() BEFORE buildPanel()
- *    must not throw.
- *  - Pattern L source-regex regression locks for SYNTAX-08 (no [LicenseChecker]
- *    references in the panel source) and SYNTAX-12 (browserLink to JetBrains
- *    Color Scheme help page).
+ * Coverage:
+ *  - Default preset on null / unknown persisted name = `AMBIENT` (D-23).
+ *  - Pill selection invokes [SyntaxIntensityService.apply] and persists
+ *    `state.selectedPreset` (apply-on-click, no Apply button).
+ *  - Apply-FIRST persist-SECOND ordering (Anti-Pattern #4 / Phase 40.4):
+ *    a service throw leaves `state.selectedPreset` untouched.
+ *  - Custom rejection for unlicensed users: `LicenseChecker.requestLicense`
+ *    is invoked, pending stays at the previous preset, no service call,
+ *    no state mutation.
+ *  - Custom accepted for licensed users: pill selection routes through the
+ *    same apply path as the four named pills.
+ *  - `reset()` reverts the pending buffer to the stored value.
+ *  - Pattern L source-regex regression locks: license check call sites,
+ *    apply ordering, absence of Phase 49 symbols, correct `LicenseChecker`
+ *    import package, real `buildPanel(panel, variant)` signature, and the
+ *    tooltip pre-placement helper presence.
  *
- * Plain kotlin.test + MockK. No platform fixture; the panel's buildPanel
- * uses the Kotlin UI DSL whose direct invocation requires an EDT-managed
- * DialogPanel, so the tests exercise apply / reset / isModified on freshly
- * constructed instances and verify behavior via the mocked service / state.
+ * Plain kotlin.test + MockK. The Kotlin UI DSL requires EDT-managed
+ * `DialogPanel` lifecycle, so the tests exercise apply / reset / isModified
+ * on freshly constructed panels and drive the pill selection through the
+ * private `onPresetChosen` seam via reflection.
  */
 class AyuIslandsSyntaxPanelTest {
-    private lateinit var stateBase: SyntaxModeBaseState
-    private lateinit var stateService: SyntaxModeState
-    private lateinit var modeService: SyntaxModeService
+    private lateinit var stateBase: SyntaxIntensityBaseState
+    private lateinit var stateService: SyntaxIntensityState
+    private lateinit var intensityService: SyntaxIntensityService
 
     @BeforeTest
     fun setUp() {
-        stateBase = SyntaxModeBaseState()
+        stateBase = SyntaxIntensityBaseState()
         stateService = mockk(relaxed = true)
         every { stateService.state } returns stateBase
-        mockkObject(SyntaxModeState.Companion)
-        every { SyntaxModeState.getInstance() } returns stateService
+        mockkObject(SyntaxIntensityState.Companion)
+        every { SyntaxIntensityState.getInstance() } returns stateService
 
-        modeService = mockk(relaxed = true)
-        mockkObject(SyntaxModeService.Companion)
-        every { SyntaxModeService.getInstance() } returns modeService
+        intensityService = mockk(relaxed = true)
+        mockkObject(SyntaxIntensityService.Companion)
+        every { SyntaxIntensityService.getInstance() } returns intensityService
+
+        mockkObject(LicenseChecker)
+        // Default: licensed. Individual tests override to false where needed.
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        every { LicenseChecker.requestLicense(any()) } returns Unit
     }
 
     @AfterTest
@@ -63,262 +75,346 @@ class AyuIslandsSyntaxPanelTest {
         unmockkAll()
     }
 
-    // ---------- loadStateIntoPending (via reflection on private helper) ----------
+    // ---------- Test 1 — initial state defaults to AMBIENT (D-23) ----------
+
+    @Test
+    fun `loadStateIntoPending defaults to AMBIENT when state selectedPreset is null`() {
+        stateBase.selectedPreset = null
+        val panel = panelWithLoadedState()
+        assertSame(SyntaxPreset.AMBIENT, readPendingPreset(panel))
+        assertSame(SyntaxPreset.AMBIENT, readStoredPreset(panel))
+    }
+
+    @Test
+    fun `loadStateIntoPending honors explicit AMBIENT default`() {
+        stateBase.selectedPreset = "AMBIENT"
+        val panel = panelWithLoadedState()
+        assertSame(SyntaxPreset.AMBIENT, readPendingPreset(panel))
+    }
+
+    @Test
+    fun `loadStateIntoPending honors a non-default persisted preset name`() {
+        stateBase.selectedPreset = "NEON"
+        val panel = panelWithLoadedState()
+        assertSame(SyntaxPreset.NEON, readPendingPreset(panel))
+    }
+
+    // ---------- Test 2 — pill selection applies + persists ----------
+
+    @Test
+    fun `pill selection invokes SyntaxIntensityService apply with empty overrides`() {
+        stateBase.selectedPreset = "AMBIENT"
+        val panel = panelWithLoadedState()
+
+        invokeOnPresetChosen(panel, SyntaxPreset.NEON)
+
+        verify(exactly = 1) { intensityService.apply(SyntaxPreset.NEON, emptyMap()) }
+    }
+
+    @Test
+    fun `pill selection persists selectedPreset to state`() {
+        stateBase.selectedPreset = "AMBIENT"
+        val panel = panelWithLoadedState()
+
+        invokeOnPresetChosen(panel, SyntaxPreset.WHISPER)
+
+        assertEquals("WHISPER", stateBase.selectedPreset)
+    }
+
+    @Test
+    fun `pill selection updates stored buffer so subsequent isModified returns false`() {
+        stateBase.selectedPreset = "AMBIENT"
+        val panel = panelWithLoadedState()
+
+        invokeOnPresetChosen(panel, SyntaxPreset.CYBERPUNK)
+
+        assertFalse(panel.isModified(), "after pill click stored == pending so isModified is false")
+    }
+
+    // ---------- Test 3 — apply-FIRST persist-SECOND ordering ----------
+
+    @Test
+    fun `apply orders service call BEFORE state persistence (Anti-Pattern 4)`() {
+        stateBase.selectedPreset = "AMBIENT"
+        val panel = panelWithLoadedState()
+        writePendingPreset(panel, SyntaxPreset.NEON)
+
+        panel.apply()
+
+        verifyOrder {
+            intensityService.apply(SyntaxPreset.NEON, emptyMap())
+            stateService.state
+        }
+    }
+
+    @Test
+    fun `apply ordering — service throw leaves state selectedPreset UNCHANGED`() {
+        stateBase.selectedPreset = "AMBIENT"
+        every { intensityService.apply(any(), any()) } throws RuntimeException("simulated apply failure")
+        val panel = panelWithLoadedState()
+        writePendingPreset(panel, SyntaxPreset.NEON)
+
+        assertFailsWith<RuntimeException> { panel.apply() }
+
+        assertEquals(
+            "AMBIENT",
+            stateBase.selectedPreset,
+            "apply-FIRST persist-SECOND: a service throw must NOT mutate state.selectedPreset",
+        )
+    }
+
+    // ---------- Test 4 — Custom rejection for unlicensed users ----------
+
+    @Test
+    fun `Custom pill rejected for unlicensed users — requestLicense fires, no service call, no persist`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        stateBase.selectedPreset = "AMBIENT"
+        val panel = panelWithLoadedState()
+
+        invokeOnPresetChosen(panel, SyntaxPreset.CUSTOM)
+
+        verify(exactly = 1) {
+            LicenseChecker.requestLicense("Unlock per-language syntax customization")
+        }
+        verify(exactly = 0) { intensityService.apply(any(), any()) }
+        assertEquals("AMBIENT", stateBase.selectedPreset)
+        assertSame(SyntaxPreset.AMBIENT, readPendingPreset(panel))
+    }
+
+    // ---------- Test 5 — Custom accepted for licensed users ----------
+
+    @Test
+    fun `Custom pill accepted for licensed users — apply with empty overrides + persist`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        stateBase.selectedPreset = "AMBIENT"
+        val panel = panelWithLoadedState()
+
+        invokeOnPresetChosen(panel, SyntaxPreset.CUSTOM)
+
+        verify(exactly = 1) { intensityService.apply(SyntaxPreset.CUSTOM, emptyMap()) }
+        assertEquals("CUSTOM", stateBase.selectedPreset)
+        verify(exactly = 0) { LicenseChecker.requestLicense(any()) }
+    }
+
+    // ---------- Test 6 — reset reverts pending to stored ----------
+
+    @Test
+    fun `reset reverts pendingPreset to storedPreset`() {
+        stateBase.selectedPreset = "AMBIENT"
+        val panel = panelWithLoadedState()
+        writePendingPreset(panel, SyntaxPreset.NEON)
+        assertTrue(panel.isModified())
+
+        panel.reset()
+
+        assertSame(SyntaxPreset.AMBIENT, readPendingPreset(panel))
+        assertFalse(panel.isModified())
+    }
+
+    // ---------- Test 7 — Pattern L: LicenseChecker call site lock ----------
+
+    @Test
+    fun `panel source has exactly 2 LicenseChecker isLicensedOrGrace call sites (Pattern L)`() {
+        val source = readPanelSource()
+        val pattern = Regex("""LicenseChecker\.isLicensedOrGrace\(\)""")
+        val matches = pattern.findAll(source).count()
+        assertEquals(
+            2,
+            matches,
+            "Pattern L: only the Custom-pill guard in onPresetChosen and the short-circuit in " +
+                "applyCustomPillTooltipIfFree may call LicenseChecker.isLicensedOrGrace(). " +
+                "Found $matches call sites — INTENSITY-10 regression risk.",
+        )
+    }
+
+    @Test
+    fun `Custom-pill guard sits next to SyntaxPreset CUSTOM literal in source (Pattern L)`() {
+        val source = readPanelSource()
+        // The first license call site is the onPresetChosen guard; it must
+        // appear within a few lines of the literal SyntaxPreset.CUSTOM to
+        // prove the gate is on the Custom branch and not a free-pill path.
+        val guardRegex =
+            Regex(
+                """preset\s*==\s*SyntaxPreset\.CUSTOM\s*&&\s*!LicenseChecker\.isLicensedOrGrace\(\)""",
+            )
+        assertTrue(
+            guardRegex.containsMatchIn(source),
+            "Pattern L: the unlicensed Custom guard must read " +
+                "'preset == SyntaxPreset.CUSTOM && !LicenseChecker.isLicensedOrGrace()' verbatim.",
+        )
+    }
+
+    @Test
+    fun `requestLicense appears exactly once in panel source`() {
+        val source = readPanelSource()
+        val matches = Regex("""LicenseChecker\.requestLicense\(""").findAll(source).count()
+        assertEquals(
+            1,
+            matches,
+            "Pattern L: LicenseChecker.requestLicense must be invoked exactly once " +
+                "(the Custom-rejection branch).",
+        )
+    }
+
+    // ---------- Test 8 — Pattern L: no Phase 49 symbol references ----------
+
+    @Test
+    fun `panel source contains no Phase 49 symbol references (Pattern L)`() {
+        val source = readPanelSource()
+        val forbidden =
+            listOf(
+                "SyntaxMood",
+                "StyleAxis",
+                "SyntaxModeService",
+                "SyntaxModeState",
+                "SyntaxModeUpgradeNotifier",
+            )
+        for (literal in forbidden) {
+            assertFalse(
+                source.contains(literal),
+                "Pattern L: Phase 49 symbol '$literal' must not appear in the panel source.",
+            )
+        }
+    }
+
+    // ---------- Test 9 — Pattern L: apply ordering source lock ----------
+
+    @Test
+    fun `apply method body has service call BEFORE state mutation in source (Pattern L apply-FIRST)`() {
+        val source = readPanelSource()
+        val serviceCallIdx = source.indexOf("SyntaxIntensityService.getInstance().apply(")
+        val statePersistIdx = source.indexOf("state.selectedPreset = pendingPreset.name")
+        assertTrue(
+            serviceCallIdx >= 0,
+            "panel source must contain a SyntaxIntensityService.getInstance().apply(...) call",
+        )
+        assertTrue(
+            statePersistIdx >= 0,
+            "panel source must contain 'state.selectedPreset = pendingPreset.name' persistence",
+        )
+        assertTrue(
+            serviceCallIdx < statePersistIdx,
+            "Pattern L apply-FIRST: service.apply(...) must appear textually BEFORE " +
+                "state.selectedPreset = pendingPreset.name (Anti-Pattern #4 ordering).",
+        )
+    }
+
+    // ---------- Test 10 — Pattern L: browserLink present ----------
+
+    @Test
+    fun `panel source contains a browserLink call (Pattern L)`() {
+        val source = readPanelSource()
+        assertTrue(
+            source.contains("browserLink("),
+            "Pattern L: panel must include the browserLink to the Color Scheme editor docs.",
+        )
+        assertTrue(
+            source.contains("https://www.jetbrains.com/help/idea/configuring-colors-and-fonts.html"),
+            "Pattern L: browserLink URL must point at the JetBrains Color Scheme help page.",
+        )
+    }
+
+    // ---------- Test 11 — Pattern L: correct LicenseChecker package ----------
+
+    @Test
+    fun `panel source imports LicenseChecker from licensing package (Codex HIGH 2)`() {
+        val source = readPanelSource()
+        assertTrue(
+            source.contains("import dev.ayuislands.licensing.LicenseChecker"),
+            "Codex HIGH #2: LicenseChecker must be imported from dev.ayuislands.licensing.",
+        )
+        assertFalse(
+            source.contains("import dev.ayuislands.license.LicenseChecker"),
+            "Codex HIGH #2: wrong package 'dev.ayuislands.license' must not appear in imports.",
+        )
+    }
+
+    // ---------- Test 12 — Pattern L: real interface signature ----------
+
+    @Test
+    fun `panel source uses real buildPanel(panel, variant) signature (Codex HIGH 2)`() {
+        val source = readPanelSource()
+        assertTrue(
+            source.contains("override fun buildPanel("),
+            "Codex HIGH #2: override fun buildPanel must be present.",
+        )
+        assertTrue(
+            source.contains("panel: Panel,"),
+            "Codex HIGH #2: buildPanel must take 'panel: Panel,' as a positional parameter.",
+        )
+        assertTrue(
+            source.contains("variant: AyuVariant"),
+            "Codex HIGH #2: buildPanel must take 'variant: AyuVariant' as a positional parameter.",
+        )
+        assertFalse(
+            source.contains("override fun getComponent"),
+            "Codex HIGH #2: getComponent is NOT part of the real AyuIslandsSettingsPanel interface.",
+        )
+    }
+
+    // ---------- Test 13 — Pattern L: tooltip pre-placement helper presence ----------
+
+    @Test
+    fun `panel source contains applyCustomPillTooltipIfFree helper (Gemini MEDIUM 3)`() {
+        val source = readPanelSource()
+        assertTrue(
+            source.contains("applyCustomPillTooltipIfFree"),
+            "Gemini MEDIUM #3: applyCustomPillTooltipIfFree helper must exist as the wire site " +
+                "for the runIde-finalised Swing subtree lookup.",
+        )
+        assertTrue(
+            source.contains("SwingUtilities.invokeLater { applyCustomPillTooltipIfFree() }"),
+            "Gemini MEDIUM #3: tooltip pre-placement must be queued post-realise via " +
+                "SwingUtilities.invokeLater { applyCustomPillTooltipIfFree() }.",
+        )
+    }
+
+    // ---------- Reflection helpers ----------
 
     private fun panelWithLoadedState(): AyuIslandsSyntaxPanel {
         val panel = AyuIslandsSyntaxPanel()
-        // The private helper `loadStateIntoPending` is invoked by buildPanel.
-        // Tests invoke it directly via reflection to avoid the EDT-dependent DSL.
         val method = AyuIslandsSyntaxPanel::class.java.getDeclaredMethod("loadStateIntoPending")
         method.isAccessible = true
         method.invoke(panel)
         return panel
     }
 
-    @Test
-    fun `loadStateIntoPending initializes pendingMood from state via fromName (D-02 default = MAXIMUM)`() {
-        stateBase.mood = null
-        val panel = panelWithLoadedState()
-        assertSame(SyntaxMood.MAXIMUM, readPendingMood(panel))
-        assertSame(SyntaxMood.MAXIMUM, readStoredMood(panel))
-    }
-
-    @Test
-    fun `loadStateIntoPending uses stored mood enum name`() {
-        stateBase.mood = "STANDARD"
-        val panel = panelWithLoadedState()
-        assertSame(SyntaxMood.STANDARD, readPendingMood(panel))
-    }
-
-    @Test
-    fun `loadStateIntoPending initializes pendingAxes filtering unknown enum names`() {
-        stateBase.mood = "MAXIMUM"
-        stateBase.axes.clear()
-        stateBase.axes.addAll(setOf("ITALIC_DECLARATIONS", "BOGUS"))
-        val panel = panelWithLoadedState()
-        val pending = readPendingAxes(panel)
-        assertEquals(setOf(StyleAxis.ITALIC_DECLARATIONS), pending)
-    }
-
-    // ---------- isModified ----------
-
-    @Test
-    fun `isModified returns false when nothing changed`() {
-        stateBase.mood = "MAXIMUM"
-        val panel = panelWithLoadedState()
-        assertFalse(panel.isModified())
-    }
-
-    @Test
-    fun `isModified returns true after mood change in pending buffer`() {
-        stateBase.mood = "MAXIMUM"
-        val panel = panelWithLoadedState()
-        writePendingMood(panel, SyntaxMood.MINIMAL)
-        assertTrue(panel.isModified())
-    }
-
-    @Test
-    fun `isModified returns true after axis add in pending buffer`() {
-        stateBase.mood = "MAXIMUM"
-        val panel = panelWithLoadedState()
-        readPendingAxes(panel) // ensure init
-        writePendingAxes(panel, mutableSetOf(StyleAxis.DIMMED_COMMENTS))
-        assertTrue(panel.isModified())
-    }
-
-    // ---------- apply ----------
-
-    @Test
-    fun `apply when not modified is no-op (no service call)`() {
-        stateBase.mood = "MAXIMUM"
-        val panel = panelWithLoadedState()
-        panel.apply()
-        verify(exactly = 0) { modeService.apply(any(), any()) }
-    }
-
-    @Test
-    fun `apply calls SyntaxModeService apply BEFORE persisting state (apply-before-persist invariant)`() {
-        stateBase.mood = "MAXIMUM"
-        val panel = panelWithLoadedState()
-        writePendingMood(panel, SyntaxMood.RICH)
-
-        panel.apply()
-
-        verifyOrder {
-            // 1. Service call lands FIRST (Anti-Pattern #4)
-            modeService.apply(SyntaxMood.RICH, any())
-            // 2. State.state is read for persistence (post-apply)
-            stateService.state
-        }
-    }
-
-    @Test
-    fun `apply persists mood name as enum string`() {
-        stateBase.mood = "MAXIMUM"
-        val panel = panelWithLoadedState()
-        writePendingMood(panel, SyntaxMood.MINIMAL)
-        panel.apply()
-        assertEquals("MINIMAL", stateBase.mood)
-    }
-
-    @Test
-    fun `apply persists axes as Set of enum names`() {
-        stateBase.mood = "MAXIMUM"
-        val panel = panelWithLoadedState()
-        writePendingAxes(
-            panel,
-            mutableSetOf(StyleAxis.ITALIC_DECLARATIONS, StyleAxis.DIMMED_COMMENTS),
-        )
-        panel.apply()
-        assertEquals(setOf("ITALIC_DECLARATIONS", "DIMMED_COMMENTS"), stateBase.axes.toSet())
-    }
-
-    @Test
-    fun `apply updates stored buffers so subsequent isModified returns false`() {
-        stateBase.mood = "MAXIMUM"
-        val panel = panelWithLoadedState()
-        writePendingMood(panel, SyntaxMood.RICH)
-        panel.apply()
-        assertFalse(panel.isModified(), "after apply the stored == pending so isModified is false")
-    }
-
-    // ---------- reset ----------
-
-    @Test
-    fun `reset reverts pendingMood and pendingAxes to stored values`() {
-        stateBase.mood = "STANDARD"
-        stateBase.axes.clear()
-        stateBase.axes.addAll(setOf("ITALIC_DECLARATIONS"))
-        val panel = panelWithLoadedState()
-        // Seed a single radio + checkbox so reset() passes the moodRadios.isEmpty()
-        // null-guard and exercises the buffer-revert + UI-refresh path. The
-        // separate `reset_before_buildPanel_is_noop_does_not_throw` test covers
-        // the deviated-lifecycle no-op contract.
-        seedSingleRadio(panel)
-        writePendingMood(panel, SyntaxMood.MAXIMUM)
-        writePendingAxes(panel, mutableSetOf(StyleAxis.BOLD_TYPE_REFERENCES))
-
-        panel.reset()
-
-        assertSame(SyntaxMood.STANDARD, readPendingMood(panel))
-        assertEquals(setOf(StyleAxis.ITALIC_DECLARATIONS), readPendingAxes(panel))
-    }
-
-    @Test
-    fun `reset before buildPanel is noop does not throw (warning 8 fix)`() {
-        // Construct a panel WITHOUT calling buildPanel() (simulates deviated
-        // Configurable lifecycle: reset before first build). The moodRadios /
-        // axisCheckboxes maps are empty, so reset() must hit the null-guard
-        // and return early without mutating anything.
-        val panel = AyuIslandsSyntaxPanel()
-        panel.reset() // Must NOT throw.
-        // Default-constructed pendingMood is MAXIMUM per D-02; reset must not
-        // change it.
-        assertSame(SyntaxMood.MAXIMUM, readPendingMood(panel))
-    }
-
-    // ---------- Pattern L source-regex regression locks ----------
-
-    @Test
-    fun `panel source contains no LicenseChecker references (SYNTAX-08 Pattern L lock)`() {
-        val source = readPanelSource()
-        assertFalse(
-            source.contains("LicenseChecker"),
-            "SYNTAX-08: Syntax tab is a FREE feature (D-01) — no LicenseChecker references allowed",
-        )
-    }
-
-    @Test
-    fun `panel source contains browserLink to JetBrains Color Scheme docs (SYNTAX-12)`() {
-        val source = readPanelSource()
-        assertTrue(
-            source.contains("browserLink"),
-            "SYNTAX-12: panel must contain a browserLink pointer",
-        )
-        assertTrue(
-            source.contains("https://www.jetbrains.com/help/idea/configuring-colors-and-fonts.html"),
-            "SYNTAX-12: browserLink URL must point at the JetBrains Color Scheme help page",
-        )
-    }
-
-    @Test
-    fun `panel source references all 4 SyntaxMood entries`() {
-        val source = readPanelSource()
-        // The panel iterates SyntaxMood.entries which transitively covers all 4 moods.
-        assertTrue(
-            source.contains("SyntaxMood.entries"),
-            "panel must iterate SyntaxMood.entries (covers MINIMAL/STANDARD/RICH/MAXIMUM)",
-        )
-    }
-
-    @Test
-    fun `panel source references all 4 StyleAxis entries`() {
-        val source = readPanelSource()
-        assertTrue(
-            source.contains("StyleAxis.entries"),
-            "panel must iterate StyleAxis.entries (covers ITALIC_DECLARATIONS / BOLD_TYPE_REFERENCES " +
-                "/ DIMMED_COMMENTS / ITALIC_DOC_TAGS)",
-        )
-    }
-
-    // ---------- Reflection helpers ----------
-
-    private fun readPendingMood(panel: AyuIslandsSyntaxPanel): SyntaxMood {
-        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("pendingMood")
-        field.isAccessible = true
-        return field.get(panel) as SyntaxMood
-    }
-
-    private fun readStoredMood(panel: AyuIslandsSyntaxPanel): SyntaxMood {
-        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("storedMood")
-        field.isAccessible = true
-        return field.get(panel) as SyntaxMood
-    }
-
-    private fun writePendingMood(
+    private fun invokeOnPresetChosen(
         panel: AyuIslandsSyntaxPanel,
-        mood: SyntaxMood,
+        preset: SyntaxPreset,
     ) {
-        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("pendingMood")
-        field.isAccessible = true
-        field.set(panel, mood)
+        val method =
+            AyuIslandsSyntaxPanel::class.java.getDeclaredMethod(
+                "onPresetChosen",
+                SyntaxPreset::class.java,
+            )
+        method.isAccessible = true
+        method.invoke(panel, preset)
     }
 
-    @Suppress("UNCHECKED_CAST")
-    private fun readPendingAxes(panel: AyuIslandsSyntaxPanel): Set<StyleAxis> {
-        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("pendingAxes")
+    private fun readPendingPreset(panel: AyuIslandsSyntaxPanel): SyntaxPreset {
+        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("pendingPreset")
         field.isAccessible = true
-        return (field.get(panel) as MutableSet<StyleAxis>).toSet()
+        return field.get(panel) as SyntaxPreset
     }
 
-    @Suppress("UNCHECKED_CAST")
-    private fun writePendingAxes(
+    private fun readStoredPreset(panel: AyuIslandsSyntaxPanel): SyntaxPreset {
+        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("storedPreset")
+        field.isAccessible = true
+        return field.get(panel) as SyntaxPreset
+    }
+
+    private fun writePendingPreset(
         panel: AyuIslandsSyntaxPanel,
-        axes: MutableSet<StyleAxis>,
+        preset: SyntaxPreset,
     ) {
-        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("pendingAxes")
+        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("pendingPreset")
         field.isAccessible = true
-        val current = field.get(panel) as MutableSet<StyleAxis>
-        current.clear()
-        current.addAll(axes)
+        field.set(panel, preset)
     }
 
     private fun readPanelSource(): String =
         Files.readString(
             Path.of("src/main/kotlin/dev/ayuislands/settings/AyuIslandsSyntaxPanel.kt"),
         )
-
-    /**
-     * Seeds a single entry into the private moodRadios map so reset() bypasses
-     * the warning-#8 null-guard and exercises the buffer-revert path. A real
-     * JRadioButton is used; reset() only sets `isSelected` on it which is
-     * harmless off-EDT for a never-displayed Swing component.
-     */
-    @Suppress("UNCHECKED_CAST")
-    private fun seedSingleRadio(panel: AyuIslandsSyntaxPanel) {
-        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("moodRadios")
-        field.isAccessible = true
-        val map = field.get(panel) as MutableMap<SyntaxMood, JRadioButton>
-        map[SyntaxMood.MAXIMUM] = JRadioButton()
-    }
 }
