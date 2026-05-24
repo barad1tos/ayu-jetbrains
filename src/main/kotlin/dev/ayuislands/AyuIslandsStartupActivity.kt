@@ -24,6 +24,7 @@ import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
+import dev.ayuislands.syntax.SyntaxIntensityMigrationNotifier
 import dev.ayuislands.ui.ComponentTreeRefresher
 import dev.ayuislands.vcs.VcsColorApplier
 import kotlinx.coroutines.Dispatchers
@@ -193,6 +194,12 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
 
         // Show a one-time update notification if the plugin version changed
         SwingUtilities.invokeLater { UpdateNotifier.showIfUpdated(project) }
+
+        // One-shot migration notification for the syntax-intensity preset row.
+        // Fires exactly once per install via a distinct PropertiesComponent flag
+        // (`ayu.syntax.intensity.notified`) so users who saw the prior syntax
+        // notification still receive this migration message.
+        SwingUtilities.invokeLater { SyntaxIntensityMigrationNotifier.maybeFire(project) }
 
         // Initialize the glow overlay system if the glow is enabled
         // Uses ApplicationManager.invokeLater with project.disposed condition to skip
