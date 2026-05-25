@@ -44,7 +44,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
     ) {
         loadStateIntoPending()
         with(panel) {
-            row {
+            row("Preset:") {
                 val segmented =
                     segmentedButton(SyntaxPreset.entries) { preset -> text = preset.displayName }
                 segmented.maxButtonsCount(SyntaxPreset.entries.size)
