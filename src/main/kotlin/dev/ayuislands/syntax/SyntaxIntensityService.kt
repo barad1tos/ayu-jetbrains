@@ -77,6 +77,7 @@ class SyntaxIntensityService {
     fun apply(
         preset: SyntaxPreset,
         customOverrides: Map<String, Map<String, Int>>,
+        subordinatePreset: SyntaxPreset = SyntaxPreset.AMBIENT,
     ) {
         val effectivePreset = enforceCustomGate(preset)
         val loader = SyntaxOverlayLoader.getInstance()
@@ -101,11 +102,12 @@ class SyntaxIntensityService {
                     editorBg,
                     baseline,
                     overlay,
+                    subordinatePreset,
                 )
             writeSchemeAttributes(scheme, computed, schemeName)
             touched.add(scheme)
         }
-        writeActiveSchemeIfNotTouched(manager, effectivePreset, customOverrides, loader, touched)
+        writeActiveSchemeIfNotTouched(effectivePreset, customOverrides, loader, touched, subordinatePreset)
         publishSchemeChange()
     }
 
@@ -113,7 +115,8 @@ class SyntaxIntensityService {
         val state = SyntaxIntensityState.getInstance()
         val config = state.toPresetConfig()
         val preset = SyntaxPreset.fromName(config.selectedPreset)
-        apply(preset, config.customOverrides)
+        val subordinate = SyntaxPreset.fromName(config.subordinatePreset)
+        apply(preset, config.customOverrides, subordinate)
     }
 
     /**
@@ -189,15 +192,20 @@ class SyntaxIntensityService {
      * the active `globalScheme` whenever it is NOT one of the three named
      * instances we already touched (identity dedup — no double-write on
      * a clean install).
+     *
+     * The active scheme is read from the [EditorColorsManager] singleton; the
+     * `touched` set was built from the same singleton in the caller, so the
+     * identity dedup comparison stays sound without threading the manager
+     * instance through.
      */
     private fun writeActiveSchemeIfNotTouched(
-        manager: EditorColorsManager,
         preset: SyntaxPreset,
         customOverrides: Map<String, Map<String, Int>>,
         loader: SyntaxOverlayLoader,
         touched: Set<EditorColorsScheme>,
+        subordinatePreset: SyntaxPreset = SyntaxPreset.AMBIENT,
     ) {
-        val active = manager.globalScheme
+        val active = EditorColorsManager.getInstance().globalScheme
         if (active in touched) return
         val variant = resolveOverlayVariant(active.name)
         val editorBg = resolveEditorBg(active, variant)
@@ -211,6 +219,7 @@ class SyntaxIntensityService {
                 editorBg,
                 baseline,
                 overlay,
+                subordinatePreset,
             )
         writeSchemeAttributes(active, computed, active.name)
     }

@@ -71,6 +71,7 @@ class SyntaxIntensityState : SimplePersistentStateComponent<SyntaxIntensityBaseS
         }
         return SyntaxPresetConfig(
             selectedPreset = state.selectedPreset ?: "AMBIENT",
+            subordinatePreset = state.subordinatePreset ?: "AMBIENT",
             customOverrides = nested,
         )
     }
@@ -88,6 +89,11 @@ class SyntaxIntensityState : SimplePersistentStateComponent<SyntaxIntensityBaseS
  *
  * Schema (D-16 — round-2 revised per Gemini + OpenCode consensus):
  *  - [selectedPreset]: enum name string, default `"AMBIENT"` (D-23).
+ *  - [subordinatePreset]: enum name string, default `"AMBIENT"`. The named
+ *    preset whose curve fills the untouched (sparse) cells while the user is
+ *    in the Custom drill-down. Legacy / absent XML deserialises to `"AMBIENT"`
+ *    via the `string("AMBIENT")` delegate, so old state stays valid with no
+ *    read-time migration.
  *  - [customOverrides]: FLAT composite-key map. Key = `"language|category"`,
  *    value = slider position `"0..100"` as string. Matches the proven
  *    [dev.ayuislands.settings.mappings.AccentMappingsState] flat-map BaseState
@@ -103,6 +109,7 @@ class SyntaxIntensityState : SimplePersistentStateComponent<SyntaxIntensityBaseS
  */
 class SyntaxIntensityBaseState : BaseState() {
     var selectedPreset by string("AMBIENT")
+    var subordinatePreset by string("AMBIENT")
     var customOverrides by map<String, String>()
     var schemaVersion by property(1)
 }

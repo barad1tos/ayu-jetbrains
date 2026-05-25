@@ -64,6 +64,17 @@ private const val NEON_RUBY_FUNC_LIGHT = 0.05f
 private const val CP_LANG_KW_S = 0.42f
 private const val CP_LANG_KW_L = 0.05f
 
+// Custom drill-down slider math. 50 is the identity midpoint; the swing
+// magnitudes are the deltas at the slider extremes (0 and 100). MAX_SAT_SWING
+// matches the Cyberpunk saturation peak so the strongest Custom setting is as
+// vivid as the most intense named preset. MAX_LIGHT_SWING stays strictly below
+// the AccentHsl lightness floor (0.10) so the raw delta is never mistaken for a
+// pre-clamped absolute bound — the applicator's transformForeground owns the
+// clamp.
+private const val SLIDER_MID = 50
+private const val MAX_SAT_SWING = 0.40f
+private const val MAX_LIGHT_SWING = 0.08f
+
 /**
  * Per-(preset × language × category) saturation + lightness delta lookup for
  * the syntax-intensity applicator. Sparse: per-language overrides only for the
@@ -215,6 +226,22 @@ object SyntaxPresetCurves {
     ): CategoryCurve {
         LANGUAGE_OVERRIDES[preset]?.get(language)?.get(category)?.let { return it }
         return baseFor(preset)[category] ?: CategoryCurve.IDENTITY
+    }
+
+    /**
+     * Map a Custom drill-down slider position `0..100` to a [CategoryCurve].
+     *
+     * Linear from the 50 midpoint: `t = (value - 50) / 50f` ranges `-1f..+1f`,
+     * with `50` the identity zero-point. Above 50 saturates and brightens
+     * (positive deltas), below 50 desaturates and dims (negative deltas). Hue
+     * is invariant by construction (no hue term). Deltas are RAW swing
+     * magnitudes — the applicator's `transformForeground` clamps saturation to
+     * `[0f, 1f]` and lightness to `AccentHsl.MIN_LIGHTNESS..MAX_LIGHTNESS`, so
+     * this function deliberately does NOT pre-clamp.
+     */
+    fun sliderToCurve(value: Int): CategoryCurve {
+        val t = (value - SLIDER_MID) / SLIDER_MID.toFloat()
+        return CategoryCurve(t * MAX_SAT_SWING, t * MAX_LIGHT_SWING)
     }
 
     private fun baseFor(preset: SyntaxPreset): Map<PrimitiveCategory, CategoryCurve> =
