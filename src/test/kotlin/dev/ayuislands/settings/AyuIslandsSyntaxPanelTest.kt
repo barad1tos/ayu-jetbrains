@@ -108,7 +108,7 @@ class AyuIslandsSyntaxPanelTest {
 
         invokeOnPresetChosen(panel, SyntaxPreset.NEON)
 
-        verify(exactly = 1) { intensityService.apply(SyntaxPreset.NEON, emptyMap()) }
+        verify(exactly = 1) { intensityService.apply(SyntaxPreset.NEON, emptyMap(), any()) }
     }
 
     @Test
@@ -142,7 +142,7 @@ class AyuIslandsSyntaxPanelTest {
         panel.apply()
 
         verifyOrder {
-            intensityService.apply(SyntaxPreset.NEON, emptyMap())
+            intensityService.apply(SyntaxPreset.NEON, emptyMap(), any())
             stateService.state
         }
     }
@@ -150,7 +150,7 @@ class AyuIslandsSyntaxPanelTest {
     @Test
     fun `apply ordering — service throw leaves state selectedPreset UNCHANGED`() {
         stateBase.selectedPreset = "AMBIENT"
-        every { intensityService.apply(any(), any()) } throws RuntimeException("simulated apply failure")
+        every { intensityService.apply(any(), any(), any()) } throws RuntimeException("simulated apply failure")
         val panel = panelWithLoadedState()
         writePendingPreset(panel, SyntaxPreset.NEON)
 
@@ -176,7 +176,7 @@ class AyuIslandsSyntaxPanelTest {
         verify(exactly = 1) {
             LicenseChecker.requestLicense("Unlock per-language syntax customization")
         }
-        verify(exactly = 0) { intensityService.apply(any(), any()) }
+        verify(exactly = 0) { intensityService.apply(any(), any(), any()) }
         assertEquals("AMBIENT", stateBase.selectedPreset)
         assertSame(SyntaxPreset.AMBIENT, readPendingPreset(panel))
     }
@@ -191,7 +191,7 @@ class AyuIslandsSyntaxPanelTest {
 
         invokeOnPresetChosen(panel, SyntaxPreset.CUSTOM)
 
-        verify(exactly = 1) { intensityService.apply(SyntaxPreset.CUSTOM, emptyMap()) }
+        verify(exactly = 1) { intensityService.apply(SyntaxPreset.CUSTOM, emptyMap(), any()) }
         assertEquals("CUSTOM", stateBase.selectedPreset)
         verify(exactly = 0) { LicenseChecker.requestLicense(any()) }
     }
