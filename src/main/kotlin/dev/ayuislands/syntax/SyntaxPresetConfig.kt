@@ -16,6 +16,9 @@ package dev.ayuislands.syntax
  * Schema:
  *  - [selectedPreset]: enum-name string (`"WHISPER"`, `"AMBIENT"`, …). Unknown
  *    or tampered values fall back to `AMBIENT` at the detection site.
+ *  - [subordinatePreset]: enum-name string for the named preset whose curve
+ *    fills untouched cells while `selectedPreset == "CUSTOM"`. Unknown or
+ *    tampered values fall back to `AMBIENT` via `SyntaxPreset.fromName`.
  *  - [customOverrides]: nested `language -> category -> slider 0..100` map.
  *    The free tier never writes to this map; the premium Custom drill-down is
  *    the only writer.
@@ -23,4 +26,5 @@ package dev.ayuislands.syntax
 data class SyntaxPresetConfig(
     val selectedPreset: String,
     val customOverrides: Map<String, Map<String, Int>>,
+    val subordinatePreset: String = "AMBIENT",
 )
