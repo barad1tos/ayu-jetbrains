@@ -1,6 +1,10 @@
 package dev.ayuislands.settings
 
+import com.intellij.openapi.editor.colors.TextAttributesKey
+import com.intellij.openapi.editor.markup.TextAttributes
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.syntax.PrimitiveCategory
+import dev.ayuislands.syntax.SyntaxIntensityApplicator
 import dev.ayuislands.syntax.SyntaxIntensityBaseState
 import dev.ayuislands.syntax.SyntaxIntensityService
 import dev.ayuislands.syntax.SyntaxIntensityState
@@ -11,6 +15,7 @@ import io.mockk.mockkObject
 import io.mockk.unmockkAll
 import io.mockk.verify
 import io.mockk.verifyOrder
+import java.awt.Color
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.AfterTest
@@ -19,6 +24,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -108,7 +115,7 @@ class AyuIslandsSyntaxPanelTest {
 
         invokeOnPresetChosen(panel, SyntaxPreset.NEON)
 
-        verify(exactly = 1) { intensityService.apply(SyntaxPreset.NEON, emptyMap()) }
+        verify(exactly = 1) { intensityService.apply(SyntaxPreset.NEON, emptyMap(), any()) }
     }
 
     @Test
@@ -142,7 +149,7 @@ class AyuIslandsSyntaxPanelTest {
         panel.apply()
 
         verifyOrder {
-            intensityService.apply(SyntaxPreset.NEON, emptyMap())
+            intensityService.apply(SyntaxPreset.NEON, emptyMap(), any())
             stateService.state
         }
     }
@@ -150,7 +157,7 @@ class AyuIslandsSyntaxPanelTest {
     @Test
     fun `apply ordering — service throw leaves state selectedPreset UNCHANGED`() {
         stateBase.selectedPreset = "AMBIENT"
-        every { intensityService.apply(any(), any()) } throws RuntimeException("simulated apply failure")
+        every { intensityService.apply(any(), any(), any()) } throws RuntimeException("simulated apply failure")
         val panel = panelWithLoadedState()
         writePendingPreset(panel, SyntaxPreset.NEON)
 
@@ -176,7 +183,7 @@ class AyuIslandsSyntaxPanelTest {
         verify(exactly = 1) {
             LicenseChecker.requestLicense("Unlock per-language syntax customization")
         }
-        verify(exactly = 0) { intensityService.apply(any(), any()) }
+        verify(exactly = 0) { intensityService.apply(any(), any(), any()) }
         assertEquals("AMBIENT", stateBase.selectedPreset)
         assertSame(SyntaxPreset.AMBIENT, readPendingPreset(panel))
     }
@@ -191,7 +198,7 @@ class AyuIslandsSyntaxPanelTest {
 
         invokeOnPresetChosen(panel, SyntaxPreset.CUSTOM)
 
-        verify(exactly = 1) { intensityService.apply(SyntaxPreset.CUSTOM, emptyMap()) }
+        verify(exactly = 1) { intensityService.apply(SyntaxPreset.CUSTOM, emptyMap(), any()) }
         assertEquals("CUSTOM", stateBase.selectedPreset)
         verify(exactly = 0) { LicenseChecker.requestLicense(any()) }
     }
@@ -369,7 +376,153 @@ class AyuIslandsSyntaxPanelTest {
         )
     }
 
+    // ---------- Test 14 — composite-key identity round-trip (Pitfall 1/2) ----------
+
+    @Test
+    fun `panel composite key resolves in the applicator and transforms the foreground`() {
+        // Build the composite key exactly as the panel does: the language half
+        // is the SyntaxLanguageRegistry displayName, the category half is
+        // PrimitiveCategory.name (NOT displayName).
+        val key = "Java|" + PrimitiveCategory.KEYWORD.name
+        assertEquals("Java|KEYWORD", key, "panel key form must be displayName|CATEGORY_ENUM_NAME")
+
+        // Reshape via the SAME `|` split the panel's buildNestedOverrides uses.
+        val pipeIdx = key.indexOf('|')
+        val language = key.substring(0, pipeIdx)
+        val category = key.substring(pipeIdx + 1)
+        val nested = mapOf(language to mapOf(category to 75))
+
+        val baselineFg = Color(0xE6, 0xB6, 0x73)
+        val javaKeywordKey = TextAttributesKey.createTextAttributesKey("JAVA_KEYWORD")
+        val result =
+            SyntaxIntensityApplicator.compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides = nested,
+                variantName = "Mirage",
+                editorBg = Color(0x1F, 0x24, 0x30),
+                baseline = mapOf(javaKeywordKey to attrsWithFg(baselineFg)),
+                overlay = emptyMap(),
+                subordinatePreset = SyntaxPreset.AMBIENT,
+            )
+        assertNotNull(result[javaKeywordKey], "the composite key must resolve to a transformed entry")
+        assertNotEquals(
+            baselineFg.rgb,
+            result[javaKeywordKey]?.foregroundColor?.rgb,
+            "panel key form, classify().displayName, and resolveCurve lookup must all agree on " +
+                "'Java' + 'KEYWORD' so slider 75 transforms the foreground (no silent no-op)",
+        )
+    }
+
+    // ---------- Test 15 — sparse write-through source lock (INTENSITY-17) ----------
+
+    @Test
+    fun `panel writes overrides sparsely keyed by composite key, never write-all (Pattern L)`() {
+        val source = readPanelSource()
+        assertTrue(
+            source.contains("pendingOverrides[\"\$language|\${category.name}\"]"),
+            "INTENSITY-17: the sparse write must be keyed by the composite displayName|enum-name key.",
+        )
+        val writeAll =
+            Regex(
+                """for\s*\(\s*category\s+in\s+PrimitiveCategory\.entries\s*\)\s*\{[^}]*""" +
+                    """pendingOverrides\[[^\]]*\]\s*=""",
+            )
+        assertFalse(
+            writeAll.containsMatchIn(source),
+            "INTENSITY-17: overrides must stay sparse — no loop writes every category unconditionally.",
+        )
+    }
+
+    // ---------- Test 16 — license-invariant source lock (free/override path) ----------
+
+    @Test
+    fun `LicenseChecker is absent from apply, onSliderChanged, and rebindSlidersFor regions (Pattern L)`() {
+        val source = readPanelSource()
+        for (fn in listOf("override fun apply(", "private fun onSliderChanged(", "private fun rebindSlidersFor(")) {
+            val body = functionBody(source, fn)
+            assertFalse(
+                body.contains("LicenseChecker"),
+                "INTENSITY-16: the free/override write path ($fn) must not consult LicenseChecker — " +
+                    "the service-layer enforceCustomGate is the defense-in-depth.",
+            )
+        }
+    }
+
+    // ---------- Test 17 — master reset source lock (INTENSITY-15) ----------
+
+    @Test
+    fun `onResetAll clears every override cell (Pattern L)`() {
+        val source = readPanelSource()
+        assertTrue(source.contains("onResetAll"), "INTENSITY-15: a master reset helper must exist.")
+        val body = functionBody(source, "private fun onResetAll(")
+        assertTrue(
+            body.contains("pendingOverrides.clear()"),
+            "INTENSITY-15: the master reset must wipe the whole override map.",
+        )
+    }
+
+    // ---------- Test 18 — debounce source lock (INTENSITY-13 / D-19) ----------
+
+    @Test
+    fun `slider apply is debounced single-shot at 100ms and never synchronous (Pattern L)`() {
+        val source = readPanelSource()
+        assertTrue(source.contains("isRepeats = false"), "D-19: the debounce timer must be single-shot.")
+        assertTrue(source.contains("applyTimer.restart()"), "D-19: the drag burst must restart the timer.")
+        assertTrue(source.contains("DEBOUNCE_MS = 100"), "D-19: the debounce window must be exactly 100ms.")
+
+        val body = functionBody(source, "private fun onSliderChanged(")
+        assertTrue(
+            body.contains("applyTimer.restart()"),
+            "D-19: the slider change listener must defer the apply through the timer.",
+        )
+        assertFalse(
+            body.contains("apply()"),
+            "D-19: the slider change listener must NOT call apply() synchronously.",
+        )
+    }
+
+    // ---------- Test 19 — isModified override-awareness source lock ----------
+
+    @Test
+    fun `isModified compares overrides so Apply enables after a slider move (Pattern L)`() {
+        val source = readPanelSource()
+        assertTrue(source.contains("storedOverrides"), "isModified must track a storedOverrides buffer.")
+        val body = functionBody(source, "override fun isModified(")
+        assertTrue(
+            body.contains("pendingOverrides != storedOverrides"),
+            "isModified() must compare pendingOverrides != storedOverrides so the Apply button " +
+                "enables after a slider move (not just on preset change).",
+        )
+    }
+
     // ---------- Reflection helpers ----------
+
+    private fun attrsWithFg(color: Color): TextAttributes {
+        val attrs = TextAttributes()
+        attrs.foregroundColor = color
+        return attrs
+    }
+
+    /**
+     * Return the source region from the start of the function whose
+     * declaration contains [declaration] up to (but not including) the next
+     * top-level function declaration. Good enough for a Pattern L lock — the
+     * panel's helpers are short and do not nest function declarations.
+     */
+    private fun functionBody(
+        source: String,
+        declaration: String,
+    ): String {
+        val start = source.indexOf(declaration)
+        assertTrue(start >= 0, "source must contain '$declaration'")
+        val after = source.indexOf("    private fun ", start + declaration.length)
+        val afterOverride = source.indexOf("    override fun ", start + declaration.length)
+        val end =
+            listOf(after, afterOverride)
+                .filter { it >= 0 }
+                .minOrNull() ?: source.length
+        return source.substring(start, end)
+    }
 
     private fun panelWithLoadedState(): AyuIslandsSyntaxPanel {
         val panel = AyuIslandsSyntaxPanel()

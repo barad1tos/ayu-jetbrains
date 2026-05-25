@@ -1,14 +1,21 @@
 package dev.ayuislands.settings
 
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.observable.properties.AtomicBooleanProperty
+import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.SegmentedButton
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.syntax.PrimitiveCategory
 import dev.ayuislands.syntax.SyntaxIntensityService
 import dev.ayuislands.syntax.SyntaxIntensityState
+import dev.ayuislands.syntax.SyntaxLanguageRegistry
 import dev.ayuislands.syntax.SyntaxPreset
+import javax.swing.JLabel
+import javax.swing.JSlider
 import javax.swing.SwingUtilities
+import javax.swing.Timer
 
 /**
  * Settings tab — 5-pill preset row matching the Glow / VCS / Font franchise.
@@ -37,6 +44,34 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
     private var storedPreset: SyntaxPreset = SyntaxPreset.AMBIENT
     private var suppressListeners: Boolean = false
     private var presetSegmented: SegmentedButton<SyntaxPreset>? = null
+
+    // Custom drill-down state. The fold-out captures per-(language, category)
+    // overrides; only cells the user actually moves persist (sparse store).
+    // Untouched cells inherit the subordinate (last-named) preset at resolve
+    // time, so the override map stays small.
+    private val customSelected = AtomicBooleanProperty(pendingPreset == SyntaxPreset.CUSTOM)
+    private var suppressSliderListeners: Boolean = false
+    private var pendingSubordinate: SyntaxPreset = SyntaxPreset.AMBIENT
+    private var storedSubordinate: SyntaxPreset = SyntaxPreset.AMBIENT
+    private val pendingOverrides: MutableMap<String, String> = mutableMapOf()
+    private val storedOverrides: MutableMap<String, String> = mutableMapOf()
+    private val sliders: MutableMap<PrimitiveCategory, JSlider> = mutableMapOf()
+    private val sliderLabels: MutableMap<PrimitiveCategory, JLabel> = mutableMapOf()
+    private var currentLanguage: String = ""
+
+    // Single-shot debounce: a drag burst restarts the timer, so the apply
+    // fires once per 100ms pause rather than on every change event. The
+    // change listener never calls apply() synchronously — it defers here.
+    private val applyTimer =
+        Timer(DEBOUNCE_MS, null).apply { isRepeats = false }
+
+    init {
+        applyTimer.addActionListener { apply() }
+    }
+
+    override fun dispose() {
+        applyTimer.stop()
+    }
 
     override fun buildPanel(
         panel: Panel,
@@ -73,6 +108,8 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
                     "https://www.jetbrains.com/help/idea/configuring-colors-and-fonts.html",
                 )
             }
+
+            buildCustomFoldOut()
         }
 
         // SegmentedButton's internal JButton instances are not realised until
@@ -80,6 +117,89 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         // subtree on the EDT after the DSL build completes. Best-effort —
         // see [applyCustomPillTooltipIfFree] for the fallback contract.
         SwingUtilities.invokeLater { applyCustomPillTooltipIfFree() }
+    }
+
+    /**
+     * Premium Custom drill-down. Renders only when the Custom pill is the
+     * active selection (driven by [customSelected]): a language selector +
+     * one shared set of 16 per-category sliders + a master reset. The
+     * sliders are re-bound to the selected language's stored values on
+     * combo change, so 26 languages share 16 widgets instead of
+     * materializing 416 rows. The free/unlicensed gate lives upstream in
+     * [onPresetChosen]; the fold-out adds no license call of its own.
+     */
+    private fun Panel.buildCustomFoldOut() {
+        val languages = SyntaxLanguageRegistry.supportedLanguages().map { it.displayName }
+        currentLanguage = languages.firstOrNull() ?: ""
+        row("Language:") {
+            val combo = comboBox(languages).component
+            combo.selectedItem = currentLanguage
+            combo.addActionListener {
+                val language = combo.selectedItem as? String ?: return@addActionListener
+                currentLanguage = language
+                rebindSlidersFor(language)
+            }
+        }.visibleIf(customSelected)
+
+        for (category in PrimitiveCategory.entries) {
+            buildSliderRow(category)
+        }
+
+        row {
+            button("Reset all customizations") { onResetAll() }
+        }.visibleIf(customSelected)
+
+        rebindSlidersFor(currentLanguage)
+    }
+
+    /**
+     * One per-category control built via the IntelliJ UI-DSL `slider()` cell
+     * (the themed Darcula widget) — never a bare `JSlider(...)` constructor.
+     * The major tick lands at the midpoint (identity marker) and a live `%`
+     * readout mirrors the slider value. The underlying `JSlider` and its
+     * label are stashed by category so [rebindSlidersFor] can snap them on
+     * combo change.
+     */
+    private fun Panel.buildSliderRow(category: PrimitiveCategory) {
+        row(category.displayName) {
+            val sliderCell =
+                slider(SLIDER_MIN, SLIDER_MAX, SLIDER_MINOR_TICK, SLIDER_MAJOR_TICK)
+                    .resizableColumn()
+                    .align(Align.FILL)
+            val jslider = sliderCell.component
+            val valueLabel = JLabel("$SLIDER_MID%")
+            jslider.addChangeListener { onSliderChanged(currentLanguage, category, jslider.value) }
+            cell(valueLabel)
+            sliders[category] = jslider
+            sliderLabels[category] = valueLabel
+        }.visibleIf(customSelected)
+    }
+
+    /**
+     * Sparse write-through for one slider move: record only the cell the
+     * user touched, then defer the apply through the single-shot debounce
+     * timer. The apply is NEVER invoked synchronously here.
+     */
+    private fun onSliderChanged(
+        language: String,
+        category: PrimitiveCategory,
+        value: Int,
+    ) {
+        sliderLabels[category]?.text = "$value%"
+        if (suppressSliderListeners) return
+        pendingOverrides["$language|${category.name}"] = value.toString()
+        applyTimer.restart()
+    }
+
+    /**
+     * Master reset: wipe every override cell, snap the visible sliders back
+     * to identity, and apply so the editor falls back to the subordinate
+     * preset for all categories.
+     */
+    private fun onResetAll() {
+        pendingOverrides.clear()
+        rebindSlidersFor(currentLanguage)
+        apply()
     }
 
     private fun onPresetChosen(preset: SyntaxPreset) {
@@ -99,10 +219,20 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
             return
         }
         pendingPreset = preset
+        // A named preset becomes the subordinate Custom layers on; selecting
+        // Custom keeps the last-named preset as the inheritance base for
+        // untouched cells.
+        if (preset != SyntaxPreset.CUSTOM) {
+            pendingSubordinate = preset
+        }
+        customSelected.set(preset == SyntaxPreset.CUSTOM)
         apply()
     }
 
-    override fun isModified(): Boolean = pendingPreset != storedPreset
+    override fun isModified(): Boolean =
+        pendingPreset != storedPreset ||
+            pendingOverrides != storedOverrides ||
+            pendingSubordinate != storedSubordinate
 
     override fun apply() {
         if (!isModified()) return
@@ -111,12 +241,17 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         // canonical defense-in-depth; this panel rejects Custom up front
         // in [onPresetChosen] for unlicensed users, so a Custom value only
         // reaches this method when licensed.
-        SyntaxIntensityService.getInstance().apply(pendingPreset, emptyMap())
+        val nested = buildNestedOverrides(pendingOverrides)
+        SyntaxIntensityService.getInstance().apply(pendingPreset, nested, pendingSubordinate)
         val state = SyntaxIntensityState.getInstance().state
         state.selectedPreset = pendingPreset.name
-        // customOverrides intentionally not written on the free panel —
-        // the premium Custom drill-down owns that path.
+        state.subordinatePreset = pendingSubordinate.name
+        state.customOverrides.clear()
+        state.customOverrides.putAll(pendingOverrides)
         storedPreset = pendingPreset
+        storedSubordinate = pendingSubordinate
+        storedOverrides.clear()
+        storedOverrides.putAll(pendingOverrides)
     }
 
     override fun reset() {
@@ -127,12 +262,60 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         } finally {
             suppressListeners = false
         }
+        customSelected.set(pendingPreset == SyntaxPreset.CUSTOM)
+        rebindSlidersFor(currentLanguage)
     }
 
     private fun loadStateIntoPending() {
         val state = SyntaxIntensityState.getInstance().state
         storedPreset = SyntaxPreset.fromName(state.selectedPreset)
         pendingPreset = storedPreset
+        storedSubordinate = SyntaxPreset.fromName(state.subordinatePreset)
+        pendingSubordinate = storedSubordinate
+        storedOverrides.clear()
+        storedOverrides.putAll(state.customOverrides)
+        pendingOverrides.clear()
+        pendingOverrides.putAll(state.customOverrides)
+    }
+
+    /**
+     * Snap every slider (and its `%` readout) to the stored value for
+     * [language], or to the identity midpoint when that cell is untouched.
+     * Wrapped in [suppressSliderListeners] so the programmatic snap does not
+     * feed back into [onSliderChanged]. A no-op until the fold-out has
+     * populated [sliders] / [sliderLabels].
+     */
+    private fun rebindSlidersFor(language: String) {
+        suppressSliderListeners = true
+        try {
+            for (category in PrimitiveCategory.entries) {
+                val value = pendingOverrides["$language|${category.name}"]?.toIntOrNull() ?: SLIDER_MID
+                sliders[category]?.value = value
+                sliderLabels[category]?.text = "$value%"
+            }
+        } finally {
+            suppressSliderListeners = false
+        }
+    }
+
+    /**
+     * Reshape the flat composite-key override map into the nested
+     * `language → category → Int` shape the service consumes. Uses the same
+     * `|` split + [String.toIntOrNull] guard as
+     * [SyntaxIntensityState.toPresetConfig]: keys with an empty language
+     * half, an empty category half, or a non-Int value are skipped.
+     */
+    private fun buildNestedOverrides(flat: Map<String, String>): Map<String, Map<String, Int>> {
+        val nested = mutableMapOf<String, MutableMap<String, Int>>()
+        for ((compositeKey, valueStr) in flat) {
+            val pipeIdx = compositeKey.indexOf('|')
+            if (pipeIdx <= 0 || pipeIdx == compositeKey.length - 1) continue
+            val language = compositeKey.substring(0, pipeIdx)
+            val category = compositeKey.substring(pipeIdx + 1)
+            val slider = valueStr.toIntOrNull() ?: continue
+            nested.getOrPut(language) { mutableMapOf() }[category] = slider
+        }
+        return nested
     }
 
     /**
@@ -165,5 +348,11 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
 
     private companion object {
         private val LOG = logger<AyuIslandsSyntaxPanel>()
+        private const val DEBOUNCE_MS = 100
+        private const val SLIDER_MIN = 0
+        private const val SLIDER_MAX = 100
+        private const val SLIDER_MID = 50
+        private const val SLIDER_MAJOR_TICK = 50
+        private const val SLIDER_MINOR_TICK = 10
     }
 }
