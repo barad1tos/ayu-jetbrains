@@ -2,7 +2,6 @@ package dev.ayuislands.settings
 
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
-import com.intellij.openapi.ui.DialogPanel
 import com.intellij.ui.components.ActionLink
 import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.Panel
@@ -49,11 +48,14 @@ import javax.swing.Timer
  *
  * Custom drill-down layout (Direction B): the 16 [PrimitiveCategory] sliders
  * are arranged into four non-collapsible [CategoryGroup] sections by syntactic
- * role, two category units per row. Each unit owns a tick-free slider with a
- * signed-delta readout and a per-row "Reset" [ActionLink]; the master reset is
- * scoped to the active language. The value model (0..100, 50 = identity,
- * sparse store keyed by `language|category.name`) is unchanged — the signed
- * string lives only in the readout [JLabel] and is never parsed back.
+ * role. Within each section the categories split round-robin into two
+ * shared-grid column `panel { }` blocks, so every row's leading label, slider,
+ * readout, and "Reset" cell line up vertically instead of jumping between
+ * rows. Each category row owns a tick-free slider with a signed-delta readout
+ * and a per-row "Reset" [ActionLink]; the master reset is scoped to the active
+ * language. The value model (0..100, 50 = identity, sparse store keyed by
+ * `language|category.name`) is unchanged — the signed string lives only in the
+ * readout [JLabel] and is never parsed back.
  */
 @Suppress("UnstableApiUsage")
 class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
@@ -178,74 +180,83 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
 
     /**
      * One syntactic-role section. The group is NON-collapsible — the only
-     * show/hide boundary is the [customSelected] gate carried by every inner
-     * row. Category units are laid out two per row (row-major Tab order),
-     * with a [Panel.placeholder] filling the trailing slot when a group has
-     * an odd category count.
+     * show/hide boundary is the [customSelected] gate carried by the inner
+     * row. The categories are split round-robin into a left column (even
+     * indices) and a right column (odd indices); each column is its OWN
+     * `panel { }`, so the IntelliJ UI-DSL grid auto-aligns the leading label
+     * column AND the slider / readout / reset cell columns across every row
+     * within that column. Two columns are two independent grids that each stay
+     * internally aligned — the round-robin split keeps the left/right label
+     * widths close without a fixed label width. Odd-count groups simply give
+     * the left column one more row than the right (no placeholder juggling).
      */
     private fun Panel.buildCategoryGroup(categoryGroup: CategoryGroup) {
         group(categoryGroup.title) {
-            for (pair in categoryGroup.categories.chunked(2)) {
-                row {
-                    cell(buildCategoryUnit(pair[0])).align(AlignX.FILL).resizableColumn()
-                    val right = pair.getOrNull(1)
-                    if (right != null) {
-                        cell(buildCategoryUnit(right)).align(AlignX.FILL).resizableColumn()
-                    } else {
-                        placeholder().align(AlignX.FILL).resizableColumn()
-                    }
-                }.visibleIf(customSelected)
-            }
+            val leftCategories = categoryGroup.categories.filterIndexed { index, _ -> index % 2 == 0 }
+            val rightCategories = categoryGroup.categories.filterIndexed { index, _ -> index % 2 == 1 }
+            row {
+                panel { for (category in leftCategories) categoryRow(category) }
+                    .align(AlignX.FILL)
+                    .resizableColumn()
+                    .gap(RightGap.COLUMNS)
+                panel { for (category in rightCategories) categoryRow(category) }
+                    .align(AlignX.FILL)
+                    .resizableColumn()
+            }.visibleIf(customSelected)
         }.visibleIf(customSelected)
     }
 
     /**
-     * One self-contained per-category control unit built via the IntelliJ
-     * UI-DSL `slider()` cell (the themed Darcula widget) — never a bare
-     * `JSlider(...)` constructor. The slider is tick-free and width-capped; a
-     * signed-delta readout ([signedReadout]) and a per-row "Reset"
-     * [ActionLink] (visible only when the cell diverges from identity) sit to
-     * its right. The underlying `JSlider`, readout label, and reset link are
-     * stashed by category so [rebindSlidersFor] / [setSliderValue] can snap
-     * them on combo change.
+     * Add ONE per-category control row INTO the enclosing column grid — the
+     * leading `row(displayName)` label is that grid's synchronized first
+     * column, so every row in the column shares one label width. Built via the
+     * IntelliJ UI-DSL `slider()` cell (the themed Darcula widget) — never a
+     * bare `JSlider(...)` constructor. The slider is tick-free and width-capped
+     * with NO `resizableColumn()` (a resizable slider would break the
+     * fixed-width readout's column binding); a signed-delta readout
+     * ([signedReadout]) and a per-row "Reset" [ActionLink] (visible only when
+     * the cell diverges from identity) sit to its right. Because the readout
+     * cell is fixed-width in its own grid column, the reset link toggling
+     * `isVisible` does not reflow the readout. The underlying `JSlider`, readout
+     * label, and reset link are stashed by category so [rebindSlidersFor] /
+     * [setSliderValue] can snap them on combo change.
      */
-    private fun buildCategoryUnit(category: PrimitiveCategory): DialogPanel =
-        panel {
-            row(category.displayName) {
-                val jslider =
-                    slider(SLIDER_MIN, SLIDER_MAX, 0, 0)
-                        .applyToComponent {
-                            paintTicks = false
-                            paintLabels = false
-                            snapToTicks = false
-                            val width = JBUI.scale(SLIDER_TRACK_WIDTH)
-                            preferredSize = Dimension(width, preferredSize.height)
-                            maximumSize = Dimension(width, preferredSize.height)
-                        }.component
-                val valueLabel =
-                    JLabel(signedReadout(SLIDER_MID), SwingConstants.RIGHT).apply {
-                        foreground = UIUtil.getContextHelpForeground()
-                        val width = JBUI.scale(READOUT_WIDTH)
+    private fun Panel.categoryRow(category: PrimitiveCategory) {
+        row(category.displayName) {
+            val jslider =
+                slider(SLIDER_MIN, SLIDER_MAX, 0, 0)
+                    .applyToComponent {
+                        paintTicks = false
+                        paintLabels = false
+                        snapToTicks = false
+                        val width = JBUI.scale(SLIDER_TRACK_WIDTH)
                         preferredSize = Dimension(width, preferredSize.height)
-                    }
-                val resetLink =
-                    ActionLink("Reset") {
-                        setSliderValue(category, SLIDER_MID)
-                        pendingOverrides.remove("$currentLanguage|${category.name}")
-                        refreshMasterResetButton()
-                        applyTimer.restart()
-                    }.apply {
-                        isVisible = false
-                        accessibleContext.accessibleName = "Reset ${category.displayName} to default"
-                    }
-                jslider.addChangeListener { onSliderChanged(currentLanguage, category, jslider.value) }
-                cell(valueLabel).gap(RightGap.SMALL)
-                cell(resetLink)
-                sliders[category] = jslider
-                sliderLabels[category] = valueLabel
-                resetLinks[category] = resetLink
-            }
+                        maximumSize = Dimension(width, preferredSize.height)
+                    }.component
+            val valueLabel =
+                JLabel(signedReadout(SLIDER_MID), SwingConstants.RIGHT).apply {
+                    val width = JBUI.scale(READOUT_WIDTH)
+                    preferredSize = Dimension(width, preferredSize.height)
+                }
+            applyReadout(valueLabel, SLIDER_MID)
+            val resetLink =
+                ActionLink("Reset") {
+                    setSliderValue(category, SLIDER_MID)
+                    pendingOverrides.remove("$currentLanguage|${category.name}")
+                    refreshMasterResetButton()
+                    applyTimer.restart()
+                }.apply {
+                    isVisible = false
+                    accessibleContext.accessibleName = "Reset ${category.displayName} to default"
+                }
+            jslider.addChangeListener { onSliderChanged(currentLanguage, category, jslider.value) }
+            cell(valueLabel).gap(RightGap.SMALL)
+            cell(resetLink)
+            sliders[category] = jslider
+            sliderLabels[category] = valueLabel
+            resetLinks[category] = resetLink
         }
+    }
 
     /**
      * Sparse write-through for one slider move: refresh the readout +
@@ -259,7 +270,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         category: PrimitiveCategory,
         value: Int,
     ) {
-        sliderLabels[category]?.text = signedReadout(value)
+        sliderLabels[category]?.let { applyReadout(it, value) }
         resetLinks[category]?.isVisible = value != SLIDER_MID
         refreshSliderAccessibleName(category, value)
         if (suppressSliderListeners) return
@@ -280,7 +291,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         suppressSliderListeners = true
         try {
             sliders[category]?.value = value
-            sliderLabels[category]?.text = signedReadout(value)
+            sliderLabels[category]?.let { applyReadout(it, value) }
             resetLinks[category]?.isVisible = value != SLIDER_MID
             refreshSliderAccessibleName(category, value)
         } finally {
@@ -393,7 +404,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
             for (category in PrimitiveCategory.entries) {
                 val value = pendingOverrides["$language|${category.name}"]?.toIntOrNull() ?: SLIDER_MID
                 sliders[category]?.value = value
-                sliderLabels[category]?.text = signedReadout(value)
+                sliderLabels[category]?.let { applyReadout(it, value) }
                 resetLinks[category]?.isVisible = value != SLIDER_MID
                 refreshSliderAccessibleName(category, value)
             }
@@ -423,6 +434,24 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
     ) {
         sliders[category]?.accessibleContext?.accessibleName =
             "${category.displayName} intensity, ${signedReadout(value)} from default"
+    }
+
+    /**
+     * Single update site for a readout [JLabel]'s text AND foreground so the
+     * three callers ([onSliderChanged], [setSliderValue], [rebindSlidersFor])
+     * stay in lock-step. At the [SLIDER_MID] identity the `0` is rendered in
+     * the dimmed `getContextHelpForeground` to read as "default / untouched";
+     * once the cell diverges the signed delta switches to the stronger
+     * `getLabelForeground` to signal a moved value. Presentation-only — the
+     * value model is unaffected.
+     */
+    private fun applyReadout(
+        label: JLabel,
+        value: Int,
+    ) {
+        label.text = signedReadout(value)
+        label.foreground =
+            if (value == SLIDER_MID) UIUtil.getContextHelpForeground() else UIUtil.getLabelForeground()
     }
 
     /**

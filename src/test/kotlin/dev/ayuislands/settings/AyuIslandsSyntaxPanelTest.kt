@@ -551,6 +551,113 @@ class AyuIslandsSyntaxPanelTest {
         )
     }
 
+    // ---------- Test 21b — round-robin column split (Approach 1) ----------
+
+    @Test
+    fun `buildCategoryGroup splits categories round-robin — left gets even indices, right gets odd`() {
+        // The shared-grid fix partitions each group's categories into a left
+        // column (even indices) and a right column (odd indices). Replicate the
+        // exact filterIndexed predicate the panel uses and assert the split.
+        val groups = readCategoryGroups()
+        for ((title, categories) in groups) {
+            val left = categories.filterIndexed { index, _ -> index % 2 == 0 }
+            val right = categories.filterIndexed { index, _ -> index % 2 == 1 }
+            assertEquals(
+                categories.size,
+                left.size + right.size,
+                "round-robin split of '$title' must lose no category",
+            )
+            // Odd-count groups give the left column exactly one extra row (no
+            // placeholder juggling), so left.size is either equal to or one
+            // more than right.size.
+            assertTrue(
+                left.size - right.size in 0..1,
+                "'$title': left column may carry at most one more row than the right",
+            )
+            // Interleaving the two columns (left[0], right[0], left[1], ...)
+            // must reconstruct the original row-major category order.
+            val interleaved =
+                categories.indices.map { index ->
+                    if (index % 2 == 0) left[index / 2] else right[index / 2]
+                }
+            assertEquals(
+                categories,
+                interleaved,
+                "interleaving left/right round-robin must reconstruct the original order for '$title'",
+            )
+        }
+    }
+
+    @Test
+    fun `panel source uses round-robin filterIndexed split and per-column nested panels (Approach 1)`() {
+        val source = readPanelSource()
+        assertTrue(
+            source.contains("filterIndexed { index, _ -> index % 2 == 0 }"),
+            "Approach 1: the left column must be the even-index categories.",
+        )
+        assertTrue(
+            source.contains("filterIndexed { index, _ -> index % 2 == 1 }"),
+            "Approach 1: the right column must be the odd-index categories.",
+        )
+        assertTrue(
+            source.contains("panel { for (category in leftCategories) categoryRow(category) }"),
+            "Approach 1: each column must be its own shared-grid nested panel.",
+        )
+        assertTrue(
+            source.contains("RightGap.COLUMNS"),
+            "Approach 1: the left column must keep a COLUMNS-wide gap before the right column.",
+        )
+        assertFalse(
+            source.contains("placeholder()"),
+            "Approach 1: the old odd-slot placeholder juggling must be gone.",
+        )
+        assertFalse(
+            source.contains("buildCategoryUnit"),
+            "Approach 1: buildCategoryUnit (panel-per-category) must be replaced by categoryRow.",
+        )
+        assertTrue(
+            source.contains("private fun Panel.categoryRow("),
+            "Approach 1: categoryRow must be a Panel-context extension that mutates the enclosing grid.",
+        )
+    }
+
+    // ---------- Test 21c — readout color signals default vs moved ----------
+
+    @Test
+    fun `applyReadout dims the identity readout and strengthens a moved readout`() {
+        val panel = AyuIslandsSyntaxPanel()
+        val identityLabel = JLabel()
+        val movedLabel = JLabel()
+
+        invokeApplyReadout(panel, identityLabel, 50)
+        invokeApplyReadout(panel, movedLabel, 75)
+
+        assertEquals("0", identityLabel.text, "identity readout text is 0")
+        assertEquals("+25", movedLabel.text, "moved readout text is the signed delta")
+        assertNotEquals(
+            identityLabel.foreground.rgb,
+            movedLabel.foreground.rgb,
+            "identity (dimmed contextHelp) and moved (label) foregrounds must differ to signal state",
+        )
+    }
+
+    @Test
+    fun `applyReadout below identity is also rendered in the moved foreground`() {
+        val panel = AyuIslandsSyntaxPanel()
+        val identityLabel = JLabel()
+        val belowLabel = JLabel()
+
+        invokeApplyReadout(panel, identityLabel, 50)
+        invokeApplyReadout(panel, belowLabel, 30)
+
+        assertEquals("−20", belowLabel.text, "below identity reads −N with U+2212 minus")
+        assertNotEquals(
+            identityLabel.foreground.rgb,
+            belowLabel.foreground.rgb,
+            "a below-identity cell is 'moved' and must use the stronger foreground",
+        )
+    }
+
     // ---------- Test 22 — Direction B layout source locks ----------
 
     @Test
@@ -960,6 +1067,21 @@ class AyuIslandsSyntaxPanelTest {
             AyuIslandsSyntaxPanel::class.java.getDeclaredMethod("rebindSlidersFor", String::class.java)
         method.isAccessible = true
         method.invoke(panel, language)
+    }
+
+    private fun invokeApplyReadout(
+        panel: AyuIslandsSyntaxPanel,
+        label: JLabel,
+        value: Int,
+    ) {
+        val method =
+            AyuIslandsSyntaxPanel::class.java.getDeclaredMethod(
+                "applyReadout",
+                JLabel::class.java,
+                Int::class.javaPrimitiveType,
+            )
+        method.isAccessible = true
+        method.invoke(panel, label, value)
     }
 
     private fun invokeSignedReadout(
