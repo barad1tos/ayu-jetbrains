@@ -68,6 +68,7 @@ object SyntaxIntensityApplicator {
         editorBg: Color,
         baseline: Map<TextAttributesKey, TextAttributes>,
         overlay: Map<TextAttributesKey, TextAttributes>,
+        subordinatePreset: SyntaxPreset = SyntaxPreset.AMBIENT,
     ): Map<TextAttributesKey, TextAttributes> {
         warnOnceIfWhiteBgOnDarkVariant(variantName, editorBg)
 
@@ -77,7 +78,7 @@ object SyntaxIntensityApplicator {
             val category = SyntaxCategoryRegistry.classify(key.externalName) ?: continue
             val langTag = SyntaxLanguageRegistry.classify(key.externalName)
             val language = langTag.displayName
-            val curve = resolveCurve(preset, language, category, customOverrides)
+            val curve = resolveCurve(preset, language, category, customOverrides, subordinatePreset)
             val sourceFg = source.foregroundColor ?: continue
             val transformedFg = transformForeground(sourceFg, curve)
             val clone = source.clone()
@@ -94,18 +95,35 @@ object SyntaxIntensityApplicator {
     }
 
     /**
-     * Phase 50A only consults the preset's static curve table. The Phase 50B
-     * Custom drill-down will activate the `customOverrides` lookup path — for
-     * now, accepting a populated map without throwing is enough (the free tier
-     * UI never writes to it). The signature accepts the param so the contract
-     * is stable across Wave 2 / Wave 3.
+     * Resolve the [CategoryCurve] for one `(preset, language, category)` cell.
+     *
+     * For the Custom drill-down (`preset == CUSTOM`) the per-cell slider in
+     * `customOverrides` drives the curve: a present cell maps through
+     * [SyntaxPresetCurves.sliderToCurve]; an untouched (sparse) cell inherits
+     * the [subordinatePreset]'s named curve via [SyntaxPresetCurves.curveFor]
+     * rather than collapsing to identity. The override lookup uses the same
+     * composite key the persisted state writes — language is the
+     * [SyntaxLanguageRegistry] displayName and the category half is
+     * [PrimitiveCategory.name] (e.g. `KEYWORD`).
+     *
+     * For every named preset the static per-(preset, language, category) curve
+     * table is consulted directly; `customOverrides` and `subordinatePreset`
+     * are inert on that path.
      */
     private fun resolveCurve(
         preset: SyntaxPreset,
         language: String,
         category: PrimitiveCategory,
-        @Suppress("UNUSED_PARAMETER") customOverrides: Map<String, Map<String, Int>>,
-    ): CategoryCurve = SyntaxPresetCurves.curveFor(preset, language, category)
+        customOverrides: Map<String, Map<String, Int>>,
+        subordinatePreset: SyntaxPreset = SyntaxPreset.AMBIENT,
+    ): CategoryCurve {
+        if (preset == SyntaxPreset.CUSTOM) {
+            val slider = customOverrides[language]?.get(category.name)
+            if (slider != null) return SyntaxPresetCurves.sliderToCurve(slider)
+            return SyntaxPresetCurves.curveFor(subordinatePreset, language, category)
+        }
+        return SyntaxPresetCurves.curveFor(preset, language, category)
+    }
 
     private fun transformForeground(
         fg: Color,
