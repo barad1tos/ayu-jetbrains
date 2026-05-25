@@ -112,7 +112,14 @@ class SyntaxOverlayLoader internal constructor(
             val baseRef = optionEl.getAttributeValue("baseAttributes")
             val attrs =
                 when {
-                    baseRef != null -> resolveBaseAttributes(baseRef)
+                    // baseAttributes keys (e.g. GO_STRING -> DEFAULT_STRING) carry no own
+                    // foreground — they inherit from baseRef at render time via the scheme's
+                    // own resolution. Returning empty TextAttributes (no foreground) makes the
+                    // applicator skip them (sourceFg == null -> continue), so the scheme's
+                    // natural inheritance renders them. Resolving baseRef.defaultAttributes here
+                    // would bake the PLATFORM-default color (Darcula) instead of the active Ayu
+                    // value, overwriting inherited string/comment keys with a muted fallback.
+                    baseRef != null -> TextAttributes()
                     else -> {
                         val valueEl = optionEl.getChild("value") ?: continue
                         try {
@@ -128,11 +135,6 @@ class SyntaxOverlayLoader internal constructor(
             map[key] = attrs
         }
         return map
-    }
-
-    private fun resolveBaseAttributes(baseRef: String): TextAttributes {
-        val baseKey = TextAttributesKey.find(baseRef)
-        return baseKey.defaultAttributes?.clone() ?: TextAttributes()
     }
 
     private fun logResourceOnce(
