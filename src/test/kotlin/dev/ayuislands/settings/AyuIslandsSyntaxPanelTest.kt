@@ -2,6 +2,7 @@ package dev.ayuislands.settings
 
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.ui.components.ActionLink
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.syntax.PrimitiveCategory
 import dev.ayuislands.syntax.SyntaxIntensityApplicator
@@ -18,6 +19,9 @@ import io.mockk.verifyOrder
 import java.awt.Color
 import java.nio.file.Files
 import java.nio.file.Path
+import javax.swing.JButton
+import javax.swing.JLabel
+import javax.swing.JSlider
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -425,7 +429,7 @@ class AyuIslandsSyntaxPanelTest {
         val writeAll =
             Regex(
                 """for\s*\(\s*category\s+in\s+PrimitiveCategory\.entries\s*\)\s*\{[^}]*""" +
-                    """pendingOverrides\[[^\]]*\]\s*=""",
+                    """pendingOverrides\[[^]]*]\s*=""",
             )
         assertFalse(
             writeAll.containsMatchIn(source),
@@ -448,17 +452,280 @@ class AyuIslandsSyntaxPanelTest {
         }
     }
 
-    // ---------- Test 17 — master reset source lock (INTENSITY-15) ----------
+    // ---------- Test 17 — per-language master reset behavior (INTENSITY-15) ----------
 
     @Test
-    fun `onResetAll clears every override cell (Pattern L)`() {
+    fun `onResetCurrentLanguage clears only the active language's overrides, leaving others intact`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        stateBase.selectedPreset = "CUSTOM"
+        val panel = panelWithLoadedState()
+
+        // Seed two languages' overrides directly into the pending buffer, then
+        // pin the active language and run the per-language reset.
+        seedPendingOverride(panel, "Java|KEYWORD", "75")
+        seedPendingOverride(panel, "Java|STRING_LITERAL", "20")
+        seedPendingOverride(panel, "Kotlin|KEYWORD", "60")
+        writeCurrentLanguage(panel, "Java")
+
+        try {
+            invokeOnResetCurrentLanguage(panel)
+
+            val overrides = readPendingOverrides(panel)
+            assertFalse(
+                overrides.keys.any { it.startsWith("Java|") },
+                "INTENSITY-15: per-language reset must drop every Java override cell.",
+            )
+            assertEquals(
+                "60",
+                overrides["Kotlin|KEYWORD"],
+                "INTENSITY-15: other languages' overrides must survive a per-language reset.",
+            )
+        } finally {
+            // onResetCurrentLanguage arms the debounce timer; stop it so the
+            // platform's SwingTimerWatcherExtension does not flag a live timer.
+            panel.dispose()
+        }
+    }
+
+    @Test
+    fun `onResetCurrentLanguage source lock — filters by current-language prefix, not clear-all (Pattern L)`() {
         val source = readPanelSource()
-        assertTrue(source.contains("onResetAll"), "INTENSITY-15: a master reset helper must exist.")
-        val body = functionBody(source, "private fun onResetAll(")
         assertTrue(
-            body.contains("pendingOverrides.clear()"),
-            "INTENSITY-15: the master reset must wipe the whole override map.",
+            source.contains("onResetCurrentLanguage"),
+            "INTENSITY-15: a per-language master reset helper must exist.",
         )
+        val body = functionBody(source, "private fun onResetCurrentLanguage(")
+        assertTrue(
+            body.contains("startsWith(prefix)") || body.contains("\$currentLanguage|"),
+            "INTENSITY-15: the per-language reset must scope removal to the active-language prefix.",
+        )
+        assertFalse(
+            body.contains("pendingOverrides.clear()"),
+            "INTENSITY-15: the per-language reset must NOT wipe every language's overrides.",
+        )
+    }
+
+    // ---------- Test 20 — signed-delta readout (Direction B presentation) ----------
+
+    @Test
+    fun `signedReadout maps stored value to signed delta from identity`() {
+        val panel = AyuIslandsSyntaxPanel()
+        assertEquals("0", invokeSignedReadout(panel, 50), "identity (50) reads as 0")
+        assertEquals("+25", invokeSignedReadout(panel, 75), "above identity reads +N")
+        assertEquals("−20", invokeSignedReadout(panel, 30), "below identity reads −N with U+2212 minus")
+        assertEquals("+50", invokeSignedReadout(panel, 100), "max reads +50")
+        assertEquals("−50", invokeSignedReadout(panel, 0), "min reads −50")
+    }
+
+    // ---------- Test 21 — CATEGORY_GROUPS coverage invariant ----------
+
+    @Test
+    fun `CATEGORY_GROUPS covers every PrimitiveCategory exactly once (16 entries, four buckets)`() {
+        val groups = readCategoryGroups()
+        val flattened = groups.flatMap { it.second }
+        assertEquals(
+            PrimitiveCategory.entries.size,
+            flattened.size,
+            "CATEGORY_GROUPS must cover all 16 categories with no dupes — a future 17th enum " +
+                "must be assigned to a bucket, not silently dropped from the UI.",
+        )
+        assertEquals(
+            PrimitiveCategory.entries.toSet(),
+            flattened.toSet(),
+            "CATEGORY_GROUPS flat-map must equal PrimitiveCategory.entries as a set.",
+        )
+        assertEquals(
+            flattened.size,
+            flattened.toSet().size,
+            "CATEGORY_GROUPS must contain no duplicate categories.",
+        )
+        assertEquals(
+            listOf(4, 5, 3, 4),
+            groups.map { it.second.size },
+            "Direction B bucket sizes are 4 / 5 / 3 / 4 by visual weight.",
+        )
+        assertEquals(
+            listOf("Declarations", "Identifiers & Members", "Literals", "Keywords & Docs"),
+            groups.map { it.first },
+            "Direction B group titles in visual-weight order.",
+        )
+    }
+
+    // ---------- Test 22 — Direction B layout source locks ----------
+
+    @Test
+    fun `panel slider cell is tick-free (Direction B)`() {
+        val source = readPanelSource()
+        assertTrue(source.contains("paintTicks = false"), "Direction B: the slider must hide tick marks.")
+        assertTrue(source.contains("paintLabels = false"), "Direction B: the slider must hide tick labels.")
+    }
+
+    @Test
+    fun `panel uses signedReadout for the slider readout, never a percent string (Direction B)`() {
+        val source = readPanelSource()
+        assertTrue(
+            source.contains("signedReadout("),
+            "Direction B: the readout label must render via signedReadout(value).",
+        )
+        assertFalse(
+            source.contains("\"\$value%\"") || source.contains("\"\$SLIDER_MID%\""),
+            "Direction B: the old percent readout must be gone — the readout is a signed delta.",
+        )
+    }
+
+    @Test
+    fun `panel builds sliders via the UI DSL slider cell, never a bare JSlider constructor`() {
+        val source = readPanelSource()
+        // Allow the documentation codespan `JSlider(...)` (backtick-quoted) but
+        // forbid a real constructor call: JSlider( preceded by neither an
+        // identifier char nor a backtick.
+        assertFalse(
+            Regex("""[^a-zA-Z_`]JSlider\(""").containsMatchIn(source),
+            "Direction B: sliders must be built via the UI-DSL slider() cell, never new JSlider(...).",
+        )
+        assertTrue(
+            source.contains("slider(SLIDER_MIN, SLIDER_MAX, 0, 0)"),
+            "Direction B: the tick-free slider cell must be built with zero tick spacing.",
+        )
+    }
+
+    // ---------- Test 23 — slider-change behavior (readout + reset-link + sparse write) ----------
+
+    @Test
+    fun `onSliderChanged updates readout, reveals reset link, and records the sparse override`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        stateBase.selectedPreset = "CUSTOM"
+        val panel = panelWithLoadedState()
+        writeCurrentLanguage(panel, "Java")
+        val widgets = seedWidgets(panel, PrimitiveCategory.KEYWORD)
+
+        try {
+            invokeOnSliderChanged(panel, "Java", PrimitiveCategory.KEYWORD, 80)
+
+            assertEquals("+30", widgets.label.text, "readout must render the signed delta")
+            assertTrue(widgets.resetLink.isVisible, "reset link must appear once the cell diverges")
+            assertEquals(
+                "80",
+                readPendingOverrides(panel)["Java|KEYWORD"],
+                "the moved cell must be recorded as a sparse composite-key override",
+            )
+            val accessibleName = widgets.slider.accessibleContext.accessibleName
+            assertTrue(
+                accessibleName.contains("+30 from default"),
+                "the slider must announce its signed distance from identity",
+            )
+        } finally {
+            panel.dispose()
+        }
+    }
+
+    @Test
+    fun `onSliderChanged back to identity hides the reset link but keeps the cell recorded`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        stateBase.selectedPreset = "CUSTOM"
+        val panel = panelWithLoadedState()
+        writeCurrentLanguage(panel, "Java")
+        val widgets = seedWidgets(panel, PrimitiveCategory.KEYWORD)
+
+        try {
+            invokeOnSliderChanged(panel, "Java", PrimitiveCategory.KEYWORD, 50)
+
+            assertEquals("0", widgets.label.text, "identity reads as 0")
+            assertFalse(widgets.resetLink.isVisible, "reset link hides at identity")
+            // onSliderChanged is a raw record of the moved value — explicit
+            // removal is the per-row Reset link's job, not the change listener.
+            assertEquals("50", readPendingOverrides(panel)["Java|KEYWORD"])
+        } finally {
+            panel.dispose()
+        }
+    }
+
+    // ---------- Test 24 — programmatic setSliderValue snap is listener-safe ----------
+
+    @Test
+    fun `setSliderValue snaps slider, readout, and reset-link without recording an override`() {
+        stateBase.selectedPreset = "CUSTOM"
+        val panel = panelWithLoadedState()
+        writeCurrentLanguage(panel, "Java")
+        val widgets = seedWidgets(panel, PrimitiveCategory.STRING_LITERAL)
+
+        invokeSetSliderValue(panel, PrimitiveCategory.STRING_LITERAL, 25)
+
+        assertEquals(25, widgets.slider.value, "the slider must snap to the requested value")
+        assertEquals("−25", widgets.label.text, "the readout must show the signed delta (U+2212)")
+        assertTrue(widgets.resetLink.isVisible, "diverged value reveals the reset link")
+        assertTrue(
+            readPendingOverrides(panel).isEmpty(),
+            "setSliderValue is a programmatic snap — it must NOT write an override (suppressed listener)",
+        )
+    }
+
+    // ---------- Test 25 — master reset button enablement tracks active language ----------
+
+    @Test
+    fun `refreshMasterResetButton labels and enables per the active language`() {
+        stateBase.selectedPreset = "CUSTOM"
+        val panel = panelWithLoadedState()
+        writeCurrentLanguage(panel, "Kotlin")
+        val widgets = seedWidgets(panel, PrimitiveCategory.KEYWORD)
+
+        invokeRefreshMasterResetButton(panel)
+        assertEquals("Reset Kotlin customizations", widgets.button.text)
+        assertFalse(widgets.button.isEnabled, "no Kotlin override yet → disabled")
+
+        seedPendingOverride(panel, "Kotlin|KEYWORD", "70")
+        invokeRefreshMasterResetButton(panel)
+        assertTrue(widgets.button.isEnabled, "a Kotlin override enables the master reset")
+
+        seedPendingOverride(panel, "Java|KEYWORD", "70")
+        writeCurrentLanguage(panel, "Java")
+        invokeRefreshMasterResetButton(panel)
+        assertEquals("Reset Java customizations", widgets.button.text, "label tracks the active language")
+    }
+
+    // ---------- Test 26 — buildNestedOverrides reshapes + guards the sparse map ----------
+
+    @Test
+    fun `apply reshapes seeded overrides into nested language-category-int and skips malformed keys`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        stateBase.selectedPreset = "CUSTOM"
+        val panel = panelWithLoadedState()
+        writePendingPreset(panel, SyntaxPreset.CUSTOM)
+        seedPendingOverride(panel, "Java|KEYWORD", "75")
+        seedPendingOverride(panel, "|KEYWORD", "60") // empty language half → skipped
+        seedPendingOverride(panel, "Java|", "40") // empty category half → skipped
+        seedPendingOverride(panel, "Java|STRING_LITERAL", "notAnInt") // non-int → skipped
+
+        panel.apply()
+
+        verify(exactly = 1) {
+            intensityService.apply(
+                SyntaxPreset.CUSTOM,
+                mapOf("Java" to mapOf("KEYWORD" to 75)),
+                any(),
+            )
+        }
+    }
+
+    // ---------- Test 27 — rebindSlidersFor snaps seeded widgets to stored values ----------
+
+    @Test
+    fun `rebindSlidersFor snaps a seeded slider to the stored override and identity otherwise`() {
+        stateBase.selectedPreset = "CUSTOM"
+        val panel = panelWithLoadedState()
+        writeCurrentLanguage(panel, "Java")
+        val keyword = seedWidgets(panel, PrimitiveCategory.KEYWORD)
+        // A second category with no override stays at identity.
+        val stringLiteral = seedWidgets(panel, PrimitiveCategory.STRING_LITERAL)
+        seedPendingOverride(panel, "Java|KEYWORD", "85")
+
+        invokeRebindSlidersFor(panel, "Java")
+
+        assertEquals(85, keyword.slider.value, "stored override snaps the slider")
+        assertEquals("+35", keyword.label.text, "readout reflects the snapped signed delta")
+        assertTrue(keyword.resetLink.isVisible, "diverged cell reveals its reset link")
+        assertEquals(50, stringLiteral.slider.value, "untouched cell snaps to identity")
+        assertFalse(stringLiteral.resetLink.isVisible, "identity cell hides its reset link")
     }
 
     // ---------- Test 18 — debounce source lock (INTENSITY-13 / D-19) ----------
@@ -564,6 +831,172 @@ class AyuIslandsSyntaxPanelTest {
         val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("pendingPreset")
         field.isAccessible = true
         field.set(panel, preset)
+    }
+
+    private fun writeCurrentLanguage(
+        panel: AyuIslandsSyntaxPanel,
+        language: String,
+    ) {
+        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("currentLanguage")
+        field.isAccessible = true
+        field.set(panel, language)
+    }
+
+    private fun pendingOverridesField(panel: AyuIslandsSyntaxPanel): MutableMap<*, *> {
+        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("pendingOverrides")
+        field.isAccessible = true
+        return field.get(panel) as MutableMap<*, *>
+    }
+
+    /** Snapshot the pending override map as `String → String` without an unchecked cast. */
+    private fun readPendingOverrides(panel: AyuIslandsSyntaxPanel): Map<String, String> =
+        pendingOverridesField(panel).entries.associate { (key, value) ->
+            (key as String) to (value as String)
+        }
+
+    private fun seedPendingOverride(
+        panel: AyuIslandsSyntaxPanel,
+        key: String,
+        value: String,
+    ) {
+        // Reflective put avoids the parameterized-cast warning: the runtime
+        // map element type is erased, so the put goes through java.util.Map.
+        val map = pendingOverridesField(panel)
+        val putMethod = map.javaClass.getMethod("put", Any::class.java, Any::class.java)
+        putMethod.invoke(map, key, value)
+    }
+
+    private fun invokeOnResetCurrentLanguage(panel: AyuIslandsSyntaxPanel) {
+        val method = AyuIslandsSyntaxPanel::class.java.getDeclaredMethod("onResetCurrentLanguage")
+        method.isAccessible = true
+        method.invoke(panel)
+    }
+
+    private fun invokeOnSliderChanged(
+        panel: AyuIslandsSyntaxPanel,
+        language: String,
+        category: PrimitiveCategory,
+        value: Int,
+    ) {
+        val method =
+            AyuIslandsSyntaxPanel::class.java.getDeclaredMethod(
+                "onSliderChanged",
+                String::class.java,
+                PrimitiveCategory::class.java,
+                Int::class.javaPrimitiveType,
+            )
+        method.isAccessible = true
+        method.invoke(panel, language, category, value)
+    }
+
+    private fun invokeSetSliderValue(
+        panel: AyuIslandsSyntaxPanel,
+        category: PrimitiveCategory,
+        value: Int,
+    ) {
+        val method =
+            AyuIslandsSyntaxPanel::class.java.getDeclaredMethod(
+                "setSliderValue",
+                PrimitiveCategory::class.java,
+                Int::class.javaPrimitiveType,
+            )
+        method.isAccessible = true
+        method.invoke(panel, category, value)
+    }
+
+    private fun invokeRefreshMasterResetButton(panel: AyuIslandsSyntaxPanel) {
+        val method = AyuIslandsSyntaxPanel::class.java.getDeclaredMethod("refreshMasterResetButton")
+        method.isAccessible = true
+        method.invoke(panel)
+    }
+
+    /**
+     * Materialize a single category's slider / readout / reset-link widgets
+     * (and the master reset button) into the private component maps so the
+     * logic methods can be driven without a built [com.intellij.openapi.ui.DialogPanel].
+     */
+    private fun seedWidgets(
+        panel: AyuIslandsSyntaxPanel,
+        category: PrimitiveCategory,
+    ): SeededWidgets {
+        val slider = JSlider(0, 100, 50)
+        val label = JLabel("0")
+        val resetLink = ActionLink("Reset") {}
+        val button = JButton()
+        putIntoMapField(panel, "sliders", category, slider)
+        putIntoMapField(panel, "sliderLabels", category, label)
+        putIntoMapField(panel, "resetLinks", category, resetLink)
+        val buttonField = AyuIslandsSyntaxPanel::class.java.getDeclaredField("masterResetButton")
+        buttonField.isAccessible = true
+        buttonField.set(panel, button)
+        return SeededWidgets(slider, label, resetLink, button)
+    }
+
+    private fun putIntoMapField(
+        panel: AyuIslandsSyntaxPanel,
+        fieldName: String,
+        category: PrimitiveCategory,
+        value: Any,
+    ) {
+        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField(fieldName)
+        field.isAccessible = true
+        val map = field.get(panel) as MutableMap<*, *>
+        val putMethod = map.javaClass.getMethod("put", Any::class.java, Any::class.java)
+        putMethod.invoke(map, category, value)
+    }
+
+    private data class SeededWidgets(
+        val slider: JSlider,
+        val label: JLabel,
+        val resetLink: ActionLink,
+        val button: JButton,
+    )
+
+    private fun invokeRebindSlidersFor(
+        panel: AyuIslandsSyntaxPanel,
+        language: String,
+    ) {
+        val method =
+            AyuIslandsSyntaxPanel::class.java.getDeclaredMethod("rebindSlidersFor", String::class.java)
+        method.isAccessible = true
+        method.invoke(panel, language)
+    }
+
+    private fun invokeSignedReadout(
+        panel: AyuIslandsSyntaxPanel,
+        value: Int,
+    ): String {
+        val method =
+            AyuIslandsSyntaxPanel::class.java.getDeclaredMethod(
+                "signedReadout",
+                Int::class.javaPrimitiveType,
+            )
+        method.isAccessible = true
+        return method.invoke(panel, value) as String
+    }
+
+    /**
+     * Reflect the private `CATEGORY_GROUPS` companion list into a stable
+     * `List<Pair<title, categories>>` shape the coverage-invariant test can
+     * assert against without depending on the private `CategoryGroup` type.
+     */
+    private fun readCategoryGroups(): List<Pair<String, List<PrimitiveCategory>>> {
+        // A private val on a private companion compiles to a private static
+        // backing field on the OUTER class with no getter, so read it directly.
+        val groupsField = AyuIslandsSyntaxPanel::class.java.getDeclaredField("CATEGORY_GROUPS")
+        groupsField.isAccessible = true
+        val groups = groupsField.get(null) as List<*>
+        return groups.map { group ->
+            requireNotNull(group)
+            val titleMethod = group.javaClass.getDeclaredMethod("getTitle")
+            titleMethod.isAccessible = true
+            val categoriesMethod = group.javaClass.getDeclaredMethod("getCategories")
+            categoriesMethod.isAccessible = true
+            val title = titleMethod.invoke(group) as String
+            val categories =
+                (categoriesMethod.invoke(group) as List<*>).map { it as PrimitiveCategory }
+            title to categories
+        }
     }
 
     private fun readPanelSource(): String =
