@@ -35,8 +35,9 @@ import kotlin.test.assertNotNull
  * 12.  Language-aware curve lookup (Codex HIGH #4) — same baseline color on
  *      JAVA_KEYWORD vs RUBY_FUNCTION_DECLARATION under NEON produces different
  *      output colors because the language differs.
- * 13.  CUSTOM with empty customOverrides returns AMBIENT-identity foregrounds
- *      and does NOT throw on non-empty customOverrides.
+ * 13.  CUSTOM + a populated override (Java|KEYWORD=75) transforms the
+ *      foreground above identity, and CUSTOM + empty overrides falls back to
+ *      the subordinate preset's curve (Phase 50.1 drill-down activation).
  * 14.  Determinism — two consecutive calls with identical inputs produce
  *      equal output maps.
  */
@@ -421,30 +422,20 @@ class SyntaxIntensityApplicatorTest {
         assertNotEquals(baselineFg.rgb, coloredBaseline.rgb)
     }
 
-    // --- Test 13 — CUSTOM with empty customOverrides is AMBIENT identity --
+    // --- Test 13 — CUSTOM transforms per slider + subordinate fallback ---
 
     @Test
-    fun `CUSTOM with empty customOverrides falls through to identity and does not throw on non-empty`() {
+    fun `CUSTOM with override transforms per slider and empty overrides falls back to subordinate preset`() {
+        // Colored baseline so the HSL transform actually moves the RGB —
+        // pure grey (saturation 0) would collapse to grey regardless.
         val baselineFg = Color(0xE6, 0xB6, 0x73)
         val baseline = mapOf(javaKeywordKey to attrsWithFg(baselineFg))
 
-        val identityResult =
-            SyntaxIntensityApplicator.compute(
-                preset = SyntaxPreset.CUSTOM,
-                customOverrides = emptyMap(),
-                variantName = "Mirage",
-                editorBg = mirageBg,
-                baseline = baseline,
-                overlay = emptyMap(),
-            )
-        assertEquals(
-            baselineFg.rgb,
-            identityResult[javaKeywordKey]?.foregroundColor?.rgb,
-            "CUSTOM with empty customOverrides must return identity (Phase 50A free-tier no-op)",
-        )
-
-        // Non-empty customOverrides must not throw. Phase 50A doesn't activate
-        // the custom curve consumption; the contract here is "does not crash".
+        // CUSTOM + a populated override (Java|KEYWORD slider 75) MUST saturate /
+        // brighten above identity — the drill-down is now activated (Phase 50.1
+        // D-02 / D-05). `subordinatePreset` is passed as a NAMED trailing
+        // argument; it does NOT exist on compute() until Plan 02 lands, forcing
+        // the RED state.
         val populatedResult =
             SyntaxIntensityApplicator.compute(
                 preset = SyntaxPreset.CUSTOM,
@@ -453,8 +444,34 @@ class SyntaxIntensityApplicatorTest {
                 editorBg = mirageBg,
                 baseline = baseline,
                 overlay = emptyMap(),
+                subordinatePreset = SyntaxPreset.AMBIENT,
             )
-        assertNotNull(populatedResult[javaKeywordKey], "CUSTOM with overrides must not throw and must emit output")
+        assertNotNull(populatedResult[javaKeywordKey], "CUSTOM with overrides must emit output")
+        assertNotEquals(
+            baselineFg.rgb,
+            populatedResult[javaKeywordKey]?.foregroundColor?.rgb,
+            "CUSTOM + slider 75 must transform the foreground above identity (drill-down activated)",
+        )
+
+        // CUSTOM + empty overrides resolves untouched cells via the SUBORDINATE
+        // preset's curve (D-07) — NOT the old AMBIENT-identity no-op. Here the
+        // subordinate is AMBIENT, so the output equals the baseline; the
+        // contract under test is that empty-overrides routes through the
+        // subordinate curve and still emits output without throwing.
+        val fallbackResult =
+            SyntaxIntensityApplicator.compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides = emptyMap(),
+                variantName = "Mirage",
+                editorBg = mirageBg,
+                baseline = baseline,
+                overlay = emptyMap(),
+                subordinatePreset = SyntaxPreset.AMBIENT,
+            )
+        assertNotNull(
+            fallbackResult[javaKeywordKey],
+            "CUSTOM with empty overrides must emit output via the subordinate preset curve",
+        )
     }
 
     // --- Test 14 — Determinism -------------------------------------------

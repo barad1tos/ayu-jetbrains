@@ -38,6 +38,11 @@ import kotlin.test.assertNotNull
  * 10.  Pattern L source-regex lock for `getInstance()` companion — the
  *      live application-service lookup is exercised in integration tests
  *      under `src/test/kotlin/dev/ayuislands/integration/`.
+ * 11.  Sparse persistence — only the cells the user moves materialise; the
+ *      untouched cells never appear in the persisted map (Phase 50.1 D-01).
+ * 12.  `subordinatePreset` round-trip — a non-default name survives loadState.
+ * 13.  Legacy default — a fresh state with no `subordinatePreset` field
+ *      deserialises to "AMBIENT" (backward-compatible, Phase 50.1 D-07).
  */
 class SyntaxIntensityStateTest {
     // --- Test 1 — defaults --------------------------------------------------
@@ -167,6 +172,44 @@ class SyntaxIntensityStateTest {
         assertEquals("WHISPER", config.selectedPreset)
         val expected = mapOf("Java" to mapOf("KEYWORD" to 75))
         assertEquals(expected, config.customOverrides, "only the well-formed entry survives the bridge")
+    }
+
+    // --- Test 11 — sparse persistence (only moved cells materialise) ------
+
+    @Test
+    fun `only the moved cells are persisted — untouched cells never materialise (D-01)`() {
+        val reloaded =
+            roundTrip { state ->
+                state.customOverrides["Java|KEYWORD"] = "75"
+                state.customOverrides["Kotlin|COMMENT"] = "30"
+            }
+        assertEquals(
+            2,
+            reloaded.state.customOverrides.size,
+            "sparse store — exactly the 2 moved cells persist, untouched cells inherit the preset",
+        )
+        assertEquals("75", reloaded.state.customOverrides["Java|KEYWORD"])
+        assertEquals("30", reloaded.state.customOverrides["Kotlin|COMMENT"])
+    }
+
+    // --- Test 12 — subordinatePreset round-trip ---------------------------
+
+    @Test
+    fun `subordinatePreset string survives loadState round-trip (D-07)`() {
+        // `subordinatePreset` does NOT exist on SyntaxIntensityBaseState until
+        // Plan 02 lands — referencing it here forces the RED state.
+        val reloaded = roundTrip { state -> state.subordinatePreset = "NEON" }
+        assertEquals("NEON", reloaded.state.subordinatePreset)
+    }
+
+    // --- Test 13 — legacy default for absent subordinatePreset ------------
+
+    @Test
+    fun `fresh base state defaults subordinatePreset to AMBIENT (backward-compatible, D-07)`() {
+        // Legacy / pre-50.1 XML has no subordinatePreset field; the string()
+        // delegate default must deserialise it to AMBIENT so old state stays
+        // valid without a forced migration.
+        assertEquals("AMBIENT", SyntaxIntensityBaseState().subordinatePreset)
     }
 
     // --- Test 10 — Pattern L source-regex lock for getInstance() ----------
