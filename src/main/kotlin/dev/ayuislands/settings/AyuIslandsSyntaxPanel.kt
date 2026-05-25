@@ -49,9 +49,12 @@ import javax.swing.Timer
  * Custom drill-down layout (Direction B): the 16 [PrimitiveCategory] sliders
  * are arranged into four non-collapsible [CategoryGroup] sections by syntactic
  * role. Within each section the categories split round-robin into two
- * shared-grid column `panel { }` blocks, so every row's leading label, slider,
- * readout, and "Reset" cell line up vertically instead of jumping between
- * rows. Each category row owns a tick-free slider with a signed-delta readout
+ * shared-grid column `panel { }` blocks. Every category row's leading label is
+ * pinned to one shared [labelColumnWidth] (measured off the widest displayName,
+ * not hardcoded), so the eight nested grids resolve column 1 identically and
+ * every slider start — plus the fixed-width readout — lands on a single
+ * vertical line across all four groups, left and right columns mirrored. Each
+ * category row owns a tick-free slider with a signed-delta readout
  * and a per-row "Reset" [ActionLink]; the master reset is scoped to the active
  * language. The value model (0..100, 50 = identity, sparse store keyed by
  * `language|category.name`) is unchanged — the signed string lives only in the
@@ -79,6 +82,20 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
     private val resetLinks: MutableMap<PrimitiveCategory, ActionLink> = mutableMapOf()
     private var masterResetButton: JButton? = null
     private var currentLanguage: String = ""
+
+    // One uniform leading-label width shared by EVERY category row in EVERY
+    // group/column. Each `group(title)` builds its own nested-panel grids, so
+    // `widthGroup()` (grid-scoped) cannot align labels across the eight grids;
+    // a fixed preferred/minimum width on every leading label forces all grids
+    // to resolve column 1 to the same width, so the sliders (and therefore the
+    // fixed-width readouts) start on a single vertical line in both columns of
+    // all four groups. Measured once off the widest [PrimitiveCategory]
+    // displayName via [UIUtil.getLabelFont] — the labels are localizable, so
+    // the width is computed, never hardcoded. Computed lazily because the
+    // panel is constructed off the EDT in tests; the value is independent of
+    // any not-yet-realized component's font (a component's own `getFont()`
+    // returns null before it joins the hierarchy).
+    private val labelColumnWidth: Int by lazy { computeLabelColumnWidth() }
 
     // Single-shot debounce: a drag burst restarts the timer, so the apply
     // fires once per 100ms pause rather than on every change event. The
@@ -183,12 +200,14 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
      * show/hide boundary is the [customSelected] gate carried by the inner
      * row. The categories are split round-robin into a left column (even
      * indices) and a right column (odd indices); each column is its OWN
-     * `panel { }`, so the IntelliJ UI-DSL grid auto-aligns the leading label
-     * column AND the slider / readout / reset cell columns across every row
-     * within that column. Two columns are two independent grids that each stay
-     * internally aligned — the round-robin split keeps the left/right label
-     * widths close without a fixed label width. Odd-count groups simply give
-     * the left column one more row than the right (no placeholder juggling).
+     * `panel { }`, so the IntelliJ UI-DSL grid auto-aligns the slider /
+     * readout / reset cell columns across every row within that column. Each
+     * row's leading label is pinned to the shared [labelColumnWidth] in
+     * [categoryRow], so column 1 resolves identically across all eight grids
+     * and the slider start (and the fixed-width readout) line up on one
+     * vertical line both within and across the four groups, left and right
+     * columns mirrored. Odd-count groups simply give the left column one more
+     * row than the right (no placeholder juggling).
      */
     private fun Panel.buildCategoryGroup(categoryGroup: CategoryGroup) {
         group(categoryGroup.title) {
@@ -207,22 +226,34 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
     }
 
     /**
-     * Add ONE per-category control row INTO the enclosing column grid — the
-     * leading `row(displayName)` label is that grid's synchronized first
-     * column, so every row in the column shares one label width. Built via the
-     * IntelliJ UI-DSL `slider()` cell (the themed Darcula widget) — never a
-     * bare `JSlider(...)` constructor. The slider is tick-free and width-capped
-     * with NO `resizableColumn()` (a resizable slider would break the
-     * fixed-width readout's column binding); a signed-delta readout
+     * Add ONE per-category control row INTO the enclosing column grid. The
+     * leading cell is an EXPLICIT fixed-width [JLabel] (not `row(displayName)`'s
+     * auto leading-label column): its preferred AND minimum widths are pinned
+     * to [labelColumnWidth] so the eight independent nested-panel grids all
+     * resolve column 1 to the identical width. With column 1 uniform, the
+     * slider starts at the same x in every group and in both columns, and the
+     * fixed-width readout falls on a single right-hand vertical line — the
+     * cross-group alignment the auto-label form could not deliver. The slider
+     * is built via the IntelliJ UI-DSL `slider()` cell (the themed Darcula
+     * widget) — never a bare `JSlider(...)` constructor — tick-free and
+     * width-capped with NO `resizableColumn()` (a resizable slider would break
+     * the fixed-width readout's column binding). A signed-delta readout
      * ([signedReadout]) and a per-row "Reset" [ActionLink] (visible only when
-     * the cell diverges from identity) sit to its right. Because the readout
-     * cell is fixed-width in its own grid column, the reset link toggling
-     * `isVisible` does not reflow the readout. The underlying `JSlider`, readout
-     * label, and reset link are stashed by category so [rebindSlidersFor] /
-     * [setSliderValue] can snap them on combo change.
+     * the cell diverges from identity) sit to its right; the readout cell is
+     * fixed-width so the reset link toggling `isVisible` does not reflow it.
+     * The underlying `JSlider`, readout label, and reset link are stashed by
+     * category so [rebindSlidersFor] / [setSliderValue] can snap them on combo
+     * change.
      */
     private fun Panel.categoryRow(category: PrimitiveCategory) {
-        row(category.displayName) {
+        row {
+            cell(
+                JLabel(category.displayName).apply {
+                    val width = labelColumnWidth
+                    preferredSize = Dimension(width, preferredSize.height)
+                    minimumSize = Dimension(width, preferredSize.height)
+                },
+            )
             val jslider =
                 slider(SLIDER_MIN, SLIDER_MAX, 0, 0)
                     .applyToComponent {
@@ -256,6 +287,22 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
             sliderLabels[category] = valueLabel
             resetLinks[category] = resetLink
         }
+    }
+
+    /**
+     * Measure the widest [PrimitiveCategory.displayName] under the standard
+     * label font and pad it, yielding the shared leading-label column width.
+     * Uses [UIUtil.getLabelFont] (the font is realized; a not-yet-shown
+     * component's own `getFont()` returns null per the project layout lesson)
+     * and a throwaway [JLabel] for [java.awt.FontMetrics]. Defensive 0-width
+     * fallback to [LABEL_FALLBACK_WIDTH] guards the rare headless case where
+     * `stringWidth` cannot resolve.
+     */
+    private fun computeLabelColumnWidth(): Int {
+        val font = UIUtil.getLabelFont()
+        val metrics = JLabel().getFontMetrics(font)
+        val widest = PrimitiveCategory.entries.maxOf { metrics.stringWidth(it.displayName) }
+        return if (widest <= 0) JBUI.scale(LABEL_FALLBACK_WIDTH) else widest + JBUI.scale(LABEL_PADDING)
     }
 
     /**
@@ -536,6 +583,15 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         private const val SLIDER_MID = 50
         private const val SLIDER_TRACK_WIDTH = 160
         private const val READOUT_WIDTH = 40
+
+        // Trailing padding (DPI-scaled) added to the widest measured
+        // displayName so the leading label never clips against the slider.
+        private const val LABEL_PADDING = 12
+
+        // Defensive fallback (DPI-scaled) when FontMetrics yields a 0-width
+        // measurement (e.g. an unrealizable headless font); roughly the widest
+        // English displayName plus padding.
+        private const val LABEL_FALLBACK_WIDTH = 170
 
         /**
          * The 16 [PrimitiveCategory] entries grouped by syntactic role and

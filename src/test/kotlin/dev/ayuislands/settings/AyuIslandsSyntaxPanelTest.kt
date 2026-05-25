@@ -3,6 +3,7 @@ package dev.ayuislands.settings
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.ui.components.ActionLink
+import com.intellij.util.ui.UIUtil
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.syntax.PrimitiveCategory
 import dev.ayuislands.syntax.SyntaxIntensityApplicator
@@ -696,6 +697,45 @@ class AyuIslandsSyntaxPanelTest {
         )
     }
 
+    // ---------- Test 22b — uniform leading-label width source lock (cross-group alignment) ----------
+
+    @Test
+    fun `categoryRow uses an explicit fixed-width leading JLabel, not the auto row(displayName) column`() {
+        val source = readPanelSource()
+        val body = functionBody(source, "private fun Panel.categoryRow(")
+        assertFalse(
+            body.contains("row(category.displayName)"),
+            "cross-group alignment: the auto leading-label column row(category.displayName) must be " +
+                "gone — it sizes column 1 per-grid and breaks the single vertical line across groups.",
+        )
+        assertTrue(
+            body.contains("JLabel(category.displayName)"),
+            "cross-group alignment: the leading cell must be an explicit JLabel(category.displayName).",
+        )
+        assertTrue(
+            body.contains("preferredSize = Dimension(width, preferredSize.height)") &&
+                body.contains("minimumSize = Dimension(width, preferredSize.height)") &&
+                body.contains("val width = labelColumnWidth"),
+            "cross-group alignment: the leading label must pin BOTH preferred and minimum width to " +
+                "the shared labelColumnWidth so all eight grids resolve column 1 identically.",
+        )
+    }
+
+    @Test
+    fun `labelColumnWidth is at least the widest PrimitiveCategory displayName so no label clips`() {
+        val panel = AyuIslandsSyntaxPanel()
+        val width = readLabelColumnWidth(panel)
+        val font = UIUtil.getLabelFont()
+        val metrics = JLabel().getFontMetrics(font)
+        val widest = PrimitiveCategory.entries.maxOf { metrics.stringWidth(it.displayName) }
+        assertTrue(
+            width >= widest,
+            "the shared label column ($width) must be at least the widest displayName ($widest) so the " +
+                "longest label (e.g. 'Interface declaration') never clips against the slider.",
+        )
+        assertTrue(width > 0, "labelColumnWidth must be positive — the defensive fallback guards a 0 measure.")
+    }
+
     // ---------- Test 23 — slider-change behavior (readout + reset-link + sparse write) ----------
 
     @Test
@@ -1119,6 +1159,17 @@ class AyuIslandsSyntaxPanelTest {
                 (categoriesMethod.invoke(group) as List<*>).map { it as PrimitiveCategory }
             title to categories
         }
+    }
+
+    /**
+     * Read the lazily-computed shared label-column width through its synthetic
+     * getter (a `by lazy` property exposes `getLabelColumnWidth()`; the backing
+     * field is the `Lazy` delegate, not the resolved Int).
+     */
+    private fun readLabelColumnWidth(panel: AyuIslandsSyntaxPanel): Int {
+        val getter = AyuIslandsSyntaxPanel::class.java.getDeclaredMethod("getLabelColumnWidth")
+        getter.isAccessible = true
+        return getter.invoke(panel) as Int
     }
 
     private fun readPanelSource(): String =
