@@ -51,6 +51,7 @@ class SyntaxIntensityApplicatorTest {
     private val javaKeywordKey = TextAttributesKey.createTextAttributesKey("JAVA_KEYWORD")
     private val kotlinKeywordKey = TextAttributesKey.createTextAttributesKey("KOTLIN_KEYWORD")
     private val javaCommentKey = TextAttributesKey.createTextAttributesKey("JAVA_LINE_COMMENT")
+    private val javaLocalVarKey = TextAttributesKey.createTextAttributesKey("JAVA_LOCAL_VARIABLE")
 
     private val mirageBg = Color(0x1F, 0x24, 0x30)
 
@@ -84,18 +85,19 @@ class SyntaxIntensityApplicatorTest {
     // --- Test 2 — Whisper transform end-to-end ---------------------------
 
     @Test
-    fun `WHISPER KEYWORD on cool-grey baseline drops saturation and lightness per curve`() {
-        val baselineFg = Color(0xCC, 0xCA, 0xC2)
+    fun `WHISPER KEYWORD on a bright Ayu baseline washes out via negative chroma intent`() {
+        // KEYWORD is a HIGH-S token: saturationDelta is 0 and Whisper carries a
+        // NEGATIVE chroma intent, so a bright (L > 0.5) baseline moves further
+        // away from 0.5 (lighter) and loses chroma — quieter, not darker.
+        val baselineFg = Color(0xFF, 0xAD, 0x66) // Ayu keyword, S=1.0 L=0.70
         val baseline = mapOf(javaKeywordKey to attrsWithFg(baselineFg))
         val curve = SyntaxPresetCurves.curveFor(SyntaxPreset.WHISPER, "Java", PrimitiveCategory.KEYWORD)
 
-        // Compute the expected output via the documented pipeline so we lock
-        // the applicator's HSL transform, not a hard-coded magic hex.
+        // Compute the expected output via the documented signed-intent pipeline
+        // so we lock the applicator's HSL transform, not a hard-coded magic hex.
         val baselineHsl = HslColor.fromColor(baselineFg)
         val expectedSat = (baselineHsl.saturation + curve.saturationDelta).coerceIn(0f, 1f)
-        val expectedLight =
-            (baselineHsl.lightness + curve.lightnessDelta)
-                .coerceIn(LIGHTNESS_LOWER, LIGHTNESS_UPPER)
+        val expectedLight = expectedLightnessVia(baselineHsl.lightness, curve)
         val expected = HslColor.toColor(baselineHsl.hue, expectedSat, expectedLight)
 
         val result =
@@ -118,12 +120,13 @@ class SyntaxIntensityApplicatorTest {
     // --- Test 3 — Saturation lower clamp ---------------------------------
 
     @Test
-    fun `saturation below zero clamps to zero (Whisper subtracts past zero)`() {
-        // Baseline saturation ~0.05 — Whisper KEYWORD subtracts 0.20 => clamp to 0.
+    fun `saturation below zero clamps to zero (Whisper subtracts past zero on a low-S token)`() {
+        // LOCAL_VAR is a LOW-S token with an additive saturation lever. Whisper
+        // subtracts 0.15; a near-grey baseline (S ~ 0.05) clamps to 0.
         val nearGreyFg = Color(0xA5, 0xA0, 0x9C)
-        val baseline = mapOf(javaKeywordKey to attrsWithFg(nearGreyFg))
+        val baseline = mapOf(javaLocalVarKey to attrsWithFg(nearGreyFg))
         val baselineHsl = HslColor.fromColor(nearGreyFg)
-        assertTrue(baselineHsl.saturation < 0.20f, "test fixture must start below the Whisper KEYWORD sat delta")
+        assertTrue(baselineHsl.saturation < 0.15f, "test fixture must start below the Whisper LOCAL_VAR sat delta")
 
         val result =
             SyntaxIntensityApplicator.compute(
@@ -134,25 +137,24 @@ class SyntaxIntensityApplicatorTest {
                 baseline = baseline,
                 overlay = emptyMap(),
             )
-        val outputFg = result[javaKeywordKey]?.foregroundColor
+        val outputFg = result[javaLocalVarKey]?.foregroundColor
         assertNotNull(outputFg)
         val outputHsl = HslColor.fromColor(outputFg)
         assertEquals(0f, outputHsl.saturation, FLOAT_TOLERANCE, "saturation must clamp to 0f")
     }
 
-    // --- Test 4 — Lightness lower clamp ----------------------------------
+    // --- Test 4 — Lightness lower clamp (syntax readability floor) -------
 
     @Test
-    fun `lightness below MIN clamps to MIN_LIGHTNESS (Whisper subtracts past floor)`() {
-        // Baseline lightness ~0.12 — Whisper KEYWORD subtracts 0.05 lightness;
-        // we want to ensure that a low-lightness baseline lands on the floor
-        // for at least one CYBERPUNK->reverse case. Use Whisper with KEYWORD
-        // and a low-lightness fg to push past the floor (-0.05 makes 0.12 -> 0.07
-        // which clamps to 0.10).
-        val darkFg = Color(0x22, 0x22, 0x28)
-        val baseline = mapOf(javaKeywordKey to attrsWithFg(darkFg))
-        val baselineHsl = HslColor.fromColor(darkFg)
-        assertTrue(baselineHsl.lightness < LIGHTNESS_LOWER + 0.05f, "fixture must start near the lightness floor")
+    fun `lightness clamps to the 0_48 syntax floor when the intent drives it lower`() {
+        // KEYWORD is high-S with a NEGATIVE Whisper intent. A mid-dark baseline
+        // (L just below 0.5) sits on the LOW flank, so a negative intent moves L
+        // DOWN (away from 0.5) and the syntax-readability floor (0.48) clamps it
+        // — guaranteeing transformed token text stays legible on Mirage bg.
+        val midDarkFg = Color(0x3A, 0x42, 0x55) // L ~ 0.28, below 0.5
+        val baseline = mapOf(javaKeywordKey to attrsWithFg(midDarkFg))
+        val baselineHsl = HslColor.fromColor(midDarkFg)
+        assertTrue(baselineHsl.lightness < MID_LIGHTNESS, "fixture must start on the low flank")
 
         val result =
             SyntaxIntensityApplicator.compute(
@@ -166,14 +168,21 @@ class SyntaxIntensityApplicatorTest {
         val outputFg = result[javaKeywordKey]?.foregroundColor
         assertNotNull(outputFg)
         val outputHsl = HslColor.fromColor(outputFg)
-        assertEquals(LIGHTNESS_LOWER, outputHsl.lightness, FLOAT_TOLERANCE, "lightness must clamp to MIN_LIGHTNESS")
+        assertEquals(
+            SYNTAX_FLOOR,
+            outputHsl.lightness,
+            FLOAT_TOLERANCE,
+            "lightness must clamp to the 0.48 syntax readability floor",
+        )
     }
 
     // --- Test 5 — Lightness upper clamp ----------------------------------
 
     @Test
-    fun `lightness above MAX clamps to MAX_LIGHTNESS (Cyberpunk adds past ceiling)`() {
-        // Baseline lightness ~0.92 — Cyberpunk adds 0.05 => clamp to 0.95.
+    fun `lightness clamps to MAX_LIGHTNESS when the intent drives it higher`() {
+        // KEYWORD is high-S; Whisper's NEGATIVE intent on a very bright baseline
+        // (L ~ 0.92, high flank) moves L UP (away from 0.5) past the ceiling, so
+        // it clamps to MAX_LIGHTNESS.
         val brightFg = Color(0xF0, 0xEE, 0xE5)
         val baseline = mapOf(javaKeywordKey to attrsWithFg(brightFg))
         val baselineHsl = HslColor.fromColor(brightFg)
@@ -181,7 +190,7 @@ class SyntaxIntensityApplicatorTest {
 
         val result =
             SyntaxIntensityApplicator.compute(
-                preset = SyntaxPreset.CYBERPUNK,
+                preset = SyntaxPreset.WHISPER,
                 customOverrides = emptyMap(),
                 variantName = "Mirage",
                 editorBg = mirageBg,
@@ -515,12 +524,156 @@ class SyntaxIntensityApplicatorTest {
         assertSame(first.keys.first(), first.keys.first())
     }
 
+    // --- Test 15 — Signed chroma intent resolver -------------------------
+
+    @Test
+    fun `positive intent on a high-L token decreases lightness toward 0_5 (louder)`() {
+        // Neon KEYWORD is a high-S token with a POSITIVE intent. A bright (L > 0.5)
+        // baseline sits on the high flank, so +intent moves L DOWN toward 0.5 —
+        // chroma up, louder. No clamp interferes (lands well inside [0.48, 0.95]).
+        val brightHighFlank = Color(0xFF, 0xAD, 0x66) // L ~ 0.70
+        val output = transformVia(SyntaxPreset.NEON, javaKeywordKey, brightHighFlank)
+        val inHsl = HslColor.fromColor(brightHighFlank)
+        val outHsl = HslColor.fromColor(output)
+        assertTrue(
+            outHsl.lightness < inHsl.lightness,
+            "positive intent on high-L must lower L (${outHsl.lightness} < ${inHsl.lightness})",
+        )
+    }
+
+    @Test
+    fun `positive intent on a low-L token increases lightness toward 0_5 (louder)`() {
+        // Same Neon KEYWORD +intent, but a dark (L < 0.5) baseline sits on the
+        // low flank, so +intent moves L UP toward 0.5. The syntax floor (0.48)
+        // does not interfere because the resolved L stays above it here.
+        val darkLowFlank = Color(0x4D, 0x55, 0x6B) // L ~ 0.36, below 0.5
+        val output = transformVia(SyntaxPreset.NEON, javaKeywordKey, darkLowFlank)
+        val inHsl = HslColor.fromColor(darkLowFlank)
+        val outHsl = HslColor.fromColor(output)
+        assertTrue(inHsl.lightness < MID_LIGHTNESS, "fixture must start on the low flank")
+        assertTrue(
+            outHsl.lightness > inHsl.lightness,
+            "positive intent on low-L must raise L (${outHsl.lightness} > ${inHsl.lightness})",
+        )
+    }
+
+    @Test
+    fun `negative intent moves lightness in the opposite direction (quieter)`() {
+        // Whisper KEYWORD carries a NEGATIVE intent. On a bright (high-flank)
+        // baseline that means UP (away from 0.5) — the mirror of the positive
+        // case in the high-L test above.
+        val brightHighFlank = Color(0xFF, 0xAD, 0x66) // L ~ 0.70
+        val output = transformVia(SyntaxPreset.WHISPER, javaKeywordKey, brightHighFlank)
+        val inHsl = HslColor.fromColor(brightHighFlank)
+        val outHsl = HslColor.fromColor(output)
+        assertTrue(
+            outHsl.lightness > inHsl.lightness,
+            "negative intent on high-L must raise L away from 0.5 (${outHsl.lightness} > ${inHsl.lightness})",
+        )
+    }
+
+    @Test
+    fun `absoluteLightness path applies the lightness delta literally (Whisper COMMENT dim)`() {
+        // Whisper COMMENT rides the absoluteLightness path: literal additive L
+        // (down), bypassing the intent flip. A medium-cool comment baseline must
+        // get DARKER even though it sits on the low flank (where a negative
+        // INTENT would have moved it up). This is the regression lock for the
+        // COMMENT exemption.
+        val commentFg = Color(0x5C, 0x67, 0x73) // L ~ 0.41, below 0.5
+        val output = transformVia(SyntaxPreset.WHISPER, javaCommentKey, commentFg)
+        val inHsl = HslColor.fromColor(commentFg)
+        val outHsl = HslColor.fromColor(output)
+        assertTrue(inHsl.lightness < MID_LIGHTNESS, "comment fixture must start on the low flank")
+        assertTrue(
+            outHsl.lightness < inHsl.lightness,
+            "absoluteLightness COMMENT dim must DARKEN (${outHsl.lightness} < ${inHsl.lightness}), " +
+                "not wash up as a negative intent would",
+        )
+        val curve = SyntaxPresetCurves.curveFor(SyntaxPreset.WHISPER, "Java", PrimitiveCategory.COMMENT)
+        assertTrue(curve.absoluteLightness, "Whisper COMMENT must use the absoluteLightness path")
+        assertEquals(
+            expectedLightnessVia(inHsl.lightness, curve),
+            outHsl.lightness,
+            FLOAT_TOLERANCE,
+            "absoluteLightness output must equal the literal additive resolve",
+        )
+    }
+
+    // --- Test 16 — Syntax readability floor + constant value -------------
+
+    @Test
+    fun `SYNTAX_MIN_LIGHTNESS constant is the documented 0_48 readability floor`() {
+        // Lock the production constant so the duplicated test literal can't drift.
+        assertEquals(SYNTAX_FLOOR, SyntaxIntensityApplicator.SYNTAX_MIN_LIGHTNESS, "syntax floor must be 0.48")
+    }
+
+    @Test
+    fun `intent path never resolves below the 0_48 syntax floor`() {
+        // Sweep the named presets over a low-flank colored baseline; no high-S
+        // intent token may resolve below the readability floor.
+        val baselines =
+            listOf(
+                Color(0x33, 0x3A, 0x4A),
+                Color(0x4D, 0x55, 0x6B),
+                Color(0xFF, 0xAD, 0x66),
+            )
+        for (preset in listOf(SyntaxPreset.WHISPER, SyntaxPreset.NEON, SyntaxPreset.CYBERPUNK)) {
+            for (fg in baselines) {
+                val output = transformVia(preset, javaKeywordKey, fg)
+                val outHsl = HslColor.fromColor(output)
+                assertTrue(
+                    outHsl.lightness >= SYNTAX_FLOOR - FLOAT_TOLERANCE,
+                    "$preset KEYWORD on #${fg.hex()} resolved L ${outHsl.lightness} below the 0.48 floor",
+                )
+            }
+        }
+    }
+
     // --- Helpers ---------------------------------------------------------
+
+    private fun transformVia(
+        preset: SyntaxPreset,
+        key: TextAttributesKey,
+        fg: Color,
+    ): Color {
+        val result =
+            SyntaxIntensityApplicator.compute(
+                preset = preset,
+                customOverrides = emptyMap(),
+                variantName = "Mirage",
+                editorBg = mirageBg,
+                baseline = mapOf(key to attrsWithFg(fg)),
+                overlay = emptyMap(),
+            )
+        return assertNotNull(result[key]?.foregroundColor, "compute must emit a foreground for ${key.externalName}")
+    }
+
+    private fun Color.hex(): String = "%02X%02X%02X".format(red, green, blue)
 
     private fun attrsWithFg(color: Color): TextAttributes {
         val attrs = TextAttributes()
         attrs.foregroundColor = color
         return attrs
+    }
+
+    /**
+     * Mirrors the production signed-intent / absolute lightness resolver so the
+     * expected-value tests lock the applicator's transform, not a magic hex.
+     */
+    private fun expectedLightnessVia(
+        lightness: Float,
+        curve: CategoryCurve,
+    ): Float {
+        val resolved =
+            if (curve.absoluteLightness) {
+                lightness + curve.lightnessDelta
+            } else {
+                val towardMid = if (lightness >= MID_LIGHTNESS) -1f else 1f
+                val lightnessDirection = if (curve.lightnessDelta >= 0f) towardMid else -towardMid
+                lightness + lightnessDirection * abs(curve.lightnessDelta)
+            }
+        val lowerBound = if (curve.absoluteLightness) LIGHTNESS_LOWER else SYNTAX_FLOOR
+        return resolved.coerceIn(lowerBound, LIGHTNESS_UPPER)
     }
 
     private fun assertChannelDiff(
@@ -537,8 +690,15 @@ class SyntaxIntensityApplicatorTest {
     }
 
     companion object {
+        // AccentHsl.MIN_LIGHTNESS — the absolute floor kept on the
+        // absoluteLightness (COMMENT dim) path.
         private const val LIGHTNESS_LOWER = 0.10f
         private const val LIGHTNESS_UPPER = 0.95f
+
+        // SyntaxIntensityApplicator.SYNTAX_MIN_LIGHTNESS — the readability floor
+        // on the signed-intent path.
+        private const val SYNTAX_FLOOR = 0.48f
+        private const val MID_LIGHTNESS = 0.5f
         private const val FLOAT_TOLERANCE = 0.005f
         private const val HUE_TOLERANCE = 0.5f
         private const val CHANNEL_TOLERANCE = 2

@@ -14,17 +14,23 @@ import kotlin.math.abs
  *
  *  - [CategoryCurve] is a `(saturationDelta, lightnessDelta)` pair, both `Float`.
  *  - AMBIENT is the identity transform for every (language × category) pair.
- *  - Whisper subdues across the board (`saturationDelta <= 0` for every category).
+ *  - Whisper quietens across the board (`saturationDelta <= 0` for every
+ *    category — high-S tokens carry the quiet in a NEGATIVE chroma intent with
+ *    `saturationDelta == 0`).
  *  - **Whisper COMMENT curve** approximates the Phase 49 DIMMED_COMMENTS recipe
- *    (RGB×0.6) within ±6 RGB units per channel when run through the same HSL
- *    transform pipeline Plan 50-04's applicator will use (Codex MEDIUM #7 fix —
- *    concrete tolerance-bounded equivalence test, not a vague "negative
- *    lightness" assertion).
- *  - Neon boosts declarations + keywords with positive `saturationDelta`
- *    (INTENSITY-02).
- *  - Cyberpunk maxes saturation across all categories with max delta ≥ 0.3f
- *    (INTENSITY-02).
+ *    (RGB×0.6) within ±10 RGB units per channel when run through the same HSL
+ *    transform pipeline the applicator uses (Codex MEDIUM #7 fix — concrete
+ *    tolerance-bounded equivalence test, not a vague "negative lightness"
+ *    assertion). COMMENT rides the `absoluteLightness` path so it dims downward.
+ *  - Neon louder than Ambient: high-S tokens carry a positive chroma intent
+ *    (`lightnessDelta > 0`, `saturationDelta == 0`); low-S tokens get a positive
+ *    `saturationDelta`.
+ *  - Cyberpunk is the loudest preset: every category resolves to a strictly
+ *    greater chroma than Neon (verified end-to-end by the monotonicity test).
  *  - All deltas stay in `[-1f, +1f]` (D-03 input range).
+ *  - **Chroma monotonicity:** for representative high-S and low-S tokens the
+ *    HSL chroma of the transformed foreground is strictly increasing
+ *    Whisper < Ambient < Neon < Cyberpunk — the corrected intensity model.
  *  - At least one per-language override exists, proving the override table is
  *    consulted before the base table.
  *  - Top-12 languages each appear in at least one preset's override map (D-10
@@ -116,33 +122,54 @@ class SyntaxPresetCurvesTest {
     }
 
     @Test
-    fun `NEON boosts declarations and keywords with positive saturationDelta (INTENSITY-02)`() {
+    fun `NEON drives declarations and keywords louder via positive chroma intent`() {
+        // FUNCTION_DECL + KEYWORD are HIGH-S tokens — saturationDelta is 0 and the
+        // loudness is carried by a positive lightness intent (move L toward 0.5).
         val neonFunc = SyntaxPresetCurves.curveFor(SyntaxPreset.NEON, "Kotlin", PrimitiveCategory.FUNCTION_DECL)
         val neonKeyword = SyntaxPresetCurves.curveFor(SyntaxPreset.NEON, "Kotlin", PrimitiveCategory.KEYWORD)
+        assertEquals(0f, neonFunc.saturationDelta, "Neon FUNCTION_DECL is high-S — saturationDelta must be 0")
+        assertEquals(0f, neonKeyword.saturationDelta, "Neon KEYWORD is high-S — saturationDelta must be 0")
         assertTrue(
-            neonFunc.saturationDelta > 0f,
-            "Neon Kotlin/FUNCTION_DECL must have positive saturationDelta",
+            neonFunc.lightnessDelta > 0f,
+            "Neon Kotlin/FUNCTION_DECL must carry a positive (louder) chroma intent",
         )
         assertTrue(
-            neonKeyword.saturationDelta > 0f,
-            "Neon Kotlin/KEYWORD must have positive saturationDelta",
+            neonKeyword.lightnessDelta > 0f,
+            "Neon Kotlin/KEYWORD must carry a positive (louder) chroma intent",
+        )
+        // A low-S token still gets a real additive saturation lever.
+        val neonLocalVar = SyntaxPresetCurves.curveFor(SyntaxPreset.NEON, "Kotlin", PrimitiveCategory.LOCAL_VAR)
+        assertTrue(
+            neonLocalVar.saturationDelta > 0f,
+            "Neon LOCAL_VAR is low-S — must keep a positive additive saturationDelta",
         )
     }
 
     @Test
-    fun `CYBERPUNK maxes saturation across every category with peak delta at or above 0_3f`() {
-        var maxDelta = -Float.MAX_VALUE
+    fun `CYBERPUNK is the loudest preset across every category (chroma intent or peak saturation)`() {
+        // High-S tokens carry the loudest positive chroma intent; low-S tokens
+        // carry the peak additive saturation (>= 0.3f). Every category must be
+        // strictly louder than its Neon counterpart on whichever lever it uses.
+        var maxSatDelta = -Float.MAX_VALUE
         for (category in PrimitiveCategory.entries) {
-            val curve = SyntaxPresetCurves.curveFor(SyntaxPreset.CYBERPUNK, "Java", category)
-            assertTrue(
-                curve.saturationDelta > 0f,
-                "Cyberpunk Java/$category positive saturationDelta required, got ${curve.saturationDelta}",
-            )
-            if (curve.saturationDelta > maxDelta) maxDelta = curve.saturationDelta
+            val cyberpunk = SyntaxPresetCurves.curveFor(SyntaxPreset.CYBERPUNK, "Java", category)
+            val neon = SyntaxPresetCurves.curveFor(SyntaxPreset.NEON, "Java", category)
+            if (cyberpunk.saturationDelta == 0f) {
+                assertTrue(
+                    cyberpunk.lightnessDelta > neon.lightnessDelta,
+                    "Cyberpunk Java/$category (high-S) intent must exceed Neon's",
+                )
+            } else {
+                assertTrue(
+                    cyberpunk.saturationDelta > neon.saturationDelta,
+                    "Cyberpunk Java/$category (low-S) saturationDelta must exceed Neon's",
+                )
+            }
+            if (cyberpunk.saturationDelta > maxSatDelta) maxSatDelta = cyberpunk.saturationDelta
         }
         assertTrue(
-            maxDelta >= 0.3f,
-            "Cyberpunk peak saturationDelta across categories must be >= 0.3f (got $maxDelta)",
+            maxSatDelta >= 0.3f,
+            "Cyberpunk peak low-S saturationDelta must be >= 0.3f (got $maxSatDelta)",
         )
     }
 
@@ -205,6 +232,48 @@ class SyntaxPresetCurvesTest {
     }
 
     @Test
+    fun `chroma is monotonic increasing Whisper to Cyberpunk for high-S and low-S tokens`() {
+        // The corrected model: chroma `(1 - |2L - 1|) * S` of the transformed
+        // foreground must strictly increase across the four named presets. This
+        // is the regression lock against the old inverted behavior where the
+        // brightest preset (Cyberpunk) produced the palest output.
+        data class Sample(
+            val label: String,
+            val baseline: Color,
+            val language: String,
+            val category: PrimitiveCategory,
+        )
+
+        val samples =
+            listOf(
+                // HIGH-S tokens (Ayu base S ~ 1.0, L > 0.5) — intent-driven.
+                Sample("KEYWORD #FFAD66", Color(0xFF, 0xAD, 0x66), "Java", PrimitiveCategory.KEYWORD),
+                Sample("STRING #D5FF80", Color(0xD5, 0xFF, 0x80), "Java", PrimitiveCategory.STRING_LITERAL),
+                Sample("NUMBER #FFCC66", Color(0xFF, 0xCC, 0x66), "Java", PrimitiveCategory.NUMBER_LITERAL),
+                // LOW-S tokens — additive saturation lever.
+                Sample("COMMENT #5C6773", Color(0x5C, 0x67, 0x73), "Go", PrimitiveCategory.COMMENT),
+                Sample("LOCAL_VAR #AB9A8C", Color(0xAB, 0x9A, 0x8C), "Go", PrimitiveCategory.LOCAL_VAR),
+            )
+
+        for (sample in samples) {
+            val whisper = chromaAfterTransform(sample.baseline, sample.language, sample.category, SyntaxPreset.WHISPER)
+            val ambient = chromaAfterTransform(sample.baseline, sample.language, sample.category, SyntaxPreset.AMBIENT)
+            val neon = chromaAfterTransform(sample.baseline, sample.language, sample.category, SyntaxPreset.NEON)
+            val cyberpunk =
+                chromaAfterTransform(sample.baseline, sample.language, sample.category, SyntaxPreset.CYBERPUNK)
+
+            println(
+                "[chroma-monotonicity] ${sample.label}: " +
+                    "Whisper=%.4f Ambient=%.4f Neon=%.4f Cyberpunk=%.4f".format(whisper, ambient, neon, cyberpunk),
+            )
+
+            assertTrue(whisper < ambient, "${sample.label}: Whisper chroma $whisper must be < Ambient $ambient")
+            assertTrue(ambient < neon, "${sample.label}: Ambient chroma $ambient must be < Neon $neon")
+            assertTrue(neon < cyberpunk, "${sample.label}: Neon chroma $neon must be < Cyberpunk $cyberpunk")
+        }
+    }
+
+    @Test
     fun `CUSTOM curveFor returns the AMBIENT identity sentinel`() {
         // CUSTOM is a sentinel — the applicator consults customOverrides directly
         // for this preset, never the static base table. Returning identity here
@@ -217,10 +286,13 @@ class SyntaxPresetCurvesTest {
     }
 
     /**
-     * Applies a curve via the same HSL transform pipeline Plan 50-04's
-     * `SyntaxIntensityApplicator` will use: parse → HSL → add deltas → clamp
-     * saturation `[0, 1]` and lightness `[AccentHsl.MIN_LIGHTNESS, MAX_LIGHTNESS]`
-     * → repack to RGB. Hue invariant.
+     * Applies a curve via the same HSL transform pipeline the
+     * [SyntaxIntensityApplicator] uses: parse → HSL → additive saturation →
+     * resolve lightness (signed chroma intent OR literal additive on the
+     * `absoluteLightness` path) → clamp (`0.48` syntax floor on the intent path,
+     * `AccentHsl.MIN_LIGHTNESS` on the absolute path, `MAX_LIGHTNESS` upper) →
+     * repack to RGB. Hue invariant. Kept in lock-step with the production
+     * resolver so the curve-table tests exercise the real output.
      */
     private fun applyCurveViaHsl(
         baseline: Color,
@@ -228,11 +300,35 @@ class SyntaxPresetCurvesTest {
     ): Color {
         val hsl = HslColor.fromColor(baseline)
         val newSaturation = (hsl.saturation + curve.saturationDelta).coerceIn(0f, 1f)
-        val newLightness =
-            (hsl.lightness + curve.lightnessDelta)
-                .coerceIn(AccentHsl.MIN_LIGHTNESS, AccentHsl.MAX_LIGHTNESS)
+        val resolvedLightness =
+            if (curve.absoluteLightness) {
+                hsl.lightness + curve.lightnessDelta
+            } else {
+                val towardMid = if (hsl.lightness >= MID_LIGHTNESS) -1f else 1f
+                val lightnessDirection = if (curve.lightnessDelta >= 0f) towardMid else -towardMid
+                hsl.lightness + lightnessDirection * abs(curve.lightnessDelta)
+            }
+        val lowerBound =
+            if (curve.absoluteLightness) AccentHsl.MIN_LIGHTNESS else SyntaxIntensityApplicator.SYNTAX_MIN_LIGHTNESS
+        val newLightness = resolvedLightness.coerceIn(lowerBound, AccentHsl.MAX_LIGHTNESS)
         return HslColor.toColor(hsl.hue, newSaturation, newLightness)
     }
+
+    /**
+     * HSL chroma `(1 - |2L - 1|) * S` — the perceptual colorfulness the corrected
+     * intensity model drives. Computed on the transformed foreground.
+     */
+    private fun chromaOf(color: Color): Float {
+        val hsl = HslColor.fromColor(color)
+        return (1f - abs(2f * hsl.lightness - 1f)) * hsl.saturation
+    }
+
+    private fun chromaAfterTransform(
+        baseline: Color,
+        language: String,
+        category: PrimitiveCategory,
+        preset: SyntaxPreset,
+    ): Float = chromaOf(applyCurveViaHsl(baseline, SyntaxPresetCurves.curveFor(preset, language, category)))
 
     /**
      * Reproduces the legacy `DIM_FACTOR = 0.6` per-channel RGB scale used by
@@ -251,6 +347,10 @@ class SyntaxPresetCurvesTest {
 
     companion object {
         private const val DIM_FACTOR = 0.6
+
+        // Flank pivot for the signed chroma intent resolver — mirrors
+        // SyntaxIntensityApplicator.MID_LIGHTNESS.
+        private const val MID_LIGHTNESS = 0.5f
 
         // Tolerance widened from the original ±6 plan target to ±10 after the
         // Light baseline (#787B80) iteration: HSL math and per-channel RGB

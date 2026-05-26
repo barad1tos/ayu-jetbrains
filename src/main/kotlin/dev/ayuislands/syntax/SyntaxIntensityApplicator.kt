@@ -7,6 +7,7 @@ import dev.ayuislands.accent.color.AccentHsl
 import dev.ayuislands.rotation.HslColor
 import java.awt.Color
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.abs
 
 /**
  * Pure-compute per-key HSL transform from
@@ -21,11 +22,23 @@ import java.util.concurrent.ConcurrentHashMap
  * is used ONLY for the R-1 caller-contract WARN — it never reaches the curve
  * lookup as a "language" mistake.
  *
- * Math (D-03): parse baseline foreground via [HslColor.fromColor] → add
- * `(saturationDelta, lightnessDelta)` from the resolved [CategoryCurve] →
- * clamp saturation to `[0f, 1f]`, lightness to
- * `[AccentHsl.MIN_LIGHTNESS, AccentHsl.MAX_LIGHTNESS]` → repack via
- * [HslColor.toColor]. Hue invariant by construction.
+ * Math: parse baseline foreground via [HslColor.fromColor], then:
+ *  - saturation is additive (`hsl.saturation + saturationDelta`), self-clamped
+ *    to `[0f, 1f]` (a `+0.40` on an S=1.0 token is inert by construction);
+ *  - lightness is resolved by [CategoryCurve.lightnessDelta]'s mode. On the
+ *    SIGNED CHROMA INTENT path (`absoluteLightness == false`) a `+intent` moves
+ *    L toward `0.5` (louder, chroma up) and a `-intent` moves L away from `0.5`
+ *    (quieter, washed), with the per-flank direction resolved at apply time so
+ *    the Light theme works without a hardcoded sign. On the additive path
+ *    (`absoluteLightness == true`, the Whisper COMMENT "dim = darker" cell) the
+ *    delta is applied literally.
+ *
+ * Lightness is clamped to `[SYNTAX_MIN_LIGHTNESS, AccentHsl.MAX_LIGHTNESS]` on
+ * the intent path — `SYNTAX_MIN_LIGHTNESS` (0.48) is a syntax-readability floor
+ * because `AccentHsl.MIN_LIGHTNESS` (0.10) is too dark for token text on the
+ * Mirage background. The absoluteLightness path keeps `AccentHsl.MIN_LIGHTNESS`
+ * as its floor so the COMMENT dim can reach the legacy RGB×0.6 tolerance.
+ * Hue invariant by construction.
  *
  * Pattern B clone discipline: baseline / overlay `TextAttributes` instances
  * are NEVER mutated. Every output value is a fresh clone obtained via
@@ -131,10 +144,25 @@ object SyntaxIntensityApplicator {
     ): Color {
         if (curve.saturationDelta == 0f && curve.lightnessDelta == 0f) return fg
         val hsl = HslColor.fromColor(fg)
+        // Saturation stays additive; +0.40 on an S=1.0 token is inert by
+        // construction (the coerce clamps it back to 1.0).
         val newSat = (hsl.saturation + curve.saturationDelta).coerceIn(0f, 1f)
-        val newLight =
-            (hsl.lightness + curve.lightnessDelta)
-                .coerceIn(AccentHsl.MIN_LIGHTNESS, AccentHsl.MAX_LIGHTNESS)
+        val resolvedLight =
+            if (curve.absoluteLightness) {
+                // Legacy/explicit additive L path — Whisper COMMENT "dim = darker".
+                hsl.lightness + curve.lightnessDelta
+            } else {
+                // Signed chroma intent: +intent moves L toward 0.5 (louder,
+                // chroma up); -intent moves L away from 0.5 (quieter, washed).
+                val towardMid = if (hsl.lightness >= MID_LIGHTNESS) -1f else 1f
+                val lightnessDirection = if (curve.lightnessDelta >= 0f) towardMid else -towardMid
+                hsl.lightness + lightnessDirection * abs(curve.lightnessDelta)
+            }
+        // The intent path keeps the syntax-readability floor (0.48); the
+        // absoluteLightness COMMENT dim is exempt so it can reach the legacy
+        // RGB×0.6 tolerance, falling back to AccentHsl's absolute floor (0.10).
+        val lowerBound = if (curve.absoluteLightness) AccentHsl.MIN_LIGHTNESS else SYNTAX_MIN_LIGHTNESS
+        val newLight = resolvedLight.coerceIn(lowerBound, AccentHsl.MAX_LIGHTNESS)
         return HslColor.toColor(hsl.hue, newSat, newLight)
     }
 
@@ -154,4 +182,17 @@ object SyntaxIntensityApplicator {
     }
 
     private const val MAX_RGB_CHANNEL = 255
+
+    // The flank pivot for the signed chroma intent: tokens at or above this L
+    // are pushed DOWN toward it by a positive intent, tokens below are pushed UP.
+    private const val MID_LIGHTNESS = 0.5f
+
+    /**
+     * Syntax-readability lightness floor. `AccentHsl.MIN_LIGHTNESS` (0.10) is an
+     * absolute floor for the accent quick-actions but is too dark for token text
+     * on the Mirage editor background (`#242936`); 0.48 keeps transformed syntax
+     * legible. Applied as the lower clamp on the signed-intent lightness path
+     * only — the Whisper COMMENT dim (`absoluteLightness`) keeps the 0.10 floor.
+     */
+    const val SYNTAX_MIN_LIGHTNESS = 0.48f
 }

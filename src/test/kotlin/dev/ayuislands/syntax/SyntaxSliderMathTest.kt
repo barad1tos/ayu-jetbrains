@@ -109,28 +109,40 @@ class SyntaxSliderMathTest {
     // --- No self-clamping to AccentHsl bounds ----------------------------
 
     @Test
-    fun `sliderToCurve emits raw deltas — does not coerce to AccentHsl lightness bounds`() {
+    fun `sliderToCurve emits raw symmetric swing deltas — does not pre-clamp`() {
         // The function returns deltas (a swing magnitude), NOT an absolute
-        // lightness/saturation. A delta near the AccentHsl floor (0.10) or
-        // ceiling (0.95) would mean the function pre-clamped — it must not.
-        // A reasonable swing per the D-05 model stays well under those bounds.
+        // lightness/saturation. The corrected model raises the lightness swing
+        // to a chroma-intent authority (0.17) that exceeds the old AccentHsl
+        // floor (0.10), so the no-clamp proof is now expressed structurally: the
+        // extremes are exact opposites (perfectly symmetric, un-coerced) and a
+        // pre-clamped output could not be. The applicator owns the actual clamp.
         val low = SyntaxPresetCurves.sliderToCurve(0)
         val high = SyntaxPresetCurves.sliderToCurve(100)
-        assertTrue(
-            kotlin.math.abs(low.lightnessDelta) < ACCENT_HSL_FLOOR,
-            "extreme-low delta ${low.lightnessDelta} looks pre-clamped to the AccentHsl floor",
+        assertEquals(
+            high.lightnessDelta,
+            -low.lightnessDelta,
+            LINEARITY_TOLERANCE,
+            "slider 0 / 100 lightness deltas must be exact opposites — raw, un-coerced swing",
         )
+        assertEquals(
+            high.saturationDelta,
+            -low.saturationDelta,
+            LINEARITY_TOLERANCE,
+            "slider 0 / 100 saturation deltas must be exact opposites — raw, un-coerced swing",
+        )
+        // The lightness swing now reaches the chroma-intent magnitude, proving
+        // the bump from the old sub-floor swing landed.
         assertTrue(
-            kotlin.math.abs(high.lightnessDelta) < ACCENT_HSL_FLOOR,
-            "extreme-high delta ${high.lightnessDelta} looks pre-clamped to the AccentHsl floor",
+            kotlin.math.abs(high.lightnessDelta) > ACCENT_HSL_FLOOR,
+            "lightness swing ${high.lightnessDelta} must exceed the old 0.10 sub-floor (corrected model)",
         )
     }
 
     companion object {
         private const val LINEARITY_TOLERANCE = 1e-4f
 
-        // AccentHsl.MIN_LIGHTNESS — a swing delta should never reach this
-        // magnitude, proving sliderToCurve does not pre-clamp to absolute bounds.
+        // AccentHsl.MIN_LIGHTNESS — the corrected lightness swing (chroma intent)
+        // now exceeds this, so it is the lower bound the bump must clear.
         private const val ACCENT_HSL_FLOOR = 0.10f
 
         private val SLIDER_SAMPLES = listOf(0, 25, 50, 75, 100)
