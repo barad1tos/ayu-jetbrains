@@ -741,36 +741,54 @@ class AyuIslandsSyntaxPanelTest {
         assertTrue(width > 0, "labelColumnWidth must be positive — the defensive fallback guards a 0 measure.")
     }
 
-    // ---------- Test 22c — halved inter-cell gap source lock (spacing tightening) ----------
+    // ---------- Test 22c — RightGap.SMALL inter-cell gap source lock (spacing tightening) ----------
 
     @Test
-    fun `each column panel halves the UI-DSL horizontal default gap via customizeSpacingConfiguration`() {
+    fun `categoryRow tightens label, slider, and readout cells with RightGap SMALL (spacing tightening)`() {
         val source = readPanelSource()
-        // Both column grids must wrap their rows in a tightened SpacingConfiguration
-        // so the label→slider and slider→readout gaps shrink uniformly. The
-        // override targets only horizontalDefaultGap (half of the platform's
-        // scaled 16); the other gap dimensions delegate to the platform default.
-        val occurrences = Regex("""customizeSpacingConfiguration\(tightenedSpacing\(\)\)""").findAll(source).count()
-        assertEquals(
-            2,
-            occurrences,
-            "spacing tightening: both the left and right column panels must wrap their rows in " +
-                "customizeSpacingConfiguration(tightenedSpacing()) so the gap halving is uniform.",
-        )
-        val body = functionBody(source, "private fun tightenedSpacing(")
+        // The row tightens its inter-cell gaps via the STABLE RightGap.SMALL
+        // enum on the label, slider, and readout cells — no platform spacing
+        // interface is implemented or delegated. The label→slider, slider→readout,
+        // and readout→reset gaps drop from horizontalDefaultGap (scaled 16) to
+        // the small gap uniformly across every categoryRow, keeping the shared
+        // label column, slider-start axis, and readout column aligned.
+        val body = functionBody(source, "private fun Panel.categoryRow(")
         assertTrue(
-            body.contains("SpacingConfiguration by IntelliJSpacingConfiguration()"),
-            "spacing tightening: tightenedSpacing must delegate to IntelliJSpacingConfiguration so only " +
-                "horizontalDefaultGap is overridden — the other gap dimensions ride the platform default.",
+            body.contains(".gap(RightGap.SMALL)"),
+            "spacing tightening: categoryRow must tighten its cells with .gap(RightGap.SMALL).",
         )
+        val smallGapCount = Regex("""\.gap\(RightGap\.SMALL\)""").findAll(body).count()
         assertTrue(
-            body.contains("override val horizontalDefaultGap") && body.contains("JBUI.scale(HALF_HORIZONTAL_GAP)"),
-            "spacing tightening: tightenedSpacing must override horizontalDefaultGap to the scaled half gap.",
+            smallGapCount >= 3,
+            "spacing tightening: the label, slider, and readout cells must EACH carry " +
+                ".gap(RightGap.SMALL) (found $smallGapCount in categoryRow, expected at least 3).",
         )
-        assertTrue(
-            source.contains("private const val HALF_HORIZONTAL_GAP = 8"),
-            "spacing tightening: the halved horizontal default gap must be 8 (half of the platform's 16).",
-        )
+    }
+
+    @Test
+    fun `panel never delegates or implements a platform spacing configuration (binary-compat regression guard)`() {
+        val source = readPanelSource()
+        // INTENSITY binary-compat regression lock: the old object-by-delegation
+        // tightening (object : <spacing iface> by <platform impl>) crashed on
+        // newer runtimes with AbstractMethodError because Kotlin's compile-time
+        // `by` delegation leaves runtime-added interface members abstract. The
+        // spacing interface and its delegation helper must never return.
+        val forbiddenSpacingSymbols =
+            listOf(
+                "SpacingConfiguration",
+                "customizeSpacingConfiguration",
+                "IntelliJSpacingConfiguration",
+                "tightenedSpacing",
+                "HALF_HORIZONTAL_GAP",
+            )
+        for (forbidden in forbiddenSpacingSymbols) {
+            assertFalse(
+                source.contains(forbidden),
+                "binary-compat guard: '$forbidden' must not appear in the panel source — delegating " +
+                    "a platform UI-DSL spacing interface caused AbstractMethodError on 2026.1. " +
+                    "Tighten gaps with the stable RightGap enum instead.",
+            )
+        }
     }
 
     @Test

@@ -4,11 +4,9 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.ui.components.ActionLink
 import com.intellij.ui.dsl.builder.AlignX
-import com.intellij.ui.dsl.builder.IntelliJSpacingConfiguration
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.RightGap
 import com.intellij.ui.dsl.builder.SegmentedButton
-import com.intellij.ui.dsl.builder.SpacingConfiguration
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
@@ -217,38 +215,17 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
             val rightCategories = categoryGroup.categories.filterIndexed { index, _ -> index % 2 == 1 }
             row {
                 panel {
-                    customizeSpacingConfiguration(tightenedSpacing()) {
-                        for (category in leftCategories) categoryRow(category)
-                    }
+                    for (category in leftCategories) categoryRow(category)
                 }.align(AlignX.FILL)
                     .resizableColumn()
                     .gap(RightGap.COLUMNS)
                 panel {
-                    customizeSpacingConfiguration(tightenedSpacing()) {
-                        for (category in rightCategories) categoryRow(category)
-                    }
+                    for (category in rightCategories) categoryRow(category)
                 }.align(AlignX.FILL)
                     .resizableColumn()
             }.visibleIf(customSelected)
         }.visibleIf(customSelected)
     }
-
-    /**
-     * Shared, halved-gap [SpacingConfiguration] for both column grids. The
-     * UI-DSL default `horizontalDefaultGap` is the platform's
-     * [IntelliJSpacingConfiguration] value (`JBUIScale.scale(16)`) and is the
-     * dominant contributor to BOTH the label→slider and slider→readout
-     * whitespace; halving it tightens both inter-cell gaps uniformly across
-     * every [categoryRow] in all four groups and both columns. Implemented via
-     * Kotlin interface delegation so the other ten gap dimensions ride the
-     * platform defaults unchanged — only `horizontalDefaultGap` is overridden.
-     * (The concrete [IntelliJSpacingConfiguration] fields are `private final`,
-     * so subclass-override is impossible; delegation is the only seam.)
-     */
-    private fun tightenedSpacing(): SpacingConfiguration =
-        object : SpacingConfiguration by IntelliJSpacingConfiguration() {
-            override val horizontalDefaultGap: Int get() = JBUI.scale(HALF_HORIZONTAL_GAP)
-        }
 
     /**
      * Add ONE per-category control row INTO the enclosing column grid. The
@@ -266,9 +243,19 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
      * ([signedReadout]) and a per-row "Reset" [ActionLink] (visible only when
      * the cell diverges from identity) sit to its right; the readout cell is
      * fixed-width so the reset link toggling `isVisible` does not reflow it.
-     * The underlying `JSlider`, readout label, and reset link are stashed by
-     * category so [rebindSlidersFor] / [setSliderValue] can snap them on combo
-     * change.
+     * The label, slider, and readout cells each carry a [RightGap.SMALL] so the
+     * label→slider, slider→readout, and readout→reset gaps drop from the UI-DSL
+     * `horizontalDefaultGap` (the platform's scaled 16) to the stable small gap,
+     * tightening the row uniformly without implementing or delegating any
+     * platform UI-DSL spacing interface — delegating one was a binary-compat
+     * trap (a member added on a newer runtime is left abstract by Kotlin's
+     * compile-time `by` delegation, crashing with `AbstractMethodError`).
+     * [RightGap.SMALL] is applied to every
+     * [categoryRow] identically, so the shared label column, single slider-start
+     * axis, and right-hand readout column stay aligned across all four groups
+     * and both columns. The underlying `JSlider`, readout label, and reset link
+     * are stashed by category so [rebindSlidersFor] / [setSliderValue] can snap
+     * them on combo change.
      */
     private fun Panel.categoryRow(category: PrimitiveCategory) {
         row {
@@ -278,7 +265,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
                     preferredSize = Dimension(width, preferredSize.height)
                     minimumSize = Dimension(width, preferredSize.height)
                 },
-            )
+            ).gap(RightGap.SMALL)
             val jslider =
                 slider(SLIDER_MIN, SLIDER_MAX, 0, 0)
                     .applyToComponent {
@@ -288,7 +275,8 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
                         val width = JBUI.scale(SLIDER_TRACK_WIDTH)
                         preferredSize = Dimension(width, preferredSize.height)
                         maximumSize = Dimension(width, preferredSize.height)
-                    }.component
+                    }.gap(RightGap.SMALL)
+                    .component
             val valueLabel =
                 JLabel(signedReadout(SLIDER_MID), SwingConstants.RIGHT).apply {
                     val width = JBUI.scale(READOUT_WIDTH)
@@ -614,11 +602,6 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         // space; the live value model only ever reaches ±50, so this carries
         // headroom. `SwingConstants.RIGHT` keeps the number column clean.
         private const val READOUT_WIDTH = 34
-
-        // Halved UI-DSL horizontal default gap (DPI-scaled). The platform
-        // default is JBUIScale.scale(16); 8 tightens both inter-cell gaps in
-        // every category row uniformly via [tightenedSpacing].
-        private const val HALF_HORIZONTAL_GAP = 8
 
         // Trailing padding (DPI-scaled) added to the widest measured
         // displayName so the leading label never clips against the slider.
