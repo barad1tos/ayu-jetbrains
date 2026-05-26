@@ -22,9 +22,17 @@ package dev.ayuislands.syntax
  *  - [customOverrides]: nested `language -> category -> slider 0..100` map.
  *    The free tier never writes to this map; the premium Custom drill-down is
  *    the only writer.
+ *  - [customStyles]: nested `language -> category -> fontType` map, where
+ *    `fontType` is the `java.awt.Font` bitmask (`PLAIN=0`, `BOLD=1`,
+ *    `ITALIC=2`, `BOLD_ITALIC=3`) decoded from the persisted
+ *    `FontStyleOverride` name. Sparse and independent of [customOverrides];
+ *    an absent cell inherits the source attribute's font style. Defaults to
+ *    `emptyMap()` so callers predating the font-style feature compile
+ *    unchanged.
  */
 data class SyntaxPresetConfig(
     val selectedPreset: String,
     val customOverrides: Map<String, Map<String, Int>>,
     val subordinatePreset: String = "AMBIENT",
+    val customStyles: Map<String, Map<String, Int>> = emptyMap(),
 )

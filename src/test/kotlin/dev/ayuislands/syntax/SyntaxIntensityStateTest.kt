@@ -48,11 +48,12 @@ class SyntaxIntensityStateTest {
     // --- Test 1 — defaults --------------------------------------------------
 
     @Test
-    fun `default base state is AMBIENT preset with empty customOverrides and schemaVersion 1`() {
+    fun `default base state is AMBIENT preset with empty customOverrides and schemaVersion 2`() {
         val state = SyntaxIntensityBaseState()
         assertEquals("AMBIENT", state.selectedPreset, "default selectedPreset must be AMBIENT per D-23")
-        assertTrue(state.customOverrides.isEmpty(), "default customOverrides must be empty (Phase 50A never writes)")
-        assertEquals(1, state.schemaVersion, "default schemaVersion must be 1 (OpenCode forward-compat)")
+        assertTrue(state.customOverrides.isEmpty(), "default customOverrides must be empty (free tier never writes)")
+        assertTrue(state.customStyles.isEmpty(), "default customStyles must be empty (free tier never writes)")
+        assertEquals(2, state.schemaVersion, "default schemaVersion must be 2 since customStyles was added")
     }
 
     // --- Test 2 — selectedPreset round-trip --------------------------------
@@ -120,10 +121,10 @@ class SyntaxIntensityStateTest {
     fun `schemaVersion survives loadState round-trip for default and bumped values`() {
         // No mutation — verify the default schemaVersion survives the round-trip.
         val reloadedDefault = roundTrip { _ -> }
-        assertEquals(1, reloadedDefault.state.schemaVersion)
+        assertEquals(2, reloadedDefault.state.schemaVersion)
 
-        val reloadedBumped = roundTrip { state -> state.schemaVersion = 2 }
-        assertEquals(2, reloadedBumped.state.schemaVersion, "schemaVersion 2 must round-trip for future migration")
+        val reloadedBumped = roundTrip { state -> state.schemaVersion = 3 }
+        assertEquals(3, reloadedBumped.state.schemaVersion, "schemaVersion 3 must round-trip for future migration")
     }
 
     // --- Test 8 — toPresetConfig bridge (Codex HIGH #1) --------------------
@@ -210,6 +211,107 @@ class SyntaxIntensityStateTest {
         // delegate default must deserialise it to AMBIENT so old state stays
         // valid without a forced migration.
         assertEquals("AMBIENT", SyntaxIntensityBaseState().subordinatePreset)
+    }
+
+    // --- Test 14 — customStyles sparse round-trip --------------------------
+
+    @Test
+    fun `flat composite-key customStyles survives loadState round-trip (sparse)`() {
+        val reloaded =
+            roundTrip { state ->
+                state.customStyles["Java|KEYWORD"] = "BOLD"
+                state.customStyles["Kotlin|COMMENT"] = "ITALIC"
+            }
+        // Only the two styled cells materialise — untouched cells inherit.
+        assertEquals(2, reloaded.state.customStyles.size, "sparse store — only styled cells persist")
+        assertEquals("BOLD", reloaded.state.customStyles["Java|KEYWORD"])
+        assertEquals("ITALIC", reloaded.state.customStyles["Kotlin|COMMENT"])
+    }
+
+    // --- Test 15 — FontStyleOverride tamper-safe decode -------------------
+
+    @Test
+    fun `FontStyleOverride fromName decodes known names and returns null for tampered input`() {
+        assertSame(FontStyleOverride.PLAIN, FontStyleOverride.fromName("PLAIN"))
+        assertSame(FontStyleOverride.BOLD, FontStyleOverride.fromName("BOLD"))
+        assertSame(FontStyleOverride.ITALIC, FontStyleOverride.fromName("ITALIC"))
+        assertSame(FontStyleOverride.BOLD_ITALIC, FontStyleOverride.fromName("BOLD_ITALIC"))
+        // Tamper-safe: unknown token, lower-case, blank, and null all yield null.
+        assertEquals(null, FontStyleOverride.fromName("UNDERLINE"))
+        assertEquals(null, FontStyleOverride.fromName("bold"))
+        assertEquals(null, FontStyleOverride.fromName(""))
+        assertEquals(null, FontStyleOverride.fromName(null))
+    }
+
+    @Test
+    fun `FontStyleOverride fontType matches the java_awt_Font bitmask (PLAIN ITALIC combinable)`() {
+        assertEquals(java.awt.Font.PLAIN, FontStyleOverride.PLAIN.fontType)
+        assertEquals(java.awt.Font.BOLD, FontStyleOverride.BOLD.fontType)
+        assertEquals(java.awt.Font.ITALIC, FontStyleOverride.ITALIC.fontType)
+        assertEquals(
+            java.awt.Font.BOLD or java.awt.Font.ITALIC,
+            FontStyleOverride.BOLD_ITALIC.fontType,
+            "BOLD_ITALIC must be the combined bitmask (3) so bold+italic are combinable",
+        )
+    }
+
+    // --- Test 16 — toPresetConfig style bridge ----------------------------
+
+    @Test
+    fun `toPresetConfig decodes customStyles flat map to nested fontType bitmasks`() {
+        val component = SyntaxIntensityState()
+        component.state.selectedPreset = "CUSTOM"
+        component.state.customStyles["Java|KEYWORD"] = "BOLD_ITALIC"
+        component.state.customStyles["Kotlin|COMMENT"] = "ITALIC"
+
+        val config = component.toPresetConfig()
+
+        val expected =
+            mapOf(
+                "Java" to mapOf("KEYWORD" to (java.awt.Font.BOLD or java.awt.Font.ITALIC)),
+                "Kotlin" to mapOf("COMMENT" to java.awt.Font.ITALIC),
+            )
+        assertEquals(expected, config.customStyles, "style bridge must decode to nested java.awt.Font bitmasks")
+    }
+
+    @Test
+    fun `toPresetConfig silently skips malformed style keys and tampered style values`() {
+        val component = SyntaxIntensityState()
+        component.state.selectedPreset = "CUSTOM"
+        // Malformed key: no separator.
+        component.state.customStyles["BadKey"] = "BOLD"
+        // Malformed key: empty language.
+        component.state.customStyles["|KEYWORD"] = "BOLD"
+        // Malformed key: empty category.
+        component.state.customStyles["Java|"] = "BOLD"
+        // Tampered value: not a FontStyleOverride name.
+        component.state.customStyles["Python|KEYWORD"] = "WAVY_UNDERSCORE"
+        // Well-formed: the only entry that should survive.
+        component.state.customStyles["Java|KEYWORD"] = "BOLD"
+
+        val config = component.toPresetConfig()
+
+        val expected = mapOf("Java" to mapOf("KEYWORD" to java.awt.Font.BOLD))
+        assertEquals(expected, config.customStyles, "only the well-formed, decodable style cell survives the bridge")
+    }
+
+    // --- Test 17 — v1 backward compatibility (no customStyles element) ----
+
+    @Test
+    fun `a v1 config without customStyles reads as an empty style map (backward compat)`() {
+        // A pre-font-style (schemaVersion 1) config never wrote customStyles.
+        // Loading it must leave customStyles empty so every cell inherits the
+        // source font — no read-time migration required.
+        val legacy = SyntaxIntensityState()
+        legacy.state.schemaVersion = 1
+        legacy.state.customOverrides["Java|KEYWORD"] = "75"
+        // No customStyles writes — simulates the old on-disk shape.
+
+        val config = legacy.toPresetConfig()
+
+        assertTrue(config.customStyles.isEmpty(), "absent customStyles must surface as an empty nested map")
+        // Intensity overrides still decode — the bump is additive only.
+        assertEquals(mapOf("Java" to mapOf("KEYWORD" to 75)), config.customOverrides)
     }
 
     // --- Test 10 — Pattern L source-regex lock for getInstance() ----------

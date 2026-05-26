@@ -40,10 +40,18 @@ import kotlin.math.abs
  * as its floor so the COMMENT dim can reach the legacy RGB×0.6 tolerance.
  * Hue invariant by construction.
  *
+ * Custom font style (Part A backend): under `preset == CUSTOM` the per-cell
+ * `customStyles` map (language -> category -> `java.awt.Font` bitmask) sets
+ * the clone's `fontType` after the foreground transform. The two fields are
+ * independent `TextAttributes` slots, so the style set is orthogonal to the
+ * hue/color math — a cell may carry a style with no slider, or a slider with
+ * no style. Sparse: an absent cell leaves `fontType` untouched (inherits the
+ * source style). Named / AMBIENT presets never read `customStyles`.
+ *
  * Pattern B clone discipline: baseline / overlay `TextAttributes` instances
  * are NEVER mutated. Every output value is a fresh clone obtained via
  * `source.clone()` and the cloned instance is the only thing the applicator
- * writes to.
+ * writes to (both `foregroundColor` and `fontType`).
  *
  * H10 fix carried forward: no `null` is ever emitted as a value — the
  * platform's `EditorColorsSchemeImpl.setAttributes(key, attrs)` declares
@@ -82,6 +90,7 @@ object SyntaxIntensityApplicator {
         baseline: Map<TextAttributesKey, TextAttributes>,
         overlay: Map<TextAttributesKey, TextAttributes>,
         subordinatePreset: SyntaxPreset = SyntaxPreset.AMBIENT,
+        customStyles: Map<String, Map<String, Int>> = emptyMap(),
     ): Map<TextAttributesKey, TextAttributes> {
         warnOnceIfWhiteBgOnDarkVariant(variantName, editorBg)
 
@@ -96,6 +105,16 @@ object SyntaxIntensityApplicator {
             val transformedFg = transformForeground(sourceFg, curve)
             val clone = source.clone()
             clone.foregroundColor = transformedFg
+            // Sparse per-category font style — gated to the Custom drill-down.
+            // fontType and foregroundColor are independent TextAttributes
+            // fields, so the style set is orthogonal to the hue/color transform
+            // above. An absent cell leaves clone.fontType untouched (inherits
+            // the source style). Named / AMBIENT presets never consult
+            // `customStyles`, keeping it inert outside CUSTOM. Pattern B clone
+            // discipline preserved — only the fresh clone is mutated.
+            if (preset == SyntaxPreset.CUSTOM) {
+                customStyles[language]?.get(category.name)?.let { clone.fontType = it }
+            }
             result[key] = clone
         }
         // `editorBg` participates in the R-1 contract guard above but does

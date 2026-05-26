@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.Color
+import java.awt.Font
 import kotlin.math.abs
 import kotlin.test.assertNotNull
 
@@ -524,6 +525,120 @@ class SyntaxIntensityApplicatorTest {
         assertSame(first.keys.first(), first.keys.first())
     }
 
+    // --- Test 14b — CUSTOM font style (Part A backend) -------------------
+
+    @Test
+    fun `CUSTOM with a style override sets clone fontType to the bitmask`() {
+        val baselineFg = Color(0xE6, 0xB6, 0x73)
+        val baseline = mapOf(javaKeywordKey to attrsWithFg(baselineFg))
+        val result =
+            SyntaxIntensityApplicator.compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides = emptyMap(),
+                variantName = "Mirage",
+                editorBg = mirageBg,
+                baseline = baseline,
+                overlay = emptyMap(),
+                subordinatePreset = SyntaxPreset.AMBIENT,
+                customStyles = mapOf("Java" to mapOf("KEYWORD" to BOLD_ITALIC_MASK)),
+            )
+        val attrs = assertNotNull(result[javaKeywordKey], "CUSTOM must emit output for the styled key")
+        assertEquals(
+            BOLD_ITALIC_MASK,
+            attrs.fontType,
+            "CUSTOM + style override must set fontType to the supplied bitmask",
+        )
+    }
+
+    @Test
+    fun `CUSTOM with no style override leaves fontType untouched (inherits source)`() {
+        // Source carries an explicit ITALIC fontType; with no customStyles cell
+        // the clone must keep that inherited style (sparse — absent = inherit).
+        val sourceAttrs = attrsWithFg(Color(0xE6, 0xB6, 0x73))
+        sourceAttrs.fontType = Font.ITALIC
+        val baseline = mapOf(javaKeywordKey to sourceAttrs)
+        val result =
+            SyntaxIntensityApplicator.compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides = emptyMap(),
+                variantName = "Mirage",
+                editorBg = mirageBg,
+                baseline = baseline,
+                overlay = emptyMap(),
+                subordinatePreset = SyntaxPreset.AMBIENT,
+                customStyles = emptyMap(),
+            )
+        val attrs = assertNotNull(result[javaKeywordKey])
+        assertEquals(Font.ITALIC, attrs.fontType, "absent style cell must inherit the source fontType")
+    }
+
+    @Test
+    fun `named preset ignores customStyles even when a cell is present`() {
+        // Under a NAMED preset (NEON), customStyles must be inert — the cell
+        // exists but the source style (PLAIN) survives untouched.
+        val baseline = mapOf(javaKeywordKey to attrsWithFg(Color(0xE6, 0xB6, 0x73)))
+        val result =
+            SyntaxIntensityApplicator.compute(
+                preset = SyntaxPreset.NEON,
+                customOverrides = emptyMap(),
+                variantName = "Mirage",
+                editorBg = mirageBg,
+                baseline = baseline,
+                overlay = emptyMap(),
+                customStyles = mapOf("Java" to mapOf("KEYWORD" to BOLD_ITALIC_MASK)),
+            )
+        val attrs = assertNotNull(result[javaKeywordKey])
+        assertEquals(Font.PLAIN, attrs.fontType, "named preset must NOT apply customStyles — style stays PLAIN")
+    }
+
+    @Test
+    fun `style override is orthogonal — a styled cell with no slider still gets subordinate color and the style`() {
+        // The cell has a style override but NO intensity slider. With CUSTOM +
+        // subordinate AMBIENT, the foreground rides the subordinate (identity)
+        // curve while the style is applied independently — proving fontType and
+        // foregroundColor are orthogonal TextAttributes fields.
+        val baselineFg = Color(0xE6, 0xB6, 0x73)
+        val baseline = mapOf(javaKeywordKey to attrsWithFg(baselineFg))
+        val result =
+            SyntaxIntensityApplicator.compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides = emptyMap(), // slider absent for this cell
+                variantName = "Mirage",
+                editorBg = mirageBg,
+                baseline = baseline,
+                overlay = emptyMap(),
+                subordinatePreset = SyntaxPreset.AMBIENT,
+                customStyles = mapOf("Java" to mapOf("KEYWORD" to Font.BOLD)),
+            )
+        val attrs = assertNotNull(result[javaKeywordKey])
+        // Subordinate AMBIENT is identity — color equals the baseline.
+        assertEquals(baselineFg.rgb, attrs.foregroundColor?.rgb, "no slider -> subordinate AMBIENT identity color")
+        // The style still applies independently.
+        assertEquals(Font.BOLD, attrs.fontType, "style override applies even with no slider (orthogonal)")
+    }
+
+    @Test
+    fun `default compute call omits customStyles and leaves fontType untouched (positional callers unaffected)`() {
+        // Locks the trailing-defaulted contract: an existing positional caller
+        // that passes only the original six args (no customStyles) compiles and
+        // never touches fontType, even under CUSTOM.
+        val sourceAttrs = attrsWithFg(Color(0xE6, 0xB6, 0x73))
+        sourceAttrs.fontType = Font.BOLD
+        val baseline = mapOf(javaKeywordKey to sourceAttrs)
+        val result =
+            SyntaxIntensityApplicator.compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides = mapOf("Java" to mapOf("KEYWORD" to 75)),
+                variantName = "Mirage",
+                editorBg = mirageBg,
+                baseline = baseline,
+                overlay = emptyMap(),
+                subordinatePreset = SyntaxPreset.AMBIENT,
+            )
+        val attrs = assertNotNull(result[javaKeywordKey])
+        assertEquals(Font.BOLD, attrs.fontType, "omitted customStyles must leave the source fontType intact")
+    }
+
     // --- Test 15 — Signed chroma intent resolver -------------------------
 
     @Test
@@ -702,6 +817,9 @@ class SyntaxIntensityApplicatorTest {
         private const val FLOAT_TOLERANCE = 0.005f
         private const val HUE_TOLERANCE = 0.5f
         private const val CHANNEL_TOLERANCE = 2
+
+        // FontStyleOverride.BOLD_ITALIC.fontType — the combined java.awt.Font bitmask (3).
+        private val BOLD_ITALIC_MASK = Font.BOLD or Font.ITALIC
 
         // Map of TextAttributesKey -> expected (language, category) so the hue
         // invariant test exercises a variety of category buckets.

@@ -1,8 +1,9 @@
 package dev.ayuislands.settings
 
+import com.intellij.icons.AllIcons
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
-import com.intellij.ui.components.ActionLink
+import com.intellij.ui.InplaceButton
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import dev.ayuislands.licensing.LicenseChecker
@@ -19,6 +20,7 @@ import io.mockk.unmockkAll
 import io.mockk.verify
 import io.mockk.verifyOrder
 import java.awt.Color
+import java.awt.Font
 import java.nio.file.Files
 import java.nio.file.Path
 import javax.swing.JButton
@@ -121,7 +123,7 @@ class AyuIslandsSyntaxPanelTest {
 
         invokeOnPresetChosen(panel, SyntaxPreset.NEON)
 
-        verify(exactly = 1) { intensityService.apply(SyntaxPreset.NEON, emptyMap(), any()) }
+        verify(exactly = 1) { intensityService.apply(SyntaxPreset.NEON, emptyMap(), any(), emptyMap()) }
     }
 
     @Test
@@ -155,7 +157,7 @@ class AyuIslandsSyntaxPanelTest {
         panel.apply()
 
         verifyOrder {
-            intensityService.apply(SyntaxPreset.NEON, emptyMap(), any())
+            intensityService.apply(SyntaxPreset.NEON, emptyMap(), any(), emptyMap())
             stateService.state
         }
     }
@@ -163,7 +165,9 @@ class AyuIslandsSyntaxPanelTest {
     @Test
     fun `apply ordering — service throw leaves state selectedPreset UNCHANGED`() {
         stateBase.selectedPreset = "AMBIENT"
-        every { intensityService.apply(any(), any(), any()) } throws RuntimeException("simulated apply failure")
+        every {
+            intensityService.apply(any(), any(), any(), any())
+        } throws RuntimeException("simulated apply failure")
         val panel = panelWithLoadedState()
         writePendingPreset(panel, SyntaxPreset.NEON)
 
@@ -189,7 +193,7 @@ class AyuIslandsSyntaxPanelTest {
         verify(exactly = 1) {
             LicenseChecker.requestLicense("Unlock per-language syntax customization")
         }
-        verify(exactly = 0) { intensityService.apply(any(), any(), any()) }
+        verify(exactly = 0) { intensityService.apply(any(), any(), any(), any()) }
         assertEquals("AMBIENT", stateBase.selectedPreset)
         assertSame(SyntaxPreset.AMBIENT, readPendingPreset(panel))
     }
@@ -204,7 +208,7 @@ class AyuIslandsSyntaxPanelTest {
 
         invokeOnPresetChosen(panel, SyntaxPreset.CUSTOM)
 
-        verify(exactly = 1) { intensityService.apply(SyntaxPreset.CUSTOM, emptyMap(), any()) }
+        verify(exactly = 1) { intensityService.apply(SyntaxPreset.CUSTOM, emptyMap(), any(), emptyMap()) }
         assertEquals("CUSTOM", stateBase.selectedPreset)
         verify(exactly = 0) { LicenseChecker.requestLicense(any()) }
     }
@@ -792,36 +796,43 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     @Test
-    fun `readout cell width is tightened to 34 and the label padding to 8 while the slider track stays 160`() {
+    fun `readout 28, label padding 8, slider track 140, trailing zone 64 for width-parity (Part B)`() {
         val source = readPanelSource()
         assertTrue(
-            source.contains("private const val READOUT_WIDTH = 34"),
-            "spacing tightening: the right-aligned readout cell must shrink from 40 to 34.",
+            source.contains("private const val READOUT_WIDTH = 28"),
+            "Part B width parity: the right-aligned readout cell must shrink 34 -> 28.",
         )
         assertTrue(
             source.contains("private const val LABEL_PADDING = 8"),
-            "spacing tightening: the leading-label trailing padding must shrink from 12 to 8.",
+            "Part B width parity: the leading-label trailing padding must stay 8.",
         )
         assertTrue(
-            source.contains("private const val SLIDER_TRACK_WIDTH = 160"),
-            "spacing tightening: the slider track width (alignment anchor) must stay 160.",
+            source.contains("private const val SLIDER_TRACK_WIDTH = 140"),
+            "Part B width parity: the slider track must shrink 160 -> 140 so the trailing zone " +
+                "fits without growing the row.",
+        )
+        assertTrue(
+            source.contains("private const val TRAILING_ZONE_WIDTH = 64"),
+            "Part B width parity: the fixed reset + Bold + Italic trailing zone must be 64.",
         )
     }
 
     @Test
-    fun `scaled readout cell still fits the widest 4-glyph signed value without clipping`() {
+    fun `scaled readout cell still fits the widest live signed value without clipping`() {
         // The readout cell is right-aligned and fixed-width. Verify the chosen
-        // READOUT_WIDTH (scaled) holds the widest theoretical 4-glyph string
-        // "−100" / "+100" at the label font so a future widened model can never
-        // clip the number. The live model only reaches ±50, so this is headroom.
+        // READOUT_WIDTH (scaled) holds the widest signed string the live model
+        // reaches: "−50" / "+50" (3 glyphs) at the label font, so the number
+        // never clips when right-aligned. Trimming to 28 trades the prior
+        // 4-glyph "−100" headroom (unreachable by the ±50 model) for the
+        // trailing zone's width without clipping any live value.
         val width = readReadoutWidthScaled()
         val font = UIUtil.getLabelFont()
         val metrics = JLabel().getFontMetrics(font)
-        val widestSigned = maxOf(metrics.stringWidth("−100"), metrics.stringWidth("+100"))
+        val widestSigned = maxOf(metrics.stringWidth("−50"), metrics.stringWidth("+50"))
         assertTrue(
             width >= widestSigned,
-            "the scaled readout cell ($width) must be at least the widest 4-glyph signed value " +
-                "($widestSigned) so the number never clips when right-aligned.",
+            "the scaled readout cell ($width) must be at least the widest live signed value " +
+                "($widestSigned for ±50) so the number never clips when right-aligned.",
         )
     }
 
@@ -834,12 +845,17 @@ class AyuIslandsSyntaxPanelTest {
         val panel = panelWithLoadedState()
         writeCurrentLanguage(panel, "Java")
         val widgets = seedWidgets(panel, PrimitiveCategory.KEYWORD)
+        // Production wires the ChangeListener as `onSliderChanged(lang, cat,
+        // jslider.value)`, so the slider's value is already the new value when
+        // the listener fires (refreshResetVisibility reads the authoritative
+        // slider value per the Part B spec). Mirror that contract here.
+        widgets.slider.value = 80
 
         try {
             invokeOnSliderChanged(panel, "Java", PrimitiveCategory.KEYWORD, 80)
 
             assertEquals("+30", widgets.label.text, "readout must render the signed delta")
-            assertTrue(widgets.resetLink.isVisible, "reset link must appear once the cell diverges")
+            assertTrue(widgets.resetButton.isVisible, "reset icon must appear once the cell diverges")
             assertEquals(
                 "80",
                 readPendingOverrides(panel)["Java|KEYWORD"],
@@ -867,7 +883,7 @@ class AyuIslandsSyntaxPanelTest {
             invokeOnSliderChanged(panel, "Java", PrimitiveCategory.KEYWORD, 50)
 
             assertEquals("0", widgets.label.text, "identity reads as 0")
-            assertFalse(widgets.resetLink.isVisible, "reset link hides at identity")
+            assertFalse(widgets.resetButton.isVisible, "reset icon hides at identity")
             // onSliderChanged is a raw record of the moved value — explicit
             // removal is the per-row Reset link's job, not the change listener.
             assertEquals("50", readPendingOverrides(panel)["Java|KEYWORD"])
@@ -889,7 +905,7 @@ class AyuIslandsSyntaxPanelTest {
 
         assertEquals(25, widgets.slider.value, "the slider must snap to the requested value")
         assertEquals("−25", widgets.label.text, "the readout must show the signed delta (U+2212)")
-        assertTrue(widgets.resetLink.isVisible, "diverged value reveals the reset link")
+        assertTrue(widgets.resetButton.isVisible, "diverged value reveals the reset icon")
         assertTrue(
             readPendingOverrides(panel).isEmpty(),
             "setSliderValue is a programmatic snap — it must NOT write an override (suppressed listener)",
@@ -939,6 +955,7 @@ class AyuIslandsSyntaxPanelTest {
                 SyntaxPreset.CUSTOM,
                 mapOf("Java" to mapOf("KEYWORD" to 75)),
                 any(),
+                emptyMap(),
             )
         }
     }
@@ -959,9 +976,229 @@ class AyuIslandsSyntaxPanelTest {
 
         assertEquals(85, keyword.slider.value, "stored override snaps the slider")
         assertEquals("+35", keyword.label.text, "readout reflects the snapped signed delta")
-        assertTrue(keyword.resetLink.isVisible, "diverged cell reveals its reset link")
+        assertTrue(keyword.resetButton.isVisible, "diverged cell reveals its reset icon")
         assertEquals(50, stringLiteral.slider.value, "untouched cell snaps to identity")
-        assertFalse(stringLiteral.resetLink.isVisible, "identity cell hides its reset link")
+        assertFalse(stringLiteral.resetButton.isVisible, "identity cell hides its reset icon")
+    }
+
+    // ---------- Part B Test 28 — toggle flips one bit and composes BOLD_ITALIC ----------
+
+    @Test
+    fun `onStyleToggle flips the bit B then I composes BOLD_ITALIC, toggling both off removes the key`() {
+        stateBase.selectedPreset = "CUSTOM"
+        val panel = panelWithLoadedState()
+        writeCurrentLanguage(panel, "Java")
+        seedWidgets(panel, PrimitiveCategory.KEYWORD)
+
+        try {
+            // First B → BOLD.
+            invokeOnStyleToggle(panel, PrimitiveCategory.KEYWORD, Font.BOLD)
+            assertEquals("BOLD", readPendingStyles(panel)["Java|KEYWORD"], "B toggle sets BOLD")
+
+            // Then I → BOLD_ITALIC (bits compose, not replace).
+            invokeOnStyleToggle(panel, PrimitiveCategory.KEYWORD, Font.ITALIC)
+            assertEquals(
+                "BOLD_ITALIC",
+                readPendingStyles(panel)["Java|KEYWORD"],
+                "I toggle composes onto BOLD to make BOLD_ITALIC",
+            )
+
+            // Toggle B off → ITALIC remains.
+            invokeOnStyleToggle(panel, PrimitiveCategory.KEYWORD, Font.BOLD)
+            assertEquals(
+                "ITALIC",
+                readPendingStyles(panel)["Java|KEYWORD"],
+                "dropping the bold bit leaves ITALIC",
+            )
+
+            // Toggle I off → both bits off → key REMOVED (inherit, no PLAIN written).
+            invokeOnStyleToggle(panel, PrimitiveCategory.KEYWORD, Font.ITALIC)
+            assertFalse(
+                readPendingStyles(panel).containsKey("Java|KEYWORD"),
+                "both bits off must REMOVE the key (return to inherit) — v1 never persists PLAIN",
+            )
+            assertFalse(
+                readPendingStyles(panel).values.contains("PLAIN"),
+                "v1 must never write an explicit PLAIN style token",
+            )
+        } finally {
+            panel.dispose()
+        }
+    }
+
+    // ---------- Part B Test 29 — style toggle is a style-only modification ----------
+
+    @Test
+    fun `isModified is true after a style-only toggle (slider untouched)`() {
+        stateBase.selectedPreset = "CUSTOM"
+        val panel = panelWithLoadedState()
+        writeCurrentLanguage(panel, "Java")
+        seedWidgets(panel, PrimitiveCategory.KEYWORD)
+        assertFalse(panel.isModified(), "fresh CUSTOM panel with no changes is not modified")
+
+        try {
+            invokeOnStyleToggle(panel, PrimitiveCategory.KEYWORD, Font.BOLD)
+            assertTrue(
+                panel.isModified(),
+                "a style-only toggle (no slider move) must mark the panel modified so Apply enables",
+            )
+        } finally {
+            panel.dispose()
+        }
+    }
+
+    // ---------- Part B Test 30 — per-row reset clears BOTH dimensions ----------
+
+    @Test
+    fun `per-row reset clears BOTH the slider override and the style for the cell`() {
+        stateBase.selectedPreset = "CUSTOM"
+        val panel = panelWithLoadedState()
+        writeCurrentLanguage(panel, "Java")
+        val widgets = seedWidgets(panel, PrimitiveCategory.KEYWORD)
+        // Seed both a slider override and a style override for the same cell.
+        seedPendingOverride(panel, "Java|KEYWORD", "80")
+        seedPendingStyle(panel, "Java|KEYWORD", "BOLD")
+        widgets.slider.value = 80
+
+        try {
+            // The per-row reset icon's ActionListener delegates to resetCell;
+            // seedWidgets cannot wire the throwaway InplaceButton back to this
+            // panel instance, so drive the production resetCell directly (same
+            // method the trailing reset InplaceButton invokes in categoryRow).
+            invokeResetCell(panel, PrimitiveCategory.KEYWORD)
+
+            assertFalse(
+                readPendingOverrides(panel).containsKey("Java|KEYWORD"),
+                "per-row reset must drop the slider override for the cell",
+            )
+            assertFalse(
+                readPendingStyles(panel).containsKey("Java|KEYWORD"),
+                "per-row reset must drop the style override for the cell",
+            )
+            assertEquals(50, widgets.slider.value, "per-row reset snaps the slider back to identity")
+        } finally {
+            panel.dispose()
+        }
+    }
+
+    // ---------- Part B Test 31 — master reset clears both maps for the active language ----------
+
+    @Test
+    fun `onResetCurrentLanguage clears both overrides and styles for the active language only`() {
+        stateBase.selectedPreset = "CUSTOM"
+        val panel = panelWithLoadedState()
+        writeCurrentLanguage(panel, "Java")
+        seedWidgets(panel, PrimitiveCategory.KEYWORD)
+        seedPendingOverride(panel, "Java|KEYWORD", "75")
+        seedPendingStyle(panel, "Java|STRING_LITERAL", "ITALIC")
+        seedPendingOverride(panel, "Kotlin|KEYWORD", "60")
+        seedPendingStyle(panel, "Kotlin|KEYWORD", "BOLD")
+
+        try {
+            invokeOnResetCurrentLanguage(panel)
+
+            val overrides = readPendingOverrides(panel)
+            val styles = readPendingStyles(panel)
+            assertFalse(overrides.keys.any { it.startsWith("Java|") }, "master reset drops Java overrides")
+            assertFalse(styles.keys.any { it.startsWith("Java|") }, "master reset drops Java styles")
+            assertEquals("60", overrides["Kotlin|KEYWORD"], "other languages' overrides survive")
+            assertEquals("BOLD", styles["Kotlin|KEYWORD"], "other languages' styles survive")
+        } finally {
+            panel.dispose()
+        }
+    }
+
+    // ---------- Part B Test 32 — buildNested decodes styles and skips bad cells (via apply) ----------
+
+    @Test
+    fun `apply threads decoded font styles to the service and skips malformed style cells`() {
+        stateBase.selectedPreset = "CUSTOM"
+        val panel = panelWithLoadedState()
+        writePendingPreset(panel, SyntaxPreset.CUSTOM)
+        seedPendingStyle(panel, "Java|KEYWORD", "BOLD") // → Font.BOLD (1)
+        seedPendingStyle(panel, "Java|STRING_LITERAL", "BOLD_ITALIC") // → Font.BOLD or ITALIC (3)
+        seedPendingStyle(panel, "|KEYWORD", "BOLD") // empty language → skipped
+        seedPendingStyle(panel, "Java|", "ITALIC") // empty category → skipped
+        seedPendingStyle(panel, "Java|COMMENT", "NOT_A_STYLE") // undecodable → skipped
+
+        panel.apply()
+
+        verify(exactly = 1) {
+            intensityService.apply(
+                SyntaxPreset.CUSTOM,
+                emptyMap(),
+                any(),
+                mapOf(
+                    "Java" to
+                        mapOf(
+                            "KEYWORD" to (Font.BOLD),
+                            "STRING_LITERAL" to (Font.BOLD or Font.ITALIC),
+                        ),
+                ),
+            )
+        }
+    }
+
+    // ---------- Part B Test 33 — InplaceButton-only trailing controls (source lock) ----------
+
+    @Test
+    fun `trailing controls use InplaceButton, never JToggleButton or ActionButton (Part B source lock)`() {
+        val source = readPanelSource()
+        assertTrue(
+            source.contains("InplaceButton("),
+            "Part B: the trailing reset / Bold / Italic controls must be InplaceButton.",
+        )
+        assertFalse(
+            source.contains("JToggleButton"),
+            "Part B: no bare JToggleButton — its box shouts across 32 instances.",
+        )
+        assertFalse(
+            Regex("""[^a-zA-Z_]ActionButton\b""").containsMatchIn(source.substringBefore("JBUI.CurrentTheme")) &&
+                source.contains("import com.intellij.openapi.actionSystem.impl.ActionButton"),
+            "Part B: no ActionButton — it trips the ActionToolbar.updateUI SlowOperations SEVERE.",
+        )
+        assertFalse(
+            source.contains("updateComponentTreeUI"),
+            "Part B: NEVER updateComponentTreeUI — SlowOperations SEVERE crash.",
+        )
+    }
+
+    @Test
+    fun `refreshResetVisibility condition references pendingStyles (Part B source lock)`() {
+        val source = readPanelSource()
+        assertTrue(
+            source.contains("private fun refreshResetVisibility("),
+            "Part B: a centralized refreshResetVisibility(category) helper must exist.",
+        )
+        val body = functionBody(source, "private fun refreshResetVisibility(")
+        assertTrue(
+            body.contains("pendingStyles["),
+            "Part B: reset visibility must consider pendingStyles so a style-only cell stays resettable.",
+        )
+        assertTrue(
+            body.contains("SLIDER_MID"),
+            "Part B: reset visibility must also consider the slider divergence from identity.",
+        )
+    }
+
+    @Test
+    fun `apply threads built styles into the service and persists state customStyles (Part B source lock)`() {
+        val source = readPanelSource()
+        val body = functionBody(source, "override fun apply(")
+        assertTrue(
+            body.contains("buildNested(pendingStyles)"),
+            "Part B: apply must build nested styles from pendingStyles.",
+        )
+        assertTrue(
+            body.contains("state.customStyles.clear()") && body.contains("state.customStyles.putAll(pendingStyles)"),
+            "Part B: apply must persist pendingStyles into state.customStyles (clear + putAll).",
+        )
+        val applyIdx = source.indexOf("SyntaxIntensityService.getInstance().apply(")
+        val persistIdx = source.indexOf("state.customStyles.clear()")
+        assertTrue(
+            applyIdx in 0 until persistIdx,
+            "Part B apply-FIRST: the service call must precede the customStyles persist.",
+        )
     }
 
     // ---------- Test 18 — debounce source lock (INTENSITY-13 / D-19) ----------
@@ -1102,10 +1339,60 @@ class AyuIslandsSyntaxPanelTest {
         putMethod.invoke(map, key, value)
     }
 
+    private fun pendingStylesField(panel: AyuIslandsSyntaxPanel): MutableMap<*, *> {
+        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("pendingStyles")
+        field.isAccessible = true
+        return field.get(panel) as MutableMap<*, *>
+    }
+
+    /** Snapshot the pending style map as `String → String` without an unchecked cast. */
+    private fun readPendingStyles(panel: AyuIslandsSyntaxPanel): Map<String, String> =
+        pendingStylesField(panel).entries.associate { (key, value) ->
+            (key as String) to (value as String)
+        }
+
+    private fun seedPendingStyle(
+        panel: AyuIslandsSyntaxPanel,
+        key: String,
+        value: String,
+    ) {
+        val map = pendingStylesField(panel)
+        val putMethod = map.javaClass.getMethod("put", Any::class.java, Any::class.java)
+        putMethod.invoke(map, key, value)
+    }
+
+    private fun invokeOnStyleToggle(
+        panel: AyuIslandsSyntaxPanel,
+        category: PrimitiveCategory,
+        bit: Int,
+    ) {
+        val method =
+            AyuIslandsSyntaxPanel::class.java.getDeclaredMethod(
+                "onStyleToggle",
+                PrimitiveCategory::class.java,
+                Int::class.javaPrimitiveType,
+            )
+        method.isAccessible = true
+        method.invoke(panel, category, bit)
+    }
+
     private fun invokeOnResetCurrentLanguage(panel: AyuIslandsSyntaxPanel) {
         val method = AyuIslandsSyntaxPanel::class.java.getDeclaredMethod("onResetCurrentLanguage")
         method.isAccessible = true
         method.invoke(panel)
+    }
+
+    private fun invokeResetCell(
+        panel: AyuIslandsSyntaxPanel,
+        category: PrimitiveCategory,
+    ) {
+        val method =
+            AyuIslandsSyntaxPanel::class.java.getDeclaredMethod(
+                "resetCell",
+                PrimitiveCategory::class.java,
+            )
+        method.isAccessible = true
+        method.invoke(panel, category)
     }
 
     private fun invokeOnSliderChanged(
@@ -1147,9 +1434,11 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     /**
-     * Materialize a single category's slider / readout / reset-link widgets
-     * (and the master reset button) into the private component maps so the
-     * logic methods can be driven without a built [com.intellij.openapi.ui.DialogPanel].
+     * Materialize a single category's slider / readout / reset-icon / Bold /
+     * Italic widgets (and the master reset button) into the private component
+     * maps so the logic methods can be driven without a built
+     * [com.intellij.openapi.ui.DialogPanel]. The reset / toggle widgets are real
+     * [InplaceButton]s, mirroring the production trailing zone.
      */
     private fun seedWidgets(
         panel: AyuIslandsSyntaxPanel,
@@ -1157,15 +1446,19 @@ class AyuIslandsSyntaxPanelTest {
     ): SeededWidgets {
         val slider = JSlider(0, 100, 50)
         val label = JLabel("0")
-        val resetLink = ActionLink("Reset") {}
+        val resetButton = InplaceButton("Reset", AllIcons.Actions.Rollback) {}
+        val boldToggle = InplaceButton("Bold", AllIcons.Actions.Rollback) {}
+        val italicToggle = InplaceButton("Italic", AllIcons.Actions.Rollback) {}
         val button = JButton()
         putIntoMapField(panel, "sliders", category, slider)
         putIntoMapField(panel, "sliderLabels", category, label)
-        putIntoMapField(panel, "resetLinks", category, resetLink)
+        putIntoMapField(panel, "resetButtons", category, resetButton)
+        putIntoMapField(panel, "boldToggles", category, boldToggle)
+        putIntoMapField(panel, "italicToggles", category, italicToggle)
         val buttonField = AyuIslandsSyntaxPanel::class.java.getDeclaredField("masterResetButton")
         buttonField.isAccessible = true
         buttonField.set(panel, button)
-        return SeededWidgets(slider, label, resetLink, button)
+        return SeededWidgets(slider, label, resetButton, boldToggle, italicToggle, button)
     }
 
     private fun putIntoMapField(
@@ -1184,7 +1477,9 @@ class AyuIslandsSyntaxPanelTest {
     private data class SeededWidgets(
         val slider: JSlider,
         val label: JLabel,
-        val resetLink: ActionLink,
+        val resetButton: InplaceButton,
+        val boldToggle: InplaceButton,
+        val italicToggle: InplaceButton,
         val button: JButton,
     )
 

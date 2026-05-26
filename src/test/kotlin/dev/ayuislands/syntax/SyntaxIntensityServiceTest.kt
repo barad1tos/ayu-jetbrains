@@ -343,6 +343,55 @@ class SyntaxIntensityServiceTest {
         }
     }
 
+    // ---------- Test 13b: customStyles threaded through to compute ----------
+
+    @Test
+    fun `apply threads customStyles through to the applicator compute call`() {
+        val styles = mapOf("Java" to mapOf("KEYWORD" to (java.awt.Font.BOLD or java.awt.Font.ITALIC)))
+        SyntaxIntensityService().apply(
+            preset = SyntaxPreset.CUSTOM,
+            customOverrides = mapOf("Java" to mapOf("KEYWORD" to 75)),
+            subordinatePreset = SyntaxPreset.AMBIENT,
+            customStyles = styles,
+        )
+        verify(atLeast = 1) {
+            SyntaxIntensityApplicator.compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides = any(),
+                variantName = any(),
+                editorBg = any(),
+                baseline = any(),
+                overlay = any(),
+                subordinatePreset = any(),
+                customStyles = styles,
+            )
+        }
+    }
+
+    @Test
+    fun `reapplyForActiveLaf forwards config customStyles to compute`() {
+        val styles = mapOf("Kotlin" to mapOf("COMMENT" to java.awt.Font.ITALIC))
+        every { stateInstance.toPresetConfig() } returns
+            SyntaxPresetConfig(
+                selectedPreset = "CUSTOM",
+                customOverrides = emptyMap(),
+                customStyles = styles,
+            )
+        SyntaxIntensityService().reapplyForActiveLaf()
+        verify(atLeast = 1) {
+            SyntaxIntensityApplicator.compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides = any(),
+                variantName = any(),
+                editorBg = any(),
+                baseline = any(),
+                overlay = any(),
+                subordinatePreset = any(),
+                customStyles = styles,
+            )
+        }
+    }
+
     // ---------- Test 13: CUSTOM gate log-once (Pattern A latch) ----------
 
     @Test

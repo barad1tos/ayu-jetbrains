@@ -78,6 +78,7 @@ class SyntaxIntensityService {
         preset: SyntaxPreset,
         customOverrides: Map<String, Map<String, Int>>,
         subordinatePreset: SyntaxPreset = SyntaxPreset.AMBIENT,
+        customStyles: Map<String, Map<String, Int>> = emptyMap(),
     ) {
         val effectivePreset = enforceCustomGate(preset)
         val loader = SyntaxOverlayLoader.getInstance()
@@ -103,11 +104,12 @@ class SyntaxIntensityService {
                     baseline,
                     overlay,
                     subordinatePreset,
+                    customStyles,
                 )
             writeSchemeAttributes(scheme, computed, schemeName)
             touched.add(scheme)
         }
-        writeActiveSchemeIfNotTouched(effectivePreset, customOverrides, loader, touched, subordinatePreset)
+        writeActiveSchemeIfNotTouched(effectivePreset, customOverrides, touched, subordinatePreset, customStyles)
         publishSchemeChange()
     }
 
@@ -116,7 +118,7 @@ class SyntaxIntensityService {
         val config = state.toPresetConfig()
         val preset = SyntaxPreset.fromName(config.selectedPreset)
         val subordinate = SyntaxPreset.fromName(config.subordinatePreset)
-        apply(preset, config.customOverrides, subordinate)
+        apply(preset, config.customOverrides, subordinate, config.customStyles)
     }
 
     /**
@@ -201,12 +203,13 @@ class SyntaxIntensityService {
     private fun writeActiveSchemeIfNotTouched(
         preset: SyntaxPreset,
         customOverrides: Map<String, Map<String, Int>>,
-        loader: SyntaxOverlayLoader,
         touched: Set<EditorColorsScheme>,
         subordinatePreset: SyntaxPreset = SyntaxPreset.AMBIENT,
+        customStyles: Map<String, Map<String, Int>> = emptyMap(),
     ) {
         val active = EditorColorsManager.getInstance().globalScheme
         if (active in touched) return
+        val loader = SyntaxOverlayLoader.getInstance()
         val variant = resolveOverlayVariant(active.name)
         val editorBg = resolveEditorBg(active, variant)
         val baseline = loader.loadBaselineForVariant(variant)
@@ -220,6 +223,7 @@ class SyntaxIntensityService {
                 baseline,
                 overlay,
                 subordinatePreset,
+                customStyles,
             )
         writeSchemeAttributes(active, computed, active.name)
     }
