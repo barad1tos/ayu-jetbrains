@@ -3,6 +3,7 @@ package dev.ayuislands.settings
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.ui.components.ActionLink
+import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.syntax.PrimitiveCategory
@@ -601,8 +602,12 @@ class AyuIslandsSyntaxPanelTest {
             "Approach 1: the right column must be the odd-index categories.",
         )
         assertTrue(
-            source.contains("panel { for (category in leftCategories) categoryRow(category) }"),
-            "Approach 1: each column must be its own shared-grid nested panel.",
+            source.contains("for (category in leftCategories) categoryRow(category)"),
+            "Approach 1: the left column must iterate its even-index categories into categoryRow.",
+        )
+        assertTrue(
+            source.contains("for (category in rightCategories) categoryRow(category)"),
+            "Approach 1: the right column must iterate its odd-index categories into categoryRow.",
         )
         assertTrue(
             source.contains("RightGap.COLUMNS"),
@@ -734,6 +739,72 @@ class AyuIslandsSyntaxPanelTest {
                 "longest label (e.g. 'Interface declaration') never clips against the slider.",
         )
         assertTrue(width > 0, "labelColumnWidth must be positive — the defensive fallback guards a 0 measure.")
+    }
+
+    // ---------- Test 22c — halved inter-cell gap source lock (spacing tightening) ----------
+
+    @Test
+    fun `each column panel halves the UI-DSL horizontal default gap via customizeSpacingConfiguration`() {
+        val source = readPanelSource()
+        // Both column grids must wrap their rows in a tightened SpacingConfiguration
+        // so the label→slider and slider→readout gaps shrink uniformly. The
+        // override targets only horizontalDefaultGap (half of the platform's
+        // scaled 16); the other gap dimensions delegate to the platform default.
+        val occurrences = Regex("""customizeSpacingConfiguration\(tightenedSpacing\(\)\)""").findAll(source).count()
+        assertEquals(
+            2,
+            occurrences,
+            "spacing tightening: both the left and right column panels must wrap their rows in " +
+                "customizeSpacingConfiguration(tightenedSpacing()) so the gap halving is uniform.",
+        )
+        val body = functionBody(source, "private fun tightenedSpacing(")
+        assertTrue(
+            body.contains("SpacingConfiguration by IntelliJSpacingConfiguration()"),
+            "spacing tightening: tightenedSpacing must delegate to IntelliJSpacingConfiguration so only " +
+                "horizontalDefaultGap is overridden — the other gap dimensions ride the platform default.",
+        )
+        assertTrue(
+            body.contains("override val horizontalDefaultGap") && body.contains("JBUI.scale(HALF_HORIZONTAL_GAP)"),
+            "spacing tightening: tightenedSpacing must override horizontalDefaultGap to the scaled half gap.",
+        )
+        assertTrue(
+            source.contains("private const val HALF_HORIZONTAL_GAP = 8"),
+            "spacing tightening: the halved horizontal default gap must be 8 (half of the platform's 16).",
+        )
+    }
+
+    @Test
+    fun `readout cell width is tightened to 34 and the label padding to 8 while the slider track stays 160`() {
+        val source = readPanelSource()
+        assertTrue(
+            source.contains("private const val READOUT_WIDTH = 34"),
+            "spacing tightening: the right-aligned readout cell must shrink from 40 to 34.",
+        )
+        assertTrue(
+            source.contains("private const val LABEL_PADDING = 8"),
+            "spacing tightening: the leading-label trailing padding must shrink from 12 to 8.",
+        )
+        assertTrue(
+            source.contains("private const val SLIDER_TRACK_WIDTH = 160"),
+            "spacing tightening: the slider track width (alignment anchor) must stay 160.",
+        )
+    }
+
+    @Test
+    fun `scaled readout cell still fits the widest 4-glyph signed value without clipping`() {
+        // The readout cell is right-aligned and fixed-width. Verify the chosen
+        // READOUT_WIDTH (scaled) holds the widest theoretical 4-glyph string
+        // "−100" / "+100" at the label font so a future widened model can never
+        // clip the number. The live model only reaches ±50, so this is headroom.
+        val width = readReadoutWidthScaled()
+        val font = UIUtil.getLabelFont()
+        val metrics = JLabel().getFontMetrics(font)
+        val widestSigned = maxOf(metrics.stringWidth("−100"), metrics.stringWidth("+100"))
+        assertTrue(
+            width >= widestSigned,
+            "the scaled readout cell ($width) must be at least the widest 4-glyph signed value " +
+                "($widestSigned) so the number never clips when right-aligned.",
+        )
     }
 
     // ---------- Test 23 — slider-change behavior (readout + reset-link + sparse write) ----------
@@ -1170,6 +1241,17 @@ class AyuIslandsSyntaxPanelTest {
         val getter = AyuIslandsSyntaxPanel::class.java.getDeclaredMethod("getLabelColumnWidth")
         getter.isAccessible = true
         return getter.invoke(panel) as Int
+    }
+
+    /**
+     * Read the private companion `READOUT_WIDTH` const (a private static field
+     * on the outer class) and return it scaled by [JBUI.scale], matching the
+     * runtime width the readout cell is pinned to.
+     */
+    private fun readReadoutWidthScaled(): Int {
+        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("READOUT_WIDTH")
+        field.isAccessible = true
+        return JBUI.scale(field.getInt(null))
     }
 
     private fun readPanelSource(): String =
