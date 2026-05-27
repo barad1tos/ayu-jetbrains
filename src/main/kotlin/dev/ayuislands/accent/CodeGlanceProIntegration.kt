@@ -61,9 +61,10 @@ internal object CodeGlanceProIntegration {
      * string as-is. When bumping CGP version, re-run the javap command and update
      * these constants ONLY if upstream changed them.
      *
-     * Owned by this object — the constants are exclusively read here. Source-regex
-     * provenance lock lives in `AccentApplicatorCgpDefaultsDocTest` (test source
-     * set).
+     * Owned by this object — the constants are exclusively read here. The compiled
+     * values are locked in `AccentApplicatorCodeGlanceProDefaultsDocTest` (test
+     * source set); the javap recipe above stays the re-verification path when
+     * bumping CGP.
      */
     internal const val CGP_DEFAULT_VIEWPORT_COLOR = "00FF00"
     internal const val CGP_DEFAULT_VIEWPORT_BORDER_COLOR = "A0A0A0"
