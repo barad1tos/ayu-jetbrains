@@ -226,6 +226,20 @@ class AccentElementsTest {
     }
 
     @Test
+    fun `MatchingTagElement apply keeps light background when light scheme is unresolved`() {
+        val attributesSlot = slot<TextAttributes>()
+        every { mockScheme.defaultBackground } returns Color.WHITE
+        every { mockScheme.name } returns "Ayu Islands Light"
+        every { mockScheme.getAttributes(any<TextAttributesKey>()) } returns null
+        every { mockScheme.setAttributes(any<TextAttributesKey>(), capture(attributesSlot)) } just Runs
+
+        val element = MatchingTagElement()
+        element.apply(testColor)
+
+        assertEquals(Color(0xFF, 0xF5, 0xE2), attributesSlot.captured.backgroundColor)
+    }
+
+    @Test
     fun `LinksElement has correct id and displayName`() {
         val element = LinksElement()
         assertEquals(AccentElementId.LINKS, element.id)

@@ -28,19 +28,20 @@ class MatchingTagElement : AccentElement {
 
     private fun editorBackgroundFor(scheme: EditorColorsScheme): Color {
         val raw = scheme.defaultBackground
-        val variantTag = variantTagFor(scheme.name)
-        return if (raw.rgb == Color.WHITE.rgb && variantTag != "Light") {
-            RgbBlend.fallbackEditorBgFor(variantTag)
-        } else {
-            raw
-        }
+        if (raw.rgb != Color.WHITE.rgb) return raw
+        // White is the R-1 early-init sentinel the platform returns on dark variants
+        // before the scheme resolves. Substitute the per-variant fallback only when
+        // the scheme is positively a dark Ayu variant; Light — and anything we cannot
+        // identify — keeps white, so we never blend a dark block onto a light theme.
+        val darkVariantTag = darkVariantTagOrNull(scheme.name) ?: return raw
+        return RgbBlend.fallbackEditorBgFor(darkVariantTag)
     }
 
-    private fun variantTagFor(schemeName: String): String =
+    private fun darkVariantTagOrNull(schemeName: String): String? =
         when (schemeName.removePrefix("_@user_")) {
             "Ayu Islands Dark" -> "Dark"
-            "Ayu Islands Light" -> "Light"
-            else -> "Mirage"
+            "Ayu Islands Mirage" -> "Mirage"
+            else -> null
         }
 
     private fun blendWithEditorBackground(
