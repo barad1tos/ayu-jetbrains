@@ -116,7 +116,7 @@ class SyntaxIntensityServiceTest {
         // unit under test, not the HSL math.
         mockkObject(SyntaxIntensityApplicator)
         every {
-            SyntaxIntensityApplicator.compute(any(), any(), any(), any(), any(), any())
+            SyntaxIntensityApplicator.compute(any())
         } returns payload
 
         every { mockApp.getService(SyntaxIntensityService::class.java) } returns SyntaxIntensityService()
@@ -214,30 +214,35 @@ class SyntaxIntensityServiceTest {
         verify(exactly = 0) { RgbBlend.fallbackEditorBgFor("Light") }
     }
 
-    // ---------- Test 7: Unknown-variant WARN once (Pattern A latch) ----------
+    // ---------- Test 7: active scheme safety ----------
 
     @Test
-    fun `unknown overlay variant on active globalScheme logs WARN once and skips R-1`() {
-        // An active global scheme whose name doesn't contain any known variant
-        // token — the service falls back to "Mirage" via resolveOverlayVariant.
-        // To exercise the unknownVariantLogged latch path on resolveEditorBg,
-        // we feed it through a derived active scheme that the service won't dedup.
-        val oceanScheme: EditorColorsScheme =
+    fun `foreign active globalScheme is not mutated by syntax intensity apply`() {
+        val solarizedScheme: EditorColorsScheme =
             mockk(relaxed = true) {
-                every { name } returns "Ayu Islands Ocean"
+                every { name } returns "Solarized (Light)"
                 every { defaultBackground } returns Color.WHITE
             }
-        every { mockManager.globalScheme } returns oceanScheme
+        every { mockManager.globalScheme } returns solarizedScheme
         val service = SyntaxIntensityService()
         service.apply(SyntaxPreset.WHISPER, emptyMap())
         service.apply(SyntaxPreset.WHISPER, emptyMap())
-        // resolveOverlayVariant returns "Mirage" (the safe default) when the
-        // active name has no known token, so the fallback DOES fire as a
-        // known dark-variant tag — the unknown-variant Pattern A latch
-        // targets the path where a future overlay tag outside AYU_SCHEMES
-        // arrives. Verify the active scheme was written to with the Mirage
-        // fallback (twice, since two apply calls each touched it once).
-        verify(exactly = 2) { oceanScheme.setAttributes(any(), any<TextAttributes>()) }
+
+        verify(exactly = 0) { solarizedScheme.setAttributes(any(), any<TextAttributes>()) }
+    }
+
+    @Test
+    fun `user-derived Ayu active globalScheme still receives syntax intensity write`() {
+        val userDerivedScheme: EditorColorsScheme =
+            mockk(relaxed = true) {
+                every { name } returns "_@user_Ayu Islands Mirage"
+                every { defaultBackground } returns Color(0x1F, 0x24, 0x30)
+            }
+        every { mockManager.globalScheme } returns userDerivedScheme
+
+        SyntaxIntensityService().apply(SyntaxPreset.WHISPER, emptyMap())
+
+        verify(exactly = 1) { userDerivedScheme.setAttributes(any(), any<TextAttributes>()) }
     }
 
     // ---------- Test 8: H5 identity dedup (active === named) ----------
@@ -279,12 +284,9 @@ class SyntaxIntensityServiceTest {
         SyntaxIntensityService().reapplyForActiveLaf()
         verify(exactly = 1) {
             SyntaxIntensityApplicator.compute(
-                preset = SyntaxPreset.NEON,
-                customOverrides = any(),
-                variantName = "Mirage",
-                editorBg = any(),
-                baseline = any(),
-                overlay = any(),
+                match {
+                    it.preset == SyntaxPreset.NEON && it.variantName == "Mirage"
+                },
             )
         }
     }
@@ -300,12 +302,7 @@ class SyntaxIntensityServiceTest {
         )
         verify(atLeast = 1) {
             SyntaxIntensityApplicator.compute(
-                preset = SyntaxPreset.CUSTOM,
-                customOverrides = any(),
-                variantName = any(),
-                editorBg = any(),
-                baseline = any(),
-                overlay = any(),
+                match { it.preset == SyntaxPreset.CUSTOM },
             )
         }
     }
@@ -322,23 +319,13 @@ class SyntaxIntensityServiceTest {
         // Applicator must never see CUSTOM from an unlicensed call path.
         verify(exactly = 0) {
             SyntaxIntensityApplicator.compute(
-                preset = SyntaxPreset.CUSTOM,
-                customOverrides = any(),
-                variantName = any(),
-                editorBg = any(),
-                baseline = any(),
-                overlay = any(),
+                match { it.preset == SyntaxPreset.CUSTOM },
             )
         }
         // It MUST see AMBIENT instead (the normalised fallback).
         verify(atLeast = 1) {
             SyntaxIntensityApplicator.compute(
-                preset = SyntaxPreset.AMBIENT,
-                customOverrides = any(),
-                variantName = any(),
-                editorBg = any(),
-                baseline = any(),
-                overlay = any(),
+                match { it.preset == SyntaxPreset.AMBIENT },
             )
         }
     }
@@ -356,14 +343,9 @@ class SyntaxIntensityServiceTest {
         )
         verify(atLeast = 1) {
             SyntaxIntensityApplicator.compute(
-                preset = SyntaxPreset.CUSTOM,
-                customOverrides = any(),
-                variantName = any(),
-                editorBg = any(),
-                baseline = any(),
-                overlay = any(),
-                subordinatePreset = any(),
-                customStyles = styles,
+                match {
+                    it.preset == SyntaxPreset.CUSTOM && it.customStyles == styles
+                },
             )
         }
     }
@@ -380,14 +362,9 @@ class SyntaxIntensityServiceTest {
         SyntaxIntensityService().reapplyForActiveLaf()
         verify(atLeast = 1) {
             SyntaxIntensityApplicator.compute(
-                preset = SyntaxPreset.CUSTOM,
-                customOverrides = any(),
-                variantName = any(),
-                editorBg = any(),
-                baseline = any(),
-                overlay = any(),
-                subordinatePreset = any(),
-                customStyles = styles,
+                match {
+                    it.preset == SyntaxPreset.CUSTOM && it.customStyles == styles
+                },
             )
         }
     }
@@ -406,12 +383,7 @@ class SyntaxIntensityServiceTest {
         // once per session).
         verify(exactly = 0) {
             SyntaxIntensityApplicator.compute(
-                preset = SyntaxPreset.CUSTOM,
-                customOverrides = any(),
-                variantName = any(),
-                editorBg = any(),
-                baseline = any(),
-                overlay = any(),
+                match { it.preset == SyntaxPreset.CUSTOM },
             )
         }
     }

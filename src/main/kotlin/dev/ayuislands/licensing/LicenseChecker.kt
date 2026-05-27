@@ -1,15 +1,11 @@
 package dev.ayuislands.licensing
 
+import com.intellij.ide.BrowserUtil
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
-import com.intellij.openapi.actionSystem.ActionManager
-import com.intellij.openapi.actionSystem.ActionUiKind
 import com.intellij.openapi.actionSystem.AnActionEvent
-import com.intellij.openapi.actionSystem.DataContext
-import com.intellij.openapi.actionSystem.Presentation
-import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.PathManager
@@ -29,6 +25,9 @@ import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.PanelWidthMode
+import dev.ayuislands.syntax.SyntaxIntensityService
+import dev.ayuislands.syntax.SyntaxIntensityState
+import dev.ayuislands.syntax.SyntaxPreset
 import dev.ayuislands.vcs.VcsColorApplier
 import dev.ayuislands.vcs.VcsColorPreset
 import org.jetbrains.annotations.VisibleForTesting
@@ -142,29 +141,8 @@ object LicenseChecker {
     /** Open the JetBrains registration / purchase dialog. */
     fun requestLicense(message: String) {
         ApplicationManager.getApplication().invokeLater({
-            val actionManager = ActionManager.getInstance()
-            val action =
-                actionManager.getAction("RegisterPlugins")
-                    ?: actionManager.getAction("Register")
-                    ?: return@invokeLater
-
-            val dataContext =
-                DataContext { dataId ->
-                    when (dataId) {
-                        "register.product-descriptor.code" -> PRODUCT_CODE
-                        "register.message" -> message
-                        else -> null
-                    }
-                }
-            val event =
-                AnActionEvent.createEvent(
-                    dataContext,
-                    Presentation(),
-                    "",
-                    ActionUiKind.NONE,
-                    null,
-                )
-            ActionUtil.invokeAction(action, event, null)
+            LOG.info("Opening Ayu Islands Marketplace license page: $message")
+            BrowserUtil.browse(MARKETPLACE_URL)
         }, ModalityState.nonModal())
     }
 
@@ -330,6 +308,8 @@ object LicenseChecker {
             state.accentRotationEnabled = false
         }
 
+        resetSyntaxIntensityToFreeDefaults()
+
         ApplicationManager.getApplication().getService(AccentRotationService::class.java)?.stopRotation()
 
         // Re-apply accent with reset toggles (accent color itself stays — it's free)
@@ -377,6 +357,19 @@ object LicenseChecker {
             VcsColorApplier.revertAll()
         } catch (exception: RuntimeException) {
             LOG.warn("VCS color revert after license revert failed", exception)
+        }
+    }
+
+    private fun resetSyntaxIntensityToFreeDefaults() {
+        try {
+            val syntaxState = SyntaxIntensityState.getInstance().state
+            syntaxState.selectedPreset = SyntaxPreset.AMBIENT.name
+            syntaxState.subordinatePreset = SyntaxPreset.AMBIENT.name
+            syntaxState.customOverrides.clear()
+            syntaxState.customStyles.clear()
+            SyntaxIntensityService.getInstance().apply(SyntaxPreset.AMBIENT, emptyMap())
+        } catch (exception: RuntimeException) {
+            LOG.warn("Syntax intensity revert after license downgrade failed", exception)
         }
     }
 
@@ -445,6 +438,7 @@ object LicenseChecker {
     private const val MS_PER_HOUR = 3_600_000L
     private const val OFFLINE_GRACE_HOURS = 48L
     private const val OFFLINE_GRACE_MS = OFFLINE_GRACE_HOURS * MS_PER_HOUR
+    private const val MARKETPLACE_URL = "https://plugins.jetbrains.com/plugin/30373-ayu-islands"
 
     /**
      * Dev mode: requires all three gates to match. Each gate alone is bypassable

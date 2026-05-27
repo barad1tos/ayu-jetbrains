@@ -81,50 +81,140 @@ object SyntaxIntensityApplicator {
 
     private val darkVariants = setOf("Mirage", "Dark")
 
-    @Suppress("LongParameterList")
-    fun compute(
-        preset: SyntaxPreset,
-        customOverrides: Map<String, Map<String, Int>>,
-        variantName: String,
-        editorBg: Color,
-        baseline: Map<TextAttributesKey, TextAttributes>,
-        overlay: Map<TextAttributesKey, TextAttributes>,
-        subordinatePreset: SyntaxPreset = SyntaxPreset.AMBIENT,
-        customStyles: Map<String, Map<String, Int>> = emptyMap(),
-    ): Map<TextAttributesKey, TextAttributes> {
-        warnOnceIfWhiteBgOnDarkVariant(variantName, editorBg)
+    data class Request(
+        val preset: SyntaxPreset,
+        val variantName: String,
+        val editorBg: Color,
+        val baseline: Map<TextAttributesKey, TextAttributes>,
+        val overlay: Map<TextAttributesKey, TextAttributes>,
+        val customOverrides: Map<String, Map<String, Int>> = emptyMap(),
+        val subordinatePreset: SyntaxPreset = SyntaxPreset.AMBIENT,
+        val customStyles: Map<String, Map<String, Int>> = emptyMap(),
+    )
 
-        val result = mutableMapOf<TextAttributesKey, TextAttributes>()
-        for ((key, baseAttrs) in baseline) {
-            val source = overlay[key] ?: baseAttrs
+    fun compute(request: Request): Map<TextAttributesKey, TextAttributes> {
+        val preset = request.preset
+        val customOverrides = request.customOverrides
+        val subordinatePreset = request.subordinatePreset
+        val baseline = request.baseline
+        val overlay = request.overlay
+        warnOnceIfWhiteBgOnDarkVariant(request.variantName, request.editorBg)
+
+        val result = linkedMapOf<TextAttributesKey, TextAttributes>()
+        val context = TransformContext(preset, customOverrides, subordinatePreset, request.customStyles)
+        val sources = AttributeSources(baseline, overlay)
+        val keys = LinkedHashSet<TextAttributesKey>()
+        keys.addAll(baseline.keys)
+        keys.addAll(overlay.keys)
+        for (key in keys) {
+            val source = overlay[key] ?: baseline[key] ?: continue
             val category = SyntaxCategoryRegistry.classify(key.externalName) ?: continue
             val langTag = SyntaxLanguageRegistry.classify(key.externalName)
             val language = langTag.displayName
             val curve = resolveCurve(preset, language, category, customOverrides, subordinatePreset)
-            val sourceFg = source.foregroundColor ?: continue
-            val transformedFg = transformForeground(sourceFg, curve)
-            val clone = source.clone()
-            clone.foregroundColor = transformedFg
-            // Sparse per-category font style — gated to the Custom drill-down.
-            // fontType and foregroundColor are independent TextAttributes
-            // fields, so the style set is orthogonal to the hue/color transform
-            // above. An absent cell leaves clone.fontType untouched (inherits
-            // the source style). Named / AMBIENT presets never consult
-            // `customStyles`, keeping it inert outside CUSTOM. Pattern B clone
-            // discipline preserved — only the fresh clone is mutated.
-            if (preset == SyntaxPreset.CUSTOM) {
-                customStyles[language]?.get(category.name)?.let { clone.fontType = it }
+            val transformed =
+                transformedAttributes(source, curve, context, language, category)
+                    ?: continue
+            result[key] = transformed
+            if (langTag.bucket == SyntaxLanguageRegistry.Bucket.CASCADE &&
+                key.externalName in SyntaxLanguageRegistry.cascadeKeysInScope()
+            ) {
+                materializeCascadeTargets(
+                    CascadeSource(key.externalName, category, source),
+                    context,
+                    sources,
+                    result,
+                )
             }
-            result[key] = clone
         }
-        // `editorBg` participates in the R-1 contract guard above but does
+        // `request.editorBg` participates in the R-1 contract guard above but does
         // not feed the per-key transform; the parameter exists so the
         // applicator stays language-aware AND signature-stable for Plan
         // 50-05's service caller, which will pass the resolved editor
         // background for diagnostic logging.
-        check(editorBg.alpha in 0..MAX_RGB_CHANNEL) { "editorBg alpha out of range: ${editorBg.alpha}" }
+        check(request.editorBg.alpha in 0..MAX_RGB_CHANNEL) {
+            "editorBg alpha out of range: ${request.editorBg.alpha}"
+        }
         return result
     }
+
+    private data class TransformContext(
+        val preset: SyntaxPreset,
+        val customOverrides: Map<String, Map<String, Int>>,
+        val subordinatePreset: SyntaxPreset,
+        val customStyles: Map<String, Map<String, Int>>,
+    )
+
+    private data class AttributeSources(
+        val baseline: Map<TextAttributesKey, TextAttributes>,
+        val overlay: Map<TextAttributesKey, TextAttributes>,
+    )
+
+    private data class CascadeSource(
+        val defaultKeyName: String,
+        val category: PrimitiveCategory,
+        val attributes: TextAttributes,
+    )
+
+    private fun transformedAttributes(
+        source: TextAttributes,
+        curve: CategoryCurve,
+        context: TransformContext,
+        language: String,
+        category: PrimitiveCategory,
+    ): TextAttributes? {
+        val sourceForeground = source.foregroundColor ?: return null
+        val clone = source.clone()
+        clone.foregroundColor = transformForeground(sourceForeground, curve)
+        // Sparse per-category font style — gated to the Custom drill-down.
+        // fontType and foregroundColor are independent TextAttributes fields,
+        // so the style set is orthogonal to the hue/color transform above.
+        // An absent cell leaves clone.fontType untouched.
+        if (context.preset == SyntaxPreset.CUSTOM) {
+            context.customStyles[language]?.get(category.name)?.let { clone.fontType = it }
+        }
+        return clone
+    }
+
+    private fun materializeCascadeTargets(
+        cascadeSource: CascadeSource,
+        context: TransformContext,
+        sources: AttributeSources,
+        result: MutableMap<TextAttributesKey, TextAttributes>,
+    ) {
+        for (target in SyntaxLanguageRegistry.cascadeTargetsFor(cascadeSource.defaultKeyName)) {
+            val targetKey = findKey(target.keyName, sources)
+            val targetSource = sources.overlay[targetKey] ?: sources.baseline[targetKey]
+            if (targetSource?.foregroundColor != null) continue
+            val language = target.language.displayName
+            val curve =
+                resolveCurve(
+                    context.preset,
+                    language,
+                    cascadeSource.category,
+                    context.customOverrides,
+                    context.subordinatePreset,
+                )
+            val transformed =
+                transformedAttributes(
+                    cascadeSource.attributes,
+                    curve,
+                    context,
+                    language,
+                    cascadeSource.category,
+                )
+                    ?: continue
+            result[targetKey] = transformed
+        }
+    }
+
+    private fun findKey(
+        keyName: String,
+        sources: AttributeSources,
+    ): TextAttributesKey =
+        sources.baseline.keys.firstOrNull { it.externalName == keyName }
+            ?: sources.overlay.keys.firstOrNull { it.externalName == keyName }
+            ?: TextAttributesKey.createTextAttributesKey(keyName)
 
     /**
      * Resolve the [CategoryCurve] for one `(preset, language, category)` cell.

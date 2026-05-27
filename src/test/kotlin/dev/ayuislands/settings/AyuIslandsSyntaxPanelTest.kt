@@ -114,6 +114,22 @@ class AyuIslandsSyntaxPanelTest {
         assertSame(SyntaxPreset.NEON, readPendingPreset(panel))
     }
 
+    @Test
+    fun `loadStateIntoPending normalizes unlicensed persisted Custom to Ambient`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        stateBase.selectedPreset = "CUSTOM"
+        stateBase.subordinatePreset = "NEON"
+        stateBase.customOverrides["Java|KEYWORD"] = "85"
+        stateBase.customStyles["Java|KEYWORD"] = "BOLD"
+
+        val panel = panelWithLoadedState()
+
+        assertSame(SyntaxPreset.AMBIENT, readPendingPreset(panel))
+        assertSame(SyntaxPreset.AMBIENT, readStoredPreset(panel))
+        assertTrue(readPendingOverrides(panel).isEmpty(), "unlicensed Custom load must hide slider overrides")
+        assertTrue(readPendingStyles(panel).isEmpty(), "unlicensed Custom load must hide style overrides")
+    }
+
     // ---------- Test 2 — pill selection applies + persists ----------
 
     @Test
@@ -231,15 +247,15 @@ class AyuIslandsSyntaxPanelTest {
     // ---------- Test 7 — Pattern L: LicenseChecker call site lock ----------
 
     @Test
-    fun `panel source has exactly 2 LicenseChecker isLicensedOrGrace call sites (Pattern L)`() {
+    fun `panel source has exactly 3 LicenseChecker isLicensedOrGrace call sites (Pattern L)`() {
         val source = readPanelSource()
         val pattern = Regex("""LicenseChecker\.isLicensedOrGrace\(\)""")
         val matches = pattern.findAll(source).count()
         assertEquals(
-            2,
+            3,
             matches,
-            "Pattern L: only the Custom-pill guard in onPresetChosen and the short-circuit in " +
-                "applyCustomPillTooltipIfFree may call LicenseChecker.isLicensedOrGrace(). " +
+            "Pattern L: only Custom loading normalization, the Custom-pill guard in onPresetChosen, " +
+                "and the tooltip short-circuit may call LicenseChecker.isLicensedOrGrace(). " +
                 "Found $matches call sites — INTENSITY-10 regression risk.",
         )
     }
@@ -299,19 +315,21 @@ class AyuIslandsSyntaxPanelTest {
     @Test
     fun `apply method body has service call BEFORE state mutation in source (Pattern L apply-FIRST)`() {
         val source = readPanelSource()
-        val serviceCallIdx = source.indexOf("SyntaxIntensityService.getInstance().apply(")
-        val statePersistIdx = source.indexOf("state.selectedPreset = pendingPreset.name")
+        val applyBody = functionBody(source, "override fun apply(")
+        val previewCallIdx = applyBody.indexOf("preview()")
+        val statePersistIdx = applyBody.indexOf("state.selectedPreset = pendingPreset.name")
+        val previewBody = functionBody(source, "private fun preview(")
         assertTrue(
-            serviceCallIdx >= 0,
-            "panel source must contain a SyntaxIntensityService.getInstance().apply(...) call",
+            previewBody.contains("SyntaxIntensityService.getInstance().apply("),
+            "preview() must contain the SyntaxIntensityService.getInstance().apply(...) call",
         )
         assertTrue(
             statePersistIdx >= 0,
             "panel source must contain 'state.selectedPreset = pendingPreset.name' persistence",
         )
         assertTrue(
-            serviceCallIdx < statePersistIdx,
-            "Pattern L apply-FIRST: service.apply(...) must appear textually BEFORE " +
+            previewCallIdx in 0 until statePersistIdx,
+            "Pattern L apply-FIRST: preview/service apply must appear textually BEFORE " +
                 "state.selectedPreset = pendingPreset.name (Anti-Pattern #4 ordering).",
         )
     }
@@ -406,13 +424,15 @@ class AyuIslandsSyntaxPanelTest {
         val javaKeywordKey = TextAttributesKey.createTextAttributesKey("JAVA_KEYWORD")
         val result =
             SyntaxIntensityApplicator.compute(
-                preset = SyntaxPreset.CUSTOM,
-                customOverrides = nested,
-                variantName = "Mirage",
-                editorBg = Color(0x1F, 0x24, 0x30),
-                baseline = mapOf(javaKeywordKey to attrsWithFg(baselineFg)),
-                overlay = emptyMap(),
-                subordinatePreset = SyntaxPreset.AMBIENT,
+                SyntaxIntensityApplicator.Request(
+                    preset = SyntaxPreset.CUSTOM,
+                    variantName = "Mirage",
+                    editorBg = Color(0x1F, 0x24, 0x30),
+                    baseline = mapOf(javaKeywordKey to attrsWithFg(baselineFg)),
+                    overlay = emptyMap(),
+                    customOverrides = nested,
+                    subordinatePreset = SyntaxPreset.AMBIENT,
+                ),
             )
         assertNotNull(result[javaKeywordKey], "the composite key must resolve to a transformed entry")
         assertNotEquals(
@@ -799,6 +819,33 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     @Test
+    fun `slider preview applies pending overrides without persisting Settings state`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        stateBase.selectedPreset = "CUSTOM"
+        val panel = panelWithLoadedState()
+        writeCurrentLanguage(panel, "Java")
+        seedWidgets(panel, PrimitiveCategory.KEYWORD)
+
+        try {
+            invokeOnSliderChanged(panel, "Java", PrimitiveCategory.KEYWORD, 80)
+            invokePreview(panel)
+
+            verify(exactly = 1) {
+                intensityService.apply(
+                    SyntaxPreset.CUSTOM,
+                    mapOf("Java" to mapOf("KEYWORD" to 80)),
+                    any(),
+                    emptyMap(),
+                )
+            }
+            assertTrue(stateBase.customOverrides.isEmpty(), "preview must not persist pending slider overrides")
+            assertTrue(panel.isModified(), "preview must leave the Settings Apply button dirty")
+        } finally {
+            panel.dispose()
+        }
+    }
+
+    @Test
     fun `onSliderChanged back to identity removes the sparse override`() {
         every { LicenseChecker.isLicensedOrGrace() } returns true
         stateBase.selectedPreset = "CUSTOM"
@@ -1132,19 +1179,20 @@ class AyuIslandsSyntaxPanelTest {
     fun `apply threads built styles into the service and persists state customStyles (Part B source lock)`() {
         val source = readPanelSource()
         val body = functionBody(source, "override fun apply(")
+        val previewBody = functionBody(source, "private fun preview(")
         assertTrue(
-            body.contains("buildNested(pendingStyles)"),
-            "Part B: apply must build nested styles from pendingStyles.",
+            previewBody.contains("buildNested(pendingStyles)"),
+            "Part B: preview/apply must build nested styles from pendingStyles.",
         )
         assertTrue(
             body.contains("state.customStyles.clear()") && body.contains("state.customStyles.putAll(pendingStyles)"),
             "Part B: apply must persist pendingStyles into state.customStyles (clear + putAll).",
         )
-        val applyIdx = source.indexOf("SyntaxIntensityService.getInstance().apply(")
-        val persistIdx = source.indexOf("state.customStyles.clear()")
+        val applyIdx = body.indexOf("preview()")
+        val persistIdx = body.indexOf("state.customStyles.clear()")
         assertTrue(
             applyIdx in 0 until persistIdx,
-            "Part B apply-FIRST: the service call must precede the customStyles persist.",
+            "Part B apply-FIRST: preview/service apply must precede the customStyles persist.",
         )
     }
 
@@ -1156,6 +1204,10 @@ class AyuIslandsSyntaxPanelTest {
         assertTrue(source.contains("isRepeats = false"), "D-19: the debounce timer must be single-shot.")
         assertTrue(source.contains("applyTimer.restart()"), "D-19: the drag burst must restart the timer.")
         assertTrue(source.contains("DEBOUNCE_MS = 100"), "D-19: the debounce window must be exactly 100ms.")
+        assertTrue(
+            source.contains("applyTimer.addActionListener { preview() }"),
+            "D-19: the debounce timer must preview without persisting Settings state.",
+        )
 
         val body = functionBody(source, "private fun onSliderChanged(")
         assertTrue(
@@ -1357,6 +1409,12 @@ class AyuIslandsSyntaxPanelTest {
             )
         method.isAccessible = true
         method.invoke(panel, language, category, value)
+    }
+
+    private fun invokePreview(panel: AyuIslandsSyntaxPanel) {
+        val method = AyuIslandsSyntaxPanel::class.java.getDeclaredMethod("preview")
+        method.isAccessible = true
+        method.invoke(panel)
     }
 
     private fun invokeSetSliderValue(

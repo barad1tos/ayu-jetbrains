@@ -37,7 +37,13 @@ class StyleGlyphIcon(
         x: Int,
         y: Int,
     ) {
-        val canvas = graphics.create() as? Graphics2D ?: return
+        val createdGraphics = graphics.create()
+        val canvas =
+            createdGraphics as? Graphics2D
+                ?: run {
+                    createdGraphics.dispose()
+                    return
+                }
         try {
             canvas.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             canvas.setRenderingHint(

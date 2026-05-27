@@ -9,7 +9,6 @@ import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.RightGap
 import com.intellij.ui.dsl.builder.SegmentedButton
-import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import dev.ayuislands.accent.AyuVariant
@@ -20,10 +19,14 @@ import dev.ayuislands.syntax.SyntaxIntensityService
 import dev.ayuislands.syntax.SyntaxIntensityState
 import dev.ayuislands.syntax.SyntaxLanguageRegistry
 import dev.ayuislands.syntax.SyntaxPreset
+import java.awt.Component
+import java.awt.Container
 import java.awt.Dimension
 import java.awt.Font
 import java.awt.GridLayout
+import javax.swing.AbstractButton
 import javax.swing.JButton
+import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JSlider
@@ -100,14 +103,14 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
     // two independent UI DSL grids.
     private val labelColumnWidth: Int by lazy { computeLabelColumnWidth() }
 
-    // Single-shot debounce: a drag burst restarts the timer, so the apply
+    // Single-shot debounce: a drag burst restarts the timer, so the preview
     // fires once per 100ms pause rather than on every change event. The
-    // change listener never calls apply() synchronously — it defers here.
+    // change listener never persists synchronously — it defers here.
     private val applyTimer =
         Timer(DEBOUNCE_MS, null).apply { isRepeats = false }
 
     init {
-        applyTimer.addActionListener { apply() }
+        applyTimer.addActionListener { preview() }
     }
 
     override fun dispose() {
@@ -119,6 +122,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         variant: AyuVariant,
     ) {
         loadStateIntoPending()
+        customSelected.set(pendingPreset == SyntaxPreset.CUSTOM)
         with(panel) {
             row("Preset:") {
                 val segmented =
@@ -215,7 +219,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
                     minimumSize = Dimension(width, preferredSize.height)
                 },
             ).gap(RightGap.SMALL)
-            val jslider =
+            val intensitySlider =
                 slider(SLIDER_MIN, SLIDER_MAX, 0, 0)
                     .applyToComponent {
                         paintTicks = false
@@ -232,7 +236,9 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
                     preferredSize = Dimension(width, preferredSize.height)
                 }
             applyReadout(valueLabel, SLIDER_MID)
-            jslider.addChangeListener { onSliderChanged(currentLanguage, category, jslider.value) }
+            intensitySlider.addChangeListener {
+                onSliderChanged(currentLanguage, category, intensitySlider.value)
+            }
             cell(valueLabel).gap(RightGap.SMALL)
             val resetButton =
                 InplaceButton("Reset ${category.displayName} to default", AllIcons.Actions.Rollback) {
@@ -271,7 +277,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
                     add(italicToggle)
                 }
             cell(trailingZone)
-            sliders[category] = jslider
+            sliders[category] = intensitySlider
             sliderLabels[category] = valueLabel
             refreshStyleVisuals(category)
         }
@@ -300,11 +306,11 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         val key = compositeKey(currentLanguage, category)
         val fontType = FontStyleOverride.fromName(pendingStyles[key])?.fontType ?: Font.PLAIN
         boldToggles[category]?.let { button ->
-            button.setIcon(styleGlyphIcon("B", Font.BOLD, fontType and Font.BOLD != 0))
+            button.icon = styleGlyphIcon("B", Font.BOLD, fontType and Font.BOLD != 0)
             button.repaint()
         }
         italicToggles[category]?.let { button ->
-            button.setIcon(styleGlyphIcon("I", Font.ITALIC, fontType and Font.ITALIC != 0))
+            button.icon = styleGlyphIcon("I", Font.ITALIC, fontType and Font.ITALIC != 0)
             button.repaint()
         }
     }
@@ -455,9 +461,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         // in [onPresetChosen] for unlicensed users, so a Custom value only
         // reaches this method when licensed. The slider overrides and the
         // font-style overrides thread through the service call in parallel.
-        val nested = buildNested(pendingOverrides) { it.toIntOrNull() }
-        val nestedStyles = buildNested(pendingStyles) { FontStyleOverride.fromName(it)?.fontType }
-        SyntaxIntensityService.getInstance().apply(pendingPreset, nested, pendingSubordinate, nestedStyles)
+        preview()
         val state = SyntaxIntensityState.getInstance().state
         state.selectedPreset = pendingPreset.name
         state.subordinatePreset = pendingSubordinate.name
@@ -488,18 +492,24 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
 
     private fun loadStateIntoPending() {
         val state = SyntaxIntensityState.getInstance().state
-        storedPreset = SyntaxPreset.fromName(state.selectedPreset)
+        val loadedPreset = SyntaxPreset.fromName(state.selectedPreset)
+        val canUseCustom = loadedPreset != SyntaxPreset.CUSTOM || LicenseChecker.isLicensedOrGrace()
+        storedPreset = if (canUseCustom) loadedPreset else SyntaxPreset.AMBIENT
         pendingPreset = storedPreset
         storedSubordinate = SyntaxPreset.fromName(state.subordinatePreset)
         pendingSubordinate = storedSubordinate
         storedOverrides.clear()
-        storedOverrides.putAll(state.customOverrides)
+        if (canUseCustom) {
+            storedOverrides.putAll(state.customOverrides)
+        }
         pendingOverrides.clear()
-        pendingOverrides.putAll(state.customOverrides)
+        pendingOverrides.putAll(storedOverrides)
         storedStyles.clear()
-        storedStyles.putAll(state.customStyles)
+        if (canUseCustom) {
+            storedStyles.putAll(state.customStyles)
+        }
         pendingStyles.clear()
-        pendingStyles.putAll(state.customStyles)
+        pendingStyles.putAll(storedStyles)
     }
 
     private fun rebindSlidersFor(language: String) {
@@ -598,6 +608,12 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         return nested
     }
 
+    private fun preview() {
+        val nested = buildNested(pendingOverrides) { it.toIntOrNull() }
+        val nestedStyles = buildNested(pendingStyles) { FontStyleOverride.fromName(it)?.fontType }
+        SyntaxIntensityService.getInstance().apply(pendingPreset, nested, pendingSubordinate, nestedStyles)
+    }
+
     /**
      * Walk the [presetSegmented]'s rendered Swing subtree and set a
      * "Pro Feature" tooltip on the button corresponding to
@@ -616,14 +632,32 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
     private fun applyCustomPillTooltipIfFree() {
         if (LicenseChecker.isLicensedOrGrace()) return
         try {
-            // The concrete Swing-subtree traversal is verified during the
-            // runIde smoke checkpoint on the follow-up plan. Until then the
-            // click-then-revert path in [onPresetChosen] is the active
-            // gate; the tooltip pre-placement layers on top once the
-            // widget lookup is finalised.
+            val root = renderedSegmentedComponent() ?: return
+            findCustomPresetButton(root)?.toolTipText = CUSTOM_PILL_TOOLTIP
         } catch (runtime: RuntimeException) {
             LOG.warn("AyuIslandsSyntaxPanel: tooltip pre-placement on Custom pill failed", runtime)
         }
+    }
+
+    private fun renderedSegmentedComponent(): Component? {
+        val segmented = presetSegmented ?: return null
+        val getComponent =
+            segmented.javaClass.methods.firstOrNull { method ->
+                method.name == "getComponent" && method.parameterCount == 0
+            } ?: return null
+        return getComponent.invoke(segmented) as? Component
+    }
+
+    private fun findCustomPresetButton(component: Component): JComponent? {
+        if (component is AbstractButton && component.text == SyntaxPreset.CUSTOM.displayName) {
+            return component
+        }
+        val container = component as? Container ?: return null
+        for (child in container.components) {
+            val match = findCustomPresetButton(child)
+            if (match != null) return match
+        }
+        return null
     }
 
     /**
@@ -653,6 +687,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         private const val TRAILING_GAP = 2
         private const val LABEL_PADDING = 8
         private const val LABEL_FALLBACK_WIDTH = 170
+        private const val CUSTOM_PILL_TOOLTIP = "Pro Feature"
 
         /**
          * The 16 [PrimitiveCategory] entries grouped by syntactic role and

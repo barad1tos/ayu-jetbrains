@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  *    wrapped in `ReadAction.run`.
  *  - Pattern A latches: a missing named scheme logs WARN once per (scheme,
  *    session); an unknown overlay variant tag arriving via
- *    [resolveOverlayVariant] (a future Ayu variant outside the whitelist)
+ *    [resolveActiveAyuOverlayVariant] (a future Ayu variant outside the whitelist)
  *    logs WARN once per (variantTag, session) and skips the R-1 fallback.
  *  - Pattern B per-key write isolation: [writeSchemeAttributes] catches
  *    `RuntimeException` only (broader catches are forbidden); the failing
@@ -72,6 +72,7 @@ class SyntaxIntensityService {
     private val log = logger<SyntaxIntensityService>()
     private val missingSchemeLogged = ConcurrentHashMap.newKeySet<String>()
     private val unknownVariantLogged = ConcurrentHashMap.newKeySet<String>()
+    private val skippedForeignActiveSchemeLogged = ConcurrentHashMap.newKeySet<String>()
     private val unlicensedCustomLogged = AtomicBoolean(false)
 
     fun apply(
@@ -97,14 +98,16 @@ class SyntaxIntensityService {
             val overlay = loader.loadOverlayForVariant(overlayVariant)
             val computed =
                 SyntaxIntensityApplicator.compute(
-                    effectivePreset,
-                    customOverrides,
-                    overlayVariant,
-                    editorBg,
-                    baseline,
-                    overlay,
-                    subordinatePreset,
-                    customStyles,
+                    SyntaxIntensityApplicator.Request(
+                        preset = effectivePreset,
+                        variantName = overlayVariant,
+                        editorBg = editorBg,
+                        baseline = baseline,
+                        overlay = overlay,
+                        customOverrides = customOverrides,
+                        subordinatePreset = subordinatePreset,
+                        customStyles = customStyles,
+                    ),
                 )
             writeSchemeAttributes(scheme, computed, schemeName)
             touched.add(scheme)
@@ -191,9 +194,11 @@ class SyntaxIntensityService {
      * `Darcula` rather than our registered Ayu variant. That derived scheme
      * sits in the rendering chain instead of the named one we wrote to by
      * name. After the by-name loop, also write the same computed payload to
-     * the active `globalScheme` whenever it is NOT one of the three named
-     * instances we already touched (identity dedup — no double-write on
-     * a clean install).
+     * the active `globalScheme` when it is still an Ayu Islands named or
+     * user-derived scheme and is NOT one of the three named instances we
+     * already touched (identity dedup — no double-write on a clean install).
+     * Foreign active schemes are skipped so syntax-intensity reapply never
+     * mutates non-Ayu color schemes.
      *
      * The active scheme is read from the [EditorColorsManager] singleton; the
      * `touched` set was built from the same singleton in the caller, so the
@@ -210,38 +215,52 @@ class SyntaxIntensityService {
         val active = EditorColorsManager.getInstance().globalScheme
         if (active in touched) return
         val loader = SyntaxOverlayLoader.getInstance()
-        val variant = resolveOverlayVariant(active.name)
+        val variant =
+            resolveActiveAyuOverlayVariant(active.name)
+                ?: run {
+                    if (skippedForeignActiveSchemeLogged.add(active.name)) {
+                        log.warn(
+                            "Active editor scheme '${active.name}' is not an Ayu Islands scheme — " +
+                                "skipping syntax intensity write",
+                        )
+                    }
+                    return
+                }
         val editorBg = resolveEditorBg(active, variant)
         val baseline = loader.loadBaselineForVariant(variant)
         val overlay = loader.loadOverlayForVariant(variant)
         val computed =
             SyntaxIntensityApplicator.compute(
-                preset,
-                customOverrides,
-                variant,
-                editorBg,
-                baseline,
-                overlay,
-                subordinatePreset,
-                customStyles,
+                SyntaxIntensityApplicator.Request(
+                    preset = preset,
+                    variantName = variant,
+                    editorBg = editorBg,
+                    baseline = baseline,
+                    overlay = overlay,
+                    customOverrides = customOverrides,
+                    subordinatePreset = subordinatePreset,
+                    customStyles = customStyles,
+                ),
             )
         writeSchemeAttributes(active, computed, active.name)
     }
 
     /**
-     * Map an active scheme name to a known overlay variant tag. Falls back
-     * to "Mirage" when the name does not contain a known variant token —
-     * matches the long-standing Phase 49 behaviour so the downstream
-     * applicator never sees a brand-new variant tag from an unfamiliar
-     * active scheme name.
+     * Map a named or `_@user_`-derived Ayu active scheme name to its overlay
+     * variant tag. Returns null for foreign schemes, including names that only
+     * happen to contain variant words such as "Light".
      */
-    private fun resolveOverlayVariant(activeSchemeName: String): String {
-        for ((_, overlayVariant) in AYU_SCHEMES) {
-            if (activeSchemeName.contains(overlayVariant, ignoreCase = true)) {
+    private fun resolveActiveAyuOverlayVariant(activeSchemeName: String): String? {
+        val normalized = activeSchemeName.removePrefix("_@user_")
+        for ((schemeName, overlayVariant) in AYU_SCHEMES) {
+            if (normalized.equals(schemeName, ignoreCase = true) ||
+                normalized.startsWith("$schemeName ", ignoreCase = true) ||
+                normalized.startsWith("$schemeName (", ignoreCase = true)
+            ) {
                 return overlayVariant
             }
         }
-        return "Mirage"
+        return null
     }
 
     private fun writeSchemeAttributes(

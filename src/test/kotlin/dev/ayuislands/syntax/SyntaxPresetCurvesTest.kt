@@ -378,7 +378,7 @@ class SyntaxPresetCurvesTest {
                 "PHP",
                 "Scala",
                 "Swift",
-                "C#",
+                "C# (ReSharper)",
             )
 
         // Sampling set for the range-invariant sweep — keep it bounded so the

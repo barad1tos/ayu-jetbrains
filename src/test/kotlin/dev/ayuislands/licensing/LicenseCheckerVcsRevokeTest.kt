@@ -12,6 +12,9 @@ import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.syntax.SyntaxIntensityService
+import dev.ayuislands.syntax.SyntaxIntensityState
+import dev.ayuislands.syntax.SyntaxPreset
 import dev.ayuislands.vcs.VcsColorApplier
 import dev.ayuislands.vcs.VcsColorPreset
 import io.mockk.every
@@ -48,6 +51,8 @@ import kotlin.test.assertTrue
 class LicenseCheckerVcsRevokeTest {
     private lateinit var state: AyuIslandsState
     private lateinit var settings: AyuIslandsSettings
+    private lateinit var syntaxState: SyntaxIntensityState
+    private lateinit var syntaxService: SyntaxIntensityService
 
     @BeforeTest
     fun setUp() {
@@ -68,6 +73,14 @@ class LicenseCheckerVcsRevokeTest {
 
         mockkObject(VcsColorApplier)
         every { VcsColorApplier.revertAll() } just runs
+
+        syntaxState = SyntaxIntensityState()
+        mockkObject(SyntaxIntensityState.Companion)
+        every { SyntaxIntensityState.getInstance() } returns syntaxState
+
+        syntaxService = mockk(relaxed = true)
+        mockkObject(SyntaxIntensityService.Companion)
+        every { SyntaxIntensityService.getInstance() } returns syntaxService
 
         mockkStatic(ApplicationManager::class)
         val app = mockk<Application>()
@@ -181,6 +194,24 @@ class LicenseCheckerVcsRevokeTest {
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
 
         verify(exactly = 1) { VcsColorApplier.revertAll() }
+    }
+
+    @Test
+    fun `revertToFreeDefaults resets syntax intensity state and reapplies Ambient`() {
+        syntaxState.state.selectedPreset = SyntaxPreset.CUSTOM.name
+        syntaxState.state.subordinatePreset = SyntaxPreset.NEON.name
+        syntaxState.state.customOverrides["Java|KEYWORD"] = "85"
+        syntaxState.state.customStyles["Java|KEYWORD"] = "BOLD"
+
+        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
+
+        assertEquals(SyntaxPreset.AMBIENT.name, syntaxState.state.selectedPreset)
+        assertEquals(SyntaxPreset.AMBIENT.name, syntaxState.state.subordinatePreset)
+        assertTrue(syntaxState.state.customOverrides.isEmpty(), "syntax custom overrides must be cleared")
+        assertTrue(syntaxState.state.customStyles.isEmpty(), "syntax custom styles must be cleared")
+        verify(exactly = 1) {
+            syntaxService.apply(SyntaxPreset.AMBIENT, emptyMap())
+        }
     }
 
     // ---------- Defensive: applier exception does not block state reset ----------

@@ -135,6 +135,18 @@ class SyntaxIntensityMigrationNotifierTest {
         SyntaxIntensityMigrationNotifier.maybeFire(project = null)
     }
 
+    @Test
+    fun `notify failure leaves one-shot flag unset for retry`() {
+        every { props.getBoolean("ayu.syntax.intensity.notified", false) } returns false
+        every {
+            Notifications.Bus.notify(any<Notification>(), null)
+        } throws RuntimeException("simulated bus failure")
+
+        SyntaxIntensityMigrationNotifier.maybeFire(project = null)
+
+        verify(exactly = 0) { props.setValue("ayu.syntax.intensity.notified", true) }
+    }
+
     // ---------- Pattern L source-regex regression locks ----------
 
     @Test

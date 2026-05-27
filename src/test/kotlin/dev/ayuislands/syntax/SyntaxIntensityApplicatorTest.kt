@@ -67,11 +67,9 @@ class SyntaxIntensityApplicatorTest {
                 javaCommentKey to attrsWithFg(baselineFg),
             )
         val result =
-            SyntaxIntensityApplicator.compute(
+            compute(
                 preset = SyntaxPreset.AMBIENT,
                 customOverrides = emptyMap(),
-                variantName = "Mirage",
-                editorBg = mirageBg,
                 baseline = baseline,
                 overlay = emptyMap(),
             )
@@ -102,11 +100,9 @@ class SyntaxIntensityApplicatorTest {
         val expected = HslColor.toColor(baselineHsl.hue, expectedSat, expectedLight)
 
         val result =
-            SyntaxIntensityApplicator.compute(
+            compute(
                 preset = SyntaxPreset.WHISPER,
                 customOverrides = emptyMap(),
-                variantName = "Mirage",
-                editorBg = mirageBg,
                 baseline = baseline,
                 overlay = emptyMap(),
             )
@@ -115,7 +111,7 @@ class SyntaxIntensityApplicatorTest {
                 result[javaKeywordKey]?.foregroundColor,
                 "Whisper must emit a foreground for JAVA_KEYWORD",
             )
-        assertChannelDiff(expected, output, CHANNEL_TOLERANCE)
+        assertChannelDiff(expected, output)
     }
 
     // --- Test 3 — Saturation lower clamp ---------------------------------
@@ -130,11 +126,9 @@ class SyntaxIntensityApplicatorTest {
         assertTrue(baselineHsl.saturation < 0.15f, "test fixture must start below the Whisper LOCAL_VAR sat delta")
 
         val result =
-            SyntaxIntensityApplicator.compute(
+            compute(
                 preset = SyntaxPreset.WHISPER,
                 customOverrides = emptyMap(),
-                variantName = "Mirage",
-                editorBg = mirageBg,
                 baseline = baseline,
                 overlay = emptyMap(),
             )
@@ -158,11 +152,9 @@ class SyntaxIntensityApplicatorTest {
         assertTrue(baselineHsl.lightness < MID_LIGHTNESS, "fixture must start on the low flank")
 
         val result =
-            SyntaxIntensityApplicator.compute(
+            compute(
                 preset = SyntaxPreset.WHISPER,
                 customOverrides = emptyMap(),
-                variantName = "Mirage",
-                editorBg = mirageBg,
                 baseline = baseline,
                 overlay = emptyMap(),
             )
@@ -190,11 +182,9 @@ class SyntaxIntensityApplicatorTest {
         assertTrue(baselineHsl.lightness > LIGHTNESS_UPPER - 0.08f, "fixture must start near the lightness ceiling")
 
         val result =
-            SyntaxIntensityApplicator.compute(
+            compute(
                 preset = SyntaxPreset.WHISPER,
                 customOverrides = emptyMap(),
-                variantName = "Mirage",
-                editorBg = mirageBg,
                 baseline = baseline,
                 overlay = emptyMap(),
             )
@@ -214,11 +204,9 @@ class SyntaxIntensityApplicatorTest {
             for ((key, _) in CATEGORY_KEYS) {
                 val baseline = mapOf(key to attrsWithFg(coloredFg))
                 val result =
-                    SyntaxIntensityApplicator.compute(
+                    compute(
                         preset = preset,
                         customOverrides = emptyMap(),
-                        variantName = "Mirage",
-                        editorBg = mirageBg,
                         baseline = baseline,
                         overlay = emptyMap(),
                     )
@@ -241,16 +229,14 @@ class SyntaxIntensityApplicatorTest {
     // --- Test 7 — Pattern B clone discipline ----------------------------
 
     @Test
-    fun `baseline TextAttributes are never mutated — output is a distinct instance`() {
+    fun `baseline TextAttributes are never mutated - output is a distinct instance`() {
         val baselineFg = Color(0xCC, 0xCA, 0xC2)
         val baselineAttrs = attrsWithFg(baselineFg)
         val baseline = mapOf(javaKeywordKey to baselineAttrs)
 
-        SyntaxIntensityApplicator.compute(
+        compute(
             preset = SyntaxPreset.WHISPER,
             customOverrides = emptyMap(),
-            variantName = "Mirage",
-            editorBg = mirageBg,
             baseline = baseline,
             overlay = emptyMap(),
         )
@@ -263,11 +249,9 @@ class SyntaxIntensityApplicatorTest {
 
         // The result-side instance must be a clone, not the baseline reference.
         val result =
-            SyntaxIntensityApplicator.compute(
+            compute(
                 preset = SyntaxPreset.WHISPER,
                 customOverrides = emptyMap(),
-                variantName = "Mirage",
-                editorBg = mirageBg,
                 baseline = baseline,
                 overlay = emptyMap(),
             )
@@ -286,11 +270,9 @@ class SyntaxIntensityApplicatorTest {
                 kotlinKeywordKey to attrsWithFg(baselineFg),
             )
         val result =
-            SyntaxIntensityApplicator.compute(
+            compute(
                 preset = SyntaxPreset.WHISPER,
                 customOverrides = emptyMap(),
-                variantName = "Mirage",
-                editorBg = mirageBg,
                 baseline = baseline,
                 overlay = emptyMap(),
             )
@@ -309,20 +291,16 @@ class SyntaxIntensityApplicatorTest {
         val overlay = mapOf(javaKeywordKey to attrsWithFg(overlayFg))
 
         val baselineResultMap =
-            SyntaxIntensityApplicator.compute(
+            compute(
                 preset = SyntaxPreset.WHISPER,
                 customOverrides = emptyMap(),
-                variantName = "Mirage",
-                editorBg = mirageBg,
                 baseline = baseline,
                 overlay = emptyMap(),
             )
         val overlayResultMap =
-            SyntaxIntensityApplicator.compute(
+            compute(
                 preset = SyntaxPreset.WHISPER,
                 customOverrides = emptyMap(),
-                variantName = "Mirage",
-                editorBg = mirageBg,
                 baseline = baseline,
                 overlay = overlay,
             )
@@ -353,11 +331,9 @@ class SyntaxIntensityApplicatorTest {
                 javaKeywordKey to attrsWithFg(Color(0xCC, 0xCA, 0xC2)),
             )
         val result =
-            SyntaxIntensityApplicator.compute(
+            compute(
                 preset = SyntaxPreset.WHISPER,
                 customOverrides = emptyMap(),
-                variantName = "Mirage",
-                editorBg = mirageBg,
                 baseline = baseline,
                 overlay = emptyMap(),
             )
@@ -376,11 +352,9 @@ class SyntaxIntensityApplicatorTest {
         val baselineFg = Color(0xCC, 0xCA, 0xC2)
         val baseline = mapOf(javaKeywordKey to attrsWithFg(baselineFg))
         val result =
-            SyntaxIntensityApplicator.compute(
+            compute(
                 preset = SyntaxPreset.WHISPER,
                 customOverrides = emptyMap(),
-                variantName = "Mirage",
-                editorBg = Color.WHITE,
                 baseline = baseline,
                 overlay = emptyMap(),
             )
@@ -409,11 +383,9 @@ class SyntaxIntensityApplicatorTest {
                 javaFunctionDeclKey to attrsWithFg(coloredBaseline),
             )
         val result =
-            SyntaxIntensityApplicator.compute(
+            compute(
                 preset = SyntaxPreset.NEON,
                 customOverrides = emptyMap(),
-                variantName = "Mirage",
-                editorBg = mirageBg,
                 baseline = baseline,
                 overlay = emptyMap(),
             )
@@ -447,14 +419,12 @@ class SyntaxIntensityApplicatorTest {
         // argument; it does NOT exist on compute() until Plan 02 lands, forcing
         // the RED state.
         val populatedResult =
-            SyntaxIntensityApplicator.compute(
+            compute(
                 preset = SyntaxPreset.CUSTOM,
                 customOverrides = mapOf("Java" to mapOf("KEYWORD" to 75)),
-                variantName = "Mirage",
-                editorBg = mirageBg,
                 baseline = baseline,
                 overlay = emptyMap(),
-                subordinatePreset = SyntaxPreset.AMBIENT,
+                options = ComputeOptions(subordinatePreset = SyntaxPreset.AMBIENT),
             )
         assertNotNull(populatedResult[javaKeywordKey], "CUSTOM with overrides must emit output")
         assertNotEquals(
@@ -469,14 +439,12 @@ class SyntaxIntensityApplicatorTest {
         // contract under test is that empty-overrides routes through the
         // subordinate curve and still emits output without throwing.
         val fallbackResult =
-            SyntaxIntensityApplicator.compute(
+            compute(
                 preset = SyntaxPreset.CUSTOM,
                 customOverrides = emptyMap(),
-                variantName = "Mirage",
-                editorBg = mirageBg,
                 baseline = baseline,
                 overlay = emptyMap(),
-                subordinatePreset = SyntaxPreset.AMBIENT,
+                options = ComputeOptions(subordinatePreset = SyntaxPreset.AMBIENT),
             )
         assertNotNull(
             fallbackResult[javaKeywordKey],
@@ -496,20 +464,16 @@ class SyntaxIntensityApplicatorTest {
                 kotlinKeywordKey to attrsWithFg(baselineFg),
             )
         val first =
-            SyntaxIntensityApplicator.compute(
+            compute(
                 preset = SyntaxPreset.NEON,
                 customOverrides = emptyMap(),
-                variantName = "Mirage",
-                editorBg = mirageBg,
                 baseline = baseline,
                 overlay = emptyMap(),
             )
         val second =
-            SyntaxIntensityApplicator.compute(
+            compute(
                 preset = SyntaxPreset.NEON,
                 customOverrides = emptyMap(),
-                variantName = "Mirage",
-                editorBg = mirageBg,
                 baseline = baseline,
                 overlay = emptyMap(),
             )
@@ -532,15 +496,16 @@ class SyntaxIntensityApplicatorTest {
         val baselineFg = Color(0xE6, 0xB6, 0x73)
         val baseline = mapOf(javaKeywordKey to attrsWithFg(baselineFg))
         val result =
-            SyntaxIntensityApplicator.compute(
+            compute(
                 preset = SyntaxPreset.CUSTOM,
                 customOverrides = emptyMap(),
-                variantName = "Mirage",
-                editorBg = mirageBg,
                 baseline = baseline,
                 overlay = emptyMap(),
-                subordinatePreset = SyntaxPreset.AMBIENT,
-                customStyles = mapOf("Java" to mapOf("KEYWORD" to BOLD_ITALIC_MASK)),
+                options =
+                    ComputeOptions(
+                        subordinatePreset = SyntaxPreset.AMBIENT,
+                        customStyles = mapOf("Java" to mapOf("KEYWORD" to BOLD_ITALIC_MASK)),
+                    ),
             )
         val attrs = assertNotNull(result[javaKeywordKey], "CUSTOM must emit output for the styled key")
         assertEquals(
@@ -558,15 +523,12 @@ class SyntaxIntensityApplicatorTest {
         sourceAttrs.fontType = Font.ITALIC
         val baseline = mapOf(javaKeywordKey to sourceAttrs)
         val result =
-            SyntaxIntensityApplicator.compute(
+            compute(
                 preset = SyntaxPreset.CUSTOM,
                 customOverrides = emptyMap(),
-                variantName = "Mirage",
-                editorBg = mirageBg,
                 baseline = baseline,
                 overlay = emptyMap(),
-                subordinatePreset = SyntaxPreset.AMBIENT,
-                customStyles = emptyMap(),
+                options = ComputeOptions(subordinatePreset = SyntaxPreset.AMBIENT),
             )
         val attrs = assertNotNull(result[javaKeywordKey])
         assertEquals(Font.ITALIC, attrs.fontType, "absent style cell must inherit the source fontType")
@@ -578,21 +540,22 @@ class SyntaxIntensityApplicatorTest {
         // exists but the source style (PLAIN) survives untouched.
         val baseline = mapOf(javaKeywordKey to attrsWithFg(Color(0xE6, 0xB6, 0x73)))
         val result =
-            SyntaxIntensityApplicator.compute(
+            compute(
                 preset = SyntaxPreset.NEON,
                 customOverrides = emptyMap(),
-                variantName = "Mirage",
-                editorBg = mirageBg,
                 baseline = baseline,
                 overlay = emptyMap(),
-                customStyles = mapOf("Java" to mapOf("KEYWORD" to BOLD_ITALIC_MASK)),
+                options =
+                    ComputeOptions(
+                        customStyles = mapOf("Java" to mapOf("KEYWORD" to BOLD_ITALIC_MASK)),
+                    ),
             )
         val attrs = assertNotNull(result[javaKeywordKey])
         assertEquals(Font.PLAIN, attrs.fontType, "named preset must NOT apply customStyles — style stays PLAIN")
     }
 
     @Test
-    fun `style override is orthogonal — a styled cell with no slider still gets subordinate color and the style`() {
+    fun `style override is orthogonal - a styled cell with no slider still gets subordinate color and the style`() {
         // The cell has a style override but NO intensity slider. With CUSTOM +
         // subordinate AMBIENT, the foreground rides the subordinate (identity)
         // curve while the style is applied independently — proving fontType and
@@ -600,15 +563,16 @@ class SyntaxIntensityApplicatorTest {
         val baselineFg = Color(0xE6, 0xB6, 0x73)
         val baseline = mapOf(javaKeywordKey to attrsWithFg(baselineFg))
         val result =
-            SyntaxIntensityApplicator.compute(
+            compute(
                 preset = SyntaxPreset.CUSTOM,
                 customOverrides = emptyMap(), // slider absent for this cell
-                variantName = "Mirage",
-                editorBg = mirageBg,
                 baseline = baseline,
                 overlay = emptyMap(),
-                subordinatePreset = SyntaxPreset.AMBIENT,
-                customStyles = mapOf("Java" to mapOf("KEYWORD" to Font.BOLD)),
+                options =
+                    ComputeOptions(
+                        subordinatePreset = SyntaxPreset.AMBIENT,
+                        customStyles = mapOf("Java" to mapOf("KEYWORD" to Font.BOLD)),
+                    ),
             )
         val attrs = assertNotNull(result[javaKeywordKey])
         // Subordinate AMBIENT is identity — color equals the baseline.
@@ -626,14 +590,12 @@ class SyntaxIntensityApplicatorTest {
         sourceAttrs.fontType = Font.BOLD
         val baseline = mapOf(javaKeywordKey to sourceAttrs)
         val result =
-            SyntaxIntensityApplicator.compute(
+            compute(
                 preset = SyntaxPreset.CUSTOM,
                 customOverrides = mapOf("Java" to mapOf("KEYWORD" to 75)),
-                variantName = "Mirage",
-                editorBg = mirageBg,
                 baseline = baseline,
                 overlay = emptyMap(),
-                subordinatePreset = SyntaxPreset.AMBIENT,
+                options = ComputeOptions(subordinatePreset = SyntaxPreset.AMBIENT),
             )
         val attrs = assertNotNull(result[javaKeywordKey])
         assertEquals(Font.BOLD, attrs.fontType, "omitted customStyles must leave the source fontType intact")
@@ -744,6 +706,83 @@ class SyntaxIntensityApplicatorTest {
         }
     }
 
+    @Test
+    fun `overlay-only keys are transformed even when absent from baseline`() {
+        val hclBlockNameKey = TextAttributesKey.createTextAttributesKey("HCL.BLOCK_ONLY_NAME_KEY")
+        val overlayColor = Color(0x59, 0xC2, 0xFF)
+        val result =
+            compute(
+                preset = SyntaxPreset.AMBIENT,
+                customOverrides = emptyMap(),
+                baseline = emptyMap(),
+                overlay = mapOf(hclBlockNameKey to attrsWithFg(overlayColor)),
+            )
+
+        assertEquals(
+            overlayColor.rgb,
+            assertNotNull(result[hclBlockNameKey]?.foregroundColor).rgb,
+            "overlay-only semantic keys must not be dropped before transformation",
+        )
+    }
+
+    @Test
+    fun `cascade defaults materialize inherited per-language keys without own foreground`() {
+        val defaultCommentKey = TextAttributesKey.createTextAttributesKey("DEFAULT_LINE_COMMENT")
+        val kotlinCommentKey = TextAttributesKey.createTextAttributesKey("KOTLIN_LINE_COMMENT")
+        val commentColor = Color(0x5C, 0x67, 0x73)
+        val inheritedTarget = TextAttributes()
+        val result =
+            compute(
+                preset = SyntaxPreset.AMBIENT,
+                customOverrides = emptyMap(),
+                baseline =
+                    mapOf(
+                        defaultCommentKey to attrsWithFg(commentColor),
+                        kotlinCommentKey to inheritedTarget,
+                    ),
+                overlay = emptyMap(),
+            )
+
+        assertEquals(
+            commentColor.rgb,
+            assertNotNull(result[kotlinCommentKey]?.foregroundColor).rgb,
+            "KOTLIN_LINE_COMMENT must receive a materialized color from DEFAULT_LINE_COMMENT",
+        )
+        assertSame(
+            null,
+            inheritedTarget.foregroundColor,
+            "cascade materialization must not mutate the inherited target attributes",
+        )
+    }
+
+    @Test
+    fun `CSharp ReSharper keys use the Cyberpunk language override`() {
+        val csharpKeywordKey = TextAttributesKey.createTextAttributesKey("ReSharper.CSHARP_KEYWORD")
+        val keywordColor = Color(0xFF, 0xAD, 0x66)
+        val curve =
+            SyntaxPresetCurves.curveFor(
+                SyntaxPreset.CYBERPUNK,
+                "C# (ReSharper)",
+                PrimitiveCategory.KEYWORD,
+            )
+        val expected =
+            HslColor.toColor(
+                HslColor.fromColor(keywordColor).hue,
+                (HslColor.fromColor(keywordColor).saturation + curve.saturationDelta).coerceIn(0f, 1f),
+                expectedLightnessVia(HslColor.fromColor(keywordColor).lightness, curve),
+            )
+
+        val result =
+            compute(
+                preset = SyntaxPreset.CYBERPUNK,
+                customOverrides = emptyMap(),
+                baseline = mapOf(csharpKeywordKey to attrsWithFg(keywordColor)),
+                overlay = emptyMap(),
+            )
+
+        assertChannelDiff(expected, assertNotNull(result[csharpKeywordKey]?.foregroundColor))
+    }
+
     // --- Helpers ---------------------------------------------------------
 
     private fun transformVia(
@@ -752,11 +791,9 @@ class SyntaxIntensityApplicatorTest {
         fg: Color,
     ): Color {
         val result =
-            SyntaxIntensityApplicator.compute(
+            compute(
                 preset = preset,
                 customOverrides = emptyMap(),
-                variantName = "Mirage",
-                editorBg = mirageBg,
                 baseline = mapOf(key to attrsWithFg(fg)),
                 overlay = emptyMap(),
             )
@@ -764,6 +801,31 @@ class SyntaxIntensityApplicatorTest {
     }
 
     private fun Color.hex(): String = "%02X%02X%02X".format(red, green, blue)
+
+    private data class ComputeOptions(
+        val subordinatePreset: SyntaxPreset = SyntaxPreset.AMBIENT,
+        val customStyles: Map<String, Map<String, Int>> = emptyMap(),
+    )
+
+    private fun compute(
+        preset: SyntaxPreset,
+        customOverrides: Map<String, Map<String, Int>>,
+        baseline: Map<TextAttributesKey, TextAttributes>,
+        overlay: Map<TextAttributesKey, TextAttributes>,
+        options: ComputeOptions = ComputeOptions(),
+    ): Map<TextAttributesKey, TextAttributes> =
+        SyntaxIntensityApplicator.compute(
+            SyntaxIntensityApplicator.Request(
+                preset = preset,
+                variantName = "Mirage",
+                editorBg = mirageBg,
+                baseline = baseline,
+                overlay = overlay,
+                customOverrides = customOverrides,
+                subordinatePreset = options.subordinatePreset,
+                customStyles = options.customStyles,
+            ),
+        )
 
     private fun attrsWithFg(color: Color): TextAttributes {
         val attrs = TextAttributes()
@@ -794,14 +856,22 @@ class SyntaxIntensityApplicatorTest {
     private fun assertChannelDiff(
         expected: Color,
         actual: Color,
-        tolerance: Int,
     ) {
         val redDiff = abs(expected.red - actual.red)
         val greenDiff = abs(expected.green - actual.green)
         val blueDiff = abs(expected.blue - actual.blue)
-        assertTrue(redDiff <= tolerance, "red diff $redDiff > $tolerance (expected=$expected actual=$actual)")
-        assertTrue(greenDiff <= tolerance, "green diff $greenDiff > $tolerance (expected=$expected actual=$actual)")
-        assertTrue(blueDiff <= tolerance, "blue diff $blueDiff > $tolerance (expected=$expected actual=$actual)")
+        assertTrue(
+            redDiff <= CHANNEL_TOLERANCE,
+            "red diff $redDiff > $CHANNEL_TOLERANCE (expected=$expected actual=$actual)",
+        )
+        assertTrue(
+            greenDiff <= CHANNEL_TOLERANCE,
+            "green diff $greenDiff > $CHANNEL_TOLERANCE (expected=$expected actual=$actual)",
+        )
+        assertTrue(
+            blueDiff <= CHANNEL_TOLERANCE,
+            "blue diff $blueDiff > $CHANNEL_TOLERANCE (expected=$expected actual=$actual)",
+        )
     }
 
     companion object {
@@ -819,7 +889,7 @@ class SyntaxIntensityApplicatorTest {
         private const val CHANNEL_TOLERANCE = 2
 
         // FontStyleOverride.BOLD_ITALIC.fontType — the combined java.awt.Font bitmask (3).
-        private val BOLD_ITALIC_MASK = Font.BOLD or Font.ITALIC
+        private const val BOLD_ITALIC_MASK = 3
 
         // Map of TextAttributesKey -> expected (language, category) so the hue
         // invariant test exercises a variety of category buckets.

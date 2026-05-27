@@ -2,6 +2,7 @@ package dev.ayuislands.settings.mappings
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.WindowManager
@@ -34,6 +35,7 @@ import javax.swing.SwingUtilities
  * if it differs from the last applied value. Idempotent and safe to install
  * from every [com.intellij.openapi.startup.ProjectActivity] call.
  */
+@Service(Service.Level.APP)
 class ProjectAccentSwapService : Disposable {
     @Volatile
     private var lastAppliedHex: String? = null

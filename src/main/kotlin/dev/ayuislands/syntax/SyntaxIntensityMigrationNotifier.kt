@@ -44,7 +44,6 @@ object SyntaxIntensityMigrationNotifier {
     fun maybeFire(project: Project? = null) {
         val props = PropertiesComponent.getInstance()
         if (props.getBoolean(FLAG_KEY, false)) return
-        props.setValue(FLAG_KEY, true)
         try {
             val notification = Notification(GROUP_ID, TITLE, BODY, NotificationType.INFORMATION)
             notification.addAction(
@@ -53,6 +52,7 @@ object SyntaxIntensityMigrationNotifier {
                 },
             )
             Notifications.Bus.notify(notification, project)
+            props.setValue(FLAG_KEY, true)
         } catch (exception: RuntimeException) {
             log.warn("SyntaxIntensityMigrationNotifier.maybeFire failed to publish notification", exception)
         }

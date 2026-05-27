@@ -42,6 +42,11 @@ object SyntaxLanguageRegistry {
         val bucket: Bucket,
     )
 
+    data class CascadeTarget(
+        val language: LangTag,
+        val keyName: String,
+    )
+
     private const val UNKNOWN_PREFIX_LATCH_MAX_CHARS = 20
 
     private val log = logger<SyntaxLanguageRegistry>()
@@ -137,6 +142,17 @@ object SyntaxLanguageRegistry {
         languageTag: String,
         defaultCascadeKey: String,
     ): String? = cascadeTargetsMap[languageTag]?.get(defaultCascadeKey)
+
+    fun cascadeTargetsFor(defaultCascadeKey: String): List<CascadeTarget> =
+        cascadeTargetsMap.mapNotNull { (languageTag, targets) ->
+            val targetKey = targets[defaultCascadeKey] ?: return@mapNotNull null
+            val tag =
+                prefixRules
+                    .map { it.second }
+                    .firstOrNull { it.tag == languageTag }
+                    ?: return@mapNotNull null
+            CascadeTarget(tag, targetKey)
+        }
 
     fun cascadeKeysInScope(): Set<String> = cascadeKeysInScopeSet
 

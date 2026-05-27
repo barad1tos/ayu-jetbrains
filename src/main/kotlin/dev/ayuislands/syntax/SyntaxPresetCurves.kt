@@ -279,7 +279,7 @@ object SyntaxPresetCurves {
                         mapOf(
                             PrimitiveCategory.KEYWORD to CategoryCurve(0f, CP_LANG_KW_INTENT),
                         ),
-                    "C#" to
+                    "C# (ReSharper)" to
                         mapOf(
                             PrimitiveCategory.KEYWORD to CategoryCurve(0f, CP_LANG_KW_INTENT),
                         ),
