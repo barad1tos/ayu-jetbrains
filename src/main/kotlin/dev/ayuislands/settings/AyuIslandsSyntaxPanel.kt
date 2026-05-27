@@ -4,6 +4,7 @@ import com.intellij.icons.AllIcons
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.ui.InplaceButton
+import com.intellij.ui.JBColor
 import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.RightGap
@@ -20,8 +21,8 @@ import dev.ayuislands.syntax.SyntaxIntensityState
 import dev.ayuislands.syntax.SyntaxLanguageRegistry
 import dev.ayuislands.syntax.SyntaxPreset
 import java.awt.Dimension
-import java.awt.FlowLayout
 import java.awt.Font
+import java.awt.GridLayout
 import javax.swing.JButton
 import javax.swing.JLabel
 import javax.swing.JPanel
@@ -51,25 +52,18 @@ import javax.swing.Timer
  * paths are confined to the Custom branch. A source-regex regression lock in
  * `AyuIslandsSyntaxPanelTest` keeps this invariant honest.
  *
- * Custom drill-down layout (Direction B): the 16 [PrimitiveCategory] sliders
- * are arranged into four non-collapsible [CategoryGroup] sections by syntactic
- * role. Within each section the categories split round-robin into two
- * shared-grid column `panel { }` blocks. Every category row's leading label is
- * pinned to one shared [labelColumnWidth] (measured off the widest displayName,
- * not hardcoded), so the eight nested grids resolve column 1 identically and
- * every slider start — plus the fixed-width readout — lands on a single
- * vertical line across all four groups, left and right columns mirrored. Each
- * category row owns a tick-free slider with a signed-delta readout and a
- * fixed-width trailing zone holding three 20px controls: a reset
- * [InplaceButton], a Bold toggle, and an Italic toggle (left to right). The
- * master reset is scoped to the active language. The slider value model
- * (0..100, 50 = identity, sparse store keyed by `language|category.name`) is
- * unchanged — the signed string lives only in the readout [JLabel] and is never
- * parsed back. The font-style model is an orthogonal sparse store keyed by the
- * SAME composite key, mapping to a [FontStyleOverride] enum `name`; both stores
- * thread through [apply] in parallel.
+ * Custom drill-down layout: the 16 [PrimitiveCategory] controls are arranged
+ * as four semantic groups in two column-level grids. Each row keeps the same
+ * fixed cells — category, tick-free slider, signed readout, and a fixed
+ * reset / Bold / Italic slot zone — so controls line up without a long empty
+ * single table. The slider value model (0..100, 50 = identity, sparse store
+ * keyed by `language|category.name`) is unchanged — the signed string lives only in the
+ * readout [JLabel] and is never parsed back. The font-style model is an
+ * orthogonal sparse store keyed by the same composite key, mapping to a
+ * [FontStyleOverride] enum `name`; both stores thread through [apply] in
+ * parallel.
  */
-@Suppress("UnstableApiUsage")
+@Suppress("TooManyFunctions", "UnstableApiUsage") // Settings panel with focused UI lifecycle helpers.
 class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
     private var pendingPreset: SyntaxPreset = SyntaxPreset.AMBIENT
     private var storedPreset: SyntaxPreset = SyntaxPreset.AMBIENT
@@ -101,18 +95,9 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
     private var masterResetButton: JButton? = null
     private var currentLanguage: String = ""
 
-    // One uniform leading-label width shared by EVERY category row in EVERY
-    // group/column. Each `group(title)` builds its own nested-panel grids, so
-    // `widthGroup()` (grid-scoped) cannot align labels across the eight grids;
-    // a fixed preferred/minimum width on every leading label forces all grids
-    // to resolve column 1 to the same width, so the sliders (and therefore the
-    // fixed-width readouts) start on a single vertical line in both columns of
-    // all four groups. Measured once off the widest [PrimitiveCategory]
-    // displayName via [UIUtil.getLabelFont] — the labels are localizable, so
-    // the width is computed, never hardcoded. Computed lazily because the
-    // panel is constructed off the EDT in tests; the value is independent of
-    // any not-yet-realized component's font (a component's own `getFont()`
-    // returns null before it joins the hierarchy).
+    // One uniform leading-label width shared by every row in both column-level
+    // grids. Pinning the label width keeps slider starts aligned across the
+    // two independent UI DSL grids.
     private val labelColumnWidth: Int by lazy { computeLabelColumnWidth() }
 
     // Single-shot debounce: a drag burst restarts the timer, so the apply
@@ -153,8 +138,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
             // prompted to upgrade.
             row {
                 comment(
-                    "Custom unlocks per-language fine tuning with Ayu Islands Pro. " +
-                        "Pick one of the 4 presets to apply instantly.",
+                    "Custom provides per-language fine tuning. Pick one of the 4 presets to apply instantly.",
                 )
             }
 
@@ -175,16 +159,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         SwingUtilities.invokeLater { applyCustomPillTooltipIfFree() }
     }
 
-    /**
-     * Premium Custom drill-down. Renders only when the Custom pill is the
-     * active selection (driven by [customSelected]): a language selector +
-     * four [CategoryGroup] sections of per-category sliders + a per-language
-     * master reset. The sliders are re-bound to the selected language's
-     * stored values on combo change, so 26 languages share the same widgets
-     * instead of materializing 416 rows. The free/unlicensed gate lives
-     * upstream in [onPresetChosen]; the fold-out adds no license call of its
-     * own.
-     */
+    /** Build the premium Custom drill-down as two grouped, aligned columns. */
     private fun Panel.buildCustomFoldOut() {
         val languages = SyntaxLanguageRegistry.supportedLanguages().map { it.displayName }
         currentLanguage = languages.firstOrNull() ?: ""
@@ -197,93 +172,40 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
                 rebindSlidersFor(language)
                 refreshMasterResetButton()
             }
+            val resetButton =
+                button("") { onResetCurrentLanguage() }.component.apply {
+                    isVisible = false
+                }
+            masterResetButton = resetButton
         }.visibleIf(customSelected)
 
-        for (categoryGroup in CATEGORY_GROUPS) {
-            buildCategoryGroup(categoryGroup)
-        }
-
         row {
-            val resetButton =
-                button("") { onResetCurrentLanguage() }.component
-            masterResetButton = resetButton
+            panel {
+                for (categoryGroup in CUSTOM_COLUMN_GROUPS.first()) {
+                    buildCategoryGroup(categoryGroup)
+                }
+            }.align(AlignX.FILL)
+                .resizableColumn()
+            panel {
+                for (categoryGroup in CUSTOM_COLUMN_GROUPS.last()) {
+                    buildCategoryGroup(categoryGroup)
+                }
+            }.align(AlignX.FILL)
+                .resizableColumn()
         }.visibleIf(customSelected)
 
         rebindSlidersFor(currentLanguage)
         refreshMasterResetButton()
     }
 
-    /**
-     * One syntactic-role section. The group is NON-collapsible — the only
-     * show/hide boundary is the [customSelected] gate carried by the inner
-     * row. The categories are split round-robin into a left column (even
-     * indices) and a right column (odd indices); each column is its OWN
-     * `panel { }`, so the IntelliJ UI-DSL grid auto-aligns the slider /
-     * readout / reset cell columns across every row within that column. Each
-     * row's leading label is pinned to the shared [labelColumnWidth] in
-     * [categoryRow], so column 1 resolves identically across all eight grids
-     * and the slider start (and the fixed-width readout) line up on one
-     * vertical line both within and across the four groups, left and right
-     * columns mirrored. Odd-count groups simply give the left column one more
-     * row than the right (no placeholder juggling).
-     */
     private fun Panel.buildCategoryGroup(categoryGroup: CategoryGroup) {
         group(categoryGroup.title) {
-            val leftCategories = categoryGroup.categories.filterIndexed { index, _ -> index % 2 == 0 }
-            val rightCategories = categoryGroup.categories.filterIndexed { index, _ -> index % 2 == 1 }
-            row {
-                panel {
-                    for (category in leftCategories) categoryRow(category)
-                }.align(AlignX.FILL)
-                    .resizableColumn()
-                    .gap(RightGap.COLUMNS)
-                panel {
-                    for (category in rightCategories) categoryRow(category)
-                }.align(AlignX.FILL)
-                    .resizableColumn()
-            }.visibleIf(customSelected)
-        }.visibleIf(customSelected)
+            for (category in categoryGroup.categories) {
+                categoryRow(category)
+            }
+        }
     }
 
-    /**
-     * Add ONE per-category control row INTO the enclosing column grid. The
-     * leading cell is an EXPLICIT fixed-width [JLabel] (not `row(displayName)`'s
-     * auto leading-label column): its preferred AND minimum widths are pinned
-     * to [labelColumnWidth] so the eight independent nested-panel grids all
-     * resolve column 1 to the identical width. With column 1 uniform, the
-     * slider starts at the same x in every group and in both columns, and the
-     * fixed-width readout falls on a single right-hand vertical line — the
-     * cross-group alignment the auto-label form could not deliver. The slider
-     * is built via the IntelliJ UI-DSL `slider()` cell (the themed Darcula
-     * widget) — never a bare `JSlider(...)` constructor — tick-free and
-     * width-capped with NO `resizableColumn()` (a resizable slider would break
-     * the fixed-width readout's column binding). A signed-delta readout
-     * ([signedReadout]) and a fixed-width trailing zone sit to its right; the
-     * readout cell is fixed-width so the trailing controls toggling visibility
-     * never reflows it. The trailing zone is ONE [JPanel] with a tight
-     * left-aligned [FlowLayout] holding three [InplaceButton]s left to right:
-     * the reset icon (visible only when the cell diverges from identity OR
-     * carries a style), the Bold toggle, and the Italic toggle. Its preferred
-     * AND minimum width are pinned to [TRAILING_ZONE_WIDTH] (the same fixed-cell
-     * discipline the label and readout use) so all eight nested grids resolve
-     * the trailing column identically. [InplaceButton] paints its own round
-     * hover / pressed highlight and stays borderless at rest, so 32 toggles read
-     * calm; the engaged / at-rest cue is the glyph weight / slant plus the
-     * pressed-fill drawn by [refreshStyleVisuals], never color alone.
-     * The label, slider, and readout cells each carry a [RightGap.SMALL] so the
-     * label→slider, slider→readout, and readout→trailing gaps drop from the
-     * UI-DSL `horizontalDefaultGap` (the platform's scaled 16) to the stable
-     * small gap, tightening the row uniformly without implementing or delegating
-     * any platform UI-DSL spacing interface — delegating one was a binary-compat
-     * trap (a member added on a newer runtime is left abstract by Kotlin's
-     * compile-time `by` delegation, crashing with `AbstractMethodError`).
-     * [RightGap.SMALL] is applied to every [categoryRow] identically, so the
-     * shared label column, single slider-start axis, and right-hand readout
-     * column stay aligned across all four groups and both columns. The
-     * underlying `JSlider`, readout label, reset button, and B / I toggles are
-     * stashed by category so [rebindSlidersFor] / [setSliderValue] can snap them
-     * on combo change.
-     */
     private fun Panel.categoryRow(category: PrimitiveCategory) {
         row {
             cell(
@@ -312,13 +234,6 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
             applyReadout(valueLabel, SLIDER_MID)
             jslider.addChangeListener { onSliderChanged(currentLanguage, category, jslider.value) }
             cell(valueLabel).gap(RightGap.SMALL)
-            // Trailing zone: ONE fixed-width JPanel holding reset -> Bold ->
-            // Italic InplaceButtons (left-to-right add order = left-to-right Tab
-            // order). Width pinned to TRAILING_ZONE_WIDTH so all eight nested
-            // grids resolve the trailing column identically (the same cross-grid
-            // pinning the label / readout use). The placeholder glyphs passed at
-            // construction are overwritten by the trailing refreshStyleVisuals
-            // before the panel is shown.
             val resetButton =
                 InplaceButton("Reset ${category.displayName} to default", AllIcons.Actions.Rollback) {
                     resetCell(category)
@@ -327,16 +242,15 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
                     isFocusable = true
                     accessibleContext.accessibleName = "Reset ${category.displayName} to default"
                 }
-            val restForeground = UIUtil.getContextHelpForeground()
             val boldToggle =
-                InplaceButton("Bold ${category.displayName}", StyleGlyphIcon("B", Font.BOLD, restForeground)) {
+                InplaceButton("Bold ${category.displayName}", styleGlyphIcon("B", Font.BOLD, engaged = false)) {
                     onStyleToggle(category, Font.BOLD)
                 }.apply {
                     isFocusable = true
                     accessibleContext.accessibleName = "Bold ${category.displayName}"
                 }
             val italicToggle =
-                InplaceButton("Italic ${category.displayName}", StyleGlyphIcon("I", Font.ITALIC, restForeground)) {
+                InplaceButton("Italic ${category.displayName}", styleGlyphIcon("I", Font.ITALIC, engaged = false)) {
                     onStyleToggle(category, Font.ITALIC)
                 }.apply {
                     isFocusable = true
@@ -346,11 +260,12 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
             boldToggles[category] = boldToggle
             italicToggles[category] = italicToggle
             val trailingZone =
-                JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(TRAILING_GAP), 0)).apply {
+                JPanel(GridLayout(1, TRAILING_SLOT_COUNT, JBUI.scale(TRAILING_GAP), 0)).apply {
                     isOpaque = false
                     val zoneWidth = JBUI.scale(TRAILING_ZONE_WIDTH)
-                    preferredSize = Dimension(zoneWidth, JBUI.scale(StyleGlyphIcon.ICON_CELL))
-                    minimumSize = Dimension(zoneWidth, JBUI.scale(StyleGlyphIcon.ICON_CELL))
+                    val zoneHeight = JBUI.scale(TRAILING_SLOT_SIDE)
+                    preferredSize = Dimension(zoneWidth, zoneHeight)
+                    minimumSize = Dimension(zoneWidth, zoneHeight)
                     add(resetButton)
                     add(boldToggle)
                     add(italicToggle)
@@ -362,28 +277,15 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         }
     }
 
-    /**
-     * Flip ONE font-style bit ([Font.BOLD] or [Font.ITALIC]) on the cell's
-     * current [FontStyleOverride] and write the result through the orthogonal
-     * style store. The new bitmask is composed from the cell's existing style
-     * (defaulting to [Font.PLAIN] = inherit) XOR-ed by [bit]. When BOTH bits end
-     * up off the key is REMOVED (the cell returns to inherit — v1 never persists
-     * an explicit `PLAIN`); otherwise the matching [FontStyleOverride] name is
-     * stored. After the model update the trailing visuals + reset visibility +
-     * master reset are refreshed and the apply is deferred through the SAME
-     * single-shot debounce the slider uses — no second timer, no synchronous
-     * apply.
-     */
     private fun onStyleToggle(
         category: PrimitiveCategory,
         bit: Int,
     ) {
-        val key = "$currentLanguage|${category.name}"
+        val key = compositeKey(currentLanguage, category)
         val current = FontStyleOverride.fromName(pendingStyles[key])?.fontType ?: Font.PLAIN
         val next = current xor bit
         val nextStyle = FontStyleOverride.entries.firstOrNull { it.fontType == next }
         if (nextStyle == null || nextStyle == FontStyleOverride.PLAIN) {
-            // Both bits off -> return to inherit. v1 never persists explicit PLAIN.
             pendingStyles.remove(key)
         } else {
             pendingStyles[key] = nextStyle.name
@@ -394,15 +296,57 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         applyTimer.restart()
     }
 
-    /**
-     * Per-row reset: clear BOTH dimensions for [category] under the active
-     * language. Snap the slider back to identity, drop the slider AND style
-     * overrides for the cell, refresh the trailing visuals + reset visibility +
-     * master reset, then defer the apply through the SAME single-shot debounce.
-     */
+    private fun refreshStyleVisuals(category: PrimitiveCategory) {
+        val key = compositeKey(currentLanguage, category)
+        val fontType = FontStyleOverride.fromName(pendingStyles[key])?.fontType ?: Font.PLAIN
+        boldToggles[category]?.let { button ->
+            button.setIcon(styleGlyphIcon("B", Font.BOLD, fontType and Font.BOLD != 0))
+            button.repaint()
+        }
+        italicToggles[category]?.let { button ->
+            button.setIcon(styleGlyphIcon("I", Font.ITALIC, fontType and Font.ITALIC != 0))
+            button.repaint()
+        }
+    }
+
+    private fun styleGlyphIcon(
+        glyph: String,
+        style: Int,
+        engaged: Boolean,
+    ): StyleGlyphIcon {
+        val foreground = if (engaged) UIUtil.getLabelForeground() else UIUtil.getContextHelpForeground()
+        val background =
+            if (engaged) {
+                JBUI.CurrentTheme.ActionButton.pressedBackground()
+            } else {
+                JBUI.CurrentTheme.ActionButton.hoverBackground()
+            }
+        return StyleGlyphIcon(glyph, style, foreground, background, border = styleGlyphBorder())
+    }
+
+    private fun styleGlyphBorder(): JBColor =
+        JBColor.namedColor(
+            "Popup.innerBorderColor",
+            JBColor.namedColor("Popup.borderColor", JBColor.GRAY),
+        )
+
+    private fun refreshResetVisibility(category: PrimitiveCategory) {
+        val key = compositeKey(currentLanguage, category)
+        val sliderMoved = (sliders[category]?.value ?: SLIDER_MID) != SLIDER_MID
+        val styled = pendingStyles[key] != null
+        resetButtons[category]?.isVisible = sliderMoved || styled
+    }
+
+    private fun computeLabelColumnWidth(): Int {
+        val font = UIUtil.getLabelFont()
+        val metrics = JLabel().getFontMetrics(font)
+        val widest = PrimitiveCategory.entries.maxOf { metrics.stringWidth(it.displayName) }
+        return if (widest <= 0) JBUI.scale(LABEL_FALLBACK_WIDTH) else widest + JBUI.scale(LABEL_PADDING)
+    }
+
     private fun resetCell(category: PrimitiveCategory) {
         setSliderValue(category, SLIDER_MID)
-        val key = "$currentLanguage|${category.name}"
+        val key = compositeKey(currentLanguage, category)
         pendingOverrides.remove(key)
         pendingStyles.remove(key)
         refreshStyleVisuals(category)
@@ -411,92 +355,25 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         applyTimer.restart()
     }
 
-    /**
-     * Refresh the Bold / Italic toggle glyphs for [category] from the cell's
-     * stored [FontStyleOverride]. A set bit renders the engaged glyph — full
-     * [UIUtil.getLabelForeground] on a `JBUI.CurrentTheme.ActionButton`
-     * pressed-fill rounded rect; an unset bit renders the dimmed at-rest glyph —
-     * [UIUtil.getContextHelpForeground] on a transparent background. The
-     * pressed-fill plus the glyph weight / slant is the engaged / at-rest cue,
-     * never color alone. Purely presentational — the icon swap never re-enters
-     * the model. A no-op until the toggles are materialized.
-     */
-    private fun refreshStyleVisuals(category: PrimitiveCategory) {
-        val key = "$currentLanguage|${category.name}"
-        val fontType = FontStyleOverride.fromName(pendingStyles[key])?.fontType ?: Font.PLAIN
-        val glyphFor = { glyph: String, style: Int, engaged: Boolean ->
-            val foreground = if (engaged) UIUtil.getLabelForeground() else UIUtil.getContextHelpForeground()
-            val background = if (engaged) JBUI.CurrentTheme.ActionButton.pressedBackground() else null
-            StyleGlyphIcon(glyph, style, foreground, background)
-        }
-        boldToggles[category]?.let { button ->
-            button.setIcon(glyphFor("B", Font.BOLD, fontType and Font.BOLD != 0))
-            button.repaint()
-        }
-        italicToggles[category]?.let { button ->
-            button.setIcon(glyphFor("I", Font.ITALIC, fontType and Font.ITALIC != 0))
-            button.repaint()
-        }
-    }
-
-    /**
-     * Centralized reset-icon visibility for [category]: the reset control shows
-     * when the cell diverges from the slider identity OR carries a font-style
-     * override, so EITHER dimension keeps the per-row reset reachable. Called
-     * from every path that mutates a cell ([onSliderChanged], [setSliderValue],
-     * [onStyleToggle], [rebindSlidersFor]). A no-op until the reset button is
-     * materialized.
-     */
-    private fun refreshResetVisibility(category: PrimitiveCategory) {
-        val key = "$currentLanguage|${category.name}"
-        val sliderMoved = (sliders[category]?.value ?: SLIDER_MID) != SLIDER_MID
-        val styled = pendingStyles[key] != null
-        resetButtons[category]?.isVisible = sliderMoved || styled
-    }
-
-    /**
-     * Measure the widest [PrimitiveCategory.displayName] under the standard
-     * label font and pad it, yielding the shared leading-label column width.
-     * Uses [UIUtil.getLabelFont] (the font is realized; a not-yet-shown
-     * component's own `getFont()` returns null per the project layout lesson)
-     * and a throwaway [JLabel] for [java.awt.FontMetrics]. Defensive 0-width
-     * fallback to [LABEL_FALLBACK_WIDTH] guards the rare headless case where
-     * `stringWidth` cannot resolve.
-     */
-    private fun computeLabelColumnWidth(): Int {
-        val font = UIUtil.getLabelFont()
-        val metrics = JLabel().getFontMetrics(font)
-        val widest = PrimitiveCategory.entries.maxOf { metrics.stringWidth(it.displayName) }
-        return if (widest <= 0) JBUI.scale(LABEL_FALLBACK_WIDTH) else widest + JBUI.scale(LABEL_PADDING)
-    }
-
-    /**
-     * Sparse write-through for one slider move: refresh the readout +
-     * accessibility name + reset-icon visibility, then (unless the move was
-     * programmatic) record only the cell the user touched and defer the apply
-     * through the single-shot debounce timer. The apply is NEVER invoked
-     * synchronously here.
-     */
     private fun onSliderChanged(
         language: String,
         category: PrimitiveCategory,
         value: Int,
     ) {
         sliderLabels[category]?.let { applyReadout(it, value) }
-        refreshResetVisibility(category)
-        sliders[category]?.accessibleContext?.accessibleName =
-            "${category.displayName} intensity, ${signedReadout(value)} from default"
+        sliders[category]?.accessibleContext?.accessibleName = intensityAccessibleName(category, value)
         if (suppressSliderListeners) return
-        pendingOverrides["$language|${category.name}"] = value.toString()
+        val key = compositeKey(language, category)
+        if (value == SLIDER_MID) {
+            pendingOverrides.remove(key)
+        } else {
+            pendingOverrides[key] = value.toString()
+        }
+        refreshResetVisibility(category)
         refreshMasterResetButton()
         applyTimer.restart()
     }
 
-    /**
-     * Programmatic snap of one slider + its readout + reset-icon visibility,
-     * wrapped in [suppressSliderListeners] so it does not re-enter
-     * [onSliderChanged]'s write path. Mirrors the rebind snap.
-     */
     private fun setSliderValue(
         category: PrimitiveCategory,
         value: Int,
@@ -505,20 +382,28 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         try {
             sliders[category]?.value = value
             sliderLabels[category]?.let { applyReadout(it, value) }
+            sliders[category]?.accessibleContext?.accessibleName = intensityAccessibleName(category, value)
             refreshResetVisibility(category)
-            sliders[category]?.accessibleContext?.accessibleName =
-                "${category.displayName} intensity, ${signedReadout(value)} from default"
         } finally {
             suppressSliderListeners = false
         }
     }
 
+    private fun intensityAccessibleName(
+        category: PrimitiveCategory,
+        value: Int,
+    ): String = "${category.displayName} intensity, ${signedReadout(value)} from default"
+
+    private fun compositeKey(
+        language: String,
+        category: PrimitiveCategory,
+    ): String = "$language|${category.name}"
+
     /**
      * Per-language master reset: wipe only the override AND style cells keyed
-     * to the active language, snap the visible sliders back to identity, restore
-     * the toggle visuals via [rebindSlidersFor], and apply so the editor falls
-     * back to the subordinate preset for that language. Other languages' cells
-     * are left intact.
+     * to the active language, snap visible rows back to identity / inherit, and
+     * apply so the editor falls back to the subordinate preset for that
+     * language. Other languages' cells are left intact.
      */
     private fun onResetCurrentLanguage() {
         val prefix = "$currentLanguage|"
@@ -617,22 +502,14 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         pendingStyles.putAll(state.customStyles)
     }
 
-    /**
-     * Snap every slider (its signed readout + reset-icon visibility) AND every
-     * Bold / Italic toggle to the stored values for [language], or to identity
-     * / inherit when that cell is untouched. Wrapped in [suppressSliderListeners]
-     * so the programmatic snap does not feed back into [onSliderChanged]. A
-     * no-op until the fold-out has populated the widget maps.
-     */
     private fun rebindSlidersFor(language: String) {
         suppressSliderListeners = true
         try {
             for (category in PrimitiveCategory.entries) {
-                val value = pendingOverrides["$language|${category.name}"]?.toIntOrNull() ?: SLIDER_MID
+                val value = pendingOverrides[compositeKey(language, category)]?.toIntOrNull() ?: SLIDER_MID
                 sliders[category]?.value = value
                 sliderLabels[category]?.let { applyReadout(it, value) }
-                sliders[category]?.accessibleContext?.accessibleName =
-                    "${category.displayName} intensity, ${signedReadout(value)} from default"
+                sliders[category]?.accessibleContext?.accessibleName = intensityAccessibleName(category, value)
                 refreshStyleVisuals(category)
                 refreshResetVisibility(category)
             }
@@ -642,25 +519,27 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
     }
 
     /**
-     * Enable the master reset button only when the active language has at
-     * least one override OR style cell, and track the language in its label. A
-     * no-op until the fold-out has materialized the button.
+     * Show the master reset button only when the active language has at least
+     * one override OR style cell, and track the language in its label. A no-op
+     * until the fold-out has materialized the button.
      */
     private fun refreshMasterResetButton() {
         val button = masterResetButton ?: return
         val prefix = "$currentLanguage|"
-        button.text = "Reset $currentLanguage customizations"
-        button.isEnabled =
+        val hasLanguageCustomizations =
             pendingOverrides.keys.any { it.startsWith(prefix) } ||
-            pendingStyles.keys.any { it.startsWith(prefix) }
+                pendingStyles.keys.any { it.startsWith(prefix) }
+        button.text = "Reset $currentLanguage customizations"
+        button.isVisible = hasLanguageCustomizations
+        button.isEnabled = hasLanguageCustomizations
     }
 
     /**
      * Single update site for a readout [JLabel]'s text AND foreground so the
      * three callers ([onSliderChanged], [setSliderValue], [rebindSlidersFor])
-     * stay in lock-step. At the [SLIDER_MID] identity the `0` is rendered in
-     * the dimmed `getContextHelpForeground` to read as "default / untouched";
-     * once the cell diverges the signed delta switches to the stronger
+     * stay in lock-step. At the [SLIDER_MID] identity the readout is visually
+     * empty and dimmed to reduce noise; once the cell diverges the signed delta
+     * switches to the stronger
      * `getLabelForeground` to signal a moved value. Presentation-only — the
      * value model is unaffected.
      */
@@ -668,9 +547,10 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         label: JLabel,
         value: Int,
     ) {
-        label.text = signedReadout(value)
+        val isIdentity = value == SLIDER_MID
+        label.text = if (isIdentity) "" else signedReadout(value)
         label.foreground =
-            if (value == SLIDER_MID) UIUtil.getContextHelpForeground() else UIUtil.getLabelForeground()
+            if (isIdentity) UIUtil.getContextHelpForeground() else UIUtil.getLabelForeground()
     }
 
     /**
@@ -765,36 +645,13 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         private const val SLIDER_MAX = 100
         private const val SLIDER_MID = 50
 
-        // Slider track width (DPI-scaled, alignment anchor). Trimmed 160 -> 140
-        // so the row reclaims the px the trailing zone needs without growing the
-        // overall row width: 170 label + 140 slider + 28 readout + 64 trailing
-        // ≈ the prior 170 + 160 + 34 + 38 reset-link footprint.
         private const val SLIDER_TRACK_WIDTH = 140
-
-        // Right-aligned readout cell width (DPI-scaled). 28 fits the widest
-        // signed string the live model reaches ("−50" / "+50", 3 glyphs ≈ 28px
-        // at the 1.0x label font) without clipping while shaving the
-        // slider→number dead space so the trailing zone fits without growth.
-        // `SwingConstants.RIGHT` keeps the number column clean.
         private const val READOUT_WIDTH = 28
-
-        // Fixed trailing-zone width (DPI-scaled) for the reset + Bold + Italic
-        // composite. Pinned identically on every nested grid so the eight grids
-        // resolve the trailing column to one vertical line, mirroring the fixed
-        // label / readout columns. Holds three ICON_CELL controls plus the
-        // inter-control TRAILING_GAP.
+        private const val TRAILING_SLOT_COUNT = 3
+        private const val TRAILING_SLOT_SIDE = 20
         private const val TRAILING_ZONE_WIDTH = 64
-
-        // Inter-control gap (DPI-scaled) inside the trailing FlowLayout.
         private const val TRAILING_GAP = 2
-
-        // Trailing padding (DPI-scaled) added to the widest measured
-        // displayName so the leading label never clips against the slider.
         private const val LABEL_PADDING = 8
-
-        // Defensive fallback (DPI-scaled) when FontMetrics yields a 0-width
-        // measurement (e.g. an unrealizable headless font); roughly the widest
-        // English displayName plus padding.
         private const val LABEL_FALLBACK_WIDTH = 170
 
         /**
@@ -841,6 +698,12 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
                         PrimitiveCategory.DOCUMENTATION,
                     ),
                 ),
+            )
+
+        private val CUSTOM_COLUMN_GROUPS: List<List<CategoryGroup>> =
+            listOf(
+                listOf(CATEGORY_GROUPS[0], CATEGORY_GROUPS[3]),
+                listOf(CATEGORY_GROUPS[1], CATEGORY_GROUPS[2]),
             )
     }
 }

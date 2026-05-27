@@ -429,7 +429,8 @@ class AyuIslandsSyntaxPanelTest {
     fun `panel writes overrides sparsely keyed by composite key, never write-all (Pattern L)`() {
         val source = readPanelSource()
         assertTrue(
-            source.contains("pendingOverrides[\"\$language|\${category.name}\"]"),
+            source.contains("val key = compositeKey(language, category)") &&
+                source.contains("pendingOverrides[key] = value.toString()"),
             "INTENSITY-17: the sparse write must be keyed by the composite displayName|enum-name key.",
         )
         val writeAll =
@@ -502,7 +503,7 @@ class AyuIslandsSyntaxPanelTest {
         )
         val body = functionBody(source, "private fun onResetCurrentLanguage(")
         assertTrue(
-            body.contains("startsWith(prefix)") || body.contains("\$currentLanguage|"),
+            body.contains("startsWith(prefix)") || body.contains($$"$currentLanguage|"),
             "INTENSITY-15: the per-language reset must scope removal to the active-language prefix.",
         )
         assertFalse(
@@ -557,84 +558,49 @@ class AyuIslandsSyntaxPanelTest {
         )
     }
 
-    // ---------- Test 21b — round-robin column split (Approach 1) ----------
+    // ---------- Test 21b — grouped two-column Custom grid ----------
 
     @Test
-    fun `buildCategoryGroup splits categories round-robin — left gets even indices, right gets odd`() {
-        // The shared-grid fix partitions each group's categories into a left
-        // column (even indices) and a right column (odd indices). Replicate the
-        // exact filterIndexed predicate the panel uses and assert the split.
-        val groups = readCategoryGroups()
-        for ((title, categories) in groups) {
-            val left = categories.filterIndexed { index, _ -> index % 2 == 0 }
-            val right = categories.filterIndexed { index, _ -> index % 2 == 1 }
-            assertEquals(
-                categories.size,
-                left.size + right.size,
-                "round-robin split of '$title' must lose no category",
-            )
-            // Odd-count groups give the left column exactly one extra row (no
-            // placeholder juggling), so left.size is either equal to or one
-            // more than right.size.
-            assertTrue(
-                left.size - right.size in 0..1,
-                "'$title': left column may carry at most one more row than the right",
-            )
-            // Interleaving the two columns (left[0], right[0], left[1], ...)
-            // must reconstruct the original row-major category order.
-            val interleaved =
-                categories.indices.map { index ->
-                    if (index % 2 == 0) left[index / 2] else right[index / 2]
-                }
-            assertEquals(
-                categories,
-                interleaved,
-                "interleaving left/right round-robin must reconstruct the original order for '$title'",
-            )
-        }
-    }
-
-    @Test
-    fun `panel source uses round-robin filterIndexed split and per-column nested panels (Approach 1)`() {
+    fun `panel source renders grouped semantic categories in two stable columns`() {
         val source = readPanelSource()
         assertTrue(
-            source.contains("filterIndexed { index, _ -> index % 2 == 0 }"),
-            "Approach 1: the left column must be the even-index categories.",
+            source.contains("private val CUSTOM_COLUMN_GROUPS: List<List<CategoryGroup>>"),
+            "The Custom layout must declare stable grouped column assignments.",
         )
         assertTrue(
-            source.contains("filterIndexed { index, _ -> index % 2 == 1 }"),
-            "Approach 1: the right column must be the odd-index categories.",
+            source.contains("listOf(CATEGORY_GROUPS[0], CATEGORY_GROUPS[3])") &&
+                source.contains("listOf(CATEGORY_GROUPS[1], CATEGORY_GROUPS[2])"),
+            "The left column must hold Declarations + Keywords, and the right column Identifiers + Literals.",
         )
         assertTrue(
-            source.contains("for (category in leftCategories) categoryRow(category)"),
-            "Approach 1: the left column must iterate its even-index categories into categoryRow.",
+            source.contains("private fun Panel.buildCategoryGroup(") &&
+                source.contains("group(categoryGroup.title)") &&
+                source.contains("for (category in categoryGroup.categories)"),
+            "The Custom UI must render named semantic groups rather than one unbroken table.",
         )
         assertTrue(
-            source.contains("for (category in rightCategories) categoryRow(category)"),
-            "Approach 1: the right column must iterate its odd-index categories into categoryRow.",
+            source.contains("for (categoryGroup in CUSTOM_COLUMN_GROUPS.first())") &&
+                source.contains("for (categoryGroup in CUSTOM_COLUMN_GROUPS.last())"),
+            "The Custom UI must use two column-level panels.",
         )
-        assertTrue(
+        assertFalse(
             source.contains("RightGap.COLUMNS"),
-            "Approach 1: the left column must keep a COLUMNS-wide gap before the right column.",
+            "The Custom matrix must not use the 60px platform column gap; the default adjacent-cell gap is enough.",
         )
         assertFalse(
-            source.contains("placeholder()"),
-            "Approach 1: the old odd-slot placeholder juggling must be gone.",
+            source.contains("CATEGORY_TABLE_ORDER") || source.contains("categoryHeaderRow()"),
+            "The single table layout must stay gone.",
         )
         assertFalse(
-            source.contains("buildCategoryUnit"),
-            "Approach 1: buildCategoryUnit (panel-per-category) must be replaced by categoryRow.",
-        )
-        assertTrue(
-            source.contains("private fun Panel.categoryRow("),
-            "Approach 1: categoryRow must be a Panel-context extension that mutates the enclosing grid.",
+            source.contains("JBList<PrimitiveCategory>") || source.contains("JBScrollPane(list)"),
+            "The nested master/detail category list must stay gone.",
         )
     }
 
     // ---------- Test 21c — readout color signals default vs moved ----------
 
     @Test
-    fun `applyReadout dims the identity readout and strengthens a moved readout`() {
+    fun `applyReadout leaves identity visually empty and strengthens a moved readout`() {
         val panel = AyuIslandsSyntaxPanel()
         val identityLabel = JLabel()
         val movedLabel = JLabel()
@@ -642,7 +608,7 @@ class AyuIslandsSyntaxPanelTest {
         invokeApplyReadout(panel, identityLabel, 50)
         invokeApplyReadout(panel, movedLabel, 75)
 
-        assertEquals("0", identityLabel.text, "identity readout text is 0")
+        assertEquals("", identityLabel.text, "identity readout is visually empty")
         assertEquals("+25", movedLabel.text, "moved readout text is the signed delta")
         assertNotEquals(
             identityLabel.foreground.rgb,
@@ -685,7 +651,7 @@ class AyuIslandsSyntaxPanelTest {
             "Direction B: the readout label must render via signedReadout(value).",
         )
         assertFalse(
-            source.contains("\"\$value%\"") || source.contains("\"\$SLIDER_MID%\""),
+            source.contains($$"\"$value%\"") || source.contains($$"\"$SLIDER_MID%\""),
             "Direction B: the old percent readout must be gone — the readout is a signed delta.",
         )
     }
@@ -706,7 +672,7 @@ class AyuIslandsSyntaxPanelTest {
         )
     }
 
-    // ---------- Test 22b — uniform leading-label width source lock (cross-group alignment) ----------
+    // ---------- Test 22b — table row source locks ----------
 
     @Test
     fun `categoryRow uses an explicit fixed-width leading JLabel, not the auto row(displayName) column`() {
@@ -714,8 +680,7 @@ class AyuIslandsSyntaxPanelTest {
         val body = functionBody(source, "private fun Panel.categoryRow(")
         assertFalse(
             body.contains("row(category.displayName)"),
-            "cross-group alignment: the auto leading-label column row(category.displayName) must be " +
-                "gone — it sizes column 1 per-grid and breaks the single vertical line across groups.",
+            "cross-group alignment: auto leading labels must not size each nested grid independently.",
         )
         assertTrue(
             body.contains("JLabel(category.displayName)"),
@@ -725,8 +690,7 @@ class AyuIslandsSyntaxPanelTest {
             body.contains("preferredSize = Dimension(width, preferredSize.height)") &&
                 body.contains("minimumSize = Dimension(width, preferredSize.height)") &&
                 body.contains("val width = labelColumnWidth"),
-            "cross-group alignment: the leading label must pin BOTH preferred and minimum width to " +
-                "the shared labelColumnWidth so all eight grids resolve column 1 identically.",
+            "cross-group alignment: the leading label must pin preferred and minimum width.",
         )
     }
 
@@ -739,44 +703,14 @@ class AyuIslandsSyntaxPanelTest {
         val widest = PrimitiveCategory.entries.maxOf { metrics.stringWidth(it.displayName) }
         assertTrue(
             width >= widest,
-            "the shared label column ($width) must be at least the widest displayName ($widest) so the " +
-                "longest label (e.g. 'Interface declaration') never clips against the slider.",
+            "the shared label column ($width) must be at least the widest displayName ($widest).",
         )
-        assertTrue(width > 0, "labelColumnWidth must be positive — the defensive fallback guards a 0 measure.")
-    }
-
-    // ---------- Test 22c — RightGap.SMALL inter-cell gap source lock (spacing tightening) ----------
-
-    @Test
-    fun `categoryRow tightens label, slider, and readout cells with RightGap SMALL (spacing tightening)`() {
-        val source = readPanelSource()
-        // The row tightens its inter-cell gaps via the STABLE RightGap.SMALL
-        // enum on the label, slider, and readout cells — no platform spacing
-        // interface is implemented or delegated. The label→slider, slider→readout,
-        // and readout→reset gaps drop from horizontalDefaultGap (scaled 16) to
-        // the small gap uniformly across every categoryRow, keeping the shared
-        // label column, slider-start axis, and readout column aligned.
-        val body = functionBody(source, "private fun Panel.categoryRow(")
-        assertTrue(
-            body.contains(".gap(RightGap.SMALL)"),
-            "spacing tightening: categoryRow must tighten its cells with .gap(RightGap.SMALL).",
-        )
-        val smallGapCount = Regex("""\.gap\(RightGap\.SMALL\)""").findAll(body).count()
-        assertTrue(
-            smallGapCount >= 3,
-            "spacing tightening: the label, slider, and readout cells must EACH carry " +
-                ".gap(RightGap.SMALL) (found $smallGapCount in categoryRow, expected at least 3).",
-        )
+        assertTrue(width > 0, "labelColumnWidth must be positive.")
     }
 
     @Test
     fun `panel never delegates or implements a platform spacing configuration (binary-compat regression guard)`() {
         val source = readPanelSource()
-        // INTENSITY binary-compat regression lock: the old object-by-delegation
-        // tightening (object : <spacing iface> by <platform impl>) crashed on
-        // newer runtimes with AbstractMethodError because Kotlin's compile-time
-        // `by` delegation leaves runtime-added interface members abstract. The
-        // spacing interface and its delegation helper must never return.
         val forbiddenSpacingSymbols =
             listOf(
                 "SpacingConfiguration",
@@ -788,32 +722,29 @@ class AyuIslandsSyntaxPanelTest {
         for (forbidden in forbiddenSpacingSymbols) {
             assertFalse(
                 source.contains(forbidden),
-                "binary-compat guard: '$forbidden' must not appear in the panel source — delegating " +
-                    "a platform UI-DSL spacing interface caused AbstractMethodError on 2026.1. " +
-                    "Tighten gaps with the stable RightGap enum instead.",
+                "binary-compat guard: '$forbidden' must not appear in the panel source.",
             )
         }
     }
 
     @Test
-    fun `readout 28, label padding 8, slider track 140, trailing zone 64 for width-parity (Part B)`() {
+    fun `readout 28, label padding 8, slider track 140, trailing zone 64 keep grouped rows compact`() {
         val source = readPanelSource()
         assertTrue(
             source.contains("private const val READOUT_WIDTH = 28"),
-            "Part B width parity: the right-aligned readout cell must shrink 34 -> 28.",
+            "The right-aligned readout cell must stay compact.",
         )
         assertTrue(
             source.contains("private const val LABEL_PADDING = 8"),
-            "Part B width parity: the leading-label trailing padding must stay 8.",
+            "The leading-label trailing padding must stay 8.",
         )
         assertTrue(
             source.contains("private const val SLIDER_TRACK_WIDTH = 140"),
-            "Part B width parity: the slider track must shrink 160 -> 140 so the trailing zone " +
-                "fits without growing the row.",
+            "The grouped two-column matrix must keep slider tracks compact enough to avoid horizontal bloat.",
         )
         assertTrue(
             source.contains("private const val TRAILING_ZONE_WIDTH = 64"),
-            "Part B width parity: the fixed reset + Bold + Italic trailing zone must be 64.",
+            "The fixed reset + Bold + Italic trailing zone must be 64.",
         )
     }
 
@@ -836,26 +767,22 @@ class AyuIslandsSyntaxPanelTest {
         )
     }
 
-    // ---------- Test 23 — slider-change behavior (readout + reset-link + sparse write) ----------
+    // ---------- Test 23 — slider-change behavior (readout + reset icon + sparse write) ----------
 
     @Test
-    fun `onSliderChanged updates readout, reveals reset link, and records the sparse override`() {
+    fun `onSliderChanged updates readout, enables reset, and records the sparse override`() {
         every { LicenseChecker.isLicensedOrGrace() } returns true
         stateBase.selectedPreset = "CUSTOM"
         val panel = panelWithLoadedState()
         writeCurrentLanguage(panel, "Java")
         val widgets = seedWidgets(panel, PrimitiveCategory.KEYWORD)
-        // Production wires the ChangeListener as `onSliderChanged(lang, cat,
-        // jslider.value)`, so the slider's value is already the new value when
-        // the listener fires (refreshResetVisibility reads the authoritative
-        // slider value per the Part B spec). Mirror that contract here.
         widgets.slider.value = 80
 
         try {
             invokeOnSliderChanged(panel, "Java", PrimitiveCategory.KEYWORD, 80)
 
             assertEquals("+30", widgets.label.text, "readout must render the signed delta")
-            assertTrue(widgets.resetButton.isVisible, "reset icon must appear once the cell diverges")
+            assertTrue(widgets.resetButton.isVisible, "category reset must appear once the cell diverges")
             assertEquals(
                 "80",
                 readPendingOverrides(panel)["Java|KEYWORD"],
@@ -872,21 +799,20 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     @Test
-    fun `onSliderChanged back to identity hides the reset link but keeps the cell recorded`() {
+    fun `onSliderChanged back to identity removes the sparse override`() {
         every { LicenseChecker.isLicensedOrGrace() } returns true
         stateBase.selectedPreset = "CUSTOM"
         val panel = panelWithLoadedState()
         writeCurrentLanguage(panel, "Java")
         val widgets = seedWidgets(panel, PrimitiveCategory.KEYWORD)
+        seedPendingOverride(panel, "Java|KEYWORD", "80")
 
         try {
             invokeOnSliderChanged(panel, "Java", PrimitiveCategory.KEYWORD, 50)
 
-            assertEquals("0", widgets.label.text, "identity reads as 0")
-            assertFalse(widgets.resetButton.isVisible, "reset icon hides at identity")
-            // onSliderChanged is a raw record of the moved value — explicit
-            // removal is the per-row Reset link's job, not the change listener.
-            assertEquals("50", readPendingOverrides(panel)["Java|KEYWORD"])
+            assertEquals("", widgets.label.text, "identity readout is visually empty")
+            assertFalse(widgets.resetButton.isVisible, "reset hides at identity with no style")
+            assertFalse(readPendingOverrides(panel).containsKey("Java|KEYWORD"))
         } finally {
             panel.dispose()
         }
@@ -905,7 +831,6 @@ class AyuIslandsSyntaxPanelTest {
 
         assertEquals(25, widgets.slider.value, "the slider must snap to the requested value")
         assertEquals("−25", widgets.label.text, "the readout must show the signed delta (U+2212)")
-        assertTrue(widgets.resetButton.isVisible, "diverged value reveals the reset icon")
         assertTrue(
             readPendingOverrides(panel).isEmpty(),
             "setSliderValue is a programmatic snap — it must NOT write an override (suppressed listener)",
@@ -915,7 +840,7 @@ class AyuIslandsSyntaxPanelTest {
     // ---------- Test 25 — master reset button enablement tracks active language ----------
 
     @Test
-    fun `refreshMasterResetButton labels and enables per the active language`() {
+    fun `refreshMasterResetButton labels and shows only when the active language has customizations`() {
         stateBase.selectedPreset = "CUSTOM"
         val panel = panelWithLoadedState()
         writeCurrentLanguage(panel, "Kotlin")
@@ -923,16 +848,20 @@ class AyuIslandsSyntaxPanelTest {
 
         invokeRefreshMasterResetButton(panel)
         assertEquals("Reset Kotlin customizations", widgets.button.text)
+        assertFalse(widgets.button.isVisible, "no Kotlin override yet → hidden")
         assertFalse(widgets.button.isEnabled, "no Kotlin override yet → disabled")
 
         seedPendingOverride(panel, "Kotlin|KEYWORD", "70")
         invokeRefreshMasterResetButton(panel)
+        assertTrue(widgets.button.isVisible, "a Kotlin override shows the master reset")
         assertTrue(widgets.button.isEnabled, "a Kotlin override enables the master reset")
 
         seedPendingOverride(panel, "Java|KEYWORD", "70")
         writeCurrentLanguage(panel, "Java")
         invokeRefreshMasterResetButton(panel)
         assertEquals("Reset Java customizations", widgets.button.text, "label tracks the active language")
+        assertTrue(widgets.button.isVisible, "a Java override shows the master reset")
+        assertTrue(widgets.button.isEnabled, "a Java override enables the master reset")
     }
 
     // ---------- Test 26 — buildNestedOverrides reshapes + guards the sparse map ----------
@@ -968,17 +897,18 @@ class AyuIslandsSyntaxPanelTest {
         val panel = panelWithLoadedState()
         writeCurrentLanguage(panel, "Java")
         val keyword = seedWidgets(panel, PrimitiveCategory.KEYWORD)
-        // A second category with no override stays at identity.
         val stringLiteral = seedWidgets(panel, PrimitiveCategory.STRING_LITERAL)
         seedPendingOverride(panel, "Java|KEYWORD", "85")
+        seedPendingStyle(panel, "Java|KEYWORD", "BOLD")
 
         invokeRebindSlidersFor(panel, "Java")
 
         assertEquals(85, keyword.slider.value, "stored override snaps the slider")
         assertEquals("+35", keyword.label.text, "readout reflects the snapped signed delta")
-        assertTrue(keyword.resetButton.isVisible, "diverged cell reveals its reset icon")
+        assertTrue(keyword.resetButton.isVisible, "customized cell reveals the category reset")
         assertEquals(50, stringLiteral.slider.value, "untouched cell snaps to identity")
-        assertFalse(stringLiteral.resetButton.isVisible, "identity cell hides its reset icon")
+        assertEquals("", stringLiteral.label.text, "untouched identity readout is visually empty")
+        assertFalse(stringLiteral.resetButton.isVisible, "untouched cell hides the category reset")
     }
 
     // ---------- Part B Test 28 — toggle flips one bit and composes BOLD_ITALIC ----------
@@ -1061,10 +991,8 @@ class AyuIslandsSyntaxPanelTest {
         widgets.slider.value = 80
 
         try {
-            // The per-row reset icon's ActionListener delegates to resetCell;
-            // seedWidgets cannot wire the throwaway InplaceButton back to this
-            // panel instance, so drive the production resetCell directly (same
-            // method the trailing reset InplaceButton invokes in categoryRow).
+            // The production Reset category button delegates to resetCell; the
+            // test drives the same private method directly.
             invokeResetCell(panel, PrimitiveCategory.KEYWORD)
 
             assertFalse(
@@ -1076,6 +1004,7 @@ class AyuIslandsSyntaxPanelTest {
                 "per-row reset must drop the style override for the cell",
             )
             assertEquals(50, widgets.slider.value, "per-row reset snaps the slider back to identity")
+            assertFalse(widgets.resetButton.isVisible, "per-row reset hides the category reset")
         } finally {
             panel.dispose()
         }
@@ -1142,11 +1071,29 @@ class AyuIslandsSyntaxPanelTest {
     // ---------- Part B Test 33 — InplaceButton-only trailing controls (source lock) ----------
 
     @Test
-    fun `trailing controls use InplaceButton, never JToggleButton or ActionButton (Part B source lock)`() {
+    fun `trailing controls use InplaceButton, never JToggleButton or ActionButton`() {
         val source = readPanelSource()
         assertTrue(
             source.contains("InplaceButton("),
-            "Part B: the trailing reset / Bold / Italic controls must be InplaceButton.",
+            "The trailing reset / Bold / Italic controls must be InplaceButton.",
+        )
+        assertTrue(
+            source.contains("StyleGlyphIcon"),
+            "The grouped grid must use compact text-glyph B/I icons.",
+        )
+        assertTrue(
+            source.contains("JBUI.CurrentTheme.ActionButton.hoverBackground()") &&
+                source.contains("border = styleGlyphBorder()"),
+            "Inactive B/I icons must render as quiet chips, not bare text glyphs.",
+        )
+        assertTrue(
+            source.contains("JPanel(GridLayout(1, TRAILING_SLOT_COUNT, JBUI.scale(TRAILING_GAP), 0))"),
+            "The trailing reset / Bold / Italic zone must use fixed slots so B/I never shift when reset appears.",
+        )
+        assertTrue(
+            source.contains("private const val TRAILING_SLOT_COUNT = 3") &&
+                source.contains("private const val TRAILING_SLOT_SIDE = 20"),
+            "The trailing zone must reserve three stable 20px slots.",
         )
         assertFalse(
             source.contains("JToggleButton"),
@@ -1164,7 +1111,7 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     @Test
-    fun `refreshResetVisibility condition references pendingStyles (Part B source lock)`() {
+    fun `refreshResetVisibility condition references pendingStyles`() {
         val source = readPanelSource()
         assertTrue(
             source.contains("private fun refreshResetVisibility("),
@@ -1172,12 +1119,12 @@ class AyuIslandsSyntaxPanelTest {
         )
         val body = functionBody(source, "private fun refreshResetVisibility(")
         assertTrue(
-            body.contains("pendingStyles["),
+            body.contains("pendingStyles[key]"),
             "Part B: reset visibility must consider pendingStyles so a style-only cell stays resettable.",
         )
         assertTrue(
             body.contains("SLIDER_MID"),
-            "Part B: reset visibility must also consider the slider divergence from identity.",
+            "Part B: reset visibility must also consider slider divergence from identity.",
         )
     }
 
@@ -1434,11 +1381,9 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     /**
-     * Materialize a single category's slider / readout / reset-icon / Bold /
-     * Italic widgets (and the master reset button) into the private component
-     * maps so the logic methods can be driven without a built
-     * [com.intellij.openapi.ui.DialogPanel]. The reset / toggle widgets are real
-     * [InplaceButton]s, mirroring the production trailing zone.
+     * Materialize one category's slider / readout / reset-icon / Bold / Italic
+     * widgets and the master reset button so logic methods can be driven
+     * without a built [com.intellij.openapi.ui.DialogPanel].
      */
     private fun seedWidgets(
         panel: AyuIslandsSyntaxPanel,
@@ -1545,11 +1490,6 @@ class AyuIslandsSyntaxPanelTest {
         }
     }
 
-    /**
-     * Read the lazily-computed shared label-column width through its synthetic
-     * getter (a `by lazy` property exposes `getLabelColumnWidth()`; the backing
-     * field is the `Lazy` delegate, not the resolved Int).
-     */
     private fun readLabelColumnWidth(panel: AyuIslandsSyntaxPanel): Int {
         val getter = AyuIslandsSyntaxPanel::class.java.getDeclaredMethod("getLabelColumnWidth")
         getter.isAccessible = true

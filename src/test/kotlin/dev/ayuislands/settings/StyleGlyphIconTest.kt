@@ -12,24 +12,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
-/**
- * Locks the [StyleGlyphIcon] paint contract for the per-category Bold / Italic
- * toggles:
- *
- *  - Square geometry: [StyleGlyphIcon.getIconWidth] == [StyleGlyphIcon.getIconHeight]
- *    == the configured cell side.
- *  - At-rest (background `null`): only the glyph is drawn, no filled pressed
- *    rect, so the corner pixels stay transparent.
- *  - Engaged (background non-null): the rounded-rect pressed-fill paints the
- *    supplied colour across the cell interior — the non-color cue that pairs
- *    with the glyph weight / slant for accessibility.
- *  - The glyph itself rasterises non-transparent pixels (the cue is a real
- *    drawn `"B"` / `"I"`, not an empty cell).
- *
- * The icon is render-state-immutable: the caller constructs one instance per
- * state, so the at-rest vs engaged distinction is a constructor difference, not
- * a mutable flag. Painted headlessly into a [BufferedImage] — no IDE boot.
- */
 class StyleGlyphIconTest {
     @Test
     fun `icon is a square whose side equals the configured cell`() {
@@ -50,31 +32,47 @@ class StyleGlyphIconTest {
     }
 
     @Test
-    fun `at-rest icon leaves the cell corners transparent (no pressed fill)`() {
-        // background == null is the at-rest state: the glyph is drawn but no
-        // rounded-rect fill, so the corners (outside any glyph stroke) stay
-        // fully transparent.
+    fun `at-rest icon leaves the cell corners transparent`() {
         val icon = StyleGlyphIcon("B", Font.BOLD, OPAQUE_FG, background = null, cell = CELL, glyphSize = GLYPH)
         val image = paint(icon)
 
         val corner = Color(image.getRGB(0, 0), true)
-        assertEquals(0, corner.alpha, "at-rest icon must not paint a background — the corner stays transparent")
+        assertEquals(0, corner.alpha, "at-rest icon must not paint a background")
     }
 
     @Test
     fun `engaged icon fills the cell interior with the pressed background colour`() {
-        // background non-null is the engaged state: a rounded-rect pressed-fill
-        // paints across the cell. Sample the cell centre offset off the glyph
-        // baseline so the fill — not the glyph stroke — is the dominant colour.
         val fill = Color(0x33, 0x66, 0x99)
         val icon = StyleGlyphIcon("B", Font.BOLD, OPAQUE_FG, background = fill, cell = CELL, glyphSize = GLYPH)
         val image = paint(icon)
 
-        // A near-corner pixel inside the rounded rect (a few px in from the edge)
-        // is covered by the fill but clear of the centered glyph.
         val sampled = Color(image.getRGB(3, CELL - 3), true)
         assertNotEquals(0, sampled.alpha, "engaged icon must paint an opaque pressed-fill")
         assertEquals(fill.rgb, sampled.rgb, "the engaged pressed-fill must paint the supplied background colour")
+    }
+
+    @Test
+    fun `bordered icon paints a quiet chip outline without requiring a fill`() {
+        val border = Color(0x44, 0x55, 0x66)
+        val icon =
+            StyleGlyphIcon(
+                "",
+                Font.PLAIN,
+                OPAQUE_FG,
+                background = null,
+                border = border,
+                cell = CELL,
+                glyphSize = GLYPH,
+            )
+        val image = paint(icon)
+
+        var painted = 0
+        for (x in 0 until CELL) {
+            for (y in 0..1) {
+                if (Color(image.getRGB(x, y), true).alpha != 0) painted++
+            }
+        }
+        assertTrue(painted > 0, "bordered icon must paint a visible chip outline")
     }
 
     @Test
@@ -94,7 +92,7 @@ class StyleGlyphIconTest {
         assertNotEquals(
             restImage.getRGB(3, CELL - 3),
             engagedImage.getRGB(3, CELL - 3),
-            "engaged fill vs at-rest transparency must differ — the pressed-fill is the non-color cue",
+            "engaged fill vs at-rest transparency must differ",
         )
     }
 
@@ -109,22 +107,16 @@ class StyleGlyphIconTest {
                 if (Color(image.getRGB(x, y), true).alpha != 0) painted++
             }
         }
-        assertTrue(painted > 0, "the glyph must draw at least some opaque pixels — an empty cell is no cue")
+        assertTrue(painted > 0, "the glyph must draw at least some opaque pixels")
     }
 
     @Test
     fun `paintIcon tolerates a non-Graphics2D context via the null-guard`() {
-        // Defensive branch: `graphics.create() as? Graphics2D ?: return`. A
-        // Graphics whose create() is not a Graphics2D must be a clean no-op
-        // rather than a ClassCastException. BufferedImage's create() always
-        // returns a Graphics2D in practice, so the branch is exercised with a
-        // mock whose create() yields a plain (non-Graphics2D) Graphics.
         val icon = StyleGlyphIcon("B", Font.BOLD, OPAQUE_FG, cell = CELL, glyphSize = GLYPH)
         val plainGraphics = mockk<Graphics>(relaxed = true)
         val outerGraphics = mockk<Graphics>(relaxed = true)
         every { outerGraphics.create() } returns plainGraphics
-        // Must not throw — the `as? Graphics2D` cast falls through to an early
-        // return because a bare Graphics mock is not a Graphics2D.
+
         icon.paintIcon(null, outerGraphics, 0, 0)
     }
 
@@ -140,9 +132,6 @@ class StyleGlyphIconTest {
     }
 
     private companion object {
-        // 32px cell / 24px glyph: large enough that the centered glyph and the
-        // rounded-rect fill rasterise cleanly without DPI-scaling noise, while
-        // staying tiny for instant headless paints.
         const val CELL = 32
         const val GLYPH = 24
         val OPAQUE_FG = Color(0xFF, 0xFF, 0xFF)
