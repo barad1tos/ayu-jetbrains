@@ -1,0 +1,16 @@
+# Test fixture for SyntaxOverlayLoader. Three tier sections plus
+# one BOGUS key (unknown, must be silently skipped).
+# Apply order: MINIMAL (empty) -> STANDARD -> RICH -> MAXIMUM.
+
+# TIER: STANDARD
+FAKE_KEY_DECL_1
+BOGUS_NONEXISTENT_KEY
+
+# TIER: RICH
+FAKE_KEY_DECL_2
+FAKE_KEY_REF_1
+
+# TIER: MAXIMUM
+FAKE_KEY_COMMENT_1
+FAKE_KEY_DOC_1
+FAKE_KEY_WITH_BASE_REF

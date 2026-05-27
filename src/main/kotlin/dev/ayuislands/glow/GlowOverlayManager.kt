@@ -1,6 +1,7 @@
 package dev.ayuislands.glow
 
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent
@@ -29,6 +30,7 @@ import javax.swing.JLayeredPane
 import javax.swing.SwingUtilities
 
 /** Manages glow overlays for tool windows, editor, tabs, and focus rings. */
+@Service(Service.Level.PROJECT)
 class GlowOverlayManager(
     private val project: Project,
 ) : Disposable {

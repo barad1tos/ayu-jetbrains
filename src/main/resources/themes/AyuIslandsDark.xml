@@ -1188,7 +1188,10 @@
             </value>
         </option>
         <option name="HCL.BLOCK_NAME_KEY">
-            <value />
+            <value>
+                <option name="FOREGROUND" value="FFB454" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
         </option>
         <option name="HCL.BLOCK_SECOND_TYPE_KEY">
             <value>
@@ -3219,18 +3222,18 @@
             </value>
         </option>
 
-        <!-- YAML -->
-        <option name="YAML_BOOLEAN">
-            <value><option name="FOREGROUND" value="D2A6FF" /></value>
-        </option>
-        <option name="YAML_KEY">
+        <!-- YAML — keys mirror org.jetbrains.yaml.YAMLHighlighter platform IDs (verified via javap). Prior names (YAML_KEY / YAML_STRING / YAML_NUMBER / YAML_BOOLEAN) matched zero platform IDs and only "worked" by accidental fallback through the highlighter's hardcoded base-key chain. -->
+        <option name="YAML_SCALAR_KEY">
             <value><option name="FOREGROUND" value="39BAE6" /></value>
         </option>
-        <option name="YAML_NUMBER">
-            <value><option name="FOREGROUND" value="D2A6FF" /></value>
-        </option>
-        <option name="YAML_STRING">
+        <option name="YAML_SCALAR_STRING">
             <value><option name="FOREGROUND" value="AAD94C" /></value>
+        </option>
+        <option name="YAML_SCALAR_DSTRING">
+            <value><option name="FOREGROUND" value="AAD94C" /></value>
+        </option>
+        <option name="YAML_SCALAR_VALUE">
+            <value><option name="FOREGROUND" value="D2A6FF" /></value>
         </option>
     </attributes>
 </scheme>

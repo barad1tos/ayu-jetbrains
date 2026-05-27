@@ -1,5 +1,7 @@
 package dev.ayuislands.font
 
+import dev.ayuislands.preset.ColorPreset
+
 private const val DEFAULT_CUSTOM_FONT = "JetBrains Mono"
 
 /**
@@ -10,14 +12,14 @@ private const val DEFAULT_CUSTOM_FONT = "JetBrains Mono"
  * [FontInstaller]. Keep this enum focused on pure preset identity + typography.
  */
 enum class FontPreset(
-    val displayName: String,
+    override val displayName: String,
     val fontFamily: String,
     val fontAliases: List<String>,
     val fontSize: Float,
     val lineSpacing: Float,
     val enableLigatures: Boolean,
     val defaultWeight: FontWeight,
-) {
+) : ColorPreset {
     WHISPER(
         displayName = "Whisper",
         fontFamily = "Victor Mono",

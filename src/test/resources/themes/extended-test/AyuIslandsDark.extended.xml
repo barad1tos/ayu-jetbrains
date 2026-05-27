@@ -1,0 +1,15 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<scheme name="Ayu Islands Dark Extended" version="142">
+  <attributes>
+    <option name="FAKE_KEY_DECL_1">
+      <value>
+        <option name="FOREGROUND" value="FFA940" />
+      </value>
+    </option>
+    <option name="FAKE_KEY_REF_1">
+      <value>
+        <option name="FOREGROUND" value="3F8FCF" />
+      </value>
+    </option>
+  </attributes>
+</scheme>

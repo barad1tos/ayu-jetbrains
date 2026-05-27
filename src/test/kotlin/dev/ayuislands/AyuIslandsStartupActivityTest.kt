@@ -518,6 +518,24 @@ class AyuIslandsStartupActivityTest {
         )
     }
 
+    @Test
+    fun `startup re-applies persisted syntax intensity before migration notification`() {
+        val source = readStartupActivitySource()
+        val reapplyCall =
+            "SwingUtilities.invokeLater { SyntaxIntensityService.getInstance().reapplyForActiveLaf() }"
+        val notificationCall =
+            "SwingUtilities.invokeLater { SyntaxIntensityMigrationNotifier.maybeFire(project) }"
+        val reapplyIndex = source.indexOf(reapplyCall)
+        val notificationIndex = source.indexOf(notificationCall)
+
+        assertTrue(reapplyIndex >= 0, "startup must reapply persisted syntax intensity after scheme registration")
+        assertTrue(notificationIndex >= 0, "startup must still show the syntax intensity migration notification")
+        assertTrue(
+            reapplyIndex < notificationIndex,
+            "persisted syntax intensity should be restored before the migration notification is queued",
+        )
+    }
+
     private fun readStartupActivitySource(): String {
         val source =
             java.io

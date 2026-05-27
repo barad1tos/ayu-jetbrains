@@ -160,6 +160,32 @@ class AyuEditorSchemeBinderTest {
         verify(exactly = 0) { mockEcm.setGlobalScheme(any()) }
     }
 
+    @Test
+    fun `bindForVariant leaves our own editable copy in place without swapping`() {
+        // "_@user_Ayu Islands Mirage" is the platform's editable copy of our
+        // bundled scheme — not a user choice. Binder must recognize it and not
+        // swap (apply()/accent already write Ayu colors into it).
+        every { mockEcm.globalScheme } returns mockScheme("_@user_Ayu Islands Mirage")
+
+        val switched = AyuEditorSchemeBinder.bindForVariant(AyuVariant.MIRAGE)
+
+        assertFalse(switched, "Our own editable copy must be left in place, not swapped")
+        verify(exactly = 0) { mockEcm.setGlobalScheme(any()) }
+    }
+
+    @Test
+    fun `bindForVariant skips foreign editable copy as user-custom`() {
+        // "_@user_Solarized" is a foreign editable copy — strip the prefix and
+        // it does NOT match our target, so it falls through to the user-custom skip.
+        every { mockEcm.globalScheme } returns mockScheme("_@user_Solarized (Light)")
+        every { mockEcm.allSchemes } returns arrayOf(mockScheme("Ayu Islands Mirage"))
+
+        val switched = AyuEditorSchemeBinder.bindForVariant(AyuVariant.MIRAGE)
+
+        assertFalse(switched, "Foreign editable copy is still user-custom — must skip")
+        verify(exactly = 0) { mockEcm.setGlobalScheme(any()) }
+    }
+
     private fun mockScheme(name: String): EditorColorsScheme {
         val s = mockk<EditorColorsScheme>(relaxed = true)
         every { s.name } returns name

@@ -1,0 +1,10 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<scheme name="Ayu Islands Light" version="142" parent_scheme="IntelliJ Light">
+    <attributes>
+        <option name="FAKE_BASELINE_COMMENT_1">
+            <value>
+                <option name="FOREGROUND" value="ADAEB1" />
+            </value>
+        </option>
+    </attributes>
+</scheme>

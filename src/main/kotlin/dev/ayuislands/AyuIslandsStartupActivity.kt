@@ -4,14 +4,13 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.roots.ModuleRootEvent
-import com.intellij.openapi.roots.ModuleRootListener
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.openapi.wm.WindowManager
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.ProjectLanguageDetector
+import dev.ayuislands.accent.ProjectLanguageRootChangeListener
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.accent.runCatchingPreservingCancellation
 import dev.ayuislands.editor.EditorScrollbarManager
@@ -24,6 +23,8 @@ import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
+import dev.ayuislands.syntax.SyntaxIntensityMigrationNotifier
+import dev.ayuislands.syntax.SyntaxIntensityService
 import dev.ayuislands.ui.ComponentTreeRefresher
 import dev.ayuislands.vcs.VcsColorApplier
 import kotlinx.coroutines.Dispatchers
@@ -104,18 +105,9 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         // Drop the language-detector cache when the project's module / content-root
         // structure changes (gradle sync adds a module, user edits sourceSets, etc.)
         // so the next language-override resolution re-scans instead of serving a stale
-        // dominant language from a scan taken before the change. Bus connection is
-        // tied to `project`, so the subscription auto-disposes on project close.
-        project.messageBus
-            .connect(project)
-            .subscribe(
-                ModuleRootListener.TOPIC,
-                object : ModuleRootListener {
-                    override fun rootsChanged(event: ModuleRootEvent) {
-                        ProjectLanguageDetector.invalidate(project)
-                    }
-                },
-            )
+        // dominant language from a scan taken before the change. The subscription is
+        // owned by a project service disposable, not the Project itself.
+        ProjectLanguageRootChangeListener.getInstance(project)
 
         // Focus-swap listener install() + cache sync via notifyExternalApply(hex)
         // are now inside the withContext(Dispatchers.EDT) block above so they share an
@@ -193,6 +185,14 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
 
         // Show a one-time update notification if the plugin version changed
         SwingUtilities.invokeLater { UpdateNotifier.showIfUpdated(project) }
+
+        // Reapply persisted syntax intensity once the IDE has registered schemes,
+        // then show the one-shot migration notification for the preset row.
+        // The notification fires exactly once per install via a distinct
+        // PropertiesComponent flag (`ayu.syntax.intensity.notified`) so users
+        // who saw the prior syntax notification still receive this message.
+        SwingUtilities.invokeLater { SyntaxIntensityService.getInstance().reapplyForActiveLaf() }
+        SwingUtilities.invokeLater { SyntaxIntensityMigrationNotifier.maybeFire(project) }
 
         // Initialize the glow overlay system if the glow is enabled
         // Uses ApplicationManager.invokeLater with project.disposed condition to skip

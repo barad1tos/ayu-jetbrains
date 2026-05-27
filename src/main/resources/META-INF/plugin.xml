@@ -5,6 +5,7 @@
     <vendor email="roman.borodavkin@gmail.com"
             url="https://github.com/barad1tos/ayu-jetbrains">ayu-islands
     </vendor>
+    <resource-bundle>messages.AyuIslandsBundle</resource-bundle>
 
     <description><![CDATA[
     <p><i>Not another color swap — a unified aesthetic engine for every JetBrains IDE.</i></p>
@@ -105,22 +106,22 @@
     <change-notes><![CDATA[
     <h3>2.6.4</h3>
     <ul>
-      <li>[Free] <b>Quick-Switcher Widget</b> — a new chip in the main toolbar reflects the focused project's accent. Left-click opens a popup with variant + Islands UI toggle, the full accent grid, related toggles (Chrome tinting, Glow, Accent rotation, Follow system), and quick actions (Pin, Random, Lighter, Darker, Copy Hex). Right-click opens the same actions as a context menu for a keyboard-friendly workflow.</li>
-      <li>Premium rows (toggles + quick actions) appear when your license is active or in trial; the FREE block (variant + accent grid) is available to everyone.</li>
+      <li>[Free] <b>Quick-Switcher Widget</b> — a new chip in the main toolbar reflects the focused project's accent. Left-click opens a popup with the variant and Islands UI toggle, the full accent grid, related toggles (Chrome tinting, Glow, Accent rotation, Follow system), and quick actions (Pin, Random, Lighter, Darker, Copy Hex). Right-click opens the same actions as a context menu for a keyboard-friendly workflow.</li>
+      <li>Premium rows (toggles and quick actions) appear when your license is active or in trial; the FREE block (variant and accent grid) is available to everyone.</li>
       <li>Hide the widget anytime from Settings → Ayu Islands → General if you prefer a cleaner toolbar.</li>
     </ul>
     <h3>2.6.3</h3>
     <ul>
-      <li>[Paid] <b>New VCS tab</b> — tune VCS color intensity across five surfaces (diff viewer, Project View file status, editor gutter, conflict markers, Git blame annotations). Pick a named profile — <b>Whisper</b> (calmer), <b>Ambient</b> (2.6.2 defaults), <b>Neon</b> (brighter, pre-2.6.2 punch), or <b>Cyberpunk</b> (peak) — or dial each surface independently in Custom mode. Master toggle stays off by default, so colors are byte-identical to 2.6.2 until you opt in.</li>
+      <li>[Paid] <b>A new VCS tab</b> — tune VCS color intensity across five surfaces (diff viewer, Project View file status, editor gutter, conflict markers, Git blame annotations). Pick a named profile — <b>Whisper</b> (calmer), <b>Ambient</b> (2.6.2 defaults), <b>Neon</b> (brighter, pre-2.6.2 punch), or <b>Cyberpunk</b> (peak) — or dial each surface independently in Custom mode. The master toggle stays off by default, so colors are byte-identical to 2.6.2 until you opt in.</li>
       <li>Settings → Ayu Islands → <b>VCS</b> tab now lives between Glow and Workspace.</li>
       <li>Project tool window no longer changes width when toggled on/off in Mirage Islands UI under auto-fit mode (issue #169).</li>
     </ul>
     <h3>2.6.2</h3>
     <ul>
       <li>VCS modified-line color is now distinct from added — modified shifts to a saturated blue (Dark <code>#73B8FF</code>, Mirage <code>#80BFFF</code>) so it stops blending into the green added band on dense diffs. Bluer file-status colors in Project View and tabs as well.</li>
-      <li>Editor selection background returns to translucent (alpha 25%) on Dark and Mirage so highlighted text doesn't read as a solid blue block.</li>
-      <li>Settings page no longer freezes on "Loading…" forever when a Custom font preset is active (issue #164) — non-curated presets now skip the install pipeline cleanly instead of crashing the panel build.</li>
-      <li>Font preview pane now renders the user's chosen Custom font family on Settings open instead of falling back to "Install JetBrains Mono to preview" — a UX bug previously masked by the panel-build freeze.</li>
+      <li>Editor selection background returns to translucent (alpha 25%) on Dark and Mirage, so highlighted text doesn't read as a solid blue block.</li>
+      <li>The Settings page no longer freezes on "Loading…" forever when a Custom font preset is active (issue #164) — non-curated presets now skip the font installation pipeline cleanly instead of crashing the panel build.</li>
+      <li>The font preview pane now renders the user's chosen Custom font family when Settings opens instead of falling back to "Install JetBrains Mono to preview" — a UX bug previously masked by the panel-build freeze.</li>
     </ul>
     <h3>2.6.1</h3>
     <ul>
@@ -145,7 +146,7 @@
     <ul>
       <li>[Paid] Per-Language Accent Pins now show a live breakdown of the detected languages in your project (e.g. "Detected: Kotlin 78% • Java 15% • other 7%") or a clear "polyglot" notice when no single language dominates</li>
       <li>Fix accent rotation overriding pinned project colors — tabs and glow now stay on your pinned accent across rotation ticks</li>
-      <li>Fix Settings panel "Currently active:" and "Detected:" readouts binding to the wrong project when two or more windows are open</li>
+      <li>Fix the Settings panel readouts for currently active and detected projects binding to the wrong project when two or more windows are open.</li>
     </ul>
     <h3>2.5.1</h3>
     <ul>
@@ -153,20 +154,20 @@
     </ul>
     <h3>2.5.0</h3>
     <ul>
-      <li>[Paid] Pin an accent color to a specific project — set it once from Settings and every time you switch to that window your accent is there</li>
-      <li>[Paid] Pin an accent color to a programming language — e.g. Kotlin → lime, Python → sky. Applies when a project's dominant language matches and no project override exists</li>
+      <li>[Paid] Pin an accent color to a specific project — set it once from Settings, and every time you switch to that window, your accent is there.</li>
+      <li>[Paid] Pin an accent color to a programming language — e.g., Kotlin → lime, Python → sky. It applies when a project's dominant language matches and no project override exists.</li>
       <li>Recent projects populate the add-project dialog so you can configure overrides without opening the project first</li>
     </ul>
     <h3>2.4.2</h3>
     <ul>
       <li>[Paid] Install, delete, or reinstall curated fonts directly from Settings without opening the wizard</li>
-      <li>Every install and delete now shows a consent dialog with the exact font folder path — no silent filesystem changes</li>
-      <li>Deleting a font reverts the editor to JetBrains Mono and warns that full removal takes effect after IDE restart</li>
-      <li>Settings now shows "Installed ✓", "file missing — Reinstall", or "Install automatically" based on actual disk state</li>
+      <li>Every font installation and deletion now shows a consent dialog with the exact font folder path — no silent filesystem changes.</li>
+      <li>When you delete a font, the editor reverts to JetBrains Mono and warns that complete removal takes effect after an IDE restart.</li>
+      <li>The Settings page now shows "Installed ✓", "file missing — Reinstall", or "Install automatically" based on the actual disk state.</li>
     </ul>
     <h3>2.4.1</h3>
     <ul>
-      <li>Fix font install retry getting stuck on corrupted download cache</li>
+      <li>Fix the font installation retry getting stuck on a corrupted download cache</li>
     </ul>
     <h3>2.4.0</h3>
     <ul>
@@ -232,7 +233,8 @@
     <extensionPoints>
         <extensionPoint
                 name="accentElement"
-                interface="dev.ayuislands.accent.AccentElement"/>
+                interface="dev.ayuislands.accent.AccentElement"
+                dynamic="true"/>
     </extensionPoints>
 
     <extensions defaultExtensionNs="com.ayuislands.theme">
@@ -257,7 +259,8 @@
                 parentId="appearance"
                 instance="dev.ayuislands.settings.AyuIslandsConfigurable"
                 id="dev.ayuislands.settings.AyuIslandsConfigurable"
-                displayName="Ayu Islands"/>
+                bundle="messages.AyuIslandsBundle"
+                key="configurable.display.name"/>
 
         <!-- Persistent accent color state -->
         <applicationService
@@ -267,37 +270,9 @@
         <applicationService
                 serviceImplementation="dev.ayuislands.settings.mappings.AccentMappingsSettings"/>
 
-        <!-- Swaps the active accent when user switches between project windows -->
+        <!-- Syntax intensity persistent state -->
         <applicationService
-                serviceImplementation="dev.ayuislands.settings.mappings.ProjectAccentSwapService"/>
-
-        <!-- Appearance sync (follow system Light/Dark mode) -->
-        <applicationService
-                serviceImplementation="dev.ayuislands.AppearanceSyncService"/>
-
-        <!-- Accent rotation service (timer-based accent switching) -->
-        <applicationService
-                serviceImplementation="dev.ayuislands.rotation.AccentRotationService"/>
-
-        <!-- Glow overlay manager (per-project lifecycle) -->
-        <projectService
-                serviceImplementation="dev.ayuislands.glow.GlowOverlayManager"/>
-
-        <!-- Project View scrollbar manager (per-project lifecycle) -->
-        <projectService
-                serviceImplementation="dev.ayuislands.projectview.ProjectViewScrollbarManager"/>
-
-        <!-- Editor scrollbar manager (per-project lifecycle) -->
-        <projectService
-                serviceImplementation="dev.ayuislands.editor.EditorScrollbarManager"/>
-
-        <!-- Commit panel auto-fit manager (per-project lifecycle) -->
-        <projectService
-                serviceImplementation="dev.ayuislands.commitpanel.CommitPanelAutoFitManager"/>
-
-        <!-- Git panel auto-fit manager (per-project lifecycle) -->
-        <projectService
-                serviceImplementation="dev.ayuislands.gitpanel.GitPanelAutoFitManager"/>
+                serviceImplementation="dev.ayuislands.syntax.SyntaxIntensityState"/>
 
         <!-- Plugin lifecycle -->
         <postStartupActivity
@@ -305,6 +280,7 @@
 
         <!-- Trial expiry notifications -->
         <notificationGroup id="Ayu Islands"
+                           key="notification.group.ayu-islands"
                            displayType="BALLOON"/>
 
         <!-- Onboarding wizard editor tab -->
@@ -358,27 +334,19 @@
 
     <actions>
         <action id="AyuIslands.ShowWhatsNew"
-                class="dev.ayuislands.whatsnew.ShowWhatsNewAction"
-                text="Show What's New…"
-                description="Reopen the latest Ayu Islands release showcase">
+                class="dev.ayuislands.whatsnew.ShowWhatsNewAction">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
 
         <group id="AyuIslands.ToolsGroup"
-               popup="true"
-               text="Ayu Islands"
-               description="Ayu Islands theme actions">
+               popup="true">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
             <action id="AyuIslands.RescanLanguage"
-                    class="dev.ayuislands.actions.RescanLanguageAction"
-                    text="Rescan Project Language"
-                    description="Invalidate the cache and re-detect the dominant project language"/>
+                    class="dev.ayuislands.actions.RescanLanguageAction"/>
         </group>
 
         <action id="AyuIslands.QuickSwitcher"
-                class="dev.ayuislands.accent.toolbar.QuickSwitcherWidgetAction"
-                text="Ayu Quick Switcher"
-                description="Switch Ayu variant and accent from the main toolbar">
+                class="dev.ayuislands.accent.toolbar.QuickSwitcherWidgetAction">
             <add-to-group group-id="MainToolbarRight" anchor="last"/>
         </action>
     </actions>

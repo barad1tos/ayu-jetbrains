@@ -27,6 +27,8 @@
 # Resolver + detector singletons called from kept classes
 -keep class dev.ayuislands.accent.AccentResolver { *; }
 -keep class dev.ayuislands.accent.ProjectLanguageDetector { *; }
+# plugin.xml: projectService (language detector cache invalidation)
+-keep class dev.ayuislands.accent.ProjectLanguageRootChangeListener { *; }
 # plugin.xml: applicationService (focus-swap listener)
 -keep class dev.ayuislands.settings.mappings.ProjectAccentSwapService { *; }
 
@@ -49,6 +51,9 @@
 -keep enum dev.ayuislands.font.FontPreset { *; }
 -keep enum dev.ayuislands.vcs.VcsColorPreset { *; }
 -keep enum dev.ayuislands.vcs.VcsColorCategory { *; }
+-keep enum dev.ayuislands.syntax.SyntaxPreset { *; }
+-keep enum dev.ayuislands.syntax.PrimitiveCategory { *; }
+-keep enum dev.ayuislands.syntax.FontStyleOverride { *; }
 
 # plugin.xml: projectService (Project View tweaks)
 -keep class dev.ayuislands.projectview.ProjectViewScrollbarManager { *; }
@@ -65,6 +70,11 @@
 
 # plugin.xml: applicationService (accent rotation)
 -keep class dev.ayuislands.rotation.AccentRotationService { *; }
+
+# plugin.xml: applicationService (syntax intensity presets and overlays)
+-keep class dev.ayuislands.syntax.SyntaxOverlayLoader { *; }
+-keep class dev.ayuislands.syntax.SyntaxIntensityService { *; }
+-keep class dev.ayuislands.syntax.SyntaxIntensityState { *; }
 
 # plugin.xml: projectService (workspace panel managers)
 -keep class dev.ayuislands.commitpanel.CommitPanelAutoFitManager { *; }

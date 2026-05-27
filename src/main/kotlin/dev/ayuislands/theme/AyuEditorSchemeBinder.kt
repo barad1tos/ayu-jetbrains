@@ -33,6 +33,12 @@ import dev.ayuislands.accent.AyuVariant
 internal object AyuEditorSchemeBinder {
     private val log = logger<AyuEditorSchemeBinder>()
 
+    // Platform SchemeManager prefix for the editable copy it derives from a
+    // bundled scheme when the matching UI theme is active. Not a public platform
+    // constant; mirrored here (matches the "_@user_Ayu Islands Mirage" name the
+    // platform produces at runtime).
+    private const val EDITABLE_COPY_PREFIX = "_@user_"
+
     /**
      * Schemes the binder is allowed to overwrite. Includes our three Ayu
      * scheme names (so Ayu→Ayu transitions sync) and platform defaults
@@ -69,6 +75,16 @@ internal object AyuEditorSchemeBinder {
         val current = ecm.globalScheme.name
         if (current == target) {
             log.debug("Editor scheme already matches variant $variant ($current); no-op")
+            return false
+        }
+        // The platform's editable copy of OUR scheme ("_@user_<target>") is not
+        // a user choice — it's how the editor renders the active Ayu UI theme.
+        // The applicator + accent paths already write Ayu colors into it; the
+        // binder has nothing to swap. Recognize it and stay quiet (debug, not
+        // info) so it isn't misread as a user-custom skip in idea.log. A foreign
+        // editable copy ("_@user_Solarized") falls through to the user-custom path.
+        if (current.removePrefix(EDITABLE_COPY_PREFIX) == target) {
+            log.debug("Editor scheme '$current' is our editable copy for $variant; leaving in place")
             return false
         }
         if (current !in NEUTRAL_SCHEMES) {

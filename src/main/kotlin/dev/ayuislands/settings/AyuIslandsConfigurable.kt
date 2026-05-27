@@ -36,6 +36,12 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         const val EXPAND_MS_PER_CHAR = 35
         const val DISCUSSIONS_SHOW_SETUP = OnboardingUrls.DISCUSSIONS_SHOW_SETUP
         const val DISCUSSIONS_FEATURE_REQUESTS = OnboardingUrls.DISCUSSIONS_FEATURE_REQUESTS
+
+        // Insertion index for the Phase 49 Syntax tab. Slots between Glow (index 2)
+        // and VCS (index 3 pre-insert) so rendering-related tabs cluster together
+        // (Accent | Font | Glow | Syntax) before VCS / Workspace / Plugins. Per
+        // D-03 / RESEARCH Q6.
+        const val SYNTAX_TAB_INDEX = 3
     }
 
     private val activeTimers = mutableListOf<Timer>()
@@ -49,6 +55,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
     private val fontPresetPanel = FontPresetPanel()
     private val effectsPanel = AyuIslandsEffectsPanel()
     private val vcsColorPanel = VcsColorPanel()
+    private val syntaxPanel = AyuIslandsSyntaxPanel()
 
     private val panels: List<AyuIslandsSettingsPanel> =
         listOf(
@@ -59,6 +66,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
             fontPresetPanel,
             effectsPanel,
             vcsColorPanel,
+            syntaxPanel,
             workspacePanel,
             pluginsPanel,
         )
@@ -142,6 +150,11 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                 effectsPanel.buildGlowPanel(this@panel)
             }
 
+        val syntaxTab =
+            panel {
+                syntaxPanel.buildPanel(this@panel, variant)
+            }
+
         val vcsTab =
             panel {
                 vcsColorPanel.buildPanel(this@panel, variant)
@@ -173,6 +186,10 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         tabs.addTab("Accent", accentTab)
         tabs.addTab("Font", fontTab)
         tabs.addTab("Glow", glowTab)
+        // Phase 49 (D-03 / RESEARCH Q6): Syntax slots between Glow and VCS so
+        // rendering-related tabs cluster together (Accent | Font | Glow | Syntax)
+        // before the source-control and workspace tabs.
+        tabs.insertTab("Syntax", null, syntaxTab, null, SYNTAX_TAB_INDEX)
         tabs.addTab("VCS", vcsTab)
         tabs.addTab("Workspace", workspaceTab)
         tabs.addTab("Plugins", pluginsTab)
@@ -311,6 +328,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         fontPresetPanel.reset()
         effectsPanel.reset()
         vcsColorPanel.reset()
+        syntaxPanel.reset()
         workspacePanel.reset()
         pluginsPanel.reset()
     }

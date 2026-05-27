@@ -1,0 +1,21 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<scheme name="Ayu Islands Mirage" version="142" parent_scheme="Darcula">
+    <attributes>
+        <option name="FAKE_BASELINE_COMMENT_1">
+            <value>
+                <option name="FOREGROUND" value="B8CFE6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="FAKE_BASELINE_COMMENT_2">
+            <value>
+                <option name="FOREGROUND" value="AABBCC" />
+            </value>
+        </option>
+        <option name="FAKE_BASELINE_DECL_1">
+            <value>
+                <option name="FOREGROUND" value="FFD173" />
+            </value>
+        </option>
+    </attributes>
+</scheme>
