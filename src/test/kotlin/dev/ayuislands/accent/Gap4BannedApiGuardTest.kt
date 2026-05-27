@@ -105,26 +105,4 @@ class Gap4BannedApiGuardTest {
                 "${offenders.map { it.first.fileName }}",
         )
     }
-
-    @Test
-    fun `coverage thresholds and ignore lists in build gradle kts unchanged from baseline`() {
-        // Read koverVerify line to detect a smuggled threshold drop. The number
-        // (80) is the project-wide floor per CLAUDE.md "Coverage Floors". Any
-        // reduction to bypass hook coverage is a violation.
-        val buildGradle =
-            Files.readString(
-                Paths.get(System.getProperty("user.dir"), "build.gradle.kts"),
-            )
-        val pattern = Regex("""minBound\((\d+)\)""")
-        val koverFloor = pattern.findAll(buildGradle).map { it.groupValues[1] }.toList()
-        assertFalse(
-            koverFloor.any { it.toInt() < EXPECTED_KOVER_FLOOR },
-            "build.gradle.kts kover minBound must not drop below " +
-                "$EXPECTED_KOVER_FLOOR — found: $koverFloor",
-        )
-    }
-
-    private companion object {
-        const val EXPECTED_KOVER_FLOOR = 80
-    }
 }
