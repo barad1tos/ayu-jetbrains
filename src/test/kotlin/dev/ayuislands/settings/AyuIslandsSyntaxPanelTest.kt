@@ -26,6 +26,7 @@ import java.io.File
 import javax.swing.JButton
 import javax.swing.JLabel
 import javax.swing.JSlider
+import javax.swing.Timer
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -52,15 +53,47 @@ import kotlin.test.assertTrue
  *  - Custom accepted for licensed users: pill selection routes through the
  *    same apply path as the four named pills.
  *  - `reset()` reverts the pending buffer to the stored value.
- *  - Pattern L source-regex regression locks: license check call sites,
- *    apply ordering, absence of Phase 49 symbols, correct `LicenseChecker`
- *    import package, real `buildPanel(panel, variant)` signature, and the
- *    tooltip pre-placement helper presence.
  *
  * Plain kotlin.test + MockK. The Kotlin UI DSL requires EDT-managed
  * `DialogPanel` lifecycle, so the tests exercise apply / reset / isModified
  * on freshly constructed panels and drive the pill selection through the
  * private `onPresetChosen` seam via reflection.
+ *
+ * **Test-design note (documented compromise):** a handful of [readPanelSource]
+ * source-regex checks remain in this suite and guard real user-facing bugs
+ * that have no cheap unit-level behavioral substitute. Each one catches a
+ * concrete regression:
+ *
+ *  - `applyCustomPillTooltipIfFree` wire site: the SegmentedButton-internal
+ *    Swing subtree is not API-stable; if the post-realise `invokeLater`
+ *    queueing is dropped, free users lose the Pro affordance on the Custom
+ *    pill. A behavioral test would have to build the DSL panel and walk the
+ *    SegmentedButton's component tree on the EDT.
+ *  - Two-column grouped layout (`CUSTOM_COLUMN_GROUPS` + `buildCategoryGroup`):
+ *    a refactor back to the single unbroken table or to the deleted master /
+ *    detail JBList would be a visible regression. Verifying the actual two
+ *    column-level panels requires running the UI DSL with the platform.
+ *  - Tick-free slider cell (`paintTicks = false` / `paintLabels = false`):
+ *    visible tick marks across 64 sliders would be the Direction B
+ *    regression we shipped to avoid. The DSL `slider()` cell is also
+ *    platform-bound — bare `JSlider(...)` would bypass UI-DSL theming.
+ *  - Binary-compat spacing-configuration ban: matches the documented
+ *    `gotcha_platform_interface_delegation_binary_compat` lesson — a `by`
+ *    delegation onto the platform `SpacingConfiguration` interface compiled
+ *    against 2025.1 throws `AbstractMethodError` on newer runtime IDEs and
+ *    hangs the settings page on "Loading…". Unit tests against the embedded
+ *    SDK cannot reproduce the runtime failure.
+ *  - `InplaceButton`-only trailing slot zone: a bare `JToggleButton` or
+ *    `ActionButton` re-introduces the `ActionToolbar.updateUI`
+ *    `SlowOperations SEVERE` crash documented in the project's
+ *    `feedback_no_threshold_or_ignore_changes` lesson. The fixed-slot
+ *    `GridLayout(1, TRAILING_SLOT_COUNT, ...)` plus `TRAILING_SLOT_*`
+ *    constants are DSL-build internals — building the panel under unit
+ *    tests requires a full IntelliJ platform.
+ *
+ * Do not delete these source-regex assertions in future "remove theater"
+ * cleanup passes without first wiring a working `integrationTest` task that
+ * actually builds the panel under a live IntelliJ application.
  */
 class AyuIslandsSyntaxPanelTest {
     private lateinit var stateBase: SyntaxIntensityBaseState
@@ -244,167 +277,29 @@ class AyuIslandsSyntaxPanelTest {
         assertFalse(panel.isModified())
     }
 
-    // ---------- Test 7 - Pattern L: LicenseChecker call site lock ----------
+    // ---------- Test 7 - documented compromise: tooltip pre-placement wire site ----------
 
     @Test
-    fun `panel source has exactly 3 LicenseChecker isLicensedOrGrace call sites (Pattern L)`() {
-        val source = readPanelSource()
-        val pattern = Regex("""LicenseChecker\.isLicensedOrGrace\(\)""")
-        val matches = pattern.findAll(source).count()
-        assertEquals(
-            3,
-            matches,
-            "Pattern L: only Custom loading normalization, the Custom-pill guard in onPresetChosen, " +
-                "and the tooltip short-circuit may call LicenseChecker.isLicensedOrGrace(). " +
-                "Found $matches call sites - INTENSITY-10 regression risk.",
-        )
-    }
-
-    @Test
-    fun `Custom-pill guard sits next to SyntaxPreset CUSTOM literal in source (Pattern L)`() {
-        val source = readPanelSource()
-        // The first license call site is the onPresetChosen guard; it must
-        // appear within a few lines of the literal SyntaxPreset.CUSTOM to
-        // prove the gate is on the Custom branch and not a free-pill path.
-        val guardRegex =
-            Regex(
-                """preset\s*==\s*SyntaxPreset\.CUSTOM\s*&&\s*!LicenseChecker\.isLicensedOrGrace\(\)""",
-            )
-        assertTrue(
-            guardRegex.containsMatchIn(source),
-            "Pattern L: the unlicensed Custom guard must read " +
-                "'preset == SyntaxPreset.CUSTOM && !LicenseChecker.isLicensedOrGrace()' verbatim.",
-        )
-    }
-
-    @Test
-    fun `requestLicense appears exactly once in panel source`() {
-        val source = readPanelSource()
-        val matches = Regex("""LicenseChecker\.requestLicense\(""").findAll(source).count()
-        assertEquals(
-            1,
-            matches,
-            "Pattern L: LicenseChecker.requestLicense must be invoked exactly once " +
-                "(the Custom-rejection branch).",
-        )
-    }
-
-    // ---------- Test 8 - Pattern L: no Phase 49 symbol references ----------
-
-    @Test
-    fun `panel source contains no Phase 49 symbol references (Pattern L)`() {
-        val source = readPanelSource()
-        val forbidden =
-            listOf(
-                "SyntaxMood",
-                "StyleAxis",
-                "SyntaxModeService",
-                "SyntaxModeState",
-                "SyntaxModeUpgradeNotifier",
-            )
-        for (literal in forbidden) {
-            assertFalse(
-                source.contains(literal),
-                "Pattern L: Phase 49 symbol '$literal' must not appear in the panel source.",
-            )
-        }
-    }
-
-    // ---------- Test 9 - Pattern L: apply ordering source lock ----------
-
-    @Test
-    fun `apply method body has service call BEFORE state mutation in source (Pattern L apply-FIRST)`() {
-        val source = readPanelSource()
-        val applyBody = functionBody(source, "override fun apply(")
-        val previewCallIdx = applyBody.indexOf("preview()")
-        val statePersistIdx = applyBody.indexOf("state.selectedPreset = pendingPreset.name")
-        val previewBody = functionBody(source, "private fun preview(")
-        assertTrue(
-            previewBody.contains("SyntaxIntensityService.getInstance().apply("),
-            "preview() must contain the SyntaxIntensityService.getInstance().apply(...) call",
-        )
-        assertTrue(
-            statePersistIdx >= 0,
-            "panel source must contain 'state.selectedPreset = pendingPreset.name' persistence",
-        )
-        assertTrue(
-            previewCallIdx in 0 until statePersistIdx,
-            "Pattern L apply-FIRST: preview/service apply must appear textually BEFORE " +
-                "state.selectedPreset = pendingPreset.name (Anti-Pattern #4 ordering).",
-        )
-    }
-
-    // ---------- Test 10 - Pattern L: browserLink present ----------
-
-    @Test
-    fun `panel source contains a browserLink call (Pattern L)`() {
-        val source = readPanelSource()
-        assertTrue(
-            source.contains("browserLink("),
-            "Pattern L: panel must include the browserLink to the Color Scheme editor docs.",
-        )
-        assertTrue(
-            source.contains("https://www.jetbrains.com/help/idea/configuring-colors-and-fonts.html"),
-            "Pattern L: browserLink URL must point at the JetBrains Color Scheme help page.",
-        )
-    }
-
-    // ---------- Test 11 - Pattern L: correct LicenseChecker package ----------
-
-    @Test
-    fun `panel source imports LicenseChecker from licensing package (Codex HIGH 2)`() {
-        val source = readPanelSource()
-        assertTrue(
-            source.contains("import dev.ayuislands.licensing.LicenseChecker"),
-            "Codex HIGH #2: LicenseChecker must be imported from dev.ayuislands.licensing.",
-        )
-        assertFalse(
-            source.contains("import dev.ayuislands.license.LicenseChecker"),
-            "Codex HIGH #2: wrong package 'dev.ayuislands.license' must not appear in imports.",
-        )
-    }
-
-    // ---------- Test 12 - Pattern L: real interface signature ----------
-
-    @Test
-    fun `panel source uses real buildPanel(panel, variant) signature (Codex HIGH 2)`() {
-        val source = readPanelSource()
-        assertTrue(
-            source.contains("override fun buildPanel("),
-            "Codex HIGH #2: override fun buildPanel must be present.",
-        )
-        assertTrue(
-            source.contains("panel: Panel,"),
-            "Codex HIGH #2: buildPanel must take 'panel: Panel,' as a positional parameter.",
-        )
-        assertTrue(
-            source.contains("variant: AyuVariant"),
-            "Codex HIGH #2: buildPanel must take 'variant: AyuVariant' as a positional parameter.",
-        )
-        assertFalse(
-            source.contains("override fun getComponent"),
-            "Codex HIGH #2: getComponent is NOT part of the real AyuIslandsSettingsPanel interface.",
-        )
-    }
-
-    // ---------- Test 13 - Pattern L: tooltip pre-placement helper presence ----------
-
-    @Test
-    fun `panel source contains applyCustomPillTooltipIfFree helper (Gemini MEDIUM 3)`() {
+    fun `panel source wires applyCustomPillTooltipIfFree post-realise (documented compromise)`() {
+        // Documented compromise: the SegmentedButton-internal Swing subtree is
+        // not API-stable across IntelliJ versions; if the post-realise
+        // invokeLater queueing is dropped, free users lose the Pro affordance
+        // on the Custom pill. Behavioral substitute would require building
+        // the DSL panel and walking the SegmentedButton component tree.
         val source = readPanelSource()
         assertTrue(
             source.contains("applyCustomPillTooltipIfFree"),
-            "Gemini MEDIUM #3: applyCustomPillTooltipIfFree helper must exist as the wire site " +
-                "for the runIde-finalised Swing subtree lookup.",
+            "applyCustomPillTooltipIfFree helper must exist as the wire site for the runIde-" +
+                "finalised SegmentedButton Swing subtree lookup.",
         )
         assertTrue(
             source.contains("SwingUtilities.invokeLater { applyCustomPillTooltipIfFree() }"),
-            "Gemini MEDIUM #3: tooltip pre-placement must be queued post-realise via " +
+            "tooltip pre-placement must be queued post-realise via " +
                 "SwingUtilities.invokeLater { applyCustomPillTooltipIfFree() }.",
         )
     }
 
-    // ---------- Test 14 - composite-key identity round-trip (Pitfall 1/2) ----------
+    // ---------- Test 8 - composite-key identity round-trip (Pitfall 1/2) ----------
 
     @Test
     fun `panel composite key resolves in the applicator and transforms the foreground`() {
@@ -443,43 +338,42 @@ class AyuIslandsSyntaxPanelTest {
         )
     }
 
-    // ---------- Test 15 - sparse write-through source lock (INTENSITY-17) ----------
+    // ---------- Test 9 - license-invariant write paths (INTENSITY-16 behavioral) ----------
 
     @Test
-    fun `panel writes overrides sparsely keyed by composite key, never write-all (Pattern L)`() {
-        val source = readPanelSource()
-        assertTrue(
-            source.contains("val key = compositeKey(language, category)") &&
-                source.contains("pendingOverrides[key] = value.toString()"),
-            "INTENSITY-17: the sparse write must be keyed by the composite displayName|enum-name key.",
-        )
-        val writeAll =
-            Regex(
-                """for\s*\(\s*category\s+in\s+PrimitiveCategory\.entries\s*\)\s*\{[^}]*""" +
-                    """pendingOverrides\[[^]]*]\s*=""",
-            )
-        assertFalse(
-            writeAll.containsMatchIn(source),
-            "INTENSITY-17: overrides must stay sparse - no loop writes every category unconditionally.",
-        )
-    }
+    fun `LicenseChecker is never consulted by the slider-override apply path (INTENSITY-16)`() {
+        // The service-layer enforceCustomGate is the defense-in-depth; the
+        // panel's free/override write path must not consult the license
+        // checker. Drive the apply / slider-change / rebind paths and verify
+        // no LicenseChecker.isLicensedOrGrace() invocation lands on any of
+        // them.
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        stateBase.selectedPreset = "CUSTOM"
+        val panel = panelWithLoadedState()
+        writeCurrentLanguage(panel, "Java")
+        seedWidgets(panel, PrimitiveCategory.KEYWORD)
 
-    // ---------- Test 16 - license-invariant source lock (free/override path) ----------
+        // loadStateIntoPending already fired the only legitimate license call
+        // (Custom normalization); reset the recorded calls so the next
+        // verify() observes only the paths under test.
+        io.mockk.clearMocks(LicenseChecker, answers = false, recordedCalls = true)
+        every { LicenseChecker.isLicensedOrGrace() } returns true
 
-    @Test
-    fun `LicenseChecker is absent from apply, onSliderChanged, and rebindSlidersFor regions (Pattern L)`() {
-        val source = readPanelSource()
-        for (fn in listOf("override fun apply(", "private fun onSliderChanged(", "private fun rebindSlidersFor(")) {
-            val body = functionBody(source, fn)
-            assertFalse(
-                body.contains("LicenseChecker"),
-                "INTENSITY-16: the free/override write path ($fn) must not consult LicenseChecker - " +
-                    "the service-layer enforceCustomGate is the defense-in-depth.",
-            )
+        try {
+            invokeOnJavaKeywordSliderChanged(panel, 80)
+            invokeRebindSlidersForJava(panel)
+            writePendingPreset(panel, SyntaxPreset.CUSTOM)
+            seedPendingOverride(panel, "Java|KEYWORD", "80")
+            panel.apply()
+
+            verify(exactly = 0) { LicenseChecker.isLicensedOrGrace() }
+            verify(exactly = 0) { LicenseChecker.requestLicense(any()) }
+        } finally {
+            panel.dispose()
         }
     }
 
-    // ---------- Test 17 - per-language master reset behavior (INTENSITY-15) ----------
+    // ---------- Test 10 - per-language master reset behavior (INTENSITY-15) ----------
 
     @Test
     fun `onResetCurrentLanguage clears only the active language's overrides, leaving others intact`() {
@@ -514,25 +408,7 @@ class AyuIslandsSyntaxPanelTest {
         }
     }
 
-    @Test
-    fun `onResetCurrentLanguage source lock - filters by current-language prefix, not clear-all (Pattern L)`() {
-        val source = readPanelSource()
-        assertTrue(
-            source.contains("onResetCurrentLanguage"),
-            "INTENSITY-15: a per-language master reset helper must exist.",
-        )
-        val body = functionBody(source, "private fun onResetCurrentLanguage(")
-        assertTrue(
-            body.contains("startsWith(prefix)") || body.contains($$"$currentLanguage|"),
-            "INTENSITY-15: the per-language reset must scope removal to the active-language prefix.",
-        )
-        assertFalse(
-            body.contains("pendingOverrides.clear()"),
-            "INTENSITY-15: the per-language reset must NOT wipe every language's overrides.",
-        )
-    }
-
-    // ---------- Test 20 - signed-delta readout (Direction B presentation) ----------
+    // ---------- Test 11 - signed-delta readout (Direction B presentation) ----------
 
     @Test
     fun `signedReadout maps stored value to signed delta from identity`() {
@@ -578,10 +454,16 @@ class AyuIslandsSyntaxPanelTest {
         )
     }
 
-    // ---------- Test 21b - grouped two-column Custom grid ----------
+    // ---------- Test 21b - documented compromise: grouped two-column Custom grid ----------
 
     @Test
-    fun `panel source renders grouped semantic categories in two stable columns`() {
+    fun `panel source renders grouped semantic categories in two stable columns (documented compromise)`() {
+        // Documented compromise: the two-column grouped layout lives in the
+        // UI DSL `buildCustomFoldOut` / `buildCategoryGroup` build path. A
+        // refactor back to the single unbroken table or to the deleted
+        // master/detail JBList would be a visible regression. Verifying the
+        // actual two column-level panels requires materialising the
+        // DialogPanel under a live IntelliJ application.
         val source = readPanelSource()
         assertTrue(
             source.contains("private val CUSTOM_COLUMN_GROUPS: List<List<CategoryGroup>>"),
@@ -654,30 +536,26 @@ class AyuIslandsSyntaxPanelTest {
         )
     }
 
-    // ---------- Test 22 - Direction B layout source locks ----------
+    // ---------- Test 22 - documented compromise: Direction B DSL slider build ----------
 
     @Test
-    fun `panel slider cell is tick-free (Direction B)`() {
+    fun `panel slider cell is tick-free (documented compromise, Direction B)`() {
+        // Documented compromise: the DSL `slider()` cell's `paintTicks` /
+        // `paintLabels` properties are set during the UI-DSL build; a
+        // behavioral substitute requires the IntelliJ platform to materialise
+        // the DialogPanel. Visible tick marks across 64 sliders would be the
+        // Direction B regression we shipped to avoid.
         val source = readPanelSource()
         assertTrue(source.contains("paintTicks = false"), "Direction B: the slider must hide tick marks.")
         assertTrue(source.contains("paintLabels = false"), "Direction B: the slider must hide tick labels.")
     }
 
     @Test
-    fun `panel uses signedReadout for the slider readout, never a percent string (Direction B)`() {
-        val source = readPanelSource()
-        assertTrue(
-            source.contains("signedReadout("),
-            "Direction B: the readout label must render via signedReadout(value).",
-        )
-        assertFalse(
-            source.contains($$"\"$value%\"") || source.contains($$"\"$SLIDER_MID%\""),
-            "Direction B: the old percent readout must be gone - the readout is a signed delta.",
-        )
-    }
-
-    @Test
-    fun `panel builds sliders via the UI DSL slider cell, never a bare JSlider constructor`() {
+    fun `panel builds sliders via the UI DSL slider cell, never a bare JSlider constructor (documented compromise)`() {
+        // Documented compromise: a bare `JSlider(...)` constructor bypasses
+        // UI-DSL theming and would look out-of-place against the surrounding
+        // settings rows. The DSL build site cannot be exercised without
+        // wiring the IntelliJ platform.
         val source = readPanelSource()
         // Allow the documentation code span `JSlider(...)` (backtick-quoted) but
         // forbid a real constructor call: JSlider( preceded by neither an
@@ -692,27 +570,7 @@ class AyuIslandsSyntaxPanelTest {
         )
     }
 
-    // ---------- Test 22b - table row source locks ----------
-
-    @Test
-    fun `categoryRow uses an explicit fixed-width leading JLabel, not the auto row(displayName) column`() {
-        val source = readPanelSource()
-        val body = functionBody(source, "private fun Panel.categoryRow(")
-        assertFalse(
-            body.contains("row(category.displayName)"),
-            "cross-group alignment: auto leading labels must not size each nested grid independently.",
-        )
-        assertTrue(
-            body.contains("JLabel(category.displayName)"),
-            "cross-group alignment: the leading cell must be an explicit JLabel(category.displayName).",
-        )
-        assertTrue(
-            body.contains("preferredSize = Dimension(width, preferredSize.height)") &&
-                body.contains("minimumSize = Dimension(width, preferredSize.height)") &&
-                body.contains("val width = labelColumnWidth"),
-            "cross-group alignment: the leading label must pin preferred and minimum width.",
-        )
-    }
+    // ---------- Test 22b - shared label column width behavior ----------
 
     @Test
     fun `labelColumnWidth is at least the widest PrimitiveCategory displayName so no label clips`() {
@@ -729,7 +587,14 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     @Test
-    fun `panel never delegates or implements a platform spacing configuration (binary-compat regression guard)`() {
+    fun `panel never delegates a platform SpacingConfiguration (documented compromise, binary-compat guard)`() {
+        // Documented compromise: matches the project's
+        // `gotcha_platform_interface_delegation_binary_compat` lesson — a
+        // `by` delegation onto the platform `SpacingConfiguration` interface
+        // compiled against 2025.1 throws `AbstractMethodError` on newer
+        // runtime IDEs and hangs the settings page on "Loading…". Unit
+        // tests run against the embedded SDK so they cannot reproduce the
+        // runtime failure; the source-regex check is the cheapest guard.
         val source = readPanelSource()
         val forbiddenSpacingSymbols =
             listOf(
@@ -748,23 +613,21 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     @Test
-    fun `readout 28, label padding 8, slider track 140, trailing zone 64 keep grouped rows compact`() {
-        val source = readPanelSource()
-        assertTrue(
-            source.contains("private const val READOUT_WIDTH = 28"),
-            "The right-aligned readout cell must stay compact.",
+    fun `compact size constants stay pinned to the values the grouped rows depend on`() {
+        // Read the production companion constants directly: the grouped
+        // two-column layout depends on these numbers staying paired so rows
+        // line up across both column panels without horizontal bloat.
+        assertEquals(28, readPrivateConst("READOUT_WIDTH"), "right-aligned readout cell must stay compact at 28.")
+        assertEquals(8, readPrivateConst("LABEL_PADDING"), "leading-label trailing padding must stay 8.")
+        assertEquals(
+            140,
+            readPrivateConst("SLIDER_TRACK_WIDTH"),
+            "slider tracks must stay 140 to avoid horizontal bloat in the two-column matrix.",
         )
-        assertTrue(
-            source.contains("private const val LABEL_PADDING = 8"),
-            "The leading-label trailing padding must stay 8.",
-        )
-        assertTrue(
-            source.contains("private const val SLIDER_TRACK_WIDTH = 140"),
-            "The grouped two-column matrix must keep slider tracks compact enough to avoid horizontal bloat.",
-        )
-        assertTrue(
-            source.contains("private const val TRAILING_ZONE_WIDTH = 64"),
-            "The fixed reset + Bold + Italic trailing zone must be 64.",
+        assertEquals(
+            64,
+            readPrivateConst("TRAILING_ZONE_WIDTH"),
+            "fixed reset + Bold + Italic trailing zone must be 64.",
         )
     }
 
@@ -1097,10 +960,18 @@ class AyuIslandsSyntaxPanelTest {
         }
     }
 
-    // ---------- Part B Test 33 - InplaceButton-only trailing controls (source lock) ----------
+    // ---------- Part B Test 33 - documented compromise: InplaceButton-only trailing controls ----------
 
     @Test
-    fun `trailing controls use InplaceButton, never JToggleButton or ActionButton`() {
+    fun `trailing controls use InplaceButton, never JToggleButton or ActionButton (documented compromise)`() {
+        // Documented compromise: a bare `JToggleButton` re-introduces the
+        // shouting toggle box across 32 instances, and `ActionButton` plus
+        // `updateComponentTreeUI` reproduce the `ActionToolbar.updateUI`
+        // `SlowOperations SEVERE` crash documented in the project's
+        // testing-philosophy notes. The fixed-slot
+        // `GridLayout(1, TRAILING_SLOT_COUNT, ...)` plus `TRAILING_SLOT_*`
+        // constants are DSL-build internals; a behavioral substitute would
+        // need to materialise the trailing zone JPanel via the platform.
         val source = readPanelSource()
         assertTrue(
             source.contains("InplaceButton("),
@@ -1119,10 +990,15 @@ class AyuIslandsSyntaxPanelTest {
             source.contains("JPanel(GridLayout(1, TRAILING_SLOT_COUNT, JBUI.scale(TRAILING_GAP), 0))"),
             "The trailing reset / Bold / Italic zone must use fixed slots so B/I never shift when reset appears.",
         )
-        assertTrue(
-            source.contains("private const val TRAILING_SLOT_COUNT = 3") &&
-                source.contains("private const val TRAILING_SLOT_SIDE = 20"),
-            "The trailing zone must reserve three stable 20px slots.",
+        assertEquals(
+            3,
+            readPrivateConst("TRAILING_SLOT_COUNT"),
+            "the trailing zone must reserve three stable slots.",
+        )
+        assertEquals(
+            20,
+            readPrivateConst("TRAILING_SLOT_SIDE"),
+            "the trailing zone slots must stay 20px so B/I never shift when reset appears.",
         )
         assertFalse(
             source.contains("JToggleButton"),
@@ -1140,66 +1016,92 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     @Test
-    fun `refreshResetVisibility condition references pendingStyles`() {
-        val source = readPanelSource()
-        assertTrue(
-            source.contains("private fun refreshResetVisibility("),
-            "Part B: a centralized refreshResetVisibility(category) helper must exist.",
-        )
-        val body = functionBody(source, "private fun refreshResetVisibility(")
-        assertTrue(
-            body.contains("pendingStyles[key]"),
-            "Part B: reset visibility must consider pendingStyles so a style-only cell stays resettable.",
-        )
-        assertTrue(
-            body.contains("SLIDER_MID"),
-            "Part B: reset visibility must also consider slider divergence from identity.",
-        )
+    fun `refreshResetVisibility shows the reset on a style-only override (behavioral)`() {
+        stateBase.selectedPreset = "CUSTOM"
+        val panel = panelWithLoadedState()
+        writeCurrentLanguage(panel, "Java")
+        val widgets = seedWidgets(panel, PrimitiveCategory.KEYWORD)
+
+        try {
+            // No slider move; just a style-only override. The reset must surface
+            // because pendingStyles is dirty for this cell.
+            seedPendingStyle(panel, "Java|KEYWORD", "BOLD")
+            invokeRefreshResetVisibility(panel, PrimitiveCategory.KEYWORD)
+            assertTrue(
+                widgets.resetButton.isVisible,
+                "a style-only override must keep the cell resettable, not just a slider divergence.",
+            )
+
+            // Drop the style — slider still at identity — and the reset hides.
+            pendingStylesField(panel).clear()
+            invokeRefreshResetVisibility(panel, PrimitiveCategory.KEYWORD)
+            assertFalse(
+                widgets.resetButton.isVisible,
+                "an untouched cell (no style, no slider move) must hide the reset.",
+            )
+        } finally {
+            panel.dispose()
+        }
     }
 
     @Test
-    fun `apply threads built styles into the service and persists state customStyles (Part B source lock)`() {
-        val source = readPanelSource()
-        val body = functionBody(source, "override fun apply(")
-        val previewBody = functionBody(source, "private fun preview(")
-        assertTrue(
-            previewBody.contains("buildNested(pendingStyles)"),
-            "Part B: preview/apply must build nested styles from pendingStyles.",
-        )
-        assertTrue(
-            body.contains("state.customStyles.clear()") && body.contains("state.customStyles.putAll(pendingStyles)"),
-            "Part B: apply must persist pendingStyles into state.customStyles (clear + putAll).",
-        )
-        val applyIdx = body.indexOf("preview()")
-        val persistIdx = body.indexOf("state.customStyles.clear()")
-        assertTrue(
-            applyIdx in 0 until persistIdx,
-            "Part B apply-FIRST: preview/service apply must precede the customStyles persist.",
+    fun `apply persists pending styles into state customStyles after the service call (behavioral)`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        stateBase.selectedPreset = "CUSTOM"
+        val panel = panelWithLoadedState()
+        writePendingPreset(panel, SyntaxPreset.CUSTOM)
+        seedPendingStyle(panel, "Java|KEYWORD", "BOLD")
+        seedPendingStyle(panel, "Java|STRING_LITERAL", "ITALIC")
+
+        panel.apply()
+
+        verifyOrder {
+            // Service call first.
+            intensityService.apply(any(), any(), any(), any())
+            // Then the persistence reads state.
+            stateService.state
+        }
+        assertEquals(
+            mapOf("Java|KEYWORD" to "BOLD", "Java|STRING_LITERAL" to "ITALIC"),
+            stateBase.customStyles,
+            "apply must persist pendingStyles into state.customStyles (clear + putAll).",
         )
     }
 
-    // ---------- Test 18 - debounce source lock (INTENSITY-13 / D-19) ----------
+    // ---------- Test 18 - debounce behavior (INTENSITY-13 / D-19, behavioral) ----------
 
     @Test
-    fun `slider apply is debounced single-shot at 100ms and never synchronous (Pattern L)`() {
-        val source = readPanelSource()
-        assertTrue(source.contains("isRepeats = false"), "D-19: the debounce timer must be single-shot.")
-        assertTrue(source.contains("applyTimer.restart()"), "D-19: the drag burst must restart the timer.")
-        assertTrue(source.contains("DEBOUNCE_MS = 100"), "D-19: the debounce window must be exactly 100ms.")
-        assertTrue(
-            source.contains("applyTimer.addActionListener { preview() }"),
-            "D-19: the debounce timer must preview without persisting Settings state.",
-        )
+    fun `applyTimer is a single-shot 100ms timer that previews without persisting`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        stateBase.selectedPreset = "CUSTOM"
+        val panel = panelWithLoadedState()
+        writeCurrentLanguage(panel, "Java")
+        seedWidgets(panel, PrimitiveCategory.KEYWORD)
 
-        val body = functionBody(source, "private fun onSliderChanged(")
-        assertTrue(
-            body.contains("applyTimer.restart()"),
-            "D-19: the slider change listener must defer the apply through the timer.",
-        )
-        assertFalse(
-            body.contains("apply()"),
-            "D-19: the slider change listener must NOT call apply() synchronously.",
-        )
+        try {
+            val timer = readApplyTimer(panel)
+            assertFalse(timer.isRepeats, "D-19: the debounce timer must be single-shot.")
+            assertEquals(100, timer.delay, "D-19: the debounce window must be exactly 100ms.")
+
+            // Clear the apply call recorded by panelWithLoadedState() and any
+            // earlier setup so we observe only the slider-change path.
+            io.mockk.clearMocks(intensityService, answers = false, recordedCalls = true)
+            invokeOnJavaKeywordSliderChanged(panel, 80)
+
+            verify(exactly = 0) {
+                intensityService.apply(any(), any(), any(), any())
+            }
+            assertTrue(
+                timer.isRunning,
+                "D-19: the slider change listener must arm the debounce timer for a deferred preview.",
+            )
+            assertTrue(
+                stateBase.customOverrides.isEmpty(),
+                "D-19: the slider change listener must NOT persist Settings state synchronously.",
+            )
+        } finally {
+            panel.dispose()
+        }
     }
 
     // ---------- Reflection helpers ----------
@@ -1208,27 +1110,6 @@ class AyuIslandsSyntaxPanelTest {
         val attrs = TextAttributes()
         attrs.foregroundColor = color
         return attrs
-    }
-
-    /**
-     * Return the source region from the start of the function whose
-     * declaration contains [declaration] up to (but not including) the next
-     * top-level function declaration. Good enough for a Pattern L lock - the
-     * panel's helpers are short and do not nest function declarations.
-     */
-    private fun functionBody(
-        source: String,
-        declaration: String,
-    ): String {
-        val start = source.indexOf(declaration)
-        assertTrue(start >= 0, "source must contain '$declaration'")
-        val after = source.indexOf("    private fun ", start + declaration.length)
-        val afterOverride = source.indexOf("    override fun ", start + declaration.length)
-        val end =
-            listOf(after, afterOverride)
-                .filter { it >= 0 }
-                .minOrNull() ?: source.length
-        return source.substring(start, end)
     }
 
     private fun panelWithLoadedState(): AyuIslandsSyntaxPanel {
@@ -1507,6 +1388,32 @@ class AyuIslandsSyntaxPanelTest {
         val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("READOUT_WIDTH")
         field.isAccessible = true
         return JBUI.scale(field.getInt(null))
+    }
+
+    /** Read any of the panel's private companion `Int` constants by name. */
+    private fun readPrivateConst(name: String): Int {
+        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField(name)
+        field.isAccessible = true
+        return field.getInt(null)
+    }
+
+    private fun invokeRefreshResetVisibility(
+        panel: AyuIslandsSyntaxPanel,
+        category: PrimitiveCategory,
+    ) {
+        val method =
+            AyuIslandsSyntaxPanel::class.java.getDeclaredMethod(
+                "refreshResetVisibility",
+                PrimitiveCategory::class.java,
+            )
+        method.isAccessible = true
+        method.invoke(panel, category)
+    }
+
+    private fun readApplyTimer(panel: AyuIslandsSyntaxPanel): Timer {
+        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("applyTimer")
+        field.isAccessible = true
+        return field.get(panel) as Timer
     }
 
     private fun readPanelSource(): String {
