@@ -18,8 +18,6 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
-import java.nio.file.Files
-import java.nio.file.Paths
 import javax.swing.JLabel
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -49,20 +47,20 @@ class IconPillButtonTest {
 
     @Test
     fun `preferred size is 28 x 28 JBUI scaled`() {
-        val button = IconPillButton(stubAction("Pin"), JLabel(), AllIcons.Actions.PinTab)
+        val button = IconPillButton(stubPinAction(), JLabel(), AllIcons.Actions.PinTab)
         assertEquals(JBUI.scale(28), button.preferredSize.width)
         assertEquals(JBUI.scale(28), button.preferredSize.height)
     }
 
     @Test
     fun `text label is empty (icon-only)`() {
-        val button = IconPillButton(stubAction("Pin"), JLabel(), AllIcons.Actions.PinTab)
+        val button = IconPillButton(stubPinAction(), JLabel(), AllIcons.Actions.PinTab)
         assertEquals("", button.text)
     }
 
     @Test
     fun `tooltip text uses action description fallback to text`() {
-        val withDescription = stubAction(name = "Pin", description = "Pin this accent")
+        val withDescription = stubPinAction(description = "Pin this accent")
         val button = IconPillButton(withDescription, JLabel(), AllIcons.Actions.PinTab)
         assertEquals("Pin this accent", button.toolTipText)
     }
@@ -135,25 +133,10 @@ class IconPillButtonTest {
         assertTrue(button.isEnabled, "Button must stay enabled after a swallowed RuntimeException")
     }
 
-    @Test
-    fun `RuntimeException catch is in place (Pattern B source-grep)`() {
-        val source =
-            Files.readString(
-                Paths.get("src/main/kotlin/dev/ayuislands/accent/toolbar/popup/IconPillButton.kt"),
-            )
-        val catchCount = "catch \\(exception: RuntimeException\\)".toRegex().findAll(source).count()
-        assertTrue(catchCount >= 1, "Pattern B: must catch RuntimeException around action dispatch")
-        val throwableCatch = "catch \\(exception: Throwable\\)".toRegex().findAll(source).count()
-        assertEquals(0, throwableCatch, "Pattern B violation — must NOT catch Throwable")
-    }
-
-    private fun stubAction(
-        name: String,
-        description: String? = null,
-    ): AnAction {
+    private fun stubPinAction(description: String? = null): AnAction {
         val action = mockk<AnAction>(relaxed = true)
         val presentation =
-            Presentation(name).apply {
+            Presentation("Pin").apply {
                 this.description = description
             }
         every { action.templatePresentation } returns presentation

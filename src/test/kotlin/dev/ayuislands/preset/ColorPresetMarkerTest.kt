@@ -20,8 +20,8 @@ import org.junit.jupiter.api.Test
  *    their existing native signatures verbatim — no wrapper class, no synthetic
  *    `detect()` aliases, no caller-fix cascade.
  *
- * Direct type checks (`is ColorPreset`) — no reflection, no `kotlin-reflect`
- * dependency required.
+ * Type-erased marker checks (`is ColorPreset`) — no reflection, no `kotlin-reflect`
+ * dependency required, and no compiler-known-true assertions.
  */
 class ColorPresetMarkerTest {
     @Test
@@ -45,30 +45,22 @@ class ColorPresetMarkerTest {
 
     @Test
     fun `every GlowPreset entry implements ColorPreset marker`() {
-        for (entry in GlowPreset.entries) {
-            assertTrue(entry is ColorPreset, "GlowPreset.$entry must implement ColorPreset")
-        }
+        assertEntriesImplementColorPreset("GlowPreset", GlowPreset.entries)
     }
 
     @Test
     fun `every VcsColorPreset entry implements ColorPreset marker`() {
-        for (entry in VcsColorPreset.entries) {
-            assertTrue(entry is ColorPreset, "VcsColorPreset.$entry must implement ColorPreset")
-        }
+        assertEntriesImplementColorPreset("VcsColorPreset", VcsColorPreset.entries)
     }
 
     @Test
     fun `every FontPreset entry implements ColorPreset marker`() {
-        for (entry in FontPreset.entries) {
-            assertTrue(entry is ColorPreset, "FontPreset.$entry must implement ColorPreset")
-        }
+        assertEntriesImplementColorPreset("FontPreset", FontPreset.entries)
     }
 
     @Test
     fun `every SyntaxPreset entry implements ColorPreset marker (INTENSITY-18 4-of-4)`() {
-        for (entry in SyntaxPreset.entries) {
-            assertTrue(entry is ColorPreset, "SyntaxPreset.$entry must implement ColorPreset")
-        }
+        assertEntriesImplementColorPreset("SyntaxPreset", SyntaxPreset.entries)
     }
 
     @Test
@@ -107,5 +99,14 @@ class ColorPresetMarkerTest {
         assertEquals(FontPreset.AMBIENT, FontPreset.fromName("AMBIENT"))
         // Tampered/null falls back to AMBIENT via existing fromName semantics.
         assertEquals(FontPreset.AMBIENT, FontPreset.fromName(null))
+    }
+
+    private fun assertEntriesImplementColorPreset(
+        franchiseName: String,
+        entries: Iterable<Any>,
+    ) {
+        for (entry in entries) {
+            assertTrue(entry is ColorPreset, "$franchiseName.$entry must implement ColorPreset")
+        }
     }
 }

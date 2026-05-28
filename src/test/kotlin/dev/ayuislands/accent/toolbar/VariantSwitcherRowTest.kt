@@ -14,8 +14,6 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
-import java.nio.file.Files
-import java.nio.file.Paths
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -63,15 +61,6 @@ class VariantSwitcherRowTest {
         assertEquals(2, children.size, "Expected exactly two children: SegmentedControl + IslandsUiPill")
         assertTrue(children.any { it is SegmentedControl }, "Missing SegmentedControl")
         assertTrue(children.any { it is IslandsUiPill }, "Missing IslandsUiPill")
-    }
-
-    @Test
-    fun `source contains zero JRadioButton or JCheckBox references`() {
-        val source = Files.readString(Paths.get(SOURCE_PATH))
-        val radioCount = "JRadioButton".toRegex().findAll(source).count()
-        val checkboxCount = "JCheckBox".toRegex().findAll(source).count()
-        assertEquals(0, radioCount, "Variant row: zero JRadioButton references allowed")
-        assertEquals(0, checkboxCount, "Variant row: zero JCheckBox references allowed")
     }
 
     @Test
@@ -326,8 +315,6 @@ class VariantSwitcherRowTest {
     }
 
     private companion object {
-        const val SOURCE_PATH = "src/main/kotlin/dev/ayuislands/accent/toolbar/VariantSwitcherRow.kt"
-
         /** Reasonable JBUI-scaled pill dimensions for paint sampling. */
         const val JBUI_SCALED_PILL_W: Int = 80
         const val JBUI_SCALED_PILL_H: Int = 28

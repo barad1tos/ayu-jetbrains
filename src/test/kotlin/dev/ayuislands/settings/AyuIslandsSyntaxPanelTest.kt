@@ -3,6 +3,7 @@ package dev.ayuislands.settings
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.openapi.util.io.FileUtil
 import com.intellij.ui.InplaceButton
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
@@ -21,8 +22,7 @@ import io.mockk.verify
 import io.mockk.verifyOrder
 import java.awt.Color
 import java.awt.Font
-import java.nio.file.Files
-import java.nio.file.Path
+import java.io.File
 import javax.swing.JButton
 import javax.swing.JLabel
 import javax.swing.JSlider
@@ -38,7 +38,7 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
- * Unit tests for [AyuIslandsSyntaxPanel] — pill row + Custom premium gate.
+ * Unit tests for [AyuIslandsSyntaxPanel] - pill row + Custom premium gate.
  *
  * Coverage:
  *  - Default preset on null / unknown persisted name = `AMBIENT` (D-23).
@@ -90,7 +90,7 @@ class AyuIslandsSyntaxPanelTest {
         unmockkAll()
     }
 
-    // ---------- Test 1 — initial state defaults to AMBIENT (D-23) ----------
+    // ---------- Test 1 - initial state defaults to AMBIENT (D-23) ----------
 
     @Test
     fun `loadStateIntoPending defaults to AMBIENT when state selectedPreset is null`() {
@@ -130,7 +130,7 @@ class AyuIslandsSyntaxPanelTest {
         assertTrue(readPendingStyles(panel).isEmpty(), "unlicensed Custom load must hide style overrides")
     }
 
-    // ---------- Test 2 — pill selection applies + persists ----------
+    // ---------- Test 2 - pill selection applies + persists ----------
 
     @Test
     fun `pill selection invokes SyntaxIntensityService apply with empty overrides`() {
@@ -162,7 +162,7 @@ class AyuIslandsSyntaxPanelTest {
         assertFalse(panel.isModified(), "after pill click stored == pending so isModified is false")
     }
 
-    // ---------- Test 3 — apply-FIRST persist-SECOND ordering ----------
+    // ---------- Test 3 - apply-FIRST persist-SECOND ordering ----------
 
     @Test
     fun `apply orders service call BEFORE state persistence (Anti-Pattern 4)`() {
@@ -179,7 +179,7 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     @Test
-    fun `apply ordering — service throw leaves state selectedPreset UNCHANGED`() {
+    fun `apply ordering - service throw leaves state selectedPreset UNCHANGED`() {
         stateBase.selectedPreset = "AMBIENT"
         every {
             intensityService.apply(any(), any(), any(), any())
@@ -196,10 +196,10 @@ class AyuIslandsSyntaxPanelTest {
         )
     }
 
-    // ---------- Test 4 — Custom rejection for unlicensed users ----------
+    // ---------- Test 4 - Custom rejection for unlicensed users ----------
 
     @Test
-    fun `Custom pill rejected for unlicensed users — requestLicense fires, no service call, no persist`() {
+    fun `Custom pill rejected for unlicensed users - requestLicense fires, no service call, no persist`() {
         every { LicenseChecker.isLicensedOrGrace() } returns false
         stateBase.selectedPreset = "AMBIENT"
         val panel = panelWithLoadedState()
@@ -214,10 +214,10 @@ class AyuIslandsSyntaxPanelTest {
         assertSame(SyntaxPreset.AMBIENT, readPendingPreset(panel))
     }
 
-    // ---------- Test 5 — Custom accepted for licensed users ----------
+    // ---------- Test 5 - Custom accepted for licensed users ----------
 
     @Test
-    fun `Custom pill accepted for licensed users — apply with empty overrides + persist`() {
+    fun `Custom pill accepted for licensed users - apply with empty overrides + persist`() {
         every { LicenseChecker.isLicensedOrGrace() } returns true
         stateBase.selectedPreset = "AMBIENT"
         val panel = panelWithLoadedState()
@@ -229,7 +229,7 @@ class AyuIslandsSyntaxPanelTest {
         verify(exactly = 0) { LicenseChecker.requestLicense(any()) }
     }
 
-    // ---------- Test 6 — reset reverts pending to stored ----------
+    // ---------- Test 6 - reset reverts pending to stored ----------
 
     @Test
     fun `reset reverts pendingPreset to storedPreset`() {
@@ -244,7 +244,7 @@ class AyuIslandsSyntaxPanelTest {
         assertFalse(panel.isModified())
     }
 
-    // ---------- Test 7 — Pattern L: LicenseChecker call site lock ----------
+    // ---------- Test 7 - Pattern L: LicenseChecker call site lock ----------
 
     @Test
     fun `panel source has exactly 3 LicenseChecker isLicensedOrGrace call sites (Pattern L)`() {
@@ -256,7 +256,7 @@ class AyuIslandsSyntaxPanelTest {
             matches,
             "Pattern L: only Custom loading normalization, the Custom-pill guard in onPresetChosen, " +
                 "and the tooltip short-circuit may call LicenseChecker.isLicensedOrGrace(). " +
-                "Found $matches call sites — INTENSITY-10 regression risk.",
+                "Found $matches call sites - INTENSITY-10 regression risk.",
         )
     }
 
@@ -289,7 +289,7 @@ class AyuIslandsSyntaxPanelTest {
         )
     }
 
-    // ---------- Test 8 — Pattern L: no Phase 49 symbol references ----------
+    // ---------- Test 8 - Pattern L: no Phase 49 symbol references ----------
 
     @Test
     fun `panel source contains no Phase 49 symbol references (Pattern L)`() {
@@ -310,7 +310,7 @@ class AyuIslandsSyntaxPanelTest {
         }
     }
 
-    // ---------- Test 9 — Pattern L: apply ordering source lock ----------
+    // ---------- Test 9 - Pattern L: apply ordering source lock ----------
 
     @Test
     fun `apply method body has service call BEFORE state mutation in source (Pattern L apply-FIRST)`() {
@@ -334,7 +334,7 @@ class AyuIslandsSyntaxPanelTest {
         )
     }
 
-    // ---------- Test 10 — Pattern L: browserLink present ----------
+    // ---------- Test 10 - Pattern L: browserLink present ----------
 
     @Test
     fun `panel source contains a browserLink call (Pattern L)`() {
@@ -349,7 +349,7 @@ class AyuIslandsSyntaxPanelTest {
         )
     }
 
-    // ---------- Test 11 — Pattern L: correct LicenseChecker package ----------
+    // ---------- Test 11 - Pattern L: correct LicenseChecker package ----------
 
     @Test
     fun `panel source imports LicenseChecker from licensing package (Codex HIGH 2)`() {
@@ -364,7 +364,7 @@ class AyuIslandsSyntaxPanelTest {
         )
     }
 
-    // ---------- Test 12 — Pattern L: real interface signature ----------
+    // ---------- Test 12 - Pattern L: real interface signature ----------
 
     @Test
     fun `panel source uses real buildPanel(panel, variant) signature (Codex HIGH 2)`() {
@@ -387,7 +387,7 @@ class AyuIslandsSyntaxPanelTest {
         )
     }
 
-    // ---------- Test 13 — Pattern L: tooltip pre-placement helper presence ----------
+    // ---------- Test 13 - Pattern L: tooltip pre-placement helper presence ----------
 
     @Test
     fun `panel source contains applyCustomPillTooltipIfFree helper (Gemini MEDIUM 3)`() {
@@ -404,7 +404,7 @@ class AyuIslandsSyntaxPanelTest {
         )
     }
 
-    // ---------- Test 14 — composite-key identity round-trip (Pitfall 1/2) ----------
+    // ---------- Test 14 - composite-key identity round-trip (Pitfall 1/2) ----------
 
     @Test
     fun `panel composite key resolves in the applicator and transforms the foreground`() {
@@ -443,7 +443,7 @@ class AyuIslandsSyntaxPanelTest {
         )
     }
 
-    // ---------- Test 15 — sparse write-through source lock (INTENSITY-17) ----------
+    // ---------- Test 15 - sparse write-through source lock (INTENSITY-17) ----------
 
     @Test
     fun `panel writes overrides sparsely keyed by composite key, never write-all (Pattern L)`() {
@@ -460,11 +460,11 @@ class AyuIslandsSyntaxPanelTest {
             )
         assertFalse(
             writeAll.containsMatchIn(source),
-            "INTENSITY-17: overrides must stay sparse — no loop writes every category unconditionally.",
+            "INTENSITY-17: overrides must stay sparse - no loop writes every category unconditionally.",
         )
     }
 
-    // ---------- Test 16 — license-invariant source lock (free/override path) ----------
+    // ---------- Test 16 - license-invariant source lock (free/override path) ----------
 
     @Test
     fun `LicenseChecker is absent from apply, onSliderChanged, and rebindSlidersFor regions (Pattern L)`() {
@@ -473,13 +473,13 @@ class AyuIslandsSyntaxPanelTest {
             val body = functionBody(source, fn)
             assertFalse(
                 body.contains("LicenseChecker"),
-                "INTENSITY-16: the free/override write path ($fn) must not consult LicenseChecker — " +
+                "INTENSITY-16: the free/override write path ($fn) must not consult LicenseChecker - " +
                     "the service-layer enforceCustomGate is the defense-in-depth.",
             )
         }
     }
 
-    // ---------- Test 17 — per-language master reset behavior (INTENSITY-15) ----------
+    // ---------- Test 17 - per-language master reset behavior (INTENSITY-15) ----------
 
     @Test
     fun `onResetCurrentLanguage clears only the active language's overrides, leaving others intact`() {
@@ -515,7 +515,7 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     @Test
-    fun `onResetCurrentLanguage source lock — filters by current-language prefix, not clear-all (Pattern L)`() {
+    fun `onResetCurrentLanguage source lock - filters by current-language prefix, not clear-all (Pattern L)`() {
         val source = readPanelSource()
         assertTrue(
             source.contains("onResetCurrentLanguage"),
@@ -532,19 +532,19 @@ class AyuIslandsSyntaxPanelTest {
         )
     }
 
-    // ---------- Test 20 — signed-delta readout (Direction B presentation) ----------
+    // ---------- Test 20 - signed-delta readout (Direction B presentation) ----------
 
     @Test
     fun `signedReadout maps stored value to signed delta from identity`() {
         val panel = AyuIslandsSyntaxPanel()
         assertEquals("0", invokeSignedReadout(panel, 50), "identity (50) reads as 0")
         assertEquals("+25", invokeSignedReadout(panel, 75), "above identity reads +N")
-        assertEquals("−20", invokeSignedReadout(panel, 30), "below identity reads −N with U+2212 minus")
+        assertEquals("\u221220", invokeSignedReadout(panel, 30), "below identity reads \u2212N with U+2212 minus")
         assertEquals("+50", invokeSignedReadout(panel, 100), "max reads +50")
-        assertEquals("−50", invokeSignedReadout(panel, 0), "min reads −50")
+        assertEquals("\u221250", invokeSignedReadout(panel, 0), "min reads \u221250")
     }
 
-    // ---------- Test 21 — CATEGORY_GROUPS coverage invariant ----------
+    // ---------- Test 21 - CATEGORY_GROUPS coverage invariant ----------
 
     @Test
     fun `CATEGORY_GROUPS covers every PrimitiveCategory exactly once (16 entries, four buckets)`() {
@@ -553,7 +553,7 @@ class AyuIslandsSyntaxPanelTest {
         assertEquals(
             PrimitiveCategory.entries.size,
             flattened.size,
-            "CATEGORY_GROUPS must cover all 16 categories with no dupes — a future 17th enum " +
+            "CATEGORY_GROUPS must cover all 16 categories with no dupes - a future 17th enum " +
                 "must be assigned to a bucket, not silently dropped from the UI.",
         )
         assertEquals(
@@ -578,7 +578,7 @@ class AyuIslandsSyntaxPanelTest {
         )
     }
 
-    // ---------- Test 21b — grouped two-column Custom grid ----------
+    // ---------- Test 21b - grouped two-column Custom grid ----------
 
     @Test
     fun `panel source renders grouped semantic categories in two stable columns`() {
@@ -617,7 +617,7 @@ class AyuIslandsSyntaxPanelTest {
         )
     }
 
-    // ---------- Test 21c — readout color signals default vs moved ----------
+    // ---------- Test 21c - readout color signals default vs moved ----------
 
     @Test
     fun `applyReadout leaves identity visually empty and strengthens a moved readout`() {
@@ -646,7 +646,7 @@ class AyuIslandsSyntaxPanelTest {
         invokeApplyReadout(panel, identityLabel, 50)
         invokeApplyReadout(panel, belowLabel, 30)
 
-        assertEquals("−20", belowLabel.text, "below identity reads −N with U+2212 minus")
+        assertEquals("\u221220", belowLabel.text, "below identity reads \u2212N with U+2212 minus")
         assertNotEquals(
             identityLabel.foreground.rgb,
             belowLabel.foreground.rgb,
@@ -654,7 +654,7 @@ class AyuIslandsSyntaxPanelTest {
         )
     }
 
-    // ---------- Test 22 — Direction B layout source locks ----------
+    // ---------- Test 22 - Direction B layout source locks ----------
 
     @Test
     fun `panel slider cell is tick-free (Direction B)`() {
@@ -672,14 +672,14 @@ class AyuIslandsSyntaxPanelTest {
         )
         assertFalse(
             source.contains($$"\"$value%\"") || source.contains($$"\"$SLIDER_MID%\""),
-            "Direction B: the old percent readout must be gone — the readout is a signed delta.",
+            "Direction B: the old percent readout must be gone - the readout is a signed delta.",
         )
     }
 
     @Test
     fun `panel builds sliders via the UI DSL slider cell, never a bare JSlider constructor`() {
         val source = readPanelSource()
-        // Allow the documentation codespan `JSlider(...)` (backtick-quoted) but
+        // Allow the documentation code span `JSlider(...)` (backtick-quoted) but
         // forbid a real constructor call: JSlider( preceded by neither an
         // identifier char nor a backtick.
         assertFalse(
@@ -692,7 +692,7 @@ class AyuIslandsSyntaxPanelTest {
         )
     }
 
-    // ---------- Test 22b — table row source locks ----------
+    // ---------- Test 22b - table row source locks ----------
 
     @Test
     fun `categoryRow uses an explicit fixed-width leading JLabel, not the auto row(displayName) column`() {
@@ -772,22 +772,22 @@ class AyuIslandsSyntaxPanelTest {
     fun `scaled readout cell still fits the widest live signed value without clipping`() {
         // The readout cell is right-aligned and fixed-width. Verify the chosen
         // READOUT_WIDTH (scaled) holds the widest signed string the live model
-        // reaches: "−50" / "+50" (3 glyphs) at the label font, so the number
+        // reaches: "\u221250" / "+50" (3 glyphs) at the label font, so the number
         // never clips when right-aligned. Trimming to 28 trades the prior
-        // 4-glyph "−100" headroom (unreachable by the ±50 model) for the
+        // 4-glyph "\u2212100" headroom (unreachable by the +/-50 model) for the
         // trailing zone's width without clipping any live value.
         val width = readReadoutWidthScaled()
         val font = UIUtil.getLabelFont()
         val metrics = JLabel().getFontMetrics(font)
-        val widestSigned = maxOf(metrics.stringWidth("−50"), metrics.stringWidth("+50"))
+        val widestSigned = maxOf(metrics.stringWidth("\u221250"), metrics.stringWidth("+50"))
         assertTrue(
             width >= widestSigned,
             "the scaled readout cell ($width) must be at least the widest live signed value " +
-                "($widestSigned for ±50) so the number never clips when right-aligned.",
+                "($widestSigned for +/-50) so the number never clips when right-aligned.",
         )
     }
 
-    // ---------- Test 23 — slider-change behavior (readout + reset icon + sparse write) ----------
+    // ---------- Test 23 - slider-change behavior (readout + reset icon + sparse write) ----------
 
     @Test
     fun `onSliderChanged updates readout, enables reset, and records the sparse override`() {
@@ -799,7 +799,7 @@ class AyuIslandsSyntaxPanelTest {
         widgets.slider.value = 80
 
         try {
-            invokeOnSliderChanged(panel, "Java", PrimitiveCategory.KEYWORD, 80)
+            invokeOnJavaKeywordSliderChanged(panel, 80)
 
             assertEquals("+30", widgets.label.text, "readout must render the signed delta")
             assertTrue(widgets.resetButton.isVisible, "category reset must appear once the cell diverges")
@@ -808,6 +808,7 @@ class AyuIslandsSyntaxPanelTest {
                 readPendingOverrides(panel)["Java|KEYWORD"],
                 "the moved cell must be recorded as a sparse composite-key override",
             )
+            assertTrue(panel.isModified(), "a sparse slider override must mark the panel modified so Apply enables")
             val accessibleName = widgets.slider.accessibleContext.accessibleName
             assertTrue(
                 accessibleName.contains("+30 from default"),
@@ -827,7 +828,7 @@ class AyuIslandsSyntaxPanelTest {
         seedWidgets(panel, PrimitiveCategory.KEYWORD)
 
         try {
-            invokeOnSliderChanged(panel, "Java", PrimitiveCategory.KEYWORD, 80)
+            invokeOnJavaKeywordSliderChanged(panel, 80)
             invokePreview(panel)
 
             verify(exactly = 1) {
@@ -855,7 +856,7 @@ class AyuIslandsSyntaxPanelTest {
         seedPendingOverride(panel, "Java|KEYWORD", "80")
 
         try {
-            invokeOnSliderChanged(panel, "Java", PrimitiveCategory.KEYWORD, 50)
+            invokeOnJavaKeywordSliderChanged(panel, 50)
 
             assertEquals("", widgets.label.text, "identity readout is visually empty")
             assertFalse(widgets.resetButton.isVisible, "reset hides at identity with no style")
@@ -865,26 +866,7 @@ class AyuIslandsSyntaxPanelTest {
         }
     }
 
-    // ---------- Test 24 — programmatic setSliderValue snap is listener-safe ----------
-
-    @Test
-    fun `setSliderValue snaps slider, readout, and reset-link without recording an override`() {
-        stateBase.selectedPreset = "CUSTOM"
-        val panel = panelWithLoadedState()
-        writeCurrentLanguage(panel, "Java")
-        val widgets = seedWidgets(panel, PrimitiveCategory.STRING_LITERAL)
-
-        invokeSetSliderValue(panel, PrimitiveCategory.STRING_LITERAL, 25)
-
-        assertEquals(25, widgets.slider.value, "the slider must snap to the requested value")
-        assertEquals("−25", widgets.label.text, "the readout must show the signed delta (U+2212)")
-        assertTrue(
-            readPendingOverrides(panel).isEmpty(),
-            "setSliderValue is a programmatic snap — it must NOT write an override (suppressed listener)",
-        )
-    }
-
-    // ---------- Test 25 — master reset button enablement tracks active language ----------
+    // ---------- Test 25 - master reset button enablement tracks active language ----------
 
     @Test
     fun `refreshMasterResetButton labels and shows only when the active language has customizations`() {
@@ -895,8 +877,8 @@ class AyuIslandsSyntaxPanelTest {
 
         invokeRefreshMasterResetButton(panel)
         assertEquals("Reset Kotlin customizations", widgets.button.text)
-        assertFalse(widgets.button.isVisible, "no Kotlin override yet → hidden")
-        assertFalse(widgets.button.isEnabled, "no Kotlin override yet → disabled")
+        assertFalse(widgets.button.isVisible, "no Kotlin override yet -> hidden")
+        assertFalse(widgets.button.isEnabled, "no Kotlin override yet -> disabled")
 
         seedPendingOverride(panel, "Kotlin|KEYWORD", "70")
         invokeRefreshMasterResetButton(panel)
@@ -911,7 +893,7 @@ class AyuIslandsSyntaxPanelTest {
         assertTrue(widgets.button.isEnabled, "a Java override enables the master reset")
     }
 
-    // ---------- Test 26 — buildNestedOverrides reshapes + guards the sparse map ----------
+    // ---------- Test 26 - buildNestedOverrides reshapes + guards the sparse map ----------
 
     @Test
     fun `apply reshapes seeded overrides into nested language-category-int and skips malformed keys`() {
@@ -920,9 +902,9 @@ class AyuIslandsSyntaxPanelTest {
         val panel = panelWithLoadedState()
         writePendingPreset(panel, SyntaxPreset.CUSTOM)
         seedPendingOverride(panel, "Java|KEYWORD", "75")
-        seedPendingOverride(panel, "|KEYWORD", "60") // empty language half → skipped
-        seedPendingOverride(panel, "Java|", "40") // empty category half → skipped
-        seedPendingOverride(panel, "Java|STRING_LITERAL", "notAnInt") // non-int → skipped
+        seedPendingOverride(panel, "|KEYWORD", "60") // empty language half -> skipped
+        seedPendingOverride(panel, "Java|", "40") // empty category half -> skipped
+        seedPendingOverride(panel, "Java|STRING_LITERAL", "notAnInt") // non-int -> skipped
 
         panel.apply()
 
@@ -936,7 +918,7 @@ class AyuIslandsSyntaxPanelTest {
         }
     }
 
-    // ---------- Test 27 — rebindSlidersFor snaps seeded widgets to stored values ----------
+    // ---------- Test 27 - rebindSlidersFor snaps seeded widgets to stored values ----------
 
     @Test
     fun `rebindSlidersFor snaps a seeded slider to the stored override and identity otherwise`() {
@@ -948,7 +930,7 @@ class AyuIslandsSyntaxPanelTest {
         seedPendingOverride(panel, "Java|KEYWORD", "85")
         seedPendingStyle(panel, "Java|KEYWORD", "BOLD")
 
-        invokeRebindSlidersFor(panel, "Java")
+        invokeRebindSlidersForJava(panel)
 
         assertEquals(85, keyword.slider.value, "stored override snaps the slider")
         assertEquals("+35", keyword.label.text, "readout reflects the snapped signed delta")
@@ -958,7 +940,7 @@ class AyuIslandsSyntaxPanelTest {
         assertFalse(stringLiteral.resetButton.isVisible, "untouched cell hides the category reset")
     }
 
-    // ---------- Part B Test 28 — toggle flips one bit and composes BOLD_ITALIC ----------
+    // ---------- Part B Test 28 - toggle flips one bit and composes BOLD_ITALIC ----------
 
     @Test
     fun `onStyleToggle flips the bit B then I composes BOLD_ITALIC, toggling both off removes the key`() {
@@ -968,31 +950,31 @@ class AyuIslandsSyntaxPanelTest {
         seedWidgets(panel, PrimitiveCategory.KEYWORD)
 
         try {
-            // First B → BOLD.
-            invokeOnStyleToggle(panel, PrimitiveCategory.KEYWORD, Font.BOLD)
+            // First B -> BOLD.
+            invokeOnKeywordStyleToggle(panel, Font.BOLD)
             assertEquals("BOLD", readPendingStyles(panel)["Java|KEYWORD"], "B toggle sets BOLD")
 
-            // Then I → BOLD_ITALIC (bits compose, not replace).
-            invokeOnStyleToggle(panel, PrimitiveCategory.KEYWORD, Font.ITALIC)
+            // Then I -> BOLD_ITALIC (bits compose, not replace).
+            invokeOnKeywordStyleToggle(panel, Font.ITALIC)
             assertEquals(
                 "BOLD_ITALIC",
                 readPendingStyles(panel)["Java|KEYWORD"],
                 "I toggle composes onto BOLD to make BOLD_ITALIC",
             )
 
-            // Toggle B off → ITALIC remains.
-            invokeOnStyleToggle(panel, PrimitiveCategory.KEYWORD, Font.BOLD)
+            // Toggle B off -> ITALIC remains.
+            invokeOnKeywordStyleToggle(panel, Font.BOLD)
             assertEquals(
                 "ITALIC",
                 readPendingStyles(panel)["Java|KEYWORD"],
                 "dropping the bold bit leaves ITALIC",
             )
 
-            // Toggle I off → both bits off → key REMOVED (inherit, no PLAIN written).
-            invokeOnStyleToggle(panel, PrimitiveCategory.KEYWORD, Font.ITALIC)
+            // Toggle I off -> both bits off -> key REMOVED (inherit, no PLAIN written).
+            invokeOnKeywordStyleToggle(panel, Font.ITALIC)
             assertFalse(
                 readPendingStyles(panel).containsKey("Java|KEYWORD"),
-                "both bits off must REMOVE the key (return to inherit) — v1 never persists PLAIN",
+                "both bits off must REMOVE the key (return to inherit) - v1 never persists PLAIN",
             )
             assertFalse(
                 readPendingStyles(panel).values.contains("PLAIN"),
@@ -1003,7 +985,7 @@ class AyuIslandsSyntaxPanelTest {
         }
     }
 
-    // ---------- Part B Test 29 — style toggle is a style-only modification ----------
+    // ---------- Part B Test 29 - style toggle is a style-only modification ----------
 
     @Test
     fun `isModified is true after a style-only toggle (slider untouched)`() {
@@ -1014,7 +996,7 @@ class AyuIslandsSyntaxPanelTest {
         assertFalse(panel.isModified(), "fresh CUSTOM panel with no changes is not modified")
 
         try {
-            invokeOnStyleToggle(panel, PrimitiveCategory.KEYWORD, Font.BOLD)
+            invokeOnKeywordStyleToggle(panel, Font.BOLD)
             assertTrue(
                 panel.isModified(),
                 "a style-only toggle (no slider move) must mark the panel modified so Apply enables",
@@ -1024,7 +1006,7 @@ class AyuIslandsSyntaxPanelTest {
         }
     }
 
-    // ---------- Part B Test 30 — per-row reset clears BOTH dimensions ----------
+    // ---------- Part B Test 30 - per-row reset clears BOTH dimensions ----------
 
     @Test
     fun `per-row reset clears BOTH the slider override and the style for the cell`() {
@@ -1040,7 +1022,7 @@ class AyuIslandsSyntaxPanelTest {
         try {
             // The production Reset category button delegates to resetCell; the
             // test drives the same private method directly.
-            invokeResetCell(panel, PrimitiveCategory.KEYWORD)
+            invokeResetKeywordCell(panel)
 
             assertFalse(
                 readPendingOverrides(panel).containsKey("Java|KEYWORD"),
@@ -1057,7 +1039,7 @@ class AyuIslandsSyntaxPanelTest {
         }
     }
 
-    // ---------- Part B Test 31 — master reset clears both maps for the active language ----------
+    // ---------- Part B Test 31 - master reset clears both maps for the active language ----------
 
     @Test
     fun `onResetCurrentLanguage clears both overrides and styles for the active language only`() {
@@ -1084,18 +1066,18 @@ class AyuIslandsSyntaxPanelTest {
         }
     }
 
-    // ---------- Part B Test 32 — buildNested decodes styles and skips bad cells (via apply) ----------
+    // ---------- Part B Test 32 - buildNested decodes styles and skips bad cells (via apply) ----------
 
     @Test
     fun `apply threads decoded font styles to the service and skips malformed style cells`() {
         stateBase.selectedPreset = "CUSTOM"
         val panel = panelWithLoadedState()
         writePendingPreset(panel, SyntaxPreset.CUSTOM)
-        seedPendingStyle(panel, "Java|KEYWORD", "BOLD") // → Font.BOLD (1)
-        seedPendingStyle(panel, "Java|STRING_LITERAL", "BOLD_ITALIC") // → Font.BOLD or ITALIC (3)
-        seedPendingStyle(panel, "|KEYWORD", "BOLD") // empty language → skipped
-        seedPendingStyle(panel, "Java|", "ITALIC") // empty category → skipped
-        seedPendingStyle(panel, "Java|COMMENT", "NOT_A_STYLE") // undecodable → skipped
+        seedPendingStyle(panel, "Java|KEYWORD", "BOLD") // -> Font.BOLD (1)
+        seedPendingStyle(panel, "Java|STRING_LITERAL", "BOLD_ITALIC") // -> Font.BOLD or ITALIC (3)
+        seedPendingStyle(panel, "|KEYWORD", "BOLD") // empty language -> skipped
+        seedPendingStyle(panel, "Java|", "ITALIC") // empty category -> skipped
+        seedPendingStyle(panel, "Java|COMMENT", "NOT_A_STYLE") // undecodable -> skipped
 
         panel.apply()
 
@@ -1115,7 +1097,7 @@ class AyuIslandsSyntaxPanelTest {
         }
     }
 
-    // ---------- Part B Test 33 — InplaceButton-only trailing controls (source lock) ----------
+    // ---------- Part B Test 33 - InplaceButton-only trailing controls (source lock) ----------
 
     @Test
     fun `trailing controls use InplaceButton, never JToggleButton or ActionButton`() {
@@ -1144,16 +1126,16 @@ class AyuIslandsSyntaxPanelTest {
         )
         assertFalse(
             source.contains("JToggleButton"),
-            "Part B: no bare JToggleButton — its box shouts across 32 instances.",
+            "Part B: no bare JToggleButton - its box shouts across 32 instances.",
         )
         assertFalse(
             Regex("""[^a-zA-Z_]ActionButton\b""").containsMatchIn(source.substringBefore("JBUI.CurrentTheme")) &&
                 source.contains("import com.intellij.openapi.actionSystem.impl.ActionButton"),
-            "Part B: no ActionButton — it trips the ActionToolbar.updateUI SlowOperations SEVERE.",
+            "Part B: no ActionButton - it trips the ActionToolbar.updateUI SlowOperations SEVERE.",
         )
         assertFalse(
             source.contains("updateComponentTreeUI"),
-            "Part B: NEVER updateComponentTreeUI — SlowOperations SEVERE crash.",
+            "Part B: NEVER updateComponentTreeUI - SlowOperations SEVERE crash.",
         )
     }
 
@@ -1196,7 +1178,7 @@ class AyuIslandsSyntaxPanelTest {
         )
     }
 
-    // ---------- Test 18 — debounce source lock (INTENSITY-13 / D-19) ----------
+    // ---------- Test 18 - debounce source lock (INTENSITY-13 / D-19) ----------
 
     @Test
     fun `slider apply is debounced single-shot at 100ms and never synchronous (Pattern L)`() {
@@ -1220,20 +1202,6 @@ class AyuIslandsSyntaxPanelTest {
         )
     }
 
-    // ---------- Test 19 — isModified override-awareness source lock ----------
-
-    @Test
-    fun `isModified compares overrides so Apply enables after a slider move (Pattern L)`() {
-        val source = readPanelSource()
-        assertTrue(source.contains("storedOverrides"), "isModified must track a storedOverrides buffer.")
-        val body = functionBody(source, "override fun isModified(")
-        assertTrue(
-            body.contains("pendingOverrides != storedOverrides"),
-            "isModified() must compare pendingOverrides != storedOverrides so the Apply button " +
-                "enables after a slider move (not just on preset change).",
-        )
-    }
-
     // ---------- Reflection helpers ----------
 
     private fun attrsWithFg(color: Color): TextAttributes {
@@ -1245,7 +1213,7 @@ class AyuIslandsSyntaxPanelTest {
     /**
      * Return the source region from the start of the function whose
      * declaration contains [declaration] up to (but not including) the next
-     * top-level function declaration. Good enough for a Pattern L lock — the
+     * top-level function declaration. Good enough for a Pattern L lock - the
      * panel's helpers are short and do not nest function declarations.
      */
     private fun functionBody(
@@ -1320,7 +1288,7 @@ class AyuIslandsSyntaxPanelTest {
         return field.get(panel) as MutableMap<*, *>
     }
 
-    /** Snapshot the pending override map as `String → String` without an unchecked cast. */
+    /** Snapshot the pending override map as `String -> String` without an unchecked cast. */
     private fun readPendingOverrides(panel: AyuIslandsSyntaxPanel): Map<String, String> =
         pendingOverridesField(panel).entries.associate { (key, value) ->
             (key as String) to (value as String)
@@ -1344,7 +1312,7 @@ class AyuIslandsSyntaxPanelTest {
         return field.get(panel) as MutableMap<*, *>
     }
 
-    /** Snapshot the pending style map as `String → String` without an unchecked cast. */
+    /** Snapshot the pending style map as `String -> String` without an unchecked cast. */
     private fun readPendingStyles(panel: AyuIslandsSyntaxPanel): Map<String, String> =
         pendingStylesField(panel).entries.associate { (key, value) ->
             (key as String) to (value as String)
@@ -1360,9 +1328,8 @@ class AyuIslandsSyntaxPanelTest {
         putMethod.invoke(map, key, value)
     }
 
-    private fun invokeOnStyleToggle(
+    private fun invokeOnKeywordStyleToggle(
         panel: AyuIslandsSyntaxPanel,
-        category: PrimitiveCategory,
         bit: Int,
     ) {
         val method =
@@ -1372,7 +1339,7 @@ class AyuIslandsSyntaxPanelTest {
                 Int::class.javaPrimitiveType,
             )
         method.isAccessible = true
-        method.invoke(panel, category, bit)
+        method.invoke(panel, PrimitiveCategory.KEYWORD, bit)
     }
 
     private fun invokeOnResetCurrentLanguage(panel: AyuIslandsSyntaxPanel) {
@@ -1381,23 +1348,18 @@ class AyuIslandsSyntaxPanelTest {
         method.invoke(panel)
     }
 
-    private fun invokeResetCell(
-        panel: AyuIslandsSyntaxPanel,
-        category: PrimitiveCategory,
-    ) {
+    private fun invokeResetKeywordCell(panel: AyuIslandsSyntaxPanel) {
         val method =
             AyuIslandsSyntaxPanel::class.java.getDeclaredMethod(
                 "resetCell",
                 PrimitiveCategory::class.java,
             )
         method.isAccessible = true
-        method.invoke(panel, category)
+        method.invoke(panel, PrimitiveCategory.KEYWORD)
     }
 
-    private fun invokeOnSliderChanged(
+    private fun invokeOnJavaKeywordSliderChanged(
         panel: AyuIslandsSyntaxPanel,
-        language: String,
-        category: PrimitiveCategory,
         value: Int,
     ) {
         val method =
@@ -1408,28 +1370,13 @@ class AyuIslandsSyntaxPanelTest {
                 Int::class.javaPrimitiveType,
             )
         method.isAccessible = true
-        method.invoke(panel, language, category, value)
+        method.invoke(panel, "Java", PrimitiveCategory.KEYWORD, value)
     }
 
     private fun invokePreview(panel: AyuIslandsSyntaxPanel) {
         val method = AyuIslandsSyntaxPanel::class.java.getDeclaredMethod("preview")
         method.isAccessible = true
         method.invoke(panel)
-    }
-
-    private fun invokeSetSliderValue(
-        panel: AyuIslandsSyntaxPanel,
-        category: PrimitiveCategory,
-        value: Int,
-    ) {
-        val method =
-            AyuIslandsSyntaxPanel::class.java.getDeclaredMethod(
-                "setSliderValue",
-                PrimitiveCategory::class.java,
-                Int::class.javaPrimitiveType,
-            )
-        method.isAccessible = true
-        method.invoke(panel, category, value)
     }
 
     private fun invokeRefreshMasterResetButton(panel: AyuIslandsSyntaxPanel) {
@@ -1486,14 +1433,11 @@ class AyuIslandsSyntaxPanelTest {
         val button: JButton,
     )
 
-    private fun invokeRebindSlidersFor(
-        panel: AyuIslandsSyntaxPanel,
-        language: String,
-    ) {
+    private fun invokeRebindSlidersForJava(panel: AyuIslandsSyntaxPanel) {
         val method =
             AyuIslandsSyntaxPanel::class.java.getDeclaredMethod("rebindSlidersFor", String::class.java)
         method.isAccessible = true
-        method.invoke(panel, language)
+        method.invoke(panel, "Java")
     }
 
     private fun invokeApplyReadout(
@@ -1565,8 +1509,8 @@ class AyuIslandsSyntaxPanelTest {
         return JBUI.scale(field.getInt(null))
     }
 
-    private fun readPanelSource(): String =
-        Files.readString(
-            Path.of("src/main/kotlin/dev/ayuislands/settings/AyuIslandsSyntaxPanel.kt"),
-        )
+    private fun readPanelSource(): String {
+        val sourceFile = File("src/main/kotlin/dev/ayuislands/settings/AyuIslandsSyntaxPanel.kt")
+        return FileUtil.loadFile(sourceFile)
+    }
 }

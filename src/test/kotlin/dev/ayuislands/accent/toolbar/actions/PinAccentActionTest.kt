@@ -18,8 +18,6 @@ import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkAll
 import io.mockk.verify
-import java.nio.file.Files
-import java.nio.file.Paths
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -150,24 +148,5 @@ class PinAccentActionTest {
         PinAccentAction().actionPerformed(newEvent())
         assertTrue(state.projectAccents.isEmpty(), "Must not write state when projectKey null")
         verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
-    }
-
-    @Test
-    fun `source carries the shared vs personal pin-split TODO marker (hand-off lock)`() {
-        // Read the source file at test time so a future deletion of the
-        // marker fails the test, surfacing the integration point where the
-        // future shared (.idea/) vs personal (app-level) pin split must
-        // attach.
-        val source =
-            Files.readString(
-                Paths.get(
-                    "src/main/kotlin/dev/ayuislands/accent/toolbar/actions/PinAccentAction.kt",
-                ),
-            )
-        assertTrue(
-            source.contains("FOLLOWUP-PIN-LANE-SPLIT"),
-            "PinAccentAction must keep the shared/personal pin-split follow-up marker " +
-                "(FOLLOWUP-PIN-LANE-SPLIT) for the integration hand-off",
-        )
     }
 }

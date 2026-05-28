@@ -2,6 +2,7 @@ package dev.ayuislands.settings
 
 import io.mockk.clearAllMocks
 import io.mockk.every
+import io.mockk.mockk
 import io.mockk.spyk
 import io.mockk.unmockkAll
 import io.mockk.verify
@@ -53,23 +54,9 @@ class AyuIslandsConfigurableChromeWiringTest {
         val spyChrome = spyk(AyuIslandsChromePanel())
         swapChromePanel(configurable, spyChrome)
 
-        // Pretend every other panel is clean; only chrome reports modified.
-        val panels = readField<List<AyuIslandsSettingsPanel>>(configurable, "panels")
-        for (panel in panels) {
-            if (panel !== spyChrome) {
-                val spy = spyk(panel)
-
-                // No-op: we just want to ensure the real panels' isModified doesn't throw
-                // from a null platform service — replacing non-chrome panels here would
-                // require spying every list entry. Instead, stub chrome explicitly and
-                // lean on the other panels' early-return contracts (they default to
-                // false on fresh instantiation).
-                @Suppress("UNUSED_VARIABLE")
-                val unused = spy
-            }
-        }
         io.mockk.every { spyChrome.isModified() } returns true
 
+        val panels = readField<List<AyuIslandsSettingsPanel>>(configurable, "panels")
         val modified = panels.any { it.isModified() }
         assertTrue(
             modified,
@@ -81,6 +68,7 @@ class AyuIslandsConfigurableChromeWiringTest {
     fun `apply invokes chromePanel apply`() {
         val configurable = AyuIslandsConfigurable()
         val spyChrome = spyk(AyuIslandsChromePanel())
+        every { spyChrome.apply() } returns Unit
         swapChromePanel(configurable, spyChrome)
 
         val panels = readField<List<AyuIslandsSettingsPanel>>(configurable, "panels")
@@ -94,28 +82,17 @@ class AyuIslandsConfigurableChromeWiringTest {
     }
 
     @Test
-    fun `resetAllSettings bytecode references chromePanel reset`() {
-        // Directly reflecting out and invoking `resetAllSettings()` requires
-        // every premium sub-panel's reset() to run platform-cleanly — stubbing
-        // every sibling spy is noisy. Instead, assert against the compiled
-        // class bytecode: the method body must include an INVOKE* against
-        // `AyuIslandsChromePanel.reset`. If a future refactor drops the call
-        // from `resetAllSettings`, this lookup fails and the test catches the
-        // regression without instantiating the Configurable.
-        val classBytes =
-            AyuIslandsConfigurable::class.java
-                .getResourceAsStream("AyuIslandsConfigurable.class")
-                ?.readAllBytes()
-        assertTrue(
-            classBytes != null && classBytes.isNotEmpty(),
-            "AyuIslandsConfigurable.class must be loadable for bytecode inspection",
-        )
-        val classText = String(classBytes!!, Charsets.ISO_8859_1)
-        assertTrue(
-            classText.contains("AyuIslandsChromePanel") && classText.contains("reset"),
-            "AyuIslandsConfigurable bytecode must reference AyuIslandsChromePanel.reset; " +
-                "otherwise the Reset All Settings link leaves chrome state stranded",
-        )
+    fun `resetAllSettings invokes chromePanel reset`() {
+        val configurable = AyuIslandsConfigurable()
+        val spyChrome = spyk(AyuIslandsChromePanel())
+        every { spyChrome.reset() } returns Unit
+        replaceResetAllFields(configurable, spyChrome)
+
+        val resetAllSettings = AyuIslandsConfigurable::class.java.getDeclaredMethod("resetAllSettings")
+        resetAllSettings.isAccessible = true
+        resetAllSettings.invoke(configurable)
+
+        verify(exactly = 1) { spyChrome.reset() }
     }
 
     @Test
@@ -152,11 +129,12 @@ class AyuIslandsConfigurableChromeWiringTest {
             AyuIslandsConfigurable::class.java
                 .getResourceAsStream("AyuIslandsConfigurable.class")
                 ?.readAllBytes()
+                ?: error("AyuIslandsConfigurable.class must be loadable for bytecode inspection")
         assertTrue(
-            classBytes != null && classBytes.isNotEmpty(),
+            classBytes.isNotEmpty(),
             "AyuIslandsConfigurable.class must be loadable for bytecode inspection",
         )
-        val classText = String(classBytes!!, Charsets.ISO_8859_1)
+        val classText = String(classBytes, Charsets.ISO_8859_1)
         assertTrue(
             classText.contains("setAfterOverridesInjection"),
             "createPanel bytecode must call setAfterOverridesInjection to host Chrome Tinting",
@@ -229,5 +207,30 @@ class AyuIslandsConfigurableChromeWiringTest {
         if (index >= 0) {
             mutablePanels[index] = replacement
         }
+    }
+
+    private fun replaceResetAllFields(
+        configurable: AyuIslandsConfigurable,
+        chromePanel: AyuIslandsChromePanel,
+    ) {
+        replaceField(configurable, "accentPanel", mockk<AyuIslandsAccentPanel>(relaxed = true))
+        replaceField(configurable, "chromePanel", chromePanel)
+        replaceField(configurable, "elementsPanel", mockk<AyuIslandsElementsPanel>(relaxed = true))
+        replaceField(configurable, "fontPresetPanel", mockk<FontPresetPanel>(relaxed = true))
+        replaceField(configurable, "effectsPanel", mockk<AyuIslandsEffectsPanel>(relaxed = true))
+        replaceField(configurable, "vcsColorPanel", mockk<VcsColorPanel>(relaxed = true))
+        replaceField(configurable, "syntaxPanel", mockk<AyuIslandsSyntaxPanel>(relaxed = true))
+        replaceField(configurable, "workspacePanel", mockk<WorkspacePanel>(relaxed = true))
+        replaceField(configurable, "pluginsPanel", mockk<PluginsPanel>(relaxed = true))
+    }
+
+    private fun replaceField(
+        target: Any,
+        fieldName: String,
+        replacement: Any,
+    ) {
+        val field = target.javaClass.getDeclaredField(fieldName)
+        field.isAccessible = true
+        field.set(target, replacement)
     }
 }

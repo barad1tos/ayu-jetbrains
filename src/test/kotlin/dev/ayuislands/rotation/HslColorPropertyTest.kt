@@ -1,5 +1,6 @@
 package dev.ayuislands.rotation
 
+import io.kotest.common.ExperimentalKotest
 import io.kotest.property.Arb
 import io.kotest.property.PropTestConfig
 import io.kotest.property.arbitrary.float
@@ -18,6 +19,7 @@ import kotlin.test.assertTrue
  * hundred CI invocations. A deterministic seed exposes the same drift
  * locally, and any real regression widens the drift on the same seed too.
  */
+@OptIn(ExperimentalKotest::class)
 class HslColorPropertyTest {
     private val config = PropTestConfig(seed = 2_026L)
 

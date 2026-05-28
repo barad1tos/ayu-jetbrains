@@ -1,51 +1,53 @@
 package dev.ayuislands.syntax
 
+import com.intellij.openapi.application.Application
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.components.State
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import java.nio.file.Files
-import java.nio.file.Path
 import kotlin.test.assertNotNull
 
 /**
  * Test set for [SyntaxIntensityState].
  *
- * Uses an in-memory loadState round-trip pattern — the
+ * Uses an in-memory loadState round-trip pattern - the
  * `XmlSerializerUtil.copyBean` path inside [SimplePersistentStateComponent]
  * matches the on-disk persistence shape and avoids the platform-fixture
- * boot pain seen elsewhere. Tests that would need a live `@Service`
- * container fall back to Pattern L source-grep regression locks.
+ * boot pain seen elsewhere. Annotation metadata is verified via reflection;
+ * the application service lookup is mocked only at the IntelliJ boundary.
  *
  * 10 invariants per the plan spec:
  *  1.  Default state: `selectedPreset == "AMBIENT"`, `customOverrides`
  *      empty, `schemaVersion == 1`.
  *  2.  `selectedPreset` round-trip via in-memory loadState.
- *  3.  `SyntaxPreset.fromName` integration — tampered preset name falls
+ *  3.  `SyntaxPreset.fromName` integration - tampered preset name falls
  *      back to `AMBIENT`.
- *  4.  Pattern L source-regex lock — `@Storage(value = "ayu-islands-syntax-intensity.xml")`
- *      literal present in source.
- *  5.  Pattern L source-regex lock — `@State(name = "AyuIslandsSyntaxIntensityState")`
- *      literal present in source.
+ *  4.  `@Storage(value = "ayu-islands-syntax-intensity.xml")` metadata
+ *      is present and distinct from the Phase 49 filename.
+ *  5.  `@State(name = "AyuIslandsSyntaxIntensityState")` metadata is present.
  *  6.  Flat composite-key `customOverrides` round-trip.
  *  7.  `schemaVersion` round-trip.
- *  8.  `toPresetConfig()` bridge — adapts flat composite-key map back to
+ *  8.  `toPresetConfig()` bridge - adapts flat composite-key map back to
  *      nested `Map<String, Map<String, Int>>` consumed by the applicator
  *      and `SyntaxPreset.detect`.
  *  9.  `toPresetConfig()` skips malformed flat keys / non-Int values
  *      silently (forward-compat / tamper resistance).
- * 10.  Pattern L source-regex lock for `getInstance()` companion — the
- *      live application-service lookup is exercised in integration tests
- *      under `src/test/kotlin/dev/ayuislands/integration/`.
- * 11.  Sparse persistence — only the cells the user moves materialise; the
+ * 10.  `getInstance()` companion resolves the application service.
+ * 11.  Sparse persistence - only the cells the user moves materialise; the
  *      untouched cells never appear in the persisted map (Phase 50.1 D-01).
- * 12.  `subordinatePreset` round-trip — a non-default name survives loadState.
- * 13.  Legacy default — a fresh state with no `subordinatePreset` field
+ * 12.  `subordinatePreset` round-trip - a non-default name survives loadState.
+ * 13.  Legacy default - a fresh state with no `subordinatePreset` field
  *      deserialises to "AMBIENT" (backward-compatible, Phase 50.1 D-07).
  */
 class SyntaxIntensityStateTest {
-    // --- Test 1 — defaults --------------------------------------------------
+    // --- Test 1 - defaults --------------------------------------------------
 
     @Test
     fun `default base state is AMBIENT preset with empty customOverrides and schemaVersion 2`() {
@@ -56,7 +58,7 @@ class SyntaxIntensityStateTest {
         assertEquals(2, state.schemaVersion, "default schemaVersion must be 2 since customStyles was added")
     }
 
-    // --- Test 2 — selectedPreset round-trip --------------------------------
+    // --- Test 2 - selectedPreset round-trip --------------------------------
 
     @Test
     fun `selectedPreset string survives loadState round-trip`() {
@@ -64,7 +66,7 @@ class SyntaxIntensityStateTest {
         assertEquals("NEON", reloaded.state.selectedPreset)
     }
 
-    // --- Test 3 — SyntaxPreset.fromName fallback ---------------------------
+    // --- Test 3 - SyntaxPreset.fromName fallback ---------------------------
 
     @Test
     fun `tampered selectedPreset string falls back to AMBIENT via SyntaxPreset fromName (D-23)`() {
@@ -73,33 +75,34 @@ class SyntaxIntensityStateTest {
         assertSame(SyntaxPreset.AMBIENT, SyntaxPreset.fromName(reloaded.state.selectedPreset))
     }
 
-    // --- Test 4 — Pattern L source-regex storage filename lock -------------
+    // --- Test 4 - storage filename metadata lock --------------------------
 
     @Test
     fun `Storage filename literal is ayu-islands-syntax-intensity_xml (D-13 distinct from Phase 49)`() {
-        val source = readStateSource()
-        assertTrue(
-            source.contains("\"ayu-islands-syntax-intensity.xml\""),
-            "Pattern L lock — Storage filename literal must be \"ayu-islands-syntax-intensity.xml\" per D-13",
+        val storageValues = stateAnnotation().storages.map { storage -> storage.value }
+        assertEquals(
+            listOf("ayu-islands-syntax-intensity.xml"),
+            storageValues,
+            "Storage filename must remain distinct for Phase 50 syntax intensity state",
         )
         assertFalse(
-            source.contains("\"ayu-islands-syntax-mode.xml\""),
-            "must not reuse Phase 49 filename — Phase 50 state file is distinct per D-13",
+            storageValues.contains("ayu-islands-syntax-mode.xml"),
+            "must not reuse Phase 49 filename - Phase 50 state file is distinct per D-13",
         )
     }
 
-    // --- Test 5 — @State name lock -----------------------------------------
+    // --- Test 5 - @State name metadata lock --------------------------------
 
     @Test
     fun `State name literal is AyuIslandsSyntaxIntensityState`() {
-        val source = readStateSource()
-        assertTrue(
-            source.contains("AyuIslandsSyntaxIntensityState"),
-            "Pattern L lock — State name literal must be AyuIslandsSyntaxIntensityState",
+        assertEquals(
+            "AyuIslandsSyntaxIntensityState",
+            stateAnnotation().name,
+            "State name must remain stable for persisted settings migration",
         )
     }
 
-    // --- Test 6 — flat composite-key customOverrides round-trip ------------
+    // --- Test 6 - flat composite-key customOverrides round-trip ------------
 
     @Test
     fun `flat composite-key customOverrides survives loadState round-trip`() {
@@ -115,11 +118,11 @@ class SyntaxIntensityStateTest {
         assertEquals("60", reloaded.state.customOverrides["Kotlin|KEYWORD"])
     }
 
-    // --- Test 7 — schemaVersion round-trip ---------------------------------
+    // --- Test 7 - schemaVersion round-trip ---------------------------------
 
     @Test
     fun `schemaVersion survives loadState round-trip for default and bumped values`() {
-        // No mutation — verify the default schemaVersion survives the round-trip.
+        // No mutation - verify the default schemaVersion survives the round-trip.
         val reloadedDefault = roundTrip { _ -> }
         assertEquals(2, reloadedDefault.state.schemaVersion)
 
@@ -127,7 +130,7 @@ class SyntaxIntensityStateTest {
         assertEquals(3, reloadedBumped.state.schemaVersion, "schemaVersion 3 must round-trip for future migration")
     }
 
-    // --- Test 8 — toPresetConfig bridge (Codex HIGH #1) --------------------
+    // --- Test 8 - toPresetConfig bridge (Codex HIGH #1) --------------------
 
     @Test
     fun `toPresetConfig adapts flat composite-key map to nested DTO consumed by SyntaxPreset detect`() {
@@ -151,7 +154,7 @@ class SyntaxIntensityStateTest {
         assertSame(SyntaxPreset.NEON, SyntaxPreset.detect(config))
     }
 
-    // --- Test 9 — toPresetConfig skips malformed entries -------------------
+    // --- Test 9 - toPresetConfig skips malformed entries -------------------
 
     @Test
     fun `toPresetConfig silently skips malformed flat keys and non-Int values`() {
@@ -175,10 +178,10 @@ class SyntaxIntensityStateTest {
         assertEquals(expected, config.customOverrides, "only the well-formed entry survives the bridge")
     }
 
-    // --- Test 11 — sparse persistence (only moved cells materialise) ------
+    // --- Test 11 - sparse persistence (only moved cells materialise) ------
 
     @Test
-    fun `only the moved cells are persisted — untouched cells never materialise (D-01)`() {
+    fun `only the moved cells are persisted - untouched cells never materialise (D-01)`() {
         val reloaded =
             roundTrip { state ->
                 state.customOverrides["Java|KEYWORD"] = "75"
@@ -187,23 +190,23 @@ class SyntaxIntensityStateTest {
         assertEquals(
             2,
             reloaded.state.customOverrides.size,
-            "sparse store — exactly the 2 moved cells persist, untouched cells inherit the preset",
+            "sparse store - exactly the 2 moved cells persist, untouched cells inherit the preset",
         )
         assertEquals("75", reloaded.state.customOverrides["Java|KEYWORD"])
         assertEquals("30", reloaded.state.customOverrides["Kotlin|COMMENT"])
     }
 
-    // --- Test 12 — subordinatePreset round-trip ---------------------------
+    // --- Test 12 - subordinatePreset round-trip ---------------------------
 
     @Test
     fun `subordinatePreset string survives loadState round-trip (D-07)`() {
         // `subordinatePreset` does NOT exist on SyntaxIntensityBaseState until
-        // Plan 02 lands — referencing it here forces the RED state.
+        // Plan 02 lands - referencing it here forces the RED state.
         val reloaded = roundTrip { state -> state.subordinatePreset = "NEON" }
         assertEquals("NEON", reloaded.state.subordinatePreset)
     }
 
-    // --- Test 13 — legacy default for absent subordinatePreset ------------
+    // --- Test 13 - legacy default for absent subordinatePreset ------------
 
     @Test
     fun `fresh base state defaults subordinatePreset to AMBIENT (backward-compatible, D-07)`() {
@@ -213,7 +216,7 @@ class SyntaxIntensityStateTest {
         assertEquals("AMBIENT", SyntaxIntensityBaseState().subordinatePreset)
     }
 
-    // --- Test 14 — customStyles sparse round-trip --------------------------
+    // --- Test 14 - customStyles sparse round-trip --------------------------
 
     @Test
     fun `flat composite-key customStyles survives loadState round-trip (sparse)`() {
@@ -222,13 +225,13 @@ class SyntaxIntensityStateTest {
                 state.customStyles["Java|KEYWORD"] = "BOLD"
                 state.customStyles["Kotlin|COMMENT"] = "ITALIC"
             }
-        // Only the two styled cells materialise — untouched cells inherit.
-        assertEquals(2, reloaded.state.customStyles.size, "sparse store — only styled cells persist")
+        // Only the two styled cells materialise - untouched cells inherit.
+        assertEquals(2, reloaded.state.customStyles.size, "sparse store - only styled cells persist")
         assertEquals("BOLD", reloaded.state.customStyles["Java|KEYWORD"])
         assertEquals("ITALIC", reloaded.state.customStyles["Kotlin|COMMENT"])
     }
 
-    // --- Test 15 — FontStyleOverride tamper-safe decode -------------------
+    // --- Test 15 - FontStyleOverride tamper-safe decode -------------------
 
     @Test
     fun `FontStyleOverride fromName decodes known names and returns null for tampered input`() {
@@ -255,7 +258,7 @@ class SyntaxIntensityStateTest {
         )
     }
 
-    // --- Test 16 — toPresetConfig style bridge ----------------------------
+    // --- Test 16 - toPresetConfig style bridge ----------------------------
 
     @Test
     fun `toPresetConfig decodes customStyles flat map to nested fontType bitmasks`() {
@@ -295,44 +298,40 @@ class SyntaxIntensityStateTest {
         assertEquals(expected, config.customStyles, "only the well-formed, decodable style cell survives the bridge")
     }
 
-    // --- Test 17 — v1 backward compatibility (no customStyles element) ----
+    // --- Test 17 - v1 backward compatibility (no customStyles element) ----
 
     @Test
     fun `a v1 config without customStyles reads as an empty style map (backward compat)`() {
         // A pre-font-style (schemaVersion 1) config never wrote customStyles.
         // Loading it must leave customStyles empty so every cell inherits the
-        // source font — no read-time migration required.
+        // source font - no read-time migration required.
         val legacy = SyntaxIntensityState()
         legacy.state.schemaVersion = 1
         legacy.state.customOverrides["Java|KEYWORD"] = "75"
-        // No customStyles writes — simulates the old on-disk shape.
+        // No customStyles writes - simulates the old on-disk shape.
 
         val config = legacy.toPresetConfig()
 
         assertTrue(config.customStyles.isEmpty(), "absent customStyles must surface as an empty nested map")
-        // Intensity overrides still decode — the bump is additive only.
+        // Intensity overrides still decode - the bump is additive only.
         assertEquals(mapOf("Java" to mapOf("KEYWORD" to 75)), config.customOverrides)
     }
 
-    // --- Test 10 — Pattern L source-regex lock for getInstance() ----------
+    // --- Test 10 - getInstance service lookup -----------------------------
 
     @Test
-    fun `getInstance companion is wired via ApplicationManager getService (source-regex lock)`() {
-        val source = readStateSource()
-        assertTrue(source.contains("fun getInstance"), "Pattern L lock — companion getInstance() must be present")
-        // The source may split the chain across local-val lines to satisfy
-        // detekt MaxLineLength; lock both fragments instead of the full chain.
-        assertTrue(
-            source.contains("ApplicationManager.getApplication()"),
-            "Pattern L lock — getInstance() must call ApplicationManager.getApplication()",
-        )
-        assertTrue(
-            source.contains("getService(SyntaxIntensityState::class.java)"),
-            "Pattern L lock — getInstance() must resolve via getService(SyntaxIntensityState::class.java) " +
-                "(live integration tested under src/test/kotlin/dev/ayuislands/integration/)",
-        )
-        // Sanity — assertNotNull on the source to keep the import referenced.
-        assertNotNull(source, "state source must load from disk")
+    fun `getInstance returns the SyntaxIntensityState application service`() {
+        val application = mockk<Application>()
+        val service = SyntaxIntensityState()
+        mockkStatic(ApplicationManager::class)
+        try {
+            every { ApplicationManager.getApplication() } returns application
+            every { application.getService(SyntaxIntensityState::class.java) } returns service
+
+            assertSame(service, SyntaxIntensityState.getInstance())
+        } finally {
+            unmockkStatic(ApplicationManager::class)
+        }
     }
 
     // --- Helpers ------------------------------------------------------------
@@ -346,10 +345,9 @@ class SyntaxIntensityStateTest {
         return reloaded
     }
 
-    private fun readStateSource(): String = Files.readString(Path.of(STATE_SOURCE_PATH))
-
-    companion object {
-        private const val STATE_SOURCE_PATH =
-            "src/main/kotlin/dev/ayuislands/syntax/SyntaxIntensityState.kt"
-    }
+    private fun stateAnnotation(): State =
+        assertNotNull(
+            SyntaxIntensityState::class.java.getAnnotation(State::class.java),
+            "SyntaxIntensityState must declare @State metadata",
+        )
 }

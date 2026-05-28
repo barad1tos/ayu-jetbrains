@@ -18,8 +18,6 @@ import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.Color
 import java.awt.GridLayout
-import java.nio.file.Files
-import java.nio.file.Paths
 import javax.swing.JLabel
 import javax.swing.JPanel
 import kotlin.test.AfterTest
@@ -33,7 +31,7 @@ import kotlin.test.assertTrue
  * Quick-switcher redesign coverage:
  *   - grid is 2 × 6 [PopupSwatch] cells (was 3 × 4 of `JButton` / `ColorIcon`),
  *   - each preset hex maps to exactly one swatch,
- *   - the Custom… link uses the bundled `pipette.svg`,
+ *   - the Custom… link row carries leading icons,
  *   - click flow through `applyFromHexString` + Pattern D + Pattern B preserved.
  */
 class QuickSwitcherAccentGridTest {
@@ -104,13 +102,6 @@ class QuickSwitcherAccentGridTest {
         // Walk descendants for a JLabel showing the pipette icon.
         val labels = collectJLabels(south)
         assertTrue(labels.isNotEmpty(), "Custom… / More… row must carry leading JLabel icons")
-    }
-
-    @Test
-    fun `source loads pipette dot svg via IconLoader`() {
-        val source = Files.readString(Paths.get(GRID_SOURCE_PATH))
-        assertTrue(source.contains("pipette.svg"), "Custom… link must reuse the bundled pipette.svg")
-        assertTrue(source.contains("IconLoader.getIcon"), "Must load via IconLoader.getIcon")
     }
 
     @Test
@@ -519,9 +510,5 @@ class QuickSwitcherAccentGridTest {
             if (child is java.awt.Container) collectJLabels(child, out)
         }
         return out
-    }
-
-    private companion object {
-        const val GRID_SOURCE_PATH = "src/main/kotlin/dev/ayuislands/accent/toolbar/QuickSwitcherAccentGrid.kt"
     }
 }

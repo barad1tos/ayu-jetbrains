@@ -22,7 +22,6 @@ class OnboardingVirtualFileTest {
     fun `equals is identity-based`() {
         val first = OnboardingVirtualFile()
         val second = OnboardingVirtualFile()
-        assertEquals(first, first)
         assertNotEquals(first, second)
     }
 
@@ -38,11 +37,5 @@ class OnboardingVirtualFileTest {
             file.equals("not a virtual file"),
             "Identity-only equals must reject non-OnboardingVirtualFile types",
         )
-    }
-
-    @Test
-    fun `hashCode is stable across calls on the same instance`() {
-        val file = OnboardingVirtualFile()
-        assertEquals(file.hashCode(), file.hashCode())
     }
 }

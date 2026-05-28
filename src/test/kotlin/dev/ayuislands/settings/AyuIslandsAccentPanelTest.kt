@@ -214,11 +214,12 @@ class AyuIslandsAccentPanelTest {
             AyuIslandsAccentPanel::class.java
                 .getResourceAsStream("AyuIslandsAccentPanel.class")
                 ?.readAllBytes()
+                ?: error("AyuIslandsAccentPanel.class must be loadable for bytecode inspection")
         kotlin.test.assertTrue(
-            classBytes != null && classBytes.isNotEmpty(),
+            classBytes.isNotEmpty(),
             "AyuIslandsAccentPanel.class must be loadable for bytecode inspection",
         )
-        val classText = String(classBytes!!, Charsets.ISO_8859_1)
+        val classText = String(classBytes, Charsets.ISO_8859_1)
         kotlin.test.assertTrue(
             classText.contains("beforeOverridesInjection"),
             "buildPanel bytecode must reference beforeOverridesInjection",
