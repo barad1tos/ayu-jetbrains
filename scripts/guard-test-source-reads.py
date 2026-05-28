@@ -19,7 +19,7 @@ TEST_ROOT = REPO_ROOT / "src/test/kotlin"
 
 STRING_LITERAL_RE = re.compile(r'"(?:\\.|[^"\\\n])*"')
 PATH_FACTORY_RE = re.compile(
-    r"(?<![\w$])(?:Path\.of|Paths\.get|(?:java\.io\.)?File)\s*\(",
+    r"(?<![\w$])(?:Path\.of|Paths\.get|Path|(?:java\.io\.)?File)\s*\(",
 )
 
 
@@ -186,9 +186,7 @@ def joined_production_source_path(segments: list[str]) -> str | None:
         index = joined.find(source_root)
         if index >= 0:
             return joined[index:]
-    if re.fullmatch(r"(?:dev|com)/[\w/$.-]+\.kt", joined):
-        return joined
-    return None
+    return joined if re.fullmatch(r"(?:dev|com)/[\w/$.-]+\.kt", joined) else None
 
 
 def find_closing_paren(
