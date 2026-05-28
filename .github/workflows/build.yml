@@ -64,6 +64,8 @@ jobs:
           ET.parse('$f')
           " || { echo "::error::Invalid XML: $f"; exit 1; }
           done
+      - name: Guard tests against production source reads
+        run: scripts/guard-test-source-reads.py
       - name: Check for large files (>500KB)
         run: |
           # Only release-showcase slide PNGs are exempted (shipped at full
