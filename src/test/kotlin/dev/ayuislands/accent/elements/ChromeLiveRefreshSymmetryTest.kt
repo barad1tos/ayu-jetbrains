@@ -23,6 +23,18 @@ import kotlin.test.fail
  *      an explicit background color on the peer.
  *
  * Comments are stripped so KDoc that documents the pattern doesn't false-pass.
+ *
+ * **Test-design note (documented compromise):** these source-regex checks
+ * guard a real user-facing bug (stranded stock-LAF chrome peer after a
+ * revert that lacked a matching `clear`). A behavioral substitute would
+ * require mocking AbstractChromeElement's lifecycle through the chrome
+ * subclasses, the LiveChromeRefresher, and the Swing peer hierarchy — heavy
+ * for a guarantee that is currently inexpensive to express as "every
+ * subclass declares peerTarget; the base has matching refresh+clear sites".
+ * Pending a working `integrationTest` task (currently misconfigured in CI),
+ * the source-regex check is the cheapest assertion that catches the
+ * regression. Do not delete in future "remove theater" passes without
+ * replacing with an equivalent behavioral or integration test.
  */
 class ChromeLiveRefreshSymmetryTest {
     private val elementFiles =

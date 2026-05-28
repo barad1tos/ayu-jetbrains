@@ -36,6 +36,19 @@ import kotlin.test.assertTrue
  *   4. `plugin.xml` MUST NOT register a second `ProjectManagerListener` —
  *      the bug is solved by gate relaxation, not by adding a new lifecycle
  *      listener.
+ *
+ * **Test-design note (documented compromise):** assertions 1–3 are
+ * source-regex over `ProjectAccentSwapService.handleWindowActivated`. They
+ * guard a real user-facing bug (stale CGP/IR app-scoped cache on alt-tab
+ * between projects that resolve to the same hex). A behavioral substitute
+ * would require reflection into the private `handleWindowActivated(AWTEvent)`
+ * AND mocks for `findProjectForWindow`, AccentResolver, AyuVariant, the
+ * settings state, AccentApplicator's two methods, and the message-bus
+ * publish — heavy and brittle. Assertion 4 reads the actual plugin.xml
+ * manifest (REAL-ARTIFACT). Pending a working `integrationTest` task
+ * (currently misconfigured in CI), these checks are the cheapest assertions
+ * that catch the regression. Do not delete in future "remove theater"
+ * passes without replacing with an equivalent behavioral or integration test.
  */
 class ProjectAccentSwapServiceHexGateShapeTest {
     private val source: String by lazy {

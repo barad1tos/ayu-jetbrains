@@ -26,6 +26,16 @@ import kotlin.test.assertTrue
  * Also locks the ordering: integrations BEFORE the per-project `notifyOnly`
  * loop, so subscribers (EditorScrollbarManager etc.) see consistent
  * app-scoped state when the topic fires.
+ *
+ * **Test-design note (documented compromise):** these source-regex checks
+ * guard real user-facing bugs (stranded Ayu indent palette on non-Ayu LAF;
+ * orange CGP viewport on Darcula after a revert that did not restore). A
+ * behavioral substitute would require mocking AccentApplicator.apply()
+ * through UIManager, EditorColorsManager, LafManager and ApplicationManager —
+ * heavy and brittle. Pending a working `integrationTest` task (currently
+ * misconfigured in CI), the source-regex check is the cheapest assertion
+ * that catches the regression. Do not delete in future "remove theater"
+ * passes without replacing with an equivalent behavioral or integration test.
  */
 class AccentApplicatorRevertAllSymmetryTest {
     private val source: String by lazy {
@@ -107,26 +117,6 @@ class AccentApplicatorRevertAllSymmetryTest {
         assertTrue(
             Regex("""syncCodeGlanceProViewport\(""").containsMatchIn(body),
             "apply MUST still call syncCodeGlanceProViewport — symmetry anchor for the revert-side test",
-        )
-    }
-
-    @Test
-    fun `apply body wraps IndentRainbowSync apply in if variant non-null check`() {
-        // The behavioral test `apply skips IndentRainbowSync when variant is
-        // null` covers the runtime path; this source-regex pin guards against
-        // a refactor that drops the structural `if (variant != null)` wrapper.
-        // IR.apply takes a non-null AyuVariant; if the wrapper goes away the
-        // call would not compile, but a future change to IR.apply's signature
-        // (nullable variant) could silently re-introduce the unconditional
-        // invocation. Pattern L — defensive structural lock.
-        val body = extractFunctionBody(source, "fun apply(")
-        assertTrue(
-            Regex("""if\s*\(variant\s*!=\s*null\s*\)\s*\{\s*[\s\S]*?IndentRainbowSync\.apply""")
-                .containsMatchIn(body),
-            "apply body MUST wrap IndentRainbowSync.apply in `if (variant != null)` " +
-                "so a null variant (non-Ayu LAF) skips IR's reflection chain. " +
-                "Pattern L lock — keep the source structure explicit even when the " +
-                "current type system would catch a bare invocation.",
         )
     }
 
