@@ -44,8 +44,9 @@ Ayu Islands synchronizes palette, font, glow, and accent color into a cohesive l
 
 ## What sets it apart
 
-- **Aesthetic engine, not a skin** — 500+ hand-tuned UI properties, 1,400+ editor attributes, and 5 settings tabs to shape how the IDE looks and feels
+- **Aesthetic engine, not a skin** — 500+ hand-tuned UI properties, expanded semantic highlighting, and dedicated settings panels to shape how the IDE looks and feels
 - **4 curated presets** — Whisper, Ambient, Neon, Cyberpunk — each synchronizes font, glow intensity, and indent colors into one cohesive mood
+- **Syntax control surface** — language-aware syntax presets for everyone, plus Pro-level Custom tuning and readability controls when you want comments, docs, and operators to recede
 - **Plugin ecosystem** — accent color propagates into CodeGlance Pro and Indent Rainbow. As far as I know, no other JetBrains theme does this
 - **Creator-endorsed** — the original Ayu author endorsed this project and invited it to the official Ayu site
 
@@ -65,11 +66,13 @@ Ayu Islands synchronizes palette, font, glow, and accent color into a cohesive l
 
 **VCS color customization** — *Settings → Ayu Islands → VCS* tunes intensity across five surfaces (diff viewer, Project View file status, editor gutter, conflict markers, Git blame annotations). Each section carries its own profile — **Whisper**, **Ambient**, **Neon**, **Cyberpunk**, or **Custom** with per-surface sliders. Master toggle off by default; 2.6.2 colors stay byte-identical until you opt in.
 
+**Syntax tuning** — *Settings → Ayu Islands → Syntax* gives Pro users per-language sliders for declarations, identifiers, keywords/docs, literals, and operators. Add global readability controls — **Dim comments**, **Soften documentation**, **Quiet operators**, **Emphasize declarations** — when you want dense code to breathe without editing individual Color Scheme keys.
+
 **Onboarding wizard** — a full-tab welcome opens on first install with preset cards, theme variant picker, and accent swatches. After upgrades, a **release showcase** tab opens automatically with captioned screenshots of the marquee features; reopen anytime via *Tools → Ayu Islands → Show What's New*.
 
 ## Free — a complete theme, not a teaser
 
-6 theme variants (Mirage, Dark, Light — Classic & Islands UI). 40+ individually crafted language syntaxes. 12 accent presets + custom picker + macOS system sync. 4 font presets with one-click apply and live preview. Full VCS/diff colors and a 16-color terminal scheme. All free. No time limit. No feature degradation.
+6 theme variants (Mirage, Dark, Light — Classic & Islands UI). 40+ individually crafted language syntaxes, expanded semantic highlighting, and four one-click syntax presets. 12 accent presets + custom picker + macOS system sync. 4 font presets with one-click apply and live preview. Full VCS/diff colors and a 16-color terminal scheme. All free. No time limit. No feature degradation.
 
 ## Theme variants
 

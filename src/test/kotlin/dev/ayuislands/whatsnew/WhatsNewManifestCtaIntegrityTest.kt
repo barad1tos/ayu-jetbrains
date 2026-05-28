@@ -5,8 +5,8 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * Integrity check between the shipped manifest and plugin.xml. The
- * ctaOpenSettingsTargetId in each shipped per-version manifest must match an
+ * Integrity check between shipped manifests and plugin.xml. The
+ * ctaOpenSettingsTargetId in each per-version manifest must match an
  * applicationConfigurable id declared in plugin.xml — otherwise the
  * "Open settings" CTA in the What's New tab silently no-ops
  * (ShowSettingsUtil.showSettingsDialog looks up by id, not by displayName).
@@ -18,19 +18,22 @@ import kotlin.test.assertTrue
  */
 class WhatsNewManifestCtaIntegrityTest {
     @Test
-    fun `v2_5_0 ctaOpenSettingsTargetId is a real applicationConfigurable id`() {
-        val manifest = WhatsNewManifestLoader.load("2.5.0")
-        assertNotNull(manifest, "v2.5.0 manifest must load — it ships with the plugin")
-        val targetId = manifest.ctaOpenSettingsTargetId
-        assertNotNull(targetId, "v2.5.0 manifest must declare a CTA target id")
-
+    fun `all shipped manifest ctaOpenSettingsTargetIds are real applicationConfigurable ids`() {
         val pluginXml = readPluginXml()
         val configurableIds = extractApplicationConfigurableIds(pluginXml)
-        assertTrue(
-            targetId in configurableIds,
-            "ctaOpenSettingsTargetId='$targetId' must match an applicationConfigurable id; " +
-                "found ids: $configurableIds",
-        )
+
+        for (version in SHIPPED_MANIFEST_VERSIONS) {
+            val manifest = WhatsNewManifestLoader.load(version)
+            assertNotNull(manifest, "v$version manifest must load — it ships with the plugin")
+            val targetId = manifest.ctaOpenSettingsTargetId
+            assertNotNull(targetId, "v$version manifest must declare a CTA target id")
+
+            assertTrue(
+                targetId in configurableIds,
+                "v$version ctaOpenSettingsTargetId='$targetId' must match an applicationConfigurable id; " +
+                    "found ids: $configurableIds",
+            )
+        }
     }
 
     private fun readPluginXml(): String {
@@ -49,5 +52,9 @@ class WhatsNewManifestCtaIntegrityTest {
                 RegexOption.DOT_MATCHES_ALL,
             )
         return pattern.findAll(xml).map { it.groupValues[1] }.toList()
+    }
+
+    private companion object {
+        val SHIPPED_MANIFEST_VERSIONS = listOf("2.5.0", "2.6.0", "2.7.0")
     }
 }

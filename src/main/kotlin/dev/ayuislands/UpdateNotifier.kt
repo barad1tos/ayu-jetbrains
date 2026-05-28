@@ -55,6 +55,13 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.7.0" to
+                "<ul>" +
+                "<li>Expanded semantic highlighting across 26+ language families</li>" +
+                "<li>Syntax presets: Whisper, Ambient, Neon, and Cyberpunk</li>" +
+                "<li>Matching tags and chrome tinting read calmer at low intensity</li>" +
+                "<li>Custom per-language syntax tuning and readability controls for Pro</li>" +
+                "</ul>",
             "2.6.4" to
                 "<ul>" +
                 "<li>Quick-Switcher Widget — chip in the main toolbar with variant + accent grid (free)</li>" +

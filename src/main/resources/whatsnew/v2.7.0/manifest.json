@@ -1,0 +1,20 @@
+{
+  "title": "Syntax control center",
+  "tagline": "Ayu Islands now lets the editor syntax match how you actually read code.",
+  "slides": [
+    {
+      "title": "More languages speak Ayu",
+      "body": "Semantic highlighting now reaches hundreds more editor keys across 26+ language families. YAML/HCL, Scala docs, Kotlin, Dart, Groovy, Go exported identifiers, and many smaller gaps now inherit the same Ayu balance instead of falling back to generic IDE colors."
+    },
+    {
+      "title": "Four syntax moods for everyone",
+      "body": "Open <b>Settings -> Ayu Islands -> Syntax</b> and switch between <b>Whisper</b>, <b>Ambient</b>, <b>Neon</b>, and <b>Cyberpunk</b>. The preset row gives the editor the same one-click mood model that Ayu Islands already applies to font, glow, VCS, and plugin integrations."
+    },
+    {
+      "title": "Pro tuning when code gets dense",
+      "body": "Custom mode unlocks per-language sliders for declarations, identifiers, keywords/docs, literals, and operators. Readability controls layer on top: dim comments, soften documentation, quiet operators, and emphasize declarations without editing individual Color Scheme keys."
+    }
+  ],
+  "ctaOpenSettingsLabel": "Open Syntax Settings",
+  "ctaOpenSettingsTargetId": "dev.ayuislands.settings.AyuIslandsConfigurable"
+}
