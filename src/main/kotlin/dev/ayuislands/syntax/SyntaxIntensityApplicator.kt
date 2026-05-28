@@ -360,7 +360,7 @@ object SyntaxIntensityApplicator {
 
     private const val MAX_RGB_CHANNEL = 255
 
-    private const val DIM_COMMENTS_INTENSITY = 70
+    private const val DIM_COMMENTS_INTENSITY = 60
     private const val SOFTEN_DOCUMENTATION_INTENSITY = 82
     private const val QUIET_OPERATORS_INTENSITY = 78
     private const val EMPHASIZE_DECLARATIONS_SATURATION_DELTA = 0.08f
