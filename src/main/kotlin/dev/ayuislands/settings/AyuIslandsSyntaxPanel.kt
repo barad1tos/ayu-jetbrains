@@ -4,7 +4,6 @@ import com.intellij.icons.AllIcons
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.ui.InplaceButton
-import com.intellij.ui.JBColor
 import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.RightGap
@@ -24,7 +23,6 @@ import dev.ayuislands.syntax.SyntaxReadabilityOptions
 import java.awt.Component
 import java.awt.Container
 import java.awt.Dimension
-import java.awt.Font
 import java.awt.GridLayout
 import javax.swing.AbstractButton
 import javax.swing.JButton
@@ -60,14 +58,13 @@ import javax.swing.Timer
  *
  * Custom drill-down layout: the 16 [PrimitiveCategory] controls are arranged
  * as four semantic groups in two column-level grids. Each row keeps the same
- * fixed cells — category, tick-free slider, signed readout, and a fixed
- * reset / Bold / Italic slot zone — so controls line up without a long empty
- * single table. The slider value model (0..100, 50 = identity, sparse store
- * keyed by `language|category.name`) is unchanged — the signed string lives only in the
- * readout [JLabel] and is never parsed back. The font-style model is an
- * orthogonal sparse store keyed by the same composite key, mapping to a
- * [FontStyleOverride] enum `name`; both stores thread through [apply] in
- * parallel.
+ * fixed cells — category, tick-free slider, signed readout, and a reset slot —
+ * so controls line up without a long empty single table. The slider value
+ * model (0..100, 50 = identity, sparse store keyed by
+ * `language|category.name`) is unchanged — the signed string lives only in the
+ * readout [JLabel] and is never parsed back. The legacy font-style sparse map
+ * still threads through [apply] for stored configurations, but row-level B/I
+ * controls are intentionally not part of this compact grid.
  */
 @Suppress("TooManyFunctions", "UnstableApiUsage") // Settings panel with focused UI lifecycle helpers.
 class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
@@ -95,17 +92,14 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
     private val pendingOverrides: MutableMap<String, String> = mutableMapOf()
     private val storedOverrides: MutableMap<String, String> = mutableMapOf()
 
-    // Font-style store: flat "language|category" -> FontStyleOverride enum name.
-    // Orthogonal to pendingOverrides — a cell may carry a style with no slider
-    // move, or a slider move with no style. Both diff into [isModified] and
-    // both thread through [apply].
+    // Legacy font-style store: flat "language|category" -> FontStyleOverride
+    // enum name. It still round-trips stored configurations, but no longer has
+    // row-level controls in the compact Custom grid.
     private val pendingStyles: MutableMap<String, String> = mutableMapOf()
     private val storedStyles: MutableMap<String, String> = mutableMapOf()
     private val sliders: MutableMap<PrimitiveCategory, JSlider> = mutableMapOf()
     private val sliderLabels: MutableMap<PrimitiveCategory, JLabel> = mutableMapOf()
     private val resetButtons: MutableMap<PrimitiveCategory, InplaceButton> = mutableMapOf()
-    private val boldToggles: MutableMap<PrimitiveCategory, InplaceButton> = mutableMapOf()
-    private val italicToggles: MutableMap<PrimitiveCategory, InplaceButton> = mutableMapOf()
     private var dimCommentsCheckbox: JCheckBox? = null
     private var softenDocumentationCheckbox: JCheckBox? = null
     private var quietOperatorsCheckbox: JCheckBox? = null
@@ -221,44 +215,38 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
 
     private fun Panel.buildReadabilityBlock() {
         row("Readability:") {
-            panel {
-                row {
-                    dimCommentsCheckbox =
-                        checkBox("Dim comments").component.apply {
-                            isSelected = pendingDimComments
-                            addActionListener {
-                                pendingDimComments = isSelected
-                                preview()
-                            }
-                        }
-                    softenDocumentationCheckbox =
-                        checkBox("Soften documentation").component.apply {
-                            isSelected = pendingSoftenDocumentation
-                            addActionListener {
-                                pendingSoftenDocumentation = isSelected
-                                preview()
-                            }
-                        }
+            dimCommentsCheckbox =
+                checkBox("Dim comments").component.apply {
+                    isSelected = pendingDimComments
+                    addActionListener {
+                        pendingDimComments = isSelected
+                        preview()
+                    }
                 }
-                row {
-                    quietOperatorsCheckbox =
-                        checkBox("Quiet operators").component.apply {
-                            isSelected = pendingQuietOperators
-                            addActionListener {
-                                pendingQuietOperators = isSelected
-                                preview()
-                            }
-                        }
-                    emphasizeDeclarationsCheckbox =
-                        checkBox("Emphasize declarations").component.apply {
-                            isSelected = pendingEmphasizeDeclarations
-                            addActionListener {
-                                pendingEmphasizeDeclarations = isSelected
-                                preview()
-                            }
-                        }
+            softenDocumentationCheckbox =
+                checkBox("Soften documentation").component.apply {
+                    isSelected = pendingSoftenDocumentation
+                    addActionListener {
+                        pendingSoftenDocumentation = isSelected
+                        preview()
+                    }
                 }
-            }
+            quietOperatorsCheckbox =
+                checkBox("Quiet operators").component.apply {
+                    isSelected = pendingQuietOperators
+                    addActionListener {
+                        pendingQuietOperators = isSelected
+                        preview()
+                    }
+                }
+            emphasizeDeclarationsCheckbox =
+                checkBox("Emphasize declarations").component.apply {
+                    isSelected = pendingEmphasizeDeclarations
+                    addActionListener {
+                        pendingEmphasizeDeclarations = isSelected
+                        preview()
+                    }
+                }
         }
         row {
             comment("Applies on top of the selected preset. Use Custom for per-language tuning.")
@@ -311,93 +299,21 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
                     isFocusable = true
                     accessibleContext.accessibleName = "Reset ${category.displayName} to default"
                 }
-            val boldToggle =
-                InplaceButton("Bold ${category.displayName}", styleGlyphIcon("B", Font.BOLD, engaged = false)) {
-                    onStyleToggle(category, Font.BOLD)
-                }.apply {
-                    isFocusable = true
-                    accessibleContext.accessibleName = "Bold ${category.displayName}"
-                }
-            val italicToggle =
-                InplaceButton("Italic ${category.displayName}", styleGlyphIcon("I", Font.ITALIC, engaged = false)) {
-                    onStyleToggle(category, Font.ITALIC)
-                }.apply {
-                    isFocusable = true
-                    accessibleContext.accessibleName = "Italic ${category.displayName}"
-                }
             resetButtons[category] = resetButton
-            boldToggles[category] = boldToggle
-            italicToggles[category] = italicToggle
             val trailingZone =
-                JPanel(GridLayout(1, TRAILING_SLOT_COUNT, JBUI.scale(TRAILING_GAP), 0)).apply {
+                JPanel(GridLayout(1, TRAILING_SLOT_COUNT, 0, 0)).apply {
                     isOpaque = false
                     val zoneWidth = JBUI.scale(TRAILING_ZONE_WIDTH)
                     val zoneHeight = JBUI.scale(TRAILING_SLOT_SIDE)
                     preferredSize = Dimension(zoneWidth, zoneHeight)
                     minimumSize = Dimension(zoneWidth, zoneHeight)
                     add(resetButton)
-                    add(boldToggle)
-                    add(italicToggle)
                 }
             cell(trailingZone)
             sliders[category] = intensitySlider
             sliderLabels[category] = valueLabel
-            refreshStyleVisuals(category)
         }
     }
-
-    private fun onStyleToggle(
-        category: PrimitiveCategory,
-        bit: Int,
-    ) {
-        val key = compositeKey(currentLanguage, category)
-        val current = FontStyleOverride.fromName(pendingStyles[key])?.fontType ?: Font.PLAIN
-        val next = current xor bit
-        val nextStyle = FontStyleOverride.entries.firstOrNull { it.fontType == next }
-        if (nextStyle == null || nextStyle == FontStyleOverride.PLAIN) {
-            pendingStyles.remove(key)
-        } else {
-            pendingStyles[key] = nextStyle.name
-        }
-        refreshStyleVisuals(category)
-        refreshResetVisibility(category)
-        refreshMasterResetButton()
-        applyTimer.restart()
-    }
-
-    private fun refreshStyleVisuals(category: PrimitiveCategory) {
-        val key = compositeKey(currentLanguage, category)
-        val fontType = FontStyleOverride.fromName(pendingStyles[key])?.fontType ?: Font.PLAIN
-        boldToggles[category]?.let { button ->
-            button.icon = styleGlyphIcon("B", Font.BOLD, fontType and Font.BOLD != 0)
-            button.repaint()
-        }
-        italicToggles[category]?.let { button ->
-            button.icon = styleGlyphIcon("I", Font.ITALIC, fontType and Font.ITALIC != 0)
-            button.repaint()
-        }
-    }
-
-    private fun styleGlyphIcon(
-        glyph: String,
-        style: Int,
-        engaged: Boolean,
-    ): StyleGlyphIcon {
-        val foreground = if (engaged) UIUtil.getLabelForeground() else UIUtil.getContextHelpForeground()
-        val background =
-            if (engaged) {
-                JBUI.CurrentTheme.ActionButton.pressedBackground()
-            } else {
-                JBUI.CurrentTheme.ActionButton.hoverBackground()
-            }
-        return StyleGlyphIcon(glyph, style, foreground, background, border = styleGlyphBorder())
-    }
-
-    private fun styleGlyphBorder(): JBColor =
-        JBColor.namedColor(
-            "Popup.innerBorderColor",
-            JBColor.namedColor("Popup.borderColor", JBColor.GRAY),
-        )
 
     private fun refreshResetVisibility(category: PrimitiveCategory) {
         val key = compositeKey(currentLanguage, category)
@@ -418,7 +334,6 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         val key = compositeKey(currentLanguage, category)
         pendingOverrides.remove(key)
         pendingStyles.remove(key)
-        refreshStyleVisuals(category)
         refreshResetVisibility(category)
         refreshMasterResetButton()
         applyTimer.restart()
@@ -533,10 +448,11 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         state.customOverrides.putAll(pendingOverrides)
         state.customStyles.clear()
         state.customStyles.putAll(pendingStyles)
-        state.dimComments = pendingDimComments
-        state.softenDocumentation = pendingSoftenDocumentation
-        state.quietOperators = pendingQuietOperators
-        state.emphasizeDeclarations = pendingEmphasizeDeclarations
+        val appliedReadabilityOptions = readabilityOptions()
+        state.dimComments = appliedReadabilityOptions.dimComments
+        state.softenDocumentation = appliedReadabilityOptions.softenDocumentation
+        state.quietOperators = appliedReadabilityOptions.quietOperators
+        state.emphasizeDeclarations = appliedReadabilityOptions.emphasizeDeclarations
         state.schemaVersion = SYNTAX_INTENSITY_SCHEMA_VERSION
         storedPreset = pendingPreset
         storedSubordinate = pendingSubordinate
@@ -544,10 +460,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         storedOverrides.putAll(pendingOverrides)
         storedStyles.clear()
         storedStyles.putAll(pendingStyles)
-        storedDimComments = pendingDimComments
-        storedSoftenDocumentation = pendingSoftenDocumentation
-        storedQuietOperators = pendingQuietOperators
-        storedEmphasizeDeclarations = pendingEmphasizeDeclarations
+        rememberReadabilityOptions(appliedReadabilityOptions)
     }
 
     override fun reset() {
@@ -572,14 +485,14 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         pendingPreset = storedPreset
         storedSubordinate = SyntaxPreset.fromName(state.subordinatePreset)
         pendingSubordinate = storedSubordinate
-        storedDimComments = state.dimComments
-        pendingDimComments = storedDimComments
-        storedSoftenDocumentation = state.softenDocumentation
-        pendingSoftenDocumentation = storedSoftenDocumentation
-        storedQuietOperators = state.quietOperators
-        pendingQuietOperators = storedQuietOperators
-        storedEmphasizeDeclarations = state.emphasizeDeclarations
-        pendingEmphasizeDeclarations = storedEmphasizeDeclarations
+        rememberReadabilityOptions(
+            SyntaxReadabilityOptions(
+                dimComments = state.dimComments,
+                softenDocumentation = state.softenDocumentation,
+                quietOperators = state.quietOperators,
+                emphasizeDeclarations = state.emphasizeDeclarations,
+            ),
+        )
         storedOverrides.clear()
         if (canUseCustom) {
             storedOverrides.putAll(state.customOverrides)
@@ -601,6 +514,17 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         emphasizeDeclarationsCheckbox?.isSelected = pendingEmphasizeDeclarations
     }
 
+    private fun rememberReadabilityOptions(options: SyntaxReadabilityOptions) {
+        storedDimComments = options.dimComments
+        pendingDimComments = options.dimComments
+        storedSoftenDocumentation = options.softenDocumentation
+        pendingSoftenDocumentation = options.softenDocumentation
+        storedQuietOperators = options.quietOperators
+        pendingQuietOperators = options.quietOperators
+        storedEmphasizeDeclarations = options.emphasizeDeclarations
+        pendingEmphasizeDeclarations = options.emphasizeDeclarations
+    }
+
     private fun rebindSlidersFor(language: String) {
         suppressSliderListeners = true
         try {
@@ -609,7 +533,6 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
                 sliders[category]?.value = value
                 sliderLabels[category]?.let { applyReadout(it, value) }
                 sliders[category]?.accessibleContext?.accessibleName = intensityAccessibleName(category, value)
-                refreshStyleVisuals(category)
                 refreshResetVisibility(category)
             }
         } finally {
@@ -635,7 +558,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
 
     /**
      * Single update site for a readout [JLabel]'s text AND foreground so the
-     * three callers ([onSliderChanged], [setSliderValue], [rebindSlidersFor])
+     * three callers ([onSliderChanged], [resetCategorySlider], [rebindSlidersFor])
      * stay in lock-step. At the [SLIDER_MID] identity the readout is visually
      * empty and dimmed to reduce noise; once the cell diverges the signed delta
      * switches to the stronger
@@ -780,10 +703,9 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
 
         private const val SLIDER_TRACK_WIDTH = 140
         private const val READOUT_WIDTH = 28
-        private const val TRAILING_SLOT_COUNT = 3
+        private const val TRAILING_SLOT_COUNT = 1
         private const val TRAILING_SLOT_SIDE = 20
-        private const val TRAILING_ZONE_WIDTH = 64
-        private const val TRAILING_GAP = 2
+        private const val TRAILING_ZONE_WIDTH = 20
         private const val LABEL_PADDING = 8
         private const val LABEL_FALLBACK_WIDTH = 170
         private const val CUSTOM_PILL_TOOLTIP = "Pro Feature"

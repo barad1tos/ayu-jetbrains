@@ -84,13 +84,12 @@ import kotlin.test.assertTrue
  *    against 2025.1 throws `AbstractMethodError` on newer runtime IDEs and
  *    hangs the settings page on "Loading…". Unit tests against the embedded
  *    SDK cannot reproduce the runtime failure.
- *  - `InplaceButton`-only trailing slot zone: a bare `JToggleButton` or
- *    `ActionButton` re-introduces the `ActionToolbar.updateUI`
- *    `SlowOperations SEVERE` crash documented in the project's
- *    `feedback_no_threshold_or_ignore_changes` lesson. The fixed-slot
- *    `GridLayout(1, TRAILING_SLOT_COUNT, ...)` plus `TRAILING_SLOT_*`
- *    constants are DSL-build internals — building the panel under unit
- *    tests requires a full IntelliJ platform.
+ *  - `InplaceButton`-only trailing reset slot: `ActionButton` re-introduces
+ *    the `ActionToolbar.updateUI` `SlowOperations SEVERE` crash documented in
+ *    the project's `feedback_no_threshold_or_ignore_changes` lesson. The
+ *    fixed-slot `GridLayout(1, TRAILING_SLOT_COUNT, ...)` plus
+ *    `TRAILING_SLOT_*` constants are DSL-build internals — building the panel
+ *    under unit tests requires a full IntelliJ platform.
  *
  * Do not delete these source-regex assertions in future "remove theater"
  * cleanup passes without first wiring a working `integrationTest` task that
@@ -685,9 +684,9 @@ class AyuIslandsSyntaxPanelTest {
             "slider tracks must stay 140 to avoid horizontal bloat in the two-column matrix.",
         )
         assertEquals(
-            64,
+            20,
             readPrivateConst("TRAILING_ZONE_WIDTH"),
-            "fixed reset + Bold + Italic trailing zone must be 64.",
+            "fixed reset-only trailing zone must stay compact at 20.",
         )
     }
 
@@ -863,55 +862,10 @@ class AyuIslandsSyntaxPanelTest {
         assertFalse(stringLiteral.resetButton.isVisible, "untouched cell hides the category reset")
     }
 
-    // ---------- Part B Test 28 - toggle flips one bit and composes BOLD_ITALIC ----------
+    // ---------- Part B Test 29 - legacy styles still count as modifications ----------
 
     @Test
-    fun `onStyleToggle flips the bit B then I composes BOLD_ITALIC, toggling both off removes the key`() {
-        stateBase.selectedPreset = "CUSTOM"
-        val panel = panelWithLoadedState()
-        writeCurrentLanguage(panel, "Java")
-        seedWidgets(panel, PrimitiveCategory.KEYWORD)
-
-        try {
-            // First B -> BOLD.
-            invokeOnKeywordStyleToggle(panel, Font.BOLD)
-            assertEquals("BOLD", readPendingStyles(panel)["Java|KEYWORD"], "B toggle sets BOLD")
-
-            // Then I -> BOLD_ITALIC (bits compose, not replace).
-            invokeOnKeywordStyleToggle(panel, Font.ITALIC)
-            assertEquals(
-                "BOLD_ITALIC",
-                readPendingStyles(panel)["Java|KEYWORD"],
-                "I toggle composes onto BOLD to make BOLD_ITALIC",
-            )
-
-            // Toggle B off -> ITALIC remains.
-            invokeOnKeywordStyleToggle(panel, Font.BOLD)
-            assertEquals(
-                "ITALIC",
-                readPendingStyles(panel)["Java|KEYWORD"],
-                "dropping the bold bit leaves ITALIC",
-            )
-
-            // Toggle I off -> both bits off -> key REMOVED (inherit, no PLAIN written).
-            invokeOnKeywordStyleToggle(panel, Font.ITALIC)
-            assertFalse(
-                readPendingStyles(panel).containsKey("Java|KEYWORD"),
-                "both bits off must REMOVE the key (return to inherit) - v1 never persists PLAIN",
-            )
-            assertFalse(
-                readPendingStyles(panel).values.contains("PLAIN"),
-                "v1 must never write an explicit PLAIN style token",
-            )
-        } finally {
-            panel.dispose()
-        }
-    }
-
-    // ---------- Part B Test 29 - style toggle is a style-only modification ----------
-
-    @Test
-    fun `isModified is true after a style-only toggle (slider untouched)`() {
+    fun `isModified is true after a legacy style-only change (slider untouched)`() {
         stateBase.selectedPreset = "CUSTOM"
         val panel = panelWithLoadedState()
         writeCurrentLanguage(panel, "Java")
@@ -919,10 +873,10 @@ class AyuIslandsSyntaxPanelTest {
         assertFalse(panel.isModified(), "fresh CUSTOM panel with no changes is not modified")
 
         try {
-            invokeOnKeywordStyleToggle(panel, Font.BOLD)
+            seedPendingStyle(panel, "Java|KEYWORD", "BOLD")
             assertTrue(
                 panel.isModified(),
-                "a style-only toggle (no slider move) must mark the panel modified so Apply enables",
+                "a legacy style-only change (no slider move) must mark the panel modified so Apply enables",
             )
         } finally {
             panel.dispose()
@@ -1020,13 +974,12 @@ class AyuIslandsSyntaxPanelTest {
         }
     }
 
-    // ---------- Part B Test 33 - documented compromise: InplaceButton-only trailing controls ----------
+    // ---------- Part B Test 33 - documented compromise: InplaceButton-only trailing reset ----------
 
     @Test
-    fun `trailing controls use InplaceButton, never JToggleButton or ActionButton (documented compromise)`() {
-        // Documented compromise: a bare `JToggleButton` re-introduces the
-        // shouting toggle box across 32 instances, and `ActionButton` plus
-        // `updateComponentTreeUI` reproduce the `ActionToolbar.updateUI`
+    fun `trailing reset uses InplaceButton, never ActionButton (documented compromise)`() {
+        // Documented compromise: `ActionButton` plus `updateComponentTreeUI`
+        // reproduce the `ActionToolbar.updateUI`
         // `SlowOperations SEVERE` crash documented in the project's
         // testing-philosophy notes. The fixed-slot
         // `GridLayout(1, TRAILING_SLOT_COUNT, ...)` plus `TRAILING_SLOT_*`
@@ -1035,34 +988,25 @@ class AyuIslandsSyntaxPanelTest {
         val source = readPanelSource()
         assertTrue(
             source.contains("InplaceButton("),
-            "The trailing reset / Bold / Italic controls must be InplaceButton.",
+            "The trailing reset control must be InplaceButton.",
         )
         assertTrue(
-            source.contains("StyleGlyphIcon"),
-            "The grouped grid must use compact text-glyph B/I icons.",
-        )
-        assertTrue(
-            source.contains("JBUI.CurrentTheme.ActionButton.hoverBackground()") &&
-                source.contains("border = styleGlyphBorder()"),
-            "Inactive B/I icons must render as quiet chips, not bare text glyphs.",
-        )
-        assertTrue(
-            source.contains("JPanel(GridLayout(1, TRAILING_SLOT_COUNT, JBUI.scale(TRAILING_GAP), 0))"),
-            "The trailing reset / Bold / Italic zone must use fixed slots so B/I never shift when reset appears.",
+            source.contains("JPanel(GridLayout(1, TRAILING_SLOT_COUNT, 0, 0))"),
+            "The trailing reset zone must use a fixed slot so reset visibility never shifts the row.",
         )
         assertEquals(
-            3,
+            1,
             readPrivateConst("TRAILING_SLOT_COUNT"),
-            "the trailing zone must reserve three stable slots.",
+            "the trailing zone must reserve one stable reset slot.",
         )
         assertEquals(
             20,
             readPrivateConst("TRAILING_SLOT_SIDE"),
-            "the trailing zone slots must stay 20px so B/I never shift when reset appears.",
+            "the trailing reset slot must stay 20px so reset visibility never shifts the row.",
         )
         assertFalse(
             source.contains("JToggleButton"),
-            "Part B: no bare JToggleButton - its box shouts across 32 instances.",
+            "Part B: no bare JToggleButton - the reset is a lightweight InplaceButton.",
         )
         assertFalse(
             Regex("""[^a-zA-Z_]ActionButton\b""").containsMatchIn(source.substringBefore("JBUI.CurrentTheme")) &&
@@ -1288,20 +1232,6 @@ class AyuIslandsSyntaxPanelTest {
         putMethod.invoke(map, key, value)
     }
 
-    private fun invokeOnKeywordStyleToggle(
-        panel: AyuIslandsSyntaxPanel,
-        bit: Int,
-    ) {
-        val method =
-            AyuIslandsSyntaxPanel::class.java.getDeclaredMethod(
-                "onStyleToggle",
-                PrimitiveCategory::class.java,
-                Int::class.javaPrimitiveType,
-            )
-        method.isAccessible = true
-        method.invoke(panel, PrimitiveCategory.KEYWORD, bit)
-    }
-
     private fun invokeOnResetCurrentLanguage(panel: AyuIslandsSyntaxPanel) {
         val method = AyuIslandsSyntaxPanel::class.java.getDeclaredMethod("onResetCurrentLanguage")
         method.isAccessible = true
@@ -1346,9 +1276,9 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     /**
-     * Materialize one category's slider / readout / reset-icon / Bold / Italic
-     * widgets and the master reset button so logic methods can be driven
-     * without a built [com.intellij.openapi.ui.DialogPanel].
+     * Materialize one category's slider / readout / reset-icon widgets and the
+     * master reset button so logic methods can be driven without a built
+     * [com.intellij.openapi.ui.DialogPanel].
      */
     private fun seedWidgets(
         panel: AyuIslandsSyntaxPanel,
@@ -1357,18 +1287,14 @@ class AyuIslandsSyntaxPanelTest {
         val slider = JSlider(0, 100, 50)
         val label = JLabel("0")
         val resetButton = InplaceButton("Reset", AllIcons.Actions.Rollback) {}
-        val boldToggle = InplaceButton("Bold", AllIcons.Actions.Rollback) {}
-        val italicToggle = InplaceButton("Italic", AllIcons.Actions.Rollback) {}
         val button = JButton()
         putIntoMapField(panel, "sliders", category, slider)
         putIntoMapField(panel, "sliderLabels", category, label)
         putIntoMapField(panel, "resetButtons", category, resetButton)
-        putIntoMapField(panel, "boldToggles", category, boldToggle)
-        putIntoMapField(panel, "italicToggles", category, italicToggle)
         val buttonField = AyuIslandsSyntaxPanel::class.java.getDeclaredField("masterResetButton")
         buttonField.isAccessible = true
         buttonField.set(panel, button)
-        return SeededWidgets(slider, label, resetButton, boldToggle, italicToggle, button)
+        return SeededWidgets(slider, label, resetButton, button)
     }
 
     private fun putIntoMapField(
@@ -1388,8 +1314,6 @@ class AyuIslandsSyntaxPanelTest {
         val slider: JSlider,
         val label: JLabel,
         val resetButton: InplaceButton,
-        val boldToggle: InplaceButton,
-        val italicToggle: InplaceButton,
         val button: JButton,
     )
 
