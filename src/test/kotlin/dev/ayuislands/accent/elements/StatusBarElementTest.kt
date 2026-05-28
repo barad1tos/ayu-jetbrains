@@ -58,7 +58,7 @@ class StatusBarElementTest {
         every { UIManager.put(any<String>(), any()) } returns null
 
         mockkObject(ChromeBaseColors)
-        every { ChromeBaseColors.get(any()) } returns stockBase
+        every { ChromeBaseColors[any()] } returns stockBase
 
         mockkObject(ChromeTintBlender)
         every { ChromeTintBlender.blend(any(), any<Color>(), any()) } returns blended
@@ -87,6 +87,7 @@ class StatusBarElementTest {
         verify { UIManager.put("StatusBar.background", blended) }
         verify { UIManager.put("StatusBar.borderColor", blended) }
         verify { UIManager.put("StatusBar.Widget.hoverBackground", null) }
+        verify { UIManager.put("StatusBar.Widget.pressedBackground", null) }
         // NavBar Compact (2026.1) state-specific bg keys read by
         // `NavBarItemComponent.highlightColor()` are translucent overlays, not
         // standalone surfaces. The compact panel receives the opaque tint directly;
@@ -106,7 +107,7 @@ class StatusBarElementTest {
         // applied plugin override cannot leak past a partial apply. Guards
         // against a future refactor that "optimizes" the null sweep behind an
         // `if (tinted.isNotEmpty())` check.
-        every { ChromeBaseColors.get(any()) } returns null
+        every { ChromeBaseColors[any()] } returns null
         state.chromeTintIntensity = 30
 
         StatusBarElement().apply(accent)
@@ -116,6 +117,7 @@ class StatusBarElementTest {
         verify { UIManager.put("StatusBar.Breadcrumbs.selectionInactiveBackground", null) }
         verify { UIManager.put("StatusBar.Breadcrumbs.floatingBackground", null) }
         verify { UIManager.put("StatusBar.Widget.hoverBackground", null) }
+        verify { UIManager.put("StatusBar.Widget.pressedBackground", null) }
         // No opaque tint should have been written since the bases were absent.
         verify(exactly = 0) { UIManager.put("StatusBar.background", blended) }
     }
@@ -128,15 +130,17 @@ class StatusBarElementTest {
         verify { UIManager.put("StatusBar.background", null) }
         verify { UIManager.put("StatusBar.borderColor", null) }
         verify { UIManager.put("StatusBar.Widget.hoverBackground", null) }
+        verify { UIManager.put("StatusBar.Widget.pressedBackground", null) }
         verify { UIManager.put("StatusBar.Breadcrumbs.hoverBackground", null) }
         verify { UIManager.put("StatusBar.Breadcrumbs.selectionBackground", null) }
         verify { UIManager.put("StatusBar.Breadcrumbs.selectionInactiveBackground", null) }
         verify { UIManager.put("StatusBar.Breadcrumbs.floatingBackground", null) }
-        // Foregrounds (2 Widget + 5 Breadcrumbs state) — every fg state the path
-        // widget can land in must be nulled so the LAF re-resolves stock when the
-        // user disables chrome tinting.
+        // Foregrounds (3 Widget + 5 Breadcrumbs state) — every fg state text
+        // can land in must be nulled so the LAF re-resolves stock when the user
+        // disables chrome tinting.
         verify { UIManager.put("StatusBar.Widget.foreground", null) }
         verify { UIManager.put("StatusBar.Widget.hoverForeground", null) }
+        verify { UIManager.put("StatusBar.Widget.pressedForeground", null) }
         verify { UIManager.put("StatusBar.Breadcrumbs.foreground", null) }
         verify { UIManager.put("StatusBar.Breadcrumbs.hoverForeground", null) }
         verify { UIManager.put("StatusBar.Breadcrumbs.floatingForeground", null) }
@@ -160,6 +164,22 @@ class StatusBarElementTest {
         }
         verify { UIManager.put("StatusBar.Widget.foreground", Color.GREEN) }
         verify { UIManager.put("StatusBar.Widget.hoverForeground", Color.GREEN) }
+        verify { UIManager.put("StatusBar.Widget.pressedForeground", Color.GREEN) }
+    }
+
+    @Test
+    fun `apply extends light-family pick to all 3 platform widget foreground states`() {
+        // `TextPanel.paintComponent()` (IntelliJ 2026.1) selects Widget
+        // FOREGROUND / HOVER_FOREGROUND / PRESSED_FOREGROUND from the current
+        // mouse effect. Every state must be written so clicking a status widget
+        // cannot fall through to stock black text on the tinted status bar.
+        state.chromeTintIntensity = 40
+
+        StatusBarElement().apply(accent)
+
+        verify(exactly = 1) { UIManager.put("StatusBar.Widget.foreground", Color.GREEN) }
+        verify(exactly = 1) { UIManager.put("StatusBar.Widget.hoverForeground", Color.GREEN) }
+        verify(exactly = 1) { UIManager.put("StatusBar.Widget.pressedForeground", Color.GREEN) }
     }
 
     @Test
@@ -187,9 +207,9 @@ class StatusBarElementTest {
         val overlayForeground = Color(0x1F, 0x24, 0x30)
         state.chromeTintIntensity = 40
 
-        every { ChromeBaseColors.get("StatusBar.background") } returns Color(0x24, 0x29, 0x36)
-        every { ChromeBaseColors.get("StatusBar.borderColor") } returns Color(0x24, 0x29, 0x36)
-        every { ChromeBaseColors.get("StatusBar.Widget.hoverBackground") } returns Color(0xFF, 0xFF, 0xFF, 0x18)
+        every { ChromeBaseColors["StatusBar.background"] } returns Color(0x24, 0x29, 0x36)
+        every { ChromeBaseColors["StatusBar.borderColor"] } returns Color(0x24, 0x29, 0x36)
+        every { ChromeBaseColors["StatusBar.Widget.hoverBackground"] } returns Color(0xFF, 0xFF, 0xFF, 0x18)
         every {
             ChromeTintBlender.blend(accent, Color(0x24, 0x29, 0x36), any())
         } returns rootTint
@@ -206,9 +226,13 @@ class StatusBarElementTest {
         StatusBarElement().apply(accent)
 
         verify { UIManager.put("StatusBar.Widget.hoverForeground", rootForeground) }
+        verify { UIManager.put("StatusBar.Widget.pressedForeground", rootForeground) }
         verify { UIManager.put("StatusBar.Breadcrumbs.hoverForeground", rootForeground) }
         verify(exactly = 0) {
             UIManager.put("StatusBar.Widget.hoverForeground", overlayForeground)
+        }
+        verify(exactly = 0) {
+            UIManager.put("StatusBar.Widget.pressedForeground", overlayForeground)
         }
         verify(exactly = 0) {
             UIManager.put("StatusBar.Breadcrumbs.hoverForeground", overlayForeground)
