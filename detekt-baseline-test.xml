@@ -6,7 +6,9 @@
     <ID>ForbiddenMethodCall:AccentApplicatorFocusedProjectTest.kt$AccentApplicatorFocusedProjectTest$readText()</ID>
     <ID>ForbiddenMethodCall:AccentApplicatorRevertAllSymmetryTest.kt$AccentApplicatorRevertAllSymmetryTest$loadFile(file)</ID>
     <ID>ForbiddenMethodCall:AccentApplicatorTest.kt$AccentApplicatorTest$readText()</ID>
+    <ID>ForbiddenMethodCall:AyuIslandsAccentPanelTest.kt$AyuIslandsAccentPanelTest$readAllBytes()</ID>
     <ID>ForbiddenMethodCall:AyuIslandsChromePanelTest.kt$AyuIslandsChromePanelTest$readText()</ID>
+    <ID>ForbiddenMethodCall:AyuIslandsConfigurableChromeWiringTest.kt$AyuIslandsConfigurableChromeWiringTest$readAllBytes()</ID>
     <ID>ForbiddenMethodCall:AyuIslandsLafListenerSyntaxReapplyTest.kt$AyuIslandsLafListenerSyntaxReapplyTest$loadFile(File("src/main/resources/META-INF/plugin.xml"))</ID>
     <ID>ForbiddenMethodCall:AyuIslandsStartupActivityTest.kt$AyuIslandsStartupActivityTest$readText()</ID>
     <ID>ForbiddenMethodCall:AyuIslandsSyntaxPanelTest.kt$AyuIslandsSyntaxPanelTest$loadFile(sourceFile)</ID>
@@ -23,7 +25,9 @@
     <ID>ForbiddenMethodCall:SettingsConfigurableSyntaxTabWiringTest.kt$SettingsConfigurableSyntaxTabWiringTest$readString( Path.of("src/main/kotlin/dev/ayuislands/settings/AyuIslandsConfigurable.kt"), )</ID>
     <ID>ForbiddenMethodCall:SnapshotAssert.kt$SnapshotAssert$readText()</ID>
     <ID>ForbiddenMethodCall:StickyLinesSchemeKeysTest.kt$StickyLinesSchemeKeysTest$readText()</ID>
+    <ID>ForbiddenMethodCall:SyntaxCategoryRegistryTest.kt$SyntaxCategoryRegistryTest$readBytes()</ID>
     <ID>ForbiddenMethodCall:SyntaxIntensityMigrationNotifierTest.kt$SyntaxIntensityMigrationNotifierTest$loadFile(File("src/main/resources/META-INF/plugin.xml"))</ID>
     <ID>ForbiddenMethodCall:VcsDiffSchemeColorsTest.kt$VcsDiffSchemeColorsTest$readText()</ID>
+    <ID>ForbiddenMethodCall:WhatsNewManifestCtaIntegrityTest.kt$WhatsNewManifestCtaIntegrityTest$readBytes()</ID>
   </CurrentIssues>
 </SmellBaseline>
