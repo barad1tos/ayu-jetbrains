@@ -27,6 +27,18 @@ import kotlin.test.assertTrue
  * Tests reach the private `chromePanel` field and `panels` list via reflection
  * so no Swing / platform startup is required — the DialogPanel wiring is
  * exercised at the higher-level `AyuIslandsChromePanelTest`.
+ *
+ * **Test-design note (documented compromise):** the `Configurable bytecode
+ * wires chromePanel to afterOverridesInjection not before` test reads the
+ * compiled `AyuIslandsConfigurable.class` to assert hook-call shape inside
+ * `createPanel()`. A behavioral substitute would require building the UI DSL
+ * panel through the IntelliJ platform — the project's `integrationTest` task
+ * is currently misconfigured (NO-SOURCE in CI), so bytecode inspection is the
+ * cheapest available assertion. Wiring `chromePanel` to `beforeOverrides`
+ * instead of `afterOverrides` flips Chrome Tinting from its intended
+ * collapsible group to the License Status slot, which silently breaks the
+ * Settings page layout. Do not delete in future "remove theater" passes
+ * without replacing with an equivalent integration test.
  */
 class AyuIslandsConfigurableChromeWiringTest {
     @AfterTest

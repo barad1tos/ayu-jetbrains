@@ -23,6 +23,18 @@ import kotlin.test.Test
  *  - corrupted global: BOTH paths throw; the panel stays operational, second LOG.error
  *    fires with "also failed" context, no exception escapes — avoids the generic
  *    "Settings can't save" dialog a hand-edited global hex would otherwise trigger
+ *
+ * **Test-design note (documented compromise):** two `buildPanel*` tests read the
+ * compiled `AyuIslandsAccentPanel.class` and assert that both
+ * `beforeOverridesInjection` and `afterOverridesInjection` hooks fire around
+ * the Overrides builder. A behavioral substitute would require building the
+ * UI DSL `panel { ... }` through the IntelliJ platform — the project's
+ * `integrationTest` task is currently misconfigured (NO-SOURCE in CI), so
+ * bytecode inspection is the cheapest available assertion. The hooks are
+ * load-bearing: dropping one silently strands Chrome Tinting (afterOverrides)
+ * or the License Status row (beforeOverrides) on the Settings page. Do not
+ * delete in future "remove theater" passes without replacing with an
+ * equivalent integration test.
  */
 class AyuIslandsAccentPanelTest {
     private lateinit var swapService: ProjectAccentSwapService
