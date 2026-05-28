@@ -20,6 +20,7 @@ import dev.ayuislands.syntax.SyntaxIntensityState
 import dev.ayuislands.syntax.SyntaxLanguageRegistry
 import dev.ayuislands.syntax.SyntaxPreset
 import dev.ayuislands.syntax.SyntaxReadabilityOptions
+import org.jetbrains.annotations.TestOnly
 import java.awt.Component
 import java.awt.Container
 import java.awt.Dimension
@@ -50,11 +51,9 @@ import javax.swing.Timer
  * the on-disk `selectedPreset` is mutated; persist runs SECOND so the next
  * `reapplyForActiveLaf` call sees a consistent preset name.
  *
- * The free-pill apply path NEVER touches [LicenseChecker]. The only license
- * call sites in this class are the Custom-rejection guard in [onPresetChosen]
- * and the short-circuit at the top of [applyCustomPillTooltipIfFree]; both
- * paths are confined to the Custom branch. A source-regex regression lock in
- * `AyuIslandsSyntaxPanelTest` keeps this invariant honest.
+ * The free-pill apply path does not gate the four named presets. [LicenseChecker]
+ * is consulted only while loading premium state, disabling premium controls,
+ * and rejecting the Custom pill for free users.
  *
  * Custom drill-down layout: the 16 [PrimitiveCategory] controls are arranged
  * as four semantic groups in two column-level grids. Each row keeps the same
@@ -81,6 +80,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
     private var suppressSliderListeners: Boolean = false
     private var pendingSubordinate: SyntaxPreset = SyntaxPreset.AMBIENT
     private var storedSubordinate: SyntaxPreset = SyntaxPreset.AMBIENT
+    private var premiumSyntaxControlsEnabled: Boolean = true
     private var pendingDimComments: Boolean = false
     private var storedDimComments: Boolean = false
     private var pendingSoftenDocumentation: Boolean = false
@@ -217,40 +217,54 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         row("Readability:") {
             dimCommentsCheckbox =
                 checkBox("Dim comments").component.apply {
-                    isSelected = pendingDimComments
-                    addActionListener {
-                        pendingDimComments = isSelected
-                        preview()
+                    configureReadabilityCheckbox(pendingDimComments) {
+                        pendingDimComments = it
                     }
                 }
             softenDocumentationCheckbox =
                 checkBox("Soften documentation").component.apply {
-                    isSelected = pendingSoftenDocumentation
-                    addActionListener {
-                        pendingSoftenDocumentation = isSelected
-                        preview()
+                    configureReadabilityCheckbox(pendingSoftenDocumentation) {
+                        pendingSoftenDocumentation = it
                     }
                 }
+        }
+        row {
             quietOperatorsCheckbox =
                 checkBox("Quiet operators").component.apply {
-                    isSelected = pendingQuietOperators
-                    addActionListener {
-                        pendingQuietOperators = isSelected
-                        preview()
+                    configureReadabilityCheckbox(pendingQuietOperators) {
+                        pendingQuietOperators = it
                     }
                 }
             emphasizeDeclarationsCheckbox =
                 checkBox("Emphasize declarations").component.apply {
-                    isSelected = pendingEmphasizeDeclarations
-                    addActionListener {
-                        pendingEmphasizeDeclarations = isSelected
-                        preview()
+                    configureReadabilityCheckbox(pendingEmphasizeDeclarations) {
+                        pendingEmphasizeDeclarations = it
                     }
                 }
         }
         row {
             comment("Applies on top of the selected preset. Use Custom for per-language tuning.")
         }
+    }
+
+    private fun JCheckBox.configureReadabilityCheckbox(
+        selected: Boolean,
+        updatePending: (Boolean) -> Unit,
+    ) {
+        isSelected = selected
+        isEnabled = premiumSyntaxControlsEnabled
+        toolTipText = if (premiumSyntaxControlsEnabled) null else PREMIUM_CONTROL_TOOLTIP
+        addActionListener {
+            if (!isEnabled) return@addActionListener
+            updatePending(isSelected)
+            preview()
+        }
+    }
+
+    @TestOnly
+    internal fun buildReadabilityBlockForTest(panel: Panel) {
+        loadStateIntoPending()
+        panel.buildReadabilityBlock()
     }
 
     private fun Panel.buildCategoryGroup(categoryGroup: CategoryGroup) {
@@ -475,23 +489,29 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         refreshReadabilityCheckboxes()
         rebindSlidersFor(currentLanguage)
         refreshMasterResetButton()
+        preview()
     }
 
     private fun loadStateIntoPending() {
         val state = SyntaxIntensityState.getInstance().state
         val loadedPreset = SyntaxPreset.fromName(state.selectedPreset)
-        val canUseCustom = loadedPreset != SyntaxPreset.CUSTOM || LicenseChecker.isLicensedOrGrace()
+        premiumSyntaxControlsEnabled = LicenseChecker.isLicensedOrGrace()
+        val canUseCustom = loadedPreset != SyntaxPreset.CUSTOM || premiumSyntaxControlsEnabled
         storedPreset = if (canUseCustom) loadedPreset else SyntaxPreset.AMBIENT
         pendingPreset = storedPreset
         storedSubordinate = SyntaxPreset.fromName(state.subordinatePreset)
         pendingSubordinate = storedSubordinate
         rememberReadabilityOptions(
-            SyntaxReadabilityOptions(
-                dimComments = state.dimComments,
-                softenDocumentation = state.softenDocumentation,
-                quietOperators = state.quietOperators,
-                emphasizeDeclarations = state.emphasizeDeclarations,
-            ),
+            if (premiumSyntaxControlsEnabled) {
+                SyntaxReadabilityOptions(
+                    dimComments = state.dimComments,
+                    softenDocumentation = state.softenDocumentation,
+                    quietOperators = state.quietOperators,
+                    emphasizeDeclarations = state.emphasizeDeclarations,
+                )
+            } else {
+                SyntaxReadabilityOptions.DEFAULT
+            },
         )
         storedOverrides.clear()
         if (canUseCustom) {
@@ -655,7 +675,10 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         if (LicenseChecker.isLicensedOrGrace()) return
         try {
             val root = renderedSegmentedComponent() ?: return
-            findCustomPresetButton(root)?.toolTipText = CUSTOM_PILL_TOOLTIP
+            findCustomPresetButton(root)?.apply {
+                isEnabled = false
+                toolTipText = PREMIUM_CONTROL_TOOLTIP
+            }
         } catch (runtime: RuntimeException) {
             LOG.warn("AyuIslandsSyntaxPanel: tooltip pre-placement on Custom pill failed", runtime)
         }
@@ -708,7 +731,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         private const val TRAILING_ZONE_WIDTH = 20
         private const val LABEL_PADDING = 8
         private const val LABEL_FALLBACK_WIDTH = 170
-        private const val CUSTOM_PILL_TOOLTIP = "Pro Feature"
+        private const val PREMIUM_CONTROL_TOOLTIP = "Pro Feature"
 
         /**
          * The 16 [PrimitiveCategory] entries grouped by syntactic role and

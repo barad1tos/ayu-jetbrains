@@ -839,66 +839,87 @@ class SyntaxIntensityApplicatorTest {
     fun `readability soften documentation quiets documentation keys`() {
         val docKey = TextAttributesKey.createTextAttributesKey("JAVA_DOC_COMMENT")
         val baselineFg = Color(0x9D, 0xA0, 0xA8)
+        val keywordFg = Color(0xFF, 0xAD, 0x66)
 
         val result =
             compute(
                 preset = SyntaxPreset.AMBIENT,
                 customOverrides = emptyMap(),
-                baseline = mapOf(docKey to attrsWithFg(baselineFg)),
+                baseline =
+                    mapOf(
+                        docKey to attrsWithFg(baselineFg),
+                        javaKeywordKey to attrsWithFg(keywordFg),
+                    ),
                 overlay = emptyMap(),
                 options = ComputeOptions(readabilityOptions = SyntaxReadabilityOptions(softenDocumentation = true)),
             )
 
         val output = assertNotNull(result[docKey]?.foregroundColor)
+        val keyword = assertNotNull(result[javaKeywordKey]?.foregroundColor)
         assertTrue(
             colorDistance(output, ComputeOptions().editorBg) < colorDistance(baselineFg, ComputeOptions().editorBg),
             "Soften documentation must move doc text toward the editor background",
         )
         assertNotEquals(baselineFg.rgb, output.rgb, "Soften documentation must visibly affect documentation keys")
+        assertEquals(keywordFg.rgb, keyword.rgb, "Soften documentation must not rewrite unrelated categories")
     }
 
     @Test
     fun `readability quiet operators quiets operator keys`() {
         val operatorKey = TextAttributesKey.createTextAttributesKey("JAVA_OPERATION_SIGN")
         val baselineFg = Color(0xB8, 0xC2, 0xCC)
+        val commentFg = Color(0x78, 0x7B, 0x80)
 
         val result =
             compute(
                 preset = SyntaxPreset.AMBIENT,
                 customOverrides = emptyMap(),
-                baseline = mapOf(operatorKey to attrsWithFg(baselineFg)),
+                baseline =
+                    mapOf(
+                        operatorKey to attrsWithFg(baselineFg),
+                        javaCommentKey to attrsWithFg(commentFg),
+                    ),
                 overlay = emptyMap(),
                 options = ComputeOptions(readabilityOptions = SyntaxReadabilityOptions(quietOperators = true)),
             )
 
         val output = assertNotNull(result[operatorKey]?.foregroundColor)
+        val comment = assertNotNull(result[javaCommentKey]?.foregroundColor)
         assertTrue(
             colorDistance(output, ComputeOptions().editorBg) < colorDistance(baselineFg, ComputeOptions().editorBg),
             "Quiet operators must move operator text toward the editor background",
         )
+        assertEquals(commentFg.rgb, comment.rgb, "Quiet operators must not rewrite unrelated categories")
     }
 
     @Test
     fun `readability emphasize declarations strengthens declaration keys`() {
         val functionKey = TextAttributesKey.createTextAttributesKey("JAVA_FUNCTION_DECLARATION")
         val baselineFg = Color(0xFF, 0xCC, 0x66)
+        val commentFg = Color(0x78, 0x7B, 0x80)
 
         val result =
             compute(
                 preset = SyntaxPreset.AMBIENT,
                 customOverrides = emptyMap(),
-                baseline = mapOf(functionKey to attrsWithFg(baselineFg)),
+                baseline =
+                    mapOf(
+                        functionKey to attrsWithFg(baselineFg),
+                        javaCommentKey to attrsWithFg(commentFg),
+                    ),
                 overlay = emptyMap(),
                 options = ComputeOptions(readabilityOptions = SyntaxReadabilityOptions(emphasizeDeclarations = true)),
             )
 
         val output = assertNotNull(result[functionKey]?.foregroundColor)
+        val comment = assertNotNull(result[javaCommentKey]?.foregroundColor)
         val inputDistance = abs(HslColor.fromColor(baselineFg).lightness - MID_LIGHTNESS)
         val outputDistance = abs(HslColor.fromColor(output).lightness - MID_LIGHTNESS)
         assertTrue(
             outputDistance < inputDistance,
             "Emphasize declarations must move declaration lightness toward peak chroma",
         )
+        assertEquals(commentFg.rgb, comment.rgb, "Emphasize declarations must not rewrite unrelated categories")
     }
 
     // --- Helpers ---------------------------------------------------------

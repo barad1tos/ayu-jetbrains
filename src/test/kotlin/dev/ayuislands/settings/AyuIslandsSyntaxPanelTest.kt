@@ -1,10 +1,15 @@
 package dev.ayuislands.settings
 
 import com.intellij.icons.AllIcons
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.application.Application
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.openapi.ui.DialogPanel
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.ui.InplaceButton
+import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import dev.ayuislands.licensing.LicenseChecker
@@ -17,14 +22,18 @@ import dev.ayuislands.syntax.SyntaxPreset
 import dev.ayuislands.syntax.SyntaxReadabilityOptions
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkClass
 import io.mockk.mockkObject
+import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
 import io.mockk.verifyOrder
 import java.awt.Color
+import java.awt.Container
 import java.awt.Font
 import java.io.File
 import javax.swing.JButton
+import javax.swing.JCheckBox
 import javax.swing.JLabel
 import javax.swing.JSlider
 import javax.swing.Timer
@@ -96,6 +105,16 @@ import kotlin.test.assertTrue
  * actually builds the panel under a live IntelliJ application.
  */
 class AyuIslandsSyntaxPanelTest {
+    private companion object {
+        val readabilityCheckboxTexts =
+            linkedSetOf(
+                "Dim comments",
+                "Soften documentation",
+                "Quiet operators",
+                "Emphasize declarations",
+            )
+    }
+
     private lateinit var stateBase: SyntaxIntensityBaseState
     private lateinit var stateService: SyntaxIntensityState
     private lateinit var intensityService: SyntaxIntensityService
@@ -116,6 +135,21 @@ class AyuIslandsSyntaxPanelTest {
         // Default: licensed. Individual tests override to false where needed.
         every { LicenseChecker.isLicensedOrGrace() } returns true
         every { LicenseChecker.requestLicense(any()) } returns Unit
+
+        mockkStatic(ApplicationManager::class)
+        val appMock = mockk<Application>(relaxed = true)
+        val actionManagerMock = mockk<ActionManager>(relaxed = true)
+        mockkStatic(ActionManager::class)
+        every { ActionManager.getInstance() } returns actionManagerMock
+        every { ApplicationManager.getApplication() } returns appMock
+        every { appMock.invokeLater(any()) } answers { firstArg<Runnable>().run() }
+        every { appMock.getService(ActionManager::class.java) } returns actionManagerMock
+        every { actionManagerMock.getAction(any()) } returns null
+
+        @Suppress("UNCHECKED_CAST")
+        val experimentalUiClass = Class.forName("com.intellij.ui.ExperimentalUI") as Class<Any>
+        val experimentalUiMock = mockkClass(experimentalUiClass.kotlin, relaxed = true)
+        every { appMock.getService(experimentalUiClass) } returns experimentalUiMock
     }
 
     @AfterTest
@@ -334,6 +368,81 @@ class AyuIslandsSyntaxPanelTest {
         assertTrue(readPendingBoolean(panel, "pendingDimComments"))
         assertFalse(readPendingBoolean(panel, "pendingEmphasizeDeclarations"))
         assertFalse(panel.isModified())
+    }
+
+    @Test
+    fun `dim comments checkbox previews and reset restores stored readability`() {
+        stateBase.selectedPreset = SyntaxPreset.AMBIENT.name
+        val panel = AyuIslandsSyntaxPanel()
+
+        try {
+            val component = buildSyntaxPanel(panel)
+            val dimComments = findDimCommentsCheckBox(component)
+            io.mockk.clearMocks(intensityService, answers = false, recordedCalls = true)
+
+            dimComments.doClick()
+
+            verify(exactly = 1) {
+                intensityService.apply(
+                    SyntaxPreset.AMBIENT,
+                    emptyMap(),
+                    any(),
+                    emptyMap(),
+                    SyntaxReadabilityOptions(dimComments = true),
+                )
+            }
+            assertTrue(panel.isModified(), "toggling the real checkbox must dirty the syntax panel")
+
+            io.mockk.clearMocks(intensityService, answers = false, recordedCalls = true)
+            panel.reset()
+
+            verify(exactly = 1) {
+                intensityService.apply(
+                    SyntaxPreset.AMBIENT,
+                    emptyMap(),
+                    any(),
+                    emptyMap(),
+                    SyntaxReadabilityOptions.DEFAULT,
+                )
+            }
+            assertFalse(dimComments.isSelected, "reset must return the visible checkbox to stored state")
+            assertFalse(panel.isModified(), "reset must leave pending and stored readability in sync")
+        } finally {
+            panel.dispose()
+        }
+    }
+
+    @Test
+    fun `unlicensed build shows readability controls disabled without preview writes`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        stateBase.dimComments = true
+        val panel = AyuIslandsSyntaxPanel()
+
+        try {
+            val component = buildSyntaxPanel(panel)
+            val readabilityControls =
+                findCheckBoxes(component).filter { it.text in readabilityCheckboxTexts }
+
+            assertEquals(
+                readabilityCheckboxTexts,
+                readabilityControls.mapTo(linkedSetOf()) { it.text },
+                "free users must still see the premium readability controls",
+            )
+            readabilityControls.forEach { checkbox ->
+                assertFalse(checkbox.isEnabled, "${checkbox.text} must be disabled without a Pro license")
+                assertFalse(checkbox.isSelected, "${checkbox.text} must not expose persisted premium state")
+            }
+
+            io.mockk.clearMocks(intensityService, answers = false, recordedCalls = true)
+            findDimCommentsCheckBox(component).doClick()
+
+            verify(exactly = 0) {
+                intensityService.apply(any(), any(), any(), any(), any())
+            }
+            assertFalse(panel.isModified(), "disabled readability controls must not dirty the panel")
+        } finally {
+            panel.dispose()
+        }
     }
 
     // ---------- Test 7 - documented compromise: tooltip pre-placement wire site ----------
@@ -1123,6 +1232,32 @@ class AyuIslandsSyntaxPanelTest {
         method.invoke(panel)
         return panel
     }
+
+    private fun buildSyntaxPanel(syntaxPanel: AyuIslandsSyntaxPanel): DialogPanel =
+        panel {
+            syntaxPanel.buildReadabilityBlockForTest(this)
+        }
+
+    private fun findDimCommentsCheckBox(container: Container): JCheckBox =
+        findDimCommentsCheckBoxOrNull(container)
+            ?: error("Could not find checkbox with text: Dim comments")
+
+    private fun findDimCommentsCheckBoxOrNull(container: Container): JCheckBox? {
+        for (component in container.components) {
+            if (component is JCheckBox && component.text == "Dim comments") return component
+            if (component is Container) {
+                val nested = findDimCommentsCheckBoxOrNull(component)
+                if (nested != null) return nested
+            }
+        }
+        return null
+    }
+
+    private fun findCheckBoxes(container: Container): List<JCheckBox> =
+        container.components.flatMap { component ->
+            val nested = if (component is Container) findCheckBoxes(component) else emptyList()
+            if (component is JCheckBox) listOf(component) + nested else nested
+        }
 
     private fun invokeOnPresetChosen(
         panel: AyuIslandsSyntaxPanel,
