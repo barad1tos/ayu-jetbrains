@@ -18,6 +18,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 TEST_ROOT = REPO_ROOT / "src/test/kotlin"
 
 STRING_LITERAL_RE = re.compile(r'"(?:\\.|[^"\\\n])*"')
+PATH_FACTORY_RE = re.compile(
+    r"(?<![\w$])(?:Path\.of|Paths\.get|(?:java\.io\.)?File)\s*\(",
+)
 
 
 @dataclass(frozen=True)
@@ -147,6 +150,9 @@ def find_source_path_literals() -> Counter[tuple[str, str]]:
         for literal in string_literals(text):
             if is_production_source_path(literal):
                 occurrences[(relative_file, literal)] += 1
+        for literal in split_path_literals(text):
+            if is_production_source_path(literal):
+                occurrences[(relative_file, literal)] += 1
     return occurrences
 
 
@@ -155,6 +161,62 @@ def string_literals(text: str) -> list[str]:
         match.group()[1:-1]
         for match in STRING_LITERAL_RE.finditer(text)
     ]
+
+
+def split_path_literals(text: str) -> list[str]:
+    paths = []
+    for match in PATH_FACTORY_RE.finditer(text):
+        closing_paren = find_closing_paren(text, match.end() - 1)
+        if closing_paren is None:
+            continue
+        segments = string_literals(text[match.end():closing_paren])
+        if len(segments) < 2:
+            continue
+        if any(is_production_source_path(segment) for segment in segments):
+            continue
+        path = joined_production_source_path(segments)
+        if path is not None:
+            paths.append(path)
+    return paths
+
+
+def joined_production_source_path(segments: list[str]) -> str | None:
+    joined = "/".join(segment.strip("/") for segment in segments if segment)
+    for source_root in ("src/main/kotlin", "src/main/java"):
+        index = joined.find(source_root)
+        if index >= 0:
+            return joined[index:]
+    if re.fullmatch(r"(?:dev|com)/[\w/$.-]+\.kt", joined):
+        return joined
+    return None
+
+
+def find_closing_paren(
+    text: str,
+    open_paren: int,
+) -> int | None:
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(open_paren, len(text)):
+        char = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
 
 
 def is_production_source_path(literal: str) -> bool:
