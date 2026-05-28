@@ -1,13 +1,13 @@
 package dev.ayuislands.settings
 
 import com.intellij.icons.AllIcons
-import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.ui.InplaceButton
 import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.RightGap
 import com.intellij.ui.dsl.builder.SegmentedButton
+import com.intellij.ui.dsl.builder.SegmentedButton.ItemPresentation
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import dev.ayuislands.accent.AyuVariant
@@ -21,19 +21,14 @@ import dev.ayuislands.syntax.SyntaxLanguageRegistry
 import dev.ayuislands.syntax.SyntaxPreset
 import dev.ayuislands.syntax.SyntaxReadabilityOptions
 import org.jetbrains.annotations.TestOnly
-import java.awt.Component
-import java.awt.Container
 import java.awt.Dimension
 import java.awt.GridLayout
-import javax.swing.AbstractButton
 import javax.swing.JButton
 import javax.swing.JCheckBox
-import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JSlider
 import javax.swing.SwingConstants
-import javax.swing.SwingUtilities
 import javax.swing.Timer
 
 /**
@@ -41,10 +36,9 @@ import javax.swing.Timer
  *
  * Free tier: the 4 named pills (Whisper / Ambient / Neon / Cyberpunk) apply
  * immediately on click and persist to the syntax-intensity state. The Custom
- * pill is reserved for Pro — selecting it as an unlicensed user reverts the
- * pill selection and opens the upgrade flow. A pre-placed tooltip on the
- * Custom button surfaces the gate before the click whenever the platform's
- * `SegmentedButton` Swing subtree exposes the per-item button widget.
+ * pill is reserved for Pro — free users see it disabled with a Pro tooltip,
+ * and any programmatic selection still reverts to the previous preset and
+ * opens the upgrade flow.
  *
  * Apply-before-persist ordering follows Anti-Pattern #4 (Phase 40.4 lesson):
  * [SyntaxIntensityService.apply] runs FIRST so any failure surfaces before
@@ -133,17 +127,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         loadStateIntoPending()
         customSelected.set(pendingPreset == SyntaxPreset.CUSTOM)
         with(panel) {
-            row("Preset:") {
-                val segmented =
-                    segmentedButton(SyntaxPreset.entries) { preset -> text = preset.displayName }
-                segmented.maxButtonsCount(SyntaxPreset.entries.size)
-                segmented.selectedItem = pendingPreset
-                segmented.whenItemSelected { preset ->
-                    if (suppressListeners) return@whenItemSelected
-                    onPresetChosen(preset)
-                }
-                presetSegmented = segmented
-            }
+            buildPresetBlock()
 
             // The 4 named pills apply immediately. The Custom pill opens the
             // per-language drill-down available on the Pro tier. Free users
@@ -166,12 +150,29 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
 
             buildCustomFoldOut()
         }
+    }
 
-        // SegmentedButton's internal JButton instances are not realised until
-        // the DSL panel renders, so the tooltip pre-placement walks the
-        // subtree on the EDT after the DSL build completes. Best-effort —
-        // see [applyCustomPillTooltipIfFree] for the fallback contract.
-        SwingUtilities.invokeLater { applyCustomPillTooltipIfFree() }
+    private fun Panel.buildPresetBlock() {
+        row("Preset:") {
+            val segmented =
+                segmentedButton(SyntaxPreset.entries) { preset ->
+                    configurePresetPresentation(preset)
+                }
+            segmented.maxButtonsCount(SyntaxPreset.entries.size)
+            segmented.selectedItem = pendingPreset
+            segmented.whenItemSelected { preset ->
+                if (suppressListeners) return@whenItemSelected
+                onPresetChosen(preset)
+            }
+            presetSegmented = segmented
+        }
+    }
+
+    private fun ItemPresentation.configurePresetPresentation(preset: SyntaxPreset) {
+        text = preset.displayName
+        val isPremiumPreset = preset == SyntaxPreset.CUSTOM
+        enabled = !isPremiumPreset || premiumSyntaxControlsEnabled
+        toolTipText = if (isPremiumPreset && !premiumSyntaxControlsEnabled) PREMIUM_CONTROL_TOOLTIP else null
     }
 
     /** Build the premium Custom drill-down as two grouped, aligned columns. */
@@ -251,9 +252,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         selected: Boolean,
         updatePending: (Boolean) -> Unit,
     ) {
-        isSelected = selected
-        isEnabled = premiumSyntaxControlsEnabled
-        toolTipText = if (premiumSyntaxControlsEnabled) null else PREMIUM_CONTROL_TOOLTIP
+        applyReadabilityCheckboxState(selected)
         addActionListener {
             if (!isEnabled) return@addActionListener
             updatePending(isSelected)
@@ -261,11 +260,28 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         }
     }
 
+    private fun JCheckBox.applyReadabilityCheckboxState(selected: Boolean) {
+        isSelected = selected
+        isEnabled = premiumSyntaxControlsEnabled
+        toolTipText = if (premiumSyntaxControlsEnabled) null else PREMIUM_CONTROL_TOOLTIP
+    }
+
     @TestOnly
     internal fun buildReadabilityBlockForTest(panel: Panel) {
         loadStateIntoPending()
         panel.buildReadabilityBlock()
     }
+
+    @TestOnly
+    internal fun buildPresetBlockForTest(panel: Panel) {
+        loadStateIntoPending()
+        customSelected.set(pendingPreset == SyntaxPreset.CUSTOM)
+        panel.buildPresetBlock()
+        refreshPresetPillAffordance()
+    }
+
+    @TestOnly
+    internal fun customPresetPresentationForTest(): ItemPresentation? = customPresetPresentation()
 
     private fun Panel.buildCategoryGroup(categoryGroup: CategoryGroup) {
         group(categoryGroup.title) {
@@ -410,11 +426,9 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
     }
 
     private fun onPresetChosen(preset: SyntaxPreset) {
-        // SegmentedButton has no per-item disable API in 2025.1, so the
-        // unlicensed Custom selection is intercepted here: revert the UI to
-        // the previous preset and open the upgrade flow. This is the ONLY
-        // free-pill call path that touches the license checker — the four
-        // named pills below never reach the gate.
+        // The Custom pill is disabled through the SegmentedButton item
+        // presentation, but direct calls and future programmatic selection
+        // paths still need the service-level gate.
         if (preset == SyntaxPreset.CUSTOM && !LicenseChecker.isLicensedOrGrace()) {
             suppressListeners = true
             try {
@@ -487,6 +501,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         }
         customSelected.set(pendingPreset == SyntaxPreset.CUSTOM)
         refreshReadabilityCheckboxes()
+        refreshPresetPillAffordance()
         rebindSlidersFor(currentLanguage)
         refreshMasterResetButton()
         preview()
@@ -528,10 +543,17 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
     }
 
     private fun refreshReadabilityCheckboxes() {
-        dimCommentsCheckbox?.isSelected = pendingDimComments
-        softenDocumentationCheckbox?.isSelected = pendingSoftenDocumentation
-        quietOperatorsCheckbox?.isSelected = pendingQuietOperators
-        emphasizeDeclarationsCheckbox?.isSelected = pendingEmphasizeDeclarations
+        dimCommentsCheckbox?.applyReadabilityCheckboxState(pendingDimComments)
+        softenDocumentationCheckbox?.applyReadabilityCheckboxState(pendingSoftenDocumentation)
+        quietOperatorsCheckbox?.applyReadabilityCheckboxState(pendingQuietOperators)
+        emphasizeDeclarationsCheckbox?.applyReadabilityCheckboxState(pendingEmphasizeDeclarations)
+    }
+
+    private fun refreshPresetPillAffordance() {
+        val segmented = presetSegmented ?: return
+        for (preset in SyntaxPreset.entries) {
+            segmented.update(preset)
+        }
     }
 
     private fun rememberReadabilityOptions(options: SyntaxReadabilityOptions) {
@@ -656,53 +678,14 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
             emphasizeDeclarations = pendingEmphasizeDeclarations,
         )
 
-    /**
-     * Walk the [presetSegmented]'s rendered Swing subtree and set a
-     * "Pro Feature" tooltip on the button corresponding to
-     * [SyntaxPreset.CUSTOM] when the user is unlicensed. Best-effort:
-     * `SegmentedButton`'s internal widget tree is not API-stable across
-     * platform versions. If the tooltip cannot be applied, the
-     * click-then-revert fallback in [onPresetChosen] still surfaces the
-     * upgrade prompt — the tooltip is the pre-click affordance, not the
-     * gate itself.
-     *
-     * Pattern B: only `RuntimeException` is caught — narrower exceptions
-     * propagate. The runIde smoke test on the follow-up plan finalises the
-     * concrete Swing widget lookup; this method is the wire site for that
-     * verified path.
-     */
-    private fun applyCustomPillTooltipIfFree() {
-        if (LicenseChecker.isLicensedOrGrace()) return
-        try {
-            val root = renderedSegmentedComponent() ?: return
-            findCustomPresetButton(root)?.apply {
-                isEnabled = false
-                toolTipText = PREMIUM_CONTROL_TOOLTIP
-            }
-        } catch (runtime: RuntimeException) {
-            LOG.warn("AyuIslandsSyntaxPanel: tooltip pre-placement on Custom pill failed", runtime)
-        }
-    }
-
-    private fun renderedSegmentedComponent(): Component? {
+    private fun customPresetPresentation(): ItemPresentation? {
         val segmented = presetSegmented ?: return null
-        val getComponent =
+        val getPresentations =
             segmented.javaClass.methods.firstOrNull { method ->
-                method.name == "getComponent" && method.parameterCount == 0
+                method.name == SEGMENTED_PRESENTATIONS_METHOD && method.parameterCount == 0
             } ?: return null
-        return getComponent.invoke(segmented) as? Component
-    }
-
-    private fun findCustomPresetButton(component: Component): JComponent? {
-        if (component is AbstractButton && component.text == SyntaxPreset.CUSTOM.displayName) {
-            return component
-        }
-        val container = component as? Container ?: return null
-        for (child in container.components) {
-            val match = findCustomPresetButton(child)
-            if (match != null) return match
-        }
-        return null
+        val presentationMap = getPresentations.invoke(segmented) as? Map<*, *> ?: return null
+        return presentationMap[SyntaxPreset.CUSTOM] as? ItemPresentation
     }
 
     /**
@@ -718,7 +701,6 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
     )
 
     private companion object {
-        private val LOG = logger<AyuIslandsSyntaxPanel>()
         private const val DEBOUNCE_MS = 100
         private const val SLIDER_MIN = 0
         private const val SLIDER_MAX = 100
@@ -732,6 +714,8 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         private const val LABEL_PADDING = 8
         private const val LABEL_FALLBACK_WIDTH = 170
         private const val PREMIUM_CONTROL_TOOLTIP = "Pro Feature"
+        private const val SEGMENTED_PRESENTATIONS_METHOD =
+            "getPresentations" + "$" + "intellij_platform_ide_impl"
 
         /**
          * The 16 [PrimitiveCategory] entries grouped by syntactic role and

@@ -204,7 +204,9 @@ class LicenseCheckerVcsRevokeTest {
         syntaxState.state.customOverrides["Java|KEYWORD"] = "85"
         syntaxState.state.customStyles["Java|KEYWORD"] = "BOLD"
         syntaxState.state.dimComments = true
+        syntaxState.state.softenDocumentation = true
         syntaxState.state.quietOperators = true
+        syntaxState.state.emphasizeDeclarations = true
 
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
 
@@ -213,7 +215,9 @@ class LicenseCheckerVcsRevokeTest {
         assertTrue(syntaxState.state.customOverrides.isEmpty(), "syntax custom overrides must be cleared")
         assertTrue(syntaxState.state.customStyles.isEmpty(), "syntax custom styles must be cleared")
         assertFalse(syntaxState.state.dimComments, "premium readability toggles must be cleared on downgrade")
+        assertFalse(syntaxState.state.softenDocumentation, "premium readability toggles must be cleared on downgrade")
         assertFalse(syntaxState.state.quietOperators, "premium readability toggles must be cleared on downgrade")
+        assertFalse(syntaxState.state.emphasizeDeclarations, "premium readability toggles must be cleared on downgrade")
         verify(exactly = 1) {
             syntaxService.apply(
                 SyntaxPreset.AMBIENT,

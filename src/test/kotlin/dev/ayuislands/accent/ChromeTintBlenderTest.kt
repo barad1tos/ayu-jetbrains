@@ -61,6 +61,32 @@ class ChromeTintBlenderTest {
     }
 
     @Test
+    fun `blend crosses the red hue seam by the shortest path`() {
+        val scenarios =
+            listOf(
+                HueSeamScenario(baseHue = 0.95f, accentHue = 0.05f),
+                HueSeamScenario(baseHue = 0.05f, accentHue = 0.95f),
+            )
+
+        for (scenario in scenarios) {
+            val base = Color.getHSBColor(scenario.baseHue, 0.45f, 0.35f)
+            val accent = Color.getHSBColor(scenario.accentHue, 0.90f, 0.80f)
+            val result = ChromeTintBlender.blend(accent, base, TintIntensity.of(25))
+            val resultHue = hueOf(result)
+
+            assertTrue(
+                hueDelta(resultHue, RED_SEAM_HUE) <= HUE_SEAM_EPSILON,
+                "mid-intensity hue must cross the red seam, not detour through cyan: " +
+                    "baseHue=${scenario.baseHue}, accentHue=${scenario.accentHue}, resultHue=$resultHue",
+            )
+            assertTrue(
+                hueDelta(resultHue, CYAN_DETOUR_HUE) > CYAN_DETOUR_MIN_DELTA,
+                "red-seam blend must stay away from the opposite cyan hue: resultHue=$resultHue",
+            )
+        }
+    }
+
+    @Test
     fun `blend at intensity 50 output hue converges to accent hue`() {
         // Contract: the blender does NOT produce an RGB midpoint between base
         // and accent — it lerps the base toward a synthesised HSB target
@@ -134,10 +160,19 @@ class ChromeTintBlenderTest {
         return if (raw > 0.5f) 1f - raw else raw
     }
 
+    private data class HueSeamScenario(
+        val baseHue: Float,
+        val accentHue: Float,
+    )
+
     companion object {
         // ε ≈ 0.01 on the unit hue circle ≈ 3.6° on a 360° wheel — same ε used
         // by ChromeTintBlenderHueUniformityTest (kept consistent across suites).
         private const val HUE_EPSILON = 0.01f
+        private const val HUE_SEAM_EPSILON = 0.03f
+        private const val RED_SEAM_HUE = 0.0f
+        private const val CYAN_DETOUR_HUE = 0.5f
+        private const val CYAN_DETOUR_MIN_DELTA = 0.35f
         private const val LOW_INTENSITY_GREEN_DELTA_MAX = 10
     }
 }

@@ -894,7 +894,12 @@ class SyntaxIntensityApplicatorTest {
 
     @Test
     fun `readability emphasize declarations strengthens declaration keys`() {
-        val functionKey = TextAttributesKey.createTextAttributesKey("JAVA_FUNCTION_DECLARATION")
+        val declarationKeys =
+            listOf(
+                TextAttributesKey.createTextAttributesKey("JAVA_FUNCTION_DECLARATION"),
+                TextAttributesKey.createTextAttributesKey("JAVA_CLASS_DECLARATION"),
+                TextAttributesKey.createTextAttributesKey("JAVA_INTERFACE_DECLARATION"),
+            )
         val baselineFg = Color(0xFF, 0xCC, 0x66)
         val commentFg = Color(0x78, 0x7B, 0x80)
 
@@ -903,22 +908,22 @@ class SyntaxIntensityApplicatorTest {
                 preset = SyntaxPreset.AMBIENT,
                 customOverrides = emptyMap(),
                 baseline =
-                    mapOf(
-                        functionKey to attrsWithFg(baselineFg),
-                        javaCommentKey to attrsWithFg(commentFg),
-                    ),
+                    declarationKeys.associateWith { attrsWithFg(baselineFg) } +
+                        (javaCommentKey to attrsWithFg(commentFg)),
                 overlay = emptyMap(),
                 options = ComputeOptions(readabilityOptions = SyntaxReadabilityOptions(emphasizeDeclarations = true)),
             )
 
-        val output = assertNotNull(result[functionKey]?.foregroundColor)
-        val comment = assertNotNull(result[javaCommentKey]?.foregroundColor)
         val inputDistance = abs(HslColor.fromColor(baselineFg).lightness - MID_LIGHTNESS)
-        val outputDistance = abs(HslColor.fromColor(output).lightness - MID_LIGHTNESS)
-        assertTrue(
-            outputDistance < inputDistance,
-            "Emphasize declarations must move declaration lightness toward peak chroma",
-        )
+        for (key in declarationKeys) {
+            val output = assertNotNull(result[key]?.foregroundColor)
+            val outputDistance = abs(HslColor.fromColor(output).lightness - MID_LIGHTNESS)
+            assertTrue(
+                outputDistance < inputDistance,
+                "Emphasize declarations must move ${key.externalName} lightness toward peak chroma",
+            )
+        }
+        val comment = assertNotNull(result[javaCommentKey]?.foregroundColor)
         assertEquals(commentFg.rgb, comment.rgb, "Emphasize declarations must not rewrite unrelated categories")
     }
 

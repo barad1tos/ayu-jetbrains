@@ -74,11 +74,6 @@ import kotlin.test.assertTrue
  * that have no cheap unit-level behavioral substitute. Each one catches a
  * concrete regression:
  *
- *  - `applyCustomPillTooltipIfFree` wire site: the SegmentedButton-internal
- *    Swing subtree is not API-stable; if the post-realise `invokeLater`
- *    queueing is dropped, free users lose the Pro affordance on the Custom
- *    pill. A behavioral test would have to build the DSL panel and walk the
- *    SegmentedButton's component tree on the EDT.
  *  - Two-column grouped layout (`CUSTOM_COLUMN_GROUPS` + `buildCategoryGroup`):
  *    a refactor back to the single unbroken table or to the deleted master /
  *    detail JBList would be a visible regression. Verifying the actual two
@@ -445,26 +440,59 @@ class AyuIslandsSyntaxPanelTest {
         }
     }
 
-    // ---------- Test 7 - documented compromise: tooltip pre-placement wire site ----------
+    @Test
+    fun `reset disables readability controls when license flips to free`() {
+        stateBase.selectedPreset = SyntaxPreset.AMBIENT.name
+        stateBase.dimComments = true
+        val panel = AyuIslandsSyntaxPanel()
+
+        try {
+            val component = buildSyntaxPanel(panel)
+            val dimComments = findDimCommentsCheckBox(component)
+            assertTrue(dimComments.isEnabled, "licensed users can edit readability controls")
+
+            every { LicenseChecker.isLicensedOrGrace() } returns false
+            io.mockk.clearMocks(intensityService, answers = false, recordedCalls = true)
+
+            panel.reset()
+
+            assertFalse(dimComments.isEnabled, "reset must disable readability after license loss")
+            assertFalse(dimComments.isSelected, "reset must hide persisted premium readability after license loss")
+
+            verify(exactly = 1) {
+                intensityService.apply(
+                    SyntaxPreset.AMBIENT,
+                    emptyMap(),
+                    any(),
+                    emptyMap(),
+                    SyntaxReadabilityOptions.DEFAULT,
+                )
+            }
+            io.mockk.clearMocks(intensityService, answers = false, recordedCalls = true)
+
+            dimComments.doClick()
+
+            verify(exactly = 0) {
+                intensityService.apply(any(), any(), any(), any(), any())
+            }
+            assertFalse(panel.isModified(), "disabled readability controls must not dirty the panel")
+        } finally {
+            panel.dispose()
+        }
+    }
 
     @Test
-    fun `panel source wires applyCustomPillTooltipIfFree post-realise (documented compromise)`() {
-        // Documented compromise: the SegmentedButton-internal Swing subtree is
-        // not API-stable across IntelliJ versions; if the post-realise
-        // invokeLater queueing is dropped, free users lose the Pro affordance
-        // on the Custom pill. Behavioral substitute would require building
-        // the DSL panel and walking the SegmentedButton component tree.
-        val source = readPanelSource()
-        assertTrue(
-            source.contains("applyCustomPillTooltipIfFree"),
-            "applyCustomPillTooltipIfFree helper must exist as the wire site for the runIde-" +
-                "finalised SegmentedButton Swing subtree lookup.",
-        )
-        assertTrue(
-            source.contains("SwingUtilities.invokeLater { applyCustomPillTooltipIfFree() }"),
-            "tooltip pre-placement must be queued post-realise via " +
-                "SwingUtilities.invokeLater { applyCustomPillTooltipIfFree() }.",
-        )
+    fun `unlicensed preset row disables Custom pill affordance`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        val panel = AyuIslandsSyntaxPanel()
+
+        buildPresetPanel(panel)
+        val customPill =
+            panel.customPresetPresentationForTest()
+                ?: error("Could not find Custom preset presentation")
+
+        assertFalse(customPill.enabled, "free users must see Custom as disabled")
+        assertEquals("Pro Feature", customPill.toolTipText)
     }
 
     // ---------- Test 8 - composite-key identity round-trip (Pitfall 1/2) ----------
@@ -1236,6 +1264,11 @@ class AyuIslandsSyntaxPanelTest {
     private fun buildSyntaxPanel(syntaxPanel: AyuIslandsSyntaxPanel): DialogPanel =
         panel {
             syntaxPanel.buildReadabilityBlockForTest(this)
+        }
+
+    private fun buildPresetPanel(syntaxPanel: AyuIslandsSyntaxPanel): DialogPanel =
+        panel {
+            syntaxPanel.buildPresetBlockForTest(this)
         }
 
     private fun findDimCommentsCheckBox(container: Container): JCheckBox =
