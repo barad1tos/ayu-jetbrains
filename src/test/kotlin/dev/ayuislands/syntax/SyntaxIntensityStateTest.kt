@@ -25,7 +25,7 @@ import kotlin.test.assertNotNull
  *
  * 10 invariants per the plan spec:
  *  1.  Default state: `selectedPreset == "AMBIENT"`, `customOverrides`
- *      empty, `schemaVersion == 1`.
+ *      empty, readability modifiers off, `schemaVersion == 3`.
  *  2.  `selectedPreset` round-trip via in-memory loadState.
  *  3.  `SyntaxPreset.fromName` integration - tampered preset name falls
  *      back to `AMBIENT`.
@@ -50,12 +50,16 @@ class SyntaxIntensityStateTest {
     // --- Test 1 - defaults --------------------------------------------------
 
     @Test
-    fun `default base state is AMBIENT preset with empty customOverrides and schemaVersion 2`() {
+    fun `default base state is AMBIENT preset with empty customOverrides readability off and schemaVersion 3`() {
         val state = SyntaxIntensityBaseState()
         assertEquals("AMBIENT", state.selectedPreset, "default selectedPreset must be AMBIENT per D-23")
         assertTrue(state.customOverrides.isEmpty(), "default customOverrides must be empty (free tier never writes)")
         assertTrue(state.customStyles.isEmpty(), "default customStyles must be empty (free tier never writes)")
-        assertEquals(2, state.schemaVersion, "default schemaVersion must be 2 since customStyles was added")
+        assertFalse(state.dimComments, "Dim comments must be opt-in")
+        assertFalse(state.softenDocumentation, "Soften documentation must be opt-in")
+        assertFalse(state.quietOperators, "Quiet operators must be opt-in")
+        assertFalse(state.emphasizeDeclarations, "Emphasize declarations must be opt-in")
+        assertEquals(3, state.schemaVersion, "default schemaVersion must be 3 since readability toggles were added")
     }
 
     // --- Test 2 - selectedPreset round-trip --------------------------------
@@ -124,7 +128,7 @@ class SyntaxIntensityStateTest {
     fun `schemaVersion survives loadState round-trip for default and bumped values`() {
         // No mutation - verify the default schemaVersion survives the round-trip.
         val reloadedDefault = roundTrip { _ -> }
-        assertEquals(2, reloadedDefault.state.schemaVersion)
+        assertEquals(3, reloadedDefault.state.schemaVersion)
 
         val reloadedBumped = roundTrip { state -> state.schemaVersion = 3 }
         assertEquals(3, reloadedBumped.state.schemaVersion, "schemaVersion 3 must round-trip for future migration")
@@ -315,6 +319,37 @@ class SyntaxIntensityStateTest {
         assertTrue(config.customStyles.isEmpty(), "absent customStyles must surface as an empty nested map")
         // Intensity overrides still decode - the bump is additive only.
         assertEquals(mapOf("Java" to mapOf("KEYWORD" to 75)), config.customOverrides)
+    }
+
+    // --- Test 18 - readability modifier persistence -----------------------
+
+    @Test
+    fun `readability toggles survive loadState round-trip`() {
+        val reloaded =
+            roundTrip { state ->
+                state.dimComments = true
+                state.softenDocumentation = true
+                state.quietOperators = true
+                state.emphasizeDeclarations = true
+            }
+
+        assertTrue(reloaded.state.dimComments)
+        assertTrue(reloaded.state.softenDocumentation)
+        assertTrue(reloaded.state.quietOperators)
+        assertTrue(reloaded.state.emphasizeDeclarations)
+    }
+
+    @Test
+    fun `toPresetConfig carries readability toggles without touching custom maps`() {
+        val component = SyntaxIntensityState()
+        component.state.dimComments = true
+        component.state.quietOperators = true
+
+        val config = component.toPresetConfig()
+
+        assertEquals(SyntaxReadabilityOptions(dimComments = true, quietOperators = true), config.readabilityOptions)
+        assertTrue(config.customOverrides.isEmpty())
+        assertTrue(config.customStyles.isEmpty())
     }
 
     // --- Test 10 - getInstance service lookup -----------------------------

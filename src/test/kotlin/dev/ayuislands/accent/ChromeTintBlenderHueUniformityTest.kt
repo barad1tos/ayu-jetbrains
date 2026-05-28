@@ -7,10 +7,11 @@ import kotlin.test.assertTrue
 
 /**
  * Algorithmic lock on the uniform-hue invariant:
- * `ChromeTintBlender.blend` must produce the SAME hue across the five real
- * chrome base colors at any intensity value, while preserving each base's
+ * `ChromeTintBlender.blend` must converge to the SAME hue across the five real
+ * chrome base colors at max visible intensity, while preserving each base's
  * original luminance so the existing visual hierarchy (status bar darker than
- * toolbar, etc.) survives the rework.
+ * toolbar, etc.) survives the rework. Low intensity intentionally stays close
+ * to stock chrome instead of snapping immediately to the accent hue.
  *
  * A runIde smoke previously surfaced a regression — at intensity=20 each
  * surface rendered as a visibly different color because per-channel RGB lerp
@@ -43,23 +44,33 @@ class ChromeTintBlenderHueUniformityTest {
         )
 
     @Test
-    fun `blend produces the same hue across all 5 chrome bases at intensity 20`() {
-        accents.forEach { accent ->
-            assertUniformHue(accent, intensity = 20)
-        }
+    fun `blend keeps low intensity status bar tint visually close to stock`() {
+        val accent = Color(0x5C, 0xCF, 0xE6)
+        val base = Color(0x2E, 0x35, 0x44)
+
+        val tinted = ChromeTintBlender.blend(accent, base, TintIntensity.of(10))
+
+        assertTrue(
+            tinted.green - base.green <= LOW_INTENSITY_GREEN_DELTA_MAX,
+            "StatusBar at intensity=10 must be a slight accent, not a saturated teal: tinted=$tinted",
+        )
+        assertTrue(
+            hueDelta(hueOf(tinted), hueOf(base)) < hueDelta(hueOf(tinted), hueOf(accent)),
+            "StatusBar at intensity=10 must remain closer to the stock hue than the accent hue",
+        )
     }
 
     @Test
     fun `blend produces the same hue across all 5 chrome bases at intensity 50`() {
         accents.forEach { accent ->
-            assertUniformHue(accent, intensity = 50)
+            assertUniformHue(accent, intensity = 50, epsilon = HUE_EPSILON)
         }
     }
 
     @Test
     fun `blend produces the same hue across all 5 chrome bases at intensity 80`() {
         accents.forEach { accent ->
-            assertUniformHue(accent, intensity = 80)
+            assertUniformHue(accent, intensity = 80, epsilon = HUE_EPSILON)
         }
     }
 
@@ -150,6 +161,7 @@ class ChromeTintBlenderHueUniformityTest {
     private fun assertUniformHue(
         accent: Color,
         intensity: Int,
+        epsilon: Float,
     ) {
         val wrapped = TintIntensity.of(intensity)
         val tintedByKey =
@@ -160,8 +172,8 @@ class ChromeTintBlenderHueUniformityTest {
             val delta = hueDelta(h, reference)
             val ref = hues.keys.first()
             assertTrue(
-                delta <= HUE_EPSILON,
-                "hue spread exceeds ε=$HUE_EPSILON at intensity=$intensity accent=$accent: " +
+                delta <= epsilon,
+                "hue spread exceeds ε=$epsilon at intensity=$intensity accent=$accent: " +
                     "reference=$ref(h=$reference) vs $key(h=$h) Δ=$delta; " +
                     "tintedByKey=$tintedByKey",
             )
@@ -204,6 +216,7 @@ class ChromeTintBlenderHueUniformityTest {
         // base hue differences (StatusBar luminance lower than NavBar) drift through
         // the lerp; the HSB-replacement rework holds well within this band.
         private const val HUE_EPSILON = 0.01f
+        private const val LOW_INTENSITY_GREEN_DELTA_MAX = 10
         private const val OPAQUE_ALPHA = 255
         private const val LUMA_R = 0.299
         private const val LUMA_G = 0.587

@@ -48,13 +48,13 @@ import java.util.concurrent.atomic.AtomicBoolean
  *    names is intentionally avoided here: a future scheme name like
  *    "Ayu Islands Darkroom" would otherwise silently capture the "Dark"
  *    branch.
- *  - Service-layer `CUSTOM` premium gate: [enforceCustomGate] normalises
- *    an unlicensed `CUSTOM` request down to `AMBIENT` and logs WARN once
- *    per session. The Settings panel performs UI-level gating, but that
- *    gate is bypass-able from future actions, tests, or settings imports
- *    that call this service directly. The service-layer normalisation is
- *    the defense-in-depth so the applicator never sees `CUSTOM` from an
- *    unlicensed call path.
+ *  - Service-layer premium gates: [enforceCustomGate] normalises an unlicensed
+ *    `CUSTOM` request down to `AMBIENT`, and [enforceReadabilityGate] drops
+ *    premium readability modifiers for unlicensed callers. The Settings panel
+ *    performs UI-level gating, but that gate is bypass-able from future
+ *    actions, tests, or settings imports that call this service directly.
+ *    Service-layer normalisation is the defense-in-depth so the applicator
+ *    never sees premium syntax inputs from an unlicensed call path.
  *
  * The language tag for each baseline key is derived inside
  * [SyntaxIntensityApplicator.compute] via [SyntaxLanguageRegistry.classify].
@@ -80,14 +80,17 @@ class SyntaxIntensityService {
         customOverrides: Map<String, Map<String, Int>>,
         subordinatePreset: SyntaxPreset = SyntaxPreset.AMBIENT,
         customStyles: Map<String, Map<String, Int>> = emptyMap(),
+        readabilityOptions: SyntaxReadabilityOptions = SyntaxReadabilityOptions.DEFAULT,
     ) {
         val effectivePreset = enforceCustomGate(preset)
+        val effectiveReadabilityOptions = enforceReadabilityGate(readabilityOptions)
         val context =
             ApplyContext(
                 preset = effectivePreset,
                 customOverrides = customOverrides,
                 subordinatePreset = subordinatePreset,
                 customStyles = customStyles,
+                readabilityOptions = effectiveReadabilityOptions,
             )
         val manager = EditorColorsManager.getInstance()
         val touched = mutableSetOf<EditorColorsScheme>()
@@ -117,7 +120,7 @@ class SyntaxIntensityService {
         val config = state.toPresetConfig()
         val preset = SyntaxPreset.fromName(config.selectedPreset)
         val subordinate = SyntaxPreset.fromName(config.subordinatePreset)
-        apply(preset, config.customOverrides, subordinate, config.customStyles)
+        apply(preset, config.customOverrides, subordinate, config.customStyles, config.readabilityOptions)
     }
 
     private data class ApplyContext(
@@ -125,6 +128,7 @@ class SyntaxIntensityService {
         val customOverrides: Map<String, Map<String, Int>>,
         val subordinatePreset: SyntaxPreset,
         val customStyles: Map<String, Map<String, Int>>,
+        val readabilityOptions: SyntaxReadabilityOptions,
     )
 
     /**
@@ -148,6 +152,11 @@ class SyntaxIntensityService {
             )
         }
         return SyntaxPreset.AMBIENT
+    }
+
+    private fun enforceReadabilityGate(readabilityOptions: SyntaxReadabilityOptions): SyntaxReadabilityOptions {
+        if (readabilityOptions == SyntaxReadabilityOptions.DEFAULT) return readabilityOptions
+        return if (LicenseChecker.isLicensedOrGrace()) readabilityOptions else SyntaxReadabilityOptions.DEFAULT
     }
 
     /**
@@ -250,6 +259,7 @@ class SyntaxIntensityService {
                 customOverrides = context.customOverrides,
                 subordinatePreset = context.subordinatePreset,
                 customStyles = context.customStyles,
+                readabilityOptions = context.readabilityOptions,
             ),
         )
     }

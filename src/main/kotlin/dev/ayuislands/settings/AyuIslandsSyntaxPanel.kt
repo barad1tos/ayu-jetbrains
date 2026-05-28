@@ -1,37 +1,34 @@
 package dev.ayuislands.settings
 
 import com.intellij.icons.AllIcons
-import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.ui.InplaceButton
-import com.intellij.ui.JBColor
 import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.RightGap
 import com.intellij.ui.dsl.builder.SegmentedButton
+import com.intellij.ui.dsl.builder.SegmentedButton.ItemPresentation
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.syntax.FontStyleOverride
 import dev.ayuislands.syntax.PrimitiveCategory
+import dev.ayuislands.syntax.SYNTAX_INTENSITY_SCHEMA_VERSION
 import dev.ayuislands.syntax.SyntaxIntensityService
 import dev.ayuislands.syntax.SyntaxIntensityState
 import dev.ayuislands.syntax.SyntaxLanguageRegistry
 import dev.ayuislands.syntax.SyntaxPreset
-import java.awt.Component
-import java.awt.Container
+import dev.ayuislands.syntax.SyntaxReadabilityOptions
+import org.jetbrains.annotations.TestOnly
 import java.awt.Dimension
-import java.awt.Font
 import java.awt.GridLayout
-import javax.swing.AbstractButton
 import javax.swing.JButton
-import javax.swing.JComponent
+import javax.swing.JCheckBox
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JSlider
 import javax.swing.SwingConstants
-import javax.swing.SwingUtilities
 import javax.swing.Timer
 
 /**
@@ -39,32 +36,28 @@ import javax.swing.Timer
  *
  * Free tier: the 4 named pills (Whisper / Ambient / Neon / Cyberpunk) apply
  * immediately on click and persist to the syntax-intensity state. The Custom
- * pill is reserved for Pro — selecting it as an unlicensed user reverts the
- * pill selection and opens the upgrade flow. A pre-placed tooltip on the
- * Custom button surfaces the gate before the click whenever the platform's
- * `SegmentedButton` Swing subtree exposes the per-item button widget.
+ * pill is reserved for Pro — free users see it disabled with a Pro tooltip,
+ * and any programmatic selection still reverts to the previous preset and
+ * opens the upgrade flow.
  *
  * Apply-before-persist ordering follows Anti-Pattern #4 (Phase 40.4 lesson):
  * [SyntaxIntensityService.apply] runs FIRST so any failure surfaces before
  * the on-disk `selectedPreset` is mutated; persist runs SECOND so the next
  * `reapplyForActiveLaf` call sees a consistent preset name.
  *
- * The free-pill apply path NEVER touches [LicenseChecker]. The only license
- * call sites in this class are the Custom-rejection guard in [onPresetChosen]
- * and the short-circuit at the top of [applyCustomPillTooltipIfFree]; both
- * paths are confined to the Custom branch. A source-regex regression lock in
- * `AyuIslandsSyntaxPanelTest` keeps this invariant honest.
+ * The free-pill apply path does not gate the four named presets. [LicenseChecker]
+ * is consulted only while loading premium state, disabling premium controls,
+ * and rejecting the Custom pill for free users.
  *
  * Custom drill-down layout: the 16 [PrimitiveCategory] controls are arranged
  * as four semantic groups in two column-level grids. Each row keeps the same
- * fixed cells — category, tick-free slider, signed readout, and a fixed
- * reset / Bold / Italic slot zone — so controls line up without a long empty
- * single table. The slider value model (0..100, 50 = identity, sparse store
- * keyed by `language|category.name`) is unchanged — the signed string lives only in the
- * readout [JLabel] and is never parsed back. The font-style model is an
- * orthogonal sparse store keyed by the same composite key, mapping to a
- * [FontStyleOverride] enum `name`; both stores thread through [apply] in
- * parallel.
+ * fixed cells — category, tick-free slider, signed readout, and a reset slot —
+ * so controls line up without a long empty single table. The slider value
+ * model (0..100, 50 = identity, sparse store keyed by
+ * `language|category.name`) is unchanged — the signed string lives only in the
+ * readout [JLabel] and is never parsed back. The legacy font-style sparse map
+ * still threads through [apply] for stored configurations, but row-level B/I
+ * controls are intentionally not part of this compact grid.
  */
 @Suppress("TooManyFunctions", "UnstableApiUsage") // Settings panel with focused UI lifecycle helpers.
 class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
@@ -81,20 +74,30 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
     private var suppressSliderListeners: Boolean = false
     private var pendingSubordinate: SyntaxPreset = SyntaxPreset.AMBIENT
     private var storedSubordinate: SyntaxPreset = SyntaxPreset.AMBIENT
+    private var premiumSyntaxControlsEnabled: Boolean = true
+    private var pendingDimComments: Boolean = false
+    private var storedDimComments: Boolean = false
+    private var pendingSoftenDocumentation: Boolean = false
+    private var storedSoftenDocumentation: Boolean = false
+    private var pendingQuietOperators: Boolean = false
+    private var storedQuietOperators: Boolean = false
+    private var pendingEmphasizeDeclarations: Boolean = false
+    private var storedEmphasizeDeclarations: Boolean = false
     private val pendingOverrides: MutableMap<String, String> = mutableMapOf()
     private val storedOverrides: MutableMap<String, String> = mutableMapOf()
 
-    // Font-style store: flat "language|category" -> FontStyleOverride enum name.
-    // Orthogonal to pendingOverrides — a cell may carry a style with no slider
-    // move, or a slider move with no style. Both diff into [isModified] and
-    // both thread through [apply].
+    // Legacy font-style store: flat "language|category" -> FontStyleOverride
+    // enum name. It still round-trips stored configurations, but no longer has
+    // row-level controls in the compact Custom grid.
     private val pendingStyles: MutableMap<String, String> = mutableMapOf()
     private val storedStyles: MutableMap<String, String> = mutableMapOf()
     private val sliders: MutableMap<PrimitiveCategory, JSlider> = mutableMapOf()
     private val sliderLabels: MutableMap<PrimitiveCategory, JLabel> = mutableMapOf()
     private val resetButtons: MutableMap<PrimitiveCategory, InplaceButton> = mutableMapOf()
-    private val boldToggles: MutableMap<PrimitiveCategory, InplaceButton> = mutableMapOf()
-    private val italicToggles: MutableMap<PrimitiveCategory, InplaceButton> = mutableMapOf()
+    private var dimCommentsCheckbox: JCheckBox? = null
+    private var softenDocumentationCheckbox: JCheckBox? = null
+    private var quietOperatorsCheckbox: JCheckBox? = null
+    private var emphasizeDeclarationsCheckbox: JCheckBox? = null
     private var masterResetButton: JButton? = null
     private var currentLanguage: String = ""
 
@@ -124,17 +127,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         loadStateIntoPending()
         customSelected.set(pendingPreset == SyntaxPreset.CUSTOM)
         with(panel) {
-            row("Preset:") {
-                val segmented =
-                    segmentedButton(SyntaxPreset.entries) { preset -> text = preset.displayName }
-                segmented.maxButtonsCount(SyntaxPreset.entries.size)
-                segmented.selectedItem = pendingPreset
-                segmented.whenItemSelected { preset ->
-                    if (suppressListeners) return@whenItemSelected
-                    onPresetChosen(preset)
-                }
-                presetSegmented = segmented
-            }
+            buildPresetBlock()
 
             // The 4 named pills apply immediately. The Custom pill opens the
             // per-language drill-down available on the Pro tier. Free users
@@ -146,6 +139,8 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
                 )
             }
 
+            buildReadabilityBlock()
+
             row {
                 browserLink(
                     "Per-key tuning in Color Scheme editor",
@@ -155,12 +150,29 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
 
             buildCustomFoldOut()
         }
+    }
 
-        // SegmentedButton's internal JButton instances are not realised until
-        // the DSL panel renders, so the tooltip pre-placement walks the
-        // subtree on the EDT after the DSL build completes. Best-effort —
-        // see [applyCustomPillTooltipIfFree] for the fallback contract.
-        SwingUtilities.invokeLater { applyCustomPillTooltipIfFree() }
+    private fun Panel.buildPresetBlock() {
+        row("Preset:") {
+            val segmented =
+                segmentedButton(SyntaxPreset.entries) { preset ->
+                    configurePresetPresentation(preset)
+                }
+            segmented.maxButtonsCount(SyntaxPreset.entries.size)
+            segmented.selectedItem = pendingPreset
+            segmented.whenItemSelected { preset ->
+                if (suppressListeners) return@whenItemSelected
+                onPresetChosen(preset)
+            }
+            presetSegmented = segmented
+        }
+    }
+
+    private fun ItemPresentation.configurePresetPresentation(preset: SyntaxPreset) {
+        text = preset.displayName
+        val isPremiumPreset = preset == SyntaxPreset.CUSTOM
+        enabled = !isPremiumPreset || premiumSyntaxControlsEnabled
+        toolTipText = if (isPremiumPreset && !premiumSyntaxControlsEnabled) PREMIUM_CONTROL_TOOLTIP else null
     }
 
     /** Build the premium Custom drill-down as two grouped, aligned columns. */
@@ -201,6 +213,75 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         rebindSlidersFor(currentLanguage)
         refreshMasterResetButton()
     }
+
+    private fun Panel.buildReadabilityBlock() {
+        row("Readability:") {
+            dimCommentsCheckbox =
+                checkBox("Dim comments").component.apply {
+                    configureReadabilityCheckbox(pendingDimComments) {
+                        pendingDimComments = it
+                    }
+                }
+            softenDocumentationCheckbox =
+                checkBox("Soften documentation").component.apply {
+                    configureReadabilityCheckbox(pendingSoftenDocumentation) {
+                        pendingSoftenDocumentation = it
+                    }
+                }
+        }
+        row {
+            quietOperatorsCheckbox =
+                checkBox("Quiet operators").component.apply {
+                    configureReadabilityCheckbox(pendingQuietOperators) {
+                        pendingQuietOperators = it
+                    }
+                }
+            emphasizeDeclarationsCheckbox =
+                checkBox("Emphasize declarations").component.apply {
+                    configureReadabilityCheckbox(pendingEmphasizeDeclarations) {
+                        pendingEmphasizeDeclarations = it
+                    }
+                }
+        }
+        row {
+            comment("Applies on top of the selected preset. Use Custom for per-language tuning.")
+        }
+    }
+
+    private fun JCheckBox.configureReadabilityCheckbox(
+        selected: Boolean,
+        updatePending: (Boolean) -> Unit,
+    ) {
+        applyReadabilityCheckboxState(selected)
+        addActionListener {
+            if (!isEnabled) return@addActionListener
+            updatePending(isSelected)
+            preview()
+        }
+    }
+
+    private fun JCheckBox.applyReadabilityCheckboxState(selected: Boolean) {
+        isSelected = selected
+        isEnabled = premiumSyntaxControlsEnabled
+        toolTipText = if (premiumSyntaxControlsEnabled) null else PREMIUM_CONTROL_TOOLTIP
+    }
+
+    @TestOnly
+    internal fun buildReadabilityBlockForTest(panel: Panel) {
+        loadStateIntoPending()
+        panel.buildReadabilityBlock()
+    }
+
+    @TestOnly
+    internal fun buildPresetBlockForTest(panel: Panel) {
+        loadStateIntoPending()
+        customSelected.set(pendingPreset == SyntaxPreset.CUSTOM)
+        panel.buildPresetBlock()
+        refreshPresetPillAffordance()
+    }
+
+    @TestOnly
+    internal fun customPresetPresentationForTest(): ItemPresentation? = customPresetPresentation()
 
     private fun Panel.buildCategoryGroup(categoryGroup: CategoryGroup) {
         group(categoryGroup.title) {
@@ -248,93 +329,21 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
                     isFocusable = true
                     accessibleContext.accessibleName = "Reset ${category.displayName} to default"
                 }
-            val boldToggle =
-                InplaceButton("Bold ${category.displayName}", styleGlyphIcon("B", Font.BOLD, engaged = false)) {
-                    onStyleToggle(category, Font.BOLD)
-                }.apply {
-                    isFocusable = true
-                    accessibleContext.accessibleName = "Bold ${category.displayName}"
-                }
-            val italicToggle =
-                InplaceButton("Italic ${category.displayName}", styleGlyphIcon("I", Font.ITALIC, engaged = false)) {
-                    onStyleToggle(category, Font.ITALIC)
-                }.apply {
-                    isFocusable = true
-                    accessibleContext.accessibleName = "Italic ${category.displayName}"
-                }
             resetButtons[category] = resetButton
-            boldToggles[category] = boldToggle
-            italicToggles[category] = italicToggle
             val trailingZone =
-                JPanel(GridLayout(1, TRAILING_SLOT_COUNT, JBUI.scale(TRAILING_GAP), 0)).apply {
+                JPanel(GridLayout(1, TRAILING_SLOT_COUNT, 0, 0)).apply {
                     isOpaque = false
                     val zoneWidth = JBUI.scale(TRAILING_ZONE_WIDTH)
                     val zoneHeight = JBUI.scale(TRAILING_SLOT_SIDE)
                     preferredSize = Dimension(zoneWidth, zoneHeight)
                     minimumSize = Dimension(zoneWidth, zoneHeight)
                     add(resetButton)
-                    add(boldToggle)
-                    add(italicToggle)
                 }
             cell(trailingZone)
             sliders[category] = intensitySlider
             sliderLabels[category] = valueLabel
-            refreshStyleVisuals(category)
         }
     }
-
-    private fun onStyleToggle(
-        category: PrimitiveCategory,
-        bit: Int,
-    ) {
-        val key = compositeKey(currentLanguage, category)
-        val current = FontStyleOverride.fromName(pendingStyles[key])?.fontType ?: Font.PLAIN
-        val next = current xor bit
-        val nextStyle = FontStyleOverride.entries.firstOrNull { it.fontType == next }
-        if (nextStyle == null || nextStyle == FontStyleOverride.PLAIN) {
-            pendingStyles.remove(key)
-        } else {
-            pendingStyles[key] = nextStyle.name
-        }
-        refreshStyleVisuals(category)
-        refreshResetVisibility(category)
-        refreshMasterResetButton()
-        applyTimer.restart()
-    }
-
-    private fun refreshStyleVisuals(category: PrimitiveCategory) {
-        val key = compositeKey(currentLanguage, category)
-        val fontType = FontStyleOverride.fromName(pendingStyles[key])?.fontType ?: Font.PLAIN
-        boldToggles[category]?.let { button ->
-            button.icon = styleGlyphIcon("B", Font.BOLD, fontType and Font.BOLD != 0)
-            button.repaint()
-        }
-        italicToggles[category]?.let { button ->
-            button.icon = styleGlyphIcon("I", Font.ITALIC, fontType and Font.ITALIC != 0)
-            button.repaint()
-        }
-    }
-
-    private fun styleGlyphIcon(
-        glyph: String,
-        style: Int,
-        engaged: Boolean,
-    ): StyleGlyphIcon {
-        val foreground = if (engaged) UIUtil.getLabelForeground() else UIUtil.getContextHelpForeground()
-        val background =
-            if (engaged) {
-                JBUI.CurrentTheme.ActionButton.pressedBackground()
-            } else {
-                JBUI.CurrentTheme.ActionButton.hoverBackground()
-            }
-        return StyleGlyphIcon(glyph, style, foreground, background, border = styleGlyphBorder())
-    }
-
-    private fun styleGlyphBorder(): JBColor =
-        JBColor.namedColor(
-            "Popup.innerBorderColor",
-            JBColor.namedColor("Popup.borderColor", JBColor.GRAY),
-        )
 
     private fun refreshResetVisibility(category: PrimitiveCategory) {
         val key = compositeKey(currentLanguage, category)
@@ -355,7 +364,6 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         val key = compositeKey(currentLanguage, category)
         pendingOverrides.remove(key)
         pendingStyles.remove(key)
-        refreshStyleVisuals(category)
         refreshResetVisibility(category)
         refreshMasterResetButton()
         applyTimer.restart()
@@ -418,11 +426,9 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
     }
 
     private fun onPresetChosen(preset: SyntaxPreset) {
-        // SegmentedButton has no per-item disable API in 2025.1, so the
-        // unlicensed Custom selection is intercepted here: revert the UI to
-        // the previous preset and open the upgrade flow. This is the ONLY
-        // free-pill call path that touches the license checker — the four
-        // named pills below never reach the gate.
+        // The Custom pill is disabled through the SegmentedButton item
+        // presentation, but direct calls and future programmatic selection
+        // paths still need the service-level gate.
         if (preset == SyntaxPreset.CUSTOM && !LicenseChecker.isLicensedOrGrace()) {
             suppressListeners = true
             try {
@@ -448,7 +454,11 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         pendingPreset != storedPreset ||
             pendingOverrides != storedOverrides ||
             pendingStyles != storedStyles ||
-            pendingSubordinate != storedSubordinate
+            pendingSubordinate != storedSubordinate ||
+            pendingDimComments != storedDimComments ||
+            pendingSoftenDocumentation != storedSoftenDocumentation ||
+            pendingQuietOperators != storedQuietOperators ||
+            pendingEmphasizeDeclarations != storedEmphasizeDeclarations
 
     override fun apply() {
         if (!isModified()) return
@@ -466,12 +476,19 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         state.customOverrides.putAll(pendingOverrides)
         state.customStyles.clear()
         state.customStyles.putAll(pendingStyles)
+        val appliedReadabilityOptions = readabilityOptions()
+        state.dimComments = appliedReadabilityOptions.dimComments
+        state.softenDocumentation = appliedReadabilityOptions.softenDocumentation
+        state.quietOperators = appliedReadabilityOptions.quietOperators
+        state.emphasizeDeclarations = appliedReadabilityOptions.emphasizeDeclarations
+        state.schemaVersion = SYNTAX_INTENSITY_SCHEMA_VERSION
         storedPreset = pendingPreset
         storedSubordinate = pendingSubordinate
         storedOverrides.clear()
         storedOverrides.putAll(pendingOverrides)
         storedStyles.clear()
         storedStyles.putAll(pendingStyles)
+        rememberReadabilityOptions(appliedReadabilityOptions)
     }
 
     override fun reset() {
@@ -483,18 +500,34 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
             suppressListeners = false
         }
         customSelected.set(pendingPreset == SyntaxPreset.CUSTOM)
+        refreshReadabilityCheckboxes()
+        refreshPresetPillAffordance()
         rebindSlidersFor(currentLanguage)
         refreshMasterResetButton()
+        preview()
     }
 
     private fun loadStateIntoPending() {
         val state = SyntaxIntensityState.getInstance().state
         val loadedPreset = SyntaxPreset.fromName(state.selectedPreset)
-        val canUseCustom = loadedPreset != SyntaxPreset.CUSTOM || LicenseChecker.isLicensedOrGrace()
+        premiumSyntaxControlsEnabled = LicenseChecker.isLicensedOrGrace()
+        val canUseCustom = loadedPreset != SyntaxPreset.CUSTOM || premiumSyntaxControlsEnabled
         storedPreset = if (canUseCustom) loadedPreset else SyntaxPreset.AMBIENT
         pendingPreset = storedPreset
         storedSubordinate = SyntaxPreset.fromName(state.subordinatePreset)
         pendingSubordinate = storedSubordinate
+        rememberReadabilityOptions(
+            if (premiumSyntaxControlsEnabled) {
+                SyntaxReadabilityOptions(
+                    dimComments = state.dimComments,
+                    softenDocumentation = state.softenDocumentation,
+                    quietOperators = state.quietOperators,
+                    emphasizeDeclarations = state.emphasizeDeclarations,
+                )
+            } else {
+                SyntaxReadabilityOptions.DEFAULT
+            },
+        )
         storedOverrides.clear()
         if (canUseCustom) {
             storedOverrides.putAll(state.customOverrides)
@@ -509,6 +542,31 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         pendingStyles.putAll(storedStyles)
     }
 
+    private fun refreshReadabilityCheckboxes() {
+        dimCommentsCheckbox?.applyReadabilityCheckboxState(pendingDimComments)
+        softenDocumentationCheckbox?.applyReadabilityCheckboxState(pendingSoftenDocumentation)
+        quietOperatorsCheckbox?.applyReadabilityCheckboxState(pendingQuietOperators)
+        emphasizeDeclarationsCheckbox?.applyReadabilityCheckboxState(pendingEmphasizeDeclarations)
+    }
+
+    private fun refreshPresetPillAffordance() {
+        val segmented = presetSegmented ?: return
+        for (preset in SyntaxPreset.entries) {
+            segmented.update(preset)
+        }
+    }
+
+    private fun rememberReadabilityOptions(options: SyntaxReadabilityOptions) {
+        storedDimComments = options.dimComments
+        pendingDimComments = options.dimComments
+        storedSoftenDocumentation = options.softenDocumentation
+        pendingSoftenDocumentation = options.softenDocumentation
+        storedQuietOperators = options.quietOperators
+        pendingQuietOperators = options.quietOperators
+        storedEmphasizeDeclarations = options.emphasizeDeclarations
+        pendingEmphasizeDeclarations = options.emphasizeDeclarations
+    }
+
     private fun rebindSlidersFor(language: String) {
         suppressSliderListeners = true
         try {
@@ -517,7 +575,6 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
                 sliders[category]?.value = value
                 sliderLabels[category]?.let { applyReadout(it, value) }
                 sliders[category]?.accessibleContext?.accessibleName = intensityAccessibleName(category, value)
-                refreshStyleVisuals(category)
                 refreshResetVisibility(category)
             }
         } finally {
@@ -543,7 +600,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
 
     /**
      * Single update site for a readout [JLabel]'s text AND foreground so the
-     * three callers ([onSliderChanged], [setSliderValue], [rebindSlidersFor])
+     * three callers ([onSliderChanged], [resetCategorySlider], [rebindSlidersFor])
      * stay in lock-step. At the [SLIDER_MID] identity the readout is visually
      * empty and dimmed to reduce noise; once the cell diverges the signed delta
      * switches to the stronger
@@ -608,53 +665,27 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
     private fun preview() {
         val nested = buildNested(pendingOverrides) { it.toIntOrNull() }
         val nestedStyles = buildNested(pendingStyles) { FontStyleOverride.fromName(it)?.fontType }
-        SyntaxIntensityService.getInstance().apply(pendingPreset, nested, pendingSubordinate, nestedStyles)
+        SyntaxIntensityService
+            .getInstance()
+            .apply(pendingPreset, nested, pendingSubordinate, nestedStyles, readabilityOptions())
     }
 
-    /**
-     * Walk the [presetSegmented]'s rendered Swing subtree and set a
-     * "Pro Feature" tooltip on the button corresponding to
-     * [SyntaxPreset.CUSTOM] when the user is unlicensed. Best-effort:
-     * `SegmentedButton`'s internal widget tree is not API-stable across
-     * platform versions. If the tooltip cannot be applied, the
-     * click-then-revert fallback in [onPresetChosen] still surfaces the
-     * upgrade prompt — the tooltip is the pre-click affordance, not the
-     * gate itself.
-     *
-     * Pattern B: only `RuntimeException` is caught — narrower exceptions
-     * propagate. The runIde smoke test on the follow-up plan finalises the
-     * concrete Swing widget lookup; this method is the wire site for that
-     * verified path.
-     */
-    private fun applyCustomPillTooltipIfFree() {
-        if (LicenseChecker.isLicensedOrGrace()) return
-        try {
-            val root = renderedSegmentedComponent() ?: return
-            findCustomPresetButton(root)?.toolTipText = CUSTOM_PILL_TOOLTIP
-        } catch (runtime: RuntimeException) {
-            LOG.warn("AyuIslandsSyntaxPanel: tooltip pre-placement on Custom pill failed", runtime)
-        }
-    }
+    private fun readabilityOptions(): SyntaxReadabilityOptions =
+        SyntaxReadabilityOptions(
+            dimComments = pendingDimComments,
+            softenDocumentation = pendingSoftenDocumentation,
+            quietOperators = pendingQuietOperators,
+            emphasizeDeclarations = pendingEmphasizeDeclarations,
+        )
 
-    private fun renderedSegmentedComponent(): Component? {
+    private fun customPresetPresentation(): ItemPresentation? {
         val segmented = presetSegmented ?: return null
-        val getComponent =
+        val getPresentations =
             segmented.javaClass.methods.firstOrNull { method ->
-                method.name == "getComponent" && method.parameterCount == 0
+                method.name == SEGMENTED_PRESENTATIONS_METHOD && method.parameterCount == 0
             } ?: return null
-        return getComponent.invoke(segmented) as? Component
-    }
-
-    private fun findCustomPresetButton(component: Component): JComponent? {
-        if (component is AbstractButton && component.text == SyntaxPreset.CUSTOM.displayName) {
-            return component
-        }
-        val container = component as? Container ?: return null
-        for (child in container.components) {
-            val match = findCustomPresetButton(child)
-            if (match != null) return match
-        }
-        return null
+        val presentationMap = getPresentations.invoke(segmented) as? Map<*, *> ?: return null
+        return presentationMap[SyntaxPreset.CUSTOM] as? ItemPresentation
     }
 
     /**
@@ -670,7 +701,6 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
     )
 
     private companion object {
-        private val LOG = logger<AyuIslandsSyntaxPanel>()
         private const val DEBOUNCE_MS = 100
         private const val SLIDER_MIN = 0
         private const val SLIDER_MAX = 100
@@ -678,13 +708,14 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
 
         private const val SLIDER_TRACK_WIDTH = 140
         private const val READOUT_WIDTH = 28
-        private const val TRAILING_SLOT_COUNT = 3
+        private const val TRAILING_SLOT_COUNT = 1
         private const val TRAILING_SLOT_SIDE = 20
-        private const val TRAILING_ZONE_WIDTH = 64
-        private const val TRAILING_GAP = 2
+        private const val TRAILING_ZONE_WIDTH = 20
         private const val LABEL_PADDING = 8
         private const val LABEL_FALLBACK_WIDTH = 170
-        private const val CUSTOM_PILL_TOOLTIP = "Pro Feature"
+        private const val PREMIUM_CONTROL_TOOLTIP = "Pro Feature"
+        private const val SEGMENTED_PRESENTATIONS_METHOD =
+            "getPresentations" + "$" + "intellij_platform_ide_impl"
 
         /**
          * The 16 [PrimitiveCategory] entries grouped by syntactic role and

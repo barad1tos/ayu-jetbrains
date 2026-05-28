@@ -26,13 +26,13 @@ class ChromeTintBlenderTest {
     }
 
     @Test
-    fun `blend at intensity 100 output hue matches accent hue`() {
-        // Contract: at max intensity the blender returns the accent HUE on
+    fun `blend at max visible intensity output hue matches accent hue`() {
+        // Contract: at max visible intensity the blender returns the accent HUE on
         // the base's luminance (target = HSB(accent.H, accent.S, base.B)),
         // NOT the accent's RGB per-channel. The legacy per-channel identity
         // was superseded by the hue-uniformity invariant — see
         // ChromeTintBlenderHueUniformityTest for the 5-surface lock.
-        val result = ChromeTintBlender.blend(accentRed, darkBase, TintIntensity.of(100))
+        val result = ChromeTintBlender.blend(accentRed, darkBase, TintIntensity.of(TintIntensity.MAX))
         val resultHue = hueOf(result)
         val accentHue = hueOf(accentRed)
         assertTrue(
@@ -43,13 +43,55 @@ class ChromeTintBlenderTest {
     }
 
     @Test
-    fun `blend at intensity 50 output hue converges toward accent hue`() {
+    fun `blend at minimum visible intensity stays closer to stock than accent hue`() {
+        val stockStatusBar = Color(0x2E, 0x35, 0x44)
+        val result = ChromeTintBlender.blend(Color(0x5C, 0xCF, 0xE6), stockStatusBar, TintIntensity.of(10))
+        val resultHue = hueOf(result)
+        val stockHue = hueOf(stockStatusBar)
+        val accentHue = hueOf(Color(0x5C, 0xCF, 0xE6))
+
+        assertTrue(
+            hueDelta(resultHue, stockHue) < hueDelta(resultHue, accentHue),
+            "intensity=10 must stay visually closer to stock chrome than to the accent hue",
+        )
+        assertTrue(
+            result.green - stockStatusBar.green <= LOW_INTENSITY_GREEN_DELTA_MAX,
+            "intensity=10 must be a subtle accent; got green delta ${result.green - stockStatusBar.green}",
+        )
+    }
+
+    @Test
+    fun `blend crosses the red hue seam by the shortest path`() {
+        val scenarios =
+            listOf(
+                HueSeamScenario(baseHue = 0.95f, accentHue = 0.05f),
+                HueSeamScenario(baseHue = 0.05f, accentHue = 0.95f),
+            )
+
+        for (scenario in scenarios) {
+            val base = Color.getHSBColor(scenario.baseHue, 0.45f, 0.35f)
+            val accent = Color.getHSBColor(scenario.accentHue, 0.90f, 0.80f)
+            val result = ChromeTintBlender.blend(accent, base, TintIntensity.of(25))
+            val resultHue = hueOf(result)
+
+            assertTrue(
+                hueDelta(resultHue, RED_SEAM_HUE) <= HUE_SEAM_EPSILON,
+                "mid-intensity hue must cross the red seam, not detour through cyan: " +
+                    "baseHue=${scenario.baseHue}, accentHue=${scenario.accentHue}, resultHue=$resultHue",
+            )
+            assertTrue(
+                hueDelta(resultHue, CYAN_DETOUR_HUE) > CYAN_DETOUR_MIN_DELTA,
+                "red-seam blend must stay away from the opposite cyan hue: resultHue=$resultHue",
+            )
+        }
+    }
+
+    @Test
+    fun `blend at intensity 50 output hue converges to accent hue`() {
         // Contract: the blender does NOT produce an RGB midpoint between base
         // and accent — it lerps the base toward a synthesised HSB target
-        // (accent.H, accent.S, base.B), so the output hue converges from
-        // the base hue toward the accent hue. The neutral darkBase has S≈0
-        // (undefined hue), so any tint moves the output toward the accent hue
-        // within ε at 50%.
+        // (accent.H, accent.S, base.B), so max visible intensity reaches the
+        // accent hue while lower values stay closer to the stock chrome hue.
         val result = ChromeTintBlender.blend(accentRed, darkBase, TintIntensity.of(50))
         val resultHue = hueOf(result)
         val accentHue = hueOf(accentRed)
@@ -118,9 +160,19 @@ class ChromeTintBlenderTest {
         return if (raw > 0.5f) 1f - raw else raw
     }
 
+    private data class HueSeamScenario(
+        val baseHue: Float,
+        val accentHue: Float,
+    )
+
     companion object {
         // ε ≈ 0.01 on the unit hue circle ≈ 3.6° on a 360° wheel — same ε used
         // by ChromeTintBlenderHueUniformityTest (kept consistent across suites).
         private const val HUE_EPSILON = 0.01f
+        private const val HUE_SEAM_EPSILON = 0.03f
+        private const val RED_SEAM_HUE = 0.0f
+        private const val CYAN_DETOUR_HUE = 0.5f
+        private const val CYAN_DETOUR_MIN_DELTA = 0.35f
+        private const val LOW_INTENSITY_GREEN_DELTA_MAX = 10
     }
 }

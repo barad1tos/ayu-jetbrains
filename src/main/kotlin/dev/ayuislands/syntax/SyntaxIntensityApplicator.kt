@@ -48,6 +48,12 @@ import kotlin.math.abs
  * no style. Sparse: an absent cell leaves `fontType` untouched (inherits the
  * source style). Named / AMBIENT presets never read `customStyles`.
  *
+ * Readability modifiers are a second semantic layer after the selected preset
+ * has resolved. They never write Custom slider cells: comments, docs, and
+ * operators recede by blending toward `editorBg`, while declarations get a
+ * small chroma-intent boost. The user's Custom sparse map stays manual
+ * per-language tuning only.
+ *
  * Pattern B clone discipline: baseline / overlay `TextAttributes` instances
  * are NEVER mutated. Every output value is a fresh clone obtained via
  * `source.clone()` and the cloned instance is the only thing the applicator
@@ -90,6 +96,7 @@ object SyntaxIntensityApplicator {
         val customOverrides: Map<String, Map<String, Int>> = emptyMap(),
         val subordinatePreset: SyntaxPreset = SyntaxPreset.AMBIENT,
         val customStyles: Map<String, Map<String, Int>> = emptyMap(),
+        val readabilityOptions: SyntaxReadabilityOptions = SyntaxReadabilityOptions.DEFAULT,
     )
 
     fun compute(request: Request): Map<TextAttributesKey, TextAttributes> {
@@ -101,7 +108,15 @@ object SyntaxIntensityApplicator {
         warnOnceIfWhiteBgOnDarkVariant(request.variantName, request.editorBg)
 
         val result = linkedMapOf<TextAttributesKey, TextAttributes>()
-        val context = TransformContext(preset, customOverrides, subordinatePreset, request.customStyles)
+        val context =
+            TransformContext(
+                preset = preset,
+                customOverrides = customOverrides,
+                subordinatePreset = subordinatePreset,
+                customStyles = request.customStyles,
+                readabilityOptions = request.readabilityOptions,
+                editorBg = request.editorBg,
+            )
         val sources = AttributeSources(baseline, overlay)
         val keys = LinkedHashSet<TextAttributesKey>()
         keys.addAll(baseline.keys)
@@ -143,6 +158,8 @@ object SyntaxIntensityApplicator {
         val customOverrides: Map<String, Map<String, Int>>,
         val subordinatePreset: SyntaxPreset,
         val customStyles: Map<String, Map<String, Int>>,
+        val readabilityOptions: SyntaxReadabilityOptions,
+        val editorBg: Color,
     )
 
     private data class AttributeSources(
@@ -165,7 +182,14 @@ object SyntaxIntensityApplicator {
     ): TextAttributes? {
         val sourceForeground = source.foregroundColor ?: return null
         val clone = source.clone()
-        clone.foregroundColor = transformForeground(sourceForeground, curve)
+        clone.foregroundColor =
+            transformForeground(
+                fg = sourceForeground,
+                curve = curve,
+                readabilityOptions = context.readabilityOptions,
+                category = category,
+                editorBg = context.editorBg,
+            )
         // Sparse per-category font style — gated to the Custom drill-down.
         // fontType and foregroundColor are independent TextAttributes fields,
         // so the style set is orthogonal to the hue/color transform above.
@@ -250,6 +274,17 @@ object SyntaxIntensityApplicator {
     private fun transformForeground(
         fg: Color,
         curve: CategoryCurve,
+        readabilityOptions: SyntaxReadabilityOptions,
+        category: PrimitiveCategory,
+        editorBg: Color,
+    ): Color {
+        val color = transformForeground(fg, curve)
+        return applyReadabilityModifiers(color, category, readabilityOptions, editorBg)
+    }
+
+    private fun transformForeground(
+        fg: Color,
+        curve: CategoryCurve,
     ): Color {
         if (curve.saturationDelta == 0f && curve.lightnessDelta == 0f) return fg
         val hsl = HslColor.fromColor(fg)
@@ -275,6 +310,39 @@ object SyntaxIntensityApplicator {
         return HslColor.toColor(hsl.hue, newSat, newLight)
     }
 
+    private fun applyReadabilityModifiers(
+        color: Color,
+        category: PrimitiveCategory,
+        options: SyntaxReadabilityOptions,
+        editorBg: Color,
+    ): Color =
+        when (category) {
+            PrimitiveCategory.COMMENT ->
+                if (options.dimComments) {
+                    RgbBlend.blend(color, editorBg, DIM_COMMENTS_INTENSITY)
+                } else {
+                    color
+                }
+            PrimitiveCategory.DOCUMENTATION ->
+                if (options.softenDocumentation) {
+                    RgbBlend.blend(color, editorBg, SOFTEN_DOCUMENTATION_INTENSITY)
+                } else {
+                    color
+                }
+            PrimitiveCategory.OPERATOR ->
+                if (options.quietOperators) {
+                    RgbBlend.blend(color, editorBg, QUIET_OPERATORS_INTENSITY)
+                } else {
+                    color
+                }
+            PrimitiveCategory.FUNCTION_DECL,
+            PrimitiveCategory.CLASS_DECL,
+            PrimitiveCategory.INTERFACE_DECL,
+            ->
+                if (options.emphasizeDeclarations) transformForeground(color, EMPHASIZE_DECLARATIONS_CURVE) else color
+            else -> color
+        }
+
     private fun warnOnceIfWhiteBgOnDarkVariant(
         variantName: String,
         editorBg: Color,
@@ -291,6 +359,15 @@ object SyntaxIntensityApplicator {
     }
 
     private const val MAX_RGB_CHANNEL = 255
+
+    private const val DIM_COMMENTS_INTENSITY = 60
+    private const val SOFTEN_DOCUMENTATION_INTENSITY = 82
+    private const val QUIET_OPERATORS_INTENSITY = 78
+    private const val EMPHASIZE_DECLARATIONS_SATURATION_DELTA = 0.08f
+    private const val EMPHASIZE_DECLARATIONS_LIGHTNESS_DELTA = 0.06f
+
+    private val EMPHASIZE_DECLARATIONS_CURVE =
+        CategoryCurve(EMPHASIZE_DECLARATIONS_SATURATION_DELTA, EMPHASIZE_DECLARATIONS_LIGHTNESS_DELTA)
 
     // The flank pivot for the signed chroma intent: tokens at or above this L
     // are pushed DOWN toward it by a positive intent, tokens below are pushed UP.

@@ -15,6 +15,7 @@ import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.syntax.SyntaxIntensityService
 import dev.ayuislands.syntax.SyntaxIntensityState
 import dev.ayuislands.syntax.SyntaxPreset
+import dev.ayuislands.syntax.SyntaxReadabilityOptions
 import dev.ayuislands.vcs.VcsColorApplier
 import dev.ayuislands.vcs.VcsColorPreset
 import io.mockk.every
@@ -65,7 +66,7 @@ class LicenseCheckerVcsRevokeTest {
         every { AyuIslandsSettings.getInstance() } returns settings
 
         mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } answers { Unit }
+        every { AccentApplicator.apply(any()) } just runs
         every { AccentApplicator.applyFromHexString(any()) } returns true
 
         mockkObject(GlowOverlayManager.Companion)
@@ -202,6 +203,10 @@ class LicenseCheckerVcsRevokeTest {
         syntaxState.state.subordinatePreset = SyntaxPreset.NEON.name
         syntaxState.state.customOverrides["Java|KEYWORD"] = "85"
         syntaxState.state.customStyles["Java|KEYWORD"] = "BOLD"
+        syntaxState.state.dimComments = true
+        syntaxState.state.softenDocumentation = true
+        syntaxState.state.quietOperators = true
+        syntaxState.state.emphasizeDeclarations = true
 
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
 
@@ -209,8 +214,18 @@ class LicenseCheckerVcsRevokeTest {
         assertEquals(SyntaxPreset.AMBIENT.name, syntaxState.state.subordinatePreset)
         assertTrue(syntaxState.state.customOverrides.isEmpty(), "syntax custom overrides must be cleared")
         assertTrue(syntaxState.state.customStyles.isEmpty(), "syntax custom styles must be cleared")
+        assertFalse(syntaxState.state.dimComments, "premium readability toggles must be cleared on downgrade")
+        assertFalse(syntaxState.state.softenDocumentation, "premium readability toggles must be cleared on downgrade")
+        assertFalse(syntaxState.state.quietOperators, "premium readability toggles must be cleared on downgrade")
+        assertFalse(syntaxState.state.emphasizeDeclarations, "premium readability toggles must be cleared on downgrade")
         verify(exactly = 1) {
-            syntaxService.apply(SyntaxPreset.AMBIENT, emptyMap())
+            syntaxService.apply(
+                SyntaxPreset.AMBIENT,
+                emptyMap(),
+                SyntaxPreset.AMBIENT,
+                emptyMap(),
+                SyntaxReadabilityOptions.DEFAULT,
+            )
         }
     }
 

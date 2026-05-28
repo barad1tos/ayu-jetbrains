@@ -782,6 +782,151 @@ class SyntaxIntensityApplicatorTest {
         assertChannelDiff(expected, assertNotNull(result[csharpKeywordKey]?.foregroundColor))
     }
 
+    @Test
+    fun `readability dim comments only quiets comment keys on top of Ambient`() {
+        val baselineFg = Color(0x78, 0x7B, 0x80)
+        val keywordFg = Color(0xFF, 0xAD, 0x66)
+        val baseline =
+            mapOf(
+                javaCommentKey to attrsWithFg(baselineFg),
+                javaKeywordKey to attrsWithFg(keywordFg),
+            )
+
+        val result =
+            compute(
+                preset = SyntaxPreset.AMBIENT,
+                customOverrides = emptyMap(),
+                baseline = baseline,
+                overlay = emptyMap(),
+                options = ComputeOptions(readabilityOptions = SyntaxReadabilityOptions(dimComments = true)),
+            )
+
+        val comment = assertNotNull(result[javaCommentKey]?.foregroundColor)
+        val keyword = assertNotNull(result[javaKeywordKey]?.foregroundColor)
+        assertTrue(
+            HslColor.fromColor(comment).lightness < HslColor.fromColor(baselineFg).lightness,
+            "Dim comments must make comment text recede",
+        )
+        assertEquals(keywordFg.rgb, keyword.rgb, "Dim comments must not rewrite unrelated categories")
+    }
+
+    @Test
+    fun `readability dim comments moves toward the active editor background`() {
+        val lightEditorBg = Color(0xFC, 0xFC, 0xFC)
+        val commentFg = Color(0x78, 0x7B, 0x80)
+
+        val result =
+            compute(
+                preset = SyntaxPreset.AMBIENT,
+                customOverrides = emptyMap(),
+                baseline = mapOf(javaCommentKey to attrsWithFg(commentFg)),
+                overlay = emptyMap(),
+                options =
+                    ComputeOptions(
+                        editorBg = lightEditorBg,
+                        readabilityOptions = SyntaxReadabilityOptions(dimComments = true),
+                    ),
+            )
+
+        val output = assertNotNull(result[javaCommentKey]?.foregroundColor)
+        assertTrue(
+            colorDistance(output, lightEditorBg) < colorDistance(commentFg, lightEditorBg),
+            "Dim comments must recede toward the active background instead of always darkening",
+        )
+    }
+
+    @Test
+    fun `readability soften documentation quiets documentation keys`() {
+        val docKey = TextAttributesKey.createTextAttributesKey("JAVA_DOC_COMMENT")
+        val baselineFg = Color(0x9D, 0xA0, 0xA8)
+        val keywordFg = Color(0xFF, 0xAD, 0x66)
+
+        val result =
+            compute(
+                preset = SyntaxPreset.AMBIENT,
+                customOverrides = emptyMap(),
+                baseline =
+                    mapOf(
+                        docKey to attrsWithFg(baselineFg),
+                        javaKeywordKey to attrsWithFg(keywordFg),
+                    ),
+                overlay = emptyMap(),
+                options = ComputeOptions(readabilityOptions = SyntaxReadabilityOptions(softenDocumentation = true)),
+            )
+
+        val output = assertNotNull(result[docKey]?.foregroundColor)
+        val keyword = assertNotNull(result[javaKeywordKey]?.foregroundColor)
+        assertTrue(
+            colorDistance(output, ComputeOptions().editorBg) < colorDistance(baselineFg, ComputeOptions().editorBg),
+            "Soften documentation must move doc text toward the editor background",
+        )
+        assertNotEquals(baselineFg.rgb, output.rgb, "Soften documentation must visibly affect documentation keys")
+        assertEquals(keywordFg.rgb, keyword.rgb, "Soften documentation must not rewrite unrelated categories")
+    }
+
+    @Test
+    fun `readability quiet operators quiets operator keys`() {
+        val operatorKey = TextAttributesKey.createTextAttributesKey("JAVA_OPERATION_SIGN")
+        val baselineFg = Color(0xB8, 0xC2, 0xCC)
+        val commentFg = Color(0x78, 0x7B, 0x80)
+
+        val result =
+            compute(
+                preset = SyntaxPreset.AMBIENT,
+                customOverrides = emptyMap(),
+                baseline =
+                    mapOf(
+                        operatorKey to attrsWithFg(baselineFg),
+                        javaCommentKey to attrsWithFg(commentFg),
+                    ),
+                overlay = emptyMap(),
+                options = ComputeOptions(readabilityOptions = SyntaxReadabilityOptions(quietOperators = true)),
+            )
+
+        val output = assertNotNull(result[operatorKey]?.foregroundColor)
+        val comment = assertNotNull(result[javaCommentKey]?.foregroundColor)
+        assertTrue(
+            colorDistance(output, ComputeOptions().editorBg) < colorDistance(baselineFg, ComputeOptions().editorBg),
+            "Quiet operators must move operator text toward the editor background",
+        )
+        assertEquals(commentFg.rgb, comment.rgb, "Quiet operators must not rewrite unrelated categories")
+    }
+
+    @Test
+    fun `readability emphasize declarations strengthens declaration keys`() {
+        val declarationKeys =
+            listOf(
+                TextAttributesKey.createTextAttributesKey("JAVA_FUNCTION_DECLARATION"),
+                TextAttributesKey.createTextAttributesKey("JAVA_CLASS_DECLARATION"),
+                TextAttributesKey.createTextAttributesKey("JAVA_INTERFACE_DECLARATION"),
+            )
+        val baselineFg = Color(0xFF, 0xCC, 0x66)
+        val commentFg = Color(0x78, 0x7B, 0x80)
+
+        val result =
+            compute(
+                preset = SyntaxPreset.AMBIENT,
+                customOverrides = emptyMap(),
+                baseline =
+                    declarationKeys.associateWith { attrsWithFg(baselineFg) } +
+                        (javaCommentKey to attrsWithFg(commentFg)),
+                overlay = emptyMap(),
+                options = ComputeOptions(readabilityOptions = SyntaxReadabilityOptions(emphasizeDeclarations = true)),
+            )
+
+        val inputDistance = abs(HslColor.fromColor(baselineFg).lightness - MID_LIGHTNESS)
+        for (key in declarationKeys) {
+            val output = assertNotNull(result[key]?.foregroundColor)
+            val outputDistance = abs(HslColor.fromColor(output).lightness - MID_LIGHTNESS)
+            assertTrue(
+                outputDistance < inputDistance,
+                "Emphasize declarations must move ${key.externalName} lightness toward peak chroma",
+            )
+        }
+        val comment = assertNotNull(result[javaCommentKey]?.foregroundColor)
+        assertEquals(commentFg.rgb, comment.rgb, "Emphasize declarations must not rewrite unrelated categories")
+    }
+
     // --- Helpers ---------------------------------------------------------
 
     private fun transformVia(
@@ -801,10 +946,19 @@ class SyntaxIntensityApplicatorTest {
 
     private fun Color.hex(): String = "%02X%02X%02X".format(red, green, blue)
 
+    private fun colorDistance(
+        a: Color,
+        b: Color,
+    ): Int =
+        abs(a.red - b.red) +
+            abs(a.green - b.green) +
+            abs(a.blue - b.blue)
+
     private data class ComputeOptions(
         val subordinatePreset: SyntaxPreset = SyntaxPreset.AMBIENT,
         val customStyles: Map<String, Map<String, Int>> = emptyMap(),
         val editorBg: Color = Color(0x1F, 0x24, 0x30),
+        val readabilityOptions: SyntaxReadabilityOptions = SyntaxReadabilityOptions.DEFAULT,
     )
 
     private fun compute(
@@ -824,6 +978,7 @@ class SyntaxIntensityApplicatorTest {
                 customOverrides = customOverrides,
                 subordinatePreset = options.subordinatePreset,
                 customStyles = options.customStyles,
+                readabilityOptions = options.readabilityOptions,
             ),
         )
 

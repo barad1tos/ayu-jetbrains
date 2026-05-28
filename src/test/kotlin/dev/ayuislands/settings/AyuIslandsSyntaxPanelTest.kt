@@ -1,10 +1,15 @@
 package dev.ayuislands.settings
 
 import com.intellij.icons.AllIcons
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.application.Application
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.openapi.ui.DialogPanel
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.ui.InplaceButton
+import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import dev.ayuislands.licensing.LicenseChecker
@@ -14,16 +19,21 @@ import dev.ayuislands.syntax.SyntaxIntensityBaseState
 import dev.ayuislands.syntax.SyntaxIntensityService
 import dev.ayuislands.syntax.SyntaxIntensityState
 import dev.ayuislands.syntax.SyntaxPreset
+import dev.ayuislands.syntax.SyntaxReadabilityOptions
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkClass
 import io.mockk.mockkObject
+import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
 import io.mockk.verifyOrder
 import java.awt.Color
+import java.awt.Container
 import java.awt.Font
 import java.io.File
 import javax.swing.JButton
+import javax.swing.JCheckBox
 import javax.swing.JLabel
 import javax.swing.JSlider
 import javax.swing.Timer
@@ -64,11 +74,6 @@ import kotlin.test.assertTrue
  * that have no cheap unit-level behavioral substitute. Each one catches a
  * concrete regression:
  *
- *  - `applyCustomPillTooltipIfFree` wire site: the SegmentedButton-internal
- *    Swing subtree is not API-stable; if the post-realise `invokeLater`
- *    queueing is dropped, free users lose the Pro affordance on the Custom
- *    pill. A behavioral test would have to build the DSL panel and walk the
- *    SegmentedButton's component tree on the EDT.
  *  - Two-column grouped layout (`CUSTOM_COLUMN_GROUPS` + `buildCategoryGroup`):
  *    a refactor back to the single unbroken table or to the deleted master /
  *    detail JBList would be a visible regression. Verifying the actual two
@@ -83,19 +88,28 @@ import kotlin.test.assertTrue
  *    against 2025.1 throws `AbstractMethodError` on newer runtime IDEs and
  *    hangs the settings page on "Loading…". Unit tests against the embedded
  *    SDK cannot reproduce the runtime failure.
- *  - `InplaceButton`-only trailing slot zone: a bare `JToggleButton` or
- *    `ActionButton` re-introduces the `ActionToolbar.updateUI`
- *    `SlowOperations SEVERE` crash documented in the project's
- *    `feedback_no_threshold_or_ignore_changes` lesson. The fixed-slot
- *    `GridLayout(1, TRAILING_SLOT_COUNT, ...)` plus `TRAILING_SLOT_*`
- *    constants are DSL-build internals — building the panel under unit
- *    tests requires a full IntelliJ platform.
+ *  - `InplaceButton`-only trailing reset slot: `ActionButton` re-introduces
+ *    the `ActionToolbar.updateUI` `SlowOperations SEVERE` crash documented in
+ *    the project's `feedback_no_threshold_or_ignore_changes` lesson. The
+ *    fixed-slot `GridLayout(1, TRAILING_SLOT_COUNT, ...)` plus
+ *    `TRAILING_SLOT_*` constants are DSL-build internals — building the panel
+ *    under unit tests requires a full IntelliJ platform.
  *
  * Do not delete these source-regex assertions in future "remove theater"
  * cleanup passes without first wiring a working `integrationTest` task that
  * actually builds the panel under a live IntelliJ application.
  */
 class AyuIslandsSyntaxPanelTest {
+    private companion object {
+        val readabilityCheckboxTexts =
+            linkedSetOf(
+                "Dim comments",
+                "Soften documentation",
+                "Quiet operators",
+                "Emphasize declarations",
+            )
+    }
+
     private lateinit var stateBase: SyntaxIntensityBaseState
     private lateinit var stateService: SyntaxIntensityState
     private lateinit var intensityService: SyntaxIntensityService
@@ -116,6 +130,21 @@ class AyuIslandsSyntaxPanelTest {
         // Default: licensed. Individual tests override to false where needed.
         every { LicenseChecker.isLicensedOrGrace() } returns true
         every { LicenseChecker.requestLicense(any()) } returns Unit
+
+        mockkStatic(ApplicationManager::class)
+        val appMock = mockk<Application>(relaxed = true)
+        val actionManagerMock = mockk<ActionManager>(relaxed = true)
+        mockkStatic(ActionManager::class)
+        every { ActionManager.getInstance() } returns actionManagerMock
+        every { ApplicationManager.getApplication() } returns appMock
+        every { appMock.invokeLater(any()) } answers { firstArg<Runnable>().run() }
+        every { appMock.getService(ActionManager::class.java) } returns actionManagerMock
+        every { actionManagerMock.getAction(any()) } returns null
+
+        @Suppress("UNCHECKED_CAST")
+        val experimentalUiClass = Class.forName("com.intellij.ui.ExperimentalUI") as Class<Any>
+        val experimentalUiMock = mockkClass(experimentalUiClass.kotlin, relaxed = true)
+        every { appMock.getService(experimentalUiClass) } returns experimentalUiMock
     }
 
     @AfterTest
@@ -277,26 +306,193 @@ class AyuIslandsSyntaxPanelTest {
         assertFalse(panel.isModified())
     }
 
-    // ---------- Test 7 - documented compromise: tooltip pre-placement wire site ----------
+    @Test
+    fun `loadStateIntoPending loads readability toggles from state`() {
+        stateBase.dimComments = true
+        stateBase.softenDocumentation = true
+        stateBase.quietOperators = true
+        stateBase.emphasizeDeclarations = true
+
+        val panel = panelWithLoadedState()
+
+        assertTrue(readPendingBoolean(panel, "pendingDimComments"))
+        assertTrue(readPendingBoolean(panel, "pendingSoftenDocumentation"))
+        assertTrue(readPendingBoolean(panel, "pendingQuietOperators"))
+        assertTrue(readPendingBoolean(panel, "pendingEmphasizeDeclarations"))
+        assertFalse(panel.isModified(), "freshly loaded readability state must not dirty the panel")
+    }
 
     @Test
-    fun `panel source wires applyCustomPillTooltipIfFree post-realise (documented compromise)`() {
-        // Documented compromise: the SegmentedButton-internal Swing subtree is
-        // not API-stable across IntelliJ versions; if the post-realise
-        // invokeLater queueing is dropped, free users lose the Pro affordance
-        // on the Custom pill. Behavioral substitute would require building
-        // the DSL panel and walking the SegmentedButton component tree.
-        val source = readPanelSource()
-        assertTrue(
-            source.contains("applyCustomPillTooltipIfFree"),
-            "applyCustomPillTooltipIfFree helper must exist as the wire site for the runIde-" +
-                "finalised SegmentedButton Swing subtree lookup.",
-        )
-        assertTrue(
-            source.contains("SwingUtilities.invokeLater { applyCustomPillTooltipIfFree() }"),
-            "tooltip pre-placement must be queued post-realise via " +
-                "SwingUtilities.invokeLater { applyCustomPillTooltipIfFree() }.",
-        )
+    fun `apply passes readability options before persisting them`() {
+        stateBase.selectedPreset = "AMBIENT"
+        stateBase.schemaVersion = 2
+        val panel = panelWithLoadedState()
+        writePendingBoolean(panel, "pendingDimComments", true)
+        writePendingBoolean(panel, "pendingQuietOperators", true)
+
+        panel.apply()
+
+        verifyOrder {
+            intensityService.apply(
+                SyntaxPreset.AMBIENT,
+                emptyMap(),
+                any(),
+                emptyMap(),
+                SyntaxReadabilityOptions(dimComments = true, quietOperators = true),
+            )
+            stateService.state
+        }
+        assertTrue(stateBase.dimComments)
+        assertTrue(stateBase.quietOperators)
+        assertFalse(stateBase.softenDocumentation)
+        assertFalse(stateBase.emphasizeDeclarations)
+        assertEquals(3, stateBase.schemaVersion)
+        assertFalse(panel.isModified(), "persisted readability toggles must become the stored buffer")
+    }
+
+    @Test
+    fun `reset reverts pending readability toggles to stored values`() {
+        stateBase.dimComments = true
+        val panel = panelWithLoadedState()
+        writePendingBoolean(panel, "pendingDimComments", false)
+        writePendingBoolean(panel, "pendingEmphasizeDeclarations", true)
+        assertTrue(panel.isModified())
+
+        panel.reset()
+
+        assertTrue(readPendingBoolean(panel, "pendingDimComments"))
+        assertFalse(readPendingBoolean(panel, "pendingEmphasizeDeclarations"))
+        assertFalse(panel.isModified())
+    }
+
+    @Test
+    fun `dim comments checkbox previews and reset restores stored readability`() {
+        stateBase.selectedPreset = SyntaxPreset.AMBIENT.name
+        val panel = AyuIslandsSyntaxPanel()
+
+        try {
+            val component = buildSyntaxPanel(panel)
+            val dimComments = findDimCommentsCheckBox(component)
+            io.mockk.clearMocks(intensityService, answers = false, recordedCalls = true)
+
+            dimComments.doClick()
+
+            verify(exactly = 1) {
+                intensityService.apply(
+                    SyntaxPreset.AMBIENT,
+                    emptyMap(),
+                    any(),
+                    emptyMap(),
+                    SyntaxReadabilityOptions(dimComments = true),
+                )
+            }
+            assertTrue(panel.isModified(), "toggling the real checkbox must dirty the syntax panel")
+
+            io.mockk.clearMocks(intensityService, answers = false, recordedCalls = true)
+            panel.reset()
+
+            verify(exactly = 1) {
+                intensityService.apply(
+                    SyntaxPreset.AMBIENT,
+                    emptyMap(),
+                    any(),
+                    emptyMap(),
+                    SyntaxReadabilityOptions.DEFAULT,
+                )
+            }
+            assertFalse(dimComments.isSelected, "reset must return the visible checkbox to stored state")
+            assertFalse(panel.isModified(), "reset must leave pending and stored readability in sync")
+        } finally {
+            panel.dispose()
+        }
+    }
+
+    @Test
+    fun `unlicensed build shows readability controls disabled without preview writes`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        stateBase.dimComments = true
+        val panel = AyuIslandsSyntaxPanel()
+
+        try {
+            val component = buildSyntaxPanel(panel)
+            val readabilityControls =
+                findCheckBoxes(component).filter { it.text in readabilityCheckboxTexts }
+
+            assertEquals(
+                readabilityCheckboxTexts,
+                readabilityControls.mapTo(linkedSetOf()) { it.text },
+                "free users must still see the premium readability controls",
+            )
+            readabilityControls.forEach { checkbox ->
+                assertFalse(checkbox.isEnabled, "${checkbox.text} must be disabled without a Pro license")
+                assertFalse(checkbox.isSelected, "${checkbox.text} must not expose persisted premium state")
+            }
+
+            io.mockk.clearMocks(intensityService, answers = false, recordedCalls = true)
+            findDimCommentsCheckBox(component).doClick()
+
+            verify(exactly = 0) {
+                intensityService.apply(any(), any(), any(), any(), any())
+            }
+            assertFalse(panel.isModified(), "disabled readability controls must not dirty the panel")
+        } finally {
+            panel.dispose()
+        }
+    }
+
+    @Test
+    fun `reset disables readability controls when license flips to free`() {
+        stateBase.selectedPreset = SyntaxPreset.AMBIENT.name
+        stateBase.dimComments = true
+        val panel = AyuIslandsSyntaxPanel()
+
+        try {
+            val component = buildSyntaxPanel(panel)
+            val dimComments = findDimCommentsCheckBox(component)
+            assertTrue(dimComments.isEnabled, "licensed users can edit readability controls")
+
+            every { LicenseChecker.isLicensedOrGrace() } returns false
+            io.mockk.clearMocks(intensityService, answers = false, recordedCalls = true)
+
+            panel.reset()
+
+            assertFalse(dimComments.isEnabled, "reset must disable readability after license loss")
+            assertFalse(dimComments.isSelected, "reset must hide persisted premium readability after license loss")
+
+            verify(exactly = 1) {
+                intensityService.apply(
+                    SyntaxPreset.AMBIENT,
+                    emptyMap(),
+                    any(),
+                    emptyMap(),
+                    SyntaxReadabilityOptions.DEFAULT,
+                )
+            }
+            io.mockk.clearMocks(intensityService, answers = false, recordedCalls = true)
+
+            dimComments.doClick()
+
+            verify(exactly = 0) {
+                intensityService.apply(any(), any(), any(), any(), any())
+            }
+            assertFalse(panel.isModified(), "disabled readability controls must not dirty the panel")
+        } finally {
+            panel.dispose()
+        }
+    }
+
+    @Test
+    fun `unlicensed preset row disables Custom pill affordance`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        val panel = AyuIslandsSyntaxPanel()
+
+        buildPresetPanel(panel)
+        val customPill =
+            panel.customPresetPresentationForTest()
+                ?: error("Could not find Custom preset presentation")
+
+        assertFalse(customPill.enabled, "free users must see Custom as disabled")
+        assertEquals("Pro Feature", customPill.toolTipText)
     }
 
     // ---------- Test 8 - composite-key identity round-trip (Pitfall 1/2) ----------
@@ -625,9 +821,9 @@ class AyuIslandsSyntaxPanelTest {
             "slider tracks must stay 140 to avoid horizontal bloat in the two-column matrix.",
         )
         assertEquals(
-            64,
+            20,
             readPrivateConst("TRAILING_ZONE_WIDTH"),
-            "fixed reset + Bold + Italic trailing zone must be 64.",
+            "fixed reset-only trailing zone must stay compact at 20.",
         )
     }
 
@@ -803,55 +999,10 @@ class AyuIslandsSyntaxPanelTest {
         assertFalse(stringLiteral.resetButton.isVisible, "untouched cell hides the category reset")
     }
 
-    // ---------- Part B Test 28 - toggle flips one bit and composes BOLD_ITALIC ----------
+    // ---------- Part B Test 29 - legacy styles still count as modifications ----------
 
     @Test
-    fun `onStyleToggle flips the bit B then I composes BOLD_ITALIC, toggling both off removes the key`() {
-        stateBase.selectedPreset = "CUSTOM"
-        val panel = panelWithLoadedState()
-        writeCurrentLanguage(panel, "Java")
-        seedWidgets(panel, PrimitiveCategory.KEYWORD)
-
-        try {
-            // First B -> BOLD.
-            invokeOnKeywordStyleToggle(panel, Font.BOLD)
-            assertEquals("BOLD", readPendingStyles(panel)["Java|KEYWORD"], "B toggle sets BOLD")
-
-            // Then I -> BOLD_ITALIC (bits compose, not replace).
-            invokeOnKeywordStyleToggle(panel, Font.ITALIC)
-            assertEquals(
-                "BOLD_ITALIC",
-                readPendingStyles(panel)["Java|KEYWORD"],
-                "I toggle composes onto BOLD to make BOLD_ITALIC",
-            )
-
-            // Toggle B off -> ITALIC remains.
-            invokeOnKeywordStyleToggle(panel, Font.BOLD)
-            assertEquals(
-                "ITALIC",
-                readPendingStyles(panel)["Java|KEYWORD"],
-                "dropping the bold bit leaves ITALIC",
-            )
-
-            // Toggle I off -> both bits off -> key REMOVED (inherit, no PLAIN written).
-            invokeOnKeywordStyleToggle(panel, Font.ITALIC)
-            assertFalse(
-                readPendingStyles(panel).containsKey("Java|KEYWORD"),
-                "both bits off must REMOVE the key (return to inherit) - v1 never persists PLAIN",
-            )
-            assertFalse(
-                readPendingStyles(panel).values.contains("PLAIN"),
-                "v1 must never write an explicit PLAIN style token",
-            )
-        } finally {
-            panel.dispose()
-        }
-    }
-
-    // ---------- Part B Test 29 - style toggle is a style-only modification ----------
-
-    @Test
-    fun `isModified is true after a style-only toggle (slider untouched)`() {
+    fun `isModified is true after a legacy style-only change (slider untouched)`() {
         stateBase.selectedPreset = "CUSTOM"
         val panel = panelWithLoadedState()
         writeCurrentLanguage(panel, "Java")
@@ -859,10 +1010,10 @@ class AyuIslandsSyntaxPanelTest {
         assertFalse(panel.isModified(), "fresh CUSTOM panel with no changes is not modified")
 
         try {
-            invokeOnKeywordStyleToggle(panel, Font.BOLD)
+            seedPendingStyle(panel, "Java|KEYWORD", "BOLD")
             assertTrue(
                 panel.isModified(),
-                "a style-only toggle (no slider move) must mark the panel modified so Apply enables",
+                "a legacy style-only change (no slider move) must mark the panel modified so Apply enables",
             )
         } finally {
             panel.dispose()
@@ -960,13 +1111,12 @@ class AyuIslandsSyntaxPanelTest {
         }
     }
 
-    // ---------- Part B Test 33 - documented compromise: InplaceButton-only trailing controls ----------
+    // ---------- Part B Test 33 - documented compromise: InplaceButton-only trailing reset ----------
 
     @Test
-    fun `trailing controls use InplaceButton, never JToggleButton or ActionButton (documented compromise)`() {
-        // Documented compromise: a bare `JToggleButton` re-introduces the
-        // shouting toggle box across 32 instances, and `ActionButton` plus
-        // `updateComponentTreeUI` reproduce the `ActionToolbar.updateUI`
+    fun `trailing reset uses InplaceButton, never ActionButton (documented compromise)`() {
+        // Documented compromise: `ActionButton` plus `updateComponentTreeUI`
+        // reproduce the `ActionToolbar.updateUI`
         // `SlowOperations SEVERE` crash documented in the project's
         // testing-philosophy notes. The fixed-slot
         // `GridLayout(1, TRAILING_SLOT_COUNT, ...)` plus `TRAILING_SLOT_*`
@@ -975,34 +1125,25 @@ class AyuIslandsSyntaxPanelTest {
         val source = readPanelSource()
         assertTrue(
             source.contains("InplaceButton("),
-            "The trailing reset / Bold / Italic controls must be InplaceButton.",
+            "The trailing reset control must be InplaceButton.",
         )
         assertTrue(
-            source.contains("StyleGlyphIcon"),
-            "The grouped grid must use compact text-glyph B/I icons.",
-        )
-        assertTrue(
-            source.contains("JBUI.CurrentTheme.ActionButton.hoverBackground()") &&
-                source.contains("border = styleGlyphBorder()"),
-            "Inactive B/I icons must render as quiet chips, not bare text glyphs.",
-        )
-        assertTrue(
-            source.contains("JPanel(GridLayout(1, TRAILING_SLOT_COUNT, JBUI.scale(TRAILING_GAP), 0))"),
-            "The trailing reset / Bold / Italic zone must use fixed slots so B/I never shift when reset appears.",
+            source.contains("JPanel(GridLayout(1, TRAILING_SLOT_COUNT, 0, 0))"),
+            "The trailing reset zone must use a fixed slot so reset visibility never shifts the row.",
         )
         assertEquals(
-            3,
+            1,
             readPrivateConst("TRAILING_SLOT_COUNT"),
-            "the trailing zone must reserve three stable slots.",
+            "the trailing zone must reserve one stable reset slot.",
         )
         assertEquals(
             20,
             readPrivateConst("TRAILING_SLOT_SIDE"),
-            "the trailing zone slots must stay 20px so B/I never shift when reset appears.",
+            "the trailing reset slot must stay 20px so reset visibility never shifts the row.",
         )
         assertFalse(
             source.contains("JToggleButton"),
-            "Part B: no bare JToggleButton - its box shouts across 32 instances.",
+            "Part B: no bare JToggleButton - the reset is a lightweight InplaceButton.",
         )
         assertFalse(
             Regex("""[^a-zA-Z_]ActionButton\b""").containsMatchIn(source.substringBefore("JBUI.CurrentTheme")) &&
@@ -1120,6 +1261,37 @@ class AyuIslandsSyntaxPanelTest {
         return panel
     }
 
+    private fun buildSyntaxPanel(syntaxPanel: AyuIslandsSyntaxPanel): DialogPanel =
+        panel {
+            syntaxPanel.buildReadabilityBlockForTest(this)
+        }
+
+    private fun buildPresetPanel(syntaxPanel: AyuIslandsSyntaxPanel): DialogPanel =
+        panel {
+            syntaxPanel.buildPresetBlockForTest(this)
+        }
+
+    private fun findDimCommentsCheckBox(container: Container): JCheckBox =
+        findDimCommentsCheckBoxOrNull(container)
+            ?: error("Could not find checkbox with text: Dim comments")
+
+    private fun findDimCommentsCheckBoxOrNull(container: Container): JCheckBox? {
+        for (component in container.components) {
+            if (component is JCheckBox && component.text == "Dim comments") return component
+            if (component is Container) {
+                val nested = findDimCommentsCheckBoxOrNull(component)
+                if (nested != null) return nested
+            }
+        }
+        return null
+    }
+
+    private fun findCheckBoxes(container: Container): List<JCheckBox> =
+        container.components.flatMap { component ->
+            val nested = if (component is Container) findCheckBoxes(component) else emptyList()
+            if (component is JCheckBox) listOf(component) + nested else nested
+        }
+
     private fun invokeOnPresetChosen(
         panel: AyuIslandsSyntaxPanel,
         preset: SyntaxPreset,
@@ -1152,6 +1324,25 @@ class AyuIslandsSyntaxPanelTest {
         val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("pendingPreset")
         field.isAccessible = true
         field.set(panel, preset)
+    }
+
+    private fun readPendingBoolean(
+        panel: AyuIslandsSyntaxPanel,
+        fieldName: String,
+    ): Boolean {
+        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField(fieldName)
+        field.isAccessible = true
+        return field.getBoolean(panel)
+    }
+
+    private fun writePendingBoolean(
+        panel: AyuIslandsSyntaxPanel,
+        fieldName: String,
+        value: Boolean,
+    ) {
+        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField(fieldName)
+        field.isAccessible = true
+        field.setBoolean(panel, value)
     }
 
     private fun writeCurrentLanguage(
@@ -1209,20 +1400,6 @@ class AyuIslandsSyntaxPanelTest {
         putMethod.invoke(map, key, value)
     }
 
-    private fun invokeOnKeywordStyleToggle(
-        panel: AyuIslandsSyntaxPanel,
-        bit: Int,
-    ) {
-        val method =
-            AyuIslandsSyntaxPanel::class.java.getDeclaredMethod(
-                "onStyleToggle",
-                PrimitiveCategory::class.java,
-                Int::class.javaPrimitiveType,
-            )
-        method.isAccessible = true
-        method.invoke(panel, PrimitiveCategory.KEYWORD, bit)
-    }
-
     private fun invokeOnResetCurrentLanguage(panel: AyuIslandsSyntaxPanel) {
         val method = AyuIslandsSyntaxPanel::class.java.getDeclaredMethod("onResetCurrentLanguage")
         method.isAccessible = true
@@ -1267,9 +1444,9 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     /**
-     * Materialize one category's slider / readout / reset-icon / Bold / Italic
-     * widgets and the master reset button so logic methods can be driven
-     * without a built [com.intellij.openapi.ui.DialogPanel].
+     * Materialize one category's slider / readout / reset-icon widgets and the
+     * master reset button so logic methods can be driven without a built
+     * [com.intellij.openapi.ui.DialogPanel].
      */
     private fun seedWidgets(
         panel: AyuIslandsSyntaxPanel,
@@ -1278,18 +1455,14 @@ class AyuIslandsSyntaxPanelTest {
         val slider = JSlider(0, 100, 50)
         val label = JLabel("0")
         val resetButton = InplaceButton("Reset", AllIcons.Actions.Rollback) {}
-        val boldToggle = InplaceButton("Bold", AllIcons.Actions.Rollback) {}
-        val italicToggle = InplaceButton("Italic", AllIcons.Actions.Rollback) {}
         val button = JButton()
         putIntoMapField(panel, "sliders", category, slider)
         putIntoMapField(panel, "sliderLabels", category, label)
         putIntoMapField(panel, "resetButtons", category, resetButton)
-        putIntoMapField(panel, "boldToggles", category, boldToggle)
-        putIntoMapField(panel, "italicToggles", category, italicToggle)
         val buttonField = AyuIslandsSyntaxPanel::class.java.getDeclaredField("masterResetButton")
         buttonField.isAccessible = true
         buttonField.set(panel, button)
-        return SeededWidgets(slider, label, resetButton, boldToggle, italicToggle, button)
+        return SeededWidgets(slider, label, resetButton, button)
     }
 
     private fun putIntoMapField(
@@ -1309,8 +1482,6 @@ class AyuIslandsSyntaxPanelTest {
         val slider: JSlider,
         val label: JLabel,
         val resetButton: InplaceButton,
-        val boldToggle: InplaceButton,
-        val italicToggle: InplaceButton,
         val button: JButton,
     )
 

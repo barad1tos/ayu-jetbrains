@@ -28,6 +28,7 @@ import dev.ayuislands.settings.PanelWidthMode
 import dev.ayuislands.syntax.SyntaxIntensityService
 import dev.ayuislands.syntax.SyntaxIntensityState
 import dev.ayuislands.syntax.SyntaxPreset
+import dev.ayuislands.syntax.SyntaxReadabilityOptions
 import dev.ayuislands.vcs.VcsColorApplier
 import dev.ayuislands.vcs.VcsColorPreset
 import org.jetbrains.annotations.VisibleForTesting
@@ -367,7 +368,19 @@ object LicenseChecker {
             syntaxState.subordinatePreset = SyntaxPreset.AMBIENT.name
             syntaxState.customOverrides.clear()
             syntaxState.customStyles.clear()
-            SyntaxIntensityService.getInstance().apply(SyntaxPreset.AMBIENT, emptyMap())
+            syntaxState.dimComments = false
+            syntaxState.softenDocumentation = false
+            syntaxState.quietOperators = false
+            syntaxState.emphasizeDeclarations = false
+            SyntaxIntensityService
+                .getInstance()
+                .apply(
+                    SyntaxPreset.AMBIENT,
+                    emptyMap(),
+                    SyntaxPreset.AMBIENT,
+                    emptyMap(),
+                    SyntaxReadabilityOptions.DEFAULT,
+                )
         } catch (exception: RuntimeException) {
             LOG.warn("Syntax intensity revert after license downgrade failed", exception)
         }

@@ -1,5 +1,6 @@
 package dev.ayuislands.accent
 
+import com.intellij.ui.JBColor
 import dev.ayuislands.accent.WcagForeground.TextTarget
 import java.awt.Color
 import kotlin.math.abs
@@ -84,6 +85,28 @@ class WcagForegroundTest {
         val darkAyu = Color(0x1F, 0x24, 0x30)
         val picked = WcagForeground.pickForeground(darkAyu, TextTarget.PRIMARY_TEXT)
         assertEquals(Color.WHITE, picked, "white must be the first palette entry passing AA on dark Ayu")
+    }
+
+    @Test
+    fun `pickLightFamilyForeground keeps literal white under dark JBColor mode`() {
+        val wasBright = JBColor.isBright()
+        try {
+            JBColor.setDark(true)
+
+            val picked =
+                WcagForeground.pickLightFamilyForeground(
+                    Color(0x31, 0x48, 0x4C),
+                    TextTarget.PRIMARY_TEXT,
+                )
+
+            assertEquals(
+                Color.WHITE.rgb,
+                picked.rgb,
+                "Status-bar contrast must use literal white, not JBColor.WHITE's dark-LAF background.",
+            )
+        } finally {
+            JBColor.setDark(!wasBright)
+        }
     }
 
     // W-6

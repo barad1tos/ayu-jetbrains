@@ -25,6 +25,10 @@ import javax.swing.UIManager
  * Foreground states receive the status-bar contrast color. Background states are
  * translucent overlays in the LAF, so this element clears any stale plugin override
  * and lets them render over the directly-tinted `NewNavBarPanel` background.
+ * Plain status-bar text widgets use `TextPanel.paintComponent()`, which resolves
+ * `JBUI.CurrentTheme.StatusBar.Widget` foregrounds across normal / hover /
+ * pressed states. These keys use the same light-family contrast pick as the
+ * breadcrumbs so clicking a widget cannot fall through to stock dark text.
  *
  * Foreground contrast uses [WcagForeground.pickLightFamilyForeground] (palette WHITE
  * + Ayu dark fg, NO black). The standard 3-color WCAG sweep correctly picks BLACK on
@@ -55,6 +59,7 @@ class StatusBarElement : AbstractChromeElement() {
     private val overlayBackgroundKeys =
         listOf(
             "StatusBar.Widget.hoverBackground",
+            "StatusBar.Widget.pressedBackground",
             "StatusBar.Breadcrumbs.hoverBackground",
             "StatusBar.Breadcrumbs.selectionBackground",
             "StatusBar.Breadcrumbs.selectionInactiveBackground",
@@ -91,14 +96,15 @@ class StatusBarElement : AbstractChromeElement() {
             "StatusBar.Breadcrumbs.selectionInactiveForeground",
         )
 
-    private val hoverForegroundKeys =
+    private val stateForegroundKeys =
         listOf(
             "StatusBar.Widget.hoverForeground",
+            "StatusBar.Widget.pressedForeground",
             "StatusBar.Breadcrumbs.hoverForeground",
         )
 
     /** Flat aggregation used by the base class's revert(); writes happen via [writeForegrounds]. */
-    override val foregroundKeys: List<String> = normalForegroundKeys + hoverForegroundKeys
+    override val foregroundKeys: List<String> = normalForegroundKeys + stateForegroundKeys
 
     override val foregroundTextTarget = WcagForeground.TextTarget.PRIMARY_TEXT
 

@@ -18,6 +18,14 @@ import javax.swing.UIManager
  * reads return the cached value. Resets on LAF change so theme switches pick up the
  * new base palette.
  *
+ * The cache also remembers the last color this plugin wrote for each key. Some
+ * platform startup paths fire several LAF events after the first accent apply; if
+ * a late cache refresh is followed by another apply before the platform restores
+ * stock UIDefaults, a naive read would capture our own tinted value as the new
+ * base and compound the status bar toward bright cyan. When the current
+ * UIManager value equals the last plugin tint, [get] recovers the last stock
+ * value instead of treating the tinted value as stock.
+ *
  * Thread-safe — ConcurrentHashMap; access is primarily EDT but may be touched from
  * background threads in tests. The cache is intentionally pessimistic — it captures
  * on first read, not at class load, so the snapshot takes the UIManager state AFTER
@@ -45,6 +53,16 @@ object ChromeBaseColors {
      * `.add(key)` returns the log-once gate in a single atomic step.
      */
     private val missingKeyLogged: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    /**
+     * Last confirmed stock value per key. Kept across [refresh] so a late LAF
+     * event cannot make the next [get] recapture this plugin's own tint as the
+     * stock baseline.
+     */
+    private val lastStockSnapshot = ConcurrentHashMap<String, Color>()
+
+    /** Last tinted color written by this plugin per key. */
+    private val lastPluginTint = ConcurrentHashMap<String, Color>()
 
     init {
         // Tests that exercise ChromeBaseColors without an IDE container (no
@@ -114,14 +132,36 @@ object ChromeBaseColors {
                 }
                 return null
             }
+            val stock = recoverStockIfCurrentIsPluginTint(key, current)
+            lastStockSnapshot[key] = stock
             // Retain first captured value even under concurrent first access.
-            return snapshot.putIfAbsent(key, current) ?: current
+            return snapshot.putIfAbsent(key, stock) ?: stock
         }
+    }
+
+    /**
+     * Records a UIManager color this plugin just wrote so a later cache refresh
+     * can distinguish plugin tint from platform stock.
+     */
+    fun rememberPluginTint(
+        key: String,
+        color: Color,
+    ) {
+        lastPluginTint[key] = color
+    }
+
+    /** Clears the remembered plugin tint for [key] after the matching revert. */
+    fun forgetPluginTint(key: String) {
+        lastPluginTint.remove(key)
     }
 
     /**
      * Clears the snapshot so the next `get` call re-captures from UIManager.
      * Invoked by the LAF listener; exposed for tests.
+     *
+     * [lastStockSnapshot] and [lastPluginTint] intentionally survive this clear:
+     * listener ordering can refresh the cache after this plugin already wrote a
+     * tint, and the next [get] must still be able to recover the true stock base.
      *
      * The clear pair runs inside `synchronized(snapshot)` so a `get()` in
      * first-capture mode cannot interleave its read-UIManager-putIfAbsent
@@ -139,6 +179,15 @@ object ChromeBaseColors {
             missingKeyLogged.clear()
             snapshot.clear()
         }
+    }
+
+    private fun recoverStockIfCurrentIsPluginTint(
+        key: String,
+        current: Color,
+    ): Color {
+        val lastTint = lastPluginTint[key] ?: return current
+        val lastStock = lastStockSnapshot[key] ?: return current
+        return if (current == lastTint) lastStock else current
     }
 }
 
