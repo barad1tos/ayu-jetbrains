@@ -2,6 +2,7 @@ package dev.ayuislands.accent.elements
 
 import com.intellij.openapi.editor.colors.ColorKey
 import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.ui.ColorUtil
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
@@ -16,7 +17,7 @@ class CaretRowElement : AccentElement {
     private val lineNumberKey = ColorKey.find("LINE_NUMBER_ON_CARET_ROW_COLOR")
 
     override fun apply(color: Color) {
-        val caretRowColor = Color(color.red, color.green, color.blue, CARET_ROW_ALPHA)
+        val caretRowColor = ColorUtil.toAlpha(color, CARET_ROW_ALPHA)
         val scheme = EditorColorsManager.getInstance().globalScheme
         scheme.setColor(caretRowKey, caretRowColor)
         scheme.setColor(caretKey, color)

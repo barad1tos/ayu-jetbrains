@@ -1,11 +1,11 @@
 package dev.ayuislands.accent.toolbar
 
+import com.intellij.openapi.util.io.FileUtil
 import dev.ayuislands.licensing.LicenseChecker
 import io.mockk.every
 import io.mockk.mockkObject
 import io.mockk.unmockkAll
-import java.nio.file.Files
-import java.nio.file.Paths
+import java.io.File
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -68,7 +68,7 @@ class QuickSwitcherPremiumBlockGateTest {
         // The locked-with-tooltip pattern was explicitly rejected. A future
         // careless edit adding "Upgrade to unlock" hints in the popup body
         // would trip this test. Case-insensitive match.
-        val source = Files.readString(Paths.get(POPUP_SOURCE_PATH))
+        val source = FileUtil.loadFile(File(POPUP_SOURCE_PATH))
         val forbidden = listOf("Upgrade", "unlocked", "lockTooltip", "promo")
         for (token in forbidden) {
             val pattern = "(?i)$token".toRegex()

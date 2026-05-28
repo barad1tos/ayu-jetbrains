@@ -1,12 +1,12 @@
 package dev.ayuislands.accent.toolbar.popup
 
 import com.intellij.ui.ColorUtil
+import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentHex
 import org.jetbrains.annotations.TestOnly
 import java.awt.AlphaComposite
 import java.awt.BasicStroke
-import java.awt.Color
 import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.Graphics
@@ -137,7 +137,7 @@ internal class PopupSwatch(
             )
 
         val accent = ColorUtil.fromHex(hex.value)
-        val borderColor = Color(BORDER_RGB)
+        val borderColor = JBColor(BORDER_RGB, BORDER_RGB)
 
         g2.color = accent
         g2.fill(shape)

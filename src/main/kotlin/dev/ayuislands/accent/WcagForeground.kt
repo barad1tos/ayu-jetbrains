@@ -1,5 +1,6 @@
 package dev.ayuislands.accent
 
+import com.intellij.ui.JBColor
 import java.awt.Color
 import kotlin.math.pow
 
@@ -40,7 +41,7 @@ object WcagForeground {
     // agree on the canonical dark foreground without a cross-import. Black is
     // the last-resort high-contrast candidate for unusually light tinted
     // surfaces.
-    private val palette = listOf(Color.WHITE, Color(DARK_FOREGROUND_HEX), Color.BLACK)
+    private val palette = listOf(JBColor.WHITE, JBColor(DARK_FOREGROUND_HEX, DARK_FOREGROUND_HEX), JBColor.BLACK)
 
     // Light-family palette (no BLACK) for chrome surfaces the plugin
     // semantically owns as "tinted dark bands" (status bar foregrounds). Without
@@ -49,7 +50,7 @@ object WcagForeground {
     // passes 4.5:1 there while WHITE drops to ~4:1 — the picker is doing its job,
     // but on a chrome surface meant to read as dark the user expects light text.
     // Restricting the palette preserves the "always-light" contract.
-    private val lightFamilyPalette = listOf(Color.WHITE, Color(DARK_FOREGROUND_HEX))
+    private val lightFamilyPalette = listOf(JBColor.WHITE, JBColor(DARK_FOREGROUND_HEX, DARK_FOREGROUND_HEX))
 
     /**
      * Returns the first palette color whose WCAG 2.1 contrast ratio against

@@ -78,9 +78,7 @@ class EditorTabGeometryTest {
 
     // Mock classes — javaClass.name contains the substrings that
     // ComponentHierarchyUtils.findChildByClassName matches against
-    @Suppress("unused") // Name matched via javaClass.name.contains("EditorTabs")
     private class MockEditorTabs : JPanel()
 
-    @Suppress("unused") // Name matched via javaClass.name.contains("TabLabel")
     private class MockTabLabel : JComponent()
 }

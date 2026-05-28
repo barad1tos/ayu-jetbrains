@@ -1,9 +1,7 @@
 package dev.ayuislands.accent
 
-import java.nio.file.Files
-import java.nio.file.Path
-import java.nio.file.Paths
-import kotlin.streams.asSequence
+import com.intellij.openapi.util.io.FileUtil
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertFalse
 
@@ -21,25 +19,18 @@ import kotlin.test.assertFalse
  * API that crept back in, not a generic "banned substrings found".
  */
 class Gap4BannedApiGuardTest {
-    private val accentSourcesRoot: Path =
-        Paths.get(
+    private val accentSourcesRoot: File =
+        File(
             System.getProperty("user.dir"),
-            "src",
-            "main",
-            "kotlin",
-            "dev",
-            "ayuislands",
-            "accent",
+            "src/main/kotlin/dev/ayuislands/accent",
         )
 
-    private val accentSources: List<Pair<Path, String>> by lazy {
-        Files.walk(accentSourcesRoot).use { stream ->
-            stream
-                .asSequence()
-                .filter { Files.isRegularFile(it) && it.toString().endsWith(".kt") }
-                .map { it to stripComments(Files.readString(it)) }
-                .toList()
-        }
+    private val accentSources: List<Pair<File, String>> by lazy {
+        accentSourcesRoot
+            .walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .map { it to stripComments(FileUtil.loadFile(it)) }
+            .toList()
     }
 
     /**
@@ -51,8 +42,7 @@ class Gap4BannedApiGuardTest {
         val noBlock = input.replace(Regex("/\\*[\\s\\S]*?\\*/"), "")
         return noBlock
             .lineSequence()
-            .map { line -> line.replaceFirst(Regex("//.*$"), "") }
-            .joinToString("\n")
+            .joinToString("\n") { line -> line.replaceFirst(Regex("//.*$"), "") }
     }
 
     @Test
@@ -65,7 +55,7 @@ class Gap4BannedApiGuardTest {
             offenders.isNotEmpty(),
             "Files calling SwingUtilities.updateComponentTreeUI " +
                 "(triggers ActionToolbar.updateUI → SlowOperations SEVERE crash, " +
-                "see CLAUDE.md): ${offenders.map { it.first.fileName }}",
+                "see CLAUDE.md): ${offenders.map { it.first.name }}",
         )
     }
 
@@ -78,7 +68,7 @@ class Gap4BannedApiGuardTest {
         assertFalse(
             offenders.isNotEmpty(),
             "Files calling LafManager.getInstance().updateUI (re-enters LAF cycle, " +
-                "recurses through apply/revert): ${offenders.map { it.first.fileName }}",
+                "recurses through apply/revert): ${offenders.map { it.first.name }}",
         )
     }
 
@@ -102,7 +92,7 @@ class Gap4BannedApiGuardTest {
             offenders.isNotEmpty(),
             "Files publishing LafManagerListener broadcasts (UNSAFE — publishing " +
                 "lookAndFeelChanged from apply path would recurse): " +
-                "${offenders.map { it.first.fileName }}",
+                "${offenders.map { it.first.name }}",
         )
     }
 }

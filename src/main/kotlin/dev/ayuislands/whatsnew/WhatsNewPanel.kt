@@ -3,6 +3,7 @@ package dev.ayuislands.whatsnew
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
+import com.intellij.ui.ColorUtil
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
@@ -350,11 +351,7 @@ internal class WhatsNewPanel(
         private const val MIN_SCALE = 0.6f
         private const val MAX_SCALE = 1.0f
 
-        // RGB channels for the secondary button tint. Fully saturated black on
-        // light mode, fully bright white on dark mode. Alpha = 24/255 (~9%) for
-        // a subtle hairline ghost fill that doesn't compete with the accent CTA.
-        private const val RGB_MIN = 0
-        private const val RGB_MAX = 255
+        // Alpha for a subtle hairline ghost fill that doesn't compete with the accent CTA.
         private const val SECONDARY_TINT_ALPHA = 24
 
         // Hex constant for the Ayu Mirage gold accent — used as the last-resort
@@ -382,18 +379,18 @@ internal class WhatsNewPanel(
         private const val CYAN_DARK = 0x5CCFE6
         private val TITLE_PALETTE: List<JBColor> =
             listOf(
-                JBColor(Color(LAVENDER_LIGHT), Color(LAVENDER_DARK)),
-                JBColor(Color(GOLD_LIGHT), Color(GOLD_DARK)),
-                JBColor(Color(CYAN_LIGHT), Color(CYAN_DARK)),
+                JBColor(LAVENDER_LIGHT, LAVENDER_DARK),
+                JBColor(GOLD_LIGHT, GOLD_DARK),
+                JBColor(CYAN_LIGHT, CYAN_DARK),
             )
 
         private val SECONDARY_BUTTON_TINT: JBColor =
             JBColor(
-                Color(RGB_MIN, RGB_MIN, RGB_MIN, SECONDARY_TINT_ALPHA),
-                Color(RGB_MAX, RGB_MAX, RGB_MAX, SECONDARY_TINT_ALPHA),
+                ColorUtil.toAlpha(JBColor.BLACK, SECONDARY_TINT_ALPHA),
+                ColorUtil.toAlpha(JBColor.WHITE, SECONDARY_TINT_ALPHA),
             )
 
         private val FALLBACK_ACCENT: JBColor =
-            JBColor(Color(FALLBACK_ACCENT_RGB), Color(FALLBACK_ACCENT_RGB))
+            JBColor(FALLBACK_ACCENT_RGB, FALLBACK_ACCENT_RGB)
     }
 }

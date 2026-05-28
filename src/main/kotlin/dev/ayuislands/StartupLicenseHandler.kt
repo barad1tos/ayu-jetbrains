@@ -123,7 +123,6 @@ internal object StartupLicenseHandler {
         action: WizardAction,
         project: Project,
         delayMs: Int,
-        @Suppress("UNUSED_PARAMETER") settings: AyuIslandsSettings,
     ) {
         when (action) {
             is WizardAction.NoWizard -> return

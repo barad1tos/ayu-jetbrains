@@ -1,5 +1,7 @@
 package dev.ayuislands.vcs
 
+import com.intellij.ui.ColorUtil
+import com.intellij.ui.JBColor
 import java.awt.Color
 
 /**
@@ -57,13 +59,13 @@ object VcsColorBlender {
             // Identity short-circuit: no target read at all so a future caller
             // can safely pass `target = null` semantics via a sentinel color
             // without affecting the result at intensity=0.
-            return Color(base.red, base.green, base.blue, base.alpha)
+            return exactColor(base.red, base.green, base.blue, base.alpha)
         }
 
         if (clamped == MAX_INTENSITY) {
             // Endpoint short-circuit: return target per-channel with base alpha
             // so translucent baselines stay translucent at peak intensity.
-            return Color(target.red, target.green, target.blue, base.alpha)
+            return exactColor(target.red, target.green, target.blue, base.alpha)
         }
 
         val ratio = clamped.toFloat() / INTENSITY_TO_RATIO
@@ -78,7 +80,7 @@ object VcsColorBlender {
         val red = rgb shr RED_SHIFT and CHANNEL_MASK
         val green = rgb shr GREEN_SHIFT and CHANNEL_MASK
         val blue = rgb and CHANNEL_MASK
-        return Color(red, green, blue, base.alpha)
+        return exactColor(red, green, blue, base.alpha)
     }
 
     /**
@@ -113,4 +115,14 @@ object VcsColorBlender {
     private const val CHANNEL_MASK: Int = 0xFF
     private const val RED_SHIFT: Int = 16
     private const val GREEN_SHIFT: Int = 8
+
+    private fun exactColor(
+        red: Int,
+        green: Int,
+        blue: Int,
+        alpha: Int,
+    ): Color {
+        val rgb = (red shl RED_SHIFT) or (green shl GREEN_SHIFT) or blue
+        return ColorUtil.toAlpha(JBColor(rgb, rgb), alpha)
+    }
 }

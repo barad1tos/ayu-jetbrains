@@ -19,16 +19,18 @@ import com.intellij.util.messages.Topic
  * re-validating; call [AccentHex.value] to get the raw `String` for
  * downstream [com.intellij.ui.ColorUtil.fromHex] APIs.
  *
- * Deliberately a regular interface (not `fun interface`): Kotlin's SAM
- * conversion of a value-class parameter mangles the JVM name with a hash
+ * This is a `fun interface` because IntelliJ's MessageBus listener shape is a
+ * single-method contract. Subscribers that receive [AccentHex] should still use
+ * object expressions instead of SAM lambdas: Kotlin's SAM conversion of a
+ * value-class parameter mangles the JVM name with a hash
  * (`accentChanged-Czfobf0`) while the metafactory-generated lambda implements
  * the un-mangled name, producing a runtime [AbstractMethodError] when the
  * topic fan-out invokes the SAM. Object expressions (`object : ...`) work
  * because the compiler emits both the mangled member AND a `String`-typed
  * bridge for the public surface. Pattern K — type lift discipline takes
- * precedence over SAM ergonomics.
+ * precedence over lambda ergonomics.
  */
-interface AccentChangeListener {
+fun interface AccentChangeListener {
     fun accentChanged(
         project: Project,
         hex: AccentHex,

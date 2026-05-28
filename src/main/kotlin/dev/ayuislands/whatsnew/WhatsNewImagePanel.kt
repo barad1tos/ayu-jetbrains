@@ -1,9 +1,11 @@
 package dev.ayuislands.whatsnew
 
+import com.intellij.ui.ColorUtil
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.UIUtil
 import java.awt.AlphaComposite
-import java.awt.Color
+import java.awt.Component
 import java.awt.Dimension
 import java.awt.Graphics
 import java.awt.Graphics2D
@@ -199,12 +201,12 @@ internal class WhatsNewImagePanel(
         val margin = JBUI.scale(SHADOW_BLUR_RADIUS)
         val totalW = imgW + margin * 2
         val totalH = imgH + margin * 2
-        val shadow = BufferedImage(totalW, totalH, BufferedImage.TYPE_INT_ARGB)
+        val shadow = UIUtil.createImage(this, totalW, totalH, BufferedImage.TYPE_INT_ARGB)
         val sg = shadow.createGraphics()
         try {
             sg.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             sg.composite = AlphaComposite.Src
-            sg.color = Color(0, 0, 0, SHADOW_BASE_ALPHA)
+            sg.color = ColorUtil.toAlpha(JBColor.BLACK, SHADOW_BASE_ALPHA)
             val arc = JBUI.scale(CORNER_ARC)
             sg.fillRoundRect(margin, margin, imgW, imgH, arc, arc)
         } finally {
@@ -246,15 +248,13 @@ internal class WhatsNewImagePanel(
         private const val CORNER_ARC = 10
 
         // Hairline border that traces the rendered image edge.
-        private const val RGB_MIN = 0
-        private const val RGB_MAX = 255
         private const val BORDER_LIGHT_ALPHA = 48
         private const val BORDER_DARK_ALPHA = 32
 
         private val BORDER_COLOR: JBColor =
             JBColor(
-                Color(RGB_MIN, RGB_MIN, RGB_MIN, BORDER_LIGHT_ALPHA),
-                Color(RGB_MAX, RGB_MAX, RGB_MAX, BORDER_DARK_ALPHA),
+                ColorUtil.toAlpha(JBColor.BLACK, BORDER_LIGHT_ALPHA),
+                ColorUtil.toAlpha(JBColor.WHITE, BORDER_DARK_ALPHA),
             )
 
         // Gaussian kernel sigma per the 3-sigma rule — keeps 99.7% of the
@@ -273,7 +273,7 @@ internal class WhatsNewImagePanel(
             if (image is BufferedImage) return image
             val w = image.getWidth(null).coerceAtLeast(1)
             val h = image.getHeight(null).coerceAtLeast(1)
-            val copy = BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB)
+            val copy = UIUtil.createImage(null as Component?, w, h, BufferedImage.TYPE_INT_ARGB)
             val g = copy.createGraphics()
             try {
                 g.drawImage(image, 0, 0, null)

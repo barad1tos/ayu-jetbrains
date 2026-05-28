@@ -42,6 +42,7 @@ sealed interface ChromeTarget {
      * The private ctor forces all call sites through [Companion.invoke], and the
      * named-arg convention there is our last line of defense.
      */
+    @ConsistentCopyVisibility
     data class ByClassNameInside private constructor(
         val target: ClassFqn,
         val ancestor: ClassFqn,
@@ -49,8 +50,9 @@ sealed interface ChromeTarget {
         companion object {
             /**
              * Factory requiring named arguments at the call site. The `data class`
-             * copy/equals/hashCode contract is unchanged — only `new` construction
-             * is routed through this factory.
+             * equality/hashCode/toString contract is unchanged, while `copy`
+             * visibility follows the private constructor so callers cannot bypass
+             * the named-argument factory.
              */
             operator fun invoke(
                 target: ClassFqn,

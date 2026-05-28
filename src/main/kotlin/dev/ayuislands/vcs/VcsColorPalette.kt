@@ -1,5 +1,7 @@
 package dev.ayuislands.vcs
 
+import com.intellij.ui.ColorUtil
+import com.intellij.ui.JBColor
 import dev.ayuislands.accent.AyuVariant
 import java.awt.Color
 
@@ -282,7 +284,7 @@ object VcsColorPalette {
         // so a translucent stock (Light DIFF_MODIFIED #478ACC1F) would lose its
         // alpha here without this re-wrap. Critical for the Light variant
         // TEXT_ATTR_BG entries that ship as 12-13% overlays.
-        return Color(tinted.red, tinted.green, tinted.blue, color.alpha)
+        return exactColor(tinted.red, tinted.green, tinted.blue, color.alpha)
     }
 
     private fun entry(
@@ -320,13 +322,25 @@ object VcsColorPalette {
             } else {
                 ALPHA_OPAQUE
             }
-        return Color(red, green, blue, alpha)
+        return exactColor(red, green, blue, alpha)
+    }
+
+    private fun exactColor(
+        red: Int,
+        green: Int,
+        blue: Int,
+        alpha: Int,
+    ): Color {
+        val rgb = (red shl RED_SHIFT) or (green shl GREEN_SHIFT) or blue
+        return ColorUtil.toAlpha(JBColor(rgb, rgb), alpha)
     }
 
     private const val HEX_LEN_OPAQUE: Int = 6
     private const val HEX_LEN_ALPHA: Int = 8
     private const val HEX_RADIX: Int = 16
     private const val ALPHA_OPAQUE: Int = 0xFF
+    private const val RED_SHIFT: Int = 16
+    private const val GREEN_SHIFT: Int = 8
     private const val RED_HEX_START: Int = 0
     private const val GREEN_HEX_START: Int = 2
     private const val BLUE_HEX_START: Int = 4

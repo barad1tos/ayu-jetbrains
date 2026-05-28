@@ -34,10 +34,10 @@ class ShowWhatsNewActionTest {
 
     @AfterTest
     fun tearDown() {
-        // Reset the companion-object one-shot latch between tests — otherwise
+        // Reset the file-level one-shot latch between tests — otherwise
         // a test that trips the null-descriptor path could swallow the WARN in
         // a subsequent test case within the same JVM.
-        ShowWhatsNewAction.resetForTesting()
+        resetShowWhatsNewActionForTesting()
         unmockkAll()
     }
 

@@ -7,12 +7,9 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class GlowAnimatorTest {
-    /** Helper: set a private field on the animator. */
-    private fun GlowAnimator.setPrivateField(
-        name: String,
-        value: Any,
-    ) {
-        val field = GlowAnimator::class.java.getDeclaredField(name)
+    /** Helper: set the current private animation on the animator. */
+    private fun GlowAnimator.setCurrentAnimation(value: GlowAnimation) {
+        val field = GlowAnimator::class.java.getDeclaredField("currentAnimation")
         field.isAccessible = true
         field.set(this, value)
     }
@@ -183,7 +180,7 @@ class GlowAnimatorTest {
         val animator = GlowAnimator()
         animator.reactiveBoost = 0.8f
         // Set the internal state to simulate a running animation
-        animator.setPrivateField("currentAnimation", GlowAnimation.PULSE)
+        animator.setCurrentAnimation(GlowAnimation.PULSE)
 
         animator.stop()
 
@@ -207,7 +204,7 @@ class GlowAnimatorTest {
     fun `dispose delegates to stop`() {
         val animator = GlowAnimator()
         animator.reactiveBoost = 0.5f
-        animator.setPrivateField("currentAnimation", GlowAnimation.BREATHE)
+        animator.setCurrentAnimation(GlowAnimation.BREATHE)
 
         animator.dispose()
 

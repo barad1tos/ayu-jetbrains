@@ -2,6 +2,7 @@ package dev.ayuislands.accent.elements
 
 import com.intellij.openapi.editor.colors.ColorKey
 import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.ui.ColorUtil
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import java.awt.Color
@@ -41,8 +42,8 @@ class ScrollbarElement : AccentElement {
     }
 
     override fun apply(color: Color) {
-        val hoverColor = Color(color.red, color.green, color.blue, HOVER_ALPHA)
-        val defaultColor = Color(color.red, color.green, color.blue, DEFAULT_ALPHA)
+        val hoverColor = ColorUtil.toAlpha(color, HOVER_ALPHA)
+        val defaultColor = ColorUtil.toAlpha(color, DEFAULT_ALPHA)
 
         // UIManager keys (non-editor scrollbars: Project tree, tool windows, etc.)
         for (key in hoverKeys) {

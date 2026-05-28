@@ -2,6 +2,8 @@
 
 package dev.ayuislands.onboarding
 
+import com.intellij.ui.ColorUtil
+import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
@@ -195,10 +197,10 @@ internal object OnboardingCardChrome {
     const val CARD_HOVER_TOP_ALPHA = 40
     const val CARD_HOVER_BOTTOM_ALPHA = 10
     const val CARD_BORDER_HOVER_ALPHA = 100
-    val CARD_BG_COLOR: Color = Color(0x17, 0x1B, 0x24)
-    val CARD_BORDER_COLOR: Color = Color(0x2A, 0x2F, 0x3A)
-    val HIGHLIGHT_TOP_COLOR: Color = Color(255, 255, 255, 8)
-    val HIGHLIGHT_BOTTOM_COLOR: Color = Color(255, 255, 255, 0)
+    val CARD_BG_COLOR: Color = JBColor(0x171B24, 0x171B24)
+    val CARD_BORDER_COLOR: Color = JBColor(0x2A2F3A, 0x2A2F3A)
+    val HIGHLIGHT_TOP_COLOR: Color = ColorUtil.toAlpha(JBColor.WHITE, 8)
+    val HIGHLIGHT_BOTTOM_COLOR: Color = ColorUtil.toAlpha(JBColor.WHITE, 0)
 }
 
 /**
@@ -221,7 +223,7 @@ internal fun paintCardChrome(
     // Drop shadow
     val shadowOffset = JBUI.scale((OnboardingCardChrome.SHADOW_OFFSET_Y * contentScale).toInt().coerceAtLeast(1))
     for (i in OnboardingCardChrome.SHADOW_LAYERS downTo 1) {
-        g2.color = Color(0, 0, 0, OnboardingCardChrome.SHADOW_BASE_ALPHA * i)
+        g2.color = ColorUtil.toAlpha(JBColor.BLACK, OnboardingCardChrome.SHADOW_BASE_ALPHA * i)
         g2.fillRoundRect(
             i,
             i + shadowOffset,
@@ -235,9 +237,9 @@ internal fun paintCardChrome(
     // Fill
     if (hovered) {
         val topColor =
-            Color(tintColor.red, tintColor.green, tintColor.blue, OnboardingCardChrome.CARD_HOVER_TOP_ALPHA)
+            ColorUtil.toAlpha(tintColor, OnboardingCardChrome.CARD_HOVER_TOP_ALPHA)
         val bottomColor =
-            Color(tintColor.red, tintColor.green, tintColor.blue, OnboardingCardChrome.CARD_HOVER_BOTTOM_ALPHA)
+            ColorUtil.toAlpha(tintColor, OnboardingCardChrome.CARD_HOVER_BOTTOM_ALPHA)
         g2.paint = GradientPaint(0f, 0f, topColor, 0f, height.toFloat(), bottomColor)
     } else {
         g2.color = baseFill
@@ -272,12 +274,7 @@ internal fun paintCardChrome(
     // Border
     g2.color =
         if (hovered) {
-            Color(
-                tintColor.red,
-                tintColor.green,
-                tintColor.blue,
-                OnboardingCardChrome.CARD_BORDER_HOVER_ALPHA,
-            )
+            ColorUtil.toAlpha(tintColor, OnboardingCardChrome.CARD_BORDER_HOVER_ALPHA)
         } else {
             OnboardingCardChrome.CARD_BORDER_COLOR
         }
@@ -301,22 +298,22 @@ internal fun clampLabelToPreferred(label: JBLabel) {
 @Suppress("MagicNumber")
 internal object OnboardingColors {
     // Accent (Ayu Mirage palette)
-    val ACCENT: Color = Color(0xFF, 0xCC, 0x66)
-    val ACCENT_HOVER: Color = Color(0xFF, 0xD8, 0x80)
-    val ACCENT_TEXT: Color = Color(0x0B, 0x0E, 0x14)
+    val ACCENT: Color = JBColor(0xFFCC66, 0xFFCC66)
+    val ACCENT_HOVER: Color = JBColor(0xFFD880, 0xFFD880)
+    val ACCENT_TEXT: Color = JBColor(0x0B0E14, 0x0B0E14)
 
     // Accent button extras
-    val ACCENT_BORDER: Color = Color(0xC0, 0x96, 0x30)
-    val ACCENT_HIGHLIGHT: Color = Color(0xFF, 0xE0, 0x99, 60)
-    val ACCENT_PRESSED: Color = Color(0xD9, 0xAD, 0x50)
+    val ACCENT_BORDER: Color = JBColor(0xC09630, 0xC09630)
+    val ACCENT_HIGHLIGHT: Color = ColorUtil.toAlpha(JBColor(0xFFE099, 0xFFE099), 60)
+    val ACCENT_PRESSED: Color = JBColor(0xD9AD50, 0xD9AD50)
 
     // Secondary button
-    val SECONDARY_BG: Color = Color(0x18, 0x1C, 0x25)
-    val SECONDARY_HOVER: Color = Color(0x1E, 0x23, 0x2E)
-    val SECONDARY_PRESSED: Color = Color(0x14, 0x18, 0x20)
-    val SECONDARY_BORDER: Color = Color(0x3A, 0x40, 0x4C)
-    val SECONDARY_HIGHLIGHT: Color = Color(0xFF, 0xFF, 0xFF, 10)
-    val SECONDARY_TEXT: Color = Color(0xB0, 0xB8, 0xC4)
+    val SECONDARY_BG: Color = JBColor(0x181C25, 0x181C25)
+    val SECONDARY_HOVER: Color = JBColor(0x1E232E, 0x1E232E)
+    val SECONDARY_PRESSED: Color = JBColor(0x141820, 0x141820)
+    val SECONDARY_BORDER: Color = JBColor(0x3A404C, 0x3A404C)
+    val SECONDARY_HIGHLIGHT: Color = ColorUtil.toAlpha(JBColor.WHITE, 10)
+    val SECONDARY_TEXT: Color = JBColor(0xB0B8C4, 0xB0B8C4)
 }
 
 private const val BTN_ARC = 10
@@ -635,7 +632,7 @@ internal fun attachCardLabels(
 ) {
     val titleLabel = JBLabel(content.title)
     titleLabel.font = titleLabel.font.deriveFont(Font.BOLD, JBUI.scale(style.titleSizePx).toFloat())
-    titleLabel.foreground = Color.WHITE
+    titleLabel.foreground = JBColor.WHITE
     titleLabel.alignmentX = Component.LEFT_ALIGNMENT
     card.add(titleLabel)
     scaler?.registerLabel(titleLabel, style.titleSizePx, Font.BOLD)

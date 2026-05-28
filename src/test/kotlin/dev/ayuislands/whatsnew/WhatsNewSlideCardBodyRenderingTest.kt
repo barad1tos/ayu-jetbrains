@@ -20,7 +20,7 @@ import kotlin.test.assertTrue
  * silently dropped; both v2.5.0 and v2.6.0 manifests author meaningful
  * prose that this test guarantees reaches the user.
  *
- * Tests walk the JPanel tree and inspect JBLabels directly — no real Swing
+ * Tests walk the JPanel tree and inspect JBLabels directly - no real Swing
  * paint cycle, so they run cleanly in JUnit without an EDT pump.
  */
 class WhatsNewSlideCardBodyRenderingTest {
@@ -59,12 +59,12 @@ class WhatsNewSlideCardBodyRenderingTest {
             bodyLabel.text.contains("If you've ever run VS Code with Peacock"),
             "Body label must carry the slide.body text",
         )
-        // Lock the EXACT derived width — not just "some width attribute".
+        // Lock the EXACT derived width - not just "some width attribute".
         // The KDoc on BODY_WRAP_WIDTH_PX warns that wrapping it in
         // JBUI.scale() would double-scale on Retina and collapse the body
         // to a single column. A future "fix" applying that wrap would
         // still pass `contains("width:")` but FAIL this exact-value
-        // assertion — locks the JBUI-scale gotcha against silent regression.
+        // assertion - locks the JBUI-scale gotcha against silent regression.
         val expectedWrapPx = WhatsNewImagePanel.DEFAULT_IMAGE_WIDTH - BODY_WRAP_INSET_PX
         assertTrue(
             bodyLabel.text.contains("body style='width:${expectedWrapPx}px'"),
@@ -77,7 +77,7 @@ class WhatsNewSlideCardBodyRenderingTest {
         // The body's visual hierarchy depends on the font being smaller and
         // un-bolded relative to the title. If a refactor accidentally
         // promotes the body to bold or matches title size, the slide reads
-        // as two competing headings — exactly the regression to lock.
+        // as two competing headings - exactly the regression to lock.
         val slide =
             WhatsNewSlide(
                 title = "Title",
@@ -144,7 +144,7 @@ class WhatsNewSlideCardBodyRenderingTest {
         // Stronger than a no-throw smoke: actually trigger a scale and
         // verify both labels' fonts grew. If `scaler.registerLabel(bodyLabel, ...)`
         // is silently dropped in a future refactor, the title still scales
-        // (no exception) but the body font stays at its base size — the
+        // (no exception) but the body font stays at its base size - the
         // assertion below catches that asymmetry.
         val slide =
             WhatsNewSlide(
@@ -170,16 +170,16 @@ class WhatsNewSlideCardBodyRenderingTest {
         )
         assertTrue(
             bodyLabel.font.size > bodyFontBefore,
-            "Body font must grow after scaler.apply(2.0f) — proves body is registered, " +
+            "Body font must grow after scaler.apply(2.0f) - proves body is registered, " +
                 "was=$bodyFontBefore now=${bodyLabel.font.size}",
         )
     }
 
     @Test
-    fun `body and image both registered as gaps with scaler — body absent registers only one`() {
+    fun `body and image both registered as gaps with scaler - body absent registers only one`() {
         // Locks the gap-selection branch (`if (slide.body.isNotBlank()) GAP_BODY_IMAGE
         // else GAP_TITLE_IMAGE`). With body+image, build() registers TWO gaps
-        // (title→body, body→image). Without body, only ONE (title→image).
+        // (title->body, body->image). Without body, only ONE (title->image).
         // We can't read scaler internals directly, so we infer registration
         // by counting struts that respond to scale changes in the produced tree.
         val withBody =
@@ -197,7 +197,7 @@ class WhatsNewSlideCardBodyRenderingTest {
                 imageScale = null,
             )
 
-        // Build both cards once (no scaler — gap REGISTRATION isn't what the
+        // Build both cards once (no scaler - gap REGISTRATION isn't what the
         // strut-count differential measures; the struts physically exist in
         // the component tree regardless of scaler). Body case adds a
         // vertical strut between title and body; blank case skips that
@@ -221,7 +221,7 @@ class WhatsNewSlideCardBodyRenderingTest {
     }
 
     /**
-     * Box.createVerticalStrut produces a `Filler` (an inner JComponent) — we
+     * Box.createVerticalStrut produces a `Filler` (an inner JComponent) - we
      * detect by zero preferred-width + non-zero preferred-height. Reliable
      * shape-match without coupling to the AWT class name.
      */

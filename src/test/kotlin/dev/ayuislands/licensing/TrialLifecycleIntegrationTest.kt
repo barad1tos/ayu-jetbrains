@@ -94,7 +94,7 @@ class TrialLifecycleIntegrationTest {
         System.clearProperty("ayu.islands.dev")
 
         mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } returns true
+        every { AccentApplicator.apply(any()) } answers { Unit }
 
         mockkObject(GlowOverlayManager.Companion)
         every { GlowOverlayManager.syncGlowForAllProjects() } just runs

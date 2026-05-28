@@ -28,7 +28,7 @@ class MatchingTagElement : AccentElement {
 
     private fun editorBackgroundFor(scheme: EditorColorsScheme): Color {
         val raw = scheme.defaultBackground
-        if (raw.rgb != Color.WHITE.rgb) return raw
+        if (raw.rgb != JBColor.WHITE.rgb) return raw
         // White is the R-1 early-init sentinel the platform returns on dark variants
         // before the scheme resolves. Substitute the per-variant fallback only when
         // the scheme is positively a dark Ayu variant; Light — and anything we cannot

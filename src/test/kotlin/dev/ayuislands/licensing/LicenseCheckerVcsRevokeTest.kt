@@ -65,7 +65,7 @@ class LicenseCheckerVcsRevokeTest {
         every { AyuIslandsSettings.getInstance() } returns settings
 
         mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } returns true
+        every { AccentApplicator.apply(any()) } answers { Unit }
         every { AccentApplicator.applyFromHexString(any()) } returns true
 
         mockkObject(GlowOverlayManager.Companion)

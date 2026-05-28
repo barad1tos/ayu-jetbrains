@@ -203,10 +203,10 @@ class AccentChangedPublishTest {
     }
 
     @Test
-    fun `apply still returns true and runs on EDT when subscriber throws`() {
+    fun `apply marks clean and runs on EDT when subscriber throws`() {
         // Pattern B regression lock: a throwing subscriber must NOT propagate into
-        // the apply pipeline. `lastApplyOk` must stay `true`, the call must return
-        // `true`, and the WARN line must be captured so triage has a thread to pull.
+        // the apply pipeline. `lastApplyOk` must stay `true`, and the WARN line
+        // must be captured so triage has a thread to pull.
         val onEdtCapture = mutableListOf<Boolean>()
         every {
             listener.accentChanged(project, any(), any())
@@ -229,12 +229,10 @@ class AccentChangedPublishTest {
                 }
             }
 
-        var applyResult = false
         LoggedErrorProcessor.executeWith<Throwable>(processor) {
-            applyResult = AccentApplicator.apply(AccentHex.of("#DFBFFF")!!)
+            AccentApplicator.apply(AccentHex.of("#DFBFFF")!!)
         }
 
-        assertTrue(applyResult, "AccentApplicator.apply must return true even when a subscriber throws")
         assertTrue(
             state.lastApplyOk,
             "state.lastApplyOk must remain true — the throw is contained by the per-project try/catch",

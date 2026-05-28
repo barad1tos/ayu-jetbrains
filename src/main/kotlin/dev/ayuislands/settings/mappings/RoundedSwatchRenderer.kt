@@ -1,5 +1,6 @@
 package dev.ayuislands.settings.mappings
 
+import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import java.awt.Color
@@ -65,7 +66,7 @@ class RoundedSwatchRenderer : DefaultTableCellRenderer() {
                 )
             graphics.color = color
             graphics.fill(shape)
-            graphics.color = UIManager.getColor("Separator.separatorColor") ?: Color(BORDER_RGB)
+            graphics.color = UIManager.getColor("Separator.separatorColor") ?: JBColor(BORDER_RGB, BORDER_RGB)
             graphics.draw(shape)
         } finally {
             graphics.dispose()

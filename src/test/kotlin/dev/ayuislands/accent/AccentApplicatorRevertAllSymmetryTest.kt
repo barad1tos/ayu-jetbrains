@@ -1,8 +1,7 @@
 package dev.ayuislands.accent
 
-import java.nio.file.Files
-import java.nio.file.Path
-import java.nio.file.Paths
+import com.intellij.openapi.util.io.FileUtil
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertTrue
 
@@ -30,18 +29,12 @@ import kotlin.test.assertTrue
  */
 class AccentApplicatorRevertAllSymmetryTest {
     private val source: String by lazy {
-        val path: Path =
-            Paths.get(
+        val file =
+            File(
                 System.getProperty("user.dir"),
-                "src",
-                "main",
-                "kotlin",
-                "dev",
-                "ayuislands",
-                "accent",
-                "AccentApplicator.kt",
+                "src/main/kotlin/dev/ayuislands/accent/AccentApplicator.kt",
             )
-        stripComments(Files.readString(path))
+        stripComments(FileUtil.loadFile(file))
     }
 
     private fun stripComments(input: String): String {

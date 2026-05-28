@@ -1,8 +1,7 @@
 package dev.ayuislands.settings.mappings
 
-import java.nio.file.Files
-import java.nio.file.Path
-import java.nio.file.Paths
+import com.intellij.openapi.util.io.FileUtil
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -40,33 +39,23 @@ import kotlin.test.assertTrue
  */
 class ProjectAccentSwapServiceHexGateShapeTest {
     private val source: String by lazy {
-        val path: Path =
-            Paths.get(
+        val file =
+            File(
                 System.getProperty("user.dir"),
-                "src",
-                "main",
-                "kotlin",
-                "dev",
-                "ayuislands",
-                "settings",
-                "mappings",
-                "ProjectAccentSwapService.kt",
+                "src/main/kotlin/dev/ayuislands/settings/mappings/ProjectAccentSwapService.kt",
             )
-        stripComments(Files.readString(path))
+        stripComments(FileUtil.loadFile(file))
     }
 
     private fun stripComments(input: String): String {
         val noBlock = input.replace(Regex("/\\*[\\s\\S]*?\\*/"), "")
         return noBlock
             .lineSequence()
-            .map { line -> line.replaceFirst(Regex("//.*$"), "") }
-            .joinToString("\n")
+            .joinToString("\n") { line -> line.replaceFirst(Regex("//.*$"), "") }
     }
 
-    private fun extractFunctionBody(
-        source: String,
-        signaturePrefix: String,
-    ): String {
+    private fun extractHandleWindowActivatedBody(): String {
+        val signaturePrefix = "fun handleWindowActivated("
         val start = source.indexOf(signaturePrefix)
         require(start >= 0) { "Could not locate '$signaturePrefix' in stripped source" }
         val openBrace = source.indexOf('{', start)
@@ -86,7 +75,7 @@ class ProjectAccentSwapServiceHexGateShapeTest {
 
     @Test
     fun `handleWindowActivated does NOT use a blanket hex-gate return`() {
-        val body = extractFunctionBody(source, "fun handleWindowActivated(")
+        val body = extractHandleWindowActivatedBody()
         // Match the exact prior line shape: `if (effectiveHex == lastAppliedHex) return`
         // possibly with whitespace variations. Note: this regex is line-anchored so a
         // multi-line `if (...) {\n  ...\n}` block won't false-positive — we want to
@@ -108,7 +97,7 @@ class ProjectAccentSwapServiceHexGateShapeTest {
 
     @Test
     fun `walkAndNotify fires from both hex-changed and hex-unchanged branches`() {
-        val body = extractFunctionBody(source, "fun handleWindowActivated(")
+        val body = extractHandleWindowActivatedBody()
         assertTrue(
             Regex("""walkAndNotify\(""").containsMatchIn(body),
             "handleWindowActivated MUST still call ComponentTreeRefresher.walkAndNotify",
@@ -130,7 +119,7 @@ class ProjectAccentSwapServiceHexGateShapeTest {
 
     @Test
     fun `handleWindowActivated triggers integration refresh on same-hex branch`() {
-        val body = extractFunctionBody(source, "fun handleWindowActivated(")
+        val body = extractHandleWindowActivatedBody()
         // On same-hex swap, handleWindowActivated directly invokes the CGP +
         // IR apply paths so the per-project accent is pushed into the
         // app-scoped caches before the tree walk repaints.
@@ -157,16 +146,12 @@ class ProjectAccentSwapServiceHexGateShapeTest {
         // WINDOW_ACTIVATED, which is the right granularity for alt-tab between
         // already-loaded projects. `ProjectManagerListener.projectActivated`
         // only fires on project load, missing the trigger entirely.
-        val pluginXmlPath: Path =
-            Paths.get(
+        val pluginXmlFile =
+            File(
                 System.getProperty("user.dir"),
-                "src",
-                "main",
-                "resources",
-                "META-INF",
-                "plugin.xml",
+                "src/main/resources/META-INF/plugin.xml",
             )
-        val pluginXml = Files.readString(pluginXmlPath)
+        val pluginXml = FileUtil.loadFile(pluginXmlFile)
         val listenerCount =
             Regex(
                 """<listener[^>]*topic="com\.intellij\.openapi\.project\.ProjectManagerListener"""",

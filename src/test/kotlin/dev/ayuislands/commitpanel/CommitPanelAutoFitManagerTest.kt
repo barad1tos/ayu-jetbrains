@@ -191,7 +191,7 @@ class CommitPanelAutoFitManagerTest {
             realState.autoFitCommitMaxWidth = 500
             realState.commitPanelAutoFitMinWidth = 269
 
-            mockCalculatorForWidth(280)
+            mockCalculatorForDefaultMeasuredWidth()
             val tree = JTree()
             val panel = JPanel(FlowLayout())
             panel.add(tree)
@@ -236,7 +236,7 @@ class CommitPanelAutoFitManagerTest {
             realState.autoFitCommitMaxWidth = 500
             realState.commitPanelAutoFitMinWidth = 269
 
-            mockCalculatorForWidth(280)
+            mockCalculatorForDefaultMeasuredWidth()
             val tree = JTree()
             val panel = JPanel(FlowLayout())
             panel.add(tree)
@@ -289,11 +289,11 @@ class CommitPanelAutoFitManagerTest {
         } returns ToolWindowType.DOCKED
     }
 
-    private fun mockCalculatorForWidth(targetWidth: Int) {
+    private fun mockCalculatorForDefaultMeasuredWidth() {
         mockkObject(AutoFitCalculator)
         every {
             AutoFitCalculator.measureTreeMaxRowWidth(any())
-        } returns targetWidth
+        } returns 280
         every {
             AutoFitCalculator.isJitterOnly(any(), any())
         } answers {

@@ -6,7 +6,6 @@ import com.intellij.util.ui.JBUI
 import org.jetbrains.annotations.TestOnly
 import java.awt.AlphaComposite
 import java.awt.BasicStroke
-import java.awt.Color
 import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.Graphics
@@ -139,7 +138,7 @@ internal class ToggleSwitch(
         val previous = g2.composite
         if (isSelected) {
             g2.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, ON_INDICATOR_ALPHA)
-            g2.color = Color.WHITE
+            g2.color = JBColor.WHITE
         } else {
             g2.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, OFF_INDICATOR_ALPHA)
             g2.color = JBColor.foreground()

@@ -182,9 +182,7 @@ object IndentRainbowSync {
                     classLoader,
                 )
 
-            val config =
-                ApplicationManager.getApplication().getService(configClass)
-                    ?: return
+            val config = resolveApplicationService(configClass) ?: return
 
             irConfig = config
             paletteTypeField =
@@ -246,6 +244,16 @@ object IndentRainbowSync {
             logWarning(RESOLUTION_FAILED, exception)
             notifyFailure()
         }
+    }
+
+    private fun resolveApplicationService(serviceClass: Class<*>): Any? {
+        // IR's service class is resolved from IR's plugin classloader, so DevKit
+        // cannot prove registration at compile time. Reflecting the platform
+        // lookup keeps this cross-plugin integration dynamic without adding IR as
+        // a compile-time dependency.
+        val application = ApplicationManager.getApplication()
+        val getService = application.javaClass.getMethod("getService", Class::class.java)
+        return getService.invoke(application, serviceClass)
     }
 
     private fun notifyFailure() {

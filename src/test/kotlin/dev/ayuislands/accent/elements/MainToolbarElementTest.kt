@@ -26,6 +26,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 
 /**
  * Tests for [MainToolbarElement].
@@ -38,7 +39,7 @@ import kotlin.test.assertFalse
  *    (per-project IntelliJ gradient palette)
  *  - Intensity sourced from `AyuIslandsSettings.state.chromeTintIntensity`
  *  - Optional contrast-foreground write on `MainToolbar.foreground`
- *  - `MainToolbar.Icon.foreground` is NEVER written — javap-verified absent from
+ *  - `MainToolbar.Icon.foreground` is NEVER written - javap-verified absent from
  *    platformVersion 2026.1 metadata + lib JAR string tables. The regression guard
  *    below makes a future platform addition fail loudly so it must be opted-in
  *    explicitly rather than silently activated.
@@ -66,7 +67,7 @@ class MainToolbarElementTest {
         every { UIManager.put(any<String>(), any()) } returns Unit
 
         mockkObject(ChromeBaseColors)
-        every { ChromeBaseColors.get(any()) } returns stockBase
+        every { ChromeBaseColors[any()] } returns stockBase
 
         mockkObject(ChromeTintBlender)
         every { ChromeTintBlender.blend(any(), any<Color>(), any()) } returns blended
@@ -114,7 +115,7 @@ class MainToolbarElementTest {
     }
 
     @Test
-    fun `apply short-circuits when probe reports native chrome — no UIManager writes`() {
+    fun `apply short-circuits when probe reports native chrome - no UIManager writes`() {
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns false
         mockState.chromeTintIntensity = 40
 
@@ -152,7 +153,7 @@ class MainToolbarElementTest {
     }
 
     @Test
-    fun `MainToolbar Icon foreground is never written — drop-icon guard for 2026 1 platform`() {
+    fun `MainToolbar Icon foreground is never written - drop-icon guard for 2026 1 platform`() {
         // Regression guard: MainToolbar.Icon.foreground is absent from platform
         // 2026.1 metadata + lib/*.jar string tables (javap-verified). If a future
         // platform release adds the key and someone naively turns it on, this
@@ -228,8 +229,9 @@ class MainToolbarElementTest {
         MainToolbarElement().apply(testAccent)
 
         for (key in writtenKeys) {
-            assertFalse(
-                key == "MainToolbar.Dropdown.transparentHoverBackground",
+            assertNotEquals(
+                illegal = "MainToolbar.Dropdown.transparentHoverBackground",
+                actual = key,
                 "MainToolbarElement must not tint the intentional translucent dropdown hover",
             )
             assertFalse(

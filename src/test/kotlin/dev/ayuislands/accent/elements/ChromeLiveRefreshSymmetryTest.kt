@@ -1,8 +1,7 @@
 package dev.ayuislands.accent.elements
 
-import java.nio.file.Files
-import java.nio.file.Path
-import java.nio.file.Paths
+import com.intellij.openapi.util.io.FileUtil
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -82,19 +81,12 @@ class ChromeLiveRefreshSymmetryTest {
     }
 
     private fun readStripped(elementName: String): String {
-        val path: Path =
-            Paths.get(
+        val file =
+            File(
                 System.getProperty("user.dir"),
-                "src",
-                "main",
-                "kotlin",
-                "dev",
-                "ayuislands",
-                "accent",
-                "elements",
-                "$elementName.kt",
+                "src/main/kotlin/dev/ayuislands/accent/elements/$elementName.kt",
             )
-        return stripComments(Files.readString(path))
+        return stripComments(FileUtil.loadFile(file))
     }
 
     private fun readAbstractBaseStripped(): String = readStripped("AbstractChromeElement")
@@ -104,8 +96,7 @@ class ChromeLiveRefreshSymmetryTest {
         val noBlock = input.replace(Regex("/\\*[\\s\\S]*?\\*/"), "")
         return noBlock
             .lineSequence()
-            .map { line -> line.replaceFirst(Regex("//.*$"), "") }
-            .joinToString("\n")
+            .joinToString("\n") { line -> line.replaceFirst(Regex("//.*$"), "") }
     }
 
     private fun refreshCallCount(source: String): Int {

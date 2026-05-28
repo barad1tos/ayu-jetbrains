@@ -1,5 +1,6 @@
 package dev.ayuislands.glow
 
+import com.intellij.util.ui.JBUI
 import java.awt.Color
 import java.awt.Component
 import java.awt.Graphics
@@ -58,7 +59,7 @@ class GlowFocusBorder(
 
     override fun getBorderInsets(component: Component): Insets {
         // Delegate to original border insets -- don't add extra space
-        return originalBorder?.getBorderInsets(component) ?: Insets(1, 1, 1, 1)
+        return originalBorder?.getBorderInsets(component) ?: JBUI.insets(1)
     }
 
     override fun isBorderOpaque(): Boolean = false

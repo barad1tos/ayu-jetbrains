@@ -34,7 +34,7 @@ import kotlin.test.assertTrue
  *
  * Two invariants lock this element in addition to the standard apply/revert shape:
  * 1. `OnePixelDivider.background` is NEVER in `uiKeys` (AccentApplicator owns it).
- * 2. `uiKeys` has no overlap with [AccentApplicator.ALWAYS_ON_UI_KEYS] — double
+ * 2. `uiKeys` has no overlap with [AccentApplicator.ALWAYS_ON_UI_KEYS] - double
  *    writers on the same UIManager key would make revert ambiguous (whose null wins).
  */
 class PanelBorderElementTest {
@@ -48,7 +48,7 @@ class PanelBorderElementTest {
 
     @BeforeTest
     fun setUp() {
-        // The companion `firstApplyLogged` gate is session-global across every
+        // The file-level first-apply gate is session-global across every
         // PanelBorderElement instance and test. Reset it per test so first-apply
         // diagnostic assertions are reachable regardless of ordering.
         resetFirstApplyLoggedGate()
@@ -64,7 +64,7 @@ class PanelBorderElementTest {
         every { UIManager.put(any<String>(), any()) } returns null
 
         mockkObject(ChromeBaseColors)
-        every { ChromeBaseColors.get(any()) } returns stockBase
+        every { ChromeBaseColors[any()] } returns stockBase
 
         mockkObject(ChromeTintBlender)
         every { ChromeTintBlender.blend(any(), any<Color>(), any()) } returns blended
@@ -113,7 +113,7 @@ class PanelBorderElementTest {
     }
 
     @Test
-    fun `revert symmetry — every key apply writes is nulled on revert`() {
+    fun `revert symmetry - every key apply writes is nulled on revert`() {
         state.chromeTintIntensity = 30
 
         val appliedKeys = mutableListOf<String>()
@@ -146,7 +146,7 @@ class PanelBorderElementTest {
     }
 
     @Test
-    fun `uiKeys never contains OnePixelDivider-background — AccentApplicator owns it`() {
+    fun `uiKeys never contains OnePixelDivider-background - AccentApplicator owns it`() {
         val element = PanelBorderElement()
 
         assertFalse(
@@ -197,7 +197,7 @@ class PanelBorderElementTest {
         PanelBorderElement().apply(accent)
 
         // Blind ByClassName refresh would walk Window.getWindows() and paint every
-        // OnePixelDivider in the IDE — editor splitters, Settings dialog, diff gutter,
+        // OnePixelDivider in the IDE - editor splitters, Settings dialog, diff gutter,
         // Run/Debug splitter, etc. PanelBorder must use ByClassNameInside.
         verify(exactly = 0) {
             LiveChromeRefresher.refresh(
@@ -223,7 +223,7 @@ class PanelBorderElementTest {
     @Test
     fun `first apply flips the diagnostic gate to true`() {
         // One-shot contract: the diagnostic gate stays false until the first
-        // apply() invocation — exactly when LOG.info fires with the
+        // apply() invocation - exactly when LOG.info fires with the
         // `PanelBorderElement first apply: keysSeen=...` line. Resetting the
         // gate in setUp lets this assertion observe the transition. If the
         // `onBackgroundsTinted` override is deleted, the gate stays false and
@@ -240,7 +240,7 @@ class PanelBorderElementTest {
     }
 
     @Test
-    fun `second apply keeps the diagnostic gate true — one-shot contract`() {
+    fun `second apply keeps the diagnostic gate true - one-shot contract`() {
         // Companion to the test above: once set, the gate stays set across
         // subsequent apply() calls. The one-shot contract guarantees the
         // diagnostic line appears at most once per session per element.
@@ -264,9 +264,12 @@ class PanelBorderElementTest {
     }
 
     private fun firstApplyLoggedField(): AtomicBoolean {
-        // Private companion `val` compiles to a private static field on the
-        // outer class. See `javap -p PanelBorderElement.class`.
-        val field = PanelBorderElement::class.java.getDeclaredField("firstApplyLogged")
+        // Private top-level `val` compiles to a private static field on the file facade.
+        // See `javap -p PanelBorderElementKt.class`.
+        val field =
+            Class
+                .forName("dev.ayuislands.accent.elements.PanelBorderElementKt")
+                .getDeclaredField("panelBorderFirstApplyLogged")
         field.isAccessible = true
         return field.get(null) as AtomicBoolean
     }

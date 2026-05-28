@@ -351,7 +351,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
     }
 
     private fun resetCell(category: PrimitiveCategory) {
-        setSliderValue(category, SLIDER_MID)
+        resetCategorySlider(category)
         val key = compositeKey(currentLanguage, category)
         pendingOverrides.remove(key)
         pendingStyles.remove(key)
@@ -380,15 +380,12 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         applyTimer.restart()
     }
 
-    private fun setSliderValue(
-        category: PrimitiveCategory,
-        value: Int,
-    ) {
+    private fun resetCategorySlider(category: PrimitiveCategory) {
         suppressSliderListeners = true
         try {
-            sliders[category]?.value = value
-            sliderLabels[category]?.let { applyReadout(it, value) }
-            sliders[category]?.accessibleContext?.accessibleName = intensityAccessibleName(category, value)
+            sliders[category]?.value = SLIDER_MID
+            sliderLabels[category]?.let { applyReadout(it, SLIDER_MID) }
+            sliders[category]?.accessibleContext?.accessibleName = intensityAccessibleName(category, SLIDER_MID)
             refreshResetVisibility(category)
         } finally {
             suppressSliderListeners = false

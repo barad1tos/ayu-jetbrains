@@ -8,6 +8,7 @@ import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.ui.JBColor
 import dev.ayuislands.licensing.LicenseChecker
 import java.awt.Color
 import java.util.concurrent.ConcurrentHashMap
@@ -82,7 +83,13 @@ class SyntaxIntensityService {
         customStyles: Map<String, Map<String, Int>> = emptyMap(),
     ) {
         val effectivePreset = enforceCustomGate(preset)
-        val loader = SyntaxOverlayLoader.getInstance()
+        val context =
+            ApplyContext(
+                preset = effectivePreset,
+                customOverrides = customOverrides,
+                subordinatePreset = subordinatePreset,
+                customStyles = customStyles,
+            )
         val manager = EditorColorsManager.getInstance()
         val touched = mutableSetOf<EditorColorsScheme>()
         for ((schemeName, overlayVariant) in AYU_SCHEMES) {
@@ -93,26 +100,16 @@ class SyntaxIntensityService {
                 }
                 continue
             }
-            val editorBg = resolveEditorBg(scheme, overlayVariant)
-            val baseline = loader.loadBaselineForVariant(overlayVariant)
-            val overlay = loader.loadOverlayForVariant(overlayVariant)
             val computed =
-                SyntaxIntensityApplicator.compute(
-                    SyntaxIntensityApplicator.Request(
-                        preset = effectivePreset,
-                        variantName = overlayVariant,
-                        editorBg = editorBg,
-                        baseline = baseline,
-                        overlay = overlay,
-                        customOverrides = customOverrides,
-                        subordinatePreset = subordinatePreset,
-                        customStyles = customStyles,
-                    ),
+                computeSchemeAttributes(
+                    scheme = scheme,
+                    variantTag = overlayVariant,
+                    context = context,
                 )
             writeSchemeAttributes(scheme, computed, schemeName)
             touched.add(scheme)
         }
-        writeActiveSchemeIfNotTouched(effectivePreset, customOverrides, touched, subordinatePreset, customStyles)
+        writeActiveSchemeIfNotTouched(context, touched)
         publishSchemeChange()
     }
 
@@ -123,6 +120,13 @@ class SyntaxIntensityService {
         val subordinate = SyntaxPreset.fromName(config.subordinatePreset)
         apply(preset, config.customOverrides, subordinate, config.customStyles)
     }
+
+    private data class ApplyContext(
+        val preset: SyntaxPreset,
+        val customOverrides: Map<String, Map<String, Int>>,
+        val subordinatePreset: SyntaxPreset,
+        val customStyles: Map<String, Map<String, Int>>,
+    )
 
     /**
      * Service-layer `CUSTOM` premium gate.
@@ -181,7 +185,7 @@ class SyntaxIntensityService {
             }
             return raw
         }
-        return if (raw.rgb == Color.WHITE.rgb && variantTag in DARK_OVERLAY_VARIANTS) {
+        return if (raw.rgb == JBColor.WHITE.rgb && variantTag in DARK_OVERLAY_VARIANTS) {
             RgbBlend.fallbackEditorBgFor(variantTag)
         } else {
             raw
@@ -206,15 +210,11 @@ class SyntaxIntensityService {
      * instance through.
      */
     private fun writeActiveSchemeIfNotTouched(
-        preset: SyntaxPreset,
-        customOverrides: Map<String, Map<String, Int>>,
+        context: ApplyContext,
         touched: Set<EditorColorsScheme>,
-        subordinatePreset: SyntaxPreset = SyntaxPreset.AMBIENT,
-        customStyles: Map<String, Map<String, Int>> = emptyMap(),
     ) {
         val active = EditorColorsManager.getInstance().globalScheme
         if (active in touched) return
-        val loader = SyntaxOverlayLoader.getInstance()
         val variant =
             resolveActiveAyuOverlayVariant(active.name)
                 ?: run {
@@ -226,23 +226,33 @@ class SyntaxIntensityService {
                     }
                     return
                 }
-        val editorBg = resolveEditorBg(active, variant)
-        val baseline = loader.loadBaselineForVariant(variant)
-        val overlay = loader.loadOverlayForVariant(variant)
         val computed =
-            SyntaxIntensityApplicator.compute(
-                SyntaxIntensityApplicator.Request(
-                    preset = preset,
-                    variantName = variant,
-                    editorBg = editorBg,
-                    baseline = baseline,
-                    overlay = overlay,
-                    customOverrides = customOverrides,
-                    subordinatePreset = subordinatePreset,
-                    customStyles = customStyles,
-                ),
+            computeSchemeAttributes(
+                scheme = active,
+                variantTag = variant,
+                context = context,
             )
         writeSchemeAttributes(active, computed, active.name)
+    }
+
+    private fun computeSchemeAttributes(
+        scheme: EditorColorsScheme,
+        variantTag: String,
+        context: ApplyContext,
+    ): Map<TextAttributesKey, TextAttributes> {
+        val loader = SyntaxOverlayLoader.getInstance()
+        return SyntaxIntensityApplicator.compute(
+            SyntaxIntensityApplicator.Request(
+                preset = context.preset,
+                variantName = variantTag,
+                editorBg = resolveEditorBg(scheme, variantTag),
+                baseline = loader.loadBaselineForVariant(variantTag),
+                overlay = loader.loadOverlayForVariant(variantTag),
+                customOverrides = context.customOverrides,
+                subordinatePreset = context.subordinatePreset,
+                customStyles = context.customStyles,
+            ),
+        )
     }
 
     /**

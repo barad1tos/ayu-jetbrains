@@ -7,6 +7,8 @@ import dev.ayuislands.accent.WcagForeground
 import java.awt.Color
 import java.util.concurrent.atomic.AtomicBoolean
 
+private val panelBorderFirstApplyLogged = AtomicBoolean(false)
+
 /**
  * Tints panel / tool-window borders. This element has no foreground —
  * [foregroundKeys] is intentionally empty.
@@ -58,7 +60,7 @@ class PanelBorderElement : AbstractChromeElement() {
         // peer-walk target classes we'll ask LiveChromeRefresher to find.
         // Gated on a one-shot AtomicBoolean so repeated apply passes stay
         // quiet.
-        if (firstApplyLogged.compareAndSet(false, true)) {
+        if (panelBorderFirstApplyLogged.compareAndSet(false, true)) {
             val keysSeen = tintedBackgrounds.keys.toList()
             val keysMissed = backgroundKeys.filter { it !in tintedBackgrounds }
             LOG.info(
@@ -70,14 +72,6 @@ class PanelBorderElement : AbstractChromeElement() {
 
     private companion object {
         private val LOG = logger<PanelBorderElement>()
-
-        /**
-         * One-shot gate for the per-session first-apply diagnostic log.
-         * Logs which UIManager keys resolved vs missed and which peer classes the
-         * refresher will walk for — so a future platform FQN rename surfaces in
-         * idea.log without needing a debugger attach.
-         */
-        private val firstApplyLogged = AtomicBoolean(false)
 
         /**
          * FQN of the internal 1-pixel divider used for tool-window panel

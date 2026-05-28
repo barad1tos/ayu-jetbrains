@@ -10,6 +10,8 @@ import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.ui.ColorUtil
+import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AyuVariant
@@ -154,7 +156,7 @@ internal class PremiumOnboardingPanel(
 
         for (layer in scaledWidth downTo 1) {
             val alpha = (maxAlpha * layer.toFloat() / scaledWidth).toInt().coerceIn(0, MAX_ALPHA)
-            g2.color = Color(color.red, color.green, color.blue, alpha)
+            g2.color = ColorUtil.toAlpha(color, alpha)
             val offset = (scaledWidth - layer).toDouble()
             g2.draw(
                 RoundRectangle2D.Double(
@@ -534,7 +536,7 @@ internal class PremiumOnboardingPanel(
                 titleLabel.font.deriveFont(Font.BOLD, JBUI.scale(FONT_TITLE_SIZE).toFloat())
             }
         titleLabel.font = titleBaseFont
-        titleLabel.foreground = if (installing) CARD_DESC_COLOR else Color.WHITE
+        titleLabel.foreground = if (installing) CARD_DESC_COLOR else JBColor.WHITE
         titleLabel.alignmentX = LEFT_ALIGNMENT
         cardPanel.add(titleLabel)
 
@@ -679,7 +681,7 @@ internal class PremiumOnboardingPanel(
         private const val FONT_CARD_HEIGHT = 64
         private const val FONT_CARD_PADDING = 12
         private const val FONT_TITLE_SIZE = 11
-        private val FONT_CARD_TINT = Color(0x95, 0xE6, 0xCB)
+        private val FONT_CARD_TINT = JBColor(0x95E6CB, 0x95E6CB)
         private val FONT_PRESETS =
             listOf(FontPreset.WHISPER, FontPreset.AMBIENT, FontPreset.NEON, FontPreset.CYBERPUNK)
 
@@ -701,8 +703,8 @@ internal class PremiumOnboardingPanel(
         private val SCRIM_CONFIG =
             ScrimConfig(
                 fraction = 0.65,
-                topColor = Color(0x0B, 0x0E, 0x14, 0),
-                bottomColor = Color(0x0B, 0x0E, 0x14, 220),
+                topColor = ColorUtil.toAlpha(JBColor(0x0B0E14, 0x0B0E14), 0),
+                bottomColor = ColorUtil.toAlpha(JBColor(0x0B0E14, 0x0B0E14), 220),
             )
 
         // Gaps
@@ -732,7 +734,7 @@ internal class PremiumOnboardingPanel(
                 "</body></html>"
 
         // Card description text color (panel-local)
-        private val CARD_DESC_COLOR = Color(0x70, 0x76, 0x80)
+        private val CARD_DESC_COLOR = JBColor(0x707680, 0x707680)
 
         private val SVG_GEOMETRY =
             WizardSvgGeometry(
@@ -801,20 +803,20 @@ internal class PremiumOnboardingPanel(
             )
 
         // Rail tints
-        private val TRIAL_CUE_COLOR = Color(0xFF, 0xCC, 0x66)
-        private val ROTATE_TINT = Color(0xDF, 0xBF, 0xFF)
-        private val PLUGINS_TINT = Color(0xD5, 0xFF, 0x80)
-        private val GLOW_TINT = Color(0x73, 0xD0, 0xFF)
-        private val WORKSPACE_TINT = Color(0x95, 0xE6, 0xCB)
-        private val COMMUNITY_COLOR = Color(0x36, 0xA3, 0xD9)
+        private val TRIAL_CUE_COLOR = JBColor(0xFFCC66, 0xFFCC66)
+        private val ROTATE_TINT = JBColor(0xDFBFFF, 0xDFBFFF)
+        private val PLUGINS_TINT = JBColor(0xD5FF80, 0xD5FF80)
+        private val GLOW_TINT = JBColor(0x73D0FF, 0x73D0FF)
+        private val WORKSPACE_TINT = JBColor(0x95E6CB, 0x95E6CB)
+        private val COMMUNITY_COLOR = JBColor(0x36A3D9, 0x36A3D9)
 
         // Preset glow colors
         private val PRESET_GLOW_COLORS =
             mapOf(
-                GlowPreset.WHISPER to Color(0xFF, 0xCC, 0x66),
-                GlowPreset.AMBIENT to Color(0x95, 0xE6, 0xCB),
-                GlowPreset.NEON to Color(0x36, 0xA3, 0xD9),
-                GlowPreset.CYBERPUNK to Color(0xF0, 0x71, 0x78),
+                GlowPreset.WHISPER to JBColor(0xFFCC66, 0xFFCC66),
+                GlowPreset.AMBIENT to JBColor(0x95E6CB, 0x95E6CB),
+                GlowPreset.NEON to JBColor(0x36A3D9, 0x36A3D9),
+                GlowPreset.CYBERPUNK to JBColor(0xF07178, 0xF07178),
             )
 
         private val PRESETS =

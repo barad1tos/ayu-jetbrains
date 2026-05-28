@@ -2,6 +2,7 @@ package dev.ayuislands.settings
 
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.util.IconLoader
+import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentColor
 import dev.ayuislands.glow.GlowRenderer
@@ -42,7 +43,7 @@ import kotlin.math.sin
  * ```
  *
  * Left column: shade name (row 1), Custom link (row 2), Shuffle link (row 3).
- * Each row has a Lucide SVG icon followed by text.
+ * Each row has an SVG icon followed by text.
  * The right side is the 4x3 preset color grid.
  */
 class AccentColorPanel(
@@ -209,7 +210,7 @@ class AccentColorPanel(
 
                 val color = safeDecodeColor(accent.hex) ?: return
                 val isSelected = accent.hex.equals(selectedPreset, ignoreCase = true)
-                val borderColor = Color(BORDER_RGB)
+                val borderColor = JBColor(BORDER_RGB, BORDER_RGB)
 
                 if (heroGlowActive && accent.hex.equals(heroGlowHex, ignoreCase = true)) {
                     heroGlowRenderer.ensureCache(color, GlowStyle.SOFT, HERO_GLOW_INTENSITY, HERO_GLOW_WIDTH)
@@ -338,7 +339,7 @@ class AccentColorPanel(
                     textX = icon.iconWidth + ICON_TEXT_GAP
                 }
                 val linkColor = JBUI.CurrentTheme.Link.Foreground.ENABLED
-                g2.color = if (isEnabled) linkColor else UIManager.getColor("Label.disabledForeground") ?: Color.GRAY
+                g2.color = if (isEnabled) linkColor else UIManager.getColor("Label.disabledForeground") ?: JBColor.GRAY
                 g2.font = g2.font.deriveFont(Font.PLAIN, LINK_FONT_SIZE)
                 val metrics = g2.fontMetrics
                 val textY = (height - metrics.height) / 2 + metrics.ascent
@@ -412,7 +413,7 @@ class AccentColorPanel(
                 val iconY = (height - DICES_ICON.iconHeight) / 2 + bounceOffset.toInt()
                 DICES_ICON.paintIcon(this, g2, 0, iconY)
                 val linkColor = JBUI.CurrentTheme.Link.Foreground.ENABLED
-                g2.color = if (isEnabled) linkColor else UIManager.getColor("Label.disabledForeground") ?: Color.GRAY
+                g2.color = if (isEnabled) linkColor else UIManager.getColor("Label.disabledForeground") ?: JBColor.GRAY
                 g2.font = g2.font.deriveFont(Font.PLAIN, LINK_FONT_SIZE)
                 val metrics = g2.fontMetrics
                 val textX = DICES_ICON.iconWidth + ICON_TEXT_GAP
@@ -516,7 +517,7 @@ class AccentColorPanel(
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
 
                 val color = safeDecodeColor(hex) ?: return
-                val borderColor = Color(BORDER_RGB)
+                val borderColor = JBColor(BORDER_RGB, BORDER_RGB)
 
                 // Paint relative to this component's own bounds (0,0 = top-left of ThirteenthSwatch)
                 val swatchWidth = width

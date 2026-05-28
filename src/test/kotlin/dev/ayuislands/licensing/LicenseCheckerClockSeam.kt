@@ -54,11 +54,6 @@ internal object LicenseCheckerClockSeam {
         LicenseChecker.nowMsSupplier = supplier
     }
 
-    /** Pin the UTC "today" date to a constant value. */
-    fun pinToday(fixedToday: LocalDate) {
-        LicenseChecker.todayUtcSupplier = { fixedToday }
-    }
-
     /** Pin the UTC "today" date to a dynamic supplier. */
     fun pinToday(supplier: () -> LocalDate) {
         LicenseChecker.todayUtcSupplier = supplier

@@ -1,5 +1,3 @@
-@file:Suppress("DialogTitleCapitalization")
-
 package dev.ayuislands.onboarding
 
 import com.intellij.icons.AllIcons
@@ -11,6 +9,8 @@ import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.ui.ColorUtil
+import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
@@ -442,8 +442,7 @@ internal class FreeOnboardingPanel(
             if (hovered) {
                 val ringAlpha = SWATCH_RING_ALPHA
                 val ringExpand = JBUI.scale(SWATCH_RING_EXPAND)
-                g2.color =
-                    Color(swatchColor.red, swatchColor.green, swatchColor.blue, ringAlpha)
+                g2.color = ColorUtil.toAlpha(swatchColor, ringAlpha)
                 g2.fillOval(
                     cx - diameter / 2 - ringExpand,
                     cy - diameter / 2 - ringExpand,
@@ -571,7 +570,7 @@ internal class FreeOnboardingPanel(
         private const val CARD_DOT_MARGIN = 12
 
         // Card description text color (kept per-panel — font/text styling)
-        private val CARD_DESC_COLOR = Color(0x70, 0x76, 0x80)
+        private val CARD_DESC_COLOR = JBColor(0x707680, 0x707680)
 
         // Button row (reused)
         private const val BTN_GAP = 16
@@ -580,8 +579,8 @@ internal class FreeOnboardingPanel(
         private val SCRIM_CONFIG =
             ScrimConfig(
                 fraction = 0.65,
-                topColor = Color(0x0B, 0x0E, 0x14, 0),
-                bottomColor = Color(0x0B, 0x0E, 0x14, 220),
+                topColor = ColorUtil.toAlpha(JBColor(0x0B0E14, 0x0B0E14), 0),
+                bottomColor = ColorUtil.toAlpha(JBColor(0x0B0E14, 0x0B0E14), 220),
             )
 
         // Gaps (reused)
@@ -683,24 +682,24 @@ internal class FreeOnboardingPanel(
         private const val RAIL_DIVIDER_GAP = 12
 
         // Trial cue color for Glow/Fonts subtitle — warm amber (Ayu)
-        private val TRIAL_CUE_COLOR = Color(0xFF, 0xCC, 0x66)
+        private val TRIAL_CUE_COLOR = JBColor(0xFFCC66, 0xFFCC66)
 
         // Variant card base fills — each variant gets its own tonal background
-        private val MIRAGE_BASE_FILL = Color(0x1F, 0x24, 0x30)
-        private val DARK_BASE_FILL = Color(0x0F, 0x13, 0x1A)
-        private val LIGHT_BASE_FILL = Color(0x26, 0x1E, 0x13)
+        private val MIRAGE_BASE_FILL = JBColor(0x1F2430, 0x1F2430)
+        private val DARK_BASE_FILL = JBColor(0x0F131A, 0x0F131A)
+        private val LIGHT_BASE_FILL = JBColor(0x261E13, 0x261E13)
 
         // Variant hover tint colors (follow Ayu default accents)
-        private val MIRAGE_TINT = Color(0xFF, 0xCC, 0x66)
-        private val DARK_TINT = Color(0xE6, 0xB4, 0x50)
-        private val LIGHT_TINT = Color(0xF2, 0x97, 0x18)
+        private val MIRAGE_TINT = JBColor(0xFFCC66, 0xFFCC66)
+        private val DARK_TINT = JBColor(0xE6B450, 0xE6B450)
+        private val LIGHT_TINT = JBColor(0xF29718, 0xF29718)
 
         // Teaser and community hover tints
-        private val GLOW_TEASER_TINT = Color(0x73, 0xD0, 0xFF)
-        private val FONT_TEASER_TINT = Color(0x95, 0xE6, 0xCB)
-        private val ROTATE_TEASER_TINT = Color(0xDF, 0xBF, 0xFF)
-        private val PLUGINS_TEASER_TINT = Color(0xD5, 0xFF, 0x80)
-        private val COMMUNITY_COLOR = Color(0x36, 0xA3, 0xD9)
+        private val GLOW_TEASER_TINT = JBColor(0x73D0FF, 0x73D0FF)
+        private val FONT_TEASER_TINT = JBColor(0x95E6CB, 0x95E6CB)
+        private val ROTATE_TEASER_TINT = JBColor(0xDFBFFF, 0xDFBFFF)
+        private val PLUGINS_TEASER_TINT = JBColor(0xD5FF80, 0xD5FF80)
+        private val COMMUNITY_COLOR = JBColor(0x36A3D9, 0x36A3D9)
 
         private val VARIANT_CARDS =
             listOf(
