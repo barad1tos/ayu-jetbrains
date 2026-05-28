@@ -14,6 +14,7 @@ import dev.ayuislands.syntax.SyntaxIntensityBaseState
 import dev.ayuislands.syntax.SyntaxIntensityService
 import dev.ayuislands.syntax.SyntaxIntensityState
 import dev.ayuislands.syntax.SyntaxPreset
+import dev.ayuislands.syntax.SyntaxReadabilityOptions
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -274,6 +275,65 @@ class AyuIslandsSyntaxPanelTest {
         panel.reset()
 
         assertSame(SyntaxPreset.AMBIENT, readPendingPreset(panel))
+        assertFalse(panel.isModified())
+    }
+
+    @Test
+    fun `loadStateIntoPending loads readability toggles from state`() {
+        stateBase.dimComments = true
+        stateBase.softenDocumentation = true
+        stateBase.quietOperators = true
+        stateBase.emphasizeDeclarations = true
+
+        val panel = panelWithLoadedState()
+
+        assertTrue(readPendingBoolean(panel, "pendingDimComments"))
+        assertTrue(readPendingBoolean(panel, "pendingSoftenDocumentation"))
+        assertTrue(readPendingBoolean(panel, "pendingQuietOperators"))
+        assertTrue(readPendingBoolean(panel, "pendingEmphasizeDeclarations"))
+        assertFalse(panel.isModified(), "freshly loaded readability state must not dirty the panel")
+    }
+
+    @Test
+    fun `apply passes readability options before persisting them`() {
+        stateBase.selectedPreset = "AMBIENT"
+        stateBase.schemaVersion = 2
+        val panel = panelWithLoadedState()
+        writePendingBoolean(panel, "pendingDimComments", true)
+        writePendingBoolean(panel, "pendingQuietOperators", true)
+
+        panel.apply()
+
+        verifyOrder {
+            intensityService.apply(
+                SyntaxPreset.AMBIENT,
+                emptyMap(),
+                any(),
+                emptyMap(),
+                SyntaxReadabilityOptions(dimComments = true, quietOperators = true),
+            )
+            stateService.state
+        }
+        assertTrue(stateBase.dimComments)
+        assertTrue(stateBase.quietOperators)
+        assertFalse(stateBase.softenDocumentation)
+        assertFalse(stateBase.emphasizeDeclarations)
+        assertEquals(3, stateBase.schemaVersion)
+        assertFalse(panel.isModified(), "persisted readability toggles must become the stored buffer")
+    }
+
+    @Test
+    fun `reset reverts pending readability toggles to stored values`() {
+        stateBase.dimComments = true
+        val panel = panelWithLoadedState()
+        writePendingBoolean(panel, "pendingDimComments", false)
+        writePendingBoolean(panel, "pendingEmphasizeDeclarations", true)
+        assertTrue(panel.isModified())
+
+        panel.reset()
+
+        assertTrue(readPendingBoolean(panel, "pendingDimComments"))
+        assertFalse(readPendingBoolean(panel, "pendingEmphasizeDeclarations"))
         assertFalse(panel.isModified())
     }
 
@@ -1152,6 +1212,25 @@ class AyuIslandsSyntaxPanelTest {
         val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("pendingPreset")
         field.isAccessible = true
         field.set(panel, preset)
+    }
+
+    private fun readPendingBoolean(
+        panel: AyuIslandsSyntaxPanel,
+        fieldName: String,
+    ): Boolean {
+        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField(fieldName)
+        field.isAccessible = true
+        return field.getBoolean(panel)
+    }
+
+    private fun writePendingBoolean(
+        panel: AyuIslandsSyntaxPanel,
+        fieldName: String,
+        value: Boolean,
+    ) {
+        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField(fieldName)
+        field.isAccessible = true
+        field.setBoolean(panel, value)
     }
 
     private fun writeCurrentLanguage(

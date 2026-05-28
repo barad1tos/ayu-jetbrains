@@ -15,10 +15,12 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.syntax.FontStyleOverride
 import dev.ayuislands.syntax.PrimitiveCategory
+import dev.ayuislands.syntax.SYNTAX_INTENSITY_SCHEMA_VERSION
 import dev.ayuislands.syntax.SyntaxIntensityService
 import dev.ayuislands.syntax.SyntaxIntensityState
 import dev.ayuislands.syntax.SyntaxLanguageRegistry
 import dev.ayuislands.syntax.SyntaxPreset
+import dev.ayuislands.syntax.SyntaxReadabilityOptions
 import java.awt.Component
 import java.awt.Container
 import java.awt.Dimension
@@ -26,6 +28,7 @@ import java.awt.Font
 import java.awt.GridLayout
 import javax.swing.AbstractButton
 import javax.swing.JButton
+import javax.swing.JCheckBox
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
@@ -81,6 +84,14 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
     private var suppressSliderListeners: Boolean = false
     private var pendingSubordinate: SyntaxPreset = SyntaxPreset.AMBIENT
     private var storedSubordinate: SyntaxPreset = SyntaxPreset.AMBIENT
+    private var pendingDimComments: Boolean = false
+    private var storedDimComments: Boolean = false
+    private var pendingSoftenDocumentation: Boolean = false
+    private var storedSoftenDocumentation: Boolean = false
+    private var pendingQuietOperators: Boolean = false
+    private var storedQuietOperators: Boolean = false
+    private var pendingEmphasizeDeclarations: Boolean = false
+    private var storedEmphasizeDeclarations: Boolean = false
     private val pendingOverrides: MutableMap<String, String> = mutableMapOf()
     private val storedOverrides: MutableMap<String, String> = mutableMapOf()
 
@@ -95,6 +106,10 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
     private val resetButtons: MutableMap<PrimitiveCategory, InplaceButton> = mutableMapOf()
     private val boldToggles: MutableMap<PrimitiveCategory, InplaceButton> = mutableMapOf()
     private val italicToggles: MutableMap<PrimitiveCategory, InplaceButton> = mutableMapOf()
+    private var dimCommentsCheckbox: JCheckBox? = null
+    private var softenDocumentationCheckbox: JCheckBox? = null
+    private var quietOperatorsCheckbox: JCheckBox? = null
+    private var emphasizeDeclarationsCheckbox: JCheckBox? = null
     private var masterResetButton: JButton? = null
     private var currentLanguage: String = ""
 
@@ -145,6 +160,8 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
                     "Custom provides per-language fine tuning. Pick one of the 4 presets to apply instantly.",
                 )
             }
+
+            buildReadabilityBlock()
 
             row {
                 browserLink(
@@ -200,6 +217,52 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
 
         rebindSlidersFor(currentLanguage)
         refreshMasterResetButton()
+    }
+
+    private fun Panel.buildReadabilityBlock() {
+        row("Readability:") {
+            panel {
+                row {
+                    dimCommentsCheckbox =
+                        checkBox("Dim comments").component.apply {
+                            isSelected = pendingDimComments
+                            addActionListener {
+                                pendingDimComments = isSelected
+                                preview()
+                            }
+                        }
+                    softenDocumentationCheckbox =
+                        checkBox("Soften documentation").component.apply {
+                            isSelected = pendingSoftenDocumentation
+                            addActionListener {
+                                pendingSoftenDocumentation = isSelected
+                                preview()
+                            }
+                        }
+                }
+                row {
+                    quietOperatorsCheckbox =
+                        checkBox("Quiet operators").component.apply {
+                            isSelected = pendingQuietOperators
+                            addActionListener {
+                                pendingQuietOperators = isSelected
+                                preview()
+                            }
+                        }
+                    emphasizeDeclarationsCheckbox =
+                        checkBox("Emphasize declarations").component.apply {
+                            isSelected = pendingEmphasizeDeclarations
+                            addActionListener {
+                                pendingEmphasizeDeclarations = isSelected
+                                preview()
+                            }
+                        }
+                }
+            }
+        }
+        row {
+            comment("Applies on top of the selected preset. Use Custom for per-language tuning.")
+        }
     }
 
     private fun Panel.buildCategoryGroup(categoryGroup: CategoryGroup) {
@@ -448,7 +511,11 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         pendingPreset != storedPreset ||
             pendingOverrides != storedOverrides ||
             pendingStyles != storedStyles ||
-            pendingSubordinate != storedSubordinate
+            pendingSubordinate != storedSubordinate ||
+            pendingDimComments != storedDimComments ||
+            pendingSoftenDocumentation != storedSoftenDocumentation ||
+            pendingQuietOperators != storedQuietOperators ||
+            pendingEmphasizeDeclarations != storedEmphasizeDeclarations
 
     override fun apply() {
         if (!isModified()) return
@@ -466,12 +533,21 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         state.customOverrides.putAll(pendingOverrides)
         state.customStyles.clear()
         state.customStyles.putAll(pendingStyles)
+        state.dimComments = pendingDimComments
+        state.softenDocumentation = pendingSoftenDocumentation
+        state.quietOperators = pendingQuietOperators
+        state.emphasizeDeclarations = pendingEmphasizeDeclarations
+        state.schemaVersion = SYNTAX_INTENSITY_SCHEMA_VERSION
         storedPreset = pendingPreset
         storedSubordinate = pendingSubordinate
         storedOverrides.clear()
         storedOverrides.putAll(pendingOverrides)
         storedStyles.clear()
         storedStyles.putAll(pendingStyles)
+        storedDimComments = pendingDimComments
+        storedSoftenDocumentation = pendingSoftenDocumentation
+        storedQuietOperators = pendingQuietOperators
+        storedEmphasizeDeclarations = pendingEmphasizeDeclarations
     }
 
     override fun reset() {
@@ -483,6 +559,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
             suppressListeners = false
         }
         customSelected.set(pendingPreset == SyntaxPreset.CUSTOM)
+        refreshReadabilityCheckboxes()
         rebindSlidersFor(currentLanguage)
         refreshMasterResetButton()
     }
@@ -495,6 +572,14 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         pendingPreset = storedPreset
         storedSubordinate = SyntaxPreset.fromName(state.subordinatePreset)
         pendingSubordinate = storedSubordinate
+        storedDimComments = state.dimComments
+        pendingDimComments = storedDimComments
+        storedSoftenDocumentation = state.softenDocumentation
+        pendingSoftenDocumentation = storedSoftenDocumentation
+        storedQuietOperators = state.quietOperators
+        pendingQuietOperators = storedQuietOperators
+        storedEmphasizeDeclarations = state.emphasizeDeclarations
+        pendingEmphasizeDeclarations = storedEmphasizeDeclarations
         storedOverrides.clear()
         if (canUseCustom) {
             storedOverrides.putAll(state.customOverrides)
@@ -507,6 +592,13 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         }
         pendingStyles.clear()
         pendingStyles.putAll(storedStyles)
+    }
+
+    private fun refreshReadabilityCheckboxes() {
+        dimCommentsCheckbox?.isSelected = pendingDimComments
+        softenDocumentationCheckbox?.isSelected = pendingSoftenDocumentation
+        quietOperatorsCheckbox?.isSelected = pendingQuietOperators
+        emphasizeDeclarationsCheckbox?.isSelected = pendingEmphasizeDeclarations
     }
 
     private fun rebindSlidersFor(language: String) {
@@ -608,8 +700,18 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
     private fun preview() {
         val nested = buildNested(pendingOverrides) { it.toIntOrNull() }
         val nestedStyles = buildNested(pendingStyles) { FontStyleOverride.fromName(it)?.fontType }
-        SyntaxIntensityService.getInstance().apply(pendingPreset, nested, pendingSubordinate, nestedStyles)
+        SyntaxIntensityService
+            .getInstance()
+            .apply(pendingPreset, nested, pendingSubordinate, nestedStyles, readabilityOptions())
     }
+
+    private fun readabilityOptions(): SyntaxReadabilityOptions =
+        SyntaxReadabilityOptions(
+            dimComments = pendingDimComments,
+            softenDocumentation = pendingSoftenDocumentation,
+            quietOperators = pendingQuietOperators,
+            emphasizeDeclarations = pendingEmphasizeDeclarations,
+        )
 
     /**
      * Walk the [presetSegmented]'s rendered Swing subtree and set a

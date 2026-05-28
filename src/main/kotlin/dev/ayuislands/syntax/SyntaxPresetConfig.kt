@@ -29,10 +29,34 @@ package dev.ayuislands.syntax
  *    an absent cell inherits the source attribute's font style. Defaults to
  *    `emptyMap()` so callers predating the font-style feature compile
  *    unchanged.
+ *  - [readabilityOptions]: global semantic modifiers layered on top of the
+ *    selected preset. Defaults to [SyntaxReadabilityOptions.DEFAULT] so old
+ *    callers and old XML preserve the previous byte-identical output.
  */
 data class SyntaxPresetConfig(
     val selectedPreset: String,
     val customOverrides: Map<String, Map<String, Int>>,
     val subordinatePreset: String = "AMBIENT",
     val customStyles: Map<String, Map<String, Int>> = emptyMap(),
+    val readabilityOptions: SyntaxReadabilityOptions = SyntaxReadabilityOptions.DEFAULT,
 )
+
+/**
+ * Global readability modifiers layered on top of the selected syntax preset.
+ *
+ * These switches are intentionally separate from Custom's per-language sparse
+ * cells: Custom answers "which language/category should I tune manually?",
+ * while readability answers "which semantic noise should recede everywhere?".
+ * Defaults are all false so existing installs keep byte-identical syntax until
+ * a user opts in.
+ */
+data class SyntaxReadabilityOptions(
+    val dimComments: Boolean = false,
+    val softenDocumentation: Boolean = false,
+    val quietOperators: Boolean = false,
+    val emphasizeDeclarations: Boolean = false,
+) {
+    companion object {
+        val DEFAULT: SyntaxReadabilityOptions = SyntaxReadabilityOptions()
+    }
+}

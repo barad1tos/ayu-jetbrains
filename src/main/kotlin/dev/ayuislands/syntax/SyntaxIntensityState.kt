@@ -8,6 +8,8 @@ import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import java.awt.Font
 
+internal const val SYNTAX_INTENSITY_SCHEMA_VERSION = 3
+
 /**
  * Per-category font style for the Custom drill-down (Part A backend).
  *
@@ -57,9 +59,9 @@ enum class FontStyleOverride(
  *    is skipped — both reviewers independently flagged BaseState's nested-map
  *    delegate as unreliable for XML round-trip.
  *  - OpenCode suggestion: `schemaVersion` field added for forward migration
- *    safety; now `2` since [SyntaxIntensityBaseState.customStyles] was added.
- *    A v1 config (no `customStyles` element) reads as an empty map and
- *    inherits the source font, so the bump needs no read-time migration.
+ *    safety; now `3` since the global readability booleans were added. A v2
+ *    config (no readability elements) reads as all false, so the bump needs no
+ *    read-time migration.
  *  - Codex HIGH #1 continuation: [toPresetConfig] is the one-way bridge
  *    that adapts the flat composite-key map back into the nested
  *    `Map<String, Map<String, Int>>` shape consumed by
@@ -109,6 +111,13 @@ class SyntaxIntensityState : SimplePersistentStateComponent<SyntaxIntensityBaseS
             // into TextAttributes.fontType; a tampered token decodes to null
             // and the cell is dropped, mirroring the toIntOrNull discipline.
             customStyles = reshapeFlatMap(state.customStyles) { FontStyleOverride.fromName(it)?.fontType },
+            readabilityOptions =
+                SyntaxReadabilityOptions(
+                    dimComments = state.dimComments,
+                    softenDocumentation = state.softenDocumentation,
+                    quietOperators = state.quietOperators,
+                    emphasizeDeclarations = state.emphasizeDeclarations,
+                ),
         )
 
     /**
@@ -169,11 +178,14 @@ class SyntaxIntensityState : SimplePersistentStateComponent<SyntaxIntensityBaseS
  *    materialise; an absent cell inherits the source attribute's font style.
  *    Independent of the intensity slider — a cell may carry a style override
  *    with no slider, or a slider with no style.
- *  - [schemaVersion]: forward-compat sentinel; default `2` since the
- *    [customStyles] map was introduced. A v1 config (no `customStyles`
- *    element) deserialises with an empty `customStyles` map via the BaseState
- *    `map` delegate, so the bump needs NO read-time migration — absent styles
- *    simply inherit the source font.
+ *  - [dimComments], [softenDocumentation], [quietOperators], and
+ *    [emphasizeDeclarations]: global readability modifiers layered on top of
+ *    any selected preset. Defaults are false, so existing XML with no elements
+ *    stays byte-identical until the user opts in.
+ *  - [schemaVersion]: forward-compat sentinel; default `3` since readability
+ *    modifiers were introduced. A v2 config (no readability elements)
+ *    deserialises with all booleans false through the BaseState delegates, so
+ *    the bump needs NO read-time migration.
  *
  * The free tier never writes to [customOverrides] / [customStyles] — the
  * premium Custom drill-down is the only writer.
@@ -183,5 +195,9 @@ class SyntaxIntensityBaseState : BaseState() {
     var subordinatePreset by string("AMBIENT")
     var customOverrides by map<String, String>()
     var customStyles by map<String, String>()
-    var schemaVersion by property(2)
+    var dimComments by property(false)
+    var softenDocumentation by property(false)
+    var quietOperators by property(false)
+    var emphasizeDeclarations by property(false)
+    var schemaVersion by property(SYNTAX_INTENSITY_SCHEMA_VERSION)
 }

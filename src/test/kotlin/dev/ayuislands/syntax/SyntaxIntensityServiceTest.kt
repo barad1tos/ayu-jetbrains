@@ -370,6 +370,33 @@ class SyntaxIntensityServiceTest {
         }
     }
 
+    @Test
+    fun `reapplyForActiveLaf forwards readability options to compute`() {
+        val readabilityOptions =
+            SyntaxReadabilityOptions(
+                dimComments = true,
+                softenDocumentation = true,
+                quietOperators = true,
+                emphasizeDeclarations = true,
+            )
+        every { stateInstance.toPresetConfig() } returns
+            SyntaxPresetConfig(
+                selectedPreset = "AMBIENT",
+                customOverrides = emptyMap(),
+                readabilityOptions = readabilityOptions,
+            )
+
+        SyntaxIntensityService().reapplyForActiveLaf()
+
+        verify(atLeast = 1) {
+            SyntaxIntensityApplicator.compute(
+                match {
+                    it.preset == SyntaxPreset.AMBIENT && it.readabilityOptions == readabilityOptions
+                },
+            )
+        }
+    }
+
     // ---------- Test 13: CUSTOM gate log-once (Pattern A latch) ----------
 
     @Test

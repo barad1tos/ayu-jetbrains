@@ -80,6 +80,7 @@ class SyntaxIntensityService {
         customOverrides: Map<String, Map<String, Int>>,
         subordinatePreset: SyntaxPreset = SyntaxPreset.AMBIENT,
         customStyles: Map<String, Map<String, Int>> = emptyMap(),
+        readabilityOptions: SyntaxReadabilityOptions = SyntaxReadabilityOptions.DEFAULT,
     ) {
         val effectivePreset = enforceCustomGate(preset)
         val context =
@@ -88,6 +89,7 @@ class SyntaxIntensityService {
                 customOverrides = customOverrides,
                 subordinatePreset = subordinatePreset,
                 customStyles = customStyles,
+                readabilityOptions = readabilityOptions,
             )
         val manager = EditorColorsManager.getInstance()
         val touched = mutableSetOf<EditorColorsScheme>()
@@ -117,7 +119,7 @@ class SyntaxIntensityService {
         val config = state.toPresetConfig()
         val preset = SyntaxPreset.fromName(config.selectedPreset)
         val subordinate = SyntaxPreset.fromName(config.subordinatePreset)
-        apply(preset, config.customOverrides, subordinate, config.customStyles)
+        apply(preset, config.customOverrides, subordinate, config.customStyles, config.readabilityOptions)
     }
 
     private data class ApplyContext(
@@ -125,6 +127,7 @@ class SyntaxIntensityService {
         val customOverrides: Map<String, Map<String, Int>>,
         val subordinatePreset: SyntaxPreset,
         val customStyles: Map<String, Map<String, Int>>,
+        val readabilityOptions: SyntaxReadabilityOptions,
     )
 
     /**
@@ -250,6 +253,7 @@ class SyntaxIntensityService {
                 customOverrides = context.customOverrides,
                 subordinatePreset = context.subordinatePreset,
                 customStyles = context.customStyles,
+                readabilityOptions = context.readabilityOptions,
             ),
         )
     }
