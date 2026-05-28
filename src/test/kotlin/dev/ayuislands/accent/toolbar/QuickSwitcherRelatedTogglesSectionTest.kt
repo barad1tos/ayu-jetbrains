@@ -199,7 +199,7 @@ class QuickSwitcherRelatedTogglesSectionTest {
     private fun findLabelText(tile: ToggleTile): String {
         val labels = collectLabelTexts(tile)
         // Labels include any leading icon JLabel (text empty) — keep the non-empty.
-        return labels.firstOrNull { it.isNotEmpty() } ?: ""
+        return labels.firstOrNull { it.isNotEmpty() }.orEmpty()
     }
 
     private fun collectLabelTexts(

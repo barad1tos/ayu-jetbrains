@@ -44,11 +44,11 @@ class SyntaxIntensityServiceTest {
     private lateinit var mockApp: Application
     private lateinit var loader: SyntaxOverlayLoader
     private lateinit var stateInstance: SyntaxIntensityState
-    private lateinit var keyCache: MutableMap<String, TextAttributesKey>
+    private val keyCache = mutableMapOf<String, TextAttributesKey>()
 
     @BeforeTest
     fun setUp() {
-        keyCache = mutableMapOf()
+        keyCache.clear()
         mockkStatic(TextAttributesKey::class)
         every { TextAttributesKey.find(any<String>()) } answers {
             val name = firstArg<String>()

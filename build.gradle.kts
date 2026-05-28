@@ -60,7 +60,11 @@ tasks.register<Test>("integrationTest") {
             !it.name.startsWith("kotlinx-coroutines-") || it.name.contains("-intellij")
         }
     jvmArgs(unitTest.jvmArgs)
-    jvmArgumentProviders.addAll(unitTest.jvmArgumentProviders)
+    jvmArgumentProviders.addAll(
+        unitTest.jvmArgumentProviders.filterNot {
+            it.javaClass.name.contains("kover", ignoreCase = true)
+        },
+    )
     systemProperties(unitTest.systemProperties)
     group = "verification"
     description = "Run integration tests with IDE fixtures"

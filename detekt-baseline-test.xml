@@ -2,27 +2,27 @@
 <SmellBaseline>
   <ManuallySuppressedIssues/>
   <CurrentIssues>
-    <ID>DoubleMutabilityForCollection:SyntaxIntensityServiceTest.kt$SyntaxIntensityServiceTest$private lateinit var keyCache: MutableMap&lt;String, TextAttributesKey></ID>
     <ID>ForbiddenMethodCall:AccentApplicatorBannedApiGuardTest.kt$AccentApplicatorBannedApiGuardTest$loadFile(file)</ID>
+    <ID>ForbiddenMethodCall:AccentApplicatorFocusedProjectTest.kt$AccentApplicatorFocusedProjectTest$readText()</ID>
     <ID>ForbiddenMethodCall:AccentApplicatorRevertAllSymmetryTest.kt$AccentApplicatorRevertAllSymmetryTest$loadFile(file)</ID>
+    <ID>ForbiddenMethodCall:AccentApplicatorTest.kt$AccentApplicatorTest$readText()</ID>
+    <ID>ForbiddenMethodCall:AyuIslandsChromePanelTest.kt$AyuIslandsChromePanelTest$readText()</ID>
     <ID>ForbiddenMethodCall:AyuIslandsLafListenerSyntaxReapplyTest.kt$AyuIslandsLafListenerSyntaxReapplyTest$loadFile(File("src/main/resources/META-INF/plugin.xml"))</ID>
+    <ID>ForbiddenMethodCall:AyuIslandsStartupActivityTest.kt$AyuIslandsStartupActivityTest$readText()</ID>
     <ID>ForbiddenMethodCall:AyuIslandsSyntaxPanelTest.kt$AyuIslandsSyntaxPanelTest$loadFile(sourceFile)</ID>
     <ID>ForbiddenMethodCall:ChromeLiveRefreshSymmetryTest.kt$ChromeLiveRefreshSymmetryTest$loadFile(file)</ID>
     <ID>ForbiddenMethodCall:Gap4BannedApiGuardTest.kt$Gap4BannedApiGuardTest$loadFile(it)</ID>
     <ID>ForbiddenMethodCall:GlowFallbackBannedApiGuardTest.kt$GlowFallbackBannedApiGuardTest$loadFile(file)</ID>
     <ID>ForbiddenMethodCall:GlowLifecycleGuardTest.kt$GlowLifecycleGuardTest$loadFile(file)</ID>
     <ID>ForbiddenMethodCall:LicenseCheckerQuickSwitcherRevertTest.kt$LicenseCheckerQuickSwitcherRevertTest$loadFile(File("src/main/kotlin/dev/ayuislands/licensing/LicenseChecker.kt"))</ID>
+    <ID>ForbiddenMethodCall:LiveChromeRefresherTest.kt$LiveChromeRefresherTest$readText()</ID>
     <ID>ForbiddenMethodCall:ProjectAccentSwapServiceHexGateShapeTest.kt$ProjectAccentSwapServiceHexGateShapeTest$loadFile(file)</ID>
     <ID>ForbiddenMethodCall:ProjectAccentSwapServiceHexGateShapeTest.kt$ProjectAccentSwapServiceHexGateShapeTest$loadFile(pluginXmlFile)</ID>
     <ID>ForbiddenMethodCall:QuickSwitcherPremiumBlockGateTest.kt$QuickSwitcherPremiumBlockGateTest$loadFile(File(POPUP_SOURCE_PATH))</ID>
+    <ID>ForbiddenMethodCall:QuickSwitcherWidgetActionRegistrationTest.kt$QuickSwitcherWidgetActionRegistrationTest$readText()</ID>
     <ID>ForbiddenMethodCall:SettingsConfigurableSyntaxTabWiringTest.kt$SettingsConfigurableSyntaxTabWiringTest$readString( Path.of("src/main/kotlin/dev/ayuislands/settings/AyuIslandsConfigurable.kt"), )</ID>
+    <ID>ForbiddenMethodCall:StickyLinesSchemeKeysTest.kt$StickyLinesSchemeKeysTest$readText()</ID>
     <ID>ForbiddenMethodCall:SyntaxIntensityMigrationNotifierTest.kt$SyntaxIntensityMigrationNotifierTest$loadFile(File("src/main/resources/META-INF/plugin.xml"))</ID>
-    <ID>NoNameShadowing:FreeTierLockdownTest.kt$FreeTierLockdownTest${ assertFalse(it.isAlive, "thread still alive — suspected deadlock") }</ID>
-    <ID>NoNameShadowing:FreeTierLockdownTest.kt$FreeTierLockdownTest${ it.group != AccentGroup.CHROME }</ID>
-    <ID>NoNameShadowing:FreeTierLockdownTest.kt$FreeTierLockdownTest${ it.group == AccentGroup.CHROME }</ID>
-    <ID>NoNameShadowing:FreeTierLockdownTest.kt$FreeTierLockdownTest${ it.join(5_000L) }</ID>
-    <ID>NoNameShadowing:FreeTierLockdownTest.kt$FreeTierLockdownTest${ it.start() }</ID>
-    <ID>UseCheckOrError:AccentApplicatorRevertAllIntegrationTest.kt$AccentApplicatorRevertAllIntegrationTest.BrokenClassLoader$throw IllegalStateException( "BrokenClassLoader rejects loadClass for '$name' — " + "exercises the resolveCgpMethods RuntimeException catch.", )</ID>
-    <ID>UseOrEmpty:QuickSwitcherRelatedTogglesSectionTest.kt$QuickSwitcherRelatedTogglesSectionTest$labels.firstOrNull { it.isNotEmpty() } ?: ""</ID>
+    <ID>ForbiddenMethodCall:VcsDiffSchemeColorsTest.kt$VcsDiffSchemeColorsTest$readText()</ID>
   </CurrentIssues>
 </SmellBaseline>
