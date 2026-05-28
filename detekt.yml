@@ -1,4 +1,13 @@
 style:
+  ForbiddenMethodCall:
+    active: true
+    includes:
+      - "**/test/kotlin/**"
+    methods:
+      - value: "java.nio.file.Files.readString"
+        reason: "Tests assert on observable behavior, not source-file text"
+      - value: "com.intellij.openapi.util.io.FileUtil.loadFile"
+        reason: "Tests assert on observable behavior, not source-file text"
   ReturnCount:
     max: 10
   LoopWithTooManyJumpStatements:

@@ -154,6 +154,10 @@ detekt {
     buildUponDefaultConfig = true
 }
 
+tasks.named("detekt") {
+    dependsOn("detektTest")
+}
+
 kover {
     reports {
         filters {
