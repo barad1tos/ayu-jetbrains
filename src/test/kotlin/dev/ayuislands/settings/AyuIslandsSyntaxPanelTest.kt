@@ -1026,7 +1026,7 @@ class AyuIslandsSyntaxPanelTest {
             // No slider move; just a style-only override. The reset must surface
             // because pendingStyles is dirty for this cell.
             seedPendingStyle(panel, "Java|KEYWORD", "BOLD")
-            invokeRefreshResetVisibility(panel, PrimitiveCategory.KEYWORD)
+            invokeRefreshResetVisibility(panel)
             assertTrue(
                 widgets.resetButton.isVisible,
                 "a style-only override must keep the cell resettable, not just a slider divergence.",
@@ -1034,7 +1034,7 @@ class AyuIslandsSyntaxPanelTest {
 
             // Drop the style — slider still at identity — and the reset hides.
             pendingStylesField(panel).clear()
-            invokeRefreshResetVisibility(panel, PrimitiveCategory.KEYWORD)
+            invokeRefreshResetVisibility(panel)
             assertFalse(
                 widgets.resetButton.isVisible,
                 "an untouched cell (no style, no slider move) must hide the reset.",
@@ -1397,17 +1397,14 @@ class AyuIslandsSyntaxPanelTest {
         return field.getInt(null)
     }
 
-    private fun invokeRefreshResetVisibility(
-        panel: AyuIslandsSyntaxPanel,
-        category: PrimitiveCategory,
-    ) {
+    private fun invokeRefreshResetVisibility(panel: AyuIslandsSyntaxPanel) {
         val method =
             AyuIslandsSyntaxPanel::class.java.getDeclaredMethod(
                 "refreshResetVisibility",
                 PrimitiveCategory::class.java,
             )
         method.isAccessible = true
-        method.invoke(panel, category)
+        method.invoke(panel, PrimitiveCategory.KEYWORD)
     }
 
     private fun readApplyTimer(panel: AyuIslandsSyntaxPanel): Timer {
