@@ -5,6 +5,7 @@ import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.ui.JBColor
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AccentGroup
@@ -219,10 +220,15 @@ class AccentElementsTest {
         every { mockScheme.getAttributes(any<TextAttributesKey>()) } returns null
         every { mockScheme.setAttributes(any<TextAttributesKey>(), capture(attributesSlot)) } just Runs
 
-        val element = MatchingTagElement()
-        element.apply(testColor)
+        JBColor.setDark(true)
+        try {
+            val element = MatchingTagElement()
+            element.apply(testColor)
 
-        assertEquals(Color(0x49, 0x44, 0x3A), attributesSlot.captured.backgroundColor)
+            assertEquals(Color(0x49, 0x44, 0x3A), attributesSlot.captured.backgroundColor)
+        } finally {
+            JBColor.setDark(false)
+        }
     }
 
     @Test

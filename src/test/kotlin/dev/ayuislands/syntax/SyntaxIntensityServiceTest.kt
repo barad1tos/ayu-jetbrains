@@ -8,6 +8,7 @@ import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.ui.JBColor
 import com.intellij.util.ThrowableRunnable
 import com.intellij.util.messages.MessageBus
 import dev.ayuislands.licensing.LicenseChecker
@@ -191,8 +192,13 @@ class SyntaxIntensityServiceTest {
         // Force Mirage to surface the platform sentinel; the service must
         // substitute RgbBlend.fallbackEditorBgFor("Mirage").
         every { mockMirage.defaultBackground } returns Color.WHITE
-        SyntaxIntensityService().apply(SyntaxPreset.WHISPER, emptyMap())
-        verify(exactly = 1) { RgbBlend.fallbackEditorBgFor("Mirage") }
+        JBColor.setDark(true)
+        try {
+            SyntaxIntensityService().apply(SyntaxPreset.WHISPER, emptyMap())
+            verify(exactly = 1) { RgbBlend.fallbackEditorBgFor("Mirage") }
+        } finally {
+            JBColor.setDark(false)
+        }
     }
 
     // ---------- Test 6: R-1 fallback skipped for Light variant + WHITE bg ----------

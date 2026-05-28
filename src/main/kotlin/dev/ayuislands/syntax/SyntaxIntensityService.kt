@@ -8,7 +8,6 @@ import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
-import com.intellij.ui.JBColor
 import dev.ayuislands.licensing.LicenseChecker
 import java.awt.Color
 import java.util.concurrent.ConcurrentHashMap
@@ -185,7 +184,7 @@ class SyntaxIntensityService {
             }
             return raw
         }
-        return if (raw.rgb == JBColor.WHITE.rgb && variantTag in DARK_OVERLAY_VARIANTS) {
+        return if (raw.rgb == Color.WHITE.rgb && variantTag in DARK_OVERLAY_VARIANTS) {
             RgbBlend.fallbackEditorBgFor(variantTag)
         } else {
             raw

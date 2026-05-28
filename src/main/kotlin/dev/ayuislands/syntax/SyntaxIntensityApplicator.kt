@@ -3,7 +3,6 @@ package dev.ayuislands.syntax
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
-import com.intellij.ui.JBColor
 import dev.ayuislands.accent.color.AccentHsl
 import dev.ayuislands.rotation.HslColor
 import java.awt.Color
@@ -280,7 +279,7 @@ object SyntaxIntensityApplicator {
         variantName: String,
         editorBg: Color,
     ) {
-        if (editorBg.rgb == JBColor.WHITE.rgb &&
+        if (editorBg.rgb == Color.WHITE.rgb &&
             variantName in darkVariants &&
             warnedBgFallback.add(variantName)
         ) {
