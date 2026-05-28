@@ -21,6 +21,7 @@
     <ID>ForbiddenMethodCall:QuickSwitcherPremiumBlockGateTest.kt$QuickSwitcherPremiumBlockGateTest$loadFile(File(POPUP_SOURCE_PATH))</ID>
     <ID>ForbiddenMethodCall:QuickSwitcherWidgetActionRegistrationTest.kt$QuickSwitcherWidgetActionRegistrationTest$readText()</ID>
     <ID>ForbiddenMethodCall:SettingsConfigurableSyntaxTabWiringTest.kt$SettingsConfigurableSyntaxTabWiringTest$readString( Path.of("src/main/kotlin/dev/ayuislands/settings/AyuIslandsConfigurable.kt"), )</ID>
+    <ID>ForbiddenMethodCall:SnapshotAssert.kt$SnapshotAssert$readText()</ID>
     <ID>ForbiddenMethodCall:StickyLinesSchemeKeysTest.kt$StickyLinesSchemeKeysTest$readText()</ID>
     <ID>ForbiddenMethodCall:SyntaxIntensityMigrationNotifierTest.kt$SyntaxIntensityMigrationNotifierTest$loadFile(File("src/main/resources/META-INF/plugin.xml"))</ID>
     <ID>ForbiddenMethodCall:VcsDiffSchemeColorsTest.kt$VcsDiffSchemeColorsTest$readText()</ID>
