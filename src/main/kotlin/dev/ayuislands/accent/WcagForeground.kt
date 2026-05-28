@@ -41,7 +41,15 @@ object WcagForeground {
     // agree on the canonical dark foreground without a cross-import. Black is
     // the last-resort high-contrast candidate for unusually light tinted
     // surfaces.
-    private val palette = listOf(JBColor.WHITE, JBColor(DARK_FOREGROUND_HEX, DARK_FOREGROUND_HEX), JBColor.BLACK)
+    //
+    // Do not use JBColor.WHITE / JBColor.BLACK here: those are semantic UI
+    // colors. In dark LAFs JBColor.WHITE resolves to JBColor.background(), which
+    // makes the contrast math treat "white" as a dark panel color and can pick
+    // #1F2430 for status-bar text. Same-light/same-dark JBColor instances keep
+    // the IntelliJ color type while preserving literal contrast candidates.
+    private val literalWhite = JBColor(WHITE_HEX, WHITE_HEX)
+    private val literalBlack = JBColor(BLACK_HEX, BLACK_HEX)
+    private val palette = listOf(literalWhite, JBColor(DARK_FOREGROUND_HEX, DARK_FOREGROUND_HEX), literalBlack)
 
     // Light-family palette (no BLACK) for chrome surfaces the plugin
     // semantically owns as "tinted dark bands" (status bar foregrounds). Without
@@ -50,7 +58,7 @@ object WcagForeground {
     // passes 4.5:1 there while WHITE drops to ~4:1 — the picker is doing its job,
     // but on a chrome surface meant to read as dark the user expects light text.
     // Restricting the palette preserves the "always-light" contract.
-    private val lightFamilyPalette = listOf(JBColor.WHITE, JBColor(DARK_FOREGROUND_HEX, DARK_FOREGROUND_HEX))
+    private val lightFamilyPalette = listOf(literalWhite, JBColor(DARK_FOREGROUND_HEX, DARK_FOREGROUND_HEX))
 
     /**
      * Returns the first palette color whose WCAG 2.1 contrast ratio against
@@ -160,4 +168,7 @@ object WcagForeground {
 
     /** Ayu dark-foreground literal (shared with AccentApplicator's contrast-foreground pick). */
     private const val DARK_FOREGROUND_HEX = 0x1F2430
+
+    private const val WHITE_HEX = 0xFFFFFF
+    private const val BLACK_HEX = 0x000000
 }

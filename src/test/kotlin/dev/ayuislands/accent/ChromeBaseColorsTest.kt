@@ -100,6 +100,38 @@ class ChromeBaseColorsTest {
     }
 
     @Test
+    fun `refresh does not recapture plugin tint as the stock baseline`() {
+        val pluginTint = Color(0x43, 0x86, 0x93)
+
+        assertEquals(statusBarStock, ChromeBaseColors["StatusBar.background"])
+        ChromeBaseColors.rememberPluginTint("StatusBar.background", pluginTint)
+
+        // Listener-order regression: a late LAF event clears the cache after
+        // this plugin already wrote the tint. The next apply must recover the
+        // original stock base, not compound from the tinted value.
+        every { UIManager.getColor("StatusBar.background") } returns pluginTint
+        ChromeBaseColors.refresh()
+
+        val reCaptured = ChromeBaseColors["StatusBar.background"]
+        assertEquals(statusBarStock, reCaptured)
+    }
+
+    @Test
+    fun `refresh captures new stock when current color differs from plugin tint`() {
+        val pluginTint = Color(0x43, 0x86, 0x93)
+        val newThemeStock = Color(0x2E, 0x35, 0x44)
+
+        assertEquals(statusBarStock, ChromeBaseColors["StatusBar.background"])
+        ChromeBaseColors.rememberPluginTint("StatusBar.background", pluginTint)
+
+        every { UIManager.getColor("StatusBar.background") } returns newThemeStock
+        ChromeBaseColors.refresh()
+
+        val reCaptured = ChromeBaseColors["StatusBar.background"]
+        assertEquals(newThemeStock, reCaptured)
+    }
+
+    @Test
     fun `get returns null when UIManager has no entry for the key`() {
         assertNull(ChromeBaseColors["Missing.key"])
     }

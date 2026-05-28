@@ -75,6 +75,7 @@ abstract class AbstractChromeElement : AccentElement {
             val baseColor = ChromeBaseColors[key] ?: continue
             val tinted = ChromeTintBlender.blend(color, baseColor, intensity)
             UIManager.put(key, tinted)
+            ChromeBaseColors.rememberPluginTint(key, tinted)
             tintedBackgrounds[key] = tinted
         }
         onBackgroundsTinted(tintedBackgrounds)
@@ -88,6 +89,7 @@ abstract class AbstractChromeElement : AccentElement {
     override fun revert() {
         for (key in backgroundKeys) {
             UIManager.put(key, null)
+            ChromeBaseColors.forgetPluginTint(key)
         }
         for (key in foregroundKeys) {
             UIManager.put(key, null)

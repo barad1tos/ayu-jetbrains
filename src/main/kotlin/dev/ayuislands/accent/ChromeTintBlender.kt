@@ -57,10 +57,15 @@ object ChromeTintBlender {
     private const val GREEN_SHIFT = 8
 
     /**
-     * Luma-preserving hue replacement between [baseColor] and [accent].
+     * Luma-preserving hue blend between [baseColor] and [accent].
      *
-     * HSB-space blend rather than per-channel RGB lerp so every chrome surface
-     * receives the SAME accent hue regardless of how its stock base hue drifts:
+     * HSB-space blend rather than per-channel RGB lerp so high-intensity chrome
+     * surfaces converge on the same accent hue without flattening their original
+     * luminance hierarchy. The hue itself ramps faster than saturation /
+     * brightness because the user-visible slider caps at [TintIntensity.MAX]:
+     * a low value (10) stays visually close to stock, while max visible intensity
+     * reaches the accent hue.
+     *
      *  1. Read `intensity.percent` — already clamped to the user-visible
      *     slider range by the [TintIntensity] constructor. The blender still
      *     coerces into `[0, 100]` as a math-safety floor in case the wrapper
@@ -69,7 +74,8 @@ object ChromeTintBlender {
      *     the base's hue + saturation + brightness (`base.H`, `base.S`,
      *     `base.B`) via [Color.RGBtoHSB].
      *  3. Synthesise the output via [Color.getHSBColor]:
-     *       - **H** replaced outright by `accent.H` (uniform hue across surfaces)
+     *       - **H** circular-lerped from `base.H` to `accent.H` by
+     *         `intensity / TintIntensity.MAX`
      *       - **S** lerped from `base.S` toward `accent.S × SATURATION_DAMP`
      *         by `intensity / 100` (ramps chroma with the slider)
      *       - **B** lerped from `base.B` toward `accent.B` by
@@ -120,7 +126,8 @@ object ChromeTintBlender {
         // brightness (weighted by BRIGHTNESS_PULL_RATIO) — restores slider
         // visibility on dark Mirage bases while mostly preserving the luma
         // hierarchy at default intensity ≤ 40.
-        val outputHue = accentHsb[0]
+        val hueRatio = clamped.toFloat() / TintIntensity.MAX
+        val outputHue = lerpHue(baseHsb[0], accentHsb[0], hueRatio.coerceIn(0f, 1f))
         val outputSaturation = baseHsb[1] + (accentHsb[1] * SATURATION_DAMP - baseHsb[1]) * ratio
         val outputBrightness =
             baseHsb[2] + (accentHsb[2] - baseHsb[2]) * ratio * BRIGHTNESS_PULL_RATIO
@@ -137,4 +144,22 @@ object ChromeTintBlender {
             outputBrightness.coerceIn(0f, 1f),
         )
     }
+
+    private fun lerpHue(
+        from: Float,
+        to: Float,
+        ratio: Float,
+    ): Float {
+        var delta = to - from
+        if (delta > HUE_HALF_TURN) {
+            delta -= HUE_FULL_TURN
+        } else if (delta < -HUE_HALF_TURN) {
+            delta += HUE_FULL_TURN
+        }
+        val hue = from + delta * ratio
+        return (hue % HUE_FULL_TURN + HUE_FULL_TURN) % HUE_FULL_TURN
+    }
+
+    private const val HUE_HALF_TURN = 0.5f
+    private const val HUE_FULL_TURN = 1.0f
 }
