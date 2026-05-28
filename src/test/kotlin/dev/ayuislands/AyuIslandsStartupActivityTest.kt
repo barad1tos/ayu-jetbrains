@@ -20,19 +20,19 @@ import kotlin.test.assertTrue
 /**
  * Locks in the [AyuIslandsStartupActivity.runStep] catch contract:
  *
- *  - [RuntimeException] → logged, swallowed, next call would proceed
- *  - [VirtualMachineError] → logged then rethrown so the JVM crash reporter still gets it
- *  - other [Error] → logged, swallowed (LinkageError / NoClassDefFoundError from optional
+ *  - [RuntimeException] -> logged, swallowed, next call would proceed
+ *  - [VirtualMachineError] -> logged then rethrown so the JVM crash reporter still gets it
+ *  - other [Error] -> logged, swallowed (LinkageError / NoClassDefFoundError from optional
  *    plugin deps shouldn't abort plugin startup)
  *
- * The split is non-trivial — a future widening of the Error catch to omit the rethrow
+ * The split is non-trivial - a future widening of the Error catch to omit the rethrow
  * (or narrowing it past LinkageError) would silently change startup behavior. These
  * tests freeze the contract.
  */
 class AyuIslandsStartupActivityTest {
     private val activity = AyuIslandsStartupActivity()
 
-    // No @AfterTest needed — LoggedErrorProcessor.executeWith restores the default
+    // No @AfterTest needed - LoggedErrorProcessor.executeWith restores the default
     // processor at block end, and we don't mockkStatic/mockkObject anything global.
 
     @Test
@@ -76,7 +76,7 @@ class AyuIslandsStartupActivityTest {
         // LinkageError / NoClassDefFoundError typically surface a class-loading issue in
         // an individual step's transitive closure (e.g. a Kotlin stdlib mismatch from a
         // lazily-loaded service). The plugin's remaining steps should continue
-        // independently — otherwise one class-load glitch silently kills all subsequent
+        // independently - otherwise one class-load glitch silently kills all subsequent
         // steps.
         val captured = mutableListOf<Pair<String, Throwable?>>()
         val processor = capturingProcessor(captured)
@@ -99,7 +99,7 @@ class AyuIslandsStartupActivityTest {
         // `withContext(Dispatchers.EDT)` wrap the call throws a threading assertion
         // inside the IDE under fleetMode / assertions.
         //
-        // The invariant is source-level — dynamically invoking execute() requires a project
+        // The invariant is source-level - dynamically invoking execute() requires a project
         // fixture, DumbService, LafManager, and a fully wired message bus, none of which are
         // available in a plain unit test. We enforce the wrap statically so a future refactor
         // cannot silently unwrap it without this test failing.
@@ -124,20 +124,20 @@ class AyuIslandsStartupActivityTest {
             )
         assertTrue(
             edtBlock.containsMatchIn(source),
-            "AccentApplicator.resolveFocusedProject must be invoked inside withContext(Dispatchers.EDT) { … }",
+            "AccentApplicator.resolveFocusedProject must be invoked inside withContext(Dispatchers.EDT) { ... }",
         )
     }
 
     @Test
     fun `execute publishes swap-service cache inside the same EDT withContext block`() {
         // Regression guard: `ProjectAccentSwapService` has an EDT precondition for
-        // `notifyExternalApply` (per `AccentApplicator.applyForFocusedProject` KDoc —
+        // `notifyExternalApply` (per `AccentApplicator.applyForFocusedProject` KDoc -
         // the cache write is a bare volatile with no dispatch and must publish in the
         // same ordering as the apply that preceded it).
         //
         // Install and notifyExternalApply later split into two
         // `runCatchingPreservingCancellation` blocks for better error attribution,
-        // so the regex tolerates intermediate braces — the only invariant that
+        // so the regex tolerates intermediate braces - the only invariant that
         // matters is that all four operations appear in order inside the EDT turn,
         // not that they share a single inner block.
         val source = readStartupActivitySource()
@@ -151,8 +151,8 @@ class AyuIslandsStartupActivityTest {
             )
         assertTrue(
             edtTriplet.containsMatchIn(source),
-            "resolveFocusedProject → apply → install → notifyExternalApply must all run " +
-                "inside the same withContext(Dispatchers.EDT) { … } turn",
+            "resolveFocusedProject -> apply -> install -> notifyExternalApply must all run " +
+                "inside the same withContext(Dispatchers.EDT) { ... } turn",
         )
     }
 
@@ -177,7 +177,7 @@ class AyuIslandsStartupActivityTest {
             source.contains("Startup accent-swap cache publish (notifyExternalApply) failed for"),
             "notifyExternalApply branch must have its own distinct ERROR message",
         )
-        // And the old bundled wording must NOT reappear — that's the swap-back regression.
+        // And the old bundled wording must NOT reappear - that's the swap-back regression.
         assertEquals(
             false,
             source.contains("Startup accent-swap install/notify failed"),
@@ -201,7 +201,7 @@ class AyuIslandsStartupActivityTest {
             )
         assertTrue(
             disposedBail.containsMatchIn(source),
-            "Disposal bail must be the first statement inside withContext(Dispatchers.EDT) { … }",
+            "Disposal bail must be the first statement inside withContext(Dispatchers.EDT) { ... }",
         )
     }
 
@@ -210,7 +210,7 @@ class AyuIslandsStartupActivityTest {
         // Regression lock. `projectName` MUST be captured OUTSIDE
         // `withContext(Dispatchers.EDT)` so a mid-hop disposal cannot NPE
         // inside the error logger and swallow the original exception.
-        // Tempting to move it inside since `projectName` is only read there —
+        // Tempting to move it inside since `projectName` is only read there -
         // this guard catches that.
         val source = readStartupActivitySource()
         val beforeEdt =
@@ -255,7 +255,7 @@ class AyuIslandsStartupActivityTest {
         // `if (!installed) return@withContext` short-circuit between them. A
         // "simplify" refactor that collapses them back into one block would
         // keep both error literals (as dead code inside one `runCatching` body)
-        // while silently restoring the bug — publish to swap cache despite a
+        // while silently restoring the bug - publish to swap cache despite a
         // failed install. Lock the structural pattern.
         val source = readStartupActivitySource()
         val structural =
@@ -279,7 +279,7 @@ class AyuIslandsStartupActivityTest {
         // false and the function MUST `return@withContext` before
         // `swapService.notifyExternalApply(...)` executes. Behavioural form is
         // impossible here (`runStartupAccentOnEdt` is a private suspend fun
-        // that touches `Dispatchers.EDT` + IntelliJ platform singletons —
+        // that touches `Dispatchers.EDT` + IntelliJ platform singletons -
         // there is no test seam that exercises it in a unit harness). The
         // contract is locked source-structurally: the
         // `if (!installed) return@withContext` guard must sit between the
@@ -327,7 +327,7 @@ class AyuIslandsStartupActivityTest {
             )
         assertTrue(
             isSuccessInNullBranch.containsMatchIn(source),
-            "isSuccess check must sit INSIDE the `if (hex == null)` block — " +
+            "isSuccess check must sit INSIDE the `if (hex == null)` block - " +
                 "that distinguishes Success(null=rejected) from Failure(throw)",
         )
     }
@@ -339,19 +339,19 @@ class AyuIslandsStartupActivityTest {
         // [AccentApplicator.apply]'s `@RequiresEdt` annotation and its KDoc
         // explicitly stating the helper does NOT self-dispatch pre-apply steps.
         // A future maintainer reading the false comment would be tempted to
-        // unwrap the `withContext` — exactly the regression this guard prevents.
+        // unwrap the `withContext` - exactly the regression this guard prevents.
         val source = readStartupActivitySource()
         assertEquals(
             false,
             source.contains("apply self-dispatches internally"),
-            "Stale/false 'apply self-dispatches internally' comment must not reappear — " +
+            "Stale/false 'apply self-dispatches internally' comment must not reappear - " +
                 "AccentApplicator.apply is @RequiresEdt and requires callers to already be on EDT",
         )
     }
 
     // Lock the full 5-step order inside `runStartupAccentOnEdt`:
-    // `resolveFocusedProject` → `AccentResolver.resolve` → `AccentApplicator.apply`
-    // → `swapService.install` → `swapService.notifyExternalApply`. The existing
+    // `resolveFocusedProject` -> `AccentResolver.resolve` -> `AccentApplicator.apply`
+    // -> `swapService.install` -> `swapService.notifyExternalApply`. The existing
     // "same EDT withContext block" test covers the last four; this one adds
     // `AccentResolver.resolve` between them so a future refactor that drops
     // the resolver step (and hands a stale accent hex directly to apply)
@@ -370,8 +370,8 @@ class AyuIslandsStartupActivityTest {
             )
         assertTrue(
             fullOrder.containsMatchIn(source),
-            "runStartupAccentOnEdt must invoke resolveFocusedProject → AccentResolver.resolve → " +
-                "AccentApplicator.apply → swapService.install → swapService.notifyExternalApply in order",
+            "runStartupAccentOnEdt must invoke resolveFocusedProject -> AccentResolver.resolve -> " +
+                "AccentApplicator.apply -> swapService.install -> swapService.notifyExternalApply in order",
         )
     }
 
@@ -398,7 +398,7 @@ class AyuIslandsStartupActivityTest {
     }
 
     @Test
-    fun `applyPersistedVcsColors — gate-off when master is false (vcsColorEnabled=false) — applier NOT invoked`() {
+    fun `applyPersistedVcsColors - gate-off when master is false (vcsColorEnabled=false) - applier NOT invoked`() {
         val state = AyuIslandsState().apply { vcsColorEnabled = false }
         val settings = mockk<AyuIslandsSettings>()
         every { settings.state } returns state
@@ -416,7 +416,7 @@ class AyuIslandsStartupActivityTest {
     }
 
     @Test
-    fun `applyPersistedVcsColors — gate-off when unlicensed (license false) — applier NOT invoked`() {
+    fun `applyPersistedVcsColors - gate-off when unlicensed (license false) - applier NOT invoked`() {
         val state = AyuIslandsState().apply { vcsColorEnabled = true }
         val settings = mockk<AyuIslandsSettings>()
         every { settings.state } returns state
@@ -434,7 +434,7 @@ class AyuIslandsStartupActivityTest {
     }
 
     @Test
-    fun `applyPersistedVcsColors — both gates pass — applier invoked exactly once`() {
+    fun `applyPersistedVcsColors - both gates pass - applier invoked exactly once`() {
         val state = AyuIslandsState().apply { vcsColorEnabled = true }
         val settings = mockk<AyuIslandsSettings>()
         every { settings.state } returns state
@@ -452,7 +452,7 @@ class AyuIslandsStartupActivityTest {
     }
 
     @Test
-    fun `applyPersistedVcsColors — runStep wraps the call — RuntimeException is logged-and-swallowed`() {
+    fun `applyPersistedVcsColors - runStep wraps the call - RuntimeException is logged-and-swallowed`() {
         // Production wraps `applyPersistedVcsColors(settings)` in
         // `runStep("apply-persisted-vcs-colors") { ... }` (line 208). The
         // runStep contract (locked by the existing tests at the top of this
@@ -472,7 +472,7 @@ class AyuIslandsStartupActivityTest {
         val processor = capturingProcessor(captured)
         try {
             LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
-                // Should NOT throw — runStep is required to swallow RuntimeException.
+                // Should NOT throw - runStep is required to swallow RuntimeException.
                 runVcsGateMirror(settings)
             }
             assertEquals(1, captured.size, "RuntimeException must be logged exactly once")
@@ -508,13 +508,13 @@ class AyuIslandsStartupActivityTest {
             productionGate.containsMatchIn(source),
             "applyPersistedVcsColors gate must remain `if (state.vcsColorEnabled " +
                 "&& LicenseChecker.isLicensedOrGrace()) { VcsColorApplier.applyAll() }` " +
-                "— gate-coverage tests in this file mirror that shape via runStepForTest",
+                "- gate-coverage tests in this file mirror that shape via runStepForTest",
         )
         // The runStep wrap at the call site must also remain so the
         // logged-and-swallowed test stays representative.
         assertTrue(
             source.contains("""runStep("apply-persisted-vcs-colors") { applyPersistedVcsColors(settings) }"""),
-            "applyPersistedVcsColors must remain wrapped in runStep(\"apply-persisted-vcs-colors\") { … }",
+            "applyPersistedVcsColors must remain wrapped in runStep(\"apply-persisted-vcs-colors\") { ... }",
         )
     }
 

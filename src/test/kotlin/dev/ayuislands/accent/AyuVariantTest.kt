@@ -146,6 +146,13 @@ class AyuVariantTest {
         assertNull(AyuVariant.detect())
     }
 
+    @Test
+    fun `detect returns null when current LAF is not initialized`() {
+        every { lafManager.currentUIThemeLookAndFeel } returns null
+
+        assertNull(AyuVariant.detect())
+    }
+
     // `isAyuActive()` is the canonical Pattern J lifecycle predicate every
     // integration funnels through. These tests pin its behavior so a future agent
     // who reroutes integrations through `AyuVariant.detect() != null` (the older
@@ -208,6 +215,13 @@ class AyuVariantTest {
         val themeLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
         every { themeLaf.name } returns "Darcula"
         every { lafManager.currentUIThemeLookAndFeel } returns themeLaf
+
+        assertFalse(AyuVariant.isIslandsUi())
+    }
+
+    @Test
+    fun `isIslandsUi returns false when current LAF is not initialized`() {
+        every { lafManager.currentUIThemeLookAndFeel } returns null
 
         assertFalse(AyuVariant.isIslandsUi())
     }

@@ -17,8 +17,7 @@ import dev.ayuislands.settings.mappings.ProjectAccentSwapService
  * Writes the app-level personal-pin map:
  * `AccentMappingsSettings.state.projectAccents[key] = hex`. A future split
  * into a Shared (`.idea/`) vs Personal (app-level) lane is planned — the
- * follow-up marker below pins the integration point and is held by
- * `PinAccentActionTest` so it cannot be removed without a conscious decision.
+ * follow-up marker below keeps the integration point discoverable.
  *
  * Premium gate via Pattern J two-level predicate
  * (`AyuVariant.isAyuActive() && LicenseChecker.isLicensedOrGrace()`) on every

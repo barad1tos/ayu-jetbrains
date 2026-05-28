@@ -1,8 +1,7 @@
 package dev.ayuislands.glow
 
-import java.nio.file.Files
-import java.nio.file.Path
-import java.nio.file.Paths
+import com.intellij.openapi.util.io.FileUtil
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.fail
 
@@ -25,32 +24,23 @@ import kotlin.test.fail
  */
 class GlowLifecycleGuardTest {
     private val source: String by lazy {
-        val path: Path =
-            Paths.get(
+        val file =
+            File(
                 System.getProperty("user.dir"),
-                "src",
-                "main",
-                "kotlin",
-                "dev",
-                "ayuislands",
-                "glow",
-                "GlowOverlayManager.kt",
+                "src/main/kotlin/dev/ayuislands/glow/GlowOverlayManager.kt",
             )
-        stripComments(Files.readString(path))
+        stripComments(FileUtil.loadFile(file))
     }
 
     private fun stripComments(input: String): String {
         val noBlock = input.replace(Regex("/\\*[\\s\\S]*?\\*/"), "")
         return noBlock
             .lineSequence()
-            .map { line -> line.replaceFirst(Regex("//.*$"), "") }
-            .joinToString("\n")
+            .joinToString("\n") { line -> line.replaceFirst(Regex("//.*$"), "") }
     }
 
-    private fun extractFunctionBody(
-        source: String,
-        signaturePrefix: String,
-    ): String {
+    private fun extractUpdateGlowBody(): String {
+        val signaturePrefix = "fun updateGlow("
         val start = source.indexOf(signaturePrefix)
         require(start >= 0) { "Could not locate '$signaturePrefix' in stripped source" }
         val openBrace = source.indexOf('{', start)
@@ -70,7 +60,7 @@ class GlowLifecycleGuardTest {
 
     @Test
     fun `updateGlow body contains isAyuActive guard before removeAllOverlays and return`() {
-        val body = extractFunctionBody(source, "fun updateGlow(")
+        val body = extractUpdateGlowBody()
         // The guardPattern matches `!AyuVariant.isAyuActive()` followed by
         // `removeAllOverlays()` followed by `return`, with arbitrary whitespace
         // and the surrounding `if (...) { ... }` braces between them. A regex

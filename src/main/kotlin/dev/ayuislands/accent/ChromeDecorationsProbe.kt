@@ -32,18 +32,23 @@ import javax.swing.UIManager
  * ### OS dispatch seam
  *
  * `SystemInfo.isMac/isWindows/isLinux` are `public static final boolean` JVM fields and
- * cannot be mocked with mockk (see `SystemAccentProviderTest` for the precedent). The
- * probe therefore funnels OS detection through [osSupplier], an overridable seam in the
- * same shape as `LicenseChecker.nowMsSupplier`. Tests pin [osSupplier] to the desired
- * branch and must call [resetOsSupplierForTests] in `@AfterTest` to restore production
- * behavior. The override is held in a [ThreadLocal] so parallel JUnit workers cannot
- * leak a pinned OS from one test into a concurrent sibling.
+ * cannot be replaced by the test mocking library (see `SystemAccentProviderTest` for the
+ * precedent). The probe therefore funnels OS detection through [osSupplier], an overridable
+ * seam in the same shape as `LicenseChecker.nowMsSupplier`. Tests pin [osSupplier] to the
+ * desired branch and must call [resetOsSupplierForTests] in `@AfterTest` to restore
+ * production behavior. The override is held in a [ThreadLocal] so parallel JUnit workers
+ * cannot leak a pinned OS from one test into a concurrent sibling.
  */
 object ChromeDecorationsProbe {
     private const val MAC_UNIFIED_KEY = "TitlePane.unifiedBackground"
-    private const val MAC_REGISTRY_KEY = "ide.mac.transparentTitleBarAppearance"
+
+    @VisibleForTesting
+    internal const val MAC_REGISTRY_KEY = "ide.mac.transparentTitleBarAppearance"
+
     private const val WINDOWS_HEADER_KEY = "CustomWindowHeader"
-    private const val LINUX_REGISTRY_KEY = "ide.linux.custom.title.bar"
+
+    @VisibleForTesting
+    internal const val LINUX_REGISTRY_KEY = "ide.linux.custom.title.bar"
 
     /** OS branches the probe dispatches over; `UNKNOWN` is the safe-default else branch. */
     enum class Os { MAC, WINDOWS, LINUX, UNKNOWN }
@@ -51,7 +56,7 @@ object ChromeDecorationsProbe {
     /**
      * Pure OS-dispatch function extracted from the default supplier so tests can
      * exercise every branch without having to mock `SystemInfo`'s final static
-     * fields (which mockk cannot touch — see class KDoc). Default args read
+     * fields, which tests cannot mutate directly. Default args read
      * [SystemInfo] so production behaviour is unchanged; tests pass explicit
      * booleans to reach the [Os.WINDOWS], [Os.LINUX], and [Os.UNKNOWN] branches.
      */

@@ -1,6 +1,5 @@
 package dev.ayuislands.accent.toolbar.popup
 
-import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AyuVariant
 import java.awt.Container
@@ -219,13 +218,6 @@ class SegmentedControlTest {
             deselectedArgb,
             "Selected vs non-selected paint must differ (fill + label colour both change)",
         )
-        // Sanity: at least one of `Label.foreground` / `disabledForeground` must
-        // resolve to a non-null Color in this LAF for the assertion above to
-        // carry semantic weight.
-        val fgPresent =
-            JBColor.namedColor("Label.foreground", JBColor.foreground()) != null ||
-                JBUI.CurrentTheme.Label.disabledForeground() != null
-        assertTrue(fgPresent, "At least one label-foreground LAF key must resolve to a Color")
     }
 
     @Test

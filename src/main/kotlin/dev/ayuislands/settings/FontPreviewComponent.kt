@@ -1,5 +1,6 @@
 package dev.ayuislands.settings
 
+import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.font.FontDetector
 import dev.ayuislands.font.FontPreset
@@ -83,7 +84,7 @@ class FontPreviewComponent : JComponent() {
 
             val bg =
                 UIManager.getColor("Panel.background")?.darker()
-                    ?: java.awt.Color.DARK_GRAY
+                    ?: JBColor.DARK_GRAY
             g2.color = bg
             g2.fillRoundRect(0, 0, width, height, ARC, ARC)
 
@@ -100,7 +101,7 @@ class FontPreviewComponent : JComponent() {
     private fun drawFallbackMessage(g2: Graphics2D) {
         val disabledFg =
             UIManager.getColor("Label.disabledForeground")
-                ?: java.awt.Color.GRAY
+                ?: JBColor.GRAY
         g2.color = disabledFg
         g2.font = JBUI.Fonts.smallFont().deriveFont(Font.ITALIC)
         // Curated presets advertise their canonical family as the install
@@ -133,7 +134,7 @@ class FontPreviewComponent : JComponent() {
             attributes[TextAttribute.LIGATURES] = TextAttribute.LIGATURES_ON
         }
         g2.font = Font(attributes)
-        g2.color = UIManager.getColor("Label.foreground") ?: java.awt.Color.WHITE
+        g2.color = UIManager.getColor("Label.foreground") ?: JBColor.WHITE
         val metrics = g2.fontMetrics
         val lineHeight = (metrics.height * lineSpacing).toInt()
         var y = JBUI.scale(PADDING_TOP) + metrics.ascent

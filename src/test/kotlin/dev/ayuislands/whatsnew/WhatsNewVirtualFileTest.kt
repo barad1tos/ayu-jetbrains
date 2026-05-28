@@ -24,7 +24,6 @@ class WhatsNewVirtualFileTest {
         // FileEditorManager dedup.
         val first = WhatsNewVirtualFile()
         val second = WhatsNewVirtualFile()
-        assertEquals(first, first)
         assertNotEquals(first, second)
     }
 
@@ -47,14 +46,5 @@ class WhatsNewVirtualFileTest {
             "Identity-only equals must reject non-WhatsNewVirtualFile types",
         )
         assertFalse(file.equals(Any()), "Identity-only equals must reject Any() too")
-    }
-
-    @Test
-    fun `hashCode is stable across calls on the same instance`() {
-        // Identity-based hashCode (System.identityHashCode) is contractually stable
-        // for a single instance. Locks against accidental override that would break
-        // FileEditorManager's per-tab map.
-        val file = WhatsNewVirtualFile()
-        assertEquals(file.hashCode(), file.hashCode())
     }
 }

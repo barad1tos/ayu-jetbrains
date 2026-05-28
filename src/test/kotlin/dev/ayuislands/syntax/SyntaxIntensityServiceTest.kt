@@ -8,6 +8,7 @@ import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.ui.JBColor
 import com.intellij.util.ThrowableRunnable
 import com.intellij.util.messages.MessageBus
 import dev.ayuislands.licensing.LicenseChecker
@@ -27,7 +28,7 @@ import kotlin.test.assertFailsWith
 
 /**
  * Orchestration tests for [SyntaxIntensityService]. Reuses the prior
- * service-orchestrator MockK harness — mocks the three named Ayu schemes
+ * service-orchestrator MockK harness - mocks the three named Ayu schemes
  * via `EditorColorsManager.getScheme(...)` plus the active `globalScheme`,
  * verifies a single `ReadAction`-wrapped `globalSchemeChange` publish per
  * `apply()` invocation (R-7), and pins the R-1 fallback + service-layer
@@ -44,11 +45,11 @@ class SyntaxIntensityServiceTest {
     private lateinit var mockApp: Application
     private lateinit var loader: SyntaxOverlayLoader
     private lateinit var stateInstance: SyntaxIntensityState
-    private lateinit var keyCache: MutableMap<String, TextAttributesKey>
+    private val keyCache = mutableMapOf<String, TextAttributesKey>()
 
     @BeforeTest
     fun setUp() {
-        keyCache = mutableMapOf()
+        keyCache.clear()
         mockkStatic(TextAttributesKey::class)
         every { TextAttributesKey.find(any<String>()) } answers {
             val name = firstArg<String>()
@@ -88,7 +89,13 @@ class SyntaxIntensityServiceTest {
         }
 
         loader = mockk(relaxed = true)
-        val payload = mapOf(key("K1") to attrs(0xFF, 0xCC, 0x66))
+        val payload =
+            mapOf(
+                TextAttributesKey.find("K1") to
+                    TextAttributes().apply {
+                        foregroundColor = Color(0xFF, 0xCC, 0x66)
+                    },
+            )
         for (variant in listOf("Mirage", "Dark", "Light")) {
             every { loader.loadOverlayForVariant(variant) } returns payload
             every { loader.loadBaselineForVariant(variant) } returns payload
@@ -107,12 +114,12 @@ class SyntaxIntensityServiceTest {
         mockkObject(LicenseChecker)
         every { LicenseChecker.isLicensedOrGrace() } returns true
 
-        // R-1 fallback observer — overridden per test that needs to assert
+        // R-1 fallback observer - overridden per test that needs to assert
         // engagement; default keeps the stub silent.
         mockkObject(RgbBlend)
         every { RgbBlend.fallbackEditorBgFor(any()) } returns Color(0x1F, 0x24, 0x30)
 
-        // Applicator returns the same payload it received — the service is the
+        // Applicator returns the same payload it received - the service is the
         // unit under test, not the HSL math.
         mockkObject(SyntaxIntensityApplicator)
         every {
@@ -127,18 +134,7 @@ class SyntaxIntensityServiceTest {
         unmockkAll()
     }
 
-    private fun key(name: String): TextAttributesKey = TextAttributesKey.find(name)
-
-    private fun attrs(
-        r: Int,
-        g: Int,
-        b: Int,
-    ): TextAttributes =
-        TextAttributes().apply {
-            foregroundColor = Color(r, g, b)
-        }
-
-    // ---------- Test 1: H5 dual-write — 3 named schemes + active (or dedup) ----------
+    // ---------- Test 1: H5 dual-write - 3 named schemes + active (or dedup) ----------
 
     @Test
     fun `apply iterates all 3 named Ayu schemes and reads globalScheme (H5 dual-write entry)`() {
@@ -163,7 +159,7 @@ class SyntaxIntensityServiceTest {
         service.apply(SyntaxPreset.AMBIENT, emptyMap())
         service.apply(SyntaxPreset.AMBIENT, emptyMap())
         // Mirage + Dark still receive both apply calls' writes (verifies the
-        // null Light didn't block them) — Pattern A latch lives inside the
+        // null Light didn't block them) - Pattern A latch lives inside the
         // service, not asserted directly via the logger; the contract is that
         // the apply call continues after the missing scheme.
         verify(exactly = 2) { mockMirage.setAttributes(any(), any<TextAttributes>()) }
@@ -196,15 +192,20 @@ class SyntaxIntensityServiceTest {
         // Force Mirage to surface the platform sentinel; the service must
         // substitute RgbBlend.fallbackEditorBgFor("Mirage").
         every { mockMirage.defaultBackground } returns Color.WHITE
-        SyntaxIntensityService().apply(SyntaxPreset.WHISPER, emptyMap())
-        verify(exactly = 1) { RgbBlend.fallbackEditorBgFor("Mirage") }
+        JBColor.setDark(true)
+        try {
+            SyntaxIntensityService().apply(SyntaxPreset.WHISPER, emptyMap())
+            verify(exactly = 1) { RgbBlend.fallbackEditorBgFor("Mirage") }
+        } finally {
+            JBColor.setDark(false)
+        }
     }
 
     // ---------- Test 6: R-1 fallback skipped for Light variant + WHITE bg ----------
 
     @Test
     fun `R-1 fallback skipped for Light variant even when defaultBackground is white`() {
-        // Light's Color.WHITE IS correct — the fallback gate restricts engagement
+        // Light's Color.WHITE IS correct - the fallback gate restricts engagement
         // to DARK_OVERLAY_VARIANTS only.
         every { mockLight.defaultBackground } returns Color.WHITE
         // Mirage + Dark are seeded with realistic dark backgrounds in setUp,
@@ -248,7 +249,7 @@ class SyntaxIntensityServiceTest {
     // ---------- Test 8: H5 identity dedup (active === named) ----------
 
     @Test
-    fun `H5 identity dedup — Mirage is written exactly once when globalScheme is Mirage`() {
+    fun `H5 identity dedup - Mirage is written exactly once when globalScheme is Mirage`() {
         // Default setUp already wires globalScheme to mockMirage; this test
         // is the explicit assertion of the dedup contract.
         SyntaxIntensityService().apply(SyntaxPreset.AMBIENT, emptyMap())
@@ -258,7 +259,7 @@ class SyntaxIntensityServiceTest {
     // ---------- Test 9: Pattern B per-key write isolation ----------
 
     @Test
-    fun `Pattern B — apply continues after RuntimeException on one scheme write`() {
+    fun `Pattern B - apply continues after RuntimeException on one scheme write`() {
         every { mockMirage.setAttributes(any(), any<TextAttributes>()) } throws RuntimeException("simulated")
         SyntaxIntensityService().apply(SyntaxPreset.WHISPER, emptyMap())
         verify(atLeast = 1) { mockDark.setAttributes(any(), any<TextAttributes>()) }
@@ -291,7 +292,7 @@ class SyntaxIntensityServiceTest {
         }
     }
 
-    // ---------- Test 11: CUSTOM gate licensed — passes through ----------
+    // ---------- Test 11: CUSTOM gate licensed - passes through ----------
 
     @Test
     fun `CUSTOM preset passes through when license is active`() {
@@ -307,7 +308,7 @@ class SyntaxIntensityServiceTest {
         }
     }
 
-    // ---------- Test 12: CUSTOM gate UNlicensed — normalises down ----------
+    // ---------- Test 12: CUSTOM gate unlicensed - normalises down ----------
 
     @Test
     fun `CUSTOM preset normalises to AMBIENT when unlicensed`() {
@@ -377,7 +378,7 @@ class SyntaxIntensityServiceTest {
         val service = SyntaxIntensityService()
         service.apply(SyntaxPreset.CUSTOM, mapOf("Java" to mapOf("KEYWORD" to 75)))
         service.apply(SyntaxPreset.CUSTOM, mapOf("Java" to mapOf("KEYWORD" to 75)))
-        // The Pattern A latch lives inside the service — the contract is
+        // The Pattern A latch lives inside the service - the contract is
         // that subsequent unlicensed CUSTOM calls still normalise (the
         // normalisation behaviour is repeatable; only the WARN log fires
         // once per session).

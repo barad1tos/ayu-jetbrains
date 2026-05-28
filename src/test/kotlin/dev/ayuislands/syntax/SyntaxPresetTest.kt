@@ -15,8 +15,8 @@ import org.junit.jupiter.api.Test
  *  - `fromName` and `detect` fall back to [SyntaxPreset.AMBIENT] for null /
  *    unknown / tampered persisted values (D-23 safety net).
  *
- * No reflection — direct `is` checks keep the suite dependency-free of
- * `kotlin-reflect`.
+ * No reflection — type-erased `is` checks keep the suite dependency-free of
+ * `kotlin-reflect` without compiler-known-true assertions.
  */
 class SyntaxPresetTest {
     @Test
@@ -65,7 +65,7 @@ class SyntaxPresetTest {
 
     @Test
     fun `SyntaxPreset entries implement the ColorPreset marker per revised D-11`() {
-        val whisper: ColorPreset = SyntaxPreset.WHISPER
+        val whisper: Any = SyntaxPreset.WHISPER
         assertTrue(whisper is ColorPreset)
     }
 

@@ -3,12 +3,9 @@ package dev.ayuislands.accent.color
 import com.intellij.ui.ColorUtil
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.rotation.HslColor
-import java.nio.file.Files
-import java.nio.file.Paths
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -17,6 +14,7 @@ import kotlin.test.assertTrue
  */
 class AccentHslTest {
     private val epsilon = 0.01f
+    private val hueRoundingTolerance = 0.25f
 
     @Test
     fun `lighten on pure black clamps to MIN_LIGHTNESS`() {
@@ -106,16 +104,14 @@ class AccentHslTest {
     }
 
     @Test
-    fun `source uses HslColor and NOT ColorUtil HSB-brightness shifters (algorithmic lock)`() {
-        // Algorithmic regression lock — a future refactor switching to
-        // ColorUtil.darker / ColorUtil.brighter would silently swap HSL for HSB
-        // and bend hue saturation. Read the source at test time and grep for
-        // the forbidden symbols.
-        val source = Files.readString(Paths.get("src/main/kotlin/dev/ayuislands/accent/color/AccentHsl.kt"))
-        assertTrue(source.contains("HslColor"), "AccentHsl source must reference HslColor")
-        assertFalse(
-            source.contains("ColorUtil.darker") || source.contains("ColorUtil.brighter"),
-            "AccentHsl source must NOT use ColorUtil.darker / ColorUtil.brighter (HSB) — HSL is mandated",
+    fun `lighten preserves hue and saturation on saturated accent`() {
+        val input = HslColor.fromColor(ColorUtil.fromHex("#FFCC66"))
+        val result = HslColor.fromColor(ColorUtil.fromHex(AccentHsl.lighten(AccentHex.unsafeOf("#FFCC66")).value))
+
+        assertTrue(abs(result.hue - input.hue) < hueRoundingTolerance, "Hue drifted from ${input.hue} to ${result.hue}")
+        assertTrue(
+            abs(result.saturation - input.saturation) < epsilon,
+            "Saturation drifted from ${input.saturation} to ${result.saturation}",
         )
     }
 

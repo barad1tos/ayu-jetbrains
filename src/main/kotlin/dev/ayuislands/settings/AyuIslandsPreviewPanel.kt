@@ -1,5 +1,7 @@
 package dev.ayuislands.settings
 
+import com.intellij.ui.ColorUtil
+import com.intellij.ui.JBColor
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentElementId
@@ -101,13 +103,13 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
 
                 val panelBackground =
                     UIManager.getColor("Panel.background")
-                        ?: Color(FALLBACK_BG_RED, FALLBACK_BG_GREEN, FALLBACK_BG_BLUE)
+                        ?: darculaAwareColor(FALLBACK_BG_RED, FALLBACK_BG_GREEN, FALLBACK_BG_BLUE)
                 val editorBackground = darken(panelBackground)
                 val mutedForeground =
                     UIManager.getColor("Label.disabledForeground")
-                        ?: Color(MUTED_FG_CHANNEL, MUTED_FG_CHANNEL, MUTED_FG_CHANNEL)
+                        ?: darculaAwareColor(MUTED_FG_CHANNEL, MUTED_FG_CHANNEL, MUTED_FG_CHANNEL)
                 val accent = parseColor(previewAccentHex)
-                val dimmedAccent = Color(accent.red, accent.green, accent.blue, DIMMED_ALPHA)
+                val dimmedAccent = ColorUtil.toAlpha(accent, DIMMED_ALPHA)
 
                 val width = width
                 val height = height
@@ -158,7 +160,7 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
                 // Caret row highlight -- line 1
                 drawWithAlpha(g2, AccentElementId.CARET_ROW) {
                     val caretColor = elementColor(AccentElementId.CARET_ROW, accent, dimmedAccent, mutedForeground)
-                    g2.color = Color(caretColor.red, caretColor.green, caretColor.blue, CARET_ROW_ALPHA)
+                    g2.color = ColorUtil.toAlpha(caretColor, CARET_ROW_ALPHA)
                     g2.fillRect(0, line1Y, width - scrollbarWidth, lineHeight)
                 }
 
@@ -170,7 +172,7 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
                 // Inlay hints (code vision: usages count after declaration)
                 drawWithAlpha(g2, AccentElementId.INLAY_HINTS) {
                     val hintColor = elementColor(AccentElementId.INLAY_HINTS, accent, dimmedAccent, mutedForeground)
-                    g2.color = Color(hintColor.red, hintColor.green, hintColor.blue, INLAY_HINT_ALPHA)
+                    g2.color = ColorUtil.toAlpha(hintColor, INLAY_HINT_ALPHA)
                     val hintText = "3 Usages"
                     val hintX = codeIndent + fm.stringWidth("fun main() {") + JBUI.scale(INLAY_HINT_GAP)
                     g2.drawString(hintText, hintX, line1Y + textOffsetY)
@@ -186,7 +188,7 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
                 drawWithAlpha(g2, AccentElementId.SEARCH_RESULTS) {
                     val searchColor =
                         elementColor(AccentElementId.SEARCH_RESULTS, accent, dimmedAccent, mutedForeground)
-                    g2.color = Color(searchColor.red, searchColor.green, searchColor.blue, SEARCH_HIGHLIGHT_ALPHA)
+                    g2.color = ColorUtil.toAlpha(searchColor, SEARCH_HIGHLIGHT_ALPHA)
                     g2.fillRect(
                         codeIndent + prefixWidth,
                         line2Y,
@@ -199,7 +201,7 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
                 drawWithAlpha(g2, AccentElementId.BRACKET_MATCH) {
                     val bracketColor =
                         elementColor(AccentElementId.BRACKET_MATCH, accent, dimmedAccent, mutedForeground)
-                    g2.color = Color(bracketColor.red, bracketColor.green, bracketColor.blue, BRACKET_ALPHA)
+                    g2.color = ColorUtil.toAlpha(bracketColor, BRACKET_ALPHA)
                     val openParenOffset = fm.stringWidth("  val x = ")
                     val openParenWidth = fm.stringWidth("(")
                     g2.fillRect(
@@ -267,7 +269,7 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
                 // Scrollbar thumb
                 drawWithAlpha(g2, AccentElementId.SCROLLBAR) {
                     val scrollColor = elementColor(AccentElementId.SCROLLBAR, accent, dimmedAccent, mutedForeground)
-                    g2.color = Color(scrollColor.red, scrollColor.green, scrollColor.blue, SCROLLBAR_ALPHA)
+                    g2.color = ColorUtil.toAlpha(scrollColor, SCROLLBAR_ALPHA)
                     val scrollThumbY = editorTop + JBUI.scale(SCROLL_THUMB_OFFSET)
                     val scrollThumbHeight = JBUI.scale(SCROLL_THUMB_HEIGHT)
                     g2.fillRoundRect(
@@ -287,7 +289,7 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
                     g2.color = progressColor
                     val progressWidth = (width * PROGRESS_WIDTH_FRACTION).toInt()
                     g2.fillRect(0, editorBottom, progressWidth, progressHeight)
-                    g2.color = Color(progressColor.red, progressColor.green, progressColor.blue, PROGRESS_TRACK_ALPHA)
+                    g2.color = ColorUtil.toAlpha(progressColor, PROGRESS_TRACK_ALPHA)
                     g2.fillRect(progressWidth, editorBottom, width - progressWidth, progressHeight)
                 }
 
@@ -339,7 +341,7 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
                 labelX.coerceIn(clampMargin, layout.width - labelWidth - clampMargin)
             val clampedY =
                 labelY.coerceIn(clampMargin, layout.height - labelHeight - clampMargin)
-            g2.color = Color(accent.red, accent.green, accent.blue, LABEL_ALPHA)
+            g2.color = ColorUtil.toAlpha(accent, LABEL_ALPHA)
             g2.fillRoundRect(clampedX, clampedY, labelWidth, labelHeight, LABEL_ARC, LABEL_ARC)
             g2.color = contrastTextColor(accent)
             g2.drawString(
@@ -355,7 +357,7 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
             tagColor: Color,
         ) {
             drawWithAlpha(g2, AccentElementId.MATCHING_TAG) {
-                g2.color = Color(tagColor.red, tagColor.green, tagColor.blue, TAG_HIGHLIGHT_ALPHA)
+                g2.color = ColorUtil.toAlpha(tagColor, TAG_HIGHLIGHT_ALPHA)
                 g2.fillRect(bounds.x, bounds.y, bounds.width + JBUI.scale(TAG_PADDING), bounds.height)
             }
         }
@@ -443,9 +445,9 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
                         BLUE_LUMINANCE_WEIGHT * background.blue
                 ) / MAX_COLOR_VALUE
             return if (luminance > LUMINANCE_THRESHOLD) {
-                Color(DARK_TEXT_RGB, DARK_TEXT_RGB, DARK_TEXT_RGB)
+                darculaAwareColor(DARK_TEXT_RGB, DARK_TEXT_RGB, DARK_TEXT_RGB)
             } else {
-                Color(LIGHT_TEXT_RGB, LIGHT_TEXT_RGB, LIGHT_TEXT_RGB)
+                darculaAwareColor(LIGHT_TEXT_RGB, LIGHT_TEXT_RGB, LIGHT_TEXT_RGB)
             }
         }
 
@@ -453,14 +455,23 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
             try {
                 Color.decode(hex)
             } catch (_: NumberFormatException) {
-                Color(FALLBACK_RED, FALLBACK_GREEN, FALLBACK_BLUE)
+                darculaAwareColor(FALLBACK_RED, FALLBACK_GREEN, FALLBACK_BLUE)
             }
 
         private fun darken(color: Color): Color {
             val red = (color.red * (1 - DARKEN_FACTOR)).toInt().coerceIn(0, MAX_COLOR_CHANNEL)
             val green = (color.green * (1 - DARKEN_FACTOR)).toInt().coerceIn(0, MAX_COLOR_CHANNEL)
             val blue = (color.blue * (1 - DARKEN_FACTOR)).toInt().coerceIn(0, MAX_COLOR_CHANNEL)
-            return Color(red, green, blue)
+            return darculaAwareColor(red, green, blue)
+        }
+
+        private fun darculaAwareColor(
+            red: Int,
+            green: Int,
+            blue: Int,
+        ): Color {
+            val rgb = (red shl RED_SHIFT) or (green shl GREEN_SHIFT) or blue
+            return JBColor(rgb, rgb)
         }
     }
 
@@ -550,6 +561,8 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
         // Dark/light text RGB values
         const val DARK_TEXT_RGB = 0x1A
         const val LIGHT_TEXT_RGB = 0xFF
+        const val RED_SHIFT = 16
+        const val GREEN_SHIFT = 8
 
         // Fallback colors
         const val FALLBACK_RED = 0xFF

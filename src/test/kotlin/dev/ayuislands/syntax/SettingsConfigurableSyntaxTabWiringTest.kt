@@ -1,12 +1,12 @@
 package dev.ayuislands.syntax
 
+import dev.ayuislands.settings.AyuIslandsConfigurable
 import dev.ayuislands.settings.AyuIslandsSettingsPanel
 import dev.ayuislands.settings.AyuIslandsSyntaxPanel
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -15,20 +15,15 @@ import kotlin.test.assertTrue
  * Coverage:
  *  - `AyuIslandsSyntaxPanel` implements the real `AyuIslandsSettingsPanel`
  *    interface (compile-time assignability assertion).
- *  - The configurable constructs `AyuIslandsSyntaxPanel` and wires it into
- *    the JBTabbedPane via a `panel { syntaxPanel.buildPanel(...) }` block.
+ *  - The configurable constructs `AyuIslandsSyntaxPanel` and registers it in
+ *    the `panels` dispatch list.
  *  - `syntaxPanel` is registered in the `panels` list so apply/reset/
  *    isModified dispatches to it.
  *  - The "Syntax" tab sits between "Glow" and "VCS" (placement contract).
- *  - The configurable does NOT instantiate Phase 49 service / state symbols
- *    directly — the tab wiring only constructs the panel; the panel itself
- *    owns the service `getInstance()` call sites.
  *
- * Source-regex regression locks (Pattern L) substitute for an integration
- * test that would otherwise need `BasePlatformTestCase` — the project's
- * `integrationTest` task is registered without the IntelliJ Platform
- * `--add-opens` flags, so the structural assertions here are the active
- * regression net.
+ * Reflection covers dispatch wiring without reading production source. The
+ * remaining source assertion is limited to tab title order, which is the
+ * user-visible contract not exposed by a cheap unit-level API.
  */
 class SettingsConfigurableSyntaxTabWiringTest {
     @Test
@@ -44,112 +39,67 @@ class SettingsConfigurableSyntaxTabWiringTest {
     }
 
     @Test
-    fun `configurable source contains insertTab Syntax call with SYNTAX_TAB_INDEX`() {
+    fun `SYNTAX_TAB_INDEX compiled constant places Syntax between Glow and VCS`() {
+        val field = AyuIslandsConfigurable::class.java.getDeclaredField("SYNTAX_TAB_INDEX")
+        assertEquals(
+            3,
+            field.getInt(null),
+            "SYNTAX_TAB_INDEX must be 3 — placement contract: " +
+                "Accent | Font | Glow | Syntax | VCS | Workspace | Plugins",
+        )
+    }
+
+    @Test
+    fun `createPanel inserts Syntax tab between Glow and VCS`() {
         val source = readConfigurableSource()
-        val pattern = Regex("""tabs\.insertTab\(\s*"Syntax"\s*,[^)]*\bSYNTAX_TAB_INDEX\b""")
-        val matches = pattern.findAll(source).count()
+        val titlePattern = Regex("""tabs\.(?:addTab|insertTab)\("([^"]+)"""")
+        val contentTitles =
+            titlePattern
+                .findAll(source)
+                .map { match -> match.groupValues[1] }
+                .filter { title -> title.isNotEmpty() }
+                .take(7)
+                .toList()
+        assertEquals(
+            listOf("Accent", "Font", "Glow", "Syntax", "VCS", "Workspace", "Plugins"),
+            contentTitles,
+            "Settings tabs must keep Syntax between Glow and VCS",
+        )
+    }
+
+    @Test
+    fun `configurable constructs syntax panel and registers it in panel dispatch list`() {
+        val configurable = AyuIslandsConfigurable()
+        val syntaxPanel = readField<AyuIslandsSyntaxPanel>(configurable, "syntaxPanel")
+        val panels = readField<List<*>>(configurable, "panels")
+
         assertEquals(
             1,
-            matches,
-            "Expected exactly 1 tabs.insertTab(\"Syntax\", ..., SYNTAX_TAB_INDEX) call in " +
-                "AyuIslandsConfigurable source. Found $matches.",
-        )
-    }
-
-    @Test
-    fun `SYNTAX_TAB_INDEX constant equals 3 (placement between Glow and VCS)`() {
-        val source = readConfigurableSource()
-        val pattern = Regex("""const\s+val\s+SYNTAX_TAB_INDEX\s*=\s*3\b""")
-        assertTrue(
-            pattern.containsMatchIn(source),
-            "SYNTAX_TAB_INDEX must equal 3 — placement contract: " +
-                "Accent | Font | Glow | Syntax | VCS | Workspace | Plugins.",
-        )
-    }
-
-    @Test
-    fun `tab insertion sits between addTab Glow and addTab VCS in source order`() {
-        val source = readConfigurableSource()
-        val glowIdx = source.indexOf("""tabs.addTab("Glow"""")
-        val syntaxIdx = source.indexOf("""tabs.insertTab("Syntax"""")
-        val vcsIdx = source.indexOf("""tabs.addTab("VCS"""")
-        assertTrue(glowIdx >= 0, "tabs.addTab(\"Glow\", ...) must exist in the configurable source")
-        assertTrue(syntaxIdx >= 0, "tabs.insertTab(\"Syntax\", ...) must exist in the configurable source")
-        assertTrue(vcsIdx >= 0, "tabs.addTab(\"VCS\", ...) must exist in the configurable source")
-        assertTrue(
-            glowIdx < syntaxIdx,
-            "Glow addTab (offset $glowIdx) must precede Syntax insertTab (offset $syntaxIdx) in source",
+            panels.count { panel -> panel === syntaxPanel },
+            "panels dispatch list must include the constructed syntaxPanel exactly once",
         )
         assertTrue(
-            syntaxIdx < vcsIdx,
-            "Syntax insertTab (offset $syntaxIdx) must precede VCS addTab (offset $vcsIdx) in source",
+            panels.all { panel -> panel is AyuIslandsSettingsPanel },
+            "panels dispatch list must contain only AyuIslandsSettingsPanel instances",
         )
-    }
-
-    @Test
-    fun `AyuIslandsSyntaxPanel is registered in the panels list (apply reset route)`() {
-        val source = readConfigurableSource()
-        val listPattern =
-            Regex(
-                """private\s+val\s+panels\s*:\s*List<AyuIslandsSettingsPanel>\s*=\s*listOf\([^)]*\bsyntaxPanel\b""",
-                RegexOption.DOT_MATCHES_ALL,
-            )
-        assertTrue(
-            listPattern.containsMatchIn(source),
-            "AyuIslandsConfigurable.panels list must include syntaxPanel so apply()/reset()/" +
-                "isModified() dispatch to it.",
-        )
-    }
-
-    @Test
-    fun `syntaxPanel field is constructed as AyuIslandsSyntaxPanel`() {
-        val source = readConfigurableSource()
-        val pattern = Regex("""private\s+val\s+syntaxPanel\s*=\s*AyuIslandsSyntaxPanel\(\)""")
-        assertTrue(
-            pattern.containsMatchIn(source),
-            "AyuIslandsConfigurable must construct syntaxPanel as AyuIslandsSyntaxPanel() at field-init time.",
-        )
-    }
-
-    @Test
-    fun `syntax tab builds via panel block invoking syntaxPanel buildPanel`() {
-        val source = readConfigurableSource()
-        val pattern =
-            Regex(
-                """val\s+syntaxTab\s*=\s*panel\s*\{[^}]*syntaxPanel\.buildPanel""",
-                RegexOption.DOT_MATCHES_ALL,
-            )
-        assertTrue(
-            pattern.containsMatchIn(source),
-            "syntaxTab must be a panel { syntaxPanel.buildPanel(...) } block.",
-        )
-    }
-
-    @Test
-    fun `configurable source does not instantiate Phase 49 service or state symbols directly`() {
-        val source = readConfigurableSource()
-        // The tab wiring must only construct AyuIslandsSyntaxPanel; the
-        // panel itself owns SyntaxIntensityService.getInstance() and
-        // SyntaxIntensityState.getInstance() call sites. A Phase 49 leak
-        // here would mean the sunset cascade missed a referrer.
-        val forbidden =
-            listOf(
-                "SyntaxModeService(",
-                "SyntaxModeState(",
-                "SyntaxModeService.getInstance",
-                "SyntaxModeState.getInstance",
-            )
-        for (literal in forbidden) {
-            assertFalse(
-                source.contains(literal),
-                "configurable source must not reference Phase 49 symbol '$literal' " +
-                    "directly — the tab wiring only constructs AyuIslandsSyntaxPanel.",
-            )
-        }
     }
 
     private fun readConfigurableSource(): String =
         Files.readString(
             Path.of("src/main/kotlin/dev/ayuislands/settings/AyuIslandsConfigurable.kt"),
         )
+
+    private inline fun <reified T> readField(
+        instance: Any,
+        fieldName: String,
+    ): T {
+        val field = instance.javaClass.getDeclaredField(fieldName)
+        field.isAccessible = true
+        val value = field.get(instance)
+        assertTrue(
+            value is T,
+            "Expected field '$fieldName' to be ${T::class.simpleName}, got ${value?.javaClass?.name}",
+        )
+        return value
+    }
 }

@@ -1,8 +1,7 @@
 package dev.ayuislands.accent.elements
 
-import java.nio.file.Files
-import java.nio.file.Path
-import java.nio.file.Paths
+import com.intellij.openapi.util.io.FileUtil
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -24,6 +23,18 @@ import kotlin.test.fail
  *      an explicit background color on the peer.
  *
  * Comments are stripped so KDoc that documents the pattern doesn't false-pass.
+ *
+ * **Test-design note (documented compromise):** these source-regex checks
+ * guard a real user-facing bug (stranded stock-LAF chrome peer after a
+ * revert that lacked a matching `clear`). A behavioral substitute would
+ * require mocking AbstractChromeElement's lifecycle through the chrome
+ * subclasses, the LiveChromeRefresher, and the Swing peer hierarchy — heavy
+ * for a guarantee that is currently inexpensive to express as "every
+ * subclass declares peerTarget; the base has matching refresh+clear sites".
+ * Pending a working `integrationTest` task (currently misconfigured in CI),
+ * the source-regex check is the cheapest assertion that catches the
+ * regression. Do not delete in future "remove theater" passes without
+ * replacing with an equivalent behavioral or integration test.
  */
 class ChromeLiveRefreshSymmetryTest {
     private val elementFiles =
@@ -82,19 +93,12 @@ class ChromeLiveRefreshSymmetryTest {
     }
 
     private fun readStripped(elementName: String): String {
-        val path: Path =
-            Paths.get(
+        val file =
+            File(
                 System.getProperty("user.dir"),
-                "src",
-                "main",
-                "kotlin",
-                "dev",
-                "ayuislands",
-                "accent",
-                "elements",
-                "$elementName.kt",
+                "src/main/kotlin/dev/ayuislands/accent/elements/$elementName.kt",
             )
-        return stripComments(Files.readString(path))
+        return stripComments(FileUtil.loadFile(file))
     }
 
     private fun readAbstractBaseStripped(): String = readStripped("AbstractChromeElement")
@@ -104,8 +108,7 @@ class ChromeLiveRefreshSymmetryTest {
         val noBlock = input.replace(Regex("/\\*[\\s\\S]*?\\*/"), "")
         return noBlock
             .lineSequence()
-            .map { line -> line.replaceFirst(Regex("//.*$"), "") }
-            .joinToString("\n")
+            .joinToString("\n") { line -> line.replaceFirst(Regex("//.*$"), "") }
     }
 
     private fun refreshCallCount(source: String): Int {

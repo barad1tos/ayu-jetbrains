@@ -1,5 +1,6 @@
 package dev.ayuislands.rotation
 
+import com.intellij.ui.JBColor
 import java.awt.Color
 import kotlin.math.abs
 import kotlin.math.max
@@ -23,6 +24,8 @@ object HslColor {
     private const val FOUR = 4f
     private const val FIVE = 5f
     private const val HUE_SECTOR_COUNT = 6f
+    private const val RED_SHIFT = 16
+    private const val GREEN_SHIFT = 8
 
     fun toColor(
         hue: Float,
@@ -48,11 +51,11 @@ object HslColor {
             }
 
         val m = lightness - chroma / TWO
-        return Color(
-            ((r1 + m) * MAX_RGB).roundToInt().coerceIn(0, MAX_RGB_INT),
-            ((g1 + m) * MAX_RGB).roundToInt().coerceIn(0, MAX_RGB_INT),
-            ((b1 + m) * MAX_RGB).roundToInt().coerceIn(0, MAX_RGB_INT),
-        )
+        val red = ((r1 + m) * MAX_RGB).roundToInt().coerceIn(0, MAX_RGB_INT)
+        val green = ((g1 + m) * MAX_RGB).roundToInt().coerceIn(0, MAX_RGB_INT)
+        val blue = ((b1 + m) * MAX_RGB).roundToInt().coerceIn(0, MAX_RGB_INT)
+        val rgb = (red shl RED_SHIFT) or (green shl GREEN_SHIFT) or blue
+        return JBColor(rgb, rgb)
     }
 
     fun toHex(

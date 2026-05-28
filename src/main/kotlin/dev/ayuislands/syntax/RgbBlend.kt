@@ -1,5 +1,7 @@
 package dev.ayuislands.syntax
 
+import com.intellij.ui.ColorUtil
+import com.intellij.ui.JBColor
 import java.awt.Color
 
 /**
@@ -17,8 +19,8 @@ import java.awt.Color
  * landmine can resolve a safe per-variant fallback without reading
  * `EditorColorsManager`.
  *
- * Platform-dependency free — every entry point is a pure function over
- * [java.awt.Color]. No coroutine context, no IDE singleton.
+ * Every entry point is pure color math over [java.awt.Color]. No coroutine
+ * context, no IDE singleton.
  *
  * Analog: [dev.ayuislands.accent.ChromeTintBlender] (HSB-space blender for
  * chrome surfaces). The two blenders share the identity short-circuit + clamp
@@ -75,13 +77,13 @@ object RgbBlend {
     ): Color {
         val clamped = intensity.coerceIn(MIN_INTENSITY, MAX_INTENSITY)
         if (clamped == DEFAULT_INTENSITY) {
-            return Color(baselineFg.red, baselineFg.green, baselineFg.blue, baselineFg.alpha)
+            return exactColor(baselineFg.red, baselineFg.green, baselineFg.blue, baselineFg.alpha)
         }
         val factor = clamped / INTENSITY_DIVISOR
         val red = blendChannel(baselineFg.red, editorBg.red, factor)
         val green = blendChannel(baselineFg.green, editorBg.green, factor)
         val blue = blendChannel(baselineFg.blue, editorBg.blue, factor)
-        return Color(red, green, blue, baselineFg.alpha)
+        return exactColor(red, green, blue, baselineFg.alpha)
     }
 
     private fun blendChannel(
@@ -89,4 +91,17 @@ object RgbBlend {
         bg: Int,
         factor: Double,
     ): Int = (bg + factor * (fg - bg)).toInt().coerceIn(CHANNEL_MIN, CHANNEL_MAX)
+
+    private fun exactColor(
+        red: Int,
+        green: Int,
+        blue: Int,
+        alpha: Int,
+    ): Color {
+        val rgb = (red shl RED_SHIFT) or (green shl GREEN_SHIFT) or blue
+        return ColorUtil.toAlpha(JBColor(rgb, rgb), alpha)
+    }
+
+    private const val RED_SHIFT = 16
+    private const val GREEN_SHIFT = 8
 }

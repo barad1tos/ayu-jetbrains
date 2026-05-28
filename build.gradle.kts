@@ -50,11 +50,26 @@ tasks.test {
 }
 
 tasks.register<Test>("integrationTest") {
+    val unitTest = tasks.named<Test>("test").get()
+
     useJUnitPlatform()
     include("**/integration/**")
+    testClassesDirs = unitTest.testClassesDirs
+    classpath =
+        unitTest.classpath.filter {
+            !it.name.startsWith("kotlinx-coroutines-") || it.name.contains("-intellij")
+        }
+    jvmArgs(unitTest.jvmArgs)
+    jvmArgumentProviders.addAll(
+        unitTest.jvmArgumentProviders.filterNot {
+            it.javaClass.name.contains("kover", ignoreCase = true)
+        },
+    )
+    systemProperties(unitTest.systemProperties)
     group = "verification"
     description = "Run integration tests with IDE fixtures"
-    dependsOn("prepareTestSandbox")
+    dependsOn("prepareTest")
+    shouldRunAfter(tasks.test)
 }
 
 tasks {
@@ -141,6 +156,10 @@ intellijPlatform {
 detekt {
     config.setFrom(files("detekt.yml"))
     buildUponDefaultConfig = true
+}
+
+tasks.named("detekt") {
+    dependsOn("detektTest")
 }
 
 kover {

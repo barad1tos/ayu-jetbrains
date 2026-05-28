@@ -64,6 +64,8 @@ jobs:
           ET.parse('$f')
           " || { echo "::error::Invalid XML: $f"; exit 1; }
           done
+      - name: Guard tests against production source reads
+        run: scripts/guard-test-source-reads.py
       - name: Check for large files (>500KB)
         run: |
           # Only release-showcase slide PNGs are exempted (shipped at full
@@ -186,8 +188,8 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6.1.0
-      - name: Run unit tests with coverage
-        run: ./gradlew test koverXmlReport koverVerify
+      - name: Run tests with coverage
+        run: ./gradlew test integrationTest koverXmlReport koverVerify
       - name: Upload coverage to Codecov
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v5

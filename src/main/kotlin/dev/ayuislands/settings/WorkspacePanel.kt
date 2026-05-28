@@ -5,6 +5,8 @@ package dev.ayuislands.settings
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.ui.ComboBox
+import com.intellij.ui.JBColor
 import com.intellij.ui.dsl.builder.CollapsibleRow
 import com.intellij.ui.dsl.builder.Panel
 import dev.ayuislands.accent.AyuVariant
@@ -14,13 +16,11 @@ import dev.ayuislands.gitpanel.GitPanelAutoFitManager
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.toolwindow.AutoFitCalculator
-import java.awt.Color
 import java.awt.Component
 import java.util.Locale
 import javax.swing.DefaultComboBoxModel
 import javax.swing.DefaultListCellRenderer
 import javax.swing.JCheckBox
-import javax.swing.JComboBox
 import javax.swing.JLabel
 import javax.swing.JList
 import javax.swing.JSpinner
@@ -209,7 +209,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
     private fun mutedColorHex(): String {
         val color =
             UIManager.getColor("Label.disabledForeground")
-                ?: Color(FALLBACK_MUTED_RED, FALLBACK_MUTED_GREEN, FALLBACK_MUTED_BLUE)
+                ?: JBColor(FALLBACK_MUTED_RGB, FALLBACK_MUTED_RGB)
         return String.format(
             Locale.ROOT,
             "#%02x%02x%02x",
@@ -241,8 +241,8 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
     private fun createModeComboBox(
         selectedMode: PanelWidthMode,
         enabled: Boolean,
-    ): JComboBox<PanelWidthMode> {
-        val comboBox = JComboBox(DefaultComboBoxModel(PanelWidthMode.entries.toTypedArray()))
+    ): ComboBox<PanelWidthMode> {
+        val comboBox = ComboBox(DefaultComboBoxModel(PanelWidthMode.entries.toTypedArray()))
         comboBox.selectedItem = selectedMode
         comboBox.isEnabled = enabled
         comboBox.renderer =
@@ -507,7 +507,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
         val autoFitVisible = AtomicBooleanProperty(false)
         val fixedVisible = AtomicBooleanProperty(false)
 
-        var modeComboBox: JComboBox<PanelWidthMode>? = null
+        var modeComboBox: ComboBox<PanelWidthMode>? = null
         var autoFitSpinner: JSpinner? = null
         var minSpinner: JSpinner? = null
         var fixedSpinner: JSpinner? = null
@@ -527,8 +527,6 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
         private const val MAX_AUTOFIT_WIDTH = 800
         private const val MIN_AUTOFIT_MIN_WIDTH = 50
         private const val AUTOFIT_WIDTH_STEP = 50
-        private const val FALLBACK_MUTED_RED = 0x6C
-        private const val FALLBACK_MUTED_GREEN = 0x73
-        private const val FALLBACK_MUTED_BLUE = 0x80
+        private const val FALLBACK_MUTED_RGB = 0x6C7380
     }
 }

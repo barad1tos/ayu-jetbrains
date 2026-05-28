@@ -19,7 +19,7 @@ import kotlin.test.assertTrue
  * migration, `AccentResolver.projectKey(project)` (returning an absolute canonical path)
  * never matches the macro-prefixed stored key and every override silently falls through
  * to the global accent. The settings storage annotation now pins `usePathMacroManager = false`,
- * but legacy XML files from older builds still contain the macro — this suite ensures the
+ * but legacy XML files from older builds still contain the macro - this suite ensures the
  * load-time rewrite survives.
  */
 class AccentMappingsSettingsTest {
@@ -46,12 +46,12 @@ class AccentMappingsSettingsTest {
         val settings = AccentMappingsSettings()
         val state =
             AccentMappingsState().apply {
-                projectAccents["\$USER_HOME\$/dev/foo"] = "#FFCD66"
+                projectAccents[$$"$USER_HOME$/dev/foo"] = "#FFCD66"
             }
 
         settings.loadState(state)
 
-        assertNull(settings.state.projectAccents["\$USER_HOME\$/dev/foo"], "macro key must be rewritten, not retained")
+        assertNull(settings.state.projectAccents[$$"$USER_HOME$/dev/foo"], "macro key must be rewritten, not retained")
         assertEquals("#FFCD66", settings.state.projectAccents["/Users/alice/dev/foo"])
     }
 
@@ -61,13 +61,13 @@ class AccentMappingsSettingsTest {
         val settings = AccentMappingsSettings()
         val state =
             AccentMappingsState().apply {
-                projectDisplayNames["\$USER_HOME\$/dev/foo"] = "Foo"
+                projectDisplayNames[$$"$USER_HOME$/dev/foo"] = "Foo"
             }
 
         settings.loadState(state)
 
         assertEquals("Foo", settings.state.projectDisplayNames["/Users/alice/dev/foo"])
-        assertNull(settings.state.projectDisplayNames["\$USER_HOME\$/dev/foo"])
+        assertNull(settings.state.projectDisplayNames[$$"$USER_HOME$/dev/foo"])
     }
 
     @Test
@@ -93,7 +93,7 @@ class AccentMappingsSettingsTest {
         val state =
             AccentMappingsState().apply {
                 languageAccents["kotlin"] = "#D5FF80"
-                projectAccents["\$USER_HOME\$/dev/foo"] = "#FFCD66"
+                projectAccents[$$"$USER_HOME$/dev/foo"] = "#FFCD66"
             }
 
         settings.loadState(state)
@@ -105,18 +105,18 @@ class AccentMappingsSettingsTest {
     @Test
     fun `loadState is a no-op migration when user home is blank`() {
         // Setting the property to a blank string triggers the `takeIf(isNotBlank)` guard
-        // — the migration must not attempt string concatenation with an empty home.
+        // - the migration must not attempt string concatenation with an empty home.
         System.setProperty("user.home", "")
         val settings = AccentMappingsSettings()
         val state =
             AccentMappingsState().apply {
-                projectAccents["\$USER_HOME\$/dev/foo"] = "#FFCD66"
+                projectAccents[$$"$USER_HOME$/dev/foo"] = "#FFCD66"
             }
 
         settings.loadState(state)
 
         // Macro stays as-is; migration skipped.
-        assertEquals("#FFCD66", settings.state.projectAccents["\$USER_HOME\$/dev/foo"])
+        assertEquals("#FFCD66", settings.state.projectAccents[$$"$USER_HOME$/dev/foo"])
     }
 
     @Test
@@ -125,7 +125,7 @@ class AccentMappingsSettingsTest {
         val settings = AccentMappingsSettings()
         val state =
             AccentMappingsState().apply {
-                projectAccents["\$USER_HOME\$/dev/foo"] = "#FFCD66"
+                projectAccents[$$"$USER_HOME$/dev/foo"] = "#FFCD66"
             }
         settings.loadState(state)
 
@@ -141,12 +141,12 @@ class AccentMappingsSettingsTest {
         // Red-green guard for the actionable breadcrumb commit b1c1e4e added: without
         // user.home, stored `$USER_HOME$/...` keys can never be migrated, so the user's
         // overrides invisibly fall through to the global accent. The warn log is the only
-        // signal an affected user has — removing it would silently regress the migration UX.
+        // signal an affected user has - removing it would silently regress the migration UX.
         System.setProperty("user.home", "")
         val settings = AccentMappingsSettings()
         val state =
             AccentMappingsState().apply {
-                projectAccents["\$USER_HOME\$/dev/foo"] = "#FFCD66"
+                projectAccents[$$"$USER_HOME$/dev/foo"] = "#FFCD66"
             }
 
         val capturedMessages = mutableListOf<String>()
@@ -168,7 +168,7 @@ class AccentMappingsSettingsTest {
 
         assertTrue(
             capturedMessages.any { it.contains("legacy") && it.contains("user.home") },
-            "Expected a warn about legacy \$USER_HOME\$ keys + missing user.home, " +
+            $$"Expected a warn about legacy $USER_HOME$ keys + missing user.home, " +
                 "got: $capturedMessages",
         )
     }
@@ -204,7 +204,7 @@ class AccentMappingsSettingsTest {
 
         assertTrue(
             capturedMessages.none { it.contains("legacy") },
-            "No legacy-key warn should fire when no \$USER_HOME\$ keys are present, " +
+            $$"No legacy-key warn should fire when no $USER_HOME$ keys are present, " +
                 "got: $capturedMessages",
         )
     }
@@ -247,7 +247,7 @@ class AccentMappingsSettingsTest {
     }
 
     @Test
-    fun `getInstance returns a usable service — companion wired correctly`() {
+    fun `getInstance returns a usable service - companion wired correctly`() {
         // Defensive: constructor should not throw and companion accessor should compile.
         val settings = AccentMappingsSettings()
         assertNotNull(settings.state)
@@ -257,13 +257,13 @@ class AccentMappingsSettingsTest {
     @Test
     fun `migrateUserHomeMacro links both rewrite failures via addSuppressed`() {
         // When both map rewrites throw (e.g., concurrent structural modification during
-        // startup deserialization), triage must see BOTH causes — not just the first.
+        // startup deserialization), triage must see BOTH causes - not just the first.
         // Without addSuppressed linkage, collapsing to `primary ?: secondary` loses the
         // second failure mode, which matters when the two exceptions carry different
         // context (different map, different mutating thread, different stack).
         //
         // BaseState-delegated maps on the real `AccentMappingsState` can't easily be
-        // swapped for throwing ones — instead, we go through the `@internal` seam and
+        // swapped for throwing ones - instead, we go through the `@internal` seam and
         // hand it maps whose iteration deliberately throws.
         System.setProperty("user.home", "/Users/alice")
         val settings = AccentMappingsSettings()
@@ -319,10 +319,10 @@ class AccentMappingsSettingsTest {
         System.setProperty("user.home", "/Users/alice")
         val settings = AccentMappingsSettings()
         val namesBoom = ConcurrentModificationException("names-only boom")
-        val healthyAccents = mutableMapOf<String, String>("/tmp/proj" to "#FFCD66")
+        val healthyAccents = mutableMapOf("/tmp/proj" to "#FFCD66")
         val throwingNames = ThrowingMap(namesBoom)
 
-        val capturedThrowables = mutableListOf<Throwable?>()
+        val capturedFailures = mutableListOf<Throwable?>()
         val processor =
             object : LoggedErrorProcessor() {
                 override fun processWarn(
@@ -331,7 +331,7 @@ class AccentMappingsSettingsTest {
                     throwable: Throwable?,
                 ): Boolean {
                     if (message.contains("Failed to migrate")) {
-                        capturedThrowables += throwable
+                        capturedFailures += throwable
                     }
                     return false
                 }
@@ -343,7 +343,7 @@ class AccentMappingsSettingsTest {
 
         val primary =
             assertNotNull(
-                capturedThrowables.single(),
+                capturedFailures.single(),
                 "single-failure warn must carry a non-null cause",
             )
         assertEquals(namesBoom, primary, "single-failure warn must carry the names cause")
@@ -389,14 +389,14 @@ class AccentMappingsSettingsTest {
 
         // Probe must have actually executed (accessed one of the iteration members) before
         // the runCatching caught the throw. Guards against a refactor that skips the probe
-        // altogether — the absence-assertion below would pass trivially in that case.
+        // altogether - the absence-assertion below would pass trivially in that case.
         assertTrue(
             throwingAccents.iterationAccessCount.get() > 0,
             "Probe must actually access projectAccents iteration members before catching; " +
                 "iterationAccessCount=${throwingAccents.iterationAccessCount.get()}",
         )
 
-        // The "legacy keys" warn must NOT fire — the probe returned false by default after
+        // The "legacy keys" warn must NOT fire - the probe returned false by default after
         // catching the CME. If the runCatching were removed, the probe would propagate and
         // the migration path would escalate out of loadState.
         assertTrue(
@@ -409,15 +409,15 @@ class AccentMappingsSettingsTest {
     @Test
     fun `migrateUserHomeMacro logs only the accents cause when names rewrite succeeds`() {
         // Asymmetry check: when ONLY the accents rewrite throws, the warn must carry the
-        // accents cause unchanged — no spurious `addSuppressed` wiring when there's no
+        // accents cause unchanged - no spurious `addSuppressed` wiring when there's no
         // secondary cause to link.
         System.setProperty("user.home", "/Users/alice")
         val settings = AccentMappingsSettings()
         val accentsBoom = ConcurrentModificationException("accents-only boom")
         val throwingAccents = ThrowingMap(accentsBoom)
-        val healthyNames = mutableMapOf<String, String>("/tmp/proj" to "Foo")
+        val healthyNames = mutableMapOf("/tmp/proj" to "Foo")
 
-        val capturedThrowables = mutableListOf<Throwable?>()
+        val capturedFailures = mutableListOf<Throwable?>()
         val processor =
             object : LoggedErrorProcessor() {
                 override fun processWarn(
@@ -426,7 +426,7 @@ class AccentMappingsSettingsTest {
                     throwable: Throwable?,
                 ): Boolean {
                     if (message.contains("Failed to migrate")) {
-                        capturedThrowables += throwable
+                        capturedFailures += throwable
                     }
                     return false
                 }
@@ -438,7 +438,7 @@ class AccentMappingsSettingsTest {
 
         val primary =
             assertNotNull(
-                capturedThrowables.single(),
+                capturedFailures.single(),
                 "single-failure warn must carry a non-null cause",
             )
         assertEquals(accentsBoom, primary, "single-failure warn must carry the accents cause")
@@ -451,14 +451,14 @@ class AccentMappingsSettingsTest {
     /**
      * Throws a caller-specified exception on every iteration-shaped accessor
      * (`entries`, `keys`, `values`). `size` / `isEmpty` / `containsKey` delegate to a
-     * non-empty backing map — this matters load-bearingly: Kotlin's
+     * non-empty backing map - this matters for a load-bearing reason: Kotlin's
      * `Map.none(predicate)` stdlib extension short-circuits to `true` when `isEmpty()` is
-     * true (see `_Maps.kt` in the stdlib — the fast-path applies to both the no-arg and
+     * true (see `_Maps.kt` in the stdlib - the fast-path applies to both the no-arg and
      * predicate overloads). An empty backing would make `source.none { it.key.startsWith
      * (USER_HOME_MACRO) }` inside `rewriteKeys` return `true` immediately, skipping the
      * iteration over `entries` that actually throws. The non-empty seed forces the
      * implementation past the fast-path into the `for (element in this)` loop, which
-     * accesses `entries` — and that's where [boom] finally fires.
+     * accesses `entries` - and that's where [boom] finally fires.
      *
      * Exercises the `runCatching { rewriteKeys(...) }` branch in
      * [AccentMappingsSettings.migrateUserHomeMacro] without reflection or instrumentation.

@@ -8,7 +8,7 @@ import kotlin.test.assertEquals
  * value. Consumed by the chip tooltip and (in a follow-up) the AccentPanel
  * "currently active" comment.
  *
- * Pattern L from `RECURRING_PITFALLS.md` — `enum-size regression lock`. If a future
+ * Pattern L from `RECURRING_PITFALLS.md` - `enum-size regression lock`. If a future
  * commit grows [AccentResolver.Source] (e.g. `Source.REMOTE`), the
  * [size assertion][Source enum size lock] test fails and forces the implementer to
  * extend [AccentResolver.sourceLabel] in the same change, blocking the silent
@@ -38,7 +38,7 @@ class AccentResolverSourceLabelTest {
     }
 
     @Test
-    fun `Source enum size lock — three values exactly`() {
+    fun `Source enum size lock - three values exactly`() {
         // Pattern L regression lock. If you add a new Source value (e.g.
         // REMOTE for remote-environment awareness), this test fails on
         // purpose so you are forced to extend [AccentResolver.sourceLabel]
@@ -47,8 +47,8 @@ class AccentResolverSourceLabelTest {
         // fallback, silently mislabelling every remote-resolved accent.
         assertEquals(
             3,
-            AccentResolver.Source.values().size,
-            "AccentResolver.Source enum grew — extend AccentResolver.sourceLabel in the same change",
+            AccentResolver.Source.entries.size,
+            "AccentResolver.Source enum grew - extend AccentResolver.sourceLabel in the same change",
         )
     }
 }

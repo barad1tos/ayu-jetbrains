@@ -2,6 +2,7 @@ package dev.ayuislands
 
 import com.intellij.ide.ui.LafManager
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.util.io.FileUtil
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.font.FontPresetApplicator
@@ -16,8 +17,7 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
-import java.nio.file.Files
-import java.nio.file.Path
+import java.io.File
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -115,7 +115,7 @@ class AyuIslandsLafListenerSyntaxReapplyTest {
         // A second `<listener class="dev.ayuislands.AyuIslandsLafListener" .../>`
         // would cause the platform to fire the callback twice per LAF event,
         // doubling overlay writes and the reapply cost.
-        val xmlText = Files.readString(Path.of("src/main/resources/META-INF/plugin.xml"))
+        val xmlText = FileUtil.loadFile(File("src/main/resources/META-INF/plugin.xml"))
         val regex =
             Regex(
                 """<listener\b[^>]*\bclass="[^"]*AyuIslandsLafListener[^"]*"""",

@@ -11,8 +11,6 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import java.awt.Dimension
 import java.awt.FlowLayout
-import java.nio.file.Files
-import java.nio.file.Paths
 import javax.swing.JComponent
 import javax.swing.JPanel
 import kotlin.test.AfterTest
@@ -25,8 +23,7 @@ import kotlin.test.assertTrue
  * Quick-actions row coverage:
  *   - exactly five [IconPillButton] children in fixed left-to-right order matching
  *     `QuickSwitcherActionGroup.build()` (parity invariant),
- *   - each button is 28x28 icon-only with a non-empty tooltip,
- *   - source-grep locks the exact constructor count + Pattern B catch contract.
+ *   - each button is 28x28 icon-only with a non-empty tooltip.
  */
 class QuickSwitcherQuickActionsRowTest {
     private val anchor: JComponent = mockk<JComponent>(relaxed = true)
@@ -70,45 +67,7 @@ class QuickSwitcherQuickActionsRowTest {
         }
     }
 
-    @Test
-    fun `source contains exactly one Pin Random Lighter Darker CopyHex constructor each (parity grep)`() {
-        val source = Files.readString(Paths.get(ROW_SOURCE_PATH))
-        val constructors =
-            listOf(
-                "PinAccentAction()",
-                "RandomAccentAction()",
-                "LighterAccentAction()",
-                "DarkerAccentAction()",
-                "CopyHexAction()",
-            )
-        for (ctor in constructors) {
-            val count = source.split(ctor).size - 1
-            assertEquals(1, count, "Expected EXACTLY one `$ctor` in QuickSwitcherQuickActionsRow.kt, got $count")
-        }
-    }
-
-    @Test
-    fun `source wraps each click in Pattern B catch (RuntimeException-only) — indirect via IconPillButton`() {
-        // QuickSwitcherQuickActionsRow no longer carries its own catch — the Pattern
-        // B wrap lives inside IconPillButton.kt. Source-grep that file to lock the
-        // contract.
-        val source = Files.readString(Paths.get(PILL_SOURCE_PATH))
-        val catchCount = "catch \\(exception: RuntimeException\\)".toRegex().findAll(source).count()
-        assertTrue(catchCount >= 1, "Expected ≥1 RuntimeException catch in IconPillButton, got $catchCount")
-        val throwableCatch = "catch \\(exception: Throwable\\)".toRegex().findAll(source).count()
-        assertEquals(0, throwableCatch, "Pattern B violation — must NOT catch Throwable")
-    }
-
-    @Test
-    fun `actionPerformed call site lives in IconPillButton, exactly one occurrence`() {
-        val source = Files.readString(Paths.get(PILL_SOURCE_PATH))
-        val count = "action\\.actionPerformed\\(".toRegex().findAll(source).count()
-        assertEquals(1, count, "Expected exactly one action.actionPerformed call site inside IconPillButton")
-    }
-
     private companion object {
         const val EXPECTED_BUTTON_COUNT = 5
-        const val ROW_SOURCE_PATH = "src/main/kotlin/dev/ayuislands/accent/toolbar/QuickSwitcherQuickActionsRow.kt"
-        const val PILL_SOURCE_PATH = "src/main/kotlin/dev/ayuislands/accent/toolbar/popup/IconPillButton.kt"
     }
 }

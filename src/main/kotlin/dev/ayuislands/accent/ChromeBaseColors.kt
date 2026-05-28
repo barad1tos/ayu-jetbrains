@@ -1,7 +1,9 @@
 package dev.ayuislands.accent
 
 import com.intellij.ide.ui.LafManagerListener
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
 import java.awt.Color
 import java.util.concurrent.ConcurrentHashMap
@@ -61,12 +63,13 @@ object ChromeBaseColors {
         // (NPE on null service, IllegalState on torn-down app).
         try {
             val application = ApplicationManager.getApplication()
+            val parentDisposable = application.getService(ChromeBaseColorsLifecycle::class.java)
             application
                 .messageBus
-                // Anchor the subscription to the Application Disposable so the
-                // connection is disposed on plugin / application shutdown instead
-                // of leaking across dynamic plugin reloads (Pattern E).
-                .connect(application)
+                // Anchor the subscription to a plugin-owned service Disposable
+                // instead of Application so dynamic plugin unload tears it down
+                // without tripping the platform disposable-parent inspection.
+                .connect(parentDisposable)
                 .subscribe(LafManagerListener.TOPIC, LafManagerListener { refresh() })
         } catch (exception: RuntimeException) {
             log.warn(
@@ -137,4 +140,9 @@ object ChromeBaseColors {
             snapshot.clear()
         }
     }
+}
+
+@Service(Service.Level.APP)
+internal class ChromeBaseColorsLifecycle : Disposable {
+    override fun dispose() = Unit
 }

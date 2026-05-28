@@ -1,8 +1,7 @@
 package dev.ayuislands.glow
 
-import java.nio.file.Files
-import java.nio.file.Path
-import java.nio.file.Paths
+import com.intellij.openapi.util.io.FileUtil
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -25,18 +24,12 @@ import kotlin.test.assertTrue
  */
 class GlowFallbackBannedApiGuardTest {
     private val source: String by lazy {
-        val path: Path =
-            Paths.get(
+        val file =
+            File(
                 System.getProperty("user.dir"),
-                "src",
-                "main",
-                "kotlin",
-                "dev",
-                "ayuislands",
-                "glow",
-                "GlowOverlayManager.kt",
+                "src/main/kotlin/dev/ayuislands/glow/GlowOverlayManager.kt",
             )
-        stripComments(Files.readString(path))
+        stripComments(FileUtil.loadFile(file))
     }
 
     /**
@@ -48,8 +41,7 @@ class GlowFallbackBannedApiGuardTest {
         val noBlock = input.replace(Regex("/\\*[\\s\\S]*?\\*/"), "")
         return noBlock
             .lineSequence()
-            .map { line -> line.replaceFirst(Regex("//.*$"), "") }
-            .joinToString("\n")
+            .joinToString("\n") { line -> line.replaceFirst(Regex("//.*$"), "") }
     }
 
     /**

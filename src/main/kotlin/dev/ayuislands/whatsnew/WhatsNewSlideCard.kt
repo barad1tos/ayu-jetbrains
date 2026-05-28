@@ -1,6 +1,7 @@
 package dev.ayuislands.whatsnew
 
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.ui.ColorUtil
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ImageLoader
@@ -69,21 +70,16 @@ internal object WhatsNewSlideCard {
     private const val PLACEHOLDER_ASPECT_H = 9
     private const val PLACEHOLDER_HEIGHT_DIVISOR = 3
 
-    // Channel values used to compose the translucent JBColor fill below.
-    // Pulled out as named constants so detekt's MagicNumber check stays happy
-    // without needing an @Suppress — and so a future theme tweak has a single
-    // place to land. Alpha differs by mode: darker ink on light mode needs more
+    // Alpha differs by mode: darker ink on light mode needs more
     // opacity to read against the card chrome; brighter ink on dark mode can
     // sit quieter.
-    private const val RGB_MIN = 0
-    private const val RGB_MAX = 255
     private const val PLACEHOLDER_LIGHT_ALPHA = 32
     private const val PLACEHOLDER_DARK_ALPHA = 16
 
     private val PLACEHOLDER_FILL =
         JBColor(
-            Color(RGB_MIN, RGB_MIN, RGB_MIN, PLACEHOLDER_LIGHT_ALPHA),
-            Color(RGB_MAX, RGB_MAX, RGB_MAX, PLACEHOLDER_DARK_ALPHA),
+            ColorUtil.toAlpha(JBColor.BLACK, PLACEHOLDER_LIGHT_ALPHA),
+            ColorUtil.toAlpha(JBColor.WHITE, PLACEHOLDER_DARK_ALPHA),
         )
 
     /**

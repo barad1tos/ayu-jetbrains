@@ -1,5 +1,6 @@
 package dev.ayuislands.accent
 
+import java.lang.reflect.Modifier
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -15,6 +16,8 @@ import kotlin.test.assertTrue
  *     the same bucket.
  *  3. Swapping target and ancestor between two instances produces a NON-equal
  *     object — proving the two fields are not interchangeable.
+ *  4. The generated `copy` method is not public, so it cannot bypass the
+ *     named-argument factory.
  *
  * A future refactor that drops `data class` (e.g. collapsing to a plain `class`)
  * would silently break every `==` call in the element map and this test catches
@@ -67,6 +70,19 @@ class ChromeTargetTest {
         assertTrue(
             rendered.contains("InternalDecoratorImpl"),
             "toString must include the ancestor FQN for log readability",
+        )
+    }
+
+    @Test
+    fun `copy method is not public so callers cannot bypass the named factory`() {
+        val publicCopyMethods =
+            ChromeTarget.ByClassNameInside::class.java.declaredMethods.filter { method ->
+                method.name.startsWith("copy") && Modifier.isPublic(method.modifiers)
+            }
+
+        assertTrue(
+            publicCopyMethods.isEmpty(),
+            "ByClassNameInside copy must not be public; public copy methods: $publicCopyMethods",
         )
     }
 }

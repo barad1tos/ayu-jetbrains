@@ -18,9 +18,9 @@ import kotlin.test.assertTrue
  *
  * OS dispatch goes through the package-private [ChromeDecorationsProbe.osSupplier] seam
  * (the [ChromeDecorationsProbe.Os] enum). `SystemInfo.isMac/isWindows/isLinux` are
- * `public static final boolean` JVM fields — they cannot be mocked via mockk (see
- * `SystemAccentProviderTest` docstring for precedent). The seam follows the same shape
- * used by [dev.ayuislands.licensing.LicenseChecker.nowMsSupplier].
+ * `public static final boolean` JVM fields — they cannot be replaced by the test mocking
+ * library (see `SystemAccentProviderTest` docstring for precedent). The seam follows the
+ * same shape used by [dev.ayuislands.licensing.LicenseChecker.nowMsSupplier].
  */
 class ChromeDecorationsProbeTest {
     @BeforeTest
@@ -49,7 +49,7 @@ class ChromeDecorationsProbeTest {
     fun `macOS falls through to transparent-title registry when unified-background is false`() {
         ChromeDecorationsProbe.osSupplier = { ChromeDecorationsProbe.Os.MAC }
         every { UIManager.getBoolean("TitlePane.unifiedBackground") } returns false
-        every { Registry.`is`("ide.mac.transparentTitleBarAppearance", false) } returns true
+        every { Registry.`is`(ChromeDecorationsProbe.MAC_REGISTRY_KEY, false) } returns true
 
         assertTrue(ChromeDecorationsProbe.isCustomHeaderActive())
     }
@@ -58,7 +58,7 @@ class ChromeDecorationsProbeTest {
     fun `macOS with both keys false returns false`() {
         ChromeDecorationsProbe.osSupplier = { ChromeDecorationsProbe.Os.MAC }
         every { UIManager.getBoolean("TitlePane.unifiedBackground") } returns false
-        every { Registry.`is`("ide.mac.transparentTitleBarAppearance", false) } returns false
+        every { Registry.`is`(ChromeDecorationsProbe.MAC_REGISTRY_KEY, false) } returns false
 
         assertFalse(ChromeDecorationsProbe.isCustomHeaderActive())
     }
@@ -82,7 +82,7 @@ class ChromeDecorationsProbeTest {
     @Test
     fun `Linux with custom-title-bar registry true returns true`() {
         ChromeDecorationsProbe.osSupplier = { ChromeDecorationsProbe.Os.LINUX }
-        every { Registry.`is`("ide.linux.custom.title.bar", false) } returns true
+        every { Registry.`is`(ChromeDecorationsProbe.LINUX_REGISTRY_KEY, false) } returns true
 
         assertTrue(ChromeDecorationsProbe.isCustomHeaderActive())
     }
@@ -97,7 +97,7 @@ class ChromeDecorationsProbeTest {
     // --- computeOs branch coverage ---
     //
     // The defaultOsSupplier lambda reads SystemInfo.isMac/isWindows/isLinux,
-    // which are public static final booleans that mockk cannot touch. To
+    // which are public static final booleans that tests cannot mutate directly. To
     // exercise every OS branch anyway, `computeOs` accepts explicit booleans
     // with SystemInfo-backed defaults; these tests pass the booleans directly.
 
@@ -162,7 +162,7 @@ class ChromeDecorationsProbeTest {
     fun `probe returns NativeMacTitleBar when macOS custom-header signals are both false`() {
         ChromeDecorationsProbe.osSupplier = { ChromeDecorationsProbe.Os.MAC }
         every { UIManager.getBoolean("TitlePane.unifiedBackground") } returns false
-        every { Registry.`is`("ide.mac.transparentTitleBarAppearance", false) } returns false
+        every { Registry.`is`(ChromeDecorationsProbe.MAC_REGISTRY_KEY, false) } returns false
 
         assertEquals(ChromeSupport.Unsupported.NativeMacTitleBar, ChromeDecorationsProbe.probe())
     }
@@ -186,7 +186,7 @@ class ChromeDecorationsProbeTest {
     @Test
     fun `probe returns Supported on Linux when the custom-title registry flag is true`() {
         ChromeDecorationsProbe.osSupplier = { ChromeDecorationsProbe.Os.LINUX }
-        every { Registry.`is`("ide.linux.custom.title.bar", false) } returns true
+        every { Registry.`is`(ChromeDecorationsProbe.LINUX_REGISTRY_KEY, false) } returns true
 
         assertEquals(ChromeSupport.Supported, ChromeDecorationsProbe.probe())
     }
@@ -194,7 +194,7 @@ class ChromeDecorationsProbeTest {
     @Test
     fun `probe returns GnomeSsd when the Linux custom-title registry flag is false`() {
         ChromeDecorationsProbe.osSupplier = { ChromeDecorationsProbe.Os.LINUX }
-        every { Registry.`is`("ide.linux.custom.title.bar", false) } returns false
+        every { Registry.`is`(ChromeDecorationsProbe.LINUX_REGISTRY_KEY, false) } returns false
 
         assertEquals(ChromeSupport.Unsupported.GnomeSsd, ChromeDecorationsProbe.probe())
     }
@@ -250,7 +250,7 @@ class ChromeDecorationsProbeTest {
         // stop covering the intended branch. The display strings live in the
         // UI layer, so the probe-side invariant is subtype identity.
         val variants =
-            setOf<ChromeSupport.Unsupported>(
+            setOf(
                 ChromeSupport.Unsupported.NativeMacTitleBar,
                 ChromeSupport.Unsupported.GnomeSsd,
                 ChromeSupport.Unsupported.WindowsNoCustomHeader,

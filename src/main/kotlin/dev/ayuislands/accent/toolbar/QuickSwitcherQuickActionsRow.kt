@@ -16,11 +16,7 @@ import javax.swing.JPanel
 /**
  * Quick-actions row inside the quick-switcher popup: five 28x28 icon-only
  * [IconPillButton] pills with tooltips, in the canonical order
- * (Pin → Random → Lighter → Darker → Copy Hex). [QuickSwitcherActionParityTest]
- * source-greps this file for the same constructor count + order so both the
- * popup row AND the right-click context menu pull from
- * [dev.ayuislands.accent.toolbar.actions.QuickSwitcherActionGroup] and cannot
- * drift apart.
+ * (Pin → Random → Lighter → Darker → Copy Hex).
  *
  * Icon choices (primary form, all verified present in 2025.1 `AllIcons.*`):
  *   - Pin     → `AllIcons.Actions.PinTab`

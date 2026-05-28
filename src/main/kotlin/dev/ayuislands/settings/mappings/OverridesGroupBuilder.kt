@@ -1,12 +1,14 @@
 package dev.ayuislands.settings.mappings
 
 import com.intellij.icons.AllIcons
+import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.ui.ColorUtil
+import com.intellij.ui.JBColor
 import com.intellij.ui.ToolbarDecorator
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.dsl.builder.Align
@@ -817,6 +819,8 @@ class OverridesGroupBuilder {
                         "Add the current project with the global accent",
                         AllIcons.Actions.PinTab,
                     ) {
+                        override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+
                         override fun actionPerformed(event: AnActionEvent) {
                             // Inlined from the former `pinCurrentProject` helper to
                             // keep the class under detekt's 25-function cap after
@@ -1121,7 +1125,7 @@ class OverridesGroupBuilder {
             super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column)
             val orphan = orphanProbe(row)
             if (orphan) {
-                foreground = javax.swing.UIManager.getColor("Label.disabledForeground") ?: Color.GRAY
+                foreground = javax.swing.UIManager.getColor("Label.disabledForeground") ?: JBColor.GRAY
                 toolTipText = "Path no longer exists on disk"
             } else {
                 toolTipText = null

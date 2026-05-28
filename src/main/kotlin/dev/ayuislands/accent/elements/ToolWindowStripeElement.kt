@@ -8,6 +8,8 @@ import java.awt.Color
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.UIManager
 
+private val toolWindowStripeFirstApplyLogged = AtomicBoolean(false)
+
 /**
  * Tints the tool window stripe and its active/selected stripe button.
  * [writeForegrounds] is overridden to implement the split-fg pick (stripe bg
@@ -49,7 +51,7 @@ class ToolWindowStripeElement : AbstractChromeElement() {
         // First-apply INFO diagnostic so a future platform FQN rename surfaces
         // in idea.log (both the UIManager key resolution map and the live
         // peer-walk target class).
-        if (firstApplyLogged.compareAndSet(false, true)) {
+        if (toolWindowStripeFirstApplyLogged.compareAndSet(false, true)) {
             val keysSeen = tintedBackgrounds.keys.toList()
             val keysMissed = backgroundKeys.filter { it !in tintedBackgrounds }
             LOG.info(
@@ -82,13 +84,6 @@ class ToolWindowStripeElement : AbstractChromeElement() {
 
     private companion object {
         private val LOG = logger<ToolWindowStripeElement>()
-
-        /**
-         * One-shot gate for the per-session first-apply diagnostic log. Logs which
-         * UIManager keys resolved vs missed and the peer-walk target class so a
-         * future platform FQN rename is visible in idea.log.
-         */
-        private val firstApplyLogged = AtomicBoolean(false)
 
         /** Reference key for the selected-button contrast-foreground sample. */
         const val SELECTED_BACKGROUND_KEY = "ToolWindow.Button.selectedBackground"

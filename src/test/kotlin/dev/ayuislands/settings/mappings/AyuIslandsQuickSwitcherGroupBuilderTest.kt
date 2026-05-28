@@ -1,16 +1,16 @@
 package dev.ayuislands.settings.mappings
 
+import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkAll
+import io.mockk.verify
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import java.nio.file.Files
-import java.nio.file.Paths
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -24,9 +24,9 @@ import kotlin.test.assertTrue
  * a real `Panel` outside the IDE harness — pulls in the Kotlin UI DSL bootstrap and is
  * heavier than the field probe).
  *
- * Pattern G adjacency lock: the builder source MUST NOT call `AccentApplicator` /
- * `LafManager` / `applyFromHexString` — those would double-apply on top of the BGT-tick
- * cascade that already polls `state.quickSwitcherWidgetEnabled`.
+ * Pattern G adjacency lock: `apply()` MUST NOT invoke an accent cascade
+ * (`AccentApplicator.applyForFocusedProject` / `applyFromHexString`) — that would double-apply
+ * on top of the BGT-tick cascade that already polls `state.quickSwitcherWidgetEnabled`.
  */
 class AyuIslandsQuickSwitcherGroupBuilderTest {
     private lateinit var realState: AyuIslandsState
@@ -108,27 +108,20 @@ class AyuIslandsQuickSwitcherGroupBuilderTest {
     }
 
     @Test
-    fun `builder source has no AccentApplicator or LafManager or applyFromHexString (Pattern G)`() {
-        // Pattern G adjacency lock: the builder's `apply()` MUST NOT trigger a manual
-        // cascade — the chip's `update()` BGT tick polls `state.quickSwitcherWidgetEnabled`
-        // on its own (~500 ms cadence), so the state write is sufficient. A direct
-        // `AccentApplicator.applyForFocusedProject` or `LafManager` call from here would
-        // double-apply on the next tick and risk a glitch.
-        val source =
-            Files.readString(
-                Paths.get(
-                    "src/main/kotlin/dev/ayuislands/settings/mappings/AyuIslandsQuickSwitcherGroupBuilder.kt",
-                ),
-            )
-        assertFalse(source.contains("AccentApplicator"), "Builder must not call AccentApplicator")
-        assertFalse(
-            source.contains("LafManager.getInstance()"),
-            "Builder must not call LafManager.getInstance()",
-        )
-        assertFalse(
-            source.contains("applyFromHexString"),
-            "Builder must not call applyFromHexString — cascade owns propagation",
-        )
+    fun `apply does not trigger an accent cascade (Pattern G no double-apply)`() {
+        // The chip's BGT tick (~500ms cadence) polls state.quickSwitcherWidgetEnabled
+        // and re-applies on its own, so apply() only writes state. A manual
+        // AccentApplicator call here would double-apply on the next tick.
+        mockkObject(AccentApplicator)
+        realState.quickSwitcherWidgetEnabled = true
+        val builder = AyuIslandsQuickSwitcherGroupBuilder()
+        setPrivate(builder, "storedEnabled", true)
+        setPrivate(builder, "pendingEnabled", false)
+
+        builder.apply()
+
+        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any()) }
+        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
     }
 
     private companion object {

@@ -59,7 +59,7 @@ class FreeTierLockdownTest {
         every { AyuIslandsSettings.getInstance() } returns settings
 
         mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } returns true
+        every { AccentApplicator.apply(any()) } answers { Unit }
 
         mockkObject(GlowOverlayManager.Companion)
         every { GlowOverlayManager.syncGlowForAllProjects() } just runs
@@ -128,10 +128,10 @@ class FreeTierLockdownTest {
 
         LicenseChecker.revertToFreeDefaults(AyuVariant.LIGHT)
 
-        for (id in AccentElementId.entries.filter { it.group != AccentGroup.CHROME }) {
+        for (id in AccentElementId.entries.filter { elementId -> elementId.group != AccentGroup.CHROME }) {
             assertTrue(state.isToggleEnabled(id), "${id.name} must be re-enabled on revert")
         }
-        for (id in AccentElementId.entries.filter { it.group == AccentGroup.CHROME }) {
+        for (id in AccentElementId.entries.filter { elementId -> elementId.group == AccentGroup.CHROME }) {
             assertFalse(state.isToggleEnabled(id), "${id.name} must be disabled on free-tier revert")
         }
         // 4 VISUAL + 4 INTERACTIVE + 5 CHROME = 13. Update this number and the reverter together.
@@ -298,9 +298,9 @@ class FreeTierLockdownTest {
                 (1..4).map {
                     Thread { LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE) }
                 }
-            threads.forEach { it.start() }
-            threads.forEach { it.join(5_000L) }
-            threads.forEach { assertFalse(it.isAlive, "thread still alive — suspected deadlock") }
+            threads.forEach { thread -> thread.start() }
+            threads.forEach { thread -> thread.join(5_000L) }
+            threads.forEach { thread -> assertFalse(thread.isAlive, "thread still alive — suspected deadlock") }
 
             assertFalse(state.glowEnabled)
             assertFalse(state.accentRotationEnabled)
@@ -309,10 +309,10 @@ class FreeTierLockdownTest {
             assertEquals("MINIMAL", state.glowTabMode)
             assertFalse(state.hideProjectRootPath)
             assertFalse(state.hideProjectViewHScrollbar)
-            for (id in AccentElementId.entries.filter { it.group != AccentGroup.CHROME }) {
+            for (id in AccentElementId.entries.filter { elementId -> elementId.group != AccentGroup.CHROME }) {
                 assertTrue(state.isToggleEnabled(id), "${id.name} must be true after concurrent revert")
             }
-            for (id in AccentElementId.entries.filter { it.group == AccentGroup.CHROME }) {
+            for (id in AccentElementId.entries.filter { elementId -> elementId.group == AccentGroup.CHROME }) {
                 assertFalse(state.isToggleEnabled(id), "${id.name} must be false after concurrent revert")
             }
         }

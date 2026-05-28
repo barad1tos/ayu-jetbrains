@@ -46,6 +46,13 @@ repos:
         files: ^(detekt\.yml|\.editorconfig|codecov\.yml)$
         pass_filenames: true
 
+      - id: guard-test-source-reads
+        name: guard test source reads
+        entry: scripts/guard-test-source-reads.py
+        language: system
+        pass_filenames: false
+        files: ^(src/test/kotlin/.*\.kt|scripts/guard-test-source-reads\.py)$
+
       - id: ktlint-check
         name: ktlint
         entry: ./gradlew ktlintCheck

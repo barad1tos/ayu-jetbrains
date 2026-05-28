@@ -22,15 +22,15 @@ import kotlin.test.assertEquals
 /**
  * Lifecycle integrity test. Simulates 10 install-disable-uninstall cycles on
  * [QuickSwitcherChipComponent]. Each cycle:
- *   1. `chip.addNotify()` — should open ONE [MessageBusConnection] via
+ *   1. `chip.addNotify()` - should open ONE [MessageBusConnection] via
  *      `application.messageBus.connect(chip)`.
- *   2. `chip.removeNotify()` — should call `connection.disconnect()` exactly once.
+ *   2. `chip.removeNotify()` - should call `connection.disconnect()` exactly once.
  *
  * After 10 cycles, MockK verifies:
  *   - `application.messageBus.connect(chip)` was called exactly 10 times.
  *   - `connection.disconnect()` was called exactly 10 times.
  *   - BOTH topic subscriptions happened exactly 10 times each
- *     ([AccentChangedTopic.TOPIC] AND [ApplicationActivationListener.TOPIC] —
+ *     ([AccentChangedTopic.TOPIC] AND [ApplicationActivationListener.TOPIC] -
  *     the chip wires both; see [QuickSwitcherChipComponent.addNotify]).
  *
  * Pattern E (per-instance `Disposable` parent) is the contract; a leak appears as
@@ -46,8 +46,8 @@ import kotlin.test.assertEquals
  * both `JComponent` AND `Disposable`; matching against `Disposable` aligns with
  * the platform interface AND the sibling test `QuickSwitcherChipComponentTest`.
  *
- * `AyuVariant.detect()` is stubbed to `null` so the tail of `addNotify` —
- * `refreshFromFocusedProject()` — early-returns before touching `LafManager`, the
+ * `AyuVariant.detect()` is stubbed to `null` so the tail of `addNotify` -
+ * `refreshFromFocusedProject()` - early-returns before touching `LafManager`, the
  * `EditorColorsManager`, or `AccentResolver`. The lifecycle contract under test
  * is purely the connection bookkeeping; the refresh body is exercised by the
  * sibling `QuickSwitcherChipComponentTest`.
@@ -65,10 +65,10 @@ class QuickSwitcherWidgetLifecycleTest {
         every { messageBus.connect(any<Disposable>()) } returns connection
 
         // `addNotify` ends with `refreshFromFocusedProject()` which calls
-        // `AyuVariant.detect()` → `LafManager.getInstance()`. Without booting
+        // `AyuVariant.detect()` -> `LafManager.getInstance()`. Without booting
         // the IntelliJ application, the service lookup throws `ClassCastException`.
         // Stubbing `detect()` to `null` short-circuits the refresh body at the
-        // first guard (`val variant = AyuVariant.detect() ?: return`) — the
+        // first guard (`val variant = AyuVariant.detect() ?: return`) - the
         // lifecycle path under test is the connect/disconnect pair around the
         // refresh, not the refresh body itself.
         mockkObject(AyuVariant.Companion)
@@ -96,27 +96,27 @@ class QuickSwitcherWidgetLifecycleTest {
         val chip = QuickSwitcherChipComponent()
         repeat(CYCLES) { cycle ->
             chip.addNotify()
-            // Sanity check mid-loop — at cycle N, we expect (N+1) connects and N disconnects
+            // Sanity check mid-loop - at cycle N, we expect (N+1) connects and N disconnects
             // (since removeNotify has not run yet for this cycle's addNotify).
             assertEquals(
                 cycle + 1,
                 connectCount,
                 "Cycle ${cycle + 1}: expected ${cycle + 1} connects after addNotify, got $connectCount " +
-                    "— Pattern E leak appeared during install phase",
+                    "- Pattern E leak appeared during install phase",
             )
             chip.removeNotify()
             assertEquals(
                 cycle + 1,
                 disconnectCount,
                 "Cycle ${cycle + 1}: expected ${cycle + 1} disconnects after removeNotify, got $disconnectCount " +
-                    "— Pattern E leak appeared during uninstall phase",
+                    "- Pattern E leak appeared during uninstall phase",
             )
         }
 
         assertEquals(CYCLES, connectCount, "Final connect count != $CYCLES")
         assertEquals(CYCLES, disconnectCount, "Final disconnect count != $CYCLES")
 
-        // Verify BOTH topics subscribed each cycle (chip contract — see
+        // Verify BOTH topics subscribed each cycle (chip contract - see
         // `QuickSwitcherChipComponent.addNotify`). The explicit `verify(exactly = CYCLES)`
         // is deliberate: silent consolidation of topics into one subscribe call
         // would still fail the test, which is the strictness contract this lock intends.
@@ -129,7 +129,7 @@ class QuickSwitcherWidgetLifecycleTest {
     }
 
     @Test
-    fun `addNotify is idempotent — calling twice in a row subscribes only once`() {
+    fun `addNotify is idempotent - calling twice in a row subscribes only once`() {
         // The chip's `connection != null` early-return protects against
         // double-subscribe within one widget lifetime.
         var connectCount = 0
@@ -145,7 +145,7 @@ class QuickSwitcherWidgetLifecycleTest {
         assertEquals(
             1,
             connectCount,
-            "addNotify called twice produced $connectCount connections — idempotency broken",
+            "addNotify called twice produced $connectCount connections - idempotency broken",
         )
     }
 

@@ -15,10 +15,11 @@ import kotlin.test.assertTrue
  * (subscribers compile against a static reference, so a `Topic.create` regression
  * would surface as `NoClassDefFoundError` deep inside a subscriber's `init {}`),
  * the `displayName` is the human-readable tag JetBrains' bus diagnostics use,
- * and the listener class must be a real `fun interface` so consumers can use
- * SAM lambdas without ceremony. The topic is application-scoped so subscribers
- * connected on either `Application.messageBus` or any `Project.messageBus`
- * receive the event.
+ * and the listener class must be a real `fun interface` for IntelliJ's
+ * single-method listener shape. Subscribers that receive [AccentHex] still use
+ * object expressions where the value-class SAM bridge matters. The topic is
+ * application-scoped so subscribers connected on either `Application.messageBus`
+ * or any `Project.messageBus` receive the event.
  *
  * `Topic.getListenerClass()` is `@ApiStatus.Internal` — used here only as a
  * reflective contract lock for the topic's listener type. No public equivalent
@@ -50,6 +51,14 @@ class AccentChangedTopicTest {
     fun `AccentChangeListener is a fun interface with a single accentChanged method`() {
         val klass = AccentChangeListener::class.java
         assertTrue(klass.isInterface, "AccentChangeListener must be an interface")
+        val samListener =
+            AccentChangeListener { _, _, _ ->
+                error("SAM construction contract only; do not invoke the value-class lambda bridge")
+            }
+        assertTrue(
+            klass.isAssignableFrom(samListener.javaClass),
+            "AccentChangeListener must remain SAM-constructible for IDE listener inspections",
+        )
         val abstractMethods =
             klass.declaredMethods.filter { Modifier.isAbstract(it.modifiers) }
         assertEquals(

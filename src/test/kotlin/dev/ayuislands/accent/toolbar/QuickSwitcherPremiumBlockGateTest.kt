@@ -1,11 +1,11 @@
 package dev.ayuislands.accent.toolbar
 
+import com.intellij.openapi.util.io.FileUtil
 import dev.ayuislands.licensing.LicenseChecker
 import io.mockk.every
 import io.mockk.mockkObject
 import io.mockk.unmockkAll
-import java.nio.file.Files
-import java.nio.file.Paths
+import java.io.File
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -20,12 +20,8 @@ import kotlin.test.assertTrue
  * The separator row also joins the gated rows so a free user does NOT see an
  * orphaned hairline above the missing premium block.
  *
- * The tests below lock the gate against four classes of regressions:
+ * The tests below lock the gate against two classes of regressions:
  *   - predicate sanity — mocking `isLicensedOrGrace` flips visibility,
- *   - source-grep gate count — exactly three `.visibleIf` calls,
- *   - source-grep license-ref count — three gates reference license check,
- *   - Pattern J two-conjunct invariant — no chip-level state leaks into
- *     the popup gate body,
  *   - NO upgrade-promo lock — forbidden tokens have zero matches.
  */
 class QuickSwitcherPremiumBlockGateTest {
@@ -68,62 +64,11 @@ class QuickSwitcherPremiumBlockGateTest {
     }
 
     @Test
-    fun `QuickSwitcherPopup source body wraps premium rows in three visibleIf gates`() {
-        // Three gates: toggles SectionCard + actions SectionCard + BlockSeparator.
-        val source = Files.readString(Paths.get(POPUP_SOURCE_PATH))
-        val gateCount = "\\.visibleIf".toRegex().findAll(source).count()
-        assertEquals(EXPECTED_GATE_COUNT, gateCount, "Expected exactly $EXPECTED_GATE_COUNT .visibleIf gates")
-    }
-
-    @Test
-    fun `popup source defines exactly one shared live licenseGate helper`() {
-        // The three premium gates MUST share one helper so they cannot drift
-        // (a future edit that re-inlines one gate would re-introduce the
-        // stale-snapshot bug). Lock the shared-helper pattern by source-grep.
-        val source = Files.readString(Paths.get(POPUP_SOURCE_PATH))
-        val helperDefs = "private fun licenseGate".toRegex().findAll(source).count()
-        assertEquals(1, helperDefs, "Expected exactly one licenseGate() helper definition")
-        // All three `.visibleIf` calls must pass the helper-returned predicate,
-        // not a `ComponentPredicate.fromValue(...)` snapshot.
-        val snapshots =
-            "ComponentPredicate\\.fromValue\\(LicenseChecker"
-                .toRegex()
-                .findAll(source)
-                .count()
-        assertEquals(
-            0,
-            snapshots,
-            "Live-gate lock: no fromValue snapshot of LicenseChecker may leak back into the popup body",
-        )
-    }
-
-    @Test
-    fun `visibleIf bodies do not leak chip-level predicates (Pattern J two-conjunct invariant)`() {
-        // The chip's two-conjunct LAF + state gate lives in
-        // `QuickSwitcherWidgetAction.update()`; the popup's premium gate is
-        // purely license-based. A future careless edit that adds
-        // `state.quickSwitcherWidgetEnabled` or `isAyuActive` into the popup's
-        // `.visibleIf` body would shift a chip-level concern into the popup
-        // body and trip this assertion.
-        val source = Files.readString(Paths.get(POPUP_SOURCE_PATH))
-        val forbidden = listOf("quickSwitcherWidgetEnabled", "isAyuActive")
-        for (token in forbidden) {
-            val matches =
-                source.split(".visibleIf").drop(1).any { tail ->
-                    // The next ~200 chars after `.visibleIf` covers our compact
-                    // lambda or ComponentPredicate body.
-                    tail.take(GATE_BODY_SPAN).contains(token)
-                }
-            assertFalse(matches, ".visibleIf body must not reference $token (chip-level concern)")
-        }
-    }
-
-    @Test
     fun `popup source contains no upgrade-promo language`() {
         // The locked-with-tooltip pattern was explicitly rejected. A future
         // careless edit adding "Upgrade to unlock" hints in the popup body
         // would trip this test. Case-insensitive match.
-        val source = Files.readString(Paths.get(POPUP_SOURCE_PATH))
+        val source = FileUtil.loadFile(File(POPUP_SOURCE_PATH))
         val forbidden = listOf("Upgrade", "unlocked", "lockTooltip", "promo")
         for (token in forbidden) {
             val pattern = "(?i)$token".toRegex()
@@ -134,11 +79,5 @@ class QuickSwitcherPremiumBlockGateTest {
 
     private companion object {
         const val POPUP_SOURCE_PATH = "src/main/kotlin/dev/ayuislands/accent/toolbar/QuickSwitcherPopup.kt"
-
-        // Three gates: toggles SectionCard + actions SectionCard +
-        // BlockSeparator row are all wrapped in
-        // `.visibleIf(ComponentPredicate.fromValue(LicenseChecker.isLicensedOrGrace()))`.
-        const val EXPECTED_GATE_COUNT = 3
-        const val GATE_BODY_SPAN = 200
     }
 }

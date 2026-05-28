@@ -370,7 +370,7 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
             runStep("init-workspace-services") { StartupLicenseHandler.initWorkspaceServices(project, settings) }
             runStep("handle-wizard-action") {
                 wizardAction?.let {
-                    StartupLicenseHandler.handleWizardAction(it, project, adaptiveDelayMs, settings)
+                    StartupLicenseHandler.handleWizardAction(it, project, adaptiveDelayMs)
                 }
             }
             if (isLicensed) {

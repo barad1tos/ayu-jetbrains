@@ -22,7 +22,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertSame
 
 /**
- * Unit tests for [ChromeBaseColors] — the stock-color snapshot that blend callers
+ * Unit tests for [ChromeBaseColors] - the stock-color snapshot that blend callers
  * consult so cumulative tint application always blends from the true base, not
  * from a previously tinted value.
  */
@@ -37,11 +37,13 @@ class ChromeBaseColorsTest {
         val app = mockk<Application>(relaxed = true)
         val bus = mockk<MessageBus>(relaxed = true)
         val connection = mockk<MessageBusConnection>(relaxed = true)
+        val parentDisposable = mockk<ChromeBaseColorsLifecycle>(relaxed = true)
         every { ApplicationManager.getApplication() } returns app
+        every { app.getService(ChromeBaseColorsLifecycle::class.java) } returns parentDisposable
         every { app.messageBus } returns bus
-        // ChromeBaseColors anchors its MessageBusConnection to the Application
-        // Disposable (Pattern E), so the mock must match `connect(app)` as well
-        // as the bare `connect()` overload to stay forward-compatible.
+        // ChromeBaseColors anchors its MessageBusConnection to a plugin-owned
+        // service Disposable (Pattern E), so the mock must match the Disposable
+        // overload rather than the banned `connect(Application)` shape.
         every { bus.connect() } returns connection
         every { bus.connect(any<Disposable>()) } returns connection
         every { connection.subscribe(any(), any()) } returns Unit
@@ -52,7 +54,7 @@ class ChromeBaseColorsTest {
         every { UIManager.getColor("Missing.key") } returns null
 
         // Clear whatever a previous test run may have captured. ChromeBaseColors
-        // is an object singleton — state leaks across tests without this reset.
+        // is an object singleton - state leaks across tests without this reset.
         ChromeBaseColors.refresh()
     }
 
@@ -64,23 +66,23 @@ class ChromeBaseColorsTest {
 
     @Test
     fun `get captures current UIManager value on first access`() {
-        val captured = ChromeBaseColors.get("StatusBar.background")
+        val captured = ChromeBaseColors["StatusBar.background"]
         assertEquals(statusBarStock, captured)
     }
 
     @Test
-    fun `get returns cached value even after UIManager mutates — this is the core invariant`() {
+    fun `get returns cached value even after UIManager mutates - this is the core invariant`() {
         // First access captures the stock color.
-        val first = ChromeBaseColors.get("StatusBar.background")
+        val first = ChromeBaseColors["StatusBar.background"]
         assertEquals(statusBarStock, first)
 
         // Simulate a later apply having written a tinted color into UIManager.
         every { UIManager.getColor("StatusBar.background") } returns mutatedStatusBar
 
-        // Subsequent gets must STILL return the first-captured stock value — this
+        // Subsequent gets must STILL return the first-captured stock value - this
         // is the whole point of the snapshot. A naive re-read would compound
         // saturation per apply.
-        val second = ChromeBaseColors.get("StatusBar.background")
+        val second = ChromeBaseColors["StatusBar.background"]
         assertEquals(statusBarStock, second)
         assertNotSame(mutatedStatusBar, second)
         assertSame(first, second)
@@ -88,35 +90,35 @@ class ChromeBaseColorsTest {
 
     @Test
     fun `refresh clears the snapshot so next get re-captures from UIManager`() {
-        ChromeBaseColors.get("StatusBar.background")
+        ChromeBaseColors["StatusBar.background"]
         every { UIManager.getColor("StatusBar.background") } returns mutatedStatusBar
 
         ChromeBaseColors.refresh()
 
-        val reCaptured = ChromeBaseColors.get("StatusBar.background")
+        val reCaptured = ChromeBaseColors["StatusBar.background"]
         assertEquals(mutatedStatusBar, reCaptured)
     }
 
     @Test
     fun `get returns null when UIManager has no entry for the key`() {
-        assertNull(ChromeBaseColors.get("Missing.key"))
+        assertNull(ChromeBaseColors["Missing.key"])
     }
 
     @Test
-    fun `get does not cache null — a later UIManager entry is picked up on the next call`() {
-        // First call: key missing → returns null, nothing cached.
-        assertNull(ChromeBaseColors.get("Lazy.key"))
-        assertNull(ChromeBaseColors.get("Lazy.key"))
+    fun `get does not cache null - a later UIManager entry is picked up on the next call`() {
+        // First call: key missing -> returns null, nothing cached.
+        assertNull(ChromeBaseColors["Lazy.key"])
+        assertNull(ChromeBaseColors["Lazy.key"])
 
         // UIManager starts serving the key. No refresh required.
         every { UIManager.getColor("Lazy.key") } returns Color.RED
-        assertEquals(Color.RED, ChromeBaseColors.get("Lazy.key"))
+        assertEquals(Color.RED, ChromeBaseColors["Lazy.key"])
     }
 
     // --- Missing-key latch + clear-ordering regression locks ---
     //
     // First: repeated `get` calls for a key UIManager does not serve stay
-    // silent after the first miss — the `missingKeyLogged` latch gate must
+    // silent after the first miss - the `missingKeyLogged` latch gate must
     // consistently return null for every follow-up read without flipping
     // into a cached state.
     //
@@ -127,58 +129,58 @@ class ChromeBaseColorsTest {
 
     @Test
     fun `get returns null consistently across repeated calls on a missing key`() {
-        // UIManager returns null for "Missing.key" — see setUp. Repeated
+        // UIManager returns null for "Missing.key" - see setUp. Repeated
         // reads must all return null without caching any sentinel.
-        assertNull(ChromeBaseColors.get("Missing.key"))
-        assertNull(ChromeBaseColors.get("Missing.key"))
-        assertNull(ChromeBaseColors.get("Missing.key"))
+        assertNull(ChromeBaseColors["Missing.key"])
+        assertNull(ChromeBaseColors["Missing.key"])
+        assertNull(ChromeBaseColors["Missing.key"])
     }
 
     @Test
     fun `refresh clears the missing-key latch so a newly-populated key is picked up`() {
         // UIManager starts with no entry for Lazy.key.
         every { UIManager.getColor("Lazy.key") } returns null
-        assertNull(ChromeBaseColors.get("Lazy.key"))
+        assertNull(ChromeBaseColors["Lazy.key"])
 
         // Clear the latch + snapshot. Now UIManager is populated.
         ChromeBaseColors.refresh()
         every { UIManager.getColor("Lazy.key") } returns Color.RED
 
-        val captured = ChromeBaseColors.get("Lazy.key")
+        val captured = ChromeBaseColors["Lazy.key"]
         assertEquals(Color.RED, captured)
 
         // Snapshot invariant: once captured, a later UIManager mutation
         // must NOT bleed through. This locks the "latch cleared before
-        // snapshot" ordering — refresh must first drop the latch, then
+        // snapshot" ordering - refresh must first drop the latch, then
         // drop the snapshot, so the next get re-captures from UIManager
         // and the cache freezes that value for subsequent reads.
         every { UIManager.getColor("Lazy.key") } returns Color.BLUE
-        assertEquals(Color.RED, ChromeBaseColors.get("Lazy.key"))
+        assertEquals(Color.RED, ChromeBaseColors["Lazy.key"])
     }
 
     @Test
     fun `independent keys snapshot independently`() {
-        val status = ChromeBaseColors.get("StatusBar.background")
-        val navBar = ChromeBaseColors.get("NavBar.background")
+        val status = ChromeBaseColors["StatusBar.background"]
+        val navBar = ChromeBaseColors["NavBar.background"]
 
         assertEquals(statusBarStock, status)
         assertEquals(navBarStock, navBar)
 
         // Mutating one does not disturb the other.
         every { UIManager.getColor("StatusBar.background") } returns mutatedStatusBar
-        assertEquals(navBarStock, ChromeBaseColors.get("NavBar.background"))
-        assertEquals(statusBarStock, ChromeBaseColors.get("StatusBar.background"))
+        assertEquals(navBarStock, ChromeBaseColors["NavBar.background"])
+        assertEquals(statusBarStock, ChromeBaseColors["StatusBar.background"])
     }
 
     // Lock the LafManagerListener wiring end-to-end. Capture the listener
-    // lambda via a mockk slot on the next `connect(Disposable).subscribe`
+    // lambda via a capture slot on the next `connect(Disposable).subscribe`
     // call, fire `lookAndFeelChanged`, and assert a subsequent `get(...)`
     // returns the fresh UIManager value (i.e. the snapshot was actually cleared).
     //
     // The `ChromeBaseColors` object has already run its init block by the time
     // this test executes (the `@BeforeTest` mock setup happens before
     // test-class instantiation but after object load), so this test drives the
-    // exact behaviour the listener invokes — `refresh()` — with a fresh
+    // exact behaviour the listener invokes - `refresh()` - with a fresh
     // subscribe/slot capture wired via the existing mock so a future accidental
     // unwrapping of the lambda still surfaces as a contract break.
     @Test
@@ -190,21 +192,22 @@ class ChromeBaseColorsTest {
         val listenerSlot = slot<LafManagerListener>()
         every {
             val app = ApplicationManager.getApplication()
-            app.messageBus.connect(app).subscribe(LafManagerListener.TOPIC, capture(listenerSlot))
+            val parentDisposable = app.getService(ChromeBaseColorsLifecycle::class.java)
+            app.messageBus.connect(parentDisposable).subscribe(LafManagerListener.TOPIC, capture(listenerSlot))
         } returns Unit
 
         // Seed first capture.
-        assertEquals(statusBarStock, ChromeBaseColors.get("StatusBar.background"))
+        assertEquals(statusBarStock, ChromeBaseColors["StatusBar.background"])
 
-        // Simulate a LAF swap — platform now serves a different color for the key.
+        // Simulate a LAF swap - platform now serves a different color for the key.
         every { UIManager.getColor("StatusBar.background") } returns mutatedStatusBar
 
-        // Fire what the listener fires — the listener's body is literally `refresh()`.
+        // Fire what the listener fires - the listener's body is literally `refresh()`.
         // When a future refactor disconnects `lookAndFeelChanged` from `refresh()`,
         // this assertion flips and the test fails.
         ChromeBaseColors.refresh()
 
-        val reCaptured = ChromeBaseColors.get("StatusBar.background")
+        val reCaptured = ChromeBaseColors["StatusBar.background"]
         assertEquals(
             mutatedStatusBar,
             reCaptured,

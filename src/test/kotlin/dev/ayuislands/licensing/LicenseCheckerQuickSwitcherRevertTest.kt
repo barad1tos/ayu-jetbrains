@@ -6,6 +6,7 @@ import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.util.io.FileUtil
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowOverlayManager
@@ -23,8 +24,7 @@ import io.mockk.unmockkAll
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import java.nio.file.Files
-import java.nio.file.Paths
+import java.io.File
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
@@ -111,9 +111,7 @@ class LicenseCheckerQuickSwitcherRevertTest {
         // reads (the chip's BGT update tick polls `state.quickSwitcherWidgetEnabled`
         // every ~500 ms). Verified by line-number brace-counting.
         val source =
-            Files.readString(
-                Paths.get("src/main/kotlin/dev/ayuislands/licensing/LicenseChecker.kt"),
-            )
+            FileUtil.loadFile(File("src/main/kotlin/dev/ayuislands/licensing/LicenseChecker.kt"))
         val lines = source.lines()
         val resetIdx =
             lines.indexOfFirst { it.contains("state.quickSwitcherWidgetEnabled = true") }

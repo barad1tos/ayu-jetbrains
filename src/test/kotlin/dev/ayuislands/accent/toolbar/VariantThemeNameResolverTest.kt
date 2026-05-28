@@ -13,7 +13,7 @@ import kotlin.test.assertTrue
 /**
  * Locks the `(variant, islandsUi) -> theme name` contract for [VariantThemeNameResolver].
  *
- * Pattern L from `RECURRING_PITFALLS.md` — enum-size regression lock. If
+ * Pattern L from `RECURRING_PITFALLS.md` - enum-size regression lock. If
  * [AyuVariant.entries] grows past three (e.g. an `OASIS` variant), the size
  * assertion fails on purpose so the implementer is forced to extend the
  * resolver tests with the new variant's plain + Islands UI mappings in the
@@ -67,7 +67,7 @@ class VariantThemeNameResolverTest {
     }
 
     @Test
-    fun `AyuVariant entries size lock — three variants exactly`() {
+    fun `AyuVariant entries size lock - three variants exactly`() {
         // Pattern L regression lock. If a fourth variant lands without an Islands UI
         // entry, the per-variant tests above stay green but downstream radio /
         // checkbox UI silently no-ops for the new variant. Failing here forces the
@@ -77,12 +77,12 @@ class VariantThemeNameResolverTest {
         assertEquals(
             3,
             AyuVariant.entries.size,
-            "AyuVariant.entries grew — extend VariantThemeNameResolverTest with the new variant",
+            "AyuVariant.entries grew - extend VariantThemeNameResolverTest with the new variant",
         )
     }
 
     @Test
-    fun `every AyuVariant entry has exactly two themeNames — plain and Islands UI`() {
+    fun `every AyuVariant entry has exactly two themeNames - plain and Islands UI`() {
         // Pattern L follow-up: the resolver requires a 1:1 plain / Islands UI pair per
         // variant. A variant with only a plain entry would `error(...)` when the user
         // toggled Islands UI on; this test surfaces the schema drift at the enum
@@ -99,7 +99,7 @@ class VariantThemeNameResolverTest {
         // Simulate a hypothetical schema drift where a variant lost its Islands UI
         // entry. Mocking `AyuVariant.MIRAGE`'s `themeNames` (object-scoped enum
         // instance) keeps the production enum pristine while exercising the
-        // resolver's `error(...)` branch — the missing-theme guard would otherwise
+        // resolver's `error(...)` branch - the missing-theme guard would otherwise
         // bypass silently at the `LafManager.findLaf` null return.
         mockkObject(AyuVariant.MIRAGE)
         every { AyuVariant.MIRAGE.themeNames } returns setOf("Ayu Mirage")

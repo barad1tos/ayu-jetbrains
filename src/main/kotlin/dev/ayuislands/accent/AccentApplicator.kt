@@ -16,6 +16,7 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.openapi.wm.WindowManager
 import com.intellij.ui.ColorUtil
+import com.intellij.ui.JBColor
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.glow.GlowStyle
@@ -58,10 +59,15 @@ object AccentApplicator {
     internal val windowManagerUnavailableLogged = AtomicBoolean(false)
 
     private const val DARK_FOREGROUND_HEX = 0x1F2430
-    private val DARK_FOREGROUND = Color(DARK_FOREGROUND_HEX)
+    private val DARK_FOREGROUND = JBColor(DARK_FOREGROUND_HEX, DARK_FOREGROUND_HEX)
     private const val TAB_ACCENT_BG_ALPHA = 50
     private const val KEY_TAB_BACKGROUND = "EditorTabs.underlinedTabBackground"
     private const val DEFAULT_UNDERLINE_ARC = 8
+    private val TRANSPARENT_TAB_BACKGROUND =
+        JBColor(
+            ColorUtil.toAlpha(JBColor.BLACK, 0),
+            ColorUtil.toAlpha(JBColor.BLACK, 0),
+        )
 
     // CGP viewport defaults live in [CodeGlanceProIntegration] — they are
     // exclusively read inside that peer object. See
@@ -188,12 +194,11 @@ object AccentApplicator {
      * cache state (for example [ProjectAccentSwapService.notifyExternalApply]
      * reached via [applyForFocusedProject]): those callers MUST already be on
      * the EDT so their cache write happens after the full apply sequence.
-     * Off-EDT callers get Boolean "validation + scheduling" semantics only —
-     * paint completion is asynchronous, and the `lastApplyOk` flag on
-     * [AyuIslandsState] is the correct signal for "apply finished cleanly"
-     * in those flows.
+     * Off-EDT callers get scheduling semantics only — paint completion is
+     * asynchronous, and the `lastApplyOk` flag on [AyuIslandsState] is the
+     * correct signal for "apply finished cleanly" in those flows.
      */
-    fun apply(accentHex: AccentHex): Boolean {
+    fun apply(accentHex: AccentHex) {
         val trimmedHex = accentHex.value
         val accent = accentHex.toColor()
         val state = AyuIslandsSettings.getInstance().state
@@ -259,7 +264,6 @@ object AccentApplicator {
         } else {
             invokeLaterSafe(work)
         }
-        return true
     }
 
 /**
@@ -604,7 +608,7 @@ object AccentApplicator {
         }
 
         // Contrast foreground for accent-background elements (GotItTooltip, buttons)
-        val contrastForeground = if (ColorUtil.isDark(accent)) Color.WHITE else DARK_FOREGROUND
+        val contrastForeground = if (ColorUtil.isDark(accent)) JBColor.WHITE else DARK_FOREGROUND
         UIManager.put("GotItTooltip.foreground", contrastForeground)
         UIManager.put("GotItTooltip.Button.foreground", contrastForeground)
         UIManager.put("GotItTooltip.Header.foreground", contrastForeground)
@@ -618,16 +622,17 @@ object AccentApplicator {
         // Editor tab background tint (respects persisted tab mode, not gated by license)
         val tabMode = GlowTabMode.fromName(state.glowTabMode ?: "MINIMAL")
         when (tabMode) {
-            GlowTabMode.MINIMAL -> UIManager.put(KEY_TAB_BACKGROUND, Color(0, 0, 0, 0))
+            GlowTabMode.MINIMAL -> UIManager.put(KEY_TAB_BACKGROUND, TRANSPARENT_TAB_BACKGROUND)
             GlowTabMode.FULL -> {
-                val tinted = Color(accent.red, accent.green, accent.blue, TAB_ACCENT_BG_ALPHA)
+                val tintedColor = ColorUtil.toAlpha(accent, TAB_ACCENT_BG_ALPHA)
+                val tinted = JBColor(tintedColor, tintedColor)
                 UIManager.put(KEY_TAB_BACKGROUND, tinted)
             }
             GlowTabMode.OFF -> {
                 val variant = AyuVariant.detect()
                 val neutralColor = variant?.let { Color.decode(it.neutralGray) }
                 UIManager.put("EditorTabs.underlinedBorderColor", neutralColor)
-                UIManager.put(KEY_TAB_BACKGROUND, Color(0, 0, 0, 0))
+                UIManager.put(KEY_TAB_BACKGROUND, TRANSPARENT_TAB_BACKGROUND)
             }
         }
     }
@@ -821,7 +826,8 @@ object AccentApplicator {
                 }
                 return false
             }
-        return apply(accent)
+        apply(accent)
+        return true
     }
 }
 

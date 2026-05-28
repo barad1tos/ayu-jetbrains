@@ -36,7 +36,7 @@ import javax.swing.SwingConstants
  * Pattern A — paint runs on EDT by Swing contract.
  */
 internal class SectionCard(
-    private val title: String,
+    title: String,
 ) : JPanel(BorderLayout()) {
     private val headerLabel: JLabel =
         JLabel(title.uppercase(), SwingConstants.LEFT).apply {

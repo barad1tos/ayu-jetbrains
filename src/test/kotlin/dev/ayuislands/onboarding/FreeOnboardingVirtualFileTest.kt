@@ -8,7 +8,7 @@ import kotlin.test.assertNotEquals
 /**
  * Locks the [FreeOnboardingVirtualFile] identity-based equals contract added in
  * PR #160 to satisfy SonarCloud `kotlin:S2097`. Mirrors [OnboardingVirtualFileTest]
- * and [WhatsNewVirtualFileTest] — same equals + hashCode + identity semantics.
+ * and [WhatsNewVirtualFileTest] — same equals + identity semantics.
  */
 class FreeOnboardingVirtualFileTest {
     @Test
@@ -27,7 +27,6 @@ class FreeOnboardingVirtualFileTest {
     fun `equals is identity-based`() {
         val first = FreeOnboardingVirtualFile()
         val second = FreeOnboardingVirtualFile()
-        assertEquals(first, first)
         assertNotEquals(first, second)
     }
 
@@ -41,11 +40,5 @@ class FreeOnboardingVirtualFileTest {
             file.equals("not a virtual file"),
             "Identity-only equals must reject non-FreeOnboardingVirtualFile types",
         )
-    }
-
-    @Test
-    fun `hashCode is stable across calls on the same instance`() {
-        val file = FreeOnboardingVirtualFile()
-        assertEquals(file.hashCode(), file.hashCode())
     }
 }

@@ -54,8 +54,6 @@ class SyntaxIntensityApplicatorTest {
     private val javaCommentKey = TextAttributesKey.createTextAttributesKey("JAVA_LINE_COMMENT")
     private val javaLocalVarKey = TextAttributesKey.createTextAttributesKey("JAVA_LOCAL_VARIABLE")
 
-    private val mirageBg = Color(0x1F, 0x24, 0x30)
-
     // --- Test 1 — Ambient identity ----------------------------------------
 
     @Test
@@ -357,6 +355,7 @@ class SyntaxIntensityApplicatorTest {
                 customOverrides = emptyMap(),
                 baseline = baseline,
                 overlay = emptyMap(),
+                options = ComputeOptions(editorBg = Color.WHITE),
             )
         assertNotNull(result[javaKeywordKey], "compute must still emit a result despite the R-1 contract violation")
     }
@@ -805,6 +804,7 @@ class SyntaxIntensityApplicatorTest {
     private data class ComputeOptions(
         val subordinatePreset: SyntaxPreset = SyntaxPreset.AMBIENT,
         val customStyles: Map<String, Map<String, Int>> = emptyMap(),
+        val editorBg: Color = Color(0x1F, 0x24, 0x30),
     )
 
     private fun compute(
@@ -818,7 +818,7 @@ class SyntaxIntensityApplicatorTest {
             SyntaxIntensityApplicator.Request(
                 preset = preset,
                 variantName = "Mirage",
-                editorBg = mirageBg,
+                editorBg = options.editorBg,
                 baseline = baseline,
                 overlay = overlay,
                 customOverrides = customOverrides,

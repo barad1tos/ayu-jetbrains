@@ -5,6 +5,16 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.DumbAwareAction
 import dev.ayuislands.AyuPlugin
+import org.jetbrains.annotations.TestOnly
+import java.util.concurrent.atomic.AtomicBoolean
+
+private val descriptorNullLogged = AtomicBoolean(false)
+
+/** Test-only hook: reset the one-shot latch between test cases. */
+@TestOnly
+internal fun resetShowWhatsNewActionForTesting() {
+    descriptorNullLogged.set(false)
+}
 
 /**
  * Tools-menu action that re-opens the What's New tab on demand.
@@ -65,14 +75,5 @@ internal class ShowWhatsNewAction : DumbAwareAction() {
 
     companion object {
         private val LOG = logger<ShowWhatsNewAction>()
-        private val descriptorNullLogged =
-            java.util.concurrent.atomic
-                .AtomicBoolean(false)
-
-        /** Test-only hook: reset the one-shot latch between test cases. */
-        @org.jetbrains.annotations.TestOnly
-        internal fun resetForTesting() {
-            descriptorNullLogged.set(false)
-        }
     }
 }

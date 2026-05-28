@@ -19,7 +19,12 @@ enum class AyuVariant(
         fun fromThemeName(name: String): AyuVariant? = entries.firstOrNull { name in it.themeNames }
 
         @Suppress("UnstableApiUsage")
-        fun currentThemeName(): String = LafManager.getInstance().currentUIThemeLookAndFeel.name
+        fun currentThemeName(): String =
+            LafManager
+                .getInstance()
+                .currentUIThemeLookAndFeel
+                ?.name
+                .orEmpty()
 
         fun detect(): AyuVariant? = fromThemeName(currentThemeName())
 

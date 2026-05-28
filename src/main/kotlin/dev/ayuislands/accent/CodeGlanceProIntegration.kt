@@ -61,9 +61,10 @@ internal object CodeGlanceProIntegration {
      * string as-is. When bumping CGP version, re-run the javap command and update
      * these constants ONLY if upstream changed them.
      *
-     * Owned by this object — the constants are exclusively read here. Source-regex
-     * provenance lock lives in `AccentApplicatorCgpDefaultsDocTest` (test source
-     * set).
+     * Owned by this object — the constants are exclusively read here. The compiled
+     * values are locked in `AccentApplicatorCodeGlanceProDefaultsDocTest` (test
+     * source set); the javap recipe above stays the re-verification path when
+     * bumping CGP.
      */
     internal const val CGP_DEFAULT_VIEWPORT_COLOR = "00FF00"
     internal const val CGP_DEFAULT_VIEWPORT_BORDER_COLOR = "A0A0A0"
@@ -98,7 +99,7 @@ internal object CodeGlanceProIntegration {
                     cgpClassLoader,
                 )
 
-            val service = ApplicationManager.getApplication().getService(serviceClass) ?: return
+            val service = resolveApplicationService(serviceClass) ?: return
 
             cgpService = service
             cgpGetState = service.javaClass.getMethod("getState")
@@ -188,7 +189,7 @@ internal object CodeGlanceProIntegration {
     /**
      * Reset CodeGlance Pro viewport to its documented stock defaults
      * ([CGP_DEFAULT_VIEWPORT_COLOR] / [CGP_DEFAULT_VIEWPORT_BORDER_COLOR] /
-     * [CGP_DEFAULT_VIEWPORT_BORDER_THICKNESS]) when Ayu's
+     * [CGP_DEFAULT_VIEWPORT_BORDER_THICKNESS]) when the Ayu Islands
      * accent is being reverted (theme switch away from Ayu, license loss).
      * Mirror of [syncCodeGlanceProViewport]. Pattern G — apply/revert symmetry.
      *
@@ -205,7 +206,7 @@ internal object CodeGlanceProIntegration {
      */
     fun revertCodeGlanceProViewport() {
         // Pattern G + J — revert path MUST work regardless of the
-        // [cgpIntegrationEnabled] toggle. Driven from two distinct call sites:
+        // CGP integration toggle. Driven from two distinct call sites:
         //   1. [AccentApplicator.revertAll] on theme switch / license loss — at
         //      this point the toggle state is irrelevant; the surface needs
         //      cleanup so the next theme starts clean.
@@ -261,6 +262,16 @@ internal object CodeGlanceProIntegration {
                     "${exception.javaClass.simpleName}: ${exception.message}",
             )
         }
+    }
+
+    private fun resolveApplicationService(serviceClass: Class<*>): Any? {
+        // CGP's service class is resolved from CGP's plugin classloader, so DevKit
+        // cannot prove registration at compile time. Reflecting the platform
+        // lookup keeps this cross-plugin integration dynamic without adding CGP as
+        // a compile-time dependency.
+        val application = ApplicationManager.getApplication()
+        val getService = application.javaClass.getMethod("getService", Class::class.java)
+        return getService.invoke(application, serviceClass)
     }
 
     /**

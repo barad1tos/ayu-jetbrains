@@ -30,24 +30,24 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Locks the chip's inner-island pin-toggle wiring — the new
+ * Locks the chip's inner-island pin-toggle wiring - the new
  * one-click pin/unpin affordance that the layered icon advertises
  * visually (filled inner = pinned, hollow = no pin).
  *
  * Covers:
- *  - **Pin** (no pin → click inner-square): writes the project's hex
+ *  - **Pin** (no pin -> click inner-square): writes the project's hex
  *    into `AccentMappingsState.projectAccents` under the
  *    `AccentResolver.projectKey` entry, calls
  *    `AccentApplicator.applyFromHexString(hex)`, and (Pattern D)
  *    publishes via `ProjectAccentSwapService.notifyExternalApply`.
- *  - **Unpin** (pin active → click inner-square): removes the
+ *  - **Unpin** (pin active -> click inner-square): removes the
  *    `projectAccents` entry under the same key, re-applies the
  *    resolved global, publishes the global hex via
  *    `notifyExternalApply`.
  *  - **Outer-region click** (no pin or pin): existing popup-open path
  *    survives; no pin mutation.
  *  - **Pattern J gate**: `LicenseChecker.isLicensedOrGrace() = false`
- *    → inner-square click is a no-op (popup still opens for clicks
+ *    -> inner-square click is a no-op (popup still opens for clicks
  *    outside, but no inner-island toggle fires).
  *
  * Mirrors the existing `PinAccentActionTest` mock harness so the
@@ -108,7 +108,7 @@ class QuickSwitcherChipPinToggleTest {
 
     @Test
     fun `inner-square click WITHOUT existing pin writes projectAccents and applies (Pattern D)`() {
-        // GLOBAL source means no project pin — the inner click is the "Pin" path.
+        // GLOBAL source means no project pin - the inner click is the "Pin" path.
         every { AccentResolver.source(mockProject) } returns AccentResolver.Source.GLOBAL
 
         val chip = QuickSwitcherChipComponent()
@@ -128,7 +128,7 @@ class QuickSwitcherChipPinToggleTest {
     fun `inner-square click WITH existing pin removes projectAccents and re-applies global`() {
         // Seed an existing pin then flip the resolver source so the chip
         // sees `PROJECT_OVERRIDE`. After unpin the resolver returns the
-        // global hex on the SAME `resolve(...)` call — that's what the
+        // global hex on the SAME `resolve(...)` call - that's what the
         // chip re-applies.
         state.projectAccents[PROJECT_KEY] = "#FFB454"
         every { AccentResolver.source(mockProject) } returns AccentResolver.Source.PROJECT_OVERRIDE
@@ -159,7 +159,7 @@ class QuickSwitcherChipPinToggleTest {
     }
 
     @Test
-    fun `Pattern J gate — inner click with invalid licence is a NO-OP (no pin mutation)`() {
+    fun `Pattern J gate - inner click with invalid licence is a NO-OP (no pin mutation)`() {
         every { LicenseChecker.isLicensedOrGrace() } returns false
         every { AccentResolver.source(mockProject) } returns AccentResolver.Source.GLOBAL
 
@@ -167,7 +167,7 @@ class QuickSwitcherChipPinToggleTest {
         chip.dispatchEvent(innerClick(chip))
 
         // Inner click with invalid licence falls through to the popup-open
-        // path so the chip never "swallows" clicks silently — the popup
+        // path so the chip never "swallows" clicks silently - the popup
         // itself has the full Pattern J gating for premium actions.
         verify(exactly = 1) { QuickSwitcherPopup.show(chip, chip) }
         verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
@@ -178,7 +178,7 @@ class QuickSwitcherChipPinToggleTest {
     fun `pin path rolls back projectAccents when applyFromHexString returns false`() {
         // Pin from unpinned + apply rejects (e.g. corrupted upstream
         // settings produce an invalid hex). The pin write must NOT persist
-        // ahead of runtime state — restore the pre-toggle map and skip the
+        // ahead of runtime state - restore the pre-toggle map and skip the
         // notify so the persisted store stays consistent with what the
         // accent applicator actually applied.
         every { AccentResolver.source(mockProject) } returns AccentResolver.Source.GLOBAL

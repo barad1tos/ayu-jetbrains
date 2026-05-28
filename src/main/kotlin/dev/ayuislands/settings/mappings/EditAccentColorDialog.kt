@@ -31,7 +31,7 @@ class EditAccentColorDialog(
     var resultHex: String = initialHex
         private set
 
-    private lateinit var colorPanel: AccentColorPanel
+    private val colorPanel: AccentColorPanel
 
     init {
         title = "Edit Accent Color"

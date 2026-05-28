@@ -2,7 +2,10 @@ package dev.ayuislands.glow
 
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.ui.ColorUtil
+import com.intellij.ui.JBColor
+import com.intellij.util.ui.UIUtil
 import java.awt.Color
+import java.awt.Component
 import java.awt.Graphics2D
 import java.awt.Rectangle
 import java.awt.RenderingHints
@@ -38,7 +41,7 @@ class GlowRenderer {
     )
 
     private var styleKey: StyleKey? = null
-    private var cachedColor: Color = Color.BLACK
+    private var cachedColor: Color = JBColor.BLACK
     internal var cachedStyle: GlowStyle = GlowStyle.SOFT
     internal var cachedBaseAlpha: Int = 0
 
@@ -126,7 +129,7 @@ class GlowRenderer {
         arcWidth: Int,
         glowWidth: Int,
     ): BufferedImage {
-        val image = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
+        val image = UIUtil.createImage(null as Component?, width, height, BufferedImage.TYPE_INT_ARGB)
         val g2 = image.createGraphics()
         try {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
@@ -136,7 +139,7 @@ class GlowRenderer {
                 val alpha = computeAlpha(progress)
                 if (alpha <= 0) continue
 
-                g2.color = Color(cachedColor.red, cachedColor.green, cachedColor.blue, alpha)
+                g2.color = ColorUtil.toAlpha(cachedColor, alpha)
 
                 val inset = i.toDouble()
                 val outerW = (width - 2.0 * inset).coerceAtLeast(0.0)

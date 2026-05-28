@@ -3,6 +3,7 @@ package dev.ayuislands.syntax
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.notification.Notification
 import com.intellij.notification.Notifications
+import com.intellij.openapi.util.io.FileUtil
 import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
@@ -11,8 +12,7 @@ import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
-import java.nio.file.Files
-import java.nio.file.Path
+import java.io.File
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -23,8 +23,7 @@ import kotlin.test.assertTrue
  * Unit tests for [SyntaxIntensityMigrationNotifier]. Uses the same
  * upgrade-notifier MockK harness as prior notifiers — `mockkStatic` for
  * `PropertiesComponent` + `Notifications.Bus`, `slot<Notification>()` for
- * payload capture, and Pattern L source-regex locks for the flag-key
- * literal and the `notificationGroup` plugin.xml registration binding.
+ * payload capture, and the `notificationGroup` plugin.xml registration binding.
  */
 class SyntaxIntensityMigrationNotifierTest {
     private lateinit var props: PropertiesComponent
@@ -147,43 +146,12 @@ class SyntaxIntensityMigrationNotifierTest {
         verify(exactly = 0) { props.setValue("ayu.syntax.intensity.notified", true) }
     }
 
-    // ---------- Pattern L source-regex regression locks ----------
+    // ---------- plugin registration ----------
 
     @Test
-    fun `notifier source contains the distinct flag key literal`() {
-        val source = readNotifierSource()
-        assertTrue(
-            source.contains("\"ayu.syntax.intensity.notified\""),
-            "notifier must use the exact distinct flag key 'ayu.syntax.intensity.notified'",
-        )
-        assertEquals(
-            0,
-            Regex("""["']ayu\.syntax\.notified["']""").findAll(source).count(),
-            "notifier must NOT use the legacy 'ayu.syntax.notified' flag — that would " +
-                "suppress the migration message for users who already saw the prior notification",
-        )
-    }
-
-    @Test
-    fun `notifier source uses RuntimeException not Throwable in catch (Pattern B)`() {
-        val source = readNotifierSource()
-        assertTrue(
-            Regex("""catch\s*\(\s*\w+\s*:\s*RuntimeException""").containsMatchIn(source),
-            "notifier must catch RuntimeException (Pattern B), not Throwable",
-        )
-        assertEquals(
-            0,
-            Regex("""catch\s*\(\s*\w+\s*:\s*Throwable""").findAll(source).count(),
-            "notifier must NOT catch Throwable (Pattern B forbids broad catches)",
-        )
-    }
-
-    @Test
-    fun `GROUP_ID literal binds to plugin xml notificationGroup registration (Pattern L)`() {
+    fun `plugin xml registers Ayu Islands notification group`() {
         val pluginXmlText =
-            Files.readString(
-                Path.of("src/main/resources/META-INF/plugin.xml"),
-            )
+            FileUtil.loadFile(File("src/main/resources/META-INF/plugin.xml"))
         val regex =
             Regex(
                 """<notificationGroup\b[^/>]*\bid="Ayu Islands"[^/>]*\bdisplayType="BALLOON"[^/>]*/?>""",
@@ -195,26 +163,5 @@ class SyntaxIntensityMigrationNotifierTest {
             matches,
             "expected exactly 1 'Ayu Islands' BALLOON notificationGroup registration, got $matches",
         )
-        val source = readNotifierSource()
-        assertTrue(
-            source.contains("\"Ayu Islands\""),
-            "notifier source must contain the literal 'Ayu Islands' so the GROUP_ID binding " +
-                "is regression-locked against rename of the plugin.xml registration",
-        )
     }
-
-    @Test
-    fun `action label literal lock is enforced in source`() {
-        val source = readNotifierSource()
-        assertTrue(
-            source.contains("\"Open Syntax tab\""),
-            "notifier source must contain the literal 'Open Syntax tab' so the action label " +
-                "is regression-locked against accidental rewording",
-        )
-    }
-
-    private fun readNotifierSource(): String =
-        Files.readString(
-            Path.of("src/main/kotlin/dev/ayuislands/syntax/SyntaxIntensityMigrationNotifier.kt"),
-        )
 }

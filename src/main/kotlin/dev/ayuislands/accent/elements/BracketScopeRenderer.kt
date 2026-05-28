@@ -4,6 +4,7 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.LogicalPosition
 import com.intellij.openapi.editor.ex.EditorGutterComponentEx
 import com.intellij.openapi.editor.markup.LineMarkerRendererEx
+import com.intellij.ui.ColorUtil
 import java.awt.Color
 import java.awt.Graphics
 import java.awt.Graphics2D
@@ -40,7 +41,7 @@ class BracketScopeRenderer(
                 if (y > visibleEndY) break
 
                 val alpha = alphaForDepth(line, halfDepth)
-                g2.color = Color(color.red, color.green, color.blue, alpha)
+                g2.color = ColorUtil.toAlpha(color, alpha)
                 g2.fillRect(0, y, lineMarkerAreaOffset, lineHeight)
             }
         } finally {

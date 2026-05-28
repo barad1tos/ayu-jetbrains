@@ -119,7 +119,7 @@ class AccentMappingsSettings : SimplePersistentStateComponent<AccentMappingsStat
             primary.addSuppressed(namesCause)
         }
         LOG.warn(
-            "Failed to migrate \$USER_HOME\$-prefixed accent-mapping keys; " +
+            $$"Failed to migrate $USER_HOME$-prefixed accent-mapping keys; " +
                 "will retry on next IDE restart",
             primary,
         )

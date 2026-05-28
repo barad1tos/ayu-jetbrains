@@ -13,15 +13,15 @@ import org.junit.jupiter.api.Test
  *  - Below 50 desaturates/dims (negative deltas); above 50 saturates/brightens
  *    (positive deltas).
  *  - The ramp is linear from the 50 midpoint and symmetric around it.
- *  - `sliderToCurve` itself does NOT clamp to `AccentHsl` bounds — clamping is
+ *  - `sliderToCurve` itself does NOT clamp to `AccentHsl` bounds - clamping is
  *    the applicator's `transformForeground` job; the raw deltas stay within the
  *    swing magnitudes.
  *
  * Assertions are written in terms of SHAPE (identity, sign, linearity,
- * symmetry, monotonicity), not the exact swing magnitudes — `MAX_SAT_SWING` /
+ * symmetry, monotonicity), not the exact swing magnitudes - `MAX_SAT_SWING` /
  * `MAX_LIGHT_SWING` are runIde-calibrated tuning constants the implementation
  * owns. `SyntaxPresetCurves.sliderToCurve` does NOT exist yet, so this file is
- * expected to FAIL to compile (unresolved reference) — that is the intended
+ * expected to FAIL to compile (unresolved reference) - that is the intended
  * RED state. Plan 02 lands the implementation that turns this green.
  */
 class SyntaxSliderMathTest {
@@ -32,7 +32,7 @@ class SyntaxSliderMathTest {
         assertEquals(
             CategoryCurve.IDENTITY,
             SyntaxPresetCurves.sliderToCurve(50),
-            "50 is the slider zero-point — no change from the preset base (D-05)",
+            "50 is the slider zero-point - no change from the preset base (D-05)",
         )
     }
 
@@ -55,40 +55,40 @@ class SyntaxSliderMathTest {
     // --- Linearity from the 50 midpoint ----------------------------------
 
     @Test
-    fun `sliderToCurve is linear from 50 — 75 is half of 100`() {
+    fun `sliderToCurve is linear from 50 - 75 is half of 100`() {
         val full = SyntaxPresetCurves.sliderToCurve(100)
         val half = SyntaxPresetCurves.sliderToCurve(75)
         assertEquals(
             full.saturationDelta / 2f,
             half.saturationDelta,
             LINEARITY_TOLERANCE,
-            "75 is the midpoint between 50 and 100 — saturationDelta must be half of 100's",
+            "75 is the midpoint between 50 and 100 - saturationDelta must be half of 100's",
         )
         assertEquals(
             full.lightnessDelta / 2f,
             half.lightnessDelta,
             LINEARITY_TOLERANCE,
-            "75 is the midpoint between 50 and 100 — lightnessDelta must be half of 100's",
+            "75 is the midpoint between 50 and 100 - lightnessDelta must be half of 100's",
         )
     }
 
     // --- Symmetry around the 50 midpoint ---------------------------------
 
     @Test
-    fun `sliderToCurve is symmetric around 50 — 75 mirrors 25`() {
+    fun `sliderToCurve is symmetric around 50 - 75 mirrors 25`() {
         val above = SyntaxPresetCurves.sliderToCurve(75)
         val below = SyntaxPresetCurves.sliderToCurve(25)
         assertEquals(
             above.saturationDelta,
             -below.saturationDelta,
             LINEARITY_TOLERANCE,
-            "75 and 25 are equidistant from 50 — saturation deltas must be opposite",
+            "75 and 25 are equidistant from 50 - saturation deltas must be opposite",
         )
         assertEquals(
             above.lightnessDelta,
             -below.lightnessDelta,
             LINEARITY_TOLERANCE,
-            "75 and 25 are equidistant from 50 — lightness deltas must be opposite",
+            "75 and 25 are equidistant from 50 - lightness deltas must be opposite",
         )
     }
 
@@ -109,7 +109,7 @@ class SyntaxSliderMathTest {
     // --- No self-clamping to AccentHsl bounds ----------------------------
 
     @Test
-    fun `sliderToCurve emits raw symmetric swing deltas — does not pre-clamp`() {
+    fun `sliderToCurve emits raw symmetric swing deltas - does not pre-clamp`() {
         // The function returns deltas (a swing magnitude), NOT an absolute
         // lightness/saturation. The corrected model raises the lightness swing
         // to a chroma-intent authority (0.17) that exceeds the old AccentHsl
@@ -122,13 +122,13 @@ class SyntaxSliderMathTest {
             high.lightnessDelta,
             -low.lightnessDelta,
             LINEARITY_TOLERANCE,
-            "slider 0 / 100 lightness deltas must be exact opposites — raw, un-coerced swing",
+            "slider 0 / 100 lightness deltas must be exact opposites - raw, un-coerced swing",
         )
         assertEquals(
             high.saturationDelta,
             -low.saturationDelta,
             LINEARITY_TOLERANCE,
-            "slider 0 / 100 saturation deltas must be exact opposites — raw, un-coerced swing",
+            "slider 0 / 100 saturation deltas must be exact opposites - raw, un-coerced swing",
         )
         // The lightness swing now reaches the chroma-intent magnitude, proving
         // the bump from the old sub-floor swing landed.
@@ -141,7 +141,7 @@ class SyntaxSliderMathTest {
     companion object {
         private const val LINEARITY_TOLERANCE = 1e-4f
 
-        // AccentHsl.MIN_LIGHTNESS — the corrected lightness swing (chroma intent)
+        // AccentHsl.MIN_LIGHTNESS - the corrected lightness swing (chroma intent)
         // now exceeds this, so it is the lower bound the bump must clear.
         private const val ACCENT_HSL_FLOOR = 0.10f
 

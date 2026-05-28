@@ -21,8 +21,6 @@ import io.mockk.verify
 import java.awt.Color
 import java.awt.Dimension
 import java.awt.event.MouseEvent
-import java.nio.file.Files
-import java.nio.file.Paths
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -35,7 +33,7 @@ import kotlin.test.assertTrue
  * Locks the chip's render, lifecycle, and mouse-routing contracts.
  *
  * The chip is a [javax.swing.JLabel] + [Disposable]; its `addNotify` opens a single
- * [MessageBusConnection] (Pattern E — per-instance parent) and subscribes to BOTH
+ * [MessageBusConnection] (Pattern E - per-instance parent) and subscribes to BOTH
  * [AccentChangedTopic.TOPIC] and [ApplicationActivationListener.TOPIC]. `removeNotify`
  * and `dispose` disconnect and null the connection. `mousePressed` left-routes to the
  * popup; right-click routes to the context menu.
@@ -64,10 +62,13 @@ class QuickSwitcherChipComponentTest {
     @Test
     fun `preferredSize uses JBUI scaled CHIP_BOX_PX`() {
         stubAyuActive(true)
+        assertEquals(13, QuickSwitcherChipComponent.CHIP_BOX_PX)
         val chip = QuickSwitcherChipComponent()
         val boxScaled = JBUI.scale(QuickSwitcherChipComponent.CHIP_BOX_PX)
         val expected = Dimension(boxScaled, boxScaled)
         assertEquals(expected, chip.preferredSize)
+        assertEquals(boxScaled, chip.icon.iconWidth, "Chip icon must fill the full preferred cell width")
+        assertEquals(boxScaled, chip.icon.iconHeight, "Chip icon must fill the full preferred cell height")
     }
 
     @Test
@@ -77,7 +78,7 @@ class QuickSwitcherChipComponentTest {
         val icon = chip.icon
         assertTrue(icon is LayeredAccentIcon, "Initial icon must be a LayeredAccentIcon; got ${icon?.javaClass}")
         // Smart-cast carries `icon` as `LayeredAccentIcon` through the next
-        // assertion — no explicit cast needed.
+        // assertion - no explicit cast needed.
         assertFalse(
             icon.isPinned,
             "Pre-resolve placeholder must render as unpinned (hollow inner)",
@@ -95,7 +96,7 @@ class QuickSwitcherChipComponentTest {
         val icon = chip.icon as LayeredAccentIcon
         assertEquals(Color(0xFF, 0xCC, 0x66), icon.accentColor)
         assertFalse(icon.isPinned, "GLOBAL source must render the inner island as hollow (unpinned)")
-        assertEquals("#FFCC66 — Global", chip.toolTipText)
+        assertEquals("#FFCC66 \u2014 Global", chip.toolTipText)
     }
 
     @Test
@@ -111,12 +112,12 @@ class QuickSwitcherChipComponentTest {
             icon.isPinned,
             "PROJECT_OVERRIDE source must render the inner island as filled (pinned)",
         )
-        assertEquals("#5CCFE6 — Project override", chip.toolTipText)
+        assertEquals("#5CCFE6 \u2014 Project override", chip.toolTipText)
     }
 
     @Test
     fun `refreshFromFocusedProject renders LANGUAGE_OVERRIDE as unpinned LayeredAccentIcon`() {
-        // Language overrides count as "no project pin" — the inner-island
+        // Language overrides count as "no project pin" - the inner-island
         // indicator is project-scoped, not language-scoped.
         stubAyuActive(true)
         stubResolver(hex = "#73D0FF", source = AccentResolver.Source.LANGUAGE_OVERRIDE)
@@ -143,7 +144,7 @@ class QuickSwitcherChipComponentTest {
 
         val chip = QuickSwitcherChipComponent()
         val originalIcon = chip.icon
-        // Must NOT throw — Pattern B catch.
+        // Must NOT throw - Pattern B catch.
         chip.refreshFromFocusedProject()
         // Icon stays unchanged; the previous frame remains paintable.
         assertEquals(originalIcon, chip.icon)
@@ -188,7 +189,7 @@ class QuickSwitcherChipComponentTest {
     }
 
     @Test
-    fun `addNotify is idempotent — second invocation does not re-subscribe`() {
+    fun `addNotify is idempotent - second invocation does not re-subscribe`() {
         stubAyuActive(true)
         stubResolver(hex = "#FFCC66", source = AccentResolver.Source.GLOBAL)
 
@@ -196,7 +197,7 @@ class QuickSwitcherChipComponentTest {
         chip.addNotify()
         chip.addNotify()
 
-        // Only one connect call across the two addNotify invocations — the
+        // Only one connect call across the two addNotify invocations - the
         // `if (connection != null) return` early-return guard.
         verify(exactly = 1) { mockMessageBus.connect(any<Disposable>()) }
     }
@@ -211,14 +212,14 @@ class QuickSwitcherChipComponentTest {
         chip.removeNotify()
 
         verify(atLeast = 1) { mockConnection.disconnect() }
-        // After removeNotify, addNotify can subscribe again — proves connection is null.
+        // After removeNotify, addNotify can subscribe again - proves connection is null.
         chip.addNotify()
         verify(exactly = 2) { mockMessageBus.connect(any<Disposable>()) }
     }
 
     @Test
     fun `removeNotify owns the only teardown path (no Disposable surface)`() {
-        // The chip is not `Disposable` itself — the platform's lifecycle for a
+        // The chip is not `Disposable` itself - the platform's lifecycle for a
         // `CustomComponentAction` component is purely addNotify/removeNotify.
         // The owned `connectionParent` Disposable is disposed inside
         // removeNotify; the chip exposes no `dispose()` method.
@@ -238,7 +239,7 @@ class QuickSwitcherChipComponentTest {
         val isDisposable = Disposable::class.java.isAssignableFrom(chip.javaClass)
         assertFalse(
             isDisposable,
-            "Chip must NOT be Disposable — lifecycle is Swing-owned",
+            "Chip must NOT be Disposable - lifecycle is Swing-owned",
         )
     }
 
@@ -263,10 +264,10 @@ class QuickSwitcherChipComponentTest {
         stubResolver(hex = "#FFCC66", source = AccentResolver.Source.GLOBAL)
         mockkObject(QuickSwitcherPopup)
         every { QuickSwitcherPopup.show(any(), any()) } returns Unit
-        // RMB is routed to `ActionManager.createActionPopupMenu` — stub it so
+        // RMB is routed to `ActionManager.createActionPopupMenu` - stub it so
         // dispatch through `mousePressed` does not NPE. The "RMB does NOT
-        // invoke popup" assertion stays — the popup is for LMB only. Detailed
-        // RMB→context-menu assertions live in `QuickSwitcherChipContextMenuTest`.
+        // invoke popup" assertion stays - the popup is for LMB only. Detailed
+        // RMB->context-menu assertions live in `QuickSwitcherChipContextMenuTest`.
         val mockActionManager = mockk<com.intellij.openapi.actionSystem.ActionManager>(relaxed = true)
         val mockMenu = mockk<com.intellij.openapi.actionSystem.ActionPopupMenu>(relaxed = true)
         every { mockActionManager.createActionPopupMenu(any(), any()) } returns mockMenu
@@ -297,25 +298,6 @@ class QuickSwitcherChipComponentTest {
     }
 
     @Test
-    fun `CHIP_BOX_PX equals 13 and icon fills full cell`() {
-        assertEquals(13, QuickSwitcherChipComponent.CHIP_BOX_PX)
-        // Icon is sized to the full cell (`CHIP_BOX_PX`), not an inner-disc
-        // inset, so it does not look small against the platform's
-        // pressed/hover highlight that paints around the cell. The earlier
-        // `CHIP_SWATCH_PX = 12` inner-disc constant was removed.
-        val source = Files.readString(Paths.get(CHIP_SOURCE_PATH))
-        assertTrue(
-            source.contains("LayeredAccentIcon(JBUI.scale(CHIP_BOX_PX)"),
-            "Chip LayeredAccentIcon must size to CHIP_BOX_PX (full cell), not an inner-disc constant",
-        )
-        assertEquals(
-            0,
-            "CHIP_SWATCH_PX".toRegex().findAll(source).count(),
-            "Inner-disc constant CHIP_SWATCH_PX must be fully removed",
-        )
-    }
-
-    @Test
     fun `setPopupAttached toggles ring state on the chip`() {
         stubAyuActive(true)
         val chip = QuickSwitcherChipComponent()
@@ -324,60 +306,6 @@ class QuickSwitcherChipComponentTest {
         assertTrue(chip.isPopupAttached)
         chip.setPopupAttached(false)
         assertFalse(chip.isPopupAttached)
-    }
-
-    @Test
-    fun `chip uses LayeredAccentIcon with the pinned flag on every construction site`() {
-        val source = Files.readString(Paths.get(CHIP_SOURCE_PATH))
-        // Every LayeredAccentIcon(...) construction site in the chip must
-        // pass an explicit `pinned = ...` argument — defends against a
-        // future refactor that forgets the pin flag and silently always
-        // renders the unpinned (hollow) state. Counted as construction
-        // sites (`LayeredAccentIcon(`) and `pinned =` arguments separately
-        // since the constructor's first arg `JBUI.scale(CHIP_BOX_PX)`
-        // contains a `)` that would break a single greedy regex.
-        val constructionCount =
-            "LayeredAccentIcon\\(".toRegex().findAll(source).count()
-        val pinnedArgCount =
-            "pinned\\s*=".toRegex().findAll(source).count()
-        assertTrue(
-            constructionCount >= 2,
-            "Expected ≥2 LayeredAccentIcon(...) call sites (idle init + refresh); got $constructionCount",
-        )
-        assertTrue(
-            pinnedArgCount >= constructionCount,
-            "Every LayeredAccentIcon construction must pass `pinned = …`; " +
-                "found $constructionCount calls but only $pinnedArgCount `pinned =` args",
-        )
-        assertEquals(
-            0,
-            "ColorIcon\\(".toRegex().findAll(source).count(),
-            "Chip must not reference ColorIcon — the layered icon replaces it completely",
-        )
-    }
-
-    @Test
-    fun `JBPopupListener is registered on the popup not on chip Disposable (Pattern E)`() {
-        val popupSource = Files.readString(Paths.get(POPUP_SOURCE_PATH))
-        assertTrue(
-            popupSource.contains("popup.addListener"),
-            "Popup must register JBPopupListener via popup.addListener (auto-disposes with popup)",
-        )
-        val chipSource = Files.readString(Paths.get(CHIP_SOURCE_PATH))
-        assertFalse(
-            chipSource.contains("Disposer.register"),
-            "Chip must NOT wire any Disposer.register for the popup listener (Pattern E discipline)",
-        )
-    }
-
-    @Test
-    fun `setPopupAttached calls from JBPopupListener wrap SwingUtilities invokeLater`() {
-        val popupSource = Files.readString(Paths.get(POPUP_SOURCE_PATH))
-        val listenerBlock = popupSource.substringAfter("object : JBPopupListener", "")
-        assertTrue(
-            listenerBlock.contains("SwingUtilities.invokeLater"),
-            "Chip setPopupAttached invocation from JBPopupListener must hop to EDT",
-        )
     }
 
     @Test
@@ -435,9 +363,4 @@ class QuickSwitcherChipComponentTest {
             false,
             MouseEvent.BUTTON3,
         )
-
-    private companion object {
-        const val CHIP_SOURCE_PATH = "src/main/kotlin/dev/ayuislands/accent/toolbar/QuickSwitcherChipComponent.kt"
-        const val POPUP_SOURCE_PATH = "src/main/kotlin/dev/ayuislands/accent/toolbar/QuickSwitcherPopup.kt"
-    }
 }

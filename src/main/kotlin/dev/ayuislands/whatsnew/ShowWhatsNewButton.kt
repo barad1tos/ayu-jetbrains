@@ -1,5 +1,6 @@
 package dev.ayuislands.whatsnew
 
+import com.intellij.ui.ColorUtil
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
@@ -111,7 +112,7 @@ internal class ShowWhatsNewButton(
     private fun shade(
         color: Color,
         alpha: Int,
-    ): Color = Color(color.red, color.green, color.blue, alpha)
+    ): Color = ColorUtil.toAlpha(color, alpha)
 
     companion object {
         /**
@@ -140,25 +141,23 @@ internal class ShowWhatsNewButton(
         // because the button uses the accent fill directly — it's light-on-dark
         // on its own, regardless of the surrounding IDE theme.
         private const val ACCENT_INK_RGB = 0x1F1F28
-        private val ACCENT_INK: JBColor = JBColor(Color(ACCENT_INK_RGB), Color(ACCENT_INK_RGB))
+        private val ACCENT_INK: JBColor = JBColor(ACCENT_INK_RGB, ACCENT_INK_RGB)
 
         // Secondary (close) button fill + border — translucent tint that adapts
         // to light/dark mode ink. Named constants rather than inline numbers so
         // detekt's MagicNumber check passes without an @Suppress.
-        private const val RGB_MIN = 0
-        private const val RGB_MAX = 255
         private const val SECONDARY_FILL_ALPHA = 16
         private const val SECONDARY_BORDER_ALPHA = 48
 
         private val SECONDARY_FILL: JBColor =
             JBColor(
-                Color(RGB_MIN, RGB_MIN, RGB_MIN, SECONDARY_FILL_ALPHA),
-                Color(RGB_MAX, RGB_MAX, RGB_MAX, SECONDARY_FILL_ALPHA),
+                ColorUtil.toAlpha(JBColor.BLACK, SECONDARY_FILL_ALPHA),
+                ColorUtil.toAlpha(JBColor.WHITE, SECONDARY_FILL_ALPHA),
             )
         private val SECONDARY_BORDER: JBColor =
             JBColor(
-                Color(RGB_MIN, RGB_MIN, RGB_MIN, SECONDARY_BORDER_ALPHA),
-                Color(RGB_MAX, RGB_MAX, RGB_MAX, SECONDARY_BORDER_ALPHA),
+                ColorUtil.toAlpha(JBColor.BLACK, SECONDARY_BORDER_ALPHA),
+                ColorUtil.toAlpha(JBColor.WHITE, SECONDARY_BORDER_ALPHA),
             )
     }
 }

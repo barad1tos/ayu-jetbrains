@@ -1,11 +1,11 @@
 package dev.ayuislands.settings.mappings
 
 import com.intellij.ui.ColorPicker
+import com.intellij.ui.JBColor
 import com.intellij.ui.components.ActionLink
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentColor
-import java.awt.Color
 import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.FlowLayout
@@ -101,7 +101,7 @@ class AccentSwatchPickerRow(
                     )
                 graphics.color = fill
                 graphics.fill(shape)
-                val borderColor = UIManager.getColor("Separator.separatorColor") ?: Color(BORDER_RGB)
+                val borderColor = UIManager.getColor("Separator.separatorColor") ?: JBColor(BORDER_RGB, BORDER_RGB)
                 graphics.color = borderColor
                 graphics.draw(shape)
 

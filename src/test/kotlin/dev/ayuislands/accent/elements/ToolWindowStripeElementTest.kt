@@ -51,7 +51,7 @@ class ToolWindowStripeElementTest {
 
     @BeforeTest
     fun setUp() {
-        // Reset the companion `firstApplyLogged` gate so first-apply
+        // Reset the file-level first-apply gate so first-apply
         // diagnostic assertions are reachable regardless of ordering.
         resetFirstApplyLoggedGate()
 
@@ -112,7 +112,7 @@ class ToolWindowStripeElementTest {
 
         ToolWindowStripeElement().apply(testAccent)
 
-        // All 3 keys resolve to the stubbed stockBase, so blend is invoked 3× with the same args.
+        // All 3 keys resolve to the stubbed stockBase, so blend is invoked 3x with the same args.
         verify(exactly = 3) { ChromeTintBlender.blend(testAccent, stockBase, TintIntensity.of(45)) }
     }
 
@@ -169,7 +169,7 @@ class ToolWindowStripeElementTest {
         verify(exactly = 1) {
             WcagForeground.pickForeground(selectedTinted, WcagForeground.TextTarget.ICON)
         }
-        // The two writes diverge — stripe fg is NOT reused for the selected button.
+        // The two writes diverge - stripe fg is NOT reused for the selected button.
         verify(exactly = 1) { UIManager.put("ToolWindow.Stripe.foreground", stripeFg) }
         verify(exactly = 1) { UIManager.put("ToolWindow.Button.selectedForeground", selectedFg) }
     }
@@ -238,7 +238,7 @@ class ToolWindowStripeElementTest {
     @Test
     fun `first apply flips the diagnostic gate to true`() {
         // One-shot contract: the diagnostic gate stays false until the first
-        // apply() invocation — exactly when LOG.info fires with the
+        // apply() invocation - exactly when LOG.info fires with the
         // `ToolWindowStripeElement first apply: keysSeen=...` line. If the
         // `onBackgroundsTinted` override is deleted, the gate stays false and
         // this test fails.
@@ -254,7 +254,7 @@ class ToolWindowStripeElementTest {
     }
 
     @Test
-    fun `second apply keeps the diagnostic gate true — one-shot contract`() {
+    fun `second apply keeps the diagnostic gate true - one-shot contract`() {
         mockState.chromeTintIntensity = 30
 
         val element = ToolWindowStripeElement()
@@ -275,9 +275,12 @@ class ToolWindowStripeElementTest {
     }
 
     private fun firstApplyLoggedField(): AtomicBoolean {
-        // Private companion `val` compiles to a private static field on the
-        // outer class. See `javap -p ToolWindowStripeElement.class`.
-        val field = ToolWindowStripeElement::class.java.getDeclaredField("firstApplyLogged")
+        // Private top-level `val` compiles to a private static field on the
+        // file facade. See `javap -p ToolWindowStripeElementKt.class`.
+        val field =
+            Class
+                .forName("dev.ayuislands.accent.elements.ToolWindowStripeElementKt")
+                .getDeclaredField("toolWindowStripeFirstApplyLogged")
         field.isAccessible = true
         return field.get(null) as AtomicBoolean
     }

@@ -11,10 +11,9 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkAll
+import io.mockk.verify
 import java.awt.Container
 import java.awt.GridLayout
-import java.nio.file.Files
-import java.nio.file.Paths
 import javax.swing.JLabel
 import javax.swing.JPanel
 import kotlin.test.AfterTest
@@ -27,10 +26,8 @@ import kotlin.test.assertTrue
  * Related-toggles section coverage:
  *   - layout is a 2 × 2 [GridLayout] of [ToggleTile] composites,
  *   - tile labels in fixed top-to-bottom / left-to-right order,
- *   - Chrome tinting binds to `chromeStatusBar` ONLY (`chromeMainToolbar` /
- *     `chromeToolWindowStripe` / `chromeNavBar` / `chromePanelBorder` are
- *     forbidden in this file),
- *   - single-source-of-truth `bindSelected` plumbing preserved.
+ *   - Chrome tinting writes `chromeStatusBar` only,
+ *   - hidden binding writes mirror the visible switch without re-entry loops.
  */
 class QuickSwitcherRelatedTogglesSectionTest {
     @BeforeTest
@@ -83,14 +80,29 @@ class QuickSwitcherRelatedTogglesSectionTest {
     }
 
     @Test
-    fun `Chrome tinting binds to chromeStatusBar only`() {
-        val source = Files.readString(Paths.get(SOURCE_PATH))
-        val statusBarRefs = "chromeStatusBar".toRegex().findAll(source).count()
-        assertTrue(statusBarRefs >= 2, "Expected ≥2 chromeStatusBar refs (getter + setter), got $statusBarRefs")
-        for (forbidden in FORBIDDEN_SURFACES) {
-            val count = forbidden.toRegex().findAll(source).count()
-            assertEquals(0, count, "Toggles section must NOT reference $forbidden (count=$count)")
-        }
+    fun `clicking Chrome tinting updates status bar without touching other chrome surfaces`() {
+        val state = AyuIslandsSettings.getInstance().state
+        state.chromeStatusBar = false
+        state.chromeMainToolbar = true
+        state.chromeToolWindowStripe = true
+        state.chromeNavBar = false
+        state.chromePanelBorder = true
+
+        val section = QuickSwitcherRelatedTogglesSection()
+        val chromeTile =
+            (section.component as JPanel)
+                .components
+                .filterIsInstance<ToggleTile>()
+                .first { tile -> labelOf(tile) == "Chrome tinting" }
+
+        chromeTile.toggleSwitch.flip()
+
+        assertEquals(true, state.chromeStatusBar, "Chrome tile must toggle the visible status-bar chrome surface")
+        assertEquals(true, state.chromeMainToolbar, "Chrome tile must not touch main-toolbar chrome")
+        assertEquals(true, state.chromeToolWindowStripe, "Chrome tile must not touch tool-window stripe chrome")
+        assertEquals(false, state.chromeNavBar, "Chrome tile must not touch nav-bar chrome")
+        assertEquals(true, state.chromePanelBorder, "Chrome tile must not touch panel-border chrome")
+        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
     }
 
     @Test
@@ -108,20 +120,6 @@ class QuickSwitcherRelatedTogglesSectionTest {
         assertEquals(true, byLabel["Glow"]?.toggleSwitch?.isSelected)
         assertEquals(false, byLabel["Accent rotation"]?.toggleSwitch?.isSelected)
         assertEquals(true, byLabel["Follow system accent"]?.toggleSwitch?.isSelected)
-    }
-
-    @Test
-    fun `source carries at least four bindSelected calls (Pattern Q regression lock)`() {
-        val source = Files.readString(Paths.get(SOURCE_PATH))
-        val count = "bindSelected".toRegex().findAll(source).count()
-        assertTrue(count >= 4, "Expected ≥4 bindSelected calls, got $count")
-    }
-
-    @Test
-    fun `source has zero AccentApplicator calls (Pattern G adjacency lock)`() {
-        val source = Files.readString(Paths.get(SOURCE_PATH))
-        val applyHex = "applyFromHexString".toRegex().findAll(source).count()
-        assertEquals(0, applyHex, "Must NOT call applyFromHexString from the toggles section (Pattern G)")
     }
 
     @Test
@@ -175,19 +173,6 @@ class QuickSwitcherRelatedTogglesSectionTest {
     }
 
     @Test
-    fun `source no longer exposes a public fun apply (dead code removed)`() {
-        // The `fun apply()` exposed on the section was never called by
-        // QuickSwitcherPopup (per-tile-click persistence is the whole
-        // contract). Lock its absence so a future "completeness" PR does
-        // not re-add a misleading dead method.
-        val source = Files.readString(Paths.get(SOURCE_PATH))
-        // Only allow the private `persistenceRoot.apply()` calls inside the
-        // listener body; no top-level `fun apply()` definition on the class.
-        val publicApplyDefs = "\\s{4}fun apply\\(\\)".toRegex().findAll(source).count()
-        assertEquals(0, publicApplyDefs, "Public fun apply() must be deleted; persistence is per-tile-click")
-    }
-
-    @Test
     fun `density grid gap matches Density TILE_GAP`() {
         val section = QuickSwitcherRelatedTogglesSection()
         val layout = (section.component as JPanel).layout as GridLayout
@@ -214,7 +199,7 @@ class QuickSwitcherRelatedTogglesSectionTest {
     private fun findLabelText(tile: ToggleTile): String {
         val labels = collectLabelTexts(tile)
         // Labels include any leading icon JLabel (text empty) — keep the non-empty.
-        return labels.firstOrNull { it.isNotEmpty() } ?: ""
+        return labels.firstOrNull { it.isNotEmpty() }.orEmpty()
     }
 
     private fun collectLabelTexts(
@@ -229,16 +214,5 @@ class QuickSwitcherRelatedTogglesSectionTest {
             if (child is Container) collectLabelTexts(child, out)
         }
         return out
-    }
-
-    private companion object {
-        const val SOURCE_PATH = "src/main/kotlin/dev/ayuislands/accent/toolbar/QuickSwitcherRelatedTogglesSection.kt"
-        val FORBIDDEN_SURFACES =
-            listOf(
-                "chromeMainToolbar",
-                "chromeToolWindowStripe",
-                "chromeNavBar",
-                "chromePanelBorder",
-            )
     }
 }

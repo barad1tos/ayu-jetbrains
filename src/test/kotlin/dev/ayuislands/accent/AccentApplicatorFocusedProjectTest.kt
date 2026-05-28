@@ -52,7 +52,7 @@ class AccentApplicatorFocusedProjectTest {
         mockkStatic(ProjectManager::class)
         mockkObject(AccentResolver)
         mockkObject(AccentApplicator, recordPrivateCalls = false)
-        every { AccentApplicator.apply(any()) } returns true
+        every { AccentApplicator.apply(any()) } answers { Unit }
 
         mockkObject(ProjectAccentSwapService.Companion)
         swapService = mockk(relaxed = true)

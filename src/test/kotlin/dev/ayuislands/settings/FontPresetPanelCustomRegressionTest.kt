@@ -2,7 +2,6 @@ package dev.ayuislands.settings
 
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import dev.ayuislands.accent.AccentApplicator
-import dev.ayuislands.font.FontCatalog
 import dev.ayuislands.font.FontDetector
 import dev.ayuislands.font.FontInstaller
 import dev.ayuislands.font.FontPreset
@@ -10,6 +9,7 @@ import dev.ayuislands.font.FontStatus
 import dev.ayuislands.font.FontUninstaller
 import dev.ayuislands.onboarding.PremiumOnboardingPanel
 import io.mockk.every
+import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkAll
 import io.mockk.verify
@@ -20,94 +20,18 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/**
- * Bytecode-level regression locks for the issue #164 fix.
- *
- * Issue #164 froze the Settings page on "Loading…" forever for users with
- * persisted `fontPresetName="CUSTOM"` because `FontCatalog.forPreset(CUSTOM)`
- * threw `IllegalStateException` from the eager Brew-cask hint row body in
- * [FontPresetPanel] at panel-build time. The structural fix splits the
- * catalog API into [FontCatalog.forPreset] (nullable) and
- * [FontCatalog.requirePreset] (non-null, throws). Defensive call sites in
- * `FontPresetPanel` MUST use `forPreset`; curated-only call sites in
- * [PremiumOnboardingPanel] MUST use `requirePreset`.
- *
- * These tests pin those choices at the bytecode level so a future refactor
- * that reverts `FontPresetPanel` to `requirePreset` (e.g. a "simplification"
- * that misses the CUSTOM persisted-state code path) fails fast at CI rather
- * than reproducing the freeze for users.
- *
- * Pattern mirrors `AyuIslandsAccentPanelTest`'s bytecode-inspection tests:
- * read the compiled `.class` resource, search for symbol references in the
- * raw bytes. No Swing / DSL runtime is required.
- */
-class FontPresetPanelCustomBytecodeTest {
+/** Regression coverage for CUSTOM font preset paths in Settings and onboarding. */
+class FontPresetPanelCustomRegressionTest {
     @AfterTest
     fun cleanup() {
         unmockkAll()
     }
 
     @Test
-    fun `FontPresetPanel bytecode references nullable forPreset (issue #164 defensive lock)`() {
-        // Defensive call sites in triggerLifecycleAction, buildInstallHintRow,
-        // the Copy / Run-in-Terminal link callbacks, and updateFontMissing all
-        // consume `pendingPreset`, which the user can drive to CUSTOM through
-        // the segmented button. They MUST use `forPreset` (nullable). If the
-        // bytecode references `requirePreset` anywhere in this class, issue
-        // #164 has been reintroduced. (No line numbers here on purpose —
-        // they would rot on every unrelated edit; bytecode lookup is symbolic.)
-        val classText = readClassBytes("FontPresetPanel")
-        assertTrue(
-            classText.contains("forPreset"),
-            "FontPresetPanel bytecode must reference FontCatalog.forPreset (nullable) — " +
-                "the defensive code path that prevents issue #164 freeze on CUSTOM presets",
-        )
-        assertFalse(
-            classText.contains("requirePreset"),
-            "FontPresetPanel bytecode MUST NOT reference FontCatalog.requirePreset — " +
-                "user-driven preset paths route through pendingPreset which can be CUSTOM, " +
-                "and requirePreset throws IllegalStateException for non-curated presets " +
-                "(this is the regression that froze Settings on \"Loading…\" in 2.6.1).",
-        )
-    }
-
-    @Test
-    fun `FontPresetPanel bytecode logs a warning before dropping non-curated lifecycle clicks`() {
-        // triggerLifecycleAction's `?: return` was originally silent — a future
-        // visibility-gate bypass would no-op the user's click with no
-        // diagnostic in idea.log. Round-1 fix added a LOG.warn message
-        // containing "visibility gate bypassed". Lock the diagnostic: bytecode
-        // must contain that string-constant from the LOG.warn call site so a
-        // future "simplification" that drops the warn fails this test fast.
-        val classText = readClassBytes("FontPresetPanel")
-        assertTrue(
-            classText.contains("visibility gate bypassed"),
-            "triggerLifecycleAction (and Copy / Run-in-Terminal links) must log a " +
-                "'visibility gate bypassed' warning when forPreset returns null, so " +
-                "future regressions surface in idea.log instead of dropping clicks silently",
-        )
-    }
-
-    @Test
-    fun `PremiumOnboardingPanel bytecode references requirePreset for curated-only paths`() {
-        // FONT_PRESETS = [WHISPER, AMBIENT, NEON, CYBERPUNK] — CUSTOM is never
-        // passed to createFontCard / handleFontCardClick. requirePreset encodes
-        // that invariant: a future regression that adds CUSTOM to FONT_PRESETS
-        // throws IllegalStateException at first paint, fail-fast.
-        val classText = readClassBytes("../onboarding/PremiumOnboardingPanel")
-        assertTrue(
-            classText.contains("requirePreset"),
-            "PremiumOnboardingPanel must use FontCatalog.requirePreset for FONT_PRESETS " +
-                "iteration so a regression that admits CUSTOM fails fast",
-        )
-    }
-
-    @Test
     fun `PremiumOnboardingPanel FONT_PRESETS list contains only curated presets`() {
-        // Reflective invariant on the private FONT_PRESETS field. The bytecode
-        // test above asserts `requirePreset` is the lookup; this asserts the
-        // upstream filter (the list itself) excludes CUSTOM. Both together
-        // make the curated-only contract robust against either side drifting.
+        // Reflective invariant on the private FONT_PRESETS field. Onboarding
+        // font cards install curated catalog entries; CUSTOM is user-provided
+        // and has no catalog install metadata.
         // Kotlin private companion-object vals get compiled as private static
         // fields on the enclosing class, not on $Companion. Reflect there.
         val fontPresetsField =
@@ -125,15 +49,13 @@ class FontPresetPanelCustomBytecodeTest {
         )
         assertFalse(
             presets.contains(FontPreset.CUSTOM),
-            "FONT_PRESETS must not include CUSTOM (would break PremiumOnboardingPanel's requirePreset contract)",
+            "FONT_PRESETS must not include CUSTOM (onboarding cards only support installable curated presets)",
         )
     }
 
     @Test
     fun `updateFontMissing runs without throwing when pendingPreset is CUSTOM (issue #164 runtime lock)`() {
-        // Round-2 C1: bytecode tests prove the symbols are right but pass on a
-        // future `forPreset(preset)!!.brewCaskSlug` regression. The actual
-        // 2.6.1 freeze happened at panel-build time when the
+        // The actual 2.6.1 freeze happened at panel-build time when the
         // installHintLabel?.let { FontCatalog.forPreset(...).brewCaskSlug }
         // lambda evaluated for CUSTOM. Run that lambda directly with
         // pendingPreset="CUSTOM" and assert the visibility-gate booleans
@@ -188,30 +110,6 @@ class FontPresetPanelCustomBytecodeTest {
     }
 
     @Test
-    fun `panel module bytecode references isFamilyInstalled (Custom-preview lock)`() {
-        // 2.6.2 follow-up: pre-fix updateFontMissing only called updatePreset,
-        // which sets fontInstalled=false for CUSTOM (no catalog availability)
-        // and the preview pane fell back to "Install <preset.fontFamily> to
-        // preview". The genuinely-new dependency Round 1 introduced is
-        // FontDetector.isFamilyInstalled, called from previewInstalledFor.
-        // previewInstalledFor lives at file scope, so its compiled bytes are
-        // on FontPresetPanelKt.class (Kotlin file-class), not FontPresetPanel
-        // itself. Search both — a refactor that reverts either the helper or
-        // the panel-side wiring would drop the symbol from the file-class
-        // module entirely. Behavior coverage for the gate logic lives in the
-        // runtime tests below, not this lock.
-        val combined = readClassBytes("FontPresetPanel") + readClassBytes("FontPresetPanelKt")
-        assertTrue(
-            combined.contains("isFamilyInstalled"),
-            "FontPresetPanel module (panel + Kt file-class) must call " +
-                "FontDetector.isFamilyInstalled to check whether the user-chosen " +
-                "Custom family is installed on the system. Without this, " +
-                "fontInstalled stays false for CUSTOM and the preview always " +
-                "falls back to 'Install X to preview'.",
-        )
-    }
-
-    @Test
     fun `previewInstalledFor curated branch returns true for HEALTHY status`() {
         assertTrue(previewInstalledFor(FontPreset.AMBIENT, FontStatus.HEALTHY, true, "anything"))
     }
@@ -260,20 +158,21 @@ class FontPresetPanelCustomBytecodeTest {
     }
 
     @Test
-    fun `updateFontMissing CUSTOM with installed family flips fontInstalled true`() {
+    fun `updateFontMissing renders live preview when CUSTOM family is installed`() {
         // Round-3 runtime lock for the actual issue #168 user-visible bug.
-        // Pre-fix: CUSTOM with installed family → fontInstalled stayed false →
-        // preview rendered "Install X to preview" fallback. Round-1 fix wires
-        // FontDetector.isFamilyInstalled into the gate; this test pins the
-        // happy path through the panel's private updateFontMissing.
+        // Pre-fix: CUSTOM with installed family rendered the "Install X to
+        // preview" fallback. This pins the panel wiring, not just the pure
+        // helper that computes the preview-installed flag.
         mockkObject(FontDetector)
         every { FontDetector.isFamilyInstalled("MesloLGLDZ Nerd Font Mono") } returns true
 
         val panel = FontPresetPanel()
+        val previewComponent = mockk<FontPreviewComponent>(relaxed = true)
         setPrivateField(panel, "pendingPreset", FontPreset.CUSTOM.name)
         setPrivateField(panel, "pendingEnabled", true)
         setPrivateField(panel, "installHintLabel", JLabel())
         setPrivateField(panel, "availability", emptyMap<FontPreset, Boolean>())
+        setPrivateField(panel, "previewComponent", previewComponent)
         // Inject a customization map entry so currentSettings.fontFamily
         // returns the user-chosen family the FontDetector mock is keyed on.
         @Suppress("UNCHECKED_CAST")
@@ -296,6 +195,8 @@ class FontPresetPanelCustomBytecodeTest {
         assertFalse(getBooleanProperty(panel, "fontMissing"), "fontMissing must stay false for CUSTOM")
         assertFalse(getBooleanProperty(panel, "fontInstalled"), "fontInstalled (visibility) stays false for CUSTOM")
         assertFalse(getBooleanProperty(panel, "fontCorrupted"), "fontCorrupted must stay false for CUSTOM")
+        verify { previewComponent.updatePreset(FontPreset.CUSTOM, true) }
+        verify { previewComponent.updateFontFamily("MesloLGLDZ Nerd Font Mono") }
     }
 
     @Test
@@ -355,18 +256,5 @@ class FontPresetPanelCustomBytecodeTest {
         val method = FontPresetPanel::class.java.getDeclaredMethod("updateFontMissing")
         method.isAccessible = true
         method.invoke(target)
-    }
-
-    private fun readClassBytes(simpleName: String): String {
-        // Anchor on FontPresetPanel for FontPresetPanel; cross-package paths
-        // (e.g. ../onboarding/PremiumOnboardingPanel) still resolve via the
-        // class loader's path-relative .class lookup.
-        val resource = "$simpleName.class"
-        val stream =
-            FontPresetPanel::class.java.getResourceAsStream(resource)
-                ?: error("$simpleName.class must be loadable for bytecode inspection")
-        val bytes = stream.use { it.readAllBytes() }
-        assertTrue(bytes.isNotEmpty(), "$simpleName.class must not be empty")
-        return String(bytes, Charsets.ISO_8859_1)
     }
 }

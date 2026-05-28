@@ -1,5 +1,6 @@
 package dev.ayuislands.accent
 
+import com.intellij.ui.JBColor
 import java.awt.Color
 
 /**
@@ -52,6 +53,8 @@ object ChromeTintBlender {
      * brightness at intensity=100, stronger pop but breaks luma hierarchy).
      */
     private const val BRIGHTNESS_PULL_RATIO = 0.5f
+    private const val RED_SHIFT = 16
+    private const val GREEN_SHIFT = 8
 
     /**
      * Luma-preserving hue replacement between [baseColor] and [accent].
@@ -102,7 +105,8 @@ object ChromeTintBlender {
         // `intensity=0 returns base per channel` and opaque-alpha invariants
         // that ChromeTintBlenderTest pins.
         if (clamped == MIN_INTENSITY) {
-            return Color(baseColor.red, baseColor.green, baseColor.blue)
+            val rgb = (baseColor.red shl RED_SHIFT) or (baseColor.green shl GREEN_SHIFT) or baseColor.blue
+            return JBColor(rgb, rgb)
         }
 
         val accentHsb = Color.RGBtoHSB(accent.red, accent.green, accent.blue, null)

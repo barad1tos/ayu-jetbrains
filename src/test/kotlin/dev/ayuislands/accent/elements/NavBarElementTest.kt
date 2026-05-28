@@ -57,7 +57,7 @@ class NavBarElementTest {
         every { UIManager.put(any<String>(), any()) } returns null
 
         mockkObject(ChromeBaseColors)
-        every { ChromeBaseColors.get(any()) } returns stockBase
+        every { ChromeBaseColors[any()] } returns stockBase
 
         mockkObject(ChromeTintBlender)
         every { ChromeTintBlender.blend(any(), any<Color>(), any()) } returns blended
@@ -122,17 +122,17 @@ class NavBarElementTest {
     }
 
     @Test
-    fun `apply invokes blender twice per call — once per background key`() {
+    fun `apply invokes blender twice per call - once per background key`() {
         state.chromeTintIntensity = 50
 
         NavBarElement().apply(accent)
 
-        // Called once per background key — 2 keys, both resolve to the same stubbed stockBase.
+        // Called once per background key - 2 keys, both resolve to the same stubbed stockBase.
         verify(exactly = 2) { ChromeTintBlender.blend(accent, stockBase, TintIntensity.of(50)) }
     }
 
     @Test
-    fun `revert symmetry — every key apply can write is nulled on revert`() {
+    fun `revert symmetry - every key apply can write is nulled on revert`() {
         state.chromeTintIntensity = 40
 
         val appliedKeys = mutableListOf<String>()

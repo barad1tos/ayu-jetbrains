@@ -11,6 +11,7 @@ import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.util.messages.MessageBus
+import com.nasller.codeglance.config.CodeGlanceConfigService
 import dev.ayuislands.AyuPlugin
 import dev.ayuislands.indent.IndentRainbowSync
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -339,6 +340,32 @@ class AccentApplicatorRevertAllIntegrationTest {
         verify(exactly = 1) { mockSetColor.invoke(mockConfig, "5CCFE6") }
         verify(exactly = 1) { mockSetBorderColor.invoke(mockConfig, "5CCFE6") }
         verify(exactly = 1) { mockSetBorderThickness.invoke(mockConfig, 1) }
+    }
+
+    @Test
+    fun `syncCodeGlanceProViewport resolves CGP app service dynamically and writes viewport state`() {
+        val cgpService = CodeGlanceConfigService()
+        mockkObject(AyuPlugin)
+        val mockPlugin = mockk<IdeaPluginDescriptor>(relaxed = true)
+        every { AyuPlugin.findEnabledPlugin(any()) } returns mockPlugin
+        every { mockPlugin.pluginClassLoader } returns cgpService.javaClass.classLoader
+        every { mockApplication.getService(any<Class<*>>()) } returns cgpService
+
+        CodeGlanceProIntegration.resetReflectionCacheForTests()
+        CodeGlanceProIntegration.syncCodeGlanceProViewport("#5CCFE6")
+
+        val state = cgpService.getState()
+        assertEquals(
+            "5CCFE6",
+            state.viewportColor,
+            "CGP must receive the accent hex without the # prefix through its app service.",
+        )
+        assertEquals(
+            "5CCFE6",
+            state.viewportBorderColor,
+            "CGP viewport border must match the accent written through the dynamic app service.",
+        )
+        assertEquals(1, state.viewportBorderThickness, "Ayu accent sync must enable the CGP viewport border.")
     }
 
     @Test
@@ -806,10 +833,9 @@ class AccentApplicatorRevertAllIntegrationTest {
         mockkObject(AyuPlugin)
         val mockPlugin = mockk<IdeaPluginDescriptor>(relaxed = true)
         every { AyuPlugin.findEnabledPlugin(any()) } returns mockPlugin
-        // Use the test's own classloader — it does not contain the CGP class,
-        // so `Class.forName` throws `ClassNotFoundException` (a subtype of
-        // `ReflectiveOperationException`).
-        every { mockPlugin.pluginClassLoader } returns this::class.java.classLoader
+        // Use a loader that behaves like a stale CGP plugin descriptor: the
+        // plugin is present, but the service class is absent.
+        every { mockPlugin.pluginClassLoader } returns MissingCgpClassLoader
 
         // No throw expected. The `cgpService` field stays null because the
         // catch swallows before it can be assigned.
@@ -958,9 +984,19 @@ class AccentApplicatorRevertAllIntegrationTest {
      */
     private object BrokenClassLoader : ClassLoader() {
         override fun loadClass(name: String?): Class<*> =
-            throw IllegalStateException(
+            error(
                 "BrokenClassLoader rejects loadClass for '$name' — " +
                     "exercises the resolveCgpMethods RuntimeException catch.",
             )
+    }
+
+    private object MissingCgpClassLoader :
+        ClassLoader(AccentApplicatorRevertAllIntegrationTest::class.java.classLoader) {
+        override fun loadClass(name: String?): Class<*> {
+            if (name == "com.nasller.codeglance.config.CodeGlanceConfigService") {
+                throw ClassNotFoundException(name)
+            }
+            return super.loadClass(name)
+        }
     }
 }

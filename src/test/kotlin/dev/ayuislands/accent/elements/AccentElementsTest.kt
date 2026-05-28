@@ -5,6 +5,7 @@ import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.ui.JBColor
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AccentGroup
@@ -40,6 +41,8 @@ class AccentElementsTest {
         mockScheme = mockk(relaxed = true)
         mockColorsManager = mockk(relaxed = true)
         every { mockColorsManager.globalScheme } returns mockScheme
+        every { mockScheme.defaultBackground } returns Color(0x1F, 0x24, 0x30)
+        every { mockScheme.name } returns "Ayu Islands Mirage"
 
         mockkStatic(EditorColorsManager::class)
         every { EditorColorsManager.getInstance() } returns mockColorsManager
@@ -193,7 +196,7 @@ class AccentElementsTest {
     }
 
     @Test
-    fun `MatchingTagElement apply sets backgroundColor on MATCHED_TAG_NAME`() {
+    fun `MatchingTagElement apply sets blended opaque background on MATCHED_TAG_NAME`() {
         val attributesSlot = slot<TextAttributes>()
         every { mockScheme.getAttributes(any<TextAttributesKey>()) } returns null
         every { mockScheme.setAttributes(any<TextAttributesKey>(), capture(attributesSlot)) } just Runs
@@ -204,8 +207,42 @@ class AccentElementsTest {
         assertTrue(attributesSlot.isCaptured, "setAttributes should have been called")
         val captured = attributesSlot.captured
         assertNotNull(captured.backgroundColor, "backgroundColor should be set")
-        assertEquals(0x30, captured.backgroundColor.alpha, "backgroundColor alpha should be 0x30")
+        assertEquals(255, captured.backgroundColor.alpha, "backgroundColor must be persisted as opaque RGB")
+        assertEquals(Color(0x49, 0x44, 0x3A), captured.backgroundColor)
         assertNull(captured.foregroundColor, "foregroundColor should remain null")
+    }
+
+    @Test
+    fun `MatchingTagElement apply does not persist full accent when scheme background is unresolved`() {
+        val attributesSlot = slot<TextAttributes>()
+        every { mockScheme.defaultBackground } returns Color.WHITE
+        every { mockScheme.name } returns "_@user_Ayu Islands Mirage"
+        every { mockScheme.getAttributes(any<TextAttributesKey>()) } returns null
+        every { mockScheme.setAttributes(any<TextAttributesKey>(), capture(attributesSlot)) } just Runs
+
+        JBColor.setDark(true)
+        try {
+            val element = MatchingTagElement()
+            element.apply(testColor)
+
+            assertEquals(Color(0x49, 0x44, 0x3A), attributesSlot.captured.backgroundColor)
+        } finally {
+            JBColor.setDark(false)
+        }
+    }
+
+    @Test
+    fun `MatchingTagElement apply keeps light background when light scheme is unresolved`() {
+        val attributesSlot = slot<TextAttributes>()
+        every { mockScheme.defaultBackground } returns Color.WHITE
+        every { mockScheme.name } returns "Ayu Islands Light"
+        every { mockScheme.getAttributes(any<TextAttributesKey>()) } returns null
+        every { mockScheme.setAttributes(any<TextAttributesKey>(), capture(attributesSlot)) } just Runs
+
+        val element = MatchingTagElement()
+        element.apply(testColor)
+
+        assertEquals(Color(0xFF, 0xF5, 0xE2), attributesSlot.captured.backgroundColor)
     }
 
     @Test
