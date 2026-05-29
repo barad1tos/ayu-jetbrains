@@ -23,9 +23,7 @@ class WhatsNewManifestCtaIntegrityTest {
         val pluginXml = readPluginXml()
         val configurableIds = extractApplicationConfigurableIds(pluginXml)
 
-        for (version in SHIPPED_MANIFEST_VERSIONS) {
-            val manifest = WhatsNewManifestLoader.load(version)
-            assertNotNull(manifest, "v$version manifest must load — it ships with the plugin")
+        forEachShippedManifest { version, manifest ->
             val targetId = manifest.ctaOpenSettingsTargetId
             assertNotNull(targetId, "v$version manifest must declare a CTA target id")
 
@@ -39,10 +37,7 @@ class WhatsNewManifestCtaIntegrityTest {
 
     @Test
     fun `all shipped manifest slide images exist and decode`() {
-        for (version in SHIPPED_MANIFEST_VERSIONS) {
-            val manifest = WhatsNewManifestLoader.load(version)
-            assertNotNull(manifest, "v$version manifest must load — it ships with the plugin")
-
+        forEachShippedManifest { version, manifest ->
             for (slide in manifest.slides) {
                 val image = slide.image ?: continue
                 val resourcePath = "whatsnew/v$version/$image"
@@ -75,6 +70,14 @@ class WhatsNewManifestCtaIntegrityTest {
                 RegexOption.DOT_MATCHES_ALL,
             )
         return pattern.findAll(xml).map { it.groupValues[1] }.toList()
+    }
+
+    private fun forEachShippedManifest(block: (String, WhatsNewManifest) -> Unit) {
+        for (version in SHIPPED_MANIFEST_VERSIONS) {
+            val manifest = WhatsNewManifestLoader.load(version)
+            assertNotNull(manifest, "v$version manifest must load — it ships with the plugin")
+            block(version, manifest)
+        }
     }
 
     private companion object {

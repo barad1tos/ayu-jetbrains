@@ -41,19 +41,18 @@ internal object AyuPlugin {
             if (PluginManagerCore.isDisabled(pluginId)) return null
             PluginManagerCore.getPlugin(pluginId)
         } catch (exception: IllegalStateException) {
-            LOG.warn(
-                "AyuPlugin.findEnabledPlugin: plugin descriptor lookup failed " +
-                    "(expected only in tests with a partially mocked Application).",
-                exception,
-            )
-            null
+            logPluginLookupFailure(exception)
         } catch (exception: ClassCastException) {
-            LOG.warn(
-                "AyuPlugin.findEnabledPlugin: plugin descriptor lookup failed " +
-                    "(expected only in tests with a partially mocked Application).",
-                exception,
-            )
-            null
+            logPluginLookupFailure(exception)
         }
+    }
+
+    private fun logPluginLookupFailure(exception: RuntimeException): Nothing? {
+        LOG.warn(
+            "AyuPlugin.findEnabledPlugin: plugin descriptor lookup failed " +
+                "(expected only in tests with a partially mocked Application).",
+            exception,
+        )
+        return null
     }
 }
