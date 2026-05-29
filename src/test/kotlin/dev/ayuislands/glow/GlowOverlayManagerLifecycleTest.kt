@@ -1,20 +1,30 @@
 package dev.ayuislands.glow
 
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.util.messages.MessageBus
+import com.intellij.util.messages.MessageBusConnection
+import dev.ayuislands.accent.AccentChangeListener
+import dev.ayuislands.accent.AccentChangedTopic
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import io.mockk.Runs
 import io.mockk.clearAllMocks
 import io.mockk.every
+import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
+import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
+import java.awt.Color
 import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -135,6 +145,144 @@ class GlowOverlayManagerLifecycleTest {
             overlaysAfter.isEmpty() && !overlaysAfter.containsKey(sentinelKey),
             "updateGlow with isAyuActive=true MUST NOT dispose pre-existing overlays",
         )
+    }
+
+    @Test
+    fun `AccentChangedTopic event recolors existing glow overlays for matching project`() {
+        every { AyuVariant.isAyuActive() } returns true
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        every { SwingUtilities.invokeLater(any()) } just Runs
+
+        val project = stubProject("focused-project")
+        val messageBus = mockk<MessageBus>()
+        val connection = mockk<MessageBusConnection>(relaxed = true)
+        val accentListenerSlot = slot<AccentChangeListener>()
+        every { project.messageBus } returns messageBus
+        every { messageBus.connect(any<Disposable>()) } returns connection
+        every {
+            connection.subscribe(eq(AccentChangedTopic.TOPIC), capture(accentListenerSlot))
+        } just Runs
+
+        val manager = GlowOverlayManager(project)
+        val glassPane = mockk<GlowGlassPane>(relaxed = true)
+        seedOverlaysMapWithMocks(
+            manager,
+            glassPane,
+            host = mockk(relaxed = true),
+            layeredPane = mockk(relaxed = true),
+        )
+
+        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#5CCFE6"
+
+        manager.initialize()
+
+        assertTrue(
+            accentListenerSlot.isCaptured,
+            "GlowOverlayManager must subscribe to AccentChangedTopic so chrome-only accent refreshes recolor glow",
+        )
+
+        accentListenerSlot.captured.accentChanged(
+            project,
+            AccentHex.unsafeOf("#5CCFE6"),
+            AccentResolver.Source.GLOBAL,
+        )
+
+        verify(exactly = 1) { glassPane.glowColor = Color.decode("#5CCFE6") }
+    }
+
+    @Test
+    fun `AccentChangedTopic event ignores a different project`() {
+        every { AyuVariant.isAyuActive() } returns true
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        every { SwingUtilities.invokeLater(any()) } just Runs
+
+        val project = stubProject("focused-project")
+        val otherProject = stubProject("other-project")
+        val messageBus = mockk<MessageBus>()
+        val connection = mockk<MessageBusConnection>(relaxed = true)
+        val accentListenerSlot = slot<AccentChangeListener>()
+        every { project.messageBus } returns messageBus
+        every { messageBus.connect(any<Disposable>()) } returns connection
+        every {
+            connection.subscribe(eq(AccentChangedTopic.TOPIC), capture(accentListenerSlot))
+        } just Runs
+
+        val manager = GlowOverlayManager(project)
+        val glassPane = mockk<GlowGlassPane>(relaxed = true)
+        seedOverlaysMapWithMocks(
+            manager,
+            glassPane,
+            host = mockk(relaxed = true),
+            layeredPane = mockk(relaxed = true),
+        )
+
+        manager.initialize()
+
+        assertTrue(
+            accentListenerSlot.isCaptured,
+            "GlowOverlayManager must subscribe before it can filter project-scoped accent events",
+        )
+
+        accentListenerSlot.captured.accentChanged(
+            otherProject,
+            AccentHex.unsafeOf("#D95757"),
+            AccentResolver.Source.PROJECT_OVERRIDE,
+        )
+
+        verify(exactly = 0) { glassPane.glowColor = any<Color>() }
+    }
+
+    @Test
+    fun `AccentChangedTopic event reschedules glow update when fired off EDT`() {
+        every { AyuVariant.isAyuActive() } returns true
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        every { SwingUtilities.invokeLater(any()) } just Runs
+
+        val project = stubProject("focused-project")
+        val messageBus = mockk<MessageBus>()
+        val connection = mockk<MessageBusConnection>(relaxed = true)
+        val accentListenerSlot = slot<AccentChangeListener>()
+        every { project.messageBus } returns messageBus
+        every { messageBus.connect(any<Disposable>()) } returns connection
+        every {
+            connection.subscribe(eq(AccentChangedTopic.TOPIC), capture(accentListenerSlot))
+        } just Runs
+
+        val manager = GlowOverlayManager(project)
+        val glassPane = mockk<GlowGlassPane>(relaxed = true)
+        seedOverlaysMapWithMocks(
+            manager,
+            glassPane,
+            host = mockk(relaxed = true),
+            layeredPane = mockk(relaxed = true),
+        )
+
+        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#5CCFE6"
+
+        manager.initialize()
+
+        assertTrue(
+            accentListenerSlot.isCaptured,
+            "GlowOverlayManager must subscribe before it can reschedule off-EDT accent events",
+        )
+
+        val scheduled = mutableListOf<Runnable>()
+        every { SwingUtilities.isEventDispatchThread() } returns false
+        every { SwingUtilities.invokeLater(any()) } answers {
+            scheduled.add(firstArg<Runnable>())
+        }
+
+        accentListenerSlot.captured.accentChanged(
+            project,
+            AccentHex.unsafeOf("#5CCFE6"),
+            AccentResolver.Source.GLOBAL,
+        )
+
+        verify(exactly = 0) { glassPane.glowColor = any<Color>() }
+
+        scheduled.forEach { it.run() }
+
+        verify(exactly = 1) { glassPane.glowColor = Color.decode("#5CCFE6") }
     }
 
     @Test

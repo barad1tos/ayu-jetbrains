@@ -12,6 +12,9 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
+import dev.ayuislands.accent.AccentChangeListener
+import dev.ayuislands.accent.AccentChangedTopic
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
@@ -166,6 +169,29 @@ class GlowOverlayManager(
                 override fun selectionChanged(event: FileEditorManagerEvent) {
                     SwingUtilities.invokeLater {
                         attachEditorOverlayIfNeeded()
+                    }
+                }
+            },
+        )
+
+        connection.subscribe(
+            AccentChangedTopic.TOPIC,
+            @Suppress("ObjectLiteralToLambda")
+            object : AccentChangeListener {
+                override fun accentChanged(
+                    project: Project,
+                    hex: AccentHex,
+                    source: AccentResolver.Source,
+                ) {
+                    if (disposed) return
+                    if (project !== this@GlowOverlayManager.project) return
+
+                    if (SwingUtilities.isEventDispatchThread()) {
+                        updateGlow()
+                    } else {
+                        SwingUtilities.invokeLater {
+                            if (!disposed) updateGlow()
+                        }
                     }
                 }
             },
