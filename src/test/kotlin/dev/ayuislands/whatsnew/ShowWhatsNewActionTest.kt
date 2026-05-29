@@ -46,7 +46,7 @@ class ShowWhatsNewActionTest {
         // Test resources include /whatsnew/v9.9.0/manifest.json — when the
         // plugin descriptor reports that version, the action must be visible
         // and enabled in the Tools menu.
-        every { AyuPlugin.findEnabledPlugin(any<PluginId>()) } returns descriptor
+        every { AyuPlugin.findLoadedPlugin(any<PluginId>()) } returns descriptor
         every { descriptor.version } returns "9.9.0"
 
         action.update(event)
@@ -59,7 +59,7 @@ class ShowWhatsNewActionTest {
     fun `update disables the action when no manifest for current version`() {
         // Patch releases or any version without a manifest hide the menu item —
         // better than a dead-clickable item that opens an empty tab.
-        every { AyuPlugin.findEnabledPlugin(any<PluginId>()) } returns descriptor
+        every { AyuPlugin.findLoadedPlugin(any<PluginId>()) } returns descriptor
         every { descriptor.version } returns "0.0.0"
 
         action.update(event)
@@ -71,8 +71,8 @@ class ShowWhatsNewActionTest {
     @Test
     fun `update disables the action when plugin descriptor is missing`() {
         // Defense in depth — plugin classloader registry could theoretically
-        // not list us during early startup or under PluginManager edge cases.
-        every { AyuPlugin.findEnabledPlugin(any<PluginId>()) } returns null
+        // not list us during early startup or under plugin descriptor lookup edge cases.
+        every { AyuPlugin.findLoadedPlugin(any<PluginId>()) } returns null
 
         action.update(event)
 
@@ -111,7 +111,7 @@ class ShowWhatsNewActionTest {
         // hits Show What's New… and openManually returns false (manifest gone),
         // we leave an INFO breadcrumb — but NOT a WARN, since this is an
         // expected race, not an anomaly.
-        every { AyuPlugin.findEnabledPlugin(any<PluginId>()) } returns descriptor
+        every { AyuPlugin.findLoadedPlugin(any<PluginId>()) } returns descriptor
         every { descriptor.version } returns "0.0.0"
         mockkObject(WhatsNewLauncher)
         every { WhatsNewLauncher.openManually(project) } returns false
@@ -158,7 +158,7 @@ class ShowWhatsNewActionTest {
             }
         LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
             // First null observation — expect ONE WARN.
-            every { AyuPlugin.findEnabledPlugin(any<PluginId>()) } returns null
+            every { AyuPlugin.findLoadedPlugin(any<PluginId>()) } returns null
             action.update(event)
             action.update(event)
             action.update(event)
@@ -166,13 +166,13 @@ class ShowWhatsNewActionTest {
             kotlin.test.assertEquals(1, firstStreak, "streak of null-observations must produce ONE WARN")
 
             // Descriptor comes back — action re-arms the latch silently.
-            every { AyuPlugin.findEnabledPlugin(any<PluginId>()) } returns descriptor
+            every { AyuPlugin.findLoadedPlugin(any<PluginId>()) } returns descriptor
             every { descriptor.version } returns "9.9.0"
             action.update(event)
             kotlin.test.assertEquals(1, captured.size, "recovery must not log WARN")
 
             // Descriptor goes null again — latch re-armed, expect a SECOND WARN.
-            every { AyuPlugin.findEnabledPlugin(any<PluginId>()) } returns null
+            every { AyuPlugin.findLoadedPlugin(any<PluginId>()) } returns null
             action.update(event)
             kotlin.test.assertEquals(2, captured.size, "second null streak must re-arm and log once")
         }
@@ -184,7 +184,7 @@ class ShowWhatsNewActionTest {
         // platform can't find OUR OWN plugin, which is a real anomaly worth
         // surfacing as WARN so a future "menu does nothing" report has a
         // diagnostic that distinguishes "patch release" from "platform broken".
-        every { AyuPlugin.findEnabledPlugin(any<PluginId>()) } returns null
+        every { AyuPlugin.findLoadedPlugin(any<PluginId>()) } returns null
         mockkObject(WhatsNewLauncher)
         every { WhatsNewLauncher.openManually(project) } returns false
 

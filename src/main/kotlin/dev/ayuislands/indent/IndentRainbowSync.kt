@@ -172,7 +172,7 @@ object IndentRainbowSync {
 
         try {
             val pluginId = PluginId.getId(IR_PLUGIN_ID)
-            val irPlugin = AyuPlugin.findEnabledPlugin(pluginId) ?: return
+            val irPlugin = AyuPlugin.findLoadedPlugin(pluginId) ?: return
             val classLoader = irPlugin.pluginClassLoader ?: return
 
             val configClass =
@@ -260,7 +260,7 @@ object IndentRainbowSync {
         val state = AyuIslandsSettings.getInstance().state
         val currentVersion =
             AyuPlugin
-                .findEnabledPlugin(PluginId.getId(IR_PLUGIN_ID))
+                .findLoadedPlugin(PluginId.getId(IR_PLUGIN_ID))
                 ?.version
 
         if (state.irFailedVersion == currentVersion) return

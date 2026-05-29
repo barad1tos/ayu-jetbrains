@@ -480,7 +480,7 @@ object LicenseChecker {
         // debug; the two preconditions above guarantee this branch can't spam
         // regular users (only dev sandboxes ever reach it). Both descriptor-
         // null and pluginPath-null paths are logged for symmetry.
-        val descriptor = AyuPlugin.findEnabledPlugin(AyuPlugin.ID)
+        val descriptor = AyuPlugin.findLoadedPlugin(AyuPlugin.ID)
         val pluginPath = descriptor?.pluginPath?.toString().orEmpty()
         val isDev = pluginPath.contains("idea-sandbox")
         if (!isDev) {

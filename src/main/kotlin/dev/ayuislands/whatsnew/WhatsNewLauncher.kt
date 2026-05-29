@@ -202,5 +202,5 @@ internal object WhatsNewLauncher {
         }
     }
 
-    private fun pluginDescriptor() = AyuPlugin.findEnabledPlugin(AyuPlugin.ID)
+    private fun pluginDescriptor() = AyuPlugin.findLoadedPlugin(AyuPlugin.ID)
 }

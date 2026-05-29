@@ -347,7 +347,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         val cgpService = CodeGlanceConfigService()
         mockkObject(AyuPlugin)
         val mockPlugin = mockk<IdeaPluginDescriptor>(relaxed = true)
-        every { AyuPlugin.findEnabledPlugin(any()) } returns mockPlugin
+        every { AyuPlugin.findLoadedPlugin(any()) } returns mockPlugin
         every { mockPlugin.pluginClassLoader } returns cgpService.javaClass.classLoader
         every { mockApplication.getService(any<Class<*>>()) } returns cgpService
 
@@ -832,7 +832,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         CodeGlanceProIntegration.resetReflectionCacheForTests()
         mockkObject(AyuPlugin)
         val mockPlugin = mockk<IdeaPluginDescriptor>(relaxed = true)
-        every { AyuPlugin.findEnabledPlugin(any()) } returns mockPlugin
+        every { AyuPlugin.findLoadedPlugin(any()) } returns mockPlugin
         // Use a loader that behaves like a stale CGP plugin descriptor: the
         // plugin is present, but the service class is absent.
         every { mockPlugin.pluginClassLoader } returns MissingCgpClassLoader
@@ -865,7 +865,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         CodeGlanceProIntegration.resetReflectionCacheForTests()
         mockkObject(AyuPlugin)
         val mockPlugin = mockk<IdeaPluginDescriptor>(relaxed = true)
-        every { AyuPlugin.findEnabledPlugin(any()) } returns mockPlugin
+        every { AyuPlugin.findLoadedPlugin(any()) } returns mockPlugin
         every { mockPlugin.pluginClassLoader } returns BrokenClassLoader
 
         // No throw expected. `IllegalStateException` is a `RuntimeException`,

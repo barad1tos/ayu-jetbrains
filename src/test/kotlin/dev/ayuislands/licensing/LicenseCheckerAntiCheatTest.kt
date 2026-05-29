@@ -57,7 +57,7 @@ class LicenseCheckerAntiCheatTest {
         every { PathManager.getConfigPath() } returns "/home/user/.config/JetBrains/IntelliJIdea2025.1"
 
         mockkObject(AyuPlugin)
-        every { AyuPlugin.findEnabledPlugin(any<PluginId>()) } returns null
+        every { AyuPlugin.findLoadedPlugin(any<PluginId>()) } returns null
 
         // Pin the clock through LicenseCheckerClockSeam so restore stays centralized
         // and the production defaults come back from exactly one place in tearDown.
@@ -247,14 +247,14 @@ class LicenseCheckerAntiCheatTest {
 
     private fun setPluginPath(path: String?) {
         if (path == null) {
-            every { AyuPlugin.findEnabledPlugin(any<PluginId>()) } returns null
+            every { AyuPlugin.findLoadedPlugin(any<PluginId>()) } returns null
             return
         }
         val descriptor = mockk<IdeaPluginDescriptor>()
         val pluginPath = mockk<Path>()
         every { pluginPath.toString() } returns path
         every { descriptor.pluginPath } returns pluginPath
-        every { AyuPlugin.findEnabledPlugin(AyuPlugin.ID) } returns descriptor
+        every { AyuPlugin.findLoadedPlugin(AyuPlugin.ID) } returns descriptor
     }
 
     @Test
@@ -307,7 +307,7 @@ class LicenseCheckerAntiCheatTest {
 
     @Test
     fun `dev bypass rejected when plugin descriptor is null`() {
-        // `AyuPlugin.findEnabledPlugin` returns null if the plugin id can't be
+        // `AyuPlugin.findLoadedPlugin` returns null if the plugin id can't be
         // found, is disabled, or the Application is not bootstrapped — unusual
         // but possible during early classloader init. Triple-gate must not
         // crash and must reject.

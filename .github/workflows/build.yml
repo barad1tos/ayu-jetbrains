@@ -231,10 +231,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Split into 3 groups of 3+3+5 IDEs each so per-runner disk + I/O budget
+        # Split into 4 groups of 3+3+5+1 IDEs each so per-runner disk + I/O budget
         # stays below the ClosedByInterruptException threshold that the unsplit
         # 6-IDE Group A kept hitting.
-        group: [A1, A2, B]
+        group: [A1, A2, B, C]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
