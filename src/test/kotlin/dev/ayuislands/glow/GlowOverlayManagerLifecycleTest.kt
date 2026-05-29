@@ -148,7 +148,7 @@ class GlowOverlayManagerLifecycleTest {
     }
 
     @Test
-    fun `AccentChangedTopic event recolors existing glow overlays for matching project`() {
+    fun `AccentChangedTopic event uses applied accent payload for matching project`() {
         every { AyuVariant.isAyuActive() } returns true
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         every { SwingUtilities.invokeLater(any()) } just Runs
@@ -172,7 +172,7 @@ class GlowOverlayManagerLifecycleTest {
             layeredPane = mockk(relaxed = true),
         )
 
-        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#5CCFE6"
+        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
 
         manager.initialize()
 
@@ -188,6 +188,7 @@ class GlowOverlayManagerLifecycleTest {
         )
 
         verify(exactly = 1) { glassPane.glowColor = Color.decode("#5CCFE6") }
+        verify(exactly = 0) { glassPane.glowColor = Color.decode("#FFCC66") }
     }
 
     @Test
@@ -257,7 +258,7 @@ class GlowOverlayManagerLifecycleTest {
             layeredPane = mockk(relaxed = true),
         )
 
-        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#5CCFE6"
+        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
 
         manager.initialize()
 
@@ -283,6 +284,7 @@ class GlowOverlayManagerLifecycleTest {
         scheduled.forEach { it.run() }
 
         verify(exactly = 1) { glassPane.glowColor = Color.decode("#5CCFE6") }
+        verify(exactly = 0) { glassPane.glowColor = Color.decode("#FFCC66") }
     }
 
     @Test

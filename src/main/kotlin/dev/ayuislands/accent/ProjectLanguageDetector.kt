@@ -6,7 +6,6 @@ import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectRootManager
-import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
@@ -35,9 +34,9 @@ import javax.swing.SwingUtilities
  * On EDT, first-call detection on a large monorepo is a ~300–500 ms freeze. To avoid
  * that, an EDT invocation with an empty cache kicks off a deduplicated background scan
  * via [ProjectLanguageScanAsync] and returns null immediately; the caller falls through
- * to the global accent. When the BG scan completes, if the detected id has an active
- * language-accent override, the detector re-applies the accent on EDT so the UI picks
- * up the winner without waiting for the next focus swap.
+ * to the global accent. When the BG scan completes with a cacheable verdict, the
+ * detector re-applies the resolver result on EDT so the UI picks up either the new
+ * winner or the fallback without waiting for the next focus swap.
  *
  * Cache correctness: a detection whose scan threw is NOT cached — the next call
  * retries. A scan that ran cleanly but produced no winner (after both the proportional
@@ -302,8 +301,12 @@ object ProjectLanguageDetector {
                     cache[key] != null -> ScanOutcome.Polyglot
                     else -> ScanOutcome.Unavailable
                 }
-            if (detected != null) {
-                tryRefreshAccentForDetected(project, detected)
+            when (outcome) {
+                is ScanOutcome.Detected,
+                ScanOutcome.Polyglot,
+                -> tryRefreshAccentAfterCacheableScan(project)
+
+                ScanOutcome.Unavailable -> Unit
             }
             publishScanCompleted(project, outcome)
         }
@@ -343,54 +346,34 @@ object ProjectLanguageDetector {
     }
 
     /**
-     * After a background scan settles on an id, re-apply the accent if the user
-     * has an override configured for it — otherwise the UI would stay on the
-     * global accent until the next focus swap / IDE restart, even though
-     * detection just proved the override should apply.
+     * After a background scan reaches a cacheable verdict, re-apply the current
+     * resolver result. Both positive hits and definitive polyglot/no-match
+     * outcomes can change the visible accent: a hit may enable a language
+     * override, while a fallback verdict may remove one.
      */
-    private fun tryRefreshAccentForDetected(
-        project: Project,
-        detectedId: String,
-    ) {
-        SwingUtilities.invokeLater { refreshAccentOnEdt(project, detectedId) }
+    private fun tryRefreshAccentAfterCacheableScan(project: Project) {
+        SwingUtilities.invokeLater { refreshAccentOnEdt(project) }
     }
 
     /**
-     * EDT body extracted from [tryRefreshAccentForDetected] so the membership
-     * check + apply chain can be red/green tested synchronously without having
-     * to pump a Swing event loop. The caller is expected to already be on the
-     * EDT (production: wrapped in `SwingUtilities.invokeLater`; tests: called
-     * directly on the test thread). Returns early on disposal or on a
-     * language-override miss, logs and swallows any downstream apply or
-     * settings-read failure.
+     * EDT body extracted from [tryRefreshAccentAfterCacheableScan] so the
+     * resolver + apply chain can be red/green tested synchronously without
+     * having to pump a Swing event loop. The caller is expected to already be
+     * on the EDT (production: wrapped in `SwingUtilities.invokeLater`; tests:
+     * called directly on the test thread). Returns early on disposal, logs and
+     * swallows any downstream apply failure.
      *
-     * `internal` (no `@TestOnly`) because [tryRefreshAccentForDetected] — the
-     * production caller — reaches this helper through the `SwingUtilities.invokeLater`
-     * boundary; marking it test-only would misrepresent the call graph and
-     * any `@TestOnly` inspection would either miss real misuse or flag this
-     * legitimate production path.
+     * `internal` (no `@TestOnly`) because [tryRefreshAccentAfterCacheableScan]
+     * — the production caller — reaches this helper through the
+     * `SwingUtilities.invokeLater` boundary; marking it test-only would
+     * misrepresent the call graph and any `@TestOnly` inspection would either
+     * miss real misuse or flag this legitimate production path.
      */
-    internal fun refreshAccentOnEdt(
-        project: Project,
-        detectedId: String,
-    ) {
+    internal fun refreshAccentOnEdt(project: Project) {
         if (project.isDisposed) return
-        // Widen the runCatching to cover the settings read AND the apply
-        // chain. `AccentMappingsSettings.getInstance()` can fail during a
-        // plugin-unload race or a corrupt persistent-state XML read on the
-        // EDT — without the wrap, that throw would bubble out of the
-        // invokeLater callback as an uncaught EDT exception, exactly the
-        // failure mode the inner block already contains for the apply chain.
         runCatchingPreservingCancellation {
-            // Re-read the mappings ON the EDT so membership reflects the
-            // same state the apply chain is about to resolve against — the
-            // Settings UI mutates `languageAccents` on EDT, and an off-EDT
-            // membership check could observe a stale map between scan
-            // completion and this callback's scheduling.
-            val mappings = AccentMappingsSettings.getInstance().state
-            if (detectedId !in mappings.languageAccents) return@runCatchingPreservingCancellation
-            // Best-effort refresh: the cache already has the detected id,
-            // so `dominant()` behavior is unaffected by failures here.
+            // Best-effort refresh: the cache already has the cacheable scan
+            // verdict, so `dominant()` behavior is unaffected by failures here.
             // Containing exceptions keeps a regression in any of the
             // downstream apply paths (variant detection, UIManager writes,
             // focus-swap notification) from surfacing as an uncaught EDT
