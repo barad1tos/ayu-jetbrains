@@ -56,12 +56,12 @@ internal object UpdateNotifier {
     private val RELEASE_NOTES =
         mapOf(
             "2.7.0" to
-                "<ul>" +
-                "<li>Expanded semantic highlighting across 26+ language families</li>" +
-                "<li>Syntax presets: Whisper, Ambient, Neon, and Cyberpunk</li>" +
-                "<li>Matching tags and chrome tinting read calmer at low intensity</li>" +
-                "<li>Custom per-language syntax tuning and readability controls for Pro</li>" +
-                "</ul>",
+                releaseNotes(
+                    "Expanded semantic highlighting across 26+ language families",
+                    "Syntax presets: Whisper, Ambient, Neon, and Cyberpunk",
+                    "Matching tags and chrome tinting read calmer at low intensity",
+                    "Custom per-language syntax tuning and readability controls for Pro",
+                ),
             "2.6.4" to
                 "<ul>" +
                 "<li>Quick-Switcher Widget — chip in the main toolbar with variant + accent grid (free)</li>" +
@@ -150,5 +150,13 @@ internal object UpdateNotifier {
                 "with one-click apply. " +
                 "12 accent presets + custom color picker. " +
                 "Follow system appearance on macOS.",
+        )
+
+    private fun releaseNotes(vararg items: String): String =
+        items.joinToString(
+            prefix = "<ul>",
+            separator = "",
+            postfix = "</ul>",
+            transform = { "<li>$it</li>" },
         )
 }
