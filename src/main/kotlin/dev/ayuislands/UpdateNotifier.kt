@@ -59,7 +59,7 @@ internal object UpdateNotifier {
                 releaseNotes(
                     "Expanded semantic highlighting across 26+ language families",
                     "Syntax presets: Whisper, Ambient, Neon, and Cyberpunk",
-                    "Matching tags and chrome tinting read calmer at low intensity",
+                    "Matching tags, YAML/HCL, Syntax Custom, and chrome tinting fixes",
                     "Custom per-language syntax tuning and readability controls for Pro",
                 ),
             "2.6.4" to

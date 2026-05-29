@@ -5,11 +5,17 @@
 ### Free
 - **Expanded semantic highlighting** — hundreds more editor keys now carry Ayu-aware color across 26+ language families, including YAML/HCL, Scala docs, Kotlin gaps, Dart accessors, Groovy, and Go exported identifiers.
 - **Syntax presets** — *Settings -> Ayu Islands -> Syntax* adds four one-click syntax moods: **Whisper**, **Ambient**, **Neon**, and **Cyberpunk**.
-- **Readability polish** — matching tag highlights are calmer, status bar text stays readable on tinted chrome, and low chrome-tint intensity remains subtle instead of snapping straight to saturated accent color.
 
 ### Paid
 - **Custom syntax tuning** — Pro users can tune each language separately with sliders for declarations, identifiers, keywords/docs, literals, and operators while untouched cells inherit the selected base preset.
 - **Readability controls** — **Dim comments**, **Soften documentation**, **Quiet operators**, and **Emphasize declarations** layer on top of the active preset so dense code gets quieter without manual per-key Color Scheme editing.
+
+### Fixed
+- Matching tag highlights are calmer on dark backgrounds and no longer fall back to unreadable light-background styling.
+- Status bar text stays readable on tinted chrome, and low chrome-tint intensity remains subtle instead of snapping straight to saturated accent color.
+- YAML/HCL semantic keys and HCL block names keep Ayu styling after JetBrains key migration.
+- The Syntax Custom page opens reliably on newer IDEs and keeps its compact, aligned slider layout.
+- Syntax presets keep their expected intensity ordering on vivid palettes; custom cells also inherit the selected preset without losing scheme inheritance or stale colors after theme changes.
 
 ## [2.6.4] - 2026-05-18
 
