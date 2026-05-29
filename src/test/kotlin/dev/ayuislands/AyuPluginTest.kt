@@ -79,6 +79,19 @@ class AyuPluginTest {
     }
 
     @Test
+    fun `findLoadedPlugin returns null when marker class is not loaded by a plugin-aware classloader`() {
+        val app = mockk<Application>()
+        mockkStatic(ApplicationManager::class)
+        every { ApplicationManager.getApplication() } returns app
+
+        assertNull(
+            AyuPlugin.findLoadedPlugin(AyuPlugin.ID),
+            "Self-descriptor lookup must degrade cleanly in non-IDE test classloaders " +
+                "instead of breaking settings or update checks.",
+        )
+    }
+
+    @Test
     fun `descriptorFromPluginAwareClassLoader returns matching plugin descriptor`() {
         val classLoader = mockk<PluginAwareClassLoader>()
         val descriptor = mockk<PluginDescriptor>()
@@ -110,6 +123,18 @@ class AyuPluginTest {
     fun `descriptorFromPluginAwareClassLoader returns null when optional plugin bytecode is broken`() {
         val classLoader = mockk<PluginAwareClassLoader>()
         every { classLoader.pluginDescriptor } throws NoClassDefFoundError("missing optional dependency")
+
+        assertNull(
+            AyuPlugin.descriptorFromPluginAwareClassLoader(classLoader, AyuPlugin.ID),
+            "A broken optional integration must not prevent users from opening Settings " +
+                "or starting the IDE with Ayu enabled.",
+        )
+    }
+
+    @Test
+    fun `descriptorFromPluginAwareClassLoader returns null when descriptor lookup fails`() {
+        val classLoader = mockk<PluginAwareClassLoader>()
+        every { classLoader.pluginDescriptor } throws IllegalStateException("descriptor unavailable")
 
         assertNull(
             AyuPlugin.descriptorFromPluginAwareClassLoader(classLoader, AyuPlugin.ID),
