@@ -1,7 +1,7 @@
 package dev.ayuislands
 
 import com.intellij.ide.plugins.IdeaPluginDescriptor
-import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.plugins.PluginManager
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.extensions.PluginId
@@ -23,7 +23,7 @@ import kotlin.test.assertSame
  *  - [AyuPlugin.findEnabledPlugin] returns the descriptor for a live plugin,
  *    `null` when the plugin is absent / disabled, `null` in a unit-test
  *    environment without an [Application], and `null` when a mocked test
- *    [Application] leaves platform plugin lookup unavailable.
+ *    [Application] returns a non-[PluginManager] `Object` from `getService`.
  */
 class AyuPluginTest {
     @AfterTest
@@ -53,7 +53,7 @@ class AyuPluginTest {
     fun `findEnabledPlugin returns null when Application is not bootstrapped`() {
         // Default unit-test environment has no live IDE: `getApplication()`
         // returns `null` and the wrapper short-circuits without touching
-        // platform plugin lookup. The wrapper SHOULD NOT throw.
+        // `PluginManager.getInstance`. The wrapper SHOULD NOT throw.
         mockkStatic(ApplicationManager::class)
         every { ApplicationManager.getApplication() } returns null
 
@@ -68,12 +68,13 @@ class AyuPluginTest {
         // on the wrapper returning a non-null descriptor when the plugin is
         // live in the IDE.
         val app = mockk<Application>()
+        val pluginManager = mockk<PluginManager>()
         val descriptor = mockk<IdeaPluginDescriptor>()
         mockkStatic(ApplicationManager::class)
-        mockkStatic(PluginManagerCore::class)
+        mockkStatic(PluginManager::class)
         every { ApplicationManager.getApplication() } returns app
-        every { PluginManagerCore.isDisabled(AyuPlugin.ID) } returns false
-        every { PluginManagerCore.getPlugin(AyuPlugin.ID) } returns descriptor
+        every { PluginManager.getInstance() } returns pluginManager
+        every { pluginManager.findEnabledPlugin(AyuPlugin.ID) } returns descriptor
 
         // Identity assertion (not just non-null) — a future refactor that
         // accidentally wrapped the descriptor (e.g. in a Decorator) would
@@ -94,12 +95,13 @@ class AyuPluginTest {
         // the wrapper must produce `null` so callers skip the integration path
         // cleanly instead of crashing.
         val app = mockk<Application>()
+        val pluginManager = mockk<PluginManager>()
         val absentId = PluginId.getId("com.nasller.CodeGlancePro")
         mockkStatic(ApplicationManager::class)
-        mockkStatic(PluginManagerCore::class)
+        mockkStatic(PluginManager::class)
         every { ApplicationManager.getApplication() } returns app
-        every { PluginManagerCore.isDisabled(absentId) } returns false
-        every { PluginManagerCore.getPlugin(absentId) } returns null
+        every { PluginManager.getInstance() } returns pluginManager
+        every { pluginManager.findEnabledPlugin(absentId) } returns null
 
         assertNull(AyuPlugin.findEnabledPlugin(absentId))
     }
@@ -107,15 +109,19 @@ class AyuPluginTest {
     @Test
     fun `findEnabledPlugin returns null when the requested plugin is installed but disabled`() {
         // Real-user scenario: a third-party plugin is INSTALLED but DISABLED.
-        // `PluginManagerCore.getPlugin` can still return a descriptor for
-        // disabled installations, so the wrapper must check disabled state first.
-        // `ConflictRegistry` depends on this null-for-disabled contract.
+        // The underlying `PluginManager.findEnabledPlugin` returns null for
+        // disabled plugins by contract (that is exactly what differentiates
+        // it from `getPlugin`, which still returns a descriptor for disabled
+        // installations). The wrapper passes that null through, which lets
+        // `ConflictRegistry` correctly skip disabled-plugin conflicts.
         val app = mockk<Application>()
+        val pluginManager = mockk<PluginManager>()
         val disabledId = PluginId.getId("indent-rainbow.indent-rainbow")
         mockkStatic(ApplicationManager::class)
-        mockkStatic(PluginManagerCore::class)
+        mockkStatic(PluginManager::class)
         every { ApplicationManager.getApplication() } returns app
-        every { PluginManagerCore.isDisabled(disabledId) } returns true
+        every { PluginManager.getInstance() } returns pluginManager
+        every { pluginManager.findEnabledPlugin(disabledId) } returns null
 
         assertNull(
             AyuPlugin.findEnabledPlugin(disabledId),
@@ -125,20 +131,23 @@ class AyuPluginTest {
     }
 
     @Test
-    fun `findEnabledPlugin survives unavailable platform plugin lookup`() {
-        // Pins the runtime lookup guard in [AyuPlugin.findEnabledPlugin]. Real
-        // test-suite scenario: another test in the JVM mocked
-        // `ApplicationManager.getApplication()` while the platform plugin set is
-        // synthetic or unavailable. The wrapper catches the lookup failure so
-        // unrelated tests don't crash with platform bootstrap errors they don't
-        // actually exercise.
+    fun `findEnabledPlugin survives a mocked Application whose getService returns Object`() {
+        // Pins the `catch (_: ClassCastException)` branch in
+        // [AyuPlugin.findEnabledPlugin]. Real test-suite scenario: another
+        // test in the JVM mocked `ApplicationManager.getApplication()` to
+        // return an Application whose `getService(PluginManager::class.java)`
+        // returns a bare Object. That shape triggers a ClassCastException
+        // inside `PluginManager.getInstance()` (one frame deeper than where
+        // we observe it). The wrapper catches it so unrelated tests (Chrome
+        // refresh, ConflictRegistry probes) don't crash with platform-
+        // internal errors they don't actually exercise.
         //
         // Deleting the production catch will fail this test.
         val app = mockk<Application>()
         mockkStatic(ApplicationManager::class)
-        mockkStatic(PluginManagerCore::class)
+        mockkStatic(PluginManager::class)
         every { ApplicationManager.getApplication() } returns app
-        every { PluginManagerCore.isDisabled(AyuPlugin.ID) } throws IllegalStateException("plugin set unavailable")
+        every { PluginManager.getInstance() } throws ClassCastException("mock Application returned Object")
 
         assertNull(AyuPlugin.findEnabledPlugin(AyuPlugin.ID))
     }
