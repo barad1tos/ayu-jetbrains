@@ -201,13 +201,11 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
                     buildCategoryGroup(categoryGroup)
                 }
             }.align(AlignX.FILL)
-                .resizableColumn()
             panel {
                 for (categoryGroup in CUSTOM_COLUMN_GROUPS.last()) {
                     buildCategoryGroup(categoryGroup)
                 }
             }.align(AlignX.FILL)
-                .resizableColumn()
         }.visibleIf(customSelected)
 
         rebindSlidersFor(currentLanguage)
@@ -228,8 +226,6 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
                         pendingSoftenDocumentation = it
                     }
                 }
-        }
-        row {
             quietOperatorsCheckbox =
                 checkBox("Quiet operators").component.apply {
                     configureReadabilityCheckbox(pendingQuietOperators) {

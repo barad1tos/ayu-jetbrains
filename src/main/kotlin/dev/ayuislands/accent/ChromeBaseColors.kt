@@ -7,6 +7,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
 import java.awt.Color
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.UIManager
 
 /**
@@ -33,8 +34,9 @@ import javax.swing.UIManager
  *
  * Subscribing to [LafManagerListener.TOPIC] is deliberately NOT symmetric to
  * publishing it: the banned-API guard blocks `syncPublisher(LafManagerListener.TOPIC)`
- * because that would recurse through the LAF apply/revert cycle. This object is a
- * passive listener that only clears its own cache — no tree updates, no re-entry.
+ * because that would recurse through the LAF apply/revert cycle. The lifecycle
+ * service is a passive listener that only clears this cache — no tree updates,
+ * no re-entry.
  */
 object ChromeBaseColors {
     private val log = logger<ChromeBaseColors>()
@@ -64,7 +66,10 @@ object ChromeBaseColors {
     /** Last tinted color written by this plugin per key. */
     private val lastPluginTint = ConcurrentHashMap<String, Color>()
 
-    init {
+    private val isLafListenerRequested = AtomicBoolean(false)
+
+    private fun requestLafListener() {
+        if (!isLafListenerRequested.compareAndSet(false, true)) return
         // Tests that exercise ChromeBaseColors without an IDE container (no
         // MessageBus) swallow the subscription throw silently — the snapshot
         // just won't auto-refresh on LAF change, and refresh() stays callable
@@ -80,15 +85,9 @@ object ChromeBaseColors {
         // subscription surface throws only [RuntimeException] subtypes
         // (NPE on null service, IllegalState on torn-down app).
         try {
-            val application = ApplicationManager.getApplication()
-            val parentDisposable = application.getService(ChromeBaseColorsLifecycle::class.java)
-            application
-                .messageBus
-                // Anchor the subscription to a plugin-owned service Disposable
-                // instead of Application so dynamic plugin unload tears it down
-                // without tripping the platform disposable-parent inspection.
-                .connect(parentDisposable)
-                .subscribe(LafManagerListener.TOPIC, LafManagerListener { refresh() })
+            ApplicationManager
+                .getApplication()
+                .getService(ChromeBaseColorsLifecycle::class.java)
         } catch (exception: RuntimeException) {
             log.warn(
                 "ChromeBaseColors LAF listener wiring failed; cache will not auto-refresh on theme change",
@@ -114,6 +113,7 @@ object ChromeBaseColors {
      * let a stale pre-LAF color land in the post-LAF snapshot.
      */
     operator fun get(key: String): Color? {
+        requestLafListener()
         snapshot[key]?.let { return it }
         synchronized(snapshot) {
             // Re-check under the lock: a concurrent writer may have populated
@@ -193,5 +193,13 @@ object ChromeBaseColors {
 
 @Service(Service.Level.APP)
 internal class ChromeBaseColorsLifecycle : Disposable {
+    init {
+        ApplicationManager
+            .getApplication()
+            .messageBus
+            .connect(this)
+            .subscribe(LafManagerListener.TOPIC, LafManagerListener { ChromeBaseColors.refresh() })
+    }
+
     override fun dispose() = Unit
 }

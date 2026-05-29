@@ -19,11 +19,14 @@
     <h3>What sets it apart</h3>
     <ul>
       <li><b>Aesthetic engine, not a skin</b> — 500+ hand-tuned UI properties,
-          1,400+ editor attributes, and 5 settings tabs to shape how the IDE
-          looks and feels</li>
+          expanded semantic highlighting, and dedicated settings panels to shape
+          how the IDE looks and feels</li>
       <li><b>4 curated presets</b> — Whisper, Ambient, Neon, Cyberpunk. Each
           synchronizes font, glow intensity, and indent colors into one
           cohesive mood</li>
+      <li><b>Syntax control surface</b> — language-aware syntax presets for
+          everyone, plus Pro-level Custom tuning and readability controls when
+          you want comments, docs, and operators to recede.</li>
       <li><b>Plugin ecosystem</b> — accent color propagates into CodeGlance Pro
           and Indent Rainbow. One palette, everywhere — no other theme does this</li>
       <li><b>Creator-endorsed</b> — Ike Ku (<a href="https://github.com/dempfi">@dempfi</a>),
@@ -65,6 +68,11 @@
           Cyberpunk, or Custom with per-surface sliders. Master toggle
           stays off by default so 2.6.2 colors are byte-identical until
           users opt in.</li>
+      <li><b>Syntax tuning</b> — Settings → Ayu Islands → Syntax adds a Custom
+          mode with per-language sliders for declarations, identifiers,
+          keywords, docs, literals, and operators, plus global readability
+          switches for dimming comments, softening docs, quieting operators,
+          and emphasizing declarations.</li>
       <li><b>Workspace</b> — auto-fit or fixed width for Project View, Commit,
           and Git panels with min/max bounds. Git panel splitter control for
           branches and file changes trees. Hide the filesystem path and
@@ -96,7 +104,8 @@
     <h3>Free — a complete theme, not a teaser</h3>
 
     <p>6 theme variants (Mirage, Dark, Light — Classic &amp; Islands UI).
-    40+ individually crafted language syntaxes.
+    40+ individually crafted language syntaxes, expanded semantic highlighting,
+    and four one-click syntax presets.
     12 accent presets + custom picker + macOS system sync.
     4 font presets with one-click apply and live preview.
     Full VCS/diff colors and a 16-color terminal scheme.
@@ -104,6 +113,14 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.7.0</h3>
+    <ul>
+      <li>[Free] <b>Expanded semantic highlighting</b> — Ayu Islands now covers hundreds more editor keys across 26+ language families, with focused passes for YAML/HCL, Scala docs, Kotlin gaps, Dart accessors, Groovy, and Go exported identifiers.</li>
+      <li>[Free] <b>Syntax presets</b> — the new Settings → Ayu Islands → Syntax tab gives everyone four one-click syntax moods: <b>Whisper</b>, <b>Ambient</b>, <b>Neon</b>, and <b>Cyberpunk</b>.</li>
+      <li>[Free] <b>Readability polish</b> — matching tags are calmer on dark backgrounds, status bar text stays readable on tinted chrome, and low chrome-tint values now remain subtle instead of jumping straight to saturated accent color.</li>
+      <li>[Paid] <b>Custom syntax tuning</b> — Pro users can tune each language separately with sliders for declarations, identifiers, keywords/docs, literals, and operators while untouched cells inherit the selected base preset.</li>
+      <li>[Paid] <b>Readability controls</b> — Dim comments, Soften documentation, Quiet operators, and Emphasize declarations layer on top of the active preset so dense code gets quieter without manual per-key Color Scheme editing.</li>
+    </ul>
     <h3>2.6.4</h3>
     <ul>
       <li>[Free] <b>Quick-Switcher Widget</b> — a new chip in the main toolbar reflects the focused project's accent. Left-click opens a popup with the variant and Islands UI toggle, the full accent grid, related toggles (Chrome tinting, Glow, Accent rotation, Follow system), and quick actions (Pin, Random, Lighter, Darker, Copy Hex). Right-click opens the same actions as a context menu for a keyboard-friendly workflow.</li>
@@ -226,8 +243,8 @@
 
     <product-descriptor
             code="PAYUISLANDS"
-            release-date="20260426"
-            release-version="26"
+            release-date="20260529"
+            release-version="27"
             optional="true"/>
 
     <extensionPoints>
