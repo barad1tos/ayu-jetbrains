@@ -241,6 +241,8 @@
 
     <!-- idea-version patched by Gradle from gradle.properties -->
     <depends>com.intellij.modules.platform</depends>
+    <depends optional="true" config-file="codeglance-pro.xml">com.nasller.CodeGlancePro</depends>
+    <depends optional="true" config-file="indent-rainbow.xml">indent-rainbow.indent-rainbow</depends>
 
     <product-descriptor
             code="PAYUISLANDS"

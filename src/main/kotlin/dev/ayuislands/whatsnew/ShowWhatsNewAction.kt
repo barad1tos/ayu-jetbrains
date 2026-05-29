@@ -36,7 +36,7 @@ internal class ShowWhatsNewAction : DumbAwareAction() {
         // when the descriptor is observed non-null again) so each real
         // disable-enable cycle gets its own signal without spamming every
         // BGT update tick.
-        val descriptor = AyuPlugin.findEnabledPlugin(AyuPlugin.ID)
+        val descriptor = AyuPlugin.findLoadedPlugin(AyuPlugin.ID)
         if (descriptor == null) {
             if (descriptorNullLogged.compareAndSet(false, true)) {
                 LOG.warn("Ayu What's New: plugin descriptor lookup returned null in update()")
@@ -64,7 +64,7 @@ internal class ShowWhatsNewAction : DumbAwareAction() {
             // BGT update can race with the click. The launcher returns false in
             // two cases: descriptor missing (a real anomaly — WARN) or no
             // manifest for current version (expected on patches — INFO).
-            val descriptor = AyuPlugin.findEnabledPlugin(AyuPlugin.ID)
+            val descriptor = AyuPlugin.findLoadedPlugin(AyuPlugin.ID)
             if (descriptor == null) {
                 LOG.warn("Ayu What's New: manual open declined — plugin descriptor missing")
             } else {

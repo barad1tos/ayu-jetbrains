@@ -89,7 +89,7 @@ internal object CodeGlanceProIntegration {
 
         try {
             val pluginId = PluginId.getId("com.nasller.CodeGlancePro")
-            val cgpPlugin = AyuPlugin.findEnabledPlugin(pluginId) ?: return
+            val cgpPlugin = AyuPlugin.findLoadedPlugin(pluginId) ?: return
             val cgpClassLoader = cgpPlugin.pluginClassLoader ?: return
 
             val serviceClass =

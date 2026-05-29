@@ -45,10 +45,10 @@ object ConflictRegistry {
     private fun computeConflicts(): List<ConflictEntry> =
         entries.filter { entry ->
             val pluginId = PluginId.getId(entry.pluginId)
-            // `findEnabledPlugin` returns null for both not-installed and
+            // `findLoadedPlugin` returns null for both not-installed and
             // installed-but-disabled plugins — exactly the conflict semantics
             // we want (a disabled plugin is not active and is not a conflict).
-            AyuPlugin.findEnabledPlugin(pluginId) != null
+            AyuPlugin.findLoadedPlugin(pluginId) != null
         }
 
     fun detectConflicts(): List<ConflictEntry> = getCachedConflicts()

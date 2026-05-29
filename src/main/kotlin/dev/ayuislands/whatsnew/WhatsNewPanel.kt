@@ -310,7 +310,7 @@ internal class WhatsNewPanel(
             .getOrDefault(FALLBACK_ACCENT)
     }
 
-    private fun pluginDescriptor() = AyuPlugin.findEnabledPlugin(AyuPlugin.ID)
+    private fun pluginDescriptor() = AyuPlugin.findLoadedPlugin(AyuPlugin.ID)
 
     companion object {
         private val LOG = logger<WhatsNewPanel>()

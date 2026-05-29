@@ -30,7 +30,7 @@ class ConflictRegistryTest {
     fun setUp() {
         ConflictRegistry.resetCachedConflictsForTesting()
         mockkObject(AyuPlugin)
-        every { AyuPlugin.findEnabledPlugin(any<PluginId>()) } returns null
+        every { AyuPlugin.findLoadedPlugin(any<PluginId>()) } returns null
     }
 
     @AfterTest
@@ -115,7 +115,7 @@ class ConflictRegistryTest {
     /**
      * Caching regression: `detectConflicts` consults the plugin registry only
      * once per session. The second call returns the exact same list instance
-     * and does NOT trigger additional `findEnabledPlugin` lookups.
+     * and does NOT trigger additional `findLoadedPlugin` lookups.
      */
     @Test
     fun `detectConflicts result is cached across calls`() {
@@ -123,7 +123,7 @@ class ConflictRegistryTest {
         val second = ConflictRegistry.detectConflicts()
 
         assertSame(first, second, "Cached result must be reused across calls")
-        verify(exactly = 2) { AyuPlugin.findEnabledPlugin(any<PluginId>()) }
+        verify(exactly = 2) { AyuPlugin.findLoadedPlugin(any<PluginId>()) }
     }
 
     /**
@@ -137,7 +137,7 @@ class ConflictRegistryTest {
         val secondBatch = ConflictRegistry.detectConflicts()
 
         // Two separate computations: 2 entries x 2 calls = 4 lookups
-        verify(exactly = 4) { AyuPlugin.findEnabledPlugin(any<PluginId>()) }
+        verify(exactly = 4) { AyuPlugin.findLoadedPlugin(any<PluginId>()) }
         // Same content, different instances (cache was cleared)
         assertEquals(firstBatch, secondBatch)
     }
@@ -151,7 +151,7 @@ class ConflictRegistryTest {
     fun `detectConflicts returns CodeGlance Pro when only CodeGlance Pro is installed`() {
         val cgpDescriptor = mockk<IdeaPluginDescriptor>()
         every {
-            AyuPlugin.findEnabledPlugin(PluginId.getId("com.nasller.CodeGlancePro"))
+            AyuPlugin.findLoadedPlugin(PluginId.getId("com.nasller.CodeGlancePro"))
         } returns cgpDescriptor
 
         val conflicts = ConflictRegistry.detectConflicts()
@@ -170,7 +170,7 @@ class ConflictRegistryTest {
     fun `detectConflicts returns Indent Rainbow when only Indent Rainbow is installed`() {
         val irDescriptor = mockk<IdeaPluginDescriptor>()
         every {
-            AyuPlugin.findEnabledPlugin(PluginId.getId("indent-rainbow.indent-rainbow"))
+            AyuPlugin.findLoadedPlugin(PluginId.getId("indent-rainbow.indent-rainbow"))
         } returns irDescriptor
 
         val conflicts = ConflictRegistry.detectConflicts()
@@ -190,10 +190,10 @@ class ConflictRegistryTest {
     @Test
     fun `detectConflicts returns both integrations when both are installed`() {
         every {
-            AyuPlugin.findEnabledPlugin(PluginId.getId("com.nasller.CodeGlancePro"))
+            AyuPlugin.findLoadedPlugin(PluginId.getId("com.nasller.CodeGlancePro"))
         } returns mockk<IdeaPluginDescriptor>()
         every {
-            AyuPlugin.findEnabledPlugin(PluginId.getId("indent-rainbow.indent-rainbow"))
+            AyuPlugin.findLoadedPlugin(PluginId.getId("indent-rainbow.indent-rainbow"))
         } returns mockk<IdeaPluginDescriptor>()
 
         val conflicts = ConflictRegistry.detectConflicts()
@@ -207,20 +207,20 @@ class ConflictRegistryTest {
     }
 
     /**
-     * Behavior lock for the [AyuPlugin.findEnabledPlugin] contract: a DISABLED
+     * Behavior lock for the [AyuPlugin.findLoadedPlugin] contract: a DISABLED
      * plugin must NOT appear in the conflict set. Before the wrapper switch,
-     * the old `PluginManagerCore.getPlugin` returned a descriptor for disabled
+     * the previous descriptor lookup returned a descriptor for disabled
      * installations and needed a separate `isDisabled` check — losing that
      * check silently treated disabled plugins as active integrations and
      * caused the integration code path to attempt class-loader reflection
      * against a plugin the user had explicitly turned off.
      *
-     * Now `findEnabledPlugin` returns `null` for disabled plugins by contract,
+     * Now `findLoadedPlugin` returns `null` for disabled plugins by contract,
      * so the wrapper's null check is sufficient. This test pins that semantics.
      */
     @Test
     fun `detectConflicts ignores plugins that are installed but disabled`() {
-        // Disabled plugins surface as null from `AyuPlugin.findEnabledPlugin` —
+        // Disabled plugins surface as null from `AyuPlugin.findLoadedPlugin` —
         // the default mock stub in setUp already returns null for any id, which
         // matches both "absent" and "disabled" cases. Asserting on both detector
         // helpers documents that "disabled" must look identical to "absent" at

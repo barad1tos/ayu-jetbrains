@@ -95,7 +95,7 @@ class AccentChangedPublishTest {
         every { Window.getWindows() } returns emptyArray()
 
         mockkObject(AyuPlugin)
-        every { AyuPlugin.findEnabledPlugin(any()) } returns null
+        every { AyuPlugin.findLoadedPlugin(any()) } returns null
 
         // ProjectManager.openProjects drives the per-project publish loop.
         project =

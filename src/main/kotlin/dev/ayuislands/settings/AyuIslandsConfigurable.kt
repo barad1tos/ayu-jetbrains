@@ -74,7 +74,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
     override fun createPanel(): com.intellij.openapi.ui.DialogPanel {
         val pluginVersion =
             AyuPlugin
-                .findEnabledPlugin(AyuPlugin.ID)
+                .findLoadedPlugin(AyuPlugin.ID)
                 ?.version ?: "unknown"
 
         val variant =

@@ -32,7 +32,7 @@ class LicenseCheckerTest {
         mockkStatic(PathManager::class)
         mockkStatic(LicensingFacade::class)
         mockkObject(AyuPlugin)
-        every { AyuPlugin.findEnabledPlugin(any<PluginId>()) } returns null
+        every { AyuPlugin.findLoadedPlugin(any<PluginId>()) } returns null
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns defaultSettings
     }
@@ -42,7 +42,7 @@ class LicenseCheckerTest {
         val path = mockk<Path>()
         every { path.toString() } returns "/repo/build/idea-sandbox/plugins/ayuIslands/lib/ayuIslands.jar"
         every { descriptor.pluginPath } returns path
-        every { AyuPlugin.findEnabledPlugin(AyuPlugin.ID) } returns descriptor
+        every { AyuPlugin.findLoadedPlugin(AyuPlugin.ID) } returns descriptor
     }
 
     @AfterTest

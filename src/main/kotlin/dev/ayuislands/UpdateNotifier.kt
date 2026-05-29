@@ -12,7 +12,7 @@ internal object UpdateNotifier {
 
     fun showIfUpdated(project: Project) {
         val descriptor =
-            AyuPlugin.findEnabledPlugin(AyuPlugin.ID)
+            AyuPlugin.findLoadedPlugin(AyuPlugin.ID)
                 ?: return
         val currentVersion = descriptor.version
         val state = AyuIslandsSettings.getInstance().state

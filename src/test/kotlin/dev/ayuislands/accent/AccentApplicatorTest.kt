@@ -92,7 +92,7 @@ class AccentApplicatorTest {
         every { Window.getWindows() } returns emptyArray()
 
         mockkObject(AyuPlugin)
-        every { AyuPlugin.findEnabledPlugin(any()) } returns null
+        every { AyuPlugin.findLoadedPlugin(any()) } returns null
 
         // Per-project notify plumbing: revertAll iterates ProjectManager.openProjects
         // and calls ComponentTreeRefresher.notifyOnly per usable project. Unit tests
@@ -818,7 +818,7 @@ class AccentApplicatorTest {
     @Test
     fun `resolveCgpMethods returns when plugin classloader is null`() {
         val mockPlugin = mockk<IdeaPluginDescriptor>(relaxed = true)
-        every { AyuPlugin.findEnabledPlugin(any()) } returns mockPlugin
+        every { AyuPlugin.findLoadedPlugin(any()) } returns mockPlugin
         every { mockPlugin.pluginClassLoader } returns null
 
         invokePrivate("resolveCgpMethods")

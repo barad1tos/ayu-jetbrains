@@ -1,5 +1,6 @@
 import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
+import org.jetbrains.intellij.platform.gradle.models.ProductRelease
 
 buildscript {
     repositories { mavenCentral() }
@@ -102,7 +103,7 @@ intellijPlatform {
                 "ReleaseVersionAndPluginVersionMismatch,ExperimentalApiUsage",
             )
         ides {
-            // verifyGroup splits the 11 IDE targets across hosted runners to keep
+            // verifyGroup splits the 12 IDE targets across hosted runners to keep
             // the per-runner disk and I/O budget under what GitHub Actions can
             // sustain. The A1/A2 split prevents the 6-way verifier-thread fan-out
             // from saturating one runner's I/O and hitting ClosedByInterruptException
@@ -113,6 +114,7 @@ intellijPlatform {
             //   "A1"  → IntelliJ family (3 IDEs)
             //   "A2"  → JetBrains pro IDEs on 2025.3 (3 IDEs)
             //   "B"   → Language-specific IDEs on 2025.1 (5 IDEs)
+            //   "C"   → Marketplace-current IntelliJ IDEA 2026.2 EAP
             //
             // RustRover 2025.1.3 excluded from Group B: corrupted CDN artifact
             // (InvalidIdeException: missing Core plugin).
@@ -141,13 +143,22 @@ intellijPlatform {
                 )
             val wanted =
                 when (val group = providers.systemProperty("verifyGroup").orNull) {
-                    null -> ideGroups.keys
+                    null -> ideGroups.keys + "C"
                     "A" -> setOf("A1", "A2")
+                    "C" -> setOf("C")
                     in ideGroups.keys -> setOf(group)
-                    else -> error("Unknown verifyGroup '$group' — expected A1, A2, A, B, or unset")
+                    else -> error("Unknown verifyGroup '$group' — expected A1, A2, A, B, C, or unset")
                 }
-            wanted.flatMap { ideGroups.getValue(it) }.forEach { (type, version) ->
+            wanted.filter { it in ideGroups }.flatMap { ideGroups.getValue(it) }.forEach { (type, version) ->
                 create(type, version)
+            }
+            if ("C" in wanted) {
+                select {
+                    types = listOf(IntelliJPlatformType.IntellijIdeaCommunity)
+                    channels = listOf(ProductRelease.Channel.EAP)
+                    sinceBuild = "262.6653.22"
+                    untilBuild = "262.6653.22"
+                }
             }
         }
     }

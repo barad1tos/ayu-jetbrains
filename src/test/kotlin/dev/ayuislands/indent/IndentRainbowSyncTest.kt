@@ -44,7 +44,7 @@ class IndentRainbowSyncTest {
         // mock becomes dead code. Removed to keep setUp honest.
 
         mockkObject(AyuPlugin)
-        every { AyuPlugin.findEnabledPlugin(any()) } returns null
+        every { AyuPlugin.findLoadedPlugin(any()) } returns null
 
         resetSyncState()
     }
@@ -115,7 +115,7 @@ class IndentRainbowSyncTest {
     @Test
     fun `resolveReflection returns when plugin classloader is null`() {
         val mockPlugin = mockk<IdeaPluginDescriptor>(relaxed = true)
-        every { AyuPlugin.findEnabledPlugin(any()) } returns mockPlugin
+        every { AyuPlugin.findLoadedPlugin(any()) } returns mockPlugin
         every { mockPlugin.pluginClassLoader } returns null
 
         invokePrivate("resolveReflection")
@@ -532,7 +532,7 @@ class IndentRainbowSyncTest {
     @Test
     fun `resolveReflection catches ClassNotFoundException when plugin found`() {
         val mockPlugin = mockk<IdeaPluginDescriptor>(relaxed = true)
-        every { AyuPlugin.findEnabledPlugin(any()) } returns mockPlugin
+        every { AyuPlugin.findLoadedPlugin(any()) } returns mockPlugin
         every { mockPlugin.pluginClassLoader } returns this::class.java.classLoader
 
         // Class.forName("indent.rainbow.settings.IrConfig") will throw
