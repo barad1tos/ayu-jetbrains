@@ -1,5 +1,6 @@
 package dev.ayuislands.whatsnew
 
+import javax.imageio.ImageIO
 import kotlin.test.Test
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -33,6 +34,28 @@ class WhatsNewManifestCtaIntegrityTest {
                 "v$version ctaOpenSettingsTargetId='$targetId' must match an applicationConfigurable id; " +
                     "found ids: $configurableIds",
             )
+        }
+    }
+
+    @Test
+    fun `all shipped manifest slide images exist and decode`() {
+        for (version in SHIPPED_MANIFEST_VERSIONS) {
+            val manifest = WhatsNewManifestLoader.load(version)
+            assertNotNull(manifest, "v$version manifest must load — it ships with the plugin")
+
+            for (slide in manifest.slides) {
+                val image = slide.image ?: continue
+                val resourcePath = "whatsnew/v$version/$image"
+                val stream = javaClass.classLoader.getResourceAsStream(resourcePath)
+                assertNotNull(stream, "v$version slide '${slide.title}' image must exist at $resourcePath")
+
+                val decoded = stream.use { ImageIO.read(it) }
+                assertNotNull(decoded, "v$version slide '${slide.title}' image must decode as a PNG")
+                assertTrue(
+                    decoded.width > 0 && decoded.height > 0,
+                    "v$version slide '${slide.title}' image must have non-zero dimensions",
+                )
+            }
         }
     }
 

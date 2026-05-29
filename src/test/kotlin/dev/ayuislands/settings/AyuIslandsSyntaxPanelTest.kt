@@ -441,6 +441,44 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     @Test
+    fun `readability controls stay on one row`() {
+        val panel = AyuIslandsSyntaxPanel()
+
+        try {
+            val component = buildSyntaxPanel(panel)
+            component.setSize(component.preferredSize)
+            layoutRecursively(component)
+
+            val readabilityControls =
+                findCheckBoxes(component).filter { it.text in readabilityCheckboxTexts }
+            val rowPositions =
+                readabilityControls
+                    .map { checkbox ->
+                        val point =
+                            javax.swing.SwingUtilities.convertPoint(
+                                checkbox.parent,
+                                checkbox.location,
+                                component,
+                            )
+                        point.y
+                    }.toSet()
+
+            assertEquals(
+                readabilityCheckboxTexts,
+                readabilityControls.mapTo(linkedSetOf()) { it.text },
+                "readability row must expose every toggle",
+            )
+            assertEquals(
+                1,
+                rowPositions.size,
+                "readability toggles should stay on one settings row",
+            )
+        } finally {
+            panel.dispose()
+        }
+    }
+
+    @Test
     fun `reset disables readability controls when license flips to free`() {
         stateBase.selectedPreset = SyntaxPreset.AMBIENT.name
         stateBase.dimComments = true
@@ -1291,6 +1329,11 @@ class AyuIslandsSyntaxPanelTest {
             val nested = if (component is Container) findCheckBoxes(component) else emptyList()
             if (component is JCheckBox) listOf(component) + nested else nested
         }
+
+    private fun layoutRecursively(container: Container) {
+        container.doLayout()
+        container.components.filterIsInstance<Container>().forEach(::layoutRecursively)
+    }
 
     private fun invokeOnPresetChosen(
         panel: AyuIslandsSyntaxPanel,

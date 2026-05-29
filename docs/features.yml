@@ -476,3 +476,18 @@ asset_inventory:
     justification: >
       Per-language + WCAG-aware foreground depth shot — in-IDE What's New
       tab only; README's narrower column would downscale it to illegibility.
+  - path: src/main/resources/whatsnew/v2.7.0/slide-semantic-coverage.png
+    referenced_by: [src/main/resources/whatsnew/v2.7.0/manifest.json]
+    justification: >
+      Release-specific syntax coverage collage — in-IDE What's New tab only.
+      README's narrower column would downscale the editor screenshots.
+  - path: src/main/resources/whatsnew/v2.7.0/slide-syntax-presets.png
+    referenced_by: [src/main/resources/whatsnew/v2.7.0/manifest.json]
+    justification: >
+      Release-specific syntax preset showcase — in-IDE What's New tab only.
+      README's narrower column would downscale the settings screenshot.
+  - path: src/main/resources/whatsnew/v2.7.0/slide-pro-readability.png
+    referenced_by: [src/main/resources/whatsnew/v2.7.0/manifest.json]
+    justification: >
+      Release-specific readability controls showcase — in-IDE What's New
+      tab only. README's narrower column would downscale the callouts.
