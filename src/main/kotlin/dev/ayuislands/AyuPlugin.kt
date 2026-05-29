@@ -35,8 +35,9 @@ internal object AyuPlugin {
      * (only unit tests that do not start the platform see the last path).
      *
      * Disabled optional dependencies do not expose their classes to this plugin,
-     * so classloader-based lookup preserves the enabled-only contract without
-     * calling internal plugin registry APIs.
+     * so classloader-based lookup preserves the enabled-only contract. Broken
+     * optional plugin bytecode is treated as unavailable so Ayu startup and
+     * settings stay usable.
      */
     fun findLoadedPlugin(pluginId: PluginId): PluginDescriptor? {
         ApplicationManager.getApplication() ?: return null
@@ -45,6 +46,8 @@ internal object AyuPlugin {
             findDescriptorByMarkerClassName(markerClassName, pluginId)
         } catch (_: ClassNotFoundException) {
             null
+        } catch (exception: LinkageError) {
+            logPluginLookupFailure(exception)
         } catch (exception: RuntimeException) {
             logPluginLookupFailure(exception)
         }
@@ -53,10 +56,15 @@ internal object AyuPlugin {
     internal fun descriptorFromPluginAwareClassLoader(
         classLoader: PluginAwareClassLoader,
         expectedPluginId: PluginId,
-    ): PluginDescriptor? {
-        val descriptor = classLoader.pluginDescriptor
-        return descriptor.takeIf { it.pluginId == expectedPluginId }
-    }
+    ): PluginDescriptor? =
+        try {
+            val descriptor = classLoader.pluginDescriptor
+            descriptor.takeIf { it.pluginId == expectedPluginId }
+        } catch (exception: LinkageError) {
+            logPluginLookupFailure(exception)
+        } catch (exception: RuntimeException) {
+            logPluginLookupFailure(exception)
+        }
 
     private fun markerClassName(pluginId: PluginId): String? =
         when (pluginId.idString) {
@@ -75,7 +83,7 @@ internal object AyuPlugin {
         return descriptorFromPluginAwareClassLoader(classLoader, expectedPluginId)
     }
 
-    private fun logPluginLookupFailure(exception: RuntimeException): Nothing? {
+    private fun logPluginLookupFailure(exception: Throwable): Nothing? {
         LOG.warn(
             "AyuPlugin.findLoadedPlugin: plugin descriptor lookup failed " +
                 "(expected only in tests with a partially mocked Application).",

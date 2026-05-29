@@ -22,7 +22,7 @@ import kotlin.test.assertSame
  *    version-stamp in the Settings header or the What's New launcher).
  *  - [AyuPlugin.findLoadedPlugin] never reaches internal plugin registry APIs;
  *    known plugins resolve through plugin-aware classloaders and absent or
- *    disabled optional dependencies surface as `null`.
+ *    disabled or broken optional dependencies surface as `null`.
  */
 class AyuPluginTest {
     @AfterTest
@@ -103,6 +103,18 @@ class AyuPluginTest {
         assertNull(
             AyuPlugin.descriptorFromPluginAwareClassLoader(classLoader, AyuPlugin.ID),
             "A marker class from the wrong plugin must not satisfy Ayu plugin lookup.",
+        )
+    }
+
+    @Test
+    fun `descriptorFromPluginAwareClassLoader returns null when optional plugin bytecode is broken`() {
+        val classLoader = mockk<PluginAwareClassLoader>()
+        every { classLoader.pluginDescriptor } throws NoClassDefFoundError("missing optional dependency")
+
+        assertNull(
+            AyuPlugin.descriptorFromPluginAwareClassLoader(classLoader, AyuPlugin.ID),
+            "A broken optional integration must not prevent users from opening Settings " +
+                "or starting the IDE with Ayu enabled.",
         )
     }
 }
