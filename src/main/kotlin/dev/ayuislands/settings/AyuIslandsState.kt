@@ -52,10 +52,10 @@ class AyuIslandsState : BaseState() {
      * flicker users see when multiple project windows restore simultaneously with
      * distinct per-project overrides.
      *
-     * Written by every `apply()`, read once in
-     * [dev.ayuislands.AyuIslandsAppListener.appFrameCreated] and then effectively
-     * ignored at runtime (the live resolver chain inside `AyuIslandsStartupActivity`
-     * overrides it per project once contexts are available).
+     * Written by every `apply()`, read by
+     * [dev.ayuislands.AyuIslandsAppListener.appFrameCreated] for first-frame
+     * anti-flicker and by [dev.ayuislands.glow.GlowOverlayManager] so late-created
+     * glow overlays match the app-global chrome accent that was actually painted.
      *
      * Stored as hex string (e.g. `"#5CCFE6"`) for IDE-state simplicity — no color
      * serialization round-trip. `null` on first launch (pre-plugin-install history).

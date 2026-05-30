@@ -247,7 +247,7 @@ class GlowOverlayManager(
                 log.debug("AyuVariant.detect() returned null in initializeFocusRingGlow, skipping focus-ring glow")
                 return
             }
-        val accentHex = AccentResolver.resolve(project, variant)
+        val accentHex = resolveCurrentGlowAccentHex(project, state, variant)
         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
         val accent = safeDecodeColor(accentHex)
         val intensity = state.getIntensityForStyle(style)
@@ -295,7 +295,7 @@ class GlowOverlayManager(
                 log.debug("AyuVariant.detect() returned null in attachOverlay($id), skipping overlay attach")
                 return
             }
-        val accentHex = AccentResolver.resolve(project, variant)
+        val accentHex = resolveCurrentGlowAccentHex(project, state, variant)
         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
 
         val glassPane =
@@ -460,7 +460,7 @@ class GlowOverlayManager(
                             )
                             return
                         }
-                    AccentResolver.resolve(project, variant)
+                    resolveCurrentGlowAccentHex(project, state, variant)
                 }
         val accent = safeDecodeColor(accentHex)
         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
@@ -542,3 +542,14 @@ class GlowOverlayManager(
         }
     }
 }
+
+private fun resolveCurrentGlowAccentHex(
+    project: Project,
+    state: AyuIslandsState,
+    variant: AyuVariant,
+): String =
+    state
+        .effectiveLastAppliedAccentHex()
+        ?.takeIf { state.lastApplyOk }
+        ?.value
+        ?: AccentResolver.resolve(project, variant)
