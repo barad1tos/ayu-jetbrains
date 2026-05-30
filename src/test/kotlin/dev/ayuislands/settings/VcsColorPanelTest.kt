@@ -161,15 +161,26 @@ class VcsColorPanelTest {
     }
 
     @Test
-    fun `Diff preview is created and follows Diff preset snaps`() {
+    fun `VCS preview is created and follows every section preset snap`() {
         val panel = newBuiltPanel()
-        val preview = diffPreview(panel)
+        val preview = vcsPreview(panel)
 
-        assertEquals(VcsColorPreset.AMBIENT_SLIDER, preview.intensityForTest())
+        assertEquals(VcsColorPreset.AMBIENT_SLIDER, preview.intensityForTest(VcsColorCategory.DIFF_VIEWER))
+        assertEquals(VcsColorPreset.AMBIENT_SLIDER, preview.intensityForTest(VcsColorCategory.CONFLICT_MARKERS))
+        assertEquals(VcsColorPreset.AMBIENT_SLIDER, preview.intensityForTest(VcsColorCategory.BLAME_GUTTER))
 
         panel.triggerSectionPresetChosenForTest(VcsSection.DIFF, VcsColorPreset.CYBERPUNK)
+        panel.triggerSectionPresetChosenForTest(VcsSection.MERGE, VcsColorPreset.WHISPER)
+        panel.triggerSectionPresetChosenForTest(VcsSection.BLAME, VcsColorPreset.NEON)
 
-        assertEquals(VcsColorPreset.CYBERPUNK_SLIDER, preview.intensityForTest())
+        assertEquals(VcsColorPreset.CYBERPUNK_SLIDER, preview.intensityForTest(VcsColorCategory.DIFF_VIEWER))
+        assertEquals(
+            VcsColorPreset.CYBERPUNK_SLIDER,
+            preview.intensityForTest(VcsColorCategory.PROJECT_VIEW_FILE_STATUS),
+        )
+        assertEquals(VcsColorPreset.CYBERPUNK_SLIDER, preview.intensityForTest(VcsColorCategory.EDITOR_GUTTER))
+        assertEquals(VcsColorPreset.WHISPER_SLIDER, preview.intensityForTest(VcsColorCategory.CONFLICT_MARKERS))
+        assertEquals(VcsColorPreset.NEON_SLIDER, preview.intensityForTest(VcsColorCategory.BLAME_GUTTER))
     }
 
     @Test
@@ -412,9 +423,9 @@ class VcsColorPanelTest {
         return panel
     }
 
-    private fun diffPreview(panel: VcsColorPanel): VcsDiffPreviewComponent {
-        val field = VcsColorPanel::class.java.getDeclaredField("diffPreview")
+    private fun vcsPreview(panel: VcsColorPanel): VcsColorPreviewComponent {
+        val field = VcsColorPanel::class.java.getDeclaredField("vcsPreview")
         field.isAccessible = true
-        return field.get(panel) as? VcsDiffPreviewComponent ?: error("Diff preview must be created")
+        return field.get(panel) as? VcsColorPreviewComponent ?: error("VCS preview must be created")
     }
 }

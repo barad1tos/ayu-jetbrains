@@ -4,7 +4,6 @@ import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
-import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
@@ -12,18 +11,11 @@ import com.intellij.ui.dsl.builder.SegmentedButton
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.vcs.VcsColorApplier
-import dev.ayuislands.vcs.VcsColorBlender
 import dev.ayuislands.vcs.VcsColorCategory
 import dev.ayuislands.vcs.VcsColorContext
-import dev.ayuislands.vcs.VcsColorPalette
 import dev.ayuislands.vcs.VcsColorPreset
 import dev.ayuislands.vcs.VcsColorSnapshot
-import dev.ayuislands.vcs.VcsIntensity
-import dev.ayuislands.vcs.VcsWriteMode
 import org.jetbrains.annotations.TestOnly
-import java.awt.Color
-import java.awt.Dimension
-import javax.swing.BorderFactory
 import javax.swing.JLabel
 import javax.swing.JSlider
 
@@ -85,17 +77,7 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
     private var gutterValueLabel: JLabel? = null
     private var conflictMarkerValueLabel: JLabel? = null
     private var blameValueLabel: JLabel? = null
-
-    // DIFF section gets three swatches (modified blue / inserted green /
-    // deleted red) all driven by the Diff viewer slider — surfaces the full
-    // colour palette that one slider tints. MERGE and BLAME keep a single
-    // swatch since each only owns one visible colour family.
-    private var diffSwatchModified: JLabel? = null
-    private var diffSwatchInserted: JLabel? = null
-    private var diffSwatchDeleted: JLabel? = null
-    private var mergeSectionSwatch: JLabel? = null
-    private var blameSectionSwatch: JLabel? = null
-    private var diffPreview: VcsDiffPreviewComponent? = null
+    private var vcsPreview: VcsColorPreviewComponent? = null
 
     /** Drives `visibleIf` on each section's Custom-mode slider rows. */
     private val diffCustomSelected = AtomicBooleanProperty(pendingDiffPreset == VcsColorPreset.CUSTOM)
@@ -145,6 +127,11 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
 
     private fun Panel.buildLicensedContent(state: AyuIslandsState) {
         buildMasterToggleRow()
+        row {
+            val preview = VcsColorPreviewComponent(variant ?: AyuVariant.DARK, previewIntensities())
+            vcsPreview = preview
+            cell(preview).align(Align.FILL)
+        }.visibleIf(masterEnabled)
         buildSection(VcsSection.DIFF, state)
         buildSection(VcsSection.MERGE, state)
         buildSection(VcsSection.BLAME, state)
@@ -170,13 +157,6 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
         val collapsible =
             collapsibleGroup(section.title) {
                 buildSectionPresetRow(section, ctx)
-                if (section == VcsSection.DIFF) {
-                    row {
-                        val preview = VcsDiffPreviewComponent(variant ?: AyuVariant.DARK, pendingDiffIntensity)
-                        diffPreview = preview
-                        cell(preview).align(Align.FILL)
-                    }
-                }
                 for ((category, label) in section.sliders) {
                     buildSliderRow(category, label, ctx.customVisible)
                 }
@@ -231,38 +211,6 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
                 ctx.customVisible.set(preset == VcsColorPreset.CUSTOM)
             }
             ctx.storeSegmented(segmented)
-            // Section colour swatches sit 4px right of the Custom button.
-            // DIFF carries three swatches (modified / inserted / deleted) because
-            // its slider tints three colour families in parallel; MERGE and BLAME
-            // each surface a single dominant colour.
-            val iconicValue =
-                when (section.iconicCategory) {
-                    VcsColorCategory.DIFF_VIEWER -> pendingDiffIntensity
-                    VcsColorCategory.CONFLICT_MARKERS -> pendingConflictMarkerIntensity
-                    VcsColorCategory.BLAME_GUTTER -> pendingBlameIntensity
-                    else -> VcsColorPreset.AMBIENT_SLIDER
-                }
-            for (keyName in section.swatchKeyNames) {
-                val swatch = JLabel(" ")
-                swatch.preferredSize = Dimension(SWATCH_SIZE, SWATCH_SIZE)
-                swatch.minimumSize = Dimension(SWATCH_SIZE, SWATCH_SIZE)
-                swatch.isOpaque = true
-                swatch.background = computeSwatchColor(section.iconicCategory, keyName, iconicValue)
-                swatch.border = BorderFactory.createLineBorder(JBColor.border(), 1)
-                cell(swatch).gap(com.intellij.ui.dsl.builder.RightGap.SMALL)
-                // Inlined stash — keeps the per-class function count under
-                // detekt's TooManyFunctions ceiling.
-                when (section) {
-                    VcsSection.DIFF ->
-                        when (keyName) {
-                            "DIFF_MODIFIED" -> diffSwatchModified = swatch
-                            "DIFF_INSERTED" -> diffSwatchInserted = swatch
-                            "DIFF_DELETED" -> diffSwatchDeleted = swatch
-                        }
-                    VcsSection.MERGE -> mergeSectionSwatch = swatch
-                    VcsSection.BLAME -> blameSectionSwatch = swatch
-                }
-            }
         }
     }
 
@@ -323,25 +271,14 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
         sliderRow.visibleIf(sectionCustomVisible)
     }
 
-    /**
-     * Returns the blended color for the ColorKey-typed palette entry named
-     * [keyName] inside [category], at slider position [value]. Falls back to
-     * [JBColor.GRAY] when the variant isn't resolvable yet (settings dialog
-     * opened before any Ayu theme activates) or when no matching entry exists.
-     */
-    private fun computeSwatchColor(
-        category: VcsColorCategory,
-        keyName: String,
-        value: Int,
-    ): Color {
-        val activeVariant = this.variant ?: AyuVariant.DARK
-        val entry =
-            VcsColorPalette.entriesFor(category).firstOrNull {
-                it.keyName == keyName && it.mode == VcsWriteMode.COLOR_KEY
-            } ?: return JBColor.GRAY
-        val (base, target) = VcsColorPalette.endpoints(entry, activeVariant)
-        return VcsColorBlender.blend(base, target, VcsIntensity.of(value))
-    }
+    private fun previewIntensities(): VcsPreviewIntensities =
+        VcsPreviewIntensities(
+            diffViewer = pendingDiffIntensity,
+            projectView = pendingProjectViewIntensity,
+            editorGutter = pendingGutterIntensity,
+            conflictMarkers = pendingConflictMarkerIntensity,
+            blameGutter = pendingBlameIntensity,
+        )
 
     /**
      * Handles a slider value change for [category]. Writes the new value into
@@ -358,10 +295,6 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
             VcsColorCategory.DIFF_VIEWER -> {
                 pendingDiffIntensity = value
                 diffValueLabel?.text = "$value"
-                diffSwatchModified?.background = computeSwatchColor(category, "DIFF_MODIFIED", value)
-                diffSwatchInserted?.background = computeSwatchColor(category, "DIFF_INSERTED", value)
-                diffSwatchDeleted?.background = computeSwatchColor(category, "DIFF_DELETED", value)
-                diffPreview?.updatePreview(variant ?: AyuVariant.DARK, value)
             }
             VcsColorCategory.PROJECT_VIEW_FILE_STATUS -> {
                 pendingProjectViewIntensity = value
@@ -374,16 +307,14 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
             VcsColorCategory.CONFLICT_MARKERS -> {
                 pendingConflictMarkerIntensity = value
                 conflictMarkerValueLabel?.text = "$value"
-                mergeSectionSwatch?.background = computeSwatchColor(category, "DIFF_CONFLICT", value)
             }
             VcsColorCategory.BLAME_GUTTER -> {
                 pendingBlameIntensity = value
                 blameValueLabel?.text = "$value"
-                blameSectionSwatch?.background =
-                    computeSwatchColor(category, "ANNOTATIONS_LAST_COMMIT_COLOR", value)
             }
             else -> return
         }
+        vcsPreview?.updatePreview(variant ?: AyuVariant.DARK, previewIntensities())
         if (suppressSliderListeners) return
         promoteSectionToCustom(category)
     }
@@ -528,33 +459,15 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
             blameCustomSelected.set(pendingBlamePreset == VcsColorPreset.CUSTOM)
             diffSlider?.value = pendingDiffIntensity
             diffValueLabel?.text = "$pendingDiffIntensity"
-            diffSwatchModified?.background =
-                computeSwatchColor(VcsColorCategory.DIFF_VIEWER, "DIFF_MODIFIED", pendingDiffIntensity)
-            diffSwatchInserted?.background =
-                computeSwatchColor(VcsColorCategory.DIFF_VIEWER, "DIFF_INSERTED", pendingDiffIntensity)
-            diffSwatchDeleted?.background =
-                computeSwatchColor(VcsColorCategory.DIFF_VIEWER, "DIFF_DELETED", pendingDiffIntensity)
-            diffPreview?.updatePreview(variant ?: AyuVariant.DARK, pendingDiffIntensity)
             projectViewSlider?.value = pendingProjectViewIntensity
             projectViewValueLabel?.text = "$pendingProjectViewIntensity"
             gutterSlider?.value = pendingGutterIntensity
             gutterValueLabel?.text = "$pendingGutterIntensity"
             conflictMarkerSlider?.value = pendingConflictMarkerIntensity
             conflictMarkerValueLabel?.text = "$pendingConflictMarkerIntensity"
-            mergeSectionSwatch?.background =
-                computeSwatchColor(
-                    VcsColorCategory.CONFLICT_MARKERS,
-                    "DIFF_CONFLICT",
-                    pendingConflictMarkerIntensity,
-                )
             blameSlider?.value = pendingBlameIntensity
             blameValueLabel?.text = "$pendingBlameIntensity"
-            blameSectionSwatch?.background =
-                computeSwatchColor(
-                    VcsColorCategory.BLAME_GUTTER,
-                    "ANNOTATIONS_LAST_COMMIT_COLOR",
-                    pendingBlameIntensity,
-                )
+            vcsPreview?.updatePreview(variant ?: AyuVariant.DARK, previewIntensities())
         } finally {
             suppressSliderListeners = false
         }
@@ -621,10 +534,6 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
                 pendingDiffIntensity = value
                 diffSlider?.value = value
                 diffValueLabel?.text = "$value"
-                diffSwatchModified?.background = computeSwatchColor(category, "DIFF_MODIFIED", value)
-                diffSwatchInserted?.background = computeSwatchColor(category, "DIFF_INSERTED", value)
-                diffSwatchDeleted?.background = computeSwatchColor(category, "DIFF_DELETED", value)
-                diffPreview?.updatePreview(variant ?: AyuVariant.DARK, value)
             }
             VcsColorCategory.PROJECT_VIEW_FILE_STATUS -> {
                 pendingProjectViewIntensity = value
@@ -640,17 +549,15 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
                 pendingConflictMarkerIntensity = value
                 conflictMarkerSlider?.value = value
                 conflictMarkerValueLabel?.text = "$value"
-                mergeSectionSwatch?.background = computeSwatchColor(category, "DIFF_CONFLICT", value)
             }
             VcsColorCategory.BLAME_GUTTER -> {
                 pendingBlameIntensity = value
                 blameSlider?.value = value
                 blameValueLabel?.text = "$value"
-                blameSectionSwatch?.background =
-                    computeSwatchColor(category, "ANNOTATIONS_LAST_COMMIT_COLOR", value)
             }
             else -> Unit
         }
+        vcsPreview?.updatePreview(variant ?: AyuVariant.DARK, previewIntensities())
     }
 
     // ── @TestOnly seams ───────────────────────────────────────────────────────
@@ -716,21 +623,17 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
         internal const val MAX_INTENSITY = 100
         private const val INTENSITY_MAJOR_TICK = 25
         private const val INTENSITY_MINOR_TICK = 5
-        private const val SWATCH_SIZE = 25
     }
 }
 
 /**
  * Selector for the three VCS panel sections. Encapsulates each section's
- * user-visible title, the list of per-category sliders it owns in Custom
- * mode, and the iconic category whose blended color drives the section's
- * preset-row swatch.
+ * user-visible title and the list of per-category sliders it owns in Custom
+ * mode.
  */
 internal enum class VcsSection(
     val title: String,
     val sliders: List<Pair<VcsColorCategory, String>>,
-    val iconicCategory: VcsColorCategory,
-    val swatchKeyNames: List<String>,
 ) {
     DIFF(
         title = "Diff and File Status",
@@ -740,22 +643,13 @@ internal enum class VcsSection(
                 VcsColorCategory.PROJECT_VIEW_FILE_STATUS to "Project View:",
                 VcsColorCategory.EDITOR_GUTTER to "Editor gutter:",
             ),
-        iconicCategory = VcsColorCategory.DIFF_VIEWER,
-        // Three swatches showing the full Diff slider's effect: modified
-        // (blue), inserted (green), deleted (red). All driven by the same
-        // pendingDiffIntensity.
-        swatchKeyNames = listOf("DIFF_MODIFIED", "DIFF_INSERTED", "DIFF_DELETED"),
     ),
     MERGE(
         title = "Merge and Conflict",
         sliders = listOf(VcsColorCategory.CONFLICT_MARKERS to "Conflict markers:"),
-        iconicCategory = VcsColorCategory.CONFLICT_MARKERS,
-        swatchKeyNames = listOf("DIFF_CONFLICT"),
     ),
     BLAME(
         title = "Blame and History",
         sliders = listOf(VcsColorCategory.BLAME_GUTTER to "Blame gutter:"),
-        iconicCategory = VcsColorCategory.BLAME_GUTTER,
-        swatchKeyNames = listOf("ANNOTATIONS_LAST_COMMIT_COLOR"),
     ),
 }
