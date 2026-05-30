@@ -37,6 +37,11 @@ class VcsColorPreviewComponentTest {
             image.colorAt(DIFF_STRIPE_X, CONFLICT_ROW_Y),
             "narrow conflict marker stripe",
         )
+        assertColorEquals(
+            component.colorForTest(VcsColorCategory.BLAME_GUTTER, "VCS_ANNOTATIONS_COLOR_3", VcsWriteMode.COLOR_KEY),
+            image.colorAt(NARROW_BLAME_BACKGROUND_X, CONFLICT_ROW_Y),
+            "narrow blame gutter stays separated from code text",
+        )
     }
 
     @Test
@@ -254,6 +259,7 @@ class VcsColorPreviewComponentTest {
         private const val GUTTER_MARKER_X = 202
         private const val FIRST_CODE_ROW_Y = 30
         private const val CONFLICT_ROW_Y = 70
+        private const val NARROW_BLAME_BACKGROUND_X = 268
         private const val BLAME_BACKGROUND_X = 458
         private const val FIRST_BLAME_ROW_Y = 30
         private const val LAST_BLAME_ROW_Y = 128
