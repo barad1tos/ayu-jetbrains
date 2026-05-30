@@ -23,6 +23,7 @@ import java.awt.event.MouseEvent
 import javax.swing.ImageIcon
 import javax.swing.JLabel
 import javax.swing.JPanel
+import javax.swing.JTabbedPane
 import javax.swing.Timer
 
 /** Settings page at Appearance > Ayu Islands with Accent / Glow tabs. */
@@ -31,7 +32,6 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
 
     private companion object {
         const val LOGO_HEIGHT = 28
-        const val MIN_TABS_WIDTH = 600
         const val EXPAND_FRAME_MS = 12
         const val EXPAND_MS_PER_CHAR = 35
         const val DISCUSSIONS_SHOW_SETUP = OnboardingUrls.DISCUSSIONS_SHOW_SETUP
@@ -182,7 +182,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
             }
 
         val tabs = JBTabbedPane()
-        tabs.minimumSize = java.awt.Dimension(MIN_TABS_WIDTH, 0)
+        tabs.tabLayoutPolicy = JTabbedPane.SCROLL_TAB_LAYOUT
         tabs.addTab("Accent", accentTab)
         tabs.addTab("Font", fontTab)
         tabs.addTab("Glow", glowTab)

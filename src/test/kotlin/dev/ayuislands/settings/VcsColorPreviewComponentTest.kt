@@ -8,12 +8,32 @@ import dev.ayuislands.vcs.VcsColorPreset
 import dev.ayuislands.vcs.VcsIntensity
 import dev.ayuislands.vcs.VcsWriteMode
 import java.awt.Color
+import java.awt.Dimension
 import java.awt.image.BufferedImage
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
 
 class VcsColorPreviewComponentTest {
+    @Test
+    fun `preview exposes compact minimum width and still paints core regions when narrowed`() {
+        val component = VcsColorPreviewComponent(AyuVariant.DARK)
+        val minimumSize = component.minimumSize
+
+        assertTrue(
+            minimumSize.width < component.preferredSize.width,
+            "Preview minimum width must be below its natural width so Settings can shrink the tab content",
+        )
+
+        val image = render(component, minimumSize)
+        assertColorEquals(
+            component.colorForTest(VcsColorCategory.CONFLICT_MARKERS, "DIFF_CONFLICT", VcsWriteMode.COLOR_KEY),
+            image.colorAt(DIFF_STRIPE_X, CONFLICT_ROW_Y),
+            "narrow conflict marker stripe",
+        )
+    }
+
     @Test
     fun `paintComponent renders every preview region and clamps blame gutter`() {
         val component = VcsColorPreviewComponent(AyuVariant.DARK)
@@ -194,8 +214,10 @@ class VcsColorPreviewComponentTest {
         assertEquals(expected.alpha, actual.alpha, "$context alpha")
     }
 
-    private fun render(component: VcsColorPreviewComponent): BufferedImage {
-        val size = component.preferredSize
+    private fun render(
+        component: VcsColorPreviewComponent,
+        size: Dimension = component.preferredSize,
+    ): BufferedImage {
         component.setSize(size)
         val image = BufferedImage(size.width, size.height, BufferedImage.TYPE_INT_ARGB)
         val graphics = image.createGraphics()

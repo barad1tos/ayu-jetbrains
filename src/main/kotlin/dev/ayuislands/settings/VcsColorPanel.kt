@@ -130,7 +130,9 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
         row {
             val preview = VcsColorPreviewComponent(variant ?: AyuVariant.DARK, previewIntensities())
             vcsPreview = preview
-            cell(preview).align(Align.FILL)
+            cell(preview)
+                .resizableColumn()
+                .align(Align.FILL)
         }.visibleIf(masterEnabled)
         buildSection(VcsSection.DIFF, state)
         buildSection(VcsSection.MERGE, state)

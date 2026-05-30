@@ -9,6 +9,7 @@ import io.mockk.verify
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -154,6 +155,25 @@ class AyuIslandsConfigurableChromeWiringTest {
         assertTrue(
             classText.contains("setBeforeOverridesInjection"),
             "createPanel bytecode must still call setBeforeOverridesInjection to host System panel",
+        )
+    }
+
+    @Test
+    fun `Configurable tabs can shrink with the Settings window`() {
+        val classBytes =
+            AyuIslandsConfigurable::class.java
+                .getResourceAsStream("AyuIslandsConfigurable.class")
+                ?.readAllBytes()
+                ?: error("AyuIslandsConfigurable.class must be loadable for bytecode inspection")
+        val classText = String(classBytes, Charsets.ISO_8859_1)
+
+        assertTrue(
+            classText.contains("setTabLayoutPolicy"),
+            "Settings tabs must use scroll layout so tab labels do not force a wide minimum content area",
+        )
+        assertFalse(
+            classText.contains("setMinimumSize"),
+            "Settings tabs must not force a fixed minimum width; narrow windows should resize content instead",
         )
     }
 

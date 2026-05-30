@@ -59,6 +59,8 @@ internal class VcsColorPreviewComponent(
 
     override fun getPreferredSize(): Dimension = Dimension(JBUI.scale(PREVIEW_WIDTH), JBUI.scale(PREVIEW_HEIGHT))
 
+    override fun getMinimumSize(): Dimension = Dimension(JBUI.scale(MIN_PREVIEW_WIDTH), JBUI.scale(PREVIEW_HEIGHT))
+
     override fun paintComponent(graphics: Graphics) {
         super.paintComponent(graphics)
         val g2 = graphics.create() as Graphics2D
@@ -317,6 +319,7 @@ internal class VcsColorPreviewComponent(
 
     private companion object {
         private const val PREVIEW_WIDTH = 560
+        private const val MIN_PREVIEW_WIDTH = 320
         private const val PREVIEW_HEIGHT = 154
         private const val PADDING = 10
         private const val COLUMN_GAP = 10
