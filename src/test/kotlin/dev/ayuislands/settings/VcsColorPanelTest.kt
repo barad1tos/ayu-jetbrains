@@ -3,12 +3,15 @@ package dev.ayuislands.settings
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.ui.DialogPanel
+import com.intellij.ui.dsl.builder.SegmentedButton
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.vcs.VcsColorApplier
 import dev.ayuislands.vcs.VcsColorCategory
 import dev.ayuislands.vcs.VcsColorContext
 import dev.ayuislands.vcs.VcsColorPreset
 import dev.ayuislands.vcs.VcsColorSnapshot
+import dev.ayuislands.vcs.VcsWriteMode
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkClass
@@ -17,11 +20,15 @@ import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
+import java.awt.Container
+import javax.swing.JSlider
+import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 /**
@@ -161,6 +168,78 @@ class VcsColorPanelTest {
     }
 
     @Test
+    fun `VCS preview is created and follows every section preset snap`() {
+        val panel = newBuiltPanel()
+        val preview = vcsPreview(panel)
+
+        assertEquals(VcsColorPreset.AMBIENT_SLIDER, preview.intensityForTest(VcsColorCategory.DIFF_VIEWER))
+        assertEquals(VcsColorPreset.AMBIENT_SLIDER, preview.intensityForTest(VcsColorCategory.CONFLICT_MARKERS))
+        assertEquals(VcsColorPreset.AMBIENT_SLIDER, preview.intensityForTest(VcsColorCategory.BLAME_GUTTER))
+
+        panel.triggerSectionPresetChosenForTest(VcsSection.DIFF, VcsColorPreset.CYBERPUNK)
+        panel.triggerSectionPresetChosenForTest(VcsSection.MERGE, VcsColorPreset.WHISPER)
+        panel.triggerSectionPresetChosenForTest(VcsSection.BLAME, VcsColorPreset.NEON)
+
+        assertEquals(VcsColorPreset.CYBERPUNK_SLIDER, preview.intensityForTest(VcsColorCategory.DIFF_VIEWER))
+        assertEquals(
+            VcsColorPreset.CYBERPUNK_SLIDER,
+            preview.intensityForTest(VcsColorCategory.PROJECT_VIEW_FILE_STATUS),
+        )
+        assertEquals(VcsColorPreset.CYBERPUNK_SLIDER, preview.intensityForTest(VcsColorCategory.EDITOR_GUTTER))
+        assertEquals(VcsColorPreset.WHISPER_SLIDER, preview.intensityForTest(VcsColorCategory.CONFLICT_MARKERS))
+        assertEquals(VcsColorPreset.NEON_SLIDER, preview.intensityForTest(VcsColorCategory.BLAME_GUTTER))
+    }
+
+    @Test
+    fun `real preset segmented selections refresh visible preview`() {
+        val panel = newBuiltPanel()
+        val preview = vcsPreview(panel)
+
+        presetSegmented(panel, "diffPresetSegmented").selectedItem = VcsColorPreset.CYBERPUNK
+        presetSegmented(panel, "mergePresetSegmented").selectedItem = VcsColorPreset.WHISPER
+        presetSegmented(panel, "blamePresetSegmented").selectedItem = VcsColorPreset.NEON
+
+        assertEquals(VcsColorPreset.CYBERPUNK, panel.getPendingPresetForTest(VcsSection.DIFF))
+        assertEquals(VcsColorPreset.WHISPER, panel.getPendingPresetForTest(VcsSection.MERGE))
+        assertEquals(VcsColorPreset.NEON, panel.getPendingPresetForTest(VcsSection.BLAME))
+        assertEquals(VcsColorPreset.CYBERPUNK_SLIDER, preview.intensityForTest(VcsColorCategory.DIFF_VIEWER))
+        assertEquals(
+            VcsColorPreset.CYBERPUNK_SLIDER,
+            preview.intensityForTest(VcsColorCategory.PROJECT_VIEW_FILE_STATUS),
+        )
+        assertEquals(VcsColorPreset.CYBERPUNK_SLIDER, preview.intensityForTest(VcsColorCategory.EDITOR_GUTTER))
+        assertEquals(VcsColorPreset.WHISPER_SLIDER, preview.intensityForTest(VcsColorCategory.CONFLICT_MARKERS))
+        assertEquals(VcsColorPreset.NEON_SLIDER, preview.intensityForTest(VcsColorCategory.BLAME_GUTTER))
+    }
+
+    @Test
+    fun `VCS preview shrinks inside compact settings width`() {
+        state.vcsColorEnabled = true
+        val panel = VcsColorPanel()
+        val dialogPanel = buildDialogPanel(panel)
+        val preview = vcsPreview(panel)
+
+        dialogPanel.setSize(COMPACT_SETTINGS_WIDTH, dialogPanel.preferredSize.height)
+        dialogPanel.doLayout()
+        layoutTree(dialogPanel)
+
+        assertTrue(preview.width > 0, "Preview must be laid out when VCS customization is enabled")
+        assertTrue(
+            preview.width < preview.preferredSize.width,
+            "Preview must shrink below its natural width inside a compact Settings window",
+        )
+        assertTrue(
+            preview.width <= COMPACT_SETTINGS_WIDTH,
+            "Preview width must not exceed the compact Settings content width",
+        )
+        val previewLocation = SwingUtilities.convertPoint(preview.parent, preview.location, dialogPanel)
+        assertTrue(
+            previewLocation.x + preview.width <= COMPACT_SETTINGS_WIDTH,
+            "Preview right edge must remain inside the compact Settings content width",
+        )
+    }
+
+    @Test
     fun `Merge section preset snap moves only conflict slider`() {
         val panel = newBuiltPanel()
         panel.triggerSectionPresetChosenForTest(VcsSection.MERGE, VcsColorPreset.CYBERPUNK)
@@ -204,6 +283,9 @@ class VcsColorPanelTest {
         val panel = newBuiltPanel()
         panel.triggerSectionPresetChosenForTest(VcsSection.DIFF, VcsColorPreset.NEON)
         assertEquals(VcsColorPreset.NEON, panel.getPendingPresetForTest(VcsSection.DIFF))
+        val preview = vcsPreview(panel)
+        val previewBefore =
+            preview.colorForTest(VcsColorCategory.DIFF_VIEWER, "DIFF_MODIFIED", VcsWriteMode.COLOR_KEY)
         val mergeBefore = panel.getPendingIntensityForTest(VcsColorCategory.CONFLICT_MARKERS)
         val blameBefore = panel.getPendingIntensityForTest(VcsColorCategory.BLAME_GUTTER)
         val projectViewBefore = panel.getPendingIntensityForTest(VcsColorCategory.PROJECT_VIEW_FILE_STATUS)
@@ -218,7 +300,7 @@ class VcsColorPanelTest {
         // the calling thread.
         val diffSliderField = VcsColorPanel::class.java.getDeclaredField("diffSlider")
         diffSliderField.isAccessible = true
-        val diffSlider = diffSliderField.get(panel) as javax.swing.JSlider
+        val diffSlider = diffSliderField.get(panel) as JSlider
         diffSlider.value = 75
 
         // Promotion: pendingDiffPreset flips to CUSTOM and diffCustomSelected
@@ -229,6 +311,12 @@ class VcsColorPanelTest {
             "User-driven Diff slider drag must promote the Diff section to CUSTOM",
         )
         assertEquals(75, panel.getPendingIntensityForTest(VcsColorCategory.DIFF_VIEWER))
+        assertEquals(75, preview.intensityForTest(VcsColorCategory.DIFF_VIEWER))
+        assertNotEquals(
+            previewBefore.rgb,
+            preview.colorForTest(VcsColorCategory.DIFF_VIEWER, "DIFF_MODIFIED", VcsWriteMode.COLOR_KEY).rgb,
+            "Preview must repaint from the user-dragged Diff slider value",
+        )
         val diffCustomField = VcsColorPanel::class.java.getDeclaredField("diffCustomSelected")
         diffCustomField.isAccessible = true
         val diffCustom = diffCustomField.get(panel) as com.intellij.openapi.observable.properties.AtomicBooleanProperty
@@ -393,10 +481,43 @@ class VcsColorPanelTest {
 
     private fun newBuiltPanel(): VcsColorPanel {
         val panel = VcsColorPanel()
+        buildDialogPanel(panel)
+        return panel
+    }
+
+    private fun buildDialogPanel(panel: VcsColorPanel): DialogPanel =
         com.intellij.ui.dsl.builder
             .panel {
                 panel.buildPanel(this@panel, dev.ayuislands.accent.AyuVariant.DARK)
             }
-        return panel
+
+    private fun vcsPreview(panel: VcsColorPanel): VcsColorPreviewComponent {
+        val field = VcsColorPanel::class.java.getDeclaredField("vcsPreview")
+        field.isAccessible = true
+        return field.get(panel) as? VcsColorPreviewComponent ?: error("VCS preview must be created")
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun presetSegmented(
+        panel: VcsColorPanel,
+        fieldName: String,
+    ): SegmentedButton<VcsColorPreset> {
+        val field = VcsColorPanel::class.java.getDeclaredField(fieldName)
+        field.isAccessible = true
+        return field.get(panel) as? SegmentedButton<VcsColorPreset>
+            ?: error("$fieldName must be created")
+    }
+
+    private fun layoutTree(container: Container) {
+        container.doLayout()
+        for (component in container.components) {
+            if (component is Container) {
+                layoutTree(component)
+            }
+        }
+    }
+
+    private companion object {
+        private const val COMPACT_SETTINGS_WIDTH = 420
     }
 }

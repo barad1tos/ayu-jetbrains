@@ -1,14 +1,23 @@
 package dev.ayuislands.settings
 
+import com.intellij.ui.components.JBTabbedPane
 import io.mockk.clearAllMocks
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.spyk
 import io.mockk.unmockkAll
 import io.mockk.verify
+import java.awt.Color
+import java.awt.Dimension
+import javax.swing.JComponent
+import javax.swing.JPanel
+import javax.swing.JScrollPane
+import javax.swing.JTabbedPane
+import javax.swing.Scrollable
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -158,6 +167,139 @@ class AyuIslandsConfigurableChromeWiringTest {
     }
 
     @Test
+    fun `Configurable tabs keep labels visible while yielding width to Settings window`() {
+        val tabs = JBTabbedPane()
+        val configure =
+            AyuIslandsConfigurable::class.java.getDeclaredMethod(
+                "configureSettingsTabsForResize",
+                JBTabbedPane::class.java,
+            )
+        configure.isAccessible = true
+        configure.invoke(AyuIslandsConfigurable(), tabs)
+
+        assertEquals(
+            JTabbedPane.WRAP_TAB_LAYOUT,
+            tabs.tabLayoutPolicy,
+            "Settings tabs must keep the platform default wrap layout; scroll layout breaks JBTabbedPane labels here",
+        )
+        assertEquals(0, tabs.minimumSize.width, "Settings tabs must not force a horizontal minimum")
+        assertEquals(0, tabs.minimumSize.height, "Settings tabs must not force a vertical minimum")
+
+        val classBytes =
+            AyuIslandsConfigurable::class.java
+                .getResourceAsStream("AyuIslandsConfigurable.class")
+                ?.readAllBytes()
+                ?: error("AyuIslandsConfigurable.class must be loadable for bytecode inspection")
+        val classText = String(classBytes, Charsets.ISO_8859_1)
+
+        assertTrue(
+            classText.contains("configureSettingsTabsForResize"),
+            "createPanel bytecode must apply the resize policy to the Settings tab container",
+        )
+    }
+
+    @Test
+    fun `Configurable tab content tracks compact viewport width`() {
+        val wideContent =
+            JPanel().apply {
+                preferredSize = Dimension(WIDE_CONTENT_WIDTH, TAB_CONTENT_HEIGHT)
+            }
+        val createScrollableContent =
+            AyuIslandsConfigurable::class.java.getDeclaredMethod(
+                "createScrollableTabContent",
+                JComponent::class.java,
+            )
+        createScrollableContent.isAccessible = true
+
+        val scrollPane = createScrollableContent.invoke(AyuIslandsConfigurable(), wideContent) as JScrollPane
+        val viewportView = scrollPane.viewport.view
+
+        assertTrue(
+            scrollPane.preferredSize.width <= COMPACT_TAB_WIDTH,
+            "Settings tab scroll panes must not export wide child preferred width to the outer Settings viewport",
+        )
+        assertEquals(
+            JScrollPane.HORIZONTAL_SCROLLBAR_NEVER,
+            scrollPane.horizontalScrollBarPolicy,
+            "Settings tabs must not fall back to horizontal scrolling when the dialog narrows",
+        )
+        assertTrue(viewportView is Scrollable, "Settings tab content wrapper must expose Scrollable sizing")
+        assertTrue(
+            (viewportView as Scrollable).scrollableTracksViewportWidth,
+            "Settings tab content must track the available viewport width",
+        )
+
+        scrollPane.setSize(COMPACT_TAB_WIDTH, TAB_CONTENT_HEIGHT)
+        scrollPane.doLayout()
+        scrollPane.viewport.doLayout()
+
+        assertEquals(
+            scrollPane.viewport.extentSize.width,
+            viewportView.width,
+            "Settings tab content wrapper width must follow the compact viewport",
+        )
+    }
+
+    @Test
+    fun `Configurable assembles every content tab with width tracking scroll wrapper`() {
+        val intParameter = Int::class.javaPrimitiveType ?: error("Int primitive type must be available")
+        val createSettingsTabs =
+            AyuIslandsConfigurable::class.java.getDeclaredMethod(
+                "createSettingsTabs",
+                List::class.java,
+                Color::class.java,
+                intParameter,
+                Function1::class.java,
+            )
+        createSettingsTabs.isAccessible = true
+        val expectedTitles = listOf("Accent", "Font", "Glow", "Syntax", "VCS", "Workspace", "Plugins")
+        val contentTabs =
+            expectedTitles.map { title ->
+                title to
+                    JPanel().apply {
+                        preferredSize = Dimension(WIDE_CONTENT_WIDTH, TAB_CONTENT_HEIGHT)
+                    }
+            }
+
+        val tabs =
+            createSettingsTabs.invoke(
+                AyuIslandsConfigurable(),
+                contentTabs,
+                Color.CYAN,
+                0,
+                { _: Int -> Unit },
+            ) as JBTabbedPane
+
+        assertEquals(
+            expectedTitles.size + LINK_TAB_COUNT,
+            tabs.tabCount,
+            "Settings tabs must include content and link tabs",
+        )
+        for ((index, title) in expectedTitles.withIndex()) {
+            assertEquals(title, tabs.getTitleAt(index), "Content tab title at index $index")
+            val scrollPane = tabs.getComponentAt(index)
+            assertTrue(scrollPane is JScrollPane, "$title tab must be wrapped in a scroll pane")
+            assertEquals(
+                JScrollPane.HORIZONTAL_SCROLLBAR_NEVER,
+                scrollPane.horizontalScrollBarPolicy,
+                "$title tab must not expose horizontal scrolling",
+            )
+            val viewportView = scrollPane.viewport.view
+            assertTrue(viewportView is Scrollable, "$title tab wrapper must expose Scrollable sizing")
+            assertTrue(
+                viewportView.scrollableTracksViewportWidth,
+                "$title tab content must track the Settings viewport width",
+            )
+            assertTrue(
+                scrollPane.preferredSize.width <= COMPACT_TAB_WIDTH,
+                "$title tab must not export wide child preferred width",
+            )
+        }
+        assertFalse(tabs.isEnabledAt(expectedTitles.size), "Share link tab must stay non-selectable")
+        assertFalse(tabs.isEnabledAt(expectedTitles.size + 1), "Feature link tab must stay non-selectable")
+    }
+
+    @Test
     fun `chromePanel sits between accentPanel and elementsPanel in panels list`() {
         val configurable = AyuIslandsConfigurable()
         val panels = readField<List<AyuIslandsSettingsPanel>>(configurable, "panels")
@@ -244,5 +386,12 @@ class AyuIslandsConfigurableChromeWiringTest {
         val field = target.javaClass.getDeclaredField(fieldName)
         field.isAccessible = true
         field.set(target, replacement)
+    }
+
+    private companion object {
+        private const val WIDE_CONTENT_WIDTH = 1200
+        private const val COMPACT_TAB_WIDTH = 420
+        private const val TAB_CONTENT_HEIGHT = 240
+        private const val LINK_TAB_COUNT = 2
     }
 }

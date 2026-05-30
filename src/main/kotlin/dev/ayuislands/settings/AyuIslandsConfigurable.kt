@@ -5,6 +5,7 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.options.BoundConfigurable
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.Messages
+import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTabbedPane
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.panel
@@ -15,14 +16,21 @@ import dev.ayuislands.accent.runCatchingPreservingCancellation
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.onboarding.OnboardingUrls
+import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Cursor
+import java.awt.Dimension
 import java.awt.Image
+import java.awt.Rectangle
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.ImageIcon
+import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
+import javax.swing.JScrollPane
+import javax.swing.Scrollable
+import javax.swing.SwingConstants
 import javax.swing.Timer
 
 /** Settings page at Appearance > Ayu Islands with Accent / Glow tabs. */
@@ -31,17 +39,10 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
 
     private companion object {
         const val LOGO_HEIGHT = 28
-        const val MIN_TABS_WIDTH = 600
         const val EXPAND_FRAME_MS = 12
         const val EXPAND_MS_PER_CHAR = 35
         const val DISCUSSIONS_SHOW_SETUP = OnboardingUrls.DISCUSSIONS_SHOW_SETUP
         const val DISCUSSIONS_FEATURE_REQUESTS = OnboardingUrls.DISCUSSIONS_FEATURE_REQUESTS
-
-        // Insertion index for the Phase 49 Syntax tab. Slots between Glow (index 2)
-        // and VCS (index 3 pre-insert) so rendering-related tabs cluster together
-        // (Accent | Font | Glow | Syntax) before VCS / Workspace / Plugins. Per
-        // D-03 / RESEARCH Q6.
-        const val SYNTAX_TAB_INDEX = 3
     }
 
     private val activeTimers = mutableListOf<Timer>()
@@ -181,39 +182,25 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                 JBUI.CurrentTheme.Link.Foreground.ENABLED
             }
 
-        val tabs = JBTabbedPane()
-        tabs.minimumSize = java.awt.Dimension(MIN_TABS_WIDTH, 0)
-        tabs.addTab("Accent", accentTab)
-        tabs.addTab("Font", fontTab)
-        tabs.addTab("Glow", glowTab)
-        // Phase 49 (D-03 / RESEARCH Q6): Syntax slots between Glow and VCS so
-        // rendering-related tabs cluster together (Accent | Font | Glow | Syntax)
-        // before the source-control and workspace tabs.
-        tabs.insertTab("Syntax", null, syntaxTab, null, SYNTAX_TAB_INDEX)
-        tabs.addTab("VCS", vcsTab)
-        tabs.addTab("Workspace", workspaceTab)
-        tabs.addTab("Plugins", pluginsTab)
-
-        val contentTabCount = tabs.tabCount
-
-        // Community link tabs — disabled for selection, click opens browser via label
-        tabs.addTab("", JPanel())
-        tabs.setTabComponentAt(
-            contentTabCount,
-            createLinkTab("Share", "Share Your Setup", accentColor, DISCUSSIONS_SHOW_SETUP),
-        )
-        tabs.setEnabledAt(contentTabCount, false)
-        tabs.addTab("", JPanel())
-        tabs.setTabComponentAt(
-            contentTabCount + 1,
-            createLinkTab("Feature", "Request a Feature", accentColor, DISCUSSIONS_FEATURE_REQUESTS),
-        )
-        tabs.setEnabledAt(contentTabCount + 1, false)
-
-        tabs.selectedIndex = state.settingsSelectedTab.coerceIn(0, contentTabCount - 1)
-        tabs.addChangeListener {
-            AyuIslandsSettings.getInstance().state.settingsSelectedTab = tabs.selectedIndex
-        }
+        val tabs =
+            createSettingsTabs(
+                contentTabs =
+                    listOf(
+                        "Accent" to accentTab,
+                        "Font" to fontTab,
+                        "Glow" to glowTab,
+                        // Syntax slots between Glow and VCS so rendering-related
+                        // tabs cluster before source-control and workspace tabs.
+                        "Syntax" to syntaxTab,
+                        "VCS" to vcsTab,
+                        "Workspace" to workspaceTab,
+                        "Plugins" to pluginsTab,
+                    ),
+                accentColor = accentColor,
+                selectedIndex = state.settingsSelectedTab,
+            ) { selectedIndex ->
+                AyuIslandsSettings.getInstance().state.settingsSelectedTab = selectedIndex
+            }
 
         return panel {
             // Header
@@ -243,6 +230,94 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                     .resizableColumn()
                     .align(Align.FILL)
             }
+        }
+    }
+
+    private fun configureSettingsTabsForResize(tabs: JBTabbedPane) {
+        tabs.minimumSize = Dimension(0, 0)
+    }
+
+    private fun createSettingsTabs(
+        contentTabs: List<Pair<String, JComponent>>,
+        accentColor: Color,
+        selectedIndex: Int,
+        onSelectedIndexChanged: (Int) -> Unit,
+    ): JBTabbedPane {
+        val tabs = JBTabbedPane()
+        configureSettingsTabsForResize(tabs)
+        for ((title, content) in contentTabs) {
+            tabs.addTab(title, createScrollableTabContent(content))
+        }
+
+        val contentTabCount = tabs.tabCount
+
+        // Community link tabs — disabled for selection, click opens browser via label
+        tabs.addTab("", JPanel())
+        tabs.setTabComponentAt(
+            contentTabCount,
+            createLinkTab("Share", "Share Your Setup", accentColor, DISCUSSIONS_SHOW_SETUP),
+        )
+        tabs.setEnabledAt(contentTabCount, false)
+        tabs.addTab("", JPanel())
+        tabs.setTabComponentAt(
+            contentTabCount + 1,
+            createLinkTab("Feature", "Request a Feature", accentColor, DISCUSSIONS_FEATURE_REQUESTS),
+        )
+        tabs.setEnabledAt(contentTabCount + 1, false)
+
+        tabs.selectedIndex = selectedIndex.coerceIn(0, contentTabCount - 1)
+        tabs.addChangeListener {
+            onSelectedIndexChanged(tabs.selectedIndex)
+        }
+        return tabs
+    }
+
+    private fun createScrollableTabContent(content: JComponent): JComponent =
+        JBScrollPane(WidthTrackingTabContent(content)).apply {
+            border = JBUI.Borders.empty()
+            viewportBorder = JBUI.Borders.empty()
+            horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+            verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
+            minimumSize = Dimension(0, 0)
+        }
+
+    private class WidthTrackingTabContent(
+        content: JComponent,
+    ) : JPanel(BorderLayout()),
+        Scrollable {
+        init {
+            isOpaque = false
+            minimumSize = Dimension(0, 0)
+            add(content, BorderLayout.CENTER)
+        }
+
+        override fun getPreferredScrollableViewportSize(): Dimension = Dimension(0, preferredSize.height)
+
+        override fun getScrollableUnitIncrement(
+            visibleRect: Rectangle,
+            orientation: Int,
+            direction: Int,
+        ): Int = JBUI.scale(SCROLL_UNIT_INCREMENT)
+
+        override fun getScrollableBlockIncrement(
+            visibleRect: Rectangle,
+            orientation: Int,
+            direction: Int,
+        ): Int =
+            if (orientation == SwingConstants.VERTICAL) {
+                (visibleRect.height - JBUI.scale(SCROLL_UNIT_INCREMENT))
+                    .coerceAtLeast(JBUI.scale(SCROLL_UNIT_INCREMENT))
+            } else {
+                (visibleRect.width - JBUI.scale(SCROLL_UNIT_INCREMENT))
+                    .coerceAtLeast(JBUI.scale(SCROLL_UNIT_INCREMENT))
+            }
+
+        override fun getScrollableTracksViewportWidth(): Boolean = true
+
+        override fun getScrollableTracksViewportHeight(): Boolean = false
+
+        private companion object {
+            const val SCROLL_UNIT_INCREMENT = 16
         }
     }
 

@@ -3,8 +3,6 @@ package dev.ayuislands.syntax
 import dev.ayuislands.settings.AyuIslandsConfigurable
 import dev.ayuislands.settings.AyuIslandsSettingsPanel
 import dev.ayuislands.settings.AyuIslandsSyntaxPanel
-import java.nio.file.Files
-import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -19,11 +17,9 @@ import kotlin.test.assertTrue
  *    the `panels` dispatch list.
  *  - `syntaxPanel` is registered in the `panels` list so apply/reset/
  *    isModified dispatches to it.
- *  - The "Syntax" tab sits between "Glow" and "VCS" (placement contract).
  *
- * Reflection covers dispatch wiring without reading production source. The
- * remaining source assertion is limited to tab title order, which is the
- * user-visible contract not exposed by a cheap unit-level API.
+ * Reflection covers dispatch wiring without reading production source. Tab
+ * title order is covered by the Settings tab assembly tests.
  */
 class SettingsConfigurableSyntaxTabWiringTest {
     @Test
@@ -35,35 +31,6 @@ class SettingsConfigurableSyntaxTabWiringTest {
         assertTrue(
             panel is AyuIslandsSyntaxPanel,
             "AyuIslandsSyntaxPanel must remain assignable to the AyuIslandsSettingsPanel contract.",
-        )
-    }
-
-    @Test
-    fun `SYNTAX_TAB_INDEX compiled constant places Syntax between Glow and VCS`() {
-        val field = AyuIslandsConfigurable::class.java.getDeclaredField("SYNTAX_TAB_INDEX")
-        assertEquals(
-            3,
-            field.getInt(null),
-            "SYNTAX_TAB_INDEX must be 3 — placement contract: " +
-                "Accent | Font | Glow | Syntax | VCS | Workspace | Plugins",
-        )
-    }
-
-    @Test
-    fun `createPanel inserts Syntax tab between Glow and VCS`() {
-        val source = readConfigurableSource()
-        val titlePattern = Regex("""tabs\.(?:addTab|insertTab)\("([^"]+)"""")
-        val contentTitles =
-            titlePattern
-                .findAll(source)
-                .map { match -> match.groupValues[1] }
-                .filter { title -> title.isNotEmpty() }
-                .take(7)
-                .toList()
-        assertEquals(
-            listOf("Accent", "Font", "Glow", "Syntax", "VCS", "Workspace", "Plugins"),
-            contentTitles,
-            "Settings tabs must keep Syntax between Glow and VCS",
         )
     }
 
@@ -83,11 +50,6 @@ class SettingsConfigurableSyntaxTabWiringTest {
             "panels dispatch list must contain only AyuIslandsSettingsPanel instances",
         )
     }
-
-    private fun readConfigurableSource(): String =
-        Files.readString(
-            Path.of("src/main/kotlin/dev/ayuislands/settings/AyuIslandsConfigurable.kt"),
-        )
 
     private inline fun <reified T> readField(
         instance: Any,
