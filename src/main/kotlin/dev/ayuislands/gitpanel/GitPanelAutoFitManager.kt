@@ -12,6 +12,7 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.PanelWidthMode
 import dev.ayuislands.toolwindow.AutoFitCalculator
 import dev.ayuislands.toolwindow.shouldTriggerAutoFitFor
+import org.jetbrains.annotations.TestOnly
 import javax.swing.JTable
 import javax.swing.JTree
 import javax.swing.Timer
@@ -61,6 +62,15 @@ class GitPanelAutoFitManager(
             )
         if (mode == PanelWidthMode.DEFAULT) return
         debounceTimer.restart()
+    }
+
+    @TestOnly
+    internal fun flushDebounceForTesting() {
+        val hadPending = debounceTimer.isRunning
+        debounceTimer.stop()
+        if (hadPending) {
+            fitSplitters()
+        }
     }
 
     fun apply() {
