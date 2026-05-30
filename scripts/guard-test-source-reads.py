@@ -87,10 +87,6 @@ ALLOWLIST: dict[tuple[str, str], Allowance] = {
         "src/main/kotlin/dev/ayuislands/accent/LiveChromeRefresher.kt",
     ): Allowance(1, "documented chrome refresh compromise"),
     (
-        "src/test/kotlin/dev/ayuislands/syntax/SettingsConfigurableSyntaxTabWiringTest.kt",
-        "src/main/kotlin/dev/ayuislands/settings/AyuIslandsConfigurable.kt",
-    ): Allowance(1, "documented configurable tab wiring compromise"),
-    (
         "src/test/kotlin/dev/ayuislands/glow/GlowFallbackBannedApiGuardTest.kt",
         "src/main/kotlin/dev/ayuislands/glow/GlowOverlayManager.kt",
     ): Allowance(1, "banned platform API guard"),
