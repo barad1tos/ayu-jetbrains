@@ -240,8 +240,8 @@ categories:
           sources:
             - src/main/kotlin/dev/ayuislands/settings/FontPresetPanel.kt
             - src/main/kotlin/dev/ayuislands/font
-          last_verified_sha: "8d5e1f6"
-          last_verified_date: "2026-05-24"
+          last_verified_sha: "049c230"
+          last_verified_date: "2026-05-30"
           content_sha256: "2303011928e4246c32edfcc3c4caa923d536aa73f848e225708da4374ce17b41"
 
   workspace:

@@ -216,7 +216,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
             segmented.selectedItem = pendingPreset
             @Suppress("UnstableApiUsage")
             segmented.whenItemSelected { preset ->
-                if (!suppressListeners) {
+                if (!suppressListeners && LicenseChecker.isLicensedOrGrace()) {
                     pendingPreset = preset
                     if (preset != GlowPreset.CUSTOM) {
                         applyPresetValues(preset)
@@ -516,7 +516,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         widthSlider?.isEnabled = enabled
         styleCombo?.isEnabled = enabled
         animationCombo?.isEnabled = enabled
-        presetSegmentedButton?.enabled(enabled || !LicenseChecker.isLicensedOrGrace())
+        presetSegmentedButton?.enabled(enabled)
 
         for ((_, cb) in islandCheckboxes) {
             cb.isEnabled = enabled

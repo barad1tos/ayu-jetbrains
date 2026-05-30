@@ -239,11 +239,13 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
     private fun createSpinner(
         value: Int,
         min: Int,
+        enabled: Boolean,
         onChange: (Int) -> Unit,
     ): JSpinner =
         JSpinner(SpinnerNumberModel(value, min, MAX_AUTOFIT_WIDTH, AUTOFIT_WIDTH_STEP)).also { spinner ->
+            spinner.isEnabled = enabled
             spinner.addChangeListener {
-                if (!suppressListeners) onChange(spinner.value as Int)
+                if (!suppressListeners && spinner.isEnabled) onChange(spinner.value as Int)
             }
         }
 
@@ -295,7 +297,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
         fixedVisible.set(uiState.state.pendingMode == PanelWidthMode.FIXED)
 
         val autoFitSpinner =
-            createSpinner(uiState.state.pendingAutoFitMaxWidth, config.minAutoFitWidth) {
+            createSpinner(uiState.state.pendingAutoFitMaxWidth, config.minAutoFitWidth, config.licensed) {
                 uiState.state.pendingAutoFitMaxWidth = it
                 val currentMin = uiState.minSpinner
                 if (currentMin != null && it < uiState.state.pendingAutoFitMinWidth) {
@@ -308,7 +310,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
 
         val minSpinner =
             if (config.showMinSpinner) {
-                createSpinner(uiState.state.pendingAutoFitMinWidth, MIN_AUTOFIT_MIN_WIDTH) {
+                createSpinner(uiState.state.pendingAutoFitMinWidth, MIN_AUTOFIT_MIN_WIDTH, config.licensed) {
                     uiState.state.pendingAutoFitMinWidth = it
                     if (it > uiState.state.pendingAutoFitMaxWidth) {
                         uiState.state.pendingAutoFitMaxWidth = it
@@ -321,7 +323,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
             }
 
         val fixedSpinner =
-            createSpinner(uiState.state.pendingFixedWidth, AutoFitCalculator.MIN_FIXED_WIDTH) {
+            createSpinner(uiState.state.pendingFixedWidth, AutoFitCalculator.MIN_FIXED_WIDTH, config.licensed) {
                 uiState.state.pendingFixedWidth = it
                 config.onModeChanged()
             }
@@ -331,7 +333,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
         uiState.modeComboBox = comboBox
 
         comboBox.addActionListener {
-            if (!suppressListeners) {
+            if (!suppressListeners && config.licensed) {
                 uiState.state.pendingMode = comboBox.selectedItem as PanelWidthMode
                 autoFitVisible.set(uiState.state.pendingMode == PanelWidthMode.AUTO_FIT)
                 fixedVisible.set(uiState.state.pendingMode == PanelWidthMode.FIXED)

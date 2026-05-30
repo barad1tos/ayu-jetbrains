@@ -878,10 +878,14 @@ class OverridesGroupBuilder {
                     updateHex = projectModel::updateHex,
                 )
             },
-            remove = { removeSelectedRow(projectTable, projectModel::remove) },
+            remove = {
+                if (licensed) {
+                    removeSelectedRow(projectTable, projectModel::remove)
+                }
+            },
             addEnabled = { licensed },
             editEnabled = { licensed && projectTable.selectedRow >= 0 },
-            removeEnabled = { projectTable.selectedRow >= 0 },
+            removeEnabled = { licensed && projectTable.selectedRow >= 0 },
             extraActions = extras,
         )
     }
@@ -898,10 +902,14 @@ class OverridesGroupBuilder {
                     updateHex = languageModel::updateHex,
                 )
             },
-            remove = { removeSelectedRow(languageTable, languageModel::remove) },
+            remove = {
+                if (licensed) {
+                    removeSelectedRow(languageTable, languageModel::remove)
+                }
+            },
             addEnabled = { licensed },
             editEnabled = { licensed && languageTable.selectedRow >= 0 },
-            removeEnabled = { languageTable.selectedRow >= 0 },
+            removeEnabled = { licensed && languageTable.selectedRow >= 0 },
             extraActions = emptyList(),
         )
 

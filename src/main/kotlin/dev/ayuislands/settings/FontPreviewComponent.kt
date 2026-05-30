@@ -8,6 +8,7 @@ import dev.ayuislands.font.FontWeight
 import java.awt.Color
 import java.awt.Dimension
 import java.awt.Font
+import java.awt.FontMetrics
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.Rectangle
@@ -18,6 +19,7 @@ import java.awt.RenderingHints.VALUE_TEXT_ANTIALIAS_ON
 import java.awt.font.TextAttribute
 import javax.swing.JComponent
 import javax.swing.UIManager
+import kotlin.math.roundToInt
 
 /** Renders a live font preview for the selected FontPreset using Graphics2D. */
 class FontPreviewComponent : JComponent() {
@@ -70,9 +72,9 @@ class FontPreviewComponent : JComponent() {
         repaint()
     }
 
-    override fun getPreferredSize(): Dimension = Dimension(JBUI.scale(PANEL_WIDTH), JBUI.scale(PANEL_HEIGHT))
+    override fun getPreferredSize(): Dimension = Dimension(JBUI.scale(PANEL_WIDTH), preferredPreviewHeight())
 
-    override fun getMinimumSize(): Dimension = Dimension(JBUI.scale(MIN_PANEL_WIDTH), JBUI.scale(PANEL_HEIGHT))
+    override fun getMinimumSize(): Dimension = Dimension(JBUI.scale(MIN_PANEL_WIDTH), preferredPreviewHeight())
 
     override fun paintComponent(graphics: Graphics) {
         super.paintComponent(graphics)
@@ -176,7 +178,7 @@ class FontPreviewComponent : JComponent() {
 
         g2.font = JBUI.Fonts.smallFont()
         val smallMetrics = g2.fontMetrics
-        val lineHeight = JBUI.scale(CODE_ROW_HEIGHT)
+        val lineHeight = codeLineHeight(g2.getFontMetrics(codePreviewFont()))
         var rowY = y + JBUI.scale(CODE_TOP_PADDING)
         for (lineNumber in CODE_FIRST_LINE until CODE_FIRST_LINE + SAMPLE_LINES.size) {
             val baseline = rowY + (lineHeight - smallMetrics.height) / 2 + smallMetrics.ascent
@@ -222,21 +224,12 @@ class FontPreviewComponent : JComponent() {
         x: Int,
         y: Int,
     ) {
-        val attributes =
-            mutableMapOf<TextAttribute, Any>(
-                TextAttribute.FAMILY to resolvedFontFamily,
-                TextAttribute.SIZE to fontSize,
-                TextAttribute.WEIGHT to fontWeight.textAttributeValue,
-            )
-        if (enableLigatures) {
-            attributes[TextAttribute.LIGATURES] = TextAttribute.LIGATURES_ON
-        }
         val codeWidth = (width - x - JBUI.scale(PADDING)).coerceAtLeast(1)
         val previousClip = g2.clip
-        g2.clipRect(x, y, codeWidth, height - y - JBUI.scale(PADDING))
-        g2.font = Font(attributes)
+        g2.clipRect(x, y, codeWidth, (height - y - JBUI.scale(PADDING)).coerceAtLeast(1))
+        g2.font = codePreviewFont()
         val metrics = g2.fontMetrics
-        val lineHeight = (JBUI.scale(CODE_ROW_HEIGHT) * lineSpacing).toInt().coerceAtLeast(1)
+        val lineHeight = codeLineHeight(metrics)
         var rowY = y + JBUI.scale(CODE_TOP_PADDING)
         for ((index, line) in SAMPLE_LINES.withIndex()) {
             if (index in HIGHLIGHT_ROWS) {
@@ -250,6 +243,31 @@ class FontPreviewComponent : JComponent() {
         }
         g2.clip = previousClip
     }
+
+    private fun preferredPreviewHeight(): Int {
+        val lineHeight = codeLineHeight(getFontMetrics(codePreviewFont()))
+        val codeHeight = JBUI.scale(CODE_TOP_PADDING) * 2 + lineHeight * SAMPLE_LINES.size
+        return (JBUI.scale(PADDING) * 2 + codeHeight).coerceAtLeast(JBUI.scale(PANEL_HEIGHT))
+    }
+
+    private fun codePreviewFont(): Font {
+        val attributes =
+            mutableMapOf<TextAttribute, Any>(
+                TextAttribute.FAMILY to resolvedFontFamily,
+                TextAttribute.SIZE to fontSize,
+                TextAttribute.WEIGHT to fontWeight.textAttributeValue,
+            )
+        if (enableLigatures) {
+            attributes[TextAttribute.LIGATURES] = TextAttribute.LIGATURES_ON
+        }
+        return Font(attributes)
+    }
+
+    private fun codeLineHeight(metrics: FontMetrics): Int =
+        maxOf(
+            (metrics.height * lineSpacing).roundToInt(),
+            metrics.height,
+        )
 
     private fun surface(): Color = JBColor(FALLBACK_SURFACE_COLOR, FALLBACK_SURFACE_COLOR)
 
