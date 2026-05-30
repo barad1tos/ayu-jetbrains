@@ -690,6 +690,7 @@ class ProjectLanguageDetectorTest {
         } returns swapService
 
         val project = stubProject("/tmp/refresh-fallback-${System.nanoTime()}")
+        every { AccentApplicator.resolveFocusedProject() } returns project
         ProjectLanguageDetector.refreshAccentOnEdt(project)
 
         verify(exactly = 1) { AccentApplicator.applyFromHexString("#FFCC66") }
@@ -716,6 +717,7 @@ class ProjectLanguageDetectorTest {
         } returns swapService
 
         val project = stubProject("/tmp/refresh-hit-${System.nanoTime()}")
+        every { AccentApplicator.resolveFocusedProject() } returns project
         ProjectLanguageDetector.refreshAccentOnEdt(project)
 
         verify(exactly = 1) { AccentApplicator.applyFromHexString("#FFCC66") }
@@ -737,6 +739,7 @@ class ProjectLanguageDetectorTest {
         every { AccentApplicator.apply(any()) } throws RuntimeException("LafManager boom")
 
         val project = stubProject("/tmp/refresh-throw-${System.nanoTime()}")
+        every { AccentApplicator.resolveFocusedProject() } returns project
         // Must not throw — load-bearing assertion is simply that the call
         // completes. A regression dropping the runCatching would propagate
         // the RuntimeException and fail this test.
@@ -757,6 +760,7 @@ class ProjectLanguageDetectorTest {
         every { AccentApplicator.apply(any()) } answers { Unit }
 
         val project = stubProject("/tmp/refresh-settings-boom-${System.nanoTime()}")
+        every { AccentApplicator.resolveFocusedProject() } returns project
 
         // Must not throw — the runCatching contains the resolver.
         ProjectLanguageDetector.refreshAccentOnEdt(project)
@@ -778,7 +782,24 @@ class ProjectLanguageDetectorTest {
         every { AccentApplicator.apply(any()) } answers { Unit }
 
         val project = stubProject("/tmp/refresh-null-variant-${System.nanoTime()}")
+        every { AccentApplicator.resolveFocusedProject() } returns project
         ProjectLanguageDetector.refreshAccentOnEdt(project)
+
+        verify(exactly = 0) { AccentApplicator.apply(any()) }
+    }
+
+    @Test
+    fun `refreshAccentOnEdt skips apply chain when focused project changed after scan`() {
+        // The apply path writes app-global UIManager state. A background scan
+        // from an old project must not repaint over the project that gained
+        // focus while the scan was running.
+        val scannedProject = stubProject("/tmp/refresh-old-focus-${System.nanoTime()}")
+        val focusedProject = stubProject("/tmp/refresh-new-focus-${System.nanoTime()}")
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.resolveFocusedProject() } returns focusedProject
+        every { AccentApplicator.apply(any()) } answers { Unit }
+
+        ProjectLanguageDetector.refreshAccentOnEdt(scannedProject)
 
         verify(exactly = 0) { AccentApplicator.apply(any()) }
     }
@@ -968,6 +989,7 @@ class ProjectLanguageDetectorTest {
         mockkObject(AccentResolver)
         every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
         mockkObject(AccentApplicator)
+        every { AccentApplicator.resolveFocusedProject() } returns project
         every { AccentApplicator.apply(any()) } answers { Unit }
         val swapService = mockk<dev.ayuislands.settings.mappings.ProjectAccentSwapService>(relaxed = true)
         mockkObject(dev.ayuislands.settings.mappings.ProjectAccentSwapService.Companion)

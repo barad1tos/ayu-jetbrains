@@ -378,6 +378,10 @@ object ProjectLanguageDetector {
             // downstream apply paths (variant detection, UIManager writes,
             // focus-swap notification) from surfacing as an uncaught EDT
             // exception and risking the UI.
+            if (AccentApplicator.resolveFocusedProject() !== project) {
+                LOG.debug("Post-scan accent refresh skipped because focused project changed")
+                return@runCatchingPreservingCancellation
+            }
             val variant = AyuVariant.detect() ?: return@runCatchingPreservingCancellation
             val hex = AccentResolver.resolve(project, variant)
             val applied = AccentApplicator.applyFromHexString(hex)
