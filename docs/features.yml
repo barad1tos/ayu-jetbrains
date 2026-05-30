@@ -337,7 +337,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/PluginsPanel.kt
             - src/main/kotlin/dev/ayuislands/indent
             - src/main/kotlin/dev/ayuislands/accent/elements/BracketScopeRenderer.kt
-          last_verified_sha: "218f8d9"
+          last_verified_sha: "5573f17"
           last_verified_date: "2026-05-30"
           content_sha256: "c5c1eea5a119bd19bf98518d394d698bf09983a1e0a3472e255358c50e41ed16"
 
