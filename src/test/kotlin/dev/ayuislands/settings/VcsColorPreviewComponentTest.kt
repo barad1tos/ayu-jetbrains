@@ -39,6 +39,11 @@ class VcsColorPreviewComponentTest {
             "editor gutter marker",
         )
         assertColorEquals(
+            component.colorForTest(VcsColorCategory.CONFLICT_MARKERS, "DIFF_CONFLICT", VcsWriteMode.COLOR_KEY),
+            image.colorAt(DIFF_STRIPE_X, CONFLICT_ROW_Y),
+            "conflict marker stripe",
+        )
+        assertColorEquals(
             component.colorForTest(VcsColorCategory.BLAME_GUTTER, "VCS_ANNOTATIONS_COLOR_1", VcsWriteMode.COLOR_KEY),
             image.colorAt(BLAME_BACKGROUND_X, FIRST_BLAME_ROW_Y),
             "blame age-ramp background",
@@ -219,6 +224,7 @@ class VcsColorPreviewComponentTest {
         private const val DIFF_STRIPE_X = 210
         private const val GUTTER_MARKER_X = 202
         private const val FIRST_CODE_ROW_Y = 30
+        private const val CONFLICT_ROW_Y = 70
         private const val BLAME_BACKGROUND_X = 458
         private const val FIRST_BLAME_ROW_Y = 30
         private const val LAST_BLAME_ROW_Y = 128
