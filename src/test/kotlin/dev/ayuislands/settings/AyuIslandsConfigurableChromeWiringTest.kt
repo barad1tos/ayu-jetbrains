@@ -7,7 +7,12 @@ import io.mockk.mockk
 import io.mockk.spyk
 import io.mockk.unmockkAll
 import io.mockk.verify
+import java.awt.Dimension
+import javax.swing.JComponent
+import javax.swing.JPanel
+import javax.swing.JScrollPane
 import javax.swing.JTabbedPane
+import javax.swing.Scrollable
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -192,6 +197,44 @@ class AyuIslandsConfigurableChromeWiringTest {
     }
 
     @Test
+    fun `Configurable tab content tracks compact viewport width`() {
+        val wideContent =
+            JPanel().apply {
+                preferredSize = Dimension(WIDE_CONTENT_WIDTH, TAB_CONTENT_HEIGHT)
+            }
+        val createScrollableContent =
+            AyuIslandsConfigurable::class.java.getDeclaredMethod(
+                "createScrollableTabContent",
+                JComponent::class.java,
+            )
+        createScrollableContent.isAccessible = true
+
+        val scrollPane = createScrollableContent.invoke(AyuIslandsConfigurable(), wideContent) as JScrollPane
+        val viewportView = scrollPane.viewport.view
+
+        assertEquals(
+            JScrollPane.HORIZONTAL_SCROLLBAR_NEVER,
+            scrollPane.horizontalScrollBarPolicy,
+            "Settings tabs must not fall back to horizontal scrolling when the dialog narrows",
+        )
+        assertTrue(viewportView is Scrollable, "Settings tab content wrapper must expose Scrollable sizing")
+        assertTrue(
+            (viewportView as Scrollable).scrollableTracksViewportWidth,
+            "Settings tab content must track the available viewport width",
+        )
+
+        scrollPane.setSize(COMPACT_TAB_WIDTH, TAB_CONTENT_HEIGHT)
+        scrollPane.doLayout()
+        scrollPane.viewport.doLayout()
+
+        assertEquals(
+            scrollPane.viewport.extentSize.width,
+            viewportView.width,
+            "Settings tab content wrapper width must follow the compact viewport",
+        )
+    }
+
+    @Test
     fun `chromePanel sits between accentPanel and elementsPanel in panels list`() {
         val configurable = AyuIslandsConfigurable()
         val panels = readField<List<AyuIslandsSettingsPanel>>(configurable, "panels")
@@ -278,5 +321,11 @@ class AyuIslandsConfigurableChromeWiringTest {
         val field = target.javaClass.getDeclaredField(fieldName)
         field.isAccessible = true
         field.set(target, replacement)
+    }
+
+    private companion object {
+        private const val WIDE_CONTENT_WIDTH = 1200
+        private const val COMPACT_TAB_WIDTH = 420
+        private const val TAB_CONTENT_HEIGHT = 240
     }
 }

@@ -5,6 +5,7 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.options.BoundConfigurable
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.Messages
+import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTabbedPane
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.panel
@@ -15,15 +16,21 @@ import dev.ayuislands.accent.runCatchingPreservingCancellation
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.onboarding.OnboardingUrls
+import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.Image
+import java.awt.Rectangle
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.ImageIcon
+import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
+import javax.swing.JScrollPane
+import javax.swing.Scrollable
+import javax.swing.SwingConstants
 import javax.swing.Timer
 
 /** Settings page at Appearance > Ayu Islands with Accent / Glow tabs. */
@@ -183,16 +190,16 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
 
         val tabs = JBTabbedPane()
         configureSettingsTabsForResize(tabs)
-        tabs.addTab("Accent", accentTab)
-        tabs.addTab("Font", fontTab)
-        tabs.addTab("Glow", glowTab)
+        tabs.addTab("Accent", createScrollableTabContent(accentTab))
+        tabs.addTab("Font", createScrollableTabContent(fontTab))
+        tabs.addTab("Glow", createScrollableTabContent(glowTab))
         // Phase 49 (D-03 / RESEARCH Q6): Syntax slots between Glow and VCS so
         // rendering-related tabs cluster together (Accent | Font | Glow | Syntax)
         // before the source-control and workspace tabs.
-        tabs.insertTab("Syntax", null, syntaxTab, null, SYNTAX_TAB_INDEX)
-        tabs.addTab("VCS", vcsTab)
-        tabs.addTab("Workspace", workspaceTab)
-        tabs.addTab("Plugins", pluginsTab)
+        tabs.insertTab("Syntax", null, createScrollableTabContent(syntaxTab), null, SYNTAX_TAB_INDEX)
+        tabs.addTab("VCS", createScrollableTabContent(vcsTab))
+        tabs.addTab("Workspace", createScrollableTabContent(workspaceTab))
+        tabs.addTab("Plugins", createScrollableTabContent(pluginsTab))
 
         val contentTabCount = tabs.tabCount
 
@@ -248,6 +255,55 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
 
     private fun configureSettingsTabsForResize(tabs: JBTabbedPane) {
         tabs.minimumSize = Dimension(0, 0)
+    }
+
+    private fun createScrollableTabContent(content: JComponent): JComponent =
+        JBScrollPane(WidthTrackingTabContent(content)).apply {
+            border = JBUI.Borders.empty()
+            viewportBorder = JBUI.Borders.empty()
+            horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+            verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
+            minimumSize = Dimension(0, 0)
+        }
+
+    private class WidthTrackingTabContent(
+        content: JComponent,
+    ) : JPanel(BorderLayout()),
+        Scrollable {
+        init {
+            isOpaque = false
+            minimumSize = Dimension(0, 0)
+            add(content, BorderLayout.CENTER)
+        }
+
+        override fun getPreferredScrollableViewportSize(): Dimension = preferredSize
+
+        override fun getScrollableUnitIncrement(
+            visibleRect: Rectangle,
+            orientation: Int,
+            direction: Int,
+        ): Int = JBUI.scale(SCROLL_UNIT_INCREMENT)
+
+        override fun getScrollableBlockIncrement(
+            visibleRect: Rectangle,
+            orientation: Int,
+            direction: Int,
+        ): Int =
+            if (orientation == SwingConstants.VERTICAL) {
+                (visibleRect.height - JBUI.scale(SCROLL_UNIT_INCREMENT))
+                    .coerceAtLeast(JBUI.scale(SCROLL_UNIT_INCREMENT))
+            } else {
+                (visibleRect.width - JBUI.scale(SCROLL_UNIT_INCREMENT))
+                    .coerceAtLeast(JBUI.scale(SCROLL_UNIT_INCREMENT))
+            }
+
+        override fun getScrollableTracksViewportWidth(): Boolean = true
+
+        override fun getScrollableTracksViewportHeight(): Boolean = false
+
+        private companion object {
+            const val SCROLL_UNIT_INCREMENT = 16
+        }
     }
 
     private fun createLinkTab(
