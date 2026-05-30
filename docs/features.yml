@@ -89,8 +89,8 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "5cb8e5d"
-          last_verified_date: "2026-05-28"
+          last_verified_sha: "e8b119e"
+          last_verified_date: "2026-05-30"
           content_sha256: "4c86c5d855c6dcefd703f647451bac4117397e435b05dd9cae6b9cbc7f479616"
 
       - id: accent-scoped-language
@@ -110,8 +110,8 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "5cb8e5d"
-          last_verified_date: "2026-05-28"
+          last_verified_sha: "e8b119e"
+          last_verified_date: "2026-05-30"
           content_sha256: "ea83498db84a5cd122dd1d09132d74774c6e24295188b93464fddb0d784bf4e1"
 
       - id: accent-language-breakdown
@@ -209,8 +209,8 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/GlowGroupPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/AyuIslandsEffectsPanel.kt
             - src/main/kotlin/dev/ayuislands/glow
-          last_verified_sha: "5cb8e5d"
-          last_verified_date: "2026-05-24"
+          last_verified_sha: "cac71cca"
+          last_verified_date: "2026-05-30"
           content_sha256: "3ef51add4539d9c82ce6ad559bce68f6d88fb97606986910ea9b9d13da64fef5"
 
   fonts:
@@ -239,9 +239,10 @@ categories:
           caption: "Font presets panel"
           sources:
             - src/main/kotlin/dev/ayuislands/settings/FontPresetPanel.kt
+            - src/main/kotlin/dev/ayuislands/settings/FontPreviewComponent.kt
             - src/main/kotlin/dev/ayuislands/font
-          last_verified_sha: "8d5e1f6"
-          last_verified_date: "2026-05-24"
+          last_verified_sha: "e8b119e"
+          last_verified_date: "2026-05-30"
           content_sha256: "2303011928e4246c32edfcc3c4caa923d536aa73f848e225708da4374ce17b41"
 
   workspace:
@@ -283,8 +284,8 @@ categories:
             - src/main/kotlin/dev/ayuislands/gitpanel
             - src/main/kotlin/dev/ayuislands/projectview
             - src/main/kotlin/dev/ayuislands/editor/EditorScrollbarManager.kt
-          last_verified_sha: "2c8dbd7"
-          last_verified_date: "2026-05-12"
+          last_verified_sha: "cac71cca"
+          last_verified_date: "2026-05-30"
           content_sha256: "fc9ba63b9c9c53893a486a3c9055287bd6dc9c68f5439cae197efe5ae585d17c"
 
   tabs:
@@ -336,8 +337,8 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/PluginsPanel.kt
             - src/main/kotlin/dev/ayuislands/indent
             - src/main/kotlin/dev/ayuislands/accent/elements/BracketScopeRenderer.kt
-          last_verified_sha: "5cb8e5d"
-          last_verified_date: "2026-05-19"
+          last_verified_sha: "5573f17"
+          last_verified_date: "2026-05-30"
           content_sha256: "c5c1eea5a119bd19bf98518d394d698bf09983a1e0a3472e255358c50e41ed16"
 
   onboarding:

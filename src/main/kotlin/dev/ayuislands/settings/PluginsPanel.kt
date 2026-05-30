@@ -33,6 +33,7 @@ class PluginsPanel : AyuIslandsSettingsPanel {
     private var alphaSlider: JSlider? = null
     private var alphaValueLabel: JLabel? = null
     private var presetSegmented: SegmentedButton<IndentPreset>? = null
+    private val irEnabled = AtomicBooleanProperty(false)
     private val customModeVisible = AtomicBooleanProperty(false)
     private var suppressListeners = false
 
@@ -42,8 +43,41 @@ class PluginsPanel : AyuIslandsSettingsPanel {
     ) {
         this.variant = variant
         val state = AyuIslandsSettings.getInstance().state
-        val licensed = LicenseChecker.isLicensedOrGrace()
+        val gate =
+            PremiumFeatureGate(
+                featureName = "Plugin integrations",
+                lockedDescription =
+                    "Plugin integrations are a Pro feature. " +
+                        "Preview CodeGlance Pro and Indent Rainbow sync controls here.",
+                requestMessage = "Unlock plugin integrations",
+            )
+        val licensed = gate.isUnlocked
 
+        loadStored(state)
+        customModeVisible.set(isCustomIndentControlsVisible(licensed))
+        irEnabled.set(pendingEnabled || !licensed)
+
+        val cgpDetected = ConflictRegistry.isCodeGlanceProDetected()
+        val irDetected = ConflictRegistry.isIndentRainbowDetected()
+
+        if (!cgpDetected && !irDetected) {
+            panel.buildNoSupportedPluginsMessage()
+            return
+        }
+
+        panel.row { comment("Sync Ayu accent colors with compatible plugins.") }
+        panel.premiumFeatureNotice(gate)
+
+        if (cgpDetected) {
+            panel.buildCodeGlanceProGroup(licensed)
+        }
+
+        if (irDetected) {
+            panel.buildIndentRainbowGroup(licensed, irEnabled)
+        }
+    }
+
+    private fun loadStored(state: AyuIslandsState) {
         storedCodeGlanceProIntegration = state.cgpIntegrationEnabled
         pendingCodeGlanceProIntegration = storedCodeGlanceProIntegration
         storedEnabled = state.irIntegrationEnabled
@@ -54,118 +88,138 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         pendingPreset = storedPreset
         storedCustomAlpha = state.indentCustomAlpha
         pendingCustomAlpha = storedCustomAlpha
+    }
 
-        customModeVisible.set(
-            IndentPreset.fromName(pendingPreset) == IndentPreset.CUSTOM,
-        )
+    private fun isCustomIndentControlsVisible(licensed: Boolean): Boolean =
+        IndentPreset.fromName(pendingPreset) == IndentPreset.CUSTOM || !licensed
 
-        val irEnabled = AtomicBooleanProperty(pendingEnabled)
-
-        val cgpDetected = ConflictRegistry.isCodeGlanceProDetected()
-        val irDetected = ConflictRegistry.isIndentRainbowDetected()
-
-        if (!cgpDetected && !irDetected) {
-            panel.group("Plugins") {
-                row {
-                    comment(
-                        "No supported plugins detected." +
-                            " Install CodeGlance Pro or Indent Rainbow for accent color sync.",
-                    )
-                }
-            }
-            return
-        }
-
-        panel.row { comment("Sync Ayu accent colors with compatible plugins.") }
-
-        if (cgpDetected) {
-            panel.group("CodeGlance Pro") {
-                row {
-                    val cb =
-                        checkBox("Sync color with CodeGlance")
-                            .comment("Apply accent color to CodeGlance Pro viewport")
-                    cb.component.isSelected = pendingCodeGlanceProIntegration
-                    cb.component.isEnabled = licensed
-                    cb.component.addActionListener {
-                        pendingCodeGlanceProIntegration = cb.component.isSelected
-                    }
-                    cgpCheckbox = cb.component
-
-                    browserLink("Plugin page", "https://plugins.jetbrains.com/plugin/18824-codeglance-pro")
-                }
+    private fun Panel.buildNoSupportedPluginsMessage() {
+        group("Plugins") {
+            row {
+                comment(
+                    "No supported plugins detected." +
+                        " Install CodeGlance Pro or Indent Rainbow for accent color sync.",
+                )
             }
         }
+    }
 
-        if (irDetected) {
-            panel.group("Indent Rainbow") {
-                row {
-                    val cb =
-                        checkBox("Sync colors with Indent Rainbow")
-                            .comment("Apply Ayu color palette to Indent Rainbow indentation guides")
-                    cb.component.isSelected = pendingEnabled
-                    cb.component.isEnabled = licensed
-                    cb.component.addActionListener {
-                        pendingEnabled = cb.component.isSelected
-                        irEnabled.set(cb.component.isSelected)
-                    }
-                    enabledCheckbox = cb.component
-
-                    browserLink(
-                        "Plugin page",
-                        "https://plugins.jetbrains.com/plugin/13308-indent-rainbow",
-                    )
+    private fun Panel.buildCodeGlanceProGroup(licensed: Boolean) {
+        group("CodeGlance Pro") {
+            row {
+                val checkboxCell =
+                    checkBox("Sync color with CodeGlance")
+                        .comment("Apply accent color to CodeGlance Pro viewport")
+                checkboxCell.component.isSelected = pendingCodeGlanceProIntegration
+                checkboxCell.component.isEnabled = licensed
+                checkboxCell.component.addActionListener {
+                    if (!licensed) return@addActionListener
+                    pendingCodeGlanceProIntegration = checkboxCell.component.isSelected
                 }
+                cgpCheckbox = checkboxCell.component
 
-                row {
-                    label("Preset")
-                    val segmented =
-                        segmentedButton(IndentPreset.entries) { preset ->
-                            text = preset.displayName
-                        }
-                    segmented.maxButtonsCount(IndentPreset.entries.size)
-                    segmented.selectedItem = IndentPreset.fromName(pendingPreset)
-                    @Suppress("UnstableApiUsage")
-                    segmented.whenItemSelected { preset ->
-                        if (!suppressListeners) {
-                            pendingPreset = preset.name
-                            customModeVisible.set(preset == IndentPreset.CUSTOM)
-                        }
-                    }
-                    presetSegmented = segmented
-                }.visibleIf(irEnabled)
-
-                row {
-                    val cb =
-                        checkBox("Highlight indent errors")
-                            .comment("When off, lines with irregular indentation blend into the color gradient")
-                    cb.component.isSelected = pendingErrorHighlight
-                    cb.component.isEnabled = licensed
-                    cb.component.addActionListener {
-                        pendingErrorHighlight = cb.component.isSelected
-                    }
-                    errorHighlightCheckbox = cb.component
-                }.visibleIf(irEnabled)
-
-                row {
-                    label("Alpha")
-                    val slider = JSlider(MIN_ALPHA, MAX_ALPHA, pendingCustomAlpha)
-                    slider.paintTicks = true
-                    slider.majorTickSpacing = ALPHA_MAJOR_TICK
-                    slider.isEnabled = licensed
-                    val valueLabel = JLabel("${slider.value}")
-                    slider.addChangeListener {
-                        if (!suppressListeners) {
-                            pendingCustomAlpha = slider.value
-                            valueLabel.text = "${slider.value}"
-                        }
-                    }
-                    alphaSlider = slider
-                    alphaValueLabel = valueLabel
-                    cell(slider).resizableColumn().align(Align.FILL)
-                    cell(valueLabel)
-                }.visibleIf(customModeVisible)
+                browserLink("Plugin page", "https://plugins.jetbrains.com/plugin/18824-codeglance-pro")
             }
         }
+    }
+
+    private fun Panel.buildIndentRainbowGroup(
+        licensed: Boolean,
+        irEnabled: AtomicBooleanProperty,
+    ) {
+        group("Indent Rainbow") {
+            buildIndentRainbowEnableRow(licensed, irEnabled)
+            buildIndentRainbowPresetRow(licensed, irEnabled)
+            buildIndentRainbowErrorRow(licensed, irEnabled)
+            buildIndentRainbowAlphaRow(licensed)
+        }
+    }
+
+    private fun Panel.buildIndentRainbowEnableRow(
+        licensed: Boolean,
+        irEnabled: AtomicBooleanProperty,
+    ) {
+        row {
+            val checkboxCell =
+                checkBox("Sync colors with Indent Rainbow")
+                    .comment("Apply Ayu color palette to Indent Rainbow indentation guides")
+            checkboxCell.component.isSelected = pendingEnabled
+            checkboxCell.component.isEnabled = licensed
+            checkboxCell.component.addActionListener {
+                if (!licensed) return@addActionListener
+                pendingEnabled = checkboxCell.component.isSelected
+                irEnabled.set(checkboxCell.component.isSelected)
+            }
+            enabledCheckbox = checkboxCell.component
+
+            browserLink(
+                "Plugin page",
+                "https://plugins.jetbrains.com/plugin/13308-indent-rainbow",
+            )
+        }
+    }
+
+    private fun Panel.buildIndentRainbowPresetRow(
+        licensed: Boolean,
+        irEnabled: AtomicBooleanProperty,
+    ) {
+        row {
+            label("Preset")
+            val segmented =
+                segmentedButton(IndentPreset.entries) { preset ->
+                    text = preset.displayName
+                }
+            segmented.maxButtonsCount(IndentPreset.entries.size)
+            segmented.selectedItem = IndentPreset.fromName(pendingPreset)
+            segmented.enabled(licensed)
+            @Suppress("UnstableApiUsage")
+            segmented.whenItemSelected { preset ->
+                if (!suppressListeners && licensed) {
+                    pendingPreset = preset.name
+                    customModeVisible.set(preset == IndentPreset.CUSTOM)
+                }
+            }
+            presetSegmented = segmented
+        }.visibleIf(irEnabled)
+    }
+
+    private fun Panel.buildIndentRainbowErrorRow(
+        licensed: Boolean,
+        irEnabled: AtomicBooleanProperty,
+    ) {
+        row {
+            val checkboxCell =
+                checkBox("Highlight indent errors")
+                    .comment("When off, lines with irregular indentation blend into the color gradient")
+            checkboxCell.component.isSelected = pendingErrorHighlight
+            checkboxCell.component.isEnabled = licensed
+            checkboxCell.component.addActionListener {
+                if (!licensed) return@addActionListener
+                pendingErrorHighlight = checkboxCell.component.isSelected
+            }
+            errorHighlightCheckbox = checkboxCell.component
+        }.visibleIf(irEnabled)
+    }
+
+    private fun Panel.buildIndentRainbowAlphaRow(licensed: Boolean) {
+        row {
+            label("Alpha")
+            val slider = JSlider(MIN_ALPHA, MAX_ALPHA, pendingCustomAlpha)
+            slider.paintTicks = true
+            slider.majorTickSpacing = ALPHA_MAJOR_TICK
+            slider.isEnabled = licensed
+            val valueLabel = JLabel("${slider.value}")
+            slider.addChangeListener {
+                if (!suppressListeners && licensed) {
+                    pendingCustomAlpha = slider.value
+                    valueLabel.text = "${slider.value}"
+                }
+            }
+            alphaSlider = slider
+            alphaValueLabel = valueLabel
+            cell(slider).resizableColumn().align(Align.FILL)
+            cell(valueLabel)
+        }.visibleIf(customModeVisible)
     }
 
     override fun isModified(): Boolean =
@@ -177,6 +231,7 @@ class PluginsPanel : AyuIslandsSettingsPanel {
 
     override fun apply() {
         if (!isModified()) return
+        if (!LicenseChecker.isLicensedOrGrace()) return
         val state = AyuIslandsSettings.getInstance().state
 
         state.irIntegrationEnabled = pendingEnabled
@@ -212,9 +267,9 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         presetSegmented?.selectedItem = IndentPreset.fromName(storedPreset)
         alphaSlider?.value = storedCustomAlpha
         alphaValueLabel?.text = "$storedCustomAlpha"
-        customModeVisible.set(
-            IndentPreset.fromName(pendingPreset) == IndentPreset.CUSTOM,
-        )
+        val licensed = LicenseChecker.isLicensedOrGrace()
+        irEnabled.set(pendingEnabled || !licensed)
+        customModeVisible.set(isCustomIndentControlsVisible(licensed))
         suppressListeners = false
     }
 

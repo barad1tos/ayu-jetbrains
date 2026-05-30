@@ -20,6 +20,7 @@ import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
+import java.awt.Component
 import java.awt.Container
 import javax.swing.JSlider
 import javax.swing.SwingUtilities
@@ -29,6 +30,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -46,8 +48,8 @@ import kotlin.test.assertTrue
  *    buildPanel and apply skips persistence.
  *  - Apply error path: if [VcsColorApplier.applyAll] throws, persisted state
  *    stays at the pre-apply baseline.
- *  - Premium gate: an unlicensed user records `licensed = false` and renders
- *    only the placeholder.
+ *  - Premium gate: an unlicensed user sees the preview and controls, but every
+ *    mutating control is disabled and apply still re-checks the license.
  */
 class VcsColorPanelTest {
     private lateinit var state: AyuIslandsState
@@ -468,15 +470,66 @@ class VcsColorPanelTest {
 
     @Test
     fun `unlicensed buildPanel does not trigger the applier on subsequent apply`() {
-        // Unlicensed path renders only the placeholder + Pro upgrade link — no
-        // licensed controls bound, no pending diffs even after a setPending* call
-        // before apply. Verifying via the applier-not-called assertion proves the
-        // premium gate held without exposing a dedicated `licensedForTest()` seam.
+        // Unlicensed path renders the premium preview, but the apply-time license
+        // guard still prevents persistence if state is manipulated through a test seam.
         every { LicenseChecker.isLicensedOrGrace() } returns false
         val panel = newBuiltPanel()
+        assertNotNull(vcsPreview(panel), "Unlicensed VCS gate must keep the preview visible")
+        assertFalse(diffSlider(panel).isEnabled, "Unlicensed VCS gate must lock sliders")
         panel.setPendingEnabledForTest(true)
         panel.apply()
         verify(exactly = 0) { VcsColorApplier.applyAll() }
+    }
+
+    @Test
+    fun `unlicensed reset keeps VCS preview visible when customization is disabled`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        state.vcsColorEnabled = false
+        val panel = newBuiltPanel()
+
+        assertTrue(
+            vcsPreview(panel).isVisible,
+            "Free users must see the locked VCS preview even when customization is disabled",
+        )
+
+        panel.reset()
+
+        assertTrue(
+            vcsPreview(panel).isVisible,
+            "Reset must keep the locked VCS preview visible instead of hiding premium content",
+        )
+        assertFalse(
+            panel.isModified(),
+            "Resetting a locked preview must not dirty the settings dialog",
+        )
+    }
+
+    @Test
+    fun `unlicensed VCS keeps custom sliders visible from default presets`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        state.vcsColorEnabled = false
+        state.vcsDiffPreset = VcsColorPreset.AMBIENT.name
+        state.vcsMergePreset = VcsColorPreset.AMBIENT.name
+        state.vcsBlamePreset = VcsColorPreset.AMBIENT.name
+        state.vcsDiffSectionExpanded = true
+        state.vcsMergeSectionExpanded = true
+        state.vcsBlameSectionExpanded = true
+        val panel = VcsColorPanel()
+
+        val dialogPanel = buildDialogPanel(panel)
+        val sliders = descendants(dialogPanel, JSlider::class.java)
+
+        assertTrue(sliders.isNotEmpty(), "Locked VCS preview must render custom intensity sliders")
+        assertTrue(
+            sliders.all { it.isEffectivelyVisibleWithin(dialogPanel) && !it.isEnabled },
+            "Locked VCS preview must show custom sliders even when stored presets are not Custom",
+        )
+        sliders.first().value += 1
+
+        assertFalse(
+            panel.isModified(),
+            "Programmatic changes to locked VCS preview sliders must not dirty Settings",
+        )
     }
 
     private fun newBuiltPanel(): VcsColorPanel {
@@ -506,6 +559,35 @@ class VcsColorPanelTest {
         field.isAccessible = true
         return field.get(panel) as? SegmentedButton<VcsColorPreset>
             ?: error("$fieldName must be created")
+    }
+
+    private fun diffSlider(panel: VcsColorPanel): JSlider {
+        val field = VcsColorPanel::class.java.getDeclaredField("diffSlider")
+        field.isAccessible = true
+        return field.get(panel) as? JSlider ?: error("diffSlider must be created")
+    }
+
+    private fun <T : Component> descendants(
+        container: Container,
+        type: Class<T>,
+    ): List<T> =
+        buildList {
+            fun visit(component: Component) {
+                if (type.isInstance(component)) add(type.cast(component))
+                if (component is Container) {
+                    component.components.forEach(::visit)
+                }
+            }
+            visit(container)
+        }
+
+    private fun Component.isEffectivelyVisibleWithin(root: Component): Boolean {
+        var current: Component? = this
+        while (current != null && current !== root) {
+            if (!current.isVisible) return false
+            current = current.parent
+        }
+        return current === root && root.isVisible
     }
 
     private fun layoutTree(container: Container) {

@@ -26,6 +26,8 @@ import dev.ayuislands.accent.ProjectLanguageDetector
 import dev.ayuislands.accent.runCatchingPreservingCancellation
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.PremiumFeatureGate
+import dev.ayuislands.settings.premiumFeatureNotice
 import java.awt.BorderLayout
 import java.awt.CardLayout
 import java.awt.Color
@@ -206,6 +208,15 @@ class OverridesGroupBuilder {
         loadFromState()
 
         val licensed = LicenseChecker.isLicensedOrGrace()
+        val gate =
+            PremiumFeatureGate(
+                featureName = "Accent overrides",
+                lockedDescription =
+                    "Accent overrides are a Pro feature. " +
+                        "Preview project and language accent pins here.",
+                requestMessage = "Unlock accent overrides",
+                isUnlocked = licensed,
+            )
         // Capture the license snapshot up front so `renderProportionsInto`
         // reads one boolean + one nullable without bumping its cyclomatic
         // count. See `rescanLicensed` KDoc for why license and project
@@ -246,6 +257,7 @@ class OverridesGroupBuilder {
                             "Project overrides win over language overrides; both win over the global accent.",
                     )
                 }
+                premiumFeatureNotice(gate)
                 row {
                     cell(segmentedBar)
                 }
@@ -264,11 +276,6 @@ class OverridesGroupBuilder {
                     proportionsPanel = statusPanel
                     populateProportionsPanel(statusPanel)
                     cell(statusPanel)
-                }
-                if (!licensed) {
-                    row {
-                        comment("Pro feature")
-                    }
                 }
             }
         collapsible.expanded = settings.state.overridesGroupExpanded
@@ -329,6 +336,7 @@ class OverridesGroupBuilder {
     }
 
     fun apply() {
+        if (!LicenseChecker.isLicensedOrGrace()) return
         val state = AccentMappingsSettingsAccess.stateFor()
         state.projectAccents.clear()
         state.projectDisplayNames.clear()
@@ -870,10 +878,14 @@ class OverridesGroupBuilder {
                     updateHex = projectModel::updateHex,
                 )
             },
-            remove = { removeSelectedRow(projectTable, projectModel::remove) },
+            remove = {
+                if (licensed) {
+                    removeSelectedRow(projectTable, projectModel::remove)
+                }
+            },
             addEnabled = { licensed },
             editEnabled = { licensed && projectTable.selectedRow >= 0 },
-            removeEnabled = { projectTable.selectedRow >= 0 },
+            removeEnabled = { licensed && projectTable.selectedRow >= 0 },
             extraActions = extras,
         )
     }
@@ -890,10 +902,14 @@ class OverridesGroupBuilder {
                     updateHex = languageModel::updateHex,
                 )
             },
-            remove = { removeSelectedRow(languageTable, languageModel::remove) },
+            remove = {
+                if (licensed) {
+                    removeSelectedRow(languageTable, languageModel::remove)
+                }
+            },
             addEnabled = { licensed },
             editEnabled = { licensed && languageTable.selectedRow >= 0 },
-            removeEnabled = { languageTable.selectedRow >= 0 },
+            removeEnabled = { licensed && languageTable.selectedRow >= 0 },
             extraActions = emptyList(),
         )
 

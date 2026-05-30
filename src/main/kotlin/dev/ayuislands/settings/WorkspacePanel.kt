@@ -66,7 +66,15 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
         variant: AyuVariant,
     ) {
         val state = AyuIslandsSettings.getInstance().state
-        val licensed = LicenseChecker.isLicensedOrGrace()
+        val gate =
+            PremiumFeatureGate(
+                featureName = "Workspace customization",
+                lockedDescription =
+                    "Workspace customization is a Pro feature. " +
+                        "Preview tool window width and Project View display controls here.",
+                requestMessage = "Unlock workspace customization",
+            )
+        val licensed = gate.isUnlocked
 
         loadCheckboxPair(state.hideEditorVScrollbar) { s, p ->
             storedHideEditorVScrollbar = s
@@ -105,6 +113,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
         )
 
         panel.row { comment("Customize tool window width and Project View display options.") }
+        panel.premiumFeatureNotice(gate)
 
         editorGroup =
             panel.collapsibleGroup(EDITOR_TITLE) {
@@ -148,7 +157,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
                     WidthModeGroupConfig(
                         projectWidth,
                         AutoFitCalculator.MIN_PROJECT_AUTOFIT_WIDTH,
-                        licensed,
+                        gate,
                         showMinSpinner = true,
                     ) {
                         updateGroupTitle(projectViewGroup, PROJECT_VIEW_TITLE, projectWidth.state)
@@ -166,7 +175,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
                     WidthModeGroupConfig(
                         commitWidth,
                         AutoFitCalculator.MIN_COMMIT_AUTOFIT_WIDTH,
-                        licensed,
+                        gate,
                         showMinSpinner = true,
                     ) {
                         updateGroupTitle(commitPanelGroup, COMMIT_PANEL_TITLE, commitWidth.state)
@@ -184,7 +193,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
                     WidthModeGroupConfig(
                         gitWidth,
                         AutoFitCalculator.MIN_GIT_AUTOFIT_WIDTH,
-                        licensed,
+                        gate,
                         showMinSpinner = true,
                     ) {
                         updateGroupTitle(gitPanelGroup, GIT_PANEL_TITLE, gitWidth.state)
@@ -222,19 +231,23 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
     private data class WidthModeGroupConfig(
         val uiState: WidthModeUiState,
         val minAutoFitWidth: Int,
-        val licensed: Boolean,
+        val gate: PremiumFeatureGate,
         val showMinSpinner: Boolean = false,
         val onModeChanged: () -> Unit = {},
-    )
+    ) {
+        val licensed: Boolean = gate.isUnlocked
+    }
 
     private fun createSpinner(
         value: Int,
         min: Int,
+        enabled: Boolean,
         onChange: (Int) -> Unit,
     ): JSpinner =
         JSpinner(SpinnerNumberModel(value, min, MAX_AUTOFIT_WIDTH, AUTOFIT_WIDTH_STEP)).also { spinner ->
+            spinner.isEnabled = enabled
             spinner.addChangeListener {
-                if (!suppressListeners) onChange(spinner.value as Int)
+                if (!suppressListeners && spinner.isEnabled) onChange(spinner.value as Int)
             }
         }
 
@@ -286,7 +299,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
         fixedVisible.set(uiState.state.pendingMode == PanelWidthMode.FIXED)
 
         val autoFitSpinner =
-            createSpinner(uiState.state.pendingAutoFitMaxWidth, config.minAutoFitWidth) {
+            createSpinner(uiState.state.pendingAutoFitMaxWidth, config.minAutoFitWidth, config.licensed) {
                 uiState.state.pendingAutoFitMaxWidth = it
                 val currentMin = uiState.minSpinner
                 if (currentMin != null && it < uiState.state.pendingAutoFitMinWidth) {
@@ -299,7 +312,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
 
         val minSpinner =
             if (config.showMinSpinner) {
-                createSpinner(uiState.state.pendingAutoFitMinWidth, MIN_AUTOFIT_MIN_WIDTH) {
+                createSpinner(uiState.state.pendingAutoFitMinWidth, MIN_AUTOFIT_MIN_WIDTH, config.licensed) {
                     uiState.state.pendingAutoFitMinWidth = it
                     if (it > uiState.state.pendingAutoFitMaxWidth) {
                         uiState.state.pendingAutoFitMaxWidth = it
@@ -312,7 +325,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
             }
 
         val fixedSpinner =
-            createSpinner(uiState.state.pendingFixedWidth, AutoFitCalculator.MIN_FIXED_WIDTH) {
+            createSpinner(uiState.state.pendingFixedWidth, AutoFitCalculator.MIN_FIXED_WIDTH, config.licensed) {
                 uiState.state.pendingFixedWidth = it
                 config.onModeChanged()
             }
@@ -322,7 +335,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
         uiState.modeComboBox = comboBox
 
         comboBox.addActionListener {
-            if (!suppressListeners) {
+            if (!suppressListeners && config.licensed) {
                 uiState.state.pendingMode = comboBox.selectedItem as PanelWidthMode
                 autoFitVisible.set(uiState.state.pendingMode == PanelWidthMode.AUTO_FIT)
                 fixedVisible.set(uiState.state.pendingMode == PanelWidthMode.FIXED)
@@ -333,14 +346,14 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
         panel.row {
             cell(comboBox)
             if (minSpinner != null) {
-                label("min").visibleIf(autoFitVisible)
-                cell(minSpinner).visibleIf(autoFitVisible)
+                label("min").visibleIfUnlockedOrPreview(autoFitVisible, config.gate)
+                cell(minSpinner).visibleIfUnlockedOrPreview(autoFitVisible, config.gate)
             }
-            label("max").visibleIf(autoFitVisible)
-            cell(autoFitSpinner).visibleIf(autoFitVisible)
-            label("px").visibleIf(autoFitVisible)
-            cell(fixedSpinner).visibleIf(fixedVisible)
-            label("px").visibleIf(fixedVisible)
+            label("max").visibleIfUnlockedOrPreview(autoFitVisible, config.gate)
+            cell(autoFitSpinner).visibleIfUnlockedOrPreview(autoFitVisible, config.gate)
+            label("px").visibleIfUnlockedOrPreview(autoFitVisible, config.gate)
+            cell(fixedSpinner).visibleIfUnlockedOrPreview(fixedVisible, config.gate)
+            label("px").visibleIfUnlockedOrPreview(fixedVisible, config.gate)
         }
     }
 
@@ -355,6 +368,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
 
     override fun apply() {
         if (!isModified()) return
+        if (!LicenseChecker.isLicensedOrGrace()) return
         val state = AyuIslandsSettings.getInstance().state
 
         val editorChanged =

@@ -57,7 +57,15 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
     ) {
         this.variant = variant
         val state = AyuIslandsSettings.getInstance().state
-        licensed = LicenseChecker.isLicensedOrGrace()
+        val gate =
+            PremiumFeatureGate(
+                featureName = "Accent elements",
+                lockedDescription =
+                    "Accent elements are a Pro feature. " +
+                        "Preview per-element toggles, tab underline, and bracket scope controls here.",
+                requestMessage = "Unlock accent element customization",
+            )
+        licensed = gate.isUnlocked
 
         // Initialize toggle state from persisted settings. CHROME-group ids are owned
         // by the Chrome tinting panel (phase 40) and must NOT surface in this panel's
@@ -102,11 +110,9 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
         val settings = AyuIslandsSettings.getInstance()
         val collapsible =
             panel.collapsibleGroup("Accent Elements") {
+                premiumFeatureNotice(gate)
                 // Subsection 1: Per-element toggles
                 row { label("Per-element toggles").bold() }
-                if (!licensed) {
-                    row { comment("Per-element toggles require a Pro license.") }
-                }
                 row {
                     // Left: checkbox columns + enable/disable
                     panel {
@@ -154,7 +160,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
                 // Subsection 2: Tab underline
                 separator()
                 row { label("Tab underline").bold() }
-                buildActiveTabContent()
+                buildActiveTabContent(gate)
 
                 // Subsection 3: Bracket scope
                 separator()
@@ -166,6 +172,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
                     scopeCb.component.isSelected = pendingBracketScope
                     scopeCb.component.isEnabled = licensed
                     scopeCb.component.addActionListener {
+                        if (!licensed) return@addActionListener
                         pendingBracketScope = scopeCb.component.isSelected
                     }
                     bracketScopeCheckbox = scopeCb.component
@@ -182,7 +189,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
      * Called from inside the parent `Accent Elements` collapsibleGroup where this content
      * sits under the `Tab underline` subsection header.
      */
-    private fun Panel.buildActiveTabContent() {
+    private fun Panel.buildActiveTabContent(gate: PremiumFeatureGate) {
         val state = AyuIslandsSettings.getInstance().state
         val glowEnabled = state.glowEnabled
         val islandsUi = AyuVariant.isIslandsUi()
@@ -203,6 +210,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
                 segmented.enabled(licensed)
                 @Suppress("UnstableApiUsage")
                 segmented.whenItemSelected { mode ->
+                    if (!licensed) return@whenItemSelected
                     pendingTabMode = mode.name
                     updateThicknessRowVisibility()
                 }
@@ -219,9 +227,13 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
                 thickSegmented.selectedItem = pendingTabUnderlineHeight
                 thickSegmented.enabled(licensed && !pendingTabUnderlineGlowSync)
                 @Suppress("UnstableApiUsage")
-                thickSegmented.whenItemSelected { value -> pendingTabUnderlineHeight = value }
+                thickSegmented.whenItemSelected { value ->
+                    if (licensed) {
+                        pendingTabUnderlineHeight = value
+                    }
+                }
                 thicknessSegmented = thickSegmented
-            }.visible(!tabModeIsOff && !islandsUi)
+            }.visibleWhenUnlockedOrPreview(!tabModeIsOff && !islandsUi, gate)
 
         // Sync with the glow width checkbox (hidden on Islands UI)
         syncRow =
@@ -233,6 +245,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
                     cb.component.toolTipText = "Enable glow to sync"
                 }
                 cb.component.addActionListener {
+                    if (!licensed) return@addActionListener
                     pendingTabUnderlineGlowSync = cb.component.isSelected
                     updateThicknessEnabledState()
                     if (pendingTabUnderlineGlowSync && glowEnabled) {
@@ -242,15 +255,15 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
                     }
                 }
                 syncCheckbox = cb.component
-            }.visible(!tabModeIsOff && !islandsUi)
+            }.visibleWhenUnlockedOrPreview(!tabModeIsOff && !islandsUi, gate)
     }
 
     private fun updateThicknessRowVisibility() {
         val isOff = GlowTabMode.fromName(pendingTabMode) == GlowTabMode.OFF
-        val hidden = isOff || AyuVariant.isIslandsUi()
-        thicknessRow?.visible(!hidden)
-        syncRow?.visible(!hidden)
-        if (!hidden) {
+        val visible = if (licensed) !isOff && !AyuVariant.isIslandsUi() else !AyuVariant.isIslandsUi()
+        thicknessRow?.visible(visible)
+        syncRow?.visible(visible)
+        if (visible) {
             updateThicknessEnabledState()
         }
     }
@@ -273,6 +286,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
             cb.component.isSelected = pendingToggles[id] ?: true
             cb.component.isEnabled = licensed && !isBlocking
             cb.component.addActionListener {
+                if (!licensed || isBlocking) return@addActionListener
                 pendingToggles[id] = cb.component.isSelected
                 syncPreviewToggles()
                 onToggleChanged?.invoke()
@@ -323,6 +337,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
 
     override fun apply() {
         if (!isModified()) return
+        if (!LicenseChecker.isLicensedOrGrace()) return
         val state = AyuIslandsSettings.getInstance().state
 
         for ((id, enabled) in pendingToggles) {

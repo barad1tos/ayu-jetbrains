@@ -30,7 +30,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -44,9 +43,8 @@ import kotlin.test.assertTrue
  *    [AyuIslandsState]; [AccentApplicator.applyForFocusedProject] fires exactly once per
  *    modified apply and does NOT fire when there is no diff.
  *  - Reset: pending is restored to stored.
- *  - Premium gate: unlicensed users see no chrome tinting controls — the
- *    collapsible content collapses to a single "requires Pro" comment row so the gate is
- *    visible as a hint but none of the underlying bindings surface.
+ *  - Premium gate: unlicensed users see the chrome tinting controls, but every
+ *    mutating control is disabled and apply still re-checks the license.
  *  - Probe gate: the Main Toolbar row is enabled when
  *    [ChromeDecorationsProbe.isCustomHeaderActive] returns `true` and disabled (with a
  *    per-OS honest comment) when it returns `false` — present but disabled, never hidden.
@@ -178,6 +176,25 @@ class AyuIslandsChromePanelTest {
             chromePanel.isModified(),
             "Clamping a legacy value must dirty the panel so the user gets a visible Apply " +
                 "button to persist the capped intensity back into AyuIslandsState",
+        )
+    }
+
+    @Test
+    fun `unlicensed legacy intensity clamps without dirtying locked chrome preview`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        state.chromeTintIntensity = 80
+        val chromePanel = AyuIslandsChromePanel()
+
+        buildPanel(chromePanel)
+
+        assertEquals(
+            50,
+            chromePanel.getPendingChromeTintIntensityForTest(),
+            "Free users must still see a slider-safe clamped chrome preview",
+        )
+        assertFalse(
+            chromePanel.isModified(),
+            "Locked chrome preview must not open dirty because free users cannot apply the clamp",
         )
     }
 
@@ -536,7 +553,7 @@ class AyuIslandsChromePanelTest {
     // ── Test 9: premium gate ──────────────────────────────────────────────────
 
     @Test
-    fun `unlicensed build hides chrome tinting controls behind a 'requires Pro' comment`() {
+    fun `unlicensed build shows chrome tinting controls but locks mutation`() {
         every { LicenseChecker.isLicensedOrGrace() } returns false
         val chromePanel = AyuIslandsChromePanel()
 
@@ -544,16 +561,26 @@ class AyuIslandsChromePanelTest {
 
         assertFalse(
             chromePanel.collapsibleRenderedLicensedForTest(),
-            "Unlicensed build must not render the chrome tinting controls (premium gate)",
+            "Unlicensed build must record a locked premium gate",
+        )
+        assertEquals(
+            5,
+            chromePanel.surfaceCheckboxCountForTest(),
+            "Unlicensed build must render the 5 per-surface checkboxes as a preview",
         )
         assertEquals(
             0,
-            chromePanel.surfaceCheckboxCountForTest(),
-            "Unlicensed build must not wire any of the 5 per-surface checkboxes",
+            chromePanel.enabledSurfaceCheckboxCountForTest(),
+            "Unlicensed build must lock every per-surface checkbox",
         )
-        assertNull(
-            chromePanel.intensitySliderForTest(),
-            "Unlicensed build must not wire the intensity slider",
+        val slider =
+            assertNotNull(
+                chromePanel.intensitySliderForTest(),
+                "Unlicensed build must render the intensity slider as a preview",
+            )
+        assertFalse(
+            slider.isEnabled,
+            "Unlicensed build must lock the intensity slider",
         )
     }
 

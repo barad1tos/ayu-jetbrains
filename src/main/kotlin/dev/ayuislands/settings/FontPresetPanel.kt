@@ -7,6 +7,7 @@ import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.SimpleListCellRenderer
+import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.SegmentedButton
 import dev.ayuislands.accent.AccentApplicator
@@ -233,6 +234,8 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
             previewComponent = preview
             refreshPreview(reloadPreset = true)
             cell(preview)
+                .resizableColumn()
+                .align(Align.FILL)
         }.visibleIf(presetEnabled)
     }
 

@@ -5,10 +5,12 @@ import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.ProjectLanguageDetector
+import dev.ayuislands.licensing.LicenseChecker
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkAll
+import javax.swing.JTable
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -50,6 +52,8 @@ class OverridesGroupBuilderApplyTest {
         mockkObject(AccentResolver)
         mockkObject(AccentApplicator)
         mockkObject(ProjectAccentSwapService.Companion)
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.isLicensedOrGrace() } returns true
     }
 
     @AfterTest
@@ -144,6 +148,55 @@ class OverridesGroupBuilderApplyTest {
     }
 
     @Test
+    fun `apply() is a no-op when license is unavailable`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        val builder =
+            OverridesGroupBuilder().apply {
+                seedPendingForTest(
+                    projects =
+                        listOf(
+                            ProjectMapping(
+                                canonicalPath = "/tmp/apply-locked",
+                                displayName = "locked",
+                                hex = "#AABBCC",
+                            ),
+                        ),
+                )
+            }
+
+        builder.apply()
+
+        assertTrue(mappingsState.projectAccents.isEmpty(), "locked overrides must not persist")
+        assertTrue(builder.isModified(), "locked apply must not advance the stored snapshot")
+        io.mockk.verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
+    }
+
+    @Test
+    fun `unlicensed override remove actions cannot delete visible preview rows`() {
+        val projectMapping = ProjectMapping("/tmp/locked-preview", "locked-preview", "#AABBCC")
+        val languageMapping = LanguageMapping("kotlin", "Kotlin", "#BBCCDD")
+        val builder =
+            OverridesGroupBuilder().apply {
+                seedPendingForTest(
+                    projects = listOf(projectMapping),
+                    languages = listOf(languageMapping),
+                )
+            }
+        table(builder, "projectTable").selectionModel.setSelectionInterval(0, 0)
+        table(builder, "languageTable").selectionModel.setSelectionInterval(0, 0)
+
+        val projectActions = actions(builder, "projectActions", licensed = false)
+        val languageActions = actions(builder, "languageActions", licensed = false)
+
+        assertFalse(projectActions.removeEnabled(), "locked project preview rows must not enable Remove")
+        assertFalse(languageActions.removeEnabled(), "locked language preview rows must not enable Remove")
+        projectActions.remove()
+        languageActions.remove()
+        assertEquals(listOf(projectMapping), projectRows(builder), "locked project preview rows must remain visible")
+        assertEquals(listOf(languageMapping), languageRows(builder), "locked language preview rows must remain visible")
+    }
+
+    @Test
     fun `apply() falls back to AccentApplicator resolveFocusedProject when parentProject is not bound`() {
         // Guards the second-tier project source inside apply(): when setParentProjectForTest
         // has not been called (e.g. Settings Apply reached here before the panel finished
@@ -184,5 +237,65 @@ class OverridesGroupBuilderApplyTest {
         io.mockk.verify(exactly = 1) { AccentApplicator.resolveFocusedProject() }
         io.mockk.verify(exactly = 1) { AccentResolver.resolve(focusedProject, AyuVariant.MIRAGE) }
         io.mockk.verify(exactly = 1) { AccentApplicator.applyFromHexString("#5CCFE6") }
+    }
+
+    private fun table(
+        builder: OverridesGroupBuilder,
+        fieldName: String,
+    ): JTable {
+        val field = OverridesGroupBuilder::class.java.getDeclaredField(fieldName)
+        field.isAccessible = true
+        return field.get(builder) as JTable
+    }
+
+    private fun actions(
+        builder: OverridesGroupBuilder,
+        methodName: String,
+        licensed: Boolean,
+    ): TableActionHandle {
+        val method = OverridesGroupBuilder::class.java.getDeclaredMethod(methodName, Boolean::class.javaPrimitiveType)
+        method.isAccessible = true
+        return TableActionHandle(method.invoke(builder, licensed))
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun projectRows(builder: OverridesGroupBuilder): List<ProjectMapping> {
+        val model = model(builder, "projectModel")
+        return model.javaClass.getDeclaredMethod("snapshot").invoke(model) as List<ProjectMapping>
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun languageRows(builder: OverridesGroupBuilder): List<LanguageMapping> {
+        val model = model(builder, "languageModel")
+        return model.javaClass.getDeclaredMethod("snapshot").invoke(model) as List<LanguageMapping>
+    }
+
+    private fun model(
+        builder: OverridesGroupBuilder,
+        fieldName: String,
+    ): Any {
+        val field = OverridesGroupBuilder::class.java.getDeclaredField(fieldName)
+        field.isAccessible = true
+        return field.get(builder)
+    }
+
+    private class TableActionHandle(
+        delegate: Any,
+    ) {
+        private val removeAction = delegate.action("getRemove")
+        private val removeEnabledAction = delegate.action("getRemoveEnabled")
+
+        fun remove() {
+            removeAction()
+        }
+
+        fun removeEnabled(): Boolean = removeEnabledAction() as Boolean
+
+        @Suppress("UNCHECKED_CAST")
+        private fun Any.action(name: String): () -> Any? {
+            val method = javaClass.getDeclaredMethod(name)
+            method.isAccessible = true
+            return method.invoke(this) as () -> Any?
+        }
     }
 }
