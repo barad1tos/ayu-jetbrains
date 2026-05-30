@@ -1,6 +1,10 @@
 package dev.ayuislands.settings
 
+import com.intellij.openapi.observable.properties.AtomicBooleanProperty
+import com.intellij.ui.dsl.builder.Cell
+import com.intellij.ui.dsl.builder.CollapsibleRow
 import com.intellij.ui.dsl.builder.Panel
+import com.intellij.ui.dsl.builder.Row
 import dev.ayuislands.licensing.LicenseChecker
 import javax.swing.JComponent
 
@@ -33,3 +37,33 @@ internal fun <T : JComponent> T.applyPremiumLock(
     toolTipText = if (gate.isUnlocked) null else gate.tooltip
     return this
 }
+
+internal fun Row.visibleIfUnlockedOrPreview(
+    condition: AtomicBooleanProperty,
+    gate: PremiumFeatureGate,
+): Row =
+    if (gate.isUnlocked) {
+        visibleIf(condition)
+    } else {
+        visible(true)
+    }
+
+internal fun <T : JComponent> Cell<T>.visibleIfUnlockedOrPreview(
+    condition: AtomicBooleanProperty,
+    gate: PremiumFeatureGate,
+): Cell<T> =
+    if (gate.isUnlocked) {
+        visibleIf(condition)
+    } else {
+        visible(true)
+    }
+
+internal fun CollapsibleRow.visibleIfUnlockedOrPreview(
+    condition: AtomicBooleanProperty,
+    gate: PremiumFeatureGate,
+): Row =
+    if (gate.isUnlocked) {
+        visibleIf(condition)
+    } else {
+        visible(true)
+    }

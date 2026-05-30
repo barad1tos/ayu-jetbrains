@@ -278,7 +278,7 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
                     else -> Unit
                 }
             }
-        sliderRow.visibleIf(sectionCustomVisible)
+        sliderRow.visibleIfUnlockedOrPreview(sectionCustomVisible, gate)
     }
 
     private fun previewIntensities(): VcsPreviewIntensities =

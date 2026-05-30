@@ -157,7 +157,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
                     WidthModeGroupConfig(
                         projectWidth,
                         AutoFitCalculator.MIN_PROJECT_AUTOFIT_WIDTH,
-                        licensed,
+                        gate,
                         showMinSpinner = true,
                     ) {
                         updateGroupTitle(projectViewGroup, PROJECT_VIEW_TITLE, projectWidth.state)
@@ -175,7 +175,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
                     WidthModeGroupConfig(
                         commitWidth,
                         AutoFitCalculator.MIN_COMMIT_AUTOFIT_WIDTH,
-                        licensed,
+                        gate,
                         showMinSpinner = true,
                     ) {
                         updateGroupTitle(commitPanelGroup, COMMIT_PANEL_TITLE, commitWidth.state)
@@ -193,7 +193,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
                     WidthModeGroupConfig(
                         gitWidth,
                         AutoFitCalculator.MIN_GIT_AUTOFIT_WIDTH,
-                        licensed,
+                        gate,
                         showMinSpinner = true,
                     ) {
                         updateGroupTitle(gitPanelGroup, GIT_PANEL_TITLE, gitWidth.state)
@@ -231,10 +231,12 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
     private data class WidthModeGroupConfig(
         val uiState: WidthModeUiState,
         val minAutoFitWidth: Int,
-        val licensed: Boolean,
+        val gate: PremiumFeatureGate,
         val showMinSpinner: Boolean = false,
         val onModeChanged: () -> Unit = {},
-    )
+    ) {
+        val licensed: Boolean = gate.isUnlocked
+    }
 
     private fun createSpinner(
         value: Int,
@@ -344,14 +346,14 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
         panel.row {
             cell(comboBox)
             if (minSpinner != null) {
-                label("min").visibleIf(autoFitVisible)
-                cell(minSpinner).visibleIf(autoFitVisible)
+                label("min").visibleIfUnlockedOrPreview(autoFitVisible, config.gate)
+                cell(minSpinner).visibleIfUnlockedOrPreview(autoFitVisible, config.gate)
             }
-            label("max").visibleIf(autoFitVisible)
-            cell(autoFitSpinner).visibleIf(autoFitVisible)
-            label("px").visibleIf(autoFitVisible)
-            cell(fixedSpinner).visibleIf(fixedVisible)
-            label("px").visibleIf(fixedVisible)
+            label("max").visibleIfUnlockedOrPreview(autoFitVisible, config.gate)
+            cell(autoFitSpinner).visibleIfUnlockedOrPreview(autoFitVisible, config.gate)
+            label("px").visibleIfUnlockedOrPreview(autoFitVisible, config.gate)
+            cell(fixedSpinner).visibleIfUnlockedOrPreview(fixedVisible, config.gate)
+            label("px").visibleIfUnlockedOrPreview(fixedVisible, config.gate)
         }
     }
 

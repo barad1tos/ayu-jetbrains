@@ -13,10 +13,17 @@ import io.mockk.mockkClass
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
+import java.awt.Component
+import java.awt.Container
+import javax.swing.JCheckBox
+import javax.swing.JComboBox
+import javax.swing.JLabel
+import javax.swing.JSlider
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class AyuIslandsEffectsPanelTest {
     private lateinit var state: AyuIslandsState
@@ -73,6 +80,59 @@ class AyuIslandsEffectsPanelTest {
         )
     }
 
+    @Test
+    fun `unlicensed glow keeps custom controls and targets visible but locked`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        state.glowEnabled = false
+        state.glowPreset = GlowPreset.WHISPER.name
+        val effectsPanel = AyuIslandsEffectsPanel()
+
+        val dialogPanel = buildDialogPanel(effectsPanel)
+        val styleCombo = field<JComboBox<*>>(effectsPanel, "styleCombo")
+        val animationCombo = field<JComboBox<*>>(effectsPanel, "animationCombo")
+        val intensitySlider = field<JSlider>(effectsPanel, "intensitySlider")
+        val widthSlider = field<JSlider>(effectsPanel, "widthSlider")
+        val targetCheckboxes = islandCheckboxes(effectsPanel).values.toList()
+        val targetsLabel = descendants(dialogPanel, JLabel::class.java).first { it.text == "Targets" }
+
+        assertTrue(
+            styleCombo.isEffectivelyVisibleWithin(dialogPanel),
+            "Locked Glow preview must show the style selector even when the preset is not Custom",
+        )
+        assertFalse(styleCombo.isEnabled, "Locked Glow style selector must not be mutable")
+        assertTrue(
+            intensitySlider.isEffectivelyVisibleWithin(dialogPanel),
+            "Locked Glow preview must show the intensity slider even when the preset is not Custom",
+        )
+        assertFalse(intensitySlider.isEnabled, "Locked Glow intensity slider must not be mutable")
+        assertTrue(
+            widthSlider.isEffectivelyVisibleWithin(dialogPanel),
+            "Locked Glow preview must show the width slider even when the preset is not Custom",
+        )
+        assertFalse(widthSlider.isEnabled, "Locked Glow width slider must not be mutable")
+        assertTrue(
+            animationCombo.isEffectivelyVisibleWithin(dialogPanel),
+            "Locked Glow preview must show animation controls even when the preset is not Custom",
+        )
+        assertFalse(animationCombo.isEnabled, "Locked Glow animation controls must not be mutable")
+        assertTrue(
+            targetsLabel.isEffectivelyVisibleWithin(dialogPanel),
+            "Locked Glow preview must show the Targets group even when the preset is not Custom",
+        )
+        assertTrue(targetCheckboxes.isNotEmpty(), "Locked Glow preview must render target checkboxes")
+        assertTrue(
+            targetCheckboxes.all { !it.isEnabled },
+            "Locked Glow target controls must not be mutable",
+        )
+
+        intensitySlider.value += 1
+
+        assertFalse(
+            effectsPanel.isModified(),
+            "Programmatic changes to locked Glow preview controls must not dirty Settings",
+        )
+    }
+
     private fun buildDialogPanel(panel: AyuIslandsEffectsPanel) =
         com.intellij.ui.dsl.builder
             .panel {
@@ -85,5 +145,46 @@ class AyuIslandsEffectsPanelTest {
         field.isAccessible = true
         return field.get(panel) as? SegmentedButton<GlowPreset>
             ?: error("Glow preset segmented button must be created")
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun islandCheckboxes(panel: AyuIslandsEffectsPanel): Map<String, JCheckBox> {
+        val field = AyuIslandsEffectsPanel::class.java.getDeclaredField("islandCheckboxes")
+        field.isAccessible = true
+        return field.get(panel) as? Map<String, JCheckBox>
+            ?: error("Glow target checkboxes must be created")
+    }
+
+    private fun <T : Component> field(
+        panel: AyuIslandsEffectsPanel,
+        fieldName: String,
+    ): T {
+        val field = AyuIslandsEffectsPanel::class.java.getDeclaredField(fieldName)
+        field.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        return field.get(panel) as? T ?: error("$fieldName must be created")
+    }
+
+    private fun <T : Component> descendants(
+        container: Container,
+        type: Class<T>,
+    ): List<T> =
+        buildList {
+            fun visit(component: Component) {
+                if (type.isInstance(component)) add(type.cast(component))
+                if (component is Container) {
+                    component.components.forEach(::visit)
+                }
+            }
+            visit(container)
+        }
+
+    private fun Component.isEffectivelyVisibleWithin(root: Component): Boolean {
+        var current: Component? = this
+        while (current != null && current !== root) {
+            if (!current.isVisible) return false
+            current = current.parent
+        }
+        return current === root && root.isVisible
     }
 }

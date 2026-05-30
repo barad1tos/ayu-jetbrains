@@ -20,6 +20,7 @@ import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
+import java.awt.Component
 import java.awt.Container
 import javax.swing.JSlider
 import javax.swing.SwingUtilities
@@ -503,6 +504,34 @@ class VcsColorPanelTest {
         )
     }
 
+    @Test
+    fun `unlicensed VCS keeps custom sliders visible from default presets`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        state.vcsColorEnabled = false
+        state.vcsDiffPreset = VcsColorPreset.AMBIENT.name
+        state.vcsMergePreset = VcsColorPreset.AMBIENT.name
+        state.vcsBlamePreset = VcsColorPreset.AMBIENT.name
+        state.vcsDiffSectionExpanded = true
+        state.vcsMergeSectionExpanded = true
+        state.vcsBlameSectionExpanded = true
+        val panel = VcsColorPanel()
+
+        val dialogPanel = buildDialogPanel(panel)
+        val sliders = descendants(dialogPanel, JSlider::class.java)
+
+        assertTrue(sliders.isNotEmpty(), "Locked VCS preview must render custom intensity sliders")
+        assertTrue(
+            sliders.all { it.isEffectivelyVisibleWithin(dialogPanel) && !it.isEnabled },
+            "Locked VCS preview must show custom sliders even when stored presets are not Custom",
+        )
+        sliders.first().value += 1
+
+        assertFalse(
+            panel.isModified(),
+            "Programmatic changes to locked VCS preview sliders must not dirty Settings",
+        )
+    }
+
     private fun newBuiltPanel(): VcsColorPanel {
         val panel = VcsColorPanel()
         buildDialogPanel(panel)
@@ -536,6 +565,29 @@ class VcsColorPanelTest {
         val field = VcsColorPanel::class.java.getDeclaredField("diffSlider")
         field.isAccessible = true
         return field.get(panel) as? JSlider ?: error("diffSlider must be created")
+    }
+
+    private fun <T : Component> descendants(
+        container: Container,
+        type: Class<T>,
+    ): List<T> =
+        buildList {
+            fun visit(component: Component) {
+                if (type.isInstance(component)) add(type.cast(component))
+                if (component is Container) {
+                    component.components.forEach(::visit)
+                }
+            }
+            visit(container)
+        }
+
+    private fun Component.isEffectivelyVisibleWithin(root: Component): Boolean {
+        var current: Component? = this
+        while (current != null && current !== root) {
+            if (!current.isVisible) return false
+            current = current.parent
+        }
+        return current === root && root.isVisible
     }
 
     private fun layoutTree(container: Container) {

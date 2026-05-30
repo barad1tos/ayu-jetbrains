@@ -152,9 +152,10 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                 buildMasterToggleRow(this, licensed)
                 group("Style") {
                     buildPresetRow(this)
-                    buildStyleComboRow(this, licensed)
+                    buildStyleComboRow(this, gate)
                     buildSliderRow(
                         group = this,
+                        gate = gate,
                         config =
                             SliderConfig(
                                 label = "Intensity",
@@ -175,6 +176,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                     )
                     buildSliderRow(
                         group = this,
+                        gate = gate,
                         config =
                             SliderConfig(
                                 label = "Width (px)",
@@ -192,9 +194,9 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                             widthValueLabel = label
                         },
                     )
-                    buildAnimationRows(this, licensed)
+                    buildAnimationRows(this, gate)
                 }
-                buildTargetsGroup(this, licensed, customModeVisible)
+                buildTargetsGroup(this, gate, customModeVisible)
             }
 
         glowPanel.add(innerContent, BorderLayout.CENTER)
@@ -234,8 +236,9 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
 
     private fun buildStyleComboRow(
         group: Panel,
-        licensed: Boolean,
+        gate: PremiumFeatureGate,
     ) {
+        val licensed = gate.isUnlocked
         group
             .row {
                 label("Style")
@@ -254,11 +257,12 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                 }
                 styleCombo = combo
                 cell(combo)
-            }.visibleIf(customModeVisible)
+            }.visibleIfUnlockedOrPreview(customModeVisible, gate)
     }
 
     private fun buildSliderRow(
         group: Panel,
+        gate: PremiumFeatureGate,
         config: SliderConfig,
         onValueChanged: (Int) -> Unit,
         onCreated: (JSlider, JLabel) -> Unit,
@@ -270,9 +274,10 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                 slider.paintTicks = true
                 slider.majorTickSpacing = config.majorTick
                 if (config.minorTick > 0) slider.minorTickSpacing = config.minorTick
+                slider.applyPremiumLock(gate, pendingGlowEnabled)
                 val valueLabel = JLabel("${slider.value}")
                 slider.addChangeListener {
-                    if (!suppressListeners) {
+                    if (!suppressListeners && gate.isUnlocked) {
                         onValueChanged(slider.value)
                         switchToCustom()
                     }
@@ -281,13 +286,14 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                 onCreated(slider, valueLabel)
                 cell(slider).resizableColumn().align(Align.FILL)
                 cell(valueLabel)
-            }.visibleIf(customModeVisible)
+            }.visibleIfUnlockedOrPreview(customModeVisible, gate)
     }
 
     private fun buildAnimationRows(
         group: Panel,
-        licensed: Boolean,
+        gate: PremiumFeatureGate,
     ) {
+        val licensed = gate.isUnlocked
         group
             .row {
                 label("Animation")
@@ -305,19 +311,20 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                 }
                 animationCombo = combo
                 cell(combo)
-            }.visibleIf(customModeVisible)
+            }.visibleIfUnlockedOrPreview(customModeVisible, gate)
         group
             .row {
                 val descCell = comment(animationDescription(pendingAnimation))
                 animationDescriptionLabel = descCell.component
-            }.visibleIf(customModeVisible)
+            }.visibleIfUnlockedOrPreview(customModeVisible, gate)
     }
 
     private fun buildTargetsGroup(
         panel: Panel,
-        licensed: Boolean,
+        gate: PremiumFeatureGate,
         customVisible: AtomicBooleanProperty,
     ) {
+        val licensed = gate.isUnlocked
         panel
             .collapsibleGroup("Targets") {
                 row {
@@ -363,7 +370,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                     { islandCheckbox("Debug", licensed) },
                     { },
                 )
-            }.visibleIf(customVisible)
+            }.visibleIfUnlockedOrPreview(customVisible, gate)
     }
 
     private fun Row.islandCheckbox(
