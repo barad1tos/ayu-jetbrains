@@ -25,6 +25,11 @@ class VcsColorPreviewComponentTest {
             minimumSize.width < component.preferredSize.width,
             "Preview minimum width must be below its natural width so Settings can shrink the tab content",
         )
+        assertTrue(
+            minimumSize.width <= component.preferredSize.width * MAX_MINIMUM_WIDTH_RATIO_NUMERATOR /
+                MAX_MINIMUM_WIDTH_RATIO_DENOMINATOR,
+            "Preview minimum width must stay compact enough to relieve horizontal pressure in narrow Settings windows",
+        )
 
         val image = render(component, minimumSize)
         assertColorEquals(
@@ -242,6 +247,8 @@ class VcsColorPreviewComponentTest {
 
     private companion object {
         private const val PROJECT_DOT_X = 24
+        private const val MAX_MINIMUM_WIDTH_RATIO_NUMERATOR = 2
+        private const val MAX_MINIMUM_WIDTH_RATIO_DENOMINATOR = 3
         private const val PROJECT_DOT_Y = 33
         private const val DIFF_STRIPE_X = 210
         private const val GUTTER_MARKER_X = 202

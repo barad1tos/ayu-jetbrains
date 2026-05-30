@@ -222,8 +222,14 @@ internal class VcsColorPreviewComponent(
         g2.color = UIUtil.getContextHelpForeground()
         val baseline = y + (height - g2.fontMetrics.height) / 2 + g2.fontMetrics.ascent
         g2.drawString(row.lineNumber, geometry.gutterX + JBUI.scale(LINE_NUMBER_X), baseline)
-        g2.color = UIUtil.getLabelForeground()
-        g2.drawString(row.text, geometry.codeX + stripeWidth + stripeGap, baseline)
+        val previousClip = g2.clip
+        g2.clipRect(geometry.codeX, y, geometry.codeWidth, height)
+        try {
+            g2.color = UIUtil.getLabelForeground()
+            g2.drawString(row.text, geometry.codeX + stripeWidth + stripeGap, baseline)
+        } finally {
+            g2.clip = previousClip
+        }
         g2.color = JBColor.border()
         g2.drawLine(geometry.blameX, y, geometry.blameX, y + height)
     }
