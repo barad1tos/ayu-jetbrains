@@ -3,6 +3,7 @@ package dev.ayuislands.settings
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.ui.DialogPanel
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.vcs.VcsColorApplier
 import dev.ayuislands.vcs.VcsColorCategory
@@ -18,6 +19,7 @@ import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
+import java.awt.Container
 import javax.swing.JSlider
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -184,6 +186,28 @@ class VcsColorPanelTest {
         assertEquals(VcsColorPreset.CYBERPUNK_SLIDER, preview.intensityForTest(VcsColorCategory.EDITOR_GUTTER))
         assertEquals(VcsColorPreset.WHISPER_SLIDER, preview.intensityForTest(VcsColorCategory.CONFLICT_MARKERS))
         assertEquals(VcsColorPreset.NEON_SLIDER, preview.intensityForTest(VcsColorCategory.BLAME_GUTTER))
+    }
+
+    @Test
+    fun `VCS preview shrinks inside compact settings width`() {
+        state.vcsColorEnabled = true
+        val panel = VcsColorPanel()
+        val dialogPanel = buildDialogPanel(panel)
+        val preview = vcsPreview(panel)
+
+        dialogPanel.setSize(COMPACT_SETTINGS_WIDTH, dialogPanel.preferredSize.height)
+        dialogPanel.doLayout()
+        layoutTree(dialogPanel)
+
+        assertTrue(preview.width > 0, "Preview must be laid out when VCS customization is enabled")
+        assertTrue(
+            preview.width < preview.preferredSize.width,
+            "Preview must shrink below its natural width inside a compact Settings window",
+        )
+        assertTrue(
+            preview.width <= COMPACT_SETTINGS_WIDTH,
+            "Preview width must not exceed the compact Settings content width",
+        )
     }
 
     @Test
@@ -428,16 +452,32 @@ class VcsColorPanelTest {
 
     private fun newBuiltPanel(): VcsColorPanel {
         val panel = VcsColorPanel()
+        buildDialogPanel(panel)
+        return panel
+    }
+
+    private fun buildDialogPanel(panel: VcsColorPanel): DialogPanel =
         com.intellij.ui.dsl.builder
             .panel {
                 panel.buildPanel(this@panel, dev.ayuislands.accent.AyuVariant.DARK)
             }
-        return panel
-    }
 
     private fun vcsPreview(panel: VcsColorPanel): VcsColorPreviewComponent {
         val field = VcsColorPanel::class.java.getDeclaredField("vcsPreview")
         field.isAccessible = true
         return field.get(panel) as? VcsColorPreviewComponent ?: error("VCS preview must be created")
+    }
+
+    private fun layoutTree(container: Container) {
+        container.doLayout()
+        for (component in container.components) {
+            if (component is Container) {
+                layoutTree(component)
+            }
+        }
+    }
+
+    private companion object {
+        private const val COMPACT_SETTINGS_WIDTH = 420
     }
 }

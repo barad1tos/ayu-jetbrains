@@ -1,15 +1,16 @@
 package dev.ayuislands.settings
 
+import com.intellij.ui.components.JBTabbedPane
 import io.mockk.clearAllMocks
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.spyk
 import io.mockk.unmockkAll
 import io.mockk.verify
+import javax.swing.JTabbedPane
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -159,7 +160,24 @@ class AyuIslandsConfigurableChromeWiringTest {
     }
 
     @Test
-    fun `Configurable tabs can shrink with the Settings window`() {
+    fun `Configurable tabs keep labels visible while yielding width to Settings window`() {
+        val tabs = JBTabbedPane()
+        val configure =
+            AyuIslandsConfigurable::class.java.getDeclaredMethod(
+                "configureSettingsTabsForResize",
+                JBTabbedPane::class.java,
+            )
+        configure.isAccessible = true
+        configure.invoke(AyuIslandsConfigurable(), tabs)
+
+        assertEquals(
+            JTabbedPane.WRAP_TAB_LAYOUT,
+            tabs.tabLayoutPolicy,
+            "Settings tabs must keep the platform default wrap layout; scroll layout breaks JBTabbedPane labels here",
+        )
+        assertEquals(0, tabs.minimumSize.width, "Settings tabs must not force a horizontal minimum")
+        assertEquals(0, tabs.minimumSize.height, "Settings tabs must not force a vertical minimum")
+
         val classBytes =
             AyuIslandsConfigurable::class.java
                 .getResourceAsStream("AyuIslandsConfigurable.class")
@@ -168,12 +186,8 @@ class AyuIslandsConfigurableChromeWiringTest {
         val classText = String(classBytes, Charsets.ISO_8859_1)
 
         assertTrue(
-            classText.contains("setTabLayoutPolicy"),
-            "Settings tabs must use scroll layout so tab labels do not force a wide minimum content area",
-        )
-        assertFalse(
-            classText.contains("setMinimumSize"),
-            "Settings tabs must not force a fixed minimum width; narrow windows should resize content instead",
+            classText.contains("configureSettingsTabsForResize"),
+            "createPanel bytecode must apply the resize policy to the Settings tab container",
         )
     }
 

@@ -17,13 +17,13 @@ import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.onboarding.OnboardingUrls
 import java.awt.Color
 import java.awt.Cursor
+import java.awt.Dimension
 import java.awt.Image
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.ImageIcon
 import javax.swing.JLabel
 import javax.swing.JPanel
-import javax.swing.JTabbedPane
 import javax.swing.Timer
 
 /** Settings page at Appearance > Ayu Islands with Accent / Glow tabs. */
@@ -182,7 +182,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
             }
 
         val tabs = JBTabbedPane()
-        tabs.tabLayoutPolicy = JTabbedPane.SCROLL_TAB_LAYOUT
+        configureSettingsTabsForResize(tabs)
         tabs.addTab("Accent", accentTab)
         tabs.addTab("Font", fontTab)
         tabs.addTab("Glow", glowTab)
@@ -244,6 +244,10 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                     .align(Align.FILL)
             }
         }
+    }
+
+    private fun configureSettingsTabsForResize(tabs: JBTabbedPane) {
+        tabs.minimumSize = Dimension(0, 0)
     }
 
     private fun createLinkTab(
