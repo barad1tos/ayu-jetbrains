@@ -936,12 +936,18 @@ class ProjectLanguageDetectorTest {
         wireMessageBus(project, listener)
         runInvokeLaterInline()
         runSchedulerInline()
+        mockkObject(AyuVariant.Companion)
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        mockkObject(AccentResolver)
+        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
         mockkObject(AccentApplicator)
+        every { AccentApplicator.resolveFocusedProject() } returns project
         every { AccentApplicator.apply(any()) } answers { Unit }
 
         ProjectLanguageDetector.rescan(project)
 
         verify(exactly = 1) { listener.scanCompleted(ScanOutcome.Unavailable) }
+        verify(exactly = 0) { AccentApplicator.resolveFocusedProject() }
         verify(exactly = 0) { AccentApplicator.apply(any()) }
     }
 
