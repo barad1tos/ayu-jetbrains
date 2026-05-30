@@ -43,12 +43,6 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         const val EXPAND_MS_PER_CHAR = 35
         const val DISCUSSIONS_SHOW_SETUP = OnboardingUrls.DISCUSSIONS_SHOW_SETUP
         const val DISCUSSIONS_FEATURE_REQUESTS = OnboardingUrls.DISCUSSIONS_FEATURE_REQUESTS
-
-        // Insertion index for the Phase 49 Syntax tab. Slots between Glow (index 2)
-        // and VCS (index 3 pre-insert) so rendering-related tabs cluster together
-        // (Accent | Font | Glow | Syntax) before VCS / Workspace / Plugins. Per
-        // D-03 / RESEARCH Q6.
-        const val SYNTAX_TAB_INDEX = 3
     }
 
     private val activeTimers = mutableListOf<Timer>()
@@ -188,39 +182,25 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                 JBUI.CurrentTheme.Link.Foreground.ENABLED
             }
 
-        val tabs = JBTabbedPane()
-        configureSettingsTabsForResize(tabs)
-        tabs.addTab("Accent", createScrollableTabContent(accentTab))
-        tabs.addTab("Font", createScrollableTabContent(fontTab))
-        tabs.addTab("Glow", createScrollableTabContent(glowTab))
-        // Phase 49 (D-03 / RESEARCH Q6): Syntax slots between Glow and VCS so
-        // rendering-related tabs cluster together (Accent | Font | Glow | Syntax)
-        // before the source-control and workspace tabs.
-        tabs.insertTab("Syntax", null, createScrollableTabContent(syntaxTab), null, SYNTAX_TAB_INDEX)
-        tabs.addTab("VCS", createScrollableTabContent(vcsTab))
-        tabs.addTab("Workspace", createScrollableTabContent(workspaceTab))
-        tabs.addTab("Plugins", createScrollableTabContent(pluginsTab))
-
-        val contentTabCount = tabs.tabCount
-
-        // Community link tabs — disabled for selection, click opens browser via label
-        tabs.addTab("", JPanel())
-        tabs.setTabComponentAt(
-            contentTabCount,
-            createLinkTab("Share", "Share Your Setup", accentColor, DISCUSSIONS_SHOW_SETUP),
-        )
-        tabs.setEnabledAt(contentTabCount, false)
-        tabs.addTab("", JPanel())
-        tabs.setTabComponentAt(
-            contentTabCount + 1,
-            createLinkTab("Feature", "Request a Feature", accentColor, DISCUSSIONS_FEATURE_REQUESTS),
-        )
-        tabs.setEnabledAt(contentTabCount + 1, false)
-
-        tabs.selectedIndex = state.settingsSelectedTab.coerceIn(0, contentTabCount - 1)
-        tabs.addChangeListener {
-            AyuIslandsSettings.getInstance().state.settingsSelectedTab = tabs.selectedIndex
-        }
+        val tabs =
+            createSettingsTabs(
+                contentTabs =
+                    listOf(
+                        "Accent" to accentTab,
+                        "Font" to fontTab,
+                        "Glow" to glowTab,
+                        // Syntax slots between Glow and VCS so rendering-related
+                        // tabs cluster before source-control and workspace tabs.
+                        "Syntax" to syntaxTab,
+                        "VCS" to vcsTab,
+                        "Workspace" to workspaceTab,
+                        "Plugins" to pluginsTab,
+                    ),
+                accentColor = accentColor,
+                selectedIndex = state.settingsSelectedTab,
+            ) { selectedIndex ->
+                AyuIslandsSettings.getInstance().state.settingsSelectedTab = selectedIndex
+            }
 
         return panel {
             // Header
@@ -255,6 +235,41 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
 
     private fun configureSettingsTabsForResize(tabs: JBTabbedPane) {
         tabs.minimumSize = Dimension(0, 0)
+    }
+
+    private fun createSettingsTabs(
+        contentTabs: List<Pair<String, JComponent>>,
+        accentColor: Color,
+        selectedIndex: Int,
+        onSelectedIndexChanged: (Int) -> Unit,
+    ): JBTabbedPane {
+        val tabs = JBTabbedPane()
+        configureSettingsTabsForResize(tabs)
+        for ((title, content) in contentTabs) {
+            tabs.addTab(title, createScrollableTabContent(content))
+        }
+
+        val contentTabCount = tabs.tabCount
+
+        // Community link tabs — disabled for selection, click opens browser via label
+        tabs.addTab("", JPanel())
+        tabs.setTabComponentAt(
+            contentTabCount,
+            createLinkTab("Share", "Share Your Setup", accentColor, DISCUSSIONS_SHOW_SETUP),
+        )
+        tabs.setEnabledAt(contentTabCount, false)
+        tabs.addTab("", JPanel())
+        tabs.setTabComponentAt(
+            contentTabCount + 1,
+            createLinkTab("Feature", "Request a Feature", accentColor, DISCUSSIONS_FEATURE_REQUESTS),
+        )
+        tabs.setEnabledAt(contentTabCount + 1, false)
+
+        tabs.selectedIndex = selectedIndex.coerceIn(0, contentTabCount - 1)
+        tabs.addChangeListener {
+            onSelectedIndexChanged(tabs.selectedIndex)
+        }
+        return tabs
     }
 
     private fun createScrollableTabContent(content: JComponent): JComponent =

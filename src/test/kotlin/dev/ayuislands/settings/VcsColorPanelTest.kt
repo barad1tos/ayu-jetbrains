@@ -4,6 +4,7 @@ import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.ui.DialogPanel
+import com.intellij.ui.dsl.builder.SegmentedButton
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.vcs.VcsColorApplier
 import dev.ayuislands.vcs.VcsColorCategory
@@ -179,6 +180,28 @@ class VcsColorPanelTest {
         panel.triggerSectionPresetChosenForTest(VcsSection.MERGE, VcsColorPreset.WHISPER)
         panel.triggerSectionPresetChosenForTest(VcsSection.BLAME, VcsColorPreset.NEON)
 
+        assertEquals(VcsColorPreset.CYBERPUNK_SLIDER, preview.intensityForTest(VcsColorCategory.DIFF_VIEWER))
+        assertEquals(
+            VcsColorPreset.CYBERPUNK_SLIDER,
+            preview.intensityForTest(VcsColorCategory.PROJECT_VIEW_FILE_STATUS),
+        )
+        assertEquals(VcsColorPreset.CYBERPUNK_SLIDER, preview.intensityForTest(VcsColorCategory.EDITOR_GUTTER))
+        assertEquals(VcsColorPreset.WHISPER_SLIDER, preview.intensityForTest(VcsColorCategory.CONFLICT_MARKERS))
+        assertEquals(VcsColorPreset.NEON_SLIDER, preview.intensityForTest(VcsColorCategory.BLAME_GUTTER))
+    }
+
+    @Test
+    fun `real preset segmented selections refresh visible preview`() {
+        val panel = newBuiltPanel()
+        val preview = vcsPreview(panel)
+
+        presetSegmented(panel, "diffPresetSegmented").selectedItem = VcsColorPreset.CYBERPUNK
+        presetSegmented(panel, "mergePresetSegmented").selectedItem = VcsColorPreset.WHISPER
+        presetSegmented(panel, "blamePresetSegmented").selectedItem = VcsColorPreset.NEON
+
+        assertEquals(VcsColorPreset.CYBERPUNK, panel.getPendingPresetForTest(VcsSection.DIFF))
+        assertEquals(VcsColorPreset.WHISPER, panel.getPendingPresetForTest(VcsSection.MERGE))
+        assertEquals(VcsColorPreset.NEON, panel.getPendingPresetForTest(VcsSection.BLAME))
         assertEquals(VcsColorPreset.CYBERPUNK_SLIDER, preview.intensityForTest(VcsColorCategory.DIFF_VIEWER))
         assertEquals(
             VcsColorPreset.CYBERPUNK_SLIDER,
@@ -472,6 +495,17 @@ class VcsColorPanelTest {
         val field = VcsColorPanel::class.java.getDeclaredField("vcsPreview")
         field.isAccessible = true
         return field.get(panel) as? VcsColorPreviewComponent ?: error("VCS preview must be created")
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun presetSegmented(
+        panel: VcsColorPanel,
+        fieldName: String,
+    ): SegmentedButton<VcsColorPreset> {
+        val field = VcsColorPanel::class.java.getDeclaredField(fieldName)
+        field.isAccessible = true
+        return field.get(panel) as? SegmentedButton<VcsColorPreset>
+            ?: error("$fieldName must be created")
     }
 
     private fun layoutTree(container: Container) {

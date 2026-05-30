@@ -7,6 +7,7 @@ import io.mockk.mockk
 import io.mockk.spyk
 import io.mockk.unmockkAll
 import io.mockk.verify
+import java.awt.Color
 import java.awt.Dimension
 import javax.swing.JComponent
 import javax.swing.JPanel
@@ -16,6 +17,7 @@ import javax.swing.Scrollable
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -239,6 +241,65 @@ class AyuIslandsConfigurableChromeWiringTest {
     }
 
     @Test
+    fun `Configurable assembles every content tab with width tracking scroll wrapper`() {
+        val intParameter = Int::class.javaPrimitiveType ?: error("Int primitive type must be available")
+        val createSettingsTabs =
+            AyuIslandsConfigurable::class.java.getDeclaredMethod(
+                "createSettingsTabs",
+                List::class.java,
+                Color::class.java,
+                intParameter,
+                Function1::class.java,
+            )
+        createSettingsTabs.isAccessible = true
+        val expectedTitles = listOf("Accent", "Font", "Glow", "Syntax", "VCS", "Workspace", "Plugins")
+        val contentTabs =
+            expectedTitles.map { title ->
+                title to
+                    JPanel().apply {
+                        preferredSize = Dimension(WIDE_CONTENT_WIDTH, TAB_CONTENT_HEIGHT)
+                    }
+            }
+
+        val tabs =
+            createSettingsTabs.invoke(
+                AyuIslandsConfigurable(),
+                contentTabs,
+                Color.CYAN,
+                0,
+                { _: Int -> Unit },
+            ) as JBTabbedPane
+
+        assertEquals(
+            expectedTitles.size + LINK_TAB_COUNT,
+            tabs.tabCount,
+            "Settings tabs must include content and link tabs",
+        )
+        for ((index, title) in expectedTitles.withIndex()) {
+            assertEquals(title, tabs.getTitleAt(index), "Content tab title at index $index")
+            val scrollPane = tabs.getComponentAt(index)
+            assertTrue(scrollPane is JScrollPane, "$title tab must be wrapped in a scroll pane")
+            assertEquals(
+                JScrollPane.HORIZONTAL_SCROLLBAR_NEVER,
+                scrollPane.horizontalScrollBarPolicy,
+                "$title tab must not expose horizontal scrolling",
+            )
+            val viewportView = scrollPane.viewport.view
+            assertTrue(viewportView is Scrollable, "$title tab wrapper must expose Scrollable sizing")
+            assertTrue(
+                viewportView.scrollableTracksViewportWidth,
+                "$title tab content must track the Settings viewport width",
+            )
+            assertTrue(
+                scrollPane.preferredSize.width <= COMPACT_TAB_WIDTH,
+                "$title tab must not export wide child preferred width",
+            )
+        }
+        assertFalse(tabs.isEnabledAt(expectedTitles.size), "Share link tab must stay non-selectable")
+        assertFalse(tabs.isEnabledAt(expectedTitles.size + 1), "Feature link tab must stay non-selectable")
+    }
+
+    @Test
     fun `chromePanel sits between accentPanel and elementsPanel in panels list`() {
         val configurable = AyuIslandsConfigurable()
         val panels = readField<List<AyuIslandsSettingsPanel>>(configurable, "panels")
@@ -331,5 +392,6 @@ class AyuIslandsConfigurableChromeWiringTest {
         private const val WIDE_CONTENT_WIDTH = 1200
         private const val COMPACT_TAB_WIDTH = 420
         private const val TAB_CONTENT_HEIGHT = 240
+        private const val LINK_TAB_COUNT = 2
     }
 }
