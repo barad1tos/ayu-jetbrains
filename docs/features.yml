@@ -239,8 +239,9 @@ categories:
           caption: "Font presets panel"
           sources:
             - src/main/kotlin/dev/ayuislands/settings/FontPresetPanel.kt
+            - src/main/kotlin/dev/ayuislands/settings/FontPreviewComponent.kt
             - src/main/kotlin/dev/ayuislands/font
-          last_verified_sha: "049c230"
+          last_verified_sha: "e8b119e"
           last_verified_date: "2026-05-30"
           content_sha256: "2303011928e4246c32edfcc3c4caa923d536aa73f848e225708da4374ce17b41"
 
@@ -336,8 +337,8 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/PluginsPanel.kt
             - src/main/kotlin/dev/ayuislands/indent
             - src/main/kotlin/dev/ayuislands/accent/elements/BracketScopeRenderer.kt
-          last_verified_sha: "853a4635"
-          last_verified_date: "2026-05-19"
+          last_verified_sha: "218f8d9"
+          last_verified_date: "2026-05-30"
           content_sha256: "c5c1eea5a119bd19bf98518d394d698bf09983a1e0a3472e255358c50e41ed16"
 
   onboarding:
