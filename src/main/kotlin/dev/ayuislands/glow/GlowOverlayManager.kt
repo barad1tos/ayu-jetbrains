@@ -12,6 +12,9 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
+import dev.ayuislands.accent.AccentChangeListener
+import dev.ayuislands.accent.AccentChangedTopic
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
@@ -170,6 +173,29 @@ class GlowOverlayManager(
                 }
             },
         )
+
+        connection.subscribe(
+            AccentChangedTopic.TOPIC,
+            @Suppress("ObjectLiteralToLambda")
+            object : AccentChangeListener {
+                override fun accentChanged(
+                    project: Project,
+                    hex: AccentHex,
+                    source: AccentResolver.Source,
+                ) {
+                    if (disposed) return
+                    if (project !== this@GlowOverlayManager.project) return
+
+                    if (SwingUtilities.isEventDispatchThread()) {
+                        updateGlow(hex)
+                    } else {
+                        SwingUtilities.invokeLater {
+                            if (!disposed) updateGlow(hex)
+                        }
+                    }
+                }
+            },
+        )
     }
 
     private fun installFocusTracker() {
@@ -221,7 +247,7 @@ class GlowOverlayManager(
                 log.debug("AyuVariant.detect() returned null in initializeFocusRingGlow, skipping focus-ring glow")
                 return
             }
-        val accentHex = AccentResolver.resolve(project, variant)
+        val accentHex = resolveCurrentGlowAccentHex(project, state, variant)
         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
         val accent = safeDecodeColor(accentHex)
         val intensity = state.getIntensityForStyle(style)
@@ -269,7 +295,7 @@ class GlowOverlayManager(
                 log.debug("AyuVariant.detect() returned null in attachOverlay($id), skipping overlay attach")
                 return
             }
-        val accentHex = AccentResolver.resolve(project, variant)
+        val accentHex = resolveCurrentGlowAccentHex(project, state, variant)
         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
 
         val glassPane =
@@ -405,7 +431,7 @@ class GlowOverlayManager(
         glassPane.animationAlpha = 1.0f
     }
 
-    fun updateGlow() {
+    fun updateGlow(appliedAccent: AccentHex? = null) {
         if (disposed) return
         if (!AyuVariant.isAyuActive()) {
             removeAllOverlays()
@@ -423,12 +449,19 @@ class GlowOverlayManager(
         // disposed overlays when the LAF is non-Ayu, so reaching here with a
         // null detect() is the rare race window between guard and detect();
         // surface a DEBUG breadcrumb instead of falling through silently.
-        val variant =
-            AyuVariant.detect() ?: run {
-                log.debug("AyuVariant.detect() returned null in updateGlow after isAyuActive guard, skipping refresh")
-                return
-            }
-        val accentHex = AccentResolver.resolve(project, variant)
+        val accentHex =
+            appliedAccent?.value
+                ?: run {
+                    val variant =
+                        AyuVariant.detect() ?: run {
+                            log.debug(
+                                "AyuVariant.detect() returned null in updateGlow after " +
+                                    "isAyuActive guard, skipping refresh",
+                            )
+                            return
+                        }
+                    resolveCurrentGlowAccentHex(project, state, variant)
+                }
         val accent = safeDecodeColor(accentHex)
         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
 
@@ -509,3 +542,14 @@ class GlowOverlayManager(
         }
     }
 }
+
+private fun resolveCurrentGlowAccentHex(
+    project: Project,
+    state: AyuIslandsState,
+    variant: AyuVariant,
+): String =
+    state
+        .effectiveLastAppliedAccentHex()
+        ?.takeIf { state.lastApplyOk }
+        ?.value
+        ?: AccentResolver.resolve(project, variant)

@@ -1,24 +1,36 @@
 package dev.ayuislands.glow
 
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.util.messages.MessageBus
+import com.intellij.util.messages.MessageBusConnection
+import dev.ayuislands.accent.AccentChangeListener
+import dev.ayuislands.accent.AccentChangedTopic
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import io.mockk.Runs
 import io.mockk.clearAllMocks
 import io.mockk.every
+import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
+import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
+import java.awt.Color
+import java.awt.Point
 import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -51,6 +63,8 @@ class GlowOverlayManagerLifecycleTest {
         every { AyuIslandsSettings.getInstance() } returns mockSettings
         every { mockSettings.state } returns state
         state.glowEnabled = true
+        state.lastAppliedAccentHex = null
+        state.lastApplyOk = false
 
         mockkObject(LicenseChecker)
         every { LicenseChecker.isLicensedOrGrace() } returns true
@@ -135,6 +149,209 @@ class GlowOverlayManagerLifecycleTest {
             overlaysAfter.isEmpty() && !overlaysAfter.containsKey(sentinelKey),
             "updateGlow with isAyuActive=true MUST NOT dispose pre-existing overlays",
         )
+    }
+
+    @Test
+    fun `updateGlow paints clean last applied accent instead of project resolver`() {
+        // Glow follows the app-global chrome color that was actually painted.
+        // A background project may resolve to a different override, but its
+        // status bar was already repainted with the last clean apply payload.
+        every { AyuVariant.isAyuActive() } returns true
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        state.lastAppliedAccentHex = "#5CCFE6"
+        state.lastApplyOk = true
+
+        val project = stubProject("background-project")
+        val manager = GlowOverlayManager(project)
+        val glassPane = mockk<GlowGlassPane>(relaxed = true)
+        seedOverlaysMapWithMocks(
+            manager,
+            glassPane,
+            host = mockk(relaxed = true),
+            layeredPane = mockk(relaxed = true),
+        )
+
+        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
+
+        manager.updateGlow()
+
+        verify(exactly = 1) { glassPane.glowColor = Color.decode("#5CCFE6") }
+        verify(exactly = 0) { glassPane.glowColor = Color.decode("#FFCC66") }
+        verify(exactly = 0) { AccentResolver.resolve(project, AyuVariant.MIRAGE) }
+    }
+
+    @Test
+    fun `attachOverlay seeds clean last applied accent instead of project resolver`() {
+        // Late-created overlays must match the already-painted status bar even
+        // if this project's resolver would choose a different override. This is
+        // the startup/late-attach path that does not receive a fresh topic
+        // payload after the overlay exists.
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        every { SwingUtilities.invokeLater(any()) } answers { firstArg<Runnable>().run() }
+        state.lastAppliedAccentHex = "#5CCFE6"
+        state.lastApplyOk = true
+
+        val project = stubProject("late-overlay-project")
+        val manager = GlowOverlayManager(project)
+        val host = mockk<javax.swing.JComponent>(relaxed = true)
+        val rootPane = mockk<javax.swing.JRootPane>(relaxed = true)
+        val layeredPane = mockk<javax.swing.JLayeredPane>(relaxed = true)
+        every { host.width } returns 120
+        every { host.height } returns 80
+        every { host.isShowing } returns true
+        every { rootPane.layeredPane } returns layeredPane
+        every { SwingUtilities.getRootPane(host) } returns rootPane
+        every { SwingUtilities.convertPoint(host, 0, 0, layeredPane) } returns Point(0, 0)
+        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
+
+        invokeAttachOverlay(manager, "LateOverlay", host)
+
+        assertEquals(
+            Color.decode("#5CCFE6"),
+            readOverlayGlassPane(manager, "LateOverlay").glowColor,
+            "new overlays must seed from the clean app-global applied accent, not the project resolver",
+        )
+        verify(exactly = 0) { AccentResolver.resolve(project, AyuVariant.MIRAGE) }
+    }
+
+    @Test
+    fun `AccentChangedTopic event uses applied accent payload for matching project`() {
+        every { AyuVariant.isAyuActive() } returns true
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        every { SwingUtilities.invokeLater(any()) } just Runs
+
+        val project = stubProject("focused-project")
+        val messageBus = mockk<MessageBus>()
+        val connection = mockk<MessageBusConnection>(relaxed = true)
+        val accentListenerSlot = slot<AccentChangeListener>()
+        every { project.messageBus } returns messageBus
+        every { messageBus.connect(any<Disposable>()) } returns connection
+        every {
+            connection.subscribe(eq(AccentChangedTopic.TOPIC), capture(accentListenerSlot))
+        } just Runs
+
+        val manager = GlowOverlayManager(project)
+        val glassPane = mockk<GlowGlassPane>(relaxed = true)
+        seedOverlaysMapWithMocks(
+            manager,
+            glassPane,
+            host = mockk(relaxed = true),
+            layeredPane = mockk(relaxed = true),
+        )
+
+        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
+
+        manager.initialize()
+
+        assertTrue(
+            accentListenerSlot.isCaptured,
+            "GlowOverlayManager must subscribe to AccentChangedTopic so chrome-only accent refreshes recolor glow",
+        )
+
+        accentListenerSlot.captured.accentChanged(
+            project,
+            AccentHex.unsafeOf("#5CCFE6"),
+            AccentResolver.Source.GLOBAL,
+        )
+
+        verify(exactly = 1) { glassPane.glowColor = Color.decode("#5CCFE6") }
+        verify(exactly = 0) { glassPane.glowColor = Color.decode("#FFCC66") }
+    }
+
+    @Test
+    fun `AccentChangedTopic event ignores a different project`() {
+        every { AyuVariant.isAyuActive() } returns true
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        every { SwingUtilities.invokeLater(any()) } just Runs
+
+        val project = stubProject("focused-project")
+        val otherProject = stubProject("other-project")
+        val messageBus = mockk<MessageBus>()
+        val connection = mockk<MessageBusConnection>(relaxed = true)
+        val accentListenerSlot = slot<AccentChangeListener>()
+        every { project.messageBus } returns messageBus
+        every { messageBus.connect(any<Disposable>()) } returns connection
+        every {
+            connection.subscribe(eq(AccentChangedTopic.TOPIC), capture(accentListenerSlot))
+        } just Runs
+
+        val manager = GlowOverlayManager(project)
+        val glassPane = mockk<GlowGlassPane>(relaxed = true)
+        seedOverlaysMapWithMocks(
+            manager,
+            glassPane,
+            host = mockk(relaxed = true),
+            layeredPane = mockk(relaxed = true),
+        )
+
+        manager.initialize()
+
+        assertTrue(
+            accentListenerSlot.isCaptured,
+            "GlowOverlayManager must subscribe before it can filter project-scoped accent events",
+        )
+
+        accentListenerSlot.captured.accentChanged(
+            otherProject,
+            AccentHex.unsafeOf("#D95757"),
+            AccentResolver.Source.PROJECT_OVERRIDE,
+        )
+
+        verify(exactly = 0) { glassPane.glowColor = any<Color>() }
+    }
+
+    @Test
+    fun `AccentChangedTopic event reschedules glow update when fired off EDT`() {
+        every { AyuVariant.isAyuActive() } returns true
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        every { SwingUtilities.invokeLater(any()) } just Runs
+
+        val project = stubProject("focused-project")
+        val messageBus = mockk<MessageBus>()
+        val connection = mockk<MessageBusConnection>(relaxed = true)
+        val accentListenerSlot = slot<AccentChangeListener>()
+        every { project.messageBus } returns messageBus
+        every { messageBus.connect(any<Disposable>()) } returns connection
+        every {
+            connection.subscribe(eq(AccentChangedTopic.TOPIC), capture(accentListenerSlot))
+        } just Runs
+
+        val manager = GlowOverlayManager(project)
+        val glassPane = mockk<GlowGlassPane>(relaxed = true)
+        seedOverlaysMapWithMocks(
+            manager,
+            glassPane,
+            host = mockk(relaxed = true),
+            layeredPane = mockk(relaxed = true),
+        )
+
+        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
+
+        manager.initialize()
+
+        assertTrue(
+            accentListenerSlot.isCaptured,
+            "GlowOverlayManager must subscribe before it can reschedule off-EDT accent events",
+        )
+
+        val scheduled = mutableListOf<Runnable>()
+        every { SwingUtilities.isEventDispatchThread() } returns false
+        every { SwingUtilities.invokeLater(any()) } answers {
+            scheduled.add(firstArg<Runnable>())
+        }
+
+        accentListenerSlot.captured.accentChanged(
+            project,
+            AccentHex.unsafeOf("#5CCFE6"),
+            AccentResolver.Source.GLOBAL,
+        )
+
+        verify(exactly = 0) { glassPane.glowColor = any<Color>() }
+
+        scheduled.forEach { it.run() }
+
+        verify(exactly = 1) { glassPane.glowColor = Color.decode("#5CCFE6") }
+        verify(exactly = 0) { glassPane.glowColor = Color.decode("#FFCC66") }
     }
 
     @Test
@@ -230,6 +447,32 @@ class GlowOverlayManagerLifecycleTest {
         val field = GlowOverlayManager::class.java.getDeclaredField("overlays")
         field.isAccessible = true
         return field.get(manager) as Map<*, *>
+    }
+
+    private fun readOverlayGlassPane(
+        manager: GlowOverlayManager,
+        key: String,
+    ): GlowGlassPane {
+        val entry = readOverlaysMap(manager)[key] ?: error("Overlay '$key' was not attached")
+        val field = entry.javaClass.getDeclaredField("glassPane")
+        field.isAccessible = true
+        return field.get(entry) as GlowGlassPane
+    }
+
+    private fun invokeAttachOverlay(
+        manager: GlowOverlayManager,
+        id: String,
+        host: javax.swing.JComponent,
+    ) {
+        val method =
+            GlowOverlayManager::class.java.getDeclaredMethod(
+                "attachOverlay",
+                String::class.java,
+                javax.swing.JComponent::class.java,
+                Boolean::class.javaPrimitiveType,
+            )
+        method.isAccessible = true
+        method.invoke(manager, id, host, false)
     }
 
     /**
