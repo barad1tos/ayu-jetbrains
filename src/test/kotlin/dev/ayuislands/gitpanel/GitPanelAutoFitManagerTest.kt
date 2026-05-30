@@ -6,6 +6,7 @@ import com.intellij.openapi.ui.Splitter
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
+import com.intellij.openapi.wm.ex.ToolWindowManagerListener.ToolWindowManagerEventType
 import com.intellij.ui.content.Content
 import com.intellij.ui.content.ContentManager
 import com.intellij.util.messages.MessageBus
@@ -19,6 +20,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
+import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.FlowLayout
@@ -304,6 +306,36 @@ class GitPanelAutoFitManagerTest {
     }
 
     @Test
+    fun `stateChanged ignores events from another visible tool window`() {
+        every {
+            LicenseChecker.isLicensedOrGrace()
+        } returns true
+        realState.gitPanelWidthMode =
+            PanelWidthMode.AUTO_FIT.name
+
+        val listenerSlot = slot<ToolWindowManagerListener>()
+        every {
+            connection.subscribe(
+                ToolWindowManagerListener.TOPIC,
+                capture(listenerSlot),
+            )
+        } returns Unit
+
+        GitPanelAutoFitManager(project)
+
+        val foreignToolWindow = visibleToolWindow("AWS")
+        listenerSlot.captured.stateChanged(
+            toolWindowManager,
+            foreignToolWindow,
+            ToolWindowManagerEventType.ActivateToolWindow,
+        )
+
+        verify(exactly = 0) {
+            toolWindowManager.getToolWindow("Version Control")
+        }
+    }
+
+    @Test
     fun `listener is removed when mode switches from AUTO_FIT to DEFAULT`() {
         SwingUtilities.invokeAndWait {
             every {
@@ -371,4 +403,10 @@ class GitPanelAutoFitManagerTest {
             }
         }
     }
+
+    private fun visibleToolWindow(id: String): ToolWindow =
+        mockk {
+            every { this@mockk.id } returns id
+            every { isVisible } returns true
+        }
 }

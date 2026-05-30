@@ -16,10 +16,13 @@ import com.intellij.util.messages.MessageBusConnection
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.settings.PanelWidthMode
+import io.mockk.clearMocks
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
+import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.FlowLayout
@@ -284,6 +287,41 @@ class ProjectViewScrollbarManagerTest {
     }
 
     @Test
+    fun `stateChanged ignores events from another visible tool window`() {
+        realState.projectPanelWidthMode = PanelWidthMode.DEFAULT.name
+        realState.hideProjectViewHScrollbar = true
+
+        val listenerSlot = slot<ToolWindowManagerListener>()
+        every {
+            connection.subscribe(
+                ToolWindowManagerListener.TOPIC,
+                capture(listenerSlot),
+            )
+        } returns Unit
+
+        val manager = ProjectViewScrollbarManager(project)
+        try {
+            SwingUtilities.invokeAndWait {}
+            clearMocks(toolWindowManager, answers = false)
+
+            val foreignToolWindow = visibleToolWindow("AWS")
+            listenerSlot.captured.stateChanged(
+                toolWindowManager,
+                foreignToolWindow,
+                ToolWindowManagerListener.ToolWindowManagerEventType.ActivateToolWindow,
+            )
+
+            verify(exactly = 0) {
+                toolWindowManager.getToolWindow("Project")
+            }
+        } finally {
+            SwingUtilities.invokeAndWait {
+                manager.dispose()
+            }
+        }
+    }
+
+    @Test
     fun `apply is idempotent when called multiple times with same state`() {
         realState.hideProjectViewHScrollbar = true
         realState.hideProjectRootPath = false
@@ -344,4 +382,10 @@ class ProjectViewScrollbarManagerTest {
             toolWindowManager.getToolWindow("Project")
         } returns toolWindow
     }
+
+    private fun visibleToolWindow(id: String): ToolWindow =
+        mockk {
+            every { this@mockk.id } returns id
+            every { isVisible } returns true
+        }
 }

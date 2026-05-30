@@ -6,6 +6,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.registry.Registry
+import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import com.intellij.ui.SimpleColoredComponent
@@ -15,7 +16,7 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.PanelWidthMode
 import dev.ayuislands.toolwindow.AutoFitCalculator
 import dev.ayuislands.toolwindow.ToolWindowAutoFitter
-import dev.ayuislands.toolwindow.shouldTriggerAutoFit
+import dev.ayuislands.toolwindow.shouldTriggerAutoFitFor
 import dev.ayuislands.ui.ComponentTreeRefreshedListener
 import dev.ayuislands.ui.ComponentTreeRefreshedTopic
 import java.awt.Component
@@ -40,7 +41,7 @@ class ProjectViewScrollbarManager(
     private val autoFitter =
         ToolWindowAutoFitter(
             project = project,
-            toolWindowId = "Project",
+            toolWindowId = TOOL_WINDOW_ID,
             minWidth = AutoFitCalculator.MIN_PROJECT_AUTOFIT_WIDTH,
         ).apply {
             maxWidthProvider = { AyuIslandsSettings.getInstance().state.autoFitMaxWidth }
@@ -53,11 +54,10 @@ class ProjectViewScrollbarManager(
             object : ToolWindowManagerListener {
                 override fun stateChanged(
                     toolWindowManager: ToolWindowManager,
+                    toolWindow: ToolWindow,
                     changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
                 ) {
-                    if (!changeType.shouldTriggerAutoFit()) return
-                    val tw = toolWindowManager.getToolWindow("Project") ?: return
-                    if (!tw.isVisible) return
+                    if (!changeType.shouldTriggerAutoFitFor(toolWindow, TOOL_WINDOW_ID)) return
                     val state =
                         AyuIslandsSettings.getInstance().state
                     val widthMode = PanelWidthMode.fromString(state.projectPanelWidthMode)
@@ -237,7 +237,7 @@ class ProjectViewScrollbarManager(
         val toolWindow =
             ToolWindowManager
                 .getInstance(project)
-                .getToolWindow("Project")
+                .getToolWindow(TOOL_WINDOW_ID)
                 ?: return null
         return toolWindow
             .contentManager
@@ -274,6 +274,7 @@ class ProjectViewScrollbarManager(
 
     companion object {
         private val LOG = logger<ProjectViewScrollbarManager>()
+        private const val TOOL_WINDOW_ID = "Project"
         private const val SHOW_URL_KEY = "project.tree.structure.show.url"
 
         fun getInstance(project: Project): ProjectViewScrollbarManager =

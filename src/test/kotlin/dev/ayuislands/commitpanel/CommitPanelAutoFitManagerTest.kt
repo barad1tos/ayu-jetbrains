@@ -2,10 +2,12 @@ package dev.ayuislands.commitpanel
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ToolWindowType
 import com.intellij.openapi.wm.ex.ToolWindowEx
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
+import com.intellij.openapi.wm.ex.ToolWindowManagerListener.ToolWindowManagerEventType
 import com.intellij.ui.content.Content
 import com.intellij.ui.content.ContentManager
 import com.intellij.util.messages.MessageBus
@@ -19,6 +21,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
+import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.FlowLayout
@@ -181,6 +184,74 @@ class CommitPanelAutoFitManagerTest {
     }
 
     @Test
+    fun `stateChanged ignores events from another visible tool window`() {
+        SwingUtilities.invokeAndWait {
+            every {
+                LicenseChecker.isLicensedOrGrace()
+            } returns true
+            realState.commitPanelWidthMode =
+                PanelWidthMode.FIXED.name
+
+            val listenerSlot = slot<ToolWindowManagerListener>()
+            every {
+                connection.subscribe(
+                    ToolWindowManagerListener.TOPIC,
+                    capture(listenerSlot),
+                )
+            } returns Unit
+
+            CommitPanelAutoFitManager(project)
+
+            val foreignToolWindow = visibleToolWindow("AWS")
+            listenerSlot.captured.stateChanged(
+                toolWindowManager,
+                foreignToolWindow,
+                ToolWindowManagerEventType.ActivateToolWindow,
+            )
+
+            verify(exactly = 0) {
+                toolWindowManager.getToolWindow("Commit")
+            }
+        }
+    }
+
+    @Test
+    fun `stateChanged applies fixed width for own visible tool window activation`() {
+        SwingUtilities.invokeAndWait {
+            every {
+                LicenseChecker.isLicensedOrGrace()
+            } returns true
+            realState.commitPanelWidthMode =
+                PanelWidthMode.FIXED.name
+            realState.commitPanelFixedWidth = 350
+
+            val panel = JPanel(FlowLayout())
+            panel.setSize(200, 400)
+            setupCommitToolWindow(panel)
+            every { toolWindowEx.id } returns "Commit"
+            every { toolWindowEx.isVisible } returns true
+
+            val listenerSlot = slot<ToolWindowManagerListener>()
+            every {
+                connection.subscribe(
+                    ToolWindowManagerListener.TOPIC,
+                    capture(listenerSlot),
+                )
+            } returns Unit
+
+            CommitPanelAutoFitManager(project)
+
+            listenerSlot.captured.stateChanged(
+                toolWindowManager,
+                toolWindowEx,
+                ToolWindowManagerEventType.ActivateToolWindow,
+            )
+
+            verify { toolWindowEx.stretchWidth(any()) }
+        }
+    }
+
+    @Test
     fun `apply with AUTO_FIT installs expansion listener and stretches on expand`() {
         SwingUtilities.invokeAndWait {
             every {
@@ -288,6 +359,12 @@ class CommitPanelAutoFitManagerTest {
             toolWindowEx.type
         } returns ToolWindowType.DOCKED
     }
+
+    private fun visibleToolWindow(id: String): ToolWindow =
+        mockk {
+            every { this@mockk.id } returns id
+            every { isVisible } returns true
+        }
 
     private fun mockCalculatorForDefaultMeasuredWidth() {
         mockkObject(AutoFitCalculator)

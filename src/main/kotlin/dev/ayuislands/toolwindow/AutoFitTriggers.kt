@@ -1,5 +1,6 @@
 package dev.ayuislands.toolwindow
 
+import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 
 /**
@@ -21,3 +22,11 @@ import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 internal fun ToolWindowManagerListener.ToolWindowManagerEventType.shouldTriggerAutoFit(): Boolean =
     this != ToolWindowManagerListener.ToolWindowManagerEventType.MovedOrResized &&
         this != ToolWindowManagerListener.ToolWindowManagerEventType.ShowToolWindow
+
+internal fun ToolWindowManagerListener.ToolWindowManagerEventType.shouldTriggerAutoFitFor(
+    toolWindow: ToolWindow,
+    expectedToolWindowId: String,
+): Boolean =
+    shouldTriggerAutoFit() &&
+        toolWindow.id == expectedToolWindowId &&
+        toolWindow.isVisible

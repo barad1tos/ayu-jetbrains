@@ -4,13 +4,14 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Splitter
+import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.PanelWidthMode
 import dev.ayuislands.toolwindow.AutoFitCalculator
-import dev.ayuislands.toolwindow.shouldTriggerAutoFit
+import dev.ayuislands.toolwindow.shouldTriggerAutoFitFor
 import javax.swing.JTable
 import javax.swing.JTree
 import javax.swing.Timer
@@ -35,11 +36,10 @@ class GitPanelAutoFitManager(
             object : ToolWindowManagerListener {
                 override fun stateChanged(
                     toolWindowManager: ToolWindowManager,
+                    toolWindow: ToolWindow,
                     changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
                 ) {
-                    if (!changeType.shouldTriggerAutoFit()) return
-                    val tw = toolWindowManager.getToolWindow("Version Control") ?: return
-                    if (!tw.isVisible) return
+                    if (!changeType.shouldTriggerAutoFitFor(toolWindow, TOOL_WINDOW_ID)) return
                     val mode =
                         PanelWidthMode.fromString(
                             AyuIslandsSettings.getInstance().state.gitPanelWidthMode,

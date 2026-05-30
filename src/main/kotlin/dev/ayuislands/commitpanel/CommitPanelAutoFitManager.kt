@@ -3,6 +3,7 @@ package dev.ayuislands.commitpanel
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import dev.ayuislands.licensing.LicenseChecker
@@ -10,7 +11,7 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.PanelWidthMode
 import dev.ayuislands.toolwindow.AutoFitCalculator
 import dev.ayuislands.toolwindow.ToolWindowAutoFitter
-import dev.ayuislands.toolwindow.shouldTriggerAutoFit
+import dev.ayuislands.toolwindow.shouldTriggerAutoFitFor
 
 /** Per-project service that auto-fits the Commit tool window width to its tree content. */
 @Service(Service.Level.PROJECT)
@@ -20,7 +21,7 @@ class CommitPanelAutoFitManager(
     private val autoFitter =
         ToolWindowAutoFitter(
             project = project,
-            toolWindowId = "Commit",
+            toolWindowId = TOOL_WINDOW_ID,
             minWidth = AutoFitCalculator.MIN_COMMIT_AUTOFIT_WIDTH,
         ).apply {
             maxWidthProvider = { AyuIslandsSettings.getInstance().state.autoFitCommitMaxWidth }
@@ -33,11 +34,10 @@ class CommitPanelAutoFitManager(
             object : ToolWindowManagerListener {
                 override fun stateChanged(
                     toolWindowManager: ToolWindowManager,
+                    toolWindow: ToolWindow,
                     changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
                 ) {
-                    if (!changeType.shouldTriggerAutoFit()) return
-                    val tw = toolWindowManager.getToolWindow("Commit") ?: return
-                    if (!tw.isVisible) return
+                    if (!changeType.shouldTriggerAutoFitFor(toolWindow, TOOL_WINDOW_ID)) return
                     val mode =
                         PanelWidthMode.fromString(
                             AyuIslandsSettings.getInstance().state.commitPanelWidthMode,
@@ -64,6 +64,8 @@ class CommitPanelAutoFitManager(
     }
 
     companion object {
+        private const val TOOL_WINDOW_ID = "Commit"
+
         fun getInstance(project: Project): CommitPanelAutoFitManager =
             project.getService(
                 CommitPanelAutoFitManager::class.java,
