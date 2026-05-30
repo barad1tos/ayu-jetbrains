@@ -1,0 +1,143 @@
+package dev.ayuislands.settings
+
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.ex.ActionManagerEx
+import com.intellij.openapi.application.Application
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.ui.DialogPanel
+import com.intellij.ui.dsl.builder.panel
+import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.conflict.ConflictRegistry
+import dev.ayuislands.licensing.LicenseChecker
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.mockkClass
+import io.mockk.mockkObject
+import io.mockk.mockkStatic
+import io.mockk.unmockkAll
+import java.awt.Component
+import java.awt.Container
+import javax.swing.JCheckBox
+import javax.swing.JSlider
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
+import kotlin.test.Test
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+
+class PluginsPanelTest {
+    private lateinit var state: AyuIslandsState
+    private lateinit var settings: AyuIslandsSettings
+
+    @BeforeTest
+    fun setUp() {
+        state = AyuIslandsState()
+        settings = mockk(relaxed = true)
+        every { settings.state } returns state
+        mockkObject(AyuIslandsSettings.Companion)
+        every { AyuIslandsSettings.getInstance() } returns settings
+
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+
+        mockkObject(ConflictRegistry)
+        every { ConflictRegistry.isCodeGlanceProDetected() } returns false
+        every { ConflictRegistry.isIndentRainbowDetected() } returns true
+
+        wireUiDslServices()
+    }
+
+    @AfterTest
+    fun tearDown() {
+        unmockkAll()
+    }
+
+    @Test
+    fun `unlicensed indent rainbow keeps nested preview controls visible but locked`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        state.irIntegrationEnabled = false
+        val pluginsPanel = PluginsPanel()
+
+        val dialogPanel = buildDialogPanel(pluginsPanel)
+        val errorCheckbox =
+            descendants(dialogPanel, JCheckBox::class.java)
+                .first { it.text == "Highlight indent errors" }
+        val alphaSlider = descendants(dialogPanel, JSlider::class.java).first()
+
+        assertTrue(
+            errorCheckbox.isEffectivelyVisibleWithin(dialogPanel),
+            "Locked Indent Rainbow preview must show the error-highlighting row even when sync is off",
+        )
+        assertFalse(
+            errorCheckbox.isEnabled,
+            "Locked Indent Rainbow error-highlighting checkbox must be visible but not mutable",
+        )
+        assertTrue(
+            alphaSlider.isEffectivelyVisibleWithin(dialogPanel),
+            "Locked Indent Rainbow preview must show the custom alpha row",
+        )
+        assertFalse(
+            alphaSlider.isEnabled,
+            "Locked Indent Rainbow alpha slider must be visible but not mutable",
+        )
+        assertFalse(
+            pluginsPanel.isModified(),
+            "Rendering locked plugin integration previews must not dirty Settings",
+        )
+    }
+
+    private fun buildDialogPanel(pluginsPanel: PluginsPanel): DialogPanel =
+        panel {
+            pluginsPanel.buildPanel(this, AyuVariant.MIRAGE)
+        }
+
+    private fun wireUiDslServices() {
+        mockkStatic(ApplicationManager::class)
+        val appMock = mockk<Application>(relaxed = true)
+        val actionManagerMock = mockk<ActionManagerEx>(relaxed = true)
+        mockkStatic(ActionManager::class)
+        every { ActionManager.getInstance() } returns actionManagerMock
+        every { ApplicationManager.getApplication() } returns appMock
+        every { appMock.invokeLater(any()) } answers { firstArg<Runnable>().run() }
+        every { actionManagerMock.getAction(any()) } returns null
+
+        @Suppress("UNCHECKED_CAST")
+        val experimentalUiClass = Class.forName("com.intellij.ui.ExperimentalUI") as Class<Any>
+        val experimentalUiMock = mockkClass(experimentalUiClass.kotlin, relaxed = true)
+        every { appMock.getService(any<Class<*>>()) } answers {
+            when (val serviceClass = firstArg<Class<*>>()) {
+                ActionManager::class.java,
+                ActionManagerEx::class.java,
+                -> actionManagerMock
+                experimentalUiClass -> experimentalUiMock
+                else -> mockkClass(serviceClass.kotlin, relaxed = true)
+            }
+        }
+        every { appMock.getService(ActionManager::class.java) } returns actionManagerMock
+        every { appMock.getService(ActionManagerEx::class.java) } returns actionManagerMock
+        every { appMock.getServiceIfCreated(ActionManager::class.java) } returns actionManagerMock
+    }
+
+    private fun <T : Component> descendants(
+        container: Container,
+        type: Class<T>,
+    ): List<T> =
+        buildList {
+            fun visit(component: Component) {
+                if (type.isInstance(component)) add(type.cast(component))
+                if (component is Container) {
+                    component.components.forEach(::visit)
+                }
+            }
+            visit(container)
+        }
+
+    private fun Component.isEffectivelyVisibleWithin(root: Component): Boolean {
+        var current: Component? = this
+        while (current != null && current !== root) {
+            if (!current.isVisible) return false
+            current = current.parent
+        }
+        return current === root && root.isVisible
+    }
+}

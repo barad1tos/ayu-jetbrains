@@ -474,10 +474,33 @@ class VcsColorPanelTest {
         every { LicenseChecker.isLicensedOrGrace() } returns false
         val panel = newBuiltPanel()
         assertNotNull(vcsPreview(panel), "Unlicensed VCS gate must keep the preview visible")
-        assertFalse(slider(panel, "diffSlider").isEnabled, "Unlicensed VCS gate must lock sliders")
+        assertFalse(diffSlider(panel).isEnabled, "Unlicensed VCS gate must lock sliders")
         panel.setPendingEnabledForTest(true)
         panel.apply()
         verify(exactly = 0) { VcsColorApplier.applyAll() }
+    }
+
+    @Test
+    fun `unlicensed reset keeps VCS preview visible when customization is disabled`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        state.vcsColorEnabled = false
+        val panel = newBuiltPanel()
+
+        assertTrue(
+            vcsPreview(panel).isVisible,
+            "Free users must see the locked VCS preview even when customization is disabled",
+        )
+
+        panel.reset()
+
+        assertTrue(
+            vcsPreview(panel).isVisible,
+            "Reset must keep the locked VCS preview visible instead of hiding premium content",
+        )
+        assertFalse(
+            panel.isModified(),
+            "Resetting a locked preview must not dirty the settings dialog",
+        )
     }
 
     private fun newBuiltPanel(): VcsColorPanel {
@@ -509,13 +532,10 @@ class VcsColorPanelTest {
             ?: error("$fieldName must be created")
     }
 
-    private fun slider(
-        panel: VcsColorPanel,
-        fieldName: String,
-    ): JSlider {
-        val field = VcsColorPanel::class.java.getDeclaredField(fieldName)
+    private fun diffSlider(panel: VcsColorPanel): JSlider {
+        val field = VcsColorPanel::class.java.getDeclaredField("diffSlider")
         field.isAccessible = true
-        return field.get(panel) as? JSlider ?: error("$fieldName must be created")
+        return field.get(panel) as? JSlider ?: error("diffSlider must be created")
     }
 
     private fun layoutTree(container: Container) {

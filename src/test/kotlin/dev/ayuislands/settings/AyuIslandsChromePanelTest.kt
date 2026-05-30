@@ -180,6 +180,25 @@ class AyuIslandsChromePanelTest {
     }
 
     @Test
+    fun `unlicensed legacy intensity clamps without dirtying locked chrome preview`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        state.chromeTintIntensity = 80
+        val chromePanel = AyuIslandsChromePanel()
+
+        buildPanel(chromePanel)
+
+        assertEquals(
+            50,
+            chromePanel.getPendingChromeTintIntensityForTest(),
+            "Free users must still see a slider-safe clamped chrome preview",
+        )
+        assertFalse(
+            chromePanel.isModified(),
+            "Locked chrome preview must not open dirty because free users cannot apply the clamp",
+        )
+    }
+
+    @Test
     fun `loadStored clamps negative legacy intensity up to MIN_INTENSITY so slider construction stays total`() {
         // Corrupted XML or a third-party migration may persist a negative intensity.
         // The prior coerceAtMost clamp only trimmed the upper bound, so a negative

@@ -349,50 +349,58 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         rotationCheckboxCell: Cell<JBCheckBox>,
         gate: PremiumFeatureGate,
     ) {
-        row {
-            label("Mode:")
-            val modeCombo =
-                comboBox(
-                    listOf("Preset cycle", "Random color"),
-                ).component
-            modeCombo.selectedIndex =
-                if (pendingRotationMode == AccentRotationMode.RANDOM.name) 1 else 0
-            modeCombo.applyPremiumLock(gate)
-            modeCombo.addActionListener {
-                if (!gate.isUnlocked) return@addActionListener
-                pendingRotationMode =
-                    if (modeCombo.selectedIndex == 1) {
-                        AccentRotationMode.RANDOM.name
-                    } else {
-                        AccentRotationMode.PRESET.name
-                    }
+        val controlsRow =
+            row {
+                label("Mode:")
+                val modeCombo =
+                    comboBox(
+                        listOf("Preset cycle", "Random color"),
+                    ).component
+                modeCombo.selectedIndex =
+                    if (pendingRotationMode == AccentRotationMode.RANDOM.name) 1 else 0
+                modeCombo.applyPremiumLock(gate)
+                modeCombo.addActionListener {
+                    if (!gate.isUnlocked) return@addActionListener
+                    pendingRotationMode =
+                        if (modeCombo.selectedIndex == 1) {
+                            AccentRotationMode.RANDOM.name
+                        } else {
+                            AccentRotationMode.PRESET.name
+                        }
+                }
             }
-        }.visibleIf(rotationCheckboxCell.selected)
+        if (gate.isUnlocked) {
+            controlsRow.visibleIf(rotationCheckboxCell.selected)
+        }
     }
 
     private fun Panel.buildRotationIntervalRow(
         rotationCheckboxCell: Cell<JBCheckBox>,
         gate: PremiumFeatureGate,
     ) {
-        row {
-            label("Interval:")
-            val intervalCombo =
-                comboBox(
-                    listOf("1 hour", "3 hours", "6 hours", "12 hours", "24 hours"),
-                ).component
-            intervalCombo.selectedIndex =
-                INTERVAL_VALUES
-                    .indexOf(pendingRotationInterval)
-                    .coerceAtLeast(0)
-            intervalCombo.applyPremiumLock(gate)
-            intervalCombo.addActionListener {
-                if (!gate.isUnlocked) return@addActionListener
-                pendingRotationInterval =
-                    INTERVAL_VALUES.getOrElse(intervalCombo.selectedIndex) {
-                        AyuIslandsState.DEFAULT_ROTATION_INTERVAL_HOURS
-                    }
+        val controlsRow =
+            row {
+                label("Interval:")
+                val intervalCombo =
+                    comboBox(
+                        listOf("1 hour", "3 hours", "6 hours", "12 hours", "24 hours"),
+                    ).component
+                intervalCombo.selectedIndex =
+                    INTERVAL_VALUES
+                        .indexOf(pendingRotationInterval)
+                        .coerceAtLeast(0)
+                intervalCombo.applyPremiumLock(gate)
+                intervalCombo.addActionListener {
+                    if (!gate.isUnlocked) return@addActionListener
+                    pendingRotationInterval =
+                        INTERVAL_VALUES.getOrElse(intervalCombo.selectedIndex) {
+                            AyuIslandsState.DEFAULT_ROTATION_INTERVAL_HOURS
+                        }
+                }
             }
-        }.visibleIf(rotationCheckboxCell.selected)
+        if (gate.isUnlocked) {
+            controlsRow.visibleIf(rotationCheckboxCell.selected)
+        }
     }
 
     private fun handleCustomTrigger() {

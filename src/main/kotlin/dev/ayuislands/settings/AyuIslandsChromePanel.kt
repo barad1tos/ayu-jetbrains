@@ -95,62 +95,7 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
         val collapsible =
             panel.collapsibleGroup(GROUP_TITLE) {
                 premiumFeatureNotice(gate)
-
-                row {
-                    val cb = checkBox("Status bar")
-                    cb.component.isSelected = pendingChromeStatusBar
-                    cb.component.applyPremiumLock(gate)
-                    cb.component.addActionListener {
-                        if (!gate.isUnlocked) return@addActionListener
-                        pendingChromeStatusBar = cb.component.isSelected
-                    }
-                    statusBarCheckbox = cb.component
-                }
-                row {
-                    val cb = checkBox("Main toolbar")
-                    cb.component.isSelected = pendingChromeMainToolbar
-                    cb.component.applyPremiumLock(gate, enabledWhenUnlocked = probeAllowsMainToolbar)
-                    cb.component.addActionListener {
-                        if (!gate.isUnlocked || !probeAllowsMainToolbar) return@addActionListener
-                        pendingChromeMainToolbar = cb.component.isSelected
-                    }
-                    mainToolbarCheckbox = cb.component
-                    if (!probeAllowsMainToolbar) {
-                        val commentText = disabledMainToolbarComment()
-                        cb.comment(commentText)
-                        mainToolbarComment = commentText
-                    }
-                }
-                row {
-                    val cb = checkBox("Tool window stripe")
-                    cb.component.isSelected = pendingChromeToolWindowStripe
-                    cb.component.applyPremiumLock(gate)
-                    cb.component.addActionListener {
-                        if (!gate.isUnlocked) return@addActionListener
-                        pendingChromeToolWindowStripe = cb.component.isSelected
-                    }
-                    toolWindowStripeCheckbox = cb.component
-                }
-                row {
-                    val cb = checkBox("Navigation bar")
-                    cb.component.isSelected = pendingChromeNavBar
-                    cb.component.applyPremiumLock(gate)
-                    cb.component.addActionListener {
-                        if (!gate.isUnlocked) return@addActionListener
-                        pendingChromeNavBar = cb.component.isSelected
-                    }
-                    navBarCheckbox = cb.component
-                }
-                row {
-                    val cb = checkBox("Panel borders")
-                    cb.component.isSelected = pendingChromePanelBorder
-                    cb.component.applyPremiumLock(gate)
-                    cb.component.addActionListener {
-                        if (!gate.isUnlocked) return@addActionListener
-                        pendingChromePanelBorder = cb.component.isSelected
-                    }
-                    panelBorderCheckbox = cb.component
-                }
+                buildChromeSurfaceRows(gate, probeAllowsMainToolbar)
                 row("Intensity (%):") {
                     val slider = JSlider(MIN_INTENSITY, MAX_INTENSITY, pendingChromeTintIntensity)
                     slider.paintTicks = true
@@ -179,6 +124,76 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
         expandedListener = listener
         collapsible.addExpandedListener { expanded -> listener(expanded) }
     }
+
+    private fun Panel.buildChromeSurfaceRows(
+        gate: PremiumFeatureGate,
+        probeAllowsMainToolbar: Boolean,
+    ) {
+        val disabledToolbarComment =
+            if (probeAllowsMainToolbar) {
+                null
+            } else {
+                disabledMainToolbarComment()
+            }
+        mainToolbarComment = disabledToolbarComment
+
+        listOf(
+            ChromeSurfaceRow(
+                label = "Status bar",
+                selected = pendingChromeStatusBar,
+                onChanged = { pendingChromeStatusBar = it },
+                rememberComponent = { statusBarCheckbox = it },
+            ),
+            ChromeSurfaceRow(
+                label = "Main toolbar",
+                selected = pendingChromeMainToolbar,
+                onChanged = { pendingChromeMainToolbar = it },
+                rememberComponent = { mainToolbarCheckbox = it },
+                enabledWhenUnlocked = probeAllowsMainToolbar,
+                disabledComment = disabledToolbarComment,
+            ),
+            ChromeSurfaceRow(
+                label = "Tool window stripe",
+                selected = pendingChromeToolWindowStripe,
+                onChanged = { pendingChromeToolWindowStripe = it },
+                rememberComponent = { toolWindowStripeCheckbox = it },
+            ),
+            ChromeSurfaceRow(
+                label = "Navigation bar",
+                selected = pendingChromeNavBar,
+                onChanged = { pendingChromeNavBar = it },
+                rememberComponent = { navBarCheckbox = it },
+            ),
+            ChromeSurfaceRow(
+                label = "Panel borders",
+                selected = pendingChromePanelBorder,
+                onChanged = { pendingChromePanelBorder = it },
+                rememberComponent = { panelBorderCheckbox = it },
+            ),
+        ).forEach { surfaceRow ->
+            row {
+                val checkboxCell = checkBox(surfaceRow.label)
+                val checkbox = checkboxCell.component
+                checkbox.isSelected = surfaceRow.selected
+                checkbox.applyPremiumLock(gate, enabledWhenUnlocked = surfaceRow.enabledWhenUnlocked)
+                checkbox.addActionListener {
+                    if (!gate.isUnlocked || !surfaceRow.enabledWhenUnlocked) return@addActionListener
+                    surfaceRow.onChanged(checkbox.isSelected)
+                }
+                surfaceRow.rememberComponent(checkbox)
+                surfaceRow.disabledComment?.let { checkboxCell.comment(it) }
+            }
+        }
+    }
+
+    private class ChromeSurfaceRow(
+        val label: String,
+        val selected: Boolean,
+        val onChanged: (Boolean) -> Unit,
+        val rememberComponent: (JBCheckBox) -> Unit,
+        val enabledWhenUnlocked: Boolean = true,
+        val disabledComment: String? = null,
+    )
 
     override fun isModified(): Boolean =
         pendingChromeStatusBar != storedChromeStatusBar ||
@@ -315,8 +330,9 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
         // (corrupted XML, older schema, third-party migration) would otherwise slip
         // through the cap and reach the JSlider constructor, which throws when
         // value < min. The lower bound keeps the slider construction total.
-        storedChromeTintIntensity = state.chromeTintIntensity
-        pendingChromeTintIntensity = state.chromeTintIntensity.coerceIn(MIN_INTENSITY, MAX_INTENSITY)
+        val clampedIntensity = state.chromeTintIntensity.coerceIn(MIN_INTENSITY, MAX_INTENSITY)
+        storedChromeTintIntensity = if (licensed) state.chromeTintIntensity else clampedIntensity
+        pendingChromeTintIntensity = clampedIntensity
     }
 
     /**

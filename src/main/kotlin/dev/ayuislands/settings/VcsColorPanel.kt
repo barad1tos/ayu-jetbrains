@@ -463,7 +463,7 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
             diffPresetSegmented?.selectedItem = pendingDiffPreset
             mergePresetSegmented?.selectedItem = pendingMergePreset
             blamePresetSegmented?.selectedItem = pendingBlamePreset
-            masterEnabled.set(pendingEnabled)
+            masterEnabled.set(pendingEnabled || !licensed)
             diffCustomSelected.set(pendingDiffPreset == VcsColorPreset.CUSTOM)
             mergeCustomSelected.set(pendingMergePreset == VcsColorPreset.CUSTOM)
             blameCustomSelected.set(pendingBlamePreset == VcsColorPreset.CUSTOM)
@@ -502,7 +502,7 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
         pendingConflictMarkerIntensity = state.vcsConflictMarkerIntensity.coerceIn(MIN_INTENSITY, MAX_INTENSITY)
         storedBlameIntensity = state.vcsBlameIntensity
         pendingBlameIntensity = state.vcsBlameIntensity.coerceIn(MIN_INTENSITY, MAX_INTENSITY)
-        masterEnabled.set(pendingEnabled)
+        masterEnabled.set(pendingEnabled || !licensed)
         diffCustomSelected.set(pendingDiffPreset == VcsColorPreset.CUSTOM)
         mergeCustomSelected.set(pendingMergePreset == VcsColorPreset.CUSTOM)
         blameCustomSelected.set(pendingBlamePreset == VcsColorPreset.CUSTOM)

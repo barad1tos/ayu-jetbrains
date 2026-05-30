@@ -1,14 +1,28 @@
 package dev.ayuislands.settings
 
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.ex.ActionManagerEx
+import com.intellij.openapi.application.Application
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.ui.DialogPanel
 import com.intellij.testFramework.LoggedErrorProcessor
+import com.intellij.ui.dsl.builder.panel
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.rotation.AccentRotationMode
+import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkClass
 import io.mockk.mockkObject
+import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
+import java.awt.Component
+import java.awt.Container
+import javax.swing.JComboBox
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -37,11 +51,26 @@ import kotlin.test.Test
  * equivalent integration test.
  */
 class AyuIslandsAccentPanelTest {
+    private lateinit var state: AyuIslandsState
+    private lateinit var settings: AyuIslandsSettings
     private lateinit var swapService: ProjectAccentSwapService
 
     @BeforeTest
     fun setUp() {
+        state = AyuIslandsState()
+        settings = mockk(relaxed = true)
+        every { settings.state } returns state
+        every { settings.getAccentForVariant(any()) } answers {
+            firstArg<AyuVariant>().defaultAccent
+        }
+        mockkObject(AyuIslandsSettings.Companion)
+        every { AyuIslandsSettings.getInstance() } returns settings
+
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+
         mockkObject(AccentApplicator)
+        every { AccentApplicator.resolveFocusedProject() } returns null
         swapService = mockk(relaxed = true)
         mockkObject(ProjectAccentSwapService.Companion)
         every { ProjectAccentSwapService.getInstance() } returns swapService
@@ -280,5 +309,101 @@ class AyuIslandsAccentPanelTest {
             "Hook invocation order must be before → overrides → after so the visible " +
                 "render order (Accent → System → Overrides → Chrome Tinting → Rotation) is preserved",
         )
+    }
+
+    @Test
+    fun `unlicensed accent rotation keeps mode and interval controls visible`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        state.accentRotationEnabled = false
+        state.accentRotationMode = AccentRotationMode.PRESET.name
+        state.accentRotationIntervalHours = AyuIslandsState.DEFAULT_ROTATION_INTERVAL_HOURS
+        val accentPanel = AyuIslandsAccentPanel()
+
+        val dialogPanel = buildDialogPanel(accentPanel)
+        val comboBoxes = descendants(dialogPanel, JComboBox::class.java)
+        val modeCombo = comboBoxes.first { it.containsItem("Preset cycle") }
+        val intervalCombo = comboBoxes.first { it.containsItem("1 hour") }
+
+        kotlin.test.assertTrue(
+            modeCombo.isEffectivelyVisibleWithin(dialogPanel),
+            "Locked Accent Rotation preview must show the mode selector even when the toggle is off",
+        )
+        kotlin.test.assertFalse(
+            modeCombo.isEnabled,
+            "Locked Accent Rotation mode selector must be visible but not mutable",
+        )
+        kotlin.test.assertTrue(
+            intervalCombo.isEffectivelyVisibleWithin(dialogPanel),
+            "Locked Accent Rotation preview must show the interval selector even when the toggle is off",
+        )
+        kotlin.test.assertFalse(
+            intervalCombo.isEnabled,
+            "Locked Accent Rotation interval selector must be visible but not mutable",
+        )
+        kotlin.test.assertFalse(
+            accentPanel.isModified(),
+            "Rendering locked Accent Rotation controls must not dirty Settings",
+        )
+    }
+
+    private fun buildDialogPanel(accentPanel: AyuIslandsAccentPanel): DialogPanel {
+        wireUiDslServices()
+        return panel {
+            accentPanel.buildPanel(this, AyuVariant.MIRAGE)
+        }
+    }
+
+    private fun wireUiDslServices() {
+        mockkStatic(ApplicationManager::class)
+        val appMock = mockk<Application>(relaxed = true)
+        val actionManagerMock = mockk<ActionManagerEx>(relaxed = true)
+        val mappingsSettings = AccentMappingsSettings()
+        mockkStatic(ActionManager::class)
+        every { ActionManager.getInstance() } returns actionManagerMock
+        every { ApplicationManager.getApplication() } returns appMock
+        every { appMock.invokeLater(any()) } answers { firstArg<Runnable>().run() }
+        every { actionManagerMock.getAction(any()) } returns null
+
+        @Suppress("UNCHECKED_CAST")
+        val experimentalUiClass = Class.forName("com.intellij.ui.ExperimentalUI") as Class<Any>
+        val experimentalUiMock = mockkClass(experimentalUiClass.kotlin, relaxed = true)
+        every { appMock.getService(any<Class<*>>()) } answers {
+            when (val serviceClass = firstArg<Class<*>>()) {
+                ActionManager::class.java,
+                ActionManagerEx::class.java,
+                -> actionManagerMock
+                AccentMappingsSettings::class.java -> mappingsSettings
+                experimentalUiClass -> experimentalUiMock
+                else -> mockkClass(serviceClass.kotlin, relaxed = true)
+            }
+        }
+        every { appMock.getService(ActionManager::class.java) } returns actionManagerMock
+        every { appMock.getService(ActionManagerEx::class.java) } returns actionManagerMock
+        every { appMock.getServiceIfCreated(ActionManager::class.java) } returns actionManagerMock
+    }
+
+    private fun <T : Component> descendants(
+        container: Container,
+        type: Class<T>,
+    ): List<T> =
+        buildList {
+            fun visit(component: Component) {
+                if (type.isInstance(component)) add(type.cast(component))
+                if (component is Container) {
+                    component.components.forEach(::visit)
+                }
+            }
+            visit(container)
+        }
+
+    private fun JComboBox<*>.containsItem(item: String): Boolean = (0 until itemCount).any { getItemAt(it) == item }
+
+    private fun Component.isEffectivelyVisibleWithin(root: Component): Boolean {
+        var current: Component? = this
+        while (current != null && current !== root) {
+            if (!current.isVisible) return false
+            current = current.parent
+        }
+        return current === root && root.isVisible
     }
 }
