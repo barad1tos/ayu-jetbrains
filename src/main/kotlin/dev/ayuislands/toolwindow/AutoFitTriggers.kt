@@ -1,6 +1,7 @@
 package dev.ayuislands.toolwindow
 
 import com.intellij.openapi.wm.ToolWindow
+import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 
 /**
@@ -30,3 +31,11 @@ internal fun ToolWindowManagerListener.ToolWindowManagerEventType.shouldTriggerA
     shouldTriggerAutoFit() &&
         toolWindow.id == expectedToolWindowId &&
         toolWindow.isVisible
+
+internal fun ToolWindowManagerListener.ToolWindowManagerEventType.shouldTriggerAutoFitFor(
+    toolWindowManager: ToolWindowManager,
+    expectedToolWindowId: String,
+): Boolean {
+    val toolWindow = toolWindowManager.getToolWindow(expectedToolWindowId) ?: return false
+    return shouldTriggerAutoFit() && toolWindow.isVisible
+}

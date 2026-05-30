@@ -36,19 +36,31 @@ class GitPanelAutoFitManager(
             object : ToolWindowManagerListener {
                 override fun stateChanged(
                     toolWindowManager: ToolWindowManager,
+                    changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
+                ) {
+                    if (!changeType.shouldTriggerAutoFitFor(toolWindowManager, TOOL_WINDOW_ID)) return
+                    scheduleFitIfWidthManaged()
+                }
+
+                override fun stateChanged(
+                    toolWindowManager: ToolWindowManager,
                     toolWindow: ToolWindow,
                     changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
                 ) {
                     if (!changeType.shouldTriggerAutoFitFor(toolWindow, TOOL_WINDOW_ID)) return
-                    val mode =
-                        PanelWidthMode.fromString(
-                            AyuIslandsSettings.getInstance().state.gitPanelWidthMode,
-                        )
-                    if (mode == PanelWidthMode.DEFAULT) return
-                    debounceTimer.restart()
+                    scheduleFitIfWidthManaged()
                 }
             },
         )
+    }
+
+    private fun scheduleFitIfWidthManaged() {
+        val mode =
+            PanelWidthMode.fromString(
+                AyuIslandsSettings.getInstance().state.gitPanelWidthMode,
+            )
+        if (mode == PanelWidthMode.DEFAULT) return
+        debounceTimer.restart()
     }
 
     fun apply() {

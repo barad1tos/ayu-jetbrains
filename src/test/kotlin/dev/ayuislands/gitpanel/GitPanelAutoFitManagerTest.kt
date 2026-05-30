@@ -336,6 +336,38 @@ class GitPanelAutoFitManagerTest {
     }
 
     @Test
+    fun `stateChanged handles global layout changes for visible Version Control`() {
+        every {
+            LicenseChecker.isLicensedOrGrace()
+        } returns true
+        realState.gitPanelWidthMode =
+            PanelWidthMode.AUTO_FIT.name
+
+        val listenerSlot = slot<ToolWindowManagerListener>()
+        every {
+            connection.subscribe(
+                ToolWindowManagerListener.TOPIC,
+                capture(listenerSlot),
+            )
+        } returns Unit
+        every {
+            toolWindowManager.getToolWindow("Version Control")
+        } returns visibleToolWindow("Version Control")
+
+        val manager = GitPanelAutoFitManager(project)
+        try {
+            listenerSlot.captured.stateChanged(
+                toolWindowManager,
+                ToolWindowManagerEventType.SetLayout,
+            )
+
+            verify { toolWindowManager.getToolWindow("Version Control") }
+        } finally {
+            manager.dispose()
+        }
+    }
+
+    @Test
     fun `listener is removed when mode switches from AUTO_FIT to DEFAULT`() {
         SwingUtilities.invokeAndWait {
             every {

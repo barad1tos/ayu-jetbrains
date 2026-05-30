@@ -252,6 +252,41 @@ class CommitPanelAutoFitManagerTest {
     }
 
     @Test
+    fun `stateChanged applies fixed width for global layout changes`() {
+        SwingUtilities.invokeAndWait {
+            every {
+                LicenseChecker.isLicensedOrGrace()
+            } returns true
+            realState.commitPanelWidthMode =
+                PanelWidthMode.FIXED.name
+            realState.commitPanelFixedWidth = 350
+
+            val panel = JPanel(FlowLayout())
+            panel.setSize(200, 400)
+            setupCommitToolWindow(panel)
+            every { toolWindowEx.id } returns "Commit"
+            every { toolWindowEx.isVisible } returns true
+
+            val listenerSlot = slot<ToolWindowManagerListener>()
+            every {
+                connection.subscribe(
+                    ToolWindowManagerListener.TOPIC,
+                    capture(listenerSlot),
+                )
+            } returns Unit
+
+            CommitPanelAutoFitManager(project)
+
+            listenerSlot.captured.stateChanged(
+                toolWindowManager,
+                ToolWindowManagerEventType.SetLayout,
+            )
+
+            verify { toolWindowEx.stretchWidth(any()) }
+        }
+    }
+
+    @Test
     fun `apply with AUTO_FIT installs expansion listener and stretches on expand`() {
         SwingUtilities.invokeAndWait {
             every {

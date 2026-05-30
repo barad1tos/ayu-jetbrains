@@ -34,19 +34,31 @@ class CommitPanelAutoFitManager(
             object : ToolWindowManagerListener {
                 override fun stateChanged(
                     toolWindowManager: ToolWindowManager,
+                    changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
+                ) {
+                    if (!changeType.shouldTriggerAutoFitFor(toolWindowManager, TOOL_WINDOW_ID)) return
+                    applyIfWidthManaged()
+                }
+
+                override fun stateChanged(
+                    toolWindowManager: ToolWindowManager,
                     toolWindow: ToolWindow,
                     changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
                 ) {
                     if (!changeType.shouldTriggerAutoFitFor(toolWindow, TOOL_WINDOW_ID)) return
-                    val mode =
-                        PanelWidthMode.fromString(
-                            AyuIslandsSettings.getInstance().state.commitPanelWidthMode,
-                        )
-                    if (mode == PanelWidthMode.DEFAULT) return
-                    apply()
+                    applyIfWidthManaged()
                 }
             },
         )
+    }
+
+    private fun applyIfWidthManaged() {
+        val mode =
+            PanelWidthMode.fromString(
+                AyuIslandsSettings.getInstance().state.commitPanelWidthMode,
+            )
+        if (mode == PanelWidthMode.DEFAULT) return
+        apply()
     }
 
     fun apply() {

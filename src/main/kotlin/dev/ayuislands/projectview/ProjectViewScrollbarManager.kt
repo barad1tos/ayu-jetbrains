@@ -54,20 +54,19 @@ class ProjectViewScrollbarManager(
             object : ToolWindowManagerListener {
                 override fun stateChanged(
                     toolWindowManager: ToolWindowManager,
+                    changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
+                ) {
+                    if (!changeType.shouldTriggerAutoFitFor(toolWindowManager, TOOL_WINDOW_ID)) return
+                    applyIfAnyProjectFeatureManaged()
+                }
+
+                override fun stateChanged(
+                    toolWindowManager: ToolWindowManager,
                     toolWindow: ToolWindow,
                     changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
                 ) {
                     if (!changeType.shouldTriggerAutoFitFor(toolWindow, TOOL_WINDOW_ID)) return
-                    val state =
-                        AyuIslandsSettings.getInstance().state
-                    val widthMode = PanelWidthMode.fromString(state.projectPanelWidthMode)
-                    val allFeaturesDisabled =
-                        !state.hideProjectRootPath &&
-                            !state.hideProjectViewHScrollbar
-                    if (allFeaturesDisabled && widthMode == PanelWidthMode.DEFAULT) {
-                        return
-                    }
-                    apply()
+                    applyIfAnyProjectFeatureManaged()
                 }
             },
         )
@@ -86,6 +85,16 @@ class ProjectViewScrollbarManager(
                 ComponentTreeRefreshedTopic.TOPIC,
                 ComponentTreeRefreshedListener { apply() },
             )
+    }
+
+    private fun applyIfAnyProjectFeatureManaged() {
+        val state = AyuIslandsSettings.getInstance().state
+        val widthMode = PanelWidthMode.fromString(state.projectPanelWidthMode)
+        val allFeaturesDisabled =
+            !state.hideProjectRootPath &&
+                !state.hideProjectViewHScrollbar
+        if (allFeaturesDisabled && widthMode == PanelWidthMode.DEFAULT) return
+        apply()
     }
 
     fun apply() {
