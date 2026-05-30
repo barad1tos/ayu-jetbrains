@@ -352,7 +352,7 @@ internal class VcsColorPreviewComponent(
             listOf(
                 PreviewRow("12", VcsColorCategory.DIFF_VIEWER, "DIFF_MODIFIED", "fun renderPreset() {", true),
                 PreviewRow("13", VcsColorCategory.DIFF_VIEWER, "DIFF_INSERTED", "+ val selected = preset"),
-                PreviewRow("14", VcsColorCategory.CONFLICT_MARKERS, "DIFF_CONFLICT", "<<<<<<< current", true),
+                PreviewRow("14", VcsColorCategory.CONFLICT_MARKERS, "DIFF_CONFLICT", "current change", true),
                 PreviewRow("15", VcsColorCategory.DIFF_VIEWER, "DIFF_DELETED", "- val stale = swatch"),
                 PreviewRow("16", VcsColorCategory.DIFF_VIEWER, null, "  return selected"),
                 PreviewRow("17", VcsColorCategory.DIFF_VIEWER, null, "}"),
