@@ -48,6 +48,11 @@ internal fun Row.visibleIfUnlockedOrPreview(
         visible(true)
     }
 
+internal fun Row.visibleWhenUnlockedOrPreview(
+    visibleWhenUnlocked: Boolean,
+    gate: PremiumFeatureGate,
+): Row = visible(visibleWhenUnlocked || !gate.isUnlocked)
+
 internal fun <T : JComponent> Cell<T>.visibleIfUnlockedOrPreview(
     condition: AtomicBooleanProperty,
     gate: PremiumFeatureGate,

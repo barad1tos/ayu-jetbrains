@@ -33,6 +33,7 @@ class PluginsPanel : AyuIslandsSettingsPanel {
     private var alphaSlider: JSlider? = null
     private var alphaValueLabel: JLabel? = null
     private var presetSegmented: SegmentedButton<IndentPreset>? = null
+    private val irEnabled = AtomicBooleanProperty(false)
     private val customModeVisible = AtomicBooleanProperty(false)
     private var suppressListeners = false
 
@@ -54,7 +55,7 @@ class PluginsPanel : AyuIslandsSettingsPanel {
 
         loadStored(state)
         customModeVisible.set(isCustomIndentControlsVisible(licensed))
-        val irEnabled = AtomicBooleanProperty(pendingEnabled || !licensed)
+        irEnabled.set(pendingEnabled || !licensed)
 
         val cgpDetected = ConflictRegistry.isCodeGlanceProDetected()
         val irDetected = ConflictRegistry.isIndentRainbowDetected()
@@ -266,7 +267,9 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         presetSegmented?.selectedItem = IndentPreset.fromName(storedPreset)
         alphaSlider?.value = storedCustomAlpha
         alphaValueLabel?.text = "$storedCustomAlpha"
-        customModeVisible.set(isCustomIndentControlsVisible(LicenseChecker.isLicensedOrGrace()))
+        val licensed = LicenseChecker.isLicensedOrGrace()
+        irEnabled.set(pendingEnabled || !licensed)
+        customModeVisible.set(isCustomIndentControlsVisible(licensed))
         suppressListeners = false
     }
 

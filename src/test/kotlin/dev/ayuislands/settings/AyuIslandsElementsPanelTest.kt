@@ -1,12 +1,11 @@
 package dev.ayuislands.settings
 
-import com.intellij.ide.ui.LafManager
-import com.intellij.ide.ui.laf.UIThemeLookAndFeelInfo
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ex.ActionManagerEx
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.ui.DialogPanel
+import com.intellij.ui.dsl.builder.SegmentedButton
 import com.intellij.ui.dsl.builder.panel
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
@@ -20,7 +19,10 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import java.awt.Component
+import java.awt.Container
 import javax.swing.JCheckBox
+import javax.swing.JComponent
+import javax.swing.JLabel
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -30,13 +32,14 @@ import kotlin.test.assertTrue
 class AyuIslandsElementsPanelTest {
     private lateinit var state: AyuIslandsState
     private lateinit var settings: AyuIslandsSettings
+    private var isIslandsUi: Boolean = false
 
     @BeforeTest
     fun setUp() {
         state =
             AyuIslandsState().apply {
                 accentElementsGroupExpanded = true
-                glowTabMode = GlowTabMode.MINIMAL.name
+                glowTabMode = GlowTabMode.OFF.name
                 bracketScopeEnabled = true
             }
         settings = mockk(relaxed = true)
@@ -52,8 +55,10 @@ class AyuIslandsElementsPanelTest {
         every { ConflictRegistry.detectConflicts() } returns emptyList()
         every { ConflictRegistry.getConflictFor(any()) } returns null
 
+        mockkObject(AyuVariant.Companion)
+        every { AyuVariant.isIslandsUi() } answers { isIslandsUi }
+
         wireUiDslServices()
-        wireAyuTheme()
     }
 
     @AfterTest
@@ -70,6 +75,11 @@ class AyuIslandsElementsPanelTest {
         val toggleCheckboxes = toggleCheckboxes(elementsPanel).values.toList()
         val syncCheckbox = field<JCheckBox>(elementsPanel, "syncCheckbox")
         val bracketCheckbox = field<JCheckBox>(elementsPanel, "bracketScopeCheckbox")
+        val thicknessSegmented = modelField<SegmentedButton<Int>>(elementsPanel, "thicknessSegmented")
+        val thicknessLabel = descendants(dialogPanel, JLabel::class.java).first { it.text == "Underline thickness" }
+        val previewComponent =
+            descendants(dialogPanel, JComponent::class.java)
+                .first { it.javaClass.simpleName == "AccentPreviewComponent" }
 
         assertTrue(toggleCheckboxes.isNotEmpty(), "Locked Accent Elements preview must render toggles")
         assertTrue(
@@ -82,10 +92,19 @@ class AyuIslandsElementsPanelTest {
         )
         assertFalse(syncCheckbox.isEnabled, "Locked tab underline sync must not be mutable")
         assertTrue(
+            thicknessLabel.isEffectivelyVisibleWithin(dialogPanel),
+            "Locked Accent Elements preview must show underline thickness controls in classic UI",
+        )
+        thicknessSegmented.selectedItem = AyuIslandsState.DEFAULT_TAB_UNDERLINE_HEIGHT + 1
+        assertTrue(
             bracketCheckbox.isEffectivelyVisibleWithin(dialogPanel),
             "Locked Accent Elements preview must show bracket scope controls",
         )
         assertFalse(bracketCheckbox.isEnabled, "Locked bracket scope control must not be mutable")
+        assertTrue(
+            previewComponent.isEffectivelyVisibleWithin(dialogPanel),
+            "Locked Accent Elements preview must show the visual mock preview",
+        )
 
         toggleCheckboxes.first().isSelected = !toggleCheckboxes.first().isSelected
         syncCheckbox.isSelected = !syncCheckbox.isSelected
@@ -94,6 +113,27 @@ class AyuIslandsElementsPanelTest {
         assertFalse(
             elementsPanel.isModified(),
             "Programmatic changes to locked Accent Elements controls must not dirty Settings",
+        )
+    }
+
+    @Test
+    fun `unlicensed accent elements keep islands tab style selector visible but locked`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        isIslandsUi = true
+        val elementsPanel = AyuIslandsElementsPanel()
+
+        val dialogPanel = buildDialogPanel(elementsPanel)
+        val tabModeSegmented = modelField<SegmentedButton<GlowTabMode>>(elementsPanel, "tabModeSegmented")
+        val tabModeLabel = descendants(dialogPanel, JLabel::class.java).first { it.text == "Tab accent style" }
+
+        assertTrue(
+            tabModeLabel.isEffectivelyVisibleWithin(dialogPanel),
+            "Locked Accent Elements preview must show tab accent style controls in Islands UI",
+        )
+        tabModeSegmented.selectedItem = GlowTabMode.FULL
+        assertFalse(
+            elementsPanel.isModified(),
+            "Rendering locked Islands tab style controls must not dirty Settings",
         )
     }
 
@@ -129,15 +169,6 @@ class AyuIslandsElementsPanelTest {
         every { appMock.getServiceIfCreated(ActionManager::class.java) } returns actionManagerMock
     }
 
-    private fun wireAyuTheme() {
-        val lafManager = mockk<LafManager>(relaxed = true)
-        val themeLaf = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
-        mockkStatic(LafManager::class)
-        every { LafManager.getInstance() } returns lafManager
-        every { themeLaf.name } returns "Ayu Mirage"
-        every { lafManager.currentUIThemeLookAndFeel } returns themeLaf
-    }
-
     @Suppress("UNCHECKED_CAST")
     private fun toggleCheckboxes(panel: AyuIslandsElementsPanel): Map<AccentElementId, JCheckBox> {
         val field = AyuIslandsElementsPanel::class.java.getDeclaredField("checkboxes")
@@ -155,6 +186,30 @@ class AyuIslandsElementsPanelTest {
         @Suppress("UNCHECKED_CAST")
         return field.get(panel) as? T ?: error("$fieldName must be created")
     }
+
+    private fun <T : Any> modelField(
+        panel: AyuIslandsElementsPanel,
+        fieldName: String,
+    ): T {
+        val field = AyuIslandsElementsPanel::class.java.getDeclaredField(fieldName)
+        field.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        return field.get(panel) as? T ?: error("$fieldName must be created")
+    }
+
+    private fun <T : Component> descendants(
+        container: Container,
+        type: Class<T>,
+    ): List<T> =
+        buildList {
+            fun visit(component: Component) {
+                if (type.isInstance(component)) add(type.cast(component))
+                if (component is Container) {
+                    component.components.forEach(::visit)
+                }
+            }
+            visit(container)
+        }
 
     private fun Component.isEffectivelyVisibleWithin(root: Component): Boolean {
         var current: Component? = this

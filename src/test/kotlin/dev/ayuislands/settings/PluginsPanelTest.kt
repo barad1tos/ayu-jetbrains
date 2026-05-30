@@ -8,6 +8,7 @@ import com.intellij.openapi.ui.DialogPanel
 import com.intellij.ui.dsl.builder.panel
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.conflict.ConflictRegistry
+import dev.ayuislands.indent.IndentPreset
 import dev.ayuislands.licensing.LicenseChecker
 import io.mockk.every
 import io.mockk.mockk
@@ -84,6 +85,42 @@ class PluginsPanelTest {
             pluginsPanel.isModified(),
             "Rendering locked plugin integration previews must not dirty Settings",
         )
+    }
+
+    @Test
+    fun `reset restores indent rainbow nested row visibility for licensed users`() {
+        state.irIntegrationEnabled = true
+        state.indentPresetName = IndentPreset.CUSTOM.name
+        val pluginsPanel = PluginsPanel()
+
+        val dialogPanel = buildDialogPanel(pluginsPanel)
+        val enabledCheckbox =
+            descendants(dialogPanel, JCheckBox::class.java)
+                .first { it.text == "Sync colors with Indent Rainbow" }
+        val errorCheckbox =
+            descendants(dialogPanel, JCheckBox::class.java)
+                .first { it.text == "Highlight indent errors" }
+        val alphaSlider = descendants(dialogPanel, JSlider::class.java).first()
+
+        enabledCheckbox.doClick()
+
+        assertFalse(
+            errorCheckbox.isEffectivelyVisibleWithin(dialogPanel),
+            "Disabling Indent Rainbow sync should hide dependent rows for licensed users",
+        )
+
+        pluginsPanel.reset()
+
+        assertTrue(enabledCheckbox.isSelected, "Reset must restore the stored Indent Rainbow enabled state")
+        assertTrue(
+            errorCheckbox.isEffectivelyVisibleWithin(dialogPanel),
+            "Reset must restore dependent Indent Rainbow rows when stored sync is enabled",
+        )
+        assertTrue(
+            alphaSlider.isEffectivelyVisibleWithin(dialogPanel),
+            "Reset must restore custom alpha row visibility when stored preset is Custom",
+        )
+        assertFalse(pluginsPanel.isModified(), "Reset must leave Plugins settings clean")
     }
 
     private fun buildDialogPanel(pluginsPanel: PluginsPanel): DialogPanel =

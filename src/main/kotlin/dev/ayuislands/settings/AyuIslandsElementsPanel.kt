@@ -160,7 +160,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
                 // Subsection 2: Tab underline
                 separator()
                 row { label("Tab underline").bold() }
-                buildActiveTabContent()
+                buildActiveTabContent(gate)
 
                 // Subsection 3: Bracket scope
                 separator()
@@ -189,7 +189,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
      * Called from inside the parent `Accent Elements` collapsibleGroup where this content
      * sits under the `Tab underline` subsection header.
      */
-    private fun Panel.buildActiveTabContent() {
+    private fun Panel.buildActiveTabContent(gate: PremiumFeatureGate) {
         val state = AyuIslandsSettings.getInstance().state
         val glowEnabled = state.glowEnabled
         val islandsUi = AyuVariant.isIslandsUi()
@@ -233,7 +233,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
                     }
                 }
                 thicknessSegmented = thickSegmented
-            }.visible(!tabModeIsOff && !islandsUi)
+            }.visibleWhenUnlockedOrPreview(!tabModeIsOff && !islandsUi, gate)
 
         // Sync with the glow width checkbox (hidden on Islands UI)
         syncRow =
@@ -255,15 +255,15 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
                     }
                 }
                 syncCheckbox = cb.component
-            }.visible(!tabModeIsOff && !islandsUi)
+            }.visibleWhenUnlockedOrPreview(!tabModeIsOff && !islandsUi, gate)
     }
 
     private fun updateThicknessRowVisibility() {
         val isOff = GlowTabMode.fromName(pendingTabMode) == GlowTabMode.OFF
-        val hidden = isOff || AyuVariant.isIslandsUi()
-        thicknessRow?.visible(!hidden)
-        syncRow?.visible(!hidden)
-        if (!hidden) {
+        val visible = if (licensed) !isOff && !AyuVariant.isIslandsUi() else !AyuVariant.isIslandsUi()
+        thicknessRow?.visible(visible)
+        syncRow?.visible(visible)
+        if (visible) {
             updateThicknessEnabledState()
         }
     }
