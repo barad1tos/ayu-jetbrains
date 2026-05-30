@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.7.1] - 2026-05-31
+
+### Changed
+- **Visible locked premium previews** — free users can now inspect premium Settings controls in their real layout, with the controls greyed out until a license or trial unlocks them.
+- **Unified VCS preview** — the VCS tab now shows one compact code-style preview that reflects diff, merge/conflict, blame, and file-status presets together.
+- **Font preset preview polish** — the Font tab now uses the same editor-style preview treatment as VCS, with clearer depth and file context.
+
+### Fixed
+- Premium Settings controls stay visible-but-locked across VCS, Glow, Workspace, Chrome tinting, Accent Elements, plugin integrations, and accent overrides instead of disappearing behind a Pro notice.
+- Locked premium controls no longer mark Settings as modified when clicked by unlicensed users.
+- Reset/Revert restores nested plugin-integration rows correctly, including Indent Rainbow custom controls.
+- Settings tabs and preview panels shrink more consistently in narrow Settings windows.
+
 ## [2.7.0] - 2026-05-29
 
 ### Free

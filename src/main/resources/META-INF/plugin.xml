@@ -113,6 +113,15 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.7.1</h3>
+    <ul>
+      <li><b>Changed:</b> free users can inspect premium Settings controls in their real layout, with controls greyed out until a license or trial unlocks them.</li>
+      <li><b>Changed:</b> the VCS tab now shows one compact code-style preview that reflects diff, merge/conflict, blame, and file-status presets together.</li>
+      <li><b>Changed:</b> the Font tab now uses the same editor-style preview treatment as VCS, with clearer depth and file context.</li>
+      <li><b>Fixed:</b> premium Settings controls stay visible-but-locked across VCS, Glow, Workspace, Chrome tinting, Accent Elements, plugin integrations, and accent overrides instead of disappearing behind a Pro notice.</li>
+      <li><b>Fixed:</b> locked premium controls no longer mark Settings as modified when clicked by unlicensed users, and Reset/Revert restores nested plugin-integration rows correctly.</li>
+      <li><b>Fixed:</b> Settings tabs and preview panels shrink more consistently in narrow Settings windows.</li>
+    </ul>
     <h3>2.7.0</h3>
     <ul>
       <li>[Free] <b>Expanded semantic highlighting</b> — Ayu Islands now covers hundreds more editor keys across 26+ language families, with focused passes for YAML/HCL, Scala docs, Kotlin gaps, Dart accessors, Groovy, and Go exported identifiers.</li>

@@ -55,6 +55,13 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.7.1" to
+                releaseNotes(
+                    "Locked premium Settings controls are now visible as greyed-out previews",
+                    "VCS presets now update one compact code-style preview",
+                    "Font presets now use the same polished editor-style preview",
+                    "Settings tabs and previews shrink more consistently in narrow windows",
+                ),
             "2.7.0" to
                 releaseNotes(
                     "Expanded semantic highlighting across 26+ language families",
