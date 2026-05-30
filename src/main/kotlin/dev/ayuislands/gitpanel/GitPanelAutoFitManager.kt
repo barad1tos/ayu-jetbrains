@@ -4,13 +4,15 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Splitter
+import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.PanelWidthMode
 import dev.ayuislands.toolwindow.AutoFitCalculator
-import dev.ayuislands.toolwindow.shouldTriggerAutoFit
+import dev.ayuislands.toolwindow.shouldTriggerAutoFitFor
+import org.jetbrains.annotations.TestOnly
 import javax.swing.JTable
 import javax.swing.JTree
 import javax.swing.Timer
@@ -37,18 +39,38 @@ class GitPanelAutoFitManager(
                     toolWindowManager: ToolWindowManager,
                     changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
                 ) {
-                    if (!changeType.shouldTriggerAutoFit()) return
-                    val tw = toolWindowManager.getToolWindow("Version Control") ?: return
-                    if (!tw.isVisible) return
-                    val mode =
-                        PanelWidthMode.fromString(
-                            AyuIslandsSettings.getInstance().state.gitPanelWidthMode,
-                        )
-                    if (mode == PanelWidthMode.DEFAULT) return
-                    debounceTimer.restart()
+                    if (!changeType.shouldTriggerAutoFitFor(toolWindowManager, TOOL_WINDOW_ID)) return
+                    scheduleFitIfWidthManaged()
+                }
+
+                override fun stateChanged(
+                    toolWindowManager: ToolWindowManager,
+                    toolWindow: ToolWindow,
+                    changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
+                ) {
+                    if (!changeType.shouldTriggerAutoFitFor(toolWindow, TOOL_WINDOW_ID)) return
+                    scheduleFitIfWidthManaged()
                 }
             },
         )
+    }
+
+    private fun scheduleFitIfWidthManaged() {
+        val mode =
+            PanelWidthMode.fromString(
+                AyuIslandsSettings.getInstance().state.gitPanelWidthMode,
+            )
+        if (mode == PanelWidthMode.DEFAULT) return
+        debounceTimer.restart()
+    }
+
+    @TestOnly
+    internal fun flushDebounceForTesting() {
+        val hadPending = debounceTimer.isRunning
+        debounceTimer.stop()
+        if (hadPending) {
+            fitSplitters()
+        }
     }
 
     fun apply() {

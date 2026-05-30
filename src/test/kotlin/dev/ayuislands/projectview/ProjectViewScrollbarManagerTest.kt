@@ -16,10 +16,13 @@ import com.intellij.util.messages.MessageBusConnection
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.settings.PanelWidthMode
+import io.mockk.clearMocks
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
+import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.FlowLayout
@@ -284,6 +287,82 @@ class ProjectViewScrollbarManagerTest {
     }
 
     @Test
+    fun `stateChanged ignores events from another visible tool window`() {
+        realState.projectPanelWidthMode = PanelWidthMode.DEFAULT.name
+        realState.hideProjectViewHScrollbar = true
+
+        val listenerSlot = slot<ToolWindowManagerListener>()
+        every {
+            connection.subscribe(
+                ToolWindowManagerListener.TOPIC,
+                capture(listenerSlot),
+            )
+        } returns Unit
+
+        val manager = ProjectViewScrollbarManager(project)
+        try {
+            SwingUtilities.invokeAndWait {}
+            clearMocks(toolWindowManager, answers = false)
+
+            val foreignToolWindow = visibleToolWindow("AWS")
+            listenerSlot.captured.stateChanged(
+                toolWindowManager,
+                foreignToolWindow,
+                ToolWindowManagerListener.ToolWindowManagerEventType.ActivateToolWindow,
+            )
+
+            verify(exactly = 0) {
+                toolWindowManager.getToolWindow("Project")
+            }
+        } finally {
+            SwingUtilities.invokeAndWait {
+                manager.dispose()
+            }
+        }
+    }
+
+    @Test
+    fun `stateChanged reapplies project tweaks for global layout changes`() {
+        realState.projectPanelWidthMode = PanelWidthMode.DEFAULT.name
+        realState.hideProjectViewHScrollbar = true
+
+        val tree = JTree()
+        val scrollPane = JScrollPane(tree)
+        val wrapper = JPanel(FlowLayout())
+        wrapper.add(scrollPane)
+        setupToolWindowContent(wrapper)
+
+        val listenerSlot = slot<ToolWindowManagerListener>()
+        every {
+            connection.subscribe(
+                ToolWindowManagerListener.TOPIC,
+                capture(listenerSlot),
+            )
+        } returns Unit
+
+        val manager = ProjectViewScrollbarManager(project)
+        try {
+            SwingUtilities.invokeAndWait {}
+            scrollPane.horizontalScrollBarPolicy =
+                ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED
+
+            listenerSlot.captured.stateChanged(
+                toolWindowManager,
+                ToolWindowManagerListener.ToolWindowManagerEventType.SetLayout,
+            )
+
+            assertEquals(
+                ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER,
+                scrollPane.horizontalScrollBarPolicy,
+            )
+        } finally {
+            SwingUtilities.invokeAndWait {
+                manager.dispose()
+            }
+        }
+    }
+
+    @Test
     fun `apply is idempotent when called multiple times with same state`() {
         realState.hideProjectViewHScrollbar = true
         realState.hideProjectRootPath = false
@@ -336,6 +415,7 @@ class ProjectViewScrollbarManagerTest {
             }
         val toolWindow =
             mockk<ToolWindow>(relaxed = true) {
+                every { isVisible } returns true
                 every {
                     this@mockk.contentManager
                 } returns contentManager
@@ -344,4 +424,10 @@ class ProjectViewScrollbarManagerTest {
             toolWindowManager.getToolWindow("Project")
         } returns toolWindow
     }
+
+    private fun visibleToolWindow(id: String): ToolWindow =
+        mockk {
+            every { this@mockk.id } returns id
+            every { isVisible } returns true
+        }
 }

@@ -6,6 +6,7 @@ import com.intellij.openapi.ui.Splitter
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
+import com.intellij.openapi.wm.ex.ToolWindowManagerListener.ToolWindowManagerEventType
 import com.intellij.ui.content.Content
 import com.intellij.ui.content.ContentManager
 import com.intellij.util.messages.MessageBus
@@ -19,6 +20,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
+import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.FlowLayout
@@ -304,6 +306,115 @@ class GitPanelAutoFitManagerTest {
     }
 
     @Test
+    fun `stateChanged ignores events from another visible tool window`() {
+        every {
+            LicenseChecker.isLicensedOrGrace()
+        } returns true
+        realState.gitPanelWidthMode =
+            PanelWidthMode.AUTO_FIT.name
+
+        val listenerSlot = slot<ToolWindowManagerListener>()
+        every {
+            connection.subscribe(
+                ToolWindowManagerListener.TOPIC,
+                capture(listenerSlot),
+            )
+        } returns Unit
+
+        GitPanelAutoFitManager(project)
+
+        val foreignToolWindow = visibleToolWindow("AWS")
+        listenerSlot.captured.stateChanged(
+            toolWindowManager,
+            foreignToolWindow,
+            ToolWindowManagerEventType.ActivateToolWindow,
+        )
+
+        verify(exactly = 0) {
+            toolWindowManager.getToolWindow("Version Control")
+        }
+    }
+
+    @Test
+    fun `stateChanged handles global layout changes for visible Version Control`() {
+        SwingUtilities.invokeAndWait {
+            every {
+                LicenseChecker.isLicensedOrGrace()
+            } returns true
+            realState.gitPanelWidthMode =
+                PanelWidthMode.AUTO_FIT.name
+            realState.gitPanelAutoFitMaxWidth = 500
+            realState.gitPanelAutoFitMinWidth = 200
+
+            mockkObject(AutoFitCalculator)
+            every {
+                AutoFitCalculator.measureTreeMaxRowWidth(any())
+            } returns 250
+
+            val tree = JTree()
+            val table = JTable()
+            val innerFirst = JPanel(FlowLayout())
+            innerFirst.add(table)
+            val innerSecond = JPanel(FlowLayout())
+            innerSecond.add(tree)
+
+            val splitter = Splitter()
+            splitter.setSize(1000, 400)
+            splitter.proportion = 0.9f
+            splitter.firstComponent = innerFirst
+            splitter.secondComponent = innerSecond
+
+            val logContent =
+                mockk<Content>(relaxed = true) {
+                    every { tabName } returns "Log"
+                    every { component } returns splitter
+                }
+            val contentManager =
+                mockk<ContentManager>(relaxed = true) {
+                    every {
+                        contents
+                    } returns arrayOf(logContent)
+                }
+            val toolWindow =
+                mockk<ToolWindow>(relaxed = true) {
+                    every { id } returns "Version Control"
+                    every { isVisible } returns true
+                    every {
+                        this@mockk.contentManager
+                    } returns contentManager
+                }
+            every {
+                toolWindowManager.getToolWindow("Version Control")
+            } returns toolWindow
+
+            val listenerSlot = slot<ToolWindowManagerListener>()
+            every {
+                connection.subscribe(
+                    ToolWindowManagerListener.TOPIC,
+                    capture(listenerSlot),
+                )
+            } returns Unit
+
+            val manager = GitPanelAutoFitManager(project)
+            try {
+                listenerSlot.captured.stateChanged(
+                    toolWindowManager,
+                    ToolWindowManagerEventType.SetLayout,
+                )
+                manager.flushDebounceForTesting()
+
+                val proportion = splitter.proportion
+                assertTrue(
+                    proportion in 0.7f..0.76f,
+                    "Expected global layout refresh to fit splitter, got $proportion",
+                )
+            } finally {
+                manager.dispose()
+            }
+        }
+    }
+
+    @Test
     fun `listener is removed when mode switches from AUTO_FIT to DEFAULT`() {
         SwingUtilities.invokeAndWait {
             every {
@@ -371,4 +482,10 @@ class GitPanelAutoFitManagerTest {
             }
         }
     }
+
+    private fun visibleToolWindow(id: String): ToolWindow =
+        mockk {
+            every { this@mockk.id } returns id
+            every { isVisible } returns true
+        }
 }
