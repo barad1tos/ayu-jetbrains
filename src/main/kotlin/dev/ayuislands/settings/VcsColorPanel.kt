@@ -30,9 +30,9 @@ import javax.swing.JSlider
  * Mirrors the [AyuIslandsChromePanel] discipline:
  *  - Pending / stored pairs per field so [isModified] can diff without
  *    touching the live [AyuIslandsState] until [apply] is called.
- *  - Premium gate: unlicensed users see a placeholder comment + Pro upgrade
- *    link instead of the full content — no controls bound, no way to mutate
- *    VCS state without a license.
+ *  - Premium gate: unlicensed users see the full settings surface and preview,
+ *    but controls are locked. Runtime apply still re-checks the license so a
+ *    mid-session entitlement change cannot persist premium state.
  *  - On [apply] the panel wraps the applier call in
  *    [VcsColorContext.withSnapshot] so a throw leaves persisted state
  *    untouched and the user can retry.
@@ -102,31 +102,27 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
     ) {
         this.variant = variant
         licensed = LicenseChecker.isLicensedOrGrace()
+        val gate =
+            PremiumFeatureGate(
+                featureName = "VCS color customization",
+                lockedDescription =
+                    "VCS color customization is a Pro feature. " +
+                        "Preview the available diff, file-status, gutter, conflict, and blame controls here.",
+                requestMessage = "Unlock VCS color intensity customization",
+                isUnlocked = licensed,
+            )
         val state = AyuIslandsSettings.getInstance().state
         loadStored(state)
-        if (!licensed) {
-            panel.buildUnlicensedContent()
-            return
-        }
-        panel.buildLicensedContent(state)
+        masterEnabled.set(pendingEnabled || !gate.isUnlocked)
+        panel.buildContent(state, gate)
     }
 
-    private fun Panel.buildUnlicensedContent() {
-        row {
-            comment(
-                "VCS color customization is a Pro feature. " +
-                    "Free version uses the default colors shipped with v2.6.2.",
-            )
-        }
-        row {
-            link("Get Ayu Islands Pro — unlock VCS color customization") {
-                LicenseChecker.requestLicense("Unlock VCS color intensity customization")
-            }
-        }
-    }
-
-    private fun Panel.buildLicensedContent(state: AyuIslandsState) {
-        buildMasterToggleRow()
+    private fun Panel.buildContent(
+        state: AyuIslandsState,
+        gate: PremiumFeatureGate,
+    ) {
+        premiumFeatureNotice(gate)
+        buildMasterToggleRow(gate)
         row {
             val preview = VcsColorPreviewComponent(variant ?: AyuVariant.DARK, previewIntensities())
             vcsPreview = preview
@@ -134,16 +130,18 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
                 .resizableColumn()
                 .align(Align.FILL)
         }.visibleIf(masterEnabled)
-        buildSection(VcsSection.DIFF, state)
-        buildSection(VcsSection.MERGE, state)
-        buildSection(VcsSection.BLAME, state)
+        buildSection(VcsSection.DIFF, state, gate)
+        buildSection(VcsSection.MERGE, state, gate)
+        buildSection(VcsSection.BLAME, state, gate)
     }
 
-    private fun Panel.buildMasterToggleRow() {
+    private fun Panel.buildMasterToggleRow(gate: PremiumFeatureGate) {
         row {
             val cb = checkBox("Enable VCS color customization")
             cb.component.isSelected = pendingEnabled
+            cb.component.applyPremiumLock(gate)
             cb.component.addActionListener {
+                if (!gate.isUnlocked) return@addActionListener
                 pendingEnabled = cb.component.isSelected
                 masterEnabled.set(pendingEnabled)
             }
@@ -154,13 +152,14 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
     private fun Panel.buildSection(
         section: VcsSection,
         state: AyuIslandsState,
+        gate: PremiumFeatureGate,
     ) {
         val ctx = sectionContext(section)
         val collapsible =
             collapsibleGroup(section.title) {
-                buildSectionPresetRow(section, ctx)
+                buildSectionPresetRow(section, ctx, gate)
                 for ((category, label) in section.sliders) {
-                    buildSliderRow(category, label, ctx.customVisible)
+                    buildSliderRow(category, label, ctx.customVisible, gate)
                 }
             }
         collapsible.expanded =
@@ -203,12 +202,15 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
     private fun Panel.buildSectionPresetRow(
         section: VcsSection,
         ctx: SectionContext,
+        gate: PremiumFeatureGate,
     ) {
         row("Preset:") {
             val segmented = segmentedButton(VcsColorPreset.entries) { preset -> text = preset.displayName }
             segmented.maxButtonsCount(VcsColorPreset.entries.size)
             segmented.selectedItem = ctx.initialPreset
+            segmented.enabled(gate.isUnlocked)
             segmented.whenItemSelected { preset ->
+                if (!gate.isUnlocked) return@whenItemSelected
                 onSectionPresetChosen(section, preset)
                 ctx.customVisible.set(preset == VcsColorPreset.CUSTOM)
             }
@@ -220,6 +222,7 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
         category: VcsColorCategory,
         label: String,
         sectionCustomVisible: AtomicBooleanProperty,
+        gate: PremiumFeatureGate,
     ) {
         val initialValue =
             when (category) {
@@ -241,8 +244,13 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
                 slider.paintTicks = true
                 slider.majorTickSpacing = INTENSITY_MAJOR_TICK
                 slider.minorTickSpacing = INTENSITY_MINOR_TICK
+                slider.applyPremiumLock(gate)
                 val valueLabel = JLabel("$initialValue")
-                slider.addChangeListener { onSliderChanged(category, slider.value) }
+                slider.addChangeListener {
+                    if (gate.isUnlocked) {
+                        onSliderChanged(category, slider.value)
+                    }
+                }
                 cell(slider).resizableColumn().align(Align.FILL)
                 cell(valueLabel)
                 // Stash Swing refs for reset() refresh + test seams.

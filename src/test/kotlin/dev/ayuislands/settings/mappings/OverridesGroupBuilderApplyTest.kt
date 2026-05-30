@@ -5,6 +5,7 @@ import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.ProjectLanguageDetector
+import dev.ayuislands.licensing.LicenseChecker
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -50,6 +51,8 @@ class OverridesGroupBuilderApplyTest {
         mockkObject(AccentResolver)
         mockkObject(AccentApplicator)
         mockkObject(ProjectAccentSwapService.Companion)
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.isLicensedOrGrace() } returns true
     }
 
     @AfterTest
@@ -141,6 +144,30 @@ class OverridesGroupBuilderApplyTest {
         assertFalse(builder.isModified(), "stored snapshot must advance on happy path too")
         io.mockk.verify(exactly = 1) { AccentApplicator.applyFromHexString("#AABBCC") }
         io.mockk.verify(exactly = 1) { swapService.notifyExternalApply("#AABBCC") }
+    }
+
+    @Test
+    fun `apply() is a no-op when license is unavailable`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        val builder =
+            OverridesGroupBuilder().apply {
+                seedPendingForTest(
+                    projects =
+                        listOf(
+                            ProjectMapping(
+                                canonicalPath = "/tmp/apply-locked",
+                                displayName = "locked",
+                                hex = "#AABBCC",
+                            ),
+                        ),
+                )
+            }
+
+        builder.apply()
+
+        assertTrue(mappingsState.projectAccents.isEmpty(), "locked overrides must not persist")
+        assertTrue(builder.isModified(), "locked apply must not advance the stored snapshot")
+        io.mockk.verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
     }
 
     @Test

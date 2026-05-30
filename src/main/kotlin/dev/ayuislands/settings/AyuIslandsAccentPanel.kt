@@ -223,11 +223,13 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                     }
                 } else {
                     val settings = AyuIslandsSettings.getInstance()
+                    val currentVariant = variant ?: return@addActionListener
                     val manualAccent =
-                        getManualAccent(
-                            variant ?: return@addActionListener,
-                            settings,
-                        )
+                        when (currentVariant) {
+                            AyuVariant.MIRAGE -> settings.state.mirageAccent ?: currentVariant.defaultAccent
+                            AyuVariant.DARK -> settings.state.darkAccent ?: currentVariant.defaultAccent
+                            AyuVariant.LIGHT -> settings.state.lightAccent ?: currentVariant.defaultAccent
+                        }
                     pendingAccent = manualAccent
                     applyInitialSelection(colorPanel, manualAccent)
                     onAccentChanged?.invoke(manualAccent)
@@ -296,6 +298,14 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
 
     private fun Panel.buildAccentRotationGroup() {
         val settings = AyuIslandsSettings.getInstance()
+        val gate =
+            PremiumFeatureGate(
+                featureName = "Accent rotation",
+                lockedDescription =
+                    "Accent rotation is a Pro feature. " +
+                        "Preview preset-cycle, random-color, and interval controls here.",
+                requestMessage = "Unlock accent rotation",
+            )
         val collapsible =
             collapsibleGroup("Accent Rotation") {
                 row {
@@ -303,9 +313,10 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                         "Automatically change your accent color on a schedule.",
                     )
                 }
-                val rotationCheckboxCell = buildRotationEnableRow()
-                buildRotationModeRow(rotationCheckboxCell)
-                buildRotationIntervalRow(rotationCheckboxCell)
+                premiumFeatureNotice(gate)
+                val rotationCheckboxCell = buildRotationEnableRow(gate)
+                buildRotationModeRow(rotationCheckboxCell, gate)
+                buildRotationIntervalRow(rotationCheckboxCell, gate)
             }
         collapsible.expanded = settings.state.accentRotationGroupExpanded
         collapsible.addExpandedListener { expanded ->
@@ -313,15 +324,15 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         }
     }
 
-    private fun Panel.buildRotationEnableRow(): Cell<JBCheckBox> {
+    private fun Panel.buildRotationEnableRow(gate: PremiumFeatureGate): Cell<JBCheckBox> {
         lateinit var cell: Cell<JBCheckBox>
         row {
             cell = checkBox("Enable accent rotation")
             val checkbox = cell.component
             checkbox.isSelected = pendingRotationEnabled
-            checkbox.isEnabled =
-                LicenseChecker.isLicensedOrGrace()
+            checkbox.applyPremiumLock(gate)
             checkbox.addActionListener {
+                if (!gate.isUnlocked) return@addActionListener
                 pendingRotationEnabled = checkbox.isSelected
                 if (pendingRotationEnabled && pendingFollowSystem) {
                     pendingFollowSystem = false
@@ -330,14 +341,14 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                 }
             }
             rotationEnabledCheckbox = checkbox
-            if (!LicenseChecker.isLicensedOrGrace()) {
-                comment("Pro feature")
-            }
         }
         return cell
     }
 
-    private fun Panel.buildRotationModeRow(rotationCheckboxCell: Cell<JBCheckBox>) {
+    private fun Panel.buildRotationModeRow(
+        rotationCheckboxCell: Cell<JBCheckBox>,
+        gate: PremiumFeatureGate,
+    ) {
         row {
             label("Mode:")
             val modeCombo =
@@ -346,7 +357,9 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                 ).component
             modeCombo.selectedIndex =
                 if (pendingRotationMode == AccentRotationMode.RANDOM.name) 1 else 0
+            modeCombo.applyPremiumLock(gate)
             modeCombo.addActionListener {
+                if (!gate.isUnlocked) return@addActionListener
                 pendingRotationMode =
                     if (modeCombo.selectedIndex == 1) {
                         AccentRotationMode.RANDOM.name
@@ -357,7 +370,10 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         }.visibleIf(rotationCheckboxCell.selected)
     }
 
-    private fun Panel.buildRotationIntervalRow(rotationCheckboxCell: Cell<JBCheckBox>) {
+    private fun Panel.buildRotationIntervalRow(
+        rotationCheckboxCell: Cell<JBCheckBox>,
+        gate: PremiumFeatureGate,
+    ) {
         row {
             label("Interval:")
             val intervalCombo =
@@ -368,7 +384,9 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                 INTERVAL_VALUES
                     .indexOf(pendingRotationInterval)
                     .coerceAtLeast(0)
+            intervalCombo.applyPremiumLock(gate)
             intervalCombo.addActionListener {
+                if (!gate.isUnlocked) return@addActionListener
                 pendingRotationInterval =
                     INTERVAL_VALUES.getOrElse(intervalCombo.selectedIndex) {
                         AyuIslandsState.DEFAULT_ROTATION_INTERVAL_HOURS
@@ -451,16 +469,6 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         }
     }
 
-    private fun getManualAccent(
-        variant: AyuVariant,
-        settings: AyuIslandsSettings,
-    ): String =
-        when (variant) {
-            AyuVariant.MIRAGE -> settings.state.mirageAccent ?: variant.defaultAccent
-            AyuVariant.DARK -> settings.state.darkAccent ?: variant.defaultAccent
-            AyuVariant.LIGHT -> settings.state.lightAccent ?: variant.defaultAccent
-        }
-
     private fun updatePanelEnabled() {
         val following = pendingFollowSystem
         accentPanel?.let { panel ->
@@ -514,65 +522,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         }
         storedAccent = effectiveAccent
 
-        val rotationChanged =
-            pendingRotationEnabled != storedRotationEnabled ||
-                pendingRotationMode != storedRotationMode ||
-                pendingRotationInterval != storedRotationInterval
-
-        if (rotationChanged) {
-            settings.state.accentRotationEnabled = pendingRotationEnabled
-            settings.state.accentRotationMode = pendingRotationMode
-            settings.state.accentRotationIntervalHours = pendingRotationInterval
-            storedRotationEnabled = pendingRotationEnabled
-            storedRotationMode = pendingRotationMode
-            storedRotationInterval = pendingRotationInterval
-
-            val service = AccentRotationService.getInstance()
-            if (pendingRotationEnabled) {
-                val mode = AccentRotationMode.fromName(pendingRotationMode)
-                when (mode) {
-                    AccentRotationMode.RANDOM -> {
-                        val rotationHex =
-                            ContrastAwareColorGenerator.generate(
-                                variant ?: return,
-                            )
-                        settings.setAccentForVariant(currentVariant, rotationHex)
-                        settings.state.accentRotationLastSwitchMs = System.currentTimeMillis()
-                        applyRotationRespectingOverrides(currentVariant)
-                        storedAccent = rotationHex
-                        pendingAccent = rotationHex
-                        accentPanel?.selectedPreset = null
-                        accentPanel?.customColor = rotationHex
-                        pendingCustomColor = rotationHex
-                        settings.state.lastShuffleColor = rotationHex
-                        accentPanel?.showThirteenthSwatchImmediate(rotationHex)
-                        onAccentChanged?.invoke(rotationHex)
-                        service.startRotation()
-                    }
-                    AccentRotationMode.PRESET -> {
-                        val currentIndex = settings.state.accentRotationPresetIndex
-                        val nextIndex = (currentIndex + 1) % AYU_ACCENT_PRESETS.size
-                        settings.state.accentRotationPresetIndex = nextIndex
-                        val presetHex = AYU_ACCENT_PRESETS[nextIndex].hex
-                        settings.setAccentForVariant(currentVariant, presetHex)
-                        settings.state.accentRotationLastSwitchMs = System.currentTimeMillis()
-                        applyRotationRespectingOverrides(currentVariant)
-                        storedAccent = presetHex
-                        pendingAccent = presetHex
-                        pendingCustomColor = null
-                        accentPanel?.selectedPreset = presetHex
-                        accentPanel?.customColor = null
-                        accentPanel?.showThirteenthSwatchImmediate(presetHex)
-                        settings.state.lastShuffleColor = null
-                        updateHeroGlow()
-                        onAccentChanged?.invoke(presetHex)
-                        service.startRotation()
-                    }
-                }
-            } else {
-                service.stopRotation()
-            }
-        }
+        applyRotationChangeIfAllowed(settings, currentVariant)
 
         if (overridesDirty) {
             overrides.apply()
@@ -581,6 +531,68 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         // `isModified` guard here keeps the function under detekt's CyclomaticComplexMethod cap.
         quickSwitcher.apply()
         updateCurrentlyActiveLabel()
+    }
+
+    private fun applyRotationChangeIfAllowed(
+        settings: AyuIslandsSettings,
+        currentVariant: AyuVariant,
+    ) {
+        val rotationChanged =
+            pendingRotationEnabled != storedRotationEnabled ||
+                pendingRotationMode != storedRotationMode ||
+                pendingRotationInterval != storedRotationInterval
+        if (!rotationChanged) return
+        if (!LicenseChecker.isLicensedOrGrace() && pendingRotationEnabled) return
+
+        settings.state.accentRotationEnabled = pendingRotationEnabled
+        settings.state.accentRotationMode = pendingRotationMode
+        settings.state.accentRotationIntervalHours = pendingRotationInterval
+        storedRotationEnabled = pendingRotationEnabled
+        storedRotationMode = pendingRotationMode
+        storedRotationInterval = pendingRotationInterval
+
+        val service = AccentRotationService.getInstance()
+        if (!pendingRotationEnabled) {
+            service.stopRotation()
+            return
+        }
+
+        when (AccentRotationMode.fromName(pendingRotationMode)) {
+            AccentRotationMode.RANDOM -> {
+                val rotationHex = ContrastAwareColorGenerator.generate(currentVariant)
+                settings.setAccentForVariant(currentVariant, rotationHex)
+                settings.state.accentRotationLastSwitchMs = System.currentTimeMillis()
+                applyRotationRespectingOverrides(currentVariant)
+                storedAccent = rotationHex
+                pendingAccent = rotationHex
+                accentPanel?.selectedPreset = null
+                accentPanel?.customColor = rotationHex
+                pendingCustomColor = rotationHex
+                settings.state.lastShuffleColor = rotationHex
+                accentPanel?.showThirteenthSwatchImmediate(rotationHex)
+                onAccentChanged?.invoke(rotationHex)
+                service.startRotation()
+            }
+            AccentRotationMode.PRESET -> {
+                val currentIndex = settings.state.accentRotationPresetIndex
+                val nextIndex = (currentIndex + 1) % AYU_ACCENT_PRESETS.size
+                settings.state.accentRotationPresetIndex = nextIndex
+                val presetHex = AYU_ACCENT_PRESETS[nextIndex].hex
+                settings.setAccentForVariant(currentVariant, presetHex)
+                settings.state.accentRotationLastSwitchMs = System.currentTimeMillis()
+                applyRotationRespectingOverrides(currentVariant)
+                storedAccent = presetHex
+                pendingAccent = presetHex
+                pendingCustomColor = null
+                accentPanel?.selectedPreset = presetHex
+                accentPanel?.customColor = null
+                accentPanel?.showThirteenthSwatchImmediate(presetHex)
+                settings.state.lastShuffleColor = null
+                updateHeroGlow()
+                onAccentChanged?.invoke(presetHex)
+                service.startRotation()
+            }
+        }
     }
 
     override fun reset() {

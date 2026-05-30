@@ -94,9 +94,16 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
 
     fun buildGlowPanel(panel: Panel) {
         ensureStateLoaded()
-        val licensed = LicenseChecker.isLicensedOrGrace()
+        val gate =
+            PremiumFeatureGate(
+                featureName = "Glow",
+                lockedDescription =
+                    "Glow is a Pro feature. " +
+                        "Preview style, animation, width, intensity, and target controls here.",
+                requestMessage = "Unlock glow effects",
+            )
 
-        buildStyleGroup(panel, licensed)
+        buildStyleGroup(panel, gate)
 
         updateControlStates()
     }
@@ -130,8 +137,9 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
 
     private fun buildStyleGroup(
         panel: Panel,
-        licensed: Boolean,
+        gate: PremiumFeatureGate,
     ) {
+        val licensed = gate.isUnlocked
         val glowPanel = GlowGroupPanel()
         glowGroupPanel = glowPanel
 
@@ -140,6 +148,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                 row {
                     comment("Neon glow effects around editor islands and UI elements.")
                 }
+                premiumFeatureNotice(gate)
                 buildMasterToggleRow(this, licensed)
                 group("Style") {
                     buildPresetRow(this)
@@ -542,6 +551,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
 
     override fun apply() {
         if (!isModified()) return
+        if (!LicenseChecker.isLicensedOrGrace()) return
         val state = AyuIslandsSettings.getInstance().state
 
         state.glowEnabled = pendingGlowEnabled

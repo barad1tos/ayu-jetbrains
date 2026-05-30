@@ -29,6 +29,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -46,8 +47,8 @@ import kotlin.test.assertTrue
  *    buildPanel and apply skips persistence.
  *  - Apply error path: if [VcsColorApplier.applyAll] throws, persisted state
  *    stays at the pre-apply baseline.
- *  - Premium gate: an unlicensed user records `licensed = false` and renders
- *    only the placeholder.
+ *  - Premium gate: an unlicensed user sees the preview and controls, but every
+ *    mutating control is disabled and apply still re-checks the license.
  */
 class VcsColorPanelTest {
     private lateinit var state: AyuIslandsState
@@ -468,12 +469,12 @@ class VcsColorPanelTest {
 
     @Test
     fun `unlicensed buildPanel does not trigger the applier on subsequent apply`() {
-        // Unlicensed path renders only the placeholder + Pro upgrade link — no
-        // licensed controls bound, no pending diffs even after a setPending* call
-        // before apply. Verifying via the applier-not-called assertion proves the
-        // premium gate held without exposing a dedicated `licensedForTest()` seam.
+        // Unlicensed path renders the premium preview, but the apply-time license
+        // guard still prevents persistence if state is manipulated through a test seam.
         every { LicenseChecker.isLicensedOrGrace() } returns false
         val panel = newBuiltPanel()
+        assertNotNull(vcsPreview(panel), "Unlicensed VCS gate must keep the preview visible")
+        assertFalse(slider(panel, "diffSlider").isEnabled, "Unlicensed VCS gate must lock sliders")
         panel.setPendingEnabledForTest(true)
         panel.apply()
         verify(exactly = 0) { VcsColorApplier.applyAll() }
@@ -506,6 +507,15 @@ class VcsColorPanelTest {
         field.isAccessible = true
         return field.get(panel) as? SegmentedButton<VcsColorPreset>
             ?: error("$fieldName must be created")
+    }
+
+    private fun slider(
+        panel: VcsColorPanel,
+        fieldName: String,
+    ): JSlider {
+        val field = VcsColorPanel::class.java.getDeclaredField(fieldName)
+        field.isAccessible = true
+        return field.get(panel) as? JSlider ?: error("$fieldName must be created")
     }
 
     private fun layoutTree(container: Container) {

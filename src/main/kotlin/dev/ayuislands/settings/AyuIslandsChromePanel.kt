@@ -24,10 +24,9 @@ import javax.swing.JSlider
  *
  *  - Pending/stored pairs for each state field so [isModified] can diff without touching
  *    the live [AyuIslandsState] until [apply] is called.
- *  - Premium gate: unlicensed users see the collapsible header with a single
- *    "requires Pro license" comment instead of the full content. The underlying
- *    controls are not wired at all in the unlicensed path so there is no way to
- *    mutate chrome state without a license.
+ *  - Premium gate: unlicensed users see the full settings surface, but controls
+ *    are locked. The underlying apply path re-checks [LicenseChecker] so a
+ *    mid-session license revoke cannot persist premium state.
  *  - Probe gate: the Main Toolbar row is present but disabled (never hidden) with
  *    a user-visible comment when [ChromeDecorationsProbe.isCustomHeaderActive]
  *    reports native OS chrome. The row stays in the panel so users understand why
@@ -80,21 +79,29 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
     ) {
         this.variant = variant
         licensed = LicenseChecker.isLicensedOrGrace()
+        val gate =
+            PremiumFeatureGate(
+                featureName = "Chrome tinting",
+                lockedDescription =
+                    "Chrome tinting is a Pro feature. " +
+                        "Preview the status bar, toolbar, stripe, navigation bar, and border controls here.",
+                requestMessage = "Unlock chrome tinting",
+                isUnlocked = licensed,
+            )
         val state = AyuIslandsSettings.getInstance().state
         loadStored(state)
         val probeAllowsMainToolbar = ChromeDecorationsProbe.isCustomHeaderActive()
 
         val collapsible =
             panel.collapsibleGroup(GROUP_TITLE) {
-                if (!licensed) {
-                    row { comment("Chrome tinting requires a Pro license.") }
-                    return@collapsibleGroup
-                }
+                premiumFeatureNotice(gate)
 
                 row {
                     val cb = checkBox("Status bar")
                     cb.component.isSelected = pendingChromeStatusBar
+                    cb.component.applyPremiumLock(gate)
                     cb.component.addActionListener {
+                        if (!gate.isUnlocked) return@addActionListener
                         pendingChromeStatusBar = cb.component.isSelected
                     }
                     statusBarCheckbox = cb.component
@@ -102,8 +109,9 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
                 row {
                     val cb = checkBox("Main toolbar")
                     cb.component.isSelected = pendingChromeMainToolbar
-                    cb.component.isEnabled = probeAllowsMainToolbar
+                    cb.component.applyPremiumLock(gate, enabledWhenUnlocked = probeAllowsMainToolbar)
                     cb.component.addActionListener {
+                        if (!gate.isUnlocked || !probeAllowsMainToolbar) return@addActionListener
                         pendingChromeMainToolbar = cb.component.isSelected
                     }
                     mainToolbarCheckbox = cb.component
@@ -116,7 +124,9 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
                 row {
                     val cb = checkBox("Tool window stripe")
                     cb.component.isSelected = pendingChromeToolWindowStripe
+                    cb.component.applyPremiumLock(gate)
                     cb.component.addActionListener {
+                        if (!gate.isUnlocked) return@addActionListener
                         pendingChromeToolWindowStripe = cb.component.isSelected
                     }
                     toolWindowStripeCheckbox = cb.component
@@ -124,7 +134,9 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
                 row {
                     val cb = checkBox("Navigation bar")
                     cb.component.isSelected = pendingChromeNavBar
+                    cb.component.applyPremiumLock(gate)
                     cb.component.addActionListener {
+                        if (!gate.isUnlocked) return@addActionListener
                         pendingChromeNavBar = cb.component.isSelected
                     }
                     navBarCheckbox = cb.component
@@ -132,7 +144,9 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
                 row {
                     val cb = checkBox("Panel borders")
                     cb.component.isSelected = pendingChromePanelBorder
+                    cb.component.applyPremiumLock(gate)
                     cb.component.addActionListener {
+                        if (!gate.isUnlocked) return@addActionListener
                         pendingChromePanelBorder = cb.component.isSelected
                     }
                     panelBorderCheckbox = cb.component
@@ -142,8 +156,10 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
                     slider.paintTicks = true
                     slider.majorTickSpacing = INTENSITY_MAJOR_TICK
                     slider.minorTickSpacing = INTENSITY_MINOR_TICK
+                    slider.applyPremiumLock(gate)
                     val valueLabel = JLabel("${slider.value}")
                     slider.addChangeListener {
+                        if (!gate.isUnlocked) return@addChangeListener
                         pendingChromeTintIntensity = slider.value
                         valueLabel.text = "${slider.value}"
                     }
@@ -177,7 +193,7 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
         // License may have flipped mid-session (grace expired, entitlement revoked,
         // user signed out of JBA). When the panel was built licensed but the gate
         // has since closed, refuse to persist — otherwise chrome state writes keep
-        // happening behind a "requires Pro" UI the user can no longer interact with.
+        // happening behind locked premium UI.
         if (!LicenseChecker.isLicensedOrGrace()) {
             LOG.info(
                 "AyuIslandsChromePanel.apply: license no longer active; " +
@@ -351,6 +367,16 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
             navBarCheckbox,
             panelBorderCheckbox,
         ).size
+
+    @TestOnly
+    internal fun enabledSurfaceCheckboxCountForTest(): Int =
+        listOfNotNull(
+            statusBarCheckbox,
+            mainToolbarCheckbox,
+            toolWindowStripeCheckbox,
+            navBarCheckbox,
+            panelBorderCheckbox,
+        ).count { it.isEnabled }
 
     @TestOnly
     internal fun intensitySliderForTest(): JSlider? = intensitySlider

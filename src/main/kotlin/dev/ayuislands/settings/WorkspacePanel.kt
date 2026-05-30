@@ -66,7 +66,15 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
         variant: AyuVariant,
     ) {
         val state = AyuIslandsSettings.getInstance().state
-        val licensed = LicenseChecker.isLicensedOrGrace()
+        val gate =
+            PremiumFeatureGate(
+                featureName = "Workspace customization",
+                lockedDescription =
+                    "Workspace customization is a Pro feature. " +
+                        "Preview tool window width and Project View display controls here.",
+                requestMessage = "Unlock workspace customization",
+            )
+        val licensed = gate.isUnlocked
 
         loadCheckboxPair(state.hideEditorVScrollbar) { s, p ->
             storedHideEditorVScrollbar = s
@@ -105,6 +113,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
         )
 
         panel.row { comment("Customize tool window width and Project View display options.") }
+        panel.premiumFeatureNotice(gate)
 
         editorGroup =
             panel.collapsibleGroup(EDITOR_TITLE) {
@@ -355,6 +364,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
 
     override fun apply() {
         if (!isModified()) return
+        if (!LicenseChecker.isLicensedOrGrace()) return
         val state = AyuIslandsSettings.getInstance().state
 
         val editorChanged =

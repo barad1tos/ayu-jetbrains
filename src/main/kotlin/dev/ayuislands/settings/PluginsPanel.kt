@@ -42,7 +42,15 @@ class PluginsPanel : AyuIslandsSettingsPanel {
     ) {
         this.variant = variant
         val state = AyuIslandsSettings.getInstance().state
-        val licensed = LicenseChecker.isLicensedOrGrace()
+        val gate =
+            PremiumFeatureGate(
+                featureName = "Plugin integrations",
+                lockedDescription =
+                    "Plugin integrations are a Pro feature. " +
+                        "Preview CodeGlance Pro and Indent Rainbow sync controls here.",
+                requestMessage = "Unlock plugin integrations",
+            )
+        val licensed = gate.isUnlocked
 
         storedCodeGlanceProIntegration = state.cgpIntegrationEnabled
         pendingCodeGlanceProIntegration = storedCodeGlanceProIntegration
@@ -77,6 +85,7 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         }
 
         panel.row { comment("Sync Ayu accent colors with compatible plugins.") }
+        panel.premiumFeatureNotice(gate)
 
         if (cgpDetected) {
             panel.group("CodeGlance Pro") {
@@ -87,6 +96,7 @@ class PluginsPanel : AyuIslandsSettingsPanel {
                     cb.component.isSelected = pendingCodeGlanceProIntegration
                     cb.component.isEnabled = licensed
                     cb.component.addActionListener {
+                        if (!licensed) return@addActionListener
                         pendingCodeGlanceProIntegration = cb.component.isSelected
                     }
                     cgpCheckbox = cb.component
@@ -105,6 +115,7 @@ class PluginsPanel : AyuIslandsSettingsPanel {
                     cb.component.isSelected = pendingEnabled
                     cb.component.isEnabled = licensed
                     cb.component.addActionListener {
+                        if (!licensed) return@addActionListener
                         pendingEnabled = cb.component.isSelected
                         irEnabled.set(cb.component.isSelected)
                     }
@@ -124,9 +135,10 @@ class PluginsPanel : AyuIslandsSettingsPanel {
                         }
                     segmented.maxButtonsCount(IndentPreset.entries.size)
                     segmented.selectedItem = IndentPreset.fromName(pendingPreset)
+                    segmented.enabled(licensed)
                     @Suppress("UnstableApiUsage")
                     segmented.whenItemSelected { preset ->
-                        if (!suppressListeners) {
+                        if (!suppressListeners && licensed) {
                             pendingPreset = preset.name
                             customModeVisible.set(preset == IndentPreset.CUSTOM)
                         }
@@ -141,6 +153,7 @@ class PluginsPanel : AyuIslandsSettingsPanel {
                     cb.component.isSelected = pendingErrorHighlight
                     cb.component.isEnabled = licensed
                     cb.component.addActionListener {
+                        if (!licensed) return@addActionListener
                         pendingErrorHighlight = cb.component.isSelected
                     }
                     errorHighlightCheckbox = cb.component
@@ -154,7 +167,7 @@ class PluginsPanel : AyuIslandsSettingsPanel {
                     slider.isEnabled = licensed
                     val valueLabel = JLabel("${slider.value}")
                     slider.addChangeListener {
-                        if (!suppressListeners) {
+                        if (!suppressListeners && licensed) {
                             pendingCustomAlpha = slider.value
                             valueLabel.text = "${slider.value}"
                         }
@@ -177,6 +190,7 @@ class PluginsPanel : AyuIslandsSettingsPanel {
 
     override fun apply() {
         if (!isModified()) return
+        if (!LicenseChecker.isLicensedOrGrace()) return
         val state = AyuIslandsSettings.getInstance().state
 
         state.irIntegrationEnabled = pendingEnabled
