@@ -276,7 +276,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
             add(content, BorderLayout.CENTER)
         }
 
-        override fun getPreferredScrollableViewportSize(): Dimension = preferredSize
+        override fun getPreferredScrollableViewportSize(): Dimension = Dimension(0, preferredSize.height)
 
         override fun getScrollableUnitIncrement(
             visibleRect: Rectangle,

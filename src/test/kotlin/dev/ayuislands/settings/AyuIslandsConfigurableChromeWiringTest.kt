@@ -212,6 +212,10 @@ class AyuIslandsConfigurableChromeWiringTest {
         val scrollPane = createScrollableContent.invoke(AyuIslandsConfigurable(), wideContent) as JScrollPane
         val viewportView = scrollPane.viewport.view
 
+        assertTrue(
+            scrollPane.preferredSize.width <= COMPACT_TAB_WIDTH,
+            "Settings tab scroll panes must not export wide child preferred width to the outer Settings viewport",
+        )
         assertEquals(
             JScrollPane.HORIZONTAL_SCROLLBAR_NEVER,
             scrollPane.horizontalScrollBarPolicy,

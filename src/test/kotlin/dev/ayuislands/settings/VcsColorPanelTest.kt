@@ -21,6 +21,7 @@ import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.Container
 import javax.swing.JSlider
+import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -207,6 +208,11 @@ class VcsColorPanelTest {
         assertTrue(
             preview.width <= COMPACT_SETTINGS_WIDTH,
             "Preview width must not exceed the compact Settings content width",
+        )
+        val previewLocation = SwingUtilities.convertPoint(preview.parent, preview.location, dialogPanel)
+        assertTrue(
+            previewLocation.x + preview.width <= COMPACT_SETTINGS_WIDTH,
+            "Preview right edge must remain inside the compact Settings content width",
         )
     }
 
