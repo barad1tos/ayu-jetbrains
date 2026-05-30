@@ -160,25 +160,29 @@ internal class VcsColorPreviewComponent(
         width: Int,
         height: Int,
     ) {
-        val rowHeight = JBUI.scale(CODE_ROW_HEIGHT)
-        var rowY = y + JBUI.scale(CODE_TOP_PADDING) - 1
-        for (row in BLAME_ROWS) {
-            g2.color = previewColor(VcsColorCategory.BLAME_GUTTER, row.colorKey, VcsWriteMode.COLOR_KEY)
-            g2.fillRect(x, rowY, width, rowHeight)
-            g2.color =
-                previewColor(
-                    VcsColorCategory.BLAME_GUTTER,
-                    "ANNOTATIONS_LAST_COMMIT_COLOR",
-                    VcsWriteMode.COLOR_KEY,
-                )
-            val baseline = rowY + (rowHeight - g2.fontMetrics.height) / 2 + g2.fontMetrics.ascent
-            g2.drawString(row.text, x + JBUI.scale(BLAME_TEXT_X), baseline)
-            rowY += rowHeight
-        }
-        val paintedHeight = rowHeight * BLAME_ROWS.size
-        if (paintedHeight < height) {
-            g2.color = panelSurface()
-            g2.fillRect(x, y + JBUI.scale(CODE_TOP_PADDING) + paintedHeight - 1, width, height - paintedHeight)
+        val previousClip = g2.clip
+        g2.clipRect(x, y, width, height)
+        try {
+            val rowHeight = JBUI.scale(CODE_ROW_HEIGHT)
+            var rowY = y + JBUI.scale(CODE_TOP_PADDING) - 1
+            for (row in BLAME_ROWS) {
+                g2.color =
+                    row.backgroundKey?.let { key ->
+                        previewColor(VcsColorCategory.BLAME_GUTTER, key, VcsWriteMode.COLOR_KEY)
+                    } ?: panelSurface()
+                g2.fillRect(x, rowY, width, rowHeight)
+                g2.color = previewColor(VcsColorCategory.BLAME_GUTTER, row.textKey, VcsWriteMode.COLOR_KEY)
+                val baseline = rowY + (rowHeight - g2.fontMetrics.height) / 2 + g2.fontMetrics.ascent
+                g2.drawString(row.text, x + JBUI.scale(BLAME_TEXT_X), baseline)
+                rowY += rowHeight
+            }
+            val bottomY = y + height
+            if (rowY < bottomY) {
+                g2.color = panelSurface()
+                g2.fillRect(x, rowY, width, bottomY - rowY)
+            }
+        } finally {
+            g2.clip = previousClip
         }
     }
 
@@ -279,6 +283,12 @@ internal class VcsColorPreviewComponent(
     @TestOnly
     internal fun intensityForTest(category: VcsColorCategory): Int = intensities.valueFor(category)
 
+    @TestOnly
+    internal fun blameRowKeysForTest(): List<Pair<String?, String>> =
+        BLAME_ROWS.map { row ->
+            row.backgroundKey to row.textKey
+        }
+
     private data class PreviewRow(
         val lineNumber: String,
         val category: VcsColorCategory,
@@ -300,7 +310,8 @@ internal class VcsColorPreviewComponent(
     )
 
     private data class BlameRow(
-        val colorKey: String,
+        val backgroundKey: String?,
+        val textKey: String,
         val text: String,
     )
 
@@ -360,12 +371,12 @@ internal class VcsColorPreviewComponent(
 
         private val BLAME_ROWS =
             listOf(
-                BlameRow("VCS_ANNOTATIONS_COLOR_1", "a91f 1m"),
-                BlameRow("VCS_ANNOTATIONS_COLOR_2", "8d42 2h"),
-                BlameRow("VCS_ANNOTATIONS_COLOR_3", "54ca 1d"),
-                BlameRow("VCS_ANNOTATIONS_COLOR_4", "21bf 4d"),
-                BlameRow("VCS_ANNOTATIONS_COLOR_5", "main"),
-                BlameRow("ANNOTATIONS_COLOR", "HEAD"),
+                BlameRow("VCS_ANNOTATIONS_COLOR_1", "ANNOTATIONS_LAST_COMMIT_COLOR", "a91f 1m"),
+                BlameRow("VCS_ANNOTATIONS_COLOR_2", "ANNOTATIONS_COLOR", "8d42 2h"),
+                BlameRow("VCS_ANNOTATIONS_COLOR_3", "ANNOTATIONS_COLOR", "54ca 1d"),
+                BlameRow("VCS_ANNOTATIONS_COLOR_4", "ANNOTATIONS_COLOR", "21bf 4d"),
+                BlameRow("VCS_ANNOTATIONS_COLOR_5", "ANNOTATIONS_COLOR", "main"),
+                BlameRow(null, "ANNOTATIONS_COLOR", "HEAD"),
             )
     }
 }

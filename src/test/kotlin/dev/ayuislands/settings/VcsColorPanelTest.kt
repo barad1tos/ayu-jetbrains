@@ -9,6 +9,7 @@ import dev.ayuislands.vcs.VcsColorCategory
 import dev.ayuislands.vcs.VcsColorContext
 import dev.ayuislands.vcs.VcsColorPreset
 import dev.ayuislands.vcs.VcsColorSnapshot
+import dev.ayuislands.vcs.VcsWriteMode
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkClass
@@ -17,11 +18,13 @@ import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
+import javax.swing.JSlider
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 /**
@@ -227,6 +230,9 @@ class VcsColorPanelTest {
         val panel = newBuiltPanel()
         panel.triggerSectionPresetChosenForTest(VcsSection.DIFF, VcsColorPreset.NEON)
         assertEquals(VcsColorPreset.NEON, panel.getPendingPresetForTest(VcsSection.DIFF))
+        val preview = vcsPreview(panel)
+        val previewBefore =
+            preview.colorForTest(VcsColorCategory.DIFF_VIEWER, "DIFF_MODIFIED", VcsWriteMode.COLOR_KEY)
         val mergeBefore = panel.getPendingIntensityForTest(VcsColorCategory.CONFLICT_MARKERS)
         val blameBefore = panel.getPendingIntensityForTest(VcsColorCategory.BLAME_GUTTER)
         val projectViewBefore = panel.getPendingIntensityForTest(VcsColorCategory.PROJECT_VIEW_FILE_STATUS)
@@ -241,7 +247,7 @@ class VcsColorPanelTest {
         // the calling thread.
         val diffSliderField = VcsColorPanel::class.java.getDeclaredField("diffSlider")
         diffSliderField.isAccessible = true
-        val diffSlider = diffSliderField.get(panel) as javax.swing.JSlider
+        val diffSlider = diffSliderField.get(panel) as JSlider
         diffSlider.value = 75
 
         // Promotion: pendingDiffPreset flips to CUSTOM and diffCustomSelected
@@ -252,6 +258,12 @@ class VcsColorPanelTest {
             "User-driven Diff slider drag must promote the Diff section to CUSTOM",
         )
         assertEquals(75, panel.getPendingIntensityForTest(VcsColorCategory.DIFF_VIEWER))
+        assertEquals(75, preview.intensityForTest(VcsColorCategory.DIFF_VIEWER))
+        assertNotEquals(
+            previewBefore.rgb,
+            preview.colorForTest(VcsColorCategory.DIFF_VIEWER, "DIFF_MODIFIED", VcsWriteMode.COLOR_KEY).rgb,
+            "Preview must repaint from the user-dragged Diff slider value",
+        )
         val diffCustomField = VcsColorPanel::class.java.getDeclaredField("diffCustomSelected")
         diffCustomField.isAccessible = true
         val diffCustom = diffCustomField.get(panel) as com.intellij.openapi.observable.properties.AtomicBooleanProperty

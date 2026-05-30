@@ -8,11 +8,94 @@ import dev.ayuislands.vcs.VcsColorPreset
 import dev.ayuislands.vcs.VcsIntensity
 import dev.ayuislands.vcs.VcsWriteMode
 import java.awt.Color
+import java.awt.image.BufferedImage
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 
 class VcsColorPreviewComponentTest {
+    @Test
+    fun `paintComponent renders every preview region and clamps blame gutter`() {
+        val component = VcsColorPreviewComponent(AyuVariant.DARK)
+        val image = render(component)
+
+        assertColorEquals(
+            component.colorForTest(
+                VcsColorCategory.PROJECT_VIEW_FILE_STATUS,
+                "FILESTATUS_MODIFIED",
+                VcsWriteMode.COLOR_KEY,
+            ),
+            image.colorAt(PROJECT_DOT_X, PROJECT_DOT_Y),
+            "project status dot",
+        )
+        assertColorEquals(
+            component.colorForTest(VcsColorCategory.DIFF_VIEWER, "DIFF_MODIFIED", VcsWriteMode.COLOR_KEY),
+            image.colorAt(DIFF_STRIPE_X, FIRST_CODE_ROW_Y),
+            "diff stripe",
+        )
+        assertColorEquals(
+            component.colorForTest(VcsColorCategory.EDITOR_GUTTER, "MODIFIED_LINES_COLOR", VcsWriteMode.COLOR_KEY),
+            image.colorAt(GUTTER_MARKER_X, FIRST_CODE_ROW_Y),
+            "editor gutter marker",
+        )
+        assertColorEquals(
+            component.colorForTest(VcsColorCategory.BLAME_GUTTER, "VCS_ANNOTATIONS_COLOR_1", VcsWriteMode.COLOR_KEY),
+            image.colorAt(BLAME_BACKGROUND_X, FIRST_BLAME_ROW_Y),
+            "blame age-ramp background",
+        )
+
+        assertNotEquals(
+            component.colorForTest(VcsColorCategory.BLAME_GUTTER, "ANNOTATIONS_COLOR", VcsWriteMode.COLOR_KEY).rgb,
+            image.colorAt(BLAME_BACKGROUND_X, LAST_BLAME_ROW_Y).rgb,
+            "ANNOTATIONS_COLOR is text color, not a blame background band",
+        )
+        assertColorEquals(
+            image.colorAt(OUTER_SURFACE_X, BOTTOM_PADDING_Y),
+            image.colorAt(BLAME_BACKGROUND_X, BOTTOM_PADDING_Y),
+            "blame gutter bottom padding",
+        )
+    }
+
+    @Test
+    fun `paintComponent follows updatePreview intensity changes`() {
+        val component =
+            VcsColorPreviewComponent(
+                AyuVariant.DARK,
+                VcsPreviewIntensities(diffViewer = VcsColorPreset.WHISPER_SLIDER),
+            )
+        val before = render(component).colorAt(DIFF_STRIPE_X, FIRST_CODE_ROW_Y)
+
+        component.updatePreview(
+            AyuVariant.DARK,
+            VcsPreviewIntensities(diffViewer = VcsColorPreset.CYBERPUNK_SLIDER),
+        )
+
+        val after = render(component).colorAt(DIFF_STRIPE_X, FIRST_CODE_ROW_Y)
+        assertNotEquals(before.rgb, after.rgb, "Painted Diff stripe must follow preview intensity changes")
+        assertColorEquals(
+            component.colorForTest(VcsColorCategory.DIFF_VIEWER, "DIFF_MODIFIED", VcsWriteMode.COLOR_KEY),
+            after,
+            "updated Diff stripe",
+        )
+    }
+
+    @Test
+    fun `blame preview keeps age ramp backgrounds separate from annotation text colors`() {
+        val component = VcsColorPreviewComponent(AyuVariant.DARK)
+
+        assertEquals(
+            listOf(
+                "VCS_ANNOTATIONS_COLOR_1" to "ANNOTATIONS_LAST_COMMIT_COLOR",
+                "VCS_ANNOTATIONS_COLOR_2" to "ANNOTATIONS_COLOR",
+                "VCS_ANNOTATIONS_COLOR_3" to "ANNOTATIONS_COLOR",
+                "VCS_ANNOTATIONS_COLOR_4" to "ANNOTATIONS_COLOR",
+                "VCS_ANNOTATIONS_COLOR_5" to "ANNOTATIONS_COLOR",
+                null to "ANNOTATIONS_COLOR",
+            ),
+            component.blameRowKeysForTest(),
+        )
+    }
+
     @Test
     fun `preview uses blended palette colors for every visible VCS category`() {
         val intensities =
@@ -106,6 +189,24 @@ class VcsColorPreviewComponentTest {
         assertEquals(expected.alpha, actual.alpha, "$context alpha")
     }
 
+    private fun render(component: VcsColorPreviewComponent): BufferedImage {
+        val size = component.preferredSize
+        component.setSize(size)
+        val image = BufferedImage(size.width, size.height, BufferedImage.TYPE_INT_ARGB)
+        val graphics = image.createGraphics()
+        try {
+            component.paint(graphics)
+        } finally {
+            graphics.dispose()
+        }
+        return image
+    }
+
+    private fun BufferedImage.colorAt(
+        x: Int,
+        y: Int,
+    ): Color = Color(getRGB(x, y), true)
+
     private data class PreviewCase(
         val category: VcsColorCategory,
         val keyName: String,
@@ -113,6 +214,16 @@ class VcsColorPreviewComponentTest {
     )
 
     private companion object {
+        private const val PROJECT_DOT_X = 24
+        private const val PROJECT_DOT_Y = 33
+        private const val DIFF_STRIPE_X = 210
+        private const val GUTTER_MARKER_X = 202
+        private const val FIRST_CODE_ROW_Y = 30
+        private const val BLAME_BACKGROUND_X = 458
+        private const val FIRST_BLAME_ROW_Y = 30
+        private const val LAST_BLAME_ROW_Y = 128
+        private const val OUTER_SURFACE_X = 20
+        private const val BOTTOM_PADDING_Y = 150
         private val DIFF_KEYS = listOf("DIFF_MODIFIED", "DIFF_INSERTED", "DIFF_DELETED")
         private val PREVIEW_CASES =
             listOf(
