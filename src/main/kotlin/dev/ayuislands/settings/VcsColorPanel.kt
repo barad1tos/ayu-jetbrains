@@ -95,6 +95,7 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
     private var diffSwatchDeleted: JLabel? = null
     private var mergeSectionSwatch: JLabel? = null
     private var blameSectionSwatch: JLabel? = null
+    private var diffPreview: VcsDiffPreviewComponent? = null
 
     /** Drives `visibleIf` on each section's Custom-mode slider rows. */
     private val diffCustomSelected = AtomicBooleanProperty(pendingDiffPreset == VcsColorPreset.CUSTOM)
@@ -169,6 +170,13 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
         val collapsible =
             collapsibleGroup(section.title) {
                 buildSectionPresetRow(section, ctx)
+                if (section == VcsSection.DIFF) {
+                    row {
+                        val preview = VcsDiffPreviewComponent(variant ?: AyuVariant.DARK, pendingDiffIntensity)
+                        diffPreview = preview
+                        cell(preview).align(Align.FILL)
+                    }
+                }
                 for ((category, label) in section.sliders) {
                     buildSliderRow(category, label, ctx.customVisible)
                 }
@@ -353,6 +361,7 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
                 diffSwatchModified?.background = computeSwatchColor(category, "DIFF_MODIFIED", value)
                 diffSwatchInserted?.background = computeSwatchColor(category, "DIFF_INSERTED", value)
                 diffSwatchDeleted?.background = computeSwatchColor(category, "DIFF_DELETED", value)
+                diffPreview?.updatePreview(variant ?: AyuVariant.DARK, value)
             }
             VcsColorCategory.PROJECT_VIEW_FILE_STATUS -> {
                 pendingProjectViewIntensity = value
@@ -525,6 +534,7 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
                 computeSwatchColor(VcsColorCategory.DIFF_VIEWER, "DIFF_INSERTED", pendingDiffIntensity)
             diffSwatchDeleted?.background =
                 computeSwatchColor(VcsColorCategory.DIFF_VIEWER, "DIFF_DELETED", pendingDiffIntensity)
+            diffPreview?.updatePreview(variant ?: AyuVariant.DARK, pendingDiffIntensity)
             projectViewSlider?.value = pendingProjectViewIntensity
             projectViewValueLabel?.text = "$pendingProjectViewIntensity"
             gutterSlider?.value = pendingGutterIntensity
@@ -614,6 +624,7 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
                 diffSwatchModified?.background = computeSwatchColor(category, "DIFF_MODIFIED", value)
                 diffSwatchInserted?.background = computeSwatchColor(category, "DIFF_INSERTED", value)
                 diffSwatchDeleted?.background = computeSwatchColor(category, "DIFF_DELETED", value)
+                diffPreview?.updatePreview(variant ?: AyuVariant.DARK, value)
             }
             VcsColorCategory.PROJECT_VIEW_FILE_STATUS -> {
                 pendingProjectViewIntensity = value

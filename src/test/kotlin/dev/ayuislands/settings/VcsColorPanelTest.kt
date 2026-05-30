@@ -161,6 +161,18 @@ class VcsColorPanelTest {
     }
 
     @Test
+    fun `Diff preview is created and follows Diff preset snaps`() {
+        val panel = newBuiltPanel()
+        val preview = diffPreview(panel)
+
+        assertEquals(VcsColorPreset.AMBIENT_SLIDER, preview.intensityForTest())
+
+        panel.triggerSectionPresetChosenForTest(VcsSection.DIFF, VcsColorPreset.CYBERPUNK)
+
+        assertEquals(VcsColorPreset.CYBERPUNK_SLIDER, preview.intensityForTest())
+    }
+
+    @Test
     fun `Merge section preset snap moves only conflict slider`() {
         val panel = newBuiltPanel()
         panel.triggerSectionPresetChosenForTest(VcsSection.MERGE, VcsColorPreset.CYBERPUNK)
@@ -398,5 +410,11 @@ class VcsColorPanelTest {
                 panel.buildPanel(this@panel, dev.ayuislands.accent.AyuVariant.DARK)
             }
         return panel
+    }
+
+    private fun diffPreview(panel: VcsColorPanel): VcsDiffPreviewComponent {
+        val field = VcsColorPanel::class.java.getDeclaredField("diffPreview")
+        field.isAccessible = true
+        return field.get(panel) as? VcsDiffPreviewComponent ?: error("Diff preview must be created")
     }
 }
