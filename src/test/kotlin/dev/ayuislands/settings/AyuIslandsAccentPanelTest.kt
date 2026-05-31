@@ -346,6 +346,29 @@ class AyuIslandsAccentPanelTest {
         )
     }
 
+    @Test
+    fun `initial accent preview follows selected preset instead of stale shuffle color`() {
+        val selectedPreset = "#F28779"
+        state.mirageAccent = selectedPreset
+        state.lastShuffleColor = "#5CCFE6"
+        every { settings.getAccentForVariant(AyuVariant.MIRAGE) } returns selectedPreset
+
+        val accentPanel = AyuIslandsAccentPanel()
+        val dialogPanel = buildDialogPanel(accentPanel)
+        val colorPanel = descendants(dialogPanel, AccentColorPanel::class.java).single()
+
+        kotlin.test.assertEquals(
+            selectedPreset,
+            colorPanel.selectedPreset,
+            "Accent selector must initialize from the stored preset",
+        )
+        kotlin.test.assertEquals(
+            selectedPreset,
+            thirteenthSwatchColorHex(colorPanel),
+            "Large accent preview must not reuse a stale lastShuffleColor from an older pending shuffle",
+        )
+    }
+
     private fun buildDialogPanel(accentPanel: AyuIslandsAccentPanel): DialogPanel {
         wireUiDslServices()
         return panel {
@@ -395,6 +418,16 @@ class AyuIslandsAccentPanelTest {
             }
             visit(container)
         }
+
+    private fun thirteenthSwatchColorHex(panel: AccentColorPanel): String? {
+        val swatch =
+            descendants(panel, Component::class.java)
+                .firstOrNull { it.javaClass.simpleName == "ThirteenthSwatch" }
+                ?: error("AccentColorPanel must contain a ThirteenthSwatch preview component")
+        val field = swatch.javaClass.getDeclaredField("colorHex")
+        field.isAccessible = true
+        return field.get(swatch) as String?
+    }
 
     private fun JComboBox<*>.containsItem(item: String): Boolean = (0 until itemCount).any { getItemAt(it) == item }
 

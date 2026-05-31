@@ -165,14 +165,6 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                 },
             )
         accentPanel = colorPanel
-
-        val lastShuffle = AyuIslandsSettings.getInstance().state.lastShuffleColor
-        if (lastShuffle != null) {
-            colorPanel.showThirteenthSwatchImmediate(lastShuffle)
-        } else if (storedAccent.isNotEmpty()) {
-            colorPanel.showThirteenthSwatchImmediate(storedAccent)
-        }
-
         return colorPanel
     }
 
@@ -411,6 +403,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
             pendingAccent = existingCustom
             panel.selectedPreset = null
             panel.customColor = existingCustom
+            panel.showThirteenthSwatchImmediate(existingCustom)
             onAccentChanged?.invoke(existingCustom)
             return
         }
@@ -464,17 +457,21 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
             colorPanel.selectedPreset = null
             colorPanel.customColor = null
             pendingCustomColor = null
+            colorPanel.hideThirteenthSwatch()
             return
         }
 
         val matchesPreset = AYU_ACCENT_PRESETS.any { it.hex.equals(accent, ignoreCase = true) }
         if (matchesPreset) {
             colorPanel.selectedPreset = accent
+            colorPanel.customColor = null
+            pendingCustomColor = null
         } else {
             colorPanel.selectedPreset = null
             colorPanel.customColor = accent
             pendingCustomColor = accent
         }
+        colorPanel.showThirteenthSwatchImmediate(accent)
     }
 
     private fun updatePanelEnabled() {
@@ -489,6 +486,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         pendingCustomColor = null
         accentPanel?.selectedPreset = null
         accentPanel?.customColor = null
+        accentPanel?.hideThirteenthSwatch()
         onAccentChanged?.invoke("")
     }
 
