@@ -1,6 +1,5 @@
 package dev.ayuislands
 
-import com.intellij.ide.ui.LafManager
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
@@ -8,7 +7,6 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.SystemAppearanceProvider
 import dev.ayuislands.accent.SystemAppearanceProvider.Appearance
 import dev.ayuislands.settings.AyuIslandsSettings
-import javax.swing.SwingUtilities
 
 @Service
 class AppearanceSyncService {
@@ -53,26 +51,22 @@ class AppearanceSyncService {
         LOG.info("Recorded manual appearance choice: $themeName")
     }
 
-    @Suppress("UnstableApiUsage") // installedThemes, UIThemeLookAndFeelInfo — no stable alternative
     private fun switchToTheme(targetThemeName: String) {
-        val lafManager = LafManager.getInstance()
         val currentThemeName = AyuVariant.currentThemeName()
         if (currentThemeName == targetThemeName) return
 
-        val target =
-            lafManager.installedThemes
-                .firstOrNull { it.name == targetThemeName }
-        if (target == null) {
+        if (!AyuLaf.switchToThemeByName(
+                targetThemeName,
+                shouldLockEditorScheme = true,
+                shouldApplyLater = true,
+            )
+        ) {
             LOG.warn("Target theme not found: $targetThemeName")
             return
         }
 
         LOG.info("Switching theme: $currentThemeName -> $targetThemeName")
         programmaticSwitch = true
-        SwingUtilities.invokeLater {
-            lafManager.setCurrentLookAndFeel(target, true)
-            lafManager.updateUI()
-        }
     }
 
     companion object {

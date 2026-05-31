@@ -1,8 +1,8 @@
 package dev.ayuislands.accent.toolbar
 
-import com.intellij.ide.ui.LafManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.util.ui.JBUI
+import dev.ayuislands.AyuLaf
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentDefaults
 import dev.ayuislands.accent.AccentResolver
@@ -36,13 +36,7 @@ internal class VariantSwitcherRow(
     private var islandsUi: Boolean
 
     init {
-        @Suppress("UnstableApiUsage")
-        islandsUi =
-            LafManager
-                .getInstance()
-                .currentUIThemeLookAndFeel
-                ?.name
-                ?.contains(ISLANDS_UI_SUFFIX) == true
+        islandsUi = AyuLaf.currentThemeName().contains(ISLANDS_UI_SUFFIX)
 
         val segmented =
             SegmentedControl(initialVariant) { selected ->
@@ -77,7 +71,6 @@ internal class VariantSwitcherRow(
         }
     }
 
-    @Suppress("UnstableApiUsage") // getInstalledThemes + setCurrentLookAndFeel(UIThemeLookAndFeelInfo, Boolean)
     private fun applyVariantAndChrome(
         variant: AyuVariant,
         islandsUi: Boolean,
@@ -94,21 +87,21 @@ internal class VariantSwitcherRow(
         // attempt succeeds.
         try {
             val themeName = VariantThemeNameResolver.resolveThemeName(variant, islandsUi)
-            val lafManager = LafManager.getInstance()
             // `findLaf(String)` on IDEA 2026.1 expects the platform theme *id* (e.g.
             // `com.ayuislands.theme.mirage`), not the user-visible *name* ("Ayu Mirage").
             // Match by name across the installed-themes sequence so this stays decoupled
             // from plugin.xml `themeProvider` ids — if those ids ever change, this still
             // resolves as long as the display names in `themes/*.theme.json` match.
-            val laf =
-                lafManager.installedThemes.firstOrNull { it.name == themeName } ?: run {
-                    LOG.warn("Theme not found for variant=$variant islandsUi=$islandsUi name='$themeName'")
-                    return
-                }
             // Second arg is `lockEditorScheme = false` so the same-named editor
             // scheme follows the theme switch instead of locking on the old.
-            lafManager.setCurrentLookAndFeel(laf, false)
-            lafManager.updateUI()
+            if (!AyuLaf.switchToThemeByName(
+                    themeName,
+                    shouldLockEditorScheme = false,
+                    shouldApplyLater = false,
+                )
+            ) {
+                LOG.warn("Theme not found for variant=$variant islandsUi=$islandsUi name='$themeName'")
+            }
         } catch (exception: RuntimeException) {
             LOG.warn(
                 "Variant/Islands apply failed (variant=$variant islandsUi=$islandsUi)",

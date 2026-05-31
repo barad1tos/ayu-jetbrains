@@ -2,7 +2,7 @@ package dev.ayuislands.accent.elements
 
 import com.intellij.codeInsight.highlighting.BraceMatchingUtil
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
@@ -85,19 +85,19 @@ object BracketFadeManager {
 
         val project = editor.project ?: return
 
-        // PSI access requires ReadAction (EDT alone is not enough since 2025.1 threading model)
+        // PSI access requires a read action (EDT alone is not enough since 2025.1 threading model)
         val bracketRange =
             try {
-                ReadAction.compute<IntArray?, RuntimeException> {
+                ApplicationManager.getApplication().runReadAction<IntArray?> {
                     val psiFile =
                         PsiDocumentManager.getInstance(project).getPsiFile(editor.document)
-                            ?: return@compute null
+                            ?: return@runReadAction null
                     val context =
                         BraceMatchingUtil.computeHighlightingAndNavigationContext(editor, psiFile)
-                            ?: return@compute null
+                            ?: return@runReadAction null
                     val currentOffset = context.currentBraceOffset()
                     val matchOffset = context.navigationOffset()
-                    if (currentOffset == matchOffset) return@compute null
+                    if (currentOffset == matchOffset) return@runReadAction null
                     intArrayOf(
                         minOf(currentOffset, matchOffset),
                         maxOf(currentOffset, matchOffset),

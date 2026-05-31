@@ -2,14 +2,12 @@ package dev.ayuislands.syntax
 
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.editor.colors.EditorColorsListener
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.ui.JBColor
-import com.intellij.util.ThrowableRunnable
 import com.intellij.util.messages.MessageBus
 import dev.ayuislands.licensing.LicenseChecker
 import io.mockk.Runs
@@ -30,7 +28,7 @@ import kotlin.test.assertFailsWith
  * Orchestration tests for [SyntaxIntensityService]. Reuses the prior
  * service-orchestrator MockK harness - mocks the three named Ayu schemes
  * via `EditorColorsManager.getScheme(...)` plus the active `globalScheme`,
- * verifies a single `ReadAction`-wrapped `globalSchemeChange` publish per
+ * verifies a single read-action-wrapped `globalSchemeChange` publish per
  * `apply()` invocation (R-7), and pins the R-1 fallback + service-layer
  * `CUSTOM` premium gate behaviour through `mockkObject` calls into
  * `RgbBlend` / `LicenseChecker` / `SyntaxIntensityApplicator`.
@@ -83,9 +81,8 @@ class SyntaxIntensityServiceTest {
         every { mockApp.messageBus } returns mockMessageBus
         every { mockMessageBus.syncPublisher(EditorColorsManager.TOPIC) } returns mockPublisher
 
-        mockkStatic(ReadAction::class)
-        every { ReadAction.run<RuntimeException>(any()) } answers {
-            firstArg<ThrowableRunnable<RuntimeException>>().run()
+        every { mockApp.runReadAction(any<Runnable>()) } answers {
+            firstArg<Runnable>().run()
         }
 
         loader = mockk(relaxed = true)
@@ -176,13 +173,13 @@ class SyntaxIntensityServiceTest {
         verify(exactly = 1) { mockPublisher.globalSchemeChange(null) }
     }
 
-    // ---------- Test 4: R-7 ReadAction wrap ----------
+    // ---------- Test 4: R-7 read-action wrap ----------
 
     @Test
-    fun `globalSchemeChange publish is wrapped in ReadAction (R-7)`() {
-        every { ReadAction.run<RuntimeException>(any()) } just Runs
+    fun `globalSchemeChange publish is wrapped in read action (R-7)`() {
+        every { mockApp.runReadAction(any<Runnable>()) } just Runs
         SyntaxIntensityService().apply(SyntaxPreset.WHISPER, emptyMap())
-        verify(exactly = 1) { ReadAction.run<RuntimeException>(any()) }
+        verify(exactly = 1) { mockApp.runReadAction(any<Runnable>()) }
     }
 
     // ---------- Test 5: R-1 fallback engages for dark variant + WHITE bg ----------

@@ -2,7 +2,6 @@ package dev.ayuislands.commitpanel
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ToolWindowType
 import com.intellij.openapi.wm.ex.ToolWindowEx
@@ -191,6 +190,7 @@ class CommitPanelAutoFitManagerTest {
             } returns true
             realState.commitPanelWidthMode =
                 PanelWidthMode.FIXED.name
+            every { toolWindowManager.activeToolWindowId } returns "AWS"
 
             val listenerSlot = slot<ToolWindowManagerListener>()
             every {
@@ -202,10 +202,8 @@ class CommitPanelAutoFitManagerTest {
 
             CommitPanelAutoFitManager(project)
 
-            val foreignToolWindow = visibleToolWindow("AWS")
             listenerSlot.captured.stateChanged(
                 toolWindowManager,
-                foreignToolWindow,
                 ToolWindowManagerEventType.ActivateToolWindow,
             )
 
@@ -228,6 +226,7 @@ class CommitPanelAutoFitManagerTest {
             val panel = JPanel(FlowLayout())
             panel.setSize(200, 400)
             setupCommitToolWindow(panel)
+            every { toolWindowManager.activeToolWindowId } returns "Commit"
             every { toolWindowEx.id } returns "Commit"
             every { toolWindowEx.isVisible } returns true
 
@@ -243,7 +242,6 @@ class CommitPanelAutoFitManagerTest {
 
             listenerSlot.captured.stateChanged(
                 toolWindowManager,
-                toolWindowEx,
                 ToolWindowManagerEventType.ActivateToolWindow,
             )
 
@@ -264,6 +262,7 @@ class CommitPanelAutoFitManagerTest {
             val panel = JPanel(FlowLayout())
             panel.setSize(200, 400)
             setupCommitToolWindow(panel)
+            every { toolWindowManager.activeToolWindowId } returns "Commit"
             every { toolWindowEx.id } returns "Commit"
             every { toolWindowEx.isVisible } returns true
 
@@ -394,12 +393,6 @@ class CommitPanelAutoFitManagerTest {
             toolWindowEx.type
         } returns ToolWindowType.DOCKED
     }
-
-    private fun visibleToolWindow(id: String): ToolWindow =
-        mockk {
-            every { this@mockk.id } returns id
-            every { isVisible } returns true
-        }
 
     private fun mockCalculatorForDefaultMeasuredWidth() {
         mockkObject(AutoFitCalculator)

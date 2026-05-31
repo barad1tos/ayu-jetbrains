@@ -290,6 +290,7 @@ class ProjectViewScrollbarManagerTest {
     fun `stateChanged ignores events from another visible tool window`() {
         realState.projectPanelWidthMode = PanelWidthMode.DEFAULT.name
         realState.hideProjectViewHScrollbar = true
+        every { toolWindowManager.activeToolWindowId } returns "AWS"
 
         val listenerSlot = slot<ToolWindowManagerListener>()
         every {
@@ -303,11 +304,10 @@ class ProjectViewScrollbarManagerTest {
         try {
             SwingUtilities.invokeAndWait {}
             clearMocks(toolWindowManager, answers = false)
+            every { toolWindowManager.activeToolWindowId } returns "AWS"
 
-            val foreignToolWindow = visibleToolWindow("AWS")
             listenerSlot.captured.stateChanged(
                 toolWindowManager,
-                foreignToolWindow,
                 ToolWindowManagerListener.ToolWindowManagerEventType.ActivateToolWindow,
             )
 
@@ -331,6 +331,7 @@ class ProjectViewScrollbarManagerTest {
         val wrapper = JPanel(FlowLayout())
         wrapper.add(scrollPane)
         setupToolWindowContent(wrapper)
+        every { toolWindowManager.activeToolWindowId } returns "Project"
 
         val listenerSlot = slot<ToolWindowManagerListener>()
         every {
@@ -424,10 +425,4 @@ class ProjectViewScrollbarManagerTest {
             toolWindowManager.getToolWindow("Project")
         } returns toolWindow
     }
-
-    private fun visibleToolWindow(id: String): ToolWindow =
-        mockk {
-            every { this@mockk.id } returns id
-            every { isVisible } returns true
-        }
 }

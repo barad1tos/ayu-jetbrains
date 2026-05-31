@@ -5,7 +5,6 @@ import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
-import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.colors.ColorKey
 import com.intellij.openapi.editor.colors.EditorColorsManager
@@ -668,11 +667,11 @@ object AccentApplicator {
         }
 
         // Notify editors to repaint with an updated scheme
-        // Wrapped in ReadAction because Jupyter's NotebookEditorColorsListener
+        // Wrapped in a read action because Jupyter's NotebookEditorColorsListener
         // accesses PSI from globalSchemeChange, which requires read access.
-        ReadAction.run<RuntimeException> {
-            ApplicationManager
-                .getApplication()
+        val application = ApplicationManager.getApplication()
+        application.runReadAction {
+            application
                 .messageBus
                 .syncPublisher(EditorColorsManager.TOPIC)
                 .globalSchemeChange(null)
@@ -713,9 +712,9 @@ object AccentApplicator {
             scheme.setAttributes(attrKey, defaultAttrs ?: EMPTY_TEXT_ATTRIBUTES)
         }
 
-        ReadAction.run<RuntimeException> {
-            ApplicationManager
-                .getApplication()
+        val application = ApplicationManager.getApplication()
+        application.runReadAction {
+            application
                 .messageBus
                 .syncPublisher(EditorColorsManager.TOPIC)
                 .globalSchemeChange(null)

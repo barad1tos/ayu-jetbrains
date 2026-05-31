@@ -3,7 +3,6 @@ package dev.ayuislands.commitpanel
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import dev.ayuislands.licensing.LicenseChecker
@@ -37,15 +36,6 @@ class CommitPanelAutoFitManager(
                     changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
                 ) {
                     if (!changeType.shouldTriggerAutoFitFor(toolWindowManager, TOOL_WINDOW_ID)) return
-                    applyIfWidthManaged()
-                }
-
-                override fun stateChanged(
-                    toolWindowManager: ToolWindowManager,
-                    toolWindow: ToolWindow,
-                    changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
-                ) {
-                    if (!changeType.shouldTriggerAutoFitFor(toolWindow, TOOL_WINDOW_ID)) return
                     applyIfWidthManaged()
                 }
             },

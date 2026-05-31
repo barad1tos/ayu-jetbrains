@@ -3,17 +3,12 @@ package dev.ayuislands.accent.toolbar.popup
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.AnAction
-import com.intellij.openapi.actionSystem.AnActionEvent
-import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.Presentation
-import com.intellij.openapi.actionSystem.ex.ActionUtil
-import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.util.ActionCallback
 import com.intellij.util.ui.JBUI
-import io.mockk.Runs
 import io.mockk.every
-import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
@@ -32,12 +27,15 @@ import kotlin.test.assertTrue
  * per Pattern B so the button stays enabled.
  */
 class IconPillButtonTest {
+    private lateinit var actionManager: ActionManager
+
     @BeforeTest
     fun setUp() {
         mockkStatic(ApplicationManager::class)
         val mockApp = mockk<Application>(relaxed = true)
+        actionManager = mockk(relaxed = true)
         every { ApplicationManager.getApplication() } returns mockApp
-        every { mockApp.getService(ActionManager::class.java) } returns mockk<ActionManager>(relaxed = true)
+        every { mockApp.getService(ActionManager::class.java) } returns actionManager
     }
 
     @AfterTest
@@ -66,65 +64,34 @@ class IconPillButtonTest {
     }
 
     @Test
-    fun `click dispatches the action through ActionUtil invokeAction with the 6-arg event`() {
+    fun `click dispatches the action through ActionManager tryToExecute`() {
         // Behavior test: direct `action.actionPerformed(event)` is a call to
         // an `@ApiStatus.OverrideOnly` member on 2025.1+, so the dispatch
-        // routes through [ActionUtil.invokeAction] (same helper LicenseChecker
-        // uses).
-        //
-        // Headless harness can't run SimpleDataContext.builder().build() — it
-        // reaches for IdeUiService which is null outside a real Application.
-        // Stub the data-context builder to short-circuit that path, then
-        // verify the helper is the actual dispatcher (and direct
-        // actionPerformed is NOT called).
-        mockkStatic(ActionUtil::class)
-        mockkStatic(SimpleDataContext::class)
-        val stubBuilder = mockk<SimpleDataContext.Builder>(relaxed = true)
-        every { SimpleDataContext.builder() } returns stubBuilder
-        every { stubBuilder.add(any<com.intellij.openapi.actionSystem.DataKey<Any>>(), any()) } returns stubBuilder
-        val stubContext = mockk<DataContext>(relaxed = true)
-        every { stubBuilder.build() } returns stubContext
+        // routes through the platform action dispatcher.
 
         val action = mockk<AnAction>(relaxed = true)
         val presentation = Presentation("Pin").apply { description = "Pin this accent" }
         every { action.templatePresentation } returns presentation
-        val captured = mutableListOf<AnActionEvent>()
         every {
-            ActionUtil.invokeAction(eq(action), capture(captured), null)
-        } just Runs
+            actionManager.tryToExecute(eq(action), null, any(), eq("AyuQuickSwitcher.Popup"), true)
+        } returns ActionCallback.DONE
 
         val button = IconPillButton(action, JLabel(), AllIcons.Actions.PinTab)
         button.doClick()
 
-        verify(exactly = 1) { ActionUtil.invokeAction(action, any(), null) }
-        // The positive verify above already proves the dispatch went through the
-        // ActionUtil helper; a redundant negative on the action's perform method
-        // tripped the platform's `@ApiStatus.OverrideOnly` inspection without
-        // adding coverage.
-        assertEquals(1, captured.size, "Helper must receive exactly one event")
-        val event = captured.single()
-        assertEquals(
-            "AyuQuickSwitcher.Popup",
-            event.place,
-            "Event place must be the popup constant so action-update gating reads correctly",
-        )
+        verify(exactly = 1) {
+            actionManager.tryToExecute(action, null, any(), "AyuQuickSwitcher.Popup", true)
+        }
     }
 
     @Test
     fun `click swallows RuntimeException from the action without crashing the button`() {
         // Pattern B behavior lock. A throwing action must NOT escape the
         // button or leave it disabled.
-        mockkStatic(ActionUtil::class)
-        mockkStatic(SimpleDataContext::class)
-        val stubBuilder = mockk<SimpleDataContext.Builder>(relaxed = true)
-        every { SimpleDataContext.builder() } returns stubBuilder
-        every { stubBuilder.add(any<com.intellij.openapi.actionSystem.DataKey<Any>>(), any()) } returns stubBuilder
-        every { stubBuilder.build() } returns mockk(relaxed = true)
-
         val action = mockk<AnAction>(relaxed = true)
         every { action.templatePresentation } returns Presentation("Pin")
         every {
-            ActionUtil.invokeAction(eq(action), any(), null)
+            actionManager.tryToExecute(eq(action), null, any(), eq("AyuQuickSwitcher.Popup"), true)
         } throws RuntimeException("boom action")
 
         val button = IconPillButton(action, JLabel(), AllIcons.Actions.PinTab)

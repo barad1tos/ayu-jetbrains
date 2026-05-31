@@ -1,7 +1,6 @@
 package dev.ayuislands.syntax
 
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.colors.EditorColorsManager
@@ -25,7 +24,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  *  - R-7 single publish: exactly one
  *    `MessageBus.syncPublisher(EditorColorsManager.TOPIC)` invocation
  *    publishing a single global-scheme-change event per apply call,
- *    wrapped in `ReadAction.run`.
+ *    wrapped in a read action.
  *  - Pattern A latches: a missing named scheme logs WARN once per (scheme,
  *    session); an unknown overlay variant tag arriving via
  *    [resolveActiveAyuOverlayVariant] (a future Ayu variant outside the whitelist)
@@ -299,9 +298,9 @@ class SyntaxIntensityService {
     }
 
     private fun publishSchemeChange() {
-        ReadAction.run<RuntimeException> {
-            ApplicationManager
-                .getApplication()
+        val application = ApplicationManager.getApplication()
+        application.runReadAction {
+            application
                 .messageBus
                 .syncPublisher(EditorColorsManager.TOPIC)
                 .globalSchemeChange(null)

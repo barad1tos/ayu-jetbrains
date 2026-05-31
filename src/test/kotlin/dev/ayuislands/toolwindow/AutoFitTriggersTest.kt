@@ -28,7 +28,7 @@ class AutoFitTriggersTest {
     }
 
     @Test
-    fun `HideToolWindow falls through for downstream tw isVisible filter`() {
+    fun `HideToolWindow falls through for downstream visibility filter`() {
         assertTrue(ToolWindowManagerEventType.HideToolWindow.shouldTriggerAutoFit())
     }
 
@@ -38,50 +38,79 @@ class AutoFitTriggersTest {
     }
 
     @Test
-    fun `foreign visible tool window does not trigger scoped auto-fit`() {
-        val toolWindow = toolWindow(id = "AWS", isVisible = true)
+    fun `foreign active tool window does not trigger scoped auto-fit`() {
+        val toolWindowManager = mockk<ToolWindowManager>()
+        every { toolWindowManager.activeToolWindowId } returns "AWS"
 
         assertFalse(
             ToolWindowManagerEventType.ActivateToolWindow
-                .shouldTriggerAutoFitFor(toolWindow, expectedToolWindowId = "Commit"),
+                .shouldTriggerAutoFitFor(toolWindowManager, expectedToolWindowId = "Commit"),
         )
     }
 
     @Test
-    fun `own hidden tool window does not trigger scoped auto-fit`() {
-        val toolWindow = toolWindow(id = "Commit", isVisible = false)
+    fun `missing active tool window does not trigger scoped auto-fit`() {
+        val toolWindowManager = mockk<ToolWindowManager>()
+        every { toolWindowManager.activeToolWindowId } returns null
 
         assertFalse(
             ToolWindowManagerEventType.ActivateToolWindow
-                .shouldTriggerAutoFitFor(toolWindow, expectedToolWindowId = "Commit"),
+                .shouldTriggerAutoFitFor(toolWindowManager, expectedToolWindowId = "Commit"),
         )
     }
 
     @Test
-    fun `own visible tool window triggers scoped auto-fit for accepted events`() {
-        val toolWindow = toolWindow(id = "Commit", isVisible = true)
+    fun `active hidden tool window does not trigger scoped auto-fit`() {
+        val toolWindowManager = mockk<ToolWindowManager>()
+        every { toolWindowManager.activeToolWindowId } returns "Commit"
+        every { toolWindowManager.getToolWindow("Commit") } returns toolWindow(isVisible = false)
+
+        assertFalse(
+            ToolWindowManagerEventType.ActivateToolWindow
+                .shouldTriggerAutoFitFor(toolWindowManager, expectedToolWindowId = "Commit"),
+        )
+    }
+
+    @Test
+    fun `active visible tool window triggers scoped auto-fit for accepted events`() {
+        val toolWindowManager = mockk<ToolWindowManager>()
+        every { toolWindowManager.activeToolWindowId } returns "Commit"
+        every { toolWindowManager.getToolWindow("Commit") } returns toolWindow(isVisible = true)
 
         assertTrue(
             ToolWindowManagerEventType.ActivateToolWindow
-                .shouldTriggerAutoFitFor(toolWindow, expectedToolWindowId = "Commit"),
+                .shouldTriggerAutoFitFor(toolWindowManager, expectedToolWindowId = "Commit"),
         )
     }
 
     @Test
-    fun `own visible tool window keeps rejected event filter`() {
-        val toolWindow = toolWindow(id = "Commit", isVisible = true)
+    fun `active visible tool window keeps rejected event filter`() {
+        val toolWindowManager = mockk<ToolWindowManager>()
+        every { toolWindowManager.activeToolWindowId } returns "Commit"
 
         assertFalse(
             ToolWindowManagerEventType.ShowToolWindow
-                .shouldTriggerAutoFitFor(toolWindow, expectedToolWindowId = "Commit"),
+                .shouldTriggerAutoFitFor(toolWindowManager, expectedToolWindowId = "Commit"),
         )
     }
 
     @Test
-    fun `global layout event triggers scoped auto-fit for visible managed tool window`() {
+    fun `global layout event triggers scoped auto-fit for active visible managed tool window`() {
         val toolWindowManager = mockk<ToolWindowManager>()
-        val toolWindow = toolWindow(id = "Commit", isVisible = true)
-        every { toolWindowManager.getToolWindow("Commit") } returns toolWindow
+        every { toolWindowManager.activeToolWindowId } returns "Commit"
+        every { toolWindowManager.getToolWindow("Commit") } returns toolWindow(isVisible = true)
+
+        assertTrue(
+            ToolWindowManagerEventType.SetLayout
+                .shouldTriggerAutoFitFor(toolWindowManager, expectedToolWindowId = "Commit"),
+        )
+    }
+
+    @Test
+    fun `global layout event triggers scoped auto-fit for visible managed tool window even when inactive`() {
+        val toolWindowManager = mockk<ToolWindowManager>()
+        every { toolWindowManager.activeToolWindowId } returns "AWS"
+        every { toolWindowManager.getToolWindow("Commit") } returns toolWindow(isVisible = true)
 
         assertTrue(
             ToolWindowManagerEventType.SetLayout
@@ -92,8 +121,8 @@ class AutoFitTriggersTest {
     @Test
     fun `global layout event ignores hidden managed tool window`() {
         val toolWindowManager = mockk<ToolWindowManager>()
-        val toolWindow = toolWindow(id = "Commit", isVisible = false)
-        every { toolWindowManager.getToolWindow("Commit") } returns toolWindow
+        every { toolWindowManager.activeToolWindowId } returns "Commit"
+        every { toolWindowManager.getToolWindow("Commit") } returns toolWindow(isVisible = false)
 
         assertFalse(
             ToolWindowManagerEventType.SetLayout
@@ -101,12 +130,8 @@ class AutoFitTriggersTest {
         )
     }
 
-    private fun toolWindow(
-        id: String,
-        isVisible: Boolean,
-    ): ToolWindow =
+    private fun toolWindow(isVisible: Boolean): ToolWindow =
         mockk {
-            every { this@mockk.id } returns id
             every { this@mockk.isVisible } returns isVisible
         }
 }

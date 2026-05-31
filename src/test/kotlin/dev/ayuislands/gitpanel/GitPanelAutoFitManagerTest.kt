@@ -312,6 +312,7 @@ class GitPanelAutoFitManagerTest {
         } returns true
         realState.gitPanelWidthMode =
             PanelWidthMode.AUTO_FIT.name
+        every { toolWindowManager.activeToolWindowId } returns "AWS"
 
         val listenerSlot = slot<ToolWindowManagerListener>()
         every {
@@ -323,10 +324,8 @@ class GitPanelAutoFitManagerTest {
 
         GitPanelAutoFitManager(project)
 
-        val foreignToolWindow = visibleToolWindow("AWS")
         listenerSlot.captured.stateChanged(
             toolWindowManager,
-            foreignToolWindow,
             ToolWindowManagerEventType.ActivateToolWindow,
         )
 
@@ -383,6 +382,7 @@ class GitPanelAutoFitManagerTest {
                         this@mockk.contentManager
                     } returns contentManager
                 }
+            every { toolWindowManager.activeToolWindowId } returns "Version Control"
             every {
                 toolWindowManager.getToolWindow("Version Control")
             } returns toolWindow
@@ -482,10 +482,4 @@ class GitPanelAutoFitManagerTest {
             }
         }
     }
-
-    private fun visibleToolWindow(id: String): ToolWindow =
-        mockk {
-            every { this@mockk.id } returns id
-            every { isVisible } returns true
-        }
 }
