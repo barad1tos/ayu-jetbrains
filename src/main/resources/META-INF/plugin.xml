@@ -121,6 +121,9 @@
       <li><b>Fixed:</b> premium Settings controls stay visible-but-locked across VCS, Glow, Workspace, Chrome tinting, Accent Elements, plugin integrations, and accent overrides instead of disappearing behind a Pro notice.</li>
       <li><b>Fixed:</b> locked premium controls no longer mark Settings as modified when clicked by unlicensed users, and Reset/Revert restores nested plugin-integration rows correctly.</li>
       <li><b>Fixed:</b> Settings tabs and preview panels shrink more consistently in narrow Settings windows.</li>
+      <li><b>Fixed:</b> Accent Settings preview stays synchronized with the selected color instead of restoring stale shuffle state.</li>
+      <li><b>Fixed:</b> visible managed tool windows re-measure after layout and theme refreshes, so auto-fit sizing stays consistent.</li>
+      <li><b>Compatibility:</b> release builds now block IntelliJ Plugin Verifier internal API findings before Marketplace upload.</li>
     </ul>
     <h3>2.7.0</h3>
     <ul>

@@ -58,9 +58,10 @@ internal object UpdateNotifier {
             "2.7.1" to
                 releaseNotes(
                     "Locked premium Settings controls are now visible as greyed-out previews",
-                    "VCS presets now update one compact code-style preview",
-                    "Font presets now use the same polished editor-style preview",
-                    "Settings tabs and previews shrink more consistently in narrow windows",
+                    "VCS and Font presets now use polished editor-style previews",
+                    "Accent Settings preview now stays synced with the selected color",
+                    "Tool windows keep auto-fit sizing after layout and theme refreshes",
+                    "Release verification now blocks internal IntelliJ API usage before upload",
                 ),
             "2.7.0" to
                 releaseNotes(
