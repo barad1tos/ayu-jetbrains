@@ -2,6 +2,9 @@
 
 ## [2.7.1] - 2026-06-01
 
+### Added
+- **.ignore file colors** — `.ignore` files now use dedicated Ayu colors across Dark, Mirage, and Light editor schemes, including Syntax preset transformations.
+
 ### Changed
 - **Visible locked premium previews** — free users can now inspect premium Settings controls in their real layout, with the controls greyed out until a license or trial unlocks them.
 - **Unified VCS preview** — the VCS tab now shows one compact code-style preview that reflects diff, merge/conflict, blame, and file-status presets together.

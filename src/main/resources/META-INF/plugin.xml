@@ -115,6 +115,7 @@
     <change-notes><![CDATA[
     <h3>2.7.1</h3>
     <ul>
+      <li><b>Added:</b> <code>.ignore</code> files now use dedicated Ayu colors across Dark, Mirage, and Light editor schemes, including Syntax preset transformations.</li>
       <li><b>Changed:</b> free users can inspect premium Settings controls in their real layout, with controls greyed out until a license or trial unlocks them.</li>
       <li><b>Changed:</b> the VCS tab now shows one compact code-style preview that reflects diff, merge/conflict, blame, and file-status presets together.</li>
       <li><b>Changed:</b> the Font tab now uses the same editor-style preview treatment as VCS, with clearer depth and file context.</li>

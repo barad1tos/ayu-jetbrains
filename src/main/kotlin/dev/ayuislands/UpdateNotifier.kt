@@ -61,7 +61,7 @@ internal object UpdateNotifier {
                     "VCS and Font presets now use polished editor-style previews",
                     "Accent Settings preview now stays synced with the selected color",
                     "Tool windows keep auto-fit sizing after layout and theme refreshes",
-                    "Release verification now blocks internal IntelliJ API usage before upload",
+                    ".ignore files now use dedicated Ayu colors across all schemes",
                 ),
             "2.7.0" to
                 releaseNotes(

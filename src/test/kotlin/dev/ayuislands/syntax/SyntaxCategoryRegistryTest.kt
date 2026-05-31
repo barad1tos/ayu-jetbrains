@@ -145,6 +145,35 @@ class SyntaxCategoryRegistryTest {
         )
     }
 
+    @Test
+    fun `all ignore plugin keys classify for Syntax presets`() {
+        val expectedCategories =
+            mapOf(
+                "IGNORE.COMMENT" to PrimitiveCategory.DOCUMENTATION,
+                "IGNORE.SECTION" to PrimitiveCategory.KEYWORD,
+                "IGNORE.HEADER" to PrimitiveCategory.KEYWORD,
+                "IGNORE.NEGATION" to PrimitiveCategory.KEYWORD,
+                "IGNORE.BRACKET" to PrimitiveCategory.OPERATOR,
+                "IGNORE.SLASH" to PrimitiveCategory.KEYWORD,
+                "IGNORE.SYNTAX" to PrimitiveCategory.KEYWORD,
+                "IGNORE.VALUE" to PrimitiveCategory.STRING_LITERAL,
+                "IGNORE.UNUSED_ENTRY" to PrimitiveCategory.COMMENT,
+            )
+
+        for ((key, expected) in expectedCategories) {
+            assertEquals(
+                expected,
+                SyntaxCategoryRegistry.classify(key),
+                "$key must classify so Syntax presets can transform .ignore plugin colors.",
+            )
+            assertEquals(
+                "Ignore",
+                SyntaxLanguageRegistry.classify(key).tag,
+                "$key must stay grouped under the Ignore language tag.",
+            )
+        }
+    }
+
     // ---------------------------------------------------------------------
     // Unknown suffix + Pattern A latch
     // ---------------------------------------------------------------------

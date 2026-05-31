@@ -1302,6 +1302,59 @@
             </value>
         </option>
 
+        <!-- Ignore plugin -->
+        <option name="IGNORE.COMMENT">
+            <value>
+                <option name="FOREGROUND" value="D5FF80" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="IGNORE.SECTION">
+            <value>
+                <option name="FOREGROUND" value="FFD173" />
+                <option name="FONT_TYPE" value="1" />
+            </value>
+        </option>
+        <option name="IGNORE.HEADER">
+            <value>
+                <option name="FOREGROUND" value="DFBFFF" />
+                <option name="FONT_TYPE" value="1" />
+            </value>
+        </option>
+        <option name="IGNORE.NEGATION">
+            <value>
+                <option name="FOREGROUND" value="F28779" />
+                <option name="FONT_TYPE" value="1" />
+            </value>
+        </option>
+        <option name="IGNORE.BRACKET">
+            <value>
+                <option name="FOREGROUND" value="F29E74" />
+            </value>
+        </option>
+        <option name="IGNORE.SLASH">
+            <value>
+                <option name="FOREGROUND" value="B8CFE6" />
+            </value>
+        </option>
+        <option name="IGNORE.SYNTAX">
+            <value>
+                <option name="FOREGROUND" value="FFAD66" />
+                <option name="FONT_TYPE" value="1" />
+            </value>
+        </option>
+        <option name="IGNORE.VALUE">
+            <value>
+                <option name="FOREGROUND" value="95E6CB" />
+            </value>
+        </option>
+        <option name="IGNORE.UNUSED_ENTRY">
+            <value>
+                <option name="FOREGROUND" value="B8CFE6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+
         <!-- Identifier under caret -->
         <option name="IDENTIFIER_UNDER_CARET_ATTRIBUTES">
             <value>
