@@ -85,6 +85,7 @@ After `./gradlew verifyPlugin`, enforces the project API policy:
 
 ```bash
 python3 scripts/verify-plugin-verifier.py
+python3 scripts/test-verify-plugin-verifier.py
 ```
 
 Deps: stdlib only. Plain `python3`.

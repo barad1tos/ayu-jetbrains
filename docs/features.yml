@@ -86,11 +86,12 @@ categories:
           path: src/main/resources/whatsnew/v2.5.0/slide-project-overrides.png
           caption: "Per-project accent overrides table"
           sources:
+            - src/main/kotlin/dev/ayuislands/settings/AyuIslandsAccentPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "2638bb64"
-          last_verified_date: "2026-05-30"
+          last_verified_sha: "ec28e522"
+          last_verified_date: "2026-05-31"
           content_sha256: "4c86c5d855c6dcefd703f647451bac4117397e435b05dd9cae6b9cbc7f479616"
 
       - id: accent-scoped-language
@@ -107,11 +108,12 @@ categories:
           path: src/main/resources/whatsnew/v2.5.0/slide-language-overrides.png
           caption: "Per-language accent overrides table"
           sources:
+            - src/main/kotlin/dev/ayuislands/settings/AyuIslandsAccentPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "2638bb64"
-          last_verified_date: "2026-05-30"
+          last_verified_sha: "ec28e522"
+          last_verified_date: "2026-05-31"
           content_sha256: "ea83498db84a5cd122dd1d09132d74774c6e24295188b93464fddb0d784bf4e1"
 
       - id: accent-language-breakdown

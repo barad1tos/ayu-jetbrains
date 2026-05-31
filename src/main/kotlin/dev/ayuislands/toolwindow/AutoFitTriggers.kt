@@ -28,7 +28,12 @@ internal fun ToolWindowManagerListener.ToolWindowManagerEventType.shouldTriggerA
     expectedToolWindowId: String,
 ): Boolean {
     if (!shouldTriggerAutoFit()) return false
-    if (toolWindowManager.activeToolWindowId != expectedToolWindowId) return false
+    if (
+        this == ToolWindowManagerListener.ToolWindowManagerEventType.ActivateToolWindow &&
+        toolWindowManager.activeToolWindowId != expectedToolWindowId
+    ) {
+        return false
+    }
 
     val toolWindow = toolWindowManager.getToolWindow(expectedToolWindowId) ?: return false
     return toolWindow.isVisible

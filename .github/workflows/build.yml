@@ -100,6 +100,8 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: scripts/uv.lock
+      - name: Test Plugin Verifier API gate
+        run: python3 scripts/test-verify-plugin-verifier.py
       - name: Verify docs sync (features.yml ↔ README + plugin.xml + CHANGELOG)
         run: scripts/verify-docs.py
 

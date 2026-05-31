@@ -399,6 +399,24 @@ class BracketFadeManagerTest {
     }
 
     @Test
+    fun `handleCaretMove computes bracket range inside read action`() {
+        setPrivateField("currentColor", Color.CYAN)
+        val mockContext = mockk<BraceHighlightingAndNavigationContext>(relaxed = true)
+        every {
+            BraceMatchingUtil.computeHighlightingAndNavigationContext(any(), any())
+        } returns mockContext
+        every { mockContext.currentBraceOffset() } returns 10
+        every { mockContext.navigationOffset() } returns 50
+        every { mockDocument.getLineNumber(any()) } returns 0
+
+        invokePrivate("handleCaretMove", mockEditor)
+
+        verify(exactly = 1) {
+            mockApplication.runReadAction<Any?>(any())
+        }
+    }
+
+    @Test
     fun `handleCaretMove coerces endOffset plus one to textLength`() {
         setPrivateField("currentColor", Color.RED)
         val mockContext = mockk<BraceHighlightingAndNavigationContext>(relaxed = true)

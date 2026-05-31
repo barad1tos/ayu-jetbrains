@@ -107,6 +107,18 @@ class AutoFitTriggersTest {
     }
 
     @Test
+    fun `global layout event triggers scoped auto-fit for visible managed tool window even when inactive`() {
+        val toolWindowManager = mockk<ToolWindowManager>()
+        every { toolWindowManager.activeToolWindowId } returns "AWS"
+        every { toolWindowManager.getToolWindow("Commit") } returns toolWindow(isVisible = true)
+
+        assertTrue(
+            ToolWindowManagerEventType.SetLayout
+                .shouldTriggerAutoFitFor(toolWindowManager, expectedToolWindowId = "Commit"),
+        )
+    }
+
+    @Test
     fun `global layout event ignores hidden managed tool window`() {
         val toolWindowManager = mockk<ToolWindowManager>()
         every { toolWindowManager.activeToolWindowId } returns "Commit"
