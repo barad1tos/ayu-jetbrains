@@ -8,6 +8,7 @@ import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.Color
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -90,6 +91,8 @@ class SyntaxIntensityService {
                 subordinatePreset = subordinatePreset,
                 customStyles = customStyles,
                 readabilityOptions = effectiveReadabilityOptions,
+                ignorePluginSyntaxColorsEnabled =
+                    AyuIslandsSettings.getInstance().state.ignorePluginSyntaxColorsEnabled,
             )
         val manager = EditorColorsManager.getInstance()
         val touched = mutableSetOf<EditorColorsScheme>()
@@ -107,7 +110,7 @@ class SyntaxIntensityService {
                     variantTag = overlayVariant,
                     context = context,
                 )
-            writeSchemeAttributes(scheme, computed, schemeName)
+            writeSchemeAttributes(scheme, applyIgnorePluginPreference(computed, context), schemeName)
             touched.add(scheme)
         }
         writeActiveSchemeIfNotTouched(context, touched)
@@ -128,6 +131,7 @@ class SyntaxIntensityService {
         val subordinatePreset: SyntaxPreset,
         val customStyles: Map<String, Map<String, Int>>,
         val readabilityOptions: SyntaxReadabilityOptions,
+        val ignorePluginSyntaxColorsEnabled: Boolean,
     )
 
     /**
@@ -239,7 +243,7 @@ class SyntaxIntensityService {
                 variantTag = variant,
                 context = context,
             )
-        writeSchemeAttributes(active, computed, active.name)
+        writeSchemeAttributes(active, applyIgnorePluginPreference(computed, context), active.name)
     }
 
     private fun computeSchemeAttributes(
@@ -261,6 +265,20 @@ class SyntaxIntensityService {
                 readabilityOptions = context.readabilityOptions,
             ),
         )
+    }
+
+    private fun applyIgnorePluginPreference(
+        computed: Map<TextAttributesKey, TextAttributes>,
+        context: ApplyContext,
+    ): Map<TextAttributesKey, TextAttributes> {
+        if (context.ignorePluginSyntaxColorsEnabled) return computed
+
+        val result = LinkedHashMap(computed)
+        for (keyName in IGNORE_PLUGIN_KEY_NAMES) {
+            val key = TextAttributesKey.find(keyName)
+            result[key] = key.defaultAttributes?.clone() ?: TextAttributes()
+        }
+        return result
     }
 
     /**
@@ -323,6 +341,19 @@ class SyntaxIntensityService {
         // when defaultBackground == Color.WHITE. The Light variant's
         // Color.WHITE IS correct and must flow through unchanged.
         private val DARK_OVERLAY_VARIANTS = setOf("Mirage", "Dark")
+
+        private val IGNORE_PLUGIN_KEY_NAMES =
+            listOf(
+                "IGNORE.COMMENT",
+                "IGNORE.SECTION",
+                "IGNORE.HEADER",
+                "IGNORE.NEGATION",
+                "IGNORE.BRACKET",
+                "IGNORE.SLASH",
+                "IGNORE.SYNTAX",
+                "IGNORE.VALUE",
+                "IGNORE.UNUSED_ENTRY",
+            )
 
         fun getInstance(): SyntaxIntensityService {
             val app = ApplicationManager.getApplication()

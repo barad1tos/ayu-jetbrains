@@ -10,6 +10,8 @@ import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.ui.JBColor
 import com.intellij.util.messages.MessageBus
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
@@ -43,6 +45,8 @@ class SyntaxIntensityServiceTest {
     private lateinit var mockApp: Application
     private lateinit var loader: SyntaxOverlayLoader
     private lateinit var stateInstance: SyntaxIntensityState
+    private lateinit var ayuSettings: AyuIslandsSettings
+    private lateinit var ayuState: AyuIslandsState
     private val keyCache = mutableMapOf<String, TextAttributesKey>()
 
     @BeforeTest
@@ -65,6 +69,9 @@ class SyntaxIntensityServiceTest {
         mockMessageBus = mockk(relaxed = true)
         mockPublisher = mockk(relaxed = true)
         mockApp = mockk(relaxed = true)
+        ayuState = AyuIslandsState()
+        ayuSettings = mockk(relaxed = true)
+        every { ayuSettings.state } returns ayuState
 
         mockkStatic(EditorColorsManager::class)
         every { EditorColorsManager.getInstance() } returns mockManager
@@ -124,6 +131,7 @@ class SyntaxIntensityServiceTest {
         } returns payload
 
         every { mockApp.getService(SyntaxIntensityService::class.java) } returns SyntaxIntensityService()
+        every { mockApp.getService(AyuIslandsSettings::class.java) } returns ayuSettings
     }
 
     @AfterTest
@@ -227,6 +235,46 @@ class SyntaxIntensityServiceTest {
         service.apply(SyntaxPreset.WHISPER, emptyMap())
 
         verify(exactly = 0) { solarizedScheme.setAttributes(any(), any<TextAttributes>()) }
+    }
+
+    @Test
+    fun `disabled ignore plugin colors restore default attributes on Ayu schemes`() {
+        ayuState.ignorePluginSyntaxColorsEnabled = false
+
+        SyntaxIntensityService().apply(SyntaxPreset.WHISPER, emptyMap())
+
+        verify(exactly = 1) {
+            mockMirage.setAttributes(
+                keyCache.getValue("IGNORE.COMMENT"),
+                any<TextAttributes>(),
+            )
+        }
+        verify(exactly = 1) {
+            mockDark.setAttributes(
+                keyCache.getValue("IGNORE.VALUE"),
+                any<TextAttributes>(),
+            )
+        }
+        verify(exactly = 1) {
+            mockLight.setAttributes(
+                keyCache.getValue("IGNORE.UNUSED_ENTRY"),
+                any<TextAttributes>(),
+            )
+        }
+    }
+
+    @Test
+    fun `enabled ignore plugin colors do not add default restore writes`() {
+        ayuState.ignorePluginSyntaxColorsEnabled = true
+
+        SyntaxIntensityService().apply(SyntaxPreset.WHISPER, emptyMap())
+
+        verify(exactly = 0) {
+            mockMirage.setAttributes(
+                TextAttributesKey.find("IGNORE.COMMENT"),
+                any<TextAttributes>(),
+            )
+        }
     }
 
     @Test
