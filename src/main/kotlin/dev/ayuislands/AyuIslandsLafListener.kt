@@ -15,7 +15,6 @@ import dev.ayuislands.ui.ComponentTreeRefresher
 
 /** Re-applies accent, font, glow, and scrollbar settings on theme change. */
 class AyuIslandsLafListener : LafManagerListener {
-    @Suppress("UnstableApiUsage")
     override fun lookAndFeelChanged(source: LafManager) {
         val variant = AyuVariant.detect()
         if (variant == null) {
@@ -52,7 +51,7 @@ class AyuIslandsLafListener : LafManagerListener {
         // Track manual sub-variant choices for appearance sync
         val syncService = AppearanceSyncService.getInstance()
         if (settings.state.followSystemAppearance && !syncService.programmaticSwitch) {
-            val themeName = source.currentUIThemeLookAndFeel.name
+            val themeName = AyuLaf.currentThemeName(source)
             syncService.recordManualChoice(themeName)
         }
         syncService.clearProgrammaticSwitch()

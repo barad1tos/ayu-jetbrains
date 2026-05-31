@@ -2,7 +2,6 @@ package dev.ayuislands.onboarding
 
 import com.intellij.icons.AllIcons
 import com.intellij.ide.BrowserUtil
-import com.intellij.ide.ui.LafManager
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
@@ -13,6 +12,7 @@ import com.intellij.ui.ColorUtil
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
+import dev.ayuislands.AyuLaf
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentColor
@@ -351,17 +351,15 @@ internal class FreeOnboardingPanel(
         updateTrialHeadline(label.font.size2D)
     }
 
-    @Suppress("UnstableApiUsage")
     private fun applyVariantLaf(variant: AyuVariant) {
-        val lafManager = LafManager.getInstance()
         val targetName =
             variant.themeNames.firstOrNull { it.contains("Islands UI") }
                 ?: variant.themeNames.first()
-        val target = lafManager.installedThemes.firstOrNull { it.name == targetName } ?: return
-        SwingUtilities.invokeLater {
-            lafManager.setCurrentLookAndFeel(target, true)
-            lafManager.updateUI()
-        }
+        AyuLaf.switchToThemeByName(
+            targetName,
+            shouldLockEditorScheme = true,
+            shouldApplyLater = true,
+        )
     }
 
     /** Color shown as the variant card's accent dot. Selected swatch takes priority. */

@@ -4,7 +4,6 @@ import com.intellij.codeInsight.highlighting.BraceMatchingUtil
 import com.intellij.codeInsight.highlighting.BraceMatchingUtil.BraceHighlightingAndNavigationContext
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
@@ -13,6 +12,7 @@ import com.intellij.openapi.editor.markup.HighlighterTargetArea
 import com.intellij.openapi.editor.markup.MarkupModel
 import com.intellij.openapi.editor.markup.RangeHighlighter
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Computable
 import com.intellij.openapi.util.Disposer
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
@@ -83,11 +83,10 @@ class BracketFadeManagerTest {
         every { PsiDocumentManager.getInstance(any()) } returns mockPsiDocumentManager
         every { mockPsiDocumentManager.getPsiFile(any()) } returns mockPsiFile
 
-        mockkStatic(ReadAction::class)
         every {
-            ReadAction.compute<Any?, RuntimeException>(any())
+            mockApplication.runReadAction<Any?>(any())
         } answers {
-            firstArg<com.intellij.openapi.util.ThrowableComputable<Any?, RuntimeException>>().compute()
+            firstArg<Computable<Any?>>().compute()
         }
 
         mockkStatic(BraceMatchingUtil::class)

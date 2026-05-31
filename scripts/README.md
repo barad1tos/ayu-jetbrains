@@ -71,6 +71,24 @@ python3 scripts/verify-bytecode.py path/to/plugin.jar  # explicit path
 
 Deps: stdlib only (`subprocess` shells out to `javap`). Plain `python3`.
 
+### `verify-plugin-verifier.py` — IntelliJ API release gate
+
+After `./gradlew verifyPlugin`, enforces the project API policy:
+
+1. Internal IntelliJ Platform API is release-blocking. Any
+   `internal-api-usages.txt` finding fails the gate before merge or Marketplace
+   upload.
+2. Deprecated, scheduled-for-removal, and experimental API usage is advisory
+   but must stay visible. The script prints de-duplicated
+   `deprecated-usages.txt` and `experimental-api-usages.txt` findings so we
+   minimize them whenever stable public replacements exist.
+
+```bash
+python3 scripts/verify-plugin-verifier.py
+```
+
+Deps: stdlib only. Plain `python3`.
+
 ### `verify-proguard-keeps.py` — ProGuard keep-rule coverage
 
 Every class referenced in `plugin.xml` must have a `-keep class X { *; }`

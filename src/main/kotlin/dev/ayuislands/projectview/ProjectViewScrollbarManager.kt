@@ -6,7 +6,6 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.registry.Registry
-import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import com.intellij.ui.SimpleColoredComponent
@@ -57,15 +56,6 @@ class ProjectViewScrollbarManager(
                     changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
                 ) {
                     if (!changeType.shouldTriggerAutoFitFor(toolWindowManager, TOOL_WINDOW_ID)) return
-                    applyIfAnyProjectFeatureManaged()
-                }
-
-                override fun stateChanged(
-                    toolWindowManager: ToolWindowManager,
-                    toolWindow: ToolWindow,
-                    changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
-                ) {
-                    if (!changeType.shouldTriggerAutoFitFor(toolWindow, TOOL_WINDOW_ID)) return
                     applyIfAnyProjectFeatureManaged()
                 }
             },

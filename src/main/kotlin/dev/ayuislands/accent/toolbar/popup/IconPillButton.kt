@@ -1,13 +1,7 @@
 package dev.ayuislands.accent.toolbar.popup
 
-import com.intellij.openapi.actionSystem.ActionUiKind
+import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.AnAction
-import com.intellij.openapi.actionSystem.AnActionEvent
-import com.intellij.openapi.actionSystem.DataContext
-import com.intellij.openapi.actionSystem.PlatformCoreDataKeys
-import com.intellij.openapi.actionSystem.Presentation
-import com.intellij.openapi.actionSystem.ex.ActionUtil
-import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.util.ui.JBUI
 import java.awt.Color
@@ -34,14 +28,11 @@ import javax.swing.JComponent
  * Tooltip text comes from the action's `templatePresentation.description` (or
  * `text` as fallback).
  *
- * Click handler uses the non-deprecated 6-arg event-factory form on
- * [AnActionEvent] and dispatches through [ActionUtil.invokeAction] rather
- * than calling the action's perform method directly: IntelliJ 2025.1+
- * marks `AnAction.actionPerformed` as `@ApiStatus.OverrideOnly`, so
- * direct invocation by callers bypasses platform plumbing
- * (beforeActionPerformed listeners, action-promoter chain, error
- * reporting). [ActionUtil.invokeAction] is the project-canonical
- * helper — see `LicenseChecker.kt` for prior art.
+ * Click handler dispatches through [ActionManager.tryToExecute] rather than
+ * calling the action's perform method directly: IntelliJ 2025.1+ marks
+ * `AnAction.actionPerformed` as `@ApiStatus.OverrideOnly`, so direct invocation
+ * by callers bypasses platform plumbing (beforeActionPerformed listeners,
+ * action-promoter chain, error reporting).
  * The dispatch is wrapped in
  * `try { ... } catch (exception: RuntimeException) { LOG.warn(...) }` per
  * Pattern B — a throwing action must NOT kill the EDT or crash the popup.
@@ -50,8 +41,7 @@ import javax.swing.JComponent
  * `Graphics.create()` block dismisses in `finally`.
  *
  * @param action the [AnAction] this pill delegates to on click.
- * @param anchor the popup's invoker [JComponent] — used as `CONTEXT_COMPONENT`
- *   in the synthetic [AnActionEvent].
+ * @param anchor the popup's invoker [JComponent].
  * @param icon the 16x16 [Icon] rendered inside the pill.
  */
 internal class IconPillButton(
@@ -151,24 +141,7 @@ internal class IconPillButton(
 
     private fun invokeAction() {
         try {
-            val dataContext: DataContext =
-                SimpleDataContext
-                    .builder()
-                    .add(PlatformCoreDataKeys.CONTEXT_COMPONENT, anchor)
-                    .build()
-            val event =
-                AnActionEvent.createEvent(
-                    action,
-                    dataContext,
-                    Presentation(),
-                    POPUP_PLACE,
-                    ActionUiKind.POPUP,
-                    null,
-                )
-            // Project-canonical dispatch — mirrors [LicenseChecker.invokeAction].
-            // Direct `action.actionPerformed(event)` would bypass `@ApiStatus.OverrideOnly`
-            // contract on 2025.1+ and miss the beforeActionPerformed plumbing.
-            ActionUtil.invokeAction(action, event, null)
+            ActionManager.getInstance().tryToExecute(action, null, anchor, POPUP_PLACE, true)
         } catch (exception: RuntimeException) {
             LOG.warn("IconPillButton action ${action.javaClass.simpleName} failed", exception)
         }

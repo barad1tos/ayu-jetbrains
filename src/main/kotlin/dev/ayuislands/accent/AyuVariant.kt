@@ -1,6 +1,6 @@
 package dev.ayuislands.accent
 
-import com.intellij.ide.ui.LafManager
+import dev.ayuislands.AyuLaf
 
 enum class AyuVariant(
     val defaultAccent: String,
@@ -18,13 +18,7 @@ enum class AyuVariant(
 
         fun fromThemeName(name: String): AyuVariant? = entries.firstOrNull { name in it.themeNames }
 
-        @Suppress("UnstableApiUsage")
-        fun currentThemeName(): String =
-            LafManager
-                .getInstance()
-                .currentUIThemeLookAndFeel
-                ?.name
-                .orEmpty()
+        fun currentThemeName(): String = AyuLaf.currentThemeName()
 
         fun detect(): AyuVariant? = fromThemeName(currentThemeName())
 

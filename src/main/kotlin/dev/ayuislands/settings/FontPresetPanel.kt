@@ -25,6 +25,7 @@ import dev.ayuislands.font.FontWeight
 import java.awt.datatransfer.StringSelection
 import javax.swing.JCheckBox
 import javax.swing.JLabel
+import javax.swing.JList
 import javax.swing.JSpinner
 import javax.swing.SpinnerNumberModel
 
@@ -452,7 +453,18 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
 
             label("Weight:")
             val wCombo = ComboBox(FontWeight.entries.toTypedArray())
-            wCombo.renderer = SimpleListCellRenderer.create("") { it.displayName }
+            wCombo.renderer =
+                object : SimpleListCellRenderer<FontWeight>() {
+                    override fun customize(
+                        list: JList<out FontWeight>,
+                        value: FontWeight?,
+                        index: Int,
+                        selected: Boolean,
+                        hasFocus: Boolean,
+                    ) {
+                        text = value?.displayName.orEmpty()
+                    }
+                }
             wCombo.selectedItem = currentSettings.weight
             wCombo.addActionListener {
                 if (!suppressListeners) {

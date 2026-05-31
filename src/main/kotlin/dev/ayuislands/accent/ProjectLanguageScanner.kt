@@ -1,6 +1,6 @@
 package dev.ayuislands.accent
 
-import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
@@ -8,7 +8,7 @@ import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.vfs.VirtualFile
 
 /**
- * Walks a project's content roots under a [ReadAction] and tallies per-language
+ * Walks a project's content roots under a read action and tallies per-language
  * bytes, cap-limited per file so generated monsters can't skew proportions and
  * cap-limited by total file count so the scan doesn't block the EDT on
  * linux-kernel-sized repos.
@@ -19,7 +19,7 @@ import com.intellij.openapi.vfs.VirtualFile
  *
  * Returned map semantics:
  *  - `null`  → scan is not authoritative right now (project disposed, dumb mode,
- *              or ReadAction threw). Caller must NOT cache this; the next call
+ *              or the read action threw). Caller must NOT cache this; the next call
  *              retries — critical so a "scan during indexing" doesn't freeze a
  *              pre-indexing fallback into the cache forever.
  *  - empty map → scan ran cleanly and found zero recognized source files. Caller
@@ -53,7 +53,7 @@ internal object ProjectLanguageScanner {
 
         val scanResult =
             runCatchingPreservingCancellation {
-                ReadAction.compute<Map<String, Long>, RuntimeException> {
+                ApplicationManager.getApplication().runReadAction<Map<String, Long>> {
                     scanUnderReadAction(project)
                 }
             }
