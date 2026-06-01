@@ -12,6 +12,7 @@ import com.intellij.openapi.wm.IdeFrame
 import com.intellij.testFramework.LoggedErrorProcessor
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowOverlayManager
@@ -495,15 +496,15 @@ class AccentRotationServiceTest {
         } returns arrayOf(inactiveProject, osActiveProject)
 
         mockkObject(AccentResolver)
-        every { AccentResolver.resolve(osActiveProject, AyuVariant.MIRAGE) } returns "#5CCFE6"
-        every { AccentResolver.resolve(inactiveProject, any<AyuVariant>()) } returns "#DFBFFF"
-        every { AccentResolver.resolve(null, any<AyuVariant>()) } returns "#GLOBAL"
+        every { AccentResolver.resolve(osActiveProject, AccentContext.Ayu(AyuVariant.MIRAGE)) } returns "#5CCFE6"
+        every { AccentResolver.resolve(inactiveProject, any<AccentContext>()) } returns "#DFBFFF"
+        every { AccentResolver.resolve(null, any<AccentContext>()) } returns "#GLOBAL"
 
         val service = AccentRotationService()
         service.rotateAccent()
 
-        verify(exactly = 1) { AccentResolver.resolve(osActiveProject, AyuVariant.MIRAGE) }
-        verify(exactly = 0) { AccentResolver.resolve(inactiveProject, any<AyuVariant>()) }
+        verify(exactly = 1) { AccentResolver.resolve(osActiveProject, AccentContext.Ayu(AyuVariant.MIRAGE)) }
+        verify(exactly = 0) { AccentResolver.resolve(inactiveProject, any<AccentContext>()) }
         verify(exactly = 1) { AccentApplicator.applyFromHexString("#5CCFE6") }
     }
 
