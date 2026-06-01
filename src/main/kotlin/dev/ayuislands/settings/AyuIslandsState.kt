@@ -3,6 +3,8 @@ package dev.ayuislands.settings
 import com.intellij.openapi.components.BaseState
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AccentHex
+import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.ExternalAccentSource
 import dev.ayuislands.accent.TintIntensity
 import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowPreset
@@ -30,6 +32,9 @@ class AyuIslandsState : BaseState() {
     var mirageAccent by string("#FFCC66")
     var darkAccent by string("#E6B450")
     var lightAccent by string("#F29718")
+    var externalThemeEnhancementsEnabled by property(false)
+    var externalThemeAccentSource by string(ExternalAccentSource.AUTOMATIC.name)
+    var externalThemeAccent by string(AyuVariant.MIRAGE.defaultAccent)
     var followSystemAccent by property(false)
     var followSystemAppearance by property(false)
     var lastDarkAppearanceTheme by string("Ayu Mirage (Islands UI)")
