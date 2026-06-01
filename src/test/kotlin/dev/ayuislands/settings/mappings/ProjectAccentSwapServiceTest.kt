@@ -74,7 +74,7 @@ class ProjectAccentSwapServiceTest {
         mockkObject(IndentRainbowSync)
         every { AccentApplicator.applyFromHexString(any()) } returns true
         every { AccentApplicator.syncCodeGlanceProViewportForSwap(any()) } just Runs
-        every { IndentRainbowSync.apply(any(), any()) } just Runs
+        every { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) } just Runs
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         every { ComponentTreeRefresher.walkAndNotify(any(), any()) } just Runs
 
@@ -332,7 +332,7 @@ class ProjectAccentSwapServiceTest {
         every { AccentApplicator.syncCodeGlanceProViewportForSwap(any()) } just Runs
 
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any(), any()) } just Runs
+        every { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) } just Runs
 
         val service = ProjectAccentSwapService()
 
@@ -557,7 +557,7 @@ class ProjectAccentSwapServiceTest {
         service.onWindowActivatedForTest(makeEvent(window)) // primes cache
         service.onWindowActivatedForTest(makeEvent(window)) // same-hex branch
 
-        verify(exactly = 0) { IndentRainbowSync.apply(any(), any()) }
+        verify(exactly = 0) { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) }
         // CGP integration call still fires — the gate is IR-only at this
         // call site (CGP gates inside its own `apply`).
         verify(atLeast = 1) { AccentApplicator.syncCodeGlanceProViewportForSwap("#FFCC66") }

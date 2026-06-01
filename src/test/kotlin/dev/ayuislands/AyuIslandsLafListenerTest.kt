@@ -62,7 +62,7 @@ class AyuIslandsLafListenerTest {
         // resolves without reaching into `ApplicationManager.getApplication().getService(...)`.
         mockkObject(SyntaxIntensityService.Companion)
 
-        every { AccentApplicator.applyForFocusedProject(any()) } returns "#FFCC66"
+        every { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AyuVariant>()) } returns "#FFCC66"
         every { AccentApplicator.revertAll() } returns Unit
         every { FontPresetApplicator.applyFromState() } returns Unit
         every { FontPresetApplicator.revert() } returns Unit

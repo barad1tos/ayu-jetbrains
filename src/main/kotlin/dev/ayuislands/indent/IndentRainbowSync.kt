@@ -6,6 +6,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.PluginId
 import dev.ayuislands.AyuPlugin
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.lang.reflect.Field
@@ -62,6 +63,30 @@ object IndentRainbowSync {
         variant: AyuVariant,
         accentHex: String,
     ) {
+        applyPalette(
+            palette = IndentPalette.forAccent(accentHex, variant),
+            logContext = "for ${variant.name}",
+        )
+    }
+
+    fun apply(
+        context: AccentContext,
+        accentHex: String,
+    ) {
+        when (context) {
+            is AccentContext.Ayu -> apply(context.ayuVariant, accentHex)
+            AccentContext.External ->
+                applyPalette(
+                    palette = IndentPalette.forExternalAccent(accentHex),
+                    logContext = "for external theme",
+                )
+        }
+    }
+
+    private fun applyPalette(
+        palette: IndentPalette,
+        logContext: String,
+    ) {
         val state = AyuIslandsSettings.getInstance().state
         if (!state.irIntegrationEnabled) {
             revert()
@@ -74,7 +99,6 @@ object IndentRainbowSync {
         val enumValue = customEnumValue ?: return
 
         try {
-            val palette = IndentPalette.forAccent(accentHex, variant)
             val preset =
                 IndentPreset.fromName(
                     state.indentPresetName ?: IndentPreset.AMBIENT.name,
@@ -94,7 +118,7 @@ object IndentRainbowSync {
 
             resolved.flushCache()
 
-            log.info("Indent Rainbow colors synced for ${variant.name}")
+            log.info("Indent Rainbow colors synced $logContext")
         } catch (exception: InvocationTargetException) {
             val cause = exception.cause
             logWarning(SYNC_FAILED, cause ?: exception)

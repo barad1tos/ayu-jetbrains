@@ -900,7 +900,7 @@ class AccentApplicatorTest {
     fun `apply calls applyAlwaysOnUiKeys and applyAlwaysOnEditorKeys on EDT`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
 
         AccentApplicator.applyFromHexString("#FFCC66")
@@ -919,13 +919,33 @@ class AccentApplicatorTest {
         // but the old `any()` matcher would still pass. Assert the exact hex flows through.
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
 
         AccentApplicator.applyFromHexString("#FFCC66")
 
         verify { IndentRainbowSync.apply(AyuVariant.MIRAGE, "#FFCC66") }
+    }
+
+    @Test
+    fun `apply external context syncs integrations without Ayu-only elements or tab underline`() {
+        val element = createFakeAccentElement(AccentElementId.CARET_ROW, "Caret Row")
+        mockEpExtensionList(listOf(element))
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns Unit
+        state.cgpIntegrationEnabled = false
+        state.externalThemeEnhancementsEnabled = true
+        every { AyuVariant.detect() } returns null
+
+        AccentApplicator.applyFromHexString("#AABBCC")
+
+        verify(exactly = 1) { IndentRainbowSync.apply(AccentContext.External, "#AABBCC") }
+        verify(exactly = 0) { element.apply(any()) }
+        verify(exactly = 0) { element.revert() }
+        verify(exactly = 0) { element.applyNeutral(any()) }
+        verify(exactly = 0) { UIManager.put("EditorTabs.underlineHeight", any<Int>()) }
+        verify(exactly = 0) { UIManager.put("EditorTabs.underlineArc", any<Int>()) }
     }
 
     @Test
@@ -937,14 +957,14 @@ class AccentApplicatorTest {
 
         AccentApplicator.applyFromHexString("#FFCC66")
 
-        verify(exactly = 0) { IndentRainbowSync.apply(any(), any()) }
+        verify(exactly = 0) { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) }
     }
 
     @Test
     fun `apply calls repaintAllWindows`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
         val mockWindow = mockk<Window>(relaxed = true)
         every { mockWindow.isDisplayable } returns true
@@ -959,7 +979,7 @@ class AccentApplicatorTest {
     fun `apply runs work directly when on EDT`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
         every { SwingUtilities.isEventDispatchThread() } returns true
 
@@ -977,7 +997,7 @@ class AccentApplicatorTest {
         // multi-window restores would flicker Gold before each StartupActivity ran.
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
 
         AccentApplicator.applyFromHexString("#5CCFE6")
@@ -991,7 +1011,7 @@ class AccentApplicatorTest {
         // ticks, and per-project swaps leave the right color for the next restart.
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
 
         AccentApplicator.applyFromHexString("#5CCFE6")
@@ -1012,7 +1032,7 @@ class AccentApplicatorTest {
         // malformed shapes that used to crash the applier.
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
 
         // None of these should throw; none should set the cached hex.
@@ -1033,7 +1053,7 @@ class AccentApplicatorTest {
     fun `apply accepts well-formed 6-digit hex with hash prefix`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
 
         // Boundary: exactly #RRGGBB with valid hex digits. Must go through the full
@@ -1048,7 +1068,7 @@ class AccentApplicatorTest {
     fun `apply accepts mixed-case hex digits`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
 
         // Upper and lower case 0-9A-Fa-f are all valid per Color.decode.
@@ -1083,7 +1103,7 @@ class AccentApplicatorTest {
     fun `apply posts to invokeLater when not on EDT`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
         every { SwingUtilities.isEventDispatchThread() } returns false
         every { mockApplication.invokeLater(any(), any<ModalityState>()) } answers {
@@ -1737,7 +1757,7 @@ class AccentApplicatorTest {
         state.glowTabMode = "OFF"
         state.tabUnderlineHeight = 6
 
-        assertEquals(6, AccentApplicator.resolveUnderlineHeight(state))
+        assertEquals(6, resolveUnderlineHeight(state))
     }
 
     @Test
@@ -1746,7 +1766,7 @@ class AccentApplicatorTest {
         state.tabUnderlineGlowSync = false
         state.tabUnderlineHeight = 4
 
-        assertEquals(4, AccentApplicator.resolveUnderlineHeight(state))
+        assertEquals(4, resolveUnderlineHeight(state))
     }
 
     @Test
@@ -1757,7 +1777,7 @@ class AccentApplicatorTest {
         state.glowStyle = "SOFT"
 
         val expected = state.getWidthForStyle(dev.ayuislands.glow.GlowStyle.SOFT)
-        assertEquals(expected, AccentApplicator.resolveUnderlineHeight(state))
+        assertEquals(expected, resolveUnderlineHeight(state))
     }
 
     @Test
@@ -1767,7 +1787,7 @@ class AccentApplicatorTest {
         state.glowEnabled = false
         state.tabUnderlineHeight = 8
 
-        assertEquals(8, AccentApplicator.resolveUnderlineHeight(state))
+        assertEquals(8, resolveUnderlineHeight(state))
     }
 
     // applyTabUnderline tests (merged from applyTabUnderlineStyle +

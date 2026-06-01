@@ -52,6 +52,7 @@ class AccentApplicatorFocusedProjectTest {
         mockkStatic(ProjectManager::class)
         mockkObject(AccentResolver)
         mockkObject(AccentApplicator, recordPrivateCalls = false)
+        every { AccentApplicator.applyFromHexString(any()) } returns true
         every { AccentApplicator.apply(any()) } answers { Unit }
 
         mockkObject(ProjectAccentSwapService.Companion)
@@ -94,13 +95,29 @@ class AccentApplicatorFocusedProjectTest {
         val manager = mockk<ProjectManager>()
         every { manager.openProjects } returns arrayOf(focused)
         every { ProjectManager.getInstance() } returns manager
-        every { AccentResolver.resolve(focused, AyuVariant.MIRAGE) } returns "#ABCDEF"
+        every { AccentResolver.resolve(focused, ayu(AyuVariant.MIRAGE)) } returns "#ABCDEF"
 
         val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
 
         assertEquals("#ABCDEF", applied)
         verify(exactly = 1) { AccentApplicator.applyFromHexString("#ABCDEF") }
         verify(exactly = 1) { swapService.notifyExternalApply("#ABCDEF") }
+    }
+
+    @Test
+    fun `applyForFocusedProject resolves and applies external context`() {
+        val focused = stubProject(isDefault = false, isDisposed = false)
+        val manager = mockk<ProjectManager>()
+        every { manager.openProjects } returns arrayOf(focused)
+        every { ProjectManager.getInstance() } returns manager
+        every { AccentResolver.resolve(focused, AccentContext.External) } returns "#AABBCC"
+
+        val applied = AccentApplicator.applyForFocusedProject(AccentContext.External)
+
+        assertEquals("#AABBCC", applied)
+        verify(exactly = 1) { AccentResolver.resolve(focused, AccentContext.External) }
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("#AABBCC") }
+        verify(exactly = 1) { swapService.notifyExternalApply("#AABBCC") }
     }
 
     @Test
@@ -111,12 +128,12 @@ class AccentApplicatorFocusedProjectTest {
         val manager = mockk<ProjectManager>()
         every { manager.openProjects } returns arrayOf(defaultProject, disposedProject, realFocus)
         every { ProjectManager.getInstance() } returns manager
-        every { AccentResolver.resolve(realFocus, AyuVariant.DARK) } returns "#123456"
+        every { AccentResolver.resolve(realFocus, ayu(AyuVariant.DARK)) } returns "#123456"
 
         val applied = AccentApplicator.applyForFocusedProject(AyuVariant.DARK)
 
         assertEquals("#123456", applied)
-        verify(exactly = 1) { AccentResolver.resolve(realFocus, AyuVariant.DARK) }
+        verify(exactly = 1) { AccentResolver.resolve(realFocus, ayu(AyuVariant.DARK)) }
     }
 
     @Test
@@ -126,7 +143,7 @@ class AccentApplicatorFocusedProjectTest {
         val manager = mockk<ProjectManager>()
         every { manager.openProjects } returns emptyArray()
         every { ProjectManager.getInstance() } returns manager
-        every { AccentResolver.resolve(null, AyuVariant.LIGHT) } returns "#F29718"
+        every { AccentResolver.resolve(null, ayu(AyuVariant.LIGHT)) } returns "#F29718"
 
         val applied = AccentApplicator.applyForFocusedProject(AyuVariant.LIGHT)
 
@@ -162,13 +179,13 @@ class AccentApplicatorFocusedProjectTest {
         every { manager.openProjects } returns arrayOf(otherProject, focusedProject)
         every { ProjectManager.getInstance() } returns manager
 
-        every { AccentResolver.resolve(focusedProject, AyuVariant.MIRAGE) } returns "#FOCUSED"
+        every { AccentResolver.resolve(focusedProject, ayu(AyuVariant.MIRAGE)) } returns "#FOCUSED"
 
         val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
 
         assertEquals("#FOCUSED", applied)
-        verify(exactly = 1) { AccentResolver.resolve(focusedProject, AyuVariant.MIRAGE) }
-        verify(exactly = 0) { AccentResolver.resolve(otherProject, any<AyuVariant>()) }
+        verify(exactly = 1) { AccentResolver.resolve(focusedProject, ayu(AyuVariant.MIRAGE)) }
+        verify(exactly = 0) { AccentResolver.resolve(otherProject, any<AccentContext>()) }
     }
 
     @Test
@@ -192,12 +209,12 @@ class AccentApplicatorFocusedProjectTest {
         every { manager.openProjects } returns arrayOf(healthyProject)
         every { ProjectManager.getInstance() } returns manager
 
-        every { AccentResolver.resolve(healthyProject, AyuVariant.MIRAGE) } returns "#FALLBACK"
+        every { AccentResolver.resolve(healthyProject, ayu(AyuVariant.MIRAGE)) } returns "#FALLBACK"
 
         val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
 
         assertEquals("#FALLBACK", applied)
-        verify(exactly = 1) { AccentResolver.resolve(healthyProject, AyuVariant.MIRAGE) }
+        verify(exactly = 1) { AccentResolver.resolve(healthyProject, ayu(AyuVariant.MIRAGE)) }
     }
 
     @Test
@@ -223,12 +240,12 @@ class AccentApplicatorFocusedProjectTest {
         every { manager.openProjects } returns arrayOf(healthyProject)
         every { ProjectManager.getInstance() } returns manager
 
-        every { AccentResolver.resolve(healthyProject, AyuVariant.MIRAGE) } returns "#FALLBACK"
+        every { AccentResolver.resolve(healthyProject, ayu(AyuVariant.MIRAGE)) } returns "#FALLBACK"
 
         val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
 
         assertEquals("#FALLBACK", applied)
-        verify(exactly = 1) { AccentResolver.resolve(healthyProject, AyuVariant.MIRAGE) }
+        verify(exactly = 1) { AccentResolver.resolve(healthyProject, ayu(AyuVariant.MIRAGE)) }
     }
 
     @Test
@@ -239,12 +256,12 @@ class AccentApplicatorFocusedProjectTest {
         val manager = mockk<ProjectManager>()
         every { manager.openProjects } returns arrayOf(focused)
         every { ProjectManager.getInstance() } returns manager
-        every { AccentResolver.resolve(focused, AyuVariant.MIRAGE) } returns "#FFCC66"
+        every { AccentResolver.resolve(focused, ayu(AyuVariant.MIRAGE)) } returns "#FFCC66"
 
         AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
 
         io.mockk.verifyOrder {
-            AccentResolver.resolve(focused, AyuVariant.MIRAGE)
+            AccentResolver.resolve(focused, ayu(AyuVariant.MIRAGE))
             AccentApplicator.applyFromHexString("#FFCC66")
             swapService.notifyExternalApply("#FFCC66")
         }
@@ -278,13 +295,13 @@ class AccentApplicatorFocusedProjectTest {
         mockkStatic(IdeFocusManager::class)
         every { IdeFocusManager.getGlobalInstance() } returns focusManager
 
-        every { AccentResolver.resolve(osActiveProject, AyuVariant.MIRAGE) } returns "#OS"
+        every { AccentResolver.resolve(osActiveProject, ayu(AyuVariant.MIRAGE)) } returns "#OS"
 
         val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
 
         assertEquals("#OS", applied)
-        verify(exactly = 1) { AccentResolver.resolve(osActiveProject, AyuVariant.MIRAGE) }
-        verify(exactly = 0) { AccentResolver.resolve(lastFocusedProject, any<AyuVariant>()) }
+        verify(exactly = 1) { AccentResolver.resolve(osActiveProject, ayu(AyuVariant.MIRAGE)) }
+        verify(exactly = 0) { AccentResolver.resolve(lastFocusedProject, any<AccentContext>()) }
     }
 
     @Test
@@ -315,12 +332,12 @@ class AccentApplicatorFocusedProjectTest {
         mockkStatic(IdeFocusManager::class)
         every { IdeFocusManager.getGlobalInstance() } returns focusManager
 
-        every { AccentResolver.resolve(lastFocusedProject, AyuVariant.MIRAGE) } returns "#LAST"
+        every { AccentResolver.resolve(lastFocusedProject, ayu(AyuVariant.MIRAGE)) } returns "#LAST"
 
         val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
 
         assertEquals("#LAST", applied)
-        verify(exactly = 1) { AccentResolver.resolve(lastFocusedProject, AyuVariant.MIRAGE) }
+        verify(exactly = 1) { AccentResolver.resolve(lastFocusedProject, ayu(AyuVariant.MIRAGE)) }
     }
 
     @Test
@@ -345,12 +362,12 @@ class AccentApplicatorFocusedProjectTest {
         every { manager.openProjects } returns arrayOf(healthyProject)
         every { ProjectManager.getInstance() } returns manager
 
-        every { AccentResolver.resolve(healthyProject, AyuVariant.MIRAGE) } returns "#FALLBACK"
+        every { AccentResolver.resolve(healthyProject, ayu(AyuVariant.MIRAGE)) } returns "#FALLBACK"
 
         val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
 
         assertEquals("#FALLBACK", applied)
-        verify(exactly = 0) { AccentResolver.resolve(disposedProject, any<AyuVariant>()) }
+        verify(exactly = 0) { AccentResolver.resolve(disposedProject, any<AccentContext>()) }
     }
 
     @Test
@@ -373,12 +390,12 @@ class AccentApplicatorFocusedProjectTest {
         mockkStatic(IdeFocusManager::class)
         every { IdeFocusManager.getGlobalInstance() } returns focusManager
 
-        every { AccentResolver.resolve(focusedProject, AyuVariant.MIRAGE) } returns "#FALLBACK"
+        every { AccentResolver.resolve(focusedProject, ayu(AyuVariant.MIRAGE)) } returns "#FALLBACK"
 
         val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
 
         assertEquals("#FALLBACK", applied)
-        verify(exactly = 1) { AccentResolver.resolve(focusedProject, AyuVariant.MIRAGE) }
+        verify(exactly = 1) { AccentResolver.resolve(focusedProject, ayu(AyuVariant.MIRAGE)) }
     }
 
     @Test
@@ -393,7 +410,7 @@ class AccentApplicatorFocusedProjectTest {
         val projectManager = mockk<ProjectManager>()
         every { projectManager.openProjects } returns emptyArray()
         every { ProjectManager.getInstance() } returns projectManager
-        every { AccentResolver.resolve(null, AyuVariant.MIRAGE) } returns "#GLOBAL"
+        every { AccentResolver.resolve(null, ayu(AyuVariant.MIRAGE)) } returns "#GLOBAL"
 
         val capturedWarns = mutableListOf<String>()
         val processor =
@@ -455,12 +472,12 @@ class AccentApplicatorFocusedProjectTest {
             WindowManager.getInstance().allProjectFrames
         } returns arrayOf(nullProjectFrame, healthyFrame)
 
-        every { AccentResolver.resolve(healthyProject, AyuVariant.MIRAGE) } returns "#HEALTHY"
+        every { AccentResolver.resolve(healthyProject, ayu(AyuVariant.MIRAGE)) } returns "#HEALTHY"
 
         val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
 
         assertEquals("#HEALTHY", applied)
-        verify(exactly = 1) { AccentResolver.resolve(healthyProject, AyuVariant.MIRAGE) }
+        verify(exactly = 1) { AccentResolver.resolve(healthyProject, ayu(AyuVariant.MIRAGE)) }
     }
 
     @Test
@@ -489,13 +506,13 @@ class AccentApplicatorFocusedProjectTest {
             WindowManager.getInstance().allProjectFrames
         } returns arrayOf(firstFrame, secondFrame)
 
-        every { AccentResolver.resolve(firstProject, AyuVariant.MIRAGE) } returns "#FIRST"
+        every { AccentResolver.resolve(firstProject, ayu(AyuVariant.MIRAGE)) } returns "#FIRST"
 
         val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
 
         assertEquals("#FIRST", applied)
-        verify(exactly = 1) { AccentResolver.resolve(firstProject, AyuVariant.MIRAGE) }
-        verify(exactly = 0) { AccentResolver.resolve(secondProject, any<AyuVariant>()) }
+        verify(exactly = 1) { AccentResolver.resolve(firstProject, ayu(AyuVariant.MIRAGE)) }
+        verify(exactly = 0) { AccentResolver.resolve(secondProject, any<AccentContext>()) }
     }
 
     @Test
@@ -520,13 +537,13 @@ class AccentApplicatorFocusedProjectTest {
             WindowManager.getInstance().allProjectFrames
         } returns arrayOf(detachedFrame, healthyFrame)
 
-        every { AccentResolver.resolve(healthyProject, AyuVariant.MIRAGE) } returns "#HEALTHY"
+        every { AccentResolver.resolve(healthyProject, ayu(AyuVariant.MIRAGE)) } returns "#HEALTHY"
 
         val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
 
         assertEquals("#HEALTHY", applied)
-        verify(exactly = 1) { AccentResolver.resolve(healthyProject, AyuVariant.MIRAGE) }
-        verify(exactly = 0) { AccentResolver.resolve(detachedProject, any<AyuVariant>()) }
+        verify(exactly = 1) { AccentResolver.resolve(healthyProject, ayu(AyuVariant.MIRAGE)) }
+        verify(exactly = 0) { AccentResolver.resolve(detachedProject, any<AccentContext>()) }
     }
 
     @Test
@@ -562,13 +579,13 @@ class AccentApplicatorFocusedProjectTest {
         every { projectManager.openProjects } returns arrayOf(projectManagerProject)
         every { ProjectManager.getInstance() } returns projectManager
 
-        every { AccentResolver.resolve(focusedProject, AyuVariant.MIRAGE) } returns "#FOCUS"
+        every { AccentResolver.resolve(focusedProject, ayu(AyuVariant.MIRAGE)) } returns "#FOCUS"
 
         val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
 
         assertEquals("#FOCUS", applied)
-        verify(exactly = 1) { AccentResolver.resolve(focusedProject, AyuVariant.MIRAGE) }
-        verify(exactly = 0) { AccentResolver.resolve(projectManagerProject, any<AyuVariant>()) }
+        verify(exactly = 1) { AccentResolver.resolve(focusedProject, ayu(AyuVariant.MIRAGE)) }
+        verify(exactly = 0) { AccentResolver.resolve(projectManagerProject, any<AccentContext>()) }
     }
 
     @Test
@@ -589,7 +606,7 @@ class AccentApplicatorFocusedProjectTest {
 
         every { WindowManager.getInstance().allProjectFrames } returns arrayOf(brokenFrame, healthyFrame)
 
-        every { AccentResolver.resolve(healthyProject, AyuVariant.MIRAGE) } returns "#HEALTHY"
+        every { AccentResolver.resolve(healthyProject, ayu(AyuVariant.MIRAGE)) } returns "#HEALTHY"
 
         val loggedErrors = mutableListOf<Throwable?>()
         val processor =
@@ -611,7 +628,7 @@ class AccentApplicatorFocusedProjectTest {
         }
 
         assertEquals("#HEALTHY", applied)
-        verify(exactly = 1) { AccentResolver.resolve(healthyProject, AyuVariant.MIRAGE) }
+        verify(exactly = 1) { AccentResolver.resolve(healthyProject, ayu(AyuVariant.MIRAGE)) }
     }
 
     @Test
@@ -635,7 +652,7 @@ class AccentApplicatorFocusedProjectTest {
         val projectManager = mockk<ProjectManager>()
         every { projectManager.openProjects } returns emptyArray()
         every { ProjectManager.getInstance() } returns projectManager
-        every { AccentResolver.resolve(null, AyuVariant.MIRAGE) } returns "#GLOBAL"
+        every { AccentResolver.resolve(null, ayu(AyuVariant.MIRAGE)) } returns "#GLOBAL"
 
         val capturedWarns = mutableListOf<String>()
         val processor =
@@ -678,7 +695,7 @@ class AccentApplicatorFocusedProjectTest {
         val projectManager = mockk<ProjectManager>()
         every { projectManager.openProjects } returns emptyArray()
         every { ProjectManager.getInstance() } returns projectManager
-        every { AccentResolver.resolve(null, AyuVariant.MIRAGE) } returns "#GLOBAL"
+        every { AccentResolver.resolve(null, ayu(AyuVariant.MIRAGE)) } returns "#GLOBAL"
 
         val capturedWarns = mutableListOf<String>()
         val processor =
@@ -733,7 +750,7 @@ class AccentApplicatorFocusedProjectTest {
         val manager = mockk<ProjectManager>()
         every { manager.openProjects } returns arrayOf(focused)
         every { ProjectManager.getInstance() } returns manager
-        every { AccentResolver.resolve(focused, AyuVariant.MIRAGE) } returns "not-a-hex"
+        every { AccentResolver.resolve(focused, ayu(AyuVariant.MIRAGE)) } returns "not-a-hex"
 
         // Override the recordPrivateCalls=false BeforeTest default: we want the real
         // applyFromHexString to run so its AccentHex.of shape-validation rejects the
@@ -805,6 +822,8 @@ class AccentApplicatorFocusedProjectTest {
         every { project.name } returns name
         return project
     }
+
+    private fun ayu(variant: AyuVariant): AccentContext = AccentContext.Ayu(variant)
 
     private fun stubIdeFrame(
         project: Project,

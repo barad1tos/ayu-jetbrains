@@ -75,7 +75,7 @@ class AyuIslandsChromePanelTest {
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns true
 
         mockkObject(AccentApplicator)
-        every { AccentApplicator.applyForFocusedProject(any()) } returns "#E6B450"
+        every { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AyuVariant>()) } returns "#E6B450"
 
         // The Kotlin UI DSL `collapsibleGroup { … }` builder resolves the CollapsiblePanel
         // toggle action through `ActionManager.getInstance()` which goes via
@@ -367,7 +367,7 @@ class AyuIslandsChromePanelTest {
         chromePanel.apply()
 
         // No mutation → no re-apply. Prevents DoS on repeated clean apply.
-        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any()) }
+        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<AyuVariant>()) }
     }
 
     @Test
@@ -381,7 +381,9 @@ class AyuIslandsChromePanelTest {
         val chromePanel = AyuIslandsChromePanel()
         buildPanel(chromePanel, AyuVariant.MIRAGE)
 
-        every { AccentApplicator.applyForFocusedProject(any()) } throws RuntimeException("simulated apply failure")
+        every {
+            AccentApplicator.applyForFocusedProject(any<AyuVariant>())
+        } throws RuntimeException("simulated apply failure")
 
         chromePanel.setPendingChromeStatusBarForTest(true)
         chromePanel.setPendingChromeTintIntensityForTest(35)
@@ -434,7 +436,9 @@ class AyuIslandsChromePanelTest {
         mockkStatic(NotificationGroupManager::class)
         every { NotificationGroupManager.getInstance() } returns groupManager
 
-        every { AccentApplicator.applyForFocusedProject(any()) } throws RuntimeException("simulated apply failure")
+        every {
+            AccentApplicator.applyForFocusedProject(any<AyuVariant>())
+        } throws RuntimeException("simulated apply failure")
 
         val chromePanel = AyuIslandsChromePanel()
         buildPanel(chromePanel, AyuVariant.MIRAGE)
@@ -466,7 +470,7 @@ class AyuIslandsChromePanelTest {
         // invariant survives a notification-subsystem crash.
         mockkStatic(NotificationGroupManager::class)
         every { NotificationGroupManager.getInstance() } throws RuntimeException("notification subsystem boom")
-        every { AccentApplicator.applyForFocusedProject(any()) } throws RuntimeException("apply boom")
+        every { AccentApplicator.applyForFocusedProject(any<AyuVariant>()) } throws RuntimeException("apply boom")
 
         val chromePanel = AyuIslandsChromePanel()
         buildPanel(chromePanel, AyuVariant.MIRAGE)
@@ -509,7 +513,7 @@ class AyuIslandsChromePanelTest {
             chromePanel.getPendingChromeTintIntensityForTest(),
         )
         // Reset must not call the applicator.
-        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any()) }
+        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AyuVariant>()) }
     }
 
     // ── Mid-session license flip must not persist ──────────────────────────────
@@ -547,7 +551,7 @@ class AyuIslandsChromePanelTest {
             "Post-license-revocation apply must not persist chromeTintIntensity",
         )
         // No EP re-apply.
-        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any()) }
+        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AyuVariant>()) }
     }
 
     // ── Test 9: premium gate ──────────────────────────────────────────────────

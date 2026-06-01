@@ -201,7 +201,8 @@ object AccentApplicator {
         val trimmedHex = accentHex.value
         val accent = accentHex.toColor()
         val state = AyuIslandsSettings.getInstance().state
-        val variant = AyuVariant.detect()
+        val context = AccentContext.detect()
+        val variant = context?.variant
 
         // Persist BEFORE the EP iteration so the cache survives a mid-EP
         // throw. Clear the clean-apply flag here and only set it true after the
@@ -216,7 +217,9 @@ object AccentApplicator {
             Runnable {
                 applyAlwaysOnUiKeys(state, accent)
 
-                applyElements(state, accent, variant)
+                if (variant != null) {
+                    applyElements(state, accent, variant)
+                }
                 // Pattern G + L — ordering lock. Apply path mirrors the
                 // revert path: IR before CGP before notifyOnly. The revert
                 // ordering is locked by AccentApplicatorRevertAllSymmetryTest;
@@ -225,12 +228,14 @@ object AccentApplicator {
                 // CGP's cache holding what IR's cache pushed first; revert
                 // unwinds the other way). Keep both sequences identical so
                 // future debugging only has to reason about one ordering.
-                if (variant != null) {
-                    IndentRainbowSync.apply(variant, trimmedHex)
+                if (context != null) {
+                    IndentRainbowSync.apply(context, trimmedHex)
                 }
                 CodeGlanceProIntegration.syncCodeGlanceProViewport(trimmedHex)
                 applyAlwaysOnEditorKeys(accent)
-                applyTabUnderline(state, variant)
+                if (variant != null) {
+                    applyTabUnderline(state, variant)
+                }
 
                 // Mirror of the refresh hook in revertAll. Re-publish
                 // ComponentTreeRefreshedTopic after EP apply so subscribers
@@ -326,9 +331,9 @@ object AccentApplicator {
      * a bare volatile write with no dispatch. Callers MUST already be on the EDT.
      */
     @RequiresEdt
-    fun applyForFocusedProject(variant: AyuVariant): String {
+    fun applyForFocusedProject(context: AccentContext): String {
         val focusedProject = resolveFocusedProject()
-        val hex = AccentResolver.resolve(focusedProject, variant)
+        val hex = AccentResolver.resolve(focusedProject, context)
         // apply returns a validation flag. If the resolver hands back a hex
         // that fails shape validation (corrupted per-project override, manual
         // XML edit, future resolver bug), skip the swap-cache publish so the
@@ -346,6 +351,9 @@ object AccentApplicator {
         }
         return hex
     }
+
+    @RequiresEdt
+    fun applyForFocusedProject(variant: AyuVariant): String = applyForFocusedProject(AccentContext.Ayu(variant))
 
     /**
      * Resolves the *actually* focused project — the one whose window is currently on top
@@ -636,17 +644,6 @@ object AccentApplicator {
         }
     }
 
-    fun resolveUnderlineHeight(state: AyuIslandsState): Int {
-        val tabMode = GlowTabMode.fromName(state.glowTabMode ?: "MINIMAL")
-        if (tabMode == GlowTabMode.OFF) return state.tabUnderlineHeight
-
-        if (state.tabUnderlineGlowSync && state.glowEnabled) {
-            val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
-            return state.getWidthForStyle(style)
-        }
-        return state.tabUnderlineHeight
-    }
-
     private fun applyAlwaysOnEditorKeys(accent: Color) {
         val scheme = EditorColorsManager.getInstance().globalScheme
 
@@ -828,6 +825,17 @@ object AccentApplicator {
         apply(accent)
         return true
     }
+}
+
+internal fun resolveUnderlineHeight(state: AyuIslandsState): Int {
+    val tabMode = GlowTabMode.fromName(state.glowTabMode ?: "MINIMAL")
+    if (tabMode == GlowTabMode.OFF) return state.tabUnderlineHeight
+
+    if (state.tabUnderlineGlowSync && state.glowEnabled) {
+        val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
+        return state.getWidthForStyle(style)
+    }
+    return state.tabUnderlineHeight
 }
 
 /**

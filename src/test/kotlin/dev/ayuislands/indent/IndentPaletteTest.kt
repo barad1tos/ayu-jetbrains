@@ -24,6 +24,14 @@ class IndentPaletteTest {
     }
 
     @Test
+    fun `forExternalAccent uses stable error color and supplied accent`() {
+        val palette = IndentPalette.forExternalAccent("#AABBCC")
+
+        assertEquals("F27983", palette.errorColor)
+        assertEquals("AABBCC", palette.accentColor)
+    }
+
+    @Test
     fun `each variant has non-empty error color`() {
         for (variant in AyuVariant.entries) {
             val palette = IndentPalette.forAccent(testAccent, variant)
