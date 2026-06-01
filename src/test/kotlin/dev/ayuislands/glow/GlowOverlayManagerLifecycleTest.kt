@@ -8,6 +8,7 @@ import com.intellij.util.messages.MessageBus
 import com.intellij.util.messages.MessageBusConnection
 import dev.ayuislands.accent.AccentChangeListener
 import dev.ayuislands.accent.AccentChangedTopic
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
@@ -39,11 +40,9 @@ import kotlin.test.assertTrue
  *
  * Historically `updateGlow()` painted overlays even when no Ayu variant was
  * active, relying on three `else DEFAULT_ACCENT_HEX` fallbacks. The current
- * shape pulls that into a single
- * `if (!AyuVariant.isAyuActive()) { removeAllOverlays(); return }` guard at the
- * head of `updateGlow()` — overlays get disposed when the user switches to a
- * non-Ayu LAF, and the three fallbacks are gone (regression-locked by
- * [GlowFallbackBannedApiGuardTest]).
+ * shape pulls that into a single [AccentContext.detect] guard at the head of
+ * `updateGlow()` — overlays get disposed when no accent context is active, and
+ * the three fallbacks are gone (regression-locked by [GlowFallbackBannedApiGuardTest]).
  */
 class GlowOverlayManagerLifecycleTest {
     private val mockApplication = mockk<com.intellij.openapi.application.Application>(relaxed = true)
@@ -63,6 +62,7 @@ class GlowOverlayManagerLifecycleTest {
         every { AyuIslandsSettings.getInstance() } returns mockSettings
         every { mockSettings.state } returns state
         state.glowEnabled = true
+        state.externalThemeEnhancementsEnabled = false
         state.lastAppliedAccentHex = null
         state.lastApplyOk = false
 
@@ -74,6 +74,7 @@ class GlowOverlayManagerLifecycleTest {
         every { mockProjectManager.openProjects } returns emptyArray()
 
         mockkObject(AccentResolver)
+        every { AccentResolver.resolve(any(), any<AccentContext>()) } returns "#5CCFE6"
         every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#5CCFE6"
 
         mockkObject(AyuVariant.Companion)
@@ -152,6 +153,34 @@ class GlowOverlayManagerLifecycleTest {
     }
 
     @Test
+    fun `updateGlow continues to paint when external context is active`() {
+        state.externalThemeEnhancementsEnabled = true
+        every { AyuVariant.isAyuActive() } returns false
+        every { AyuVariant.detect() } returns null
+
+        val project = stubProject("external-theme-project")
+        val manager = GlowOverlayManager(project)
+        val glassPane = mockk<GlowGlassPane>(relaxed = true)
+        seedOverlaysMapWithMocks(
+            manager,
+            glassPane,
+            host = mockk(relaxed = true),
+            layeredPane = mockk(relaxed = true),
+        )
+
+        every { AccentResolver.resolve(project, AccentContext.External) } returns "#AABBCC"
+
+        manager.updateGlow()
+
+        assertFalse(
+            readOverlaysMap(manager).isEmpty(),
+            "updateGlow with external accent context MUST NOT dispose pre-existing overlays",
+        )
+        verify(exactly = 1) { AccentResolver.resolve(project, AccentContext.External) }
+        verify(exactly = 1) { glassPane.glowColor = Color.decode("#AABBCC") }
+    }
+
+    @Test
     fun `updateGlow paints clean last applied accent instead of project resolver`() {
         // Glow follows the app-global chrome color that was actually painted.
         // A background project may resolve to a different override, but its
@@ -171,13 +200,13 @@ class GlowOverlayManagerLifecycleTest {
             layeredPane = mockk(relaxed = true),
         )
 
-        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
+        every { AccentResolver.resolve(project, AccentContext.Ayu(AyuVariant.MIRAGE)) } returns "#FFCC66"
 
         manager.updateGlow()
 
         verify(exactly = 1) { glassPane.glowColor = Color.decode("#5CCFE6") }
         verify(exactly = 0) { glassPane.glowColor = Color.decode("#FFCC66") }
-        verify(exactly = 0) { AccentResolver.resolve(project, AyuVariant.MIRAGE) }
+        verify(exactly = 0) { AccentResolver.resolve(project, AccentContext.Ayu(AyuVariant.MIRAGE)) }
     }
 
     @Test
@@ -202,7 +231,7 @@ class GlowOverlayManagerLifecycleTest {
         every { rootPane.layeredPane } returns layeredPane
         every { SwingUtilities.getRootPane(host) } returns rootPane
         every { SwingUtilities.convertPoint(host, 0, 0, layeredPane) } returns Point(0, 0)
-        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
+        every { AccentResolver.resolve(project, AccentContext.Ayu(AyuVariant.MIRAGE)) } returns "#FFCC66"
 
         invokeAttachOverlay(manager, "LateOverlay", host)
 
@@ -211,7 +240,7 @@ class GlowOverlayManagerLifecycleTest {
             readOverlayGlassPane(manager, "LateOverlay").glowColor,
             "new overlays must seed from the clean app-global applied accent, not the project resolver",
         )
-        verify(exactly = 0) { AccentResolver.resolve(project, AyuVariant.MIRAGE) }
+        verify(exactly = 0) { AccentResolver.resolve(project, AccentContext.Ayu(AyuVariant.MIRAGE)) }
     }
 
     @Test
