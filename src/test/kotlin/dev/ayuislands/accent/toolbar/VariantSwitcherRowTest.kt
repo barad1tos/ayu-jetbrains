@@ -46,7 +46,7 @@ class VariantSwitcherRowTest {
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns null
         mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any()) } returns "#FFB454"
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFB454"
     }
 
     @AfterTest
@@ -279,7 +279,7 @@ class VariantSwitcherRowTest {
         every { islandsTheme.name } returns "Ayu Mirage (Islands UI)"
         every { lafManager.currentUIThemeLookAndFeel } returns islandsTheme
         every { lafManager.installedThemes } returns sequenceOf(mirageTheme, islandsTheme)
-        every { AccentResolver.resolve(any(), any()) } throws RuntimeException("resolver race")
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } throws RuntimeException("resolver race")
 
         val row = VariantSwitcherRow(AyuVariant.MIRAGE)
         val pill =
@@ -302,7 +302,7 @@ class VariantSwitcherRowTest {
         } finally {
             g2.dispose()
         }
-        verify(atLeast = 1) { AccentResolver.resolve(any(), any()) }
+        verify(atLeast = 1) { AccentResolver.resolve(any(), any<AyuVariant>()) }
         // Behavior pin — IslandsUiPill resolves to MIRAGE_HEX when the
         // resolver throws; the constant itself is the value the user sees
         // painted in the fallback. Lock the exact literal so any future

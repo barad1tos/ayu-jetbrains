@@ -51,7 +51,7 @@ class LighterAccentActionTest {
         every { AccentApplicator.applyFromHexString(any()) } returns true
 
         mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any()) } returns "#FFCC66"
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFCC66"
 
         mockkStatic(ApplicationManager::class)
         every { ApplicationManager.getApplication() } returns mockApp
@@ -116,7 +116,7 @@ class LighterAccentActionTest {
         // At the clamp the action runs; the balloon hint is a future
         // deliverable, not in scope here.
         val ceilingHex = HslColor.toHex(0f, 0f, AccentHsl.MAX_LIGHTNESS)
-        every { AccentResolver.resolve(any(), any()) } returns ceilingHex
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns ceilingHex
         LighterAccentAction().actionPerformed(newEvent())
         // AccentHsl.lighten at the ceiling returns the input unchanged.
         verify(exactly = 1) { AccentApplicator.applyFromHexString(ceilingHex) }

@@ -102,7 +102,7 @@ class QuickSwitcherPopupTest {
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns null
         mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any()) } returns "#FFB454"
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFB454"
         // VariantSwitcherRow reads LafManager during construction — stub via relaxed mock.
         mockkStatic(LafManager::class)
         val lafManager = mockk<LafManager>(relaxed = true)

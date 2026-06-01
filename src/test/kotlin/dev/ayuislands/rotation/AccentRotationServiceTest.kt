@@ -496,14 +496,14 @@ class AccentRotationServiceTest {
 
         mockkObject(AccentResolver)
         every { AccentResolver.resolve(osActiveProject, AyuVariant.MIRAGE) } returns "#5CCFE6"
-        every { AccentResolver.resolve(inactiveProject, any()) } returns "#DFBFFF"
-        every { AccentResolver.resolve(null, any()) } returns "#GLOBAL"
+        every { AccentResolver.resolve(inactiveProject, any<AyuVariant>()) } returns "#DFBFFF"
+        every { AccentResolver.resolve(null, any<AyuVariant>()) } returns "#GLOBAL"
 
         val service = AccentRotationService()
         service.rotateAccent()
 
         verify(exactly = 1) { AccentResolver.resolve(osActiveProject, AyuVariant.MIRAGE) }
-        verify(exactly = 0) { AccentResolver.resolve(inactiveProject, any()) }
+        verify(exactly = 0) { AccentResolver.resolve(inactiveProject, any<AyuVariant>()) }
         verify(exactly = 1) { AccentApplicator.applyFromHexString("#5CCFE6") }
     }
 

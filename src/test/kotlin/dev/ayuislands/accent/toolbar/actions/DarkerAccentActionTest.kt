@@ -51,7 +51,7 @@ class DarkerAccentActionTest {
         every { AccentApplicator.applyFromHexString(any()) } returns true
 
         mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any()) } returns "#FFCC66"
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFCC66"
 
         mockkStatic(ApplicationManager::class)
         every { ApplicationManager.getApplication() } returns mockApp
@@ -115,7 +115,7 @@ class DarkerAccentActionTest {
     fun `actionPerformed at MIN_LIGHTNESS clamp still calls applyFromHexString with the unchanged hex`() {
         // Test 30
         val floorHex = HslColor.toHex(0f, 0f, AccentHsl.MIN_LIGHTNESS)
-        every { AccentResolver.resolve(any(), any()) } returns floorHex
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns floorHex
         DarkerAccentAction().actionPerformed(newEvent())
         verify(exactly = 1) { AccentApplicator.applyFromHexString(floorHex) }
     }

@@ -153,7 +153,7 @@ class ProjectAccentSwapServiceTest {
         service.onWindowActivatedForTest(event)
 
         verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
-        verify(exactly = 0) { AccentResolver.resolve(any(), any()) }
+        verify(exactly = 0) { AccentResolver.resolve(any(), any<AyuVariant>()) }
         verify(exactly = 0) { AyuVariant.detect() }
     }
 
@@ -171,7 +171,7 @@ class ProjectAccentSwapServiceTest {
         service.onWindowActivatedForTest(makeEvent(window))
 
         verify(exactly = 1) { AyuVariant.detect() }
-        verify(exactly = 0) { AccentResolver.resolve(project, any()) }
+        verify(exactly = 0) { AccentResolver.resolve(project, any<AyuVariant>()) }
         verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
     }
 
@@ -185,7 +185,7 @@ class ProjectAccentSwapServiceTest {
 
         service.onWindowActivatedForTest(makeEvent(window))
 
-        verify(exactly = 0) { AccentResolver.resolve(project, any()) }
+        verify(exactly = 0) { AccentResolver.resolve(project, any<AyuVariant>()) }
         verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
     }
 

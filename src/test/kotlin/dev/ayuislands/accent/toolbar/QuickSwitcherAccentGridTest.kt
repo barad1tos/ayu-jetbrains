@@ -42,7 +42,7 @@ class QuickSwitcherAccentGridTest {
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns null
         mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any()) } returns AYU_ACCENT_PRESETS.first().hex
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns AYU_ACCENT_PRESETS.first().hex
         // Quick-actions row + other premium components reach for
         // ApplicationManager.getApplication() during DumbAwareAction init.
         mockkStatic(ApplicationManager::class)

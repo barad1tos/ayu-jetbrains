@@ -137,7 +137,7 @@ class QuickSwitcherChipComponentTest {
         stubAyuActive(true)
         mockkObject(AccentResolver)
         every {
-            AccentResolver.resolve(any(), any())
+            AccentResolver.resolve(any(), any<AyuVariant>())
         } throws RuntimeException("transient mid-LAF-swap")
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns null
@@ -331,7 +331,7 @@ class QuickSwitcherChipComponentTest {
         val mockProject = mockk<Project>(relaxed = true)
         every { AccentApplicator.resolveFocusedProject() } returns mockProject
         mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any()) } returns hex
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns hex
         every { AccentResolver.source(any()) } returns source
         every { AccentResolver.sourceLabel(AccentResolver.Source.PROJECT_OVERRIDE) } returns "Project override"
         every { AccentResolver.sourceLabel(AccentResolver.Source.LANGUAGE_OVERRIDE) } returns "Language override"

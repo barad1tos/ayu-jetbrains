@@ -47,7 +47,7 @@ class CopyHexActionTest {
         every { AccentApplicator.resolveFocusedProject() } returns mockProject
 
         mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any()) } returns "#FFCC66"
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFCC66"
 
         mockkStatic(CopyPasteManager::class)
         every { CopyPasteManager.getInstance() } returns mockClipboard
@@ -116,9 +116,9 @@ class CopyHexActionTest {
         every { mockClipboard.setContents(any()) } answers {
             captured += firstArg<Transferable>()
         }
-        every { AccentResolver.resolve(any(), any()) } returns "#FFCC66"
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFCC66"
         CopyHexAction().actionPerformed(newEvent())
-        every { AccentResolver.resolve(any(), any()) } returns "#5CCFE6"
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#5CCFE6"
         CopyHexAction().actionPerformed(newEvent())
         assertEquals(2, captured.size)
         assertEquals("#FFCC66", captured[0].getTransferData(DataFlavor.stringFlavor))

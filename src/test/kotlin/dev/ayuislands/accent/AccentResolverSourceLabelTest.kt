@@ -38,7 +38,31 @@ class AccentResolverSourceLabelTest {
     }
 
     @Test
-    fun `Source enum size lock - three values exactly`() {
+    fun `sourceLabel for MATERIAL_THEME returns Material Theme`() {
+        assertEquals(
+            "Material Theme",
+            AccentResolver.sourceLabel(AccentResolver.Source.MATERIAL_THEME),
+        )
+    }
+
+    @Test
+    fun `sourceLabel for IDE_ACCENT returns IDE accent`() {
+        assertEquals(
+            "IDE accent",
+            AccentResolver.sourceLabel(AccentResolver.Source.IDE_ACCENT),
+        )
+    }
+
+    @Test
+    fun `sourceLabel for EXTERNAL_ACCENT returns External accent`() {
+        assertEquals(
+            "External accent",
+            AccentResolver.sourceLabel(AccentResolver.Source.EXTERNAL_ACCENT),
+        )
+    }
+
+    @Test
+    fun `Source enum size lock - six values exactly`() {
         // Pattern L regression lock. If you add a new Source value (e.g.
         // REMOTE for remote-environment awareness), this test fails on
         // purpose so you are forced to extend [AccentResolver.sourceLabel]
@@ -46,7 +70,7 @@ class AccentResolverSourceLabelTest {
         // branch would land at runtime as "Global" via a future `else ->`
         // fallback, silently mislabelling every remote-resolved accent.
         assertEquals(
-            3,
+            6,
             AccentResolver.Source.entries.size,
             "AccentResolver.Source enum grew - extend AccentResolver.sourceLabel in the same change",
         )

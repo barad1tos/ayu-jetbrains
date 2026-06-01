@@ -74,7 +74,7 @@ class GlowOverlayManagerLifecycleTest {
         every { mockProjectManager.openProjects } returns emptyArray()
 
         mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any()) } returns "#5CCFE6"
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#5CCFE6"
 
         mockkObject(AyuVariant.Companion)
     }

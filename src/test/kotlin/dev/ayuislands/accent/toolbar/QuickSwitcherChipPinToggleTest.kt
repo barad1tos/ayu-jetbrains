@@ -88,7 +88,7 @@ class QuickSwitcherChipPinToggleTest {
         every { AccentApplicator.applyFromHexString(any()) } returns true
 
         mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any()) } returns "#FFB454"
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFB454"
         every { AccentResolver.source(any()) } returns AccentResolver.Source.GLOBAL
         every { AccentResolver.sourceLabel(any()) } returns "Global"
         every { AccentResolver.projectKey(any()) } returns PROJECT_KEY
@@ -132,7 +132,7 @@ class QuickSwitcherChipPinToggleTest {
         // chip re-applies.
         state.projectAccents[PROJECT_KEY] = "#FFB454"
         every { AccentResolver.source(mockProject) } returns AccentResolver.Source.PROJECT_OVERRIDE
-        every { AccentResolver.resolve(any(), any()) } returns "#73D0FF"
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#73D0FF"
 
         val chip = QuickSwitcherChipComponent()
         chip.dispatchEvent(innerClick(chip))
@@ -201,7 +201,7 @@ class QuickSwitcherChipPinToggleTest {
         // override the user thought they were unpinning.
         state.projectAccents[PROJECT_KEY] = "#FFB454"
         every { AccentResolver.source(mockProject) } returns AccentResolver.Source.PROJECT_OVERRIDE
-        every { AccentResolver.resolve(any(), any()) } returns "#73D0FF"
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#73D0FF"
         every { AccentApplicator.applyFromHexString(any()) } returns false
 
         val chip = QuickSwitcherChipComponent()

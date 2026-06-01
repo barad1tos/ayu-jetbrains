@@ -168,7 +168,7 @@ class AccentApplicatorFocusedProjectTest {
 
         assertEquals("#FOCUSED", applied)
         verify(exactly = 1) { AccentResolver.resolve(focusedProject, AyuVariant.MIRAGE) }
-        verify(exactly = 0) { AccentResolver.resolve(otherProject, any()) }
+        verify(exactly = 0) { AccentResolver.resolve(otherProject, any<AyuVariant>()) }
     }
 
     @Test
@@ -284,7 +284,7 @@ class AccentApplicatorFocusedProjectTest {
 
         assertEquals("#OS", applied)
         verify(exactly = 1) { AccentResolver.resolve(osActiveProject, AyuVariant.MIRAGE) }
-        verify(exactly = 0) { AccentResolver.resolve(lastFocusedProject, any()) }
+        verify(exactly = 0) { AccentResolver.resolve(lastFocusedProject, any<AyuVariant>()) }
     }
 
     @Test
@@ -350,7 +350,7 @@ class AccentApplicatorFocusedProjectTest {
         val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
 
         assertEquals("#FALLBACK", applied)
-        verify(exactly = 0) { AccentResolver.resolve(disposedProject, any()) }
+        verify(exactly = 0) { AccentResolver.resolve(disposedProject, any<AyuVariant>()) }
     }
 
     @Test
@@ -495,7 +495,7 @@ class AccentApplicatorFocusedProjectTest {
 
         assertEquals("#FIRST", applied)
         verify(exactly = 1) { AccentResolver.resolve(firstProject, AyuVariant.MIRAGE) }
-        verify(exactly = 0) { AccentResolver.resolve(secondProject, any()) }
+        verify(exactly = 0) { AccentResolver.resolve(secondProject, any<AyuVariant>()) }
     }
 
     @Test
@@ -526,7 +526,7 @@ class AccentApplicatorFocusedProjectTest {
 
         assertEquals("#HEALTHY", applied)
         verify(exactly = 1) { AccentResolver.resolve(healthyProject, AyuVariant.MIRAGE) }
-        verify(exactly = 0) { AccentResolver.resolve(detachedProject, any()) }
+        verify(exactly = 0) { AccentResolver.resolve(detachedProject, any<AyuVariant>()) }
     }
 
     @Test
@@ -568,7 +568,7 @@ class AccentApplicatorFocusedProjectTest {
 
         assertEquals("#FOCUS", applied)
         verify(exactly = 1) { AccentResolver.resolve(focusedProject, AyuVariant.MIRAGE) }
-        verify(exactly = 0) { AccentResolver.resolve(projectManagerProject, any()) }
+        verify(exactly = 0) { AccentResolver.resolve(projectManagerProject, any<AyuVariant>()) }
     }
 
     @Test

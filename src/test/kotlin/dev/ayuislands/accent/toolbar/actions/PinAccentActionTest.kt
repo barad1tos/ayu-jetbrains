@@ -56,7 +56,7 @@ class PinAccentActionTest {
         every { AccentApplicator.applyFromHexString(any()) } returns true
 
         mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any()) } returns "#7F52FF"
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#7F52FF"
         every { AccentResolver.projectKey(any()) } returns "/path/to/project"
 
         mockkObject(AccentMappingsSettings.Companion)

@@ -40,7 +40,7 @@ class QuickSwitcherRelatedTogglesSectionTest {
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns null
         mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any()) } returns "#FFB454"
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFB454"
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns AyuVariant.DARK
     }
