@@ -206,6 +206,38 @@ class AyuIslandsStartupActivityTest {
     }
 
     @Test
+    fun `execute initializes glow for external themes before non-Ayu early return`() {
+        // Regression guard: external themes skip the Ayu-only startup pipeline,
+        // but glow overlays still need per-project initialization when the user
+        // opted into external theme enhancements. Keep this before the early
+        // return so startup does not wait for a later LAF event to create it.
+        val source = readStartupActivitySource()
+        val earlyReturn =
+            Regex(
+                """AyuVariant\.fromThemeName\(themeName\)\s*\?:\s*return\s+""" +
+                    """initializeExternalGlowIfEnabled\(project\)""",
+                RegexOption.DOT_MATCHES_ALL,
+            )
+        val externalGlowInitializer =
+            Regex(
+                """private\s+fun\s+initializeExternalGlowIfEnabled\(project:\s*Project\)\s*\{.*?""" +
+                    """state\.externalThemeEnhancementsEnabled.*?""" +
+                    """ApplicationManager\.getApplication\(\)\.invokeLater\s*\(\s*""" +
+                    """\{\s*GlowOverlayManager\.getInstance\(project\)\.initialize\(\)\s*},\s*""" +
+                    """project\.disposed,\s*\).*?}""",
+                RegexOption.DOT_MATCHES_ALL,
+            )
+        assertTrue(
+            earlyReturn.containsMatchIn(source),
+            "Non-Ayu startup must route through initializeExternalGlowIfEnabled before returning",
+        )
+        assertTrue(
+            externalGlowInitializer.containsMatchIn(source),
+            "External theme startup must initialize GlowOverlayManager before the non-Ayu early return",
+        )
+    }
+
+    @Test
     fun `startup projectName is captured before the EDT hop`() {
         // Regression lock. `projectName` MUST be captured OUTSIDE
         // `withContext(Dispatchers.EDT)` so a mid-hop disposal cannot NPE

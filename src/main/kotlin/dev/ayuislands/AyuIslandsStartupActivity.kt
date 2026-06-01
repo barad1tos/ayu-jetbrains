@@ -36,7 +36,7 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         val themeName = AyuVariant.currentThemeName()
         LOG.info("Ayu Islands loaded — active theme: $themeName, project: ${project.name}")
 
-        val variant = AyuVariant.fromThemeName(themeName) ?: return
+        val variant = AyuVariant.fromThemeName(themeName) ?: return initializeExternalGlowIfEnabled(project)
         val settings = AyuIslandsSettings.getInstance()
 
         // Belt-and-suspenders: accent is pre-applied in appFrameCreated() (no gold flash),
@@ -205,6 +205,15 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         }
 
         runStep("apply-persisted-vcs-colors") { applyPersistedVcsColors(settings) }
+    }
+
+    private fun initializeExternalGlowIfEnabled(project: Project) {
+        if (!AyuIslandsSettings.getInstance().state.externalThemeEnhancementsEnabled) return
+
+        ApplicationManager.getApplication().invokeLater(
+            { GlowOverlayManager.getInstance(project).initialize() },
+            project.disposed,
+        )
     }
 
     /**
