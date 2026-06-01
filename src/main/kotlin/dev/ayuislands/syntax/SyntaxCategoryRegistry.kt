@@ -64,13 +64,14 @@ object SyntaxCategoryRegistry {
                 "DOC_COMMENT($|_)|DOC_TAG|DOCUMENTATION$|KDOC_LINK|KDOC_TAG_NAME",
                 "DOC_IDENTIFIER|DOC_METHOD_IDENTIFIER|DOC_PROPERTY_IDENTIFIER|DOC_VAR|LUA_DOC_VALUE",
                 "ScalaDoc|MARKDOWN_LIST_MARKER|MARKDOWN_HRULE|MARKDOWN_CODE_FENCE_LANGUAGE",
-                "MARKDOWN_STRIKE_THROUGH|IGNORE\\.COMMENT",
+                "MARKDOWN_STRIKE_THROUGH",
             )
             // --- Comments ---------------------------------------------------
             addRules(
                 PrimitiveCategory.COMMENT,
                 "LINE_COMMENT$|BLOCK_COMMENT$|COMMENT$|COMMENT_REFERENCE$|_COMMENT_",
-                "MARKDOWN_BLOCK_QUOTE_MARKER|MARKDOWN_FRONT_MATTER|IGNORE\\.UNUSED_ENTRY",
+                "MARKDOWN_BLOCK_QUOTE_MARKER|MARKDOWN_FRONT_MATTER",
+                "IGNORE\\.COMMENT|IGNORE\\.UNUSED_ENTRY",
             )
             // --- Fields (must beat KEYWORD / LOCAL_VAR) ---------------------
             addRules(

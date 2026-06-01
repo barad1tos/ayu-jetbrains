@@ -149,7 +149,7 @@ class SyntaxCategoryRegistryTest {
     fun `all ignore plugin keys classify for Syntax presets`() {
         val expectedCategories =
             mapOf(
-                "IGNORE.COMMENT" to PrimitiveCategory.DOCUMENTATION,
+                "IGNORE.COMMENT" to PrimitiveCategory.COMMENT,
                 "IGNORE.SECTION" to PrimitiveCategory.KEYWORD,
                 "IGNORE.HEADER" to PrimitiveCategory.KEYWORD,
                 "IGNORE.NEGATION" to PrimitiveCategory.KEYWORD,

@@ -836,6 +836,50 @@ class SyntaxIntensityApplicatorTest {
     }
 
     @Test
+    fun `readability dim comments treats ignore comments as comments`() {
+        val ignoreCommentKey = TextAttributesKey.createTextAttributesKey("IGNORE.COMMENT")
+        val commentFg = Color(0x80, 0x80, 0x80)
+        val editorBg = Color(0x1F, 0x24, 0x30)
+
+        val dimResult =
+            compute(
+                preset = SyntaxPreset.AMBIENT,
+                customOverrides = emptyMap(),
+                baseline = mapOf(ignoreCommentKey to attrsWithFg(commentFg)),
+                overlay = emptyMap(),
+                options =
+                    ComputeOptions(
+                        editorBg = editorBg,
+                        readabilityOptions = SyntaxReadabilityOptions(dimComments = true),
+                    ),
+            )
+        val documentationResult =
+            compute(
+                preset = SyntaxPreset.AMBIENT,
+                customOverrides = emptyMap(),
+                baseline = mapOf(ignoreCommentKey to attrsWithFg(commentFg)),
+                overlay = emptyMap(),
+                options =
+                    ComputeOptions(
+                        editorBg = editorBg,
+                        readabilityOptions = SyntaxReadabilityOptions(softenDocumentation = true),
+                    ),
+            )
+
+        val dimmed = assertNotNull(dimResult[ignoreCommentKey]?.foregroundColor)
+        val documentationOnly = assertNotNull(documentationResult[ignoreCommentKey]?.foregroundColor)
+        assertTrue(
+            colorDistance(dimmed, editorBg) < colorDistance(commentFg, editorBg),
+            "Dim comments must move .ignore comments toward the active background",
+        )
+        assertEquals(
+            commentFg.rgb,
+            documentationOnly.rgb,
+            "Soften documentation must not rewrite .ignore comments",
+        )
+    }
+
+    @Test
     fun `readability soften documentation quiets documentation keys`() {
         val docKey = TextAttributesKey.createTextAttributesKey("JAVA_DOC_COMMENT")
         val baselineFg = Color(0x9D, 0xA0, 0xA8)

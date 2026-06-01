@@ -3,7 +3,7 @@
 ## [2.7.1] - 2026-06-01
 
 ### Added
-- **.ignore file colors** — `.ignore` files now use dedicated Ayu colors across Dark, Mirage, and Light editor schemes, including Syntax preset transformations and a Plugins-tab opt-out.
+- **.ignore plugin colors** — when the optional `.ignore` plugin is installed, its files use dedicated Ayu colors across Dark, Mirage, and Light editor schemes, including Syntax preset transformations and a Plugins-tab opt-out.
 
 ### Changed
 - **Visible locked premium previews** — free users can now inspect premium Settings controls in their real layout, with the controls greyed out until a license or trial unlocks them.

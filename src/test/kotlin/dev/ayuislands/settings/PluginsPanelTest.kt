@@ -165,6 +165,28 @@ class PluginsPanelTest {
         verify(exactly = 1) { syntaxIntensityService.reapplyForActiveLaf() }
     }
 
+    @Test
+    fun `unlicensed users can re-enable ignore plugin syntax colors`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        every { ConflictRegistry.isIndentRainbowDetected() } returns false
+        state.ignorePluginSyntaxColorsEnabled = false
+        val pluginsPanel = PluginsPanel()
+
+        val dialogPanel = buildDialogPanel(pluginsPanel)
+        val ignoreCheckbox =
+            descendants(dialogPanel, JCheckBox::class.java)
+                .first { it.text == "Use Ayu colors for .ignore files" }
+
+        assertFalse(ignoreCheckbox.isSelected, "Stored .ignore opt-out must render unchecked")
+
+        ignoreCheckbox.doClick()
+        pluginsPanel.apply()
+
+        assertTrue(state.ignorePluginSyntaxColorsEnabled, "Free users must be able to re-enable .ignore colors")
+        assertFalse(pluginsPanel.isModified(), "Persisting the .ignore opt-in should clean the panel state")
+        verify(exactly = 1) { syntaxIntensityService.reapplyForActiveLaf() }
+    }
+
     private fun buildDialogPanel(pluginsPanel: PluginsPanel): DialogPanel =
         panel {
             pluginsPanel.buildPanel(this, AyuVariant.MIRAGE)

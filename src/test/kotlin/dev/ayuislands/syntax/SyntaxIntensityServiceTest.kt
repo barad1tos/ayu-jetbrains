@@ -21,6 +21,7 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.Color
+import java.awt.Font
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -243,24 +244,9 @@ class SyntaxIntensityServiceTest {
 
         SyntaxIntensityService().apply(SyntaxPreset.WHISPER, emptyMap())
 
-        verify(exactly = 1) {
-            mockMirage.setAttributes(
-                keyCache.getValue("IGNORE.COMMENT"),
-                any<TextAttributes>(),
-            )
-        }
-        verify(exactly = 1) {
-            mockDark.setAttributes(
-                keyCache.getValue("IGNORE.VALUE"),
-                any<TextAttributes>(),
-            )
-        }
-        verify(exactly = 1) {
-            mockLight.setAttributes(
-                keyCache.getValue("IGNORE.UNUSED_ENTRY"),
-                any<TextAttributes>(),
-            )
-        }
+        verifyIgnorePluginStockWrites(mockMirage, ignorePluginDarculaStock)
+        verifyIgnorePluginStockWrites(mockDark, ignorePluginDarculaStock)
+        verifyIgnorePluginStockWrites(mockLight, ignorePluginDefaultStock)
     }
 
     @Test
@@ -493,4 +479,75 @@ class SyntaxIntensityServiceTest {
             )
         }
     }
+
+    private fun verifyIgnorePluginStockWrites(
+        scheme: EditorColorsScheme,
+        expectedStyles: Map<String, ExpectedIgnorePluginStyle>,
+    ) {
+        for ((keyName, expectedStyle) in expectedStyles) {
+            verify(exactly = 1) {
+                scheme.setAttributes(
+                    keyCache.getValue(keyName),
+                    match { attributes -> attributes.matches(expectedStyle) },
+                )
+            }
+        }
+    }
+
+    private fun TextAttributes.matches(expectedStyle: ExpectedIgnorePluginStyle): Boolean =
+        foregroundColor?.rgb == Color(expectedStyle.foregroundRgb).rgb &&
+            backgroundColor?.rgb == expectedStyle.backgroundRgb?.let(::Color)?.rgb &&
+            fontType == expectedStyle.fontType
+
+    private data class ExpectedIgnorePluginStyle(
+        val foregroundRgb: Int,
+        val backgroundRgb: Int? = null,
+        val fontType: Int = Font.PLAIN,
+    )
+
+    private val ignorePluginDarculaStock =
+        mapOf(
+            "IGNORE.COMMENT" to ExpectedIgnorePluginStyle(foregroundRgb = 0x808080),
+            "IGNORE.SECTION" to ExpectedIgnorePluginStyle(foregroundRgb = 0x8C8C8C, backgroundRgb = 0x3A3A3A),
+            "IGNORE.HEADER" to
+                ExpectedIgnorePluginStyle(
+                    foregroundRgb = 0x8C8C8C,
+                    backgroundRgb = 0x3A3A3A,
+                    fontType = Font.BOLD,
+                ),
+            "IGNORE.NEGATION" to ExpectedIgnorePluginStyle(foregroundRgb = 0xCC7832, fontType = Font.BOLD),
+            "IGNORE.BRACKET" to ExpectedIgnorePluginStyle(foregroundRgb = 0xCC7832, fontType = Font.BOLD),
+            "IGNORE.SLASH" to ExpectedIgnorePluginStyle(foregroundRgb = 0x808080),
+            "IGNORE.SYNTAX" to
+                ExpectedIgnorePluginStyle(
+                    foregroundRgb = 0xACACAC,
+                    backgroundRgb = 0x4A4A4A,
+                    fontType = Font.BOLD,
+                ),
+            "IGNORE.VALUE" to ExpectedIgnorePluginStyle(foregroundRgb = 0x629755),
+            "IGNORE.UNUSED_ENTRY" to ExpectedIgnorePluginStyle(foregroundRgb = 0x808080, fontType = Font.ITALIC),
+        )
+
+    private val ignorePluginDefaultStock =
+        mapOf(
+            "IGNORE.COMMENT" to ExpectedIgnorePluginStyle(foregroundRgb = 0x808080),
+            "IGNORE.SECTION" to ExpectedIgnorePluginStyle(foregroundRgb = 0x808080, backgroundRgb = 0xECFAEB),
+            "IGNORE.HEADER" to
+                ExpectedIgnorePluginStyle(
+                    foregroundRgb = 0x808080,
+                    backgroundRgb = 0xECFAEB,
+                    fontType = Font.BOLD,
+                ),
+            "IGNORE.NEGATION" to ExpectedIgnorePluginStyle(foregroundRgb = 0xCC7832, fontType = Font.BOLD),
+            "IGNORE.BRACKET" to ExpectedIgnorePluginStyle(foregroundRgb = 0xCC7832, fontType = Font.BOLD),
+            "IGNORE.SLASH" to ExpectedIgnorePluginStyle(foregroundRgb = 0x808080),
+            "IGNORE.SYNTAX" to
+                ExpectedIgnorePluginStyle(
+                    foregroundRgb = 0xACACAC,
+                    backgroundRgb = 0x4A4A4A,
+                    fontType = Font.BOLD,
+                ),
+            "IGNORE.VALUE" to ExpectedIgnorePluginStyle(foregroundRgb = 0x5C9F30),
+            "IGNORE.UNUSED_ENTRY" to ExpectedIgnorePluginStyle(foregroundRgb = 0x808080, fontType = Font.ITALIC),
+        )
 }

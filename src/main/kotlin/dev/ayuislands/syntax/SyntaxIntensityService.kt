@@ -10,6 +10,7 @@ import com.intellij.openapi.editor.markup.TextAttributes
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.Color
+import java.awt.Font
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -110,7 +111,11 @@ class SyntaxIntensityService {
                     variantTag = overlayVariant,
                     context = context,
                 )
-            writeSchemeAttributes(scheme, applyIgnorePluginPreference(computed, context), schemeName)
+            writeSchemeAttributes(
+                scheme,
+                applyIgnorePluginPreference(computed, context, overlayVariant),
+                schemeName,
+            )
             touched.add(scheme)
         }
         writeActiveSchemeIfNotTouched(context, touched)
@@ -243,7 +248,11 @@ class SyntaxIntensityService {
                 variantTag = variant,
                 context = context,
             )
-        writeSchemeAttributes(active, applyIgnorePluginPreference(computed, context), active.name)
+        writeSchemeAttributes(
+            active,
+            applyIgnorePluginPreference(computed, context, variant),
+            active.name,
+        )
     }
 
     private fun computeSchemeAttributes(
@@ -270,16 +279,25 @@ class SyntaxIntensityService {
     private fun applyIgnorePluginPreference(
         computed: Map<TextAttributesKey, TextAttributes>,
         context: ApplyContext,
+        variantTag: String,
     ): Map<TextAttributesKey, TextAttributes> {
         if (context.ignorePluginSyntaxColorsEnabled) return computed
 
         val result = LinkedHashMap(computed)
         for (keyName in IGNORE_PLUGIN_KEY_NAMES) {
             val key = TextAttributesKey.find(keyName)
-            result[key] = key.defaultAttributes?.clone() ?: TextAttributes()
+            result[key] = ignorePluginStockAttributes(variantTag, keyName)
         }
         return result
     }
+
+    private fun ignorePluginStockAttributes(
+        variantTag: String,
+        keyName: String,
+    ): TextAttributes =
+        (if (variantTag == "Light") IGNORE_PLUGIN_DEFAULT_STOCK else IGNORE_PLUGIN_DARCULA_STOCK)
+            .getValue(keyName)
+            .toTextAttributes()
 
     /**
      * Map a named or `_@user_`-derived Ayu active scheme name to its overlay
@@ -354,6 +372,65 @@ class SyntaxIntensityService {
                 "IGNORE.VALUE",
                 "IGNORE.UNUSED_ENTRY",
             )
+
+        private val IGNORE_PLUGIN_DARCULA_STOCK =
+            mapOf(
+                "IGNORE.COMMENT" to IgnorePluginStockStyle(foregroundRgb = 0x808080),
+                "IGNORE.SECTION" to IgnorePluginStockStyle(foregroundRgb = 0x8C8C8C, backgroundRgb = 0x3A3A3A),
+                "IGNORE.HEADER" to
+                    IgnorePluginStockStyle(
+                        foregroundRgb = 0x8C8C8C,
+                        backgroundRgb = 0x3A3A3A,
+                        fontType = Font.BOLD,
+                    ),
+                "IGNORE.NEGATION" to IgnorePluginStockStyle(foregroundRgb = 0xCC7832, fontType = Font.BOLD),
+                "IGNORE.BRACKET" to IgnorePluginStockStyle(foregroundRgb = 0xCC7832, fontType = Font.BOLD),
+                "IGNORE.SLASH" to IgnorePluginStockStyle(foregroundRgb = 0x808080),
+                "IGNORE.SYNTAX" to
+                    IgnorePluginStockStyle(
+                        foregroundRgb = 0xACACAC,
+                        backgroundRgb = 0x4A4A4A,
+                        fontType = Font.BOLD,
+                    ),
+                "IGNORE.VALUE" to IgnorePluginStockStyle(foregroundRgb = 0x629755),
+                "IGNORE.UNUSED_ENTRY" to IgnorePluginStockStyle(foregroundRgb = 0x808080, fontType = Font.ITALIC),
+            )
+
+        private val IGNORE_PLUGIN_DEFAULT_STOCK =
+            mapOf(
+                "IGNORE.COMMENT" to IgnorePluginStockStyle(foregroundRgb = 0x808080),
+                "IGNORE.SECTION" to IgnorePluginStockStyle(foregroundRgb = 0x808080, backgroundRgb = 0xECFAEB),
+                "IGNORE.HEADER" to
+                    IgnorePluginStockStyle(
+                        foregroundRgb = 0x808080,
+                        backgroundRgb = 0xECFAEB,
+                        fontType = Font.BOLD,
+                    ),
+                "IGNORE.NEGATION" to IgnorePluginStockStyle(foregroundRgb = 0xCC7832, fontType = Font.BOLD),
+                "IGNORE.BRACKET" to IgnorePluginStockStyle(foregroundRgb = 0xCC7832, fontType = Font.BOLD),
+                "IGNORE.SLASH" to IgnorePluginStockStyle(foregroundRgb = 0x808080),
+                "IGNORE.SYNTAX" to
+                    IgnorePluginStockStyle(
+                        foregroundRgb = 0xACACAC,
+                        backgroundRgb = 0x4A4A4A,
+                        fontType = Font.BOLD,
+                    ),
+                "IGNORE.VALUE" to IgnorePluginStockStyle(foregroundRgb = 0x5C9F30),
+                "IGNORE.UNUSED_ENTRY" to IgnorePluginStockStyle(foregroundRgb = 0x808080, fontType = Font.ITALIC),
+            )
+
+        private data class IgnorePluginStockStyle(
+            val foregroundRgb: Int,
+            val backgroundRgb: Int? = null,
+            val fontType: Int = Font.PLAIN,
+        ) {
+            fun toTextAttributes(): TextAttributes =
+                TextAttributes().also { attributes ->
+                    attributes.foregroundColor = Color(foregroundRgb)
+                    attributes.backgroundColor = backgroundRgb?.let(::Color)
+                    attributes.fontType = fontType
+                }
+        }
 
         fun getInstance(): SyntaxIntensityService {
             val app = ApplicationManager.getApplication()
