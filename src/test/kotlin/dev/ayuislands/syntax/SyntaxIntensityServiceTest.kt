@@ -250,6 +250,21 @@ class SyntaxIntensityServiceTest {
     }
 
     @Test
+    fun `disabled ignore plugin colors restore stock attributes on user-derived active Ayu scheme`() {
+        ayuState.ignorePluginSyntaxColorsEnabled = false
+        val userDerivedScheme: EditorColorsScheme =
+            mockk(relaxed = true) {
+                every { name } returns "_@user_Ayu Islands Mirage"
+                every { defaultBackground } returns Color(0x1F, 0x24, 0x30)
+            }
+        every { mockManager.globalScheme } returns userDerivedScheme
+
+        SyntaxIntensityService().apply(SyntaxPreset.WHISPER, emptyMap())
+
+        verifyIgnorePluginStockWrites(userDerivedScheme, ignorePluginDarculaStock)
+    }
+
+    @Test
     fun `enabled ignore plugin colors do not add default restore writes`() {
         ayuState.ignorePluginSyntaxColorsEnabled = true
 
