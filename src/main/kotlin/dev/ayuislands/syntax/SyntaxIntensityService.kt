@@ -360,63 +360,73 @@ class SyntaxIntensityService {
         // Color.WHITE IS correct and must flow through unchanged.
         private val DARK_OVERLAY_VARIANTS = setOf("Mirage", "Dark")
 
+        private const val IGNORE_COMMENT_KEY = "IGNORE.COMMENT"
+        private const val IGNORE_SECTION_KEY = "IGNORE.SECTION"
+        private const val IGNORE_HEADER_KEY = "IGNORE.HEADER"
+        private const val IGNORE_NEGATION_KEY = "IGNORE.NEGATION"
+        private const val IGNORE_BRACKET_KEY = "IGNORE.BRACKET"
+        private const val IGNORE_SLASH_KEY = "IGNORE.SLASH"
+        private const val IGNORE_SYNTAX_KEY = "IGNORE.SYNTAX"
+        private const val IGNORE_VALUE_KEY = "IGNORE.VALUE"
+        private const val IGNORE_UNUSED_ENTRY_KEY = "IGNORE.UNUSED_ENTRY"
+
         private val IGNORE_PLUGIN_KEY_NAMES =
             listOf(
-                "IGNORE.COMMENT",
-                "IGNORE.SECTION",
-                "IGNORE.HEADER",
-                "IGNORE.NEGATION",
-                "IGNORE.BRACKET",
-                "IGNORE.SLASH",
-                "IGNORE.SYNTAX",
-                "IGNORE.VALUE",
-                "IGNORE.UNUSED_ENTRY",
+                IGNORE_COMMENT_KEY,
+                IGNORE_SECTION_KEY,
+                IGNORE_HEADER_KEY,
+                IGNORE_NEGATION_KEY,
+                IGNORE_BRACKET_KEY,
+                IGNORE_SLASH_KEY,
+                IGNORE_SYNTAX_KEY,
+                IGNORE_VALUE_KEY,
+                IGNORE_UNUSED_ENTRY_KEY,
             )
 
         private val IGNORE_PLUGIN_DARCULA_STOCK =
             mapOf(
-                "IGNORE.COMMENT" to IgnorePluginStockStyle(foregroundRgb = 0x808080),
-                "IGNORE.SECTION" to IgnorePluginStockStyle(foregroundRgb = 0x8C8C8C, backgroundRgb = 0x3A3A3A),
-                "IGNORE.HEADER" to
+                IGNORE_COMMENT_KEY to IgnorePluginStockStyle(foregroundRgb = 0x808080),
+                IGNORE_SECTION_KEY to IgnorePluginStockStyle(foregroundRgb = 0x8C8C8C, backgroundRgb = 0x3A3A3A),
+                IGNORE_HEADER_KEY to
                     IgnorePluginStockStyle(
                         foregroundRgb = 0x8C8C8C,
                         backgroundRgb = 0x3A3A3A,
                         fontType = Font.BOLD,
                     ),
-                "IGNORE.NEGATION" to IgnorePluginStockStyle(foregroundRgb = 0xCC7832, fontType = Font.BOLD),
-                "IGNORE.BRACKET" to IgnorePluginStockStyle(foregroundRgb = 0xCC7832, fontType = Font.BOLD),
-                "IGNORE.SLASH" to IgnorePluginStockStyle(foregroundRgb = 0x808080),
-                "IGNORE.SYNTAX" to
+                IGNORE_NEGATION_KEY to IgnorePluginStockStyle(foregroundRgb = 0xCC7832, fontType = Font.BOLD),
+                IGNORE_BRACKET_KEY to IgnorePluginStockStyle(foregroundRgb = 0xCC7832, fontType = Font.BOLD),
+                IGNORE_SLASH_KEY to IgnorePluginStockStyle(foregroundRgb = 0x808080),
+                IGNORE_SYNTAX_KEY to
                     IgnorePluginStockStyle(
                         foregroundRgb = 0xACACAC,
                         backgroundRgb = 0x4A4A4A,
                         fontType = Font.BOLD,
                     ),
-                "IGNORE.VALUE" to IgnorePluginStockStyle(foregroundRgb = 0x629755),
-                "IGNORE.UNUSED_ENTRY" to IgnorePluginStockStyle(foregroundRgb = 0x808080, fontType = Font.ITALIC),
+                IGNORE_VALUE_KEY to IgnorePluginStockStyle(foregroundRgb = 0x629755),
+                IGNORE_UNUSED_ENTRY_KEY to IgnorePluginStockStyle(foregroundRgb = 0x808080, fontType = Font.ITALIC),
             )
 
         private val IGNORE_PLUGIN_DEFAULT_STOCK =
             mapOf(
-                "IGNORE.COMMENT" to IgnorePluginStockStyle(foregroundRgb = 0x808080),
-                "IGNORE.SECTION" to IgnorePluginStockStyle(foregroundRgb = 0x808080, backgroundRgb = 0xECFAEB),
-                "IGNORE.HEADER" to
+                IGNORE_COMMENT_KEY to IgnorePluginStockStyle(foregroundRgb = 0x808080),
+                IGNORE_SECTION_KEY to IgnorePluginStockStyle(foregroundRgb = 0x808080, backgroundRgb = 0xECFAEB),
+                IGNORE_HEADER_KEY to
                     IgnorePluginStockStyle(
                         foregroundRgb = 0x808080,
                         backgroundRgb = 0xECFAEB,
                         fontType = Font.BOLD,
                     ),
-                "IGNORE.NEGATION" to IgnorePluginStockStyle(foregroundRgb = 0xCC7832, fontType = Font.BOLD),
-                "IGNORE.BRACKET" to IgnorePluginStockStyle(foregroundRgb = 0xCC7832, fontType = Font.BOLD),
-                "IGNORE.SLASH" to IgnorePluginStockStyle(foregroundRgb = 0x808080),
-                "IGNORE.SYNTAX" to
+                IGNORE_NEGATION_KEY to IgnorePluginStockStyle(foregroundRgb = 0xCC7832, fontType = Font.BOLD),
+                IGNORE_BRACKET_KEY to IgnorePluginStockStyle(foregroundRgb = 0xCC7832, fontType = Font.BOLD),
+                IGNORE_SLASH_KEY to IgnorePluginStockStyle(foregroundRgb = 0x808080),
+                IGNORE_SYNTAX_KEY to
                     IgnorePluginStockStyle(
                         foregroundRgb = 0xACACAC,
                         backgroundRgb = 0x4A4A4A,
                         fontType = Font.BOLD,
                     ),
-                "IGNORE.VALUE" to IgnorePluginStockStyle(foregroundRgb = 0x5C9F30),
-                "IGNORE.UNUSED_ENTRY" to IgnorePluginStockStyle(foregroundRgb = 0x808080, fontType = Font.ITALIC),
+                IGNORE_VALUE_KEY to IgnorePluginStockStyle(foregroundRgb = 0x5C9F30),
+                IGNORE_UNUSED_ENTRY_KEY to IgnorePluginStockStyle(foregroundRgb = 0x808080, fontType = Font.ITALIC),
             )
 
         private data class IgnorePluginStockStyle(
