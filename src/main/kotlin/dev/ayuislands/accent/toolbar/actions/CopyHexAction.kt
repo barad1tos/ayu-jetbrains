@@ -6,8 +6,8 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.DumbAwareAction
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentResolver
-import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import java.awt.datatransfer.StringSelection
 
@@ -22,18 +22,18 @@ class CopyHexAction : DumbAwareAction("Copy Hex", "Copy the current accent hex t
 
     override fun update(event: AnActionEvent) {
         event.presentation.isEnabledAndVisible =
-            AyuVariant.isAyuActive() &&
+            AccentContext.isAccentActive() &&
             LicenseChecker.isLicensedOrGrace()
     }
 
     override fun actionPerformed(event: AnActionEvent) {
-        val variant = AyuVariant.detect() ?: return
+        val context = AccentContext.detect() ?: return
         val project = AccentApplicator.resolveFocusedProject()
         val hex =
             try {
                 // Read at invocation time — no cached state. Avoids leaking
                 // a prior window's resolved hex on burst clipboard reads.
-                AccentResolver.resolve(project, variant)
+                AccentResolver.resolve(project, context)
             } catch (exception: RuntimeException) {
                 LOG.warn("CopyHex: resolve failed", exception)
                 return

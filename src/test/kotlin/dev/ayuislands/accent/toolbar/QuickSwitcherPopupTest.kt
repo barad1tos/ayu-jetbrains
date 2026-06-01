@@ -9,6 +9,7 @@ import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.JBPopupListener
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
@@ -48,6 +49,8 @@ class QuickSwitcherPopupTest {
     fun `show is a no-op when AyuVariant detect returns null`() {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns null
+        mockkObject(AccentContext.Companion)
+        every { AccentContext.detect() } returns null
         mockkStatic(JBPopupFactory::class)
         val factory = mockk<JBPopupFactory>(relaxed = true)
         every { JBPopupFactory.getInstance() } returns factory
@@ -98,10 +101,13 @@ class QuickSwitcherPopupTest {
     private fun stubPopupBodyDependencies() {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        mockkObject(AccentContext.Companion)
+        every { AccentContext.detect() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
         // The grid resolves the current accent at construction — stub the chain.
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns null
         mockkObject(AccentResolver)
+        every { AccentResolver.resolve(any(), any<AccentContext>()) } returns "#FFB454"
         every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFB454"
         // VariantSwitcherRow reads LafManager during construction — stub via relaxed mock.
         mockkStatic(LafManager::class)

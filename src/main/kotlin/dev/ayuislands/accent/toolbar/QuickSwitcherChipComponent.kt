@@ -10,9 +10,9 @@ import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentChangeListener
 import dev.ayuislands.accent.AccentChangedTopic
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
-import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.toolbar.actions.QuickSwitcherActionGroup
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
@@ -87,7 +87,7 @@ internal class QuickSwitcherChipComponent : JLabel() {
         addMouseListener(
             object : MouseAdapter() {
                 override fun mousePressed(event: MouseEvent) {
-                    if (!AyuVariant.isAyuActive()) return
+                    if (!AccentContext.isAccentActive()) return
                     when {
                         SwingUtilities.isRightMouseButton(event) -> showContextMenu(event.x, event.y)
                         SwingUtilities.isLeftMouseButton(event) -> handleLeftClick(event.x, event.y)
@@ -125,7 +125,9 @@ internal class QuickSwitcherChipComponent : JLabel() {
      * (`applied == false`) and the thrown-exception branch the same way.
      */
     private fun togglePin() {
-        val variant = AyuVariant.detect() ?: return
+        val context = AccentContext.detect()
+        if (context !is AccentContext.Ayu) return
+        val variant = context.ayuVariant
         val project = AccentApplicator.resolveFocusedProject() ?: return
         val key =
             AccentResolver.projectKey(project) ?: run {
@@ -268,16 +270,16 @@ internal class QuickSwitcherChipComponent : JLabel() {
      * so the chip stays paintable with its previous icon.
      */
     fun refreshFromFocusedProject() {
-        val variant = AyuVariant.detect() ?: return
+        val context = AccentContext.detect() ?: return
         val project = AccentApplicator.resolveFocusedProject()
         val hex =
             try {
-                AccentResolver.resolve(project, variant)
+                AccentResolver.resolve(project, context)
             } catch (exception: RuntimeException) {
                 LOG.warn("QuickSwitcher chip resolve failed", exception)
                 return
             }
-        val source = AccentResolver.source(project)
+        val source = AccentResolver.source(project, context)
         val pinned = source == AccentResolver.Source.PROJECT_OVERRIDE
         // [AccentResolver.resolve] returns a validated `#RRGGBB` (resolver
         // produces either a stored override or `AyuIslandsSettings.getAccentForVariant`,

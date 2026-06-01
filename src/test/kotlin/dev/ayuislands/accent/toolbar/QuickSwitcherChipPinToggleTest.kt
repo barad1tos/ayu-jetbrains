@@ -8,6 +8,7 @@ import com.intellij.util.messages.MessageBus
 import com.intellij.util.messages.MessageBusConnection
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
@@ -79,6 +80,9 @@ class QuickSwitcherChipPinToggleTest {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.isAyuActive() } returns true
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        mockkObject(AccentContext.Companion)
+        every { AccentContext.isAccentActive() } returns true
+        every { AccentContext.detect() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
 
         mockkObject(LicenseChecker)
         every { LicenseChecker.isLicensedOrGrace() } returns true

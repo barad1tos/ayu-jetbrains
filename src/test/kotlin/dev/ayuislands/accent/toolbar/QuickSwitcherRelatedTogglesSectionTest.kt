@@ -1,6 +1,7 @@
 package dev.ayuislands.accent.toolbar
 
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.toolbar.popup.Density
@@ -14,6 +15,7 @@ import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.Container
 import java.awt.GridLayout
+import java.awt.image.BufferedImage
 import javax.swing.JLabel
 import javax.swing.JPanel
 import kotlin.test.AfterTest
@@ -40,9 +42,12 @@ class QuickSwitcherRelatedTogglesSectionTest {
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns null
         mockkObject(AccentResolver)
+        every { AccentResolver.resolve(any(), any<AccentContext>()) } returns "#FFB454"
         every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFB454"
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns AyuVariant.DARK
+        mockkObject(AccentContext.Companion)
+        every { AccentContext.detect() } returns AccentContext.Ayu(AyuVariant.DARK)
     }
 
     @AfterTest
@@ -181,6 +186,32 @@ class QuickSwitcherRelatedTogglesSectionTest {
                 .scale(Density.TILE_GAP)
         assertEquals(expected, layout.hgap)
         assertEquals(expected, layout.vgap)
+    }
+
+    @Test
+    fun `selected toggle paint resolves accent through external context`() {
+        val state = AyuIslandsSettings.getInstance().state
+        state.chromeStatusBar = true
+        every { AccentContext.detect() } returns AccentContext.External
+        every { AccentResolver.resolve(any(), AccentContext.External) } returns "#5CCFE6"
+
+        val section = QuickSwitcherRelatedTogglesSection()
+        val chromeTile =
+            (section.component as JPanel)
+                .components
+                .filterIsInstance<ToggleTile>()
+                .first { tile -> labelOf(tile) == "Chrome tinting" }
+
+        chromeTile.toggleSwitch.setSize(32, 16)
+        val image = BufferedImage(32, 16, BufferedImage.TYPE_INT_ARGB)
+        val graphics = image.createGraphics()
+        try {
+            chromeTile.toggleSwitch.paintForTest(graphics)
+        } finally {
+            graphics.dispose()
+        }
+
+        verify(exactly = 1) { AccentResolver.resolve(any(), AccentContext.External) }
     }
 
     private fun labelOf(tile: ToggleTile): String = findLabelText(tile)

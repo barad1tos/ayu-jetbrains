@@ -5,11 +5,13 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.DumbAwareAction
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
-import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.ExternalAccentSource
 import dev.ayuislands.accent.color.AccentHsl
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 
 /**
@@ -24,16 +26,16 @@ class DarkerAccentAction : DumbAwareAction("Darker", "Darken the current accent 
 
     override fun update(event: AnActionEvent) {
         event.presentation.isEnabledAndVisible =
-            AyuVariant.isAyuActive() &&
+            AccentContext.isAccentActive() &&
             LicenseChecker.isLicensedOrGrace()
     }
 
     override fun actionPerformed(event: AnActionEvent) {
-        val variant = AyuVariant.detect() ?: return
+        val context = AccentContext.detect() ?: return
         val project = AccentApplicator.resolveFocusedProject()
         val currentHex =
             try {
-                AccentResolver.resolve(project, variant)
+                AccentResolver.resolve(project, context)
             } catch (exception: RuntimeException) {
                 LOG.warn("Darker: resolve failed", exception)
                 return
@@ -44,6 +46,7 @@ class DarkerAccentAction : DumbAwareAction("Darker", "Darken the current accent 
         try {
             val applied = AccentApplicator.applyFromHexString(newHex)
             if (applied) {
+                persistExternalAccentIfNeeded(context, newHex)
                 ProjectAccentSwapService.getInstance().notifyExternalApply(newHex)
             } else {
                 LOG.warn("Darker: applyFromHexString rejected hex=$newHex")
@@ -51,6 +54,16 @@ class DarkerAccentAction : DumbAwareAction("Darker", "Darken the current accent 
         } catch (exception: RuntimeException) {
             LOG.warn("Darker: apply failed hex=$newHex", exception)
         }
+    }
+
+    private fun persistExternalAccentIfNeeded(
+        context: AccentContext,
+        hex: String,
+    ) {
+        if (context != AccentContext.External) return
+        val state = AyuIslandsSettings.getInstance().state
+        state.externalThemeAccent = hex
+        state.externalThemeAccentSource = ExternalAccentSource.MANUAL.name
     }
 
     private companion object {

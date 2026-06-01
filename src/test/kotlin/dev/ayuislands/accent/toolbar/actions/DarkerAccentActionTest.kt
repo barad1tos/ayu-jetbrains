@@ -7,6 +7,7 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
@@ -42,6 +43,9 @@ class DarkerAccentActionTest {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.isAyuActive() } returns true
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        mockkObject(AccentContext.Companion)
+        every { AccentContext.isAccentActive() } returns true
+        every { AccentContext.detect() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
 
         mockkObject(LicenseChecker)
         every { LicenseChecker.isLicensedOrGrace() } returns true
@@ -51,6 +55,7 @@ class DarkerAccentActionTest {
         every { AccentApplicator.applyFromHexString(any()) } returns true
 
         mockkObject(AccentResolver)
+        every { AccentResolver.resolve(any(), any<AccentContext>()) } returns "#FFCC66"
         every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFCC66"
 
         mockkStatic(ApplicationManager::class)
@@ -80,25 +85,37 @@ class DarkerAccentActionTest {
         val action = DarkerAccentAction()
         val event = newEvent()
 
-        every { AyuVariant.isAyuActive() } returns true
+        every { AccentContext.isAccentActive() } returns true
         every { LicenseChecker.isLicensedOrGrace() } returns true
         action.update(event)
         assertTrue(event.presentation.isEnabledAndVisible, "(T,T) must enable")
 
-        every { AyuVariant.isAyuActive() } returns false
+        every { AccentContext.isAccentActive() } returns false
         every { LicenseChecker.isLicensedOrGrace() } returns true
         action.update(event)
         assertFalse(event.presentation.isEnabledAndVisible, "(F,T) inactive variant must disable")
 
-        every { AyuVariant.isAyuActive() } returns true
+        every { AccentContext.isAccentActive() } returns true
         every { LicenseChecker.isLicensedOrGrace() } returns false
         action.update(event)
         assertFalse(event.presentation.isEnabledAndVisible, "(T,F) unlicensed must disable")
 
-        every { AyuVariant.isAyuActive() } returns false
+        every { AccentContext.isAccentActive() } returns false
         every { LicenseChecker.isLicensedOrGrace() } returns false
         action.update(event)
         assertFalse(event.presentation.isEnabledAndVisible, "(F,F) both off must disable — locks AND vs OR")
+    }
+
+    @Test
+    fun `update is visible in external accent context`() {
+        val event = newEvent()
+        every { AyuVariant.isAyuActive() } returns false
+        every { AccentContext.isAccentActive() } returns true
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+
+        DarkerAccentAction().update(event)
+
+        assertTrue(event.presentation.isEnabledAndVisible)
     }
 
     @Test
@@ -115,7 +132,7 @@ class DarkerAccentActionTest {
     fun `actionPerformed at MIN_LIGHTNESS clamp still calls applyFromHexString with the unchanged hex`() {
         // Test 30
         val floorHex = HslColor.toHex(0f, 0f, AccentHsl.MIN_LIGHTNESS)
-        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns floorHex
+        every { AccentResolver.resolve(any(), any<AccentContext>()) } returns floorHex
         DarkerAccentAction().actionPerformed(newEvent())
         verify(exactly = 1) { AccentApplicator.applyFromHexString(floorHex) }
     }

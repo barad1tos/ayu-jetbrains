@@ -5,8 +5,8 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.DumbAwareAction
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentResolver
-import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
@@ -20,7 +20,7 @@ import dev.ayuislands.settings.mappings.ProjectAccentSwapService
  * follow-up marker below keeps the integration point discoverable.
  *
  * Premium gate via Pattern J two-level predicate
- * (`AyuVariant.isAyuActive() && LicenseChecker.isLicensedOrGrace()`) on every
+ * (`AccentContext.detect() is AccentContext.Ayu && LicenseChecker.isLicensedOrGrace()`) on every
  * `update` tick — both the right-click context menu and the popup quick-action
  * row must go through this gate.
  */
@@ -29,12 +29,14 @@ class PinAccentAction : DumbAwareAction("Pin Accent", "Pin the current accent to
 
     override fun update(event: AnActionEvent) {
         event.presentation.isEnabledAndVisible =
-            AyuVariant.isAyuActive() &&
+            AccentContext.detect() is AccentContext.Ayu &&
             LicenseChecker.isLicensedOrGrace()
     }
 
     override fun actionPerformed(event: AnActionEvent) {
-        val variant = AyuVariant.detect() ?: return
+        val context = AccentContext.detect()
+        if (context !is AccentContext.Ayu) return
+        val variant = context.ayuVariant
         val project = AccentApplicator.resolveFocusedProject() ?: return
         val hex =
             try {

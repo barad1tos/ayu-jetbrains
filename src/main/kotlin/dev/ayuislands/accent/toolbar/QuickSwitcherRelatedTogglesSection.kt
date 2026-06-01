@@ -6,9 +6,9 @@ import com.intellij.ui.dsl.builder.bindSelected
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentDefaults
 import dev.ayuislands.accent.AccentResolver
-import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.toolbar.popup.Density
 import dev.ayuislands.accent.toolbar.popup.ToggleSwitch
 import dev.ayuislands.accent.toolbar.popup.ToggleTile
@@ -66,9 +66,13 @@ internal class QuickSwitcherRelatedTogglesSection {
     init {
         val state = AyuIslandsSettings.getInstance().state
         val accentSupplier: () -> String = {
-            val variant = AyuVariant.detect() ?: AyuVariant.DARK
+            val context = AccentContext.detect()
             try {
-                AccentResolver.resolve(AccentApplicator.resolveFocusedProject(), variant)
+                if (context == null) {
+                    AccentDefaults.MIRAGE_HEX
+                } else {
+                    AccentResolver.resolve(AccentApplicator.resolveFocusedProject(), context)
+                }
             } catch (exception: RuntimeException) {
                 LOG.warn("Toggles section accent resolve failed", exception)
                 AccentDefaults.MIRAGE_HEX

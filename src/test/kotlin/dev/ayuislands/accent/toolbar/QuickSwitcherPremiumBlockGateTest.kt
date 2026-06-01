@@ -77,6 +77,24 @@ class QuickSwitcherPremiumBlockGateTest {
         }
     }
 
+    @Test
+    fun `popup source builds variant card only for Ayu context`() {
+        val source = FileUtil.loadFile(File(POPUP_SOURCE_PATH))
+
+        assertTrue(
+            source.contains("AccentContext.External"),
+            "Popup must explicitly support external accent context",
+        )
+        assertTrue(
+            source.contains("is AccentContext.Ayu"),
+            "Variant switcher card must render only for Ayu context",
+        )
+        assertTrue(
+            source.contains("AccentContext.External -> null"),
+            "External context must skip the variant switcher card",
+        )
+    }
+
     private companion object {
         const val POPUP_SOURCE_PATH = "src/main/kotlin/dev/ayuislands/accent/toolbar/QuickSwitcherPopup.kt"
     }
