@@ -10,6 +10,7 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.indent.IndentPreset
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.settings.mappings.AccentSwatchPickerRow
 import dev.ayuislands.syntax.SyntaxIntensityService
 import io.mockk.every
 import io.mockk.mockk
@@ -25,6 +26,7 @@ import javax.swing.JSlider
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -143,6 +145,51 @@ class PluginsPanelTest {
         )
         assertTrue(ignoreCheckbox.isSelected, ".ignore syntax colors default on for the release feature")
         assertFalse(pluginsPanel.isModified(), "Rendering the default-on .ignore toggle must not dirty Settings")
+    }
+
+    @Test
+    fun `external themes group is visible without premium plugin detections`() {
+        every { ConflictRegistry.isIndentRainbowDetected() } returns false
+        every { ConflictRegistry.isCodeGlanceProDetected() } returns false
+        val pluginsPanel = PluginsPanel()
+
+        val dialogPanel = buildDialogPanel(pluginsPanel)
+        val checkbox =
+            descendants(dialogPanel, JCheckBox::class.java)
+                .first { it.text == "Enable Ayu enhancements on other themes" }
+
+        assertTrue(checkbox.isEffectivelyVisibleWithin(dialogPanel))
+        assertFalse(checkbox.isSelected)
+        assertFalse(pluginsPanel.isModified())
+    }
+
+    @Test
+    fun `external theme toggle persists opt-in`() {
+        val pluginsPanel = PluginsPanel()
+        val dialogPanel = buildDialogPanel(pluginsPanel)
+        val checkbox =
+            descendants(dialogPanel, JCheckBox::class.java)
+                .first { it.text == "Enable Ayu enhancements on other themes" }
+
+        checkbox.doClick()
+        pluginsPanel.apply()
+
+        assertTrue(state.externalThemeEnhancementsEnabled)
+        assertFalse(pluginsPanel.isModified())
+    }
+
+    @Test
+    fun `external accent picker renders stored fallback accent`() {
+        state.externalThemeAccent = "#AABBCC"
+        val pluginsPanel = PluginsPanel()
+
+        val dialogPanel = buildDialogPanel(pluginsPanel)
+        val picker =
+            descendants(dialogPanel, AccentSwatchPickerRow::class.java)
+                .first()
+
+        assertEquals("#AABBCC", picker.selectedHex)
+        assertFalse(pluginsPanel.isModified())
     }
 
     @Test

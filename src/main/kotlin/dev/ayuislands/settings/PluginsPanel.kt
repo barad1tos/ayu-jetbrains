@@ -1,16 +1,21 @@
 package dev.ayuislands.settings
 
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
+import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.SegmentedButton
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentDefaults
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.ExternalAccentSource
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.indent.IndentPreset
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.settings.mappings.AccentSwatchPickerRow
 import dev.ayuislands.syntax.SyntaxIntensityService
 import javax.swing.JCheckBox
+import javax.swing.JComboBox
 import javax.swing.JLabel
 import javax.swing.JSlider
 
@@ -28,12 +33,21 @@ class PluginsPanel : AyuIslandsSettingsPanel {
     private var storedErrorHighlight: Boolean = true
     private var pendingIgnorePluginSyntaxColors: Boolean = true
     private var storedIgnorePluginSyntaxColors: Boolean = true
+    private var pendingExternalThemeEnhancements: Boolean = false
+    private var storedExternalThemeEnhancements: Boolean = false
+    private var pendingExternalAccentSource: String = ExternalAccentSource.AUTOMATIC.name
+    private var storedExternalAccentSource: String = ExternalAccentSource.AUTOMATIC.name
+    private var pendingExternalAccent: String = AccentDefaults.MIRAGE_HEX
+    private var storedExternalAccent: String = AccentDefaults.MIRAGE_HEX
 
     private var variant: AyuVariant? = null
     private var enabledCheckbox: JCheckBox? = null
     private var cgpCheckbox: JCheckBox? = null
     private var errorHighlightCheckbox: JCheckBox? = null
     private var ignorePluginCheckbox: JCheckBox? = null
+    private var externalThemeCheckbox: JCheckBox? = null
+    private var externalAccentSourceCombo: JComboBox<ExternalAccentSource>? = null
+    private var externalAccentPicker: AccentSwatchPickerRow? = null
     private var alphaSlider: JSlider? = null
     private var alphaValueLabel: JLabel? = null
     private var presetSegmented: SegmentedButton<IndentPreset>? = null
@@ -65,6 +79,7 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         val irDetected = ConflictRegistry.isIndentRainbowDetected()
 
         panel.row { comment("Tune how Ayu colors integrate with compatible plugins.") }
+        panel.buildExternalThemesGroup()
         panel.buildIgnorePluginGroup()
 
         if (cgpDetected || irDetected) {
@@ -93,6 +108,12 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         pendingErrorHighlight = storedErrorHighlight
         storedIgnorePluginSyntaxColors = state.ignorePluginSyntaxColorsEnabled
         pendingIgnorePluginSyntaxColors = storedIgnorePluginSyntaxColors
+        storedExternalThemeEnhancements = state.externalThemeEnhancementsEnabled
+        pendingExternalThemeEnhancements = storedExternalThemeEnhancements
+        storedExternalAccentSource = state.externalThemeAccentSource ?: ExternalAccentSource.AUTOMATIC.name
+        pendingExternalAccentSource = storedExternalAccentSource
+        storedExternalAccent = state.externalThemeAccent ?: AccentDefaults.MIRAGE_HEX
+        pendingExternalAccent = storedExternalAccent
         storedPreset = state.indentPresetName ?: IndentPreset.AMBIENT.name
         pendingPreset = storedPreset
         storedCustomAlpha = state.indentCustomAlpha
@@ -123,6 +144,55 @@ class PluginsPanel : AyuIslandsSettingsPanel {
                     pendingIgnorePluginSyntaxColors = checkboxCell.component.isSelected
                 }
                 ignorePluginCheckbox = checkboxCell.component
+            }
+        }
+    }
+
+    private fun Panel.buildExternalThemesGroup() {
+        group("External themes") {
+            row {
+                val checkboxCell =
+                    checkBox("Enable Ayu enhancements on other themes")
+                        .comment(
+                            "Apply Glow, plugin sync, and quick-switcher accent actions " +
+                                "when the active IDE theme is not Ayu",
+                        )
+                checkboxCell.component.isSelected = pendingExternalThemeEnhancements
+                checkboxCell.component.addActionListener {
+                    pendingExternalThemeEnhancements = checkboxCell.component.isSelected
+                }
+                externalThemeCheckbox = checkboxCell.component
+            }
+            row("Accent source") {
+                val combo =
+                    comboBox(ExternalAccentSource.entries.toList())
+                        .component
+                combo.selectedItem = ExternalAccentSource.fromName(pendingExternalAccentSource)
+                combo.renderer = SimpleListCellRenderer.create("") { it.displayName }
+                combo.addActionListener {
+                    if (suppressListeners) return@addActionListener
+                    pendingExternalAccentSource =
+                        (combo.selectedItem as? ExternalAccentSource ?: ExternalAccentSource.AUTOMATIC).name
+                }
+                externalAccentSourceCombo = combo
+            }
+            row {
+                comment(
+                    "Automatic uses project/language pins, Material Theme accent, IDE accent, " +
+                        "then External accent fallback.",
+                )
+            }
+            row("External accent") {
+                val picker =
+                    AccentSwatchPickerRow { selected ->
+                        pendingExternalAccent = selected
+                        pendingExternalAccentSource = ExternalAccentSource.MANUAL.name
+                        externalAccentSourceCombo?.selectedItem = ExternalAccentSource.MANUAL
+                    }
+                picker.selectedHex = pendingExternalAccent
+                externalAccentPicker = picker
+                cell(picker)
+                    .comment("Used in Manual mode and as the final Automatic fallback")
             }
         }
     }
@@ -251,11 +321,27 @@ class PluginsPanel : AyuIslandsSettingsPanel {
             pendingCustomAlpha != storedCustomAlpha ||
             pendingCodeGlanceProIntegration != storedCodeGlanceProIntegration ||
             pendingErrorHighlight != storedErrorHighlight ||
-            pendingIgnorePluginSyntaxColors != storedIgnorePluginSyntaxColors
+            pendingIgnorePluginSyntaxColors != storedIgnorePluginSyntaxColors ||
+            pendingExternalThemeEnhancements != storedExternalThemeEnhancements ||
+            pendingExternalAccentSource != storedExternalAccentSource ||
+            pendingExternalAccent != storedExternalAccent
 
     override fun apply() {
         if (!isModified()) return
         val state = AyuIslandsSettings.getInstance().state
+        val externalChanged =
+            pendingExternalThemeEnhancements != storedExternalThemeEnhancements ||
+                pendingExternalAccentSource != storedExternalAccentSource ||
+                pendingExternalAccent != storedExternalAccent
+        if (externalChanged) {
+            state.externalThemeEnhancementsEnabled = pendingExternalThemeEnhancements
+            state.externalThemeAccentSource = pendingExternalAccentSource
+            state.externalThemeAccent = pendingExternalAccent
+            storedExternalThemeEnhancements = pendingExternalThemeEnhancements
+            storedExternalAccentSource = pendingExternalAccentSource
+            storedExternalAccent = pendingExternalAccent
+        }
+
         val ignorePluginChanged = pendingIgnorePluginSyntaxColors != storedIgnorePluginSyntaxColors
         if (ignorePluginChanged) {
             state.ignorePluginSyntaxColorsEnabled = pendingIgnorePluginSyntaxColors
@@ -298,12 +384,18 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         pendingCodeGlanceProIntegration = storedCodeGlanceProIntegration
         pendingErrorHighlight = storedErrorHighlight
         pendingIgnorePluginSyntaxColors = storedIgnorePluginSyntaxColors
+        pendingExternalThemeEnhancements = storedExternalThemeEnhancements
+        pendingExternalAccentSource = storedExternalAccentSource
+        pendingExternalAccent = storedExternalAccent
 
         suppressListeners = true
         enabledCheckbox?.isSelected = storedEnabled
         cgpCheckbox?.isSelected = storedCodeGlanceProIntegration
         errorHighlightCheckbox?.isSelected = storedErrorHighlight
         ignorePluginCheckbox?.isSelected = storedIgnorePluginSyntaxColors
+        externalThemeCheckbox?.isSelected = storedExternalThemeEnhancements
+        externalAccentSourceCombo?.selectedItem = ExternalAccentSource.fromName(storedExternalAccentSource)
+        externalAccentPicker?.selectedHex = storedExternalAccent
         presetSegmented?.selectedItem = IndentPreset.fromName(storedPreset)
         alphaSlider?.value = storedCustomAlpha
         alphaValueLabel?.text = "$storedCustomAlpha"
