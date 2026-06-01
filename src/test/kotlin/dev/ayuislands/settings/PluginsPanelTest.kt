@@ -10,12 +10,14 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.indent.IndentPreset
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.syntax.SyntaxIntensityService
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkClass
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
+import io.mockk.verify
 import java.awt.Component
 import java.awt.Container
 import javax.swing.JCheckBox
@@ -29,12 +31,14 @@ import kotlin.test.assertTrue
 class PluginsPanelTest {
     private lateinit var state: AyuIslandsState
     private lateinit var settings: AyuIslandsSettings
+    private lateinit var syntaxIntensityService: SyntaxIntensityService
 
     @BeforeTest
     fun setUp() {
         state = AyuIslandsState()
         settings = mockk(relaxed = true)
         every { settings.state } returns state
+        syntaxIntensityService = mockk(relaxed = true)
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns settings
 
@@ -123,6 +127,66 @@ class PluginsPanelTest {
         assertFalse(pluginsPanel.isModified(), "Reset must leave Plugins settings clean")
     }
 
+    @Test
+    fun `ignore plugin toggle stays visible without premium plugin detections`() {
+        every { ConflictRegistry.isIndentRainbowDetected() } returns false
+        val pluginsPanel = PluginsPanel()
+
+        val dialogPanel = buildDialogPanel(pluginsPanel)
+        val ignoreCheckbox =
+            descendants(dialogPanel, JCheckBox::class.java)
+                .first { it.text == "Use Ayu colors for .ignore files" }
+
+        assertTrue(
+            ignoreCheckbox.isEffectivelyVisibleWithin(dialogPanel),
+            ".ignore syntax-color opt-out must stay visible even when premium plugin sync targets are absent",
+        )
+        assertTrue(ignoreCheckbox.isSelected, ".ignore syntax colors default on for the release feature")
+        assertFalse(pluginsPanel.isModified(), "Rendering the default-on .ignore toggle must not dirty Settings")
+    }
+
+    @Test
+    fun `unlicensed users can disable ignore plugin syntax colors`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        every { ConflictRegistry.isIndentRainbowDetected() } returns false
+        state.ignorePluginSyntaxColorsEnabled = true
+        val pluginsPanel = PluginsPanel()
+
+        val dialogPanel = buildDialogPanel(pluginsPanel)
+        val ignoreCheckbox =
+            descendants(dialogPanel, JCheckBox::class.java)
+                .first { it.text == "Use Ayu colors for .ignore files" }
+
+        ignoreCheckbox.doClick()
+        pluginsPanel.apply()
+
+        assertFalse(state.ignorePluginSyntaxColorsEnabled, "Free users must be able to opt out of .ignore colors")
+        assertFalse(pluginsPanel.isModified(), "Persisting the .ignore opt-out should clean the panel state")
+        verify(exactly = 1) { syntaxIntensityService.reapplyForActiveLaf() }
+    }
+
+    @Test
+    fun `unlicensed users can re-enable ignore plugin syntax colors`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        every { ConflictRegistry.isIndentRainbowDetected() } returns false
+        state.ignorePluginSyntaxColorsEnabled = false
+        val pluginsPanel = PluginsPanel()
+
+        val dialogPanel = buildDialogPanel(pluginsPanel)
+        val ignoreCheckbox =
+            descendants(dialogPanel, JCheckBox::class.java)
+                .first { it.text == "Use Ayu colors for .ignore files" }
+
+        assertFalse(ignoreCheckbox.isSelected, "Stored .ignore opt-out must render unchecked")
+
+        ignoreCheckbox.doClick()
+        pluginsPanel.apply()
+
+        assertTrue(state.ignorePluginSyntaxColorsEnabled, "Free users must be able to re-enable .ignore colors")
+        assertFalse(pluginsPanel.isModified(), "Persisting the .ignore opt-in should clean the panel state")
+        verify(exactly = 1) { syntaxIntensityService.reapplyForActiveLaf() }
+    }
+
     private fun buildDialogPanel(pluginsPanel: PluginsPanel): DialogPanel =
         panel {
             pluginsPanel.buildPanel(this, AyuVariant.MIRAGE)
@@ -146,6 +210,7 @@ class PluginsPanelTest {
                 ActionManager::class.java,
                 ActionManagerEx::class.java,
                 -> actionManagerMock
+                SyntaxIntensityService::class.java -> syntaxIntensityService
                 experimentalUiClass -> experimentalUiMock
                 else -> mockkClass(serviceClass.kotlin, relaxed = true)
             }

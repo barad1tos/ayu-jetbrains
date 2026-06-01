@@ -9,6 +9,7 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.indent.IndentPreset
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.syntax.SyntaxIntensityService
 import javax.swing.JCheckBox
 import javax.swing.JLabel
 import javax.swing.JSlider
@@ -25,11 +26,14 @@ class PluginsPanel : AyuIslandsSettingsPanel {
     private var storedCodeGlanceProIntegration: Boolean = false
     private var pendingErrorHighlight: Boolean = true
     private var storedErrorHighlight: Boolean = true
+    private var pendingIgnorePluginSyntaxColors: Boolean = true
+    private var storedIgnorePluginSyntaxColors: Boolean = true
 
     private var variant: AyuVariant? = null
     private var enabledCheckbox: JCheckBox? = null
     private var cgpCheckbox: JCheckBox? = null
     private var errorHighlightCheckbox: JCheckBox? = null
+    private var ignorePluginCheckbox: JCheckBox? = null
     private var alphaSlider: JSlider? = null
     private var alphaValueLabel: JLabel? = null
     private var presetSegmented: SegmentedButton<IndentPreset>? = null
@@ -60,13 +64,12 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         val cgpDetected = ConflictRegistry.isCodeGlanceProDetected()
         val irDetected = ConflictRegistry.isIndentRainbowDetected()
 
-        if (!cgpDetected && !irDetected) {
-            panel.buildNoSupportedPluginsMessage()
-            return
-        }
+        panel.row { comment("Tune how Ayu colors integrate with compatible plugins.") }
+        panel.buildIgnorePluginGroup()
 
-        panel.row { comment("Sync Ayu accent colors with compatible plugins.") }
-        panel.premiumFeatureNotice(gate)
+        if (cgpDetected || irDetected) {
+            panel.premiumFeatureNotice(gate)
+        }
 
         if (cgpDetected) {
             panel.buildCodeGlanceProGroup(licensed)
@@ -74,6 +77,10 @@ class PluginsPanel : AyuIslandsSettingsPanel {
 
         if (irDetected) {
             panel.buildIndentRainbowGroup(licensed, irEnabled)
+        }
+
+        if (!cgpDetected && !irDetected) {
+            panel.buildNoSupportedPluginsMessage()
         }
     }
 
@@ -84,6 +91,8 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         pendingEnabled = storedEnabled
         storedErrorHighlight = state.irErrorHighlightEnabled
         pendingErrorHighlight = storedErrorHighlight
+        storedIgnorePluginSyntaxColors = state.ignorePluginSyntaxColorsEnabled
+        pendingIgnorePluginSyntaxColors = storedIgnorePluginSyntaxColors
         storedPreset = state.indentPresetName ?: IndentPreset.AMBIENT.name
         pendingPreset = storedPreset
         storedCustomAlpha = state.indentCustomAlpha
@@ -97,9 +106,23 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         group("Plugins") {
             row {
                 comment(
-                    "No supported plugins detected." +
-                        " Install CodeGlance Pro or Indent Rainbow for accent color sync.",
+                    "Install CodeGlance Pro or Indent Rainbow for premium accent color sync.",
                 )
+            }
+        }
+    }
+
+    private fun Panel.buildIgnorePluginGroup() {
+        group(".ignore") {
+            row {
+                val checkboxCell =
+                    checkBox("Use Ayu colors for .ignore files")
+                        .comment("When off, keep the .ignore plugin's default syntax colors")
+                checkboxCell.component.isSelected = pendingIgnorePluginSyntaxColors
+                checkboxCell.component.addActionListener {
+                    pendingIgnorePluginSyntaxColors = checkboxCell.component.isSelected
+                }
+                ignorePluginCheckbox = checkboxCell.component
             }
         }
     }
@@ -227,12 +250,27 @@ class PluginsPanel : AyuIslandsSettingsPanel {
             pendingPreset != storedPreset ||
             pendingCustomAlpha != storedCustomAlpha ||
             pendingCodeGlanceProIntegration != storedCodeGlanceProIntegration ||
-            pendingErrorHighlight != storedErrorHighlight
+            pendingErrorHighlight != storedErrorHighlight ||
+            pendingIgnorePluginSyntaxColors != storedIgnorePluginSyntaxColors
 
     override fun apply() {
         if (!isModified()) return
-        if (!LicenseChecker.isLicensedOrGrace()) return
         val state = AyuIslandsSettings.getInstance().state
+        val ignorePluginChanged = pendingIgnorePluginSyntaxColors != storedIgnorePluginSyntaxColors
+        if (ignorePluginChanged) {
+            state.ignorePluginSyntaxColorsEnabled = pendingIgnorePluginSyntaxColors
+            storedIgnorePluginSyntaxColors = pendingIgnorePluginSyntaxColors
+            SyntaxIntensityService.getInstance().reapplyForActiveLaf()
+        }
+
+        val premiumChanged =
+            pendingEnabled != storedEnabled ||
+                pendingPreset != storedPreset ||
+                pendingCustomAlpha != storedCustomAlpha ||
+                pendingCodeGlanceProIntegration != storedCodeGlanceProIntegration ||
+                pendingErrorHighlight != storedErrorHighlight
+        if (!premiumChanged) return
+        if (!LicenseChecker.isLicensedOrGrace()) return
 
         state.irIntegrationEnabled = pendingEnabled
         state.indentPresetName = pendingPreset
@@ -259,11 +297,13 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         pendingCustomAlpha = storedCustomAlpha
         pendingCodeGlanceProIntegration = storedCodeGlanceProIntegration
         pendingErrorHighlight = storedErrorHighlight
+        pendingIgnorePluginSyntaxColors = storedIgnorePluginSyntaxColors
 
         suppressListeners = true
         enabledCheckbox?.isSelected = storedEnabled
         cgpCheckbox?.isSelected = storedCodeGlanceProIntegration
         errorHighlightCheckbox?.isSelected = storedErrorHighlight
+        ignorePluginCheckbox?.isSelected = storedIgnorePluginSyntaxColors
         presetSegmented?.selectedItem = IndentPreset.fromName(storedPreset)
         alphaSlider?.value = storedCustomAlpha
         alphaValueLabel?.text = "$storedCustomAlpha"

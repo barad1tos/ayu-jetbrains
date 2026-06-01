@@ -216,6 +216,16 @@ class AyuIslandsStatePersistenceTest {
         assertEquals(2, reloaded.state.explicitlyUninstalledFonts.size)
     }
 
+    @Test
+    fun `ignore plugin syntax color opt-out survives save reload cycle`() {
+        val reloaded =
+            roundTrip { state ->
+                state.ignorePluginSyntaxColorsEnabled = false
+            }
+
+        assertFalse(reloaded.state.ignorePluginSyntaxColorsEnabled)
+    }
+
     // ---------- Chrome tinting (phase 40) XML round-trip for all 8 new fields ----------
 
     @Test

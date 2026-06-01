@@ -154,6 +154,10 @@ class AyuIslandsState : BaseState() {
     // IR version that failed reflection (suppresses repeated notifications)
     var irFailedVersion by string(null)
 
+    // `.ignore` plugin syntax colors are free and default ON. Users can opt out
+    // from the Plugins tab to keep the optional plugin's stock TextAttributes.
+    var ignorePluginSyntaxColorsEnabled by property(true)
+
     // Project View tweaks
     var hideProjectRootPath by property(false)
     var hideProjectViewHScrollbar by property(false)

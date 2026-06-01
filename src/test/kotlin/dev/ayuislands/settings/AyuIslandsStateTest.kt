@@ -529,6 +529,16 @@ class AyuIslandsStateTest {
     }
 
     @Test
+    fun `ignore plugin syntax colors default on and can be disabled`() {
+        val state = freshState()
+        assertTrue(state.ignorePluginSyntaxColorsEnabled, ".ignore colors should ship enabled by default")
+
+        state.ignorePluginSyntaxColorsEnabled = false
+
+        assertFalse(state.ignorePluginSyntaxColorsEnabled)
+    }
+
+    @Test
     fun `PanelWidthMode fromString parses valid names`() {
         assertEquals(PanelWidthMode.DEFAULT, PanelWidthMode.fromString("DEFAULT"))
         assertEquals(PanelWidthMode.AUTO_FIT, PanelWidthMode.fromString("AUTO_FIT"))

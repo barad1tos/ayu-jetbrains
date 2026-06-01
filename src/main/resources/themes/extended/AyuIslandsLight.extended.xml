@@ -2266,15 +2266,21 @@
         <option name="FONT_TYPE" value="1" />
       </value>
     </option>
-    <option name="IGNORE.HEADER">
+    <option name="IGNORE.COMMENT">
       <value>
-        <option name="FOREGROUND" value="FA8532" />
-        <option name="FONT_TYPE" value="1" />
+        <option name="FOREGROUND" value="86B300" />
+        <option name="FONT_TYPE" value="2" />
       </value>
     </option>
     <option name="IGNORE.SECTION">
       <value>
-        <option name="FOREGROUND" value="D89400" />
+        <option name="FOREGROUND" value="EBA400" />
+        <option name="FONT_TYPE" value="1" />
+      </value>
+    </option>
+    <option name="IGNORE.HEADER">
+      <value>
+        <option name="FOREGROUND" value="A37ACC" />
         <option name="FONT_TYPE" value="1" />
       </value>
     </option>
@@ -2282,6 +2288,12 @@
       <value>
         <option name="FOREGROUND" value="F07171" />
         <option name="FONT_TYPE" value="1" />
+      </value>
+    </option>
+    <option name="IGNORE.BRACKET">
+      <value>
+        <option name="FOREGROUND" value="F2A191" />
+        <option name="FONT_TYPE" value="0" />
       </value>
     </option>
     <option name="IGNORE.SYNTAX">
@@ -2292,14 +2304,20 @@
     </option>
     <option name="IGNORE.SLASH">
       <value>
-        <option name="FOREGROUND" value="FA8532" />
+        <option name="FOREGROUND" value="ADAEB1" />
         <option name="FONT_TYPE" value="0" />
       </value>
     </option>
     <option name="IGNORE.VALUE">
       <value>
-        <option name="FOREGROUND" value="5C6166" />
+        <option name="FOREGROUND" value="4CBF99" />
         <option name="FONT_TYPE" value="0" />
+      </value>
+    </option>
+    <option name="IGNORE.UNUSED_ENTRY">
+      <value>
+        <option name="FOREGROUND" value="ADAEB1" />
+        <option name="FONT_TYPE" value="2" />
       </value>
     </option>
     <option name="RBS_KEYWORDS">

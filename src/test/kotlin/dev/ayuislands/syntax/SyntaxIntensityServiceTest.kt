@@ -10,6 +10,8 @@ import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.ui.JBColor
 import com.intellij.util.messages.MessageBus
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
@@ -19,6 +21,7 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.Color
+import java.awt.Font
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -43,6 +46,8 @@ class SyntaxIntensityServiceTest {
     private lateinit var mockApp: Application
     private lateinit var loader: SyntaxOverlayLoader
     private lateinit var stateInstance: SyntaxIntensityState
+    private lateinit var ayuSettings: AyuIslandsSettings
+    private lateinit var ayuState: AyuIslandsState
     private val keyCache = mutableMapOf<String, TextAttributesKey>()
 
     @BeforeTest
@@ -65,6 +70,9 @@ class SyntaxIntensityServiceTest {
         mockMessageBus = mockk(relaxed = true)
         mockPublisher = mockk(relaxed = true)
         mockApp = mockk(relaxed = true)
+        ayuState = AyuIslandsState()
+        ayuSettings = mockk(relaxed = true)
+        every { ayuSettings.state } returns ayuState
 
         mockkStatic(EditorColorsManager::class)
         every { EditorColorsManager.getInstance() } returns mockManager
@@ -124,6 +132,7 @@ class SyntaxIntensityServiceTest {
         } returns payload
 
         every { mockApp.getService(SyntaxIntensityService::class.java) } returns SyntaxIntensityService()
+        every { mockApp.getService(AyuIslandsSettings::class.java) } returns ayuSettings
     }
 
     @AfterTest
@@ -227,6 +236,46 @@ class SyntaxIntensityServiceTest {
         service.apply(SyntaxPreset.WHISPER, emptyMap())
 
         verify(exactly = 0) { solarizedScheme.setAttributes(any(), any<TextAttributes>()) }
+    }
+
+    @Test
+    fun `disabled ignore plugin colors restore default attributes on Ayu schemes`() {
+        ayuState.ignorePluginSyntaxColorsEnabled = false
+
+        SyntaxIntensityService().apply(SyntaxPreset.WHISPER, emptyMap())
+
+        verifyIgnorePluginStockWrites(mockMirage, ignorePluginDarculaStock)
+        verifyIgnorePluginStockWrites(mockDark, ignorePluginDarculaStock)
+        verifyIgnorePluginStockWrites(mockLight, ignorePluginDefaultStock)
+    }
+
+    @Test
+    fun `disabled ignore plugin colors restore stock attributes on user-derived active Ayu scheme`() {
+        ayuState.ignorePluginSyntaxColorsEnabled = false
+        val userDerivedScheme: EditorColorsScheme =
+            mockk(relaxed = true) {
+                every { name } returns "_@user_Ayu Islands Mirage"
+                every { defaultBackground } returns Color(0x1F, 0x24, 0x30)
+            }
+        every { mockManager.globalScheme } returns userDerivedScheme
+
+        SyntaxIntensityService().apply(SyntaxPreset.WHISPER, emptyMap())
+
+        verifyIgnorePluginStockWrites(userDerivedScheme, ignorePluginDarculaStock)
+    }
+
+    @Test
+    fun `enabled ignore plugin colors do not add default restore writes`() {
+        ayuState.ignorePluginSyntaxColorsEnabled = true
+
+        SyntaxIntensityService().apply(SyntaxPreset.WHISPER, emptyMap())
+
+        verify(exactly = 0) {
+            mockMirage.setAttributes(
+                TextAttributesKey.find("IGNORE.COMMENT"),
+                any<TextAttributes>(),
+            )
+        }
     }
 
     @Test
@@ -445,4 +494,75 @@ class SyntaxIntensityServiceTest {
             )
         }
     }
+
+    private fun verifyIgnorePluginStockWrites(
+        scheme: EditorColorsScheme,
+        expectedStyles: Map<String, ExpectedIgnorePluginStyle>,
+    ) {
+        for ((keyName, expectedStyle) in expectedStyles) {
+            verify(exactly = 1) {
+                scheme.setAttributes(
+                    keyCache.getValue(keyName),
+                    match { attributes -> attributes.matches(expectedStyle) },
+                )
+            }
+        }
+    }
+
+    private fun TextAttributes.matches(expectedStyle: ExpectedIgnorePluginStyle): Boolean =
+        foregroundColor?.rgb == Color(expectedStyle.foregroundRgb).rgb &&
+            backgroundColor?.rgb == expectedStyle.backgroundRgb?.let(::Color)?.rgb &&
+            fontType == expectedStyle.fontType
+
+    private data class ExpectedIgnorePluginStyle(
+        val foregroundRgb: Int,
+        val backgroundRgb: Int? = null,
+        val fontType: Int = Font.PLAIN,
+    )
+
+    private val ignorePluginDarculaStock =
+        mapOf(
+            "IGNORE.COMMENT" to ExpectedIgnorePluginStyle(foregroundRgb = 0x808080),
+            "IGNORE.SECTION" to ExpectedIgnorePluginStyle(foregroundRgb = 0x8C8C8C, backgroundRgb = 0x3A3A3A),
+            "IGNORE.HEADER" to
+                ExpectedIgnorePluginStyle(
+                    foregroundRgb = 0x8C8C8C,
+                    backgroundRgb = 0x3A3A3A,
+                    fontType = Font.BOLD,
+                ),
+            "IGNORE.NEGATION" to ExpectedIgnorePluginStyle(foregroundRgb = 0xCC7832, fontType = Font.BOLD),
+            "IGNORE.BRACKET" to ExpectedIgnorePluginStyle(foregroundRgb = 0xCC7832, fontType = Font.BOLD),
+            "IGNORE.SLASH" to ExpectedIgnorePluginStyle(foregroundRgb = 0x808080),
+            "IGNORE.SYNTAX" to
+                ExpectedIgnorePluginStyle(
+                    foregroundRgb = 0xACACAC,
+                    backgroundRgb = 0x4A4A4A,
+                    fontType = Font.BOLD,
+                ),
+            "IGNORE.VALUE" to ExpectedIgnorePluginStyle(foregroundRgb = 0x629755),
+            "IGNORE.UNUSED_ENTRY" to ExpectedIgnorePluginStyle(foregroundRgb = 0x808080, fontType = Font.ITALIC),
+        )
+
+    private val ignorePluginDefaultStock =
+        mapOf(
+            "IGNORE.COMMENT" to ExpectedIgnorePluginStyle(foregroundRgb = 0x808080),
+            "IGNORE.SECTION" to ExpectedIgnorePluginStyle(foregroundRgb = 0x808080, backgroundRgb = 0xECFAEB),
+            "IGNORE.HEADER" to
+                ExpectedIgnorePluginStyle(
+                    foregroundRgb = 0x808080,
+                    backgroundRgb = 0xECFAEB,
+                    fontType = Font.BOLD,
+                ),
+            "IGNORE.NEGATION" to ExpectedIgnorePluginStyle(foregroundRgb = 0xCC7832, fontType = Font.BOLD),
+            "IGNORE.BRACKET" to ExpectedIgnorePluginStyle(foregroundRgb = 0xCC7832, fontType = Font.BOLD),
+            "IGNORE.SLASH" to ExpectedIgnorePluginStyle(foregroundRgb = 0x808080),
+            "IGNORE.SYNTAX" to
+                ExpectedIgnorePluginStyle(
+                    foregroundRgb = 0xACACAC,
+                    backgroundRgb = 0x4A4A4A,
+                    fontType = Font.BOLD,
+                ),
+            "IGNORE.VALUE" to ExpectedIgnorePluginStyle(foregroundRgb = 0x5C9F30),
+            "IGNORE.UNUSED_ENTRY" to ExpectedIgnorePluginStyle(foregroundRgb = 0x808080, fontType = Font.ITALIC),
+        )
 }
