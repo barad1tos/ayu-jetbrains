@@ -24,6 +24,7 @@ import dev.ayuislands.syntax.SyntaxIntensityService
 import javax.swing.JCheckBox
 import javax.swing.JComboBox
 import javax.swing.JLabel
+import javax.swing.JList
 import javax.swing.JSlider
 
 /** Plugin's tab: third-party plugin integrations (CodeGlance Pro, Indent Rainbow). */
@@ -206,7 +207,18 @@ class PluginsPanel : AyuIslandsSettingsPanel {
                             comboBox(ExternalAccentSource.entries.toList())
                                 .component
                         combo.selectedItem = ExternalAccentSource.fromName(pendingSettings.externalAccentSource)
-                        combo.renderer = SimpleListCellRenderer.create("") { it.displayName }
+                        combo.renderer =
+                            object : SimpleListCellRenderer<ExternalAccentSource>() {
+                                override fun customize(
+                                    list: JList<out ExternalAccentSource>,
+                                    value: ExternalAccentSource?,
+                                    index: Int,
+                                    selected: Boolean,
+                                    hasFocus: Boolean,
+                                ) {
+                                    text = value?.displayName.orEmpty()
+                                }
+                            }
                         combo.addActionListener {
                             if (suppressListeners) return@addActionListener
                             pendingSettings =

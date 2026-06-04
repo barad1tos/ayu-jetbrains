@@ -182,6 +182,42 @@ categories:
           General. Premium-tier rows (related toggles + quick actions)
           appear inside the popup when the license is active or in trial.
 
+      - id: external-theme-accent-inheritance
+        title: "External theme accent inheritance"
+        keyword: "per-project"
+        introduced: "2.7.2"
+        tier: paid
+        description: >
+          Pro project and language accent pins can drive selected Ayu
+          integrations while a non-Ayu IDE theme is active.
+
+      - id: external-accent-sources
+        title: "Automatic external accent sources"
+        keyword: "accent color"
+        introduced: "2.7.2"
+        tier: free
+        description: >
+          External accents can resolve from Material Theme, IDE accent
+          colors, or a manual fallback when external theme support is enabled.
+
+      - id: quick-switcher-external-themes
+        title: "Quick-Switcher on external themes"
+        keyword: "Quick-Switcher Widget"
+        introduced: "2.7.2"
+        tier: free
+        description: >
+          The Quick-Switcher can apply and copy accents while a non-Ayu
+          IDE theme is active when external theme support is enabled.
+
+      - id: quick-switcher-external-actions
+        title: "External Quick-Switcher actions"
+        keyword: "Quick-Switcher Widget"
+        introduced: "2.7.2"
+        tier: paid
+        description: >
+          Premium Quick-Switcher actions such as Random, Lighter, and
+          Darker persist the chosen external accent on non-Ayu themes.
+
   glow:
     title: "Glow effects"
     features:
@@ -214,6 +250,15 @@ categories:
           last_verified_sha: "3cbd3d0"
           last_verified_date: "2026-05-30"
           content_sha256: "3ef51add4539d9c82ce6ad559bce68f6d88fb97606986910ea9b9d13da64fef5"
+
+      - id: glow-external-themes
+        title: "Glow on external themes"
+        keyword: "Glow"
+        introduced: "2.7.2"
+        tier: paid
+        description: >
+          Glow can follow Ayu accents on non-Ayu themes when explicitly
+          enabled; external Glow stays off by default.
 
   fonts:
     title: "Font presets"
@@ -322,6 +367,15 @@ categories:
         description: >
           Indent Rainbow guides adopt one of three Ayu presets
           (Whisper / Ambient / Neon).
+
+      - id: plugin-sync-external-themes
+        title: "Plugin sync on external themes"
+        keyword: "CodeGlance Pro"
+        introduced: "2.7.2"
+        tier: paid
+        description: >
+          CodeGlance Pro and Indent Rainbow can sync to Ayu's external
+          accent context while a non-Ayu IDE theme is active.
 
       - id: bracket-scope
         title: "Bracket scope gutter stripe"

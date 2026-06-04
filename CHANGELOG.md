@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.7.2] - 2026-06-05
+
+### Paid
+- [Paid] **External theme accent inheritance** — Pro project and language accent pins can now drive selected Ayu integrations while another IDE theme is active.
+- [Paid] **Glow on external themes** — Glow can follow Ayu accents on non-Ayu themes when explicitly enabled; external Glow stays off by default.
+- [Paid] **Plugin sync on external themes** — CodeGlance Pro and Indent Rainbow can now sync to Ayu's external accent context on non-Ayu themes.
+- [Paid] **External Quick-Switcher actions** — premium actions like Random, Lighter, and Darker now persist the chosen external accent on non-Ayu themes.
+
+### Free
+- [Free] **External theme support** — use selected Ayu accent enhancements on non-Ayu JetBrains themes without switching the active IDE theme to Ayu.
+- [Free] **Quick-Switcher on external themes** — Quick-Switcher now supports external themes, including accent preset apply and copy flows when external theme support is enabled.
+- [Free] **Automatic external accent sources** — external accents can resolve from Material Theme, IDE accent colors, or a manual fallback.
+
 ## [2.7.1] - 2026-06-01
 
 ### Added
