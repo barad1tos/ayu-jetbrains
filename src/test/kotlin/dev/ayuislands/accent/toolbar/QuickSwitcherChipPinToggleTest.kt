@@ -81,8 +81,8 @@ class QuickSwitcherChipPinToggleTest {
         every { AyuVariant.isAyuActive() } returns true
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         mockkObject(AccentContext.Companion)
-        every { AccentContext.isAccentActive() } returns true
-        every { AccentContext.detect() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
+        every { AccentContext.isQuickSwitcherActive() } returns true
+        every { AccentContext.detectQuickSwitcher() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
 
         mockkObject(LicenseChecker)
         every { LicenseChecker.isLicensedOrGrace() } returns true

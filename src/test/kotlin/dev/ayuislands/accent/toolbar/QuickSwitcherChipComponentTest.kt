@@ -323,8 +323,8 @@ class QuickSwitcherChipComponentTest {
         every { AyuVariant.isAyuActive() } returns active
         every { AyuVariant.detect() } returns if (active) AyuVariant.MIRAGE else null
         mockkObject(AccentContext.Companion)
-        every { AccentContext.isAccentActive() } returns active
-        every { AccentContext.detect() } returns if (active) AccentContext.Ayu(AyuVariant.MIRAGE) else null
+        every { AccentContext.isQuickSwitcherActive() } returns active
+        every { AccentContext.detectQuickSwitcher() } returns if (active) AccentContext.Ayu(AyuVariant.MIRAGE) else null
     }
 
     private fun stubResolver(

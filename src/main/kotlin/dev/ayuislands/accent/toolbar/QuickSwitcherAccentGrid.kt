@@ -103,7 +103,7 @@ internal class QuickSwitcherAccentGrid {
     }
 
     private fun resolveCurrentAccent(): String {
-        val context = AccentContext.detect() ?: return AYU_ACCENT_PRESETS.first().hex
+        val context = AccentContext.detectQuickSwitcher() ?: return AYU_ACCENT_PRESETS.first().hex
         val project = AccentApplicator.resolveFocusedProject()
         return try {
             AccentResolver.resolve(project, context)
@@ -130,7 +130,7 @@ internal class QuickSwitcherAccentGrid {
     }
 
     private fun persistExternalAccentIfNeeded(hex: String) {
-        if (AccentContext.detect() != AccentContext.External) return
+        if (AccentContext.detectQuickSwitcher() != AccentContext.External) return
         val state = AyuIslandsSettings.getInstance().state
         state.externalThemeAccent = hex
         state.externalThemeAccentSource = ExternalAccentSource.MANUAL.name

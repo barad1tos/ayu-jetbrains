@@ -27,12 +27,12 @@ class RandomAccentAction : DumbAwareAction("Random Accent", "Pick a random reada
 
     override fun update(event: AnActionEvent) {
         event.presentation.isEnabledAndVisible =
-            AccentContext.isAccentActive() &&
+            AccentContext.isQuickSwitcherActive() &&
             LicenseChecker.isLicensedOrGrace()
     }
 
     override fun actionPerformed(event: AnActionEvent) {
-        val context = AccentContext.detect() ?: return
+        val context = AccentContext.detectQuickSwitcher() ?: return
         val hex =
             try {
                 when (context) {

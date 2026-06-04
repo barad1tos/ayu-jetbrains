@@ -47,7 +47,7 @@ class QuickSwitcherRelatedTogglesSectionTest {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns AyuVariant.DARK
         mockkObject(AccentContext.Companion)
-        every { AccentContext.detect() } returns AccentContext.Ayu(AyuVariant.DARK)
+        every { AccentContext.detectQuickSwitcher() } returns AccentContext.Ayu(AyuVariant.DARK)
     }
 
     @AfterTest
@@ -192,7 +192,7 @@ class QuickSwitcherRelatedTogglesSectionTest {
     fun `selected toggle paint resolves accent through external context`() {
         val state = AyuIslandsSettings.getInstance().state
         state.chromeStatusBar = true
-        every { AccentContext.detect() } returns AccentContext.External
+        every { AccentContext.detectQuickSwitcher() } returns AccentContext.External
         every { AccentResolver.resolve(any(), AccentContext.External) } returns "#5CCFE6"
 
         val section = QuickSwitcherRelatedTogglesSection()

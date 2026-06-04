@@ -44,7 +44,7 @@ class QuickSwitcherAccentGridTest {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns AyuVariant.DARK
         mockkObject(AccentContext.Companion)
-        every { AccentContext.detect() } returns AccentContext.Ayu(AyuVariant.DARK)
+        every { AccentContext.detectQuickSwitcher() } returns AccentContext.Ayu(AyuVariant.DARK)
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns null
         mockkObject(AccentResolver)
@@ -181,7 +181,7 @@ class QuickSwitcherAccentGridTest {
         // click.
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-        every { AccentContext.detect() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
+        every { AccentContext.detectQuickSwitcher() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns null
         mockkObject(AccentResolver)
@@ -258,7 +258,7 @@ class QuickSwitcherAccentGridTest {
         // `applyPreset` so cancellation does not mutate accent state.
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-        every { AccentContext.detect() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
+        every { AccentContext.detectQuickSwitcher() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns null
         every { AccentApplicator.applyFromHexString(any()) } returns true
@@ -307,7 +307,7 @@ class QuickSwitcherAccentGridTest {
         // produce "#F00AB" and surface here.
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-        every { AccentContext.detect() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
+        every { AccentContext.detectQuickSwitcher() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns null
         every { AccentApplicator.applyFromHexString(any()) } returns true
@@ -360,7 +360,7 @@ class QuickSwitcherAccentGridTest {
         // returned a non-null Color.
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-        every { AccentContext.detect() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
+        every { AccentContext.detectQuickSwitcher() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns null
         every { AccentApplicator.applyFromHexString(any()) } returns true
@@ -397,7 +397,7 @@ class QuickSwitcherAccentGridTest {
         // tests and only surface as a popup-crash incident in production.
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-        every { AccentContext.detect() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
+        every { AccentContext.detectQuickSwitcher() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns null
         mockkObject(AccentResolver)
@@ -460,7 +460,7 @@ class QuickSwitcherAccentGridTest {
 
     @Test
     fun `clicking a swatch in external context persists manual external accent`() {
-        every { AccentContext.detect() } returns AccentContext.External
+        every { AccentContext.detectQuickSwitcher() } returns AccentContext.External
         every { AccentApplicator.applyFromHexString(any()) } returns true
         mockkObject(ProjectAccentSwapService.Companion)
         val swapService = mockk<ProjectAccentSwapService>(relaxed = true)

@@ -209,8 +209,8 @@ class AyuIslandsStartupActivityTest {
     fun `execute initializes glow for external themes before non-Ayu early return`() {
         // Regression guard: external themes skip the Ayu-only startup pipeline,
         // but glow overlays still need per-project initialization when the user
-        // opted into external theme enhancements. Keep this before the early
-        // return so startup does not wait for a later LAF event to create it.
+        // opted into external Glow inheritance. Keep this before the early return
+        // so startup does not wait for a later LAF event to create it.
         val source = readStartupActivitySource()
         val earlyReturn =
             Regex(
@@ -221,7 +221,7 @@ class AyuIslandsStartupActivityTest {
         val externalGlowInitializer =
             Regex(
                 """private\s+fun\s+initializeExternalGlowIfEnabled\(project:\s*Project\)\s*\{.*?""" +
-                    """state\.externalThemeEnhancementsEnabled.*?""" +
+                    """state\.isExternalGlowAllowed\(\).*?""" +
                     """ApplicationManager\.getApplication\(\)\.invokeLater\s*\(\s*""" +
                     """\{\s*GlowOverlayManager\.getInstance\(project\)\.initialize\(\)\s*},\s*""" +
                     """project\.disposed,\s*\).*?}""",

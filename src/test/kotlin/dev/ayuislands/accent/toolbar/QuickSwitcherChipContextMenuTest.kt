@@ -64,8 +64,8 @@ class QuickSwitcherChipContextMenuTest {
         every { AyuVariant.isAyuActive() } returns true
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         mockkObject(AccentContext.Companion)
-        every { AccentContext.isAccentActive() } returns true
-        every { AccentContext.detect() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
+        every { AccentContext.isQuickSwitcherActive() } returns true
+        every { AccentContext.detectQuickSwitcher() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
     }
 
     @AfterTest
@@ -155,8 +155,8 @@ class QuickSwitcherChipContextMenuTest {
         // is non-Ayu; the early return in `mousePressed` short-circuits.
         every { AyuVariant.isAyuActive() } returns false
         every { AyuVariant.detect() } returns null
-        every { AccentContext.isAccentActive() } returns false
-        every { AccentContext.detect() } returns null
+        every { AccentContext.isQuickSwitcherActive() } returns false
+        every { AccentContext.detectQuickSwitcher() } returns null
 
         val chip = QuickSwitcherChipComponent()
         chip.dispatchEvent(rightClick(chip))

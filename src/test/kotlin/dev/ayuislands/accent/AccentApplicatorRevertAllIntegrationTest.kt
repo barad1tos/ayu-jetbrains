@@ -307,6 +307,27 @@ class AccentApplicatorRevertAllIntegrationTest {
     }
 
     @Test
+    fun `syncCodeGlanceProViewport with external permission disabled fires revert path`() {
+        state.cgpIntegrationEnabled = true
+        state.externalThemeEnhancementsEnabled = true
+        state.externalThemeCodeGlanceProEnabled = false
+        val observed = mutableListOf<Triple<String, String, Int>>()
+        AccentApplicator.codeGlanceProRevertHook.set { color, borderColor, borderThickness ->
+            observed += Triple(color, borderColor, borderThickness)
+        }
+        try {
+            CodeGlanceProIntegration.syncCodeGlanceProViewport("#5CCFE6", AccentContext.External)
+        } finally {
+            AccentApplicator.resetCodeGlanceProRevertHookForTests()
+        }
+        assertEquals(
+            listOf(Triple("00FF00", "A0A0A0", 0)),
+            observed,
+            "External CodeGlance Pro permission OFF must reset CGP instead of inheriting Ayu accent.",
+        )
+    }
+
+    @Test
     fun `syncCodeGlanceProViewportForSwap delegates to CodeGlanceProIntegration syncCodeGlanceProViewport`() {
         // Regression lock. Pre-fix: AccentApplicator.syncCodeGlanceProViewportForSwap
         // was a one-line wrapper "verified by association" — its only test was

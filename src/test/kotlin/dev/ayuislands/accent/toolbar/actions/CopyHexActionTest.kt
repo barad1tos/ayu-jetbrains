@@ -41,8 +41,8 @@ class CopyHexActionTest {
         every { AyuVariant.isAyuActive() } returns true
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         mockkObject(AccentContext.Companion)
-        every { AccentContext.isAccentActive() } returns true
-        every { AccentContext.detect() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
+        every { AccentContext.isQuickSwitcherActive() } returns true
+        every { AccentContext.detectQuickSwitcher() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
 
         mockkObject(LicenseChecker)
         every { LicenseChecker.isLicensedOrGrace() } returns true
@@ -82,22 +82,22 @@ class CopyHexActionTest {
         val action = CopyHexAction()
         val event = newEvent()
 
-        every { AccentContext.isAccentActive() } returns true
+        every { AccentContext.isQuickSwitcherActive() } returns true
         every { LicenseChecker.isLicensedOrGrace() } returns true
         action.update(event)
         assertTrue(event.presentation.isEnabledAndVisible, "(T,T) must enable")
 
-        every { AccentContext.isAccentActive() } returns false
+        every { AccentContext.isQuickSwitcherActive() } returns false
         every { LicenseChecker.isLicensedOrGrace() } returns true
         action.update(event)
         assertFalse(event.presentation.isEnabledAndVisible, "(F,T) inactive variant must disable")
 
-        every { AccentContext.isAccentActive() } returns true
+        every { AccentContext.isQuickSwitcherActive() } returns true
         every { LicenseChecker.isLicensedOrGrace() } returns false
         action.update(event)
         assertFalse(event.presentation.isEnabledAndVisible, "(T,F) unlicensed must disable")
 
-        every { AccentContext.isAccentActive() } returns false
+        every { AccentContext.isQuickSwitcherActive() } returns false
         every { LicenseChecker.isLicensedOrGrace() } returns false
         action.update(event)
         assertFalse(event.presentation.isEnabledAndVisible, "(F,F) both off must disable — locks AND vs OR")
@@ -107,7 +107,7 @@ class CopyHexActionTest {
     fun `update is visible in external accent context`() {
         val event = newEvent()
         every { AyuVariant.isAyuActive() } returns false
-        every { AccentContext.isAccentActive() } returns true
+        every { AccentContext.isQuickSwitcherActive() } returns true
         every { LicenseChecker.isLicensedOrGrace() } returns true
 
         CopyHexAction().update(event)
@@ -144,7 +144,7 @@ class CopyHexActionTest {
 
     @Test
     fun `actionPerformed is a no-op when AyuVariant detect returns null (belt-and-braces)`() {
-        every { AccentContext.detect() } returns null
+        every { AccentContext.detectQuickSwitcher() } returns null
         CopyHexAction().actionPerformed(newEvent())
         verify(exactly = 0) { mockClipboard.setContents(any()) }
     }

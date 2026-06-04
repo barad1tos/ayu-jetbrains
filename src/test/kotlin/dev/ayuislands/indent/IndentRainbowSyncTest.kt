@@ -193,6 +193,8 @@ class IndentRainbowSyncTest {
     @Test
     fun `apply external context writes external palette to mock IR fields`() {
         state.irIntegrationEnabled = true
+        state.externalThemeEnhancementsEnabled = true
+        state.externalThemeIndentRainbowEnabled = true
         state.indentPresetName = "AMBIENT"
 
         val mockConfig = Any()
@@ -228,6 +230,43 @@ class IndentRainbowSyncTest {
                 }
         }
         verify { mockNumberColorsField.setInt(mockConfig, 11) }
+        verify { mockUpdateMethod.invoke(mockCompanion, mockConfig) }
+        verify { mockRefreshMethod.invoke(mockColorsInstance) }
+    }
+
+    @Test
+    fun `apply external context reverts when external Indent Rainbow inheritance is disabled`() {
+        state.irIntegrationEnabled = true
+        state.externalThemeEnhancementsEnabled = true
+        state.externalThemeIndentRainbowEnabled = false
+        state.indentPresetName = "AMBIENT"
+
+        val mockConfig = Any()
+        val mockPaletteTypeField = mockField()
+        val mockCustomPaletteField = mockField()
+        val mockNumberColorsField = mockIntField()
+        val mockUpdateMethod = mockMethod()
+        val mockRefreshMethod = mockMethod()
+        val mockCompanion = Any()
+        val mockColorsInstance = Any()
+
+        setPrivateField("methodsResolved", true)
+        setPrivateField("irConfig", mockConfig)
+        setPrivateField("paletteTypeField", mockPaletteTypeField)
+        setPrivateField("customPaletteField", mockCustomPaletteField)
+        setPrivateField("customPaletteNumberColorsField", mockNumberColorsField)
+        setPrivateField("customEnumValue", "CUSTOM_ENUM")
+        setPrivateField("defaultEnumValue", "DEFAULT_ENUM")
+        setPrivateField("cachedDataUpdateMethod", mockUpdateMethod)
+        setPrivateField("cachedDataCompanion", mockCompanion)
+        setPrivateField("refreshMethod", mockRefreshMethod)
+        setPrivateField("irColorsInstance", mockColorsInstance)
+
+        callApplyExternal()
+
+        verify { mockPaletteTypeField[mockConfig] = "DEFAULT_ENUM" }
+        verify(exactly = 0) { mockCustomPaletteField[mockConfig] = any<String>() }
+        verify(exactly = 0) { mockNumberColorsField.setInt(mockConfig, any()) }
         verify { mockUpdateMethod.invoke(mockCompanion, mockConfig) }
         verify { mockRefreshMethod.invoke(mockColorsInstance) }
     }

@@ -27,5 +27,15 @@ sealed interface AccentContext {
 
         /** Returns true for both native Ayu themes and opted-in external theme compatibility. */
         fun isAccentActive(): Boolean = detect() != null
+
+        fun detectQuickSwitcher(): AccentContext? {
+            val context = detect() ?: return null
+            if (context is Ayu) return context
+
+            val state = AyuIslandsSettings.getInstance().state
+            return if (state.isExternalQuickSwitcherAllowed()) External else null
+        }
+
+        fun isQuickSwitcherActive(): Boolean = detectQuickSwitcher() != null
     }
 }

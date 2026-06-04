@@ -87,7 +87,7 @@ internal class QuickSwitcherChipComponent : JLabel() {
         addMouseListener(
             object : MouseAdapter() {
                 override fun mousePressed(event: MouseEvent) {
-                    if (!AccentContext.isAccentActive()) return
+                    if (!AccentContext.isQuickSwitcherActive()) return
                     when {
                         SwingUtilities.isRightMouseButton(event) -> showContextMenu(event.x, event.y)
                         SwingUtilities.isLeftMouseButton(event) -> handleLeftClick(event.x, event.y)
@@ -125,7 +125,7 @@ internal class QuickSwitcherChipComponent : JLabel() {
      * (`applied == false`) and the thrown-exception branch the same way.
      */
     private fun togglePin() {
-        val context = AccentContext.detect()
+        val context = AccentContext.detectQuickSwitcher()
         if (context !is AccentContext.Ayu) return
         val variant = context.ayuVariant
         val project = AccentApplicator.resolveFocusedProject() ?: return
@@ -270,7 +270,7 @@ internal class QuickSwitcherChipComponent : JLabel() {
      * so the chip stays paintable with its previous icon.
      */
     fun refreshFromFocusedProject() {
-        val context = AccentContext.detect() ?: return
+        val context = AccentContext.detectQuickSwitcher() ?: return
         val project = AccentApplicator.resolveFocusedProject()
         val hex =
             try {

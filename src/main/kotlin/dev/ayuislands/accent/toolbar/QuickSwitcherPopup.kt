@@ -56,7 +56,7 @@ internal object QuickSwitcherPopup {
         anchor: JComponent,
         chip: QuickSwitcherChipComponent? = null,
     ) {
-        val context = AccentContext.detect() ?: return
+        val context = AccentContext.detectQuickSwitcher() ?: return
 
         val accentGrid = QuickSwitcherAccentGrid()
         val togglesSection = QuickSwitcherRelatedTogglesSection()

@@ -99,8 +99,13 @@ class GlowOverlayManager(
             return
         }
 
-        if (AccentContext.detect() == null) {
+        val context = AccentContext.detect()
+        if (context == null) {
             log.info("No accent context detected, skipping glow initialization")
+            return
+        }
+        if (context == AccentContext.External && !settings.state.isExternalGlowAllowed()) {
+            log.info("External glow disabled, skipping overlay initialization")
             return
         }
 
@@ -441,6 +446,10 @@ class GlowOverlayManager(
         val settings = AyuIslandsSettings.getInstance()
         val state = settings.state
         if (!state.glowEnabled) {
+            removeAllOverlays()
+            return
+        }
+        if (context == AccentContext.External && !state.isExternalGlowAllowed()) {
             removeAllOverlays()
             return
         }

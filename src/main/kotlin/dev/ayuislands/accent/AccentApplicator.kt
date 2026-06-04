@@ -231,7 +231,7 @@ object AccentApplicator {
                 if (context != null) {
                     IndentRainbowSync.apply(context, trimmedHex)
                 }
-                CodeGlanceProIntegration.syncCodeGlanceProViewport(trimmedHex)
+                CodeGlanceProIntegration.syncCodeGlanceProViewport(trimmedHex, context)
                 applyAlwaysOnEditorKeys(accent)
                 if (variant != null) {
                     applyTabUnderline(state, variant)

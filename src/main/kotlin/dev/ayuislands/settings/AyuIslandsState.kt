@@ -33,6 +33,10 @@ class AyuIslandsState : BaseState() {
     var darkAccent by string("#E6B450")
     var lightAccent by string("#F29718")
     var externalThemeEnhancementsEnabled by property(false)
+    var externalThemeQuickSwitcherEnabled by property(true)
+    var externalThemeGlowEnabled by property(false)
+    var externalThemeCodeGlanceProEnabled by property(true)
+    var externalThemeIndentRainbowEnabled by property(true)
     var externalThemeAccentSource by string(ExternalAccentSource.AUTOMATIC.name)
     var externalThemeAccent by string(AyuVariant.MIRAGE.defaultAccent)
     var followSystemAccent by property(false)
@@ -569,6 +573,16 @@ class AyuIslandsState : BaseState() {
             commitPanelWidthMode = PanelWidthMode.AUTO_FIT.name
         }
     }
+
+    fun isExternalQuickSwitcherAllowed(): Boolean = externalAllowed(externalThemeQuickSwitcherEnabled)
+
+    fun isExternalGlowAllowed(): Boolean = externalAllowed(externalThemeGlowEnabled)
+
+    fun isExternalCodeGlanceProAllowed(): Boolean = externalAllowed(externalThemeCodeGlanceProEnabled)
+
+    fun isExternalIndentRainbowAllowed(): Boolean = externalAllowed(externalThemeIndentRainbowEnabled)
+
+    private fun externalAllowed(enabled: Boolean): Boolean = externalThemeEnhancementsEnabled && enabled
 
     companion object {
         private const val PATH_SEP = "\n"

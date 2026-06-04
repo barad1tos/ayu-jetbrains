@@ -189,7 +189,7 @@ class AccentApplicatorTest {
         val owner = ownerForName(methodName)
         val method =
             owner.javaClass.declaredMethods
-                .first { it.name == methodName }
+                .first { it.name == methodName && it.parameterCount == args.size }
         method.isAccessible = true
         method.invoke(owner, *args)
     }

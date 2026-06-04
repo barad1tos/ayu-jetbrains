@@ -75,7 +75,7 @@ class QuickSwitcherWidgetLifecycleTest {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns null
         mockkObject(AccentContext.Companion)
-        every { AccentContext.detect() } returns null
+        every { AccentContext.detectQuickSwitcher() } returns null
     }
 
     @AfterEach

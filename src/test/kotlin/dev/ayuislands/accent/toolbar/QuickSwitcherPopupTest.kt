@@ -50,7 +50,7 @@ class QuickSwitcherPopupTest {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns null
         mockkObject(AccentContext.Companion)
-        every { AccentContext.detect() } returns null
+        every { AccentContext.detectQuickSwitcher() } returns null
         mockkStatic(JBPopupFactory::class)
         val factory = mockk<JBPopupFactory>(relaxed = true)
         every { JBPopupFactory.getInstance() } returns factory
@@ -102,7 +102,7 @@ class QuickSwitcherPopupTest {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         mockkObject(AccentContext.Companion)
-        every { AccentContext.detect() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
+        every { AccentContext.detectQuickSwitcher() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
         // The grid resolves the current accent at construction — stub the chain.
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns null

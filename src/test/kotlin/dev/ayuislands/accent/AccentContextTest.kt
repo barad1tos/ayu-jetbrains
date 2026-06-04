@@ -82,6 +82,17 @@ class AccentContextTest {
     }
 
     @Test
+    fun `detectQuickSwitcher returns null for external context when quick switcher inheritance is disabled`() {
+        state.externalThemeEnhancementsEnabled = true
+        state.externalThemeQuickSwitcherEnabled = false
+        every { AyuVariant.detect() } returns null
+
+        assertEquals(AccentContext.External, AccentContext.detect())
+        assertNull(AccentContext.detectQuickSwitcher())
+        assertFalse(AccentContext.isQuickSwitcherActive())
+    }
+
+    @Test
     fun `ExternalAccentSource fromName returns matching source or Automatic fallback`() {
         assertEquals(ExternalAccentSource.MANUAL, ExternalAccentSource.fromName("MANUAL"))
         assertEquals(ExternalAccentSource.AUTOMATIC, ExternalAccentSource.fromName(null))

@@ -208,7 +208,7 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
     }
 
     private fun initializeExternalGlowIfEnabled(project: Project) {
-        if (!AyuIslandsSettings.getInstance().state.externalThemeEnhancementsEnabled) return
+        if (!AyuIslandsSettings.getInstance().state.isExternalGlowAllowed()) return
 
         ApplicationManager.getApplication().invokeLater(
             { GlowOverlayManager.getInstance(project).initialize() },

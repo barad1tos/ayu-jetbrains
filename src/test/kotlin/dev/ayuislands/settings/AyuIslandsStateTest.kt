@@ -310,6 +310,10 @@ class AyuIslandsStateTest {
     fun `external theme accent defaults are disabled automatic and Mirage gold`() {
         val state = freshState()
         assertFalse(state.externalThemeEnhancementsEnabled)
+        assertTrue(state.externalThemeQuickSwitcherEnabled)
+        assertFalse(state.externalThemeGlowEnabled)
+        assertTrue(state.externalThemeCodeGlanceProEnabled)
+        assertTrue(state.externalThemeIndentRainbowEnabled)
         assertEquals(ExternalAccentSource.AUTOMATIC.name, state.externalThemeAccentSource)
         assertEquals("#FFCC66", state.externalThemeAccent)
     }

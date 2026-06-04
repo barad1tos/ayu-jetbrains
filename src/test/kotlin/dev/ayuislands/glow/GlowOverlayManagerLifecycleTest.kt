@@ -155,6 +155,7 @@ class GlowOverlayManagerLifecycleTest {
     @Test
     fun `updateGlow continues to paint when external context is active`() {
         state.externalThemeEnhancementsEnabled = true
+        state.externalThemeGlowEnabled = true
         every { AyuVariant.isAyuActive() } returns false
         every { AyuVariant.detect() } returns null
 
@@ -178,6 +179,33 @@ class GlowOverlayManagerLifecycleTest {
         )
         verify(exactly = 1) { AccentResolver.resolve(project, AccentContext.External) }
         verify(exactly = 1) { glassPane.glowColor = Color.decode("#AABBCC") }
+    }
+
+    @Test
+    fun `updateGlow disposes external overlays when external glow inheritance is disabled`() {
+        state.externalThemeEnhancementsEnabled = true
+        state.externalThemeGlowEnabled = false
+        every { AyuVariant.isAyuActive() } returns false
+        every { AyuVariant.detect() } returns null
+
+        val project = stubProject("external-theme-project")
+        val manager = GlowOverlayManager(project)
+        val glassPane = mockk<GlowGlassPane>(relaxed = true)
+        seedOverlaysMapWithMocks(
+            manager,
+            glassPane,
+            host = mockk(relaxed = true),
+            layeredPane = mockk(relaxed = true),
+        )
+
+        manager.updateGlow()
+
+        assertTrue(
+            readOverlaysMap(manager).isEmpty(),
+            "External Glow permission OFF must dispose overlays instead of painting inherited glow",
+        )
+        verify(exactly = 0) { AccentResolver.resolve(project, AccentContext.External) }
+        verify(exactly = 0) { glassPane.glowColor = any() }
     }
 
     @Test

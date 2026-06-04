@@ -23,8 +23,8 @@ import kotlin.test.assertTrue
 
 /**
  * Two-conjunct visibility gate lock. The widget's `update()` must read EXACTLY
- * `AyuVariant.isAyuActive() && state.quickSwitcherWidgetEnabled` — no license
- * predicate (the chip is FREE), no third state field.
+ * `AccentContext.isQuickSwitcherActive() && state.quickSwitcherWidgetEnabled` — no license
+ * predicate (the chip is FREE), no unrelated state field.
  *
  * Pattern J discipline — single-source-of-truth predicate, asserted by toggling
  * each conjunct independently and verifying the presentation flips correctly.
@@ -62,7 +62,7 @@ class QuickSwitcherWidgetActionTest {
     fun `update shows widget for external context when setting enabled`() {
         stubAyuActive(false)
         mockkObject(AccentContext.Companion)
-        every { AccentContext.isAccentActive() } returns true
+        every { AccentContext.isQuickSwitcherActive() } returns true
         stubSettingsState(quickSwitcherEnabled = true)
         val presentation = Presentation()
         val event = mockk<AnActionEvent>(relaxed = true)
@@ -158,7 +158,7 @@ class QuickSwitcherWidgetActionTest {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.isAyuActive() } returns active
         mockkObject(AccentContext.Companion)
-        every { AccentContext.isAccentActive() } returns active
+        every { AccentContext.isQuickSwitcherActive() } returns active
     }
 
     private fun stubSettingsState(quickSwitcherEnabled: Boolean): AyuIslandsState {

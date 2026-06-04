@@ -76,10 +76,14 @@ object IndentRainbowSync {
         when (context) {
             is AccentContext.Ayu -> apply(context.ayuVariant, accentHex)
             AccentContext.External ->
-                applyPalette(
-                    palette = IndentPalette.forExternalAccent(accentHex),
-                    logContext = "for external theme",
-                )
+                if (AyuIslandsSettings.getInstance().state.isExternalIndentRainbowAllowed()) {
+                    applyPalette(
+                        palette = IndentPalette.forExternalAccent(accentHex),
+                        logContext = "for external theme",
+                    )
+                } else {
+                    revert()
+                }
         }
     }
 

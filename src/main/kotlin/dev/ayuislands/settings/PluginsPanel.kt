@@ -1,10 +1,16 @@
+@file:Suppress("DialogTitleCapitalization")
+
 package dev.ayuislands.settings
 
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.ui.dsl.builder.Align
+import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.Panel
+import com.intellij.ui.dsl.builder.RightGap
+import com.intellij.ui.dsl.builder.Row
 import com.intellij.ui.dsl.builder.SegmentedButton
+import com.intellij.ui.dsl.builder.panel
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentDefaults
 import dev.ayuislands.accent.AyuVariant
@@ -35,6 +41,8 @@ class PluginsPanel : AyuIslandsSettingsPanel {
     private var storedIgnorePluginSyntaxColors: Boolean = true
     private var pendingExternalThemeEnhancements: Boolean = false
     private var storedExternalThemeEnhancements: Boolean = false
+    private var pendingExternalInheritance = ExternalInheritanceSettings()
+    private var storedExternalInheritance = ExternalInheritanceSettings()
     private var pendingExternalAccentSource: String = ExternalAccentSource.AUTOMATIC.name
     private var storedExternalAccentSource: String = ExternalAccentSource.AUTOMATIC.name
     private var pendingExternalAccent: String = AccentDefaults.MIRAGE_HEX
@@ -46,6 +54,10 @@ class PluginsPanel : AyuIslandsSettingsPanel {
     private var errorHighlightCheckbox: JCheckBox? = null
     private var ignorePluginCheckbox: JCheckBox? = null
     private var externalThemeCheckbox: JCheckBox? = null
+    private var externalQuickSwitcherCheckbox: JCheckBox? = null
+    private var externalGlowCheckbox: JCheckBox? = null
+    private var externalCodeGlanceProCheckbox: JCheckBox? = null
+    private var externalIndentRainbowCheckbox: JCheckBox? = null
     private var externalAccentSourceCombo: JComboBox<ExternalAccentSource>? = null
     private var externalAccentPicker: AccentSwatchPickerRow? = null
     private var alphaSlider: JSlider? = null
@@ -79,24 +91,14 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         val irDetected = ConflictRegistry.isIndentRainbowDetected()
 
         panel.row { comment("Tune how Ayu colors integrate with compatible plugins.") }
-        panel.buildExternalThemesGroup()
-        panel.buildIgnorePluginGroup()
-
-        if (cgpDetected || irDetected) {
-            panel.premiumFeatureNotice(gate)
-        }
-
-        if (cgpDetected) {
-            panel.buildCodeGlanceProGroup(licensed)
-        }
-
-        if (irDetected) {
-            panel.buildIndentRainbowGroup(licensed, irEnabled)
-        }
-
-        if (!cgpDetected && !irDetected) {
-            panel.buildNoSupportedPluginsMessage()
-        }
+        panel.buildExternalThemeSupportGroup()
+        panel.buildPluginIntegrationsGroup(
+            gate = gate,
+            licensed = licensed,
+            isCodeGlanceProDetected = cgpDetected,
+            isIndentRainbowDetected = irDetected,
+            irEnabled = irEnabled,
+        )
     }
 
     private fun loadStored(state: AyuIslandsState) {
@@ -110,6 +112,8 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         pendingIgnorePluginSyntaxColors = storedIgnorePluginSyntaxColors
         storedExternalThemeEnhancements = state.externalThemeEnhancementsEnabled
         pendingExternalThemeEnhancements = storedExternalThemeEnhancements
+        storedExternalInheritance = ExternalInheritanceSettings.fromState(state)
+        pendingExternalInheritance = storedExternalInheritance
         storedExternalAccentSource = state.externalThemeAccentSource ?: ExternalAccentSource.AUTOMATIC.name
         pendingExternalAccentSource = storedExternalAccentSource
         storedExternalAccent = state.externalThemeAccent ?: AccentDefaults.MIRAGE_HEX
@@ -124,38 +128,60 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         IndentPreset.fromName(pendingPreset) == IndentPreset.CUSTOM || !licensed
 
     private fun Panel.buildNoSupportedPluginsMessage() {
-        group("Plugins") {
-            row {
-                comment(
-                    "Install CodeGlance Pro or Indent Rainbow for premium accent color sync.",
-                )
+        row {
+            comment(
+                "Install CodeGlance Pro or Indent Rainbow for premium accent color sync.",
+            )
+        }
+    }
+
+    private fun Panel.buildPluginIntegrationsGroup(
+        gate: PremiumFeatureGate,
+        licensed: Boolean,
+        isCodeGlanceProDetected: Boolean,
+        isIndentRainbowDetected: Boolean,
+        irEnabled: AtomicBooleanProperty,
+    ) {
+        group("Plugin Integrations") {
+            if (isCodeGlanceProDetected || isIndentRainbowDetected) {
+                premiumFeatureNotice(gate)
+            }
+            buildIgnorePluginRow()
+
+            if (isCodeGlanceProDetected) {
+                buildCodeGlanceProRow(licensed)
+            }
+
+            if (isIndentRainbowDetected) {
+                buildIndentRainbowRows(licensed, irEnabled)
+            }
+
+            if (!isCodeGlanceProDetected && !isIndentRainbowDetected) {
+                buildNoSupportedPluginsMessage()
             }
         }
     }
 
-    private fun Panel.buildIgnorePluginGroup() {
-        group(".ignore") {
-            row {
-                val checkboxCell =
-                    checkBox("Use Ayu colors for .ignore files")
-                        .comment("When off, keep the .ignore plugin's default syntax colors")
-                checkboxCell.component.isSelected = pendingIgnorePluginSyntaxColors
-                checkboxCell.component.addActionListener {
-                    pendingIgnorePluginSyntaxColors = checkboxCell.component.isSelected
-                }
-                ignorePluginCheckbox = checkboxCell.component
+    private fun Panel.buildIgnorePluginRow() {
+        row {
+            val checkboxCell =
+                checkBox(".ignore syntax colors")
+                    .comment("Use Ayu colors for .ignore files")
+            checkboxCell.component.isSelected = pendingIgnorePluginSyntaxColors
+            checkboxCell.component.addActionListener {
+                pendingIgnorePluginSyntaxColors = checkboxCell.component.isSelected
             }
+            ignorePluginCheckbox = checkboxCell.component
         }
     }
 
-    private fun Panel.buildExternalThemesGroup() {
-        group("External themes") {
+    private fun Panel.buildExternalThemeSupportGroup() {
+        group("External Theme Support") {
             row {
                 val checkboxCell =
                     checkBox("Enable Ayu enhancements on other themes")
                         .comment(
-                            "Apply Glow, plugin sync, and quick-switcher accent actions " +
-                                "when the active IDE theme is not Ayu",
+                            "Use selected Ayu features when the active IDE theme is not Ayu.",
                         )
                 checkboxCell.component.isSelected = pendingExternalThemeEnhancements
                 checkboxCell.component.addActionListener {
@@ -163,79 +189,129 @@ class PluginsPanel : AyuIslandsSettingsPanel {
                 }
                 externalThemeCheckbox = checkboxCell.component
             }
-            row("Accent source") {
-                val combo =
-                    comboBox(ExternalAccentSource.entries.toList())
-                        .component
-                combo.selectedItem = ExternalAccentSource.fromName(pendingExternalAccentSource)
-                combo.renderer = SimpleListCellRenderer.create("") { it.displayName }
-                combo.addActionListener {
-                    if (suppressListeners) return@addActionListener
-                    pendingExternalAccentSource =
-                        (combo.selectedItem as? ExternalAccentSource ?: ExternalAccentSource.AUTOMATIC).name
-                }
-                externalAccentSourceCombo = combo
-            }
+
             row {
-                comment(
-                    "Automatic uses project/language pins, Material Theme accent, IDE accent, " +
-                        "then External accent fallback.",
-                )
-            }
-            row("External accent") {
-                val picker =
-                    AccentSwatchPickerRow { selected ->
-                        pendingExternalAccent = selected
-                        pendingExternalAccentSource = ExternalAccentSource.MANUAL.name
-                        externalAccentSourceCombo?.selectedItem = ExternalAccentSource.MANUAL
+                label("Allowed features").gap(RightGap.COLUMNS)
+                panel {
+                    row {
+                        panel {
+                            row {
+                                buildExternalInheritanceToggleCell(
+                                    label = "Quick switcher",
+                                    isSelected = ExternalInheritanceSettings::isQuickSwitcherEnabled,
+                                    updateSelection = { copy(isQuickSwitcherEnabled = it) },
+                                    storeCheckbox = { externalQuickSwitcherCheckbox = it },
+                                )
+                            }
+                            row {
+                                buildExternalInheritanceToggleCell(
+                                    label = "CodeGlance Pro",
+                                    isSelected = ExternalInheritanceSettings::isCodeGlanceProEnabled,
+                                    updateSelection = { copy(isCodeGlanceProEnabled = it) },
+                                    storeCheckbox = { externalCodeGlanceProCheckbox = it },
+                                )
+                            }
+                        }.gap(RightGap.COLUMNS)
+                        panel {
+                            row {
+                                buildExternalInheritanceToggleCell(
+                                    label = "Glow",
+                                    isSelected = ExternalInheritanceSettings::isGlowEnabled,
+                                    updateSelection = { copy(isGlowEnabled = it) },
+                                    storeCheckbox = { externalGlowCheckbox = it },
+                                )
+                            }
+                            row {
+                                buildExternalInheritanceToggleCell(
+                                    label = "Indent Rainbow",
+                                    isSelected = ExternalInheritanceSettings::isIndentRainbowEnabled,
+                                    updateSelection = { copy(isIndentRainbowEnabled = it) },
+                                    storeCheckbox = { externalIndentRainbowCheckbox = it },
+                                )
+                            }
+                        }
                     }
-                picker.selectedHex = pendingExternalAccent
-                externalAccentPicker = picker
-                cell(picker)
-                    .comment("Used in Manual mode and as the final Automatic fallback")
+                }.align(AlignX.FILL)
             }
-        }
-    }
 
-    private fun Panel.buildCodeGlanceProGroup(licensed: Boolean) {
-        group("CodeGlance Pro") {
-            row {
-                val checkboxCell =
-                    checkBox("Sync color with CodeGlance")
-                        .comment("Apply accent color to CodeGlance Pro viewport")
-                checkboxCell.component.isSelected = pendingCodeGlanceProIntegration
-                checkboxCell.component.isEnabled = licensed
-                checkboxCell.component.addActionListener {
-                    if (!licensed) return@addActionListener
-                    pendingCodeGlanceProIntegration = checkboxCell.component.isSelected
+            val accentInheritance =
+                collapsibleGroup("Accent Inheritance") {
+                    row("Accent source") {
+                        val combo =
+                            comboBox(ExternalAccentSource.entries.toList())
+                                .component
+                        combo.selectedItem = ExternalAccentSource.fromName(pendingExternalAccentSource)
+                        combo.renderer = SimpleListCellRenderer.create("") { it.displayName }
+                        combo.addActionListener {
+                            if (suppressListeners) return@addActionListener
+                            pendingExternalAccentSource =
+                                (combo.selectedItem as? ExternalAccentSource ?: ExternalAccentSource.AUTOMATIC).name
+                        }
+                        externalAccentSourceCombo = combo
+                    }
+                    row {
+                        comment(
+                            "Automatic uses project/language pins, Material Theme accent, IDE accent, " +
+                                "then External accent fallback.",
+                        )
+                    }
+                    row("External accent") {
+                        val picker =
+                            AccentSwatchPickerRow { selected ->
+                                pendingExternalAccent = selected
+                                pendingExternalAccentSource = ExternalAccentSource.MANUAL.name
+                                externalAccentSourceCombo?.selectedItem = ExternalAccentSource.MANUAL
+                            }
+                        picker.selectedHex = pendingExternalAccent
+                        externalAccentPicker = picker
+                        cell(picker)
+                            .comment("Used in Manual mode and as the final Automatic fallback")
+                    }
                 }
-                cgpCheckbox = checkboxCell.component
-
-                browserLink("Plugin page", "https://plugins.jetbrains.com/plugin/18824-codeglance-pro")
-            }
+            accentInheritance.expanded = false
         }
     }
 
-    private fun Panel.buildIndentRainbowGroup(
-        licensed: Boolean,
-        irEnabled: AtomicBooleanProperty,
+    private fun Row.buildExternalInheritanceToggleCell(
+        label: String,
+        isSelected: (ExternalInheritanceSettings) -> Boolean,
+        updateSelection: ExternalInheritanceSettings.(Boolean) -> ExternalInheritanceSettings,
+        storeCheckbox: (JCheckBox) -> Unit,
     ) {
-        group("Indent Rainbow") {
-            buildIndentRainbowEnableRow(licensed, irEnabled)
-            buildIndentRainbowPresetRow(licensed, irEnabled)
-            buildIndentRainbowErrorRow(licensed, irEnabled)
-            buildIndentRainbowAlphaRow(licensed)
+        val checkboxCell = checkBox(label)
+        checkboxCell.component.isSelected = isSelected(pendingExternalInheritance)
+        checkboxCell.component.addActionListener {
+            pendingExternalInheritance =
+                pendingExternalInheritance.updateSelection(checkboxCell.component.isSelected)
+        }
+        storeCheckbox(checkboxCell.component)
+    }
+
+    private fun Panel.buildCodeGlanceProRow(licensed: Boolean) {
+        row {
+            val checkboxCell =
+                checkBox("CodeGlance Pro viewport")
+                    .comment("Apply accent color to the CodeGlance Pro viewport")
+            checkboxCell.component.isSelected = pendingCodeGlanceProIntegration
+            checkboxCell.component.isEnabled = licensed
+            checkboxCell.component.addActionListener {
+                if (!licensed) return@addActionListener
+                pendingCodeGlanceProIntegration = checkboxCell.component.isSelected
+            }
+            cgpCheckbox = checkboxCell.component
+
+            browserLink("Plugin page", "https://plugins.jetbrains.com/plugin/18824-codeglance-pro")
         }
     }
 
-    private fun Panel.buildIndentRainbowEnableRow(
+    private fun Panel.buildIndentRainbowRows(
         licensed: Boolean,
         irEnabled: AtomicBooleanProperty,
     ) {
         row {
             val checkboxCell =
-                checkBox("Sync colors with Indent Rainbow")
-                    .comment("Apply Ayu color palette to Indent Rainbow indentation guides")
+                checkBox("Indent Rainbow guides")
+                    .comment("Sync the Ayu palette with Indent Rainbow indentation guides")
             checkboxCell.component.isSelected = pendingEnabled
             checkboxCell.component.isEnabled = licensed
             checkboxCell.component.addActionListener {
@@ -250,6 +326,10 @@ class PluginsPanel : AyuIslandsSettingsPanel {
                 "https://plugins.jetbrains.com/plugin/13308-indent-rainbow",
             )
         }
+
+        buildIndentRainbowPresetRow(licensed, irEnabled)
+        buildIndentRainbowErrorRow(licensed, irEnabled)
+        buildIndentRainbowAlphaRow(licensed)
     }
 
     private fun Panel.buildIndentRainbowPresetRow(
@@ -322,22 +402,36 @@ class PluginsPanel : AyuIslandsSettingsPanel {
             pendingCodeGlanceProIntegration != storedCodeGlanceProIntegration ||
             pendingErrorHighlight != storedErrorHighlight ||
             pendingIgnorePluginSyntaxColors != storedIgnorePluginSyntaxColors ||
-            pendingExternalThemeEnhancements != storedExternalThemeEnhancements ||
-            pendingExternalAccentSource != storedExternalAccentSource ||
-            pendingExternalAccent != storedExternalAccent
+            hasExternalChanges()
+
+    private fun hasExternalChanges(): Boolean =
+        listOf(
+            pendingExternalThemeEnhancements != storedExternalThemeEnhancements,
+            pendingExternalInheritance != storedExternalInheritance,
+            pendingExternalAccentSource != storedExternalAccentSource,
+            pendingExternalAccent != storedExternalAccent,
+        ).any { it }
+
+    private fun hasPremiumChanges(): Boolean =
+        listOf(
+            pendingEnabled != storedEnabled,
+            pendingPreset != storedPreset,
+            pendingCustomAlpha != storedCustomAlpha,
+            pendingCodeGlanceProIntegration != storedCodeGlanceProIntegration,
+            pendingErrorHighlight != storedErrorHighlight,
+        ).any { it }
 
     override fun apply() {
         if (!isModified()) return
         val state = AyuIslandsSettings.getInstance().state
-        val externalChanged =
-            pendingExternalThemeEnhancements != storedExternalThemeEnhancements ||
-                pendingExternalAccentSource != storedExternalAccentSource ||
-                pendingExternalAccent != storedExternalAccent
+        val externalChanged = hasExternalChanges()
         if (externalChanged) {
             state.externalThemeEnhancementsEnabled = pendingExternalThemeEnhancements
+            pendingExternalInheritance.applyTo(state)
             state.externalThemeAccentSource = pendingExternalAccentSource
             state.externalThemeAccent = pendingExternalAccent
             storedExternalThemeEnhancements = pendingExternalThemeEnhancements
+            storedExternalInheritance = pendingExternalInheritance
             storedExternalAccentSource = pendingExternalAccentSource
             storedExternalAccent = pendingExternalAccent
         }
@@ -349,12 +443,7 @@ class PluginsPanel : AyuIslandsSettingsPanel {
             SyntaxIntensityService.getInstance().reapplyForActiveLaf()
         }
 
-        val premiumChanged =
-            pendingEnabled != storedEnabled ||
-                pendingPreset != storedPreset ||
-                pendingCustomAlpha != storedCustomAlpha ||
-                pendingCodeGlanceProIntegration != storedCodeGlanceProIntegration ||
-                pendingErrorHighlight != storedErrorHighlight
+        val premiumChanged = hasPremiumChanges()
         if (!premiumChanged) return
         if (!LicenseChecker.isLicensedOrGrace()) return
 
@@ -385,6 +474,7 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         pendingErrorHighlight = storedErrorHighlight
         pendingIgnorePluginSyntaxColors = storedIgnorePluginSyntaxColors
         pendingExternalThemeEnhancements = storedExternalThemeEnhancements
+        pendingExternalInheritance = storedExternalInheritance
         pendingExternalAccentSource = storedExternalAccentSource
         pendingExternalAccent = storedExternalAccent
 
@@ -394,6 +484,10 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         errorHighlightCheckbox?.isSelected = storedErrorHighlight
         ignorePluginCheckbox?.isSelected = storedIgnorePluginSyntaxColors
         externalThemeCheckbox?.isSelected = storedExternalThemeEnhancements
+        externalQuickSwitcherCheckbox?.isSelected = storedExternalInheritance.isQuickSwitcherEnabled
+        externalGlowCheckbox?.isSelected = storedExternalInheritance.isGlowEnabled
+        externalCodeGlanceProCheckbox?.isSelected = storedExternalInheritance.isCodeGlanceProEnabled
+        externalIndentRainbowCheckbox?.isSelected = storedExternalInheritance.isIndentRainbowEnabled
         externalAccentSourceCombo?.selectedItem = ExternalAccentSource.fromName(storedExternalAccentSource)
         externalAccentPicker?.selectedHex = storedExternalAccent
         presetSegmented?.selectedItem = IndentPreset.fromName(storedPreset)
@@ -403,6 +497,30 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         irEnabled.set(pendingEnabled || !licensed)
         customModeVisible.set(isCustomIndentControlsVisible(licensed))
         suppressListeners = false
+    }
+
+    private data class ExternalInheritanceSettings(
+        val isQuickSwitcherEnabled: Boolean = true,
+        val isGlowEnabled: Boolean = false,
+        val isCodeGlanceProEnabled: Boolean = true,
+        val isIndentRainbowEnabled: Boolean = true,
+    ) {
+        fun applyTo(state: AyuIslandsState) {
+            state.externalThemeQuickSwitcherEnabled = isQuickSwitcherEnabled
+            state.externalThemeGlowEnabled = isGlowEnabled
+            state.externalThemeCodeGlanceProEnabled = isCodeGlanceProEnabled
+            state.externalThemeIndentRainbowEnabled = isIndentRainbowEnabled
+        }
+
+        companion object {
+            fun fromState(state: AyuIslandsState): ExternalInheritanceSettings =
+                ExternalInheritanceSettings(
+                    isQuickSwitcherEnabled = state.externalThemeQuickSwitcherEnabled,
+                    isGlowEnabled = state.externalThemeGlowEnabled,
+                    isCodeGlanceProEnabled = state.externalThemeCodeGlanceProEnabled,
+                    isIndentRainbowEnabled = state.externalThemeIndentRainbowEnabled,
+                )
+        }
     }
 
     companion object {

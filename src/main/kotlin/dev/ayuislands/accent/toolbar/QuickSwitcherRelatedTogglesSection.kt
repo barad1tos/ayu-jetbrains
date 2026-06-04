@@ -66,7 +66,7 @@ internal class QuickSwitcherRelatedTogglesSection {
     init {
         val state = AyuIslandsSettings.getInstance().state
         val accentSupplier: () -> String = {
-            val context = AccentContext.detect()
+            val context = AccentContext.detectQuickSwitcher()
             try {
                 if (context == null) {
                     AccentDefaults.MIRAGE_HEX
