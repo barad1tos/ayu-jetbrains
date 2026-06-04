@@ -178,8 +178,10 @@ object AccentResolver {
         rawHex: String,
         validateHex: Boolean,
     ): ResolvedAccent? {
-        val hex = if (validateHex) AccentHex.of(rawHex)?.value else rawHex
-        return hex?.let { ResolvedAccent(source, it) }
+        if (!validateHex) {
+            return ResolvedAccent(source, rawHex)
+        }
+        return AccentHex.of(rawHex)?.let { ResolvedAccent(source, it.value) }
     }
 
     /**
