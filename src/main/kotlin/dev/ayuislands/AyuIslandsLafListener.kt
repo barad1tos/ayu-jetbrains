@@ -84,6 +84,9 @@ class AyuIslandsLafListener : LafManagerListener {
     }
 
     private fun applyExternalThemeChange() {
+        AccentApplicator.revertAll()
+        FontPresetApplicator.revert()
+
         val accentHex = AccentApplicator.applyForFocusedProject(AccentContext.External)
         LOG.info("Ayu Islands external accent applied on theme change: $accentHex")
 

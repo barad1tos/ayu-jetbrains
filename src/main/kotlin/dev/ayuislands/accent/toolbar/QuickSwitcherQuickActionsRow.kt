@@ -2,6 +2,7 @@ package dev.ayuislands.accent.toolbar
 
 import com.intellij.icons.AllIcons
 import com.intellij.util.ui.JBUI
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.toolbar.actions.CopyHexAction
 import dev.ayuislands.accent.toolbar.actions.DarkerAccentAction
 import dev.ayuislands.accent.toolbar.actions.LighterAccentAction
@@ -27,11 +28,14 @@ import javax.swing.JPanel
  */
 internal class QuickSwitcherQuickActionsRow(
     private val anchor: JComponent,
+    private val context: AccentContext,
 ) {
     val component: JPanel =
         JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(Density.ACTION_GAP), 0)).apply {
             isOpaque = false
-            add(IconPillButton(PinAccentAction(), anchor, AllIcons.Actions.PinTab))
+            if (context is AccentContext.Ayu) {
+                add(IconPillButton(PinAccentAction(), anchor, AllIcons.Actions.PinTab))
+            }
             add(IconPillButton(RandomAccentAction(), anchor, AllIcons.Actions.Refresh))
             add(IconPillButton(LighterAccentAction(), anchor, AllIcons.General.ChevronUp))
             add(IconPillButton(DarkerAccentAction(), anchor, AllIcons.General.ChevronDown))

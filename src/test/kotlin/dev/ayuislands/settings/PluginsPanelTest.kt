@@ -6,8 +6,11 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.ui.dsl.builder.panel
+import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.conflict.ConflictRegistry
+import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.indent.IndentPreset
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.mappings.AccentSwatchPickerRow
@@ -222,6 +225,53 @@ class PluginsPanelTest {
 
         assertTrue(state.externalThemeEnhancementsEnabled)
         assertFalse(pluginsPanel.isModified())
+    }
+
+    @Test
+    fun `external theme opt-in applies external context immediately on non-Ayu themes`() {
+        mockkObject(AyuVariant.Companion)
+        every { AyuVariant.detect() } returns null
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.applyForFocusedProject(AccentContext.External) } returns "#AABBCC"
+        mockkObject(GlowOverlayManager)
+        every { GlowOverlayManager.syncGlowForAllProjects() } returns Unit
+
+        val pluginsPanel = PluginsPanel()
+        val dialogPanel = buildDialogPanel(pluginsPanel)
+        val checkbox =
+            descendants(dialogPanel, JCheckBox::class.java)
+                .first { it.text == "Enable Ayu enhancements on other themes" }
+
+        checkbox.doClick()
+        pluginsPanel.apply()
+
+        assertTrue(state.externalThemeEnhancementsEnabled)
+        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.External) }
+        verify(exactly = 1) { GlowOverlayManager.syncGlowForAllProjects() }
+    }
+
+    @Test
+    fun `external theme opt-out reverts inherited surfaces immediately on non-Ayu themes`() {
+        state.externalThemeEnhancementsEnabled = true
+        mockkObject(AyuVariant.Companion)
+        every { AyuVariant.detect() } returns null
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.revertAll() } returns Unit
+        mockkObject(GlowOverlayManager)
+        every { GlowOverlayManager.syncGlowForAllProjects() } returns Unit
+
+        val pluginsPanel = PluginsPanel()
+        val dialogPanel = buildDialogPanel(pluginsPanel)
+        val checkbox =
+            descendants(dialogPanel, JCheckBox::class.java)
+                .first { it.text == "Enable Ayu enhancements on other themes" }
+
+        checkbox.doClick()
+        pluginsPanel.apply()
+
+        assertFalse(state.externalThemeEnhancementsEnabled)
+        verify(exactly = 1) { AccentApplicator.revertAll() }
+        verify(exactly = 1) { GlowOverlayManager.syncGlowForAllProjects() }
     }
 
     @Test

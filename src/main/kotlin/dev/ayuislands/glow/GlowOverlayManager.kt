@@ -252,6 +252,7 @@ class GlowOverlayManager(
                 log.debug("AccentContext.detect() returned null in initializeFocusRingGlow, skipping focus-ring glow")
                 return
             }
+        if (isExternalGlowBlocked(context, state, "initializeFocusRingGlow")) return
         val accentHex = resolveCurrentGlowAccentHex(project, state, context)
         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
         val accent = safeDecodeColor(accentHex)
@@ -299,6 +300,7 @@ class GlowOverlayManager(
                 log.debug("AccentContext.detect() returned null in attachOverlay($id), skipping overlay attach")
                 return
             }
+        if (isExternalGlowBlocked(context, state, "attachOverlay($id)")) return
         val accentHex = resolveCurrentGlowAccentHex(project, state, context)
         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
 
@@ -536,6 +538,16 @@ class GlowOverlayManager(
             focusRingManager.dispose()
         }
     }
+}
+
+private fun isExternalGlowBlocked(
+    context: AccentContext,
+    state: AyuIslandsState,
+    callSite: String,
+): Boolean {
+    if (context != AccentContext.External || state.isExternalGlowAllowed()) return false
+    logger<GlowOverlayManager>().debug("External glow disabled, skipping $callSite")
+    return true
 }
 
 private fun resolveCurrentGlowAccentHex(

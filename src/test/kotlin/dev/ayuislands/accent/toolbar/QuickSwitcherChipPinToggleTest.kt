@@ -179,6 +179,21 @@ class QuickSwitcherChipPinToggleTest {
     }
 
     @Test
+    fun `external inner click opens popup instead of swallowing Ayu-only pin`() {
+        every { AyuVariant.isAyuActive() } returns false
+        every { AyuVariant.detect() } returns null
+        every { AccentContext.isQuickSwitcherActive() } returns true
+        every { AccentContext.detectQuickSwitcher() } returns AccentContext.External
+
+        val chip = QuickSwitcherChipComponent()
+        chip.dispatchEvent(innerClick(chip))
+
+        verify(exactly = 1) { QuickSwitcherPopup.show(chip, chip) }
+        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
+        assertTrue(state.projectAccents.isEmpty(), "External inner click must not write Ayu project pins")
+    }
+
+    @Test
     fun `pin path rolls back projectAccents when applyFromHexString returns false`() {
         // Pin from unpinned + apply rejects (e.g. corrupted upstream
         // settings produce an invalid hex). The pin write must NOT persist

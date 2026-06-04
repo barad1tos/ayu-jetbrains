@@ -39,3 +39,10 @@ sealed interface AccentContext {
         fun isQuickSwitcherActive(): Boolean = detectQuickSwitcher() != null
     }
 }
+
+internal fun AccentContext.persistExternalManualAccentIfNeeded(hex: String) {
+    if (this != AccentContext.External) return
+    val state = AyuIslandsSettings.getInstance().state
+    state.externalThemeAccent = hex
+    state.externalThemeAccentSource = ExternalAccentSource.MANUAL.name
+}

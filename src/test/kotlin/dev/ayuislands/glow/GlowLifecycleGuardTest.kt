@@ -40,8 +40,9 @@ class GlowLifecycleGuardTest {
             .joinToString("\n") { line -> line.replaceFirst(Regex("//.*$"), "") }
     }
 
-    private fun extractUpdateGlowBody(): String {
-        val signaturePrefix = "fun updateGlow("
+    private fun extractUpdateGlowBody(): String = extractFunctionBody("fun updateGlow(")
+
+    private fun extractFunctionBody(signaturePrefix: String): String {
         val start = source.indexOf(signaturePrefix)
         require(start >= 0) { "Could not locate '$signaturePrefix' in stripped source" }
         val openBrace = source.indexOf('{', start)
@@ -84,6 +85,19 @@ class GlowLifecycleGuardTest {
                     "wrong predicate, or the order of `removeAllOverlays()` and " +
                     "`return` was inverted. See Pattern L in RECURRING_PITFALLS.md.",
             )
+        }
+    }
+
+    @Test
+    fun `focus ring and late overlay attach honor external glow allow-list`() {
+        val focusBody = extractFunctionBody("fun initializeFocusRingGlow(")
+        val attachBody = extractFunctionBody("fun attachOverlay(")
+
+        if (!focusBody.contains("isExternalGlowBlocked(context, state, \"initializeFocusRingGlow\")")) {
+            fail("initializeFocusRingGlow must guard AccentContext.External through isExternalGlowBlocked")
+        }
+        if (!attachBody.contains("isExternalGlowBlocked(context, state, \"attachOverlay($")) {
+            fail("attachOverlay must guard AccentContext.External through isExternalGlowBlocked")
         }
     }
 }

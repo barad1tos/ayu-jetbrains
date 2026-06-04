@@ -5,6 +5,7 @@ import com.intellij.openapi.wm.IdeFrame
 import com.intellij.openapi.wm.WindowManager
 import com.intellij.testFramework.LoggedErrorProcessor
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.indent.IndentRainbowSync
@@ -74,7 +75,9 @@ class ProjectAccentSwapServiceTest {
         mockkObject(IndentRainbowSync)
         every { AccentApplicator.applyFromHexString(any()) } returns true
         every { AccentApplicator.syncCodeGlanceProViewportForSwap(any()) } just Runs
-        every { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) } just Runs
+        every { AccentApplicator.syncCodeGlanceProViewportForSwap(any(), any()) } just Runs
+        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } just Runs
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } just Runs
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         every { ComponentTreeRefresher.walkAndNotify(any(), any()) } just Runs
 
@@ -173,6 +176,44 @@ class ProjectAccentSwapServiceTest {
         verify(exactly = 1) { AyuVariant.detect() }
         verify(exactly = 0) { AccentResolver.resolve(project, any<AyuVariant>()) }
         verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
+    }
+
+    @Test
+    fun `onWindowActivated applies external context when non-Ayu theme support is enabled`() {
+        val (window, project) = wireMatchingFrame()
+        state.externalThemeEnhancementsEnabled = true
+        every { AyuVariant.detect() } returns null
+        every { AccentResolver.resolve(project, AccentContext.External) } returns "#AABBCC"
+        val service = ProjectAccentSwapService()
+
+        service.onWindowActivatedForTest(makeEvent(window))
+
+        verify(exactly = 1) { AyuVariant.detect() }
+        verify(exactly = 1) { AccentResolver.resolve(project, AccentContext.External) }
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("#AABBCC") }
+        verify(exactly = 1) { ComponentTreeRefresher.walkAndNotify(project, window) }
+    }
+
+    @Test
+    fun `same-hex external focus swap re-syncs external CGP and IR caches`() {
+        val (window, project) = wireMatchingFrame()
+        state.externalThemeEnhancementsEnabled = true
+        state.externalThemeCodeGlanceProEnabled = true
+        state.externalThemeIndentRainbowEnabled = true
+        every { AyuVariant.detect() } returns null
+        every { AccentResolver.resolve(project, AccentContext.External) } returns "#AABBCC"
+        val service = ProjectAccentSwapService()
+
+        service.notifyExternalApply("#AABBCC")
+        service.onWindowActivatedForTest(makeEvent(window))
+
+        verify(exactly = 1) { AccentResolver.resolve(project, AccentContext.External) }
+        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
+        verify(exactly = 1) {
+            AccentApplicator.syncCodeGlanceProViewportForSwap("#AABBCC", AccentContext.External)
+        }
+        verify(exactly = 1) { IndentRainbowSync.apply(AccentContext.External, "#AABBCC") }
+        verify(exactly = 1) { ComponentTreeRefresher.walkAndNotify(project, window) }
     }
 
     @Test
@@ -332,7 +373,7 @@ class ProjectAccentSwapServiceTest {
         every { AccentApplicator.syncCodeGlanceProViewportForSwap(any()) } just Runs
 
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) } just Runs
+        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } just Runs
 
         val service = ProjectAccentSwapService()
 
@@ -557,7 +598,7 @@ class ProjectAccentSwapServiceTest {
         service.onWindowActivatedForTest(makeEvent(window)) // primes cache
         service.onWindowActivatedForTest(makeEvent(window)) // same-hex branch
 
-        verify(exactly = 0) { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) }
+        verify(exactly = 0) { IndentRainbowSync.apply(any<AyuVariant>(), any()) }
         // CGP integration call still fires — the gate is IR-only at this
         // call site (CGP gates inside its own `apply`).
         verify(atLeast = 1) { AccentApplicator.syncCodeGlanceProViewportForSwap("#FFCC66") }

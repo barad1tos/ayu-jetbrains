@@ -8,11 +8,12 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.WindowManager
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentChangedTopic
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
-import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.indent.IndentRainbowSync
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.ui.ComponentTreeRefresher
 import org.jetbrains.annotations.TestOnly
 import java.awt.AWTEvent
@@ -61,6 +62,11 @@ class ProjectAccentSwapService : Disposable {
     @Volatile
     private var windowManagerUnavailableLogged: Boolean = false
 
+    private data class EffectiveAccent(
+        val context: AccentContext,
+        val hex: String,
+    )
+
     fun install() {
         if (listener != null) return
         val awtListener =
@@ -102,71 +108,14 @@ class ProjectAccentSwapService : Disposable {
         val project = findProjectForWindow(window) ?: return
         if (project.isDisposed || project.isDefault) return
 
-        // Re-resolve on every activation. Alt-tab away to a non-IDE app and back reports the
-        // same project, but any external apply (rotation tick, Settings panel Apply, LAF
-        // change — anything that reaches `notifyExternalApply`) may have pushed a different
-        // color into the JVM-wide UIManager/globalScheme since the last activation. The
-        // resolver call is cheap (canonicalPath + HashMap lookup); the hex gate below still
-        // skips the expensive apply when the resolver output matches.
-        val variant = AyuVariant.detect() ?: return
-        val effectiveHex = AccentResolver.resolve(project, variant)
+        val effectiveAccent = resolveEffectiveAccent(project) ?: return
 
-        val hexChanged = effectiveHex != lastAppliedHex
+        val hexChanged = effectiveAccent.hex != lastAppliedHex
         if (hexChanged) {
-            // Different hex from last apply: re-run the full apply path. UIManager
-            // writes, EP elements, editor keys, AND integrations are all refreshed
-            // through AccentApplicator.applyFromHexString -> apply.
-            val applied = AccentApplicator.applyFromHexString(effectiveHex)
-            if (!applied) {
-                LOG.warn("Skipping swap publish: applyFromHexString rejected '$effectiveHex'")
-                return
-            }
-            lastAppliedHex = effectiveHex
+            if (!applyChangedHex(effectiveAccent.hex)) return
         } else {
-            // Same hex but a different project just gained focus (or alt-tab back to the
-            // same project). The app-scoped CGP `CodeGlanceConfigService` and IR `IrConfig`
-            // caches still hold whoever wrote last; force-refresh them so the newly-focused
-            // minimap + indent panels paint the correct per-project accent.
-            //
-            // walkAndNotify alone CANNOT close this gap because CGP and IR do not subscribe
-            // to ComponentTreeRefreshedTopic — they read from the app-scoped cache directly.
-            // The two calls below push the per-project hex into those caches without
-            // re-running the apply path's UIManager work (already correct for the unchanged
-            // hex).
-            //
-            // Pattern J — gate IR refresh on the integration toggle. IndentRainbowSync.apply
-            // itself reverts when irIntegrationEnabled is false, so calling it on every
-            // alt-tab from a user who disabled IR would silently re-stamp IR's IrConfig
-            // with a DEFAULT palette write per focus swap. Skip the call entirely so a
-            // disabled integration is truly disabled, not "disabled with a side-effect on
-            // every focus swap". CGP gates internally and short-circuits the same way.
-            AccentApplicator.syncCodeGlanceProViewportForSwap(effectiveHex)
-            if (AyuIslandsSettings.getInstance().state.irIntegrationEnabled) {
-                IndentRainbowSync.apply(variant, effectiveHex)
-            }
-
-            // Same-hex focus swap does NOT re-enter AccentApplicator.apply (whose
-            // publish would fire), so we publish AccentChangedTopic here. Without
-            // this, focus swap between two projects sharing a hex leaves chip /
-            // stripe stuck on the prior project's resolution source label (e.g.
-            // "Global" vs "Project override"). Pattern B isolates a throwing
-            // subscriber.
-            try {
-                val source = AccentResolver.source(project)
-                // Pattern K — `effectiveHex` comes from `AccentResolver.resolve`
-                // whose contract guarantees a validated `#RRGGBB` string;
-                // wrap via `unsafeOf` to surface the contract in the type.
-                ApplicationManager
-                    .getApplication()
-                    .messageBus
-                    .syncPublisher(AccentChangedTopic.TOPIC)
-                    .accentChanged(project, AccentHex.unsafeOf(effectiveHex), source)
-            } catch (exception: RuntimeException) {
-                LOG.warn(
-                    "AccentChangedTopic publish failed in same-hex swap for ${project.name}",
-                    exception,
-                )
-            }
+            refreshSameHexIntegrations(effectiveAccent)
+            publishSameHexAccentChanged(project, effectiveAccent.hex)
         }
 
         // Always refresh the component tree on focus swap — preserves the
@@ -178,8 +127,101 @@ class ProjectAccentSwapService : Disposable {
         // customizations got reset by the walk (scrollbar hiders etc.) reapply themselves.
         ComponentTreeRefresher.walkAndNotify(project, window)
         LOG.info(
-            "Project accent refreshed for ${project.name} (hex=$effectiveHex, changed=$hexChanged)",
+            "Project accent refreshed for ${project.name} (hex=${effectiveAccent.hex}, changed=$hexChanged)",
         )
+    }
+
+    private fun resolveEffectiveAccent(project: Project): EffectiveAccent? {
+        // Re-resolve on every activation. Alt-tab away to a non-IDE app and back reports the
+        // same project, but any external apply (rotation tick, Settings panel Apply, LAF
+        // change — anything that reaches `notifyExternalApply`) may have pushed a different
+        // color into the JVM-wide UIManager/globalScheme since the last activation. The
+        // resolver call is cheap (canonicalPath + HashMap lookup); the hex gate still
+        // skips the expensive apply when the resolver output matches.
+        val context = AccentContext.detect() ?: return null
+        val hex =
+            when (context) {
+                is AccentContext.Ayu -> AccentResolver.resolve(project, context.ayuVariant)
+                AccentContext.External -> AccentResolver.resolve(project, context)
+            }
+        return EffectiveAccent(context, hex)
+    }
+
+    private fun applyChangedHex(hex: String): Boolean {
+        // Different hex from last apply: re-run the full apply path. UIManager
+        // writes, EP elements, editor keys, AND integrations are all refreshed
+        // through AccentApplicator.applyFromHexString -> apply.
+        val applied = AccentApplicator.applyFromHexString(hex)
+        if (!applied) {
+            LOG.warn("Skipping swap publish: applyFromHexString rejected '$hex'")
+            return false
+        }
+        lastAppliedHex = hex
+        return true
+    }
+
+    private fun refreshSameHexIntegrations(effectiveAccent: EffectiveAccent) {
+        // Same hex but a different project just gained focus (or alt-tab back to the
+        // same project). The app-scoped CGP `CodeGlanceConfigService` and IR `IrConfig`
+        // caches still hold whoever wrote last; force-refresh them so the newly-focused
+        // minimap + indent panels paint the correct per-project accent.
+        //
+        // walkAndNotify alone CANNOT close this gap because CGP and IR do not subscribe
+        // to ComponentTreeRefreshedTopic — they read from the app-scoped cache directly.
+        val state = AyuIslandsSettings.getInstance().state
+        when (val context = effectiveAccent.context) {
+            is AccentContext.Ayu -> refreshAyuIntegrations(context, effectiveAccent.hex, state)
+            AccentContext.External -> refreshExternalIntegrations(effectiveAccent.hex, state)
+        }
+    }
+
+    private fun refreshAyuIntegrations(
+        context: AccentContext.Ayu,
+        hex: String,
+        state: AyuIslandsState,
+    ) {
+        AccentApplicator.syncCodeGlanceProViewportForSwap(hex)
+        if (state.irIntegrationEnabled) {
+            IndentRainbowSync.apply(context.ayuVariant, hex)
+        }
+    }
+
+    private fun refreshExternalIntegrations(
+        hex: String,
+        state: AyuIslandsState,
+    ) {
+        AccentApplicator.syncCodeGlanceProViewportForSwap(hex, AccentContext.External)
+        if (state.irIntegrationEnabled && state.isExternalIndentRainbowAllowed()) {
+            IndentRainbowSync.apply(AccentContext.External, hex)
+        }
+    }
+
+    private fun publishSameHexAccentChanged(
+        project: Project,
+        hex: String,
+    ) {
+        // Same-hex focus swap does NOT re-enter AccentApplicator.apply (whose
+        // publish would fire), so we publish AccentChangedTopic here. Without
+        // this, focus swap between two projects sharing a hex leaves chip /
+        // stripe stuck on the prior project's resolution source label (e.g.
+        // "Global" vs "Project override"). Pattern B isolates a throwing
+        // subscriber.
+        try {
+            val source = AccentResolver.source(project)
+            // Pattern K — `hex` comes from `AccentResolver.resolve`
+            // whose contract guarantees a validated `#RRGGBB` string;
+            // wrap via `unsafeOf` to surface the contract in the type.
+            ApplicationManager
+                .getApplication()
+                .messageBus
+                .syncPublisher(AccentChangedTopic.TOPIC)
+                .accentChanged(project, AccentHex.unsafeOf(hex), source)
+        } catch (exception: RuntimeException) {
+            LOG.warn(
+                "AccentChangedTopic publish failed in same-hex swap for ${project.name}",
+                exception,
+            )
+        }
     }
 
     /**

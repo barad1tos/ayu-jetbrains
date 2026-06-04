@@ -149,7 +149,7 @@ class AyuIslandsLafListenerTest {
     }
 
     @Test
-    fun `lookAndFeelChanged on non-Ayu LAF with external mode applies external context`() {
+    fun `lookAndFeelChanged on non-Ayu LAF with external mode cleans Ayu state then applies external context`() {
         state.syncEditorScheme = true
         state.externalThemeEnhancementsEnabled = true
         every { AyuVariant.detect() } returns null
@@ -161,8 +161,11 @@ class AyuIslandsLafListenerTest {
         AyuIslandsLafListener().lookAndFeelChanged(mockLafManager)
 
         verify(exactly = 0) { AyuEditorSchemeBinder.bindForVariant(any()) }
-        verify(exactly = 0) { AccentApplicator.revertAll() }
-        verify(exactly = 0) { FontPresetApplicator.revert() }
+        verifyOrder {
+            AccentApplicator.revertAll()
+            FontPresetApplicator.revert()
+            AccentApplicator.applyForFocusedProject(AccentContext.External)
+        }
         verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.External) }
         verify(exactly = 1) { GlowOverlayManager.syncGlowForAllProjects() }
         verify(exactly = 0) { mockSyntaxService.reapplyForActiveLaf() }

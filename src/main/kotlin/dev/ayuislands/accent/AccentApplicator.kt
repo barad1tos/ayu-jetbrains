@@ -774,8 +774,11 @@ object AccentApplicator {
      * swap service achieves the cache write without the apply path's
      * redundant work.
      */
-    internal fun syncCodeGlanceProViewportForSwap(hex: String) {
-        CodeGlanceProIntegration.syncCodeGlanceProViewport(hex)
+    internal fun syncCodeGlanceProViewportForSwap(
+        hex: String,
+        context: AccentContext? = null,
+    ) {
+        CodeGlanceProIntegration.syncCodeGlanceProViewport(hex, context)
     }
 
     /**

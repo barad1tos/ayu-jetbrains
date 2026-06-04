@@ -60,7 +60,7 @@ internal object QuickSwitcherPopup {
 
         val accentGrid = QuickSwitcherAccentGrid()
         val togglesSection = QuickSwitcherRelatedTogglesSection()
-        val actionsRow = QuickSwitcherQuickActionsRow(anchor)
+        val actionsRow = QuickSwitcherQuickActionsRow(anchor, context)
 
         val variantCard =
             when (context) {

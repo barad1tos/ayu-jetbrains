@@ -11,9 +11,12 @@ import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.ExternalAccentSource
 import dev.ayuislands.accent.color.AccentHsl
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.rotation.HslColor
+import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import io.mockk.every
 import io.mockk.mockk
@@ -126,6 +129,22 @@ class LighterAccentActionTest {
         LighterAccentAction().actionPerformed(newEvent())
         verify(exactly = 1) { AccentApplicator.applyFromHexString(expected) }
         verify(exactly = 1) { mockSwap.notifyExternalApply(expected) }
+    }
+
+    @Test
+    fun `actionPerformed in external context persists manual external accent`() {
+        every { AccentContext.detectQuickSwitcher() } returns AccentContext.External
+        val state = AyuIslandsState()
+        val settings = mockk<AyuIslandsSettings>(relaxed = true)
+        every { settings.state } returns state
+        mockkObject(AyuIslandsSettings.Companion)
+        every { AyuIslandsSettings.getInstance() } returns settings
+
+        val expected = AccentHsl.lighten(AccentHex.unsafeOf("#FFCC66")).value
+        LighterAccentAction().actionPerformed(newEvent())
+
+        assertEquals(expected, state.externalThemeAccent)
+        assertEquals(ExternalAccentSource.MANUAL.name, state.externalThemeAccentSource)
     }
 
     @Test

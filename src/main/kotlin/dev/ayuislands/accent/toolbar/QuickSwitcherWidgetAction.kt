@@ -16,7 +16,7 @@ import javax.swing.JComponent
  * `.visibleIf { LicenseChecker.isLicensedOrGrace() }`.
  *
  * Visibility is gated by a two-conjunct predicate on every BGT [update] tick:
- *   1. Accent context must be active — [AccentContext.isAccentActive].
+ *   1. Quick-switcher context must be active — [AccentContext.isQuickSwitcherActive].
  *   2. Settings toggle ON — `AyuIslandsState.quickSwitcherWidgetEnabled`
  *      (default ON).
  *

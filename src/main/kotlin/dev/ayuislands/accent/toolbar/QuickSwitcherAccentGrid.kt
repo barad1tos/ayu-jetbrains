@@ -13,10 +13,9 @@ import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
-import dev.ayuislands.accent.ExternalAccentSource
+import dev.ayuislands.accent.persistExternalManualAccentIfNeeded
 import dev.ayuislands.accent.toolbar.popup.Density
 import dev.ayuislands.accent.toolbar.popup.PopupSwatch
-import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import java.awt.BorderLayout
 import java.awt.Color
@@ -118,7 +117,7 @@ internal class QuickSwitcherAccentGrid {
         try {
             val applied = AccentApplicator.applyFromHexString(raw)
             if (applied) {
-                persistExternalAccentIfNeeded(raw)
+                AccentContext.detectQuickSwitcher()?.persistExternalManualAccentIfNeeded(raw)
                 ProjectAccentSwapService.getInstance().notifyExternalApply(raw)
                 swatches.forEach { swatch -> swatch.setSelected(swatch.hex.value.equals(raw, ignoreCase = true)) }
             } else {
@@ -127,13 +126,6 @@ internal class QuickSwitcherAccentGrid {
         } catch (exception: RuntimeException) {
             LOG.warn("Accent preset apply failed hex=$raw", exception)
         }
-    }
-
-    private fun persistExternalAccentIfNeeded(hex: String) {
-        if (AccentContext.detectQuickSwitcher() != AccentContext.External) return
-        val state = AyuIslandsSettings.getInstance().state
-        state.externalThemeAccent = hex
-        state.externalThemeAccentSource = ExternalAccentSource.MANUAL.name
     }
 
     private fun openCustomColorPicker() {

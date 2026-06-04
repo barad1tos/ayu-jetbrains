@@ -104,7 +104,10 @@ internal class QuickSwitcherChipComponent : JLabel() {
     ) {
         val size = JBUI.scale(CHIP_BOX_PX)
         val onInner = LayeredAccentIcon.isInsideInnerIslandHitBox(x, y, size)
-        if (onInner && LicenseChecker.isLicensedOrGrace()) {
+        if (onInner &&
+            LicenseChecker.isLicensedOrGrace() &&
+            AccentContext.detectQuickSwitcher() is AccentContext.Ayu
+        ) {
             togglePin()
             return
         }

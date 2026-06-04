@@ -8,6 +8,7 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTabbedPane
 import com.intellij.ui.dsl.builder.Align
+import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.AyuPlugin
@@ -34,6 +35,11 @@ import javax.swing.SwingConstants
 import javax.swing.Timer
 
 /** Settings page at Appearance > Ayu Islands with Accent / Glow tabs. */
+private fun resolvePluginVersion(): String =
+    AyuPlugin
+        .findLoadedPlugin(AyuPlugin.ID)
+        ?.version ?: "unknown"
+
 class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
     private val log = logger<AyuIslandsConfigurable>()
 
@@ -57,6 +63,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
     private val effectsPanel = AyuIslandsEffectsPanel()
     private val vcsColorPanel = VcsColorPanel()
     private val syntaxPanel = AyuIslandsSyntaxPanel()
+    private var builtPanels: List<AyuIslandsSettingsPanel> = emptyList()
 
     private val panels: List<AyuIslandsSettingsPanel> =
         listOf(
@@ -73,39 +80,41 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         )
 
     override fun createPanel(): com.intellij.openapi.ui.DialogPanel {
-        val pluginVersion =
-            AyuPlugin
-                .findLoadedPlugin(AyuPlugin.ID)
-                ?.version ?: "unknown"
+        val pluginVersion = resolvePluginVersion()
+        val variant = AyuVariant.detect()
+        val effectiveVariant = variant ?: AyuVariant.MIRAGE
+        val activePanels = mutableListOf<AyuIslandsSettingsPanel>()
 
-        val variant =
-            AyuVariant.detect() ?: return panel {
-                row {
-                    scaleIcon()?.let { icon(it) }
-                    label("v$pluginVersion")
-                        .applyToComponent { font = JBUI.Fonts.smallFont() }
-                }
-                row {
-                    comment("Activate an Ayu Islands theme to configure accent colors")
-                }
+        if (variant != null) {
+            configureAyuPanelComposition(variant)
+        }
+
+        val contentTabs = buildContentTabs(variant, effectiveVariant, activePanels)
+        builtPanels = activePanels
+
+        val settings = AyuIslandsSettings.getInstance()
+        val state = settings.state
+        val tabs =
+            createSettingsTabs(
+                contentTabs = contentTabs,
+                accentColor = resolveTabAccentColor(settings, variant),
+                selectedIndex = state.settingsSelectedTab,
+            ) { selectedIndex ->
+                AyuIslandsSettings.getInstance().state.settingsSelectedTab = selectedIndex
             }
 
-        // Wire accent color changes to the element preview
+        return buildRootPanel(pluginVersion, variant, tabs)
+    }
+
+    private fun configureAyuPanelComposition(variant: AyuVariant) {
+        // Wire accent color changes to the element preview.
         accentPanel.onAccentChanged = { hex -> elementsPanel.updatePreviewAccent(hex) }
 
-        // Visual order: Accent Color → System → Overrides → Chrome Tinting → Rotation → Elements.
-        // AccentPanel renders Accent Color → (beforeOverrides) → Overrides →
-        // (afterOverrides) → Rotation. The beforeOverrides hook hosts
+        // Visual order: Accent Color -> System -> Overrides -> Chrome Tinting -> Rotation -> Elements.
+        // AccentPanel renders Accent Color -> (beforeOverrides) -> Overrides ->
+        // (afterOverrides) -> Rotation. The beforeOverrides hook hosts
         // AppearancePanel's "System" collapsibleGroup; the afterOverrides hook hosts
         // the Chrome Tinting collapsible.
-        //
-        // Chrome Tinting renders AFTER Overrides and BEFORE Rotation because it
-        // consumes the *resolved* accent produced by override rules — mirroring the
-        // data-flow dependency gives users a top-to-bottom reading order: choose
-        // accent → system integrations → scope overrides → chrome surface toggles →
-        // rotation schedule → per-element toggles. The two parallel injection hooks
-        // keep AccentPanel composition-friendly without turning the order into a
-        // free-form list.
         accentPanel.beforeOverridesInjection = { injectionPanel ->
             appearancePanel.buildPanel(injectionPanel, variant)
         }
@@ -115,95 +124,124 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         appearancePanel.systemAccentRowInstaller = { rowHostPanel ->
             accentPanel.installSystemAccentCheckbox(rowHostPanel)
         }
+    }
 
-        // Build tab content panels eagerly via DSL
-        val accentTab =
-            panel {
+    private fun buildContentTabs(
+        variant: AyuVariant?,
+        effectiveVariant: AyuVariant,
+        activePanels: MutableList<AyuIslandsSettingsPanel>,
+    ): List<Pair<String, JComponent>> {
+        fontPresetPanel.initState()
+        return listOf(
+            "Accent" to buildAccentTab(variant, activePanels),
+            "Font" to buildFontTab(activePanels),
+            "Glow" to buildGlowTab(activePanels),
+            // Syntax slots between Glow and VCS so rendering-related tabs cluster
+            // before source-control and workspace tabs.
+            "Syntax" to buildAyuOnlyTab(variant, "syntax intensity", syntaxPanel, activePanels),
+            "VCS" to buildAyuOnlyTab(variant, "VCS colors", vcsColorPanel, activePanels),
+            "Workspace" to buildAlwaysAvailableTab(workspacePanel, effectiveVariant, activePanels),
+            "Plugins" to buildAlwaysAvailableTab(pluginsPanel, effectiveVariant, activePanels),
+        )
+    }
+
+    private fun buildAccentTab(
+        variant: AyuVariant?,
+        activePanels: MutableList<AyuIslandsSettingsPanel>,
+    ): JComponent =
+        panel {
+            if (variant == null) {
+                buildAyuThemeRequiredMessage("accent colors")
+            } else {
                 accentPanel.buildPanel(this@panel, variant)
                 elementsPanel.buildPanel(this@panel, variant)
+                activePanels += accentPanel
+                activePanels += elementsPanel
+                buildResetAllSettingsRow()
+            }
+        }
 
-                // "Reset all settings..." link at the bottom of the Accent tab
-                row {
-                    link("Reset all Ayu settings\u2026") {
-                        val result =
-                            Messages.showYesNoDialog(
-                                "Reset all Ayu Islands settings to defaults?\n\n" +
-                                    "This will reset accent color, element toggles, and all glow settings.",
-                                "Reset All Settings",
-                                Messages.getWarningIcon(),
-                            )
-                        if (result == Messages.YES) {
-                            resetAllSettings()
-                        }
-                    }
+    private fun buildFontTab(activePanels: MutableList<AyuIslandsSettingsPanel>): JComponent =
+        panel {
+            fontPresetPanel.buildFontTab(this@panel)
+            activePanels += fontPresetPanel
+        }
+
+    private fun buildGlowTab(activePanels: MutableList<AyuIslandsSettingsPanel>): JComponent =
+        panel {
+            effectsPanel.buildGlowPanel(this@panel)
+            activePanels += effectsPanel
+        }
+
+    private fun buildAyuOnlyTab(
+        variant: AyuVariant?,
+        sectionName: String,
+        settingsPanel: AyuIslandsSettingsPanel,
+        activePanels: MutableList<AyuIslandsSettingsPanel>,
+    ): JComponent =
+        panel {
+            if (variant == null) {
+                buildAyuThemeRequiredMessage(sectionName)
+            } else {
+                settingsPanel.buildPanel(this@panel, variant)
+                activePanels += settingsPanel
+            }
+        }
+
+    private fun buildAlwaysAvailableTab(
+        settingsPanel: AyuIslandsSettingsPanel,
+        variant: AyuVariant,
+        activePanels: MutableList<AyuIslandsSettingsPanel>,
+    ): JComponent =
+        panel {
+            settingsPanel.buildPanel(this@panel, variant)
+            activePanels += settingsPanel
+        }
+
+    private fun Panel.buildResetAllSettingsRow() {
+        row {
+            link("Reset all Ayu settings\u2026") {
+                val result =
+                    Messages.showYesNoDialog(
+                        "Reset all Ayu Islands settings to defaults?\n\n" +
+                            "This will reset accent color, element toggles, and all glow settings.",
+                        "Reset All Settings",
+                        Messages.getWarningIcon(),
+                    )
+                if (result == Messages.YES) {
+                    resetAllSettings()
                 }
             }
+        }
+    }
 
-        fontPresetPanel.initState()
+    private fun resolveTabAccentColor(
+        settings: AyuIslandsSettings,
+        variant: AyuVariant?,
+    ): Color =
+        if (variant == null) {
+            JBUI.CurrentTheme.Link.Foreground.ENABLED
+        } else {
+            decodeAccentColor(settings, variant)
+        }
 
-        val fontTab =
-            panel {
-                fontPresetPanel.buildFontTab(this@panel)
-            }
+    private fun decodeAccentColor(
+        settings: AyuIslandsSettings,
+        variant: AyuVariant,
+    ): Color =
+        try {
+            Color.decode(settings.getAccentForVariant(variant))
+        } catch (exception: NumberFormatException) {
+            log.warn("Invalid accent color for ${variant.name}, using theme default", exception)
+            JBUI.CurrentTheme.Link.Foreground.ENABLED
+        }
 
-        val glowTab =
-            panel {
-                effectsPanel.buildGlowPanel(this@panel)
-            }
-
-        val syntaxTab =
-            panel {
-                syntaxPanel.buildPanel(this@panel, variant)
-            }
-
-        val vcsTab =
-            panel {
-                vcsColorPanel.buildPanel(this@panel, variant)
-            }
-
-        val workspaceTab =
-            panel {
-                workspacePanel.buildPanel(this@panel, variant)
-            }
-
-        val pluginsTab =
-            panel {
-                pluginsPanel.buildPanel(this@panel, variant)
-            }
-
-        // Single-level tab container
-        val settings = AyuIslandsSettings.getInstance()
-        val state = settings.state
-        val accentColor =
-            try {
-                Color.decode(settings.getAccentForVariant(variant))
-            } catch (exception: NumberFormatException) {
-                log.warn("Invalid accent color for ${variant.name}, using theme default", exception)
-                JBUI.CurrentTheme.Link.Foreground.ENABLED
-            }
-
-        val tabs =
-            createSettingsTabs(
-                contentTabs =
-                    listOf(
-                        "Accent" to accentTab,
-                        "Font" to fontTab,
-                        "Glow" to glowTab,
-                        // Syntax slots between Glow and VCS so rendering-related
-                        // tabs cluster before source-control and workspace tabs.
-                        "Syntax" to syntaxTab,
-                        "VCS" to vcsTab,
-                        "Workspace" to workspaceTab,
-                        "Plugins" to pluginsTab,
-                    ),
-                accentColor = accentColor,
-                selectedIndex = state.settingsSelectedTab,
-            ) { selectedIndex ->
-                AyuIslandsSettings.getInstance().state.settingsSelectedTab = selectedIndex
-            }
-
-        return panel {
-            // Header
+    private fun buildRootPanel(
+        pluginVersion: String,
+        variant: AyuVariant?,
+        tabs: JBTabbedPane,
+    ): com.intellij.openapi.ui.DialogPanel =
+        panel {
             row {
                 scaleIcon()?.let { icon(it) }
                 label("v$pluginVersion")
@@ -211,7 +249,8 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
             }
             row {
                 val status = if (LicenseChecker.isLicensedOrGrace()) "Licensed" else ""
-                comment("${variant.name} variant $status".trim())
+                val themeStatus = variant?.let { "${it.name} variant" } ?: "External theme"
+                comment("$themeStatus $status".trim())
             }
 
             if (!LicenseChecker.isLicensedOrGrace()) {
@@ -224,12 +263,16 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                 }
             }
 
-            // Tab container
             row {
                 cell(tabs)
                     .resizableColumn()
                     .align(Align.FILL)
             }
+        }
+
+    private fun Panel.buildAyuThemeRequiredMessage(sectionName: String) {
+        row {
+            comment("Activate an Ayu Islands theme to configure $sectionName.")
         }
     }
 
@@ -441,12 +484,12 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         super.disposeUIResources()
     }
 
-    override fun isModified(): Boolean = super.isModified() || panels.any { it.isModified() }
+    override fun isModified(): Boolean = builtPanels.any { it.isModified() }
 
     override fun apply() {
         super.apply()
 
-        for (section in panels) {
+        for (section in builtPanels) {
             section.apply()
         }
 
@@ -479,7 +522,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
 
     override fun reset() {
         super.reset()
-        for (section in panels) {
+        for (section in builtPanels) {
             section.reset()
         }
     }

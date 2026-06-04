@@ -261,14 +261,40 @@ class GlowOverlayManagerLifecycleTest {
         every { SwingUtilities.convertPoint(host, 0, 0, layeredPane) } returns Point(0, 0)
         every { AccentResolver.resolve(project, AccentContext.Ayu(AyuVariant.MIRAGE)) } returns "#FFCC66"
 
-        invokeAttachOverlay(manager, "LateOverlay", host)
+        invokeAttachOverlay(manager, LATE_OVERLAY_KEY, host)
 
         assertEquals(
             Color.decode("#5CCFE6"),
-            readOverlayGlassPane(manager, "LateOverlay").glowColor,
+            readLateOverlayGlassPane(manager).glowColor,
             "new overlays must seed from the clean app-global applied accent, not the project resolver",
         )
         verify(exactly = 0) { AccentResolver.resolve(project, AccentContext.Ayu(AyuVariant.MIRAGE)) }
+    }
+
+    @Test
+    fun `attachOverlay skips external overlays when external glow inheritance is disabled`() {
+        state.externalThemeEnhancementsEnabled = true
+        state.externalThemeGlowEnabled = false
+        every { AyuVariant.detect() } returns null
+        every { SwingUtilities.invokeLater(any()) } answers { firstArg<Runnable>().run() }
+
+        val project = stubProject("external-late-overlay-project")
+        val manager = GlowOverlayManager(project)
+        val host = mockk<javax.swing.JComponent>(relaxed = true)
+        val rootPane = mockk<javax.swing.JRootPane>(relaxed = true)
+        val layeredPane = mockk<javax.swing.JLayeredPane>(relaxed = true)
+        every { host.width } returns 120
+        every { host.height } returns 80
+        every { rootPane.layeredPane } returns layeredPane
+        every { SwingUtilities.getRootPane(host) } returns rootPane
+
+        invokeAttachOverlay(manager, "ExternalLateOverlay", host)
+
+        assertTrue(
+            readOverlaysMap(manager).isEmpty(),
+            "External Glow permission OFF must prevent late attach events from recreating overlays",
+        )
+        verify(exactly = 0) { AccentResolver.resolve(project, AccentContext.External) }
     }
 
     @Test
@@ -449,7 +475,7 @@ class GlowOverlayManagerLifecycleTest {
 
     @Test
     fun `syncGlowForAllProjects disposes every project glow when variant becomes null`() {
-        // When `AyuIslandsLafListener` detects a non-Ayu LAF, it calls
+        // When the LAF listener detects a non-Ayu LAF, it calls
         // `GlowOverlayManager.syncGlowForAllProjects()` which iterates every
         // open project and triggers per-project disposal via the guard. This
         // test pins the multi-project dispatch — without it, only the focused
@@ -506,11 +532,8 @@ class GlowOverlayManagerLifecycleTest {
         return field.get(manager) as Map<*, *>
     }
 
-    private fun readOverlayGlassPane(
-        manager: GlowOverlayManager,
-        key: String,
-    ): GlowGlassPane {
-        val entry = readOverlaysMap(manager)[key] ?: error("Overlay '$key' was not attached")
+    private fun readLateOverlayGlassPane(manager: GlowOverlayManager): GlowGlassPane {
+        val entry = readOverlaysMap(manager)[LATE_OVERLAY_KEY] ?: error("Overlay '$LATE_OVERLAY_KEY' was not attached")
         val field = entry.javaClass.getDeclaredField("glassPane")
         field.isAccessible = true
         return field.get(entry) as GlowGlassPane
@@ -651,5 +674,8 @@ class GlowOverlayManagerLifecycleTest {
 
         /** Sentinel key for the disposal-path test seed. */
         private const val DISPOSAL_TARGET_KEY = "DISPOSAL_TARGET"
+
+        /** Sentinel key for the late-overlay attach-path test. */
+        private const val LATE_OVERLAY_KEY = "LateOverlay"
     }
 }

@@ -8,6 +8,7 @@ import com.intellij.openapi.ui.popup.ComponentPopupBuilder
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.JBPopupListener
+import dev.ayuislands.AyuLaf
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentResolver
@@ -77,6 +78,19 @@ class QuickSwitcherPopupTest {
     }
 
     @Test
+    fun `show builds popup in external quick-switcher context`() {
+        stubPopupBodyDependencies(
+            context = AccentContext.External,
+            detectedVariant = null,
+        )
+        val (_, popup) = stubPopupBuilder()
+
+        QuickSwitcherPopup.show(JLabel())
+
+        verify(exactly = 1) { popup.showUnderneathOf(any()) }
+    }
+
+    @Test
     fun `show toggles chip popup-attached ring while popup is open`() {
         stubPopupBodyDependencies()
         val (_, popup) = stubPopupBuilder()
@@ -98,22 +112,26 @@ class QuickSwitcherPopupTest {
         assertFalse(chip.isPopupAttached, "Chip must clear attached ring after popup closes")
     }
 
-    private fun stubPopupBodyDependencies() {
+    private fun stubPopupBodyDependencies(
+        context: AccentContext = AccentContext.Ayu(AyuVariant.MIRAGE),
+        detectedVariant: AyuVariant? = AyuVariant.MIRAGE,
+    ) {
         mockkObject(AyuVariant.Companion)
-        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        every { AyuVariant.detect() } returns detectedVariant
         mockkObject(AccentContext.Companion)
-        every { AccentContext.detectQuickSwitcher() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
+        every { AccentContext.detectQuickSwitcher() } returns context
         // The grid resolves the current accent at construction — stub the chain.
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns null
         mockkObject(AccentResolver)
         every { AccentResolver.resolve(any(), any<AccentContext>()) } returns "#FFB454"
         every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFB454"
-        // VariantSwitcherRow reads LafManager during construction — stub via relaxed mock.
+        // VariantSwitcherRow reads the active theme name during construction.
         mockkStatic(LafManager::class)
         val lafManager = mockk<LafManager>(relaxed = true)
         every { LafManager.getInstance() } returns lafManager
-        every { lafManager.currentUIThemeLookAndFeel } returns null
+        mockkObject(AyuLaf)
+        every { AyuLaf.currentThemeName(lafManager) } returns ""
         // The premium block reads settings and license state while binding rows.
         val settings = mockk<AyuIslandsSettings>(relaxed = true)
         every { settings.state } returns AyuIslandsState()

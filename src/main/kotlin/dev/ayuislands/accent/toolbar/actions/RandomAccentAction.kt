@@ -7,10 +7,9 @@ import com.intellij.openapi.project.DumbAwareAction
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AyuVariant
-import dev.ayuislands.accent.ExternalAccentSource
+import dev.ayuislands.accent.persistExternalManualAccentIfNeeded
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.rotation.ContrastAwareColorGenerator
-import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 
 /**
@@ -46,7 +45,7 @@ class RandomAccentAction : DumbAwareAction("Random Accent", "Pick a random reada
         try {
             val applied = AccentApplicator.applyFromHexString(hex)
             if (applied) {
-                persistExternalAccentIfNeeded(context, hex)
+                context.persistExternalManualAccentIfNeeded(hex)
                 ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
             } else {
                 LOG.warn("Random: applyFromHexString rejected hex=$hex")
@@ -54,16 +53,6 @@ class RandomAccentAction : DumbAwareAction("Random Accent", "Pick a random reada
         } catch (exception: RuntimeException) {
             LOG.warn("Random: apply failed hex=$hex", exception)
         }
-    }
-
-    private fun persistExternalAccentIfNeeded(
-        context: AccentContext,
-        hex: String,
-    ) {
-        if (context != AccentContext.External) return
-        val state = AyuIslandsSettings.getInstance().state
-        state.externalThemeAccent = hex
-        state.externalThemeAccentSource = ExternalAccentSource.MANUAL.name
     }
 
     private companion object {
