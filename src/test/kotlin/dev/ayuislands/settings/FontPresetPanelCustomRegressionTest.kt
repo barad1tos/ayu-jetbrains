@@ -110,6 +110,24 @@ class FontPresetPanelCustomRegressionTest {
     }
 
     @Test
+    fun `initState is not modified when stored customizations are absent defaults`() {
+        val state = AyuIslandsState()
+        val settings = mockk<AyuIslandsSettings>(relaxed = true)
+        every { settings.state } returns state
+        mockkObject(AyuIslandsSettings.Companion)
+        every { AyuIslandsSettings.getInstance() } returns settings
+        mockkObject(FontDetector)
+        every { FontDetector.invalidateCache() } returns Unit
+        every { FontDetector.detectAll() } returns emptyMap()
+
+        val panel = FontPresetPanel()
+
+        panel.initState()
+
+        assertFalse(panel.isModified(), "Default decoded font customizations must not dirty a fresh panel")
+    }
+
+    @Test
     fun `previewInstalledFor curated branch returns true for HEALTHY status`() {
         assertTrue(previewInstalledFor(FontPreset.AMBIENT, FontStatus.HEALTHY, true, "anything"))
     }

@@ -206,6 +206,50 @@ class AyuIslandsStartupActivityTest {
     }
 
     @Test
+    fun `execute applies external accents and initializes glow before non-Ayu early return`() {
+        // Regression guard: external themes skip the Ayu-only startup pipeline,
+        // but external accent integrations and Glow still need per-project
+        // initialization when the user opted in. Keep both before the early
+        // return so startup does not wait for a later Settings or LAF event.
+        val source = readStartupActivitySource()
+        val earlyReturn =
+            Regex(
+                """AyuVariant\.fromThemeName\(themeName\)\s*\?:\s*return\s+""" +
+                    """initializeExternalThemeIfEnabled\(project,\s*settings\)""",
+                RegexOption.DOT_MATCHES_ALL,
+            )
+        val externalStartup =
+            Regex(
+                """private\s+suspend\s+fun\s+initializeExternalThemeIfEnabled""" +
+                    """.*?state\.externalThemeEnhancementsEnabled""" +
+                    """.*?runStartupAccentOnEdt\(project,\s*AccentContext\.External\)""" +
+                    """.*?initializeExternalGlowIfEnabled\(project,\s*settings\)""",
+                RegexOption.DOT_MATCHES_ALL,
+            )
+        val externalGlowInitializer =
+            Regex(
+                """private\s+fun\s+initializeExternalGlowIfEnabled""" +
+                    """.*?state\.isExternalGlowAllowed\(\).*?""" +
+                    """ApplicationManager\.getApplication\(\)\.invokeLater\s*\(\s*""" +
+                    """\{\s*GlowOverlayManager\.getInstance\(project\)\.initialize\(\)\s*},\s*""" +
+                    """project\.disposed,\s*\).*?}""",
+                RegexOption.DOT_MATCHES_ALL,
+            )
+        assertTrue(
+            earlyReturn.containsMatchIn(source),
+            "Non-Ayu startup must route through initializeExternalThemeIfEnabled before returning",
+        )
+        assertTrue(
+            externalStartup.containsMatchIn(source),
+            "External theme startup must apply AccentContext.External before returning",
+        )
+        assertTrue(
+            externalGlowInitializer.containsMatchIn(source),
+            "External theme startup must initialize GlowOverlayManager before the non-Ayu early return",
+        )
+    }
+
+    @Test
     fun `startup projectName is captured before the EDT hop`() {
         // Regression lock. `projectName` MUST be captured OUTSIDE
         // `withContext(Dispatchers.EDT)` so a mid-hop disposal cannot NPE

@@ -13,6 +13,7 @@ import com.intellij.util.messages.Topic
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentChangeListener
 import dev.ayuislands.accent.AccentChangedTopic
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
@@ -80,11 +81,15 @@ class QuickSwitcherChipFocusSwapTest {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.isAyuActive() } returns true
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        mockkObject(AccentContext.Companion)
+        every { AccentContext.isQuickSwitcherActive() } returns true
+        every { AccentContext.detectQuickSwitcher() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
 
         mockkObject(AccentResolver)
         every { AccentResolver.sourceLabel(AccentResolver.Source.GLOBAL) } returns "Global"
         every { AccentResolver.sourceLabel(AccentResolver.Source.PROJECT_OVERRIDE) } returns "Project override"
         every { AccentResolver.sourceLabel(AccentResolver.Source.LANGUAGE_OVERRIDE) } returns "Language override"
+        every { AccentResolver.source(any(), any<AccentContext>()) } returns AccentResolver.Source.GLOBAL
         every { AccentResolver.source(any()) } returns AccentResolver.Source.GLOBAL
 
         mockkObject(AccentApplicator)
@@ -111,8 +116,8 @@ class QuickSwitcherChipFocusSwapTest {
                 every { isDefault } returns false
             }
         every { AccentApplicator.resolveFocusedProject() } returnsMany listOf(projectA, projectB)
-        every { AccentResolver.resolve(projectA, AyuVariant.MIRAGE) } returns "#FFCC66"
-        every { AccentResolver.resolve(projectB, AyuVariant.MIRAGE) } returns "#5CCFE6"
+        every { AccentResolver.resolve(projectA, any<AccentContext>()) } returns "#FFCC66"
+        every { AccentResolver.resolve(projectB, any<AccentContext>()) } returns "#5CCFE6"
 
         val chip = QuickSwitcherChipComponent()
         chip.addNotify() // refreshFromFocusedProject() runs once -> projectA -> #FFCC66
@@ -142,7 +147,7 @@ class QuickSwitcherChipFocusSwapTest {
                 every { isDefault } returns false
             }
         every { AccentApplicator.resolveFocusedProject() } returns project
-        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returnsMany listOf("#FFCC66", "#DFBFFF")
+        every { AccentResolver.resolve(project, any<AccentContext>()) } returnsMany listOf("#FFCC66", "#DFBFFF")
 
         val chip = QuickSwitcherChipComponent()
         chip.addNotify()
@@ -171,7 +176,7 @@ class QuickSwitcherChipFocusSwapTest {
                 every { isDefault } returns false
             }
         every { AccentApplicator.resolveFocusedProject() } returns project
-        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
+        every { AccentResolver.resolve(project, any<AccentContext>()) } returns "#FFCC66"
 
         val chip = QuickSwitcherChipComponent()
         chip.addNotify()

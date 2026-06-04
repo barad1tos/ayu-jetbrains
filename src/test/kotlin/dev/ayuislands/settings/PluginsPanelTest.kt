@@ -6,10 +6,14 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.ui.dsl.builder.panel
+import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.conflict.ConflictRegistry
+import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.indent.IndentPreset
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.settings.mappings.AccentSwatchPickerRow
 import dev.ayuislands.syntax.SyntaxIntensityService
 import io.mockk.every
 import io.mockk.mockk
@@ -21,10 +25,12 @@ import io.mockk.verify
 import java.awt.Component
 import java.awt.Container
 import javax.swing.JCheckBox
+import javax.swing.JLabel
 import javax.swing.JSlider
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -100,7 +106,7 @@ class PluginsPanelTest {
         val dialogPanel = buildDialogPanel(pluginsPanel)
         val enabledCheckbox =
             descendants(dialogPanel, JCheckBox::class.java)
-                .first { it.text == "Sync colors with Indent Rainbow" }
+                .first { it.text == "Indent Rainbow guides" }
         val errorCheckbox =
             descendants(dialogPanel, JCheckBox::class.java)
                 .first { it.text == "Highlight indent errors" }
@@ -135,7 +141,7 @@ class PluginsPanelTest {
         val dialogPanel = buildDialogPanel(pluginsPanel)
         val ignoreCheckbox =
             descendants(dialogPanel, JCheckBox::class.java)
-                .first { it.text == "Use Ayu colors for .ignore files" }
+                .first { it.text == ".ignore syntax colors" }
 
         assertTrue(
             ignoreCheckbox.isEffectivelyVisibleWithin(dialogPanel),
@@ -143,6 +149,166 @@ class PluginsPanelTest {
         )
         assertTrue(ignoreCheckbox.isSelected, ".ignore syntax colors default on for the release feature")
         assertFalse(pluginsPanel.isModified(), "Rendering the default-on .ignore toggle must not dirty Settings")
+    }
+
+    @Test
+    fun `external themes group is visible without premium plugin detections`() {
+        every { ConflictRegistry.isIndentRainbowDetected() } returns false
+        every { ConflictRegistry.isCodeGlanceProDetected() } returns false
+        val pluginsPanel = PluginsPanel()
+
+        val dialogPanel = buildDialogPanel(pluginsPanel)
+        val checkbox =
+            descendants(dialogPanel, JCheckBox::class.java)
+                .first { it.text == "Enable Ayu enhancements on other themes" }
+
+        assertTrue(checkbox.isEffectivelyVisibleWithin(dialogPanel))
+        assertFalse(checkbox.isSelected)
+        assertFalse(pluginsPanel.isModified())
+    }
+
+    @Test
+    fun `external theme inheritance toggles render with approved defaults`() {
+        val pluginsPanel = PluginsPanel()
+
+        val dialogPanel = buildDialogPanel(pluginsPanel)
+        val checkboxes = descendants(dialogPanel, JCheckBox::class.java)
+        val masterCheckbox = checkboxes.first { it.text == "Enable Ayu enhancements on other themes" }
+        val quickSwitcherCheckbox = checkboxes.first { it.text == "Quick switcher" }
+        val glowCheckbox = checkboxes.first { it.text == "Glow" }
+        val codeGlanceProCheckbox = checkboxes.first { it.text == "CodeGlance Pro" }
+        val indentRainbowCheckbox = checkboxes.first { it.text == "Indent Rainbow" }
+
+        assertTrue(masterCheckbox.isEffectivelyVisibleWithin(dialogPanel))
+        assertTrue(quickSwitcherCheckbox.isEffectivelyVisibleWithin(dialogPanel))
+        assertTrue(glowCheckbox.isEffectivelyVisibleWithin(dialogPanel))
+        assertTrue(codeGlanceProCheckbox.isEffectivelyVisibleWithin(dialogPanel))
+        assertTrue(indentRainbowCheckbox.isEffectivelyVisibleWithin(dialogPanel))
+        assertFalse(masterCheckbox.isSelected)
+        assertTrue(quickSwitcherCheckbox.isSelected)
+        assertFalse(glowCheckbox.isSelected)
+        assertTrue(codeGlanceProCheckbox.isSelected)
+        assertTrue(indentRainbowCheckbox.isSelected)
+        assertFalse(pluginsPanel.isModified())
+    }
+
+    @Test
+    fun `plugins tab renders two approved focus sections`() {
+        val pluginsPanel = PluginsPanel()
+
+        val dialogPanel = buildDialogPanel(pluginsPanel)
+        val labels = descendants(dialogPanel, JLabel::class.java).mapNotNull { it.text }
+
+        assertTrue("External Theme Support" in labels)
+        assertTrue("Plugin Integrations" in labels)
+        assertFalse(".ignore" in labels, ".ignore should render as an integration row, not a standalone group")
+        assertFalse(
+            "CodeGlance Pro" in labels,
+            "CodeGlance Pro should render as an integration row, not a standalone group",
+        )
+        assertFalse(
+            "Indent Rainbow" in labels,
+            "Indent Rainbow should render as an integration row, not a standalone group",
+        )
+    }
+
+    @Test
+    fun `external theme toggle persists opt-in`() {
+        val pluginsPanel = PluginsPanel()
+        val dialogPanel = buildDialogPanel(pluginsPanel)
+        val checkbox =
+            descendants(dialogPanel, JCheckBox::class.java)
+                .first { it.text == "Enable Ayu enhancements on other themes" }
+
+        checkbox.doClick()
+        pluginsPanel.apply()
+
+        assertTrue(state.externalThemeEnhancementsEnabled)
+        assertFalse(pluginsPanel.isModified())
+    }
+
+    @Test
+    fun `external theme opt-in applies external context immediately on non-Ayu themes`() {
+        mockkObject(AyuVariant.Companion)
+        every { AyuVariant.detect() } returns null
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.applyForFocusedProject(AccentContext.External) } returns "#AABBCC"
+        mockkObject(GlowOverlayManager)
+        every { GlowOverlayManager.syncGlowForAllProjects() } returns Unit
+
+        val pluginsPanel = PluginsPanel()
+        val dialogPanel = buildDialogPanel(pluginsPanel)
+        val checkbox =
+            descendants(dialogPanel, JCheckBox::class.java)
+                .first { it.text == "Enable Ayu enhancements on other themes" }
+
+        checkbox.doClick()
+        pluginsPanel.apply()
+
+        assertTrue(state.externalThemeEnhancementsEnabled)
+        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.External) }
+        verify(exactly = 1) { GlowOverlayManager.syncGlowForAllProjects() }
+    }
+
+    @Test
+    fun `external theme opt-out reverts inherited surfaces immediately on non-Ayu themes`() {
+        state.externalThemeEnhancementsEnabled = true
+        mockkObject(AyuVariant.Companion)
+        every { AyuVariant.detect() } returns null
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.revertAll() } returns Unit
+        mockkObject(GlowOverlayManager)
+        every { GlowOverlayManager.syncGlowForAllProjects() } returns Unit
+
+        val pluginsPanel = PluginsPanel()
+        val dialogPanel = buildDialogPanel(pluginsPanel)
+        val checkbox =
+            descendants(dialogPanel, JCheckBox::class.java)
+                .first { it.text == "Enable Ayu enhancements on other themes" }
+
+        checkbox.doClick()
+        pluginsPanel.apply()
+
+        assertFalse(state.externalThemeEnhancementsEnabled)
+        verify(exactly = 1) { AccentApplicator.revertAll() }
+        verify(exactly = 1) { GlowOverlayManager.syncGlowForAllProjects() }
+    }
+
+    @Test
+    fun `external theme inheritance toggles persist independently`() {
+        val pluginsPanel = PluginsPanel()
+        val dialogPanel = buildDialogPanel(pluginsPanel)
+        val checkboxes = descendants(dialogPanel, JCheckBox::class.java)
+        val quickSwitcherCheckbox = checkboxes.first { it.text == "Quick switcher" }
+        val glowCheckbox = checkboxes.first { it.text == "Glow" }
+        val codeGlanceProCheckbox = checkboxes.first { it.text == "CodeGlance Pro" }
+        val indentRainbowCheckbox = checkboxes.first { it.text == "Indent Rainbow" }
+
+        quickSwitcherCheckbox.doClick()
+        glowCheckbox.doClick()
+        codeGlanceProCheckbox.doClick()
+        indentRainbowCheckbox.doClick()
+        pluginsPanel.apply()
+
+        assertFalse(state.externalThemeQuickSwitcherEnabled)
+        assertTrue(state.externalThemeGlowEnabled)
+        assertFalse(state.externalThemeCodeGlanceProEnabled)
+        assertFalse(state.externalThemeIndentRainbowEnabled)
+        assertFalse(pluginsPanel.isModified())
+    }
+
+    @Test
+    fun `external accent picker renders stored fallback accent`() {
+        state.externalThemeAccent = "#AABBCC"
+        val pluginsPanel = PluginsPanel()
+
+        val dialogPanel = buildDialogPanel(pluginsPanel)
+        val picker =
+            descendants(dialogPanel, AccentSwatchPickerRow::class.java)
+                .first()
+
+        assertEquals("#AABBCC", picker.selectedHex)
+        assertFalse(pluginsPanel.isModified())
     }
 
     @Test
@@ -155,7 +321,7 @@ class PluginsPanelTest {
         val dialogPanel = buildDialogPanel(pluginsPanel)
         val ignoreCheckbox =
             descendants(dialogPanel, JCheckBox::class.java)
-                .first { it.text == "Use Ayu colors for .ignore files" }
+                .first { it.text == ".ignore syntax colors" }
 
         ignoreCheckbox.doClick()
         pluginsPanel.apply()
@@ -175,7 +341,7 @@ class PluginsPanelTest {
         val dialogPanel = buildDialogPanel(pluginsPanel)
         val ignoreCheckbox =
             descendants(dialogPanel, JCheckBox::class.java)
-                .first { it.text == "Use Ayu colors for .ignore files" }
+                .first { it.text == ".ignore syntax colors" }
 
         assertFalse(ignoreCheckbox.isSelected, "Stored .ignore opt-out must render unchecked")
 

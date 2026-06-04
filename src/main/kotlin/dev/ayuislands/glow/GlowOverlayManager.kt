@@ -14,9 +14,9 @@ import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import dev.ayuislands.accent.AccentChangeListener
 import dev.ayuislands.accent.AccentChangedTopic
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
-import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -99,8 +99,13 @@ class GlowOverlayManager(
             return
         }
 
-        if (!AyuVariant.isAyuActive()) {
-            log.info("No Ayu variant detected, skipping glow initialization")
+        val context = AccentContext.detect()
+        if (context == null) {
+            log.info("No accent context detected, skipping glow initialization")
+            return
+        }
+        if (context == AccentContext.External && !settings.state.isExternalGlowAllowed()) {
+            log.info("External glow disabled, skipping overlay initialization")
             return
         }
 
@@ -238,16 +243,17 @@ class GlowOverlayManager(
         val state = AyuIslandsSettings.getInstance().state
         if (!state.glowFocusRing) return
 
-        // Pattern A — log-once gate. AyuVariant.detect() returns null only when
-        // a non-Ayu LAF is active; without the diagnostic, a user reporting
+        // Pattern A — log-once gate. AccentContext.detect() returns null only when
+        // no Ayu Islands accent context is active; without the diagnostic, a user reporting
         // "focus ring glow stopped working after theme tweak" hands us logs
         // with no breadcrumb of which guard fired.
-        val variant =
-            AyuVariant.detect() ?: run {
-                log.debug("AyuVariant.detect() returned null in initializeFocusRingGlow, skipping focus-ring glow")
+        val context =
+            AccentContext.detect() ?: run {
+                log.debug("AccentContext.detect() returned null in initializeFocusRingGlow, skipping focus-ring glow")
                 return
             }
-        val accentHex = resolveCurrentGlowAccentHex(project, state, variant)
+        if (isExternalGlowBlocked(context, state, "initializeFocusRingGlow")) return
+        val accentHex = resolveCurrentGlowAccentHex(project, state, context)
         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
         val accent = safeDecodeColor(accentHex)
         val intensity = state.getIntensityForStyle(style)
@@ -286,16 +292,16 @@ class GlowOverlayManager(
         val layeredPane = rootPane.layeredPane
 
         val state = AyuIslandsSettings.getInstance().state
-        // Pattern A — log-once gate. attachOverlay fires from message-bus
-        // callbacks (tool-window state change, editor selection); a silent
-        // skip on a non-Ayu LAF leaves the overlay un-attached without any
-        // trace in idea.log.
-        val variant =
-            AyuVariant.detect() ?: run {
-                log.debug("AyuVariant.detect() returned null in attachOverlay($id), skipping overlay attach")
+        // Pattern A — log-once gate. attachOverlay fires from message-bus callbacks
+        // (tool-window state change, editor selection); a silent skip when no accent
+        // context is active leaves the overlay un-attached without any trace in idea.log.
+        val context =
+            AccentContext.detect() ?: run {
+                log.debug("AccentContext.detect() returned null in attachOverlay($id), skipping overlay attach")
                 return
             }
-        val accentHex = resolveCurrentGlowAccentHex(project, state, variant)
+        if (isExternalGlowBlocked(context, state, "attachOverlay($id)")) return
+        val accentHex = resolveCurrentGlowAccentHex(project, state, context)
         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
 
         val glassPane =
@@ -433,7 +439,8 @@ class GlowOverlayManager(
 
     fun updateGlow(appliedAccent: AccentHex? = null) {
         if (disposed) return
-        if (!AyuVariant.isAyuActive()) {
+        val context = AccentContext.detect()
+        if (context == null) {
             removeAllOverlays()
             return
         }
@@ -444,24 +451,14 @@ class GlowOverlayManager(
             removeAllOverlays()
             return
         }
+        if (context == AccentContext.External && !state.isExternalGlowAllowed()) {
+            removeAllOverlays()
+            return
+        }
 
-        // Pattern A — log-once gate. The isAyuActive() guard above already
-        // disposed overlays when the LAF is non-Ayu, so reaching here with a
-        // null detect() is the rare race window between guard and detect();
-        // surface a DEBUG breadcrumb instead of falling through silently.
         val accentHex =
             appliedAccent?.value
-                ?: run {
-                    val variant =
-                        AyuVariant.detect() ?: run {
-                            log.debug(
-                                "AyuVariant.detect() returned null in updateGlow after " +
-                                    "isAyuActive guard, skipping refresh",
-                            )
-                            return
-                        }
-                    resolveCurrentGlowAccentHex(project, state, variant)
-                }
+                ?: resolveCurrentGlowAccentHex(project, state, context)
         val accent = safeDecodeColor(accentHex)
         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
 
@@ -543,13 +540,23 @@ class GlowOverlayManager(
     }
 }
 
+private fun isExternalGlowBlocked(
+    context: AccentContext,
+    state: AyuIslandsState,
+    callSite: String,
+): Boolean {
+    if (context != AccentContext.External || state.isExternalGlowAllowed()) return false
+    logger<GlowOverlayManager>().debug("External glow disabled, skipping $callSite")
+    return true
+}
+
 private fun resolveCurrentGlowAccentHex(
     project: Project,
     state: AyuIslandsState,
-    variant: AyuVariant,
+    context: AccentContext,
 ): String =
     state
         .effectiveLastAppliedAccentHex()
         ?.takeIf { state.lastApplyOk }
         ?.value
-        ?: AccentResolver.resolve(project, variant)
+        ?: AccentResolver.resolve(project, context)

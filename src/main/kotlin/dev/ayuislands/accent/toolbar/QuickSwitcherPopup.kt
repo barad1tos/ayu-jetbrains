@@ -12,9 +12,9 @@ import com.intellij.ui.dsl.builder.panel
 import com.intellij.ui.layout.ComponentPredicate
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentDefaults
 import dev.ayuislands.accent.AccentResolver
-import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.toolbar.popup.AccentStripe
 import dev.ayuislands.accent.toolbar.popup.BlockSeparator
 import dev.ayuislands.accent.toolbar.popup.Density
@@ -43,7 +43,7 @@ import javax.swing.SwingUtilities
  * listener auto-disposes with the popup (Pattern E — never attached to the
  * chip's own lifetime).
  *
- * Belt-and-braces: if `AyuVariant.detect()` returns `null` (LAF flipped between
+ * Belt-and-braces: if [AccentContext.detect] returns `null` (LAF flipped between
  * the chip's BGT update tick and the click landing), early-return without
  * building the popup so the user does not see a half-built panel against a
  * non-Ayu theme.
@@ -56,19 +56,23 @@ internal object QuickSwitcherPopup {
         anchor: JComponent,
         chip: QuickSwitcherChipComponent? = null,
     ) {
-        val variant = AyuVariant.detect() ?: return // belt-and-braces: non-Ayu LAF
+        val context = AccentContext.detectQuickSwitcher() ?: return
 
-        val variantRow = VariantSwitcherRow(variant)
         val accentGrid = QuickSwitcherAccentGrid()
         val togglesSection = QuickSwitcherRelatedTogglesSection()
-        val actionsRow = QuickSwitcherQuickActionsRow(anchor)
+        val actionsRow = QuickSwitcherQuickActionsRow(anchor, context)
 
-        val variantCard = SectionCard("Variant").apply { setContent(variantRow.component) }
+        val variantCard =
+            when (context) {
+                is AccentContext.Ayu ->
+                    SectionCard("Variant").apply { setContent(VariantSwitcherRow(context.ayuVariant).component) }
+                AccentContext.External -> null
+            }
         val accentCard = SectionCard("Accent").apply { setContent(accentGrid.component) }
         val togglesCard = SectionCard("Toggles").apply { setContent(togglesSection.component) }
         val actionsCard = SectionCard("Actions").apply { setContent(actionsRow.component) }
 
-        val stripe = AccentStripe { resolveCurrentAccentHex(variant) }
+        val stripe = AccentStripe { resolveCurrentAccentHex(context) }
 
         val licenseGate = licenseGate()
         val content =
@@ -76,9 +80,11 @@ internal object QuickSwitcherPopup {
                 row { cell(stripe).align(AlignX.FILL) }
                     .topGap(TopGap.NONE)
                     .bottomGap(BottomGap.NONE)
-                row { cell(variantCard).align(AlignX.FILL) }
-                    .topGap(TopGap.NONE)
-                    .bottomGap(BottomGap.NONE)
+                if (variantCard != null) {
+                    row { cell(variantCard).align(AlignX.FILL) }
+                        .topGap(TopGap.NONE)
+                        .bottomGap(BottomGap.NONE)
+                }
                 row { cell(accentCard).align(AlignX.FILL) }
                     .topGap(TopGap.NONE)
                     .bottomGap(BottomGap.NONE)
@@ -127,9 +133,9 @@ internal object QuickSwitcherPopup {
         popup.showUnderneathOf(anchor)
     }
 
-    private fun resolveCurrentAccentHex(variant: AyuVariant): String =
+    private fun resolveCurrentAccentHex(context: AccentContext): String =
         try {
-            AccentResolver.resolve(AccentApplicator.resolveFocusedProject(), variant)
+            AccentResolver.resolve(AccentApplicator.resolveFocusedProject(), context)
         } catch (exception: RuntimeException) {
             LOG.warn("AccentStripe resolve failed", exception)
             DEFAULT_ACCENT_FALLBACK

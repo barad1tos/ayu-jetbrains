@@ -43,7 +43,7 @@ class LicenseTransitionListenerTest {
         // Each test re-stubs AyuVariant.detect() when it needs to exercise the
         // null-variant silent-skip branch.
         mockkObject(AccentApplicator)
-        every { AccentApplicator.applyForFocusedProject(any()) } returns "#FFCC66"
+        every { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AyuVariant>()) } returns "#FFCC66"
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
     }
@@ -192,7 +192,7 @@ class LicenseTransitionListenerTest {
         every { LicenseChecker.isLicensed() } returns true
         LicenseTransitionListener().licenseStateChanged(facade)
 
-        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any()) }
+        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AyuVariant>()) }
     }
 
     @Test
@@ -201,7 +201,7 @@ class LicenseTransitionListenerTest {
         // Baseline call: licensed. No apply expected.
         every { LicenseChecker.isLicensed() } returns true
         listener.licenseStateChanged(facade)
-        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any()) }
+        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AyuVariant>()) }
 
         // Transition: licensed → unlicensed. Chrome must re-render using the
         // global accent because the resolver now short-circuits overrides.
@@ -219,7 +219,7 @@ class LicenseTransitionListenerTest {
         // Baseline call: unlicensed. No apply expected on initial notification.
         every { LicenseChecker.isLicensed() } returns false
         listener.licenseStateChanged(facade)
-        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any()) }
+        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AyuVariant>()) }
 
         // Transition: unlicensed → licensed. BOTH side effects fire:
         //   - wizard re-arm (premiumOnboardingShown flipped to false)
@@ -246,7 +246,7 @@ class LicenseTransitionListenerTest {
         listener.licenseStateChanged(facade)
         listener.licenseStateChanged(facade)
 
-        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any()) }
+        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AyuVariant>()) }
     }
 
     @Test
@@ -259,7 +259,7 @@ class LicenseTransitionListenerTest {
         listener.licenseStateChanged(facade)
         listener.licenseStateChanged(facade)
 
-        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any()) }
+        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AyuVariant>()) }
     }
 
     @Test
@@ -277,6 +277,6 @@ class LicenseTransitionListenerTest {
         every { LicenseChecker.isLicensed() } returns false
         listener.licenseStateChanged(facade)
 
-        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any()) }
+        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AyuVariant>()) }
     }
 }

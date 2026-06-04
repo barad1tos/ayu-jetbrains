@@ -3,6 +3,7 @@ package dev.ayuislands
 import com.intellij.ide.ui.LafManager
 import com.intellij.openapi.project.ProjectManager
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.glow.GlowOverlayManager
@@ -36,13 +37,14 @@ import kotlin.test.Test
  */
 @Suppress("UnstableApiUsage")
 class AyuIslandsLafListenerTest {
-    private val state = AyuIslandsState()
+    private lateinit var state: AyuIslandsState
     private val mockSettings = mockk<AyuIslandsSettings>(relaxed = true)
     private val mockProjectManager = mockk<ProjectManager>(relaxed = true)
     private val mockSyntaxService = mockk<SyntaxIntensityService>(relaxed = true)
 
     @BeforeTest
     fun setUp() {
+        state = AyuIslandsState()
         every { mockSettings.state } returns state
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns mockSettings
@@ -62,7 +64,8 @@ class AyuIslandsLafListenerTest {
         // resolves without reaching into `ApplicationManager.getApplication().getService(...)`.
         mockkObject(SyntaxIntensityService.Companion)
 
-        every { AccentApplicator.applyForFocusedProject(any()) } returns "#FFCC66"
+        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns "#FFCC66"
+        every { AccentApplicator.applyForFocusedProject(any<AyuVariant>()) } returns "#FFCC66"
         every { AccentApplicator.revertAll() } returns Unit
         every { FontPresetApplicator.applyFromState() } returns Unit
         every { FontPresetApplicator.revert() } returns Unit
@@ -103,7 +106,7 @@ class AyuIslandsLafListenerTest {
 
         verify(exactly = 0) { AyuEditorSchemeBinder.bindForVariant(any()) }
         // Pattern G regression lock: AccentApplicator still runs even when binder is gated off.
-        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AyuVariant.DARK) }
+        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.Ayu(AyuVariant.DARK)) }
     }
 
     @Test
@@ -123,7 +126,7 @@ class AyuIslandsLafListenerTest {
 
         verifyOrder {
             AyuEditorSchemeBinder.bindForVariant(AyuVariant.LIGHT)
-            AccentApplicator.applyForFocusedProject(AyuVariant.LIGHT)
+            AccentApplicator.applyForFocusedProject(AccentContext.Ayu(AyuVariant.LIGHT))
         }
     }
 
@@ -133,6 +136,7 @@ class AyuIslandsLafListenerTest {
         // call the binder. The binder has no revert path (Ayu→non-Ayu would
         // require persisting the user's prior scheme — separate feature).
         state.syncEditorScheme = true
+        state.externalThemeEnhancementsEnabled = false
         every { AyuVariant.detect() } returns null
         val mockLafManager = mockk<LafManager>(relaxed = true)
 
@@ -142,5 +146,28 @@ class AyuIslandsLafListenerTest {
         verify(exactly = 1) { AccentApplicator.revertAll() }
         verify(exactly = 1) { FontPresetApplicator.revert() }
         verify(exactly = 1) { GlowOverlayManager.syncGlowForAllProjects() }
+    }
+
+    @Test
+    fun `lookAndFeelChanged on non-Ayu LAF with external mode cleans Ayu state then applies external context`() {
+        state.syncEditorScheme = true
+        state.externalThemeEnhancementsEnabled = true
+        every { AyuVariant.detect() } returns null
+        every { AyuVariant.isAyuActive() } returns false
+        every { AccentApplicator.applyForFocusedProject(AccentContext.External) } returns "#AABBCC"
+        val mockLafManager = mockk<LafManager>(relaxed = true)
+        every { mockLafManager.currentUIThemeLookAndFeel.name } returns "Darcula"
+
+        AyuIslandsLafListener().lookAndFeelChanged(mockLafManager)
+
+        verify(exactly = 0) { AyuEditorSchemeBinder.bindForVariant(any()) }
+        verifyOrder {
+            AccentApplicator.revertAll()
+            FontPresetApplicator.revert()
+            AccentApplicator.applyForFocusedProject(AccentContext.External)
+        }
+        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.External) }
+        verify(exactly = 1) { GlowOverlayManager.syncGlowForAllProjects() }
+        verify(exactly = 0) { mockSyntaxService.reapplyForActiveLaf() }
     }
 }

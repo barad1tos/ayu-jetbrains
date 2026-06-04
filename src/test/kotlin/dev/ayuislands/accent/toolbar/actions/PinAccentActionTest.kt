@@ -7,6 +7,7 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
@@ -47,6 +48,9 @@ class PinAccentActionTest {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.isAyuActive() } returns true
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        mockkObject(AccentContext.Companion)
+        every { AccentContext.isAccentActive() } returns true
+        every { AccentContext.detect() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
 
         mockkObject(LicenseChecker)
         every { LicenseChecker.isLicensedOrGrace() } returns true
@@ -56,7 +60,8 @@ class PinAccentActionTest {
         every { AccentApplicator.applyFromHexString(any()) } returns true
 
         mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any()) } returns "#7F52FF"
+        every { AccentResolver.resolve(any(), any<AccentContext>()) } returns "#7F52FF"
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#7F52FF"
         every { AccentResolver.projectKey(any()) } returns "/path/to/project"
 
         mockkObject(AccentMappingsSettings.Companion)
@@ -93,22 +98,22 @@ class PinAccentActionTest {
         val action = PinAccentAction()
         val event = newEvent()
 
-        every { AyuVariant.isAyuActive() } returns true
+        every { AccentContext.detect() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
         every { LicenseChecker.isLicensedOrGrace() } returns true
         action.update(event)
         assertTrue(event.presentation.isEnabledAndVisible, "Active + licensed must enable")
 
-        every { AyuVariant.isAyuActive() } returns false
+        every { AccentContext.detect() } returns AccentContext.External
         every { LicenseChecker.isLicensedOrGrace() } returns true
         action.update(event)
-        assertFalse(event.presentation.isEnabledAndVisible, "Inactive variant must disable")
+        assertFalse(event.presentation.isEnabledAndVisible, "External context must disable Ayu-only pinning")
 
-        every { AyuVariant.isAyuActive() } returns true
+        every { AccentContext.detect() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
         every { LicenseChecker.isLicensedOrGrace() } returns false
         action.update(event)
         assertFalse(event.presentation.isEnabledAndVisible, "Unlicensed must disable")
 
-        every { AyuVariant.isAyuActive() } returns false
+        every { AccentContext.detect() } returns null
         every { LicenseChecker.isLicensedOrGrace() } returns false
         action.update(event)
         assertFalse(event.presentation.isEnabledAndVisible, "Both off must disable")

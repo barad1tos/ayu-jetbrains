@@ -153,7 +153,7 @@ class AyuIslandsAppListenerTest {
         verify(exactly = 1) { AccentApplicator.applyFromHexString("#5CCFE6") }
         // Resolver must NOT be consulted when cached hex is available — that's the whole
         // point of the anti-flicker cache.
-        verify(exactly = 0) { AccentResolver.resolve(any(), any()) }
+        verify(exactly = 0) { AccentResolver.resolve(any(), any<AyuVariant>()) }
     }
 
     @Test
@@ -257,7 +257,7 @@ class AyuIslandsAppListenerTest {
         listener.appFrameCreated(mutableListOf())
 
         verify(exactly = 1) { AccentApplicator.applyFromHexString("#5CCFE6") }
-        verify(exactly = 0) { AccentResolver.resolve(any(), any()) }
+        verify(exactly = 0) { AccentResolver.resolve(any(), any<AyuVariant>()) }
         assertEquals("#5CCFE6", state.lastAppliedAccentHex, "valid cached hex must remain persisted")
     }
 

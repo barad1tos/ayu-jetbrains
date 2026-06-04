@@ -4,6 +4,7 @@ import com.intellij.ide.ui.LafManager
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.io.FileUtil
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.glow.GlowOverlayManager
@@ -37,13 +38,14 @@ import kotlin.test.assertTrue
  */
 @Suppress("UnstableApiUsage")
 class AyuIslandsLafListenerSyntaxReapplyTest {
-    private val state = AyuIslandsState()
+    private lateinit var state: AyuIslandsState
     private val mockSettings = mockk<AyuIslandsSettings>(relaxed = true)
     private val mockProjectManager = mockk<ProjectManager>(relaxed = true)
     private val mockSyntaxService = mockk<SyntaxIntensityService>(relaxed = true)
 
     @BeforeTest
     fun setUp() {
+        state = AyuIslandsState()
         every { mockSettings.state } returns state
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns mockSettings
@@ -60,7 +62,8 @@ class AyuIslandsLafListenerSyntaxReapplyTest {
         mockkObject(AppearanceSyncService.Companion)
         mockkObject(SyntaxIntensityService.Companion)
 
-        every { AccentApplicator.applyForFocusedProject(any()) } returns "#FFCC66"
+        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns "#FFCC66"
+        every { AccentApplicator.applyForFocusedProject(any<AyuVariant>()) } returns "#FFCC66"
         every { AccentApplicator.revertAll() } returns Unit
         every { FontPresetApplicator.applyFromState() } returns Unit
         every { FontPresetApplicator.revert() } returns Unit
@@ -99,6 +102,7 @@ class AyuIslandsLafListenerSyntaxReapplyTest {
         // `detect` returns null which triggers the listener's early-return
         // BEFORE the syntax reapply block; `isAyuActive` returns false to
         // double-lock the gate at the call site for future audits.
+        state.externalThemeEnhancementsEnabled = false
         every { AyuVariant.detect() } returns null
         every { AyuVariant.isAyuActive() } returns false
         val mockLafManager = mockk<LafManager>(relaxed = true)

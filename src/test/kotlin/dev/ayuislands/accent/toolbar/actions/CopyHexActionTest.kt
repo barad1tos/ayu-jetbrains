@@ -6,6 +6,7 @@ import com.intellij.openapi.actionSystem.Presentation
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.Project
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
@@ -39,6 +40,9 @@ class CopyHexActionTest {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.isAyuActive() } returns true
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        mockkObject(AccentContext.Companion)
+        every { AccentContext.isQuickSwitcherActive() } returns true
+        every { AccentContext.detectQuickSwitcher() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
 
         mockkObject(LicenseChecker)
         every { LicenseChecker.isLicensedOrGrace() } returns true
@@ -47,7 +51,8 @@ class CopyHexActionTest {
         every { AccentApplicator.resolveFocusedProject() } returns mockProject
 
         mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any()) } returns "#FFCC66"
+        every { AccentResolver.resolve(any(), any<AccentContext>()) } returns "#FFCC66"
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFCC66"
 
         mockkStatic(CopyPasteManager::class)
         every { CopyPasteManager.getInstance() } returns mockClipboard
@@ -77,25 +82,37 @@ class CopyHexActionTest {
         val action = CopyHexAction()
         val event = newEvent()
 
-        every { AyuVariant.isAyuActive() } returns true
+        every { AccentContext.isQuickSwitcherActive() } returns true
         every { LicenseChecker.isLicensedOrGrace() } returns true
         action.update(event)
         assertTrue(event.presentation.isEnabledAndVisible, "(T,T) must enable")
 
-        every { AyuVariant.isAyuActive() } returns false
+        every { AccentContext.isQuickSwitcherActive() } returns false
         every { LicenseChecker.isLicensedOrGrace() } returns true
         action.update(event)
         assertFalse(event.presentation.isEnabledAndVisible, "(F,T) inactive variant must disable")
 
-        every { AyuVariant.isAyuActive() } returns true
+        every { AccentContext.isQuickSwitcherActive() } returns true
         every { LicenseChecker.isLicensedOrGrace() } returns false
         action.update(event)
         assertFalse(event.presentation.isEnabledAndVisible, "(T,F) unlicensed must disable")
 
-        every { AyuVariant.isAyuActive() } returns false
+        every { AccentContext.isQuickSwitcherActive() } returns false
         every { LicenseChecker.isLicensedOrGrace() } returns false
         action.update(event)
         assertFalse(event.presentation.isEnabledAndVisible, "(F,F) both off must disable — locks AND vs OR")
+    }
+
+    @Test
+    fun `update is visible in external accent context`() {
+        val event = newEvent()
+        every { AyuVariant.isAyuActive() } returns false
+        every { AccentContext.isQuickSwitcherActive() } returns true
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+
+        CopyHexAction().update(event)
+
+        assertTrue(event.presentation.isEnabledAndVisible)
     }
 
     @Test
@@ -116,9 +133,9 @@ class CopyHexActionTest {
         every { mockClipboard.setContents(any()) } answers {
             captured += firstArg<Transferable>()
         }
-        every { AccentResolver.resolve(any(), any()) } returns "#FFCC66"
+        every { AccentResolver.resolve(any(), any<AccentContext>()) } returns "#FFCC66"
         CopyHexAction().actionPerformed(newEvent())
-        every { AccentResolver.resolve(any(), any()) } returns "#5CCFE6"
+        every { AccentResolver.resolve(any(), any<AccentContext>()) } returns "#5CCFE6"
         CopyHexAction().actionPerformed(newEvent())
         assertEquals(2, captured.size)
         assertEquals("#FFCC66", captured[0].getTransferData(DataFlavor.stringFlavor))
@@ -127,7 +144,7 @@ class CopyHexActionTest {
 
     @Test
     fun `actionPerformed is a no-op when AyuVariant detect returns null (belt-and-braces)`() {
-        every { AyuVariant.detect() } returns null
+        every { AccentContext.detectQuickSwitcher() } returns null
         CopyHexAction().actionPerformed(newEvent())
         verify(exactly = 0) { mockClipboard.setContents(any()) }
     }

@@ -40,9 +40,11 @@ data class IndentPalette(
     }
 
     companion object {
+        private const val EXTERNAL_ERROR_COLOR = "F27983"
+
         private val ERROR_COLORS =
             mapOf(
-                AyuVariant.MIRAGE to "F27983",
+                AyuVariant.MIRAGE to EXTERNAL_ERROR_COLOR,
                 AyuVariant.DARK to "F26D78",
                 AyuVariant.LIGHT to "FF7383",
             )
@@ -54,6 +56,11 @@ data class IndentPalette(
             val accent = accentHex.removePrefix("#")
             val error = ERROR_COLORS[variant] ?: ERROR_COLORS.getValue(AyuVariant.MIRAGE)
             return IndentPalette(errorColor = error, accentColor = accent)
+        }
+
+        fun forExternalAccent(accentHex: String): IndentPalette {
+            val accent = accentHex.removePrefix("#")
+            return IndentPalette(errorColor = EXTERNAL_ERROR_COLOR, accentColor = accent)
         }
     }
 }

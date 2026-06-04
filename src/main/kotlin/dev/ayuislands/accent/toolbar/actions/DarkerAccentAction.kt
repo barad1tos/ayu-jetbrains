@@ -5,10 +5,11 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.DumbAwareAction
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
-import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.color.AccentHsl
+import dev.ayuislands.accent.persistExternalManualAccentIfNeeded
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 
@@ -24,16 +25,16 @@ class DarkerAccentAction : DumbAwareAction("Darker", "Darken the current accent 
 
     override fun update(event: AnActionEvent) {
         event.presentation.isEnabledAndVisible =
-            AyuVariant.isAyuActive() &&
+            AccentContext.isQuickSwitcherActive() &&
             LicenseChecker.isLicensedOrGrace()
     }
 
     override fun actionPerformed(event: AnActionEvent) {
-        val variant = AyuVariant.detect() ?: return
+        val context = AccentContext.detectQuickSwitcher() ?: return
         val project = AccentApplicator.resolveFocusedProject()
         val currentHex =
             try {
-                AccentResolver.resolve(project, variant)
+                AccentResolver.resolve(project, context)
             } catch (exception: RuntimeException) {
                 LOG.warn("Darker: resolve failed", exception)
                 return
@@ -44,6 +45,7 @@ class DarkerAccentAction : DumbAwareAction("Darker", "Darken the current accent 
         try {
             val applied = AccentApplicator.applyFromHexString(newHex)
             if (applied) {
+                context.persistExternalManualAccentIfNeeded(newHex)
                 ProjectAccentSwapService.getInstance().notifyExternalApply(newHex)
             } else {
                 LOG.warn("Darker: applyFromHexString rejected hex=$newHex")

@@ -8,6 +8,7 @@ import com.intellij.util.messages.MessageBus
 import com.intellij.util.messages.MessageBusConnection
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
@@ -79,6 +80,9 @@ class QuickSwitcherChipPinToggleTest {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.isAyuActive() } returns true
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        mockkObject(AccentContext.Companion)
+        every { AccentContext.isQuickSwitcherActive() } returns true
+        every { AccentContext.detectQuickSwitcher() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
 
         mockkObject(LicenseChecker)
         every { LicenseChecker.isLicensedOrGrace() } returns true
@@ -88,7 +92,7 @@ class QuickSwitcherChipPinToggleTest {
         every { AccentApplicator.applyFromHexString(any()) } returns true
 
         mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any()) } returns "#FFB454"
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFB454"
         every { AccentResolver.source(any()) } returns AccentResolver.Source.GLOBAL
         every { AccentResolver.sourceLabel(any()) } returns "Global"
         every { AccentResolver.projectKey(any()) } returns PROJECT_KEY
@@ -132,7 +136,7 @@ class QuickSwitcherChipPinToggleTest {
         // chip re-applies.
         state.projectAccents[PROJECT_KEY] = "#FFB454"
         every { AccentResolver.source(mockProject) } returns AccentResolver.Source.PROJECT_OVERRIDE
-        every { AccentResolver.resolve(any(), any()) } returns "#73D0FF"
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#73D0FF"
 
         val chip = QuickSwitcherChipComponent()
         chip.dispatchEvent(innerClick(chip))
@@ -175,6 +179,21 @@ class QuickSwitcherChipPinToggleTest {
     }
 
     @Test
+    fun `external inner click opens popup instead of swallowing Ayu-only pin`() {
+        every { AyuVariant.isAyuActive() } returns false
+        every { AyuVariant.detect() } returns null
+        every { AccentContext.isQuickSwitcherActive() } returns true
+        every { AccentContext.detectQuickSwitcher() } returns AccentContext.External
+
+        val chip = QuickSwitcherChipComponent()
+        chip.dispatchEvent(innerClick(chip))
+
+        verify(exactly = 1) { QuickSwitcherPopup.show(chip, chip) }
+        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
+        assertTrue(state.projectAccents.isEmpty(), "External inner click must not write Ayu project pins")
+    }
+
+    @Test
     fun `pin path rolls back projectAccents when applyFromHexString returns false`() {
         // Pin from unpinned + apply rejects (e.g. corrupted upstream
         // settings produce an invalid hex). The pin write must NOT persist
@@ -201,7 +220,7 @@ class QuickSwitcherChipPinToggleTest {
         // override the user thought they were unpinning.
         state.projectAccents[PROJECT_KEY] = "#FFB454"
         every { AccentResolver.source(mockProject) } returns AccentResolver.Source.PROJECT_OVERRIDE
-        every { AccentResolver.resolve(any(), any()) } returns "#73D0FF"
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#73D0FF"
         every { AccentApplicator.applyFromHexString(any()) } returns false
 
         val chip = QuickSwitcherChipComponent()

@@ -12,15 +12,16 @@ import kotlin.test.fail
  * (`DEFAULT_ACCENT_HEX` fallbacks). This test pins the current shape: the head
  * of `updateGlow()` must open with the literal sequence
  *
- *   if (!AyuVariant.isAyuActive()) {
+ *   val context = AccentContext.detect()
+ *   if (context == null) {
  *       removeAllOverlays()
  *       return
  *   }
  *
  * A future agent who silently reorders the steps (e.g. moving `return` before
  * `removeAllOverlays()` so the dispose never runs, or replacing the predicate
- * with `AyuVariant.detect() == null` and bypassing Pattern J) gets a named
- * regression that names this test rather than a generic visual bug report.
+ * with an Ayu-only gate and bypassing external mode) gets a named regression
+ * that names this test rather than a generic visual bug report.
  */
 class GlowLifecycleGuardTest {
     private val source: String by lazy {
@@ -39,8 +40,9 @@ class GlowLifecycleGuardTest {
             .joinToString("\n") { line -> line.replaceFirst(Regex("//.*$"), "") }
     }
 
-    private fun extractUpdateGlowBody(): String {
-        val signaturePrefix = "fun updateGlow("
+    private fun extractUpdateGlowBody(): String = extractFunctionBody("fun updateGlow(")
+
+    private fun extractFunctionBody(signaturePrefix: String): String {
         val start = source.indexOf(signaturePrefix)
         require(start >= 0) { "Could not locate '$signaturePrefix' in stripped source" }
         val openBrace = source.indexOf('{', start)
@@ -59,25 +61,43 @@ class GlowLifecycleGuardTest {
     }
 
     @Test
-    fun `updateGlow body contains isAyuActive guard before removeAllOverlays and return`() {
+    fun `updateGlow body contains AccentContext guard before removeAllOverlays and return`() {
         val body = extractUpdateGlowBody()
-        // The guardPattern matches `!AyuVariant.isAyuActive()` followed by
+        // The guardPattern matches `AccentContext.detect()` followed by
+        // `if (context == null)` followed by
         // `removeAllOverlays()` followed by `return`, with arbitrary whitespace
         // and the surrounding `if (...) { ... }` braces between them. A regex
         // alternative that allowed `return` before `removeAllOverlays` would
         // accept a broken guard where the function exits without disposing
         // overlays — the whole point of the lifecycle gate.
         val guardPattern =
-            Regex("""!AyuVariant\.isAyuActive\(\)[\s\S]*?removeAllOverlays\(\)[\s\S]*?return""")
+            Regex(
+                """val\s+context\s*=\s*AccentContext\.detect\(\)[\s\S]*?""" +
+                    """if\s*\(\s*context\s*==\s*null\s*\)[\s\S]*?""" +
+                    """removeAllOverlays\(\)[\s\S]*?return""",
+            )
         if (!guardPattern.containsMatchIn(body)) {
             fail(
                 "GlowOverlayManager.updateGlow must open with " +
-                    "`if (!AyuVariant.isAyuActive()) { removeAllOverlays(); return }` " +
+                    "`val context = AccentContext.detect(); " +
+                    "if (context == null) { removeAllOverlays(); return }` " +
                     "as the lifecycle gate. The guard was either missing, used the " +
-                    "wrong predicate (use isAyuActive(), not detect() == null — " +
-                    "Pattern J), or the order of `removeAllOverlays()` and `return` " +
-                    "was inverted. See Pattern L in RECURRING_PITFALLS.md.",
+                    "wrong predicate, or the order of `removeAllOverlays()` and " +
+                    "`return` was inverted. See Pattern L in RECURRING_PITFALLS.md.",
             )
+        }
+    }
+
+    @Test
+    fun `focus ring and late overlay attach honor external glow allow-list`() {
+        val focusBody = extractFunctionBody("fun initializeFocusRingGlow(")
+        val attachBody = extractFunctionBody("fun attachOverlay(")
+
+        if (!focusBody.contains("isExternalGlowBlocked(context, state, \"initializeFocusRingGlow\")")) {
+            fail("initializeFocusRingGlow must guard AccentContext.External through isExternalGlowBlocked")
+        }
+        if (!attachBody.contains("isExternalGlowBlocked(context, state, \"attachOverlay($")) {
+            fail("attachOverlay must guard AccentContext.External through isExternalGlowBlocked")
         }
     }
 }

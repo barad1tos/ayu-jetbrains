@@ -133,7 +133,17 @@ internal object CodeGlanceProIntegration {
      * swap, same-hex fast path).
      */
     fun syncCodeGlanceProViewport(accentHex: String) {
-        if (!AyuIslandsSettings.getInstance().state.cgpIntegrationEnabled) {
+        syncCodeGlanceProViewport(accentHex, null)
+    }
+
+    fun syncCodeGlanceProViewport(
+        accentHex: String,
+        context: AccentContext?,
+    ) {
+        val state = AyuIslandsSettings.getInstance().state
+        if (!state.cgpIntegrationEnabled ||
+            (context == AccentContext.External && !state.isExternalCodeGlanceProAllowed())
+        ) {
             // Pattern G + J — toggle-off symmetry. Mirror of
             // [IndentRainbowSync.apply], which reverts when its integration is
             // disabled. Without this, flipping the CGP toggle off after an

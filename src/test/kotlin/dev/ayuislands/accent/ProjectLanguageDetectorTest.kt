@@ -679,7 +679,7 @@ class ProjectLanguageDetectorTest {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any()) } returns "#FFCC66"
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFCC66"
         mockkObject(AccentApplicator)
         every { AccentApplicator.apply(any()) } answers { Unit }
         val swapService = mockk<dev.ayuislands.settings.mappings.ProjectAccentSwapService>(relaxed = true)
@@ -706,7 +706,7 @@ class ProjectLanguageDetectorTest {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any()) } returns "#FFCC66"
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFCC66"
         mockkObject(AccentApplicator)
         every { AccentApplicator.apply(any()) } answers { Unit }
         val swapService = mockk<dev.ayuislands.settings.mappings.ProjectAccentSwapService>(relaxed = true)
@@ -734,7 +734,7 @@ class ProjectLanguageDetectorTest {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any()) } returns "#FFCC66"
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFCC66"
         mockkObject(AccentApplicator)
         every { AccentApplicator.apply(any()) } throws RuntimeException("LafManager boom")
 
@@ -754,7 +754,7 @@ class ProjectLanguageDetectorTest {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any()) } throws RuntimeException("resolver boom")
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } throws RuntimeException("resolver boom")
 
         mockkObject(AccentApplicator)
         every { AccentApplicator.apply(any()) } answers { Unit }

@@ -3,6 +3,7 @@ package dev.ayuislands.accent.toolbar
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.Presentation
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -22,8 +23,8 @@ import kotlin.test.assertTrue
 
 /**
  * Two-conjunct visibility gate lock. The widget's `update()` must read EXACTLY
- * `AyuVariant.isAyuActive() && state.quickSwitcherWidgetEnabled` — no license
- * predicate (the chip is FREE), no third state field.
+ * `AccentContext.isQuickSwitcherActive() && state.quickSwitcherWidgetEnabled` — no license
+ * predicate (the chip is FREE), no unrelated state field.
  *
  * Pattern J discipline — single-source-of-truth predicate, asserted by toggling
  * each conjunct independently and verifying the presentation flips correctly.
@@ -55,6 +56,21 @@ class QuickSwitcherWidgetActionTest {
             presentation.isEnabledAndVisible,
             "Both conjuncts true => visible; state=$state",
         )
+    }
+
+    @Test
+    fun `update shows widget for external context when setting enabled`() {
+        stubAyuActive(false)
+        mockkObject(AccentContext.Companion)
+        every { AccentContext.isQuickSwitcherActive() } returns true
+        stubSettingsState(quickSwitcherEnabled = true)
+        val presentation = Presentation()
+        val event = mockk<AnActionEvent>(relaxed = true)
+        every { event.presentation } returns presentation
+
+        action.update(event)
+
+        assertTrue(presentation.isEnabledAndVisible)
     }
 
     @Test
@@ -141,6 +157,8 @@ class QuickSwitcherWidgetActionTest {
     private fun stubAyuActive(active: Boolean) {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.isAyuActive() } returns active
+        mockkObject(AccentContext.Companion)
+        every { AccentContext.isQuickSwitcherActive() } returns active
     }
 
     private fun stubSettingsState(quickSwitcherEnabled: Boolean): AyuIslandsState {

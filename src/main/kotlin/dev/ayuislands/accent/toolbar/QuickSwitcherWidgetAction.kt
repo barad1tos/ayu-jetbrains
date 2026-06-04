@@ -5,7 +5,7 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.Presentation
 import com.intellij.openapi.actionSystem.ex.CustomComponentAction
-import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.settings.AyuIslandsSettings
 import javax.swing.JComponent
 
@@ -16,7 +16,7 @@ import javax.swing.JComponent
  * `.visibleIf { LicenseChecker.isLicensedOrGrace() }`.
  *
  * Visibility is gated by a two-conjunct predicate on every BGT [update] tick:
- *   1. LAF must be Ayu — [AyuVariant.isAyuActive] (chip would lie otherwise).
+ *   1. Quick-switcher context must be active — [AccentContext.isQuickSwitcherActive].
  *   2. Settings toggle ON — `AyuIslandsState.quickSwitcherWidgetEnabled`
  *      (default ON).
  *
@@ -33,7 +33,7 @@ class QuickSwitcherWidgetAction :
     override fun update(event: AnActionEvent) {
         val state = AyuIslandsSettings.getInstance().state
         event.presentation.isEnabledAndVisible =
-            AyuVariant.isAyuActive() &&
+            AccentContext.isQuickSwitcherActive() &&
             state.quickSwitcherWidgetEnabled
     }
 

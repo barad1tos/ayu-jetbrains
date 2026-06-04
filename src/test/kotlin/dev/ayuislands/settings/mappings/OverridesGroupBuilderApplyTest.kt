@@ -71,7 +71,7 @@ class OverridesGroupBuilderApplyTest {
         // still advance and the pending-change listener must still fire, or the
         // settings UI will keep reporting "modified" on already-saved state.
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-        every { AccentResolver.resolve(any(), any()) } returns "#FFCC66"
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFCC66"
         every { AccentApplicator.apply(any()) } throws RuntimeException("LafManager boom")
 
         val builder = OverridesGroupBuilder()
@@ -118,7 +118,7 @@ class OverridesGroupBuilderApplyTest {
         // success path into a swallow. One AccentApplicator.apply call, one
         // swap-service notification, isModified() returns false.
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-        every { AccentResolver.resolve(any(), any()) } returns "#AABBCC"
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#AABBCC"
         every { AccentApplicator.apply(any()) } answers { Unit }
         val swapService = mockk<ProjectAccentSwapService>(relaxed = true)
         every { ProjectAccentSwapService.getInstance() } returns swapService

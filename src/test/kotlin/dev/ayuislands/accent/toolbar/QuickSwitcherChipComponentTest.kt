@@ -10,6 +10,7 @@ import com.intellij.util.messages.MessageBusConnection
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentChangedTopic
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import io.mockk.every
@@ -137,7 +138,7 @@ class QuickSwitcherChipComponentTest {
         stubAyuActive(true)
         mockkObject(AccentResolver)
         every {
-            AccentResolver.resolve(any(), any())
+            AccentResolver.resolve(any(), any<AccentContext>())
         } throws RuntimeException("transient mid-LAF-swap")
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns null
@@ -321,6 +322,9 @@ class QuickSwitcherChipComponentTest {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.isAyuActive() } returns active
         every { AyuVariant.detect() } returns if (active) AyuVariant.MIRAGE else null
+        mockkObject(AccentContext.Companion)
+        every { AccentContext.isQuickSwitcherActive() } returns active
+        every { AccentContext.detectQuickSwitcher() } returns if (active) AccentContext.Ayu(AyuVariant.MIRAGE) else null
     }
 
     private fun stubResolver(
@@ -331,7 +335,9 @@ class QuickSwitcherChipComponentTest {
         val mockProject = mockk<Project>(relaxed = true)
         every { AccentApplicator.resolveFocusedProject() } returns mockProject
         mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any()) } returns hex
+        every { AccentResolver.resolve(any(), any<AccentContext>()) } returns hex
+        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns hex
+        every { AccentResolver.source(any(), any<AccentContext>()) } returns source
         every { AccentResolver.source(any()) } returns source
         every { AccentResolver.sourceLabel(AccentResolver.Source.PROJECT_OVERRIDE) } returns "Project override"
         every { AccentResolver.sourceLabel(AccentResolver.Source.LANGUAGE_OVERRIDE) } returns "Language override"

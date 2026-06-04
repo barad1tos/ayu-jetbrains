@@ -7,6 +7,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.openapi.wm.WindowManager
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.ProjectLanguageDetector
@@ -36,8 +37,9 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         val themeName = AyuVariant.currentThemeName()
         LOG.info("Ayu Islands loaded — active theme: $themeName, project: ${project.name}")
 
-        val variant = AyuVariant.fromThemeName(themeName) ?: return
         val settings = AyuIslandsSettings.getInstance()
+        val variant =
+            AyuVariant.fromThemeName(themeName) ?: return initializeExternalThemeIfEnabled(project, settings)
 
         // Belt-and-suspenders: accent is pre-applied in appFrameCreated() (no gold flash),
         // but project-dependent features (BracketFadeManager, editor TextAttributesKey overrides)
@@ -207,6 +209,28 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         runStep("apply-persisted-vcs-colors") { applyPersistedVcsColors(settings) }
     }
 
+    private suspend fun initializeExternalThemeIfEnabled(
+        project: Project,
+        settings: AyuIslandsSettings,
+    ) {
+        if (settings.state.externalThemeEnhancementsEnabled) {
+            runStartupAccentOnEdt(project, AccentContext.External)
+        }
+        initializeExternalGlowIfEnabled(project, settings)
+    }
+
+    private fun initializeExternalGlowIfEnabled(
+        project: Project,
+        settings: AyuIslandsSettings,
+    ) {
+        if (!settings.state.isExternalGlowAllowed()) return
+
+        ApplicationManager.getApplication().invokeLater(
+            { GlowOverlayManager.getInstance(project).initialize() },
+            project.disposed,
+        )
+    }
+
     /**
      * Re-apply persisted VCS color customization. Extracted from [execute] so the
      * cyclomatic complexity stays under detekt's threshold — mirrors
@@ -248,6 +272,13 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         project: Project,
         variant: AyuVariant,
     ) {
+        runStartupAccentOnEdt(project, AccentContext.Ayu(variant))
+    }
+
+    private suspend fun runStartupAccentOnEdt(
+        project: Project,
+        context: AccentContext,
+    ) {
         // Narrow the projectName capture catch to RuntimeException so
         // CancellationException propagates instead of being swallowed into
         // the "<disposed>" fallback. `project.name` access is non-suspend;
@@ -270,7 +301,7 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
             val applyOutcome =
                 runCatchingPreservingCancellation {
                     val focusedProject = AccentApplicator.resolveFocusedProject() ?: project
-                    val resolved = AccentResolver.resolve(focusedProject, variant)
+                    val resolved = AccentResolver.resolve(focusedProject, context)
                     val applied = AccentApplicator.applyFromHexString(resolved)
                     if (applied) resolved else null
                 }

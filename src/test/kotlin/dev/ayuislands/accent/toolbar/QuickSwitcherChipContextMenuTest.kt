@@ -8,6 +8,7 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.util.messages.MessageBus
 import com.intellij.util.messages.MessageBusConnection
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.toolbar.actions.CopyHexAction
 import dev.ayuislands.accent.toolbar.actions.DarkerAccentAction
@@ -62,6 +63,9 @@ class QuickSwitcherChipContextMenuTest {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.isAyuActive() } returns true
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        mockkObject(AccentContext.Companion)
+        every { AccentContext.isQuickSwitcherActive() } returns true
+        every { AccentContext.detectQuickSwitcher() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
     }
 
     @AfterTest
@@ -151,6 +155,8 @@ class QuickSwitcherChipContextMenuTest {
         // is non-Ayu; the early return in `mousePressed` short-circuits.
         every { AyuVariant.isAyuActive() } returns false
         every { AyuVariant.detect() } returns null
+        every { AccentContext.isQuickSwitcherActive() } returns false
+        every { AccentContext.detectQuickSwitcher() } returns null
 
         val chip = QuickSwitcherChipComponent()
         chip.dispatchEvent(rightClick(chip))

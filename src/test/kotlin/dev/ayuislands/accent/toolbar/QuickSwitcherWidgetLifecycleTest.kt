@@ -7,6 +7,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.util.messages.MessageBus
 import com.intellij.util.messages.MessageBusConnection
 import dev.ayuislands.accent.AccentChangedTopic
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AyuVariant
 import io.mockk.every
 import io.mockk.mockk
@@ -73,6 +74,8 @@ class QuickSwitcherWidgetLifecycleTest {
         // refresh, not the refresh body itself.
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns null
+        mockkObject(AccentContext.Companion)
+        every { AccentContext.detectQuickSwitcher() } returns null
     }
 
     @AfterEach

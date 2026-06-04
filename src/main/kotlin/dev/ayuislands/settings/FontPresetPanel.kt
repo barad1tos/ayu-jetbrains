@@ -610,7 +610,12 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
         if (pendingPreset != storedPreset) return true
         if (pendingConsole != storedConsole) return true
         for ((name, settings) in customizations) {
-            if (settings.encode() != storedCustomizations[name]) return true
+            val storedSettings =
+                FontSettings.decode(
+                    storedCustomizations[name],
+                    FontPreset.fromName(name),
+                )
+            if (settings.encode() != storedSettings.encode()) return true
         }
         return false
     }

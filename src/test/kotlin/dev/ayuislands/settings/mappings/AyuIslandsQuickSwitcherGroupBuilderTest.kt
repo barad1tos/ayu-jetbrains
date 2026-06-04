@@ -120,7 +120,7 @@ class AyuIslandsQuickSwitcherGroupBuilderTest {
 
         builder.apply()
 
-        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any()) }
+        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AyuVariant>()) }
         verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
     }
 

@@ -4,6 +4,13 @@ import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.util.ui.JBUI
+import dev.ayuislands.accent.AccentContext
+import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.toolbar.actions.CopyHexAction
+import dev.ayuislands.accent.toolbar.actions.DarkerAccentAction
+import dev.ayuislands.accent.toolbar.actions.LighterAccentAction
+import dev.ayuislands.accent.toolbar.actions.PinAccentAction
+import dev.ayuislands.accent.toolbar.actions.RandomAccentAction
 import dev.ayuislands.accent.toolbar.popup.IconPillButton
 import io.mockk.every
 import io.mockk.mockk
@@ -44,7 +51,7 @@ class QuickSwitcherQuickActionsRowTest {
 
     @Test
     fun `component is a JPanel with FlowLayout LEFT and five children`() {
-        val row = QuickSwitcherQuickActionsRow(anchor)
+        val row = QuickSwitcherQuickActionsRow(anchor, AccentContext.Ayu(AyuVariant.MIRAGE))
         val panel: JPanel = row.component
         val layout = panel.layout
         assertTrue(layout is FlowLayout, "component layout must be FlowLayout, got ${layout?.javaClass?.simpleName}")
@@ -54,7 +61,7 @@ class QuickSwitcherQuickActionsRowTest {
 
     @Test
     fun `all five children are IconPillButton instances 28x28 icon-only with tooltips`() {
-        val row = QuickSwitcherQuickActionsRow(anchor)
+        val row = QuickSwitcherQuickActionsRow(anchor, AccentContext.Ayu(AyuVariant.MIRAGE))
         val children = row.component.components.toList()
         assertEquals(EXPECTED_BUTTON_COUNT, children.size)
         val expectedSize = Dimension(JBUI.scale(28), JBUI.scale(28))
@@ -65,6 +72,26 @@ class QuickSwitcherQuickActionsRowTest {
             assertEquals("", child.text, "Child $index must be icon-only (empty text)")
             assertTrue(child.toolTipText.isNotEmpty(), "Child $index tooltip must be set")
         }
+    }
+
+    @Test
+    fun `external context omits Ayu-only Pin action`() {
+        val row = QuickSwitcherQuickActionsRow(anchor, AccentContext.External)
+        val actions =
+            row.component.components
+                .filterIsInstance<IconPillButton>()
+                .map { it.action::class.java.simpleName }
+
+        assertEquals(
+            listOf(
+                RandomAccentAction::class.java.simpleName,
+                LighterAccentAction::class.java.simpleName,
+                DarkerAccentAction::class.java.simpleName,
+                CopyHexAction::class.java.simpleName,
+            ),
+            actions,
+        )
+        assertTrue(PinAccentAction::class.java.simpleName !in actions)
     }
 
     private companion object {

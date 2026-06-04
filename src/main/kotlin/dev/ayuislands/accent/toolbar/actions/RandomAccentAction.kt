@@ -5,7 +5,9 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.DumbAwareAction
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.persistExternalManualAccentIfNeeded
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.rotation.ContrastAwareColorGenerator
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
@@ -24,15 +26,18 @@ class RandomAccentAction : DumbAwareAction("Random Accent", "Pick a random reada
 
     override fun update(event: AnActionEvent) {
         event.presentation.isEnabledAndVisible =
-            AyuVariant.isAyuActive() &&
+            AccentContext.isQuickSwitcherActive() &&
             LicenseChecker.isLicensedOrGrace()
     }
 
     override fun actionPerformed(event: AnActionEvent) {
-        val variant = AyuVariant.detect() ?: return
+        val context = AccentContext.detectQuickSwitcher() ?: return
         val hex =
             try {
-                ContrastAwareColorGenerator.generate(variant)
+                when (context) {
+                    is AccentContext.Ayu -> ContrastAwareColorGenerator.generate(context.ayuVariant)
+                    AccentContext.External -> ContrastAwareColorGenerator.generate(AyuVariant.MIRAGE)
+                }
             } catch (exception: RuntimeException) {
                 LOG.warn("Random: generate failed", exception)
                 return
@@ -40,6 +45,7 @@ class RandomAccentAction : DumbAwareAction("Random Accent", "Pick a random reada
         try {
             val applied = AccentApplicator.applyFromHexString(hex)
             if (applied) {
+                context.persistExternalManualAccentIfNeeded(hex)
                 ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
             } else {
                 LOG.warn("Random: applyFromHexString rejected hex=$hex")

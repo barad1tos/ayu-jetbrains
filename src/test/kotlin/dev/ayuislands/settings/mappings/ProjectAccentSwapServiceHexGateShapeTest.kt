@@ -67,8 +67,9 @@ class ProjectAccentSwapServiceHexGateShapeTest {
             .joinToString("\n") { line -> line.replaceFirst(Regex("//.*$"), "") }
     }
 
-    private fun extractHandleWindowActivatedBody(): String {
-        val signaturePrefix = "fun handleWindowActivated("
+    private fun extractHandleWindowActivatedBody(): String = extractFunctionBody("fun handleWindowActivated(")
+
+    private fun extractFunctionBody(signaturePrefix: String): String {
         val start = source.indexOf(signaturePrefix)
         require(start >= 0) { "Could not locate '$signaturePrefix' in stripped source" }
         val openBrace = source.indexOf('{', start)
@@ -133,20 +134,31 @@ class ProjectAccentSwapServiceHexGateShapeTest {
     @Test
     fun `handleWindowActivated triggers integration refresh on same-hex branch`() {
         val body = extractHandleWindowActivatedBody()
-        // On same-hex swap, handleWindowActivated directly invokes the CGP +
-        // IR apply paths so the per-project accent is pushed into the
-        // app-scoped caches before the tree walk repaints.
+        val refreshBody = extractFunctionBody("fun refreshSameHexIntegrations(")
+        val ayuRefreshBody = extractFunctionBody("fun refreshAyuIntegrations(")
+        val externalRefreshBody = extractFunctionBody("fun refreshExternalIntegrations(")
+
         assertTrue(
-            Regex("""syncCodeGlanceProViewportForSwap\(""").containsMatchIn(body),
-            "handleWindowActivated MUST call AccentApplicator.syncCodeGlanceProViewportForSwap " +
-                "on the same-hex branch — push per-project hex into app-scoped CGP cache " +
-                "so the focused minimap repaints.",
+            body.contains("refreshSameHexIntegrations(effectiveAccent)"),
+            "handleWindowActivated MUST route the same-hex branch through refreshSameHexIntegrations.",
         )
         assertTrue(
-            Regex("""IndentRainbowSync\.apply\(""").containsMatchIn(body),
-            "handleWindowActivated MUST call IndentRainbowSync.apply on the same-hex " +
-                "branch — push per-project hex into app-scoped IR cache so the " +
-                "focused indent palette repaints.",
+            Regex("""syncCodeGlanceProViewportForSwap\(""").containsMatchIn(ayuRefreshBody),
+            "refreshAyuIntegrations MUST push per-project hex into app-scoped CGP cache.",
+        )
+        assertTrue(
+            Regex("""syncCodeGlanceProViewportForSwap\(""").containsMatchIn(externalRefreshBody),
+            "refreshExternalIntegrations MUST push external per-project hex into app-scoped CGP cache.",
+        )
+        assertTrue(
+            Regex("""refreshAyuIntegrations\(""").containsMatchIn(refreshBody) &&
+                Regex("""refreshExternalIntegrations\(""").containsMatchIn(refreshBody),
+            "refreshSameHexIntegrations MUST dispatch both Ayu and external contexts.",
+        )
+        assertTrue(
+            Regex("""IndentRainbowSync\.apply\(""").containsMatchIn(ayuRefreshBody) &&
+                Regex("""IndentRainbowSync\.apply\(""").containsMatchIn(externalRefreshBody),
+            "Same-hex refresh helpers MUST push per-project hex into app-scoped IR cache.",
         )
     }
 

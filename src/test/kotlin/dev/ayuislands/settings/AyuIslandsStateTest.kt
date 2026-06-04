@@ -2,6 +2,7 @@ package dev.ayuislands.settings
 
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AccentGroup
+import dev.ayuislands.accent.ExternalAccentSource
 import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
@@ -303,6 +304,18 @@ class AyuIslandsStateTest {
         assertEquals("#FFCC66", state.mirageAccent)
         assertEquals("#E6B450", state.darkAccent)
         assertEquals("#F29718", state.lightAccent)
+    }
+
+    @Test
+    fun `external theme accent defaults are disabled automatic and Mirage gold`() {
+        val state = freshState()
+        assertFalse(state.externalThemeEnhancementsEnabled)
+        assertTrue(state.externalThemeQuickSwitcherEnabled)
+        assertFalse(state.externalThemeGlowEnabled)
+        assertTrue(state.externalThemeCodeGlanceProEnabled)
+        assertTrue(state.externalThemeIndentRainbowEnabled)
+        assertEquals(ExternalAccentSource.AUTOMATIC.name, state.externalThemeAccentSource)
+        assertEquals("#FFCC66", state.externalThemeAccent)
     }
 
     @Test

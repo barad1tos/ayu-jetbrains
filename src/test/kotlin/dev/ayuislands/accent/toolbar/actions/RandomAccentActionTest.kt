@@ -6,9 +6,13 @@ import com.intellij.openapi.actionSystem.Presentation
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.ExternalAccentSource
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.rotation.ContrastAwareColorGenerator
+import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import io.mockk.clearMocks
 import io.mockk.every
@@ -38,6 +42,9 @@ class RandomAccentActionTest {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.isAyuActive() } returns true
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        mockkObject(AccentContext.Companion)
+        every { AccentContext.isQuickSwitcherActive() } returns true
+        every { AccentContext.detectQuickSwitcher() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
 
         mockkObject(LicenseChecker)
         every { LicenseChecker.isLicensedOrGrace() } returns true
@@ -75,25 +82,37 @@ class RandomAccentActionTest {
         val action = RandomAccentAction()
         val event = newEvent()
 
-        every { AyuVariant.isAyuActive() } returns true
+        every { AccentContext.isQuickSwitcherActive() } returns true
         every { LicenseChecker.isLicensedOrGrace() } returns true
         action.update(event)
         assertTrue(event.presentation.isEnabledAndVisible, "(T,T) must enable")
 
-        every { AyuVariant.isAyuActive() } returns false
+        every { AccentContext.isQuickSwitcherActive() } returns false
         every { LicenseChecker.isLicensedOrGrace() } returns true
         action.update(event)
         assertFalse(event.presentation.isEnabledAndVisible, "(F,T) inactive variant must disable")
 
-        every { AyuVariant.isAyuActive() } returns true
+        every { AccentContext.isQuickSwitcherActive() } returns true
         every { LicenseChecker.isLicensedOrGrace() } returns false
         action.update(event)
         assertFalse(event.presentation.isEnabledAndVisible, "(T,F) unlicensed must disable")
 
-        every { AyuVariant.isAyuActive() } returns false
+        every { AccentContext.isQuickSwitcherActive() } returns false
         every { LicenseChecker.isLicensedOrGrace() } returns false
         action.update(event)
         assertFalse(event.presentation.isEnabledAndVisible, "(F,F) both off must disable — locks AND vs OR")
+    }
+
+    @Test
+    fun `update is visible in external accent context`() {
+        val event = newEvent()
+        every { AyuVariant.isAyuActive() } returns false
+        every { AccentContext.isQuickSwitcherActive() } returns true
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+
+        RandomAccentAction().update(event)
+
+        assertTrue(event.presentation.isEnabledAndVisible)
     }
 
     @Test
@@ -109,6 +128,21 @@ class RandomAccentActionTest {
         every { AccentApplicator.applyFromHexString(any()) } returns false
         RandomAccentAction().actionPerformed(newEvent())
         verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
+    }
+
+    @Test
+    fun `actionPerformed in external context persists manual external accent`() {
+        every { AccentContext.detectQuickSwitcher() } returns AccentContext.External
+        val state = AyuIslandsState()
+        val settings = mockk<AyuIslandsSettings>(relaxed = true)
+        every { settings.state } returns state
+        mockkObject(AyuIslandsSettings.Companion)
+        every { AyuIslandsSettings.getInstance() } returns settings
+
+        RandomAccentAction().actionPerformed(newEvent())
+
+        assertEquals("#5CCFE6", state.externalThemeAccent)
+        assertEquals(ExternalAccentSource.MANUAL.name, state.externalThemeAccentSource)
     }
 
     @Test
