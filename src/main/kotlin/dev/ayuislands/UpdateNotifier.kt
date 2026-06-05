@@ -55,6 +55,13 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.7.2" to
+                releaseNotes(
+                    "Pro accent pins can now drive Ayu integrations on non-Ayu themes",
+                    "Glow, CodeGlance Pro, and Indent Rainbow can follow external Ayu accents",
+                    "Quick-Switcher now supports external themes and persists external accent actions",
+                    "External accents can use Material Theme, IDE accent, or manual fallback colors",
+                ),
             "2.7.1" to
                 releaseNotes(
                     "Locked premium Settings controls are now visible as greyed-out previews",

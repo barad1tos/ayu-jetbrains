@@ -113,6 +113,16 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.7.2</h3>
+    <ul>
+      <li>[Paid] <b>External theme accent inheritance</b> — Pro project and language accent pins can now drive selected Ayu integrations while another IDE theme is active.</li>
+      <li>[Paid] <b>Glow on external themes</b> — Glow can follow Ayu accents on non-Ayu themes when explicitly enabled; external Glow stays off by default.</li>
+      <li>[Paid] <b>Plugin sync on external themes</b> — CodeGlance Pro and Indent Rainbow can now sync to Ayu's external accent context on non-Ayu themes.</li>
+      <li>[Paid] <b>External Quick-Switcher actions</b> — premium actions like Random, Lighter, and Darker now persist the chosen external accent on non-Ayu themes.</li>
+      <li>[Free] <b>External theme support</b> — use selected Ayu accent enhancements on non-Ayu JetBrains themes without switching the active IDE theme to Ayu.</li>
+      <li>[Free] <b>Quick-Switcher on external themes</b> — Quick-Switcher now supports external themes, including accent preset apply and copy flows when external theme support is enabled.</li>
+      <li>[Free] <b>Automatic external accent sources</b> — external accents can resolve from Material Theme, IDE accent colors, or a manual fallback.</li>
+    </ul>
     <h3>2.7.1</h3>
     <ul>
       <li><b>Added:</b> when the optional <code>.ignore</code> plugin is installed, its files use dedicated Ayu colors across Dark, Mirage, and Light editor schemes, including Syntax preset transformations and a Plugins-tab opt-out.</li>

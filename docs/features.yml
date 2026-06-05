@@ -90,7 +90,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "44ba0033"
+          last_verified_sha: "e3738091"
           last_verified_date: "2026-05-31"
           content_sha256: "4c86c5d855c6dcefd703f647451bac4117397e435b05dd9cae6b9cbc7f479616"
 
@@ -112,7 +112,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "44ba0033"
+          last_verified_sha: "e3738091"
           last_verified_date: "2026-05-31"
           content_sha256: "ea83498db84a5cd122dd1d09132d74774c6e24295188b93464fddb0d784bf4e1"
 
@@ -182,6 +182,42 @@ categories:
           General. Premium-tier rows (related toggles + quick actions)
           appear inside the popup when the license is active or in trial.
 
+      - id: external-theme-accent-inheritance
+        title: "External theme accent inheritance"
+        keyword: "per-project"
+        introduced: "2.7.2"
+        tier: paid
+        description: >
+          Pro project and language accent pins can drive selected Ayu
+          integrations while a non-Ayu IDE theme is active.
+
+      - id: external-accent-sources
+        title: "Automatic external accent sources"
+        keyword: "accent color"
+        introduced: "2.7.2"
+        tier: free
+        description: >
+          External accents can resolve from Material Theme, IDE accent
+          colors, or a manual fallback when external theme support is enabled.
+
+      - id: quick-switcher-external-themes
+        title: "Quick-Switcher on external themes"
+        keyword: "Quick-Switcher Widget"
+        introduced: "2.7.2"
+        tier: free
+        description: >
+          The Quick-Switcher can apply and copy accents while a non-Ayu
+          IDE theme is active when external theme support is enabled.
+
+      - id: quick-switcher-external-actions
+        title: "External Quick-Switcher actions"
+        keyword: "Quick-Switcher Widget"
+        introduced: "2.7.2"
+        tier: paid
+        description: >
+          Premium Quick-Switcher actions such as Random, Lighter, and
+          Darker persist the chosen external accent on non-Ayu themes.
+
   glow:
     title: "Glow effects"
     features:
@@ -211,9 +247,18 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/GlowGroupPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/AyuIslandsEffectsPanel.kt
             - src/main/kotlin/dev/ayuislands/glow
-          last_verified_sha: "3cbd3d0"
+          last_verified_sha: "e3738091"
           last_verified_date: "2026-05-30"
           content_sha256: "3ef51add4539d9c82ce6ad559bce68f6d88fb97606986910ea9b9d13da64fef5"
+
+      - id: glow-external-themes
+        title: "Glow on external themes"
+        keyword: "Glow"
+        introduced: "2.7.2"
+        tier: paid
+        description: >
+          Glow can follow Ayu accents on non-Ayu themes when explicitly
+          enabled; external Glow stays off by default.
 
   fonts:
     title: "Font presets"
@@ -243,7 +288,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/FontPresetPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/FontPreviewComponent.kt
             - src/main/kotlin/dev/ayuislands/font
-          last_verified_sha: "3cbd3d0"
+          last_verified_sha: "e3738091"
           last_verified_date: "2026-05-30"
           content_sha256: "2303011928e4246c32edfcc3c4caa923d536aa73f848e225708da4374ce17b41"
 
@@ -286,7 +331,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/gitpanel
             - src/main/kotlin/dev/ayuislands/projectview
             - src/main/kotlin/dev/ayuislands/editor/EditorScrollbarManager.kt
-          last_verified_sha: "cdf1e135"
+          last_verified_sha: "e3738091"
           last_verified_date: "2026-05-30"
           content_sha256: "fc9ba63b9c9c53893a486a3c9055287bd6dc9c68f5439cae197efe5ae585d17c"
 
@@ -323,6 +368,15 @@ categories:
           Indent Rainbow guides adopt one of three Ayu presets
           (Whisper / Ambient / Neon).
 
+      - id: plugin-sync-external-themes
+        title: "Plugin sync on external themes"
+        keyword: "CodeGlance Pro"
+        introduced: "2.7.2"
+        tier: paid
+        description: >
+          CodeGlance Pro and Indent Rainbow can sync to Ayu's external
+          accent context while a non-Ayu IDE theme is active.
+
       - id: bracket-scope
         title: "Bracket scope gutter stripe"
         keyword: "Bracket scope"
@@ -339,7 +393,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/PluginsPanel.kt
             - src/main/kotlin/dev/ayuislands/indent
             - src/main/kotlin/dev/ayuislands/accent/elements/BracketScopeRenderer.kt
-          last_verified_sha: "3cbd3d0"
+          last_verified_sha: "e3738091"
           last_verified_date: "2026-05-30"
           content_sha256: "c5c1eea5a119bd19bf98518d394d698bf09983a1e0a3472e255358c50e41ed16"
 
