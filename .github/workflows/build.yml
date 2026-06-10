@@ -198,6 +198,7 @@ jobs:
         with:
           files: build/reports/kover/report.xml
           fail_ci_if_error: true
+          use_cli: false
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
