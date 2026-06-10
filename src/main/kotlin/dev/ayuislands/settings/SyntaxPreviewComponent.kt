@@ -8,7 +8,6 @@ import com.intellij.util.ui.UIUtil
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.syntax.PrimitiveCategory
 import dev.ayuislands.syntax.RgbBlend
-import dev.ayuislands.syntax.SyntaxCategoryRegistry
 import dev.ayuislands.syntax.SyntaxIntensityApplicator
 import dev.ayuislands.syntax.SyntaxOverlayLoader
 import dev.ayuislands.syntax.SyntaxPreset
@@ -29,6 +28,12 @@ import javax.swing.JComponent
  * token-highlighted Kotlin code. Colors are resolved through the real
  * [SyntaxIntensityApplicator] pipeline so the preview exactly matches what
  * the editor will display.
+ *
+ * The snippet is designed to demonstrate all four readability toggles:
+ * - "Dim comments" — line 4 (`// print greeting`)
+ * - "Soften documentation" — line 5 (`/** Greet the user */`)
+ * - "Quiet operators" — line 7 (`msg.isNotEmpty()`) has heavy operator use
+ * - "Emphasize declarations" — lines 1, 6 (`fun main`, `class Greeter`)
  */
 internal class SyntaxPreviewComponent(
     private var variant: AyuVariant,
@@ -238,7 +243,7 @@ internal class SyntaxPreviewComponent(
     private companion object {
         private const val PREVIEW_WIDTH = 560
         private const val MIN_PREVIEW_WIDTH = 320
-        private const val PREVIEW_HEIGHT = 180
+        private const val PREVIEW_HEIGHT = 220
         private const val PADDING = 10
         private const val COLUMN_GAP = 10
         private const val PROJECT_WIDTH = 154
@@ -263,6 +268,68 @@ internal class SyntaxPreviewComponent(
         private val MIRAGE_PANEL_SURFACE = Color(0x252B38)
         private val LIGHT_PANEL_SURFACE = Color(0xEFF2F5)
 
+        /**
+         * Representative key-name suffixes per [PrimitiveCategory].
+         *
+         * The preview scans the computed map for the first key whose
+         * `externalName` contains one of these substrings. Order within
+         * each list is most-specific-first so a single pass resolves
+         * every category without ambiguity.
+         */
+        private val CATEGORY_KEY_HINTS: Map<PrimitiveCategory, List<String>> =
+            mapOf(
+                PrimitiveCategory.FUNCTION_DECL to
+                    listOf(
+                        "FUNCTION_DECLARATION",
+                        "METHOD_DECLARATION",
+                        "FUNCTION_CALL",
+                        "METHOD_CALL",
+                        "CONSTRUCTOR_DECLARATION",
+                    ),
+                PrimitiveCategory.CLASS_DECL to
+                    listOf(
+                        "CLASS_DECLARATION",
+                        "CLASS_NAME",
+                        "ENUM_NAME",
+                        "ABSTRACT_CLASS",
+                    ),
+                PrimitiveCategory.INTERFACE_DECL to listOf("INTERFACE_NAME", "INTERFACE_DECLARATION", "TRAIT_NAME"),
+                PrimitiveCategory.KEYWORD to listOf("KEYWORD"),
+                PrimitiveCategory.PARAMETER to listOf("PARAMETER"),
+                PrimitiveCategory.LOCAL_VAR to listOf("LOCAL_VARIABLE", "LOCAL_VAR", "VAR_USE", "VAR_DEF"),
+                PrimitiveCategory.STRING_LITERAL to listOf("STRING"),
+                PrimitiveCategory.NUMBER_LITERAL to listOf("NUMBER"),
+                PrimitiveCategory.COMMENT to listOf("LINE_COMMENT", "BLOCK_COMMENT"),
+                PrimitiveCategory.DOCUMENTATION to listOf("DOC_COMMENT", "DOC_TAG", "KDOC"),
+                PrimitiveCategory.ANNOTATION to listOf("ANNOTATION_NAME", "METADATA"),
+                PrimitiveCategory.OPERATOR to listOf("OPERATION_SIGN", "OPERATOR"),
+                PrimitiveCategory.TYPE_REF to listOf("TYPE_PARAMETER", "TYPE_ARGUMENT"),
+                PrimitiveCategory.STATIC_FIELD to listOf("STATIC_FIELD", "STATIC_FINAL_FIELD", "STATIC_MEMBER"),
+                PrimitiveCategory.INSTANCE_FIELD to listOf("INSTANCE_FIELD", "INSTANCE_PROPERTY", "INSTANCE_MEMBER"),
+                PrimitiveCategory.GENERICS to listOf("TYPE_PARAMETER", "GENERICS", "GENERIC"),
+            )
+
+        /**
+         * Build category→color map by scanning the computed result for
+         * representative key names. Scans externalName substrings rather
+         * than relying on the suffix-regex registry.
+         */
+        private fun buildCategoryColorMap(
+            computed: Map<TextAttributesKey, TextAttributes>,
+        ): Map<PrimitiveCategory, Color> {
+            val map = mutableMapOf<PrimitiveCategory, Color>()
+            for ((category, hints) in CATEGORY_KEY_HINTS) {
+                for ((key, attrs) in computed) {
+                    val name = key.externalName
+                    if (hints.any { name.contains(it) }) {
+                        attrs.foregroundColor?.let { map[category] = it }
+                        break
+                    }
+                }
+            }
+            return map
+        }
+
         private val PROJECT_ROWS =
             listOf(
                 ProjectRow(Color(0x59C2FF), "PresetPreview.kt"),
@@ -271,6 +338,16 @@ internal class SyntaxPreviewComponent(
                 ProjectRow(Color(0xFFD580), "build/"),
             )
 
+        /**
+         * 10-line Kotlin snippet covering all 16 [PrimitiveCategory] entries
+         * and demonstrating all four readability toggles:
+         *
+         * - **Dim comments**: line 4 (`// print greeting`)
+         * - **Soften documentation**: line 5 (`/** Greet the user */`)
+         * - **Quiet operators**: line 8 (`if (msg.isNotEmpty())`) — heavy
+         *   operator tokens that should recede when quieted
+         * - **Emphasize declarations**: lines 1 + 6 (`fun main`, `class Greeter`)
+         */
         private val CODE_LINES =
             listOf(
                 CodeLine(
@@ -278,8 +355,8 @@ internal class SyntaxPreviewComponent(
                     listOf(
                         Token("fun ", PrimitiveCategory.KEYWORD),
                         Token("main", PrimitiveCategory.FUNCTION_DECL),
-                        Token("() ", PrimitiveCategory.OPERATOR),
-                        Token("{", PrimitiveCategory.OPERATOR),
+                        Token("()", PrimitiveCategory.OPERATOR),
+                        Token(" {", PrimitiveCategory.OPERATOR),
                     ),
                 ),
                 CodeLine(
@@ -309,24 +386,42 @@ internal class SyntaxPreviewComponent(
                 CodeLine(
                     "5",
                     listOf(
-                        Token("  @JvmStatic", PrimitiveCategory.ANNOTATION),
+                        Token("  /** Greet the user */", PrimitiveCategory.DOCUMENTATION),
                     ),
                 ),
                 CodeLine(
                     "6",
                     listOf(
-                        Token("  if ", PrimitiveCategory.KEYWORD),
-                        Token("(", PrimitiveCategory.OPERATOR),
-                        Token("msg", PrimitiveCategory.INSTANCE_FIELD),
-                        Token(".", PrimitiveCategory.OPERATOR),
-                        Token("isNotEmpty", PrimitiveCategory.FUNCTION_DECL),
-                        Token(")", PrimitiveCategory.OPERATOR),
+                        Token("  ", null),
+                        Token("class ", PrimitiveCategory.KEYWORD),
+                        Token("Greeter", PrimitiveCategory.CLASS_DECL),
+                        Token(" {", PrimitiveCategory.OPERATOR),
                     ),
                 ),
                 CodeLine(
                     "7",
                     listOf(
                         Token("    ", null),
+                        Token("@JvmStatic", PrimitiveCategory.ANNOTATION),
+                    ),
+                ),
+                CodeLine(
+                    "8",
+                    listOf(
+                        Token("    ", null),
+                        Token("if ", PrimitiveCategory.KEYWORD),
+                        Token("(", PrimitiveCategory.OPERATOR),
+                        Token("msg", PrimitiveCategory.INSTANCE_FIELD),
+                        Token(".", PrimitiveCategory.OPERATOR),
+                        Token("isNotEmpty", PrimitiveCategory.FUNCTION_DECL),
+                        Token("()", PrimitiveCategory.OPERATOR),
+                        Token(")", PrimitiveCategory.OPERATOR),
+                    ),
+                ),
+                CodeLine(
+                    "9",
+                    listOf(
+                        Token("      ", null),
                         Token("println", PrimitiveCategory.FUNCTION_DECL),
                         Token("(", PrimitiveCategory.OPERATOR),
                         Token("msg", PrimitiveCategory.PARAMETER),
@@ -334,22 +429,11 @@ internal class SyntaxPreviewComponent(
                     ),
                 ),
                 CodeLine(
-                    "8",
+                    "10",
                     listOf(
                         Token("}", PrimitiveCategory.OPERATOR),
                     ),
                 ),
             )
     }
-}
-
-private fun buildCategoryColorMap(computed: Map<TextAttributesKey, TextAttributes>): Map<PrimitiveCategory, Color> {
-    val map = mutableMapOf<PrimitiveCategory, Color>()
-    for ((key, attrs) in computed) {
-        val category = SyntaxCategoryRegistry.classify(key.externalName) ?: continue
-        if (category in map) continue
-        val fg = attrs.foregroundColor ?: continue
-        map[category] = fg
-    }
-    return map
 }
