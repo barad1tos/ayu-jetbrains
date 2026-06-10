@@ -3,6 +3,7 @@ package dev.ayuislands.settings
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.ui.InplaceButton
+import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.RightGap
@@ -100,6 +101,8 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
     private var emphasizeDeclarationsCheckbox: JCheckBox? = null
     private var masterResetButton: JButton? = null
     private var currentLanguage: String = ""
+    private var variant: AyuVariant? = null
+    private var syntaxPreview: SyntaxPreviewComponent? = null
 
     // One uniform leading-label width shared by every row in both column-level
     // grids. Pinning the label width keeps slider starts aligned across the
@@ -124,6 +127,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         panel: Panel,
         variant: AyuVariant,
     ) {
+        this.variant = variant
         loadStateIntoPending()
         customSelected.set(pendingPreset == SyntaxPreset.CUSTOM)
         with(panel) {
@@ -140,6 +144,8 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
             }
 
             buildReadabilityBlock()
+
+            buildPreviewRow(variant)
 
             row {
                 browserLink(
@@ -664,6 +670,28 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         SyntaxIntensityService
             .getInstance()
             .apply(pendingPreset, nested, pendingSubordinate, nestedStyles, readabilityOptions())
+        refreshPreview()
+    }
+
+    private fun Panel.buildPreviewRow(variant: AyuVariant) {
+        row {
+            val preview = SyntaxPreviewComponent(variant)
+            syntaxPreview = preview
+            cell(preview)
+                .resizableColumn()
+                .align(Align.FILL)
+        }
+    }
+
+    private fun refreshPreview() {
+        val v = variant ?: return
+        syntaxPreview?.updatePreview(
+            variant = v,
+            preset = pendingPreset,
+            customOverrides = buildNested(pendingOverrides) { it.toIntOrNull() },
+            subordinatePreset = pendingSubordinate,
+            readabilityOptions = readabilityOptions(),
+        )
     }
 
     private fun readabilityOptions(): SyntaxReadabilityOptions =
