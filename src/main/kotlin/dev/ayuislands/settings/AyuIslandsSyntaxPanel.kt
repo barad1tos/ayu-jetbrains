@@ -130,6 +130,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         this.variant = variant
         loadStateIntoPending()
         customSelected.set(pendingPreset == SyntaxPreset.CUSTOM)
+        currentLanguage = preferredInitialLanguage()
         with(panel) {
             buildPresetBlock()
 
@@ -185,7 +186,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
     /** Build the premium Custom drill-down as two grouped, aligned columns. */
     private fun Panel.buildCustomFoldOut() {
         val languages = SyntaxLanguageRegistry.supportedLanguages().map { it.displayName }
-        currentLanguage = languages.firstOrNull() ?: ""
+        currentLanguage = currentLanguage.takeIf { it in languages } ?: preferredInitialLanguage(languages)
         row("Language:") {
             val combo = comboBox(languages).component
             combo.selectedItem = currentLanguage
@@ -194,6 +195,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
                 currentLanguage = language
                 rebindSlidersFor(language)
                 refreshMasterResetButton()
+                refreshPreview()
             }
             val resetButton =
                 button("") { onResetCurrentLanguage() }.component.apply {
@@ -676,7 +678,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
 
     private fun Panel.buildPreviewRow(variant: AyuVariant) {
         row {
-            val preview = SyntaxPreviewComponent(variant)
+            val preview = SyntaxPreviewComponent(variant, currentLanguage)
             syntaxPreview = preview
             cell(preview)
                 .resizableColumn()
@@ -688,8 +690,16 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         val v = variant ?: return
         syntaxPreview?.updatePreview(
             variant = v,
+            language = currentLanguage,
         )
     }
+
+    private fun preferredInitialLanguage(
+        languages: List<String> =
+            SyntaxLanguageRegistry.supportedLanguages().map {
+                it.displayName
+            },
+    ): String = languages.firstOrNull { it == DEFAULT_PREVIEW_LANGUAGE } ?: languages.firstOrNull().orEmpty()
 
     private fun readabilityOptions(): SyntaxReadabilityOptions =
         SyntaxReadabilityOptions(
@@ -735,6 +745,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         private const val LABEL_PADDING = 8
         private const val LABEL_FALLBACK_WIDTH = 170
         private const val PREMIUM_CONTROL_TOOLTIP = "Pro Feature"
+        private const val DEFAULT_PREVIEW_LANGUAGE = "Kotlin"
         private const val SEGMENTED_PRESENTATIONS_METHOD =
             "getPresentations" + "$" + "intellij_platform_ide_impl"
 

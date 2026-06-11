@@ -2,12 +2,7 @@ package dev.ayuislands.settings
 
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.editor.Document
-import com.intellij.openapi.editor.EditorFactory
-import com.intellij.openapi.fileTypes.FileType
-import com.intellij.openapi.fileTypes.FileTypeManager
-import com.intellij.openapi.project.Project
-import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.ui.EditorTextField
 import dev.ayuislands.accent.AyuVariant
 import io.mockk.every
@@ -26,8 +21,7 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class SyntaxPreviewComponentTest {
-    private lateinit var kotlinFileType: FileType
-    private lateinit var previewProject: Project
+    private lateinit var editorFixture: SyntaxPreviewEditorFixture
 
     @BeforeTest
     fun setUp() {
@@ -35,28 +29,8 @@ class SyntaxPreviewComponentTest {
         val appMock = mockk<Application>(relaxed = true)
         every { ApplicationManager.getApplication() } returns appMock
 
-        previewProject = mockk(relaxed = true)
-        val projectManager = mockk<ProjectManager>(relaxed = true)
-        every { projectManager.defaultProject } returns previewProject
-        mockkStatic(ProjectManager::class)
-        every { ProjectManager.getInstance() } returns projectManager
-
-        kotlinFileType =
-            mockk<FileType>(relaxed = true) {
-                every { name } returns "Kotlin"
-                every { defaultExtension } returns "kt"
-            }
-        val fileTypeManager = mockk<FileTypeManager>(relaxed = true)
-        every { fileTypeManager.getStdFileType("Kotlin") } returns kotlinFileType
-
-        mockkStatic(FileTypeManager::class)
-        every { FileTypeManager.getInstance() } returns fileTypeManager
-
-        val document = mockk<Document>(relaxed = true)
-        val editorFactory = mockk<EditorFactory>(relaxed = true)
-        every { editorFactory.createDocument(any<String>()) } returns document
-        mockkStatic(EditorFactory::class)
-        every { EditorFactory.getInstance() } returns editorFactory
+        editorFixture = SyntaxPreviewEditorFixture()
+        editorFixture.install()
     }
 
     @AfterTest
@@ -72,9 +46,14 @@ class SyntaxPreviewComponentTest {
 
         assertNotNull(editor, "Syntax preview must use a native EditorTextField, not hand-painted token text.")
         assertTrue(editor.isViewer, "Syntax preview editor must be read-only.")
-        assertEquals(kotlinFileType, editor.fileType, "Syntax preview must request Kotlin syntax highlighting.")
+        assertEquals(
+            editorFixture.kotlinFileType,
+            editor.fileType,
+            "Syntax preview must request Kotlin syntax highlighting.",
+        )
+        assertEquals("Kotlin", component.languageForTest(), "Syntax preview must default to the Kotlin sample.")
         assertSame(
-            previewProject,
+            editorFixture.previewProject,
             editor.project,
             "Syntax preview editor must receive a Project so EditorTextField installs an EditorHighlighter.",
         )
@@ -87,6 +66,42 @@ class SyntaxPreviewComponentTest {
         component.updatePreview(AyuVariant.MIRAGE)
 
         assertEquals(AyuVariant.MIRAGE, component.variantForTest())
+    }
+
+    @Test
+    fun `updatePreview switches the native editor file type when language changes`() {
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE)
+
+        component.updatePreview(AyuVariant.MIRAGE, "Java")
+
+        val editor = findEditorTextField(component)
+        assertNotNull(editor, "Syntax preview must keep the native editor when switching languages.")
+        assertEquals("Java", component.languageForTest(), "Syntax preview must track the selected language.")
+        assertEquals(editorFixture.javaFileType, editor.fileType, "Java tuning must render through the Java file type.")
+    }
+
+    @Test
+    fun `component falls back to plain text when standard file type mismatches the sample`() {
+        every { editorFixture.fileTypeManager.getStdFileType("Kotlin") } returns
+            editorFixture.mockFileType("NotKotlin", "txt")
+
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE)
+
+        val editor = findEditorTextField(component)
+        assertNotNull(editor, "Syntax preview must still build when the expected file type is unavailable.")
+        assertSame(PlainTextFileType.INSTANCE, editor.fileType)
+    }
+
+    @Test
+    fun `component falls back to plain text when standard file type lookup fails`() {
+        every { editorFixture.fileTypeManager.getStdFileType("Kotlin") } throws
+            RuntimeException("missing Kotlin plugin")
+
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE)
+
+        val editor = findEditorTextField(component)
+        assertNotNull(editor, "Syntax preview must still build when file type lookup throws.")
+        assertSame(PlainTextFileType.INSTANCE, editor.fileType)
     }
 
     @Test
