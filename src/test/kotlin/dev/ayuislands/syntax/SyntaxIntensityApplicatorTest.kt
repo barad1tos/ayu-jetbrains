@@ -943,6 +943,8 @@ class SyntaxIntensityApplicatorTest {
                 TextAttributesKey.createTextAttributesKey("JAVA_FUNCTION_DECLARATION"),
                 TextAttributesKey.createTextAttributesKey("JAVA_CLASS_DECLARATION"),
                 TextAttributesKey.createTextAttributesKey("JAVA_INTERFACE_DECLARATION"),
+                TextAttributesKey.createTextAttributesKey("KOTLIN_FUNCTION_DECLARATION"),
+                TextAttributesKey.createTextAttributesKey("KOTLIN_CLASS"),
             )
         val baselineFg = Color(0xFF, 0xCC, 0x66)
         val commentFg = Color(0x78, 0x7B, 0x80)
@@ -962,9 +964,10 @@ class SyntaxIntensityApplicatorTest {
         for (key in declarationKeys) {
             val output = assertNotNull(result[key]?.foregroundColor)
             val outputDistance = abs(HslColor.fromColor(output).lightness - MID_LIGHTNESS)
+            val distanceDelta = inputDistance - outputDistance
             assertTrue(
-                outputDistance < inputDistance,
-                "Emphasize declarations must move ${key.externalName} lightness toward peak chroma",
+                distanceDelta >= EMPHASIZE_DECLARATIONS_MIN_DISTANCE_DELTA,
+                "Emphasize declarations must visibly move ${key.externalName} lightness toward peak chroma",
             )
         }
         val comment = assertNotNull(result[javaCommentKey]?.foregroundColor)
@@ -1083,6 +1086,7 @@ class SyntaxIntensityApplicatorTest {
         // on the signed-intent path.
         private const val SYNTAX_FLOOR = 0.48f
         private const val MID_LIGHTNESS = 0.5f
+        private const val EMPHASIZE_DECLARATIONS_MIN_DISTANCE_DELTA = 0.10f
         private const val FLOAT_TOLERANCE = 0.005f
         private const val HUE_TOLERANCE = 0.5f
         private const val CHANNEL_TOLERANCE = 2

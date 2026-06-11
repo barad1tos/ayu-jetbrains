@@ -4,6 +4,8 @@ import com.intellij.lang.Language
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.EditorFactory
+import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.fileTypes.PlainTextFileType
@@ -60,10 +62,26 @@ internal class SyntaxPreviewComponent(
             val document = EditorFactory.getInstance().createDocument(nextSample.code)
             editorField.setNewDocumentAndFileType(previewFileType(nextLanguage, nextSample), document)
         }
+        refreshEditorColorsScheme()
         editorField.background = editorSurface()
         editorField.repaint()
         revalidate()
         repaint()
+    }
+
+    private fun refreshEditorColorsScheme() {
+        val editor = editorField.getEditor(false) ?: return
+        editor.colorsScheme = previewColorsScheme(editor.colorsScheme)
+    }
+
+    private fun previewColorsScheme(currentScheme: EditorColorsScheme): EditorColorsScheme {
+        val previewScheme = EditorColorsManager.getInstance().globalScheme.clone() as EditorColorsScheme
+        previewScheme.fontPreferences = currentScheme.fontPreferences
+        previewScheme.editorFontName = currentScheme.editorFontName
+        previewScheme.editorFontSize = currentScheme.editorFontSize
+        previewScheme.lineSpacing = currentScheme.lineSpacing
+        previewScheme.isUseLigatures = currentScheme.isUseLigatures
+        return previewScheme
     }
 
     override fun getPreferredSize(): Dimension = Dimension(JBUI.scale(PREVIEW_WIDTH), JBUI.scale(PREVIEW_HEIGHT))

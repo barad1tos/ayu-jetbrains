@@ -2,6 +2,10 @@ package dev.ayuislands.settings
 
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.openapi.editor.colors.EditorColorsScheme
+import com.intellij.openapi.editor.colors.FontPreferences
+import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.ui.EditorTextField
 import dev.ayuislands.accent.AyuVariant
@@ -9,6 +13,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
+import io.mockk.verify
 import java.awt.Container
 import java.awt.Dimension
 import java.awt.image.BufferedImage
@@ -66,6 +71,39 @@ class SyntaxPreviewComponentTest {
         component.updatePreview(AyuVariant.MIRAGE)
 
         assertEquals(AyuVariant.MIRAGE, component.variantForTest())
+    }
+
+    @Test
+    fun `updatePreview refreshes the existing native editor color scheme`() {
+        val colorsManager = mockk<EditorColorsManager>()
+        val currentScheme = mockk<EditorColorsScheme>()
+        val globalScheme = mockk<EditorColorsScheme>(relaxed = true)
+        val previewScheme = mockk<EditorColorsScheme>(relaxed = true)
+        val fontPreferences = mockk<FontPreferences>(relaxed = true)
+        mockkStatic(EditorColorsManager::class)
+        every { EditorColorsManager.getInstance() } returns colorsManager
+        every { colorsManager.globalScheme } returns globalScheme
+        every { globalScheme.clone() } returns previewScheme
+        every { currentScheme.fontPreferences } returns fontPreferences
+        every { currentScheme.editorFontName } returns "Preview Font"
+        every { currentScheme.editorFontSize } returns 12
+        every { currentScheme.lineSpacing } returns 1.1f
+        every { currentScheme.isUseLigatures } returns true
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE)
+        val editorField = findEditorTextField(component)
+        val editor = mockk<EditorEx>(relaxed = true)
+        every { editor.colorsScheme } returns currentScheme
+        installEditor(editorField, editor)
+
+        component.updatePreview(AyuVariant.MIRAGE)
+
+        verify(exactly = 1) { previewScheme.fontPreferences = fontPreferences }
+        verify(exactly = 1) { previewScheme.editorFontName = "Preview Font" }
+        verify(exactly = 1) { previewScheme.editorFontSize = 12 }
+        verify(exactly = 1) { previewScheme.lineSpacing = 1.1f }
+        verify(exactly = 1) { previewScheme.isUseLigatures = true }
+        verify(exactly = 1) { editor.colorsScheme = previewScheme }
+        verify(exactly = 0) { editor.reinitSettings() }
     }
 
     @Test
@@ -171,4 +209,14 @@ class SyntaxPreviewComponentTest {
                 else -> null
             }
         }
+
+    private fun installEditor(
+        editorField: EditorTextField?,
+        editor: EditorEx,
+    ) {
+        assertNotNull(editorField, "Syntax preview must contain an EditorTextField.")
+        val editorFieldBackingField = EditorTextField::class.java.getDeclaredField("myEditor")
+        editorFieldBackingField.isAccessible = true
+        editorFieldBackingField.set(editorField, editor)
+    }
 }
