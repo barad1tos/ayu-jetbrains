@@ -518,6 +518,7 @@ class AyuIslandsStateTest {
     fun `commit path shortening defaults match workspace contract`() {
         val state = freshState()
 
+        assertEquals(CommitPathDisplayMode.INLINE.name, state.commitPanelPathDisplayMode)
         assertEquals(
             AyuIslandsState.DEFAULT_COMMIT_PATH_MIN_HIDDEN_LEVELS,
             state.commitPanelPathMinHiddenLevels,
@@ -580,6 +581,22 @@ class AyuIslandsStateTest {
     @Test
     fun `PanelWidthMode fromString returns DEFAULT for unknown`() {
         assertEquals(PanelWidthMode.DEFAULT, PanelWidthMode.fromString("NONEXISTENT"))
+    }
+
+    @Test
+    fun `CommitPathDisplayMode fromString parses valid names`() {
+        assertEquals(CommitPathDisplayMode.INLINE, CommitPathDisplayMode.fromString("INLINE"))
+        assertEquals(CommitPathDisplayMode.TOOLTIP, CommitPathDisplayMode.fromString("TOOLTIP"))
+    }
+
+    @Test
+    fun `CommitPathDisplayMode fromString returns INLINE for null`() {
+        assertEquals(CommitPathDisplayMode.INLINE, CommitPathDisplayMode.fromString(null))
+    }
+
+    @Test
+    fun `CommitPathDisplayMode fromString returns INLINE for unknown`() {
+        assertEquals(CommitPathDisplayMode.INLINE, CommitPathDisplayMode.fromString("NONEXISTENT"))
     }
 
     @Test

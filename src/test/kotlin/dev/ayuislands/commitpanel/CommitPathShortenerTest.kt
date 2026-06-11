@@ -29,9 +29,9 @@ class CommitPathShortenerTest {
     }
 
     @Test
-    fun `min hidden levels always removes trailing directories`() {
+    fun `min hidden levels always removes leading directories`() {
         assertEquals(
-            "alpha/beta/...",
+            ".../gamma/delta",
             shorten(
                 path = "alpha/beta/gamma/delta",
                 fullRowWidth = 40,
@@ -45,7 +45,7 @@ class CommitPathShortenerTest {
     @Test
     fun `dynamic shortening hides the first level that fits`() {
         assertEquals(
-            "alpha/beta/gamma/...",
+            ".../epsilon/zeta",
             shorten(
                 path = "alpha/beta/gamma/delta/epsilon/zeta",
                 fullRowWidth = 70,
@@ -57,9 +57,23 @@ class CommitPathShortenerTest {
     }
 
     @Test
+    fun `max hidden levels continues shortening after the first fitting candidate`() {
+        assertEquals(
+            ".../zeta",
+            shorten(
+                path = "alpha/beta/gamma/delta/epsilon/zeta",
+                fullRowWidth = 70,
+                availableRowWidth = 60,
+                minHiddenLevels = 0,
+                maxHiddenLevels = 5,
+            ),
+        )
+    }
+
+    @Test
     fun `shortening stops at max when row still does not fit`() {
         assertEquals(
-            "alpha/beta/...",
+            ".../epsilon/zeta",
             shorten(
                 path = "alpha/beta/gamma/delta/epsilon/zeta",
                 fullRowWidth = 70,
@@ -73,7 +87,7 @@ class CommitPathShortenerTest {
     @Test
     fun `negative values normalize to zero and max below min normalizes to min`() {
         assertEquals(
-            "alpha/beta/...",
+            ".../gamma/delta",
             shorten(
                 path = "alpha/beta/gamma/delta",
                 fullRowWidth = 30,
@@ -97,7 +111,7 @@ class CommitPathShortenerTest {
     @Test
     fun `leading and trailing whitespace are preserved`() {
         assertEquals(
-            "  alpha/beta/... ",
+            "  .../gamma/delta ",
             shorten(
                 path = "  alpha/beta/gamma/delta ",
                 fullRowWidth = 30,
@@ -111,7 +125,7 @@ class CommitPathShortenerTest {
     @Test
     fun `windows separators are shortened by directory level`() {
         assertEquals(
-            "alpha\\beta\\...",
+            "...\\gamma\\delta",
             shorten(
                 path = "alpha\\beta\\gamma\\delta",
                 fullRowWidth = 30,

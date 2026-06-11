@@ -27,6 +27,16 @@ enum class PanelWidthMode {
     }
 }
 
+enum class CommitPathDisplayMode {
+    INLINE,
+    TOOLTIP,
+    ;
+
+    companion object {
+        fun fromString(value: String?): CommitPathDisplayMode = entries.firstOrNull { it.name == value } ?: INLINE
+    }
+}
+
 class AyuIslandsState : BaseState() {
     // Per-variant accent colors
     var mirageAccent by string("#FFCC66")
@@ -198,6 +208,7 @@ class AyuIslandsState : BaseState() {
     var commitPanelWidthMode by string(PanelWidthMode.DEFAULT.name)
     var commitPanelAutoFitMinWidth by property(DEFAULT_COMMIT_AUTO_FIT_MIN_WIDTH)
     var commitPanelFixedWidth by property(DEFAULT_FIXED_WIDTH)
+    var commitPanelPathDisplayMode by string(CommitPathDisplayMode.INLINE.name)
     var commitPanelPathMinHiddenLevels by property(DEFAULT_COMMIT_PATH_MIN_HIDDEN_LEVELS)
     var commitPanelPathMaxHiddenLevels by property(DEFAULT_COMMIT_PATH_MAX_HIDDEN_LEVELS)
     var gitPanelWidthMode by string(PanelWidthMode.DEFAULT.name)

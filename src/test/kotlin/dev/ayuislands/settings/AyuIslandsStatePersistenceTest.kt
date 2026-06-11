@@ -131,10 +131,12 @@ class AyuIslandsStatePersistenceTest {
     fun `commit path shortening settings survive save reload cycle`() {
         val reloaded =
             roundTrip { state ->
+                state.commitPanelPathDisplayMode = CommitPathDisplayMode.TOOLTIP.name
                 state.commitPanelPathMinHiddenLevels = 2
                 state.commitPanelPathMaxHiddenLevels = 6
             }
 
+        assertEquals(CommitPathDisplayMode.TOOLTIP.name, reloaded.state.commitPanelPathDisplayMode)
         assertEquals(2, reloaded.state.commitPanelPathMinHiddenLevels)
         assertEquals(6, reloaded.state.commitPanelPathMaxHiddenLevels)
     }

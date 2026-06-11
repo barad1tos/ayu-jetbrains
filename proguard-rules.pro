@@ -54,6 +54,8 @@
 -keep enum dev.ayuislands.syntax.SyntaxPreset { *; }
 -keep enum dev.ayuislands.syntax.PrimitiveCategory { *; }
 -keep enum dev.ayuislands.syntax.FontStyleOverride { *; }
+-keep enum dev.ayuislands.settings.PanelWidthMode { *; }
+-keep enum dev.ayuislands.settings.CommitPathDisplayMode { *; }
 
 # plugin.xml: projectService (Project View tweaks)
 -keep class dev.ayuislands.projectview.ProjectViewScrollbarManager { *; }

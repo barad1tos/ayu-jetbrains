@@ -33,27 +33,19 @@ internal object CommitPathShortener {
                 .coerceAtLeast(minHiddenLevels)
                 .coerceAtMost(segments.size)
 
-        val originalPathWidth = request.measureTextWidth(request.pathText)
-        var bestCandidate = request.pathText
+        val hiddenLevels =
+            if (request.fullRowWidth <= request.availableRowWidth) {
+                minHiddenLevels
+            } else {
+                maxHiddenLevels
+            }
 
-        for (hiddenLevels in minHiddenLevels..maxHiddenLevels) {
-            val candidate =
-                candidateFor(
-                    original = request.pathText,
-                    segments = segments,
-                    separator = separator,
-                    hiddenLevels = hiddenLevels,
-                )
-            bestCandidate = candidate
-
-            val candidateRowWidth =
-                request.fullRowWidth -
-                    originalPathWidth +
-                    request.measureTextWidth(candidate)
-            if (candidateRowWidth <= request.availableRowWidth) return candidate
-        }
-
-        return bestCandidate
+        return candidateFor(
+            original = request.pathText,
+            segments = segments,
+            separator = separator,
+            hiddenLevels = hiddenLevels,
+        )
     }
 
     private fun candidateFor(
@@ -69,7 +61,7 @@ internal object CommitPathShortener {
             if (keptCount == 0) {
                 ELLIPSIS
             } else {
-                segments.take(keptCount).joinToString(separator) + separator + ELLIPSIS
+                ELLIPSIS + separator + segments.takeLast(keptCount).joinToString(separator)
             }
         return preserveOuterWhitespace(original, core)
     }
