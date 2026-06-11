@@ -1,0 +1,12 @@
+fun main() {
+    val msg = "hello"
+    val count = 42
+    // print greeting
+    /** Greet the user */
+    class Greeter {
+        @JvmStatic
+        fun greet(name: String) {
+            if (msg.isNotEmpty()) println(name)
+        }
+    }
+}

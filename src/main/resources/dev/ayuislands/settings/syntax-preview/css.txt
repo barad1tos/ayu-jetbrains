@@ -1,0 +1,6 @@
+.preview {
+    color: #ffcc66;
+    padding: 12px;
+    /* tune declarations */
+    border-radius: 6px;
+}

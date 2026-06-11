@@ -1,0 +1,12 @@
+package preview
+
+import "fmt"
+
+// Greeter prints a greeting.
+func Greet(name string) {
+    msg := "hello"
+    count := 42
+    if len(msg) > 0 {
+        fmt.Println(name, count)
+    }
+}

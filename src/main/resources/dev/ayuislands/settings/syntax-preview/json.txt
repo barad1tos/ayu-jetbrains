@@ -1,0 +1,5 @@
+{
+  "name": "Ayu Islands",
+  "enabled": true,
+  "count": 42
+}

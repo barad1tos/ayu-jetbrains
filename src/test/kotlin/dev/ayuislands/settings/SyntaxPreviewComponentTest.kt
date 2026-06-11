@@ -96,6 +96,10 @@ class SyntaxPreviewComponentTest {
             component.sampleFileNameForTest(),
             "Python preview must use its curated sample.",
         )
+        assertTrue(
+            component.sampleCodeForTest().contains("def greet"),
+            "Python preview must load the curated resource code.",
+        )
         assertEquals(pythonFileType, editor.fileType, "Python tuning must render through the Python file type.")
     }
 

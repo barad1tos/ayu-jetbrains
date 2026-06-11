@@ -1,0 +1,7 @@
+class Greeter:
+    # Greet the user.
+    def greet(self, name: str) -> None:
+        msg = "hello"
+        count = 42
+        if msg:
+            print(name, count)

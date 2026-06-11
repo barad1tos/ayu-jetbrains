@@ -1,0 +1,4 @@
+name: Ayu Islands
+enabled: true
+count: 42
+# tune keys and values

@@ -173,6 +173,9 @@ internal class SyntaxPreviewComponent(
     @TestOnly
     internal fun sampleFileNameForTest(): String = previewSample.fileName
 
+    @TestOnly
+    internal fun sampleCodeForTest(): String = previewSample.code
+
     private data class SurfacePalette(
         val editor: Color,
         val panel: Color,
@@ -183,6 +186,14 @@ internal class SyntaxPreviewComponent(
         val standardFileTypeName: String?,
         val defaultExtension: String?,
         val code: String,
+    )
+
+    private data class PreviewSampleSpec(
+        val language: String,
+        val fileName: String,
+        val standardFileTypeName: String,
+        val defaultExtension: String,
+        val resourceName: String,
     )
 
     private companion object {
@@ -205,195 +216,21 @@ internal class SyntaxPreviewComponent(
                 PreviewChromeProjectRow(fixedColor(0xFFD580), "build/"),
             )
 
-        private val PREVIEW_SAMPLES =
-            mapOf(
-                previewSample(
-                    "Kotlin",
-                    "PresetPreview.kt",
-                    "Kotlin",
-                    "kt",
-                    """
-                    fun main() {
-                        val msg = "hello"
-                        val count = 42
-                        // print greeting
-                        /** Greet the user */
-                        class Greeter {
-                            @JvmStatic
-                            fun greet(name: String) {
-                                if (msg.isNotEmpty()) println(name)
-                            }
-                        }
-                    }
-                    """,
-                ),
-                previewSample(
-                    "Java",
-                    "PresetPreview.java",
-                    "JAVA",
-                    "java",
-                    """
-                    public final class Greeter {
-                        private static final String MSG = "hello";
-                        // print greeting
-                        /** Greet the user */
-                        public void greet(String name) {
-                            if (!MSG.isEmpty()) {
-                                System.out.println(name);
-                            }
-                        }
-                    }
-                    """,
-                ),
-                previewSample(
-                    "Python",
-                    "preset_preview.py",
-                    "Python",
-                    "py",
-                    """
-                    class Greeter:
-                        # Greet the user.
-                        def greet(self, name: str) -> None:
-                            msg = "hello"
-                            count = 42
-                            if msg:
-                                print(name, count)
-                    """,
-                ),
-                previewSample(
-                    "JavaScript",
-                    "preset-preview.js",
-                    "JavaScript",
-                    "js",
-                    """
-                    export function greet(name) {
-                        const msg = "hello";
-                        const count = 42;
-                        // print greeting
-                        if (msg.length > 0) {
-                            console.log(name, count);
-                        }
-                    }
-                    """,
-                ),
-                previewSample(
-                    "TypeScript",
-                    "preset-preview.ts",
-                    "TypeScript",
-                    "ts",
-                    """
-                    export function greet(name: string): void {
-                        const msg = "hello";
-                        const count = 42;
-                        // print greeting
-                        if (msg.length > 0) {
-                            console.log(name, count);
-                        }
-                    }
-                    """,
-                ),
-                previewSample(
-                    "Go",
-                    "preset_preview.go",
-                    "Go",
-                    "go",
-                    """
-                    package preview
-
-                    import "fmt"
-
-                    // Greeter prints a greeting.
-                    func Greet(name string) {
-                        msg := "hello"
-                        count := 42
-                        if len(msg) > 0 {
-                            fmt.Println(name, count)
-                        }
-                    }
-                    """,
-                ),
-                previewSample(
-                    "Rust",
-                    "preset_preview.rs",
-                    "Rust",
-                    "rs",
-                    """
-                    pub fn greet(name: &str) {
-                        let msg = "hello";
-                        let count = 42;
-                        // print greeting
-                        if !msg.is_empty() {
-                            println!("{}", name);
-                        }
-                    }
-                    """,
-                ),
-                previewSample(
-                    "CSS",
-                    "preview.css",
-                    "CSS",
-                    "css",
-                    """
-                    .preview {
-                        color: #ffcc66;
-                        padding: 12px;
-                        /* tune declarations */
-                        border-radius: 6px;
-                    }
-                    """,
-                ),
-                previewSample(
-                    "HTML",
-                    "preview.html",
-                    "HTML",
-                    "html",
-                    """
-                    <section class="preview">
-                        <!-- tune tags and text -->
-                        <h1>Hello</h1>
-                        <span data-count="42">Ayu Islands</span>
-                    </section>
-                    """,
-                ),
-                previewSample(
-                    "JSON",
-                    "preview.json",
-                    "JSON",
-                    "json",
-                    """
-                    {
-                      "name": "Ayu Islands",
-                      "enabled": true,
-                      "count": 42
-                    }
-                    """,
-                ),
-                previewSample(
-                    "YAML",
-                    "preview.yaml",
-                    "YAML",
-                    "yaml",
-                    """
-                    name: Ayu Islands
-                    enabled: true
-                    count: 42
-                    # tune keys and values
-                    """,
-                ),
-                previewSample(
-                    "Markdown",
-                    "preview.md",
-                    "Markdown",
-                    "md",
-                    """
-                    # Ayu Islands
-
-                    `code` and **strong** text
-
-                    - count: 42
-                    """,
-                ),
-            )
+        private val PREVIEW_SAMPLE_SPECS =
+            listOf(
+                PreviewSampleSpec("Kotlin", "PresetPreview.kt", "Kotlin", "kt", "kotlin.txt"),
+                PreviewSampleSpec("Java", "PresetPreview.java", "JAVA", "java", "java.txt"),
+                PreviewSampleSpec("Python", "preset_preview.py", "Python", "py", "python.txt"),
+                PreviewSampleSpec("JavaScript", "preset-preview.js", "JavaScript", "js", "javascript.txt"),
+                PreviewSampleSpec("TypeScript", "preset-preview.ts", "TypeScript", "ts", "typescript.txt"),
+                PreviewSampleSpec("Go", "preset_preview.go", "Go", "go", "go.txt"),
+                PreviewSampleSpec("Rust", "preset_preview.rs", "Rust", "rs", "rust.txt"),
+                PreviewSampleSpec("CSS", "preview.css", "CSS", "css", "css.txt"),
+                PreviewSampleSpec("HTML", "preview.html", "HTML", "html", "html.txt"),
+                PreviewSampleSpec("JSON", "preview.json", "JSON", "json", "json.txt"),
+                PreviewSampleSpec("YAML", "preview.yaml", "YAML", "yaml", "yaml.txt"),
+                PreviewSampleSpec("Markdown", "preview.md", "Markdown", "md", "markdown.txt"),
+            ).associateBy(PreviewSampleSpec::language)
 
         private val DEFAULT_SAMPLE =
             PreviewSample(
@@ -411,26 +248,29 @@ internal class SyntaxPreviewComponent(
 
         private fun fixedColor(rgb: Int): JBColor = JBColor(rgb, rgb)
 
-        private fun previewSample(
-            language: String,
-            fileName: String,
-            standardFileTypeName: String,
-            defaultExtension: String,
-            code: String,
-        ): Pair<String, PreviewSample> =
-            language to
-                PreviewSample(
-                    fileName,
-                    standardFileTypeName,
-                    defaultExtension,
-                    code.trimIndent(),
-                )
-
         private fun normalizeLanguage(language: String): String =
             language.takeIf { it.isNotBlank() } ?: DEFAULT_LANGUAGE
 
         private fun sampleFor(language: String): PreviewSample =
-            PREVIEW_SAMPLES[normalizeLanguage(language)] ?: DEFAULT_SAMPLE
+            PREVIEW_SAMPLE_SPECS[normalizeLanguage(language)]?.toPreviewSample() ?: DEFAULT_SAMPLE
+
+        private fun PreviewSampleSpec.toPreviewSample(): PreviewSample =
+            PreviewSample(
+                fileName,
+                standardFileTypeName,
+                defaultExtension,
+                loadPreviewCode(resourceName),
+            )
+
+        private fun loadPreviewCode(resourceName: String): String {
+            val resourcePath = "/dev/ayuislands/settings/syntax-preview/$resourceName"
+            val stream = SyntaxPreviewComponent::class.java.getResourceAsStream(resourcePath)
+            if (stream == null) {
+                LOG.warn("Syntax preview sample resource '$resourcePath' is missing; falling back to default sample")
+                return DEFAULT_SAMPLE.code
+            }
+            return stream.bufferedReader(Charsets.UTF_8).use { it.readText().trimIndent() }
+        }
 
         private fun previewFileType(
             language: String,
