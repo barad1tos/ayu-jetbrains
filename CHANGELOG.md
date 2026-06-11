@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.7.3] - 2026-06-11
+
+### Fixed
+- **Syntax preview** — native highlighting now updates reliably when switching syntax presets and readability options.
+
 ## [2.7.2] - 2026-06-05
 
 ### Paid

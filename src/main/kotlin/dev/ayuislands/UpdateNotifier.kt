@@ -55,6 +55,10 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.7.3" to
+                releaseNotes(
+                    "Syntax preview highlighting now updates reliably when switching presets and readability options",
+                ),
             "2.7.2" to
                 releaseNotes(
                     "Pro accent pins can now drive Ayu integrations on non-Ayu themes",
