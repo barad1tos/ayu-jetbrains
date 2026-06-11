@@ -71,7 +71,7 @@ internal class SyntaxPreviewComponent(
     override fun getMinimumSize(): Dimension = Dimension(JBUI.scale(MIN_PREVIEW_WIDTH), JBUI.scale(PREVIEW_HEIGHT))
 
     override fun doLayout() {
-        val layout = previewLayout()
+        val layout = PreviewChromePainter.layout(width, height)
         editorField.setBounds(
             layout.editorX + JBUI.scale(EDITOR_INSET),
             layout.padding + JBUI.scale(EDITOR_INSET),
@@ -87,9 +87,9 @@ internal class SyntaxPreviewComponent(
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
 
-            paintRoundedSurface(g2, Rectangle(0, 0, width, height), JBUI.scale(ARC), editorSurface())
+            PreviewChromePainter.paintOuterPanel(g2, width, height, editorSurface())
 
-            val layout = previewLayout()
+            val layout = PreviewChromePainter.layout(width, height)
             paintProjectPanel(g2, layout.padding, layout.padding, layout.projectWidth, layout.contentHeight)
             paintEditorPanelFrame(g2, layout.editorX, layout.padding, layout.editorWidth, layout.contentHeight)
         } finally {
@@ -120,32 +120,6 @@ internal class SyntaxPreviewComponent(
             isOpaque = false
         }
 
-    private fun previewLayout(): PreviewLayout {
-        val padding = JBUI.scale(PADDING)
-        val projectWidth = JBUI.scale(PROJECT_WIDTH)
-        val columnGap = JBUI.scale(COLUMN_GAP)
-        val editorX = padding + projectWidth + columnGap
-        return PreviewLayout(
-            padding = padding,
-            contentHeight = (height - padding * 2).coerceAtLeast(1),
-            projectWidth = projectWidth,
-            editorX = editorX,
-            editorWidth = (width - editorX - padding).coerceAtLeast(1),
-        )
-    }
-
-    private fun paintRoundedSurface(
-        g2: Graphics2D,
-        bounds: Rectangle,
-        arc: Int,
-        surface: Color,
-    ) {
-        g2.color = surface
-        g2.fillRoundRect(bounds.x, bounds.y, bounds.width, bounds.height, arc, arc)
-        g2.color = JBColor.border()
-        g2.drawRoundRect(bounds.x, bounds.y, bounds.width - 1, bounds.height - 1, arc, arc)
-    }
-
     private fun paintProjectPanel(
         g2: Graphics2D,
         x: Int,
@@ -153,24 +127,17 @@ internal class SyntaxPreviewComponent(
         width: Int,
         height: Int,
     ) {
-        paintRoundedSurface(g2, Rectangle(x, y, width, height), JBUI.scale(INNER_ARC), panelSurface())
-
-        g2.font = JBUI.Fonts.smallFont()
-        val rowHeight = JBUI.scale(PROJECT_ROW_HEIGHT)
-        var rowY = y + JBUI.scale(PROJECT_TOP_PADDING)
-        for (row in projectRows()) {
-            val baseline = rowY + (rowHeight - g2.fontMetrics.height) / 2 + g2.fontMetrics.ascent
-            g2.color = row.dotColor
-            g2.fillOval(
-                x + JBUI.scale(FILE_DOT_X),
-                rowY + JBUI.scale(FILE_DOT_Y),
-                JBUI.scale(FILE_DOT),
-                JBUI.scale(FILE_DOT),
-            )
-            g2.color = UIUtil.getLabelForeground()
-            g2.drawString(row.text, x + JBUI.scale(FILE_TEXT_X), baseline)
-            rowY += rowHeight
-        }
+        PreviewChromePainter.paintProjectPanel(
+            g2 = g2,
+            panel =
+                PreviewChromeProjectPanel(
+                    bounds = Rectangle(x, y, width, height),
+                    surface = panelSurface(),
+                    rows = projectRows(),
+                    markerShape = PreviewChromeMarkerShape.ROUND,
+                    textColor = UIUtil.getLabelForeground(),
+                ),
+        )
     }
 
     private fun paintEditorPanelFrame(
@@ -180,11 +147,11 @@ internal class SyntaxPreviewComponent(
         width: Int,
         height: Int,
     ) {
-        paintRoundedSurface(g2, Rectangle(x, y, width, height), JBUI.scale(INNER_ARC), editorSurface())
+        PreviewChromePainter.paintPanelFrame(g2, Rectangle(x, y, width, height), editorSurface())
     }
 
-    private fun projectRows(): List<ProjectRow> =
-        listOf(ProjectRow(LANGUAGE_FILE_DOT, previewSample.fileName)) + PROJECT_ROW_TAIL
+    private fun projectRows(): List<PreviewChromeProjectRow> =
+        listOf(PreviewChromeProjectRow(LANGUAGE_FILE_DOT, previewSample.fileName)) + PROJECT_ROW_TAIL
 
     private fun editorSurface(): Color = surfacePalette().editor
 
@@ -203,22 +170,12 @@ internal class SyntaxPreviewComponent(
     @TestOnly
     internal fun languageForTest(): String = language
 
-    private data class PreviewLayout(
-        val padding: Int,
-        val contentHeight: Int,
-        val projectWidth: Int,
-        val editorX: Int,
-        val editorWidth: Int,
-    )
+    @TestOnly
+    internal fun sampleFileNameForTest(): String = previewSample.fileName
 
     private data class SurfacePalette(
         val editor: Color,
         val panel: Color,
-    )
-
-    private data class ProjectRow(
-        val dotColor: Color,
-        val text: String,
     )
 
     private data class PreviewSample(
@@ -234,18 +191,7 @@ internal class SyntaxPreviewComponent(
         private const val PREVIEW_WIDTH = 560
         private const val MIN_PREVIEW_WIDTH = 320
         private const val PREVIEW_HEIGHT = 220
-        private const val PADDING = 10
-        private const val COLUMN_GAP = 10
-        private const val PROJECT_WIDTH = 154
-        private const val PROJECT_TOP_PADDING = 12
-        private const val PROJECT_ROW_HEIGHT = 22
-        private const val FILE_DOT_X = 11
-        private const val FILE_DOT_Y = 8
-        private const val FILE_DOT = 7
-        private const val FILE_TEXT_X = 26
         private const val EDITOR_INSET = 1
-        private const val ARC = 8
-        private const val INNER_ARC = 6
         private const val DEFAULT_LANGUAGE = "Kotlin"
 
         private val DARK_PALETTE = SurfacePalette(fixedColor(0x0D1017), fixedColor(0x141923))
@@ -254,199 +200,199 @@ internal class SyntaxPreviewComponent(
         private val LANGUAGE_FILE_DOT = fixedColor(0x59C2FF)
         private val PROJECT_ROW_TAIL =
             listOf(
-                ProjectRow(fixedColor(0x7FD17F), "Config.java"),
-                ProjectRow(fixedColor(0xFFA759), "Types.kt"),
-                ProjectRow(fixedColor(0xFFD580), "build/"),
+                PreviewChromeProjectRow(fixedColor(0x7FD17F), "Config.java"),
+                PreviewChromeProjectRow(fixedColor(0xFFA759), "Types.kt"),
+                PreviewChromeProjectRow(fixedColor(0xFFD580), "build/"),
             )
 
         private val PREVIEW_SAMPLES =
             mapOf(
-                "Kotlin" to
-                    PreviewSample(
-                        "PresetPreview.kt",
-                        "Kotlin",
-                        "kt",
-                        """
-                        fun main() {
-                            val msg = "hello"
-                            val count = 42
-                            // print greeting
-                            /** Greet the user */
-                            class Greeter {
-                                @JvmStatic
-                                fun greet(name: String) {
-                                    if (msg.isNotEmpty()) println(name)
-                                }
+                previewSample(
+                    "Kotlin",
+                    "PresetPreview.kt",
+                    "Kotlin",
+                    "kt",
+                    """
+                    fun main() {
+                        val msg = "hello"
+                        val count = 42
+                        // print greeting
+                        /** Greet the user */
+                        class Greeter {
+                            @JvmStatic
+                            fun greet(name: String) {
+                                if (msg.isNotEmpty()) println(name)
                             }
                         }
-                        """.trimIndent(),
-                    ),
-                "Java" to
-                    PreviewSample(
-                        "PresetPreview.java",
-                        "JAVA",
-                        "java",
-                        """
-                        public final class Greeter {
-                            private static final String MSG = "hello";
-                            // print greeting
-                            /** Greet the user */
-                            public void greet(String name) {
-                                if (!MSG.isEmpty()) {
-                                    System.out.println(name);
-                                }
+                    }
+                    """,
+                ),
+                previewSample(
+                    "Java",
+                    "PresetPreview.java",
+                    "JAVA",
+                    "java",
+                    """
+                    public final class Greeter {
+                        private static final String MSG = "hello";
+                        // print greeting
+                        /** Greet the user */
+                        public void greet(String name) {
+                            if (!MSG.isEmpty()) {
+                                System.out.println(name);
                             }
                         }
-                        """.trimIndent(),
-                    ),
-                "Python" to
-                    PreviewSample(
-                        "preset_preview.py",
-                        "Python",
-                        "py",
-                        """
-                        class Greeter:
-                            # Greet the user.
-                            def greet(self, name: str) -> None:
-                                msg = "hello"
-                                count = 42
-                                if msg:
-                                    print(name, count)
-                        """.trimIndent(),
-                    ),
-                "JavaScript" to
-                    PreviewSample(
-                        "preset-preview.js",
-                        "JavaScript",
-                        "js",
-                        """
-                        export function greet(name) {
-                            const msg = "hello";
-                            const count = 42;
-                            // print greeting
-                            if (msg.length > 0) {
-                                console.log(name, count);
-                            }
+                    }
+                    """,
+                ),
+                previewSample(
+                    "Python",
+                    "preset_preview.py",
+                    "Python",
+                    "py",
+                    """
+                    class Greeter:
+                        # Greet the user.
+                        def greet(self, name: str) -> None:
+                            msg = "hello"
+                            count = 42
+                            if msg:
+                                print(name, count)
+                    """,
+                ),
+                previewSample(
+                    "JavaScript",
+                    "preset-preview.js",
+                    "JavaScript",
+                    "js",
+                    """
+                    export function greet(name) {
+                        const msg = "hello";
+                        const count = 42;
+                        // print greeting
+                        if (msg.length > 0) {
+                            console.log(name, count);
                         }
-                        """.trimIndent(),
-                    ),
-                "TypeScript" to
-                    PreviewSample(
-                        "preset-preview.ts",
-                        "TypeScript",
-                        "ts",
-                        """
-                        export function greet(name: string): void {
-                            const msg = "hello";
-                            const count = 42;
-                            // print greeting
-                            if (msg.length > 0) {
-                                console.log(name, count);
-                            }
+                    }
+                    """,
+                ),
+                previewSample(
+                    "TypeScript",
+                    "preset-preview.ts",
+                    "TypeScript",
+                    "ts",
+                    """
+                    export function greet(name: string): void {
+                        const msg = "hello";
+                        const count = 42;
+                        // print greeting
+                        if (msg.length > 0) {
+                            console.log(name, count);
                         }
-                        """.trimIndent(),
-                    ),
-                "Go" to
-                    PreviewSample(
-                        "preset_preview.go",
-                        "Go",
-                        "go",
-                        """
-                        package preview
+                    }
+                    """,
+                ),
+                previewSample(
+                    "Go",
+                    "preset_preview.go",
+                    "Go",
+                    "go",
+                    """
+                    package preview
 
-                        import "fmt"
+                    import "fmt"
 
-                        // Greeter prints a greeting.
-                        func Greet(name string) {
-                            msg := "hello"
-                            count := 42
-                            if len(msg) > 0 {
-                                fmt.Println(name, count)
-                            }
+                    // Greeter prints a greeting.
+                    func Greet(name string) {
+                        msg := "hello"
+                        count := 42
+                        if len(msg) > 0 {
+                            fmt.Println(name, count)
                         }
-                        """.trimIndent(),
-                    ),
-                "Rust" to
-                    PreviewSample(
-                        "preset_preview.rs",
-                        "Rust",
-                        "rs",
-                        """
-                        pub fn greet(name: &str) {
-                            let msg = "hello";
-                            let count = 42;
-                            // print greeting
-                            if !msg.is_empty() {
-                                println!("{}", name);
-                            }
+                    }
+                    """,
+                ),
+                previewSample(
+                    "Rust",
+                    "preset_preview.rs",
+                    "Rust",
+                    "rs",
+                    """
+                    pub fn greet(name: &str) {
+                        let msg = "hello";
+                        let count = 42;
+                        // print greeting
+                        if !msg.is_empty() {
+                            println!("{}", name);
                         }
-                        """.trimIndent(),
-                    ),
-                "CSS" to
-                    PreviewSample(
-                        "preview.css",
-                        "CSS",
-                        "css",
-                        """
-                        .preview {
-                            color: #ffcc66;
-                            padding: 12px;
-                            /* tune declarations */
-                            border-radius: 6px;
-                        }
-                        """.trimIndent(),
-                    ),
-                "HTML" to
-                    PreviewSample(
-                        "preview.html",
-                        "HTML",
-                        "html",
-                        """
-                        <section class="preview">
-                            <!-- tune tags and text -->
-                            <h1>Hello</h1>
-                            <span data-count="42">Ayu Islands</span>
-                        </section>
-                        """.trimIndent(),
-                    ),
-                "JSON" to
-                    PreviewSample(
-                        "preview.json",
-                        "JSON",
-                        "json",
-                        """
-                        {
-                          "name": "Ayu Islands",
-                          "enabled": true,
-                          "count": 42
-                        }
-                        """.trimIndent(),
-                    ),
-                "YAML" to
-                    PreviewSample(
-                        "preview.yaml",
-                        "YAML",
-                        "yaml",
-                        """
-                        name: Ayu Islands
-                        enabled: true
-                        count: 42
-                        # tune keys and values
-                        """.trimIndent(),
-                    ),
-                "Markdown" to
-                    PreviewSample(
-                        "preview.md",
-                        "Markdown",
-                        "md",
-                        """
-                        # Ayu Islands
+                    }
+                    """,
+                ),
+                previewSample(
+                    "CSS",
+                    "preview.css",
+                    "CSS",
+                    "css",
+                    """
+                    .preview {
+                        color: #ffcc66;
+                        padding: 12px;
+                        /* tune declarations */
+                        border-radius: 6px;
+                    }
+                    """,
+                ),
+                previewSample(
+                    "HTML",
+                    "preview.html",
+                    "HTML",
+                    "html",
+                    """
+                    <section class="preview">
+                        <!-- tune tags and text -->
+                        <h1>Hello</h1>
+                        <span data-count="42">Ayu Islands</span>
+                    </section>
+                    """,
+                ),
+                previewSample(
+                    "JSON",
+                    "preview.json",
+                    "JSON",
+                    "json",
+                    """
+                    {
+                      "name": "Ayu Islands",
+                      "enabled": true,
+                      "count": 42
+                    }
+                    """,
+                ),
+                previewSample(
+                    "YAML",
+                    "preview.yaml",
+                    "YAML",
+                    "yaml",
+                    """
+                    name: Ayu Islands
+                    enabled: true
+                    count: 42
+                    # tune keys and values
+                    """,
+                ),
+                previewSample(
+                    "Markdown",
+                    "preview.md",
+                    "Markdown",
+                    "md",
+                    """
+                    # Ayu Islands
 
-                        `code` and **strong** text
+                    `code` and **strong** text
 
-                        - count: 42
-                        """.trimIndent(),
-                    ),
+                    - count: 42
+                    """,
+                ),
             )
 
         private val DEFAULT_SAMPLE =
@@ -464,6 +410,21 @@ internal class SyntaxPreviewComponent(
             )
 
         private fun fixedColor(rgb: Int): JBColor = JBColor(rgb, rgb)
+
+        private fun previewSample(
+            language: String,
+            fileName: String,
+            standardFileTypeName: String,
+            defaultExtension: String,
+            code: String,
+        ): Pair<String, PreviewSample> =
+            language to
+                PreviewSample(
+                    fileName,
+                    standardFileTypeName,
+                    defaultExtension,
+                    code.trimIndent(),
+                )
 
         private fun normalizeLanguage(language: String): String =
             language.takeIf { it.isNotBlank() } ?: DEFAULT_LANGUAGE

@@ -81,6 +81,25 @@ class SyntaxPreviewComponentTest {
     }
 
     @Test
+    fun `updatePreview uses curated sample for non-Kotlin languages`() {
+        val pythonFileType = editorFixture.mockFileType("Python", "py")
+        every { editorFixture.fileTypeManager.getStdFileType("Python") } returns pythonFileType
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE)
+
+        component.updatePreview(AyuVariant.MIRAGE, "Python")
+
+        val editor = findEditorTextField(component)
+        assertNotNull(editor, "Syntax preview must keep the native editor when switching to Python.")
+        assertEquals("Python", component.languageForTest(), "Syntax preview must track the selected language.")
+        assertEquals(
+            "preset_preview.py",
+            component.sampleFileNameForTest(),
+            "Python preview must use its curated sample.",
+        )
+        assertEquals(pythonFileType, editor.fileType, "Python tuning must render through the Python file type.")
+    }
+
+    @Test
     fun `component falls back to plain text when standard file type mismatches the sample`() {
         every { editorFixture.fileTypeManager.getStdFileType("Kotlin") } returns
             editorFixture.mockFileType("NotKotlin", "txt")

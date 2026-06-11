@@ -15,6 +15,7 @@ import java.awt.Color
 import java.awt.Dimension
 import java.awt.Graphics
 import java.awt.Graphics2D
+import java.awt.Rectangle
 import java.awt.RenderingHints
 import javax.swing.JComponent
 import kotlin.math.roundToInt
@@ -68,22 +69,11 @@ internal class VcsColorPreviewComponent(
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
 
-            val surface = editorSurface()
-            val arc = JBUI.scale(ARC)
-            g2.color = surface
-            g2.fillRoundRect(0, 0, width, height, arc, arc)
-            g2.color = JBColor.border()
-            g2.drawRoundRect(0, 0, width - 1, height - 1, arc, arc)
+            PreviewChromePainter.paintOuterPanel(g2, width, height, editorSurface())
 
-            val padding = JBUI.scale(PADDING)
-            val columnGap = JBUI.scale(COLUMN_GAP)
-            val contentHeight = (height - padding * 2).coerceAtLeast(1)
-            val projectWidth = JBUI.scale(PROJECT_WIDTH)
-            val editorX = padding + projectWidth + columnGap
-            val editorWidth = (width - editorX - padding).coerceAtLeast(1)
-
-            paintProjectPanel(g2, padding, padding, projectWidth, contentHeight)
-            paintEditorPanel(g2, editorX, padding, editorWidth, contentHeight)
+            val layout = PreviewChromePainter.layout(width, height)
+            paintProjectPanel(g2, layout.padding, layout.padding, layout.projectWidth, layout.contentHeight)
+            paintEditorPanel(g2, layout.editorX, layout.padding, layout.editorWidth, layout.contentHeight)
         } finally {
             g2.dispose()
         }
@@ -96,27 +86,16 @@ internal class VcsColorPreviewComponent(
         width: Int,
         height: Int,
     ) {
-        val arc = JBUI.scale(INNER_ARC)
-        g2.color = panelSurface()
-        g2.fillRoundRect(x, y, width, height, arc, arc)
-        g2.color = JBColor.border()
-        g2.drawRoundRect(x, y, width - 1, height - 1, arc, arc)
-
-        g2.font = JBUI.Fonts.smallFont()
-        val rowHeight = JBUI.scale(PROJECT_ROW_HEIGHT)
-        var rowY = y + JBUI.scale(PROJECT_TOP_PADDING)
-        for (row in PROJECT_ROWS) {
-            val baseline = rowY + (rowHeight - g2.fontMetrics.height) / 2 + g2.fontMetrics.ascent
-            g2.color = previewColor(VcsColorCategory.PROJECT_VIEW_FILE_STATUS, row.keyName, VcsWriteMode.COLOR_KEY)
-            g2.fillRect(
-                x + JBUI.scale(FILE_DOT_X),
-                rowY + JBUI.scale(FILE_DOT_Y),
-                JBUI.scale(FILE_DOT),
-                JBUI.scale(FILE_DOT),
-            )
-            g2.drawString(row.text, x + JBUI.scale(FILE_TEXT_X), baseline)
-            rowY += rowHeight
-        }
+        PreviewChromePainter.paintProjectPanel(
+            g2 = g2,
+            panel =
+                PreviewChromeProjectPanel(
+                    bounds = Rectangle(x, y, width, height),
+                    surface = panelSurface(),
+                    rows = projectRows(),
+                    markerShape = PreviewChromeMarkerShape.SQUARE,
+                ),
+        )
     }
 
     private fun paintEditorPanel(
@@ -126,11 +105,7 @@ internal class VcsColorPreviewComponent(
         width: Int,
         height: Int,
     ) {
-        val arc = JBUI.scale(INNER_ARC)
-        g2.color = editorSurface()
-        g2.fillRoundRect(x, y, width, height, arc, arc)
-        g2.color = JBColor.border()
-        g2.drawRoundRect(x, y, width - 1, height - 1, arc, arc)
+        PreviewChromePainter.paintPanelFrame(g2, Rectangle(x, y, width, height), editorSurface())
 
         val gutterWidth = JBUI.scale(GUTTER_WIDTH)
         val blameWidth = JBUI.scale(BLAME_WIDTH).coerceAtMost(width / BLAME_MAX_WIDTH_DIVISOR)
@@ -154,6 +129,14 @@ internal class VcsColorPreviewComponent(
             rowY += rowHeight
         }
     }
+
+    private fun projectRows(): List<PreviewChromeProjectRow> =
+        PROJECT_ROWS.map { row ->
+            PreviewChromeProjectRow(
+                previewColor(VcsColorCategory.PROJECT_VIEW_FILE_STATUS, row.keyName, VcsWriteMode.COLOR_KEY),
+                row.text,
+            )
+        }
 
     private fun paintBlameGutter(
         g2: Graphics2D,
@@ -327,15 +310,6 @@ internal class VcsColorPreviewComponent(
         private const val PREVIEW_WIDTH = 560
         private const val MIN_PREVIEW_WIDTH = 320
         private const val PREVIEW_HEIGHT = 154
-        private const val PADDING = 10
-        private const val COLUMN_GAP = 10
-        private const val PROJECT_WIDTH = 154
-        private const val PROJECT_TOP_PADDING = 12
-        private const val PROJECT_ROW_HEIGHT = 22
-        private const val FILE_DOT_X = 11
-        private const val FILE_DOT_Y = 8
-        private const val FILE_DOT = 7
-        private const val FILE_TEXT_X = 26
         private const val GUTTER_WIDTH = 34
         private const val BLAME_WIDTH = 94
         private const val BLAME_MAX_WIDTH_DIVISOR = 3
@@ -349,8 +323,6 @@ internal class VcsColorPreviewComponent(
         private const val GUTTER_MARKER_INSET = 6
         private const val STRIPE_WIDTH = 4
         private const val STRIPE_GAP = 8
-        private const val ARC = 8
-        private const val INNER_ARC = 6
         private const val CHANNEL_MAX = 255
 
         private val DARK_SURFACE = Color(0x0D1017)
