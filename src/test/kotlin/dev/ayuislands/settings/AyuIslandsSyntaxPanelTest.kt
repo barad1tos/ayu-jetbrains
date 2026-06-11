@@ -2,16 +2,19 @@ package dev.ayuislands.settings
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.ex.ActionManagerEx
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.openapi.util.io.FileUtil
+import com.intellij.ui.EditorTextField
 import com.intellij.ui.InplaceButton
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.syntax.PrimitiveCategory
 import dev.ayuislands.syntax.SyntaxIntensityApplicator
@@ -34,6 +37,7 @@ import java.awt.Font
 import java.io.File
 import javax.swing.JButton
 import javax.swing.JCheckBox
+import javax.swing.JComboBox
 import javax.swing.JLabel
 import javax.swing.JSlider
 import javax.swing.Timer
@@ -113,6 +117,7 @@ class AyuIslandsSyntaxPanelTest {
     private lateinit var stateBase: SyntaxIntensityBaseState
     private lateinit var stateService: SyntaxIntensityState
     private lateinit var intensityService: SyntaxIntensityService
+    private lateinit var syntaxPreviewEditorFixture: SyntaxPreviewEditorFixture
 
     @BeforeTest
     fun setUp() {
@@ -133,18 +138,23 @@ class AyuIslandsSyntaxPanelTest {
 
         mockkStatic(ApplicationManager::class)
         val appMock = mockk<Application>(relaxed = true)
-        val actionManagerMock = mockk<ActionManager>(relaxed = true)
+        val actionManagerMock = mockk<ActionManagerEx>(relaxed = true)
         mockkStatic(ActionManager::class)
         every { ActionManager.getInstance() } returns actionManagerMock
         every { ApplicationManager.getApplication() } returns appMock
         every { appMock.invokeLater(any()) } answers { firstArg<Runnable>().run() }
         every { appMock.getService(ActionManager::class.java) } returns actionManagerMock
+        every { appMock.getService(ActionManagerEx::class.java) } returns actionManagerMock
+        every { appMock.getServiceIfCreated(ActionManager::class.java) } returns actionManagerMock
         every { actionManagerMock.getAction(any()) } returns null
 
         @Suppress("UNCHECKED_CAST")
         val experimentalUiClass = Class.forName("com.intellij.ui.ExperimentalUI") as Class<Any>
         val experimentalUiMock = mockkClass(experimentalUiClass.kotlin, relaxed = true)
         every { appMock.getService(experimentalUiClass) } returns experimentalUiMock
+
+        syntaxPreviewEditorFixture = SyntaxPreviewEditorFixture()
+        syntaxPreviewEditorFixture.install()
     }
 
     @AfterTest
@@ -160,6 +170,64 @@ class AyuIslandsSyntaxPanelTest {
         val panel = panelWithLoadedState()
         assertSame(SyntaxPreset.AMBIENT, readPendingPreset(panel))
         assertSame(SyntaxPreset.AMBIENT, readStoredPreset(panel))
+    }
+
+    @Test
+    fun `buildPanel initializes syntax preview before first interaction`() {
+        val syntaxPanel = AyuIslandsSyntaxPanel()
+        val dialogPanel = buildFullSyntaxPanel(syntaxPanel)
+
+        try {
+            val preview =
+                assertNotNull(
+                    findComponent(dialogPanel, SyntaxPreviewComponent::class.java),
+                    "Syntax tab must include the native syntax preview component.",
+                )
+            val editor =
+                assertNotNull(
+                    findComponent(preview, EditorTextField::class.java),
+                    "Syntax preview must embed EditorTextField for native syntax highlighting.",
+                )
+
+            assertEquals(AyuVariant.MIRAGE, preview.variantForTest())
+            assertEquals("Kotlin", preview.languageForTest(), "Preview must initialize to the Kotlin sample.")
+            assertEquals(syntaxPreviewEditorFixture.kotlinFileType, editor.fileType)
+            assertSame(syntaxPreviewEditorFixture.previewProject, editor.project)
+        } finally {
+            syntaxPanel.dispose()
+        }
+    }
+
+    @Test
+    fun `language selector updates syntax preview language and file type`() {
+        stateBase.selectedPreset = "CUSTOM"
+        val syntaxPanel = AyuIslandsSyntaxPanel()
+        val dialogPanel = buildFullSyntaxPanel(syntaxPanel)
+
+        try {
+            val preview =
+                assertNotNull(
+                    findComponent(dialogPanel, SyntaxPreviewComponent::class.java),
+                    "Syntax tab must include the native syntax preview component.",
+                )
+            val languageCombo =
+                assertNotNull(
+                    findComponent(dialogPanel, JComboBox::class.java),
+                    "Syntax tab must expose the Custom language selector.",
+                )
+
+            languageCombo.selectedItem = "Java"
+
+            val editor =
+                assertNotNull(
+                    findComponent(preview, EditorTextField::class.java),
+                    "Syntax preview must keep the native editor after language changes.",
+                )
+            assertEquals("Java", preview.languageForTest())
+            assertEquals(syntaxPreviewEditorFixture.javaFileType, editor.fileType)
+        } finally {
+            syntaxPanel.dispose()
+        }
     }
 
     @Test
@@ -446,7 +514,7 @@ class AyuIslandsSyntaxPanelTest {
 
         try {
             val component = buildSyntaxPanel(panel)
-            component.setSize(component.preferredSize)
+            component.size = component.preferredSize
             layoutRecursively(component)
 
             val readabilityControls =
@@ -1299,6 +1367,11 @@ class AyuIslandsSyntaxPanelTest {
         return panel
     }
 
+    private fun buildFullSyntaxPanel(syntaxPanel: AyuIslandsSyntaxPanel): DialogPanel =
+        panel {
+            syntaxPanel.buildPanel(this, AyuVariant.MIRAGE)
+        }
+
     private fun buildSyntaxPanel(syntaxPanel: AyuIslandsSyntaxPanel): DialogPanel =
         panel {
             syntaxPanel.buildReadabilityBlockForTest(this)
@@ -1328,6 +1401,18 @@ class AyuIslandsSyntaxPanelTest {
         container.components.flatMap { component ->
             val nested = if (component is Container) findCheckBoxes(component) else emptyList()
             if (component is JCheckBox) listOf(component) + nested else nested
+        }
+
+    private fun <T> findComponent(
+        container: Container,
+        type: Class<T>,
+    ): T? =
+        container.components.firstNotNullOfOrNull { component ->
+            when {
+                type.isInstance(component) -> type.cast(component)
+                component is Container -> findComponent(component, type)
+                else -> null
+            }
         }
 
     private fun layoutRecursively(container: Container) {

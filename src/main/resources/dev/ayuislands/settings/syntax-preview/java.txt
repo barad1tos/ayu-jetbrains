@@ -1,0 +1,10 @@
+public final class Greeter {
+    private static final String MSG = "hello";
+    // print greeting
+    /** Greet the user */
+    public void greet(String name) {
+        if (!MSG.isEmpty()) {
+            System.out.println(name);
+        }
+    }
+}

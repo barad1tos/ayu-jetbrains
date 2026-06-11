@@ -3,6 +3,7 @@ package dev.ayuislands.settings
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.ui.InplaceButton
+import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.RightGap
@@ -100,6 +101,8 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
     private var emphasizeDeclarationsCheckbox: JCheckBox? = null
     private var masterResetButton: JButton? = null
     private var currentLanguage: String = ""
+    private var variant: AyuVariant? = null
+    private var syntaxPreview: SyntaxPreviewComponent? = null
 
     // One uniform leading-label width shared by every row in both column-level
     // grids. Pinning the label width keeps slider starts aligned across the
@@ -124,8 +127,10 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         panel: Panel,
         variant: AyuVariant,
     ) {
+        this.variant = variant
         loadStateIntoPending()
         customSelected.set(pendingPreset == SyntaxPreset.CUSTOM)
+        currentLanguage = preferredInitialLanguage()
         with(panel) {
             buildPresetBlock()
 
@@ -140,6 +145,9 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
             }
 
             buildReadabilityBlock()
+
+            buildPreviewRow(variant)
+            refreshPreview()
 
             row {
                 browserLink(
@@ -178,7 +186,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
     /** Build the premium Custom drill-down as two grouped, aligned columns. */
     private fun Panel.buildCustomFoldOut() {
         val languages = SyntaxLanguageRegistry.supportedLanguages().map { it.displayName }
-        currentLanguage = languages.firstOrNull() ?: ""
+        currentLanguage = currentLanguage.takeIf { it in languages } ?: preferredInitialLanguage(languages)
         row("Language:") {
             val combo = comboBox(languages).component
             combo.selectedItem = currentLanguage
@@ -187,6 +195,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
                 currentLanguage = language
                 rebindSlidersFor(language)
                 refreshMasterResetButton()
+                refreshPreview()
             }
             val resetButton =
                 button("") { onResetCurrentLanguage() }.component.apply {
@@ -664,7 +673,33 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         SyntaxIntensityService
             .getInstance()
             .apply(pendingPreset, nested, pendingSubordinate, nestedStyles, readabilityOptions())
+        refreshPreview()
     }
+
+    private fun Panel.buildPreviewRow(variant: AyuVariant) {
+        row {
+            val preview = SyntaxPreviewComponent(variant, currentLanguage)
+            syntaxPreview = preview
+            cell(preview)
+                .resizableColumn()
+                .align(Align.FILL)
+        }
+    }
+
+    private fun refreshPreview() {
+        val v = variant ?: return
+        syntaxPreview?.updatePreview(
+            variant = v,
+            language = currentLanguage,
+        )
+    }
+
+    private fun preferredInitialLanguage(
+        languages: List<String> =
+            SyntaxLanguageRegistry.supportedLanguages().map {
+                it.displayName
+            },
+    ): String = languages.firstOrNull { it == DEFAULT_PREVIEW_LANGUAGE } ?: languages.firstOrNull().orEmpty()
 
     private fun readabilityOptions(): SyntaxReadabilityOptions =
         SyntaxReadabilityOptions(
@@ -710,6 +745,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         private const val LABEL_PADDING = 8
         private const val LABEL_FALLBACK_WIDTH = 170
         private const val PREMIUM_CONTROL_TOOLTIP = "Pro Feature"
+        private const val DEFAULT_PREVIEW_LANGUAGE = "Kotlin"
         private const val SEGMENTED_PRESENTATIONS_METHOD =
             "getPresentations" + "$" + "intellij_platform_ide_impl"
 

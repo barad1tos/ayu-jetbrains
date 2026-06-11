@@ -1,0 +1,8 @@
+pub fn greet(name: &str) {
+    let msg = "hello";
+    let count = 42;
+    // print greeting
+    if !msg.is_empty() {
+        println!("{}", name);
+    }
+}

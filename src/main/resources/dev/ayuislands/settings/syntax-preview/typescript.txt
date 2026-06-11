@@ -1,0 +1,8 @@
+export function greet(name: string): void {
+    const msg = "hello";
+    const count = 42;
+    // print greeting
+    if (msg.length > 0) {
+        console.log(name, count);
+    }
+}
