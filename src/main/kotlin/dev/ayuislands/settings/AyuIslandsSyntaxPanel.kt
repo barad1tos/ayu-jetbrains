@@ -146,6 +146,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
             buildReadabilityBlock()
 
             buildPreviewRow(variant)
+            refreshPreview()
 
             row {
                 browserLink(
@@ -687,10 +688,6 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         val v = variant ?: return
         syntaxPreview?.updatePreview(
             variant = v,
-            preset = pendingPreset,
-            customOverrides = buildNested(pendingOverrides) { it.toIntOrNull() },
-            subordinatePreset = pendingSubordinate,
-            readabilityOptions = readabilityOptions(),
         )
     }
 

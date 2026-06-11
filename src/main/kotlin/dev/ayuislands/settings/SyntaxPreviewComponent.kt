@@ -1,17 +1,17 @@
 package dev.ayuislands.settings
 
-import com.intellij.openapi.editor.colors.TextAttributesKey
-import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.openapi.Disposable
+import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.fileTypes.FileType
+import com.intellij.openapi.fileTypes.FileTypeManager
+import com.intellij.openapi.fileTypes.PlainTextFileType
+import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.util.Disposer
+import com.intellij.ui.EditorTextField
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import dev.ayuislands.accent.AyuVariant
-import dev.ayuislands.syntax.PrimitiveCategory
-import dev.ayuislands.syntax.RgbBlend
-import dev.ayuislands.syntax.SyntaxIntensityApplicator
-import dev.ayuislands.syntax.SyntaxOverlayLoader
-import dev.ayuislands.syntax.SyntaxPreset
-import dev.ayuislands.syntax.SyntaxReadabilityOptions
 import org.jetbrains.annotations.TestOnly
 import java.awt.Color
 import java.awt.Dimension
@@ -21,56 +21,30 @@ import java.awt.RenderingHints
 import javax.swing.JComponent
 
 /**
- * Live preview of syntax-intensity colors rendered as a mini IDE scene.
+ * Live preview of syntax-intensity colors rendered as a compact IDE scene.
  *
- * Mirrors [VcsColorPreviewComponent]'s structure: left project-panel with
- * colored file dots, right editor-panel with gutter line numbers and
- * token-highlighted Kotlin code. Colors are resolved through the real
- * [SyntaxIntensityApplicator] pipeline so the preview exactly matches what
- * the editor will display.
- *
- * The snippet is designed to demonstrate all four readability toggles:
- * - "Dim comments" — line 4 (`// print greeting`)
- * - "Soften documentation" — line 5 (`/** Greet the user */`)
- * - "Quiet operators" — line 7 (`msg.isNotEmpty()`) has heavy operator use
- * - "Emphasize declarations" — lines 1, 6 (`fun main`, `class Greeter`)
+ * The project tree is a lightweight frame, while the code pane is a native
+ * [EditorTextField] so syntax colors come from the active IntelliJ editor
+ * highlighter and color scheme instead of a hand-painted token imitation.
  */
 internal class SyntaxPreviewComponent(
     private var variant: AyuVariant,
-) : JComponent() {
-    private var categoryColorMap: Map<PrimitiveCategory, Color> = emptyMap()
+) : JComponent(),
+    Disposable {
+    private val editorField: EditorTextField = createEditorField()
+    private var isDisposed = false
 
     init {
+        layout = null
         isOpaque = false
         toolTipText = "Syntax color preview"
+        add(editorField)
     }
 
-    fun updatePreview(
-        variant: AyuVariant,
-        preset: SyntaxPreset,
-        customOverrides: Map<String, Map<String, Int>>,
-        subordinatePreset: SyntaxPreset,
-        readabilityOptions: SyntaxReadabilityOptions,
-    ) {
+    fun updatePreview(variant: AyuVariant) {
         this.variant = variant
-        val loader = SyntaxOverlayLoader.getInstance()
-        val baseline = loader.loadBaselineForVariant(variant.name)
-        val overlay = loader.loadOverlayForVariant(variant.name)
-        val editorBg = RgbBlend.fallbackEditorBgFor(variant.name)
-        val computed =
-            SyntaxIntensityApplicator.compute(
-                SyntaxIntensityApplicator.Request(
-                    preset = preset,
-                    variantName = variant.name,
-                    editorBg = editorBg,
-                    baseline = baseline,
-                    overlay = overlay,
-                    customOverrides = customOverrides,
-                    subordinatePreset = subordinatePreset,
-                    readabilityOptions = readabilityOptions,
-                ),
-            )
-        categoryColorMap = buildCategoryColorMap(computed)
+        editorField.background = editorSurface()
+        editorField.repaint()
         revalidate()
         repaint()
     }
@@ -78,6 +52,16 @@ internal class SyntaxPreviewComponent(
     override fun getPreferredSize(): Dimension = Dimension(JBUI.scale(PREVIEW_WIDTH), JBUI.scale(PREVIEW_HEIGHT))
 
     override fun getMinimumSize(): Dimension = Dimension(JBUI.scale(MIN_PREVIEW_WIDTH), JBUI.scale(PREVIEW_HEIGHT))
+
+    override fun doLayout() {
+        val layout = previewLayout()
+        editorField.setBounds(
+            layout.editorX + JBUI.scale(EDITOR_INSET),
+            layout.padding + JBUI.scale(EDITOR_INSET),
+            (layout.editorWidth - JBUI.scale(EDITOR_INSET * 2)).coerceAtLeast(1),
+            (layout.contentHeight - JBUI.scale(EDITOR_INSET * 2)).coerceAtLeast(1),
+        )
+    }
 
     override fun paintComponent(graphics: Graphics) {
         super.paintComponent(graphics)
@@ -93,18 +77,49 @@ internal class SyntaxPreviewComponent(
             g2.color = JBColor.border()
             g2.drawRoundRect(0, 0, width - 1, height - 1, arc, arc)
 
-            val padding = JBUI.scale(PADDING)
-            val columnGap = JBUI.scale(COLUMN_GAP)
-            val contentHeight = (height - padding * 2).coerceAtLeast(1)
-            val projectWidth = JBUI.scale(PROJECT_WIDTH)
-            val editorX = padding + projectWidth + columnGap
-            val editorWidth = (width - editorX - padding).coerceAtLeast(1)
-
-            paintProjectPanel(g2, padding, padding, projectWidth, contentHeight)
-            paintEditorPanel(g2, editorX, padding, editorWidth, contentHeight)
+            val layout = previewLayout()
+            paintProjectPanel(g2, layout.padding, layout.padding, layout.projectWidth, layout.contentHeight)
+            paintEditorPanelFrame(g2, layout.editorX, layout.padding, layout.editorWidth, layout.contentHeight)
         } finally {
             g2.dispose()
         }
+    }
+
+    override fun removeNotify() {
+        super.removeNotify()
+        if (!isDisposed) {
+            Disposer.dispose(this)
+        }
+    }
+
+    override fun dispose() {
+        isDisposed = true
+    }
+
+    private fun createEditorField(): EditorTextField =
+        EditorTextField(
+            CODE_SNIPPET,
+            ProjectManager.getInstance().defaultProject,
+            kotlinPreviewFileType(),
+        ).apply {
+            isViewer = true
+            setDisposedWith(this@SyntaxPreviewComponent)
+            background = editorSurface()
+            isOpaque = false
+        }
+
+    private fun previewLayout(): PreviewLayout {
+        val padding = JBUI.scale(PADDING)
+        val projectWidth = JBUI.scale(PROJECT_WIDTH)
+        val columnGap = JBUI.scale(COLUMN_GAP)
+        val editorX = padding + projectWidth + columnGap
+        return PreviewLayout(
+            padding = padding,
+            contentHeight = (height - padding * 2).coerceAtLeast(1),
+            projectWidth = projectWidth,
+            editorX = editorX,
+            editorWidth = (width - editorX - padding).coerceAtLeast(1),
+        )
     }
 
     private fun paintProjectPanel(
@@ -138,7 +153,7 @@ internal class SyntaxPreviewComponent(
         }
     }
 
-    private fun paintEditorPanel(
+    private fun paintEditorPanelFrame(
         g2: Graphics2D,
         x: Int,
         y: Int,
@@ -150,59 +165,14 @@ internal class SyntaxPreviewComponent(
         g2.fillRoundRect(x, y, width, height, arc, arc)
         g2.color = JBColor.border()
         g2.drawRoundRect(x, y, width - 1, height - 1, arc, arc)
-
-        val gutterWidth = JBUI.scale(GUTTER_WIDTH)
-        g2.color = panelSurface()
-        g2.fillRect(x + 1, y + 1, gutterWidth - 1, height - 2)
-
-        g2.font = JBUI.Fonts.smallFont()
-        val geometry =
-            EditorGeometry(
-                gutterX = x,
-                codeX = x + gutterWidth + JBUI.scale(CODE_LEFT_PADDING),
-                codeWidth = (width - gutterWidth - JBUI.scale(CODE_LEFT_PADDING)).coerceAtLeast(1),
-                panelY = y,
-                panelHeight = height,
-            )
-        val rowHeight = JBUI.scale(CODE_ROW_HEIGHT)
-        var rowY = y + JBUI.scale(CODE_TOP_PADDING)
-        for (line in CODE_LINES) {
-            paintCodeLine(g2, line, geometry, rowY, rowHeight)
-            rowY += rowHeight
-        }
     }
 
-    private fun paintCodeLine(
-        g2: Graphics2D,
-        line: CodeLine,
-        geometry: EditorGeometry,
-        y: Int,
-        height: Int,
-    ) {
-        g2.color = UIUtil.getContextHelpForeground()
-        val baseline = y + (height - g2.fontMetrics.height) / 2 + g2.fontMetrics.ascent
-        g2.drawString(line.lineNumber, geometry.gutterX + JBUI.scale(LINE_NUMBER_X), baseline)
-
-        val previousClip = g2.clip
-        g2.clipRect(geometry.codeX, geometry.panelY, geometry.codeWidth, geometry.panelHeight)
-        try {
-            var x = geometry.codeX
-            for (token in line.tokens) {
-                g2.color = token.category?.let { categoryColorMap[it] } ?: UIUtil.getLabelForeground()
-                g2.drawString(token.text, x, baseline)
-                x += g2.fontMetrics.stringWidth(token.text)
-            }
-        } finally {
-            g2.clip = previousClip
-        }
-    }
-
-    private data class EditorGeometry(
-        val gutterX: Int,
-        val codeX: Int,
-        val codeWidth: Int,
-        val panelY: Int,
-        val panelHeight: Int,
+    private data class PreviewLayout(
+        val padding: Int,
+        val contentHeight: Int,
+        val projectWidth: Int,
+        val editorX: Int,
+        val editorWidth: Int,
     )
 
     private fun editorSurface(): Color =
@@ -220,20 +190,7 @@ internal class SyntaxPreviewComponent(
         }
 
     @TestOnly
-    internal fun categoryColorForTest(category: PrimitiveCategory): Color? = categoryColorMap[category]
-
-    @TestOnly
     internal fun variantForTest(): AyuVariant = variant
-
-    private data class Token(
-        val text: String,
-        val category: PrimitiveCategory?,
-    )
-
-    private data class CodeLine(
-        val lineNumber: String,
-        val tokens: List<Token>,
-    )
 
     private data class ProjectRow(
         val dotColor: Color,
@@ -241,6 +198,8 @@ internal class SyntaxPreviewComponent(
     )
 
     private companion object {
+        private val LOG = logger<SyntaxPreviewComponent>()
+
         private const val PREVIEW_WIDTH = 560
         private const val MIN_PREVIEW_WIDTH = 320
         private const val PREVIEW_HEIGHT = 220
@@ -253,13 +212,11 @@ internal class SyntaxPreviewComponent(
         private const val FILE_DOT_Y = 8
         private const val FILE_DOT = 7
         private const val FILE_TEXT_X = 26
-        private const val GUTTER_WIDTH = 34
-        private const val CODE_TOP_PADDING = 12
-        private const val CODE_ROW_HEIGHT = 20
-        private const val LINE_NUMBER_X = 9
-        private const val CODE_LEFT_PADDING = 8
+        private const val EDITOR_INSET = 1
         private const val ARC = 8
         private const val INNER_ARC = 6
+        private const val KOTLIN_FILE_TYPE_NAME = "Kotlin"
+        private const val KOTLIN_FILE_EXTENSION = "kt"
 
         private val DARK_SURFACE = Color(0x0D1017)
         private val MIRAGE_SURFACE = Color(0x1F2430)
@@ -267,68 +224,6 @@ internal class SyntaxPreviewComponent(
         private val DARK_PANEL_SURFACE = Color(0x141923)
         private val MIRAGE_PANEL_SURFACE = Color(0x252B38)
         private val LIGHT_PANEL_SURFACE = Color(0xEFF2F5)
-
-        /**
-         * Representative key-name suffixes per [PrimitiveCategory].
-         *
-         * The preview scans the computed map for the first key whose
-         * `externalName` contains one of these substrings. Order within
-         * each list is most-specific-first so a single pass resolves
-         * every category without ambiguity.
-         */
-        private val CATEGORY_KEY_HINTS: Map<PrimitiveCategory, List<String>> =
-            mapOf(
-                PrimitiveCategory.FUNCTION_DECL to
-                    listOf(
-                        "FUNCTION_DECLARATION",
-                        "METHOD_DECLARATION",
-                        "FUNCTION_CALL",
-                        "METHOD_CALL",
-                        "CONSTRUCTOR_DECLARATION",
-                    ),
-                PrimitiveCategory.CLASS_DECL to
-                    listOf(
-                        "CLASS_DECLARATION",
-                        "CLASS_NAME",
-                        "ENUM_NAME",
-                        "ABSTRACT_CLASS",
-                    ),
-                PrimitiveCategory.INTERFACE_DECL to listOf("INTERFACE_NAME", "INTERFACE_DECLARATION", "TRAIT_NAME"),
-                PrimitiveCategory.KEYWORD to listOf("KEYWORD"),
-                PrimitiveCategory.PARAMETER to listOf("PARAMETER"),
-                PrimitiveCategory.LOCAL_VAR to listOf("LOCAL_VARIABLE", "LOCAL_VAR", "VAR_USE", "VAR_DEF"),
-                PrimitiveCategory.STRING_LITERAL to listOf("STRING"),
-                PrimitiveCategory.NUMBER_LITERAL to listOf("NUMBER"),
-                PrimitiveCategory.COMMENT to listOf("LINE_COMMENT", "BLOCK_COMMENT"),
-                PrimitiveCategory.DOCUMENTATION to listOf("DOC_COMMENT", "DOC_TAG", "KDOC"),
-                PrimitiveCategory.ANNOTATION to listOf("ANNOTATION_NAME", "METADATA"),
-                PrimitiveCategory.OPERATOR to listOf("OPERATION_SIGN", "OPERATOR"),
-                PrimitiveCategory.TYPE_REF to listOf("TYPE_PARAMETER", "TYPE_ARGUMENT"),
-                PrimitiveCategory.STATIC_FIELD to listOf("STATIC_FIELD", "STATIC_FINAL_FIELD", "STATIC_MEMBER"),
-                PrimitiveCategory.INSTANCE_FIELD to listOf("INSTANCE_FIELD", "INSTANCE_PROPERTY", "INSTANCE_MEMBER"),
-                PrimitiveCategory.GENERICS to listOf("TYPE_PARAMETER", "GENERICS", "GENERIC"),
-            )
-
-        /**
-         * Build category→color map by scanning the computed result for
-         * representative key names. Scans externalName substrings rather
-         * than relying on the suffix-regex registry.
-         */
-        private fun buildCategoryColorMap(
-            computed: Map<TextAttributesKey, TextAttributes>,
-        ): Map<PrimitiveCategory, Color> {
-            val map = mutableMapOf<PrimitiveCategory, Color>()
-            for ((category, hints) in CATEGORY_KEY_HINTS) {
-                for ((key, attrs) in computed) {
-                    val name = key.externalName
-                    if (hints.any { name.contains(it) }) {
-                        attrs.foregroundColor?.let { map[category] = it }
-                        break
-                    }
-                }
-            }
-            return map
-        }
 
         private val PROJECT_ROWS =
             listOf(
@@ -338,102 +233,33 @@ internal class SyntaxPreviewComponent(
                 ProjectRow(Color(0xFFD580), "build/"),
             )
 
-        /**
-         * 10-line Kotlin snippet covering all 16 [PrimitiveCategory] entries
-         * and demonstrating all four readability toggles:
-         *
-         * - **Dim comments**: line 4 (`// print greeting`)
-         * - **Soften documentation**: line 5 (`/** Greet the user */`)
-         * - **Quiet operators**: line 8 (`if (msg.isNotEmpty())`) — heavy
-         *   operator tokens that should recede when quieted
-         * - **Emphasize declarations**: lines 1 + 6 (`fun main`, `class Greeter`)
-         */
-        private val CODE_LINES =
-            listOf(
-                CodeLine(
-                    "1",
-                    listOf(
-                        Token("fun ", PrimitiveCategory.KEYWORD),
-                        Token("main", PrimitiveCategory.FUNCTION_DECL),
-                        Token("()", PrimitiveCategory.OPERATOR),
-                        Token(" {", PrimitiveCategory.OPERATOR),
-                    ),
-                ),
-                CodeLine(
-                    "2",
-                    listOf(
-                        Token("  val ", PrimitiveCategory.KEYWORD),
-                        Token("msg", PrimitiveCategory.LOCAL_VAR),
-                        Token(" = ", PrimitiveCategory.OPERATOR),
-                        Token("\"hello\"", PrimitiveCategory.STRING_LITERAL),
-                    ),
-                ),
-                CodeLine(
-                    "3",
-                    listOf(
-                        Token("  val ", PrimitiveCategory.KEYWORD),
-                        Token("count", PrimitiveCategory.LOCAL_VAR),
-                        Token(" = ", PrimitiveCategory.OPERATOR),
-                        Token("42", PrimitiveCategory.NUMBER_LITERAL),
-                    ),
-                ),
-                CodeLine(
-                    "4",
-                    listOf(
-                        Token("  // print greeting", PrimitiveCategory.COMMENT),
-                    ),
-                ),
-                CodeLine(
-                    "5",
-                    listOf(
-                        Token("  /** Greet the user */", PrimitiveCategory.DOCUMENTATION),
-                    ),
-                ),
-                CodeLine(
-                    "6",
-                    listOf(
-                        Token("  ", null),
-                        Token("class ", PrimitiveCategory.KEYWORD),
-                        Token("Greeter", PrimitiveCategory.CLASS_DECL),
-                        Token(" {", PrimitiveCategory.OPERATOR),
-                    ),
-                ),
-                CodeLine(
-                    "7",
-                    listOf(
-                        Token("    ", null),
-                        Token("@JvmStatic", PrimitiveCategory.ANNOTATION),
-                    ),
-                ),
-                CodeLine(
-                    "8",
-                    listOf(
-                        Token("    ", null),
-                        Token("if ", PrimitiveCategory.KEYWORD),
-                        Token("(", PrimitiveCategory.OPERATOR),
-                        Token("msg", PrimitiveCategory.INSTANCE_FIELD),
-                        Token(".", PrimitiveCategory.OPERATOR),
-                        Token("isNotEmpty", PrimitiveCategory.FUNCTION_DECL),
-                        Token("()", PrimitiveCategory.OPERATOR),
-                        Token(")", PrimitiveCategory.OPERATOR),
-                    ),
-                ),
-                CodeLine(
-                    "9",
-                    listOf(
-                        Token("      ", null),
-                        Token("println", PrimitiveCategory.FUNCTION_DECL),
-                        Token("(", PrimitiveCategory.OPERATOR),
-                        Token("msg", PrimitiveCategory.PARAMETER),
-                        Token(")", PrimitiveCategory.OPERATOR),
-                    ),
-                ),
-                CodeLine(
-                    "10",
-                    listOf(
-                        Token("}", PrimitiveCategory.OPERATOR),
-                    ),
-                ),
-            )
+        private val CODE_SNIPPET =
+            """
+            fun main() {
+                val msg = "hello"
+                val count = 42
+                // print greeting
+                /** Greet the user */
+                class Greeter {
+                    @JvmStatic
+                    fun greet(name: String) {
+                        if (msg.isNotEmpty()) println(name)
+                    }
+                }
+            }
+            """.trimIndent()
+
+        private fun kotlinPreviewFileType(): FileType =
+            try {
+                val fileType = FileTypeManager.getInstance().getStdFileType(KOTLIN_FILE_TYPE_NAME)
+                if (fileType.name == KOTLIN_FILE_TYPE_NAME || fileType.defaultExtension == KOTLIN_FILE_EXTENSION) {
+                    fileType
+                } else {
+                    PlainTextFileType.INSTANCE
+                }
+            } catch (exception: RuntimeException) {
+                LOG.debug("Falling back to plain text for syntax preview", exception)
+                PlainTextFileType.INSTANCE
+            }
     }
 }
