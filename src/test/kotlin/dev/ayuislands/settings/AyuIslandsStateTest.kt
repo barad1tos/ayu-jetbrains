@@ -515,6 +515,20 @@ class AyuIslandsStateTest {
     }
 
     @Test
+    fun `commit path shortening defaults match workspace contract`() {
+        val state = freshState()
+
+        assertEquals(
+            AyuIslandsState.DEFAULT_COMMIT_PATH_MIN_HIDDEN_LEVELS,
+            state.commitPanelPathMinHiddenLevels,
+        )
+        assertEquals(
+            AyuIslandsState.DEFAULT_COMMIT_PATH_MAX_HIDDEN_LEVELS,
+            state.commitPanelPathMaxHiddenLevels,
+        )
+    }
+
+    @Test
     fun `hideProjectRootPath and hideHScrollbar default to false`() {
         val state = freshState()
         assertFalse(state.hideProjectRootPath)
