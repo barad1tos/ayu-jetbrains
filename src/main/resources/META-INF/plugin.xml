@@ -113,6 +113,10 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.7.3</h3>
+    <ul>
+      <li>[Free] <b>Syntax preview</b> — native highlighting now updates reliably when switching syntax presets and readability options.</li>
+    </ul>
     <h3>2.7.2</h3>
     <ul>
       <li>[Paid] <b>External theme accent inheritance</b> — Pro project and language accent pins can now drive selected Ayu integrations while another IDE theme is active.</li>
@@ -269,7 +273,7 @@
 
     <product-descriptor
             code="PAYUISLANDS"
-            release-date="20260529"
+            release-date="20260611"
             release-version="27"
             optional="true"/>
 
