@@ -163,6 +163,24 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     @Test
+    fun `buildPanel initializes syntax preview before first interaction`() {
+        val source = readPanelSource()
+        val buildPanelStart = source.indexOf("override fun buildPanel(")
+        val customFoldOutIndex = source.indexOf("buildCustomFoldOut()", buildPanelStart)
+        assertTrue(buildPanelStart >= 0, "Syntax panel source must contain buildPanel.")
+        assertTrue(customFoldOutIndex > buildPanelStart, "buildPanel must build the Custom fold-out after the preview.")
+
+        val buildPanelBody = source.substring(buildPanelStart, customFoldOutIndex)
+        val previewIndex = buildPanelBody.indexOf("buildPreviewRow(variant)")
+        val refreshIndex = buildPanelBody.indexOf("refreshPreview()")
+        assertTrue(previewIndex >= 0, "buildPanel must create the syntax preview row.")
+        assertTrue(
+            refreshIndex > previewIndex,
+            "buildPanel must initialize preview colors immediately after creating the preview row.",
+        )
+    }
+
+    @Test
     fun `loadStateIntoPending honors explicit AMBIENT default`() {
         stateBase.selectedPreset = "AMBIENT"
         val panel = panelWithLoadedState()
@@ -446,7 +464,7 @@ class AyuIslandsSyntaxPanelTest {
 
         try {
             val component = buildSyntaxPanel(panel)
-            component.setSize(component.preferredSize)
+            component.size = component.preferredSize
             layoutRecursively(component)
 
             val readabilityControls =
