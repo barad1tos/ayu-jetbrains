@@ -18,6 +18,7 @@ import javax.swing.tree.TreeCellRenderer
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -296,6 +297,58 @@ class CommitPathShorteningRendererTest {
     }
 
     @Test
+    fun `renderer clears stale tooltip when delegate reuses component for non path row`() {
+        SwingUtilities.invokeAndWait {
+            val state =
+                AyuIslandsState().apply {
+                    commitPanelWidthMode = PanelWidthMode.FIXED.name
+                    commitPanelPathDisplayMode = CommitPathDisplayMode.TOOLTIP.name
+                }
+            val reusedComponent = SimpleColoredComponent()
+            val renderer =
+                CommitPathShorteningRenderer(
+                    delegate =
+                        TreeCellRenderer { _, value, _, _, _, _, _ ->
+                            reusedComponent.clear()
+                            if ((value as DefaultMutableTreeNode).userObject == "path") {
+                                reusedComponent.append(
+                                    "CommitPanelAutoFitManager.kt",
+                                    SimpleTextAttributes.REGULAR_ATTRIBUTES,
+                                )
+                                reusedComponent.append(
+                                    "  $SAMPLE_SOURCE_PATH",
+                                    SimpleTextAttributes.GRAYED_ATTRIBUTES,
+                                )
+                            } else {
+                                reusedComponent.append("Changes", SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                            }
+                            reusedComponent
+                        },
+                    stateProvider = { state },
+                )
+            val tree = treeWithVisibleWidth(1000)
+
+            val pathComponent =
+                render(
+                    renderer,
+                    tree,
+                    DefaultMutableTreeNode("path"),
+                )
+            assertEquals(SAMPLE_SOURCE_PATH, pathComponent.toolTipText)
+
+            val nonPathComponent =
+                render(
+                    renderer,
+                    tree,
+                    DefaultMutableTreeNode("branch"),
+                )
+
+            assertEquals(listOf("Changes"), nonPathComponent.fragmentsForTest())
+            assertNull(nonPathComponent.toolTipText)
+        }
+    }
+
+    @Test
     fun `renderer shortens directory-only rows against their last segment`() {
         SwingUtilities.invokeAndWait {
             val state =
@@ -402,11 +455,13 @@ class CommitPathShorteningRendererTest {
     private fun render(
         renderer: TreeCellRenderer,
         tree: JTree,
-    ): SimpleColoredComponent = renderComponent(renderer, tree) as SimpleColoredComponent
+        value: Any? = DefaultMutableTreeNode("file"),
+    ): SimpleColoredComponent = renderComponent(renderer, tree, value) as SimpleColoredComponent
 
     private fun renderComponent(
         renderer: TreeCellRenderer,
         tree: JTree,
+        value: Any? = DefaultMutableTreeNode("file"),
     ): Component {
         val isSelected = false
         val isExpanded = false
@@ -415,7 +470,7 @@ class CommitPathShorteningRendererTest {
         val hasFocus = false
         return renderer.getTreeCellRendererComponent(
             tree,
-            DefaultMutableTreeNode("file"),
+            value,
             isSelected,
             isExpanded,
             isLeaf,

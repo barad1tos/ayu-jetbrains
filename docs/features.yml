@@ -313,6 +313,15 @@ categories:
           Auto-resize the branches tree and file changes tree inside
           the Git panel.
 
+      - id: workspace-commit-path-display
+        title: "Commit Panel path display"
+        keyword: "Commit Panel path display"
+        introduced: "2.7.3"
+        tier: paid
+        description: >
+          Move full Commit Panel paths to tooltips or shorten leading
+          directories inline.
+
       - id: workspace-project-cleanup
         title: "Project View cleanup"
         keyword: "Hide the filesystem path"
@@ -331,8 +340,8 @@ categories:
             - src/main/kotlin/dev/ayuislands/gitpanel
             - src/main/kotlin/dev/ayuislands/projectview
             - src/main/kotlin/dev/ayuislands/editor/EditorScrollbarManager.kt
-          last_verified_sha: "de4b4f3f"
-          last_verified_date: "2026-05-30"
+          last_verified_sha: "035c617b"
+          last_verified_date: "2026-06-12"
           content_sha256: ad849b17308901bc2dac85f895978be656f578c9c31f857b9e9578e5cf4289f2
 
   tabs:

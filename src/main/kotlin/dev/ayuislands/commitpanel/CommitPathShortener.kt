@@ -6,7 +6,6 @@ internal data class CommitPathShorteningRequest(
     val availableRowWidth: Int,
     val minHiddenLevels: Int,
     val maxHiddenLevels: Int,
-    val measureTextWidth: (String) -> Int,
 )
 
 internal object CommitPathShortener {

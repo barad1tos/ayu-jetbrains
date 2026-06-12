@@ -43,7 +43,7 @@ class CommitPathShortenerTest {
     }
 
     @Test
-    fun `dynamic shortening hides the first level that fits`() {
+    fun `overflow uses max hidden levels`() {
         assertEquals(
             ".../epsilon/zeta",
             shorten(
@@ -57,7 +57,7 @@ class CommitPathShortenerTest {
     }
 
     @Test
-    fun `max hidden levels continues shortening after the first fitting candidate`() {
+    fun `overflow can hide more than the shortest fitting suffix`() {
         assertEquals(
             ".../zeta",
             shorten(
@@ -150,7 +150,6 @@ class CommitPathShortenerTest {
                 availableRowWidth = availableRowWidth,
                 minHiddenLevels = minHiddenLevels,
                 maxHiddenLevels = maxHiddenLevels,
-                measureTextWidth = String::length,
             ),
         )
 }

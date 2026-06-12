@@ -2,13 +2,15 @@ package dev.ayuislands.licensing
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.ui.LicensingFacade
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.settings.AyuIslandsSettings
 
 /**
- * Listens for license-state transitions and reacts on two axes:
+ * Listens for license-state transitions and reacts on three axes:
  *
  *  1. **Premium wizard re-arm** — on unlicensed → licensed transitions only, resets
  *     [dev.ayuislands.settings.AyuIslandsState.premiumOnboardingShown] to `false` so
@@ -20,6 +22,10 @@ import dev.ayuislands.settings.AyuIslandsSettings
  *     [dev.ayuislands.accent.AccentResolver] short-circuits overrides when unlicensed
  *     (chrome falls back to global accent) and honors them when licensed, so any
  *     license flip changes the resolved color the chrome renderer uses.
+ *
+ *  3. **Workspace renderer cleanup** — on licensed → unlicensed transitions,
+ *     re-applies Commit panel workspace management for open projects so paid
+ *     path-display renderers are removed immediately, not only after restart.
  *
  * Tracks the previous license state to only fire on an actual transition. The first
  * call (initial notification, `previous == null`) just records state without firing
@@ -59,13 +65,29 @@ internal class LicenseTransitionListener : LicensingFacade.LicenseStateListener 
             // if a non-Ayu theme is active; skip silently in that case.
             if (previous != null && previous != isNowLicensed) {
                 ApplicationManager.getApplication().invokeLater {
-                    val variant = AyuVariant.detect() ?: return@invokeLater
-                    AccentApplicator.applyForFocusedProject(variant)
-                    LOG.info("Ayu license transition: re-applied accent for chrome refresh")
+                    try {
+                        if (previous && !isNowLicensed) {
+                            cleanupCommitPanelPathRendering()
+                        }
+
+                        val variant = AyuVariant.detect() ?: return@invokeLater
+                        AccentApplicator.applyForFocusedProject(variant)
+                        LOG.info("Ayu license transition: re-applied accent for chrome refresh")
+                    } catch (exception: RuntimeException) {
+                        LOG.error("Ayu license: failed to refresh UI after license transition", exception)
+                    }
                 }
             }
         } catch (exception: RuntimeException) {
             LOG.error("Ayu license: failed to handle license state change", exception)
+        }
+    }
+
+    private fun cleanupCommitPanelPathRendering() {
+        for (project in ProjectManager.getInstance().openProjects) {
+            if (!project.isDisposed) {
+                CommitPanelAutoFitManager.getInstance(project).apply()
+            }
         }
     }
 

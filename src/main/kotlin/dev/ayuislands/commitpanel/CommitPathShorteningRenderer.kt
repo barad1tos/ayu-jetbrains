@@ -37,6 +37,7 @@ internal class CommitPathShorteningRenderer(
                 row,
                 hasFocus,
             )
+        component.clearRendererTooltips()
         val textComponent = component.findPathTextComponent() ?: return component
         shortenPathFragment(
             tree = tree,
@@ -89,7 +90,6 @@ internal class CommitPathShorteningRenderer(
                     availableRowWidth = availableRowWidth,
                     minHiddenLevels = state.commitPanelPathMinHiddenLevels,
                     maxHiddenLevels = state.commitPanelPathMaxHiddenLevels,
-                    measureTextWidth = metrics::stringWidth,
                 ),
             )
         if (shortened == originalPath.text) return
@@ -195,6 +195,15 @@ internal class CommitPathShorteningRenderer(
             if (found != null) return found
         }
         return null
+    }
+
+    private fun Component.clearRendererTooltips() {
+        if (this is JComponent) toolTipText = null
+        if (this !is Container) return
+
+        for (child in components) {
+            child.clearRendererTooltips()
+        }
     }
 
     private fun SimpleColoredComponent.hasPathFragment(): Boolean = fragments().pathFragmentIndex() >= 0

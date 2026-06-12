@@ -28,6 +28,7 @@ import javax.swing.JPanel
 import javax.swing.JTree
 import javax.swing.SwingUtilities
 import javax.swing.event.TreeExpansionEvent
+import javax.swing.tree.DefaultTreeCellRenderer
 import javax.swing.tree.TreePath
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -492,6 +493,69 @@ class CommitPanelAutoFitManagerTest {
                 originalRenderer,
                 tree.cellRenderer,
                 "Unlicensed apply must restore the native renderer",
+            )
+        }
+    }
+
+    @Test
+    fun `apply removes path shortening renderer when commit tree disappears`() {
+        SwingUtilities.invokeAndWait {
+            every {
+                LicenseChecker.isLicensedOrGrace()
+            } returns true
+            realState.commitPanelWidthMode =
+                PanelWidthMode.FIXED.name
+            realState.commitPanelFixedWidth = 350
+
+            val tree = JTree()
+            val originalRenderer = tree.cellRenderer
+            val panel = JPanel(FlowLayout())
+            panel.add(tree)
+            panel.setSize(200, 400)
+            setupCommitToolWindow(panel)
+
+            val manager = CommitPanelAutoFitManager(project)
+            manager.apply()
+            assertTrue(tree.cellRenderer is CommitPathShorteningRenderer)
+
+            setupCommitToolWindow(JPanel(FlowLayout()))
+            manager.apply()
+
+            assertSame(
+                originalRenderer,
+                tree.cellRenderer,
+                "Missing Commit tree must restore the renderer on the previous tree",
+            )
+        }
+    }
+
+    @Test
+    fun `path renderer guard wraps replacement renderer`() {
+        SwingUtilities.invokeAndWait {
+            every {
+                LicenseChecker.isLicensedOrGrace()
+            } returns true
+            realState.commitPanelWidthMode =
+                PanelWidthMode.FIXED.name
+            realState.commitPanelFixedWidth = 350
+
+            val tree = JTree()
+            val panel = JPanel(FlowLayout())
+            panel.add(tree)
+            panel.setSize(200, 400)
+            setupCommitToolWindow(panel)
+
+            CommitPanelAutoFitManager(project).apply()
+            assertTrue(tree.cellRenderer is CommitPathShorteningRenderer)
+
+            val replacement = DefaultTreeCellRenderer()
+            tree.cellRenderer = replacement
+
+            val renderer = tree.cellRenderer as CommitPathShorteningRenderer
+            assertSame(
+                replacement,
+                renderer.delegate,
+                "Renderer guard must preserve the IDE replacement as the delegate",
             )
         }
     }

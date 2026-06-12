@@ -2,8 +2,11 @@
 
 ## [2.7.3] - 2026-06-11
 
-### Fixed
-- **Syntax preview** — native highlighting now updates reliably when switching syntax presets and readability options.
+### Paid
+- [Paid] **Commit Panel path display** — Pro users can move full Commit Panel paths to tooltips or shorten leading directories inline.
+
+### Free
+- [Free] **Syntax preview** — native highlighting now updates reliably when switching syntax presets and readability options.
 
 ## [2.7.2] - 2026-06-05
 

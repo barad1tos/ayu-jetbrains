@@ -1,10 +1,13 @@
 package dev.ayuislands.licensing
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.testFramework.LoggedErrorProcessor
 import com.intellij.ui.LicensingFacade
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.every
@@ -23,6 +26,7 @@ import kotlin.test.assertTrue
 
 class LicenseTransitionListenerTest {
     private lateinit var state: AyuIslandsState
+    private lateinit var projectManager: ProjectManager
     private val facade: LicensingFacade = mockk(relaxed = true)
 
     @BeforeTest
@@ -34,8 +38,12 @@ class LicenseTransitionListenerTest {
         every { settingsMock.state } returns state
         mockkObject(LicenseChecker)
         mockkStatic(ApplicationManager::class)
+        mockkStatic(ProjectManager::class)
         val appMock = mockk<com.intellij.openapi.application.Application>(relaxed = true)
+        projectManager = mockk(relaxed = true)
         every { ApplicationManager.getApplication() } returns appMock
+        every { ProjectManager.getInstance() } returns projectManager
+        every { projectManager.openProjects } returns emptyArray()
         every { appMock.invokeLater(any()) } answers { firstArg<Runnable>().run() }
 
         // Mock the accent re-apply path so transition tests can assert that it fires
@@ -46,6 +54,7 @@ class LicenseTransitionListenerTest {
         every { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AyuVariant>()) } returns "#FFCC66"
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        mockkObject(CommitPanelAutoFitManager.Companion)
     }
 
     @AfterTest
@@ -209,6 +218,31 @@ class LicenseTransitionListenerTest {
         listener.licenseStateChanged(facade)
 
         verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE) }
+    }
+
+    @Test
+    fun `licensed to unlicensed transition reapplies commit panel managers for open projects`() {
+        val openProject =
+            mockk<Project> {
+                every { isDisposed } returns false
+            }
+        val disposedProject =
+            mockk<Project> {
+                every { isDisposed } returns true
+            }
+        val manager = mockk<CommitPanelAutoFitManager>(relaxed = true)
+        every { projectManager.openProjects } returns arrayOf(openProject, disposedProject)
+        every { CommitPanelAutoFitManager.getInstance(openProject) } returns manager
+        val listener = LicenseTransitionListener()
+
+        every { LicenseChecker.isLicensed() } returns true
+        listener.licenseStateChanged(facade)
+
+        every { LicenseChecker.isLicensed() } returns false
+        listener.licenseStateChanged(facade)
+
+        verify(exactly = 1) { manager.apply() }
+        verify(exactly = 0) { CommitPanelAutoFitManager.getInstance(disposedProject) }
     }
 
     @Test

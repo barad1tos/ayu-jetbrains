@@ -79,14 +79,25 @@ class WorkspacePanelTest {
                     workspacePanel.buildPanel(this@panel, AyuVariant.MIRAGE)
                 }
         val spinners = components(dialogPanel, JSpinner::class.java)
+        val pathDisplayCombo = pathDisplayCombo(dialogPanel)
 
         assertTrue(spinners.isNotEmpty(), "locked Workspace preview must still render width spinners")
         assertTrue(spinners.all { !it.isEnabled }, "locked Workspace preview must disable width spinners")
+        assertFalse(pathDisplayCombo.isEnabled, "locked Workspace preview must disable path display combo")
         spinners.first().value = (spinners.first().value as Int) + 10
+        pathDisplayCombo.selectedItem = CommitPathDisplayMode.TOOLTIP
 
         assertFalse(
             workspacePanel.isModified(),
             "locked Workspace preview spinner changes must not dirty Settings",
+        )
+
+        workspacePanel.apply()
+
+        assertEquals(
+            CommitPathDisplayMode.INLINE.name,
+            state.commitPanelPathDisplayMode,
+            "locked Workspace preview must not apply path display changes",
         )
     }
 
@@ -239,6 +250,44 @@ class WorkspacePanelTest {
     }
 
     @Test
+    fun `commit path hidden levels apply and reset with settings state`() {
+        state.commitPanelWidthMode = PanelWidthMode.FIXED.name
+        state.commitPanelPathMinHiddenLevels = 1
+        state.commitPanelPathMaxHiddenLevels = 3
+        state.workspaceCommitPanelExpanded = true
+        val workspacePanel = WorkspacePanel()
+
+        val dialogPanel =
+            com.intellij.ui.dsl.builder
+                .panel {
+                    workspacePanel.buildPanel(this@panel, AyuVariant.MIRAGE)
+                }
+        val (pathMinSpinner, pathMaxSpinner) = pathLevelSpinners(dialogPanel)
+
+        pathMinSpinner.value = 2
+        pathMaxSpinner.value = 4
+
+        assertTrue(workspacePanel.isModified())
+        workspacePanel.apply()
+
+        assertEquals(2, state.commitPanelPathMinHiddenLevels)
+        assertEquals(4, state.commitPanelPathMaxHiddenLevels)
+        assertFalse(workspacePanel.isModified())
+
+        pathMinSpinner.value = 5
+        pathMaxSpinner.value = 6
+        assertTrue(workspacePanel.isModified())
+
+        workspacePanel.reset()
+
+        assertEquals(2, pathMinSpinner.value)
+        assertEquals(4, pathMaxSpinner.value)
+        assertEquals(2, state.commitPanelPathMinHiddenLevels)
+        assertEquals(4, state.commitPanelPathMaxHiddenLevels)
+        assertFalse(workspacePanel.isModified())
+    }
+
+    @Test
     fun `commit path min spinner lifts max spinner when min exceeds max`() {
         state.commitPanelWidthMode = PanelWidthMode.FIXED.name
         state.commitPanelPathMinHiddenLevels = 0
@@ -354,6 +403,21 @@ class WorkspacePanelTest {
         components(container, JComboBox::class.java).first { comboBox ->
             comboBox.isPathDisplayCombo()
         }
+
+    private fun pathLevelSpinners(container: Container): Pair<JSpinner, JSpinner> {
+        val spinners =
+            components(container, JSpinner::class.java)
+                .filter { spinner -> (spinner.value as? Int) in 0..10 }
+        val minSpinner =
+            spinners.first { spinner ->
+                (spinner.value as? Int) == state.commitPanelPathMinHiddenLevels
+            }
+        val maxSpinner =
+            spinners.first { spinner ->
+                (spinner.value as? Int) == state.commitPanelPathMaxHiddenLevels
+            }
+        return minSpinner to maxSpinner
+    }
 
     private fun JComboBox<*>.isPanelWidthModeCombo(): Boolean =
         (0 until itemCount).any { index -> getItemAt(index) == PanelWidthMode.AUTO_FIT }

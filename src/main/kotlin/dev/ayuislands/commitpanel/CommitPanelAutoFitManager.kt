@@ -87,7 +87,11 @@ class CommitPanelAutoFitManager(
     }
 
     private fun installPathRenderer() {
-        val tree = autoFitter.findTree() ?: return
+        val tree = autoFitter.findTree()
+        if (tree == null) {
+            removePathRenderer()
+            return
+        }
         if (pathRendererTree !== tree) {
             removePathRenderer()
             pathRendererTree = tree
@@ -125,11 +129,18 @@ class CommitPanelAutoFitManager(
                 val newRenderer = event.newValue as? TreeCellRenderer ?: return@PropertyChangeListener
                 if (newRenderer is CommitPathShorteningRenderer) return@PropertyChangeListener
 
+                if (!LicenseChecker.isLicensedOrGrace()) {
+                    removePathRenderer()
+                    return@PropertyChangeListener
+                }
                 val mode =
                     PanelWidthMode.fromString(
                         AyuIslandsSettings.getInstance().state.commitPanelWidthMode,
                     )
-                if (mode == PanelWidthMode.DEFAULT) return@PropertyChangeListener
+                if (mode == PanelWidthMode.DEFAULT) {
+                    removePathRenderer()
+                    return@PropertyChangeListener
+                }
 
                 tree.cellRenderer = CommitPathShorteningRenderer(newRenderer)
                 refreshTree(tree)
