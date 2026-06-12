@@ -14,6 +14,7 @@ import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.settings.CommitPathDisplayMode
 import dev.ayuislands.settings.PanelWidthMode
 import io.mockk.every
 import io.mockk.just
@@ -59,7 +60,7 @@ class FreeTierLockdownTest {
         every { AyuIslandsSettings.getInstance() } returns settings
 
         mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } answers { Unit }
+        every { AccentApplicator.apply(any()) } just runs
 
         mockkObject(GlowOverlayManager.Companion)
         every { GlowOverlayManager.syncGlowForAllProjects() } just runs
@@ -180,6 +181,19 @@ class FreeTierLockdownTest {
         assertFalse(state.hideProjectViewHScrollbar)
     }
 
+    @Test
+    fun `revertToFreeDefaults resets commit path display controls`() {
+        state.commitPanelPathDisplayMode = CommitPathDisplayMode.TOOLTIP.name
+        state.commitPanelPathMinHiddenLevels = 2
+        state.commitPanelPathMaxHiddenLevels = 4
+
+        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
+
+        assertEquals(CommitPathDisplayMode.INLINE.name, state.commitPanelPathDisplayMode)
+        assertEquals(AyuIslandsState.DEFAULT_COMMIT_PATH_MIN_HIDDEN_LEVELS, state.commitPanelPathMinHiddenLevels)
+        assertEquals(AyuIslandsState.DEFAULT_COMMIT_PATH_MAX_HIDDEN_LEVELS, state.commitPanelPathMaxHiddenLevels)
+    }
+
     // ---------- Free-tier preservation ----------
 
     @Test
@@ -203,15 +217,16 @@ class FreeTierLockdownTest {
     }
 
     @Test
-    fun `revertToFreeDefaults preserves everBeenPro so future re-purchase skips redefaulting`() {
+    fun `revertToFreeDefaults preserves everBeenPro so future re-purchase skips default restore`() {
         state.everBeenPro = true
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-        assertTrue(state.everBeenPro, "everBeenPro must survive revert; it gates redefaulting on re-purchase")
+        assertTrue(state.everBeenPro, "everBeenPro must survive revert; it gates default restore on re-purchase")
     }
 
     // ---------- Plugin.xml pin: 6 theme providers ----------
 
     @Test
+    @Suppress("HttpUrlsUsage")
     fun `plugin registers exactly six theme providers three variants times base-and-islands`() {
         // Parse plugin.xml through a DOM builder instead of regex — a text match on
         // `<themeProvider` would miscount if a theme provider ever got commented out

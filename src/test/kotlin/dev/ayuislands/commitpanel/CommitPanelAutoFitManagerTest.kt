@@ -461,6 +461,42 @@ class CommitPanelAutoFitManagerTest {
     }
 
     @Test
+    fun `apply without license removes path shortening renderer`() {
+        SwingUtilities.invokeAndWait {
+            every {
+                LicenseChecker.isLicensedOrGrace()
+            } returns true
+            realState.commitPanelWidthMode =
+                PanelWidthMode.AUTO_FIT.name
+            realState.autoFitCommitMaxWidth = 500
+            realState.commitPanelAutoFitMinWidth = 269
+
+            mockCalculatorForDefaultMeasuredWidth()
+            val tree = JTree()
+            val originalRenderer = tree.cellRenderer
+            val panel = JPanel(FlowLayout())
+            panel.add(tree)
+            panel.setSize(200, 400)
+            setupCommitToolWindow(panel)
+
+            val manager = CommitPanelAutoFitManager(project)
+            manager.apply()
+            assertTrue(tree.cellRenderer is CommitPathShorteningRenderer)
+
+            every {
+                LicenseChecker.isLicensedOrGrace()
+            } returns false
+            manager.apply()
+
+            assertSame(
+                originalRenderer,
+                tree.cellRenderer,
+                "Unlicensed apply must restore the native renderer",
+            )
+        }
+    }
+
+    @Test
     fun `repeated apply keeps one path shortening renderer wrapper`() {
         SwingUtilities.invokeAndWait {
             every {

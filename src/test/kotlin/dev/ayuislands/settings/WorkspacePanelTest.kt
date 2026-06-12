@@ -15,6 +15,7 @@ import io.mockk.unmockkAll
 import java.awt.Component
 import java.awt.Container
 import javax.swing.JComboBox
+import javax.swing.JEditorPane
 import javax.swing.JLabel
 import javax.swing.JSpinner
 import javax.swing.SwingUtilities
@@ -148,6 +149,28 @@ class WorkspacePanelTest {
                     !it.isEnabled
             },
             "Default mode must show disabled path max spinner",
+        )
+    }
+
+    @Test
+    fun `commit path display explains tooltip and level controls`() {
+        state.workspaceCommitPanelExpanded = true
+        val workspacePanel = WorkspacePanel()
+
+        val dialogPanel =
+            com.intellij.ui.dsl.builder
+                .panel {
+                    workspacePanel.buildPanel(this@panel, AyuVariant.MIRAGE)
+                }
+        val comments = components(dialogPanel, JEditorPane::class.java).map { it.text.orEmpty() }
+
+        assertTrue(
+            comments.any { it.contains("Tooltip only hides inline paths") },
+            "Path Display must explain tooltip-only mode",
+        )
+        assertTrue(
+            comments.any { it.contains("Min/max levels control how many leading directories") },
+            "Path Display must explain min/max hidden levels",
         )
     }
 

@@ -406,6 +406,12 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
             cell(maxSpinner)
             label("levels")
         }
+        panel.row {
+            comment("Tooltip only hides inline paths and keeps the full path available on hover.")
+        }
+        panel.row {
+            comment("Min/max levels control how many leading directories Ayu can hide when shortening paths.")
+        }
         updatePathShorteningEnabled()
     }
 

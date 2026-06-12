@@ -57,7 +57,11 @@ class CommitPanelAutoFitManager(
     }
 
     fun apply() {
-        if (!LicenseChecker.isLicensedOrGrace()) return
+        if (!LicenseChecker.isLicensedOrGrace()) {
+            removePathRenderer()
+            autoFitter.removeExpansionListener()
+            return
+        }
         val state = AyuIslandsSettings.getInstance().state
         val mode = PanelWidthMode.fromString(state.commitPanelWidthMode)
         syncPathRenderer(mode)

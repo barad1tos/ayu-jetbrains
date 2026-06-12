@@ -15,6 +15,7 @@ import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.settings.CommitPathDisplayMode
 import dev.ayuislands.settings.PanelWidthMode
 import io.mockk.every
 import io.mockk.just
@@ -213,6 +214,9 @@ class LicenseCheckerProDefaultsTest {
         state.projectPanelWidthMode = PanelWidthMode.AUTO_FIT.name
         state.commitPanelWidthMode = PanelWidthMode.AUTO_FIT.name
         state.gitPanelWidthMode = PanelWidthMode.AUTO_FIT.name
+        state.commitPanelPathDisplayMode = CommitPathDisplayMode.TOOLTIP.name
+        state.commitPanelPathMinHiddenLevels = 2
+        state.commitPanelPathMaxHiddenLevels = 4
         state.hideProjectRootPath = true
         state.hideProjectViewHScrollbar = true
         mockAccentApplicator()
@@ -222,6 +226,9 @@ class LicenseCheckerProDefaultsTest {
         assertEquals(PanelWidthMode.DEFAULT.name, state.projectPanelWidthMode)
         assertEquals(PanelWidthMode.DEFAULT.name, state.commitPanelWidthMode)
         assertEquals(PanelWidthMode.DEFAULT.name, state.gitPanelWidthMode)
+        assertEquals(CommitPathDisplayMode.INLINE.name, state.commitPanelPathDisplayMode)
+        assertEquals(AyuIslandsState.DEFAULT_COMMIT_PATH_MIN_HIDDEN_LEVELS, state.commitPanelPathMinHiddenLevels)
+        assertEquals(AyuIslandsState.DEFAULT_COMMIT_PATH_MAX_HIDDEN_LEVELS, state.commitPanelPathMaxHiddenLevels)
         assertFalse(state.hideProjectRootPath)
         assertFalse(state.hideProjectViewHScrollbar)
     }
@@ -332,7 +339,7 @@ class LicenseCheckerProDefaultsTest {
         every { settingsMock.state } returns state
         every { settingsMock.getAccentForVariant(any()) } returns "#FFCC66"
         mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } answers { Unit }
+        every { AccentApplicator.apply(any()) } just runs
 
         // Mock ApplicationManager for AccentRotationService.stopRotation() call
         mockkStatic(ApplicationManager::class)
