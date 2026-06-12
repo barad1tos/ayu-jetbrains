@@ -273,9 +273,13 @@
     <depends optional="true" config-file="codeglance-pro.xml">com.nasller.CodeGlancePro</depends>
     <depends optional="true" config-file="indent-rainbow.xml">indent-rainbow.indent-rainbow</depends>
 
+    <!-- JetBrains ties release-date to the paid product release-version. Keep
+         this date aligned with the existing Marketplace entry for the same
+         release-version; changing it without bumping release-version makes
+         Marketplace reject the upload. -->
     <product-descriptor
             code="PAYUISLANDS"
-            release-date="20260611"
+            release-date="20260529"
             release-version="27"
             optional="true"/>
 
