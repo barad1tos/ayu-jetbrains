@@ -76,7 +76,8 @@
       <li><b>Workspace</b> — auto-fit or fixed width for Project View, Commit,
           and Git panels with min/max bounds. Git panel splitter control for
           branches and file changes trees. Hide the filesystem path and
-          scrollbar from the Project View.</li>
+          scrollbar from the Project View. Commit Panel path display can move
+          full paths to tooltips or shorten leading directories inline.</li>
       <li><b>Tab styling</b> — Islands UI: underline, full accent bar, or none.
           Classic UI: underline thickness from hairline to bold.</li>
       <li><b>Plugin sync</b> — accent into CodeGlance Pro minimap and Indent
@@ -115,6 +116,7 @@
     <change-notes><![CDATA[
     <h3>2.7.3</h3>
     <ul>
+      <li>[Paid] <b>Commit Panel path display</b> — Pro users can move full Commit Panel paths to tooltips or shorten leading directories inline.</li>
       <li>[Free] <b>Syntax preview</b> — native highlighting now updates reliably when switching syntax presets and readability options.</li>
     </ul>
     <h3>2.7.2</h3>

@@ -24,6 +24,7 @@ import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.settings.CommitPathDisplayMode
 import dev.ayuislands.settings.PanelWidthMode
 import dev.ayuislands.syntax.SyntaxIntensityService
 import dev.ayuislands.syntax.SyntaxIntensityState
@@ -292,6 +293,9 @@ object LicenseChecker {
             state.projectPanelWidthMode = PanelWidthMode.DEFAULT.name
             state.commitPanelWidthMode = PanelWidthMode.DEFAULT.name
             state.gitPanelWidthMode = PanelWidthMode.DEFAULT.name
+            state.commitPanelPathDisplayMode = CommitPathDisplayMode.INLINE.name
+            state.commitPanelPathMinHiddenLevels = AyuIslandsState.DEFAULT_COMMIT_PATH_MIN_HIDDEN_LEVELS
+            state.commitPanelPathMaxHiddenLevels = AyuIslandsState.DEFAULT_COMMIT_PATH_MAX_HIDDEN_LEVELS
             state.hideProjectRootPath = false
             state.hideProjectViewHScrollbar = false
 

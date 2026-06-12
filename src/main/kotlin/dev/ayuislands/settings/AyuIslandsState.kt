@@ -27,6 +27,16 @@ enum class PanelWidthMode {
     }
 }
 
+enum class CommitPathDisplayMode {
+    INLINE,
+    TOOLTIP,
+    ;
+
+    companion object {
+        fun fromString(value: String?): CommitPathDisplayMode = entries.firstOrNull { it.name == value } ?: INLINE
+    }
+}
+
 class AyuIslandsState : BaseState() {
     // Per-variant accent colors
     var mirageAccent by string("#FFCC66")
@@ -198,6 +208,9 @@ class AyuIslandsState : BaseState() {
     var commitPanelWidthMode by string(PanelWidthMode.DEFAULT.name)
     var commitPanelAutoFitMinWidth by property(DEFAULT_COMMIT_AUTO_FIT_MIN_WIDTH)
     var commitPanelFixedWidth by property(DEFAULT_FIXED_WIDTH)
+    var commitPanelPathDisplayMode by string(CommitPathDisplayMode.INLINE.name)
+    var commitPanelPathMinHiddenLevels by property(DEFAULT_COMMIT_PATH_MIN_HIDDEN_LEVELS)
+    var commitPanelPathMaxHiddenLevels by property(DEFAULT_COMMIT_PATH_MAX_HIDDEN_LEVELS)
     var gitPanelWidthMode by string(PanelWidthMode.DEFAULT.name)
     var gitPanelAutoFitMaxWidth by property(DEFAULT_GIT_AUTO_FIT_MAX_WIDTH)
     var gitPanelAutoFitMinWidth by property(DEFAULT_GIT_AUTO_FIT_MIN_WIDTH)
@@ -595,6 +608,8 @@ class AyuIslandsState : BaseState() {
         const val DEFAULT_AUTO_FIT_MAX_WIDTH = 400
         const val DEFAULT_PROJECT_AUTO_FIT_MIN_WIDTH = 250
         const val DEFAULT_COMMIT_AUTO_FIT_MIN_WIDTH = 250
+        const val DEFAULT_COMMIT_PATH_MIN_HIDDEN_LEVELS = 0
+        const val DEFAULT_COMMIT_PATH_MAX_HIDDEN_LEVELS = 5
         const val DEFAULT_GIT_AUTO_FIT_MIN_WIDTH = 400
         const val DEFAULT_GIT_AUTO_FIT_MAX_WIDTH = 500
         const val DEFAULT_FIXED_WIDTH = 300

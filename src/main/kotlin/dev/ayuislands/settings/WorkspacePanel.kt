@@ -6,9 +6,8 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.ComboBox
-import com.intellij.ui.JBColor
-import com.intellij.ui.dsl.builder.CollapsibleRow
 import com.intellij.ui.dsl.builder.Panel
+import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.editor.EditorScrollbarManager
@@ -17,7 +16,7 @@ import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.toolwindow.AutoFitCalculator
 import java.awt.Component
-import java.util.Locale
+import java.awt.Dimension
 import javax.swing.DefaultComboBoxModel
 import javax.swing.DefaultListCellRenderer
 import javax.swing.JCheckBox
@@ -25,12 +24,14 @@ import javax.swing.JLabel
 import javax.swing.JList
 import javax.swing.JSpinner
 import javax.swing.SpinnerNumberModel
-import javax.swing.UIManager
 
 private const val EDITOR_TITLE = "Editor"
 private const val PROJECT_VIEW_TITLE = "Project View"
+private const val PROJECT_VIEW_DISPLAY_TITLE = "Project View Display"
 private const val COMMIT_PANEL_TITLE = "Commit Panel"
 private const val GIT_PANEL_TITLE = "Git Panel"
+private const val TOOL_WINDOW_WIDTH_TITLE = "Tool Window Width"
+private const val PATH_DISPLAY_TITLE = "Path Display"
 
 /** Workspace tab: tool window layout tweaks (Project View, Commit Panel, Git Panel). */
 class WorkspacePanel : AyuIslandsSettingsPanel {
@@ -52,12 +53,8 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
 
     private val projectWidth = WidthModeUiState()
     private val commitWidth = WidthModeUiState()
+    private val commitPathShortening = PathShorteningUiState()
     private val gitWidth = WidthModeUiState()
-
-    private var editorGroup: CollapsibleRow? = null
-    private var projectViewGroup: CollapsibleRow? = null
-    private var commitPanelGroup: CollapsibleRow? = null
-    private var gitPanelGroup: CollapsibleRow? = null
 
     private var suppressListeners = false
 
@@ -105,6 +102,11 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
             state.commitPanelFixedWidth,
             state.commitPanelAutoFitMinWidth,
         )
+        commitPathShortening.load(
+            CommitPathDisplayMode.fromString(state.commitPanelPathDisplayMode),
+            state.commitPanelPathMinHiddenLevels,
+            state.commitPanelPathMaxHiddenLevels,
+        )
         gitWidth.state.load(
             PanelWidthMode.fromString(state.gitPanelWidthMode),
             state.gitPanelAutoFitMaxWidth,
@@ -112,123 +114,85 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
             state.gitPanelAutoFitMinWidth,
         )
 
-        panel.row { comment("Customize tool window width and Project View display options.") }
+        panel.row { comment("Customize editor chrome, Project View display, and tool window width/path behavior.") }
         panel.premiumFeatureNotice(gate)
 
-        editorGroup =
-            panel.collapsibleGroup(EDITOR_TITLE) {
-                hideEditorVScrollbarCheckbox =
-                    buildCheckboxRow(
-                        "Hide vertical scrollbar",
-                        "Remove the vertical scrollbar from the editor gutter",
-                        pendingHideEditorVScrollbar,
-                        licensed,
-                    ) { pendingHideEditorVScrollbar = it }
-                hideEditorHScrollbarCheckbox =
-                    buildCheckboxRow(
-                        "Hide horizontal scrollbar",
-                        "Remove the bottom scrollbar from the editor",
-                        pendingHideEditorHScrollbar,
-                        licensed,
-                    ) { pendingHideEditorHScrollbar = it }
-            }
-        editorGroup?.expanded = state.workspaceEditorExpanded
-        editorGroup?.addExpandedListener { state.workspaceEditorExpanded = it }
+        panel.group(EDITOR_TITLE) {
+            hideEditorVScrollbarCheckbox =
+                buildCheckboxRow(
+                    "Hide vertical scrollbar",
+                    "Remove the vertical scrollbar from the editor gutter",
+                    pendingHideEditorVScrollbar,
+                    licensed,
+                ) { pendingHideEditorVScrollbar = it }
+            hideEditorHScrollbarCheckbox =
+                buildCheckboxRow(
+                    "Hide horizontal scrollbar",
+                    "Remove the bottom scrollbar from the editor",
+                    pendingHideEditorHScrollbar,
+                    licensed,
+                ) { pendingHideEditorHScrollbar = it }
+        }
 
-        projectViewGroup =
-            panel.collapsibleGroup(PROJECT_VIEW_TITLE) {
-                hideRootPathCheckbox =
-                    buildCheckboxRow(
-                        "Hide filesystem path",
-                        "Remove the directory path shown next to the project name",
-                        pendingHideRootPath,
-                        licensed,
-                    ) { pendingHideRootPath = it }
-                hideHScrollbarCheckbox =
-                    buildCheckboxRow(
-                        "Hide horizontal scrollbar",
-                        "Remove the bottom scrollbar from the Project tool window",
-                        pendingHideHScrollbar,
-                        licensed,
-                    ) { pendingHideHScrollbar = it }
-                separator()
-                buildWidthModeGroup(
-                    this,
-                    WidthModeGroupConfig(
-                        projectWidth,
-                        AutoFitCalculator.MIN_PROJECT_AUTOFIT_WIDTH,
-                        gate,
-                        showMinSpinner = true,
-                    ) {
-                        updateGroupTitle(projectViewGroup, PROJECT_VIEW_TITLE, projectWidth.state)
-                    },
-                )
-            }
-        projectViewGroup?.expanded = state.workspaceProjectViewExpanded
-        projectViewGroup?.addExpandedListener { state.workspaceProjectViewExpanded = it }
-        updateGroupTitle(projectViewGroup, PROJECT_VIEW_TITLE, projectWidth.state)
+        panel.group(PROJECT_VIEW_DISPLAY_TITLE) {
+            hideRootPathCheckbox =
+                buildCheckboxRow(
+                    "Hide filesystem path",
+                    "Remove the directory path shown next to the project name",
+                    pendingHideRootPath,
+                    licensed,
+                ) { pendingHideRootPath = it }
+            hideHScrollbarCheckbox =
+                buildCheckboxRow(
+                    "Hide horizontal scrollbar",
+                    "Remove the bottom scrollbar from the Project tool window",
+                    pendingHideHScrollbar,
+                    licensed,
+                ) { pendingHideHScrollbar = it }
+        }
 
-        commitPanelGroup =
-            panel.collapsibleGroup(COMMIT_PANEL_TITLE) {
-                buildWidthModeGroup(
-                    this,
-                    WidthModeGroupConfig(
-                        commitWidth,
-                        AutoFitCalculator.MIN_COMMIT_AUTOFIT_WIDTH,
-                        gate,
-                        showMinSpinner = true,
-                    ) {
-                        updateGroupTitle(commitPanelGroup, COMMIT_PANEL_TITLE, commitWidth.state)
-                    },
-                )
-            }
-        commitPanelGroup?.expanded = state.workspaceCommitPanelExpanded
-        commitPanelGroup?.addExpandedListener { state.workspaceCommitPanelExpanded = it }
-        updateGroupTitle(commitPanelGroup, COMMIT_PANEL_TITLE, commitWidth.state)
+        panel.group(TOOL_WINDOW_WIDTH_TITLE) {
+            buildWidthModeGroup(
+                this,
+                WidthModeGroupConfig(
+                    PROJECT_VIEW_TITLE,
+                    projectWidth,
+                    AutoFitCalculator.MIN_PROJECT_AUTOFIT_WIDTH,
+                    gate,
+                    showMinSpinner = true,
+                ),
+            )
+            buildWidthModeGroup(
+                this,
+                WidthModeGroupConfig(
+                    COMMIT_PANEL_TITLE,
+                    commitWidth,
+                    AutoFitCalculator.MIN_COMMIT_AUTOFIT_WIDTH,
+                    gate,
+                    showMinSpinner = true,
+                ) {
+                    updatePathShorteningEnabled()
+                },
+            )
+            buildWidthModeGroup(
+                this,
+                WidthModeGroupConfig(
+                    GIT_PANEL_TITLE,
+                    gitWidth,
+                    AutoFitCalculator.MIN_GIT_AUTOFIT_WIDTH,
+                    gate,
+                    showMinSpinner = true,
+                ),
+            )
+        }
 
-        gitPanelGroup =
-            panel.collapsibleGroup(GIT_PANEL_TITLE) {
-                buildWidthModeGroup(
-                    this,
-                    WidthModeGroupConfig(
-                        gitWidth,
-                        AutoFitCalculator.MIN_GIT_AUTOFIT_WIDTH,
-                        gate,
-                        showMinSpinner = true,
-                    ) {
-                        updateGroupTitle(gitPanelGroup, GIT_PANEL_TITLE, gitWidth.state)
-                    },
-                )
-            }
-        gitPanelGroup?.expanded = state.workspaceGitPanelExpanded
-        gitPanelGroup?.addExpandedListener { state.workspaceGitPanelExpanded = it }
-        updateGroupTitle(gitPanelGroup, GIT_PANEL_TITLE, gitWidth.state)
-    }
-
-    private fun updateGroupTitle(
-        group: CollapsibleRow?,
-        baseName: String,
-        widthState: PanelWidthState,
-    ) {
-        val summary = PanelWidthState.widthSummary(widthState)
-        val mutedHex = mutedColorHex()
-        group?.setTitle("<html>$baseName <font color='$mutedHex'>\u00B7 $summary</font></html>")
-    }
-
-    private fun mutedColorHex(): String {
-        val color =
-            UIManager.getColor("Label.disabledForeground")
-                ?: JBColor(FALLBACK_MUTED_RGB, FALLBACK_MUTED_RGB)
-        return String.format(
-            Locale.ROOT,
-            "#%02x%02x%02x",
-            color.red,
-            color.green,
-            color.blue,
-        )
+        panel.group(PATH_DISPLAY_TITLE) {
+            buildPathShorteningRow(this, gate)
+        }
     }
 
     private data class WidthModeGroupConfig(
+        val rowLabel: String,
         val uiState: WidthModeUiState,
         val minAutoFitWidth: Int,
         val gate: PremiumFeatureGate,
@@ -285,7 +249,58 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
                     return label
                 }
             }
+        comboBox.applyPreferredWidth(MODE_COMBO_WIDTH)
         return comboBox
+    }
+
+    private fun createPathDisplayComboBox(
+        selectedMode: CommitPathDisplayMode,
+        enabled: Boolean,
+    ): ComboBox<CommitPathDisplayMode> {
+        val comboBox = ComboBox(DefaultComboBoxModel(CommitPathDisplayMode.entries.toTypedArray()))
+        comboBox.selectedItem = selectedMode
+        comboBox.isEnabled = enabled
+        comboBox.renderer =
+            object : DefaultListCellRenderer() {
+                override fun getListCellRendererComponent(
+                    list: JList<*>?,
+                    value: Any?,
+                    index: Int,
+                    isSelected: Boolean,
+                    cellHasFocus: Boolean,
+                ): Component {
+                    val label =
+                        super.getListCellRendererComponent(
+                            list,
+                            value,
+                            index,
+                            isSelected,
+                            cellHasFocus,
+                        ) as JLabel
+                    label.text =
+                        when (value as? CommitPathDisplayMode) {
+                            CommitPathDisplayMode.INLINE -> "Inline"
+                            CommitPathDisplayMode.TOOLTIP -> "Tooltip only"
+                            null -> ""
+                        }
+                    return label
+                }
+            }
+        comboBox.addActionListener {
+            if (!suppressListeners && comboBox.isEnabled) {
+                commitPathShortening.pendingDisplayMode = comboBox.selectedItem as CommitPathDisplayMode
+                updatePathShorteningEnabled()
+            }
+        }
+        comboBox.applyPreferredWidth(MODE_COMBO_WIDTH)
+        return comboBox
+    }
+
+    private fun Component.applyPreferredWidth(width: Int) {
+        val scaledWidth = JBUI.scale(width)
+        val height = preferredSize.height
+        preferredSize = Dimension(scaledWidth, height)
+        minimumSize = Dimension(scaledWidth, height)
     }
 
     private fun buildWidthModeGroup(
@@ -343,7 +358,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
             }
         }
 
-        panel.row {
+        panel.row(config.rowLabel) {
             cell(comboBox)
             if (minSpinner != null) {
                 label("min").visibleIfUnlockedOrPreview(autoFitVisible, config.gate)
@@ -357,6 +372,75 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
         }
     }
 
+    private fun buildPathShorteningRow(
+        panel: Panel,
+        gate: PremiumFeatureGate,
+    ) {
+        val displayComboBox =
+            createPathDisplayComboBox(commitPathShortening.pendingDisplayMode, gate.isUnlocked)
+        val minSpinner =
+            createPathSpinner(commitPathShortening.pendingMinHiddenLevels, gate.isUnlocked) {
+                commitPathShortening.pendingMinHiddenLevels = it
+                if (it > commitPathShortening.pendingMaxHiddenLevels) {
+                    commitPathShortening.pendingMaxHiddenLevels = it
+                    commitPathShortening.maxSpinner?.value = it
+                }
+            }
+        val maxSpinner =
+            createPathSpinner(commitPathShortening.pendingMaxHiddenLevels, gate.isUnlocked) {
+                commitPathShortening.pendingMaxHiddenLevels = it
+                if (it < commitPathShortening.pendingMinHiddenLevels) {
+                    commitPathShortening.pendingMinHiddenLevels = it
+                    commitPathShortening.minSpinner?.value = it
+                }
+            }
+        commitPathShortening.displayComboBox = displayComboBox
+        commitPathShortening.minSpinner = minSpinner
+        commitPathShortening.maxSpinner = maxSpinner
+
+        panel.row(COMMIT_PANEL_TITLE) {
+            cell(displayComboBox)
+            label("min")
+            cell(minSpinner)
+            label("max")
+            cell(maxSpinner)
+            label("levels")
+        }
+        panel.row {
+            comment("Tooltip only hides inline paths and keeps the full path available on hover.")
+        }
+        panel.row {
+            comment("Min/max levels control how many leading directories Ayu can hide when shortening paths.")
+        }
+        updatePathShorteningEnabled()
+    }
+
+    private fun createPathSpinner(
+        value: Int,
+        enabled: Boolean,
+        onChange: (Int) -> Unit,
+    ): JSpinner =
+        JSpinner(
+            SpinnerNumberModel(
+                value.coerceIn(0, MAX_PATH_HIDDEN_LEVELS),
+                0,
+                MAX_PATH_HIDDEN_LEVELS,
+                PATH_HIDDEN_LEVEL_STEP,
+            ),
+        ).also { spinner ->
+            spinner.isEnabled = enabled
+            spinner.addChangeListener {
+                if (!suppressListeners && spinner.isEnabled) onChange(spinner.value as Int)
+            }
+        }
+
+    private fun updatePathShorteningEnabled() {
+        commitPathShortening.setEnabled(
+            LicenseChecker.isLicensedOrGrace() &&
+                commitWidth.state.pendingMode != PanelWidthMode.DEFAULT,
+        )
+    }
+
     override fun isModified(): Boolean =
         pendingHideEditorVScrollbar != storedHideEditorVScrollbar ||
             pendingHideEditorHScrollbar != storedHideEditorHScrollbar ||
@@ -364,6 +448,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
             pendingHideHScrollbar != storedHideHScrollbar ||
             projectWidth.state.isModified() ||
             commitWidth.state.isModified() ||
+            commitPathShortening.isModified() ||
             gitWidth.state.isModified()
 
     override fun apply() {
@@ -379,6 +464,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
                 pendingHideHScrollbar != storedHideHScrollbar
         val projectWidthChanged = projectWidth.state.isModified()
         val commitWidthChanged = commitWidth.state.isModified()
+        val commitPathChanged = commitPathShortening.isModified()
         val gitWidthChanged = gitWidth.state.isModified()
 
         state.hideEditorVScrollbar = pendingHideEditorVScrollbar
@@ -392,13 +478,17 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
         storedHideHScrollbar = pendingHideHScrollbar
 
         applyWidthState(projectWidth, state.projectWidthTarget())
+        state.commitPanelPathDisplayMode = commitPathShortening.pendingDisplayMode.name
+        state.commitPanelPathMinHiddenLevels = commitPathShortening.pendingMinHiddenLevels
+        state.commitPanelPathMaxHiddenLevels = commitPathShortening.pendingMaxHiddenLevels
+        commitPathShortening.commitStored()
         applyWidthState(commitWidth, state.commitWidthTarget())
         applyWidthState(gitWidth, state.gitWidthTarget())
 
         if (displayChanged || projectWidthChanged) {
             dispatchToOpenProjects { ProjectViewScrollbarManager.getInstance(it).apply() }
         }
-        if (commitWidthChanged) {
+        if (commitWidthChanged || commitPathChanged) {
             dispatchToOpenProjects { CommitPanelAutoFitManager.getInstance(it).apply() }
         }
         if (gitWidthChanged) {
@@ -422,10 +512,9 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
         hideHScrollbarCheckbox?.isSelected = storedHideHScrollbar
         projectWidth.reset()
         commitWidth.reset()
+        commitPathShortening.reset()
         gitWidth.reset()
-        updateGroupTitle(projectViewGroup, PROJECT_VIEW_TITLE, projectWidth.state)
-        updateGroupTitle(commitPanelGroup, COMMIT_PANEL_TITLE, commitWidth.state)
-        updateGroupTitle(gitPanelGroup, GIT_PANEL_TITLE, gitWidth.state)
+        updatePathShorteningEnabled()
         suppressListeners = false
     }
 
@@ -537,10 +626,69 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
         }
     }
 
+    private class PathShorteningUiState {
+        var pendingDisplayMode = CommitPathDisplayMode.INLINE
+        var storedDisplayMode = CommitPathDisplayMode.INLINE
+        var pendingMinHiddenLevels = AyuIslandsState.DEFAULT_COMMIT_PATH_MIN_HIDDEN_LEVELS
+        var storedMinHiddenLevels = AyuIslandsState.DEFAULT_COMMIT_PATH_MIN_HIDDEN_LEVELS
+        var pendingMaxHiddenLevels = AyuIslandsState.DEFAULT_COMMIT_PATH_MAX_HIDDEN_LEVELS
+        var storedMaxHiddenLevels = AyuIslandsState.DEFAULT_COMMIT_PATH_MAX_HIDDEN_LEVELS
+        var displayComboBox: ComboBox<CommitPathDisplayMode>? = null
+        var minSpinner: JSpinner? = null
+        var maxSpinner: JSpinner? = null
+
+        fun load(
+            displayMode: CommitPathDisplayMode,
+            minHiddenLevels: Int,
+            maxHiddenLevels: Int,
+        ) {
+            val normalizedMin = minHiddenLevels.coerceIn(0, MAX_PATH_HIDDEN_LEVELS)
+            val normalizedMax =
+                maxHiddenLevels
+                    .coerceIn(0, MAX_PATH_HIDDEN_LEVELS)
+                    .coerceAtLeast(normalizedMin)
+            storedDisplayMode = displayMode
+            pendingDisplayMode = displayMode
+            storedMinHiddenLevels = normalizedMin
+            pendingMinHiddenLevels = normalizedMin
+            storedMaxHiddenLevels = normalizedMax
+            pendingMaxHiddenLevels = normalizedMax
+        }
+
+        fun isModified(): Boolean =
+            pendingDisplayMode != storedDisplayMode ||
+                pendingMinHiddenLevels != storedMinHiddenLevels ||
+                pendingMaxHiddenLevels != storedMaxHiddenLevels
+
+        fun commitStored() {
+            storedDisplayMode = pendingDisplayMode
+            storedMinHiddenLevels = pendingMinHiddenLevels
+            storedMaxHiddenLevels = pendingMaxHiddenLevels
+        }
+
+        fun reset() {
+            pendingDisplayMode = storedDisplayMode
+            pendingMinHiddenLevels = storedMinHiddenLevels
+            pendingMaxHiddenLevels = storedMaxHiddenLevels
+            displayComboBox?.selectedItem = storedDisplayMode
+            minSpinner?.value = storedMinHiddenLevels
+            maxSpinner?.value = storedMaxHiddenLevels
+        }
+
+        fun setEnabled(enabled: Boolean) {
+            displayComboBox?.isEnabled = enabled
+            val areLevelControlsEnabled = enabled && pendingDisplayMode == CommitPathDisplayMode.INLINE
+            minSpinner?.isEnabled = areLevelControlsEnabled
+            maxSpinner?.isEnabled = areLevelControlsEnabled
+        }
+    }
+
     companion object {
         private const val MAX_AUTOFIT_WIDTH = 800
         private const val MIN_AUTOFIT_MIN_WIDTH = 50
         private const val AUTOFIT_WIDTH_STEP = 50
-        private const val FALLBACK_MUTED_RGB = 0x6C7380
+        private const val MODE_COMBO_WIDTH = 124
+        private const val MAX_PATH_HIDDEN_LEVELS = 20
+        private const val PATH_HIDDEN_LEVEL_STEP = 1
     }
 }
