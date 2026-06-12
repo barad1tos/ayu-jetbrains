@@ -22,7 +22,8 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
-import io.mockk.unmockkAll
+import io.mockk.unmockkObject
+import io.mockk.unmockkStatic
 import io.mockk.verify
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -68,7 +69,13 @@ class DarkerAccentActionTest {
 
     @AfterTest
     fun tearDown() {
-        unmockkAll()
+        unmockkObject(AyuIslandsSettings.Companion)
+        unmockkStatic(ApplicationManager::class)
+        unmockkObject(AccentResolver)
+        unmockkObject(AccentApplicator)
+        unmockkObject(LicenseChecker)
+        unmockkObject(AccentContext.Companion)
+        unmockkObject(AyuVariant.Companion)
     }
 
     private fun newEvent(): AnActionEvent {
