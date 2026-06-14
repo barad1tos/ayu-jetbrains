@@ -189,6 +189,7 @@ object SyntaxLanguageRegistry {
             Regex("^IGNORE\\.") to LangTag("Ignore", "Ignore files", Bucket.LANGUAGE),
             Regex("^JSON\\.") to LangTag("JSON", "JSON", Bucket.LANGUAGE),
             Regex("^PROPERTIES\\.") to LangTag("Properties", "Properties files", Bucket.LANGUAGE),
+            Regex("^SWIFT\\.") to LangTag("Swift", "Swift", Bucket.LANGUAGE),
             Regex("^TIL\\.") to LangTag("TIL", "TIL", Bucket.LANGUAGE),
             Regex("^DQL\\.") to LangTag("DQL", "DQL", Bucket.LANGUAGE),
             Regex("^VUE\\.") to LangTag("Vue", "Vue", Bucket.LANGUAGE),
@@ -253,6 +254,11 @@ object SyntaxLanguageRegistry {
                     "DEFAULT_DOC_COMMENT" to "KOTLIN_DOC_COMMENT",
                     "DEFAULT_STRING" to "KOTLIN_STRING",
                     "DEFAULT_NUMBER" to "KOTLIN_NUMBER",
+                ),
+            "Swift" to
+                mapOf(
+                    "DEFAULT_STRING" to "SWIFT_STRING",
+                    "DEFAULT_NUMBER" to "SWIFT_NUMBER",
                 ),
             "Go" to
                 mapOf(

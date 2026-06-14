@@ -1,6 +1,73 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <scheme name="Ayu Islands Light Extended" version="142">
   <attributes>
+    <!-- Noctule Swift semantic token keys must carry concrete values here:
+         the runtime syntax-intensity overlay skips baseAttributes-only entries. -->
+    <option name="SWIFT.IDENTIFIER"><value><option name="FOREGROUND" value="5C6166" /></value></option>
+    <option name="SWIFT.VARIABLE"><value><option name="FOREGROUND" value="5C6166" /></value></option>
+    <option name="SWIFT.LOCAL_VARIABLE"><value><option name="FOREGROUND" value="5C6166" /></value></option>
+    <option name="SWIFT.PARAMETER"><value><option name="FOREGROUND" value="A37ACC" /></value></option>
+    <option name="SWIFT.ARGUMENT_LABEL"><value><option name="FOREGROUND" value="55B4D4" /></value></option>
+    <option name="SWIFT.TUPLE_LABEL"><value><option name="FOREGROUND" value="55B4D4" /></value></option>
+    <option name="SWIFT.TUPLE_TYPE_LABEL"><value><option name="FOREGROUND" value="55B4D4" /></value></option>
+    <option name="SWIFT.PROPERTY"><value><option name="FOREGROUND" value="F07171" /></value></option>
+    <option name="SWIFT.INSTANCE_FIELD"><value><option name="FOREGROUND" value="F07171" /></value></option>
+    <option name="SWIFT.GLOBAL_VARIABLE"><value><option name="FOREGROUND" value="F07171" /></value></option>
+    <option name="SWIFT.CONSTANT"><value><option name="FOREGROUND" value="A37ACC" /></value></option>
+    <option name="SWIFT.ENUM_MEMBER"><value><option name="FOREGROUND" value="A37ACC" /></value></option>
+    <option name="SWIFT.STATIC_FIELD"><value><option name="FOREGROUND" value="F07171" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.FUNCTION"><value><option name="FOREGROUND" value="EBA400" /></value></option>
+    <option name="SWIFT.FUNCTION_CALL"><value><option name="FOREGROUND" value="EBA400" /></value></option>
+    <option name="SWIFT.FUNCTION_DECLARATION"><value><option name="FOREGROUND" value="EBA400" /></value></option>
+    <option name="SWIFT.FUNCTION_NAME"><value><option name="FOREGROUND" value="EBA400" /></value></option>
+    <option name="SWIFT.FUNCTION_NAME_LIBRARY"><value><option name="FOREGROUND" value="EBA400" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.FUNCTION_NAME_STATIC"><value><option name="FOREGROUND" value="EBA400" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.FUNCTION_CALL_STATIC"><value><option name="FOREGROUND" value="EBA400" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.METHOD"><value><option name="FOREGROUND" value="EBA400" /></value></option>
+    <option name="SWIFT.METHOD_DECLARATION"><value><option name="FOREGROUND" value="EBA400" /></value></option>
+    <option name="SWIFT.METHOD_NAME"><value><option name="FOREGROUND" value="EBA400" /></value></option>
+    <option name="SWIFT.METHOD_NAME_LIBRARY"><value><option name="FOREGROUND" value="EBA400" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.METHOD_NAME_STATIC"><value><option name="FOREGROUND" value="EBA400" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.STATIC_METHOD"><value><option name="FOREGROUND" value="EBA400" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.CLASS"><value><option name="FOREGROUND" value="22A4E6" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.CLASS_DECLARATION"><value><option name="FOREGROUND" value="22A4E6" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.CLASS_NAME"><value><option name="FOREGROUND" value="22A4E6" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.CLASS_REFERENCE"><value><option name="FOREGROUND" value="22A4E6" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.STRUCT_DECLARATION"><value><option name="FOREGROUND" value="22A4E6" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.STRUCT_NAME"><value><option name="FOREGROUND" value="22A4E6" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.ENUM"><value><option name="FOREGROUND" value="22A4E6" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.ENUM_DECLARATION"><value><option name="FOREGROUND" value="22A4E6" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.ENUM_NAME"><value><option name="FOREGROUND" value="22A4E6" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.PROTOCOL_DECLARATION"><value><option name="FOREGROUND" value="22A4E6" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.PROTOCOL_NAME"><value><option name="FOREGROUND" value="22A4E6" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.INTERFACE_NAME"><value><option name="FOREGROUND" value="22A4E6" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.ACTOR_DECLARATION"><value><option name="FOREGROUND" value="22A4E6" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.ASSOCIATED_TYPE_DECLARATION"><value><option name="FOREGROUND" value="22A4E6" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.GENERIC_TYPE_PARAMETER"><value><option name="FOREGROUND" value="22A4E6" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.TYPE_PARAMETER"><value><option name="FOREGROUND" value="22A4E6" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.TYPE"><value><option name="FOREGROUND" value="22A4E6" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.TYPEALIAS"><value><option name="FOREGROUND" value="22A4E6" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.PREDEFINED_SYMBOL"><value><option name="FOREGROUND" value="22A4E6" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.MODULE_NAME"><value><option name="FOREGROUND" value="22A4E6" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.ATTRIBUTE_NAME"><value><option name="FOREGROUND" value="E59645" /></value></option>
+    <option name="SWIFT.METADATA"><value><option name="FOREGROUND" value="E59645" /></value></option>
+    <option name="SWIFT.KEYWORD"><value><option name="FOREGROUND" value="FA8532" /><option name="FONT_TYPE" value="1" /></value></option>
+    <option name="SWIFT.SELF_SUPER"><value><option name="FOREGROUND" value="FA8532" /><option name="FONT_TYPE" value="1" /></value></option>
+    <option name="SWIFT.DIRECTIVE"><value><option name="FOREGROUND" value="FA8532" /><option name="FONT_TYPE" value="1" /></value></option>
+    <option name="SWIFT.DIRECTIVE_CONDITION"><value><option name="FOREGROUND" value="FA8532" /><option name="FONT_TYPE" value="1" /></value></option>
+    <option name="SWIFT.DIRECTIVE_FLAG"><value><option name="FOREGROUND" value="FA8532" /><option name="FONT_TYPE" value="1" /></value></option>
+    <option name="SWIFT.MACRO"><value><option name="FOREGROUND" value="FA8532" /><option name="FONT_TYPE" value="1" /></value></option>
+    <option name="SWIFT.MACRO_DECLARATION"><value><option name="FOREGROUND" value="FA8532" /><option name="FONT_TYPE" value="1" /></value></option>
+    <option name="SWIFT.MACRO_EXPANSION"><value><option name="FOREGROUND" value="FA8532" /><option name="FONT_TYPE" value="1" /></value></option>
+    <option name="SWIFT.NUMBER"><value><option name="FOREGROUND" value="A37ACC" /></value></option>
+    <option name="SWIFT.STRING"><value><option name="FOREGROUND" value="86B300" /></value></option>
+    <option name="SWIFT.REGEXP"><value><option name="FOREGROUND" value="86B300" /></value></option>
+    <option name="SWIFT.ESCAPE_SEQUENCE"><value><option name="FOREGROUND" value="4CBF99" /></value></option>
+    <option name="SWIFT.VALID_STRING_ESCAPE"><value><option name="FOREGROUND" value="4CBF99" /></value></option>
+    <option name="SWIFT.COMMENT"><value><option name="FOREGROUND" value="ADAEB1" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.LINE_COMMENT"><value><option name="FOREGROUND" value="ADAEB1" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.BLOCK_COMMENT"><value><option name="FOREGROUND" value="ADAEB1" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.DOC_COMMENT"><value><option name="FOREGROUND" value="ADAEB1" /><option name="FONT_TYPE" value="2" /></value></option>
     <option name="BASH.VAR_USE">
       <value>
         <option name="FOREGROUND" value="A37ACC" />
@@ -2018,192 +2085,6 @@
       <value>
         <option name="FOREGROUND" value="D89400" />
         <option name="FONT_TYPE" value="1" />
-      </value>
-    </option>
-    <option name="SWIFT_ACTOR_REFERENCE">
-      <value>
-        <option name="FOREGROUND" value="55B4D4" />
-        <option name="FONT_TYPE" value="2" />
-      </value>
-    </option>
-    <option name="SWIFT_ARGUMENT_LABEL">
-      <value>
-        <option name="FOREGROUND" value="D89400" />
-        <option name="FONT_TYPE" value="0" />
-      </value>
-    </option>
-    <option name="SWIFT_ASSOCIATED_TYPE">
-      <value>
-        <option name="FOREGROUND" value="55B4D4" />
-        <option name="FONT_TYPE" value="2" />
-      </value>
-    </option>
-    <option name="SWIFT_ATTRIBUTE_NAME">
-      <value>
-        <option name="FOREGROUND" value="EBA400" />
-        <option name="FONT_TYPE" value="0" />
-      </value>
-    </option>
-    <option name="SWIFT_ATTRIBUTE_ARGUMENT">
-      <value>
-        <option name="FOREGROUND" value="EBA400" />
-        <option name="FONT_TYPE" value="0" />
-      </value>
-    </option>
-    <option name="SWIFT_CLASS_REFERENCE">
-      <value>
-        <option name="FOREGROUND" value="55B4D4" />
-        <option name="FONT_TYPE" value="2" />
-      </value>
-    </option>
-    <option name="SWIFT_DIRECTIVE">
-      <value>
-        <option name="FOREGROUND" value="FA8532" />
-        <option name="FONT_TYPE" value="1" />
-      </value>
-    </option>
-    <option name="SWIFT_ENUM_REFERENCE">
-      <value>
-        <option name="FOREGROUND" value="55B4D4" />
-        <option name="FONT_TYPE" value="2" />
-      </value>
-    </option>
-    <option name="SWIFT_ENUM_VALUE">
-      <value>
-        <option name="FOREGROUND" value="A37ACC" />
-        <option name="FONT_TYPE" value="0" />
-      </value>
-    </option>
-    <option name="SWIFT_EXTERNAL_PARAMETER">
-      <value>
-        <option name="FOREGROUND" value="D89400" />
-        <option name="FONT_TYPE" value="0" />
-      </value>
-    </option>
-    <option name="SWIFT_FUNCTION_CALL">
-      <value>
-        <option name="FOREGROUND" value="EBA400" />
-        <option name="FONT_TYPE" value="0" />
-      </value>
-    </option>
-    <option name="SWIFT_FUNCTION_DECLARATION">
-      <value>
-        <option name="FOREGROUND" value="EBA400" />
-        <option name="FONT_TYPE" value="0" />
-      </value>
-    </option>
-    <option name="SWIFT_GLOBAL_VARIABLE">
-      <value>
-        <option name="FOREGROUND" value="F07171" />
-        <option name="FONT_TYPE" value="0" />
-      </value>
-    </option>
-    <option name="SWIFT_INLINE_CLOSURE_PARAMETER">
-      <value>
-        <option name="FOREGROUND" value="5C6166" />
-        <option name="FONT_TYPE" value="2" />
-      </value>
-    </option>
-    <option name="SWIFT_LOCAL_VARIABLE">
-      <value>
-        <option name="FOREGROUND" value="5C6166" />
-        <option name="FONT_TYPE" value="0" />
-      </value>
-    </option>
-    <option name="SWIFT_METHOD_CALL">
-      <value>
-        <option name="FOREGROUND" value="EBA400" />
-        <option name="FONT_TYPE" value="0" />
-      </value>
-    </option>
-    <option name="SWIFT_METHOD_DECLARATION">
-      <value>
-        <option name="FOREGROUND" value="EBA400" />
-        <option name="FONT_TYPE" value="0" />
-      </value>
-    </option>
-    <option name="SWIFT_MODULE_NAME">
-      <value>
-        <option name="FOREGROUND" value="55B4D4" />
-        <option name="FONT_TYPE" value="2" />
-      </value>
-    </option>
-    <option name="SWIFT_NESTED_FUNCTION_CALL">
-      <value>
-        <option name="FOREGROUND" value="EBA400" />
-        <option name="FONT_TYPE" value="0" />
-      </value>
-    </option>
-    <option name="SWIFT_NUMBER">
-      <value>
-        <option name="FOREGROUND" value="A37ACC" />
-        <option name="FONT_TYPE" value="0" />
-      </value>
-    </option>
-    <option name="SWIFT_PARAMETER">
-      <value>
-        <option name="FOREGROUND" value="5C6166" />
-        <option name="FONT_TYPE" value="0" />
-      </value>
-    </option>
-    <option name="SWIFT_PROPERTY">
-      <value>
-        <option name="FOREGROUND" value="F07171" />
-        <option name="FONT_TYPE" value="0" />
-      </value>
-    </option>
-    <option name="SWIFT_PROTOCOL_REFERENCE">
-      <value>
-        <option name="FOREGROUND" value="55B4D4" />
-        <option name="FONT_TYPE" value="2" />
-      </value>
-    </option>
-    <option name="SWIFT_REGEX">
-      <value>
-        <option name="FOREGROUND" value="4CBF99" />
-        <option name="FONT_TYPE" value="0" />
-      </value>
-    </option>
-    <option name="SWIFT_SELF_SUPER_KEYWORD">
-      <value>
-        <option name="FOREGROUND" value="FA8532" />
-        <option name="FONT_TYPE" value="1" />
-      </value>
-    </option>
-    <option name="SWIFT_STRING">
-      <value>
-        <option name="FOREGROUND" value="86B300" />
-        <option name="FONT_TYPE" value="0" />
-      </value>
-    </option>
-    <option name="SWIFT_STRUCT_REFERENCE">
-      <value>
-        <option name="FOREGROUND" value="55B4D4" />
-        <option name="FONT_TYPE" value="2" />
-      </value>
-    </option>
-    <option name="SWIFT_TUPLE_LABEL">
-      <value>
-        <option name="FOREGROUND" value="D89400" />
-        <option name="FONT_TYPE" value="0" />
-      </value>
-    </option>
-    <option name="SWIFT_TUPLE_TYPE_LABEL">
-      <value>
-        <option name="FOREGROUND" value="D89400" />
-        <option name="FONT_TYPE" value="0" />
-      </value>
-    </option>
-    <option name="SWIFT_TYPEALIAS_REFERENCE">
-      <value>
-        <option name="FOREGROUND" value="55B4D4" />
-        <option name="FONT_TYPE" value="2" />
-      </value>
-    </option>
-    <option name="SWIFT_TYPE_PARAMETER">
-      <value>
-        <option name="FOREGROUND" value="55B4D4" />
-        <option name="FONT_TYPE" value="2" />
       </value>
     </option>
     <option name="PROGUARD_DIRECTIVE">

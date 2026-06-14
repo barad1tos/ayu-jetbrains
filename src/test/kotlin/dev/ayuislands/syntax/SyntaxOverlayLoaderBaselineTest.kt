@@ -1,6 +1,7 @@
 package dev.ayuislands.syntax
 
 import com.intellij.openapi.editor.colors.TextAttributesKey
+import com.intellij.openapi.editor.markup.TextAttributes
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
@@ -50,6 +51,12 @@ class SyntaxOverlayLoaderBaselineTest {
     }
 
     private fun loader(base: String = FIXTURE_BASE): SyntaxOverlayLoader = SyntaxOverlayLoader(OVERLAY_BASE, base)
+
+    private fun Map<String, TextAttributes>.foregroundHex(keyName: String): String {
+        val attributes = this[keyName] ?: error("missing $keyName")
+        val color = attributes.foregroundColor ?: error("$keyName must define a concrete foreground")
+        return "%02X%02X%02X".format(color.red, color.green, color.blue)
+    }
 
     @Test
     fun `loadBaselineForVariant returns non-empty map for Mirage fixture`() {
@@ -104,5 +111,35 @@ class SyntaxOverlayLoaderBaselineTest {
             instance.baselineResourceBase,
             "default baselineResourceBase must point at production /themes",
         )
+    }
+
+    @Test
+    fun `production baseline schemes materialize Noctule Swift local identifier keys`() {
+        val requiredKeys = listOf("SWIFT.VARIABLE", "SWIFT.IDENTIFIER", "SWIFT.LOCAL_VARIABLE")
+        val expectedLocalForegrounds =
+            mapOf(
+                "Mirage" to "CCCAC2",
+                "Dark" to "BFBDB6",
+                "Light" to "5C6166",
+            )
+        val l = SyntaxOverlayLoader()
+
+        for (variant in listOf("Mirage", "Dark", "Light")) {
+            val baselineByName = l.loadBaselineForVariant(variant).entries.associate { it.key.externalName to it.value }
+            for (keyName in requiredKeys) {
+                val attributes =
+                    baselineByName[keyName]
+                        ?: error("$variant baseline scheme is missing $keyName")
+                assertNotNull(
+                    attributes.foregroundColor,
+                    "$variant baseline scheme must define a concrete foreground for $keyName",
+                )
+                assertEquals(
+                    expectedLocalForegrounds.getValue(variant),
+                    baselineByName.foregroundHex(keyName),
+                    "$variant baseline scheme must keep $keyName on the Kotlin local-variable color",
+                )
+            }
+        }
     }
 }

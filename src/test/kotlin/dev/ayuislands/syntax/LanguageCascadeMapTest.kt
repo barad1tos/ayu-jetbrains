@@ -28,6 +28,8 @@ class LanguageCascadeMapTest {
             CascadeRow("Kotlin", "DEFAULT_LINE_COMMENT", "KOTLIN_LINE_COMMENT"),
             CascadeRow("Kotlin", "DEFAULT_BLOCK_COMMENT", "KOTLIN_BLOCK_COMMENT"),
             CascadeRow("Kotlin", "DEFAULT_DOC_COMMENT", "KOTLIN_DOC_COMMENT"),
+            CascadeRow("Swift", "DEFAULT_STRING", "SWIFT_STRING"),
+            CascadeRow("Swift", "DEFAULT_NUMBER", "SWIFT_NUMBER"),
             CascadeRow("Go", "DEFAULT_LINE_COMMENT", "GO_COMMENT"),
             CascadeRow("Python", "DEFAULT_LINE_COMMENT", "PY.LINE_COMMENT"),
             CascadeRow("Scala", "DEFAULT_LINE_COMMENT", "Scala Line comment"),

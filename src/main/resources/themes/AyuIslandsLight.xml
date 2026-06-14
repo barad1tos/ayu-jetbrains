@@ -3121,6 +3121,81 @@
         </option>
 
         <!-- Swift -->
+        <option name="SWIFT_ACTOR_REFERENCE">
+            <value>
+                <option name="FOREGROUND" value="22A4E6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="SWIFT_ARGUMENT_LABEL">
+            <value>
+                <option name="FOREGROUND" value="55B4D4" />
+            </value>
+        </option>
+        <option name="SWIFT_ASSOCIATED_TYPE">
+            <value>
+                <option name="FOREGROUND" value="22A4E6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="SWIFT_ATTRIBUTE_NAME">
+            <value>
+                <option name="FOREGROUND" value="E59645" />
+            </value>
+        </option>
+        <option name="SWIFT_ATTRIBUTE_ARGUMENT">
+            <value>
+                <option name="FOREGROUND" value="D89400" />
+            </value>
+        </option>
+        <option name="SWIFT_CLASS_REFERENCE">
+            <value>
+                <option name="FOREGROUND" value="22A4E6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="SWIFT_DIRECTIVE">
+            <value>
+                <option name="FOREGROUND" value="FA8532" />
+                <option name="FONT_TYPE" value="1" />
+            </value>
+        </option>
+        <option name="SWIFT_ENUM_REFERENCE">
+            <value>
+                <option name="FOREGROUND" value="22A4E6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="SWIFT_ENUM_VALUE">
+            <value>
+                <option name="FOREGROUND" value="A37ACC" />
+            </value>
+        </option>
+        <option name="SWIFT_EXTERNAL_PARAMETER">
+            <value>
+                <option name="FOREGROUND" value="55B4D4" />
+            </value>
+        </option>
+        <option name="SWIFT_FUNCTION_CALL">
+            <value>
+                <option name="FOREGROUND" value="EBA400" />
+            </value>
+        </option>
+        <option name="SWIFT_FUNCTION_DECLARATION">
+            <value>
+                <option name="FOREGROUND" value="EBA400" />
+            </value>
+        </option>
+        <option name="SWIFT_GLOBAL_VARIABLE">
+            <value>
+                <option name="FOREGROUND" value="F07171" />
+            </value>
+        </option>
+        <option name="SWIFT_INLINE_CLOSURE_PARAMETER">
+            <value>
+                <option name="FOREGROUND" value="A37ACC" />
+            </value>
+        </option>
         <option name="SWIFT_INSTANCE_METHOD">
             <value>
                 <option name="FOREGROUND" value="EBA400" />
@@ -3132,10 +3207,223 @@
                 <option name="FONT_TYPE" value="1" />
             </value>
         </option>
+        <option name="SWIFT_LOCAL_VARIABLE">
+            <value>
+                <option name="FOREGROUND" value="5C6166" />
+            </value>
+        </option>
+        <option name="SWIFT_METHOD_CALL">
+            <value>
+                <option name="FOREGROUND" value="EBA400" />
+            </value>
+        </option>
+        <option name="SWIFT_METHOD_DECLARATION">
+            <value>
+                <option name="FOREGROUND" value="EBA400" />
+            </value>
+        </option>
+        <option name="SWIFT_MODULE_NAME">
+            <value>
+                <option name="FOREGROUND" value="22A4E6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="SWIFT_NESTED_FUNCTION_CALL">
+            <value>
+                <option name="FOREGROUND" value="EBA400" />
+            </value>
+        </option>
+        <option name="SWIFT_NUMBER">
+            <value>
+                <option name="FOREGROUND" value="A37ACC" />
+            </value>
+        </option>
+        <option name="SWIFT_PARAMETER">
+            <value>
+                <option name="FOREGROUND" value="A37ACC" />
+            </value>
+        </option>
+        <option name="SWIFT_PROPERTY">
+            <value>
+                <option name="FOREGROUND" value="F07171" />
+            </value>
+        </option>
+        <option name="SWIFT_PROTOCOL_REFERENCE">
+            <value>
+                <option name="FOREGROUND" value="22A4E6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="SWIFT_REGEX">
+            <value>
+                <option name="FOREGROUND" value="86B300" />
+            </value>
+        </option>
+        <option name="SWIFT_SELF_SUPER_KEYWORD">
+            <value>
+                <option name="FOREGROUND" value="FA8532" />
+                <option name="FONT_TYPE" value="1" />
+            </value>
+        </option>
+        <option name="SWIFT_STRING">
+            <value>
+                <option name="FOREGROUND" value="86B300" />
+            </value>
+        </option>
+        <option name="SWIFT_STRUCT_REFERENCE">
+            <value>
+                <option name="FOREGROUND" value="22A4E6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="SWIFT_TUPLE_LABEL">
+            <value>
+                <option name="FOREGROUND" value="55B4D4" />
+            </value>
+        </option>
+        <option name="SWIFT_TUPLE_TYPE_LABEL">
+            <value>
+                <option name="FOREGROUND" value="55B4D4" />
+            </value>
+        </option>
         <option name="SWIFT_TYPE_NAME">
             <value>
                 <option name="FOREGROUND" value="22A4E6" />
                 <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="SWIFT_TYPEALIAS_REFERENCE">
+            <value>
+                <option name="FOREGROUND" value="22A4E6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="SWIFT_TYPE_PARAMETER">
+            <value>
+                <option name="FOREGROUND" value="22A4E6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+
+        <!-- AppCode/KMM Swift fallback lexer keys used when full semantic resolve is unavailable. -->
+        <option name="SWIFT_ANONYMOUS_CLOSURE_PARAMETER" baseAttributes="SWIFT_PARAMETER" />
+        <option name="SWIFT_BLOCK_COMMENT" baseAttributes="DEFAULT_BLOCK_COMMENT" />
+        <option name="SWIFT_BRACES" baseAttributes="DEFAULT_BRACES" />
+        <option name="SWIFT_BRACKETS" baseAttributes="DEFAULT_BRACKETS" />
+        <option name="SWIFT_COLON" baseAttributes="DEFAULT_SEMICOLON" />
+        <option name="SWIFT_COMMA" baseAttributes="DEFAULT_COMMA" />
+        <option name="SWIFT_COND_NOT_COMPILED" baseAttributes="OC.CONDITIONALLY_NOT_COMPILED" />
+        <option name="SWIFT_DOC_COMMENT" baseAttributes="DEFAULT_DOC_COMMENT" />
+        <option name="SWIFT_DOC_COMMENT_TAG" baseAttributes="DEFAULT_DOC_COMMENT_TAG" />
+        <option name="SWIFT_DOC_COMMENT_TAG_VALUE" baseAttributes="DEFAULT_DOC_COMMENT_TAG_VALUE" />
+        <option name="SWIFT_DOT" baseAttributes="DEFAULT_DOT" />
+        <option name="SWIFT_ERROR_HINT" baseAttributes="ERRORS_ATTRIBUTES" />
+        <option name="SWIFT_FUNCTION_REFERENCE" baseAttributes="SWIFT_FUNCTION_CALL" />
+        <option name="SWIFT_INVALID_STRING_ESCAPE" baseAttributes="DEFAULT_INVALID_STRING_ESCAPE" />
+        <option name="SWIFT_LINE_COMMENT" baseAttributes="DEFAULT_LINE_COMMENT" />
+        <option name="SWIFT_NESTED_FUNCTION_DECLARATION" baseAttributes="SWIFT_FUNCTION_DECLARATION" />
+        <option name="SWIFT_OPERATION_SIGN" baseAttributes="DEFAULT_OPERATION_SIGN" />
+        <option name="SWIFT_PARENTHESES" baseAttributes="DEFAULT_PARENTHS" />
+        <option name="SWIFT_SEMICOLON" baseAttributes="DEFAULT_SEMICOLON" />
+        <option name="SWIFT_SHEBANG_COMMENT" baseAttributes="DEFAULT_LINE_COMMENT" />
+        <option name="SWIFT_TYPE_HINT" baseAttributes="SWIFT_TYPE_NAME" />
+        <option name="SWIFT_VALID_STRING_ESCAPE" baseAttributes="DEFAULT_VALID_STRING_ESCAPE" />
+        <option name="SWIFT_WILDCARD" baseAttributes="DEFAULT_OPERATION_SIGN" />
+        <option name="SWIFT_DIRECTIVE_CONDITION" baseAttributes="SWIFT_DIRECTIVE" />
+        <option name="SWIFT_DIRECTIVE_FLAG" baseAttributes="SWIFT_DIRECTIVE" />
+        <option name="SWIFT_MACRO" baseAttributes="SWIFT_DIRECTIVE" />
+        <option name="DIRECTIVE_CONDITION" baseAttributes="SWIFT_DIRECTIVE" />
+        <option name="DIRECTIVE_FLAG" baseAttributes="SWIFT_DIRECTIVE" />
+        <option name="MACRO" baseAttributes="SWIFT_DIRECTIVE" />
+
+        <!-- Noctule Swift uses dotted TextAttributesKey names; map them to the Swift palette above. -->
+        <option name="SWIFT.ACTOR_DECLARATION" baseAttributes="SWIFT_ACTOR_REFERENCE" />
+        <option name="SWIFT.ARGUMENT_LABEL" baseAttributes="SWIFT_ARGUMENT_LABEL" />
+        <option name="SWIFT.ASSOCIATED_TYPE_DECLARATION" baseAttributes="SWIFT_ASSOCIATED_TYPE" />
+        <option name="SWIFT.ATTRIBUTE_NAME" baseAttributes="SWIFT_ATTRIBUTE_NAME" />
+        <option name="SWIFT.BLOCK_COMMENT" baseAttributes="DEFAULT_BLOCK_COMMENT" />
+        <option name="SWIFT.BRACES" baseAttributes="DEFAULT_BRACES" />
+        <option name="SWIFT.BRACKETS" baseAttributes="DEFAULT_BRACKETS" />
+        <option name="SWIFT.CLASS" baseAttributes="SWIFT_CLASS_REFERENCE" />
+        <option name="SWIFT.CLASS_DECLARATION" baseAttributes="SWIFT_CLASS_REFERENCE" />
+        <option name="SWIFT.CLASS_NAME" baseAttributes="SWIFT_CLASS_REFERENCE" />
+        <option name="SWIFT.CLASS_REFERENCE" baseAttributes="SWIFT_CLASS_REFERENCE" />
+        <option name="SWIFT.COLON" baseAttributes="DEFAULT_SEMICOLON" />
+        <option name="SWIFT.COMMA" baseAttributes="DEFAULT_COMMA" />
+        <option name="SWIFT.COMMENT" baseAttributes="DEFAULT_LINE_COMMENT" />
+        <option name="SWIFT.CONSTANT" baseAttributes="DEFAULT_STATIC_FIELD" />
+        <option name="SWIFT.DIRECTIVE" baseAttributes="SWIFT_DIRECTIVE" />
+        <option name="SWIFT.DIRECTIVE_CONDITION" baseAttributes="SWIFT_DIRECTIVE" />
+        <option name="SWIFT.DIRECTIVE_FLAG" baseAttributes="SWIFT_DIRECTIVE" />
+        <option name="SWIFT.DOC_COMMENT" baseAttributes="DEFAULT_DOC_COMMENT" />
+        <option name="SWIFT.DOT" baseAttributes="DEFAULT_DOT" />
+        <option name="SWIFT.ENUM" baseAttributes="SWIFT_ENUM_REFERENCE" />
+        <option name="SWIFT.ENUM_DECLARATION" baseAttributes="SWIFT_ENUM_REFERENCE" />
+        <option name="SWIFT.ENUM_MEMBER" baseAttributes="SWIFT_ENUM_VALUE" />
+        <option name="SWIFT.ENUM_NAME" baseAttributes="SWIFT_ENUM_REFERENCE" />
+        <option name="SWIFT.ESCAPE_SEQUENCE" baseAttributes="DEFAULT_VALID_STRING_ESCAPE" />
+        <option name="SWIFT.FUNCTION" baseAttributes="SWIFT_FUNCTION_CALL" />
+        <option name="SWIFT.FUNCTION_CALL" baseAttributes="SWIFT_FUNCTION_CALL" />
+        <option name="SWIFT.FUNCTION_CALL_STATIC" baseAttributes="DEFAULT_STATIC_METHOD" />
+        <option name="SWIFT.FUNCTION_DECLARATION" baseAttributes="SWIFT_FUNCTION_DECLARATION" />
+        <option name="SWIFT.FUNCTION_NAME" baseAttributes="SWIFT_FUNCTION_CALL" />
+        <option name="SWIFT.FUNCTION_NAME_LIBRARY" baseAttributes="DEFAULT_STATIC_METHOD" />
+        <option name="SWIFT.FUNCTION_NAME_STATIC" baseAttributes="DEFAULT_STATIC_METHOD" />
+        <option name="SWIFT.GENERIC_TYPE_PARAMETER" baseAttributes="SWIFT_TYPE_PARAMETER" />
+        <option name="SWIFT.GLOBAL_VARIABLE" baseAttributes="SWIFT_GLOBAL_VARIABLE" />
+        <option name="SWIFT.IDENTIFIER">
+            <value>
+                <option name="FOREGROUND" value="5C6166" />
+            </value>
+        </option>
+        <option name="SWIFT.INVALID_ESCAPE_SEQUENCE" baseAttributes="DEFAULT_INVALID_STRING_ESCAPE" />
+        <option name="SWIFT.INVALID_STRING_ESCAPE" baseAttributes="DEFAULT_INVALID_STRING_ESCAPE" />
+        <option name="SWIFT.INSTANCE_FIELD" baseAttributes="SWIFT_PROPERTY" />
+        <option name="SWIFT.INTERFACE_NAME" baseAttributes="SWIFT_PROTOCOL_REFERENCE" />
+        <option name="SWIFT.KEYWORD" baseAttributes="SWIFT_KEYWORD" />
+        <option name="SWIFT.LINE_COMMENT" baseAttributes="DEFAULT_LINE_COMMENT" />
+        <option name="SWIFT.LOCAL_VARIABLE">
+            <value>
+                <option name="FOREGROUND" value="5C6166" />
+            </value>
+        </option>
+        <option name="SWIFT.MACRO" baseAttributes="SWIFT_DIRECTIVE" />
+        <option name="SWIFT.MACRO_DECLARATION" baseAttributes="SWIFT_DIRECTIVE" />
+        <option name="SWIFT.MACRO_EXPANSION" baseAttributes="SWIFT_DIRECTIVE" />
+        <option name="SWIFT.METADATA" baseAttributes="SWIFT_ATTRIBUTE_NAME" />
+        <option name="SWIFT.METHOD" baseAttributes="SWIFT_METHOD_CALL" />
+        <option name="SWIFT.METHOD_DECLARATION" baseAttributes="SWIFT_METHOD_DECLARATION" />
+        <option name="SWIFT.METHOD_NAME" baseAttributes="SWIFT_METHOD_CALL" />
+        <option name="SWIFT.METHOD_NAME_LIBRARY" baseAttributes="DEFAULT_STATIC_METHOD" />
+        <option name="SWIFT.METHOD_NAME_STATIC" baseAttributes="DEFAULT_STATIC_METHOD" />
+        <option name="SWIFT.MODULE_NAME" baseAttributes="SWIFT_MODULE_NAME" />
+        <option name="SWIFT.NUMBER" baseAttributes="SWIFT_NUMBER" />
+        <option name="SWIFT.OPERATOR" baseAttributes="DEFAULT_OPERATION_SIGN" />
+        <option name="SWIFT.OPERATION_SIGN" baseAttributes="DEFAULT_OPERATION_SIGN" />
+        <option name="SWIFT.PARAMETER" baseAttributes="SWIFT_PARAMETER" />
+        <option name="SWIFT.PARENTHESES" baseAttributes="DEFAULT_PARENTHS" />
+        <option name="SWIFT.PREDEFINED_SYMBOL" baseAttributes="SWIFT_TYPE_NAME" />
+        <option name="SWIFT.PROPERTY" baseAttributes="SWIFT_PROPERTY" />
+        <option name="SWIFT.PROTOCOL_DECLARATION" baseAttributes="SWIFT_PROTOCOL_REFERENCE" />
+        <option name="SWIFT.PROTOCOL_NAME" baseAttributes="SWIFT_PROTOCOL_REFERENCE" />
+        <option name="SWIFT.REGEXP" baseAttributes="SWIFT_REGEX" />
+        <option name="SWIFT.REASSIGNED_LOCAL_VARIABLE" baseAttributes="DEFAULT_REASSIGNED_LOCAL_VARIABLE" />
+        <option name="SWIFT.REASSIGNED_PARAMETER" baseAttributes="DEFAULT_REASSIGNED_PARAMETER" />
+        <option name="SWIFT.SELF_SUPER" baseAttributes="SWIFT_SELF_SUPER_KEYWORD" />
+        <option name="SWIFT.SEMICOLON" baseAttributes="DEFAULT_SEMICOLON" />
+        <option name="SWIFT.SHEBANG_COMMENT" baseAttributes="DEFAULT_LINE_COMMENT" />
+        <option name="SWIFT.STATIC_FIELD" baseAttributes="DEFAULT_STATIC_FIELD" />
+        <option name="SWIFT.STATIC_METHOD" baseAttributes="DEFAULT_STATIC_METHOD" />
+        <option name="SWIFT.STRING" baseAttributes="SWIFT_STRING" />
+        <option name="SWIFT.STRUCT_DECLARATION" baseAttributes="SWIFT_STRUCT_REFERENCE" />
+        <option name="SWIFT.STRUCT_NAME" baseAttributes="SWIFT_STRUCT_REFERENCE" />
+        <option name="SWIFT.TYPE" baseAttributes="SWIFT_TYPE_NAME" />
+        <option name="SWIFT.TYPE_PARAMETER" baseAttributes="SWIFT_TYPE_PARAMETER" />
+        <option name="SWIFT.TYPEALIAS" baseAttributes="SWIFT_TYPEALIAS_REFERENCE" />
+        <option name="SWIFT.VALID_STRING_ESCAPE" baseAttributes="DEFAULT_VALID_STRING_ESCAPE" />
+        <option name="SWIFT.VARIABLE">
+            <value>
+                <option name="FOREGROUND" value="5C6166" />
             </value>
         </option>
 
