@@ -443,8 +443,8 @@ class OverridesGroupBuilder {
      *
      * Returns the fixed polyglot copy ([POLYGLOT_COPY]) when:
      *  - [parentProject] is null (Settings opened with no focused project)
-     *  - [ProjectLanguageDetector.proportions] returns null (cold cache, polyglot
-     *    no-winner verdict, or legacy-SDK fallback path — all leave weightsCache empty)
+     *  - [ProjectLanguageDetector.proportions] returns null (cold detector state,
+     *    unavailable/empty verdict, or legacy-SDK fallback path with no stored weights)
      *  - [LanguageDetectionRules.pickTopLanguagesForDisplay] produces a blank string
      *    (all-zero weights or markup-only below-threshold — same visual as polyglot)
      *
@@ -490,8 +490,8 @@ class OverridesGroupBuilder {
      *    Because `JBLabel.text` is plain-text by default (NOT `<html>`-prefixed),
      *    any pathological language display name renders literally — no HTML
      *    interpretation, no need for escape-xml.
-     *  - **Polyglot row** (weights cache cold OR `pickDisplayEntries` returned
-     *    an empty list): one [JBLabel] with
+     *  - **Polyglot row** ([ProjectLanguageDetector.proportions] returned null OR
+     *    `pickDisplayEntries` returned an empty list): one [JBLabel] with
      *    `AllIcons.General.Information` + [POLYGLOT_COPY]. Visually distinct
      *    from the icon row so the user instantly sees "no single dominant".
      */
@@ -994,9 +994,9 @@ class OverridesGroupBuilder {
 
         /**
          * Fixed status-line copy rendered under Per-Language Accent Pins when the
-         * detector has no warm weights for the focused project — cache is cold, the
-         * most recent scan produced no dominant winner, or the legacy SDK / module
-         * fallback path was used (no weights to proportion). Exact string is
+         * detector has no UI-visible proportions for the focused project — cache is
+         * cold, the most recent scan produced no dominant winner, or the legacy
+         * SDK / module fallback path was used (no weights to proportion). Exact string is
          * locked. NOT i18n'd, NOT user-configurable. The em-dash is U+2014, not a
          * hyphen.
          */

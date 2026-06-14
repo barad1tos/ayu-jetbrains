@@ -16,6 +16,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 
 /**
@@ -181,8 +182,8 @@ class ProjectLanguageDetectorTest {
         assertNull(ProjectLanguageDetector.dominant(project))
         assertNull(ProjectLanguageDetector.dominant(project))
 
-        // Critical: a null detection must still be cached so we don't keep hammering
-        // ProjectRootManager/ModuleManager. Verifies the sentinel approach.
+        // Critical: a definitive no-match verdict must still be cached so we don't
+        // keep hammering ProjectRootManager/ModuleManager on every lookup.
         verify(exactly = 1) { ProjectRootManager.getInstance(project) }
     }
 
@@ -202,7 +203,7 @@ class ProjectLanguageDetectorTest {
     @Test
     fun `transient SDK lookup failure does not poison the cache`() {
         // Regression guard: an earlier implementation silently swallowed the exception and stored
-        // a NULL_SENTINEL, so the next call served the poisoned entry and the user's language
+        // a definitive null cache entry, so the next call served the poisoned verdict and the user's language
         // override was permanently broken until the next invalidate/restart.
         val project = stubProject("/tmp/transient-sdk-${System.nanoTime()}")
         every { ProjectRootManager.getInstance(project) } throws IllegalStateException("SDK list mutated")
@@ -211,7 +212,7 @@ class ProjectLanguageDetectorTest {
         assertNull(ProjectLanguageDetector.dominant(project))
 
         // Second call: same project, now the API is healthy — detector must retry, not serve
-        // a cached sentinel.
+        // a cached unavailable result.
         wireProjectRootManager(project, sdkName = "KotlinSdkType")
         wireModuleManager(project, moduleNames = emptyList())
         assertEquals("kotlin", ProjectLanguageDetector.dominant(project))
@@ -454,6 +455,51 @@ class ProjectLanguageDetectorTest {
     }
 
     @Test
+    fun `verdict keeps NoWinner diagnostic weights while legacy proportions stay null`() {
+        // Task 1 exposes the typed NoWinner verdict for future diagnostics, but
+        // the pre-existing proportions() API must keep the current Settings UI
+        // behavior until that diagnostics surface reads verdict() directly.
+        val project = stubProject("/tmp/verdict-polyglot-${System.nanoTime()}")
+        val weights = mapOf("typescript" to 500L, "javascript" to 500L)
+        every { ProjectLanguageScanner.scan(project) } returns weights
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        assertNull(ProjectLanguageDetector.dominant(project))
+
+        val verdict = ProjectLanguageDetector.verdict(project)
+        assertIs<ProjectLanguageVerdict.NoWinner>(verdict)
+        assertEquals(weights, verdict.weights)
+        assertNull(ProjectLanguageDetector.proportions(project))
+    }
+
+    @Test
+    fun `verdict returns Detected with weights for scan winner`() {
+        val project = stubProject("/tmp/verdict-detected-${System.nanoTime()}")
+        val weights = mapOf("kotlin" to 800L, "java" to 200L)
+        every { ProjectLanguageScanner.scan(project) } returns weights
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        assertEquals("kotlin", ProjectLanguageDetector.dominant(project))
+
+        val verdict = ProjectLanguageDetector.verdict(project)
+        assertIs<ProjectLanguageVerdict.Detected>(verdict)
+        assertEquals("kotlin", verdict.languageId)
+        assertEquals(weights, verdict.weights)
+    }
+
+    @Test
+    fun `verdict returns Cold without triggering scan`() {
+        val project = stubProject("/tmp/verdict-cold-${System.nanoTime()}")
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        assertEquals(ProjectLanguageVerdict.Cold, ProjectLanguageDetector.verdict(project))
+        verify(exactly = 0) { ProjectLanguageScanner.scan(any()) }
+    }
+
+    @Test
     fun `invalidate after content scan triggers a fresh scan`() {
         // ModuleRootListener fires invalidate on content-root changes (gradle sync,
         // module add/remove). Next dominance lookup must hit the scanner again so a
@@ -474,7 +520,7 @@ class ProjectLanguageDetectorTest {
         verify(exactly = 2) { ProjectLanguageScanner.scan(project) }
     }
 
-    // ── proportions + weightsCache coherence ─────────────────────────────────────────
+    // ── proportions() verdict-cache semantics ────────────────────────────────────────
 
     @Test
     fun `proportions returns null for a cold cache without calling the scanner`() {
@@ -491,9 +537,9 @@ class ProjectLanguageDetectorTest {
 
     @Test
     fun `proportions returns the warm weights map after dominant populates the cache`() {
-        // dominant() runs a full scan and caches both the id and the raw weights.
-        // A subsequent proportions() call serves the exact same map from the
-        // parallel weightsCache — no second scan, same instance reference.
+        // dominant() runs a full scan and caches a Detected verdict carrying the
+        // raw weights. A subsequent proportions() call serves that same map
+        // without triggering a second scan.
         val project = stubProject("/tmp/proportions-warm-${System.nanoTime()}")
         val scanWeights = mapOf("kotlin" to 900L, "java" to 100L)
         every { ProjectLanguageScanner.scan(project) } returns scanWeights
@@ -507,7 +553,7 @@ class ProjectLanguageDetectorTest {
     }
 
     @Test
-    fun `invalidate evicts both dominant cache and weights cache atomically`() {
+    fun `invalidate evicts the cached verdict and weights atomically`() {
         // Invalidate must be total — a drift where dominant() re-scans but
         // proportions() still serves stale weights would confuse users who
         // see the polyglot copy while their override applies correctly (or
@@ -518,7 +564,7 @@ class ProjectLanguageDetectorTest {
         wireProjectRootManager(project, sdkName = null)
         wireModuleManager(project, moduleNames = emptyList())
 
-        // Warm both caches.
+        // Warm the cached verdict, including its weights payload.
         assertEquals("python", ProjectLanguageDetector.dominant(project))
         assertEquals(
             mapOf("python" to 800L, "yaml" to 200L),
@@ -527,8 +573,8 @@ class ProjectLanguageDetectorTest {
 
         ProjectLanguageDetector.invalidate(project)
 
-        // After invalidate: proportions returns null (weights evicted) AND a
-        // fresh dominant() call re-kicks the scanner (cache evicted).
+        // After invalidate: proportions returns null (verdict evicted) AND a
+        // fresh dominant() call re-kicks the scanner.
         assertNull(ProjectLanguageDetector.proportions(project))
         assertEquals("python", ProjectLanguageDetector.dominant(project))
         verify(exactly = 2) { ProjectLanguageScanner.scan(project) }
@@ -551,7 +597,7 @@ class ProjectLanguageDetectorTest {
     fun `proportions returns null when the scan returned null transient failure`() {
         // Scanner returns null when it can't give an authoritative answer
         // (dumb mode, disposal race). detectAndCache treats this as
-        // cacheable=false → neither cache is written. proportions() must
+        // cacheable=false → no verdict entry is written. proportions() must
         // therefore keep returning null on subsequent calls.
         val project = stubProject("/tmp/proportions-transient-${System.nanoTime()}")
         every { ProjectLanguageScanner.scan(project) } returns null
@@ -564,10 +610,10 @@ class ProjectLanguageDetectorTest {
     }
 
     @Test
-    fun `clear empties both dominant cache and weights cache`() {
-        // The @TestOnly clear() seam must reset BOTH caches — test isolation
-        // depends on it. A regression that only cleared the dominant cache
-        // would leak weights across tests.
+    fun `clear empties cached verdicts and their weights`() {
+        // The @TestOnly clear() seam must reset every cached verdict — test
+        // isolation depends on it. A regression that kept warmed verdicts
+        // around would leak weights across tests.
         val project = stubProject("/tmp/proportions-clear-${System.nanoTime()}")
         every { ProjectLanguageScanner.scan(project) } returns
             mapOf("rust" to 1_000L)
@@ -583,10 +629,10 @@ class ProjectLanguageDetectorTest {
     }
 
     @Test
-    fun `detectAndCache does not write weightsCache on legacy SDK fallback path`() {
+    fun `legacy SDK fallback leaves proportions absent`() {
         // Scanner returned emptyMap (brand-new project / docs-only after filter).
-        // Legacy SDK resolves to "rust" — dominant cache populated, but the
-        // weights cache MUST stay empty so proportions() returns null and the
+        // Legacy SDK resolves to "rust" — a Detected verdict is cached, but its
+        // weights remain absent so proportions() returns null and the
         // caller renders polyglot copy (there are no meaningful proportions to
         // display when the scan itself is empty).
         val project = stubProject("/tmp/proportions-legacy-sdk-${System.nanoTime()}")
@@ -600,10 +646,10 @@ class ProjectLanguageDetectorTest {
 
     @Test
     fun `proportions for one project does not leak to another project`() {
-        // Multi-entity isolation (CLAUDE.md testing philosophy): weightsCache
-        // is keyed by AccentResolver.projectKey (canonical path), so project A
-        // and project B each get their own entry. A bug that used a shared key
-        // would cause cross-contamination and user-visible confusion.
+        // Multi-entity isolation (CLAUDE.md testing philosophy): cached verdicts
+        // are keyed by AccentResolver.projectKey (canonical path), so project A
+        // and project B each get their own warmed entry. A bug that used a
+        // shared key would cause cross-contamination and user-visible confusion.
         val a = stubProject("/tmp/proportions-a-${System.nanoTime()}")
         val b = stubProject("/tmp/proportions-b-${System.nanoTime()}")
         val aWeights = mapOf("kotlin" to 900L, "java" to 100L)
@@ -634,37 +680,31 @@ class ProjectLanguageDetectorTest {
         assertEquals(expected, ProjectLanguageDetector.dominant(project))
     }
 
-    // ── proportions() cross-cache coherence guard ─────────────────────────────
+    // ── proportions() after explicit verdict eviction ─────────────────────────
 
     @Test
-    fun `proportions returns null when weightsCache is populated but dominant cache was evicted`() {
-        // Round 3 closed a race: `detectAndCache` writes `weightsCache` first,
-        // then `cache` (dominant-id) last. If `invalidate()` interleaves
-        // between the two writes, a reader that ignored the dominant-id cache
-        // would serve a stale weights breakdown for a layout the detector has
-        // already forgotten. `proportions()` guards with `cache[key] == null`;
-        // this test simulates the race by warming both caches and then
-        // evicting only the dominant-id side, asserting `proportions()`
-        // returns null rather than the stale weights map.
+    fun `proportions returns null when the warmed verdict cache entry was evicted`() {
+        // With the single verdict cache, proportions() must treat an evicted
+        // warmed entry as cold state immediately rather than surfacing the
+        // previously detected weights after test-only cache eviction.
         val project = stubProject("/tmp/prop-guard-${System.nanoTime()}")
         every { ProjectLanguageScanner.scan(project) } returns mapOf("kotlin" to 500L, "java" to 500L)
         wireProjectRootManager(project, sdkName = "KotlinSDK")
         wireModuleManager(project, moduleNames = emptyList())
 
-        // Warm both caches in a coherent state.
+        // Warm one coherent verdict entry with weights.
         ProjectLanguageDetector.dominant(project)
         assertEquals(
             mapOf("kotlin" to 500L, "java" to 500L),
             ProjectLanguageDetector.proportions(project),
-            "baseline: both caches warm, proportions must serve the weights",
+            "baseline: warmed verdict must serve the weights",
         )
 
-        // Simulate the race: dominant-id cache evicted, weightsCache still
-        // populated. The guard in `proportions()` must treat this as cold.
-        ProjectLanguageDetector.evictDominantCacheForTest(project)
+        // Evict the warmed verdict entry. proportions() must treat this as cold.
+        ProjectLanguageDetector.evictVerdictCacheForTest(project)
         assertNull(
             ProjectLanguageDetector.proportions(project),
-            "proportions must not serve weightsCache entries that are orphaned by an evicted dominant-id entry",
+            "proportions must not serve weights after the warmed verdict entry was evicted",
         )
     }
 
@@ -824,8 +864,8 @@ class ProjectLanguageDetectorTest {
     // ── rescan (Phase 29) ─────────────────────────────────────────────────────
 
     @Test
-    fun `rescan clears both caches so proportions returns null immediately`() {
-        // Baseline: warm both caches via dominant(). Then mock the scheduler
+    fun `rescan clears the cached verdict so proportions returns null immediately`() {
+        // Baseline: warm a verdict via dominant(). Then mock the scheduler
         // so the post-invalidate scan never actually runs; this proves
         // rescan()'s invalidate happens synchronously before the async
         // scheduler is consulted.
@@ -847,7 +887,7 @@ class ProjectLanguageDetectorTest {
 
         assertNull(
             ProjectLanguageDetector.proportions(project),
-            "rescan MUST evict the weights cache synchronously — a stale breakdown " +
+            "rescan MUST evict the cached verdict synchronously — a stale breakdown " +
                 "served while the scan is still running would misrepresent the in-progress state",
         )
     }
@@ -896,7 +936,7 @@ class ProjectLanguageDetectorTest {
     @Test
     fun `rescan runs detectInternal and publishes scanCompleted with the winning id`() {
         // End-to-end happy path: rescan → scheduler runs task inline →
-        // detectAndCache writes both caches → publishScanCompleted fires on
+        // detectAndCache writes a cacheable verdict → publishScanCompleted fires on
         // EDT with the detected id. Verified by capturing the MessageBus
         // subscriber and asserting scanCompleted was called with "python".
         val project = stubProject("/tmp/rescan-publish-hit-${System.nanoTime()}")
@@ -920,9 +960,9 @@ class ProjectLanguageDetectorTest {
         // Scanner returns null when it can't give an authoritative answer
         // (ReadAction throw, disposal race, DumbService edge). The
         // DetectionResult carries cacheable=false, so detectAndCache does
-        // NOT write the dominant-id cache. scheduleBackgroundDetection's
-        // classifier then picks the third when-arm:
-        //   detected == null && cache[key] == null → Unavailable.
+        // NOT write a verdict entry. scheduleBackgroundDetection then maps
+        // the returned ProjectLanguageVerdict.Unavailable to
+        // ScanOutcome.Unavailable.
         // Locks the discriminator that distinguishes Unavailable from
         // Polyglot — a regression collapsing both into a single outcome
         // would surface here.
@@ -952,9 +992,9 @@ class ProjectLanguageDetectorTest {
     }
 
     @Test
-    fun `rescan publishes scanCompleted with null on polyglot no-winner verdict`() {
-        // 50/50 split with no SDK hint → scan returns null winner → detector
-        // caches the null verdict → publishScanCompleted fires with null so
+    fun `rescan publishes Polyglot on no-winner verdict`() {
+        // 50/50 split with no SDK hint → scan returns no winner → detector
+        // caches a NoWinner verdict → publishScanCompleted fires with Polyglot so
         // subscribers (Settings row, Rescan balloon) can render the polyglot
         // copy without relying on detector state inspection.
         val project = stubProject("/tmp/rescan-publish-polyglot-${System.nanoTime()}")

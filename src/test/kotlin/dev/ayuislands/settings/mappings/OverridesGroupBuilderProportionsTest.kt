@@ -85,9 +85,9 @@ class OverridesGroupBuilderProportionsTest {
 
     @Test
     fun `proportions text renders fixed polyglot copy when detector returns null`() {
-        // Cold cache / polyglot no-winner / legacy-SDK fallback all surface as
-        // null from `ProjectLanguageDetector.proportions`. The builder must
-        // render the exact polyglot literal, em-dash included.
+        // Cold cache / unavailable-or-empty verdict / legacy-SDK fallback can all
+        // surface as null from `ProjectLanguageDetector.proportions`. The builder
+        // must render the exact polyglot literal, em-dash included.
         val project = stubProject("/tmp/prop-polyglot-${System.nanoTime()}")
         every { ProjectLanguageDetector.proportions(project) } returns null
 

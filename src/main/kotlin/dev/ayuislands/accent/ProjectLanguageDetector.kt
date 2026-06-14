@@ -40,38 +40,15 @@ import javax.swing.SwingUtilities
  *
  * Cache correctness: a detection whose scan threw is NOT cached — the next call
  * retries. A scan that ran cleanly but produced no winner (after both the proportional
- * rule AND the SDK tiebreak fail) IS cached as null, because the answer is definitive.
+ * rule AND the SDK tiebreak fail) IS cached as [ProjectLanguageVerdict.NoWinner],
+ * because the answer is definitive.
  * Legacy SDK/module lookups that throw are NOT cached; without this guard a single
  * transient failure would permanently poison the cache for that project.
  */
 object ProjectLanguageDetector {
     private val LOG = logger<ProjectLanguageDetector>()
 
-    // ConcurrentHashMap rejects null values, so we store an empty-string sentinel
-    // whenever detection definitively returns null. AYU language ids are always
-    // non-empty ("kotlin", "python", ...) so the sentinel cannot collide with a real id.
-    private const val NULL_SENTINEL = ""
-    private val cache = ConcurrentHashMap<String, String>()
-
-    /**
-     * Parallel per-language byte-weight cache, written alongside [cache] inside
-     * [detectAndCache] when the scan produced non-empty weights. Keyed by the same
-     * canonical project path as [cache] (see [AccentResolver.projectKey]) so a
-     * single [invalidate] call evicts both and the two caches never drift.
-     *
-     * Absence of a key means "no warm weights" — callers of [proportions] treat the
-     * missing key as the polyglot / no-winner signal and render the fallback copy.
-     * The legacy SDK/module fallback path ([legacySdkModuleDetection]) produces no
-     * weights and deliberately does NOT populate this cache — proportions() for a
-     * legacy-detected project stays null so the Settings display shows the polyglot
-     * copy rather than a misleading "(100%)" single-language breakdown derived from
-     * an empty scan.
-     *
-     * In-memory only (like [cache]); re-warms on the next successful scan. Not
-     * persisted across IDE restarts — the project-open startup activity re-warms
-     * via the next `dominant()` call it issues.
-     */
-    private val weightsCache = ConcurrentHashMap<String, Map<String, Long>>()
+    private val verdictCache = ConcurrentHashMap<String, ProjectLanguageVerdict>()
 
     /**
      * Dominant language id for [project], cached per canonical path.
@@ -83,50 +60,50 @@ object ProjectLanguageDetector {
      */
     fun dominant(project: Project): String? {
         val key = AccentResolver.projectKey(project) ?: return null
-        cache[key]?.let { return it.takeIf { hit -> hit.isNotEmpty() } }
+        verdictCache[key]?.let { cached ->
+            return (cached as? ProjectLanguageVerdict.Detected)?.languageId
+        }
 
         if (isOnEdt()) {
             scheduleBackgroundDetection(project, key)
             return null
         }
-        return detectAndCache(project, key)
+        return (detectAndCache(project, key) as? ProjectLanguageVerdict.Detected)?.languageId
     }
 
     /**
      * Per-language byte-weight map for [project], read strictly from the warm cache.
      *
-     * Returns null when the cache is cold (never scanned), when the scan produced no
-     * meaningful weights (legacy SDK fallback path, empty-scan path — caller renders
-     * the polyglot copy), when the scan failed due to dumb mode or disposal race,
-     * or when the project's canonical path cannot be resolved.
+     * Returns null when the cached verdict is cold (never scanned), when the scan
+     * did not settle on a UI-visible dominant breakdown (definitive no-winner,
+     * legacy SDK fallback path, empty-scan path, or current-attempt unavailable
+     * path — caller renders the polyglot copy), or when the project's canonical
+     * path cannot be resolved.
      *
      * Never triggers a scan or schedules background work. The caller is responsible
-     * for rendering a fallback (polyglot copy) on null. Cache is warmed via
-     * [dominant] (called from [dev.ayuislands.AyuIslandsStartupActivity] and the
-     * focus-swap path in [AccentResolver]) and invalidated atomically with the
-     * dominant-id cache via [invalidate].
+     * for rendering a fallback (polyglot copy) on null. The single [verdictCache]
+     * entry is warmed via [dominant] (called from
+     * [dev.ayuislands.AyuIslandsStartupActivity] and the focus-swap path in
+     * [AccentResolver]) and invalidated via [invalidate].
      *
      * Phase 26 contract: this is a read-only projection of existing detector state.
      * Phase 29 supplies a manual rescan trigger; Phase 31 may extend this API with
      * a scan-status discriminant. Neither should weaken the "no scan on miss"
      * invariant established here.
      */
-    fun proportions(project: Project): Map<String, Long>? {
-        val key = AccentResolver.projectKey(project) ?: return null
-        // Cross-cache coherence guard: `invalidate()` clears both `cache` and
-        // `weightsCache`, and `detectAndCache` writes them in a specific order
-        // (`weightsCache` first, `cache` last). If a concurrent `invalidate()`
-        // interleaves between those two writes the `weightsCache` entry would
-        // already be gone, but reading the raw `weightsCache[key]` here would
-        // let a stale entry slip through in the opposite race window (write
-        // happened, then invalidate ran between the two writes, leaving the
-        // dominant-id cache empty and weightsCache populated with stale data).
-        // Gate the weights read on the dominant-id cache being present — if the
-        // evictor already ran, serve null so the UI re-reads after the next
-        // `dominant()` completes instead of painting a breakdown for a layout
-        // the rest of the detector has already forgotten.
-        if (cache[key] == null) return null
-        return weightsCache[key]
+    fun proportions(project: Project): Map<String, Long>? =
+        when (val cached = verdict(project)) {
+            is ProjectLanguageVerdict.Detected -> cached.weights
+            is ProjectLanguageVerdict.NoWinner,
+            ProjectLanguageVerdict.Cold,
+            ProjectLanguageVerdict.Empty,
+            ProjectLanguageVerdict.Unavailable,
+            -> null
+        }
+
+    internal fun verdict(project: Project): ProjectLanguageVerdict {
+        val key = AccentResolver.projectKey(project) ?: return ProjectLanguageVerdict.Unavailable
+        return verdictCache[key] ?: ProjectLanguageVerdict.Cold
     }
 
     /**
@@ -136,15 +113,13 @@ object ProjectLanguageDetector {
      * in [dev.ayuislands.AyuIslandsStartupActivity] so mid-session content-root
      * changes (gradle sync, module add/remove) trigger a fresh scan.
      *
-     * Evicts BOTH [cache] and [weightsCache] under the same key so `dominant()` and
-     * `proportions()` never drift — a stale weights entry served after
-     * `dominant()` re-scanned would show the user a proportion breakdown for the
-     * pre-invalidate layout.
+     * Evicts the single cached verdict under that key so `dominant()`,
+     * `verdict()`, and `proportions()` all re-read a consistent cold state on
+     * the next access.
      */
     fun invalidate(project: Project) {
         val key = AccentResolver.projectKey(project) ?: return
-        cache.remove(key)
-        weightsCache.remove(key)
+        verdictCache.remove(key)
     }
 
     /**
@@ -157,7 +132,7 @@ object ProjectLanguageDetector {
      * into one actual scan.
      *
      * Side effects:
-     *  - Evicts both dominant-id and weights caches for [project].
+     *  - Evicts the cached verdict for [project].
      *  - Schedules a background scan on the shared IDE pool (no-op in dumb
      *    mode — the user must re-click after indexing finishes, or wait for
      *    the next `ModuleRootListener.rootsChanged` to re-trigger detection
@@ -167,21 +142,21 @@ object ProjectLanguageDetector {
      *    Settings proportions row, the action's balloon) receive the new
      *    state without polling.
      *  - When [project] has no canonical path (disposal race, default
-     *    project), publishes `scanCompleted(null)` immediately so one-shot
+     *    project), publishes [ScanOutcome.Unavailable] immediately so one-shot
      *    subscribers (notably the [dev.ayuislands.actions.RescanLanguageAction]
      *    balloon) fire and disconnect instead of silently hanging on the
      *    MessageBus until project close.
      *
-     * Safe to call from EDT: invalidate is a two-`ConcurrentHashMap.remove`
-     * pair, and `scheduleBackgroundDetection` immediately returns after
+     * Safe to call from EDT: invalidate is a single
+     * `ConcurrentHashMap.remove`, and `scheduleBackgroundDetection` immediately returns after
      * enqueuing the task on `AppExecutorUtil.getAppExecutorService()`.
      */
     fun rescan(project: Project) {
         val key =
             AccentResolver.projectKey(project) ?: run {
                 // No canonical path: bail out of the cache+schedule work, but
-                // still publish a null scanCompleted so subscribers (especially
-                // the one-shot action balloon) fire and release their
+                // still publish Unavailable so subscribers (especially the
+                // one-shot action balloon) fire and release their
                 // MessageBus connection instead of silently leaking until
                 // project close. `AccentResolver.projectKey` already logged the
                 // reason it returned null (base-path throw, canonicalization
@@ -190,15 +165,13 @@ object ProjectLanguageDetector {
                 publishScanCompleted(project, ScanOutcome.Unavailable)
                 return
             }
-        cache.remove(key)
-        weightsCache.remove(key)
+        verdictCache.remove(key)
         scheduleBackgroundDetection(project, key)
     }
 
-    /** Drop the entire cache — useful for test isolation. Empties both maps. */
+    /** Drop the entire cache — useful for test isolation. */
     fun clear() {
-        cache.clear()
-        weightsCache.clear()
+        verdictCache.clear()
     }
 
     /**
@@ -206,16 +179,14 @@ object ProjectLanguageDetector {
      * failure (the underlying IntelliJ API threw) — the caller must NOT persist this
      * result, so the next invocation retries instead of serving a poisoned cache entry.
      *
-     * [weights] carries the raw per-language byte map produced by the scan path; it
-     * is null on the legacy SDK/module fallback path (no scan produced weights) and
-     * also when the scan ran but produced no winner and no margin-plurality tiebreak
-     * (the polyglot null verdict). [detectAndCache] only writes [weightsCache] when
-     * [weights] is present and non-empty — see `weightsCache` KDoc for rationale.
+     * [verdict] carries the fully-typed post-detection state so later resolver and
+     * settings layers can distinguish "cold", "empty", "unavailable", "winner", and
+     * definitive "no winner" cases without re-interpreting ad hoc null/sentinel
+     * combinations.
      */
     private data class DetectionResult(
-        val languageId: String?,
+        val verdict: ProjectLanguageVerdict,
         val cacheable: Boolean,
-        val weights: Map<String, Long>? = null,
     )
 
     /**
@@ -225,20 +196,10 @@ object ProjectLanguageDetector {
     private fun detectAndCache(
         project: Project,
         key: String,
-    ): String? {
+    ): ProjectLanguageVerdict {
         val detection = detectInternal(project)
         if (detection.cacheable) {
-            // Write order is load-bearing: `weightsCache` first, `cache`
-            // (dominant-id) second, paired with the `cache[key] == null` guard
-            // in `proportions()`. An interleaved `invalidate()` that lands
-            // between the two writes is observed as "no cache entry yet" by
-            // both readers instead of "proportions populated, dominant gone" —
-            // the latter would render a stale breakdown for a layout the
-            // detector has already forgotten.
-            if (!detection.weights.isNullOrEmpty()) {
-                weightsCache[key] = detection.weights
-            }
-            cache[key] = detection.languageId ?: NULL_SENTINEL
+            verdictCache[key] = detection.verdict
         } else {
             // Forensic breadcrumb: a non-cacheable result means the scan hit
             // dumb mode, a disposed project, or the scanner threw. The caller
@@ -250,7 +211,7 @@ object ProjectLanguageDetector {
             // a paper trail in idea.log.
             LOG.debug("Scan for $key returned non-cacheable result; caller will re-scan on next call")
         }
-        return detection.languageId
+        return detection.verdict
     }
 
     /**
@@ -283,30 +244,26 @@ object ProjectLanguageDetector {
                 LOG.debug("scheduleBackgroundDetection task aborted for $key: project disposed before scan body ran")
                 return@schedule
             }
-            val detected = detectAndCache(project, key)
-            // Classify into a typed ScanOutcome so subscribers can
-            // distinguish polyglot (definitive no-winner) from
-            // Unavailable (transient — scanner threw, dumb-mode race).
-            // Discriminator: `detectAndCache` writes `cache[key]` only
-            // when the underlying DetectionResult is cacheable. After
-            // the call:
-            //   - detected != null → cache holds the id → Detected
-            //   - detected == null && cache[key] != null → cache holds
-            //     NULL_SENTINEL → definitive polyglot verdict
-            //   - detected == null && cache[key] == null → non-cacheable
-            //     transient failure → Unavailable
+            val verdict = detectAndCache(project, key)
             val outcome: ScanOutcome =
-                when {
-                    detected != null -> ScanOutcome.Detected(detected)
-                    cache[key] != null -> ScanOutcome.Polyglot
-                    else -> ScanOutcome.Unavailable
+                when (verdict) {
+                    is ProjectLanguageVerdict.Detected -> ScanOutcome.Detected(verdict.languageId)
+                    is ProjectLanguageVerdict.NoWinner,
+                    ProjectLanguageVerdict.Empty,
+                    -> ScanOutcome.Polyglot
+                    ProjectLanguageVerdict.Cold,
+                    ProjectLanguageVerdict.Unavailable,
+                    -> ScanOutcome.Unavailable
                 }
-            when (outcome) {
-                is ScanOutcome.Detected,
-                ScanOutcome.Polyglot,
+            when (verdict) {
+                is ProjectLanguageVerdict.Detected,
+                is ProjectLanguageVerdict.NoWinner,
+                ProjectLanguageVerdict.Empty,
                 -> tryRefreshAccentAfterCacheableScan(project)
 
-                ScanOutcome.Unavailable -> Unit
+                ProjectLanguageVerdict.Cold,
+                ProjectLanguageVerdict.Unavailable,
+                -> Unit
             }
             publishScanCompleted(project, outcome)
         }
@@ -396,21 +353,13 @@ object ProjectLanguageDetector {
     }
 
     /**
-     * `@TestOnly` seam for the `proportions()` cross-cache coherence guard —
-     * lets tests simulate the race window where `weightsCache` is written for
-     * a key before the matching `cache` (dominant-id) entry lands, by evicting
-     * just the dominant-id side of the pair. Without this seam the guard at
-     * [proportions] is unreachable from any black-box test because the sole
-     * production write path ([detectAndCache]) writes both entries
-     * back-to-back on the same thread.
+     * `@TestOnly` seam for forcing a warmed verdict back to the cold state.
      */
     @org.jetbrains.annotations.TestOnly
-    internal fun evictDominantCacheForTest(project: Project) {
+    internal fun evictVerdictCacheForTest(project: Project) {
         val key = AccentResolver.projectKey(project) ?: return
-        cache.remove(key)
+        verdictCache.remove(key)
     }
-
-    private fun isOnEdt(): Boolean = ApplicationManager.getApplication()?.isDispatchThread == true
 
     private fun detectInternal(project: Project): DetectionResult {
         // Scan can't give an authoritative answer right now (dumb mode, disposal
@@ -418,11 +367,14 @@ object ProjectLanguageDetector {
         // detection catches up once the IDE stabilizes.
         val weights =
             ProjectLanguageScanner.scan(project)
-                ?: return DetectionResult(languageId = null, cacheable = false)
+                ?: return DetectionResult(ProjectLanguageVerdict.Unavailable, cacheable = false)
         if (weights.isNotEmpty()) {
             val scanWinner = LanguageDetectionRules.pickDominantFromAllWeights(weights)
             if (scanWinner != null) {
-                return DetectionResult(languageId = scanWinner, cacheable = true, weights = weights)
+                return DetectionResult(
+                    ProjectLanguageVerdict.Detected(scanWinner, weights),
+                    cacheable = true,
+                )
             }
             // Scan found weights but no clear or plurality winner. Consult the
             // legacy heuristic as a tiebreaker — but only accept its answer when
@@ -430,18 +382,13 @@ object ProjectLanguageDetector {
             // TIE_BREAK_MIN_SHARE. Guards against the SDK confidently reporting
             // a language that the scan didn't even find.
             resolveTiebreakFromLegacy(project, weights)?.let {
-                return DetectionResult(languageId = it, cacheable = true, weights = weights)
+                return DetectionResult(
+                    ProjectLanguageVerdict.Detected(it, weights),
+                    cacheable = true,
+                )
             }
-            // Polyglot no-winner verdict: cache the null id (definitive) but NOT
-            // the weights — Phase 26 shows the polyglot copy on this state rather
-            // than a weights breakdown, so leaving weightsCache empty keeps
-            // proportions() returning null for a clean caller dispatch.
-            return DetectionResult(languageId = null, cacheable = true, weights = null)
+            return DetectionResult(ProjectLanguageVerdict.NoWinner(weights), cacheable = true)
         }
-        // Empty scan: brand-new project / everything-filtered-as-markup / newly
-        // checked out. Fall back to the SDK + module heuristic; its result is
-        // cached the same way the pre-scan implementation did. Legacy path produces
-        // no weights — weightsCache stays empty and proportions() stays null.
         return legacySdkModuleDetection(project)
     }
 
@@ -455,7 +402,10 @@ object ProjectLanguageDetector {
         project: Project,
         weights: Map<String, Long>,
     ): String? {
-        val hint = legacySdkModuleDetection(project).languageId ?: return null
+        val hint =
+            (legacySdkModuleDetection(project).verdict as? ProjectLanguageVerdict.Detected)
+                ?.languageId
+                ?: return null
         val codeWeights = weights.filterKeys { it !in LanguageDetectionRules.MARKUP_IDS }
         val base = codeWeights.ifEmpty { weights }
         val total = base.values.sum()
@@ -483,10 +433,13 @@ object ProjectLanguageDetector {
                 "SDK lookup failed during language detection; will retry on next call instead of caching null",
                 sdkResult.exceptionOrNull(),
             )
-            return DetectionResult(languageId = null, cacheable = false)
+            return DetectionResult(ProjectLanguageVerdict.Unavailable, cacheable = false)
         }
         sdkTypeToLanguageId(sdkResult.getOrNull())?.let {
-            return DetectionResult(languageId = it, cacheable = true)
+            return DetectionResult(
+                ProjectLanguageVerdict.Detected(it, weights = null),
+                cacheable = true,
+            )
         }
 
         val moduleResult =
@@ -498,16 +451,18 @@ object ProjectLanguageDetector {
                 "Module lookup failed during language detection; will retry on next call instead of caching null",
                 moduleResult.exceptionOrNull(),
             )
-            return DetectionResult(languageId = null, cacheable = false)
+            return DetectionResult(ProjectLanguageVerdict.Unavailable, cacheable = false)
         }
         val moduleNames = moduleResult.getOrDefault(emptyList())
         for (moduleName in moduleNames) {
             moduleNameToLanguageId(moduleName.lowercase(Locale.ROOT))?.let {
-                return DetectionResult(languageId = it, cacheable = true)
+                return DetectionResult(
+                    ProjectLanguageVerdict.Detected(it, weights = null),
+                    cacheable = true,
+                )
             }
         }
-        // Definitive null — no SDK match, no module match, no scan weights. Safe to cache.
-        return DetectionResult(languageId = null, cacheable = true)
+        return DetectionResult(ProjectLanguageVerdict.Empty, cacheable = true)
     }
 
     private fun sdkTypeToLanguageId(sdkTypeName: String?): String? {
@@ -556,3 +511,5 @@ object ProjectLanguageDetector {
             else -> null
         }
 }
+
+private fun isOnEdt(): Boolean = ApplicationManager.getApplication()?.isDispatchThread == true
