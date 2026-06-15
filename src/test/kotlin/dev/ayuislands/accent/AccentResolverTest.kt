@@ -126,8 +126,10 @@ class AccentResolverTest {
         val project = stubProject(File(tmp))
         every { ProjectLanguageDetector.dominant(project) } returns "javascript"
 
-        assertEquals("#F7DF1E", AccentResolver.resolve(project, AyuVariant.MIRAGE))
-        assertEquals(AccentResolver.Source.LANGUAGE_OVERRIDE, AccentResolver.source(project))
+        assertEquals(globalMirageAccent, AccentResolver.resolve(project, AyuVariant.MIRAGE))
+        assertEquals(AccentResolver.Source.GLOBAL, AccentResolver.source(project))
+        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.dominant(any()) }
+        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.verdict(any()) }
     }
 
     @Test

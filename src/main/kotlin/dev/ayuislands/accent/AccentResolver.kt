@@ -174,20 +174,23 @@ object AccentResolver {
         mappings.projectAccents[projectKey]
             ?.let { rawHex -> overrideAccent(Source.PROJECT_OVERRIDE, rawHex, validateHex)?.let { return it } }
 
+        val hasForcedLanguageEntry = mappings.forcedProjectLanguages.containsKey(projectKey)
         val forcedLanguageAccent =
             mappings.forcedProjectLanguages[projectKey]
                 ?.let { forcedLanguageId -> mappings.languageAccents[forcedLanguageId] }
+        val hasProjectFallbackCandidate = mappings.projectFallbackAccents.containsKey(projectKey)
         val hasLanguageWork =
             listOf(
                 forcedLanguageAccent != null,
-                mappings.languageAccents.isNotEmpty(),
-                mappings.projectFallbackAccents.containsKey(projectKey),
+                !hasForcedLanguageEntry && mappings.languageAccents.isNotEmpty(),
+                hasProjectFallbackCandidate,
             ).any { it }
         if (!hasLanguageWork) return null
 
         resolveLanguageOverride(
             mappings = mappings,
             project = activeProject,
+            hasForcedLanguageEntry = hasForcedLanguageEntry,
             forcedLanguageAccent = forcedLanguageAccent,
             validateHex = validateHex,
         )?.let { return it }
@@ -204,12 +207,13 @@ object AccentResolver {
     private fun resolveLanguageOverride(
         mappings: AccentMappingsState,
         project: Project,
+        hasForcedLanguageEntry: Boolean,
         forcedLanguageAccent: String?,
         validateHex: Boolean,
     ): ResolvedAccent? {
         forcedLanguageAccent
             ?.let { rawHex -> overrideAccent(Source.FORCED_LANGUAGE_OVERRIDE, rawHex, validateHex)?.let { return it } }
-        if (mappings.languageAccents.isEmpty()) return null
+        if (hasForcedLanguageEntry || mappings.languageAccents.isEmpty()) return null
         return ProjectLanguageDetector
             .dominant(project)
             ?.let { languageId -> mappings.languageAccents[languageId] }
