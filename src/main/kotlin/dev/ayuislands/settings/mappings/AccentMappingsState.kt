@@ -13,4 +13,6 @@ class AccentMappingsState : BaseState() {
     var projectAccents by map<String, String>()
     var languageAccents by map<String, String>()
     var projectDisplayNames by map<String, String>()
+    var projectFallbackAccents by map<String, String>()
+    var forcedProjectLanguages by map<String, String>()
 }

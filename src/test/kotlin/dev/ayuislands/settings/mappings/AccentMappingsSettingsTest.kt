@@ -71,6 +71,50 @@ class AccentMappingsSettingsTest {
     }
 
     @Test
+    fun `loadState expands USER_HOME macro in projectFallbackAccents keys`() {
+        System.setProperty("user.home", "/Users/alice")
+        val settings = AccentMappingsSettings()
+        val state =
+            AccentMappingsState().apply {
+                projectFallbackAccents[$$"$USER_HOME$/dev/foo"] = "#5CCFE6"
+            }
+
+        settings.loadState(state)
+
+        assertNull(settings.state.projectFallbackAccents[$$"$USER_HOME$/dev/foo"])
+        assertEquals("#5CCFE6", settings.state.projectFallbackAccents["/Users/alice/dev/foo"])
+    }
+
+    @Test
+    fun `loadState expands USER_HOME macro in forcedProjectLanguages keys`() {
+        System.setProperty("user.home", "/Users/alice")
+        val settings = AccentMappingsSettings()
+        val state =
+            AccentMappingsState().apply {
+                forcedProjectLanguages[$$"$USER_HOME$/dev/foo"] = "typescript"
+            }
+
+        settings.loadState(state)
+
+        assertNull(settings.state.forcedProjectLanguages[$$"$USER_HOME$/dev/foo"])
+        assertEquals("typescript", settings.state.forcedProjectLanguages["/Users/alice/dev/foo"])
+    }
+
+    @Test
+    fun `loadState leaves forced language ids untouched`() {
+        System.setProperty("user.home", "/Users/alice")
+        val settings = AccentMappingsSettings()
+        val state =
+            AccentMappingsState().apply {
+                forcedProjectLanguages[$$"$USER_HOME$/dev/foo"] = "TypeScript"
+            }
+
+        settings.loadState(state)
+
+        assertEquals("TypeScript", settings.state.forcedProjectLanguages["/Users/alice/dev/foo"])
+    }
+
+    @Test
     fun `loadState leaves absolute paths untouched`() {
         System.setProperty("user.home", "/Users/alice")
         val settings = AccentMappingsSettings()
@@ -92,13 +136,14 @@ class AccentMappingsSettingsTest {
         val settings = AccentMappingsSettings()
         val state =
             AccentMappingsState().apply {
-                languageAccents["kotlin"] = "#D5FF80"
+                languageAccents[$$"$USER_HOME$/fake-language"] = "#D5FF80"
                 projectAccents[$$"$USER_HOME$/dev/foo"] = "#FFCD66"
             }
 
         settings.loadState(state)
 
-        assertEquals("#D5FF80", settings.state.languageAccents["kotlin"])
+        assertEquals("#D5FF80", settings.state.languageAccents[$$"$USER_HOME$/fake-language"])
+        assertNull(settings.state.languageAccents["/Users/alice/fake-language"])
         assertEquals("#FFCD66", settings.state.projectAccents["/Users/alice/dev/foo"])
     }
 
@@ -174,6 +219,72 @@ class AccentMappingsSettingsTest {
     }
 
     @Test
+    fun `loadState warns when only projectFallbackAccents has legacy keys and user home is unavailable`() {
+        System.setProperty("user.home", "")
+        val settings = AccentMappingsSettings()
+        val state =
+            AccentMappingsState().apply {
+                projectFallbackAccents[$$"$USER_HOME$/dev/foo"] = "#5CCFE6"
+            }
+
+        val capturedMessages = mutableListOf<String>()
+        val processor =
+            object : LoggedErrorProcessor() {
+                override fun processWarn(
+                    category: String,
+                    message: String,
+                    throwable: Throwable?,
+                ): Boolean {
+                    capturedMessages += message
+                    return false
+                }
+            }
+
+        LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
+            settings.loadState(state)
+        }
+
+        assertTrue(
+            capturedMessages.any { it.contains("legacy") && it.contains("user.home") },
+            $$"Expected a warn about legacy $USER_HOME$ fallback keys + missing user.home, " +
+                "got: $capturedMessages",
+        )
+    }
+
+    @Test
+    fun `loadState warns when only forcedProjectLanguages has legacy keys and user home is unavailable`() {
+        System.setProperty("user.home", "")
+        val settings = AccentMappingsSettings()
+        val state =
+            AccentMappingsState().apply {
+                forcedProjectLanguages[$$"$USER_HOME$/dev/foo"] = "typescript"
+            }
+
+        val capturedMessages = mutableListOf<String>()
+        val processor =
+            object : LoggedErrorProcessor() {
+                override fun processWarn(
+                    category: String,
+                    message: String,
+                    throwable: Throwable?,
+                ): Boolean {
+                    capturedMessages += message
+                    return false
+                }
+            }
+
+        LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
+            settings.loadState(state)
+        }
+
+        assertTrue(
+            capturedMessages.any { it.contains("legacy") && it.contains("user.home") },
+            $$"Expected a warn about legacy $USER_HOME$ forced-language keys + missing user.home, " +
+                "got: $capturedMessages",
+        )
+    }
+
+    @Test
     fun `loadState does NOT warn when user home is blank but no legacy keys exist`() {
         // Symmetric guard: the warn is gated on legacy keys being present. A user with a
         // blank user.home and no legacy keys should NOT see the breadcrumb (false-positive
@@ -233,7 +344,7 @@ class AccentMappingsSettingsTest {
             }
 
         LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
-            settings.warnMigrationFailed(null, null)
+            settings.warnMigrationFailed(emptyList())
         }
 
         assertTrue(
@@ -286,7 +397,12 @@ class AccentMappingsSettingsTest {
             }
 
         LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
-            settings.migrateUserHomeMacro(throwingAccents, throwingNames)
+            settings.migrateUserHomeMacro(
+                projectAccents = throwingAccents,
+                projectDisplayNames = throwingNames,
+                projectFallbackAccents = mutableMapOf(),
+                forcedProjectLanguages = mutableMapOf(),
+            )
         }
 
         val migrationWarn =
@@ -338,7 +454,12 @@ class AccentMappingsSettingsTest {
             }
 
         LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
-            settings.migrateUserHomeMacro(healthyAccents, throwingNames)
+            settings.migrateUserHomeMacro(
+                projectAccents = healthyAccents,
+                projectDisplayNames = throwingNames,
+                projectFallbackAccents = mutableMapOf(),
+                forcedProjectLanguages = mutableMapOf(),
+            )
         }
 
         val primary =
@@ -354,12 +475,49 @@ class AccentMappingsSettingsTest {
     }
 
     @Test
+    fun `migrateUserHomeMacro does not mutate earlier maps when forced-language rewrite fails`() {
+        // The migration must compute all four rewrites before mutating any map. If the last
+        // rewrite fails, already-computed project/path rewrites must NOT have been swapped in.
+        System.setProperty("user.home", "/Users/alice")
+        val settings = AccentMappingsSettings()
+        val projectAccents = mutableMapOf($$"$USER_HOME$/dev/accented" to "#FFCD66")
+        val projectDisplayNames = mutableMapOf($$"$USER_HOME$/dev/accented" to "Accented")
+        val projectFallbackAccents = mutableMapOf($$"$USER_HOME$/dev/accented" to "#5CCFE6")
+        val forcedBoom = ConcurrentModificationException("forced-language map mutated during load")
+        val throwingForcedLanguages = ThrowingMap(forcedBoom)
+
+        LoggedErrorProcessor.executeWith<RuntimeException>(
+            object : LoggedErrorProcessor() {
+                override fun processWarn(
+                    category: String,
+                    message: String,
+                    throwable: Throwable?,
+                ): Boolean = false
+            },
+        ) {
+            settings.migrateUserHomeMacro(
+                projectAccents = projectAccents,
+                projectDisplayNames = projectDisplayNames,
+                projectFallbackAccents = projectFallbackAccents,
+                forcedProjectLanguages = throwingForcedLanguages,
+            )
+        }
+
+        assertEquals("#FFCD66", projectAccents[$$"$USER_HOME$/dev/accented"])
+        assertNull(projectAccents["/Users/alice/dev/accented"])
+        assertEquals("Accented", projectDisplayNames[$$"$USER_HOME$/dev/accented"])
+        assertNull(projectDisplayNames["/Users/alice/dev/accented"])
+        assertEquals("#5CCFE6", projectFallbackAccents[$$"$USER_HOME$/dev/accented"])
+        assertNull(projectFallbackAccents["/Users/alice/dev/accented"])
+    }
+
+    @Test
     fun `migrateUserHomeMacro swallows exceptions from legacy-key probe when user home is blank`() {
-        // The defensive `runCatching` in `logBlankUserHomeIfLegacyKeysPresent` exists because
-        // probing `.keys` on a platform-backed BaseState map during startup deserialization
-        // could theoretically race with a concurrent write. Exercise it directly: blank
-        // user.home drives the no-migration branch, and a throwing map simulates the CME so
-        // settings loading must still complete without propagating.
+        // The defensive runtime-exception capture in `logBlankUserHomeIfLegacyKeysPresent`
+        // exists because probing `.keys` on a platform-backed BaseState map during startup
+        // deserialization could theoretically race with a concurrent write. Exercise it
+        // directly: blank user.home drives the no-migration branch, and a throwing map
+        // simulates the CME so settings loading must still complete without propagating.
         //
         // Positive-evidence assertion: check ThrowingMap.iterationAccessCount > 0 to prove
         // the probe ACTUALLY RAN and threw. Without this, an absence-assertion alone would
@@ -384,12 +542,17 @@ class AccentMappingsSettingsTest {
             }
 
         LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
-            settings.migrateUserHomeMacro(throwingAccents, throwingNames)
+            settings.migrateUserHomeMacro(
+                projectAccents = throwingAccents,
+                projectDisplayNames = throwingNames,
+                projectFallbackAccents = mutableMapOf(),
+                forcedProjectLanguages = mutableMapOf(),
+            )
         }
 
         // Probe must have actually executed (accessed one of the iteration members) before
-        // the runCatching caught the throw. Guards against a refactor that skips the probe
-        // altogether - the absence-assertion below would pass trivially in that case.
+        // runtime-exception capture caught the throw. Guards against a refactor that skips
+        // the probe altogether - the absence-assertion below would pass trivially in that case.
         assertTrue(
             throwingAccents.iterationAccessCount.get() > 0,
             "Probe must actually access projectAccents iteration members before catching; " +
@@ -397,12 +560,12 @@ class AccentMappingsSettingsTest {
         )
 
         // The "legacy keys" warn must NOT fire - the probe returned false by default after
-        // catching the CME. If the runCatching were removed, the probe would propagate and
-        // the migration path would escalate out of loadState.
+        // catching the CME. If runtime-exception capture were removed, the probe would
+        // propagate and the migration path would escalate out of loadState.
         assertTrue(
             capturedMessages.none { it.contains("Cannot migrate legacy") },
             "Blank user.home + throwing probe must not fire the 'legacy keys' warn " +
-                "(probe's runCatching swallows the CME to default=false); got: $capturedMessages",
+                "(probe capture swallows the CME to default=false); got: $capturedMessages",
         )
     }
 
@@ -433,7 +596,12 @@ class AccentMappingsSettingsTest {
             }
 
         LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
-            settings.migrateUserHomeMacro(throwingAccents, healthyNames)
+            settings.migrateUserHomeMacro(
+                projectAccents = throwingAccents,
+                projectDisplayNames = healthyNames,
+                projectFallbackAccents = mutableMapOf(),
+                forcedProjectLanguages = mutableMapOf(),
+            )
         }
 
         val primary =
@@ -460,7 +628,7 @@ class AccentMappingsSettingsTest {
      * implementation past the fast-path into the `for (element in this)` loop, which
      * accesses `entries` - and that's where [boom] finally fires.
      *
-     * Exercises the `runCatching { rewriteKeys(...) }` branch in
+     * Exercises the `captureRuntimeException { rewriteKeys(...) }` branch in
      * [AccentMappingsSettings.migrateUserHomeMacro] without reflection or instrumentation.
      */
     private class ThrowingMap(
