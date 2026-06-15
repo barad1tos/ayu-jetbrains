@@ -67,26 +67,11 @@ internal class ProjectLanguageResolutionPanel(
         }
 
     @TestOnly
-    internal fun clickLabelForTest(text: String) {
-        val label =
-            components
-                .filterIsInstance<JBLabel>()
-                .firstOrNull { it.text == text }
-                ?: error("Label '$text' is not rendered")
-        val event =
-            MouseEvent(
-                label,
-                MouseEvent.MOUSE_CLICKED,
-                System.currentTimeMillis(),
-                0,
-                0,
-                0,
-                1,
-                false,
-            )
-        label.mouseListeners
-            .filter { it.javaClass.name.startsWith("dev.ayuislands") }
-            .forEach { it.mouseClicked(event) }
+    internal fun triggerActionForTest(text: String) {
+        val action =
+            actionSpecsFor(state).firstOrNull { it.text == text }
+                ?: error("Action '$text' is not rendered")
+        action.onClick()
     }
 
     private fun summaryFor(state: State): String {

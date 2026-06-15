@@ -324,9 +324,12 @@ class OverridesGroupBuilderApplyTest {
         methodName: String,
         licensed: Boolean,
     ): TableActionHandle {
-        val method = OverridesGroupBuilder::class.java.getDeclaredMethod(methodName, Boolean::class.javaPrimitiveType)
+        val tableActionsField = OverridesGroupBuilder::class.java.getDeclaredField("tableActions")
+        tableActionsField.isAccessible = true
+        val tableActions = tableActionsField.get(builder)
+        val method = tableActions.javaClass.getDeclaredMethod(methodName, Boolean::class.javaPrimitiveType)
         method.isAccessible = true
-        return TableActionHandle(method.invoke(builder, licensed))
+        return TableActionHandle(method.invoke(tableActions, licensed))
     }
 
     @Suppress("UNCHECKED_CAST")

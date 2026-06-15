@@ -170,7 +170,7 @@ class ProjectLanguageResolutionPanelTest {
         assertTrue(ProjectLanguageResolutionPanel.SET_FALLBACK_LABEL in labels)
         assertFalse(labels.any { it.startsWith("Force ") })
 
-        panel.clickLabelForTest(ProjectLanguageResolutionPanel.SET_FALLBACK_LABEL)
+        panel.triggerActionForTest(ProjectLanguageResolutionPanel.SET_FALLBACK_LABEL)
 
         assertEquals(listOf("#5CCFE6"), calls.fallbacks)
         assertEquals(emptyList(), calls.forcedLanguages)
@@ -198,7 +198,7 @@ class ProjectLanguageResolutionPanelTest {
         val labels = panel.labelsForTest().map { it.second }
         assertTrue("Force TypeScript" in labels)
 
-        panel.clickLabelForTest("Force TypeScript")
+        panel.triggerActionForTest("Force TypeScript")
 
         assertEquals(listOf("typescript"), calls.forcedLanguages)
     }
@@ -223,7 +223,7 @@ class ProjectLanguageResolutionPanelTest {
             ),
         )
 
-        panel.clickLabelForTest("Force Kotlin")
+        panel.triggerActionForTest("Force Kotlin")
 
         assertEquals(listOf("kotlin"), calls.forcedLanguages)
     }
@@ -274,8 +274,8 @@ class ProjectLanguageResolutionPanelTest {
         assertTrue(ProjectLanguageResolutionPanel.CLEAR_FORCED_LANGUAGE_LABEL in labels)
         assertTrue(ProjectLanguageResolutionPanel.CLEAR_FALLBACK_LABEL in labels)
 
-        panel.clickLabelForTest(ProjectLanguageResolutionPanel.CLEAR_FORCED_LANGUAGE_LABEL)
-        panel.clickLabelForTest(ProjectLanguageResolutionPanel.CLEAR_FALLBACK_LABEL)
+        panel.triggerActionForTest(ProjectLanguageResolutionPanel.CLEAR_FORCED_LANGUAGE_LABEL)
+        panel.triggerActionForTest(ProjectLanguageResolutionPanel.CLEAR_FALLBACK_LABEL)
 
         assertEquals(1, calls.clearForcedCount)
         assertEquals(1, calls.clearFallbackCount)

@@ -1,15 +1,10 @@
 package dev.ayuislands.settings.mappings
 
-import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.actionSystem.ActionUpdateThread
-import com.intellij.openapi.actionSystem.AnAction
-import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.JBColor
-import com.intellij.ui.ToolbarDecorator
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.table.JBTable
@@ -26,7 +21,6 @@ import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.PremiumFeatureGate
 import dev.ayuislands.settings.premiumFeatureNotice
-import java.awt.BorderLayout
 import java.awt.CardLayout
 import java.awt.Component
 import java.awt.Dimension
@@ -35,7 +29,6 @@ import java.io.File
 import java.util.Locale
 import javax.swing.ButtonGroup
 import javax.swing.Icon
-import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.JRadioButton
 import javax.swing.JTable
@@ -73,6 +66,15 @@ class OverridesGroupBuilder(
 
     private val cardPanel = JPanel(CardLayout())
     private var parentProject: Project? = null
+    private val tableActions =
+        OverridesTableActions(
+            projectModel = projectModel,
+            languageModel = languageModel,
+            projectTable = projectTable,
+            languageTable = languageTable,
+            parentProjectProvider = { parentProject },
+            onChanged = { fireChanged() },
+        )
 
     /**
      * Captured diagnostics panel for focused-project language resolution.
@@ -228,8 +230,8 @@ class OverridesGroupBuilder(
                 // Retain strong reference so actions survive focus changes.
                 putClientProperty("ayu.overrides.group", segmentedButtonGroup)
             }
-        cardPanel.add(decorateTable(projectTable, projectActions(licensed)), CARD_PROJECTS)
-        cardPanel.add(decorateTable(languageTable, languageActions(licensed)), CARD_LANGUAGES)
+        cardPanel.add(tableActions.decorateProjectTable(licensed), CARD_PROJECTS)
+        cardPanel.add(tableActions.decorateLanguageTable(licensed), CARD_LANGUAGES)
         // No fixed preferredSize: the AutoSizingTable drives height via
         // getPreferredScrollableViewportSize (row count × row height) and every column
         // auto-packs to the wider of header/content on every model change. AUTO_RESIZE_LAST_COLUMN
@@ -757,189 +759,6 @@ class OverridesGroupBuilder(
 
     private val fireChanged: () -> Unit = { listeners.forEach { it.run() } }
 
-    private fun decorateTable(
-        table: JBTable,
-        actions: TableActions,
-    ): JComponent {
-        val decorator =
-            ToolbarDecorator
-                .createDecorator(table)
-                .disableUpDownActions()
-                .setAddAction { actions.add() }
-                .setEditAction { actions.edit() }
-                .setRemoveAction { actions.remove() }
-                .setAddActionName("Add")
-                .setEditActionName("Edit Color")
-                .setRemoveActionName("Remove")
-                .setAddActionUpdater { _ -> actions.addEnabled() }
-                .setEditActionUpdater { _ -> actions.editEnabled() }
-                .setRemoveActionUpdater { _ -> actions.removeEnabled() }
-
-        actions.extraActions.forEach { decorator.addExtraAction(it) }
-        val wrapper = JPanel(BorderLayout())
-        wrapper.add(decorator.createPanel(), BorderLayout.CENTER)
-        return wrapper
-    }
-
-    private fun projectActions(licensed: Boolean): TableActions {
-        val extras: List<AnAction> =
-            if (licensed) {
-                listOf(
-                    object : AnAction(
-                        "Pin Current Project",
-                        "Add the current project with the global accent",
-                        AllIcons.Actions.PinTab,
-                    ) {
-                        override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
-
-                        override fun actionPerformed(event: AnActionEvent) {
-                            // Inlined from the former `pinCurrentProject` helper to
-                            // keep the class under detekt's 25-function cap after
-                            // [safelyDisconnectDetection] was extracted. Behaviour
-                            // unchanged: capture focused project, derive canonical
-                            // key, pin with the current variant's global accent.
-                            val project = parentProject ?: return
-                            if (project.isDefault || project.isDisposed) return
-                            val key = AccentResolver.projectKey(project) ?: return
-                            if (projectModel.containsPath(key)) return
-                            val variant = AyuVariant.detect() ?: AyuVariant.MIRAGE
-                            val hex = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
-                            val name = project.name.takeIf { it.isNotBlank() } ?: File(key).name
-                            val index = projectModel.add(ProjectMapping(key, name, hex))
-                            projectTable.selectionModel.setSelectionInterval(index, index)
-                            fireChanged()
-                        }
-
-                        override fun update(event: AnActionEvent) {
-                            // Inlined pin-eligibility gate: the action is enabled only when a
-                            // focused, non-default, non-disposed project has a canonical key
-                            // that isn't already pinned. Kept inline rather than as a helper so
-                            // the file stays under detekt's TooManyFunctions threshold.
-                            val project = parentProject
-                            event.presentation.isEnabled =
-                                project != null &&
-                                !project.isDefault &&
-                                !project.isDisposed &&
-                                AccentResolver.projectKey(project)?.let { key ->
-                                    !projectModel.containsPath(key)
-                                } == true
-                        }
-                    },
-                )
-            } else {
-                emptyList()
-            }
-
-        return TableActions(
-            add = { showAddProjectDialog() },
-            edit = {
-                editSelectedColor(
-                    table = projectTable,
-                    rowAt = projectModel::rowAt,
-                    hex = ProjectMapping::hex,
-                    displayName = ProjectMapping::displayName,
-                    updateHex = projectModel::updateHex,
-                )
-            },
-            remove = {
-                if (licensed) {
-                    removeSelectedRow(projectTable, projectModel::remove)
-                }
-            },
-            addEnabled = { licensed },
-            editEnabled = { licensed && projectTable.selectedRow >= 0 },
-            removeEnabled = { licensed && projectTable.selectedRow >= 0 },
-            extraActions = extras,
-        )
-    }
-
-    private fun languageActions(licensed: Boolean): TableActions =
-        TableActions(
-            add = { showAddLanguageDialog() },
-            edit = {
-                editSelectedColor(
-                    table = languageTable,
-                    rowAt = languageModel::rowAt,
-                    hex = LanguageMapping::hex,
-                    displayName = LanguageMapping::displayName,
-                    updateHex = languageModel::updateHex,
-                )
-            },
-            remove = {
-                if (licensed) {
-                    removeSelectedRow(languageTable, languageModel::remove)
-                }
-            },
-            addEnabled = { licensed },
-            editEnabled = { licensed && languageTable.selectedRow >= 0 },
-            removeEnabled = { licensed && languageTable.selectedRow >= 0 },
-            extraActions = emptyList(),
-        )
-
-    // Project-table actions: add / edit / remove + pin-current
-
-    private fun showAddProjectDialog() {
-        val excluded = projectModel.snapshot().map { it.canonicalPath }.toSet()
-        val dialog = AddProjectMappingDialog(parentProject, excluded)
-        if (!dialog.showAndGet()) return
-        val path = dialog.resultCanonicalPath ?: return
-        val hex = dialog.resultHex ?: return
-        val name = dialog.resultDisplayName ?: File(path).name
-        val index = projectModel.add(ProjectMapping(path, name, hex))
-        projectTable.selectionModel.setSelectionInterval(index, index)
-        fireChanged()
-    }
-
-    /**
-     * Generic remove-selected-row flow shared by the project and language tables.
-     * Shares the JBTable selection probe, the model-agnostic remove call, and the
-     * pending-change notification.
-     */
-    private fun removeSelectedRow(
-        table: JBTable,
-        remove: (Int) -> Unit,
-    ) {
-        val row = table.selectedRow.takeIf { it >= 0 } ?: return
-        remove(row)
-        fireChanged()
-    }
-
-    // Language-table actions: add / edit / remove
-
-    private fun showAddLanguageDialog() {
-        val excluded = languageModel.snapshot().map { it.languageId }.toSet()
-        val dialog = AddLanguageMappingDialog(parentProject, excluded)
-        if (!dialog.showAndGet()) return
-        val id = dialog.resultLanguageId ?: return
-        val hex = dialog.resultHex ?: return
-        val name = dialog.resultDisplayName ?: id
-        val index = languageModel.add(LanguageMapping(id, name, hex))
-        languageTable.selectionModel.setSelectionInterval(index, index)
-        fireChanged()
-    }
-
-    /**
-     * Generic edit-color flow shared by project and language tables. Takes accessors
-     * for the model-specific lookup and update so the Project- and Language- specific
-     * callers collapse to a single call with closures capturing their model/table —
-     * sharing the JBTable selection probe, the modal dialog wiring, and the
-     * pending-change notification.
-     */
-    private inline fun <M> editSelectedColor(
-        table: JBTable,
-        rowAt: (Int) -> M?,
-        hex: (M) -> String,
-        displayName: (M) -> String,
-        updateHex: (Int, String) -> Unit,
-    ) {
-        val row = table.selectedRow.takeIf { it >= 0 } ?: return
-        val mapping = rowAt(row) ?: return
-        val dialog = EditAccentColorDialog(parentProject, hex(mapping), displayName(mapping))
-        if (!dialog.showAndGet()) return
-        updateHex(row, dialog.resultHex)
-        fireChanged()
-    }
-
     companion object {
         private val LOG = logger<OverridesGroupBuilder>()
         private const val CARD_PROJECTS = "projects"
@@ -1024,16 +843,6 @@ class OverridesGroupBuilder(
             private const val MIN_VIEWPORT_WIDTH = 520
         }
     }
-
-    private data class TableActions(
-        val add: () -> Unit,
-        val edit: () -> Unit,
-        val remove: () -> Unit,
-        val addEnabled: () -> Boolean,
-        val editEnabled: () -> Boolean,
-        val removeEnabled: () -> Boolean,
-        val extraActions: List<AnAction>,
-    )
 
     private data class PendingResolvedAccent(
         val source: AccentResolver.Source,
