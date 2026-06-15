@@ -13,7 +13,6 @@ import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
-import dev.ayuislands.accent.ProjectLanguageDetector
 import dev.ayuislands.accent.SystemAccentProvider
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.rotation.AccentRotationMode
@@ -283,14 +282,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         when (source) {
             AccentResolver.Source.PROJECT_OVERRIDE ->
                 "project override for \"${contextProject?.name ?: "?"}\""
-            AccentResolver.Source.LANGUAGE_OVERRIDE -> {
-                val dominant =
-                    contextProject
-                        ?.let { ProjectLanguageDetector.dominant(it) }
-                        ?.replaceFirstChar { it.uppercase() }
-                        ?: "?"
-                "language override: $dominant"
-            }
+            AccentResolver.Source.LANGUAGE_OVERRIDE -> AccentResolver.sourceLabel(source)
             AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE,
             AccentResolver.Source.PROJECT_FALLBACK,
             AccentResolver.Source.MATERIAL_THEME,

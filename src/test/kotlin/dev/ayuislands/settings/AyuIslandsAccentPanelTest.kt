@@ -8,7 +8,9 @@ import com.intellij.openapi.ui.DialogPanel
 import com.intellij.testFramework.LoggedErrorProcessor
 import com.intellij.ui.dsl.builder.panel
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.ProjectLanguageDetector
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.rotation.AccentRotationMode
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
@@ -226,6 +228,23 @@ class AyuIslandsAccentPanelTest {
                 "render without chrome tinting (graceful degradation when the " +
                 "Configurable hasn't wired a callback yet)",
         )
+    }
+
+    @Test
+    fun `active source description does not warm detector for language override`() {
+        mockkObject(ProjectLanguageDetector)
+        every { ProjectLanguageDetector.dominant(any()) } throws AssertionError("dominant must not be read")
+
+        val method =
+            AyuIslandsAccentPanel::class.java
+                .getDeclaredMethod("describeActiveSource", AccentResolver.Source::class.java)
+                .apply { isAccessible = true }
+
+        kotlin.test.assertEquals(
+            "Language override",
+            method.invoke(AyuIslandsAccentPanel(), AccentResolver.Source.LANGUAGE_OVERRIDE),
+        )
+        verify(exactly = 0) { ProjectLanguageDetector.dominant(any()) }
     }
 
     @Test
