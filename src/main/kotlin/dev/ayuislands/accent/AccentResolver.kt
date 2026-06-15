@@ -158,14 +158,6 @@ object AccentResolver {
         return ResolvedAccent(Source.EXTERNAL_ACCENT, hex)
     }
 
-    /**
-     * Single traversal of the override priority chain shared by [resolve] and [source].
-     * Returns `null` when no override applies (global wins) — either because the license
-     * check fails, the project is null/default/disposed, or no mapping matches.
-     *
-     * Centralizing the traversal means adding a new override tier (e.g. folder override)
-     * touches only this function, and [resolve]/[source] cannot drift out of sync.
-     */
     private fun findOverride(
         project: Project?,
         validateHex: Boolean,
@@ -182,9 +174,12 @@ object AccentResolver {
         mappings.projectAccents[projectKey]
             ?.let { rawHex -> overrideAccent(Source.PROJECT_OVERRIDE, rawHex, validateHex)?.let { return it } }
 
+        val forcedLanguageAccent =
+            mappings.forcedProjectLanguages[projectKey]
+                ?.let { forcedLanguageId -> mappings.languageAccents[forcedLanguageId] }
         val hasLanguageWork =
             listOf(
-                mappings.forcedProjectLanguages.containsKey(projectKey),
+                forcedLanguageAccent != null,
                 mappings.languageAccents.isNotEmpty(),
                 mappings.projectFallbackAccents.containsKey(projectKey),
             ).any { it }
@@ -193,29 +188,27 @@ object AccentResolver {
         resolveLanguageOverride(
             mappings = mappings,
             project = activeProject,
-            projectKey = projectKey,
+            forcedLanguageAccent = forcedLanguageAccent,
             validateHex = validateHex,
         )?.let { return it }
-        ProjectLanguageDetector
-            .verdict(activeProject)
-            .takeIf { it is ProjectLanguageVerdict.NoWinner }
-            ?.let {
-                mappings.projectFallbackAccents[projectKey]
-                    ?.let { rawHex -> overrideAccent(Source.PROJECT_FALLBACK, rawHex, validateHex)?.let { return it } }
-            }
+        mappings.projectFallbackAccents[projectKey]
+            ?.also {
+                if (mappings.languageAccents.isEmpty()) {
+                    ProjectLanguageDetector.dominant(activeProject)
+                }
+            }?.takeIf { ProjectLanguageDetector.verdict(activeProject) is ProjectLanguageVerdict.NoWinner }
+            ?.let { rawHex -> overrideAccent(Source.PROJECT_FALLBACK, rawHex, validateHex)?.let { return it } }
         return null
     }
 
     private fun resolveLanguageOverride(
         mappings: AccentMappingsState,
         project: Project,
-        projectKey: String,
+        forcedLanguageAccent: String?,
         validateHex: Boolean,
     ): ResolvedAccent? {
-        mappings.forcedProjectLanguages[projectKey]
-            ?.let { forcedLanguageId -> mappings.languageAccents[forcedLanguageId] }
-            ?.let { rawHex -> overrideAccent(Source.FORCED_LANGUAGE_OVERRIDE, rawHex, validateHex) }
-            ?.let { return it }
+        forcedLanguageAccent
+            ?.let { rawHex -> overrideAccent(Source.FORCED_LANGUAGE_OVERRIDE, rawHex, validateHex)?.let { return it } }
         if (mappings.languageAccents.isEmpty()) return null
         return ProjectLanguageDetector
             .dominant(project)
