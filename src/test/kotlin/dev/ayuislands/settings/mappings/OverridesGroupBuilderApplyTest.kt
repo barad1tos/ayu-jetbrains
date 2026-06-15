@@ -187,6 +187,38 @@ class OverridesGroupBuilderApplyTest {
     }
 
     @Test
+    fun `loadFromState() normalizes valid resolution overrides and drops malformed rows`() {
+        mappingsState.projectFallbackAccents["/tmp/load-valid-fallback"] = " #5CCFE6 "
+        mappingsState.projectFallbackAccents["/tmp/load-invalid-fallback"] = "not-a-hex"
+        mappingsState.projectFallbackAccents[" "] = "#FFB454"
+        mappingsState.forcedProjectLanguages["/tmp/load-valid-forced"] = " TypeScript "
+        mappingsState.forcedProjectLanguages["/tmp/load-blank-forced"] = " "
+        mappingsState.forcedProjectLanguages[""] = "kotlin"
+
+        val builder = OverridesGroupBuilder().apply { loadFromState() }
+
+        assertEquals(mapOf("/tmp/load-valid-fallback" to "#5CCFE6"), builder.fallbackAccentsForTest())
+        assertEquals(mapOf("/tmp/load-valid-forced" to "typescript"), builder.forcedLanguagesForTest())
+        assertFalse(builder.isModified(), "sanitized loaded resolution overrides become the stored snapshot")
+    }
+
+    @Test
+    fun `pending resolution override setters clear existing entries`() {
+        mappingsState.projectFallbackAccents["/tmp/clear-fallback"] = "#5CCFE6"
+        mappingsState.forcedProjectLanguages["/tmp/clear-forced-null"] = "typescript"
+        mappingsState.forcedProjectLanguages["/tmp/clear-forced-blank"] = "kotlin"
+        val builder = OverridesGroupBuilder().apply { loadFromState() }
+
+        builder.setPendingFallbackAccent("/tmp/clear-fallback", null)
+        builder.setPendingForcedLanguage("/tmp/clear-forced-null", null)
+        builder.setPendingForcedLanguage("/tmp/clear-forced-blank", " ")
+
+        assertTrue(builder.fallbackAccentsForTest().isEmpty())
+        assertTrue(builder.forcedLanguagesForTest().isEmpty())
+        assertTrue(builder.isModified(), "clearing stored resolution overrides must mark settings modified")
+    }
+
+    @Test
     fun `apply() is a no-op when license is unavailable`() {
         every { LicenseChecker.isLicensedOrGrace() } returns false
         val builder =

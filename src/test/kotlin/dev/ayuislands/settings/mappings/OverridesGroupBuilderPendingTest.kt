@@ -4,6 +4,7 @@ import com.intellij.openapi.project.Project
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.ProjectLanguageDetector
 import dev.ayuislands.accent.ProjectLanguageVerdict
+import dev.ayuislands.licensing.LicenseChecker
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -38,6 +39,9 @@ class OverridesGroupBuilderPendingTest {
 
         mockkObject(ProjectLanguageDetector)
         every { ProjectLanguageDetector.dominant(any()) } returns null
+
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.isLicensedOrGrace() } returns true
     }
 
     @AfterTest
@@ -81,6 +85,42 @@ class OverridesGroupBuilderPendingTest {
 
         assertEquals("#111111", builder.resolvePending(project, "#FFCC66"))
         assertEquals(AccentResolver.Source.PROJECT_OVERRIDE, builder.sourcePending(project))
+    }
+
+    @Test
+    fun `resolvePending reports global while unlicensed even when pending overrides exist`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+
+        val projectPath = File(System.getProperty("java.io.tmpdir"), "pending-unlicensed-project").canonicalPath
+        val forcedPath = File(System.getProperty("java.io.tmpdir"), "pending-unlicensed-forced").canonicalPath
+        val fallbackPath = File(System.getProperty("java.io.tmpdir"), "pending-unlicensed-fallback").canonicalPath
+        val projectOverride = stubProject(File(projectPath))
+        val forcedOverride = stubProject(File(forcedPath))
+        val fallbackOverride = stubProject(File(fallbackPath))
+        every { ProjectLanguageDetector.dominant(any()) } returns "typescript"
+        every { ProjectLanguageDetector.verdict(any()) } returns
+            ProjectLanguageVerdict.NoWinner(mapOf("typescript" to 500L, "javascript" to 500L))
+
+        val builder =
+            OverridesGroupBuilder().apply {
+                seedPendingForTest(
+                    projects = listOf(ProjectMapping(projectPath, "Project", "#111111")),
+                    languages = listOf(LanguageMapping("typescript", "TypeScript", "#3178C6")),
+                )
+                seedResolutionOverridesForTest(
+                    fallbackAccents = mapOf(fallbackPath to "#5CCFE6"),
+                    forcedLanguages = mapOf(forcedPath to "typescript"),
+                )
+            }
+
+        assertEquals("#FFCC66", builder.resolvePending(projectOverride, "#FFCC66"))
+        assertEquals(AccentResolver.Source.GLOBAL, builder.sourcePending(projectOverride))
+        assertEquals("#FFCC66", builder.resolvePending(forcedOverride, "#FFCC66"))
+        assertEquals(AccentResolver.Source.GLOBAL, builder.sourcePending(forcedOverride))
+        assertEquals("#FFCC66", builder.resolvePending(fallbackOverride, "#FFCC66"))
+        assertEquals(AccentResolver.Source.GLOBAL, builder.sourcePending(fallbackOverride))
+        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.dominant(any()) }
+        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.verdict(any()) }
     }
 
     @Test

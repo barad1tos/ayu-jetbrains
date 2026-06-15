@@ -427,6 +427,7 @@ class OverridesGroupBuilder {
         findPendingOverride(project)?.source ?: AccentResolver.Source.GLOBAL
 
     private fun findPendingOverride(project: Project?): PendingResolvedAccent? {
+        if (!LicenseChecker.isLicensedOrGrace()) return null
         val activeProject =
             project
                 ?.takeUnless { it.isDefault }
@@ -766,11 +767,12 @@ class OverridesGroupBuilder {
         projectKey: String,
         hex: String?,
     ) {
-        require(projectKey.isNotBlank()) { "projectKey must not be blank" }
         if (hex == null) {
             pendingFallbackAccents.remove(projectKey)
         } else {
-            pendingFallbackAccents[projectKey] = AccentHex.require(hex).value
+            normalizedFallbackAccent(projectKey, hex)?.let { (key, value) ->
+                pendingFallbackAccents[key] = value
+            }
         }
         fireChanged()
     }
@@ -781,7 +783,7 @@ class OverridesGroupBuilder {
         languageId: String?,
     ) {
         require(projectKey.isNotBlank()) { "projectKey must not be blank" }
-        val normalized = languageId?.trim()?.takeIf { it.isNotBlank() }?.lowercase(Locale.ROOT)
+        val normalized = normalizeLanguageId(languageId)
         if (normalized == null) {
             pendingForcedLanguages.remove(projectKey)
         } else {
@@ -796,14 +798,9 @@ class OverridesGroupBuilder {
         forcedLanguages: Map<String, String> = emptyMap(),
     ) {
         pendingFallbackAccents.clear()
-        pendingFallbackAccents.putAll(fallbackAccents.mapValues { (_, hex) -> AccentHex.require(hex).value })
+        pendingFallbackAccents.putAll(normalizedFallbackAccents(fallbackAccents))
         pendingForcedLanguages.clear()
-        forcedLanguages.forEach { (projectKey, languageId) ->
-            val normalized = languageId.trim().takeIf { it.isNotBlank() }?.lowercase(Locale.ROOT)
-            if (normalized != null) {
-                pendingForcedLanguages[projectKey] = normalized
-            }
-        }
+        pendingForcedLanguages.putAll(normalizedForcedLanguages(forcedLanguages))
     }
 
     @org.jetbrains.annotations.TestOnly
@@ -886,9 +883,9 @@ class OverridesGroupBuilder {
         projectModel.replaceAll(projects)
         languageModel.replaceAll(languages)
         pendingFallbackAccents.clear()
-        pendingFallbackAccents.putAll(state.projectFallbackAccents)
+        pendingFallbackAccents.putAll(normalizedFallbackAccents(state.projectFallbackAccents, warn = LOG::warn))
         pendingForcedLanguages.clear()
-        pendingForcedLanguages.putAll(state.forcedProjectLanguages)
+        pendingForcedLanguages.putAll(normalizedForcedLanguages(state.forcedProjectLanguages, warn = LOG::warn))
         storedProjects = projectModel.snapshot().map { ProjectMapping(it.canonicalPath, it.displayName, it.hex) }
         storedLanguages = languageModel.snapshot().map { LanguageMapping(it.languageId, it.displayName, it.hex) }
         storedFallbackAccents = pendingFallbackAccents.toMap()
@@ -1272,3 +1269,57 @@ private fun List<ProjectMapping>.toFingerprint(): Set<Triple<String, String, Str
 
 private fun List<LanguageMapping>.toLanguageFingerprint(): Set<Triple<String, String, String>> =
     map { Triple(it.languageId, it.displayName, it.hex) }.toSet()
+
+private fun normalizedFallbackAccents(
+    entries: Map<String, String>,
+    warn: (String) -> Unit = {},
+): Map<String, String> =
+    entries
+        .mapNotNull { (projectKey, hex) -> normalizedFallbackAccent(projectKey, hex, warn) }
+        .toMap()
+
+private fun normalizedFallbackAccent(
+    projectKey: String,
+    hex: String,
+    warn: (String) -> Unit = {},
+): Pair<String, String>? {
+    if (projectKey.isBlank()) {
+        warn("Dropping malformed project fallback override row: blank project key")
+        return null
+    }
+    val normalizedHex =
+        AccentHex.of(hex)?.value ?: run {
+            warn("Dropping malformed project fallback override row (key='$projectKey')")
+            return null
+        }
+    return projectKey to normalizedHex
+}
+
+private fun normalizedForcedLanguages(
+    entries: Map<String, String>,
+    warn: (String) -> Unit = {},
+): Map<String, String> =
+    entries
+        .mapNotNull { (projectKey, languageId) ->
+            normalizedForcedLanguage(projectKey, languageId, warn)
+        }.toMap()
+
+private fun normalizedForcedLanguage(
+    projectKey: String,
+    languageId: String,
+    warn: (String) -> Unit = {},
+): Pair<String, String>? {
+    if (projectKey.isBlank()) {
+        warn("Dropping malformed forced language override row: blank project key")
+        return null
+    }
+    val normalizedLanguageId =
+        normalizeLanguageId(languageId) ?: run {
+            warn("Dropping malformed forced language override row (key='$projectKey')")
+            return null
+        }
+    return projectKey to normalizedLanguageId
+}
+
+private fun normalizeLanguageId(languageId: String?): String? =
+    languageId?.trim()?.takeIf { it.isNotBlank() }?.lowercase(Locale.ROOT)
