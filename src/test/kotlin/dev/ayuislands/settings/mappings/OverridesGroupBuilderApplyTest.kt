@@ -119,7 +119,7 @@ class OverridesGroupBuilderApplyTest {
         // swap-service notification, isModified() returns false.
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#AABBCC"
-        every { AccentApplicator.apply(any()) } answers { Unit }
+        every { AccentApplicator.apply(any()) } answers {}
         val swapService = mockk<ProjectAccentSwapService>(relaxed = true)
         every { ProjectAccentSwapService.getInstance() } returns swapService
 
@@ -145,6 +145,45 @@ class OverridesGroupBuilderApplyTest {
         assertFalse(builder.isModified(), "stored snapshot must advance on happy path too")
         io.mockk.verify(exactly = 1) { AccentApplicator.applyFromHexString("#AABBCC") }
         io.mockk.verify(exactly = 1) { swapService.notifyExternalApply("#AABBCC") }
+    }
+
+    @Test
+    fun `apply() persists fallback accents and forced languages`() {
+        every { AyuVariant.detect() } returns null
+        val builder =
+            OverridesGroupBuilder().apply {
+                setPendingFallbackAccent("/tmp/apply-resolution-overrides", "#5CCFE6")
+                setPendingForcedLanguage("/tmp/apply-resolution-overrides", "TypeScript")
+            }
+
+        assertEquals(mapOf("/tmp/apply-resolution-overrides" to "typescript"), builder.forcedLanguagesForTest())
+        assertTrue(builder.isModified(), "pending resolution overrides must participate in isModified")
+
+        builder.apply()
+
+        assertEquals(mapOf("/tmp/apply-resolution-overrides" to "#5CCFE6"), mappingsState.projectFallbackAccents)
+        assertEquals(mapOf("/tmp/apply-resolution-overrides" to "typescript"), mappingsState.forcedProjectLanguages)
+        assertFalse(builder.isModified(), "apply() must advance stored resolution override snapshots")
+    }
+
+    @Test
+    fun `reset() restores fallback accents and forced languages from stored state`() {
+        mappingsState.projectFallbackAccents["/tmp/reset-resolution-overrides"] = "#5CCFE6"
+        mappingsState.forcedProjectLanguages["/tmp/reset-resolution-overrides"] = "typescript"
+        val builder = OverridesGroupBuilder().apply { loadFromState() }
+
+        builder.setPendingFallbackAccent("/tmp/reset-resolution-overrides", "#FFB454")
+        builder.setPendingFallbackAccent("/tmp/reset-cleared", "#D2A6FF")
+        builder.setPendingForcedLanguage("/tmp/reset-resolution-overrides", "Kotlin")
+        builder.setPendingForcedLanguage("/tmp/reset-cleared", " ")
+
+        assertTrue(builder.isModified(), "pending resolution override edits must mark settings modified")
+
+        builder.reset()
+
+        assertEquals(mapOf("/tmp/reset-resolution-overrides" to "#5CCFE6"), builder.fallbackAccentsForTest())
+        assertEquals(mapOf("/tmp/reset-resolution-overrides" to "typescript"), builder.forcedLanguagesForTest())
+        assertFalse(builder.isModified(), "reset() must restore stored resolution override snapshots")
     }
 
     @Test
@@ -213,7 +252,7 @@ class OverridesGroupBuilderApplyTest {
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         every { AccentApplicator.resolveFocusedProject() } returns focusedProject
         every { AccentResolver.resolve(focusedProject, AyuVariant.MIRAGE) } returns "#5CCFE6"
-        every { AccentApplicator.apply(any()) } answers { Unit }
+        every { AccentApplicator.apply(any()) } answers {}
         val swapService = mockk<ProjectAccentSwapService>(relaxed = true)
         every { ProjectAccentSwapService.getInstance() } returns swapService
 

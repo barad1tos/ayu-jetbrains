@@ -18,11 +18,13 @@ import com.intellij.util.messages.MessageBusConnection
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.LanguageDetectionRules
 import dev.ayuislands.accent.ProjectLanguageDetectionListener
 import dev.ayuislands.accent.ProjectLanguageDetector
+import dev.ayuislands.accent.ProjectLanguageVerdict
 import dev.ayuislands.accent.runCatchingPreservingCancellation
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -38,6 +40,7 @@ import java.awt.FlowLayout
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.io.File
+import java.util.Locale
 import javax.swing.ButtonGroup
 import javax.swing.Icon
 import javax.swing.JComponent
@@ -59,6 +62,7 @@ import javax.swing.table.TableModel
  * [apply], and [reset] to participate in the usual settings lifecycle. [addPendingChangeListener]
  * lets observers (the reactive "Currently active: ..." comment) refresh on every edit.
  */
+@Suppress("TooManyFunctions")
 class OverridesGroupBuilder {
     private val projectModel = ProjectMappingsTableModel()
     private val languageModel = LanguageMappingsTableModel()
@@ -67,6 +71,10 @@ class OverridesGroupBuilder {
 
     private var storedProjects: List<ProjectMapping> = emptyList()
     private var storedLanguages: List<LanguageMapping> = emptyList()
+    private val pendingFallbackAccents: MutableMap<String, String> = linkedMapOf()
+    private val pendingForcedLanguages: MutableMap<String, String> = linkedMapOf()
+    private var storedFallbackAccents: Map<String, String> = emptyMap()
+    private var storedForcedLanguages: Map<String, String> = emptyMap()
     private val listeners: MutableList<Runnable> = mutableListOf()
 
     private val cardPanel = JPanel(CardLayout())
@@ -332,7 +340,10 @@ class OverridesGroupBuilder {
 
         val currentLanguages = languageModel.snapshot().toLanguageFingerprint()
         val storedLanguagesFingerprint = storedLanguages.toLanguageFingerprint()
-        return currentLanguages != storedLanguagesFingerprint
+        if (currentLanguages != storedLanguagesFingerprint) return true
+
+        if (pendingFallbackAccents != storedFallbackAccents) return true
+        return pendingForcedLanguages != storedForcedLanguages
     }
 
     fun apply() {
@@ -348,6 +359,10 @@ class OverridesGroupBuilder {
         for (row in languageModel.snapshot()) {
             state.languageAccents[row.languageId] = row.hex
         }
+        state.projectFallbackAccents.clear()
+        state.projectFallbackAccents.putAll(pendingFallbackAccents)
+        state.forcedProjectLanguages.clear()
+        state.forcedProjectLanguages.putAll(pendingForcedLanguages)
 
         // Re-apply the committed mapping set via resolver → applicator → swap-cache sync.
         // Keep the focus-swap cache consistent so the next WINDOW_ACTIVATED event evaluates
@@ -376,12 +391,18 @@ class OverridesGroupBuilder {
         }
         storedProjects = projectModel.snapshot().map { ProjectMapping(it.canonicalPath, it.displayName, it.hex) }
         storedLanguages = languageModel.snapshot().map { LanguageMapping(it.languageId, it.displayName, it.hex) }
+        storedFallbackAccents = pendingFallbackAccents.toMap()
+        storedForcedLanguages = pendingForcedLanguages.toMap()
         fireChanged()
     }
 
     fun reset() {
         projectModel.replaceAll(storedProjects.map { ProjectMapping(it.canonicalPath, it.displayName, it.hex) })
         languageModel.replaceAll(storedLanguages.map { LanguageMapping(it.languageId, it.displayName, it.hex) })
+        pendingFallbackAccents.clear()
+        pendingFallbackAccents.putAll(storedFallbackAccents)
+        pendingForcedLanguages.clear()
+        pendingForcedLanguages.putAll(storedForcedLanguages)
         proportionsPanel?.let { populateProportionsPanel(it) }
         fireChanged()
     }
@@ -397,43 +418,68 @@ class OverridesGroupBuilder {
     fun resolvePending(
         project: Project?,
         fallbackGlobalHex: String,
-    ): String {
-        if (project != null && !project.isDefault && !project.isDisposed) {
-            AccentResolver.projectKey(project)?.let { key ->
-                projectModel.snapshot().firstOrNull { it.canonicalPath == key }?.let { return it.hex }
-            }
-            val languages = languageModel.snapshot()
-            if (languages.isNotEmpty()) {
-                ProjectLanguageDetector.dominant(project)?.let { languageId ->
-                    // LanguageMapping.init enforces lowercase at construction; ProjectLanguageDetector
-                    // returns lowercase ids. Case-sensitive equality is sufficient — plain `==`
-                    // stays consistent with LanguageMappingsTableModel.containsLanguage.
-                    languages.firstOrNull { it.languageId == languageId }?.let { return it.hex }
-                }
-            }
-        }
-        return fallbackGlobalHex
-    }
+    ): String = findPendingOverride(project)?.hex ?: fallbackGlobalHex
 
     /**
      * Matching [AccentResolver.Source] for [project] under the **pending** overrides model.
      */
-    fun sourcePending(project: Project?): AccentResolver.Source {
-        if (project != null && !project.isDefault && !project.isDisposed) {
-            val key = AccentResolver.projectKey(project)
-            if (key != null && projectModel.snapshot().any { it.canonicalPath == key }) {
-                return AccentResolver.Source.PROJECT_OVERRIDE
-            }
-            val languages = languageModel.snapshot()
-            if (languages.isNotEmpty()) {
-                val dominant = ProjectLanguageDetector.dominant(project)
-                // See resolvePending: both sides are lowercase by invariant, no compensator needed.
-                if (dominant != null && languages.any { it.languageId == dominant }) {
-                    return AccentResolver.Source.LANGUAGE_OVERRIDE
-                }
-            }
+    fun sourcePending(project: Project?): AccentResolver.Source =
+        findPendingOverride(project)?.source ?: AccentResolver.Source.GLOBAL
+
+    private fun findPendingOverride(project: Project?): PendingResolvedAccent? {
+        val activeProject =
+            project
+                ?.takeUnless { it.isDefault }
+                ?.takeUnless { it.isDisposed }
+                ?: return null
+        val projectKey = AccentResolver.projectKey(activeProject) ?: return null
+        projectModel
+            .snapshot()
+            .firstOrNull { it.canonicalPath == projectKey }
+            ?.let { return PendingResolvedAccent(AccentResolver.Source.PROJECT_OVERRIDE, it.hex) }
+
+        val languageAccents = languageModel.snapshot().associate { it.languageId to it.hex }
+        val hasForcedLanguageEntry = pendingForcedLanguages.containsKey(projectKey)
+        val forcedLanguageAccent =
+            pendingForcedLanguages[projectKey]
+                ?.let { forcedLanguageId -> languageAccents[forcedLanguageId] }
+        val hasProjectFallbackCandidate = pendingFallbackAccents.containsKey(projectKey)
+
+        forcedLanguageAccent?.let {
+            return PendingResolvedAccent(AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE, it)
         }
-        return AccentResolver.Source.GLOBAL
+
+        val shouldDetectLanguage = !hasForcedLanguageEntry && languageAccents.isNotEmpty()
+        if (!shouldDetectLanguage && !hasProjectFallbackCandidate) return null
+
+        var detectorConsulted = false
+        if (shouldDetectLanguage) {
+            detectorConsulted = true
+            ProjectLanguageDetector
+                .dominant(activeProject)
+                ?.let { languageId -> languageAccents[languageId] }
+                ?.let { return PendingResolvedAccent(AccentResolver.Source.LANGUAGE_OVERRIDE, it) }
+        }
+
+        return findPendingFallbackOverride(
+            activeProject = activeProject,
+            projectKey = projectKey,
+            detectorConsulted = detectorConsulted,
+        )
+    }
+
+    private fun findPendingFallbackOverride(
+        activeProject: Project,
+        projectKey: String,
+        detectorConsulted: Boolean,
+    ): PendingResolvedAccent? {
+        val fallbackAccent = pendingFallbackAccents[projectKey] ?: return null
+        if (!detectorConsulted) {
+            ProjectLanguageDetector.dominant(activeProject)
+        }
+        return fallbackAccent
+            .takeIf { ProjectLanguageDetector.verdict(activeProject) is ProjectLanguageVerdict.NoWinner }
+            ?.let { PendingResolvedAccent(AccentResolver.Source.PROJECT_FALLBACK, it) }
     }
 
     // Internals: pending-model resolver + UI wiring helpers
@@ -715,6 +761,57 @@ class OverridesGroupBuilder {
         languageModel.replaceAll(languages)
     }
 
+    @org.jetbrains.annotations.TestOnly
+    internal fun setPendingFallbackAccent(
+        projectKey: String,
+        hex: String?,
+    ) {
+        require(projectKey.isNotBlank()) { "projectKey must not be blank" }
+        if (hex == null) {
+            pendingFallbackAccents.remove(projectKey)
+        } else {
+            pendingFallbackAccents[projectKey] = AccentHex.require(hex).value
+        }
+        fireChanged()
+    }
+
+    @org.jetbrains.annotations.TestOnly
+    internal fun setPendingForcedLanguage(
+        projectKey: String,
+        languageId: String?,
+    ) {
+        require(projectKey.isNotBlank()) { "projectKey must not be blank" }
+        val normalized = languageId?.trim()?.takeIf { it.isNotBlank() }?.lowercase(Locale.ROOT)
+        if (normalized == null) {
+            pendingForcedLanguages.remove(projectKey)
+        } else {
+            pendingForcedLanguages[projectKey] = normalized
+        }
+        fireChanged()
+    }
+
+    @org.jetbrains.annotations.TestOnly
+    internal fun seedResolutionOverridesForTest(
+        fallbackAccents: Map<String, String> = emptyMap(),
+        forcedLanguages: Map<String, String> = emptyMap(),
+    ) {
+        pendingFallbackAccents.clear()
+        pendingFallbackAccents.putAll(fallbackAccents.mapValues { (_, hex) -> AccentHex.require(hex).value })
+        pendingForcedLanguages.clear()
+        forcedLanguages.forEach { (projectKey, languageId) ->
+            val normalized = languageId.trim().takeIf { it.isNotBlank() }?.lowercase(Locale.ROOT)
+            if (normalized != null) {
+                pendingForcedLanguages[projectKey] = normalized
+            }
+        }
+    }
+
+    @org.jetbrains.annotations.TestOnly
+    internal fun fallbackAccentsForTest(): Map<String, String> = pendingFallbackAccents.toMap()
+
+    @org.jetbrains.annotations.TestOnly
+    internal fun forcedLanguagesForTest(): Map<String, String> = pendingForcedLanguages.toMap()
+
     /**
      * Builder-level seam: lazily builds the proportions panel on first call (so
      * wiring tests can bypass `buildGroup`), repopulates from the current
@@ -788,8 +885,14 @@ class OverridesGroupBuilder {
             }
         projectModel.replaceAll(projects)
         languageModel.replaceAll(languages)
+        pendingFallbackAccents.clear()
+        pendingFallbackAccents.putAll(state.projectFallbackAccents)
+        pendingForcedLanguages.clear()
+        pendingForcedLanguages.putAll(state.forcedProjectLanguages)
         storedProjects = projectModel.snapshot().map { ProjectMapping(it.canonicalPath, it.displayName, it.hex) }
         storedLanguages = languageModel.snapshot().map { LanguageMapping(it.languageId, it.displayName, it.hex) }
+        storedFallbackAccents = pendingFallbackAccents.toMap()
+        storedForcedLanguages = pendingForcedLanguages.toMap()
     }
 
     private val fireChanged: () -> Unit = { listeners.forEach { it.run() } }
@@ -1125,6 +1228,11 @@ class OverridesGroupBuilder {
         val editEnabled: () -> Boolean,
         val removeEnabled: () -> Boolean,
         val extraActions: List<AnAction>,
+    )
+
+    private data class PendingResolvedAccent(
+        val source: AccentResolver.Source,
+        val hex: String,
     )
 
     private class DimOrphanRenderer(
