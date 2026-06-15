@@ -147,11 +147,15 @@ internal class ProjectLanguageResolutionPanel(
         }
         if (state.canRescan) {
             specs +=
-                ActionSpec(RESCAN_LABEL) {
-                    if (canRescanNow()) {
-                        onRescan()
-                    }
-                }
+                ActionSpec(
+                    text = RESCAN_LABEL,
+                    tooltip = RESCAN_TOOLTIP,
+                    onClick = {
+                        if (canRescanNow()) {
+                            onRescan()
+                        }
+                    },
+                )
         }
         return specs
     }
@@ -189,9 +193,12 @@ internal class ProjectLanguageResolutionPanel(
         val specs = mutableListOf<ActionSpec>()
         if (state.fallbackHex == null && state.canSetFallbackToCurrentAccent) {
             specs +=
-                ActionSpec(SET_FALLBACK_LABEL) {
-                    currentAccentHex()?.let(onSetFallback)
-                }
+                ActionSpec(
+                    text = SET_FALLBACK_LABEL,
+                    onClick = {
+                        currentAccentHex()?.let(onSetFallback)
+                    },
+                )
         }
         uniqueTopLanguageId(verdict.weights)?.let { languageId ->
             specs += forceLanguageSpec(languageId)
@@ -200,9 +207,12 @@ internal class ProjectLanguageResolutionPanel(
     }
 
     private fun forceLanguageSpec(languageId: String): ActionSpec =
-        ActionSpec("Force ${displayName(languageId)}") {
-            onSetForcedLanguage(languageId)
-        }
+        ActionSpec(
+            text = "Force ${displayName(languageId)}",
+            onClick = {
+                onSetForcedLanguage(languageId)
+            },
+        )
 
     private fun uniqueTopLanguageId(weights: Map<String, Long>): String? {
         val entries =
@@ -220,6 +230,7 @@ internal class ProjectLanguageResolutionPanel(
 
     private fun buildActionLabel(action: ActionSpec): JBLabel =
         JBLabel(safeLabelText(action.text), null, SwingConstants.LEADING).apply {
+            toolTipText = action.tooltip?.let(::safeLabelText)
             foreground = UIUtil.getContextHelpForeground()
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
             addMouseListener(
@@ -246,6 +257,7 @@ internal class ProjectLanguageResolutionPanel(
     private data class ActionSpec(
         val text: String,
         val onClick: () -> Unit,
+        val tooltip: String? = null,
     )
 
     companion object {
@@ -253,6 +265,7 @@ internal class ProjectLanguageResolutionPanel(
         const val CLEAR_FORCED_LANGUAGE_LABEL: String = "Clear forced language"
         const val CLEAR_FALLBACK_LABEL: String = "Clear fallback"
         const val RESCAN_LABEL: String = "Rescan"
+        const val RESCAN_TOOLTIP: String = "Re-detect the dominant language of this project"
 
         private const val ENTRY_GAP_PX: Int = 12
         private const val ENTRY_SEPARATOR: String = " - "

@@ -251,6 +251,39 @@ class OverridesGroupBuilderProportionsTest {
     }
 
     @Test
+    fun `Set fallback uses pending global accent provider when no project override is active`() {
+        val projectKey = tmpKey("resolution-pending-global-accent")
+        val project = stubProject(projectKey)
+        every { ProjectLanguageDetector.verdict(project) } returns
+            ProjectLanguageVerdict.NoWinner(mapOf("typescript" to 700L, "javascript" to 300L))
+
+        val builder =
+            OverridesGroupBuilder(currentGlobalAccentHex = { "#112233" }).apply {
+                setParentProjectForTest(project)
+            }
+
+        click(findLabel(builder, ProjectLanguageResolutionPanel.SET_FALLBACK_LABEL))
+
+        assertEquals("#112233", builder.fallbackAccentsForTest()[projectKey])
+    }
+
+    @Test
+    fun `Set fallback action is hidden when pending current accent is invalid`() {
+        val project = stubProject(tmpKey("resolution-invalid-current-accent"))
+        every { ProjectLanguageDetector.verdict(project) } returns
+            ProjectLanguageVerdict.NoWinner(mapOf("typescript" to 700L, "javascript" to 300L))
+
+        val builder =
+            OverridesGroupBuilder(currentGlobalAccentHex = { "not-a-hex" }).apply {
+                setParentProjectForTest(project)
+            }
+
+        val labels = builder.proportionsPanelLabelsForTest().map { it.second }
+
+        assertFalse(ProjectLanguageResolutionPanel.SET_FALLBACK_LABEL in labels)
+    }
+
+    @Test
     fun `Rescan label click is blocked when license flips to unlicensed`() {
         val project = stubProject(tmpKey("resolution-rescan-defense"))
         every { ProjectLanguageDetector.verdict(project) } returns ProjectLanguageVerdict.Cold
@@ -305,6 +338,22 @@ class OverridesGroupBuilderProportionsTest {
         assertEquals(
             Cursor.HAND_CURSOR,
             findLabel(builder, ProjectLanguageResolutionPanel.RESCAN_LABEL).cursor.type,
+        )
+    }
+
+    @Test
+    fun `Rescan label exposes re-detect tooltip`() {
+        val project = stubProject(tmpKey("resolution-rescan-tooltip"))
+        every { ProjectLanguageDetector.verdict(project) } returns ProjectLanguageVerdict.Cold
+
+        val labels =
+            OverridesGroupBuilder()
+                .apply { setParentProjectForTest(project) }
+                .proportionsPanelLabelsForTest()
+
+        assertEquals(
+            ProjectLanguageResolutionPanel.RESCAN_TOOLTIP,
+            labels.first { it.second == ProjectLanguageResolutionPanel.RESCAN_LABEL }.third,
         )
     }
 

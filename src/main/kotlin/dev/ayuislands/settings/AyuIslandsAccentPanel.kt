@@ -46,7 +46,12 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
     private var storedRotationInterval: Int = AyuIslandsState.DEFAULT_ROTATION_INTERVAL_HOURS
     private var rotationEnabledCheckbox: JBCheckBox? = null
 
-    internal val overrides = OverridesGroupBuilder()
+    internal val overrides =
+        OverridesGroupBuilder(
+            currentGlobalAccentHex = {
+                variant?.let { currentVariant -> resolvePendingGlobalHex(currentVariant) }
+            },
+        )
     internal val quickSwitcher = AyuIslandsQuickSwitcherGroupBuilder()
     private var contextProject: Project? = null
     private var currentlyActiveLabel: JEditorPane? = null

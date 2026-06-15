@@ -52,7 +52,9 @@ import javax.swing.table.TableModel
  * lets observers (the reactive "Currently active: ..." comment) refresh on every edit.
  */
 @Suppress("TooManyFunctions")
-class OverridesGroupBuilder {
+class OverridesGroupBuilder(
+    private val currentGlobalAccentHex: () -> String? = ::storedCurrentVariantAccentHex,
+) {
     private val projectModel = ProjectMappingsTableModel()
     private val languageModel = LanguageMappingsTableModel()
     private val projectTable: JBTable = AutoSizingTable(projectModel)
@@ -502,7 +504,7 @@ class OverridesGroupBuilder {
             activeSource = diagnosticsSource(projectKey, verdict),
             canMutate = rescanLicensed,
             canRescan = rescanEligibleProject != null,
-            canSetFallbackToCurrentAccent = currentVariantAccentHex() != null,
+            canSetFallbackToCurrentAccent = currentPendingAccentHex() != null,
         )
     }
 
@@ -541,14 +543,17 @@ class OverridesGroupBuilder {
         }
 
     private fun currentPendingAccentHex(): String? {
-        val fallbackGlobalHex = currentVariantAccentHex() ?: return null
-        return resolvePending(parentProject, fallbackGlobalHex)
+        val candidate = currentProjectOverrideHex() ?: currentGlobalAccentHex()
+        return candidate?.let { hex -> AccentHex.of(hex)?.value }
     }
 
-    private fun currentVariantAccentHex(): String? =
-        AyuVariant
-            .detect()
-            ?.let { variant -> AyuIslandsSettings.getInstance().getAccentForVariant(variant) }
+    private fun currentProjectOverrideHex(): String? {
+        val projectKey = focusedProjectKey() ?: return null
+        return projectModel
+            .snapshot()
+            .firstOrNull { it.canonicalPath == projectKey }
+            ?.hex
+    }
 
     private fun focusedProjectKey(): String? {
         val project =
@@ -1047,6 +1052,11 @@ class OverridesGroupBuilder {
 private object AccentMappingsSettingsAccess {
     fun stateFor(): AccentMappingsState = AccentMappingsSettings.getInstance().state
 }
+
+private fun storedCurrentVariantAccentHex(): String? =
+    AyuVariant
+        .detect()
+        ?.let { variant -> AyuIslandsSettings.getInstance().getAccentForVariant(variant) }
 
 private fun List<ProjectMapping>.toFingerprint(): Set<Triple<String, String, String>> =
     map { Triple(it.canonicalPath, it.displayName, it.hex) }.toSet()

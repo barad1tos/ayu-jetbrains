@@ -229,6 +229,32 @@ class ProjectLanguageResolutionPanelTest {
     }
 
     @Test
+    fun `rescan action exposes tooltip metadata`() {
+        val panel = panel()
+
+        panel.refresh(
+            ProjectLanguageResolutionPanel.State(
+                verdict = ProjectLanguageVerdict.Cold,
+                forcedLanguageId = null,
+                fallbackHex = null,
+                activeSource = AccentResolver.Source.GLOBAL,
+                canMutate = true,
+                canRescan = true,
+            ),
+        )
+
+        val rescanLabel =
+            panel
+                .labelsForTest()
+                .first { it.second == ProjectLanguageResolutionPanel.RESCAN_LABEL }
+
+        assertEquals(
+            ProjectLanguageResolutionPanel.RESCAN_TOOLTIP,
+            rescanLabel.third,
+        )
+    }
+
+    @Test
     fun `clear actions clear existing forced language and fallback`() {
         val calls = ResolutionCalls()
         val panel = panel(calls = calls)
