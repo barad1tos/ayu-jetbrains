@@ -151,6 +151,18 @@ internal object LanguageDetectionRules {
      */
     private const val DISPLAY_OTHER_LABEL: String = "other"
 
+    /**
+     * Display-name fallbacks for common language plugins that may be absent from
+     * the current IDE test/runtime distribution. Kept inside the shared display
+     * helper so Settings diagnostics, structured proportions, and text
+     * projections stay in sync.
+     */
+    private val DISPLAY_NAME_FALLBACKS: Map<String, String> =
+        mapOf(
+            "javascript" to "JavaScript",
+            "typescript" to "TypeScript",
+        )
+
     private val LOG = logger<LanguageDetectionRules>()
 
     /**
@@ -625,6 +637,17 @@ internal object LanguageDetectionRules {
     }
 
     /**
+     * Resolve a scanner / override language id to the same human-readable name
+     * used by [pickDisplayEntries]. Exposed for Settings diagnostics so they do
+     * not reimplement the live IntelliJ language-registry lookup.
+     */
+    fun displayNameForLanguageId(id: String): String {
+        val lowercaseId = id.trim().lowercase(Locale.ROOT)
+        if (lowercaseId.isBlank()) return id
+        return displayNameFor(lowercaseId)
+    }
+
+    /**
      * Resolve a lowercase AYU language id to a human-readable display name.
      *
      * Uses [findLanguageByLowercaseId] so the scanner's lowercase ids
@@ -637,6 +660,7 @@ internal object LanguageDetectionRules {
      */
     private fun displayNameFor(id: String): String =
         findLanguageByLowercaseId(id)?.displayName
+            ?: DISPLAY_NAME_FALLBACKS[id]
             ?: id.replaceFirstChar { it.titlecase(Locale.ROOT) }
 
     /**
