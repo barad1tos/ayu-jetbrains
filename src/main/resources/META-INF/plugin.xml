@@ -120,6 +120,8 @@
     <h3>2.7.4</h3>
     <ul>
       <li>[Paid] <b>Language override diagnostics</b> — Settings now explains whether a project's language accent is detected, polyglot, forced to a specific language, or using a project fallback.</li>
+      <li>[Free] <b>Swift semantic highlighting</b> — Noctule Swift files now render parameters, labels, properties, functions, and types with distinct Ayu colors across 109 semantic tokens.</li>
+      <li>[Free] <b>Swift syntax colors</b> — Swift keywords, strings, numbers, and comments use Ayu palette colors in base themes.</li>
     </ul>
     <h3>2.7.3</h3>
     <ul>
