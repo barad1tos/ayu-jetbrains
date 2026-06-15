@@ -157,6 +157,37 @@ class OverridesGroupBuilderProportionsTest {
     }
 
     @Test
+    fun `diagnostics refresh uses live license state for source and action visibility`() {
+        val project = stubProject(tmpKey("resolution-license-flip"))
+        every { ProjectLanguageDetector.verdict(project) } returns
+            ProjectLanguageVerdict.Detected(
+                languageId = "kotlin",
+                weights = mapOf("kotlin" to 1_000L),
+            )
+
+        val builder =
+            OverridesGroupBuilder().apply {
+                setParentProjectForTest(project, licensed = true)
+                seedPendingForTest(languages = listOf(LanguageMapping("kotlin", "Kotlin", "#FFCC66")))
+            }
+
+        assertEquals(
+            "Detected: Kotlin 100% - using Language override",
+            builder.currentProportionsTextForTest(),
+        )
+
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+
+        assertEquals(
+            "Detected: Kotlin 100% - using Global",
+            builder.currentProportionsTextForTest(),
+        )
+        val labels = builder.proportionsPanelLabelsForTest().map { it.second }
+        assertFalse("Force Kotlin" in labels)
+        assertFalse(ProjectLanguageResolutionPanel.RESCAN_LABEL in labels)
+    }
+
+    @Test
     fun `diagnostics read path does not invoke ProjectLanguageScanner scan or detector proportions`() {
         mockkObject(ProjectLanguageScanner)
         every { ProjectLanguageScanner.scan(any()) } returns emptyMap()
@@ -321,7 +352,8 @@ class OverridesGroupBuilderProportionsTest {
     @Test
     fun `Rescan label is hidden when diagnostics are unlicensed`() {
         val project = stubProject(tmpKey("resolution-rescan-unlicensed"))
-        val builder = OverridesGroupBuilder().apply { setParentProjectForTest(project, licensed = false) }
+        val builder = OverridesGroupBuilder().apply { setParentProjectForTest(project) }
+        every { LicenseChecker.isLicensedOrGrace() } returns false
 
         val labels = builder.proportionsPanelLabelsForTest().map { it.second }
 
@@ -403,6 +435,20 @@ class OverridesGroupBuilderProportionsTest {
         builder.dispose()
 
         assertNull(readDetectionConnection(builder))
+    }
+
+    @Test
+    fun `pending change listener registration de-duplicates identical runnable`() {
+        val builder = OverridesGroupBuilder()
+        var calls = 0
+        val listener = Runnable { calls += 1 }
+
+        builder.addPendingChangeListener(listener)
+        builder.addPendingChangeListener(listener)
+
+        builder.setPendingFallbackAccent(tmpKey("listener-dedupe"), "#112233")
+
+        assertEquals(1, calls)
     }
 
     private fun tmpKey(name: String): String =

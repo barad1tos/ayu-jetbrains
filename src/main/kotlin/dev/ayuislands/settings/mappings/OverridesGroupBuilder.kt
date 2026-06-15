@@ -67,6 +67,7 @@ class OverridesGroupBuilder(
     private var storedFallbackAccents: Map<String, String> = emptyMap()
     private var storedForcedLanguages: Map<String, String> = emptyMap()
     private val listeners: MutableList<Runnable> = mutableListOf()
+    private val diagnosticsRefreshListener = Runnable { refreshResolutionPanel() }
 
     private val cardPanel = JPanel(CardLayout())
     private var parentProject: Project? = null
@@ -95,34 +96,23 @@ class OverridesGroupBuilder(
     private var detectionConnection: MessageBusConnection? = null
 
     /**
-     * License-gate snapshot for the rescan affordance, captured once at
-     * [buildGroup] time from `LicenseChecker.isLicensedOrGrace()`. Kept as a
-     * dedicated boolean (rather than folding into the `parentProject`
-     * nullability) so the two "Rescan hidden" reasons stay distinguishable
-     * at debug time:
-     *   - `parentProject == null` → Settings opened without a focused project.
-     *   - `parentProject != null && !rescanLicensed` → unlicensed user.
-     *
-     * Rescan is a Pro feature by project policy (all new features premium
-     * by default). Reading the license once in [buildGroup] keeps the render
-     * state out of a repeated `LicenseChecker.isLicensedOrGrace()` call and
-     * avoids a cyclomatic-budget bump from an inline `&&`.
-     *
-     * [ProjectLanguageResolutionPanel]'s rescan callback re-reads
-     * `LicenseChecker.isLicensedOrGrace()` live on click so a license that
-     * expires while Settings is open can't still fire a rescan from a stale
-     * panel.
+     * License-gate snapshot captured once at [buildGroup] time for the static
+     * premium gate copy and table action preview. Diagnostics read the live
+     * license state on every refresh so their source/action labels stay aligned
+     * with [sourcePending] if the license changes while Settings is open.
      */
     private var rescanLicensed: Boolean = false
 
     /**
-     * Derived rescan-eligibility: non-null iff a focused project is
-     * present AND the license snapshot permits the Pro affordance. Kept
-     * as a computed property so the two reasons for null remain debuggable
-     * independently via [parentProject] and [rescanLicensed].
+     * Derived rescan-eligibility: non-null iff a focused project is present and
+     * the current live license permits the Pro affordance.
      */
     private val rescanEligibleProject: Project?
-        get() = parentProject?.takeIf { rescanLicensed }
+        get() =
+            parentProject
+                ?.takeUnless { it.isDefault }
+                ?.takeUnless { it.isDisposed }
+                ?.takeIf { LicenseChecker.isLicensedOrGrace() }
 
     init {
         for (table in listOf(projectTable, languageTable)) {
@@ -155,6 +145,7 @@ class OverridesGroupBuilder(
      */
     fun dispose() {
         safelyDisconnectDetection("dispose")
+        listeners.clear()
     }
 
     /**
@@ -277,7 +268,7 @@ class OverridesGroupBuilder(
         //    content-root change, user-triggered rescan) fire
         //    `ProjectLanguageDetectionListener.scanCompleted` on EDT — the only signal
         //    the row has to exit a stale winner state without a settings edit.
-        addPendingChangeListener { refreshResolutionPanel() }
+        addPendingChangeListener(diagnosticsRefreshListener)
         // Subscription lifetime is tied to the Settings panel (disconnected by
         // [dispose] from the Configurable's disposeUIResources). Any prior
         // connection on this same builder is torn down first so a rebuild in
@@ -388,7 +379,9 @@ class OverridesGroupBuilder(
     }
 
     fun addPendingChangeListener(runnable: Runnable) {
-        listeners += runnable
+        if (listeners.none { it === runnable }) {
+            listeners += runnable
+        }
     }
 
     /**
@@ -496,23 +489,25 @@ class OverridesGroupBuilder(
     private fun resolutionPanelState(): ProjectLanguageResolutionPanel.State {
         val project = parentProject
         val projectKey = focusedProjectKey()
+        val licensed = LicenseChecker.isLicensedOrGrace()
         val verdict = project?.let(ProjectLanguageDetector::verdict) ?: ProjectLanguageVerdict.Unavailable
         return ProjectLanguageResolutionPanel.State(
             verdict = verdict,
             forcedLanguageId = projectKey?.let(pendingForcedLanguages::get),
             fallbackHex = projectKey?.let(pendingFallbackAccents::get),
-            activeSource = diagnosticsSource(projectKey, verdict),
-            canMutate = rescanLicensed,
-            canRescan = rescanEligibleProject != null,
-            canSetFallbackToCurrentAccent = currentPendingAccentHex() != null,
+            activeSource = diagnosticsSource(projectKey, verdict, licensed),
+            canMutate = licensed && projectKey != null,
+            canRescan = licensed && projectKey != null,
+            canSetFallbackToCurrentAccent = licensed && currentPendingAccentHex() != null,
         )
     }
 
     private fun diagnosticsSource(
         projectKey: String?,
         verdict: ProjectLanguageVerdict,
+        isLicensed: Boolean,
     ): AccentResolver.Source {
-        if (!rescanLicensed || projectKey == null) return AccentResolver.Source.GLOBAL
+        if (!isLicensed || projectKey == null) return AccentResolver.Source.GLOBAL
         projectModel
             .snapshot()
             .firstOrNull { it.canonicalPath == projectKey }
@@ -615,7 +610,6 @@ class OverridesGroupBuilder(
         languageModel.replaceAll(languages)
     }
 
-    @org.jetbrains.annotations.TestOnly
     internal fun setPendingFallbackAccent(
         projectKey: String,
         hex: String?,
@@ -630,7 +624,6 @@ class OverridesGroupBuilder(
         fireChanged()
     }
 
-    @org.jetbrains.annotations.TestOnly
     internal fun setPendingForcedLanguage(
         projectKey: String,
         languageId: String?,

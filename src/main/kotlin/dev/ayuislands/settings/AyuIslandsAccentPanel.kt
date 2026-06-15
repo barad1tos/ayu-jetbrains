@@ -55,6 +55,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
     internal val quickSwitcher = AyuIslandsQuickSwitcherGroupBuilder()
     private var contextProject: Project? = null
     private var currentlyActiveLabel: JEditorPane? = null
+    private val overridesActiveLabelListener = Runnable { updateCurrentlyActiveLabel() }
 
     /**
      * Hook called between the Accent Color group and the Overrides group during [buildPanel].
@@ -100,7 +101,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
             externalAccentListener?.invoke(hex)
             updateCurrentlyActiveLabel()
         }
-        overrides.addPendingChangeListener { updateCurrentlyActiveLabel() }
+        overrides.addPendingChangeListener(overridesActiveLabelListener)
 
         updatePanelEnabled()
         updateCurrentlyActiveLabel()
