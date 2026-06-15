@@ -13,6 +13,7 @@ import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.LanguageDetectionRules
 import dev.ayuislands.accent.ProjectLanguageDetectionListener
 import dev.ayuislands.accent.ProjectLanguageDetector
 import dev.ayuislands.accent.ProjectLanguageVerdict
@@ -136,6 +137,9 @@ class OverridesGroupBuilder(
         }
         languageTable.getColumnModel().getColumn(LanguageMappingsTableModel.COLUMN_COLOR).apply {
             cellRenderer = RoundedSwatchRenderer()
+        }
+        languageTable.getColumnModel().getColumn(LanguageMappingsTableModel.COLUMN_LANGUAGE).apply {
+            cellRenderer = LanguageIconRenderer()
         }
     }
 
@@ -868,6 +872,23 @@ class OverridesGroupBuilder(
             } else {
                 toolTipText = null
             }
+            return this
+        }
+    }
+
+    private class LanguageIconRenderer : DefaultTableCellRenderer() {
+        override fun getTableCellRendererComponent(
+            table: JTable,
+            value: Any?,
+            isSelected: Boolean,
+            hasFocus: Boolean,
+            row: Int,
+            column: Int,
+        ): Component {
+            super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column)
+            val model = table.model as? LanguageMappingsTableModel ?: return this
+            val modelRow = table.convertRowIndexToModel(row)
+            icon = model.rowAt(modelRow)?.let { LanguageDetectionRules.iconForLanguageId(it.languageId) }
             return this
         }
     }
