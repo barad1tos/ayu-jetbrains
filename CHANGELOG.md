@@ -4,6 +4,10 @@
 
 ### Paid
 - [Paid] **Language override diagnostics** — Settings now explains whether a project's language accent is detected, polyglot, forced to a specific language, or using a project fallback.
+- [Paid] **Swift semantic highlighting** — Noctule Swift files now render parameters, labels, properties, functions, and types with distinct Ayu colors across 109 semantic tokens.
+
+### Free
+- [Free] **Swift syntax colors** — Swift keywords, strings, numbers, and comments use Ayu palette colors in base themes.
 
 ## [2.7.3] - 2026-06-11
 

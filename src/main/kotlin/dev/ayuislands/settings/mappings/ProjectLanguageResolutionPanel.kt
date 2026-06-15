@@ -49,12 +49,25 @@ internal class ProjectLanguageResolutionPanel(
     fun refresh(nextState: State) {
         state = nextState
         removeAll()
-        add(JBLabel(safeLabelText(summaryFor(nextState))).apply { foreground = UIUtil.getContextHelpForeground() })
+        val icon = iconForState(nextState)
+        add(
+            JBLabel(safeLabelText(summaryFor(nextState)), icon, SwingConstants.LEADING).apply {
+                foreground = UIUtil.getContextHelpForeground()
+            },
+        )
         actionSpecsFor(nextState).forEach { action ->
             add(buildActionLabel(action))
         }
         revalidate()
         repaint()
+    }
+
+    private fun iconForState(state: State): Icon? {
+        state.forcedLanguageId?.let { return LanguageDetectionRules.iconForLanguageId(it) }
+        return when (val verdict = state.verdict) {
+            is ProjectLanguageVerdict.Detected -> LanguageDetectionRules.iconForLanguageId(verdict.languageId)
+            else -> null
+        }
     }
 
     @TestOnly
