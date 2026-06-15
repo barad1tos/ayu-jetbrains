@@ -3338,6 +3338,7 @@
 
         <!-- Noctule Swift uses dotted TextAttributesKey names; map them to the Swift palette above. -->
         <option name="SWIFT.ACTOR_DECLARATION" baseAttributes="SWIFT_ACTOR_REFERENCE" />
+        <option name="SWIFT.ANONYMOUS_CLOSURE_PARAMETER" baseAttributes="SWIFT_PARAMETER" />
         <option name="SWIFT.ARGUMENT_LABEL" baseAttributes="SWIFT_ARGUMENT_LABEL" />
         <option name="SWIFT.ASSOCIATED_TYPE_DECLARATION" baseAttributes="SWIFT_ASSOCIATED_TYPE" />
         <option name="SWIFT.ATTRIBUTE_NAME" baseAttributes="SWIFT_ATTRIBUTE_NAME" />
@@ -3376,9 +3377,11 @@
                 <option name="FOREGROUND" value="CCCAC2" />
             </value>
         </option>
+        <option name="SWIFT.INLINE_CLOSURE_PARAMETER" baseAttributes="SWIFT_INLINE_CLOSURE_PARAMETER" />
         <option name="SWIFT.INVALID_ESCAPE_SEQUENCE" baseAttributes="DEFAULT_INVALID_STRING_ESCAPE" />
         <option name="SWIFT.INVALID_STRING_ESCAPE" baseAttributes="DEFAULT_INVALID_STRING_ESCAPE" />
         <option name="SWIFT.INSTANCE_FIELD" baseAttributes="SWIFT_PROPERTY" />
+        <option name="SWIFT.INSTANCE_METHOD" baseAttributes="SWIFT_INSTANCE_METHOD" />
         <option name="SWIFT.INTERFACE_NAME" baseAttributes="SWIFT_PROTOCOL_REFERENCE" />
         <option name="SWIFT.KEYWORD" baseAttributes="SWIFT_KEYWORD" />
         <option name="SWIFT.LINE_COMMENT" baseAttributes="DEFAULT_LINE_COMMENT" />
@@ -3397,6 +3400,7 @@
         <option name="SWIFT.METHOD_NAME_LIBRARY" baseAttributes="DEFAULT_STATIC_METHOD" />
         <option name="SWIFT.METHOD_NAME_STATIC" baseAttributes="DEFAULT_STATIC_METHOD" />
         <option name="SWIFT.MODULE_NAME" baseAttributes="SWIFT_MODULE_NAME" />
+        <option name="SWIFT.NESTED_FUNCTION_CALL" baseAttributes="SWIFT_NESTED_FUNCTION_CALL" />
         <option name="SWIFT.NUMBER" baseAttributes="SWIFT_NUMBER" />
         <option name="SWIFT.OPERATOR" baseAttributes="DEFAULT_OPERATION_SIGN" />
         <option name="SWIFT.OPERATION_SIGN" baseAttributes="DEFAULT_OPERATION_SIGN" />
