@@ -5,7 +5,7 @@ import com.intellij.util.messages.Topic
 /**
  * Project-scoped notification emitted by [ProjectLanguageDetector] after a
  * background scan finishes — whether the scan produced a dominant id, a
- * polyglot null verdict, or hit a transient failure path.
+ * definitive no-winner verdict, or hit a transient failure path.
  *
  * Subscribers refresh UI projections over the detector cache (the Settings
  * proportions status row, the Tools-menu Rescan balloon). Listener runs on
@@ -33,9 +33,8 @@ internal fun interface ProjectLanguageDetectionListener {
      *
      *   Callers rendering proportions MUST re-query
      *   [ProjectLanguageDetector.proportions] instead of relying on the
-     *   outcome alone — the weights cache is the authoritative source for
-     *   the proportions row and may be populated (or deliberately empty)
-     *   independently of the outcome shape.
+     *   outcome alone — the detector's warmed verdict is authoritative, and
+     *   the proportions row is a read-only projection over that cached state.
      */
     fun scanCompleted(outcome: ScanOutcome)
 

@@ -90,8 +90,8 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "0910b812"
-          last_verified_date: "2026-05-31"
+          last_verified_sha: "c46a73d"
+          last_verified_date: "2026-06-15"
           content_sha256: "4c86c5d855c6dcefd703f647451bac4117397e435b05dd9cae6b9cbc7f479616"
 
       - id: accent-scoped-language
@@ -112,8 +112,8 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "0910b812"
-          last_verified_date: "2026-05-31"
+          last_verified_sha: "c46a73d"
+          last_verified_date: "2026-06-15"
           content_sha256: "ea83498db84a5cd122dd1d09132d74774c6e24295188b93464fddb0d784bf4e1"
 
       - id: accent-language-breakdown
@@ -137,6 +137,18 @@ categories:
           Rescan link in the Overrides proportions row and a Tools →
           Ayu Islands → Rescan Project Language menu action, for when
           you don't want to wait for the next Gradle sync.
+
+      - id: language-resolution-diagnostics
+        title: "Language override diagnostics"
+        keyword: "language override diagnostics"
+        introduced: "2.7.4"
+        tier: paid
+        description: >
+          Per-project language accent resolution now explains when a
+          project is detected, polyglot, forced to a specific language,
+          or using a no-winner fallback accent. Polyglot projects can
+          keep the default dominance logic while still choosing a project
+          fallback or forced language when needed.
 
       - id: chrome-tinting
         title: "Peacock-parity chrome tinting"
@@ -247,7 +259,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/GlowGroupPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/AyuIslandsEffectsPanel.kt
             - src/main/kotlin/dev/ayuislands/glow
-          last_verified_sha: "0910b812"
+          last_verified_sha: "5be58aa2"
           last_verified_date: "2026-05-30"
           content_sha256: "3ef51add4539d9c82ce6ad559bce68f6d88fb97606986910ea9b9d13da64fef5"
 
@@ -288,7 +300,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/FontPresetPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/FontPreviewComponent.kt
             - src/main/kotlin/dev/ayuislands/font
-          last_verified_sha: "0910b812"
+          last_verified_sha: "5be58aa2"
           last_verified_date: "2026-05-30"
           content_sha256: "2303011928e4246c32edfcc3c4caa923d536aa73f848e225708da4374ce17b41"
 
@@ -340,7 +352,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/gitpanel
             - src/main/kotlin/dev/ayuislands/projectview
             - src/main/kotlin/dev/ayuislands/editor/EditorScrollbarManager.kt
-          last_verified_sha: "beb5d3e3"
+          last_verified_sha: "5be58aa2"
           last_verified_date: "2026-06-12"
           content_sha256: ad849b17308901bc2dac85f895978be656f578c9c31f857b9e9578e5cf4289f2
 
@@ -402,7 +414,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/PluginsPanel.kt
             - src/main/kotlin/dev/ayuislands/indent
             - src/main/kotlin/dev/ayuislands/accent/elements/BracketScopeRenderer.kt
-          last_verified_sha: "0910b812"
+          last_verified_sha: "5be58aa2"
           last_verified_date: "2026-05-30"
           content_sha256: "c5c1eea5a119bd19bf98518d394d698bf09983a1e0a3472e255358c50e41ed16"
 

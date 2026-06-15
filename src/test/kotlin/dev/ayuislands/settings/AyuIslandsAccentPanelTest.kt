@@ -8,10 +8,13 @@ import com.intellij.openapi.ui.DialogPanel
 import com.intellij.testFramework.LoggedErrorProcessor
 import com.intellij.ui.dsl.builder.panel
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.ProjectLanguageDetector
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.rotation.AccentRotationMode
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
+import dev.ayuislands.settings.mappings.OverridesGroupBuilder
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import io.mockk.every
 import io.mockk.mockk
@@ -228,6 +231,23 @@ class AyuIslandsAccentPanelTest {
     }
 
     @Test
+    fun `active source description does not warm detector for language override`() {
+        mockkObject(ProjectLanguageDetector)
+        every { ProjectLanguageDetector.dominant(any()) } throws AssertionError("dominant must not be read")
+
+        val method =
+            AyuIslandsAccentPanel::class.java
+                .getDeclaredMethod("describeActiveSource", AccentResolver.Source::class.java)
+                .apply { isAccessible = true }
+
+        kotlin.test.assertEquals(
+            "Language override",
+            method.invoke(AyuIslandsAccentPanel(), AccentResolver.Source.LANGUAGE_OVERRIDE),
+        )
+        verify(exactly = 0) { ProjectLanguageDetector.dominant(any()) }
+    }
+
+    @Test
     fun `beforeOverridesInjection property still exists alongside afterOverridesInjection`() {
         // Regression guard: the injection refactor split a single hook into two.
         // If someone collapses them back or deletes beforeOverridesInjection, the
@@ -369,6 +389,26 @@ class AyuIslandsAccentPanelTest {
         )
     }
 
+    @Test
+    fun `rebuilding accent panel does not accumulate override pending listeners`() {
+        val accentPanel = AyuIslandsAccentPanel()
+
+        buildDialogPanel(accentPanel)
+        buildDialogPanel(accentPanel)
+
+        val overrides =
+            AyuIslandsAccentPanel::class.java
+                .getDeclaredField("overrides")
+                .apply { isAccessible = true }
+                .get(accentPanel) as OverridesGroupBuilder
+
+        kotlin.test.assertEquals(
+            2,
+            pendingListenerCount(overrides),
+            "Overrides should keep one diagnostics refresh listener and one active-label listener after rebuild",
+        )
+    }
+
     private fun buildDialogPanel(accentPanel: AyuIslandsAccentPanel): DialogPanel {
         wireUiDslServices()
         return panel {
@@ -427,6 +467,12 @@ class AyuIslandsAccentPanelTest {
         val field = swatch.javaClass.getDeclaredField("colorHex")
         field.isAccessible = true
         return field.get(swatch) as String?
+    }
+
+    private fun pendingListenerCount(builder: OverridesGroupBuilder): Int {
+        val field = OverridesGroupBuilder::class.java.getDeclaredField("listeners")
+        field.isAccessible = true
+        return (field.get(builder) as List<*>).size
     }
 
     private fun JComboBox<*>.containsItem(item: String): Boolean = (0 until itemCount).any { getItemAt(it) == item }

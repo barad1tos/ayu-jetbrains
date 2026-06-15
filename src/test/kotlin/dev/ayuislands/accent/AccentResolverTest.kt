@@ -43,6 +43,7 @@ class AccentResolverTest {
 
         mockkObject(ProjectLanguageDetector)
         every { ProjectLanguageDetector.dominant(any()) } returns null
+        every { ProjectLanguageDetector.verdict(any()) } returns ProjectLanguageVerdict.Cold
 
         // Overrides are premium: default the license gate to licensed so the resolution
         // logic under test runs. Individual tests override to verify the unlicensed path.
@@ -100,6 +101,102 @@ class AccentResolverTest {
         every { ProjectLanguageDetector.dominant(project) } returns "kotlin"
 
         assertEquals("#111111", AccentResolver.resolve(project, AyuVariant.MIRAGE))
+    }
+
+    @Test
+    fun `resolve uses forced project language before detected language`() {
+        val tmp = File(System.getProperty("java.io.tmpdir"), "forced-lang").canonicalPath
+        mappingsState.forcedProjectLanguages[tmp] = "typescript"
+        mappingsState.languageAccents["typescript"] = "#3178C6"
+        mappingsState.languageAccents["javascript"] = "#F7DF1E"
+
+        val project = stubProject(File(tmp))
+        every { ProjectLanguageDetector.dominant(project) } returns "javascript"
+
+        assertEquals("#3178C6", AccentResolver.resolve(project, AyuVariant.MIRAGE))
+        assertEquals(AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE, AccentResolver.source(project))
+    }
+
+    @Test
+    fun `forced language falls through when no language accent is mapped`() {
+        val tmp = File(System.getProperty("java.io.tmpdir"), "forced-no-map").canonicalPath
+        mappingsState.forcedProjectLanguages[tmp] = "typescript"
+        mappingsState.languageAccents["javascript"] = "#F7DF1E"
+
+        val project = stubProject(File(tmp))
+        every { ProjectLanguageDetector.dominant(project) } returns "javascript"
+
+        assertEquals(globalMirageAccent, AccentResolver.resolve(project, AyuVariant.MIRAGE))
+        assertEquals(AccentResolver.Source.GLOBAL, AccentResolver.source(project))
+        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.dominant(any()) }
+        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.verdict(any()) }
+    }
+
+    @Test
+    fun `project fallback applies only for definitive no-winner verdict`() {
+        val tmp = File(System.getProperty("java.io.tmpdir"), "fallback-no-winner").canonicalPath
+        mappingsState.projectFallbackAccents[tmp] = "#5CCFE6"
+
+        val project = stubProject(File(tmp))
+        every { ProjectLanguageDetector.dominant(project) } returns null
+        every { ProjectLanguageDetector.verdict(project) } returns
+            ProjectLanguageVerdict.NoWinner(mapOf("typescript" to 500L, "javascript" to 500L))
+
+        assertEquals("#5CCFE6", AccentResolver.resolve(project, AyuVariant.MIRAGE))
+        assertEquals(AccentResolver.Source.PROJECT_FALLBACK, AccentResolver.source(project))
+        io.mockk.verify(atLeast = 1) { ProjectLanguageDetector.dominant(project) }
+    }
+
+    @Test
+    fun `forced language without mapped accent still warms fallback detection when fallback exists`() {
+        val tmp = File(System.getProperty("java.io.tmpdir"), "forced-fallback-warm").canonicalPath
+        mappingsState.forcedProjectLanguages[tmp] = "typescript"
+        mappingsState.projectFallbackAccents[tmp] = "#5CCFE6"
+        mappingsState.languageAccents["javascript"] = "#F7DF1E"
+
+        val project = stubProject(File(tmp))
+        every { ProjectLanguageDetector.dominant(project) } returns null
+        every { ProjectLanguageDetector.verdict(project) } returns
+            ProjectLanguageVerdict.NoWinner(mapOf("typescript" to 500L, "javascript" to 500L))
+
+        assertEquals("#5CCFE6", AccentResolver.resolve(project, AyuVariant.MIRAGE))
+        assertEquals(AccentResolver.Source.PROJECT_FALLBACK, AccentResolver.source(project))
+        io.mockk.verify(atLeast = 1) { ProjectLanguageDetector.dominant(project) }
+    }
+
+    @Test
+    fun `project fallback does not apply for cold verdict`() {
+        val tmp = File(System.getProperty("java.io.tmpdir"), "fallback-cold").canonicalPath
+        mappingsState.projectFallbackAccents[tmp] = "#5CCFE6"
+
+        val project = stubProject(File(tmp))
+        every { ProjectLanguageDetector.verdict(project) } returns ProjectLanguageVerdict.Cold
+
+        assertEquals(globalMirageAccent, AccentResolver.resolve(project, AyuVariant.MIRAGE))
+        assertEquals(AccentResolver.Source.GLOBAL, AccentResolver.source(project))
+    }
+
+    @Test
+    fun `resolve skips detector when no language maps or fallback maps exist`() {
+        val project = stubProject(File(System.getProperty("java.io.tmpdir"), "skip-all-detector"))
+
+        assertEquals(globalMirageAccent, AccentResolver.resolve(project, AyuVariant.MIRAGE))
+
+        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.dominant(any()) }
+        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.verdict(any()) }
+    }
+
+    @Test
+    fun `resolve skips detector when forced language has no mapped accent and no fallback`() {
+        val tmp = File(System.getProperty("java.io.tmpdir"), "forced-no-accent-no-fallback").canonicalPath
+        mappingsState.forcedProjectLanguages[tmp] = "typescript"
+
+        val project = stubProject(File(tmp))
+
+        assertEquals(globalMirageAccent, AccentResolver.resolve(project, AyuVariant.MIRAGE))
+
+        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.dominant(any()) }
+        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.verdict(any()) }
     }
 
     @Test

@@ -13,7 +13,6 @@ import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
-import dev.ayuislands.accent.ProjectLanguageDetector
 import dev.ayuislands.accent.SystemAccentProvider
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.rotation.AccentRotationMode
@@ -46,10 +45,16 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
     private var storedRotationInterval: Int = AyuIslandsState.DEFAULT_ROTATION_INTERVAL_HOURS
     private var rotationEnabledCheckbox: JBCheckBox? = null
 
-    internal val overrides = OverridesGroupBuilder()
+    internal val overrides =
+        OverridesGroupBuilder(
+            currentGlobalAccentHex = {
+                variant?.let { currentVariant -> resolvePendingGlobalHex(currentVariant) }
+            },
+        )
     internal val quickSwitcher = AyuIslandsQuickSwitcherGroupBuilder()
     private var contextProject: Project? = null
     private var currentlyActiveLabel: JEditorPane? = null
+    private val overridesActiveLabelListener = Runnable { updateCurrentlyActiveLabel() }
 
     /**
      * Hook called between the Accent Color group and the Overrides group during [buildPanel].
@@ -95,7 +100,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
             externalAccentListener?.invoke(hex)
             updateCurrentlyActiveLabel()
         }
-        overrides.addPendingChangeListener { updateCurrentlyActiveLabel() }
+        overrides.addPendingChangeListener(overridesActiveLabelListener)
 
         updatePanelEnabled()
         updateCurrentlyActiveLabel()
@@ -235,14 +240,14 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         val label = currentlyActiveLabel ?: return
         val currentVariant = variant ?: return
         val globalHex = resolvePendingGlobalHex(currentVariant)
-        val effectiveHex = overrides.resolvePending(contextProject, globalHex)
+        val effectiveHex = overrides.resolvePending(contextProject, globalHex, cacheOnly = true)
         val displayHex = effectiveHex.ifBlank { globalHex }
         val presetName =
             AYU_ACCENT_PRESETS
                 .firstOrNull { it.hex.equals(displayHex, ignoreCase = true) }
                 ?.name
                 ?: "Custom"
-        val sourceText = describeActiveSource(overrides.sourcePending(contextProject))
+        val sourceText = describeActiveSource(overrides.sourcePending(contextProject, cacheOnly = true))
         label.text = "Currently active: $presetName ($sourceText)"
     }
 
@@ -277,14 +282,9 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         when (source) {
             AccentResolver.Source.PROJECT_OVERRIDE ->
                 "project override for \"${contextProject?.name ?: "?"}\""
-            AccentResolver.Source.LANGUAGE_OVERRIDE -> {
-                val dominant =
-                    contextProject
-                        ?.let { ProjectLanguageDetector.dominant(it) }
-                        ?.replaceFirstChar { it.uppercase() }
-                        ?: "?"
-                "language override: $dominant"
-            }
+            AccentResolver.Source.LANGUAGE_OVERRIDE -> AccentResolver.sourceLabel(source)
+            AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE,
+            AccentResolver.Source.PROJECT_FALLBACK,
             AccentResolver.Source.MATERIAL_THEME,
             AccentResolver.Source.IDE_ACCENT,
             AccentResolver.Source.EXTERNAL_ACCENT,

@@ -71,13 +71,18 @@ object SyntaxCategoryRegistry {
                 PrimitiveCategory.COMMENT,
                 "LINE_COMMENT$|BLOCK_COMMENT$|COMMENT$|COMMENT_REFERENCE$|_COMMENT_",
                 "MARKDOWN_BLOCK_QUOTE_MARKER|MARKDOWN_FRONT_MATTER",
-                "IGNORE\\.COMMENT|IGNORE\\.UNUSED_ENTRY",
+                "IGNORE\\.COMMENT|IGNORE\\.UNUSED_ENTRY|COND_NOT_COMPILED",
+            )
+            addRules(
+                PrimitiveCategory.FUNCTION_DECL,
+                "SWIFT_INSTANCE_METHOD",
             )
             // --- Fields (must beat KEYWORD / LOCAL_VAR) ---------------------
             addRules(
                 PrimitiveCategory.STATIC_FIELD,
-                "STATIC_FIELD|STATIC_FINAL_FIELD|STATIC_GETTER|STATIC_SETTER|STATIC_METHOD",
+                "STATIC_FIELD|STATIC_FINAL_FIELD|STATIC_GETTER|STATIC_SETTER",
                 "STATIC_MEMBER|^Static field$|org\\.rust\\.STATIC|org\\.rust\\.MUT_STATIC|PHP_CONSTANT",
+                "SWIFT\\.CONSTANT",
             )
             addRules(
                 PrimitiveCategory.INSTANCE_FIELD,
@@ -86,7 +91,8 @@ object SyntaxCategoryRegistry {
                 "TOP_LEVEL_VARIABLE|TOP_LEVEL_FUNCTION|PROPERTY_REFERENCE|HASH_KEY|TAG_KEY",
                 "TAG_VALUE|MAP_KEY|INSTANCE_PROPERTY_CUSTOM|PACKAGE_PROPERTY",
                 "INSTANCE_FIELD_ATTRIBUTES|SYNTHETIC_EXTENSION_PROPERTY|^Instance field$",
-                "^Map key$|LUA_FIELD|SWIFT_PROPERTY|Instance property reference|GO_TAG_TEXT",
+                "^Map key$|LUA_FIELD|SWIFT_PROPERTY|SWIFT_GLOBAL_VARIABLE|Instance property reference|GO_TAG_TEXT",
+                "SWIFT\\.GLOBAL_VARIABLE|SWIFT\\.PROPERTY",
                 "MAGIC_MEMBER_ACCESS|EDITORCONFIG_PROPERTY_KEY|DOTENV_KEY|HCL\\.BLOCK_ONLY_NAME_KEY",
             )
             // --- Functions / methods (must beat KEYWORD / OPERATOR) ---------
@@ -103,16 +109,19 @@ object SyntaxCategoryRegistry {
                 "ABSTRACT_METHOD_ATTRIBUTES|INHERITED_METHOD_ATTRIBUTES|PRIVATE_CALL",
                 "PROTECTED_CALL|PUBLIC_CALL|STATIC_FUNCTION|REQUIRE_CALL|IMPORT_CALL",
                 "REQUIRE_ARG_CALL|VARIABLE_AS_FUNCTION|PARAMDEF_CALL|FUNCTION$|METHOD$",
+                "FUNCTION_NAME|METHOD_NAME",
                 "KOTLIN_CONSTRUCTOR|TEAR_OFF|Method call|Method declaration",
                 "Groovy method declaration|Groovy constructor declaration|Groovy constructor call",
                 "LOCAL_FUNC|STD_API|POWER_SHELL_COMMAND_NAME|POWER_SHELL_METHOD_CALL_NAME",
                 "RBS_TMETHOD_NAME|RBS_RUBY_SPECIFIC_CALLS",
+                "FUNCTION_REFERENCE",
             )
             // --- Interface / trait -----------------------------------------
             addRules(
                 PrimitiveCategory.INTERFACE_DECL,
                 "INTERFACE_NAME$|INTERFACE_DECLARATION$|TRAIT_NAME$|INTERFACE_REFERENCE",
-                "INTERFACE_NAME_ATTRIBUTES|PROTOCOL_REFERENCE|KOTLIN_TRAIT|EXPORTED_INTERFACE",
+                "INTERFACE_NAME_ATTRIBUTES|PROTOCOL_REFERENCE|PROTOCOL_NAME|PROTOCOL_DECLARATION",
+                "KOTLIN_TRAIT|EXPORTED_INTERFACE",
                 "INTERFACE$|^Trait name$|^Interface name$|Scala Trait|RBS_TINTERFACEIDENT",
             )
             // --- Class / enum / struct (declarations + references) ----------
@@ -124,7 +133,8 @@ object SyntaxCategoryRegistry {
                 "RECORD_NAME|RECORD_COMPONENT|STRUCT_REFERENCE|STRUCT_LOCAL_MEMBER_CALL",
                 "STRUCT_EXPORTED_MEMBER_CALL|PACKAGE_EXPORTED_STRUCT|PACKAGE_LOCAL_STRUCT",
                 "PACKAGE_EXPORTED_INTERFACE|PACKAGE_LOCAL_INTERFACE|LOCAL_INTERFACE_REFERENCE",
-                "EXPORTED_STRUCT_REFERENCE|ACTOR_REFERENCE|MIXIN|DATA_OBJECT|GIVEN",
+                "EXPORTED_STRUCT_REFERENCE|ACTOR_REFERENCE|ACTOR_DECLARATION|MIXIN|DATA_OBJECT|GIVEN",
+                "STRUCT_NAME|STRUCT_DECLARATION|ENUM_DECLARATION|ENUM_MEMBER",
                 "ABSTRACT_CLASS|MODULE_NAME|OBJECT$|CLASS$|ENUM$|^Class$",
                 "^Enum name$|^Anonymous class name$|^Abstract class name$|Scala Class",
                 "Scala Object|Scala Given|Scala Abstract class|Scala Enum|GO_TYPE_SPECIFICATION",
@@ -135,7 +145,7 @@ object SyntaxCategoryRegistry {
             // --- Generics --------------------------------------------------
             addRules(
                 PrimitiveCategory.GENERICS,
-                "TYPE_PARAMETER$|GENERICS$|GENERIC$|TYPE_ARGUMENT$|TYPE_NAME_DYNAMIC",
+                "TYPE_PARAMETER$|GENERIC_TYPE_PARAMETER|GENERICS$|GENERIC$|TYPE_ARGUMENT$|TYPE_NAME_DYNAMIC",
             )
             // --- Keywords / modifiers --------------------------------------
             addRules(
@@ -144,7 +154,8 @@ object SyntaxCategoryRegistry {
                 "DIRECTIVE$|HEADER$|TAG_NAME$|XML_NS_PREFIX|XML_TAG_DATA",
                 "DIRECTIVE_PREFIX|DIRECTIVE_COMMAND|DIRECTIVE_KEY|DIRECTIVE_VALUE",
                 "MACRO_RULES|MACRO_IDENTIFIER|MACRO_BINDING|MACRO_META_VAR",
-                "MACRO_GROUP|MACRO_DOLLAR|MACRO_COLON|MACRO_EXCL",
+                "MACRO_GROUP|MACRO_DOLLAR|MACRO_COLON|MACRO_EXCL|MACRO$",
+                "SELF_SUPER|DIRECTIVE_CONDITION|DIRECTIVE_FLAG",
                 "REQUIRE_CALL|WORDS|MARKDOWN_HEADER|NGINX_IF|NGINX_GEO",
                 "NGINX_MAP|DROOLS_OPERATIONS|Scalatest keyword|Scala directive",
                 "Scala XML tag$|Scala XML tag name|GENERATED_ITEM|QUTE_BOOLEAN",
@@ -161,6 +172,7 @@ object SyntaxCategoryRegistry {
                 "PARAMETER_REFERENCE|DYNAMIC_PARAMETER_DECLARATION|DYNAMIC_PARAMETER_REFERENCE",
                 "PARAMETER_ATTRIBUTES|REASSIGNED_PARAMETER_ATTRIBUTES|LAMBDA_PARAMETER_ATTRIBUTES",
                 "ARGUMENT_LABEL|ANONYMOUS_PARAMETER|TUPLE_LABEL|TUPLE_TYPE_LABEL",
+                "ANONYMOUS_CLOSURE_PARAMETER",
                 "FUNCTION_PARAM|MAKEFILE_FUNCTION_PARAM|Closure parameter|Groovy parameter",
                 "Groovy reassigned parameter|Scala Parameter|Scala Named Argument",
                 "Scala Anonymous Parameter",
@@ -182,7 +194,7 @@ object SyntaxCategoryRegistry {
                 "NGINX_VARIABLE|NGINX_LUA_BLOCK_DIRECTIVE|HTTP_REQUEST_PROTOCOL",
                 "HTTP_REQUEST_PORT|HTTP_REQUEST_PARAMETER_NAME|HTTP_REQUEST_PARAMETER_VALUE",
                 "HTTP_REQUEST_FILE_VARIABLE_NAME|COOKIE_TOKEN|POWER_SHELL_VARIABLE",
-                "POWER_SHELL_PROPERTY_REF_NAME|SWIFT_GLOBAL_VARIABLE|SWIFT_NESTED_FUNCTION_CALL",
+                "POWER_SHELL_PROPERTY_REF_NAME",
                 "QUTE_IDENTIFIER|QUTE_TAG_NAME|TIL\\.IDENTIFIER|TIL\\.PROPERTY_REFERENCE",
                 "TIL\\.RESOURCE_INSTANCE_REFERENCE|PROTO_IDENTIFIER|PROTOTEXT_IDENTIFIER",
                 "PROTO_ENUM_VALUE|PROTOTEXT_ENUM_VALUE|JSONPATH\\.IDENTIFIER|JSONPATH\\.FUNCTION",
@@ -193,7 +205,7 @@ object SyntaxCategoryRegistry {
             addRules(
                 PrimitiveCategory.STRING_LITERAL,
                 "STRING$|TEMPLATE_STRING$|RAW_STRING$|CHAR$|CHARACTER$|STRING_LITERAL$",
-                "STRING_ESCAPE|HEREDOC_ID|HEREDOC_CONTENT|HEREDOC|BACKQUOTE",
+                "STRING_ESCAPE|ESCAPE_SEQUENCE|HEREDOC_ID|HEREDOC_CONTENT|HEREDOC|BACKQUOTE",
                 "GString|FSTRING_FRAGMENT|REGEX$|REGEXP$|ESCAPE$",
                 "VALID_ESCAPE|INVALID_ESCAPE|MARKDOWN_CODE_SPAN|INTERPOLATION",
                 "String Injection|VALUE$|CONTENT$",
@@ -209,6 +221,7 @@ object SyntaxCategoryRegistry {
                 "ANNOTATION$|DECORATOR$|ATTRIBUTE$|ANNOTATION_NAME|ATTRIBUTE_NAME",
                 "ATTRIBUTE_ARGUMENT|ANNOTATION_ATTRIBUTE_NAME|ANNOTATION_ATTRIBUTE_NAME_ATTRIBUTES",
                 "BUILD_TAG|Scala Annotation|^Annotation$|^Anotation attribute name$",
+                "ERROR_HINT|METADATA$",
                 "PROPERTY_BINDING_ATTR_NAME|EVENT_BINDING_ATTR_NAME|BANANA_BINDING_ATTR_NAME",
                 "TEMPLATE_VARIABLE_ATTR_NAME|TEMPLATE_BINDINGS_ATTR_NAME|YAML_ANCHOR",
                 "Scala XML attribute",
@@ -217,18 +230,21 @@ object SyntaxCategoryRegistry {
             addRules(
                 PrimitiveCategory.OPERATOR,
                 "OPERATION_SIGN$|OPERATOR$|OPERATORS$|PUNCTUATION$|BRACES$",
-                "BRACKETS$|PARENTHS$|FAT_ARROW|PIPE$|BANG$|AMP$|SPREAD$",
+                "BRACKETS$|PARENTHS$|PARENTHESES$|COMMA$|COLON$|DOT$|SEMICOLON$",
+                "FAT_ARROW|PIPE$|BANG$|AMP$|SPREAD$",
                 "SIGN$|BINARY_OPERATORS|REDIRECTION|SEPARATOR|CONCATENATION",
                 "TAG_BRACE|SCRIPT_DELIMITERS|TEMPLATE_BINDINGS|^Lambda braces$",
                 "^Closure braces$|^Label$|JS\\.LABEL|BATCH\\.LABEL",
                 "BATCH\\.LABEL_REFERENCE|GOTO_LABEL|POWER_SHELL_LABEL_NAME",
                 "YAML_SCALAR_LIST|CSS\\.AMPERSAND|PROGUARD_WILDCARD|IGNORE\\.BRACKET",
+                "WILDCARD",
             )
             // --- Type references / aliases ---------------------------------
             addRules(
                 PrimitiveCategory.TYPE_REF,
-                "TYPE_REFERENCE$|TYPE_NAME$|TYPE_ALIAS$|TYPE$|TYPEALIAS_REFERENCE",
-                "PRIMITIVE_TYPE_HINT|PREDEFINED_SCOPE|PREDEFINED|Scala Type",
+                "TYPE_REFERENCE$|TYPE_NAME$|TYPE_ALIAS$|TYPE$|TYPEALIAS$|TYPEALIAS_REFERENCE",
+                "ASSOCIATED_TYPE_DECLARATION",
+                "TYPE_HINT|PRIMITIVE_TYPE_HINT|PREDEFINED_SCOPE|PREDEFINED|Scala Type",
                 "Scala Predefined types|Scala Mutable Collection|Scala Immutable Collection",
                 "StandardF Java Collection|Type parameter|TYPE_GUARD|DOCKER_ATTRIBUTES",
                 "DOCKER_CONSTANT|QL_DATETIME|PUBLIC_REFERENCE|PROTECTED_REFERENCE",

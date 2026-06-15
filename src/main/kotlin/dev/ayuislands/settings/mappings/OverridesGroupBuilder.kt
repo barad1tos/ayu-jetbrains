@@ -1,51 +1,38 @@
 package dev.ayuislands.settings.mappings
 
-import com.intellij.icons.AllIcons
-import com.intellij.openapi.actionSystem.ActionUpdateThread
-import com.intellij.openapi.actionSystem.AnAction
-import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.text.StringUtil
-import com.intellij.ui.ColorUtil
+import com.intellij.openapi.util.Disposer
 import com.intellij.ui.JBColor
-import com.intellij.ui.ToolbarDecorator
-import com.intellij.ui.components.JBLabel
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.table.JBTable
 import com.intellij.util.messages.MessageBusConnection
-import com.intellij.util.ui.JBUI
-import com.intellij.util.ui.UIUtil
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
-import dev.ayuislands.accent.LanguageDetectionRules
 import dev.ayuislands.accent.ProjectLanguageDetectionListener
 import dev.ayuislands.accent.ProjectLanguageDetector
+import dev.ayuislands.accent.ProjectLanguageVerdict
 import dev.ayuislands.accent.runCatchingPreservingCancellation
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.PremiumFeatureGate
 import dev.ayuislands.settings.premiumFeatureNotice
-import java.awt.BorderLayout
 import java.awt.CardLayout
-import java.awt.Color
 import java.awt.Component
-import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.FlowLayout
-import java.awt.event.MouseAdapter
-import java.awt.event.MouseEvent
 import java.io.File
+import java.util.Locale
 import javax.swing.ButtonGroup
 import javax.swing.Icon
-import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.JRadioButton
 import javax.swing.JTable
 import javax.swing.ListSelectionModel
-import javax.swing.SwingConstants
 import javax.swing.SwingUtilities
 import javax.swing.table.DefaultTableCellRenderer
 import javax.swing.table.TableModel
@@ -59,7 +46,10 @@ import javax.swing.table.TableModel
  * [apply], and [reset] to participate in the usual settings lifecycle. [addPendingChangeListener]
  * lets observers (the reactive "Currently active: ..." comment) refresh on every edit.
  */
-class OverridesGroupBuilder {
+@Suppress("LargeClass", "TooManyFunctions")
+class OverridesGroupBuilder(
+    private val currentGlobalAccentHex: () -> String? = ::storedCurrentVariantAccentHex,
+) {
     private val projectModel = ProjectMappingsTableModel()
     private val languageModel = LanguageMappingsTableModel()
     private val projectTable: JBTable = AutoSizingTable(projectModel)
@@ -67,20 +57,33 @@ class OverridesGroupBuilder {
 
     private var storedProjects: List<ProjectMapping> = emptyList()
     private var storedLanguages: List<LanguageMapping> = emptyList()
+    private val pendingFallbackAccents: MutableMap<String, String> = linkedMapOf()
+    private val pendingForcedLanguages: MutableMap<String, String> = linkedMapOf()
+    private var storedFallbackAccents: Map<String, String> = emptyMap()
+    private var storedForcedLanguages: Map<String, String> = emptyMap()
     private val listeners: MutableList<Runnable> = mutableListOf()
+    private val diagnosticsRefreshListener = Runnable { refreshResolutionPanel() }
 
     private val cardPanel = JPanel(CardLayout())
     private var parentProject: Project? = null
+    private val tableActions =
+        OverridesTableActions(
+            projectModel = projectModel,
+            languageModel = languageModel,
+            projectTable = projectTable,
+            languageTable = languageTable,
+            parentProjectProvider = { parentProject },
+            onChanged = { fireChanged() },
+        )
 
     /**
-     * Captured [JPanel] backing the detected-language proportions status row.
-     * Children are cleared and rebuilt on every [reset] and every pending-change
-     * event via [populateProportionsPanel]. Each child is a [JBLabel] carrying
-     * the language-specific icon from
-     * [LanguageDetectionRules.iconForLanguageId] (or the info icon for the
-     * polyglot state). Null before [buildGroup] has populated it.
+     * Captured diagnostics panel for focused-project language resolution.
+     * Refreshed on every [reset], pending-change event, and
+     * [ProjectLanguageDetectionListener.TOPIC] notification. The legacy
+     * `proportionsPanel` name is intentionally retained because test seams and
+     * older harness code still reflect into it.
      */
-    private var proportionsPanel: JPanel? = null
+    private var proportionsPanel: ProjectLanguageResolutionPanel? = null
 
     /**
      * Live `MessageBusConnection` subscribing the proportions panel to
@@ -95,40 +98,26 @@ class OverridesGroupBuilder {
      * doesn't double-subscribe either.
      */
     private var detectionConnection: MessageBusConnection? = null
+    private var detectionConnectionParent: Disposable? = null
 
     /**
-     * License-gate snapshot for the rescan affordance, captured once at
-     * [buildGroup] time from `LicenseChecker.isLicensedOrGrace()`. Kept as a
-     * dedicated boolean (rather than folding into the `parentProject`
-     * nullability) so the two "Rescan hidden" reasons stay distinguishable
-     * at debug time:
-     *   - `parentProject == null` → Settings opened without a focused project.
-     *   - `parentProject != null && !rescanLicensed` → unlicensed user.
-     *
-     * Rescan is a Pro feature by project policy (all new features premium
-     * by default). Reading the license once in [buildGroup] keeps the hot
-     * render path ([renderProportionsInto]) out of a repeated
-     * `LicenseChecker.isLicensedOrGrace()` call and avoids a cyclomatic-
-     * budget bump from an inline `&&`.
-     *
-     * [buildRescanAffordanceLabel]'s `mouseClicked` defence-in-depth
-     * re-reads `LicenseChecker.isLicensedOrGrace()` live on click so a
-     * license that expires while Settings is open can't still fire a rescan
-     * from a stale panel.
+     * License-gate snapshot captured once at [buildGroup] time for the static
+     * premium gate copy and table action preview. Diagnostics read the live
+     * license state on every refresh so their source/action labels stay aligned
+     * with [sourcePending] if the license changes while Settings is open.
      */
     private var rescanLicensed: Boolean = false
 
     /**
-     * Derived rescan-eligibility: non-null iff a focused project is
-     * present AND the license snapshot permits the Pro affordance. Kept
-     * as a computed property (property getters don't count toward
-     * detekt's `TooManyFunctions` budget) so the single read in
-     * [renderProportionsInto] reduces to one `?.let` branch. The two
-     * reasons for null remain debuggable independently via
-     * [parentProject] and [rescanLicensed].
+     * Derived rescan-eligibility: non-null iff a focused project is present and
+     * the current live license permits the Pro affordance.
      */
     private val rescanEligibleProject: Project?
-        get() = parentProject?.takeIf { rescanLicensed }
+        get() =
+            parentProject
+                ?.takeUnless { it.isDefault }
+                ?.takeUnless { it.isDisposed }
+                ?.takeIf { LicenseChecker.isLicensedOrGrace() }
 
     init {
         for (table in listOf(projectTable, languageTable)) {
@@ -161,6 +150,7 @@ class OverridesGroupBuilder {
      */
     fun dispose() {
         safelyDisconnectDetection("dispose")
+        listeners.clear()
     }
 
     /**
@@ -185,11 +175,20 @@ class OverridesGroupBuilder {
      * variant swap.
      */
     private fun safelyDisconnectDetection(site: String) {
-        runCatchingPreservingCancellation { detectionConnection?.disconnect() }
+        val connection = detectionConnection
+        val parent = detectionConnectionParent
+        detectionConnection = null
+        detectionConnectionParent = null
+        runCatchingPreservingCancellation { connection?.disconnect() }
             .onFailure { exception ->
                 LOG.debug("OverridesGroupBuilder $site disconnect failed", exception)
             }
-        detectionConnection = null
+        parent?.let { disposable ->
+            runCatchingPreservingCancellation { Disposer.dispose(disposable) }
+                .onFailure { exception ->
+                    LOG.debug("OverridesGroupBuilder $site parent dispose failed", exception)
+                }
+        }
     }
 
     fun buildGroup(
@@ -197,14 +196,6 @@ class OverridesGroupBuilder {
         contextProject: Project?,
     ) {
         parentProject = contextProject
-        // Defense-in-depth: StartupActivity warms the detector cache off-EDT on
-        // project open, but Settings might be opened before that coroutine lands
-        // (race window) or the cache might have been invalidated mid-session.
-        // Kick a warmup now on the EDT path — the detector's own EDT bail-out
-        // schedules a background scan and returns null immediately, so this is
-        // zero-cost on EDT; the first paint may show the polyglot copy but the
-        // next reset (any model edit or panel reopen) picks up the warm cache.
-        contextProject?.let { ProjectLanguageDetector.dominant(it) }
         loadFromState()
 
         val licensed = LicenseChecker.isLicensedOrGrace()
@@ -217,10 +208,9 @@ class OverridesGroupBuilder {
                 requestMessage = "Unlock accent overrides",
                 isUnlocked = licensed,
             )
-        // Capture the license snapshot up front so `renderProportionsInto`
-        // reads one boolean + one nullable without bumping its cyclomatic
-        // count. See `rescanLicensed` KDoc for why license and project
-        // eligibility live in separate fields.
+        // Capture the license snapshot up front so the diagnostics panel state
+        // reads one boolean + one nullable. See `rescanLicensed` KDoc for why
+        // license and project eligibility live in separate fields.
         rescanLicensed = licensed
 
         val projectsRadio = JRadioButton("Projects", true)
@@ -240,8 +230,8 @@ class OverridesGroupBuilder {
                 // Retain strong reference so actions survive focus changes.
                 putClientProperty("ayu.overrides.group", segmentedButtonGroup)
             }
-        cardPanel.add(decorateTable(projectTable, projectActions(licensed)), CARD_PROJECTS)
-        cardPanel.add(decorateTable(languageTable, languageActions(licensed)), CARD_LANGUAGES)
+        cardPanel.add(tableActions.decorateProjectTable(licensed), CARD_PROJECTS)
+        cardPanel.add(tableActions.decorateLanguageTable(licensed), CARD_LANGUAGES)
         // No fixed preferredSize: the AutoSizingTable drives height via
         // getPreferredScrollableViewportSize (row count × row height) and every column
         // auto-packs to the wider of header/content on every model change. AUTO_RESIZE_LAST_COLUMN
@@ -267,48 +257,37 @@ class OverridesGroupBuilder {
                         .align(Align.FILL)
                 }
                 row {
-                    val gap = JBUI.scale(PROPORTIONS_ENTRY_GAP_PX)
-                    val statusPanel =
-                        JPanel(FlowLayout(FlowLayout.LEFT, gap, 0)).apply {
-                            isOpaque = false
-                            border = null
-                        }
-                    proportionsPanel = statusPanel
-                    populateProportionsPanel(statusPanel)
-                    cell(statusPanel)
+                    val resolutionPanel = createResolutionPanel()
+                    proportionsPanel = resolutionPanel
+                    refreshResolutionPanel()
+                    cell(resolutionPanel)
                 }
             }
         collapsible.expanded = settings.state.overridesGroupExpanded
         collapsible.addExpandedListener { expanded ->
             settings.state.overridesGroupExpanded = expanded
         }
-        // Two independent refresh channels share one repopulate helper:
+        // Two independent refresh channels share one diagnostics refresh helper:
         //  - Pending-change listener: Settings-local edits (add / edit / delete a row)
         //    fire `fireChanged()` synchronously on EDT, which re-reads the warm cache.
         //  - Detection Topic: async scan completions (startup warmup, `ModuleRootListener`
         //    content-root change, user-triggered rescan) fire
         //    `ProjectLanguageDetectionListener.scanCompleted` on EDT — the only signal
         //    the row has to exit a stale winner state without a settings edit.
-        addPendingChangeListener { proportionsPanel?.let { populateProportionsPanel(it) } }
-        // Subscription lifetime is tied to the Settings panel (disconnected by
-        // [dispose] from the Configurable's disposeUIResources). Any prior
-        // connection on this same builder is torn down first so a rebuild in
-        // place can't double-subscribe. Wrapped in runCatchingPreservingCancellation
-        // so a platform regression throwing from `disconnect()` (observed as
-        // `AlreadyDisposedException` during plugin-unload races) doesn't
-        // propagate out of `buildGroup` and break the Settings render path.
-        // The project MessageBus is the ultimate safety net — if Settings is
-        // orphaned without disposeUI firing, the connection still drops on
-        // project close. Shared with `dispose()` via
-        // [safelyDisconnectDetection] so a single red/green test covers
-        // both call sites by construction.
+        addPendingChangeListener(diagnosticsRefreshListener)
+        // Subscription lifetime is tied to an owned Disposable parent and is
+        // also disconnected from [dispose] / re-entry. The explicit disconnect
+        // preserves the existing failure-tolerant teardown path; the parented
+        // MessageBus connection gives the platform a proper lifetime owner.
         safelyDisconnectDetection("re-entry")
         // The `panel.isDisplayable` guard inside invokeLater below covers
         // the window where Settings has been closed but dispose hasn't
-        // fired yet — without it, `populateProportionsPanel` would paint
-        // into a detached panel and waste EDT budget.
+        // fired yet — without it, `refreshResolutionPanel` would paint into a
+        // detached panel and waste EDT budget.
         contextProject?.let { project ->
-            val connection = project.messageBus.connect()
+            val connectionParent = Disposer.newDisposable("AyuIslandsOverrides.languageDiagnostics")
+            detectionConnectionParent = connectionParent
+            val connection = project.messageBus.connect(connectionParent)
             detectionConnection = connection
             connection.subscribe(
                 ProjectLanguageDetectionListener.TOPIC,
@@ -316,7 +295,7 @@ class OverridesGroupBuilder {
                     SwingUtilities.invokeLater {
                         val panel = proportionsPanel ?: return@invokeLater
                         if (!panel.isDisplayable) return@invokeLater
-                        populateProportionsPanel(panel)
+                        refreshResolutionPanel()
                     }
                 },
             )
@@ -332,7 +311,10 @@ class OverridesGroupBuilder {
 
         val currentLanguages = languageModel.snapshot().toLanguageFingerprint()
         val storedLanguagesFingerprint = storedLanguages.toLanguageFingerprint()
-        return currentLanguages != storedLanguagesFingerprint
+        if (currentLanguages != storedLanguagesFingerprint) return true
+
+        if (pendingFallbackAccents != storedFallbackAccents) return true
+        return pendingForcedLanguages != storedForcedLanguages
     }
 
     fun apply() {
@@ -348,6 +330,10 @@ class OverridesGroupBuilder {
         for (row in languageModel.snapshot()) {
             state.languageAccents[row.languageId] = row.hex
         }
+        state.projectFallbackAccents.clear()
+        state.projectFallbackAccents.putAll(pendingFallbackAccents)
+        state.forcedProjectLanguages.clear()
+        state.forcedProjectLanguages.putAll(pendingForcedLanguages)
 
         // Re-apply the committed mapping set via resolver → applicator → swap-cache sync.
         // Keep the focus-swap cache consistent so the next WINDOW_ACTIVATED event evaluates
@@ -376,18 +362,26 @@ class OverridesGroupBuilder {
         }
         storedProjects = projectModel.snapshot().map { ProjectMapping(it.canonicalPath, it.displayName, it.hex) }
         storedLanguages = languageModel.snapshot().map { LanguageMapping(it.languageId, it.displayName, it.hex) }
+        storedFallbackAccents = pendingFallbackAccents.toMap()
+        storedForcedLanguages = pendingForcedLanguages.toMap()
         fireChanged()
     }
 
     fun reset() {
         projectModel.replaceAll(storedProjects.map { ProjectMapping(it.canonicalPath, it.displayName, it.hex) })
         languageModel.replaceAll(storedLanguages.map { LanguageMapping(it.languageId, it.displayName, it.hex) })
-        proportionsPanel?.let { populateProportionsPanel(it) }
+        pendingFallbackAccents.clear()
+        pendingFallbackAccents.putAll(storedFallbackAccents)
+        pendingForcedLanguages.clear()
+        pendingForcedLanguages.putAll(storedForcedLanguages)
+        refreshResolutionPanel()
         fireChanged()
     }
 
     fun addPendingChangeListener(runnable: Runnable) {
-        listeners += runnable
+        if (listeners.none { it === runnable }) {
+            listeners += runnable
+        }
     }
 
     /**
@@ -397,284 +391,213 @@ class OverridesGroupBuilder {
     fun resolvePending(
         project: Project?,
         fallbackGlobalHex: String,
-    ): String {
-        if (project != null && !project.isDefault && !project.isDisposed) {
-            AccentResolver.projectKey(project)?.let { key ->
-                projectModel.snapshot().firstOrNull { it.canonicalPath == key }?.let { return it.hex }
-            }
-            val languages = languageModel.snapshot()
-            if (languages.isNotEmpty()) {
-                ProjectLanguageDetector.dominant(project)?.let { languageId ->
-                    // LanguageMapping.init enforces lowercase at construction; ProjectLanguageDetector
-                    // returns lowercase ids. Case-sensitive equality is sufficient — plain `==`
-                    // stays consistent with LanguageMappingsTableModel.containsLanguage.
-                    languages.firstOrNull { it.languageId == languageId }?.let { return it.hex }
-                }
-            }
-        }
-        return fallbackGlobalHex
-    }
+        cacheOnly: Boolean = false,
+    ): String = findPendingOverride(project, warmDetector = !cacheOnly)?.hex ?: fallbackGlobalHex
 
     /**
      * Matching [AccentResolver.Source] for [project] under the **pending** overrides model.
      */
-    fun sourcePending(project: Project?): AccentResolver.Source {
-        if (project != null && !project.isDefault && !project.isDisposed) {
-            val key = AccentResolver.projectKey(project)
-            if (key != null && projectModel.snapshot().any { it.canonicalPath == key }) {
-                return AccentResolver.Source.PROJECT_OVERRIDE
-            }
-            val languages = languageModel.snapshot()
-            if (languages.isNotEmpty()) {
-                val dominant = ProjectLanguageDetector.dominant(project)
-                // See resolvePending: both sides are lowercase by invariant, no compensator needed.
-                if (dominant != null && languages.any { it.languageId == dominant }) {
-                    return AccentResolver.Source.LANGUAGE_OVERRIDE
-                }
-            }
+    fun sourcePending(
+        project: Project?,
+        cacheOnly: Boolean = false,
+    ): AccentResolver.Source =
+        findPendingOverride(project, warmDetector = !cacheOnly)?.source ?: AccentResolver.Source.GLOBAL
+
+    private fun findPendingOverride(
+        project: Project?,
+        warmDetector: Boolean,
+    ): PendingResolvedAccent? {
+        if (!LicenseChecker.isLicensedOrGrace()) return null
+        val activeProject =
+            project
+                ?.takeUnless { it.isDefault }
+                ?.takeUnless { it.isDisposed }
+                ?: return null
+        val projectKey = AccentResolver.projectKey(activeProject) ?: return null
+        projectModel
+            .snapshot()
+            .firstOrNull { it.canonicalPath == projectKey }
+            ?.let { return PendingResolvedAccent(AccentResolver.Source.PROJECT_OVERRIDE, it.hex) }
+
+        val languageAccents = languageModel.snapshot().associate { it.languageId to it.hex }
+        val hasForcedLanguageEntry = pendingForcedLanguages.containsKey(projectKey)
+        val forcedLanguageAccent =
+            pendingForcedLanguages[projectKey]
+                ?.let { forcedLanguageId -> languageAccents[forcedLanguageId] }
+        val hasProjectFallbackCandidate = pendingFallbackAccents.containsKey(projectKey)
+
+        forcedLanguageAccent?.let {
+            return PendingResolvedAccent(AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE, it)
         }
-        return AccentResolver.Source.GLOBAL
+
+        val shouldDetectLanguage = !hasForcedLanguageEntry && languageAccents.isNotEmpty()
+        if (!shouldDetectLanguage && !hasProjectFallbackCandidate) return null
+
+        val cachedVerdict =
+            if (warmDetector) {
+                null
+            } else {
+                ProjectLanguageDetector.verdict(activeProject)
+            }
+        var detectorConsulted = false
+        if (shouldDetectLanguage) {
+            detectorConsulted = true
+            pendingDetectedLanguageId(activeProject, cachedVerdict, warmDetector)
+                ?.let { languageId -> languageAccents[languageId] }
+                ?.let { return PendingResolvedAccent(AccentResolver.Source.LANGUAGE_OVERRIDE, it) }
+        }
+
+        return findPendingFallbackOverride(
+            activeProject = activeProject,
+            projectKey = projectKey,
+            detectorConsulted = detectorConsulted,
+            cachedVerdict = cachedVerdict,
+            warmDetector = warmDetector,
+        )
+    }
+
+    private fun pendingDetectedLanguageId(
+        activeProject: Project,
+        cachedVerdict: ProjectLanguageVerdict?,
+        warmDetector: Boolean,
+    ): String? =
+        if (warmDetector) {
+            ProjectLanguageDetector.dominant(activeProject)
+        } else {
+            (cachedVerdict as? ProjectLanguageVerdict.Detected)?.languageId
+        }
+
+    private fun findPendingFallbackOverride(
+        activeProject: Project,
+        projectKey: String,
+        detectorConsulted: Boolean,
+        cachedVerdict: ProjectLanguageVerdict?,
+        warmDetector: Boolean,
+    ): PendingResolvedAccent? {
+        val fallbackAccent = pendingFallbackAccents[projectKey] ?: return null
+        if (!detectorConsulted && warmDetector) {
+            ProjectLanguageDetector.dominant(activeProject)
+        }
+        val verdict = cachedVerdict ?: ProjectLanguageDetector.verdict(activeProject)
+        return fallbackAccent
+            .takeIf { verdict is ProjectLanguageVerdict.NoWinner }
+            ?.let { PendingResolvedAccent(AccentResolver.Source.PROJECT_FALLBACK, it) }
     }
 
     // Internals: pending-model resolver + UI wiring helpers
 
     /**
-     * Compute the current status-line text by reading from the detector's warm cache.
-     *
-     * Returns the fixed polyglot copy ([POLYGLOT_COPY]) when:
-     *  - [parentProject] is null (Settings opened with no focused project)
-     *  - [ProjectLanguageDetector.proportions] returns null (cold cache, polyglot
-     *    no-winner verdict, or legacy-SDK fallback path — all leave weightsCache empty)
-     *  - [LanguageDetectionRules.pickTopLanguagesForDisplay] produces a blank string
-     *    (all-zero weights or markup-only below-threshold — same visual as polyglot)
-     *
-     * Otherwise returns [DETECTED_PREFIX] concatenated with the formatter output,
-     * passed through [StringUtil.escapeXmlEntities] — the current icon-row
-     * renderer uses plain-text `JBLabel`s that never parse HTML, so the escape
-     * is not load-bearing for the production UI, but this helper survives as a
-     * regression guard against a third-party language plugin registering a
-     * display name containing markup: the escape keeps the text projection safe
-     * against a future render path that switches back to an HTML-capable label.
-     *
-     * O(1) HashMap probe plus a bounded formatter pass; safe to call on EDT.
-     *
-     * Exposed as an `internal @TestOnly` seam so
-     * `OverridesGroupBuilderProportionsTest` can assert every user-visible render
-     * state without instantiating the Swing tree — the UI builder itself no
-     * longer calls this helper (the icon-panel path lives in
-     * [populateProportionsPanel]), so this method survives as a pure test
-     * projection over the text-equivalent rendering.
+     * Legacy-named test seam for the diagnostics row summary. The production UI
+     * now renders [ProjectLanguageResolutionPanel], but keeping this method name
+     * avoids a broad test-harness rewrite while switching the read path to
+     * [ProjectLanguageDetector.verdict].
      */
     @org.jetbrains.annotations.TestOnly
     internal fun currentProportionsTextForTest(): String {
-        val project = parentProject ?: return POLYGLOT_COPY
-        val weights = ProjectLanguageDetector.proportions(project) ?: return POLYGLOT_COPY
-        val rendered = LanguageDetectionRules.pickTopLanguagesForDisplay(weights)
-        if (rendered.isBlank()) return POLYGLOT_COPY
-        return DETECTED_PREFIX + StringUtil.escapeXmlEntities(rendered)
+        val panel = proportionsPanel ?: createResolutionPanel().also { proportionsPanel = it }
+        refreshResolutionPanel()
+        return panel.currentSummaryForTest()
     }
 
-    /**
-     * Rebuild the status-panel children from the detector's warm cache. Clears
-     * existing children first so stale entries from a previous project focus
-     * don't leak. Called from the inline panel construction inside [buildGroup]
-     * (initial paint), from [reset] (Settings re-opens or Cancel), and from the
-     * pending-change listener registered in [buildGroup] (override add / edit /
-     * delete path via [fireChanged]).
-     *
-     * Two render paths:
-     *  - **Icon row** (normal): one [JBLabel] per [LanguageDetectionRules.DisplayEntry]
-     *    with the IDE-platform icon from [LanguageDetectionRules.iconForLanguageId]
-     *    (null for the "other" bucket — JBLabel without an icon renders as
-     *    text-only, same font). Labels carry the raw display name + percentage.
-     *    Because `JBLabel.text` is plain-text by default (NOT `<html>`-prefixed),
-     *    any pathological language display name renders literally — no HTML
-     *    interpretation, no need for escape-xml.
-     *  - **Polyglot row** (weights cache cold OR `pickDisplayEntries` returned
-     *    an empty list): one [JBLabel] with
-     *    `AllIcons.General.Information` + [POLYGLOT_COPY]. Visually distinct
-     *    from the icon row so the user instantly sees "no single dominant".
-     */
-    private fun populateProportionsPanel(panel: JPanel) {
-        // Wrap the entire rebuild under runCatchingPreservingCancellation so a
-        // third-party Language plugin throwing from `associatedFileType.icon`,
-        // a `ConcurrentModificationException` on `Language.getRegisteredLanguages()`
-        // during a mid-render plugin unload, or any other transient platform
-        // failure cannot propagate out of this EDT callback — the UI DSL builder,
-        // the pending-change listener chain (`listeners.forEach { it.run() }`),
-        // and `reset()` all call this helper and a bubbled exception would break
-        // the entire Overrides group, not just the proportions row.
-        //
-        // Atomic-swap strategy: render into a detached staging `JPanel` first, and
-        // only touch the live `panel` once rendering fully succeeded. A prior
-        // version cleared `panel` BEFORE rendering, so a mid-render throw left the
-        // user looking at a blank row while the log claimed "previous state" —
-        // misleading triage. Now the live panel is either fully replaced or left
-        // exactly as the user last saw it.
-        // Construct a FRESH FlowLayout for the staging panel instead of aliasing
-        // `panel.layout`. `FlowLayout` is stateless today, but sharing a layout
-        // instance across two containers is undefined behavior if a future edit
-        // swaps the live panel's layout to one that caches per-child constraints
-        // (GridBagLayout, MigLayout). Reconstruct from the same scaled gap used
-        // in `buildGroup` so the staging pack width matches the live pack width.
-        val gap = JBUI.scale(PROPORTIONS_ENTRY_GAP_PX)
-        val staging =
-            JPanel(FlowLayout(FlowLayout.LEFT, gap, 0)).apply {
-                isOpaque = panel.isOpaque
-                border = panel.border
-            }
-        val outcome = runCatchingPreservingCancellation { renderProportionsInto(staging) }
-        outcome.onFailure { exception ->
-            LOG.warn("Proportions panel repopulate failed; leaving previous state", exception)
-            return
-        }
-        panel.removeAll()
-        staging.components.toList().forEach { child ->
-            staging.remove(child)
-            panel.add(child)
-        }
-        panel.revalidate()
-        panel.repaint()
+    private fun createResolutionPanel(): ProjectLanguageResolutionPanel =
+        ProjectLanguageResolutionPanel(
+            currentAccentHex = ::currentPendingAccentHex,
+            onSetFallback = { hex -> setFocusedProjectFallback(hex) },
+            onSetForcedLanguage = { languageId -> setFocusedProjectForcedLanguage(languageId) },
+            onClearForcedLanguage = { setFocusedProjectForcedLanguage(null) },
+            onClearFallback = { setFocusedProjectFallback(null) },
+            onRescan = { rescanEligibleProject?.let(ProjectLanguageDetector::rescan) },
+            canRescanNow = { LicenseChecker.isLicensedOrGrace() },
+        )
+
+    private fun refreshResolutionPanel() {
+        proportionsPanel?.refresh(resolutionPanelState())
     }
 
-    /**
-     * Paint the proportions content into [panel] — the polyglot fallback label
-     * when there are no entries, otherwise the leading prefix plus one
-     * icon+percent label per entry with separators between them.
-     *
-     * Extracted out of [populateProportionsPanel] to keep the EDT callback's
-     * cognitive complexity within detekt's 15-branch budget: the runCatching
-     * wrapper, the onFailure sink, and the revalidate/repaint calls stay in the
-     * caller while all branching / looping / label construction happens here.
-     */
-    private fun renderProportionsInto(panel: JPanel) {
-        val subdued = UIUtil.getContextHelpForeground()
+    private fun resolutionPanelState(): ProjectLanguageResolutionPanel.State {
         val project = parentProject
-        val weights = project?.let { ProjectLanguageDetector.proportions(it) }
-        val entries =
-            weights?.let { LanguageDetectionRules.pickDisplayEntries(it) } ?: emptyList()
-        if (entries.isEmpty()) {
-            panel.add(
-                JBLabel(POLYGLOT_COPY, AllIcons.General.Information, SwingConstants.LEADING).apply {
-                    foreground = subdued
-                },
-            )
-        } else {
-            panel.add(JBLabel(PROPORTIONS_PREFIX).apply { foreground = subdued })
-            entries.forEachIndexed { index, entry ->
-                if (index > 0) {
-                    panel.add(JBLabel(PROPORTIONS_SEPARATOR.toString()).apply { foreground = subdued })
-                }
-                val icon = entry.id?.let { LanguageDetectionRules.iconForLanguageId(it) }
-                // Named entries render as icon + percent only (icon identifies the
-                // language). The "other" bucket has no icon and no single language —
-                // render its literal "other" label before the percent so the row
-                // still reads as a unit instead of a dangling bare percent that
-                // looks like a rendering glitch.
-                val text =
-                    if (entry.id == null) {
-                        "${entry.label} ${entry.percent}%"
-                    } else {
-                        "${entry.percent}%"
-                    }
-                panel.add(
-                    JBLabel(text, icon, SwingConstants.LEADING).apply {
-                        foreground = subdued
-                        // Hover affordance: icon alone can be unfamiliar for less-common
-                        // languages, so the display name surfaces in the tooltip.
-                        // toolTipText is plain-text unless it starts with <html>, so
-                        // any pathological Language.displayName renders literally —
-                        // no HTML interpretation, consistent with the label-text
-                        // safety story.
-                        toolTipText = entry.label
-                    },
-                )
-            }
-        }
-        // Trailing Rescan affordance appended in BOTH paths (normal + polyglot)
-        // so the user is never stuck on a stale verdict without an escape hatch.
-        // Source of truth: [rescanEligibleProject] — null when there is no
-        // focused project OR when the user is unlicensed (see
-        // `rescanLicensed` KDoc). Reading it as a single `?.let` keeps this
-        // method under detekt's cyclomatic budget. `mouseClicked` re-reads
-        // the live license as defence-in-depth against a license that
-        // expires while Settings is open.
-        rescanEligibleProject?.let { rescanProject ->
-            panel.add(JBLabel(PROPORTIONS_SEPARATOR.toString()).apply { foreground = subdued })
-            panel.add(buildRescanAffordanceLabel(rescanProject, subdued))
-        }
+        val projectKey = focusedProjectKey()
+        val licensed = LicenseChecker.isLicensedOrGrace()
+        val verdict = project?.let(ProjectLanguageDetector::verdict) ?: ProjectLanguageVerdict.Unavailable
+        return ProjectLanguageResolutionPanel.State(
+            verdict = verdict,
+            forcedLanguageId = projectKey?.let(pendingForcedLanguages::get),
+            fallbackHex = projectKey?.let(pendingFallbackAccents::get),
+            activeSource = diagnosticsSource(projectKey, verdict, licensed),
+            canMutate = licensed && projectKey != null,
+            canRescan = licensed && projectKey != null,
+            canSetFallbackToCurrentAccent = licensed && currentPendingAccentHex() != null,
+        )
     }
 
-    /**
-     * Build the clickable "Rescan" label at the trailing end of the proportions row.
-     *
-     * Behavior contract (muted-by-default, accent-on-hover, click-to-rescan):
-     *  - Foreground starts at `subdued` so the label blends with the row.
-     *  - `mouseEntered` re-resolves the currently-applied accent live (NOT
-     *    captured at build time) so a mid-session accent change surfaces on
-     *    the next hover. `runCatchingPreservingCancellation` contains any
-     *    platform-API throw — this runs on every hover tick and an uncaught
-     *    EDT exception would break the entire Settings row.
-     *  - `mouseExited` restores `subdued`.
-     *  - `mouseClicked` calls [ProjectLanguageDetector.rescan]; the
-     *    invalidate + schedule + publish chain lives in the detector so the
-     *    click inherits dedup-gate coalescing for free.
-     *
-     * Extracted out of [renderProportionsInto] so the outer function stays
-     * inside detekt's cyclomatic budget now that the trailing affordance adds
-     * its own conditional branches.
-     */
-    private fun buildRescanAffordanceLabel(
-        project: Project,
-        subdued: Color,
-    ): JBLabel =
-        JBLabel(RESCAN_LABEL).apply {
-            foreground = subdued
-            toolTipText = RESCAN_TOOLTIP
-            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            addMouseListener(
-                object : MouseAdapter() {
-                    override fun mouseEntered(event: MouseEvent) {
-                        foreground =
-                            runCatchingPreservingCancellation {
-                                val variant =
-                                    AyuVariant.detect()
-                                        ?: return@runCatchingPreservingCancellation subdued
-                                ColorUtil.fromHex(AccentResolver.resolve(project, variant))
-                            }.onFailure { exception ->
-                                // DEBUG not WARN: hover fires on every
-                                // pointer entry, so a systemic regression
-                                // (malformed stored hex, plugin-unload
-                                // race) must not spam idea.log. Still
-                                // leaves a triage breadcrumb when a user
-                                // reports "hover doesn't light up".
-                                LOG.debug(
-                                    "Rescan hover AccentResolver threw; falling back to subdued",
-                                    exception,
-                                )
-                            }.getOrDefault(subdued)
-                        repaint()
-                    }
+    private fun diagnosticsSource(
+        projectKey: String?,
+        verdict: ProjectLanguageVerdict,
+        isLicensed: Boolean,
+    ): AccentResolver.Source {
+        if (!isLicensed || projectKey == null) return AccentResolver.Source.GLOBAL
+        projectModel
+            .snapshot()
+            .firstOrNull { it.canonicalPath == projectKey }
+            ?.let { return AccentResolver.Source.PROJECT_OVERRIDE }
 
-                    override fun mouseExited(event: MouseEvent) {
-                        foreground = subdued
-                        repaint()
-                    }
-
-                    override fun mouseClicked(event: MouseEvent) {
-                        // Defence-in-depth license re-check: the
-                        // `rescanLicensed` field was snapshotted at
-                        // `buildGroup` time. If the license expired while
-                        // Settings was open (grace roll-off, revocation via
-                        // LicensingFacade), the label is still visible but
-                        // the click must NOT fire a rescan. Matches the
-                        // `actionPerformed` gate in RescanLanguageAction.
-                        if (!LicenseChecker.isLicensedOrGrace()) return
-                        ProjectLanguageDetector.rescan(project)
-                    }
-                },
-            )
+        val languageIds = languageModel.snapshot().map { it.languageId }.toSet()
+        val forcedLanguageId = pendingForcedLanguages[projectKey]
+        if (forcedLanguageId != null && forcedLanguageId in languageIds) {
+            return AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE
         }
+        if (forcedLanguageId == null &&
+            verdict is ProjectLanguageVerdict.Detected &&
+            verdict.languageId in languageIds
+        ) {
+            return AccentResolver.Source.LANGUAGE_OVERRIDE
+        }
+        return fallbackDiagnosticsSource(projectKey, verdict)
+    }
+
+    private fun fallbackDiagnosticsSource(
+        projectKey: String,
+        verdict: ProjectLanguageVerdict,
+    ): AccentResolver.Source =
+        if (pendingFallbackAccents.containsKey(projectKey) && verdict is ProjectLanguageVerdict.NoWinner) {
+            AccentResolver.Source.PROJECT_FALLBACK
+        } else {
+            AccentResolver.Source.GLOBAL
+        }
+
+    private fun currentPendingAccentHex(): String? {
+        val candidate = currentProjectOverrideHex() ?: currentGlobalAccentHex()
+        return candidate?.let { hex -> AccentHex.of(hex)?.value }
+    }
+
+    private fun currentProjectOverrideHex(): String? {
+        val projectKey = focusedProjectKey() ?: return null
+        return projectModel
+            .snapshot()
+            .firstOrNull { it.canonicalPath == projectKey }
+            ?.hex
+    }
+
+    private fun focusedProjectKey(): String? {
+        val project =
+            parentProject
+                ?.takeUnless { it.isDefault }
+                ?.takeUnless { it.isDisposed }
+                ?: return null
+        return AccentResolver.projectKey(project)
+    }
+
+    private fun setFocusedProjectFallback(hex: String?) {
+        if (!LicenseChecker.isLicensedOrGrace()) return
+        val projectKey = focusedProjectKey() ?: return
+        setPendingFallbackAccent(projectKey, hex)
+    }
+
+    private fun setFocusedProjectForcedLanguage(languageId: String?) {
+        if (!LicenseChecker.isLicensedOrGrace()) return
+        val projectKey = focusedProjectKey() ?: return
+        setPendingForcedLanguage(projectKey, languageId)
+    }
 
     /**
      * Builder-level `@TestOnly` seam that binds a focused project without
@@ -715,25 +638,61 @@ class OverridesGroupBuilder {
         languageModel.replaceAll(languages)
     }
 
+    internal fun setPendingFallbackAccent(
+        projectKey: String,
+        hex: String?,
+    ) {
+        if (hex == null) {
+            pendingFallbackAccents.remove(projectKey)
+        } else {
+            normalizedFallbackAccent(projectKey, hex)?.let { (key, value) ->
+                pendingFallbackAccents[key] = value
+            }
+        }
+        fireChanged()
+    }
+
+    internal fun setPendingForcedLanguage(
+        projectKey: String,
+        languageId: String?,
+    ) {
+        require(projectKey.isNotBlank()) { "projectKey must not be blank" }
+        val normalized = normalizeLanguageId(languageId)
+        if (normalized == null) {
+            pendingForcedLanguages.remove(projectKey)
+        } else {
+            pendingForcedLanguages[projectKey] = normalized
+        }
+        fireChanged()
+    }
+
+    @org.jetbrains.annotations.TestOnly
+    internal fun seedResolutionOverridesForTest(
+        fallbackAccents: Map<String, String> = emptyMap(),
+        forcedLanguages: Map<String, String> = emptyMap(),
+    ) {
+        pendingFallbackAccents.clear()
+        pendingFallbackAccents.putAll(normalizedFallbackAccents(fallbackAccents))
+        pendingForcedLanguages.clear()
+        pendingForcedLanguages.putAll(normalizedForcedLanguages(forcedLanguages))
+    }
+
+    @org.jetbrains.annotations.TestOnly
+    internal fun fallbackAccentsForTest(): Map<String, String> = pendingFallbackAccents.toMap()
+
+    @org.jetbrains.annotations.TestOnly
+    internal fun forcedLanguagesForTest(): Map<String, String> = pendingForcedLanguages.toMap()
+
     /**
-     * Builder-level seam: lazily builds the proportions panel on first call (so
-     * wiring tests can bypass `buildGroup`), repopulates from the current
-     * [parentProject] + detector cache, and returns `(icon, text)` pairs for
-     * each child in layout order.
-     *
-     * Combines refresh + read into one seam so test call sites stay terse and
-     * the public surface of [OverridesGroupBuilder] stays under the detekt
-     * `TooManyFunctions` threshold — refresh helpers were inlined into [reset]
-     * and the pending-change listener instead of adding dedicated private
-     * functions.
+     * Legacy-named seam: lazily builds the diagnostics panel on first call,
+     * refreshes it from [ProjectLanguageDetector.verdict], and returns
+     * `(icon, text, tooltip)` triples for each label in layout order.
      */
     @org.jetbrains.annotations.TestOnly
     internal fun proportionsPanelLabelsForTest(): List<Triple<Icon?, String, String?>> {
-        val panel = proportionsPanel ?: JPanel().also { proportionsPanel = it }
-        populateProportionsPanel(panel)
-        return panel.components.filterIsInstance<JBLabel>().map { label ->
-            Triple(label.icon, label.text, label.toolTipText)
-        }
+        val panel = proportionsPanel ?: createResolutionPanel().also { proportionsPanel = it }
+        refreshResolutionPanel()
+        return panel.labelsForTest()
     }
 
     internal fun loadFromState() {
@@ -788,194 +747,17 @@ class OverridesGroupBuilder {
             }
         projectModel.replaceAll(projects)
         languageModel.replaceAll(languages)
+        pendingFallbackAccents.clear()
+        pendingFallbackAccents.putAll(normalizedFallbackAccents(state.projectFallbackAccents, warn = LOG::warn))
+        pendingForcedLanguages.clear()
+        pendingForcedLanguages.putAll(normalizedForcedLanguages(state.forcedProjectLanguages, warn = LOG::warn))
         storedProjects = projectModel.snapshot().map { ProjectMapping(it.canonicalPath, it.displayName, it.hex) }
         storedLanguages = languageModel.snapshot().map { LanguageMapping(it.languageId, it.displayName, it.hex) }
+        storedFallbackAccents = pendingFallbackAccents.toMap()
+        storedForcedLanguages = pendingForcedLanguages.toMap()
     }
 
     private val fireChanged: () -> Unit = { listeners.forEach { it.run() } }
-
-    private fun decorateTable(
-        table: JBTable,
-        actions: TableActions,
-    ): JComponent {
-        val decorator =
-            ToolbarDecorator
-                .createDecorator(table)
-                .disableUpDownActions()
-                .setAddAction { actions.add() }
-                .setEditAction { actions.edit() }
-                .setRemoveAction { actions.remove() }
-                .setAddActionName("Add")
-                .setEditActionName("Edit Color")
-                .setRemoveActionName("Remove")
-                .setAddActionUpdater { _ -> actions.addEnabled() }
-                .setEditActionUpdater { _ -> actions.editEnabled() }
-                .setRemoveActionUpdater { _ -> actions.removeEnabled() }
-
-        actions.extraActions.forEach { decorator.addExtraAction(it) }
-        val wrapper = JPanel(BorderLayout())
-        wrapper.add(decorator.createPanel(), BorderLayout.CENTER)
-        return wrapper
-    }
-
-    private fun projectActions(licensed: Boolean): TableActions {
-        val extras: List<AnAction> =
-            if (licensed) {
-                listOf(
-                    object : AnAction(
-                        "Pin Current Project",
-                        "Add the current project with the global accent",
-                        AllIcons.Actions.PinTab,
-                    ) {
-                        override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
-
-                        override fun actionPerformed(event: AnActionEvent) {
-                            // Inlined from the former `pinCurrentProject` helper to
-                            // keep the class under detekt's 25-function cap after
-                            // [safelyDisconnectDetection] was extracted. Behaviour
-                            // unchanged: capture focused project, derive canonical
-                            // key, pin with the current variant's global accent.
-                            val project = parentProject ?: return
-                            if (project.isDefault || project.isDisposed) return
-                            val key = AccentResolver.projectKey(project) ?: return
-                            if (projectModel.containsPath(key)) return
-                            val variant = AyuVariant.detect() ?: AyuVariant.MIRAGE
-                            val hex = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
-                            val name = project.name.takeIf { it.isNotBlank() } ?: File(key).name
-                            val index = projectModel.add(ProjectMapping(key, name, hex))
-                            projectTable.selectionModel.setSelectionInterval(index, index)
-                            fireChanged()
-                        }
-
-                        override fun update(event: AnActionEvent) {
-                            // Inlined pin-eligibility gate: the action is enabled only when a
-                            // focused, non-default, non-disposed project has a canonical key
-                            // that isn't already pinned. Kept inline rather than as a helper so
-                            // the file stays under detekt's TooManyFunctions threshold.
-                            val project = parentProject
-                            event.presentation.isEnabled =
-                                project != null &&
-                                !project.isDefault &&
-                                !project.isDisposed &&
-                                AccentResolver.projectKey(project)?.let { key ->
-                                    !projectModel.containsPath(key)
-                                } == true
-                        }
-                    },
-                )
-            } else {
-                emptyList()
-            }
-
-        return TableActions(
-            add = { showAddProjectDialog() },
-            edit = {
-                editSelectedColor(
-                    table = projectTable,
-                    rowAt = projectModel::rowAt,
-                    hex = ProjectMapping::hex,
-                    displayName = ProjectMapping::displayName,
-                    updateHex = projectModel::updateHex,
-                )
-            },
-            remove = {
-                if (licensed) {
-                    removeSelectedRow(projectTable, projectModel::remove)
-                }
-            },
-            addEnabled = { licensed },
-            editEnabled = { licensed && projectTable.selectedRow >= 0 },
-            removeEnabled = { licensed && projectTable.selectedRow >= 0 },
-            extraActions = extras,
-        )
-    }
-
-    private fun languageActions(licensed: Boolean): TableActions =
-        TableActions(
-            add = { showAddLanguageDialog() },
-            edit = {
-                editSelectedColor(
-                    table = languageTable,
-                    rowAt = languageModel::rowAt,
-                    hex = LanguageMapping::hex,
-                    displayName = LanguageMapping::displayName,
-                    updateHex = languageModel::updateHex,
-                )
-            },
-            remove = {
-                if (licensed) {
-                    removeSelectedRow(languageTable, languageModel::remove)
-                }
-            },
-            addEnabled = { licensed },
-            editEnabled = { licensed && languageTable.selectedRow >= 0 },
-            removeEnabled = { licensed && languageTable.selectedRow >= 0 },
-            extraActions = emptyList(),
-        )
-
-    // Project-table actions: add / edit / remove + pin-current
-
-    private fun showAddProjectDialog() {
-        val excluded = projectModel.snapshot().map { it.canonicalPath }.toSet()
-        val dialog = AddProjectMappingDialog(parentProject, excluded)
-        if (!dialog.showAndGet()) return
-        val path = dialog.resultCanonicalPath ?: return
-        val hex = dialog.resultHex ?: return
-        val name = dialog.resultDisplayName ?: File(path).name
-        val index = projectModel.add(ProjectMapping(path, name, hex))
-        projectTable.selectionModel.setSelectionInterval(index, index)
-        fireChanged()
-    }
-
-    /**
-     * Generic remove-selected-row flow shared by the project and language tables.
-     * Shares the JBTable selection probe, the model-agnostic remove call, and the
-     * pending-change notification.
-     */
-    private fun removeSelectedRow(
-        table: JBTable,
-        remove: (Int) -> Unit,
-    ) {
-        val row = table.selectedRow.takeIf { it >= 0 } ?: return
-        remove(row)
-        fireChanged()
-    }
-
-    // Language-table actions: add / edit / remove
-
-    private fun showAddLanguageDialog() {
-        val excluded = languageModel.snapshot().map { it.languageId }.toSet()
-        val dialog = AddLanguageMappingDialog(parentProject, excluded)
-        if (!dialog.showAndGet()) return
-        val id = dialog.resultLanguageId ?: return
-        val hex = dialog.resultHex ?: return
-        val name = dialog.resultDisplayName ?: id
-        val index = languageModel.add(LanguageMapping(id, name, hex))
-        languageTable.selectionModel.setSelectionInterval(index, index)
-        fireChanged()
-    }
-
-    /**
-     * Generic edit-color flow shared by project and language tables. Takes accessors
-     * for the model-specific lookup and update so the Project- and Language- specific
-     * callers collapse to a single call with closures capturing their model/table —
-     * sharing the JBTable selection probe, the modal dialog wiring, and the
-     * pending-change notification.
-     */
-    private inline fun <M> editSelectedColor(
-        table: JBTable,
-        rowAt: (Int) -> M?,
-        hex: (M) -> String,
-        displayName: (M) -> String,
-        updateHex: (Int, String) -> Unit,
-    ) {
-        val row = table.selectedRow.takeIf { it >= 0 } ?: return
-        val mapping = rowAt(row) ?: return
-        val dialog = EditAccentColorDialog(parentProject, hex(mapping), displayName(mapping))
-        if (!dialog.showAndGet()) return
-        updateHex(row, dialog.resultHex)
-        fireChanged()
-    }
 
     companion object {
         private val LOG = logger<OverridesGroupBuilder>()
@@ -984,61 +766,6 @@ class OverridesGroupBuilder {
         private const val TABLE_ROW_HEIGHT = 24
         private const val BAR_HORIZONTAL_GAP = 4
         private const val BAR_VERTICAL_GAP = 0
-
-        /**
-         * Horizontal gap between entries in the proportions status row.
-         * Scaled via [com.intellij.util.ui.JBUI.scale] for HiDPI displays.
-         * 12 px at 1x matches the rhythm of other Settings rows in the plugin.
-         */
-        private const val PROPORTIONS_ENTRY_GAP_PX: Int = 12
-
-        /**
-         * Fixed status-line copy rendered under Per-Language Accent Pins when the
-         * detector has no warm weights for the focused project — cache is cold, the
-         * most recent scan produced no dominant winner, or the legacy SDK / module
-         * fallback path was used (no weights to proportion). Exact string is
-         * locked. NOT i18n'd, NOT user-configurable. The em-dash is U+2014, not a
-         * hyphen.
-         */
-        const val POLYGLOT_COPY: String =
-            "Polyglot — no single dominant language; global accent applies"
-
-        /**
-         * Prefix for the detected-language proportions line. Paired with the output
-         * of [LanguageDetectionRules.pickTopLanguagesForDisplay]. The trailing space
-         * is part of the locked copy — do not trim.
-         */
-        const val DETECTED_PREFIX: String = "Detected in this project: "
-
-        /**
-         * Header rendered in front of the icon-row proportions layout under the
-         * overrides table. Kept terse ("Detected:") because the row sits below
-         * the overrides table where context is already established, and the
-         * full "Languages detected" was verbose for a subdued helper-text row.
-         */
-        const val PROPORTIONS_PREFIX: String = "Detected:"
-
-        /**
-         * Middle-dot (U+00B7) separator glued to the end of every entry except
-         * the last. Matches the visual separator style used in the font preset
-         * panel (e.g. `Maple Mono · 14pt · Regular · 1.0× · ligatures`).
-         */
-        const val PROPORTIONS_SEPARATOR: Char = '·'
-
-        /**
-         * Literal text of the inline clickable "Rescan" affordance at the
-         * trailing end of the proportions row. Kept short so it doesn't
-         * dominate the muted status line — the cursor change + hover-accent
-         * already signal interactivity.
-         */
-        const val RESCAN_LABEL: String = "Rescan"
-
-        /**
-         * Tooltip for the inline Rescan label. Clarifies what will happen
-         * without bloating the visible text — hover discoverability.
-         */
-        const val RESCAN_TOOLTIP: String =
-            "Re-detect the dominant language of this project"
     }
 
     /**
@@ -1117,14 +844,9 @@ class OverridesGroupBuilder {
         }
     }
 
-    private data class TableActions(
-        val add: () -> Unit,
-        val edit: () -> Unit,
-        val remove: () -> Unit,
-        val addEnabled: () -> Boolean,
-        val editEnabled: () -> Boolean,
-        val removeEnabled: () -> Boolean,
-        val extraActions: List<AnAction>,
+    private data class PendingResolvedAccent(
+        val source: AccentResolver.Source,
+        val hex: String,
     )
 
     private class DimOrphanRenderer(
@@ -1159,8 +881,67 @@ private object AccentMappingsSettingsAccess {
     fun stateFor(): AccentMappingsState = AccentMappingsSettings.getInstance().state
 }
 
+private fun storedCurrentVariantAccentHex(): String? =
+    AyuVariant
+        .detect()
+        ?.let { variant -> AyuIslandsSettings.getInstance().getAccentForVariant(variant) }
+
 private fun List<ProjectMapping>.toFingerprint(): Set<Triple<String, String, String>> =
     map { Triple(it.canonicalPath, it.displayName, it.hex) }.toSet()
 
 private fun List<LanguageMapping>.toLanguageFingerprint(): Set<Triple<String, String, String>> =
     map { Triple(it.languageId, it.displayName, it.hex) }.toSet()
+
+private fun normalizedFallbackAccents(
+    entries: Map<String, String>,
+    warn: (String) -> Unit = {},
+): Map<String, String> =
+    entries
+        .mapNotNull { (projectKey, hex) -> normalizedFallbackAccent(projectKey, hex, warn) }
+        .toMap()
+
+private fun normalizedFallbackAccent(
+    projectKey: String,
+    hex: String,
+    warn: (String) -> Unit = {},
+): Pair<String, String>? {
+    if (projectKey.isBlank()) {
+        warn("Dropping malformed project fallback override row: blank project key")
+        return null
+    }
+    val normalizedHex =
+        AccentHex.of(hex)?.value ?: run {
+            warn("Dropping malformed project fallback override row (key='$projectKey')")
+            return null
+        }
+    return projectKey to normalizedHex
+}
+
+private fun normalizedForcedLanguages(
+    entries: Map<String, String>,
+    warn: (String) -> Unit = {},
+): Map<String, String> =
+    entries
+        .mapNotNull { (projectKey, languageId) ->
+            normalizedForcedLanguage(projectKey, languageId, warn)
+        }.toMap()
+
+private fun normalizedForcedLanguage(
+    projectKey: String,
+    languageId: String,
+    warn: (String) -> Unit = {},
+): Pair<String, String>? {
+    if (projectKey.isBlank()) {
+        warn("Dropping malformed forced language override row: blank project key")
+        return null
+    }
+    val normalizedLanguageId =
+        normalizeLanguageId(languageId) ?: run {
+            warn("Dropping malformed forced language override row (key='$projectKey')")
+            return null
+        }
+    return projectKey to normalizedLanguageId
+}
+
+private fun normalizeLanguageId(languageId: String?): String? =
+    languageId?.trim()?.takeIf { it.isNotBlank() }?.lowercase(Locale.ROOT)

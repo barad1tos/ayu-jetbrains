@@ -9,8 +9,8 @@ package dev.ayuislands.accent
  * (definitive no-winner) apart from a transient failure (scanner threw,
  * rescan with unresolvable project key, disposal race). The payload is
  * advisory — subscribers that render proportions MUST still re-query
- * `proportions()` because the weights cache is the authoritative source
- * for the UI row — but the discriminator lets the UI decide whether the
+ * `proportions()` because the detector's warm verdict is the authoritative
+ * source for the UI row — but the discriminator lets the UI decide whether the
  * previous paint is still correct (Unavailable → keep it) or a
  * polyglot label should replace it (Polyglot → overwrite).
  *
@@ -31,8 +31,8 @@ internal sealed interface ScanOutcome {
      * Scan ran cleanly but produced no winner — either no language
      * clears the dominance threshold, no plurality margin, or the
      * legacy SDK/module tiebreaker did not qualify. Definitive verdict:
-     * subscribers can render the polyglot copy with confidence that
-     * the weights cache is in sync.
+     * subscribers can switch away from any stale single-language rendering
+     * with confidence that the detector cache is in sync.
      */
     object Polyglot : ScanOutcome
 

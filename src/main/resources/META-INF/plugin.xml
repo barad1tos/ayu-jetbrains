@@ -53,8 +53,11 @@
           (Kotlin → cyan, Python → gold); applies when the project's dominant
           language matches and no project override exists. Settings shows a
           live <b>language-proportions</b> breakdown for the current project
-          so you can see which pin takes effect. <b>Rescan Project Language</b>
-          on demand from the proportions row or the Tools menu.</li>
+          so you can see which pin takes effect. <b>Language override diagnostics</b>
+          explain detected, polyglot, forced-language, and project-fallback
+          decisions without changing the default dominance logic.
+          <b>Rescan Project Language</b> on demand from the proportions row
+          or the Tools menu.</li>
       <li><b>Peacock-parity chrome tinting</b> — when a project / language
           accent fires, every chrome surface (status bar, nav bar, tool
           stripes, panel borders) tints automatically. Intensity slider in
@@ -114,6 +117,10 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.7.4</h3>
+    <ul>
+      <li>[Paid] <b>Language override diagnostics</b> — Settings now explains whether a project's language accent is detected, polyglot, forced to a specific language, or using a project fallback.</li>
+    </ul>
     <h3>2.7.3</h3>
     <ul>
       <li>[Paid] <b>Commit Panel path display</b> — Pro users can move full Commit Panel paths to tooltips or shorten leading directories inline.</li>

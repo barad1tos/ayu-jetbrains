@@ -9,6 +9,7 @@ import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.TopGap
 import com.intellij.ui.dsl.builder.panel
+import dev.ayuislands.accent.LanguageDetectionRules
 import java.awt.Component
 import javax.swing.DefaultComboBoxModel
 import javax.swing.DefaultListCellRenderer
@@ -31,6 +32,24 @@ class AddLanguageMappingDialog(
     excludedLanguageIds: Set<String>,
     initialHex: String? = null,
 ) : DialogWrapper(parent, true) {
+    companion object {
+        @org.jetbrains.annotations.TestOnly
+        internal fun displayLabelForTest(
+            languageId: String,
+            displayName: String,
+        ): String = displayLabel(languageId, displayName)
+
+        private fun displayLabel(
+            languageId: String,
+            displayName: String,
+        ): String =
+            if (languageId in LanguageDetectionRules.MARKUP_IDS) {
+                "$displayName (markup/config - wins only in markup-only projects)"
+            } else {
+                displayName
+            }
+    }
+
     private val comboBox: ComboBox<LanguageOption>
     private val swatchPicker = AccentSwatchPickerRow { selected -> resultHex = selected }
 
@@ -94,8 +113,10 @@ class AddLanguageMappingDialog(
             .filter { it !== Language.ANY }
             .filter { it.displayName.isNotBlank() }
             .filter { runCatching { fileTypes.findFileTypeByLanguage(it) }.getOrNull() != null }
-            .map { LanguageOption(it.id.lowercase(), it.displayName) }
-            .distinctBy { it.id }
+            .map {
+                val id = it.id.lowercase()
+                LanguageOption(id, displayLabel(id, it.displayName))
+            }.distinctBy { it.id }
             .filter { option -> excluded.none { it.equals(option.id, ignoreCase = true) } }
             .sortedBy { it.displayName.lowercase() }
             .toList()

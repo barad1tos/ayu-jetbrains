@@ -17,6 +17,8 @@ class AccentMappingsStateTest {
         assertTrue(state.projectAccents.isEmpty())
         assertTrue(state.languageAccents.isEmpty())
         assertTrue(state.projectDisplayNames.isEmpty())
+        assertTrue(state.projectFallbackAccents.isEmpty())
+        assertTrue(state.forcedProjectLanguages.isEmpty())
     }
 
     @Test
@@ -25,9 +27,13 @@ class AccentMappingsStateTest {
         state.projectAccents["/tmp/a"] = "#111111"
         state.projectDisplayNames["/tmp/a"] = "Alpha"
         state.languageAccents["kotlin"] = "#222222"
+        state.projectFallbackAccents["/tmp/a"] = "#333333"
+        state.forcedProjectLanguages["/tmp/a"] = "typescript"
 
         assertEquals("#111111", state.projectAccents["/tmp/a"])
         assertEquals("Alpha", state.projectDisplayNames["/tmp/a"])
         assertEquals("#222222", state.languageAccents["kotlin"])
+        assertEquals("#333333", state.projectFallbackAccents["/tmp/a"])
+        assertEquals("typescript", state.forcedProjectLanguages["/tmp/a"])
     }
 }

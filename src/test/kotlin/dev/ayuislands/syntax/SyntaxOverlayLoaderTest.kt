@@ -1,6 +1,7 @@
 package dev.ayuislands.syntax
 
 import com.intellij.openapi.editor.colors.TextAttributesKey
+import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.util.JDOMUtil
 import io.mockk.every
 import io.mockk.mockk
@@ -55,6 +56,12 @@ class SyntaxOverlayLoaderTest {
     }
 
     private fun loader(base: String = TEST_BASE): SyntaxOverlayLoader = SyntaxOverlayLoader(resourceBase = base)
+
+    private fun Map<String, TextAttributes>.foregroundHex(keyName: String): String {
+        val attributes = this[keyName] ?: error("missing $keyName")
+        val color = attributes.foregroundColor ?: error("$keyName must define a concrete foreground")
+        return "%02X%02X%02X".format(color.red, color.green, color.blue)
+    }
 
     @Test
     fun `constructor accepts resourceBase override`() {
@@ -117,5 +124,100 @@ class SyntaxOverlayLoaderTest {
         val overlay = loader().loadOverlayForVariant("Mirage")
         val names = overlay.keys.map { it.externalName }
         assertTrue("FAKE_KEY_WITH_BASE_REF" in names)
+    }
+
+    @Test
+    fun `production extended schemes materialize Noctule Swift semantic roles`() {
+        val requiredKeys =
+            listOf(
+                "SWIFT.VARIABLE",
+                "SWIFT.IDENTIFIER",
+                "SWIFT.LOCAL_VARIABLE",
+                "SWIFT.PARAMETER",
+                "SWIFT.ARGUMENT_LABEL",
+                "SWIFT.PROPERTY",
+                "SWIFT.ENUM_MEMBER",
+                "SWIFT.FUNCTION_NAME",
+                "SWIFT.FUNCTION_NAME_STATIC",
+                "SWIFT.METHOD_NAME",
+                "SWIFT.METHOD_NAME_LIBRARY",
+                "SWIFT.CLASS_NAME",
+                "SWIFT.STRUCT_NAME",
+                "SWIFT.TYPE",
+                "SWIFT.TYPEALIAS",
+                "SWIFT.MODULE_NAME",
+                "SWIFT.ATTRIBUTE_NAME",
+                "SWIFT.DIRECTIVE",
+                "SWIFT.STRING",
+                "SWIFT.LINE_COMMENT",
+            )
+        val expectedForegrounds =
+            mapOf(
+                "Mirage" to
+                    mapOf(
+                        "SWIFT.VARIABLE" to "CCCAC2",
+                        "SWIFT.PARAMETER" to "DFBFFF",
+                        "SWIFT.ARGUMENT_LABEL" to "5CCFE6",
+                        "SWIFT.PROPERTY" to "F28779",
+                        "SWIFT.FUNCTION_NAME" to "FFD173",
+                        "SWIFT.CLASS_NAME" to "73D0FF",
+                        "SWIFT.ATTRIBUTE_NAME" to "FFDFB3",
+                        "SWIFT.DIRECTIVE" to "FFAD66",
+                    ),
+                "Dark" to
+                    mapOf(
+                        "SWIFT.VARIABLE" to "BFBDB6",
+                        "SWIFT.PARAMETER" to "D2A6FF",
+                        "SWIFT.ARGUMENT_LABEL" to "39BAE6",
+                        "SWIFT.PROPERTY" to "F07178",
+                        "SWIFT.FUNCTION_NAME" to "FFB454",
+                        "SWIFT.CLASS_NAME" to "59C2FF",
+                        "SWIFT.ATTRIBUTE_NAME" to "E6C08A",
+                        "SWIFT.DIRECTIVE" to "FF8F40",
+                    ),
+                "Light" to
+                    mapOf(
+                        "SWIFT.VARIABLE" to "5C6166",
+                        "SWIFT.PARAMETER" to "A37ACC",
+                        "SWIFT.ARGUMENT_LABEL" to "55B4D4",
+                        "SWIFT.PROPERTY" to "F07171",
+                        "SWIFT.FUNCTION_NAME" to "EBA400",
+                        "SWIFT.CLASS_NAME" to "22A4E6",
+                        "SWIFT.ATTRIBUTE_NAME" to "E59645",
+                        "SWIFT.DIRECTIVE" to "FA8532",
+                    ),
+            )
+        val l = SyntaxOverlayLoader()
+
+        for (variant in listOf("Mirage", "Dark", "Light")) {
+            val overlayByName = l.loadOverlayForVariant(variant).entries.associate { it.key.externalName to it.value }
+            for (keyName in requiredKeys) {
+                val attributes =
+                    overlayByName[keyName]
+                        ?: error("$variant extended scheme is missing $keyName")
+                assertNotNull(
+                    attributes.foregroundColor,
+                    "$variant extended scheme must define a concrete foreground for $keyName",
+                )
+            }
+            for ((keyName, expectedHex) in expectedForegrounds.getValue(variant)) {
+                assertEquals(
+                    expectedHex,
+                    overlayByName.foregroundHex(keyName),
+                    "$variant extended scheme must map $keyName to the Kotlin-equivalent Swift role color",
+                )
+            }
+            assertTrue(
+                listOf(
+                    overlayByName.foregroundHex("SWIFT.VARIABLE"),
+                    overlayByName.foregroundHex("SWIFT.PARAMETER"),
+                    overlayByName.foregroundHex("SWIFT.ARGUMENT_LABEL"),
+                    overlayByName.foregroundHex("SWIFT.PROPERTY"),
+                    overlayByName.foregroundHex("SWIFT.FUNCTION_NAME"),
+                    overlayByName.foregroundHex("SWIFT.CLASS_NAME"),
+                ).distinct().size >= 6,
+                "$variant extended scheme must keep core Swift semantic roles visually distinct",
+            )
+        }
     }
 }

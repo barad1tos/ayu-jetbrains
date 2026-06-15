@@ -32,6 +32,7 @@ class SyntaxLanguageRegistryTest {
             Row("PHP_KEYWORD", "PHP", "PHP", SyntaxLanguageRegistry.Bucket.LANGUAGE),
             Row("RUBY_KEYWORD", "Ruby", "Ruby", SyntaxLanguageRegistry.Bucket.LANGUAGE),
             Row("SWIFT_KEYWORD", "Swift", "Swift", SyntaxLanguageRegistry.Bucket.LANGUAGE),
+            Row("SWIFT.TYPE", "Swift", "Swift", SyntaxLanguageRegistry.Bucket.LANGUAGE),
             Row("MARKDOWN_HEADER", "Markdown", "Markdown", SyntaxLanguageRegistry.Bucket.LANGUAGE),
             Row("LUA_KEYWORD", "Lua", "Lua", SyntaxLanguageRegistry.Bucket.LANGUAGE),
             Row("SCALA_CLASS", "Scala", "Scala", SyntaxLanguageRegistry.Bucket.LANGUAGE),

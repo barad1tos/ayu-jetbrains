@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.7.4] - 2026-06-15
+
+### Paid
+- [Paid] **Language override diagnostics** — Settings now explains whether a project's language accent is detected, polyglot, forced to a specific language, or using a project fallback.
+
 ## [2.7.3] - 2026-06-11
 
 ### Paid
