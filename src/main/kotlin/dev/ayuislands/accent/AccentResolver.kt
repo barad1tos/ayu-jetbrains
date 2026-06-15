@@ -187,16 +187,18 @@ object AccentResolver {
             ).any { it }
         if (!hasLanguageWork) return null
 
-        resolveLanguageOverride(
-            mappings = mappings,
-            project = activeProject,
-            hasForcedLanguageEntry = hasForcedLanguageEntry,
-            forcedLanguageAccent = forcedLanguageAccent,
-            validateHex = validateHex,
-        )?.let { return it }
+        val (languageOverride, detectorConsulted) =
+            resolveLanguageOverride(
+                mappings = mappings,
+                project = activeProject,
+                hasForcedLanguageEntry = hasForcedLanguageEntry,
+                forcedLanguageAccent = forcedLanguageAccent,
+                validateHex = validateHex,
+            )
+        languageOverride?.let { return it }
         mappings.projectFallbackAccents[projectKey]
             ?.also {
-                if (mappings.languageAccents.isEmpty()) {
+                if (!detectorConsulted) {
                     ProjectLanguageDetector.dominant(activeProject)
                 }
             }?.takeIf { ProjectLanguageDetector.verdict(activeProject) is ProjectLanguageVerdict.NoWinner }
@@ -210,14 +212,19 @@ object AccentResolver {
         hasForcedLanguageEntry: Boolean,
         forcedLanguageAccent: String?,
         validateHex: Boolean,
-    ): ResolvedAccent? {
+    ): Pair<ResolvedAccent?, Boolean> {
         forcedLanguageAccent
-            ?.let { rawHex -> overrideAccent(Source.FORCED_LANGUAGE_OVERRIDE, rawHex, validateHex)?.let { return it } }
-        if (hasForcedLanguageEntry || mappings.languageAccents.isEmpty()) return null
-        return ProjectLanguageDetector
-            .dominant(project)
-            ?.let { languageId -> mappings.languageAccents[languageId] }
-            ?.let { rawHex -> overrideAccent(Source.LANGUAGE_OVERRIDE, rawHex, validateHex) }
+            ?.let { rawHex ->
+                overrideAccent(Source.FORCED_LANGUAGE_OVERRIDE, rawHex, validateHex)
+                    ?.let { return it to false }
+            }
+        if (hasForcedLanguageEntry || mappings.languageAccents.isEmpty()) return null to false
+        val resolvedAccent =
+            ProjectLanguageDetector
+                .dominant(project)
+                ?.let { languageId -> mappings.languageAccents[languageId] }
+                ?.let { rawHex -> overrideAccent(Source.LANGUAGE_OVERRIDE, rawHex, validateHex) }
+        return resolvedAccent to true
     }
 
     private fun overrideAccent(
