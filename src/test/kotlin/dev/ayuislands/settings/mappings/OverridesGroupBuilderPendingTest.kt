@@ -74,6 +74,52 @@ class OverridesGroupBuilderPendingTest {
     }
 
     @Test
+    fun `cache-only pending preview uses detected verdict without dominant warmup`() {
+        mappingsState.languageAccents["kotlin"] = "#112233"
+        val project = stubProject(File(System.getProperty("java.io.tmpdir"), "pending-cache-lang"))
+        every { ProjectLanguageDetector.verdict(project) } returns
+            ProjectLanguageVerdict.Detected("kotlin", mapOf("kotlin" to 1_000L))
+        every { ProjectLanguageDetector.dominant(project) } throws AssertionError("dominant must not be read")
+
+        val builder = OverridesGroupBuilder().apply { loadFromState() }
+
+        assertEquals("#112233", builder.resolvePending(project, "#FFCC66", cacheOnly = true))
+        assertEquals(AccentResolver.Source.LANGUAGE_OVERRIDE, builder.sourcePending(project, cacheOnly = true))
+        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.dominant(project) }
+    }
+
+    @Test
+    fun `cache-only pending preview uses no-winner fallback without dominant warmup`() {
+        val tmp = File(System.getProperty("java.io.tmpdir"), "pending-cache-fallback").canonicalPath
+        mappingsState.projectFallbackAccents[tmp] = "#5CCFE6"
+        val project = stubProject(File(tmp))
+        every { ProjectLanguageDetector.verdict(project) } returns
+            ProjectLanguageVerdict.NoWinner(mapOf("typescript" to 500L, "javascript" to 500L))
+        every { ProjectLanguageDetector.dominant(project) } throws AssertionError("dominant must not be read")
+
+        val builder = OverridesGroupBuilder().apply { loadFromState() }
+
+        assertEquals("#5CCFE6", builder.resolvePending(project, "#FFCC66", cacheOnly = true))
+        assertEquals(AccentResolver.Source.PROJECT_FALLBACK, builder.sourcePending(project, cacheOnly = true))
+        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.dominant(project) }
+    }
+
+    @Test
+    fun `cache-only pending preview keeps global for cold fallback without dominant warmup`() {
+        val tmp = File(System.getProperty("java.io.tmpdir"), "pending-cache-cold").canonicalPath
+        mappingsState.projectFallbackAccents[tmp] = "#5CCFE6"
+        val project = stubProject(File(tmp))
+        every { ProjectLanguageDetector.verdict(project) } returns ProjectLanguageVerdict.Cold
+        every { ProjectLanguageDetector.dominant(project) } throws AssertionError("dominant must not be read")
+
+        val builder = OverridesGroupBuilder().apply { loadFromState() }
+
+        assertEquals("#FFCC66", builder.resolvePending(project, "#FFCC66", cacheOnly = true))
+        assertEquals(AccentResolver.Source.GLOBAL, builder.sourcePending(project, cacheOnly = true))
+        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.dominant(project) }
+    }
+
+    @Test
     fun `resolvePending prefers project override over language override`() {
         val tmp = File(System.getProperty("java.io.tmpdir"), "pending-both").canonicalPath
         mappingsState.projectAccents[tmp] = "#111111"

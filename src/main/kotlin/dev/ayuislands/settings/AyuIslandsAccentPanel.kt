@@ -241,14 +241,14 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         val label = currentlyActiveLabel ?: return
         val currentVariant = variant ?: return
         val globalHex = resolvePendingGlobalHex(currentVariant)
-        val effectiveHex = overrides.resolvePending(contextProject, globalHex)
+        val effectiveHex = overrides.resolvePending(contextProject, globalHex, cacheOnly = true)
         val displayHex = effectiveHex.ifBlank { globalHex }
         val presetName =
             AYU_ACCENT_PRESETS
                 .firstOrNull { it.hex.equals(displayHex, ignoreCase = true) }
                 ?.name
                 ?: "Custom"
-        val sourceText = describeActiveSource(overrides.sourcePending(contextProject))
+        val sourceText = describeActiveSource(overrides.sourcePending(contextProject, cacheOnly = true))
         label.text = "Currently active: $presetName ($sourceText)"
     }
 

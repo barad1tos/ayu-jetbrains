@@ -53,7 +53,7 @@ import javax.swing.table.TableModel
  * [apply], and [reset] to participate in the usual settings lifecycle. [addPendingChangeListener]
  * lets observers (the reactive "Currently active: ..." comment) refresh on every edit.
  */
-@Suppress("TooManyFunctions")
+@Suppress("LargeClass", "TooManyFunctions")
 class OverridesGroupBuilder(
     private val currentGlobalAccentHex: () -> String? = ::storedCurrentVariantAccentHex,
 ) {
@@ -389,15 +389,22 @@ class OverridesGroupBuilder(
     fun resolvePending(
         project: Project?,
         fallbackGlobalHex: String,
-    ): String = findPendingOverride(project)?.hex ?: fallbackGlobalHex
+        cacheOnly: Boolean = false,
+    ): String = findPendingOverride(project, warmDetector = !cacheOnly)?.hex ?: fallbackGlobalHex
 
     /**
      * Matching [AccentResolver.Source] for [project] under the **pending** overrides model.
      */
-    fun sourcePending(project: Project?): AccentResolver.Source =
-        findPendingOverride(project)?.source ?: AccentResolver.Source.GLOBAL
+    fun sourcePending(
+        project: Project?,
+        cacheOnly: Boolean = false,
+    ): AccentResolver.Source =
+        findPendingOverride(project, warmDetector = !cacheOnly)?.source ?: AccentResolver.Source.GLOBAL
 
-    private fun findPendingOverride(project: Project?): PendingResolvedAccent? {
+    private fun findPendingOverride(
+        project: Project?,
+        warmDetector: Boolean,
+    ): PendingResolvedAccent? {
         if (!LicenseChecker.isLicensedOrGrace()) return null
         val activeProject =
             project
@@ -424,11 +431,16 @@ class OverridesGroupBuilder(
         val shouldDetectLanguage = !hasForcedLanguageEntry && languageAccents.isNotEmpty()
         if (!shouldDetectLanguage && !hasProjectFallbackCandidate) return null
 
+        val cachedVerdict =
+            if (warmDetector) {
+                null
+            } else {
+                ProjectLanguageDetector.verdict(activeProject)
+            }
         var detectorConsulted = false
         if (shouldDetectLanguage) {
             detectorConsulted = true
-            ProjectLanguageDetector
-                .dominant(activeProject)
+            pendingDetectedLanguageId(activeProject, cachedVerdict, warmDetector)
                 ?.let { languageId -> languageAccents[languageId] }
                 ?.let { return PendingResolvedAccent(AccentResolver.Source.LANGUAGE_OVERRIDE, it) }
         }
@@ -437,20 +449,36 @@ class OverridesGroupBuilder(
             activeProject = activeProject,
             projectKey = projectKey,
             detectorConsulted = detectorConsulted,
+            cachedVerdict = cachedVerdict,
+            warmDetector = warmDetector,
         )
     }
+
+    private fun pendingDetectedLanguageId(
+        activeProject: Project,
+        cachedVerdict: ProjectLanguageVerdict?,
+        warmDetector: Boolean,
+    ): String? =
+        if (warmDetector) {
+            ProjectLanguageDetector.dominant(activeProject)
+        } else {
+            (cachedVerdict as? ProjectLanguageVerdict.Detected)?.languageId
+        }
 
     private fun findPendingFallbackOverride(
         activeProject: Project,
         projectKey: String,
         detectorConsulted: Boolean,
+        cachedVerdict: ProjectLanguageVerdict?,
+        warmDetector: Boolean,
     ): PendingResolvedAccent? {
         val fallbackAccent = pendingFallbackAccents[projectKey] ?: return null
-        if (!detectorConsulted) {
+        if (!detectorConsulted && warmDetector) {
             ProjectLanguageDetector.dominant(activeProject)
         }
+        val verdict = cachedVerdict ?: ProjectLanguageDetector.verdict(activeProject)
         return fallbackAccent
-            .takeIf { ProjectLanguageDetector.verdict(activeProject) is ProjectLanguageVerdict.NoWinner }
+            .takeIf { verdict is ProjectLanguageVerdict.NoWinner }
             ?.let { PendingResolvedAccent(AccentResolver.Source.PROJECT_FALLBACK, it) }
     }
 
