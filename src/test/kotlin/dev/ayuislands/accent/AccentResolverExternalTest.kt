@@ -53,6 +53,46 @@ class AccentResolverExternalTest {
     }
 
     @Test
+    fun `external automatic source uses forced language override before material accent`() {
+        withResolverStubs {
+            val projectPath = File(System.getProperty("java.io.tmpdir"), "external-forced-language").canonicalPath
+            mappingsState.forcedProjectLanguages[projectPath] = "typescript"
+            mappingsState.languageAccents["typescript"] = "#3178C6"
+            state.externalThemeAccent = "#445566"
+            val project = stubProject(File(projectPath))
+            every { ProjectLanguageDetector.dominant(project) } returns "javascript"
+
+            withUiColorProvider({ key -> if (key == "material.accent") Color(0xAA, 0xBB, 0xCC) else null }) {
+                assertEquals("#3178C6", AccentResolver.resolve(project, AccentContext.External))
+                assertEquals(
+                    AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE,
+                    AccentResolver.source(project, AccentContext.External),
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `external automatic source uses project fallback before material accent`() {
+        withResolverStubs {
+            val projectPath = File(System.getProperty("java.io.tmpdir"), "external-fallback").canonicalPath
+            mappingsState.projectFallbackAccents[projectPath] = "#5CCFE6"
+            state.externalThemeAccent = "#445566"
+            val project = stubProject(File(projectPath))
+            every { ProjectLanguageDetector.verdict(any()) } returns
+                ProjectLanguageVerdict.NoWinner(mapOf("typescript" to 500L, "javascript" to 500L))
+
+            withUiColorProvider({ key -> if (key == "material.accent") Color(0x12, 0x34, 0x56) else null }) {
+                assertEquals("#5CCFE6", AccentResolver.resolve(project, AccentContext.External))
+                assertEquals(
+                    AccentResolver.Source.PROJECT_FALLBACK,
+                    AccentResolver.source(project, AccentContext.External),
+                )
+            }
+        }
+    }
+
+    @Test
     fun `external automatic resolve uses material accent before stored fallback`() {
         withResolverStubs {
             state.externalThemeAccent = "#445566"
@@ -222,6 +262,7 @@ class AccentResolverExternalTest {
             every { AccentMappingsSettings.getInstance() } returns mappingsSettings
 
             every { ProjectLanguageDetector.dominant(any()) } returns null
+            every { ProjectLanguageDetector.verdict(any()) } returns ProjectLanguageVerdict.Cold
             every { LicenseChecker.isLicensedOrGrace() } returns licensed
 
             AccentResolver.resetWarnGatesForTest()

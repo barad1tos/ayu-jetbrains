@@ -285,6 +285,8 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                         ?: "?"
                 "language override: $dominant"
             }
+            AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE,
+            AccentResolver.Source.PROJECT_FALLBACK,
             AccentResolver.Source.MATERIAL_THEME,
             AccentResolver.Source.IDE_ACCENT,
             AccentResolver.Source.EXTERNAL_ACCENT,

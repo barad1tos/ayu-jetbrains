@@ -134,6 +134,19 @@ class QuickSwitcherChipComponentTest {
     }
 
     @Test
+    fun `refreshFromFocusedProject renders PROJECT_FALLBACK as unpinned with fallback tooltip`() {
+        stubAyuActive(true)
+        stubResolver(hex = "#5CCFE6", source = AccentResolver.Source.PROJECT_FALLBACK)
+
+        val chip = QuickSwitcherChipComponent()
+        chip.refreshFromFocusedProject()
+
+        val icon = chip.icon as LayeredAccentIcon
+        assertFalse(icon.isPinned, "PROJECT_FALLBACK must not render as an always-on project pin")
+        assertEquals("#5CCFE6 \u2014 Project fallback", chip.toolTipText)
+    }
+
+    @Test
     fun `refreshFromFocusedProject swallows RuntimeException and preserves chip paintability`() {
         stubAyuActive(true)
         mockkObject(AccentResolver)
@@ -340,7 +353,11 @@ class QuickSwitcherChipComponentTest {
         every { AccentResolver.source(any(), any<AccentContext>()) } returns source
         every { AccentResolver.source(any()) } returns source
         every { AccentResolver.sourceLabel(AccentResolver.Source.PROJECT_OVERRIDE) } returns "Project override"
+        every {
+            AccentResolver.sourceLabel(AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE)
+        } returns "Forced language override"
         every { AccentResolver.sourceLabel(AccentResolver.Source.LANGUAGE_OVERRIDE) } returns "Language override"
+        every { AccentResolver.sourceLabel(AccentResolver.Source.PROJECT_FALLBACK) } returns "Project fallback"
         every { AccentResolver.sourceLabel(AccentResolver.Source.GLOBAL) } returns "Global"
     }
 

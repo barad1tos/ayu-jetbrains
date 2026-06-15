@@ -6,6 +6,7 @@ import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
+import dev.ayuislands.settings.mappings.AccentMappingsState
 import org.jetbrains.annotations.TestOnly
 import java.awt.Color
 import java.io.File
@@ -21,8 +22,11 @@ import javax.swing.UIManager
  *
  *  1. **Project override** — `AccentMappingsState.projectAccents` keyed by the project's
  *     canonical base path.
- *  2. **Language override** — dominant language of the project via [ProjectLanguageDetector].
- *  3. **Global** — [AyuIslandsSettings.getAccentForVariant] (which itself honors
+ *  2. **Forced language override** — per-project language id mapped to a language accent.
+ *  3. **Language override** — dominant language of the project via [ProjectLanguageDetector].
+ *  4. **Project fallback** — applied only when [ProjectLanguageDetector.verdict] is
+ *     [ProjectLanguageVerdict.NoWinner].
+ *  5. **Global** — [AyuIslandsSettings.getAccentForVariant] (which itself honors
  *     follow-system-accent and per-variant stored hex).
  *
  * Per-project and per-language overrides are premium features: when the license check
@@ -30,11 +34,20 @@ import javax.swing.UIManager
  * The UI disables override add/edit for unlicensed users, but this guard protects against
  * trial expiry with previously-stored mappings and against manually imported settings XML.
  *
- * Zero-cost path: when `languageAccents` is empty the detector is never consulted,
- * so projects without any language overrides take a pure map-lookup path.
+ * Zero-cost path: when no forced-language, language, or project-fallback work exists
+ * for a project, the detector is never consulted and resolution stays on pure map lookups.
  */
 object AccentResolver {
-    enum class Source { PROJECT_OVERRIDE, LANGUAGE_OVERRIDE, MATERIAL_THEME, IDE_ACCENT, EXTERNAL_ACCENT, GLOBAL }
+    enum class Source {
+        PROJECT_OVERRIDE,
+        FORCED_LANGUAGE_OVERRIDE,
+        LANGUAGE_OVERRIDE,
+        PROJECT_FALLBACK,
+        MATERIAL_THEME,
+        IDE_ACCENT,
+        EXTERNAL_ACCENT,
+        GLOBAL,
+    }
 
     private val LOG = logger<AccentResolver>()
 
@@ -90,13 +103,15 @@ object AccentResolver {
      * Pure pattern-match over the closed [Source] enum; no IO, no reflection.
      * Pattern L regression lock lives in `AccentResolverSourceLabelTest` —
      * adding a new [Source] value without extending this helper fails the
-     * `Source.entries.size == 6` assertion so silent "Global" fallback drift
+     * `Source.entries.size == 8` assertion so silent "Global" fallback drift
      * cannot land.
      */
     fun sourceLabel(source: Source): String =
         when (source) {
             Source.PROJECT_OVERRIDE -> "Project override"
+            Source.FORCED_LANGUAGE_OVERRIDE -> "Forced language override"
             Source.LANGUAGE_OVERRIDE -> "Language override"
+            Source.PROJECT_FALLBACK -> "Project fallback"
             Source.MATERIAL_THEME -> "Material Theme"
             Source.IDE_ACCENT -> "IDE accent"
             Source.EXTERNAL_ACCENT -> "External accent"
@@ -156,21 +171,56 @@ object AccentResolver {
         validateHex: Boolean,
     ): ResolvedAccent? {
         if (!LicenseChecker.isLicensedOrGrace()) return null
-        if (project == null || project.isDefault || project.isDisposed) return null
+        val activeProject =
+            project
+                ?.takeUnless { it.isDefault }
+                ?.takeUnless { it.isDisposed }
+                ?: return null
 
         val mappings = AccentMappingsSettings.getInstance().state
-        projectKey(project)
-            ?.let { mappings.projectAccents[it] }
+        val projectKey = projectKey(activeProject) ?: return null
+        mappings.projectAccents[projectKey]
             ?.let { rawHex -> overrideAccent(Source.PROJECT_OVERRIDE, rawHex, validateHex)?.let { return it } }
 
-        if (mappings.languageAccents.isNotEmpty()) {
-            ProjectLanguageDetector.dominant(project)?.let { languageId ->
-                mappings.languageAccents[languageId]?.let { rawHex ->
-                    overrideAccent(Source.LANGUAGE_OVERRIDE, rawHex, validateHex)?.let { return it }
-                }
+        val hasLanguageWork =
+            listOf(
+                mappings.forcedProjectLanguages.containsKey(projectKey),
+                mappings.languageAccents.isNotEmpty(),
+                mappings.projectFallbackAccents.containsKey(projectKey),
+            ).any { it }
+        if (!hasLanguageWork) return null
+
+        resolveLanguageOverride(
+            mappings = mappings,
+            project = activeProject,
+            projectKey = projectKey,
+            validateHex = validateHex,
+        )?.let { return it }
+        ProjectLanguageDetector
+            .verdict(activeProject)
+            .takeIf { it is ProjectLanguageVerdict.NoWinner }
+            ?.let {
+                mappings.projectFallbackAccents[projectKey]
+                    ?.let { rawHex -> overrideAccent(Source.PROJECT_FALLBACK, rawHex, validateHex)?.let { return it } }
             }
-        }
         return null
+    }
+
+    private fun resolveLanguageOverride(
+        mappings: AccentMappingsState,
+        project: Project,
+        projectKey: String,
+        validateHex: Boolean,
+    ): ResolvedAccent? {
+        mappings.forcedProjectLanguages[projectKey]
+            ?.let { forcedLanguageId -> mappings.languageAccents[forcedLanguageId] }
+            ?.let { rawHex -> overrideAccent(Source.FORCED_LANGUAGE_OVERRIDE, rawHex, validateHex) }
+            ?.let { return it }
+        if (mappings.languageAccents.isEmpty()) return null
+        return ProjectLanguageDetector
+            .dominant(project)
+            ?.let { languageId -> mappings.languageAccents[languageId] }
+            ?.let { rawHex -> overrideAccent(Source.LANGUAGE_OVERRIDE, rawHex, validateHex) }
     }
 
     private fun overrideAccent(
