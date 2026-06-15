@@ -73,6 +73,7 @@ object SyntaxCategoryRegistry {
                 "MARKDOWN_BLOCK_QUOTE_MARKER|MARKDOWN_FRONT_MATTER",
                 "IGNORE\\.COMMENT|IGNORE\\.UNUSED_ENTRY|COND_NOT_COMPILED",
             )
+            // --- Swift instance method (must beat INSTANCE_FIELD) ----------
             addRules(
                 PrimitiveCategory.FUNCTION_DECL,
                 "SWIFT_INSTANCE_METHOD",
@@ -86,7 +87,7 @@ object SyntaxCategoryRegistry {
             )
             addRules(
                 PrimitiveCategory.INSTANCE_FIELD,
-                "INSTANCE_FIELD|INSTANCE_FINAL_FIELD|INSTANCE_GETTER|INSTANCE_SETTER|INSTANCE_METHOD",
+                "INSTANCE_FIELD|INSTANCE_FINAL_FIELD|INSTANCE_GETTER|INSTANCE_SETTER",
                 "INSTANCE_MEMBER|INSTANCE_PROPERTY|TOP_LEVEL_GETTER|TOP_LEVEL_SETTER",
                 "TOP_LEVEL_VARIABLE|TOP_LEVEL_FUNCTION|PROPERTY_REFERENCE|HASH_KEY|TAG_KEY",
                 "TAG_VALUE|MAP_KEY|INSTANCE_PROPERTY_CUSTOM|PACKAGE_PROPERTY",
@@ -154,7 +155,7 @@ object SyntaxCategoryRegistry {
                 "DIRECTIVE$|HEADER$|TAG_NAME$|XML_NS_PREFIX|XML_TAG_DATA",
                 "DIRECTIVE_PREFIX|DIRECTIVE_COMMAND|DIRECTIVE_KEY|DIRECTIVE_VALUE",
                 "MACRO_RULES|MACRO_IDENTIFIER|MACRO_BINDING|MACRO_META_VAR",
-                "MACRO_GROUP|MACRO_DOLLAR|MACRO_COLON|MACRO_EXCL|MACRO$",
+                "MACRO_GROUP|MACRO_DOLLAR|MACRO_COLON|MACRO_EXCL|MACRO(?:_|$)",
                 "SELF_SUPER|DIRECTIVE_CONDITION|DIRECTIVE_FLAG",
                 "REQUIRE_CALL|WORDS|MARKDOWN_HEADER|NGINX_IF|NGINX_GEO",
                 "NGINX_MAP|DROOLS_OPERATIONS|Scalatest keyword|Scala directive",
