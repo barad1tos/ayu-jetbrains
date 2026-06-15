@@ -138,6 +138,18 @@ categories:
           Ayu Islands → Rescan Project Language menu action, for when
           you don't want to wait for the next Gradle sync.
 
+      - id: language-resolution-diagnostics
+        title: "Language override diagnostics"
+        keyword: "language override diagnostics"
+        introduced: "2.7.4"
+        tier: paid
+        description: >
+          Per-project language accent resolution now explains when a
+          project is detected, polyglot, forced to a specific language,
+          or using a no-winner fallback accent. Polyglot projects can
+          keep the default dominance logic while still choosing a project
+          fallback or forced language when needed.
+
       - id: chrome-tinting
         title: "Peacock-parity chrome tinting"
         keyword: "chrome tinting"
