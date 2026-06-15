@@ -49,7 +49,7 @@ internal class ProjectLanguageResolutionPanel(
     fun refresh(nextState: State) {
         state = nextState
         removeAll()
-        add(JBLabel(summaryFor(nextState)).apply { foreground = UIUtil.getContextHelpForeground() })
+        add(JBLabel(safeLabelText(summaryFor(nextState))).apply { foreground = UIUtil.getContextHelpForeground() })
         actionSpecsFor(nextState).forEach { action ->
             add(buildActionLabel(action))
         }
@@ -175,7 +175,7 @@ internal class ProjectLanguageResolutionPanel(
             is ProjectLanguageVerdict.Detected ->
                 listOf(forceLanguageSpec(verdict.languageId))
             is ProjectLanguageVerdict.NoWinner ->
-                noWinnerActionSpecs(verdict, state.fallbackHex)
+                noWinnerActionSpecs(verdict, state)
             ProjectLanguageVerdict.Cold,
             ProjectLanguageVerdict.Empty,
             ProjectLanguageVerdict.Unavailable,
@@ -184,16 +184,16 @@ internal class ProjectLanguageResolutionPanel(
 
     private fun noWinnerActionSpecs(
         verdict: ProjectLanguageVerdict.NoWinner,
-        fallbackHex: String?,
+        state: State,
     ): List<ActionSpec> {
         val specs = mutableListOf<ActionSpec>()
-        if (fallbackHex == null && currentAccentHex() != null) {
+        if (state.fallbackHex == null && state.canSetFallbackToCurrentAccent) {
             specs +=
                 ActionSpec(SET_FALLBACK_LABEL) {
                     currentAccentHex()?.let(onSetFallback)
                 }
         }
-        topLanguageId(verdict.weights)?.let { languageId ->
+        uniqueTopLanguageId(verdict.weights)?.let { languageId ->
             specs += forceLanguageSpec(languageId)
         }
         return specs
@@ -204,14 +204,22 @@ internal class ProjectLanguageResolutionPanel(
             onSetForcedLanguage(languageId)
         }
 
-    private fun topLanguageId(weights: Map<String, Long>): String? =
-        LanguageDetectionRules
-            .pickDisplayEntries(weights)
-            .firstOrNull { it.id != null }
-            ?.id
+    private fun uniqueTopLanguageId(weights: Map<String, Long>): String? {
+        val entries =
+            LanguageDetectionRules
+                .pickDisplayEntries(weights)
+                .filter { it.id != null }
+        val topId = entries.firstOrNull()?.id ?: return null
+        val topWeight = weights[topId] ?: return null
+        val hasTopTie =
+            entries.drop(1).any { entry ->
+                entry.id?.let { languageId -> weights[languageId] == topWeight } == true
+            }
+        return topId.takeUnless { hasTopTie }
+    }
 
     private fun buildActionLabel(action: ActionSpec): JBLabel =
-        JBLabel(action.text, null, SwingConstants.LEADING).apply {
+        JBLabel(safeLabelText(action.text), null, SwingConstants.LEADING).apply {
             foreground = UIUtil.getContextHelpForeground()
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
             addMouseListener(
@@ -232,6 +240,7 @@ internal class ProjectLanguageResolutionPanel(
         val activeSource: AccentResolver.Source,
         val canMutate: Boolean,
         val canRescan: Boolean,
+        val canSetFallbackToCurrentAccent: Boolean = true,
     )
 
     private data class ActionSpec(
@@ -249,3 +258,9 @@ internal class ProjectLanguageResolutionPanel(
         private const val ENTRY_SEPARATOR: String = " - "
     }
 }
+
+private fun safeLabelText(text: String): String =
+    text
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")

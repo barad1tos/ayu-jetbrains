@@ -478,7 +478,7 @@ class OverridesGroupBuilder {
 
     private fun createResolutionPanel(): ProjectLanguageResolutionPanel =
         ProjectLanguageResolutionPanel(
-            currentAccentHex = ::currentVariantAccentHex,
+            currentAccentHex = ::currentPendingAccentHex,
             onSetFallback = { hex -> setFocusedProjectFallback(hex) },
             onSetForcedLanguage = { languageId -> setFocusedProjectForcedLanguage(languageId) },
             onClearForcedLanguage = { setFocusedProjectForcedLanguage(null) },
@@ -499,10 +499,50 @@ class OverridesGroupBuilder {
             verdict = verdict,
             forcedLanguageId = projectKey?.let(pendingForcedLanguages::get),
             fallbackHex = projectKey?.let(pendingFallbackAccents::get),
-            activeSource = sourcePending(project),
+            activeSource = diagnosticsSource(projectKey, verdict),
             canMutate = rescanLicensed,
             canRescan = rescanEligibleProject != null,
+            canSetFallbackToCurrentAccent = currentVariantAccentHex() != null,
         )
+    }
+
+    private fun diagnosticsSource(
+        projectKey: String?,
+        verdict: ProjectLanguageVerdict,
+    ): AccentResolver.Source {
+        if (!rescanLicensed || projectKey == null) return AccentResolver.Source.GLOBAL
+        projectModel
+            .snapshot()
+            .firstOrNull { it.canonicalPath == projectKey }
+            ?.let { return AccentResolver.Source.PROJECT_OVERRIDE }
+
+        val languageIds = languageModel.snapshot().map { it.languageId }.toSet()
+        val forcedLanguageId = pendingForcedLanguages[projectKey]
+        if (forcedLanguageId != null && forcedLanguageId in languageIds) {
+            return AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE
+        }
+        if (forcedLanguageId == null &&
+            verdict is ProjectLanguageVerdict.Detected &&
+            verdict.languageId in languageIds
+        ) {
+            return AccentResolver.Source.LANGUAGE_OVERRIDE
+        }
+        return fallbackDiagnosticsSource(projectKey, verdict)
+    }
+
+    private fun fallbackDiagnosticsSource(
+        projectKey: String,
+        verdict: ProjectLanguageVerdict,
+    ): AccentResolver.Source =
+        if (pendingFallbackAccents.containsKey(projectKey) && verdict is ProjectLanguageVerdict.NoWinner) {
+            AccentResolver.Source.PROJECT_FALLBACK
+        } else {
+            AccentResolver.Source.GLOBAL
+        }
+
+    private fun currentPendingAccentHex(): String? {
+        val fallbackGlobalHex = currentVariantAccentHex() ?: return null
+        return resolvePending(parentProject, fallbackGlobalHex)
     }
 
     private fun currentVariantAccentHex(): String? =

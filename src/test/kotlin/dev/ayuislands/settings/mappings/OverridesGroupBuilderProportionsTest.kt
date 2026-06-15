@@ -13,6 +13,7 @@ import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkAll
 import io.mockk.verify
+import java.awt.Cursor
 import java.awt.event.MouseEvent
 import java.io.File
 import javax.swing.JComponent
@@ -21,6 +22,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -124,7 +126,6 @@ class OverridesGroupBuilderProportionsTest {
             listOf(
                 "No dominant language: JavaScript 50% - TypeScript 50% - using Global",
                 ProjectLanguageResolutionPanel.SET_FALLBACK_LABEL,
-                "Force JavaScript",
                 ProjectLanguageResolutionPanel.RESCAN_LABEL,
             ),
             builder.proportionsPanelLabelsForTest().map { it.second },
@@ -176,6 +177,80 @@ class OverridesGroupBuilderProportionsTest {
     }
 
     @Test
+    fun `diagnostics render with pending language row does not consult dominant or scanner`() {
+        mockkObject(ProjectLanguageScanner)
+        every { ProjectLanguageScanner.scan(any()) } returns emptyMap()
+
+        val project = stubProject(tmpKey("resolution-language-cache-only"))
+        every { ProjectLanguageDetector.verdict(project) } returns
+            ProjectLanguageVerdict.Detected(
+                languageId = "kotlin",
+                weights = mapOf("kotlin" to 1_000L),
+            )
+        every { ProjectLanguageDetector.dominant(project) } throws AssertionError("dominant must not be read")
+
+        val builder =
+            OverridesGroupBuilder().apply {
+                setParentProjectForTest(project)
+                seedPendingForTest(languages = listOf(LanguageMapping("kotlin", "Kotlin", "#FFCC66")))
+            }
+
+        assertEquals(
+            "Detected: Kotlin 100% - using Language override",
+            builder.currentProportionsTextForTest(),
+        )
+        builder.proportionsPanelLabelsForTest()
+
+        verify(exactly = 0) { ProjectLanguageDetector.dominant(project) }
+        verify(exactly = 0) { ProjectLanguageScanner.scan(any()) }
+    }
+
+    @Test
+    fun `diagnostics render with pending fallback row does not consult dominant or scanner`() {
+        mockkObject(ProjectLanguageScanner)
+        every { ProjectLanguageScanner.scan(any()) } returns emptyMap()
+
+        val projectKey = tmpKey("resolution-fallback-cache-only")
+        val project = stubProject(projectKey)
+        every { ProjectLanguageDetector.verdict(project) } returns
+            ProjectLanguageVerdict.NoWinner(mapOf("typescript" to 500L, "javascript" to 500L))
+        every { ProjectLanguageDetector.dominant(project) } throws AssertionError("dominant must not be read")
+
+        val builder =
+            OverridesGroupBuilder().apply {
+                setParentProjectForTest(project)
+                seedResolutionOverridesForTest(fallbackAccents = mapOf(projectKey to "#5CCFE6"))
+            }
+
+        assertEquals(
+            "No dominant language: JavaScript 50% - TypeScript 50% - using Project fallback #5CCFE6",
+            builder.currentProportionsTextForTest(),
+        )
+        builder.proportionsPanelLabelsForTest()
+
+        verify(exactly = 0) { ProjectLanguageDetector.dominant(project) }
+        verify(exactly = 0) { ProjectLanguageScanner.scan(any()) }
+    }
+
+    @Test
+    fun `Set fallback uses current pending project override accent instead of global variant accent`() {
+        val projectKey = tmpKey("resolution-current-accent")
+        val project = stubProject(projectKey)
+        every { ProjectLanguageDetector.verdict(project) } returns
+            ProjectLanguageVerdict.NoWinner(mapOf("typescript" to 700L, "javascript" to 300L))
+
+        val builder =
+            OverridesGroupBuilder().apply {
+                setParentProjectForTest(project)
+                seedPendingForTest(projects = listOf(ProjectMapping(projectKey, "Focused project", "#112233")))
+            }
+
+        click(findLabel(builder, ProjectLanguageResolutionPanel.SET_FALLBACK_LABEL))
+
+        assertEquals("#112233", builder.fallbackAccentsForTest()[projectKey])
+    }
+
+    @Test
     fun `Rescan label click is blocked when license flips to unlicensed`() {
         val project = stubProject(tmpKey("resolution-rescan-defense"))
         every { ProjectLanguageDetector.verdict(project) } returns ProjectLanguageVerdict.Cold
@@ -190,6 +265,50 @@ class OverridesGroupBuilderProportionsTest {
     }
 
     @Test
+    fun `Rescan label click rescans focused licensed project`() {
+        val project = stubProject(tmpKey("resolution-rescan"))
+        every { ProjectLanguageDetector.verdict(project) } returns ProjectLanguageVerdict.Cold
+
+        val builder = OverridesGroupBuilder().apply { setParentProjectForTest(project) }
+
+        click(findLabel(builder, ProjectLanguageResolutionPanel.RESCAN_LABEL))
+
+        verify(exactly = 1) { ProjectLanguageDetector.rescan(project) }
+    }
+
+    @Test
+    fun `Rescan label is hidden when there is no focused project`() {
+        val builder = OverridesGroupBuilder().apply { setParentProjectForTest(null) }
+
+        val labels = builder.proportionsPanelLabelsForTest().map { it.second }
+
+        assertFalse(ProjectLanguageResolutionPanel.RESCAN_LABEL in labels)
+    }
+
+    @Test
+    fun `Rescan label is hidden when diagnostics are unlicensed`() {
+        val project = stubProject(tmpKey("resolution-rescan-unlicensed"))
+        val builder = OverridesGroupBuilder().apply { setParentProjectForTest(project, licensed = false) }
+
+        val labels = builder.proportionsPanelLabelsForTest().map { it.second }
+
+        assertFalse(ProjectLanguageResolutionPanel.RESCAN_LABEL in labels)
+    }
+
+    @Test
+    fun `Rescan label uses hand cursor`() {
+        val project = stubProject(tmpKey("resolution-rescan-cursor"))
+        every { ProjectLanguageDetector.verdict(project) } returns ProjectLanguageVerdict.Cold
+
+        val builder = OverridesGroupBuilder().apply { setParentProjectForTest(project) }
+
+        assertEquals(
+            Cursor.HAND_CURSOR,
+            findLabel(builder, ProjectLanguageResolutionPanel.RESCAN_LABEL).cursor.type,
+        )
+    }
+
+    @Test
     fun `dispose disconnects the live detection subscription`() {
         val builder = OverridesGroupBuilder()
         val connection = mockk<MessageBusConnection>(relaxed = true)
@@ -198,6 +317,42 @@ class OverridesGroupBuilderProportionsTest {
         builder.dispose()
 
         verify(exactly = 1) { connection.disconnect() }
+        assertNull(readDetectionConnection(builder))
+    }
+
+    @Test
+    fun `dispose is idempotent across repeated calls`() {
+        val builder = OverridesGroupBuilder()
+        val connection = mockk<MessageBusConnection>(relaxed = true)
+        installDetectionConnection(builder, connection)
+
+        builder.dispose()
+        builder.dispose()
+
+        verify(exactly = 1) { connection.disconnect() }
+        assertNull(readDetectionConnection(builder))
+    }
+
+    @Test
+    fun `dispose swallows disconnect failure and clears the connection`() {
+        val builder = OverridesGroupBuilder()
+        val connection = mockk<MessageBusConnection>()
+        every { connection.disconnect() } throws IllegalStateException("already disposed")
+        installDetectionConnection(builder, connection)
+
+        builder.dispose()
+
+        verify(exactly = 1) { connection.disconnect() }
+        assertNull(readDetectionConnection(builder))
+    }
+
+    @Test
+    fun `dispose before wiring is a no-op`() {
+        val builder = OverridesGroupBuilder()
+
+        builder.dispose()
+        builder.dispose()
+
         assertNull(readDetectionConnection(builder))
     }
 

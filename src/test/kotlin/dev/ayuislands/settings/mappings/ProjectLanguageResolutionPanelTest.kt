@@ -4,6 +4,7 @@ import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.ProjectLanguageVerdict
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ProjectLanguageResolutionPanelTest {
@@ -147,7 +148,7 @@ class ProjectLanguageResolutionPanelTest {
     }
 
     @Test
-    fun `no winner actions set fallback to current accent and force top language`() {
+    fun `no winner actions set fallback to current accent without forcing tied top language`() {
         val calls = ResolutionCalls()
         val panel = panel(calls = calls)
 
@@ -167,13 +168,39 @@ class ProjectLanguageResolutionPanelTest {
 
         val labels = panel.labelsForTest().map { it.second }
         assertTrue(ProjectLanguageResolutionPanel.SET_FALLBACK_LABEL in labels)
-        assertTrue("Force JavaScript" in labels)
+        assertFalse(labels.any { it.startsWith("Force ") })
 
         panel.clickLabelForTest(ProjectLanguageResolutionPanel.SET_FALLBACK_LABEL)
-        panel.clickLabelForTest("Force JavaScript")
 
         assertEquals(listOf("#5CCFE6"), calls.fallbacks)
-        assertEquals(listOf("javascript"), calls.forcedLanguages)
+        assertEquals(emptyList(), calls.forcedLanguages)
+    }
+
+    @Test
+    fun `no winner actions force unique top language`() {
+        val calls = ResolutionCalls()
+        val panel = panel(calls = calls)
+
+        panel.refresh(
+            ProjectLanguageResolutionPanel.State(
+                verdict =
+                    ProjectLanguageVerdict.NoWinner(
+                        mapOf("typescript" to 700L, "javascript" to 300L),
+                    ),
+                forcedLanguageId = null,
+                fallbackHex = null,
+                activeSource = AccentResolver.Source.GLOBAL,
+                canMutate = true,
+                canRescan = false,
+            ),
+        )
+
+        val labels = panel.labelsForTest().map { it.second }
+        assertTrue("Force TypeScript" in labels)
+
+        panel.clickLabelForTest("Force TypeScript")
+
+        assertEquals(listOf("typescript"), calls.forcedLanguages)
     }
 
     @Test
@@ -226,6 +253,29 @@ class ProjectLanguageResolutionPanelTest {
 
         assertEquals(1, calls.clearForcedCount)
         assertEquals(1, calls.clearFallbackCount)
+    }
+
+    @Test
+    fun `diagnostics labels do not expose raw html for hostile language ids`() {
+        val panel = panel()
+
+        panel.refresh(
+            ProjectLanguageResolutionPanel.State(
+                verdict =
+                    ProjectLanguageVerdict.Detected(
+                        languageId = "<html><b>evil</b></html>",
+                        weights = mapOf("<html><b>evil</b></html>" to 1_000L),
+                    ),
+                forcedLanguageId = null,
+                fallbackHex = null,
+                activeSource = AccentResolver.Source.LANGUAGE_OVERRIDE,
+                canMutate = true,
+                canRescan = false,
+            ),
+        )
+
+        val labels = panel.labelsForTest().map { it.second }
+        assertFalse(labels.any { it.contains("<html", ignoreCase = true) })
     }
 
     private fun panel(
