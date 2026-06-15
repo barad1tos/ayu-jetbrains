@@ -1,11 +1,13 @@
 package dev.ayuislands.settings.mappings
 
 import com.intellij.icons.AllIcons
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import com.intellij.ui.JBColor
 import com.intellij.ui.ToolbarDecorator
 import com.intellij.ui.dsl.builder.Align
@@ -94,6 +96,7 @@ class OverridesGroupBuilder(
      * doesn't double-subscribe either.
      */
     private var detectionConnection: MessageBusConnection? = null
+    private var detectionConnectionParent: Disposable? = null
 
     /**
      * License-gate snapshot captured once at [buildGroup] time for the static
@@ -170,11 +173,20 @@ class OverridesGroupBuilder(
      * variant swap.
      */
     private fun safelyDisconnectDetection(site: String) {
-        runCatchingPreservingCancellation { detectionConnection?.disconnect() }
+        val connection = detectionConnection
+        val parent = detectionConnectionParent
+        detectionConnection = null
+        detectionConnectionParent = null
+        runCatchingPreservingCancellation { connection?.disconnect() }
             .onFailure { exception ->
                 LOG.debug("OverridesGroupBuilder $site disconnect failed", exception)
             }
-        detectionConnection = null
+        parent?.let { disposable ->
+            runCatchingPreservingCancellation { Disposer.dispose(disposable) }
+                .onFailure { exception ->
+                    LOG.debug("OverridesGroupBuilder $site parent dispose failed", exception)
+                }
+        }
     }
 
     fun buildGroup(
@@ -182,14 +194,6 @@ class OverridesGroupBuilder(
         contextProject: Project?,
     ) {
         parentProject = contextProject
-        // Defense-in-depth: StartupActivity warms the detector cache off-EDT on
-        // project open, but Settings might be opened before that coroutine lands
-        // (race window) or the cache might have been invalidated mid-session.
-        // Kick a warmup now on the EDT path — the detector's own EDT bail-out
-        // schedules a background scan and returns null immediately, so this is
-        // zero-cost on EDT; the first paint may show the polyglot copy but the
-        // next reset (any model edit or panel reopen) picks up the warm cache.
-        contextProject?.let { ProjectLanguageDetector.dominant(it) }
         loadFromState()
 
         val licensed = LicenseChecker.isLicensedOrGrace()
@@ -269,25 +273,19 @@ class OverridesGroupBuilder(
         //    `ProjectLanguageDetectionListener.scanCompleted` on EDT — the only signal
         //    the row has to exit a stale winner state without a settings edit.
         addPendingChangeListener(diagnosticsRefreshListener)
-        // Subscription lifetime is tied to the Settings panel (disconnected by
-        // [dispose] from the Configurable's disposeUIResources). Any prior
-        // connection on this same builder is torn down first so a rebuild in
-        // place can't double-subscribe. Wrapped in runCatchingPreservingCancellation
-        // so a platform regression throwing from `disconnect()` (observed as
-        // `AlreadyDisposedException` during plugin-unload races) doesn't
-        // propagate out of `buildGroup` and break the Settings render path.
-        // The project MessageBus is the ultimate safety net — if Settings is
-        // orphaned without disposeUI firing, the connection still drops on
-        // project close. Shared with `dispose()` via
-        // [safelyDisconnectDetection] so a single red/green test covers
-        // both call sites by construction.
+        // Subscription lifetime is tied to an owned Disposable parent and is
+        // also disconnected from [dispose] / re-entry. The explicit disconnect
+        // preserves the existing failure-tolerant teardown path; the parented
+        // MessageBus connection gives the platform a proper lifetime owner.
         safelyDisconnectDetection("re-entry")
         // The `panel.isDisplayable` guard inside invokeLater below covers
         // the window where Settings has been closed but dispose hasn't
         // fired yet — without it, `refreshResolutionPanel` would paint into a
         // detached panel and waste EDT budget.
         contextProject?.let { project ->
-            val connection = project.messageBus.connect()
+            val connectionParent = Disposer.newDisposable("AyuIslandsOverrides.languageDiagnostics")
+            detectionConnectionParent = connectionParent
+            val connection = project.messageBus.connect(connectionParent)
             detectionConnection = connection
             connection.subscribe(
                 ProjectLanguageDetectionListener.TOPIC,

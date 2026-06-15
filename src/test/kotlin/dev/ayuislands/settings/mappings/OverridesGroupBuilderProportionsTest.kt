@@ -1,6 +1,13 @@
 package dev.ayuislands.settings.mappings
 
+import com.intellij.openapi.Disposable
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.application.Application
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.CoroutineSupport
 import com.intellij.openapi.project.Project
+import com.intellij.ui.dsl.builder.panel
+import com.intellij.util.messages.MessageBus
 import com.intellij.util.messages.MessageBusConnection
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.ProjectLanguageDetector
@@ -8,9 +15,12 @@ import dev.ayuislands.accent.ProjectLanguageScanner
 import dev.ayuislands.accent.ProjectLanguageVerdict
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkClass
 import io.mockk.mockkObject
+import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.Cursor
@@ -59,6 +69,7 @@ class OverridesGroupBuilderProportionsTest {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         val ayuSettings = mockk<AyuIslandsSettings>()
+        every { ayuSettings.state } returns AyuIslandsState()
         every { ayuSettings.getAccentForVariant(AyuVariant.MIRAGE) } returns "#5CCFE6"
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns ayuSettings
@@ -438,6 +449,64 @@ class OverridesGroupBuilderProportionsTest {
     }
 
     @Test
+    fun `buildGroup does not warm detector through dominant`() {
+        val project = stubProject(tmpKey("resolution-build-cache-only"))
+        val messageBus = mockk<MessageBus>()
+        val connection = mockk<MessageBusConnection>(relaxed = true)
+        installApplicationActionManager()
+        every { project.messageBus } returns messageBus
+        every { messageBus.connect(any<Disposable>()) } returns connection
+        every { ProjectLanguageDetector.dominant(project) } throws AssertionError("dominant must not be read")
+
+        panel {
+            OverridesGroupBuilder().buildGroup(this, project)
+        }
+
+        verify(exactly = 0) { ProjectLanguageDetector.dominant(project) }
+    }
+
+    @Test
+    fun `buildGroup connects diagnostics subscription with owned disposable parent`() {
+        val project = stubProject(tmpKey("resolution-parented-subscription"))
+        val messageBus = mockk<MessageBus>()
+        val connection = mockk<MessageBusConnection>(relaxed = true)
+        installApplicationActionManager()
+        every { project.messageBus } returns messageBus
+        every { messageBus.connect(any<Disposable>()) } returns connection
+
+        val builder = OverridesGroupBuilder()
+        panel {
+            builder.buildGroup(this, project)
+        }
+
+        verify(exactly = 1) { messageBus.connect(any<Disposable>()) }
+        assertEquals(connection, readDetectionConnection(builder))
+    }
+
+    @Test
+    fun `buildGroup re-entry disconnects previous diagnostics subscription before reconnecting`() {
+        val project = stubProject(tmpKey("resolution-reentry-subscription"))
+        val messageBus = mockk<MessageBus>()
+        val firstConnection = mockk<MessageBusConnection>(relaxed = true)
+        val secondConnection = mockk<MessageBusConnection>(relaxed = true)
+        installApplicationActionManager()
+        every { project.messageBus } returns messageBus
+        every { messageBus.connect(any<Disposable>()) } returnsMany listOf(firstConnection, secondConnection)
+
+        val builder = OverridesGroupBuilder()
+        panel {
+            builder.buildGroup(this, project)
+        }
+        panel {
+            builder.buildGroup(this, project)
+        }
+
+        verify(exactly = 2) { messageBus.connect(any<Disposable>()) }
+        verify(exactly = 1) { firstConnection.disconnect() }
+        assertEquals(secondConnection, readDetectionConnection(builder))
+    }
+
+    @Test
     fun `pending change listener registration de-duplicates identical runnable`() {
         val builder = OverridesGroupBuilder()
         var calls = 0
@@ -497,6 +566,22 @@ class OverridesGroupBuilderProportionsTest {
         component.mouseListeners
             .filter { it.javaClass.name.startsWith("dev.ayuislands") }
             .forEach { it.mouseClicked(event) }
+    }
+
+    private fun installApplicationActionManager() {
+        mockkStatic(ApplicationManager::class)
+        val application = mockk<Application>(relaxed = true)
+        val actionManager = mockk<ActionManager>(relaxed = true)
+        val coroutineSupport = mockk<CoroutineSupport>(relaxed = true)
+        every { ApplicationManager.getApplication() } returns application
+        every { application.getService(ActionManager::class.java) } returns actionManager
+        every { application.getService(CoroutineSupport::class.java) } returns coroutineSupport
+        every { actionManager.getAction(any()) } returns null
+
+        @Suppress("UNCHECKED_CAST")
+        val experimentalUiClass = Class.forName("com.intellij.ui.ExperimentalUI") as Class<Any>
+        val experimentalUi = mockkClass(experimentalUiClass.kotlin, relaxed = true)
+        every { application.getService(experimentalUiClass) } returns experimentalUi
     }
 
     private fun installDetectionConnection(
