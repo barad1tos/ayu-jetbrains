@@ -16,6 +16,46 @@ import javax.swing.Icon
  * and depends on no IntelliJ platform singletons.
  */
 internal object LanguageDetectionRules {
+    data class ResolutionPolicy(
+        val dominanceThreshold: Double = DEFAULT_DOMINANCE_THRESHOLD,
+        val dominanceMarginRatio: Double = DOMINANCE_MARGIN_RATIO,
+        val dominanceFloor: Double = DOMINANCE_FLOOR,
+        val tiebreakMinShare: Double = TIE_BREAK_MIN_SHARE,
+    ) {
+        init {
+            require(dominanceThreshold in SHARE_RANGE) { "dominanceThreshold must be between 0 and 1" }
+            require(dominanceMarginRatio >= MIN_MARGIN_RATIO) { "dominanceMarginRatio must be at least 1" }
+            require(dominanceFloor in SHARE_RANGE) { "dominanceFloor must be between 0 and 1" }
+            require(tiebreakMinShare in SHARE_RANGE) { "tiebreakMinShare must be between 0 and 1" }
+        }
+
+        companion object {
+            val DEFAULT = ResolutionPolicy()
+
+            fun fromStored(
+                dominanceThreshold: Double,
+                dominanceMarginRatio: Double,
+                dominanceFloor: Double,
+                tiebreakMinShare: Double,
+            ): ResolutionPolicy =
+                ResolutionPolicy(
+                    dominanceThreshold = dominanceThreshold.normalizedShare(DEFAULT.dominanceThreshold),
+                    dominanceMarginRatio = dominanceMarginRatio.normalizedMargin(DEFAULT.dominanceMarginRatio),
+                    dominanceFloor = dominanceFloor.normalizedShare(DEFAULT.dominanceFloor),
+                    tiebreakMinShare = tiebreakMinShare.normalizedShare(DEFAULT.tiebreakMinShare),
+                )
+        }
+    }
+
+    private fun Double.normalizedShare(defaultValue: Double): Double =
+        takeIf { !it.isNaN() && !it.isInfinite() }
+            ?.coerceIn(SHARE_RANGE)
+            ?: defaultValue
+
+    private fun Double.normalizedMargin(defaultValue: Double): Double =
+        takeIf { !it.isNaN() && !it.isInfinite() && it >= MIN_MARGIN_RATIO }
+            ?: defaultValue
+
     /**
      * Language ids (lowercased) that represent markup / config / data rather than
      * a project's "primary code language". Used by
@@ -129,6 +169,9 @@ internal object LanguageDetectionRules {
      * "kotlin" but the scan has no strong signal either way.
      */
     const val TIE_BREAK_MIN_SHARE: Double = 0.20
+
+    private const val MIN_MARGIN_RATIO: Double = 1.0
+    private val SHARE_RANGE = 0.0..1.0
 
     /**
      * Max named language entries in the Settings status-line proportions display
@@ -401,6 +444,17 @@ internal object LanguageDetectionRules {
         val base = codeWeights.ifEmpty { allWeights }
         return pickDominantFromWeights(base, threshold, marginRatio, floor)
     }
+
+    fun pickDominantFromAllWeights(
+        allWeights: Map<String, Long>,
+        policy: ResolutionPolicy,
+    ): String? =
+        pickDominantFromAllWeights(
+            allWeights = allWeights,
+            threshold = policy.dominanceThreshold,
+            marginRatio = policy.dominanceMarginRatio,
+            floor = policy.dominanceFloor,
+        )
 
     /**
      * Human-readable top-N summary of language proportions for Settings display.

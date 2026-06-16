@@ -92,6 +92,28 @@ class AccentResolverTest {
     }
 
     @Test
+    fun `resolve uses language fallback override when detected language is unmapped`() {
+        mappingsState.languageAccents["kotlin"] = "#ABCDEF"
+        mappingsState.languageFallbackAccent = "#73D0FF"
+        val project = stubProject(File(System.getProperty("java.io.tmpdir"), "typescript-fallback"))
+        every { ProjectLanguageDetector.dominant(project) } returns "typescript"
+
+        assertEquals("#73D0FF", AccentResolver.resolve(project, AyuVariant.MIRAGE))
+        assertEquals(AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE, AccentResolver.source(project))
+    }
+
+    @Test
+    fun `resolve keeps exact language override ahead of language fallback`() {
+        mappingsState.languageAccents["kotlin"] = "#ABCDEF"
+        mappingsState.languageFallbackAccent = "#73D0FF"
+        val project = stubProject(File(System.getProperty("java.io.tmpdir"), "kotlin-exact-fallback"))
+        every { ProjectLanguageDetector.dominant(project) } returns "kotlin"
+
+        assertEquals("#ABCDEF", AccentResolver.resolve(project, AyuVariant.MIRAGE))
+        assertEquals(AccentResolver.Source.LANGUAGE_OVERRIDE, AccentResolver.source(project))
+    }
+
+    @Test
     fun `resolve prefers project override over language override`() {
         val tmp = File(System.getProperty("java.io.tmpdir"), "both-overrides").canonicalPath
         mappingsState.projectAccents[tmp] = "#111111"
@@ -130,6 +152,32 @@ class AccentResolverTest {
         assertEquals(AccentResolver.Source.GLOBAL, AccentResolver.source(project))
         io.mockk.verify(exactly = 0) { ProjectLanguageDetector.dominant(any()) }
         io.mockk.verify(exactly = 0) { ProjectLanguageDetector.verdict(any()) }
+    }
+
+    @Test
+    fun `forced language uses fallback when exact language accent is not mapped`() {
+        val tmp = File(System.getProperty("java.io.tmpdir"), "forced-fallback").canonicalPath
+        mappingsState.forcedProjectLanguages[tmp] = "typescript"
+        mappingsState.languageFallbackAccent = "#73D0FF"
+
+        val project = stubProject(File(tmp))
+        every { ProjectLanguageDetector.dominant(project) } returns "javascript"
+
+        assertEquals("#73D0FF", AccentResolver.resolve(project, AyuVariant.MIRAGE))
+        assertEquals(AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE, AccentResolver.source(project))
+        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.dominant(any()) }
+    }
+
+    @Test
+    fun `invalid language fallback does not override native global accent`() {
+        val tmp = File(System.getProperty("java.io.tmpdir"), "invalid-language-fallback").canonicalPath
+        mappingsState.languageFallbackAccent = "not-a-hex"
+
+        val project = stubProject(File(tmp))
+        every { ProjectLanguageDetector.dominant(project) } returns "typescript"
+
+        assertEquals(globalMirageAccent, AccentResolver.resolve(project, AyuVariant.MIRAGE))
+        assertEquals(AccentResolver.Source.GLOBAL, AccentResolver.source(project))
     }
 
     @Test

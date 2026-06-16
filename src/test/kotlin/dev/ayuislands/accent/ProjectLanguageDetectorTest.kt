@@ -6,7 +6,10 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.projectRoots.SdkTypeId
 import com.intellij.openapi.roots.ProjectRootManager
+import dev.ayuislands.settings.mappings.AccentMappingsSettings
+import dev.ayuislands.settings.mappings.AccentMappingsState
 import io.mockk.every
+import io.mockk.justRun
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
@@ -39,6 +42,10 @@ class ProjectLanguageDetectorTest {
         // fallback is what they're really asserting against.
         mockkObject(ProjectLanguageScanner)
         every { ProjectLanguageScanner.scan(any()) } returns emptyMap()
+        val mappingsSettings = mockk<AccentMappingsSettings>()
+        every { mappingsSettings.state } returns AccentMappingsState()
+        mockkObject(AccentMappingsSettings.Companion)
+        every { AccentMappingsSettings.getInstance() } returns mappingsSettings
         ProjectLanguageDetector.clear()
     }
 
@@ -302,6 +309,62 @@ class ProjectLanguageDetectorTest {
         assertEquals("kotlin", ProjectLanguageDetector.dominant(project))
         // Legacy detection must NOT have been consulted — scan was decisive.
         verify(exactly = 0) { ProjectRootManager.getInstance(project) }
+    }
+
+    @Test
+    fun `content scan honors stored dominance policy`() {
+        val policyState =
+            AccentMappingsState().apply {
+                dominanceThreshold = 0.80f
+                dominanceMarginRatio = 3.0f
+                dominanceFloor = 0.40f
+            }
+        val mappingsSettings = AccentMappingsSettings.getInstance()
+        every { mappingsSettings.state } returns policyState
+
+        val project = stubProject("/tmp/scan-policy-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns
+            mapOf("kotlin" to 700L, "java" to 300L)
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        assertNull(ProjectLanguageDetector.dominant(project))
+    }
+
+    @Test
+    fun `content scan honors stored tiebreak floor`() {
+        val policyState =
+            AccentMappingsState().apply {
+                tiebreakMinShare = 0.60f
+            }
+        val mappingsSettings = AccentMappingsSettings.getInstance()
+        every { mappingsSettings.state } returns policyState
+
+        val project = stubProject("/tmp/scan-tiebreak-floor-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns
+            mapOf("kotlin" to 500L, "java" to 500L)
+        wireProjectRootManager(project, sdkName = "KotlinSdkType")
+        wireModuleManager(project, moduleNames = emptyList())
+
+        assertNull(ProjectLanguageDetector.dominant(project))
+    }
+
+    @Test
+    fun `content scan ignores absent SDK hint even when stored tiebreak floor is zero`() {
+        val policyState =
+            AccentMappingsState().apply {
+                tiebreakMinShare = 0.0f
+            }
+        val mappingsSettings = AccentMappingsSettings.getInstance()
+        every { mappingsSettings.state } returns policyState
+
+        val project = stubProject("/tmp/scan-zero-floor-absent-hint-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns
+            mapOf("java" to 500L, "python" to 500L)
+        wireProjectRootManager(project, sdkName = "KotlinSdkType")
+        wireModuleManager(project, moduleNames = emptyList())
+
+        assertNull(ProjectLanguageDetector.dominant(project))
     }
 
     @Test
@@ -721,7 +784,7 @@ class ProjectLanguageDetectorTest {
         mockkObject(AccentResolver)
         every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFCC66"
         mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } answers { Unit }
+        justRun { AccentApplicator.apply(any()) }
         val swapService = mockk<dev.ayuislands.settings.mappings.ProjectAccentSwapService>(relaxed = true)
         mockkObject(dev.ayuislands.settings.mappings.ProjectAccentSwapService.Companion)
         every {
@@ -748,7 +811,7 @@ class ProjectLanguageDetectorTest {
         mockkObject(AccentResolver)
         every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFCC66"
         mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } answers { Unit }
+        justRun { AccentApplicator.apply(any()) }
         val swapService = mockk<dev.ayuislands.settings.mappings.ProjectAccentSwapService>(relaxed = true)
         mockkObject(dev.ayuislands.settings.mappings.ProjectAccentSwapService.Companion)
         every {
@@ -797,7 +860,7 @@ class ProjectLanguageDetectorTest {
         every { AccentResolver.resolve(any(), any<AyuVariant>()) } throws RuntimeException("resolver boom")
 
         mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } answers { Unit }
+        justRun { AccentApplicator.apply(any()) }
 
         val project = stubProject("/tmp/refresh-settings-boom-${System.nanoTime()}")
         every { AccentApplicator.resolveFocusedProject() } returns project
@@ -819,7 +882,7 @@ class ProjectLanguageDetectorTest {
         every { AyuVariant.detect() } returns null
 
         mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } answers { Unit }
+        justRun { AccentApplicator.apply(any()) }
 
         val project = stubProject("/tmp/refresh-null-variant-${System.nanoTime()}")
         every { AccentApplicator.resolveFocusedProject() } returns project
@@ -837,7 +900,7 @@ class ProjectLanguageDetectorTest {
         val focusedProject = stubProject("/tmp/refresh-new-focus-${System.nanoTime()}")
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns focusedProject
-        every { AccentApplicator.apply(any()) } answers { Unit }
+        justRun { AccentApplicator.apply(any()) }
 
         ProjectLanguageDetector.refreshAccentOnEdt(scannedProject)
 
@@ -851,7 +914,7 @@ class ProjectLanguageDetectorTest {
         // keeps the applicator from writing UIManager entries for a dead
         // project's swap-cache.
         mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } answers { Unit }
+        justRun { AccentApplicator.apply(any()) }
 
         val project = stubProject("/tmp/refresh-disposed-${System.nanoTime()}")
         every { project.isDisposed } returns true
@@ -982,7 +1045,7 @@ class ProjectLanguageDetectorTest {
         every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns project
-        every { AccentApplicator.apply(any()) } answers { Unit }
+        justRun { AccentApplicator.apply(any()) }
 
         ProjectLanguageDetector.rescan(project)
 
@@ -1036,7 +1099,7 @@ class ProjectLanguageDetectorTest {
         every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns project
-        every { AccentApplicator.apply(any()) } answers { Unit }
+        justRun { AccentApplicator.apply(any()) }
         val swapService = mockk<dev.ayuislands.settings.mappings.ProjectAccentSwapService>(relaxed = true)
         mockkObject(dev.ayuislands.settings.mappings.ProjectAccentSwapService.Companion)
         every {

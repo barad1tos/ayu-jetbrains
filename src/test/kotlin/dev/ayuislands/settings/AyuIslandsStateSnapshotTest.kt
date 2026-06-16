@@ -9,6 +9,7 @@ import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.testing.SnapshotAssert.assertMatchesSnapshot
 import io.mockk.every
 import io.mockk.just
+import io.mockk.justRun
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
@@ -25,7 +26,7 @@ class AyuIslandsStateSnapshotTest {
         mockkObject(AccentApplicator)
         mockkObject(GlowOverlayManager.Companion)
         mockkStatic(ApplicationManager::class)
-        every { AccentApplicator.apply(any()) } answers { Unit }
+        justRun { AccentApplicator.apply(any()) }
         every { GlowOverlayManager.syncGlowForAllProjects() } just runs
         val rotationService = mockk<AccentRotationService>(relaxed = true)
         val appMock = mockk<com.intellij.openapi.application.Application>(relaxed = true)

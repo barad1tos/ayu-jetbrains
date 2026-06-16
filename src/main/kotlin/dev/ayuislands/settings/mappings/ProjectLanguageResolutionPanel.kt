@@ -1,5 +1,6 @@
 package dev.ayuislands.settings.mappings
 
+import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
@@ -7,20 +8,21 @@ import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.LanguageDetectionRules
 import dev.ayuislands.accent.ProjectLanguageVerdict
 import org.jetbrains.annotations.TestOnly
+import java.awt.Component
+import java.awt.Container
 import java.awt.Cursor
 import java.awt.FlowLayout
-import java.awt.event.MouseAdapter
-import java.awt.event.MouseEvent
+import javax.swing.BoxLayout
 import javax.swing.Icon
 import javax.swing.JPanel
 import javax.swing.SwingConstants
 
 /**
- * Focused diagnostics row for project-language accent resolution.
+ * Focused diagnostics strip for project-language accent resolution.
  *
  * The panel is deliberately state-only: [OverridesGroupBuilder] owns project
  * lookup, pending override maps, license gates, and detector reads. This class
- * formats that snapshot into one summary label plus optional action labels.
+ * formats that snapshot into compact source, scan, and action rows.
  */
 internal class ProjectLanguageResolutionPanel(
     private val currentAccentHex: () -> String?,
@@ -30,7 +32,8 @@ internal class ProjectLanguageResolutionPanel(
     private val onClearFallback: () -> Unit,
     private val onRescan: () -> Unit,
     private val canRescanNow: () -> Boolean,
-) : JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(ENTRY_GAP_PX), 0)) {
+    private val languageIconForId: (String) -> Icon? = LanguageDetectionRules::iconForLanguageId,
+) : JPanel() {
     private var state: State =
         State(
             verdict = ProjectLanguageVerdict.Unavailable,
@@ -42,6 +45,7 @@ internal class ProjectLanguageResolutionPanel(
         )
 
     init {
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
         isOpaque = false
         border = null
     }
@@ -49,35 +53,64 @@ internal class ProjectLanguageResolutionPanel(
     fun refresh(nextState: State) {
         state = nextState
         removeAll()
-        val icon = iconForState(nextState)
+
         add(
-            JBLabel(safeLabelText(summaryFor(nextState)), icon, SwingConstants.LEADING).apply {
-                foreground = UIUtil.getContextHelpForeground()
-            },
+            buildTextRow(
+                prefix = SOURCE_PREFIX,
+                value = sourceText(nextState),
+                icon = null,
+            ),
         )
-        actionSpecsFor(nextState).forEach { action ->
-            add(buildActionLabel(action))
+        add(
+            buildTextRow(
+                prefix = SCAN_PREFIX,
+                value = scanStatusText(nextState),
+                icon = iconForState(nextState),
+            ),
+        )
+        scanDetailText(nextState)?.let { detail ->
+            val weights =
+                when (val verdict = nextState.verdict) {
+                    is ProjectLanguageVerdict.Detected ->
+                        verdict.weights?.takeIf { LanguageDetectionRules.pickDisplayEntries(it).size > 1 }
+                    is ProjectLanguageVerdict.NoWinner -> verdict.weights
+                    ProjectLanguageVerdict.Cold,
+                    ProjectLanguageVerdict.Empty,
+                    ProjectLanguageVerdict.Unavailable,
+                    -> null
+                }
+            add(buildDetailRow(detail, weights))
         }
+        val actions = actionSpecsFor(nextState)
+        if (actions.isNotEmpty()) {
+            add(buildActionsRow(actions))
+        }
+
         revalidate()
         repaint()
     }
 
     private fun iconForState(state: State): Icon? {
-        state.forcedLanguageId?.let { return LanguageDetectionRules.iconForLanguageId(it) }
+        state.forcedLanguageId?.let { return languageIconForId(it) }
         return when (val verdict = state.verdict) {
-            is ProjectLanguageVerdict.Detected -> LanguageDetectionRules.iconForLanguageId(verdict.languageId)
+            is ProjectLanguageVerdict.Detected -> languageIconForId(verdict.languageId)
             else -> null
         }
     }
 
     @TestOnly
-    internal fun currentSummaryForTest(): String = summaryFor(state)
+    internal fun currentSummaryForTest(): String = summaryLinesFor(state).joinToString("\n")
 
     @TestOnly
     internal fun labelsForTest(): List<Triple<Icon?, String, String?>> =
-        components.filterIsInstance<JBLabel>().map { label ->
-            Triple(label.icon, label.text, label.toolTipText)
-        }
+        descendants()
+            .mapNotNull { component ->
+                when (component) {
+                    is JBLabel -> Triple(component.icon, component.text, component.toolTipText)
+                    is ActionLink -> Triple(null, component.text, component.toolTipText)
+                    else -> null
+                }
+            }.toList()
 
     @TestOnly
     internal fun triggerActionForTest(text: String) {
@@ -87,21 +120,39 @@ internal class ProjectLanguageResolutionPanel(
         action.onClick()
     }
 
-    private fun summaryFor(state: State): String {
-        val source = sourceText(state)
+    private fun summaryLinesFor(state: State): List<String> =
+        buildList {
+            add("$SOURCE_PREFIX: ${sourceText(state)}")
+            add("$SCAN_PREFIX: ${scanStatusText(state)}")
+            scanDetailText(state)?.let(::add)
+        }
+
+    private fun scanStatusText(state: State): String {
         state.forcedLanguageId?.let { languageId ->
-            return "Forced language: ${displayName(languageId)} - using $source"
+            return "Forced ${displayName(languageId)}"
         }
         return when (val verdict = state.verdict) {
-            is ProjectLanguageVerdict.Detected ->
-                "Detected: ${detectedText(verdict)} - using $source"
-            is ProjectLanguageVerdict.NoWinner ->
-                "No dominant language: ${proportionsText(verdict.weights)} - using $source"
-            ProjectLanguageVerdict.Cold -> "Detection pending - using $source"
-            ProjectLanguageVerdict.Empty -> "No project languages detected - using $source"
-            ProjectLanguageVerdict.Unavailable -> "Project language detection unavailable - using $source"
+            is ProjectLanguageVerdict.Detected -> {
+                val hasBreakdown =
+                    verdict.weights?.let { LanguageDetectionRules.pickDisplayEntries(it).size > 1 } == true
+                if (hasBreakdown) "Dominant ${displayName(verdict.languageId)}" else detectedText(verdict)
+            }
+            is ProjectLanguageVerdict.NoWinner -> "No dominant language"
+            ProjectLanguageVerdict.Cold -> "Detection pending"
+            ProjectLanguageVerdict.Empty -> "No project languages detected"
+            ProjectLanguageVerdict.Unavailable -> "Project language detection unavailable"
         }
     }
+
+    private fun scanDetailText(state: State): String? =
+        when (val verdict = state.verdict) {
+            is ProjectLanguageVerdict.Detected ->
+                verdict.weights
+                    ?.takeIf { LanguageDetectionRules.pickDisplayEntries(it).size > 1 }
+                    ?.let(::proportionsText)
+            is ProjectLanguageVerdict.NoWinner -> proportionsText(verdict.weights)
+            else -> null
+        }
 
     private fun detectedText(verdict: ProjectLanguageVerdict.Detected): String {
         val percent =
@@ -193,6 +244,7 @@ internal class ProjectLanguageResolutionPanel(
             specs +=
                 ActionSpec(
                     text = SET_FALLBACK_LABEL,
+                    tooltip = SET_FALLBACK_TOOLTIP,
                     onClick = {
                         currentAccentHex()?.let(onSetFallback)
                     },
@@ -207,6 +259,7 @@ internal class ProjectLanguageResolutionPanel(
     private fun forceLanguageSpec(languageId: String): ActionSpec =
         ActionSpec(
             text = "Force ${displayName(languageId)}",
+            tooltip = "Treat this project as ${displayName(languageId)} for language accent resolution.",
             onClick = {
                 onSetForcedLanguage(languageId)
             },
@@ -226,18 +279,77 @@ internal class ProjectLanguageResolutionPanel(
         return topId.takeUnless { hasTopTie }
     }
 
-    private fun buildActionLabel(action: ActionSpec): JBLabel =
-        JBLabel(safeLabelText(action.text), null, SwingConstants.LEADING).apply {
-            toolTipText = action.tooltip?.let(::safeLabelText)
-            foreground = UIUtil.getContextHelpForeground()
-            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            addMouseListener(
-                object : MouseAdapter() {
-                    override fun mouseClicked(event: MouseEvent) {
-                        action.onClick()
-                    }
+    private fun buildTextRow(
+        prefix: String,
+        value: String,
+        icon: Icon?,
+    ): JPanel =
+        buildRow().apply {
+            add(
+                JBLabel(safeLabelText("$prefix:")).apply {
+                    foreground = UIUtil.getContextHelpForeground()
                 },
             )
+            add(
+                JBLabel(safeLabelText(value), icon, SwingConstants.LEADING).apply {
+                    foreground = UIUtil.getLabelForeground()
+                },
+            )
+        }
+
+    private fun buildDetailRow(
+        detail: String,
+        weights: Map<String, Long>?,
+    ): JPanel =
+        buildRow().apply {
+            val entries = weights?.let(LanguageDetectionRules::pickDisplayEntries).orEmpty()
+            if (entries.isEmpty()) {
+                add(
+                    JBLabel(safeLabelText(detail), null, SwingConstants.LEADING).apply {
+                        foreground = UIUtil.getContextHelpForeground()
+                    },
+                )
+            } else {
+                entries.forEachIndexed { index, entry ->
+                    if (index > 0) {
+                        add(
+                            JBLabel(ENTRY_SEPARATOR.trim()).apply {
+                                foreground = UIUtil.getContextHelpForeground()
+                            },
+                        )
+                    }
+                    add(
+                        JBLabel(
+                            safeLabelText("${entry.label} ${entry.percent}%"),
+                            entry.id?.let(languageIconForId),
+                            SwingConstants.LEADING,
+                        ).apply {
+                            foreground = UIUtil.getContextHelpForeground()
+                        },
+                    )
+                }
+            }
+        }
+
+    private fun buildActionsRow(actions: List<ActionSpec>): JPanel =
+        buildRow().apply {
+            actions.forEach { action ->
+                add(
+                    ActionLink(safeLabelText(action.text)) {
+                        action.onClick()
+                    }.apply {
+                        toolTipText = action.tooltip?.let(::safeLabelText)
+                        cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                    },
+                )
+            }
+        }
+
+    private fun buildRow(): JPanel =
+        JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(ENTRY_GAP_PX), 0)).apply {
+            alignmentX = LEFT_ALIGNMENT
+            border = JBUI.Borders.emptyBottom(ROW_GAP_PX)
+            isOpaque = false
         }
 
     private fun displayName(languageId: String): String = LanguageDetectionRules.displayNameForLanguageId(languageId)
@@ -259,14 +371,19 @@ internal class ProjectLanguageResolutionPanel(
     )
 
     companion object {
-        const val SET_FALLBACK_LABEL: String = "Set fallback to current accent"
+        const val SET_FALLBACK_LABEL: String = "Use current accent as fallback"
         const val CLEAR_FORCED_LANGUAGE_LABEL: String = "Clear forced language"
         const val CLEAR_FALLBACK_LABEL: String = "Clear fallback"
         const val RESCAN_LABEL: String = "Rescan"
         const val RESCAN_TOOLTIP: String = "Re-detect the dominant language of this project"
 
-        private const val ENTRY_GAP_PX: Int = 12
-        private const val ENTRY_SEPARATOR: String = " - "
+        private const val SOURCE_PREFIX: String = "Accent source"
+        private const val SCAN_PREFIX: String = "Language scan"
+        private const val SET_FALLBACK_TOOLTIP: String =
+            "Use the current accent when this project has no dominant language."
+        private const val ENTRY_GAP_PX: Int = 8
+        private const val ENTRY_SEPARATOR: String = " · "
+        private const val ROW_GAP_PX: Int = 2
     }
 }
 
@@ -275,3 +392,13 @@ private fun safeLabelText(text: String): String =
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
+
+private fun Component.descendants(): Sequence<Component> =
+    sequence {
+        yield(this@descendants)
+        if (this@descendants is Container) {
+            this@descendants.components.forEach { child ->
+                yieldAll(child.descendants())
+            }
+        }
+    }

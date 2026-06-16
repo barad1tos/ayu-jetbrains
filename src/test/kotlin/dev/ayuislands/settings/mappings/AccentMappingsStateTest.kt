@@ -1,5 +1,6 @@
 package dev.ayuislands.settings.mappings
 
+import dev.ayuislands.accent.LanguageDetectionRules
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -19,6 +20,8 @@ class AccentMappingsStateTest {
         assertTrue(state.projectDisplayNames.isEmpty())
         assertTrue(state.projectFallbackAccents.isEmpty())
         assertTrue(state.forcedProjectLanguages.isEmpty())
+        assertEquals(null, state.languageFallbackAccent)
+        assertEquals(LanguageDetectionRules.ResolutionPolicy.DEFAULT, state.languageResolutionPolicy())
     }
 
     @Test
@@ -29,11 +32,26 @@ class AccentMappingsStateTest {
         state.languageAccents["kotlin"] = "#222222"
         state.projectFallbackAccents["/tmp/a"] = "#333333"
         state.forcedProjectLanguages["/tmp/a"] = "typescript"
+        state.languageFallbackAccent = "#444444"
+        state.dominanceThreshold = 0.75f
+        state.dominanceMarginRatio = 2.0f
+        state.dominanceFloor = 0.55f
+        state.tiebreakMinShare = 0.35f
 
         assertEquals("#111111", state.projectAccents["/tmp/a"])
         assertEquals("Alpha", state.projectDisplayNames["/tmp/a"])
         assertEquals("#222222", state.languageAccents["kotlin"])
         assertEquals("#333333", state.projectFallbackAccents["/tmp/a"])
         assertEquals("typescript", state.forcedProjectLanguages["/tmp/a"])
+        assertEquals("#444444", state.languageFallbackAccent)
+        assertEquals(
+            LanguageDetectionRules.ResolutionPolicy(
+                dominanceThreshold = 0.75,
+                dominanceMarginRatio = 2.0,
+                dominanceFloor = 0.55,
+                tiebreakMinShare = 0.35,
+            ),
+            state.languageResolutionPolicy(),
+        )
     }
 }

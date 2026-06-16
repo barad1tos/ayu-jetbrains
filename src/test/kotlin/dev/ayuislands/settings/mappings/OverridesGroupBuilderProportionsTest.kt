@@ -4,8 +4,9 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.CoroutineSupport
 import com.intellij.openapi.project.Project
+import com.intellij.ui.components.ActionLink
+import com.intellij.ui.components.JBLabel
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.messages.MessageBus
 import com.intellij.util.messages.MessageBusConnection
@@ -23,9 +24,12 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
+import java.awt.Component
+import java.awt.Container
 import java.awt.Cursor
 import java.awt.event.MouseEvent
 import java.io.File
+import javax.swing.AbstractButton
 import javax.swing.JComponent
 import javax.swing.JPanel
 import kotlin.test.AfterTest
@@ -99,7 +103,37 @@ class OverridesGroupBuilderProportionsTest {
             }
 
         assertEquals(
-            "Detected: Kotlin 90% - using Language override",
+            "Accent source: Language override\nLanguage scan: Dominant Kotlin\nKotlin 90% · Java 10%",
+            builder.currentProportionsTextForTest(),
+        )
+        verify(exactly = 0) { ProjectLanguageDetector.proportions(any()) }
+    }
+
+    @Test
+    fun `currentProportionsTextForTest renders language fallback source for unmapped detected language`() {
+        val project = stubProject(tmpKey("resolution-language-fallback"))
+        every { ProjectLanguageDetector.verdict(project) } returns
+            ProjectLanguageVerdict.Detected(
+                languageId = "typescript",
+                weights = mapOf("typescript" to 900L, "javascript" to 100L),
+            )
+        every { ProjectLanguageDetector.dominant(project) } returns "typescript"
+
+        val builder =
+            OverridesGroupBuilder().apply {
+                setParentProjectForTest(project)
+                seedPendingForTest(
+                    languages = listOf(LanguageMapping("kotlin", "Kotlin", "#FFCC66")),
+                )
+                seedResolutionOverridesForTest(languageFallbackAccent = "#73D0FF")
+            }
+
+        assertEquals(
+            listOf(
+                "Accent source: Language fallback override",
+                "Language scan: Dominant TypeScript",
+                "TypeScript 90% · JavaScript 10%",
+            ).joinToString("\n"),
             builder.currentProportionsTextForTest(),
         )
         verify(exactly = 0) { ProjectLanguageDetector.proportions(any()) }
@@ -119,7 +153,11 @@ class OverridesGroupBuilderProportionsTest {
             }
 
         assertEquals(
-            "No dominant language: JavaScript 50% - TypeScript 50% - using Project fallback #5CCFE6",
+            listOf(
+                "Accent source: Project fallback #5CCFE6",
+                "Language scan: No dominant language",
+                "JavaScript 50% · TypeScript 50%",
+            ).joinToString("\n"),
             builder.currentProportionsTextForTest(),
         )
         verify(exactly = 0) { ProjectLanguageDetector.proportions(any()) }
@@ -135,12 +173,35 @@ class OverridesGroupBuilderProportionsTest {
 
         assertEquals(
             listOf(
-                "No dominant language: JavaScript 50% - TypeScript 50% - using Global",
+                "Accent source:",
+                "Global",
+                "Language scan:",
+                "No dominant language",
+                "JavaScript 50%",
+                "·",
+                "TypeScript 50%",
                 ProjectLanguageResolutionPanel.SET_FALLBACK_LABEL,
                 ProjectLanguageResolutionPanel.RESCAN_LABEL,
             ),
             builder.proportionsPanelLabelsForTest().map { it.second },
         )
+    }
+
+    @Test
+    fun `proportionsPanelLabelsForTest keeps source iconless and splits language percentages`() {
+        val project = stubProject(tmpKey("resolution-icons"))
+        every { ProjectLanguageDetector.verdict(project) } returns
+            ProjectLanguageVerdict.NoWinner(mapOf("kotlin" to 700L, "java" to 300L))
+
+        val labels =
+            OverridesGroupBuilder()
+                .apply { setParentProjectForTest(project) }
+                .proportionsPanelLabelsForTest()
+
+        assertNull(labels.first { it.second == "Global" }.first)
+        assertTrue(labels.any { it.second == "Kotlin 70%" })
+        assertTrue(labels.any { it.second == "Java 30%" })
+        assertNull(labels.first { it.second == "·" }.first)
     }
 
     @Test
@@ -158,7 +219,7 @@ class OverridesGroupBuilderProportionsTest {
             }
 
         assertEquals(
-            "Forced language: TypeScript - using Forced language override",
+            "Accent source: Forced language override\nLanguage scan: Forced TypeScript",
             builder.currentProportionsTextForTest(),
         )
         assertTrue(
@@ -183,14 +244,14 @@ class OverridesGroupBuilderProportionsTest {
             }
 
         assertEquals(
-            "Detected: Kotlin 100% - using Language override",
+            "Accent source: Language override\nLanguage scan: Kotlin 100%",
             builder.currentProportionsTextForTest(),
         )
 
         every { LicenseChecker.isLicensedOrGrace() } returns false
 
         assertEquals(
-            "Detected: Kotlin 100% - using Global",
+            "Accent source: Global\nLanguage scan: Kotlin 100%",
             builder.currentProportionsTextForTest(),
         )
         val labels = builder.proportionsPanelLabelsForTest().map { it.second }
@@ -238,7 +299,7 @@ class OverridesGroupBuilderProportionsTest {
             }
 
         assertEquals(
-            "Detected: Kotlin 100% - using Language override",
+            "Accent source: Language override\nLanguage scan: Kotlin 100%",
             builder.currentProportionsTextForTest(),
         )
         builder.proportionsPanelLabelsForTest()
@@ -265,7 +326,11 @@ class OverridesGroupBuilderProportionsTest {
             }
 
         assertEquals(
-            "No dominant language: JavaScript 50% - TypeScript 50% - using Project fallback #5CCFE6",
+            listOf(
+                "Accent source: Project fallback #5CCFE6",
+                "Language scan: No dominant language",
+                "JavaScript 50% · TypeScript 50%",
+            ).joinToString("\n"),
             builder.currentProportionsTextForTest(),
         )
         builder.proportionsPanelLabelsForTest()
@@ -542,16 +607,27 @@ class OverridesGroupBuilderProportionsTest {
                 .getDeclaredField("proportionsPanel")
                 .apply { isAccessible = true }
                 .get(builder) as JPanel
-        return panel.components
-            .filterIsInstance<com.intellij.ui.components.JBLabel>()
-            .firstOrNull { it.text == text }
+        val renderedTexts =
+            panel
+                .descendants()
+                .filterIsInstance<JComponent>()
+                .mapNotNull(::componentText)
+                .toList()
+        return panel
+            .descendants()
+            .filterIsInstance<JComponent>()
+            .firstOrNull { componentText(it) == text }
             ?: error(
                 "Label '$text' missing; got " +
-                    panel.components.map { (it as? com.intellij.ui.components.JBLabel)?.text },
+                    renderedTexts,
             )
     }
 
     private fun click(component: JComponent) {
+        if (component is AbstractButton) {
+            component.doClick()
+            return
+        }
         val event =
             MouseEvent(
                 component,
@@ -564,19 +640,29 @@ class OverridesGroupBuilderProportionsTest {
                 false,
             )
         component.mouseListeners
-            .filter { it.javaClass.name.startsWith("dev.ayuislands") }
             .forEach { it.mouseClicked(event) }
     }
+
+    private fun componentText(component: JComponent): String? =
+        when (component) {
+            is JBLabel -> component.text
+            is ActionLink -> component.text
+            is AbstractButton -> component.text
+            else -> null
+        }
 
     private fun installApplicationActionManager() {
         mockkStatic(ApplicationManager::class)
         val application = mockk<Application>(relaxed = true)
         val actionManager = mockk<ActionManager>(relaxed = true)
-        val coroutineSupport = mockk<CoroutineSupport>(relaxed = true)
         every { ApplicationManager.getApplication() } returns application
         every { application.getService(ActionManager::class.java) } returns actionManager
-        every { application.getService(CoroutineSupport::class.java) } returns coroutineSupport
         every { actionManager.getAction(any()) } returns null
+
+        @Suppress("UNCHECKED_CAST")
+        val coroutineSupportClass = Class.forName("com.intellij.openapi.application.CoroutineSupport") as Class<Any>
+        val coroutineSupport = mockkClass(coroutineSupportClass.kotlin, relaxed = true)
+        every { application.getService(coroutineSupportClass) } returns coroutineSupport
 
         @Suppress("UNCHECKED_CAST")
         val experimentalUiClass = Class.forName("com.intellij.ui.ExperimentalUI") as Class<Any>
@@ -600,3 +686,13 @@ class OverridesGroupBuilderProportionsTest {
             .apply { isAccessible = true }
             .get(builder) as MessageBusConnection?
 }
+
+private fun Component.descendants(): Sequence<Component> =
+    sequence {
+        yield(this@descendants)
+        if (this@descendants is Container) {
+            this@descendants.components.forEach { child ->
+                yieldAll(child.descendants())
+            }
+        }
+    }

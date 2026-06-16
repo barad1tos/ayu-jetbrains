@@ -74,6 +74,34 @@ class OverridesGroupBuilderPendingTest {
     }
 
     @Test
+    fun `resolvePending uses language fallback when detected language is unmapped`() {
+        mappingsState.languageAccents["kotlin"] = "#112233"
+        mappingsState.languageFallbackAccent = "#73D0FF"
+        val project = stubProject(File(System.getProperty("java.io.tmpdir"), "pending-language-fallback"))
+        every { ProjectLanguageDetector.dominant(project) } returns "typescript"
+
+        val builder = OverridesGroupBuilder().apply { loadFromState() }
+
+        assertEquals("#73D0FF", builder.resolvePending(project, "#FFCC66"))
+        assertEquals(AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE, builder.sourcePending(project))
+    }
+
+    @Test
+    fun `cache-only pending preview uses language fallback for detected unmapped language`() {
+        mappingsState.languageFallbackAccent = "#73D0FF"
+        val project = stubProject(File(System.getProperty("java.io.tmpdir"), "pending-cache-language-fallback"))
+        every { ProjectLanguageDetector.verdict(project) } returns
+            ProjectLanguageVerdict.Detected("typescript", mapOf("typescript" to 1_000L))
+        every { ProjectLanguageDetector.dominant(project) } throws AssertionError("dominant must not be read")
+
+        val builder = OverridesGroupBuilder().apply { loadFromState() }
+
+        assertEquals("#73D0FF", builder.resolvePending(project, "#FFCC66", cacheOnly = true))
+        assertEquals(AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE, builder.sourcePending(project, cacheOnly = true))
+        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.dominant(project) }
+    }
+
+    @Test
     fun `cache-only pending preview uses detected verdict without dominant warmup`() {
         mappingsState.languageAccents["kotlin"] = "#112233"
         val project = stubProject(File(System.getProperty("java.io.tmpdir"), "pending-cache-lang"))
@@ -212,6 +240,25 @@ class OverridesGroupBuilderPendingTest {
         assertEquals(AccentResolver.Source.GLOBAL, builder.sourcePending(project))
         io.mockk.verify(exactly = 0) { ProjectLanguageDetector.dominant(project) }
         io.mockk.verify(exactly = 0) { ProjectLanguageDetector.verdict(project) }
+    }
+
+    @Test
+    fun `resolvePending forced language uses fallback when exact language is unmapped`() {
+        val tmp = File(System.getProperty("java.io.tmpdir"), "pending-forced-language-fallback").canonicalPath
+        val project = stubProject(File(tmp))
+        every { ProjectLanguageDetector.dominant(project) } returns "javascript"
+
+        val builder =
+            OverridesGroupBuilder().apply {
+                seedResolutionOverridesForTest(
+                    forcedLanguages = mapOf(tmp to "typescript"),
+                    languageFallbackAccent = "#73D0FF",
+                )
+            }
+
+        assertEquals("#73D0FF", builder.resolvePending(project, "#FFCC66"))
+        assertEquals(AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE, builder.sourcePending(project))
+        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.dominant(project) }
     }
 
     @Test

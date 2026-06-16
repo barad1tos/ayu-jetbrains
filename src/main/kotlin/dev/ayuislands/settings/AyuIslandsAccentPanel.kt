@@ -83,7 +83,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         // window the user is visually on (same cascade rotation + apply paths use). Do
         // NOT substitute `ProjectManager.openProjects.firstOrNull { … }` — that silently
         // binds to the enumeration-first project in multi-window setups, so "Currently
-        // active:" and "Detected:" read out the wrong project.
+        // active:" and "Language scan:" read out the wrong project.
         contextProject = AccentApplicator.resolveFocusedProject()
         val colorPanel = createAccentColorPanel()
         applyInitialSelection(colorPanel, storedAccent)
@@ -284,6 +284,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                 "project override for \"${contextProject?.name ?: "?"}\""
             AccentResolver.Source.LANGUAGE_OVERRIDE -> AccentResolver.sourceLabel(source)
             AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE,
+            AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE,
             AccentResolver.Source.PROJECT_FALLBACK,
             AccentResolver.Source.MATERIAL_THEME,
             AccentResolver.Source.IDE_ACCENT,

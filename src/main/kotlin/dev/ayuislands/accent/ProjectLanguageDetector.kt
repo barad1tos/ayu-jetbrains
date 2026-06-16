@@ -6,14 +6,16 @@ import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectRootManager
+import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import javax.swing.SwingUtilities
 
 /**
- * Detector for the dominant language of a project, used only when the language-accent
- * override map is non-empty (the [AccentResolver] gates this).
+ * Detector for the dominant language of a project. Resolver calls are gated to
+ * exact language overrides, language fallback, or project fallback work; Settings
+ * diagnostics and explicit rescans may read or refresh the cached verdict directly.
  *
  * Detection strategy (most-authoritative-first):
  *
@@ -23,9 +25,10 @@ import javax.swing.SwingUtilities
  *     and [LanguageDetectionRules.pickDominantFromAllWeights] returns the language
  *     whose share clears the primary threshold OR passes the leading-plurality rule.
  *  2. **Legacy SDK/module heuristic as polyglot tiebreaker** — only consulted when the
- *     scan produced weights but no winner, AND the legacy hint has ≥20% share in the
- *     scan's code weights. Protects against the v2.5 → v2.6 upgrade regression where
- *     a 50/50 Java/Kotlin JVM project would silently drop its "kotlin" override.
+ *     scan produced weights but no winner, AND the legacy hint clears the configured
+ *     minimum share in the scan's code weights. Protects against the v2.5 → v2.6
+ *     upgrade regression where a 50/50 Java/Kotlin JVM project would silently drop its
+ *     "kotlin" override.
  *  3. **Legacy SDK/module heuristic as fallback** — used only when the scan found zero
  *     recognized source files: brand-new project, docs-only-after-filtering, or
  *     pre-indexing state.
@@ -368,8 +371,9 @@ object ProjectLanguageDetector {
         val weights =
             ProjectLanguageScanner.scan(project)
                 ?: return DetectionResult(ProjectLanguageVerdict.Unavailable, cacheable = false)
+        val policy = AccentMappingsSettings.getInstance().state.languageResolutionPolicy()
         if (weights.isNotEmpty()) {
-            val scanWinner = LanguageDetectionRules.pickDominantFromAllWeights(weights)
+            val scanWinner = LanguageDetectionRules.pickDominantFromAllWeights(weights, policy)
             if (scanWinner != null) {
                 return DetectionResult(
                     ProjectLanguageVerdict.Detected(scanWinner, weights),
@@ -378,10 +382,10 @@ object ProjectLanguageDetector {
             }
             // Scan found weights but no clear or plurality winner. Consult the
             // legacy heuristic as a tiebreaker — but only accept its answer when
-            // that language is already represented in the scan's code weights at
-            // TIE_BREAK_MIN_SHARE. Guards against the SDK confidently reporting
+            // that language is already represented in the scan's code weights at the
+            // configured tiebreak floor. Guards against the SDK confidently reporting
             // a language that the scan didn't even find.
-            resolveTiebreakFromLegacy(project, weights)?.let {
+            resolveTiebreakFromLegacy(project, weights, policy)?.let {
                 return DetectionResult(
                     ProjectLanguageVerdict.Detected(it, weights),
                     cacheable = true,
@@ -394,13 +398,14 @@ object ProjectLanguageDetector {
 
     /**
      * When the proportional scan is polyglot, fall back to the legacy SDK / module
-     * heuristic — but only if the language it names has a foothold (≥
-     * [LanguageDetectionRules.TIE_BREAK_MIN_SHARE]) in the scan's code weights.
+     * heuristic — but only if the language it names has a foothold in the scan's
+     * code weights according to [LanguageDetectionRules.ResolutionPolicy.tiebreakMinShare].
      * Returns null when the hint doesn't meet that bar.
      */
     private fun resolveTiebreakFromLegacy(
         project: Project,
         weights: Map<String, Long>,
+        policy: LanguageDetectionRules.ResolutionPolicy,
     ): String? {
         val hint =
             (legacySdkModuleDetection(project).verdict as? ProjectLanguageVerdict.Detected)
@@ -411,8 +416,9 @@ object ProjectLanguageDetector {
         val total = base.values.sum()
         if (total <= 0L) return null
         val hintWeight = base[hint] ?: 0L
+        if (hintWeight <= 0L) return null
         val share = hintWeight.toDouble() / total.toDouble()
-        return if (share >= LanguageDetectionRules.TIE_BREAK_MIN_SHARE) hint else null
+        return if (share >= policy.tiebreakMinShare) hint else null
     }
 
     private fun legacySdkModuleDetection(project: Project): DetectionResult {

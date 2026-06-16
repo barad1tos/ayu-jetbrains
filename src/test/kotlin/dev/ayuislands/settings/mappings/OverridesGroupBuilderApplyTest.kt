@@ -9,7 +9,7 @@ import dev.ayuislands.licensing.LicenseChecker
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
-import io.mockk.unmockkAll
+import io.mockk.unmockkObject
 import javax.swing.JTable
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -58,7 +58,13 @@ class OverridesGroupBuilderApplyTest {
 
     @AfterTest
     fun tearDown() {
-        unmockkAll()
+        unmockkObject(AccentMappingsSettings.Companion)
+        unmockkObject(ProjectLanguageDetector)
+        unmockkObject(AyuVariant.Companion)
+        unmockkObject(AccentResolver)
+        unmockkObject(AccentApplicator)
+        unmockkObject(ProjectAccentSwapService.Companion)
+        unmockkObject(LicenseChecker)
     }
 
     @Test
@@ -154,15 +160,18 @@ class OverridesGroupBuilderApplyTest {
             OverridesGroupBuilder().apply {
                 setPendingFallbackAccent("/tmp/apply-resolution-overrides", "#5CCFE6")
                 setPendingForcedLanguage("/tmp/apply-resolution-overrides", "TypeScript")
+                setPendingLanguageFallbackAccent(" #73D0FF ")
             }
 
         assertEquals(mapOf("/tmp/apply-resolution-overrides" to "typescript"), builder.forcedLanguagesForTest())
+        assertEquals("#73D0FF", builder.languageFallbackAccentForTest())
         assertTrue(builder.isModified(), "pending resolution overrides must participate in isModified")
 
         builder.apply()
 
         assertEquals(mapOf("/tmp/apply-resolution-overrides" to "#5CCFE6"), mappingsState.projectFallbackAccents)
         assertEquals(mapOf("/tmp/apply-resolution-overrides" to "typescript"), mappingsState.forcedProjectLanguages)
+        assertEquals("#73D0FF", mappingsState.languageFallbackAccent)
         assertFalse(builder.isModified(), "apply() must advance stored resolution override snapshots")
     }
 
@@ -170,12 +179,14 @@ class OverridesGroupBuilderApplyTest {
     fun `reset() restores fallback accents and forced languages from stored state`() {
         mappingsState.projectFallbackAccents["/tmp/reset-resolution-overrides"] = "#5CCFE6"
         mappingsState.forcedProjectLanguages["/tmp/reset-resolution-overrides"] = "typescript"
+        mappingsState.languageFallbackAccent = "#73D0FF"
         val builder = OverridesGroupBuilder().apply { loadFromState() }
 
         builder.setPendingFallbackAccent("/tmp/reset-resolution-overrides", "#FFB454")
         builder.setPendingFallbackAccent("/tmp/reset-cleared", "#D2A6FF")
         builder.setPendingForcedLanguage("/tmp/reset-resolution-overrides", "Kotlin")
         builder.setPendingForcedLanguage("/tmp/reset-cleared", " ")
+        builder.setPendingLanguageFallbackAccent("#FFB454")
 
         assertTrue(builder.isModified(), "pending resolution override edits must mark settings modified")
 
@@ -183,6 +194,7 @@ class OverridesGroupBuilderApplyTest {
 
         assertEquals(mapOf("/tmp/reset-resolution-overrides" to "#5CCFE6"), builder.fallbackAccentsForTest())
         assertEquals(mapOf("/tmp/reset-resolution-overrides" to "typescript"), builder.forcedLanguagesForTest())
+        assertEquals("#73D0FF", builder.languageFallbackAccentForTest())
         assertFalse(builder.isModified(), "reset() must restore stored resolution override snapshots")
     }
 
@@ -194,11 +206,13 @@ class OverridesGroupBuilderApplyTest {
         mappingsState.forcedProjectLanguages["/tmp/load-valid-forced"] = " TypeScript "
         mappingsState.forcedProjectLanguages["/tmp/load-blank-forced"] = " "
         mappingsState.forcedProjectLanguages[""] = "kotlin"
+        mappingsState.languageFallbackAccent = " #73D0FF "
 
         val builder = OverridesGroupBuilder().apply { loadFromState() }
 
         assertEquals(mapOf("/tmp/load-valid-fallback" to "#5CCFE6"), builder.fallbackAccentsForTest())
         assertEquals(mapOf("/tmp/load-valid-forced" to "typescript"), builder.forcedLanguagesForTest())
+        assertEquals("#73D0FF", builder.languageFallbackAccentForTest())
         assertFalse(builder.isModified(), "sanitized loaded resolution overrides become the stored snapshot")
     }
 
@@ -256,8 +270,8 @@ class OverridesGroupBuilderApplyTest {
         table(builder, "projectTable").selectionModel.setSelectionInterval(0, 0)
         table(builder, "languageTable").selectionModel.setSelectionInterval(0, 0)
 
-        val projectActions = actions(builder, "projectActions", licensed = false)
-        val languageActions = actions(builder, "languageActions", licensed = false)
+        val projectActions = unlicensedActions(builder, "projectActions")
+        val languageActions = unlicensedActions(builder, "languageActions")
 
         assertFalse(projectActions.removeEnabled(), "locked project preview rows must not enable Remove")
         assertFalse(languageActions.removeEnabled(), "locked language preview rows must not enable Remove")
@@ -319,17 +333,16 @@ class OverridesGroupBuilderApplyTest {
         return field.get(builder) as JTable
     }
 
-    private fun actions(
+    private fun unlicensedActions(
         builder: OverridesGroupBuilder,
         methodName: String,
-        licensed: Boolean,
     ): TableActionHandle {
         val tableActionsField = OverridesGroupBuilder::class.java.getDeclaredField("tableActions")
         tableActionsField.isAccessible = true
         val tableActions = tableActionsField.get(builder)
         val method = tableActions.javaClass.getDeclaredMethod(methodName, Boolean::class.javaPrimitiveType)
         method.isAccessible = true
-        return TableActionHandle(method.invoke(tableActions, licensed))
+        return TableActionHandle(method.invoke(tableActions, false))
     }
 
     @Suppress("UNCHECKED_CAST")

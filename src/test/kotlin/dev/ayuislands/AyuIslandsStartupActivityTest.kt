@@ -4,6 +4,7 @@ import com.intellij.testFramework.LoggedErrorProcessor
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.settings.mappings.AccentMappingsState
 import dev.ayuislands.vcs.VcsColorApplier
 import io.mockk.every
 import io.mockk.mockk
@@ -14,6 +15,7 @@ import java.util.EnumSet
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -89,6 +91,38 @@ class AyuIslandsStartupActivityTest {
 
         assertEquals(1, captured.size)
         assertEquals("License startup step 'step-link' failed with Error", captured.single().first)
+    }
+
+    @Test
+    fun `startup language detector warmup includes exact language overrides`() {
+        val state = AccentMappingsState()
+        state.languageAccents["kotlin"] = "#73D0FF"
+
+        assertTrue(
+            activity.shouldWarmLanguageDetectorForTest(state),
+            "Language pins should warm the detector so first Settings open shows proportions immediately",
+        )
+    }
+
+    @Test
+    fun `startup language detector warmup includes fallback-only language resolution`() {
+        val state = AccentMappingsState()
+        state.languageFallbackAccent = "#73D0FF"
+
+        assertTrue(
+            activity.shouldWarmLanguageDetectorForTest(state),
+            "A fallback-only language policy still needs a detected language before it can apply",
+        )
+    }
+
+    @Test
+    fun `startup language detector warmup stays off without language resolution work`() {
+        val state = AccentMappingsState()
+
+        assertFalse(
+            activity.shouldWarmLanguageDetectorForTest(state),
+            "Projects without language pins or fallback should not pay the startup scan cost",
+        )
     }
 
     @Test
