@@ -95,12 +95,17 @@ object EditorTabGeometry {
 
     /**
      * Find EditorTabs by recursing into the component tree (not just direct children).
+     * Limited to [maxDepth] levels to avoid expensive traversal on deep Swing trees.
      */
-    private fun findEditorTabsRecursive(component: Component): Component? {
+    private fun findEditorTabsRecursive(
+        component: Component,
+        maxDepth: Int = 8,
+    ): Component? {
+        if (maxDepth <= 0) return null
         if (component.javaClass.name.contains("EditorTabs")) return component
         if (component is Container) {
             for (child in component.components) {
-                val found = findEditorTabsRecursive(child)
+                val found = findEditorTabsRecursive(child, maxDepth - 1)
                 if (found != null) return found
             }
         }
@@ -155,14 +160,19 @@ object EditorTabGeometry {
 
     /**
      * Recursively search for a visible TabLabel and return its bottom edge.
+     * Limited to [maxDepth] levels to avoid expensive traversal on deep Swing trees.
      */
-    private fun findNestedTabLabelBottom(component: Component): Int? {
+    private fun findNestedTabLabelBottom(
+        component: Component,
+        maxDepth: Int = 8,
+    ): Int? {
+        if (maxDepth <= 0) return null
         if (component.javaClass.name.contains("TabLabel") && component is JComponent && component.isVisible) {
             return component.y + component.height
         }
         if (component is Container) {
             for (child in component.components) {
-                val found = findNestedTabLabelBottom(child)
+                val found = findNestedTabLabelBottom(child, maxDepth - 1)
                 if (found != null) return found
             }
         }
