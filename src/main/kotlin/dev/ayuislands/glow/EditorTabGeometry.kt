@@ -119,12 +119,12 @@ object EditorTabGeometry {
             val getSelectedInfo =
                 editorTabs.javaClass.methods.firstOrNull { it.name == "getSelectedInfo" }
                     ?: return null
-            val tabInfo = getSelectedInfo(editorTabs) ?: return null
+            val tabInfo = getSelectedInfo.invoke(editorTabs) ?: return null
 
             val getComponent =
                 tabInfo.javaClass.methods.firstOrNull { it.name == "getComponent" }
                     ?: return null
-            val contentComponent = getComponent(tabInfo) as? JComponent ?: return null
+            val contentComponent = getComponent.invoke(tabInfo) as? JComponent ?: return null
 
             val contentBounds = contentComponent.bounds
             @Suppress("ConvertExpressionToRectangleConstructor")
@@ -144,7 +144,7 @@ object EditorTabGeometry {
             val getSelectedLabel =
                 editorTabs.javaClass.methods.firstOrNull { it.name == "getSelectedLabel" }
                     ?: return null
-            val label = getSelectedLabel(editorTabs) as? JComponent ?: return null
+            val label = getSelectedLabel.invoke(editorTabs) as? JComponent ?: return null
             return label.y + label.height
         } catch (_: ReflectiveOperationException) {
             return null
