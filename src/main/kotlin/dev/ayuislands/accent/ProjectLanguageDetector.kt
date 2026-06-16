@@ -13,9 +13,9 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.swing.SwingUtilities
 
 /**
- * Detector for the dominant language of a project, used only when an exact language
- * override, language fallback, or project fallback needs a language verdict (the
- * [AccentResolver] gates this).
+ * Detector for the dominant language of a project. Resolver calls are gated to
+ * exact language overrides, language fallback, or project fallback work; Settings
+ * diagnostics and explicit rescans may read or refresh the cached verdict directly.
  *
  * Detection strategy (most-authoritative-first):
  *

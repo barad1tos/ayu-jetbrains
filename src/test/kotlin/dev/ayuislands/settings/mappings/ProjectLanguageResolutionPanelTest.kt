@@ -302,6 +302,32 @@ class ProjectLanguageResolutionPanelTest {
     }
 
     @Test
+    fun `no winner without current accent hides fallback action`() {
+        val calls = ResolutionCalls()
+        val panel = panel(calls = calls, currentAccentHex = { null })
+
+        panel.refresh(
+            ProjectLanguageResolutionPanel.State(
+                verdict =
+                    ProjectLanguageVerdict.NoWinner(
+                        mapOf("typescript" to 700L, "javascript" to 300L),
+                    ),
+                forcedLanguageId = null,
+                fallbackHex = null,
+                activeSource = AccentResolver.Source.GLOBAL,
+                canMutate = true,
+                canRescan = false,
+                canSetFallbackToCurrentAccent = false,
+            ),
+        )
+
+        val labels = panel.labelsForTest().map { it.second }
+        assertFalse(ProjectLanguageResolutionPanel.SET_FALLBACK_LABEL in labels)
+        assertTrue("Force TypeScript" in labels)
+        assertEquals(emptyList(), calls.fallbacks)
+    }
+
+    @Test
     fun `no winner actions force unique top language`() {
         val calls = ResolutionCalls()
         val panel = panel(calls = calls)
@@ -326,6 +352,28 @@ class ProjectLanguageResolutionPanelTest {
         panel.triggerActionForTest("Force TypeScript")
 
         assertEquals(listOf("typescript"), calls.forcedLanguages)
+    }
+
+    @Test
+    fun `empty no-winner scan explains unresolved proportions`() {
+        val panel = panel()
+
+        panel.refresh(
+            ProjectLanguageResolutionPanel.State(
+                verdict = ProjectLanguageVerdict.NoWinner(emptyMap()),
+                forcedLanguageId = null,
+                fallbackHex = null,
+                activeSource = AccentResolver.Source.GLOBAL,
+                canMutate = true,
+                canRescan = false,
+            ),
+        )
+
+        assertEquals(
+            "Accent source: Global\nLanguage scan: No dominant language\nunresolved",
+            panel.currentSummaryForTest(),
+        )
+        assertTrue("unresolved" in panel.labelsForTest().map { it.second })
     }
 
     @Test
@@ -380,6 +428,27 @@ class ProjectLanguageResolutionPanelTest {
     }
 
     @Test
+    fun `rescan action ignores duplicate click while detector is busy`() {
+        val calls = ResolutionCalls()
+        val panel = panel(calls = calls, canRescanNow = { false })
+
+        panel.refresh(
+            ProjectLanguageResolutionPanel.State(
+                verdict = ProjectLanguageVerdict.Cold,
+                forcedLanguageId = null,
+                fallbackHex = null,
+                activeSource = AccentResolver.Source.GLOBAL,
+                canMutate = true,
+                canRescan = true,
+            ),
+        )
+
+        panel.triggerActionForTest(ProjectLanguageResolutionPanel.RESCAN_LABEL)
+
+        assertEquals(0, calls.rescanCount)
+    }
+
+    @Test
     fun `clear actions clear existing forced language and fallback`() {
         val calls = ResolutionCalls()
         val panel = panel(calls = calls)
@@ -427,6 +496,30 @@ class ProjectLanguageResolutionPanelTest {
 
         val labels = panel.labelsForTest().map { it.second }
         assertFalse(labels.any { it.contains("<html", ignoreCase = true) })
+    }
+
+    @Test
+    fun `diagnostics labels escape ampersands in language ids`() {
+        val panel = panel()
+
+        panel.refresh(
+            ProjectLanguageResolutionPanel.State(
+                verdict =
+                    ProjectLanguageVerdict.Detected(
+                        languageId = "bridge&router",
+                        weights = mapOf("bridge&router" to 1_000L),
+                    ),
+                forcedLanguageId = null,
+                fallbackHex = null,
+                activeSource = AccentResolver.Source.LANGUAGE_OVERRIDE,
+                canMutate = true,
+                canRescan = false,
+            ),
+        )
+
+        val labels = panel.labelsForTest().map { it.second }
+        assertTrue(labels.any { it.contains("Bridge&amp;router") })
+        assertFalse(labels.any { it.contains("Bridge&router") })
     }
 
     private fun panel(

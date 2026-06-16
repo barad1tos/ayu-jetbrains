@@ -23,6 +23,7 @@ import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
+import dev.ayuislands.settings.mappings.AccentMappingsState
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import dev.ayuislands.syntax.SyntaxIntensityMigrationNotifier
 import dev.ayuislands.syntax.SyntaxIntensityService
@@ -83,21 +84,20 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         runStartupAccentOnEdt(project, variant)
 
         // Warm the language-detector cache so Settings → Accent → Overrides
-        // shows real per-language proportions on first open. Gated on the same
-        // `languageAccents.isNotEmpty()` predicate `AccentResolver.findOverride`
-        // uses: users with no language pins never paid for the scan before this
-        // feature landed, and still shouldn't pay for it just because the
-        // Settings panel has a new informational row. When no pins exist the
-        // panel's own `buildGroup` warmup (EDT-safe bail-out) handles the first
-        // open with one extra cache miss. Both the `AccentMappingsSettings`
-        // state read and the detector call run under the same runCatching so a
-        // transient failure in either (corrupt persistent-state XML, plugin
-        // unload race, disposed scanner, etc.) can't short-circuit the rest of
-        // startup — ModuleRootListener subscription, font-preset apply, license
-        // checks, and onboarding all live below this block.
+        // shows real per-language proportions on first open. Gated on language
+        // resolution work the resolver may actually do: exact language overrides
+        // or language fallback. Users with no language pins/fallback never paid
+        // for the scan before this feature landed, and still shouldn't pay for
+        // it just because the Settings panel has a new informational row. Both
+        // the `AccentMappingsSettings` state read and the detector call run
+        // under the same runCatching so a transient failure in either (corrupt
+        // persistent-state XML, plugin unload race, disposed scanner, etc.)
+        // can't short-circuit the rest of startup — ModuleRootListener
+        // subscription, font-preset apply, license checks, and onboarding all
+        // live below this block.
         runCatchingPreservingCancellation {
-            val pinnedLanguages = AccentMappingsSettings.getInstance().state.languageAccents
-            if (pinnedLanguages.isNotEmpty()) {
+            val mappings = AccentMappingsSettings.getInstance().state
+            if (shouldWarmLanguageDetector(mappings)) {
                 ProjectLanguageDetector.dominant(project)
             }
         }.onFailure { exception ->
@@ -460,6 +460,13 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         name: String,
         block: () -> Unit,
     ) = runStep(name, block)
+
+    private fun shouldWarmLanguageDetector(state: AccentMappingsState): Boolean =
+        state.languageAccents.isNotEmpty() || !state.languageFallbackAccent.isNullOrBlank()
+
+    @org.jetbrains.annotations.TestOnly
+    internal fun shouldWarmLanguageDetectorForTest(state: AccentMappingsState): Boolean =
+        shouldWarmLanguageDetector(state)
 
     companion object {
         private val LOG = logger<AyuIslandsStartupActivity>()

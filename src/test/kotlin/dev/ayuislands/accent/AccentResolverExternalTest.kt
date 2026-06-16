@@ -71,6 +71,24 @@ class AccentResolverExternalTest {
     }
 
     @Test
+    fun `external resolve skips invalid language fallback before material accent`() {
+        withResolverStubs {
+            mappingsState.languageFallbackAccent = "not-a-hex"
+            state.externalThemeAccent = "#445566"
+            val project = stubProject(File(System.getProperty("java.io.tmpdir"), "external-invalid-language-fallback"))
+            every { ProjectLanguageDetector.dominant(project) } returns "terraform"
+
+            withUiColorProvider({ key -> if (key == "material.accent") Color(0xAA, 0xBB, 0xCC) else null }) {
+                assertEquals("#AABBCC", AccentResolver.resolve(project, AccentContext.External))
+                assertEquals(
+                    AccentResolver.Source.MATERIAL_THEME,
+                    AccentResolver.source(project, AccentContext.External),
+                )
+            }
+        }
+    }
+
+    @Test
     fun `external automatic source uses forced language override before material accent`() {
         withResolverStubs {
             val projectPath = File(System.getProperty("java.io.tmpdir"), "external-forced-language").canonicalPath
