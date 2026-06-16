@@ -122,18 +122,21 @@ object EditorTabGeometry {
     ): Rectangle? {
         try {
             val getSelectedInfo =
-                editorTabs.javaClass.methods.firstOrNull { it.name == "getSelectedInfo" }
-                    ?: return null
+                editorTabs.javaClass.methods.firstOrNull {
+                    it.name == "getSelectedInfo" && it.parameterCount == 0
+                } ?: return null
             val tabInfo = getSelectedInfo.invoke(editorTabs) ?: return null
 
             val getComponent =
-                tabInfo.javaClass.methods.firstOrNull { it.name == "getComponent" }
-                    ?: return null
+                tabInfo.javaClass.methods.firstOrNull {
+                    it.name == "getComponent" && it.parameterCount == 0
+                } ?: return null
             val contentComponent = getComponent.invoke(tabInfo) as? JComponent ?: return null
 
+            val parent = contentComponent.parent ?: return null
             val contentBounds = contentComponent.bounds
             @Suppress("ConvertExpressionToRectangleConstructor")
-            return SwingUtilities.convertRectangle(contentComponent.parent, contentBounds, host)
+            return SwingUtilities.convertRectangle(parent, contentBounds, host)
         } catch (_: ReflectiveOperationException) {
             return null
         } catch (_: IllegalArgumentException) {
@@ -147,8 +150,9 @@ object EditorTabGeometry {
     private fun findSelectedLabelBottom(editorTabs: Container): Int? {
         try {
             val getSelectedLabel =
-                editorTabs.javaClass.methods.firstOrNull { it.name == "getSelectedLabel" }
-                    ?: return null
+                editorTabs.javaClass.methods.firstOrNull {
+                    it.name == "getSelectedLabel" && it.parameterCount == 0
+                } ?: return null
             val label = getSelectedLabel.invoke(editorTabs) as? JComponent ?: return null
             return label.y + label.height
         } catch (_: ReflectiveOperationException) {
