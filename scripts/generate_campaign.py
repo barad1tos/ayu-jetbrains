@@ -226,9 +226,13 @@ def build_context(
     manual_verification = read_string_list(config_data, "manual_verification")
     social_proof = format_social_proof(read_mapping_list(config_data, "social_proof"))
 
-    verification_todos = "\n".join(
-            f"- TODO_VERIFY: {verification_item}" for verification_item in manual_verification
-        ) or "- TODO_VERIFY: no manual verification checklist configured"
+    verification_todos = (
+        "\n".join(
+            f"- TODO_VERIFY: {verification_item}"
+            for verification_item in manual_verification
+        )
+        or "- TODO_VERIFY: no manual verification checklist configured"
+    )
 
     campaign = {
         "mode": mode,
@@ -547,6 +551,8 @@ def evaluate_guardrails(
             for metric_claim in find_metric_claims(rendered_file.content)
         )
     return GuardReport(hard_blocks=hard_blocks, warnings=warnings)
+
+
 def evaluate_conditional_claim(
     config_data: YamlMapping,
     feature_records: list[FeatureRecord],
