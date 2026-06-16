@@ -181,22 +181,15 @@ class GlowOverlayManager(
 
         connection.subscribe(
             AccentChangedTopic.TOPIC,
-            @Suppress("ObjectLiteralToLambda")
-            object : AccentChangeListener {
-                override fun accentChanged(
-                    project: Project,
-                    hex: AccentHex,
-                    source: AccentResolver.Source,
-                ) {
-                    if (disposed) return
-                    if (project !== this@GlowOverlayManager.project) return
+            AccentChangeListener { project, hex, _ ->
+                if (disposed) return@AccentChangeListener
+                if (project !== this@GlowOverlayManager.project) return@AccentChangeListener
 
-                    if (SwingUtilities.isEventDispatchThread()) {
-                        updateGlow(hex)
-                    } else {
-                        SwingUtilities.invokeLater {
-                            if (!disposed) updateGlow(hex)
-                        }
+                if (SwingUtilities.isEventDispatchThread()) {
+                    updateGlow(hex)
+                } else {
+                    SwingUtilities.invokeLater {
+                        if (!disposed) updateGlow(hex)
                     }
                 }
             },
@@ -270,8 +263,8 @@ class GlowOverlayManager(
         try {
             val point = SwingUtilities.convertPoint(host, 0, 0, layeredPane)
             if (glassPane.isEditorOverlay) {
-                val tabHeight = EditorTabGeometry.calculateTabStripHeight(host)
-                glassPane.setBounds(point.x, point.y + tabHeight, host.width, host.height - tabHeight)
+                val bounds = EditorTabGeometry.calculateEditorOverlayBounds(host)
+                glassPane.setBounds(point.x + bounds.x, point.y + bounds.y, bounds.width, bounds.height)
             } else {
                 glassPane.setBounds(point.x, point.y, host.width, host.height)
             }
@@ -313,7 +306,8 @@ class GlowOverlayManager(
                 isEditorOverlay = isEditorOverlay,
             )
 
-        layeredPane.add(glassPane, JLayeredPane.PALETTE_LAYER)
+        layeredPane.setLayer(glassPane, JLayeredPane.PALETTE_LAYER)
+        layeredPane.add(glassPane)
         updateOverlayBounds(glassPane, host, layeredPane)
 
         val compListener =
