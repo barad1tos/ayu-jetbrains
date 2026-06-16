@@ -332,6 +332,42 @@ class ProjectLanguageDetectorTest {
     }
 
     @Test
+    fun `content scan honors stored tiebreak floor`() {
+        val policyState =
+            AccentMappingsState().apply {
+                tiebreakMinShare = 0.60f
+            }
+        val mappingsSettings = AccentMappingsSettings.getInstance()
+        every { mappingsSettings.state } returns policyState
+
+        val project = stubProject("/tmp/scan-tiebreak-floor-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns
+            mapOf("kotlin" to 500L, "java" to 500L)
+        wireProjectRootManager(project, sdkName = "KotlinSdkType")
+        wireModuleManager(project, moduleNames = emptyList())
+
+        assertNull(ProjectLanguageDetector.dominant(project))
+    }
+
+    @Test
+    fun `content scan ignores absent SDK hint even when stored tiebreak floor is zero`() {
+        val policyState =
+            AccentMappingsState().apply {
+                tiebreakMinShare = 0.0f
+            }
+        val mappingsSettings = AccentMappingsSettings.getInstance()
+        every { mappingsSettings.state } returns policyState
+
+        val project = stubProject("/tmp/scan-zero-floor-absent-hint-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns
+            mapOf("java" to 500L, "python" to 500L)
+        wireProjectRootManager(project, sdkName = "KotlinSdkType")
+        wireModuleManager(project, moduleNames = emptyList())
+
+        assertNull(ProjectLanguageDetector.dominant(project))
+    }
+
+    @Test
     fun `content scan polyglot uses SDK tiebreak when hint has code-weight foothold`() {
         // 50/50 Kotlin/Java: scan alone produces no winner. The SDK tiebreak kicks
         // in — "KotlinSdkType" resolves to "kotlin", which has a 50% share of the

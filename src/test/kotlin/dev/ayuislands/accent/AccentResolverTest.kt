@@ -169,6 +169,18 @@ class AccentResolverTest {
     }
 
     @Test
+    fun `invalid language fallback does not override native global accent`() {
+        val tmp = File(System.getProperty("java.io.tmpdir"), "invalid-language-fallback").canonicalPath
+        mappingsState.languageFallbackAccent = "not-a-hex"
+
+        val project = stubProject(File(tmp))
+        every { ProjectLanguageDetector.dominant(project) } returns "typescript"
+
+        assertEquals(globalMirageAccent, AccentResolver.resolve(project, AyuVariant.MIRAGE))
+        assertEquals(AccentResolver.Source.GLOBAL, AccentResolver.source(project))
+    }
+
+    @Test
     fun `project fallback applies only for definitive no-winner verdict`() {
         val tmp = File(System.getProperty("java.io.tmpdir"), "fallback-no-winner").canonicalPath
         mappingsState.projectFallbackAccents[tmp] = "#5CCFE6"

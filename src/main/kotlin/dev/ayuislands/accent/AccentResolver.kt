@@ -23,7 +23,8 @@ import javax.swing.UIManager
  *     canonical base path.
  *  2. **Forced language override** — per-project language id mapped to a language accent.
  *  3. **Language override** — dominant language of the project via [ProjectLanguageDetector].
- *  4. **Language fallback override** — default language accent for detected ids without an exact mapping.
+ *  4. **Language fallback override** — default language accent for forced or detected ids
+ *     without an exact mapping.
  *  5. **Project fallback** — applied only when [ProjectLanguageDetector.verdict] is
  *     [ProjectLanguageVerdict.NoWinner].
  *  6. **Global** — [AyuIslandsSettings.getAccentForVariant] (which itself honors
@@ -395,8 +396,12 @@ private fun overrideAccent(
     rawHex: String,
     validateHex: Boolean,
 ): ResolvedAccent? {
-    if (!validateHex) {
+    val accent = AccentHex.of(rawHex)
+    if (accent != null) {
+        return ResolvedAccent(source, accent.value)
+    }
+    if (!validateHex && source != AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE) {
         return ResolvedAccent(source, rawHex)
     }
-    return AccentHex.of(rawHex)?.let { ResolvedAccent(source, it.value) }
+    return null
 }

@@ -13,8 +13,9 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.swing.SwingUtilities
 
 /**
- * Detector for the dominant language of a project, used only when the language-accent
- * override map is non-empty (the [AccentResolver] gates this).
+ * Detector for the dominant language of a project, used only when an exact language
+ * override, language fallback, or project fallback needs a language verdict (the
+ * [AccentResolver] gates this).
  *
  * Detection strategy (most-authoritative-first):
  *
@@ -415,6 +416,7 @@ object ProjectLanguageDetector {
         val total = base.values.sum()
         if (total <= 0L) return null
         val hintWeight = base[hint] ?: 0L
+        if (hintWeight <= 0L) return null
         val share = hintWeight.toDouble() / total.toDouble()
         return if (share >= policy.tiebreakMinShare) hint else null
     }
