@@ -5,7 +5,9 @@ import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import java.awt.Component
 import java.awt.Container
+import java.awt.Rectangle
 import javax.swing.JComponent
+import javax.swing.SwingUtilities
 
 /**
  * Tab strip height calculation and editor-tab repaint utilities.
@@ -51,6 +53,134 @@ object EditorTabGeometry {
             log.warn("TabLabel not found in EditorTabs, using DEFAULT_TAB_HEIGHT")
         }
         return DEFAULT_TAB_HEIGHT
+    }
+
+    /**
+     * Calculate the editor overlay bounds relative to [host].
+     *
+     * Prefers the selected editor content component bounds (via reflection on
+     * `JBTabsImpl.getSelectedInfo()` → `TabInfo.getComponent()`). Falls back to
+     * the selected `TabLabel` bottom edge, then any visible nested `TabLabel`,
+     * and finally [DEFAULT_TAB_HEIGHT].
+     */
+    fun calculateEditorOverlayBounds(host: JComponent): Rectangle {
+        val editorTabs = findEditorTabsRecursive(host) as? Container
+        if (editorTabs == null) {
+            if (warnedHosts.add("EditorTabsOverlay:${host.javaClass.name}")) {
+                log.warn("EditorTabs not found in ${host.javaClass.name}, using DEFAULT_TAB_HEIGHT for overlay")
+            }
+            val tabStripBottom = DEFAULT_TAB_HEIGHT
+            return Rectangle(0, tabStripBottom, host.width, (host.height - tabStripBottom).coerceAtLeast(0))
+        }
+
+        val selectedContentBounds = findSelectedContentBounds(editorTabs, host)
+        if (selectedContentBounds != null) return selectedContentBounds
+
+        val selectedLabelBottom = findSelectedLabelBottom(editorTabs)
+        if (selectedLabelBottom != null) {
+            return Rectangle(0, selectedLabelBottom, host.width, (host.height - selectedLabelBottom).coerceAtLeast(0))
+        }
+
+        val nestedLabelBottom = findNestedTabLabelBottom(editorTabs)
+        if (nestedLabelBottom != null) {
+            return Rectangle(0, nestedLabelBottom, host.width, (host.height - nestedLabelBottom).coerceAtLeast(0))
+        }
+
+        if (warnedHosts.add("TabLabelOverlay:${editorTabs.javaClass.name}")) {
+            log.warn("TabLabel not found in EditorTabs, using DEFAULT_TAB_HEIGHT for overlay")
+        }
+        val tabStripBottom = DEFAULT_TAB_HEIGHT
+        return Rectangle(0, tabStripBottom, host.width, (host.height - tabStripBottom).coerceAtLeast(0))
+    }
+
+    /**
+     * Find EditorTabs by recursing into the component tree (not just direct children).
+     * Limited to [maxDepth] levels to avoid expensive traversal on deep Swing trees.
+     */
+    private fun findEditorTabsRecursive(
+        component: Component,
+        maxDepth: Int = 8,
+    ): Component? {
+        if (maxDepth <= 0) return null
+        if (component.javaClass.name.contains("EditorTabs")) return component
+        if (component is Container) {
+            for (child in component.components) {
+                val found = findEditorTabsRecursive(child, maxDepth - 1)
+                if (found != null) return found
+            }
+        }
+        return null
+    }
+
+    /**
+     * Use reflection to call `getSelectedInfo()` → `getComponent()` and return
+     * the component's bounds converted to [host] coordinates.
+     */
+    private fun findSelectedContentBounds(
+        editorTabs: Container,
+        host: JComponent,
+    ): Rectangle? {
+        try {
+            val getSelectedInfo =
+                editorTabs.javaClass.methods.firstOrNull {
+                    it.name == "getSelectedInfo" && it.parameterCount == 0
+                } ?: return null
+            val tabInfo = getSelectedInfo.invoke(editorTabs) ?: return null
+
+            val getComponent =
+                tabInfo.javaClass.methods.firstOrNull {
+                    it.name == "getComponent" && it.parameterCount == 0
+                } ?: return null
+            val contentComponent = getComponent.invoke(tabInfo) as? JComponent ?: return null
+
+            val parent = contentComponent.parent ?: return null
+            val contentBounds = contentComponent.bounds
+            @Suppress("ConvertExpressionToRectangleConstructor")
+            return SwingUtilities.convertRectangle(parent, contentBounds, host)
+        } catch (_: ReflectiveOperationException) {
+            return null
+        } catch (_: IllegalArgumentException) {
+            return null
+        }
+    }
+
+    /**
+     * Use reflection to call `getSelectedLabel()` and return its bottom edge (y + height).
+     */
+    private fun findSelectedLabelBottom(editorTabs: Container): Int? {
+        try {
+            val getSelectedLabel =
+                editorTabs.javaClass.methods.firstOrNull {
+                    it.name == "getSelectedLabel" && it.parameterCount == 0
+                } ?: return null
+            val label = getSelectedLabel.invoke(editorTabs) as? JComponent ?: return null
+            return label.y + label.height
+        } catch (_: ReflectiveOperationException) {
+            return null
+        } catch (_: IllegalArgumentException) {
+            return null
+        }
+    }
+
+    /**
+     * Recursively search for a visible TabLabel and return its bottom edge.
+     * Limited to [maxDepth] levels to avoid expensive traversal on deep Swing trees.
+     */
+    private fun findNestedTabLabelBottom(
+        component: Component,
+        maxDepth: Int = 8,
+    ): Int? {
+        if (maxDepth <= 0) return null
+        if (component.javaClass.name.contains("TabLabel") && component is JComponent && component.isVisible) {
+            return component.y + component.height
+        }
+        if (component is Container) {
+            for (child in component.components) {
+                val found = findNestedTabLabelBottom(child, maxDepth - 1)
+                if (found != null) return found
+            }
+        }
+        return null
     }
 
     /**

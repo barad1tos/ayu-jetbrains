@@ -1,6 +1,7 @@
 package dev.ayuislands.glow
 
 import java.awt.Color
+import java.awt.Rectangle
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
@@ -74,6 +75,64 @@ class EditorTabGeometryTest {
         panel.add(child)
 
         assertNull(EditorTabGeometry.findEditorTabsComponent(child))
+    }
+
+    // --- calculateEditorOverlayBounds tests ---
+
+    @Test
+    fun `calculateEditorOverlayBounds uses default when no EditorTabs found`() {
+        val host = JPanel()
+        host.setSize(800, 600)
+
+        val bounds = EditorTabGeometry.calculateEditorOverlayBounds(host)
+        val defaultH = EditorTabGeometry.DEFAULT_TAB_HEIGHT
+        assertEquals(Rectangle(0, defaultH, 800, 600 - defaultH), bounds)
+    }
+
+    @Test
+    fun `calculateEditorOverlayBounds finds nested EditorTabs and uses TabLabel bottom`() {
+        val host = JPanel()
+        host.setSize(800, 600)
+
+        val wrapper = JPanel()
+        val editorTabs = MockEditorTabs()
+        val tabLabel = MockTabLabel()
+        tabLabel.setBounds(0, 0, 200, 32)
+        editorTabs.add(tabLabel)
+        wrapper.add(editorTabs)
+        host.add(wrapper)
+
+        val bounds = EditorTabGeometry.calculateEditorOverlayBounds(host)
+        assertEquals(Rectangle(0, 32, 800, 568), bounds)
+    }
+
+    @Test
+    fun `calculateEditorOverlayBounds uses default when EditorTabs has no TabLabel`() {
+        val host = JPanel()
+        host.setSize(800, 600)
+
+        val editorTabs = MockEditorTabs()
+        editorTabs.add(JLabel("not a tab"))
+        host.add(editorTabs)
+
+        val bounds = EditorTabGeometry.calculateEditorOverlayBounds(host)
+        val defaultH = EditorTabGeometry.DEFAULT_TAB_HEIGHT
+        assertEquals(Rectangle(0, defaultH, 800, 600 - defaultH), bounds)
+    }
+
+    @Test
+    fun `calculateEditorOverlayBounds clamps to zero when host is shorter than tab strip`() {
+        val host = JPanel()
+        host.setSize(800, 20)
+
+        val editorTabs = MockEditorTabs()
+        val tabLabel = MockTabLabel()
+        tabLabel.setBounds(0, 0, 200, 32)
+        editorTabs.add(tabLabel)
+        host.add(editorTabs)
+
+        val bounds = EditorTabGeometry.calculateEditorOverlayBounds(host)
+        assertEquals(0, bounds.height)
     }
 
     // Mock classes — javaClass.name contains the substrings that
