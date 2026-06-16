@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import TypeAlias, TypeGuard, cast
+from typing import TypeAlias
 
 try:
     import yaml
@@ -64,16 +64,28 @@ class GuardReport:
     warnings: list[str]
 
 
-def is_object_list(value: object) -> TypeGuard[list[object]]:
-    return isinstance(value, list)
+def as_object_list(value: object) -> list[object] | None:
+    if isinstance(value, list):
+        return list(value)
+    return None
 
 
-def is_object_dict(value: object) -> TypeGuard[dict[object, object]]:
-    return isinstance(value, dict)
+def as_object_dict(value: object) -> dict[object, object] | None:
+    if isinstance(value, dict):
+        return dict(value)
+    return None
 
 
-def is_object_mapping(value: object) -> TypeGuard[Mapping[object, object]]:
-    return isinstance(value, Mapping)
+def as_object_mapping(value: object) -> Mapping[object, object] | None:
+    if isinstance(value, Mapping):
+        return value
+    return None
+
+
+def as_yaml_mapping(value: YamlValue) -> YamlMapping | None:
+    if isinstance(value, dict):
+        return value
+    return None
 
 
 def main() -> int:
@@ -142,24 +154,27 @@ def load_yaml_mapping(path: Path) -> YamlMapping:
     except yaml.YAMLError as yaml_error:
         raise SystemExit(f"Failed to parse YAML file {path}: {yaml_error}") from yaml_error
 
-    raw_yaml = cast(object, loaded_yaml if loaded_yaml is not None else {})
+    raw_yaml = loaded_yaml if loaded_yaml is not None else {}
     normalized_yaml = normalize_yaml(raw_yaml, path.name)
-    if not isinstance(cast(object, normalized_yaml), dict):
+    normalized_mapping = as_yaml_mapping(normalized_yaml)
+    if normalized_mapping is None:
         raise SystemExit(f"Expected YAML mapping at top level in {path}")
 
-    return cast(YamlMapping, normalized_yaml)
+    return normalized_mapping
 
 
 def normalize_yaml(value: object, source_name: str) -> YamlValue:
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
 
-    if is_object_list(value):
-        return [normalize_yaml(cast(object, item), source_name) for item in value]
+    raw_list = as_object_list(value)
+    if raw_list is not None:
+        return [normalize_yaml(item, source_name) for item in raw_list]
 
-    if is_object_dict(value):
+    raw_mapping = as_object_dict(value)
+    if raw_mapping is not None:
         normalized_mapping: YamlMapping = {}
-        for key, item_value in value.items():
+        for key, item_value in raw_mapping.items():
             if not isinstance(key, str):
                 raise SystemExit(f"Expected string YAML keys in {source_name}: {key!r}")
             normalized_mapping[key] = normalize_yaml(item_value, source_name)
@@ -295,11 +310,10 @@ def read_optional_string(source: YamlMapping, key: str, default: str) -> str:
 
 
 def scalar_to_string(value: YamlValue, location: str) -> str:
-    value_object = cast(object, value)
-    if value_object is None:
+    if value is None:
         return ""
-    if isinstance(value_object, (str, int, float, bool)):
-        return str(value_object)
+    if isinstance(value, (str, int, float, bool)):
+        return str(value)
     raise SystemExit(f"Expected scalar value at `{location}`.")
 
 
@@ -477,11 +491,12 @@ def lookup_render_value(context: RenderContext, path: str) -> RenderableValue | 
     current_value: object = context
 
     for segment in path.split("."):
-        if not is_object_mapping(current_value):
+        current_mapping = as_object_mapping(current_value)
+        if current_mapping is None:
             return None
-        if segment not in current_value:
+        if segment not in current_mapping:
             return None
-        next_value = current_value[segment]
+        next_value = current_mapping[segment]
         current_value = next_value
 
     if isinstance(current_value, (str, int, float, bool)):
@@ -571,10 +586,10 @@ def lookup_yaml_value(source: YamlMapping, path: str) -> YamlValue | None:
 
     current_value: YamlValue = source
     for segment in path.split("."):
-        current_object = cast(object, current_value)
-        if not isinstance(current_object, dict):
+        current_mapping = as_yaml_mapping(current_value)
+        if current_mapping is None:
             return None
-        next_value = cast(YamlMapping, current_object).get(segment)
+        next_value = current_mapping.get(segment)
         if next_value is None:
             return None
         current_value = next_value
@@ -583,11 +598,10 @@ def lookup_yaml_value(source: YamlMapping, path: str) -> YamlValue | None:
 
 
 def yaml_value_matches(actual_value: YamlValue | None, expected_value: str) -> bool:
-    actual_object = cast(object, actual_value)
-    if actual_object is None:
+    if actual_value is None:
         return not expected_value
-    if isinstance(actual_object, (str, int, float, bool)):
-        return str(actual_object) == expected_value
+    if isinstance(actual_value, (str, int, float, bool)):
+        return str(actual_value) == expected_value
     return False
 
 
