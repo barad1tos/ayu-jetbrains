@@ -1,10 +1,13 @@
 package dev.ayuislands.settings.mappings
 
+import com.intellij.util.ui.EmptyIcon
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.ProjectLanguageVerdict
+import javax.swing.Icon
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ProjectLanguageResolutionPanelTest {
@@ -28,7 +31,90 @@ class ProjectLanguageResolutionPanelTest {
         )
 
         assertEquals(
-            "Detected: Kotlin 90% - using Language override",
+            "Accent source: Language override\nLanguage scan: Dominant Kotlin\nKotlin 90% · Java 10%",
+            panel.currentSummaryForTest(),
+        )
+    }
+
+    @Test
+    fun `detected language icon renders beside scan value instead of source value`() {
+        val icon = EmptyIcon.create(16)
+        val panel = panel(languageIconForId = { icon })
+
+        panel.refresh(
+            ProjectLanguageResolutionPanel.State(
+                verdict =
+                    ProjectLanguageVerdict.Detected(
+                        languageId = "java",
+                        weights = mapOf("java" to 1_000L),
+                    ),
+                forcedLanguageId = null,
+                fallbackHex = null,
+                activeSource = AccentResolver.Source.PROJECT_OVERRIDE,
+                canMutate = true,
+                canRescan = false,
+            ),
+        )
+
+        val labels = panel.labelsForTest()
+
+        assertNull(labels.first { it.second == "Project override" }.first)
+        assertEquals(icon, labels.first { it.second == "Java 100%" }.first)
+    }
+
+    @Test
+    fun `detected language with visible tail renders icon-per-entry breakdown`() {
+        val icon = EmptyIcon.create(16)
+        val panel = panel(languageIconForId = { icon })
+
+        panel.refresh(
+            ProjectLanguageResolutionPanel.State(
+                verdict =
+                    ProjectLanguageVerdict.Detected(
+                        languageId = "kotlin",
+                        weights = mapOf("kotlin" to 900L, "java" to 100L),
+                    ),
+                forcedLanguageId = null,
+                fallbackHex = null,
+                activeSource = AccentResolver.Source.LANGUAGE_OVERRIDE,
+                canMutate = true,
+                canRescan = false,
+            ),
+        )
+
+        val labels = panel.labelsForTest()
+
+        assertEquals(icon, labels.first { it.second == "Dominant Kotlin" }.first)
+        assertEquals(icon, labels.first { it.second == "Kotlin 90%" }.first)
+        assertEquals(icon, labels.first { it.second == "Java 10%" }.first)
+        assertNull(labels.first { it.second == "·" }.first)
+    }
+
+    @Test
+    fun `summary renders detected winner with language fallback source`() {
+        val panel = panel()
+
+        panel.refresh(
+            ProjectLanguageResolutionPanel.State(
+                verdict =
+                    ProjectLanguageVerdict.Detected(
+                        languageId = "typescript",
+                        weights = mapOf("typescript" to 900L, "javascript" to 100L),
+                    ),
+                forcedLanguageId = null,
+                fallbackHex = null,
+                activeSource = AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE,
+                canMutate = true,
+                canRescan = false,
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                "Accent source: Language fallback override",
+                "Language scan: Dominant TypeScript",
+                "TypeScript 90% · JavaScript 10%",
+            ).joinToString("\n"),
             panel.currentSummaryForTest(),
         )
     }
@@ -52,9 +138,35 @@ class ProjectLanguageResolutionPanelTest {
         )
 
         assertEquals(
-            "No dominant language: JavaScript 50% - TypeScript 50% - using Global",
+            "Accent source: Global\nLanguage scan: No dominant language\nJavaScript 50% · TypeScript 50%",
             panel.currentSummaryForTest(),
         )
+    }
+
+    @Test
+    fun `no winner detail renders language icons beside each named percentage`() {
+        val icon = EmptyIcon.create(16)
+        val panel = panel(languageIconForId = { icon })
+
+        panel.refresh(
+            ProjectLanguageResolutionPanel.State(
+                verdict =
+                    ProjectLanguageVerdict.NoWinner(
+                        mapOf("kotlin" to 700L, "java" to 300L),
+                    ),
+                forcedLanguageId = null,
+                fallbackHex = null,
+                activeSource = AccentResolver.Source.GLOBAL,
+                canMutate = true,
+                canRescan = false,
+            ),
+        )
+
+        val labels = panel.labelsForTest()
+
+        assertEquals(icon, labels.first { it.second == "Kotlin 70%" }.first)
+        assertEquals(icon, labels.first { it.second == "Java 30%" }.first)
+        assertNull(labels.first { it.second == "·" }.first)
     }
 
     @Test
@@ -77,7 +189,7 @@ class ProjectLanguageResolutionPanelTest {
         )
 
         assertEquals(
-            "Forced language: TypeScript - using Forced language override",
+            "Accent source: Forced language override\nLanguage scan: Forced TypeScript",
             panel.currentSummaryForTest(),
         )
     }
@@ -101,7 +213,11 @@ class ProjectLanguageResolutionPanelTest {
         )
 
         assertEquals(
-            "No dominant language: JavaScript 50% - TypeScript 50% - using Project fallback #5CCFE6",
+            listOf(
+                "Accent source: Project fallback #5CCFE6",
+                "Language scan: No dominant language",
+                "JavaScript 50% · TypeScript 50%",
+            ).joinToString("\n"),
             panel.currentSummaryForTest(),
         )
     }
@@ -120,7 +236,10 @@ class ProjectLanguageResolutionPanelTest {
                 canRescan = false,
             ),
         )
-        assertEquals("Detection pending - using Global", panel.currentSummaryForTest())
+        assertEquals(
+            "Accent source: Global\nLanguage scan: Detection pending",
+            panel.currentSummaryForTest(),
+        )
 
         panel.refresh(
             ProjectLanguageResolutionPanel.State(
@@ -132,7 +251,10 @@ class ProjectLanguageResolutionPanelTest {
                 canRescan = false,
             ),
         )
-        assertEquals("No project languages detected - using Global", panel.currentSummaryForTest())
+        assertEquals(
+            "Accent source: Global\nLanguage scan: No project languages detected",
+            panel.currentSummaryForTest(),
+        )
 
         panel.refresh(
             ProjectLanguageResolutionPanel.State(
@@ -144,7 +266,10 @@ class ProjectLanguageResolutionPanelTest {
                 canRescan = false,
             ),
         )
-        assertEquals("Project language detection unavailable - using Global", panel.currentSummaryForTest())
+        assertEquals(
+            "Accent source: Global\nLanguage scan: Project language detection unavailable",
+            panel.currentSummaryForTest(),
+        )
     }
 
     @Test
@@ -308,6 +433,7 @@ class ProjectLanguageResolutionPanelTest {
         calls: ResolutionCalls = ResolutionCalls(),
         currentAccentHex: () -> String? = { "#5CCFE6" },
         canRescanNow: () -> Boolean = { true },
+        languageIconForId: (String) -> Icon? = { null },
     ): ProjectLanguageResolutionPanel =
         ProjectLanguageResolutionPanel(
             currentAccentHex = currentAccentHex,
@@ -317,6 +443,7 @@ class ProjectLanguageResolutionPanelTest {
             onClearFallback = { calls.clearFallbackCount += 1 },
             onRescan = { calls.rescanCount += 1 },
             canRescanNow = canRescanNow,
+            languageIconForId = languageIconForId,
         )
 
     private data class ResolutionCalls(

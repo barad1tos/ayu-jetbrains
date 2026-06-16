@@ -371,6 +371,39 @@ class LanguageDetectionRulesTest {
         assertEquals(0.20, LanguageDetectionRules.TIE_BREAK_MIN_SHARE, 0.0001)
     }
 
+    @Test
+    fun `resolution policy overload drives dominance thresholds`() {
+        val policy =
+            LanguageDetectionRules.ResolutionPolicy(
+                dominanceThreshold = 0.80,
+                dominanceMarginRatio = 3.0,
+                dominanceFloor = 0.40,
+            )
+
+        assertNull(
+            LanguageDetectionRules.pickDominantFromAllWeights(
+                mapOf("kotlin" to 700L, "java" to 300L),
+                policy,
+            ),
+        )
+    }
+
+    @Test
+    fun `resolution policy normalizes malformed stored values to safe bounds`() {
+        val policy =
+            LanguageDetectionRules.ResolutionPolicy.fromStored(
+                dominanceThreshold = Double.NaN,
+                dominanceMarginRatio = 0.5,
+                dominanceFloor = 2.0,
+                tiebreakMinShare = -1.0,
+            )
+
+        assertEquals(LanguageDetectionRules.DEFAULT_DOMINANCE_THRESHOLD, policy.dominanceThreshold, 0.0001)
+        assertEquals(LanguageDetectionRules.DOMINANCE_MARGIN_RATIO, policy.dominanceMarginRatio, 0.0001)
+        assertEquals(1.0, policy.dominanceFloor, 0.0001)
+        assertEquals(0.0, policy.tiebreakMinShare, 0.0001)
+    }
+
     // ── Deterministic tie-break (alphabetical) ───────────────────────────────────────
 
     @Test

@@ -16,6 +16,7 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.every
 import io.mockk.just
+import io.mockk.justRun
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
@@ -45,7 +46,7 @@ import kotlin.test.assertTrue
  *
  * Real [LicenseChecker.getTrialDaysRemaining] anchors in `LocalDate.now(UTC)`, so
  * seeding expiration = `dateFromNow(daysRemaining)` yields exactly `daysRemaining`
- * — see the matching helper in [LicenseCheckerTrialExpiryTest.kt].
+ * see the matching helper in [LicenseCheckerTrialExpiryTest].
  *
  * Grace-window transitions (Day 31 + 49 h) switch to mocking `System.currentTimeMillis`
  * directly since that path does not hit the facade.
@@ -94,7 +95,7 @@ class TrialLifecycleIntegrationTest {
         System.clearProperty("ayu.islands.dev")
 
         mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } answers { Unit }
+        justRun { AccentApplicator.apply(any()) }
 
         mockkObject(GlowOverlayManager.Companion)
         every { GlowOverlayManager.syncGlowForAllProjects() } just runs
