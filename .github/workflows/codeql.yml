@@ -60,7 +60,31 @@ jobs:
 
       - if: matrix.language == 'java-kotlin'
         name: Compile Kotlin for CodeQL tracing
-        run: ./gradlew compileKotlin compileTestKotlin --no-daemon
+        run: |
+          set +e
+          OUTPUT=$(./gradlew compileKotlin compileTestKotlin --no-daemon 2>&1)
+          EXIT_CODE=$?
+          set -e
+
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo "$OUTPUT"
+            exit 0
+          fi
+
+          # CodeQL rejects Kotlin versions above its ceiling — detect and auto-downgrade
+          if echo "$OUTPUT" | grep -q "too recent"; then
+            MAX_VER=$(echo "$OUTPUT" | sed -n 's/.*below \([0-9]*\.[0-9]*\.[0-9]*\).*/\1/p')
+            if [ -n "$MAX_VER" ]; then
+              echo "::warning::Kotlin too new for CodeQL — temporarily downgrading to $MAX_VER"
+              sed -i "s/kotlin(\"jvm\") version \"[^\"]*\"/kotlin(\"jvm\") version \"$MAX_VER\"/" build.gradle.kts
+              ./gradlew compileKotlin compileTestKotlin --no-daemon
+              exit $?
+            fi
+          fi
+
+          # Different failure — surface original output and fail
+          echo "$OUTPUT"
+          exit $EXIT_CODE
 
       - uses: github/codeql-action/analyze@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
         with:
