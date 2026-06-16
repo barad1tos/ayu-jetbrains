@@ -78,7 +78,11 @@ jobs:
               echo "::warning::Kotlin too new for CodeQL — temporarily downgrading to $MAX_VER"
               sed -i "s/kotlin(\"jvm\") version \"[^\"]*\"/kotlin(\"jvm\") version \"$MAX_VER\"/" build.gradle.kts
               ./gradlew compileKotlin compileTestKotlin --no-daemon
-              exit $?
+              RETRY_EXIT=$?
+              git restore build.gradle.kts
+              exit $RETRY_EXIT
+            else
+              echo "::warning::Kotlin too new for CodeQL but could not parse max supported version — review the error above"
             fi
           fi
 
