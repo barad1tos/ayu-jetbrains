@@ -73,7 +73,7 @@ jobs:
 
           # CodeQL rejects Kotlin versions above its ceiling — detect and auto-downgrade
           if echo "$OUTPUT" | grep -q "too recent"; then
-            MAX_VER=$(echo "$OUTPUT" | sed -n 's/.*below \([0-9]*\.[0-9]*\.[0-9]*\).*/\1/p')
+            MAX_VER=$(echo "$OUTPUT" | sed -n 's/.*below \([0-9]*\.[0-9]*\.[0-9]*\).*/\1/p' | tr -d '\r\n')
             if [ -n "$MAX_VER" ]; then
               echo "::warning::Kotlin too new for CodeQL — temporarily downgrading to $MAX_VER"
               sed -i "s/kotlin(\"jvm\") version \"[^\"]*\"/kotlin(\"jvm\") version \"$MAX_VER\"/" build.gradle.kts
