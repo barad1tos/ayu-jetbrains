@@ -142,4 +142,114 @@ class SyntaxOverlayLoaderBaselineTest {
             }
         }
     }
+
+    @Test
+    fun `production baseline schemes materialize Groovy Jenkinsfile roles`() {
+        val requiredKeys =
+            listOf(
+                "Groovy var",
+                "Groovy parameter",
+                "Method call",
+                "Instance property reference ID",
+                "Map key",
+                "GROOVY_KEYWORD",
+                "GString",
+                "String",
+                "Number",
+                "Operation sign",
+            )
+        val expectedForegrounds =
+            mapOf(
+                "Mirage" to
+                    mapOf(
+                        "Groovy var" to "CCCAC2",
+                        "Groovy parameter" to "DFBFFF",
+                        "Method call" to "FFD173",
+                        "Instance property reference ID" to "F28779",
+                        "Map key" to "D9A6EF",
+                        "GROOVY_KEYWORD" to "FFAD66",
+                        "GString" to "D5FF80",
+                        "String" to "D5FF80",
+                        "Number" to "DFBFFF",
+                        "Operation sign" to "F29E74",
+                    ),
+                "Dark" to
+                    mapOf(
+                        "Groovy var" to "BFBDB6",
+                        "Groovy parameter" to "D2A6FF",
+                        "Method call" to "FFB454",
+                        "Instance property reference ID" to "F07178",
+                        "Map key" to "C290DF",
+                        "GROOVY_KEYWORD" to "FF8F40",
+                        "GString" to "AAD94C",
+                        "String" to "AAD94C",
+                        "Number" to "D2A6FF",
+                        "Operation sign" to "F29668",
+                    ),
+                "Light" to
+                    mapOf(
+                        "Groovy var" to "5C6166",
+                        "Groovy parameter" to "A37ACC",
+                        "Method call" to "EBA400",
+                        "Instance property reference ID" to "F07171",
+                        "Map key" to "55B4D4",
+                        "GROOVY_KEYWORD" to "FA8532",
+                        "GString" to "86B300",
+                        "String" to "86B300",
+                        "Number" to "A37ACC",
+                        "Operation sign" to "F2A191",
+                    ),
+            )
+        val l = SyntaxOverlayLoader()
+
+        for (variant in listOf("Mirage", "Dark", "Light")) {
+            val baselineByName = l.loadBaselineForVariant(variant).entries.associate { it.key.externalName to it.value }
+            for (keyName in requiredKeys) {
+                val attributes =
+                    baselineByName[keyName]
+                        ?: error("$variant baseline scheme is missing $keyName")
+                assertNotNull(
+                    attributes.foregroundColor,
+                    "$variant baseline scheme must define a concrete foreground for $keyName",
+                )
+            }
+            for ((keyName, expectedHex) in expectedForegrounds.getValue(variant)) {
+                assertEquals(
+                    expectedHex,
+                    baselineByName.foregroundHex(keyName),
+                    "$variant baseline scheme must map $keyName to the Groovy Jenkinsfile role color",
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `production baseline schemes materialize Ayu inlay type hint foregrounds`() {
+        val expectedForegrounds =
+            mapOf(
+                "Mirage" to "5CCFE6",
+                "Dark" to "39BAE6",
+                "Light" to "55B4D4",
+            )
+        val loader = SyntaxOverlayLoader()
+
+        for (variant in listOf("Mirage", "Dark", "Light")) {
+            val baselineByName =
+                loader.loadBaselineForVariant(variant).entries.associate {
+                    it.key.externalName to it.value
+                }
+            val attributes =
+                baselineByName["INLAY_TEXT_WITHOUT_BACKGROUND"]
+                    ?: error("$variant baseline scheme is missing INLAY_TEXT_WITHOUT_BACKGROUND")
+            assertNotNull(
+                attributes.foregroundColor,
+                "$variant baseline scheme must define a concrete foreground for inlay type hints",
+            )
+            assertEquals(
+                expectedForegrounds.getValue(variant),
+                baselineByName.foregroundHex("INLAY_TEXT_WITHOUT_BACKGROUND"),
+                "$variant baseline scheme must map inlay type hints to the Ayu type color",
+            )
+        }
+    }
 }

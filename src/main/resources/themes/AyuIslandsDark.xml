@@ -1437,7 +1437,7 @@
         </option>
         <option name="INLAY_TEXT_WITHOUT_BACKGROUND">
             <value>
-                <option name="FOREGROUND" value="3E4759" />
+                <option name="FOREGROUND" value="39BAE6" />
             </value>
         </option>
         <option name="INLINE_PARAMETER_HINT">
@@ -3417,17 +3417,168 @@
             </value>
         </option>
 
-        <!-- Static access -->
-        <option name="Static method access">
+        <!-- Groovy / Jenkinsfile -->
+        <option name="Class">
+            <value>
+                <option name="FOREGROUND" value="59C2FF" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="Trait name">
+            <value>
+                <option name="FOREGROUND" value="59C2FF" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="Interface name">
+            <value>
+                <option name="FOREGROUND" value="59C2FF" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="Enum name">
+            <value>
+                <option name="FOREGROUND" value="59C2FF" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="Anonymous class name">
+            <value>
+                <option name="FOREGROUND" value="39BAE6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="Abstract class name">
+            <value>
+                <option name="FOREGROUND" value="39BAE6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="Type parameter">
+            <value>
+                <option name="FOREGROUND" value="39BAE6" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="Groovy method declaration">
+            <value>
+                <option name="FOREGROUND" value="FFB454" />
+            </value>
+        </option>
+        <option name="Method call">
+            <value>
+                <option name="FOREGROUND" value="FFB454" />
+            </value>
+        </option>
+        <option name="Groovy constructor declaration">
+            <value>
+                <option name="FOREGROUND" value="E69F25" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="Groovy constructor call">
+            <value>
+                <option name="FOREGROUND" value="E69F25" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="Groovy var">
+            <value>
+                <option name="FOREGROUND" value="BFBDB6" />
+            </value>
+        </option>
+        <option name="Groovy reassigned var">
             <value>
                 <option name="FOREGROUND" value="D2A6FF" />
+            </value>
+        </option>
+        <option name="Groovy parameter">
+            <value>
+                <option name="FOREGROUND" value="D2A6FF" />
+            </value>
+        </option>
+        <option name="Groovy reassigned parameter">
+            <value>
+                <option name="FOREGROUND" value="D2A6FF" />
+            </value>
+        </option>
+        <option name="Instance field">
+            <value>
+                <option name="FOREGROUND" value="F07178" />
+            </value>
+        </option>
+        <option name="Instance property reference ID">
+            <value>
+                <option name="FOREGROUND" value="F07178" />
+            </value>
+        </option>
+        <option name="Static field">
+            <value>
+                <option name="FOREGROUND" value="F07178" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="Static method access">
+            <value>
+                <option name="FOREGROUND" value="FFB454" />
                 <option name="FONT_TYPE" value="2" />
             </value>
         </option>
         <option name="Static property reference ID">
             <value>
-                <option name="FOREGROUND" value="D2A6FF" />
+                <option name="FOREGROUND" value="F07178" />
                 <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="GROOVY_KEYWORD">
+            <value>
+                <option name="FOREGROUND" value="FF8F40" />
+                <option name="FONT_TYPE" value="1" />
+            </value>
+        </option>
+        <option name="GString">
+            <value>
+                <option name="FOREGROUND" value="AAD94C" />
+            </value>
+        </option>
+        <option name="String">
+            <value>
+                <option name="FOREGROUND" value="AAD94C" />
+            </value>
+        </option>
+        <option name="Number">
+            <value>
+                <option name="FOREGROUND" value="D2A6FF" />
+            </value>
+        </option>
+        <option name="Operation sign">
+            <value>
+                <option name="FOREGROUND" value="F29668" />
+            </value>
+        </option>
+        <option name="Map key">
+            <value>
+                <option name="FOREGROUND" value="C290DF" />
+            </value>
+        </option>
+        <option name="Closure braces">
+            <value>
+                <option name="FOREGROUND" value="FFA759" />
+            </value>
+        </option>
+        <option name="Lambda braces">
+            <value>
+                <option name="FOREGROUND" value="FFA759" />
+            </value>
+        </option>
+        <option name="Valid string escape">
+            <value>
+                <option name="FOREGROUND" value="95E6CB" />
+            </value>
+        </option>
+        <option name="Invalid string escape">
+            <value>
+                <option name="FOREGROUND" value="D95757" />
             </value>
         </option>
 

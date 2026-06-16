@@ -734,6 +734,27 @@
         <option name="FOREGROUND" value="86B300" />
       </value>
     </option>
+    <option name="String">
+      <value>
+        <option name="FOREGROUND" value="86B300" />
+      </value>
+    </option>
+    <option name="Number">
+      <value>
+        <option name="FOREGROUND" value="A37ACC" />
+      </value>
+    </option>
+    <option name="Operation sign">
+      <value>
+        <option name="FOREGROUND" value="F2A191" />
+      </value>
+    </option>
+    <option name="GROOVY_KEYWORD">
+      <value>
+        <option name="FOREGROUND" value="FA8532" />
+        <option name="FONT_TYPE" value="1" />
+      </value>
+    </option>
     <option name="Closure braces">
       <value>
         <option name="FOREGROUND" value="FA8532" />
@@ -2928,6 +2949,18 @@
         <option name="FONT_TYPE" value="2" />
       </value>
     </option>
+    <option name="Static method access">
+      <value>
+        <option name="FOREGROUND" value="EBA400" />
+        <option name="FONT_TYPE" value="2" />
+      </value>
+    </option>
+    <option name="Static property reference ID">
+      <value>
+        <option name="FOREGROUND" value="F07171" />
+        <option name="FONT_TYPE" value="2" />
+      </value>
+    </option>
     <option name="Groovydoc comment" baseAttributes="DEFAULT_DOC_COMMENT" />
     <option name="Groovydoc tag" baseAttributes="DEFAULT_DOC_COMMENT_TAG" />
     <option name="Abstract class name">
@@ -2966,6 +2999,16 @@
       <value>
         <option name="FOREGROUND" value="A37ACC" />
         <option name="FONT_TYPE" value="2" />
+      </value>
+    </option>
+    <option name="Valid string escape">
+      <value>
+        <option name="FOREGROUND" value="4CBF99" />
+      </value>
+    </option>
+    <option name="Invalid string escape">
+      <value>
+        <option name="FOREGROUND" value="E65050" />
       </value>
     </option>
     <option name="GO_STRUCT_LOCAL_MEMBER_CALL">

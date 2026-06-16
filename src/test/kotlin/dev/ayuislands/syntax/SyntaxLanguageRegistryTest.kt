@@ -56,6 +56,22 @@ class SyntaxLanguageRegistryTest {
             // Space-separated bucket — verifies space-rule fires before underscore-rule
             Row("Scala Line comment", "Scala", "Scala", SyntaxLanguageRegistry.Bucket.LANGUAGE),
             Row("Groovy keyword", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
+            Row("GROOVY_KEYWORD", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
+            Row("Method call", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
+            Row("Instance property reference ID", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
+            Row("Static method access", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
+            Row("Static property reference ID", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
+            Row("Map key", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
+            Row("Class", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
+            Row("Interface name", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
+            Row("Trait name", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
+            Row("Enum name", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
+            Row("Abstract class name", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
+            Row("Anonymous class name", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
+            Row("Type parameter", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
+            Row("String", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
+            Row("GString", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
+            Row("Groovydoc comment", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
             // Plugin-namespaced bucket
             Row("org.rust.IDENTIFIER", "Rust", "Rust", SyntaxLanguageRegistry.Bucket.LANGUAGE),
             Row(

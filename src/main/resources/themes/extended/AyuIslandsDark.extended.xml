@@ -734,6 +734,27 @@
         <option name="FOREGROUND" value="AAD94C" />
       </value>
     </option>
+    <option name="String">
+      <value>
+        <option name="FOREGROUND" value="AAD94C" />
+      </value>
+    </option>
+    <option name="Number">
+      <value>
+        <option name="FOREGROUND" value="D2A6FF" />
+      </value>
+    </option>
+    <option name="Operation sign">
+      <value>
+        <option name="FOREGROUND" value="F29668" />
+      </value>
+    </option>
+    <option name="GROOVY_KEYWORD">
+      <value>
+        <option name="FOREGROUND" value="FF8F40" />
+        <option name="FONT_TYPE" value="1" />
+      </value>
+    </option>
     <option name="Closure braces">
       <value>
         <option name="FOREGROUND" value="FFA759" />
@@ -2928,6 +2949,18 @@
         <option name="FONT_TYPE" value="2" />
       </value>
     </option>
+    <option name="Static method access">
+      <value>
+        <option name="FOREGROUND" value="FFB454" />
+        <option name="FONT_TYPE" value="2" />
+      </value>
+    </option>
+    <option name="Static property reference ID">
+      <value>
+        <option name="FOREGROUND" value="F07178" />
+        <option name="FONT_TYPE" value="2" />
+      </value>
+    </option>
     <option name="Groovydoc comment" baseAttributes="DEFAULT_DOC_COMMENT" />
     <option name="Groovydoc tag" baseAttributes="DEFAULT_DOC_COMMENT_TAG" />
     <option name="Abstract class name">
@@ -2954,7 +2987,7 @@
     </option>
     <option name="Map key">
       <value>
-        <option name="FOREGROUND" value="39BAE6" />
+        <option name="FOREGROUND" value="C290DF" />
       </value>
     </option>
     <option name="Label">
@@ -2966,6 +2999,16 @@
       <value>
         <option name="FOREGROUND" value="D2A6FF" />
         <option name="FONT_TYPE" value="2" />
+      </value>
+    </option>
+    <option name="Valid string escape">
+      <value>
+        <option name="FOREGROUND" value="95E6CB" />
+      </value>
+    </option>
+    <option name="Invalid string escape">
+      <value>
+        <option name="FOREGROUND" value="D95757" />
       </value>
     </option>
     <option name="GO_STRUCT_LOCAL_MEMBER_CALL">

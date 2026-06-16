@@ -52,6 +52,48 @@ object SyntaxLanguageRegistry {
     private val log = logger<SyntaxLanguageRegistry>()
     private val warnedUnknownPrefixes = ConcurrentHashMap.newKeySet<String>()
     private val otherTag = LangTag("OTHER", "Other", Bucket.OTHER)
+    private val groovyTag = LangTag("Groovy", "Groovy", Bucket.LANGUAGE)
+
+    private val groovyExactKeys =
+        setOf(
+            "Groovy method declaration",
+            "Method call",
+            "Groovy constructor declaration",
+            "Groovy constructor call",
+            "Groovy var",
+            "Groovy reassigned var",
+            "Groovy parameter",
+            "Groovy reassigned parameter",
+            "Instance field",
+            "Instance property reference ID",
+            "Static field",
+            "Static method access",
+            "Static property reference ID",
+            "GROOVY_KEYWORD",
+            "Class",
+            "Interface name",
+            "Trait name",
+            "Enum name",
+            "Abstract class name",
+            "Anonymous class name",
+            "Type parameter",
+            "String",
+            "GString",
+            "Number",
+            "Operation sign",
+            "Closure braces",
+            "Lambda braces",
+            "Braces",
+            "Brackets",
+            "Parentheses",
+            "Valid string escape",
+            "Invalid string escape",
+            "Groovydoc comment",
+            "Groovydoc tag",
+            "Map key",
+            "Label",
+            "Closure parameter",
+        )
 
     private val cascadeKeysInScopeSet =
         setOf(
@@ -114,6 +156,9 @@ object SyntaxLanguageRegistry {
         if (editorOverlayPrefixes.any { keyName.startsWith(it) }) {
             return LangTag(keyName, keyName, Bucket.EDITOR_OVERLAY)
         }
+        if (keyName in groovyExactKeys) {
+            return groovyTag
+        }
         if (defaultCascadePrefix.containsMatchIn(keyName)) {
             return LangTag(keyName, keyName, Bucket.CASCADE)
         }
@@ -163,7 +208,7 @@ object SyntaxLanguageRegistry {
         listOf(
             Regex("^Scala ") to LangTag("Scala", "Scala", Bucket.LANGUAGE),
             Regex("^Scalatest ") to LangTag("Scala", "Scala", Bucket.LANGUAGE),
-            Regex("^Groovy(doc)? ") to LangTag("Groovy", "Groovy", Bucket.LANGUAGE),
+            Regex("^Groovy(doc)? ") to groovyTag,
         )
 
     private fun pluginNamespacedRules(): List<Pair<Regex, LangTag>> =

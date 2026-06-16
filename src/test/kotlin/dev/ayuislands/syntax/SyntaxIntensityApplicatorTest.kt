@@ -725,6 +725,41 @@ class SyntaxIntensityApplicatorTest {
     }
 
     @Test
+    fun `bare Groovy string keys use the Groovy custom string cell`() {
+        val stringKey = TextAttributesKey.createTextAttributesKey("String")
+        val gStringKey = TextAttributesKey.createTextAttributesKey("GString")
+        val sourceColor = Color(0xD5, 0xFF, 0x80)
+        val baseline =
+            mapOf(
+                stringKey to attrsWithFg(sourceColor),
+                gStringKey to attrsWithFg(sourceColor),
+            )
+
+        val result =
+            compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides = mapOf("Groovy" to mapOf("STRING_LITERAL" to 75)),
+                baseline = baseline,
+                overlay = emptyMap(),
+                options =
+                    ComputeOptions(
+                        subordinatePreset = SyntaxPreset.AMBIENT,
+                        customStyles = mapOf("Groovy" to mapOf("STRING_LITERAL" to Font.BOLD)),
+                    ),
+            )
+
+        for (key in listOf(stringKey, gStringKey)) {
+            val attrs = assertNotNull(result[key], "${key.externalName} must not be skipped")
+            assertEquals(Font.BOLD, attrs.fontType, "${key.externalName} must use the Groovy STRING_LITERAL style")
+            assertNotEquals(
+                sourceColor.rgb,
+                attrs.foregroundColor?.rgb,
+                "${key.externalName} must use the Groovy STRING_LITERAL slider, not the Ambient fallback",
+            )
+        }
+    }
+
+    @Test
     fun `cascade defaults materialize inherited per-language keys without own foreground`() {
         val defaultCommentKey = TextAttributesKey.createTextAttributesKey("DEFAULT_LINE_COMMENT")
         val kotlinCommentKey = TextAttributesKey.createTextAttributesKey("KOTLIN_LINE_COMMENT")
