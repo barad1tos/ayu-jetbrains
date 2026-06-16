@@ -1,8 +1,9 @@
 # Ayu Islands maintenance scripts
 
 All Python scripts run from the repo root. Dependencies are declared in
-`pyproject.toml` and pinned in `uv.lock` — run `uv sync` inside `scripts/`
-once to set up the local environment.
+`pyproject.toml` and pinned in `uv.lock` inside `scripts/`. Run
+`uv sync --project scripts` from the repo root, or `uv sync` from inside
+`scripts/`, once to set up the local environment.
 
 ## Scripts
 

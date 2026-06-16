@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "scripts"
 version = "0.1.0"
@@ -12,6 +16,9 @@ dependencies = [
     "defusedxml>=0.7.1",
 ]
 
+[project.scripts]
+generate-campaign = "generate_campaign:main"
+
 [dependency-groups]
 dev = [
     # Type stubs for defusedxml; PyYAML stubs aren't needed (pyright finds them
@@ -19,10 +26,11 @@ dev = [
     "types-defusedxml>=0.7.0",
 ]
 
-[tool.uv]
-package = false
+[tool.setuptools]
+py-modules = ["generate_campaign"]
 
 [tool.pyright]
+pythonVersion = "3.11"
 # Scripts import sibling modules (e.g. _plugin_xml) — Python auto-adds the
 # script's directory to sys.path at runtime, but pyright's static analyzer
 # needs an explicit hint. `.` = the scripts/ dir (where pyproject.toml lives).
