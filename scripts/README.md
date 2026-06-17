@@ -38,6 +38,10 @@ Renders the `.marketing/templates/*.md` files selected by
 `CHANGELOG.md`, then writes drafts plus review support files to
 `.marketing/generated/<date>-<slugified-name>/`.
 
+Requires a local ignored `.marketing/` tree with `config.yaml` and the selected
+templates before running; those campaign inputs and generated drafts are not
+tracked.
+
 ```bash
 uv run --project scripts generate-campaign --mode soft-organic --name launch-copy
 ```

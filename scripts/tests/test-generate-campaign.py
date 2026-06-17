@@ -83,6 +83,46 @@ class GenerateCampaignTest(unittest.TestCase):
             self.assertIn("[Free] Accent overrides", draft)
             self.assertNotIn("unresolved placeholder", draft)
 
+    def test_generates_all_selected_templates_and_support_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            make_repository(
+                repository_root,
+                ["launch.md", "follow-up.md"],
+                {
+                    "launch.md": "Launch: {{ product.name }}\n",
+                    "follow-up.md": "Follow-up: {{ facts.free_feature_summary_inline }}\n",
+                },
+            )
+
+            self.assert_success_file_contains(repository_root, "launch.md", "Launch: Ayu Islands")
+
+            generated_files = {
+                file_path.name
+                for file_path in generated_directory(repository_root).iterdir()
+            }
+            self.assertEqual(
+                {
+                    "CHECKLIST.md",
+                    "FACT_CHECK.md",
+                    "POSTING_PLAN.md",
+                    "README.md",
+                    "follow-up.md",
+                    "launch.md",
+                },
+                generated_files,
+            )
+            self.assertIn(
+                "Follow-up: Accent overrides",
+                read_generated_file(repository_root, "follow-up.md"),
+            )
+            readme = read_generated_file(repository_root, "README.md")
+            posting_plan = read_generated_file(repository_root, "POSTING_PLAN.md")
+            self.assertIn("- `launch.md`", readme)
+            self.assertIn("- `follow-up.md`", readme)
+            self.assertIn("- `launch.md`", posting_plan)
+            self.assertIn("- `follow-up.md`", posting_plan)
+
     def test_warning_only_guardrails_are_written_without_failing_generation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository_root = Path(temporary_directory)
@@ -473,6 +513,19 @@ class GenerateCampaignTest(unittest.TestCase):
 
             self.assert_generation_fails_with(repository_root, "Campaign output already exists")
             self.assertEqual("keep this review note\n", sentinel.read_text(encoding="utf-8"))
+
+    def test_missing_local_marketing_config_reports_required_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            scripts_dir = repository_root / "scripts"
+            scripts_dir.mkdir(parents=True)
+            shutil.copy2(SOURCE_SCRIPT, scripts_dir / "generate_campaign.py")
+
+            result = run_generator(repository_root)
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("Required YAML file is missing", result.stderr)
+            self.assertIn(".marketing/config.yaml", result.stderr)
 
     def test_template_paths_cannot_escape_templates_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
