@@ -98,6 +98,7 @@ def main() -> int:
     rendered_files = render_templates(template_names, context)
     guard_report = evaluate_guardrails(config_data, features_data, rendered_files)
 
+    ensure_generated_output_root_is_safe()
     output_directory = GENERATED_DIR / f"{date.today().isoformat()}-{campaign_name}"
     if output_directory.exists():
         raise SystemExit(f"Campaign output already exists: {output_directory}")
@@ -160,55 +161,114 @@ def load_yaml_mapping(path: Path) -> YamlMapping:
         if parsed_yaml is not None:
             reject_duplicate_yaml_keys(parsed_yaml, path.name)
         loaded_yaml: object = yaml.safe_load(raw_content)
+        raw_yaml: object = loaded_yaml if loaded_yaml is not None else {}
+        normalized_yaml = normalize_yaml(raw_yaml, path.name)
     except (OSError, UnicodeError) as file_error:
         raise SystemExit(f"Failed to read YAML file {path}: {file_error}") from file_error
     except yaml.YAMLError as yaml_error:
         raise SystemExit(f"Failed to parse YAML file {path}: {yaml_error}") from yaml_error
+    except RecursionError as recursion_error:
+        raise SystemExit(
+            f"Failed to parse YAML file {path}: recursive aliases are not supported."
+        ) from recursion_error
 
-    raw_yaml: object = loaded_yaml if loaded_yaml is not None else {}
-    normalized_yaml = normalize_yaml(raw_yaml, path.name)
     if not isinstance(normalized_yaml, dict):
         raise SystemExit(f"Expected YAML mapping at top level in {path}")
 
     return normalized_yaml
 
 
-def reject_duplicate_yaml_keys(node: object, source_name: str) -> None:
+def ensure_generated_output_root_is_safe() -> None:
+    for output_root in (MARKETING_ROOT, GENERATED_DIR):
+        if output_root.is_symlink():
+            raise SystemExit(f"Campaign output root must not be a symlink: {output_root}")
+
+
+def reject_duplicate_yaml_keys(
+    node: object,
+    source_name: str,
+    active_nodes: set[int] | None = None,
+) -> None:
+    node_stack = set() if active_nodes is None else active_nodes
+
     if isinstance(node, yaml.nodes.MappingNode):
-        seen_keys: set[str] = set()
-        for key_node, value_node in node.value:
-            if isinstance(key_node, yaml.nodes.ScalarNode):
-                key_name = key_node.value
-                if key_name in seen_keys:
-                    line_number = key_node.start_mark.line + 1
-                    raise SystemExit(
-                        f"Duplicate YAML key `{key_name}` in {source_name}:{line_number}."
-                    )
-                seen_keys.add(key_name)
-            reject_duplicate_yaml_keys(value_node, source_name)
-        return
+        ensure_yaml_node_is_not_recursive(node, source_name, node_stack)
+        try:
+            seen_keys: set[str] = set()
+            for key_node, value_node in node.value:
+                if isinstance(key_node, yaml.nodes.ScalarNode):
+                    key_name = key_node.value
+                    if key_name in seen_keys:
+                        line_number = key_node.start_mark.line + 1
+                        raise SystemExit(
+                            f"Duplicate YAML key `{key_name}` in {source_name}:{line_number}."
+                        )
+                    seen_keys.add(key_name)
+                reject_duplicate_yaml_keys(value_node, source_name, node_stack)
+            return
+        finally:
+            node_stack.remove(id(node))
 
     if isinstance(node, yaml.nodes.SequenceNode):
-        for value_node in node.value:
-            reject_duplicate_yaml_keys(value_node, source_name)
+        ensure_yaml_node_is_not_recursive(node, source_name, node_stack)
+        try:
+            for value_node in node.value:
+                reject_duplicate_yaml_keys(value_node, source_name, node_stack)
+        finally:
+            node_stack.remove(id(node))
 
 
-def normalize_yaml(value: object, source_name: str) -> YamlValue:
+def ensure_yaml_node_is_not_recursive(
+    node: yaml.nodes.CollectionNode,
+    source_name: str,
+    active_nodes: set[int],
+) -> None:
+    node_id = id(node)
+    if node_id in active_nodes:
+        raise SystemExit(f"Recursive YAML aliases are not supported in {source_name}.")
+    active_nodes.add(node_id)
+
+
+def normalize_yaml(
+    value: object,
+    source_name: str,
+    active_values: set[int] | None = None,
+) -> YamlValue:
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
 
+    value_stack = set() if active_values is None else active_values
     if is_object_list(value):
-        return [normalize_yaml(item, source_name) for item in value]
+        ensure_yaml_value_is_not_recursive(value, source_name, value_stack)
+        try:
+            return [normalize_yaml(item, source_name, value_stack) for item in value]
+        finally:
+            value_stack.remove(id(value))
 
     if is_object_dict(value):
-        normalized_mapping: YamlMapping = {}
-        for key, item_value in value.items():
-            if not isinstance(key, str):
-                raise SystemExit(f"Expected string YAML keys in {source_name}: {key!r}")
-            normalized_mapping[key] = normalize_yaml(item_value, source_name)
-        return normalized_mapping
+        ensure_yaml_value_is_not_recursive(value, source_name, value_stack)
+        try:
+            normalized_mapping: YamlMapping = {}
+            for key, item_value in value.items():
+                if not isinstance(key, str):
+                    raise SystemExit(f"Expected string YAML keys in {source_name}: {key!r}")
+                normalized_mapping[key] = normalize_yaml(item_value, source_name, value_stack)
+            return normalized_mapping
+        finally:
+            value_stack.remove(id(value))
 
     raise SystemExit(f"Unsupported YAML value in {source_name}: {type(value).__name__}")
+
+
+def ensure_yaml_value_is_not_recursive(
+    value: list[object] | dict[object, object],
+    source_name: str,
+    active_values: set[int],
+) -> None:
+    value_id = id(value)
+    if value_id in active_values:
+        raise SystemExit(f"Recursive YAML aliases are not supported in {source_name}.")
+    active_values.add(value_id)
 
 
 def get_campaign_mode(config_data: YamlMapping, mode: str) -> YamlMapping:
@@ -597,7 +657,7 @@ def format_social_proof(social_proof_entries: list[YamlMapping]) -> str:
         source = read_required_string(entry, "source", location)
         label = read_optional_string(entry, "label", "social proof")
         quote = read_required_string(entry, "quote", location)
-        status = read_optional_string(entry, "status", "TODO_VERIFY")
+        status = read_optional_non_empty_string(entry, "status", "TODO_VERIFY", location)
         verified_entries.append(f'- {label}: "{quote}" (source: {source}, status: {status})')
 
     if not verified_entries:

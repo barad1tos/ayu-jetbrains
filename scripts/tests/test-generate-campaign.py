@@ -159,7 +159,7 @@ class GenerateCampaignTest(unittest.TestCase):
 
     def test_risky_phrases_are_written_as_warnings(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
-            fact_check = self.render_guardrail_fact_check(
+            fact_check = self.assert_guardrail_fact_check_contains(
                 temporary_directory,
                 "No telemetry and no Sentry by design.\n",
                 """
@@ -175,7 +175,7 @@ class GenerateCampaignTest(unittest.TestCase):
 
     def test_bare_todo_verify_markers_are_written_as_warnings(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
-            self.render_pricing_fact_check(
+            self.assert_pricing_fact_check_contains(
                 temporary_directory,
                 """
                 public_claim_status: ready
@@ -187,7 +187,7 @@ class GenerateCampaignTest(unittest.TestCase):
 
     def test_unready_pricing_status_is_written_as_warning(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
-            self.render_pricing_fact_check(
+            self.assert_pricing_fact_check_contains(
                 temporary_directory,
                 """
                 individual: 12 USD
@@ -199,7 +199,7 @@ class GenerateCampaignTest(unittest.TestCase):
 
     def test_blank_ready_pricing_fields_are_written_as_warnings(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
-            self.render_pricing_fact_check(
+            self.assert_pricing_fact_check_contains(
                 temporary_directory,
                 """
                 public_claim_status: ready
@@ -342,7 +342,7 @@ class GenerateCampaignTest(unittest.TestCase):
                 draft_content="guaranteed productivity\n",
             )
 
-    def render_pricing_fact_check(
+    def assert_pricing_fact_check_contains(
         self,
         temporary_directory: str,
         pricing: str,
@@ -359,7 +359,7 @@ class GenerateCampaignTest(unittest.TestCase):
 
     def test_conditional_claim_requires_feature_id_warns_when_feature_is_absent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
-            self.render_guardrail_fact_check(
+            self.assert_guardrail_fact_check_contains(
                 temporary_directory,
                 "External accent sources are ready.\n",
                 """
@@ -404,7 +404,7 @@ class GenerateCampaignTest(unittest.TestCase):
 
     def test_conditional_claim_requires_path_value_warns_when_unmatched(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
-            self.render_guardrail_fact_check(
+            self.assert_guardrail_fact_check_contains(
                 temporary_directory,
                 "Public trial is open.\n",
                 """
@@ -428,14 +428,25 @@ class GenerateCampaignTest(unittest.TestCase):
     ) -> str:
         result = run_generator(repository_root)
         self.assertEqual(0, result.returncode, result.stderr)
-        content = read_generated_file(repository_root, file_name)
+        self.assertEqual("", result.stderr)
+        self.assertIn("Generated campaign: ", result.stdout)
+        self.assertIn("Rendered drafts: ", result.stdout)
+        self.assertIn("Warnings: ", result.stdout)
+        self.assertIn("Hard blocks: 0", result.stdout)
+        content = read_generated_file_from_stdout(result, file_name)
         self.assertIn(expected_text, content)
         return content
 
-    def assert_generation_fails_with(self, repository_root: Path, expected_stderr: str) -> None:
+    def assert_generation_fails_with(
+        self,
+        repository_root: Path,
+        expected_stderr: str,
+        expected_exit_code: int = 1,
+    ) -> None:
         result = run_generator(repository_root)
-        self.assertNotEqual(0, result.returncode)
+        self.assertEqual(expected_exit_code, result.returncode, result.stderr)
         self.assertIn(expected_stderr, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
 
     def assert_hard_blocked_fact_check_contains(
         self,
@@ -445,9 +456,11 @@ class GenerateCampaignTest(unittest.TestCase):
     ) -> str:
         result = run_generator(repository_root)
         self.assertEqual(2, result.returncode)
+        self.assertIn("Generated campaign: ", result.stdout)
+        self.assertIn("Hard blocks: ", result.stdout)
         if expected_stderr is not None:
             self.assertIn(expected_stderr, result.stderr)
-        fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
+        fact_check = read_generated_file_from_stdout(result, "FACT_CHECK.md")
         self.assertIn(expected_text, fact_check)
         return fact_check
 
@@ -478,7 +491,7 @@ class GenerateCampaignTest(unittest.TestCase):
                 repository_root, "FACT_CHECK.md", "No warnings."
             )
 
-    def render_guardrail_fact_check(
+    def assert_guardrail_fact_check_contains(
         self,
         temporary_directory: str,
         draft_content: str,
@@ -655,6 +668,24 @@ class GenerateCampaignTest(unittest.TestCase):
             self.assertIn(".marketing/config.yaml", result.stderr)
             self.assertNotIn("Traceback", result.stderr)
 
+    def test_recursive_yaml_alias_reports_config_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            make_repository(
+                repository_root,
+                ["launch.md"],
+                {"launch.md": "Ready: {{ product.name }}\n"},
+            )
+            (repository_root / ".marketing" / "config.yaml").write_text(
+                "recursive: &recursive\n  - *recursive\n",
+                encoding="utf-8",
+            )
+
+            self.assert_generation_fails_with(
+                repository_root,
+                "Recursive YAML aliases are not supported in config.yaml",
+            )
+
     def test_unreadable_changelog_becomes_fact_check_warning(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository_root = Path(temporary_directory)
@@ -706,6 +737,27 @@ class GenerateCampaignTest(unittest.TestCase):
                 repository_root,
                 "Failed to create campaign output directory",
             )
+
+    def test_generated_output_root_cannot_be_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory) / "repository"
+            outside_root = Path(temporary_directory) / "outside-generated"
+            outside_root.mkdir()
+            make_repository(
+                repository_root,
+                ["launch.md"],
+                {"launch.md": "Ready: {{ product.name }}\n"},
+            )
+            (repository_root / ".marketing" / "generated").symlink_to(
+                outside_root,
+                target_is_directory=True,
+            )
+
+            self.assert_generation_fails_with(
+                repository_root,
+                "Campaign output root must not be a symlink",
+            )
+            self.assertEqual([], list(outside_root.iterdir()))
 
     def test_template_paths_cannot_escape_templates_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -793,6 +845,26 @@ class GenerateCampaignTest(unittest.TestCase):
             self.assert_generation_fails_with(
                 repository_root,
                 "Expected `social_proof[0].quote`",
+            )
+
+    def test_social_proof_status_must_not_be_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            make_repository(
+                repository_root,
+                ["launch.md"],
+                {"launch.md": "{{ social_proof.summary }}\n"},
+                social_proof="""
+                - source: https://example.com/review
+                  label: Blank status
+                  quote: Looks sharp
+                  status: ""
+                """,
+            )
+
+            self.assert_generation_fails_with(
+                repository_root,
+                "Expected `social_proof[0].status`",
             )
 
 
@@ -900,6 +972,21 @@ def generated_directory(repository_root: Path) -> Path:
 
 def read_generated_file(repository_root: Path, file_name: str) -> str:
     return (generated_directory(repository_root) / file_name).read_text(encoding="utf-8")
+
+
+def read_generated_file_from_stdout(
+    result: subprocess.CompletedProcess[str],
+    file_name: str,
+) -> str:
+    return (generated_directory_from_stdout(result) / file_name).read_text(encoding="utf-8")
+
+
+def generated_directory_from_stdout(result: subprocess.CompletedProcess[str]) -> Path:
+    prefix = "Generated campaign: "
+    for output_line in result.stdout.splitlines():
+        if output_line.startswith(prefix):
+            return Path(output_line.removeprefix(prefix))
+    raise AssertionError(f"Missing generated campaign path in stdout: {result.stdout}")
 
 
 if __name__ == "__main__":
