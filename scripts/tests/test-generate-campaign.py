@@ -15,15 +15,43 @@ from datetime import date
 from pathlib import Path
 
 SOURCE_SCRIPT = Path(__file__).resolve().parent.parent / "generate_campaign.py"
+REPO_ROOT = SOURCE_SCRIPT.parent.parent
 
 DEFAULT_GUARDRAILS = """
 blocked_phrases:
   - guaranteed productivity
 conditional_claims: []
 """
+DEFAULT_FEATURES_YAML = """
+categories:
+  accent:
+    features:
+      - id: accent-overrides
+        title: Accent overrides
+        tier: free
+        introduced: 2.7.4
+"""
+DEFAULT_SOCIAL_PROOF = """
+- source: https://example.com/review
+  label: Maintainer quote
+  quote: Looks sharp
+  status: verified
+"""
 
 
 class GenerateCampaignTest(unittest.TestCase):
+    def test_console_entrypoint_matches_documented_command(self) -> None:
+        result = subprocess.run(
+            ["uv", "run", "--project", "scripts", "generate-campaign", "--help"],
+            check=False,
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("Generate private Ayu Islands marketing campaign drafts", result.stdout)
+
     def test_generates_drafts_with_summary_alias_placeholders(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository_root = Path(temporary_directory)
@@ -55,6 +83,22 @@ class GenerateCampaignTest(unittest.TestCase):
             self.assertIn("- marketplace: released", draft)
             self.assertIn("[Free] Accent overrides", draft)
             self.assertNotIn("unresolved placeholder", draft)
+
+    def test_warning_only_guardrails_are_written_without_failing_generation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            make_repository(
+                repository_root,
+                ["launch.md"],
+                {"launch.md": "Ayu Islands has 10,000 downloads.\n"},
+            )
+
+            result = run_generator(repository_root)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
+            self.assertIn("metric claim `10,000 downloads` needs a source", fact_check)
+            self.assertIn("- Hard blocks: 0", read_generated_file(repository_root, "README.md"))
 
     def test_unresolved_template_placeholders_fail_generation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -140,8 +184,8 @@ class GenerateCampaignTest(unittest.TestCase):
             repository_root = Path(temporary_directory)
             make_repository(
                 repository_root,
-                ["README.md"],
-                {"README.md": "This draft would be overwritten.\n"},
+                ["readme.md"],
+                {"readme.md": "This draft would be overwritten on case-insensitive filesystems.\n"},
             )
 
             result = run_generator(repository_root)
@@ -149,12 +193,55 @@ class GenerateCampaignTest(unittest.TestCase):
             self.assertNotEqual(0, result.returncode)
             self.assertIn("conflicts with a generated support file", result.stderr)
 
+    def test_feature_metadata_must_be_complete(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            make_repository(
+                repository_root,
+                ["launch.md"],
+                {"launch.md": "{{ facts.free_feature_summary }}\n"},
+                features_yaml="""
+                categories:
+                  accent:
+                    features:
+                      - id: accent-overrides
+                        title: Accent overrides
+                        introduced: 2.7.4
+                """,
+            )
+
+            result = run_generator(repository_root)
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("Expected `accent.features[0].tier`", result.stderr)
+
+    def test_social_proof_entries_must_not_be_silently_dropped(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            make_repository(
+                repository_root,
+                ["launch.md"],
+                {"launch.md": "{{ social_proof.summary }}\n"},
+                social_proof="""
+                - label: Missing source
+                  quote: Looks sharp
+                  status: verified
+                """,
+            )
+
+            result = run_generator(repository_root)
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("Expected `social_proof[0].source`", result.stderr)
+
 
 def make_repository(
     repository_root: Path,
     template_names: Sequence[str],
     templates: Mapping[str, str],
     guardrails: str = DEFAULT_GUARDRAILS,
+    features_yaml: str = DEFAULT_FEATURES_YAML,
+    social_proof: str = DEFAULT_SOCIAL_PROOF,
 ) -> None:
     scripts_dir = repository_root / "scripts"
     scripts_dir.mkdir(parents=True)
@@ -163,17 +250,7 @@ def make_repository(
     docs_dir = repository_root / "docs"
     docs_dir.mkdir()
     (docs_dir / "features.yml").write_text(
-        textwrap.dedent(
-            """
-            categories:
-              accent:
-                features:
-                  - id: accent-overrides
-                    title: Accent overrides
-                    tier: free
-                    introduced: 2.7.4
-            """
-        ).lstrip(),
+        textwrap.dedent(features_yaml).lstrip(),
         encoding="utf-8",
     )
     (repository_root / "CHANGELOG.md").write_text(
@@ -215,10 +292,7 @@ launch_status:
 manual_verification:
   - Confirm generated copy against Marketplace listing.
 social_proof:
-  - source: https://example.com/review
-    label: Maintainer quote
-    quote: Looks sharp
-    status: verified
+{textwrap.indent(textwrap.dedent(social_proof).strip(), "  ")}
 campaign_modes:
   launch:
     description: Launch copy

@@ -43,6 +43,10 @@ METRIC_PATTERNS: tuple[re.Pattern[str], ...] = (
 SUPPORT_FILE_NAMES: frozenset[str] = frozenset(
     {"README.md", "FACT_CHECK.md", "CHECKLIST.md", "POSTING_PLAN.md"}
 )
+SUPPORT_FILE_NAME_KEYS: frozenset[str] = frozenset(
+    support_file_name.casefold() for support_file_name in SUPPORT_FILE_NAMES
+)
+FEATURE_TIERS: frozenset[str] = frozenset({"free", "paid"})
 UNRESOLVED_PLACEHOLDER_PREFIX = "TODO_VERIFY: unresolved placeholder"
 
 
@@ -191,14 +195,17 @@ def read_template_names(campaign_mode: YamlMapping, mode: str) -> list[str]:
         raise SystemExit(f"Campaign mode `{mode}` must define a `templates` list.")
 
     template_names: list[str] = []
+    template_name_keys: set[str] = set()
     for raw_template_name in raw_templates:
         if not isinstance(raw_template_name, str):
             raise SystemExit(f"Campaign mode `{mode}` contains a non-string template name.")
         template_name = validate_template_name(raw_template_name)
-        if template_name in template_names:
+        template_name_key = template_name.casefold()
+        if template_name_key in template_name_keys:
             raise SystemExit(f"Template `{template_name}` is selected more than once.")
-        if template_name in SUPPORT_FILE_NAMES:
+        if template_name_key in SUPPORT_FILE_NAME_KEYS:
             raise SystemExit(f"Template `{template_name}` conflicts with a generated support file.")
+        template_name_keys.add(template_name_key)
         template_names.append(template_name)
 
     if not template_names:
@@ -339,6 +346,16 @@ def read_optional_string(source: YamlMapping, key: str, default: str) -> str:
     return default if value is None else scalar_to_string(value, key)
 
 
+def read_required_string(source: YamlMapping, key: str, location: str) -> str:
+    if key not in source:
+        raise SystemExit(f"Expected `{location}.{key}` to be a non-empty scalar.")
+
+    value = scalar_to_string(source[key], f"{location}.{key}").strip()
+    if not value:
+        raise SystemExit(f"Expected `{location}.{key}` to be a non-empty scalar.")
+    return value
+
+
 def scalar_to_string(value: YamlValue, location: str) -> str:
     if value is None:
         return ""
@@ -384,16 +401,22 @@ def flatten_features(features_data: YamlMapping) -> list[FeatureRecord]:
                 raise SystemExit(
                     f"Expected feature `{category_name}.features[{index}]` to be a YAML mapping."
                 )
-            feature_records.append(normalize_feature_entry(raw_feature))
+            feature_records.append(
+                normalize_feature_entry(raw_feature, f"{category_name}.features[{index}]")
+            )
 
     return feature_records
 
 
-def normalize_feature_entry(feature_data: YamlMapping) -> FeatureRecord:
-    feature_id = read_optional_string(feature_data, "id", "unknown-feature")
-    title = read_optional_string(feature_data, "title", feature_id)
-    tier = read_optional_string(feature_data, "tier", "free").lower()
-    introduced = read_optional_string(feature_data, "introduced", "unknown")
+def normalize_feature_entry(feature_data: YamlMapping, location: str) -> FeatureRecord:
+    feature_id = read_required_string(feature_data, "id", location)
+    title = read_required_string(feature_data, "title", location)
+    tier = read_required_string(feature_data, "tier", location).lower()
+    introduced = read_required_string(feature_data, "introduced", location)
+
+    if tier not in FEATURE_TIERS:
+        allowed_tiers = ", ".join(sorted(FEATURE_TIERS))
+        raise SystemExit(f"Expected `{location}.tier` to be one of: {allowed_tiers}.")
 
     return FeatureRecord(
         feature_id=feature_id,
@@ -462,11 +485,9 @@ def format_status_summary(statuses: StringMapping) -> str:
 
 def format_social_proof(social_proof_entries: list[YamlMapping]) -> str:
     verified_entries: list[str] = []
-    for entry in social_proof_entries:
-        source = read_optional_string(entry, "source", "")
-        if not source:
-            continue
-
+    for index, entry in enumerate(social_proof_entries):
+        location = f"social_proof[{index}]"
+        source = read_required_string(entry, "source", location)
         label = read_optional_string(entry, "label", "social proof")
         quote = read_optional_string(entry, "quote", "")
         status = read_optional_string(entry, "status", "TODO_VERIFY")
