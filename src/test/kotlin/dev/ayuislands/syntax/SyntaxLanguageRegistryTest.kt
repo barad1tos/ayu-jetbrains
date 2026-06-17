@@ -57,19 +57,6 @@ class SyntaxLanguageRegistryTest {
             Row("Scala Line comment", "Scala", "Scala", SyntaxLanguageRegistry.Bucket.LANGUAGE),
             Row("Groovy keyword", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
             Row("GROOVY_KEYWORD", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
-            Row("Method call", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
-            Row("Instance property reference ID", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
-            Row("Static method access", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
-            Row("Static property reference ID", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
-            Row("Map key", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
-            Row("Class", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
-            Row("Interface name", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
-            Row("Trait name", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
-            Row("Enum name", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
-            Row("Abstract class name", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
-            Row("Anonymous class name", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
-            Row("Type parameter", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
-            Row("String", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
             Row("GString", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
             Row("Groovydoc comment", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
             // Plugin-namespaced bucket
@@ -106,6 +93,20 @@ class SyntaxLanguageRegistryTest {
             "LIVE_TEMPLATE_ATTRIBUTES",
             "DIFF_MODIFIED",
             "HYPERLINK_ATTRIBUTES",
+        )
+
+    private val genericBareKeys =
+        listOf(
+            "String",
+            "Number",
+            "Braces",
+            "Brackets",
+            "Parentheses",
+            "Method call",
+            "Static method access",
+            "Map key",
+            "Class",
+            "Type parameter",
         )
 
     @Test
@@ -148,6 +149,16 @@ class SyntaxLanguageRegistryTest {
         assertEquals("OTHER", tag.tag, "tag")
         assertEquals("Other", tag.displayName, "displayName")
         assertEquals(SyntaxLanguageRegistry.Bucket.OTHER, tag.bucket, "bucket")
+    }
+
+    @Test
+    fun `classify keeps generic bare keys out of the Groovy language bucket`() {
+        for (key in genericBareKeys) {
+            val tag = SyntaxLanguageRegistry.classify(key)
+            assertEquals("OTHER", tag.tag, "tag for $key")
+            assertEquals("Other", tag.displayName, "displayName for $key")
+            assertEquals(SyntaxLanguageRegistry.Bucket.OTHER, tag.bucket, "bucket for $key")
+        }
     }
 
     @Test

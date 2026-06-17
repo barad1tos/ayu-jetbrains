@@ -139,7 +139,6 @@ class SyntaxCategoryRegistryTest {
 
         for ((key, expected) in expectedCategories) {
             assertEquals(expected, SyntaxCategoryRegistry.classify(key), "$key category")
-            assertEquals("Groovy", SyntaxLanguageRegistry.classify(key).tag, "$key language tag")
         }
     }
 
