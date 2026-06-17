@@ -315,156 +315,9 @@ class SyntaxOverlayLoaderTest {
 
     @Test
     fun `production extended schemes materialize Groovy Jenkinsfile roles`() {
-        val requiredKeys =
-            listOf(
-                "Groovy constructor declaration",
-                "Groovy constructor call",
-                "Groovy var",
-                "Groovy reassigned var",
-                "Groovy parameter",
-                "Groovy reassigned parameter",
-                "Method call",
-                "Static method access",
-                "Instance field",
-                "Instance property reference ID",
-                "Static field",
-                "Static property reference ID",
-                "Map key",
-                "GROOVY_KEYWORD",
-                "Groovydoc comment",
-                "Groovydoc tag",
-                "GString",
-                "String",
-                "Number",
-                "Operation sign",
-                "Braces",
-                "Brackets",
-                "Parentheses",
-                "Closure braces",
-                "Lambda braces",
-                "Label",
-                "Closure parameter",
-                "Valid string escape",
-                "Invalid string escape",
-            )
-        val expectedForegrounds =
-            mapOf(
-                "Mirage" to
-                    mapOf(
-                        "Groovy constructor declaration" to "FFCC66",
-                        "Groovy constructor call" to "FFCC66",
-                        "Groovy var" to "CCCAC2",
-                        "Groovy reassigned var" to "DFBFFF",
-                        "Groovy parameter" to "DFBFFF",
-                        "Groovy reassigned parameter" to "DFBFFF",
-                        "Method call" to "FFD173",
-                        "Static method access" to "FFD173",
-                        "Instance field" to "F28779",
-                        "Instance property reference ID" to "F28779",
-                        "Static field" to "F28779",
-                        "Static property reference ID" to "F28779",
-                        "Map key" to "D9A6EF",
-                        "GROOVY_KEYWORD" to "FFAD66",
-                        "Groovydoc comment" to "D5FF80",
-                        "Groovydoc tag" to "B8CFE6",
-                        "GString" to "D5FF80",
-                        "String" to "D5FF80",
-                        "Number" to "DFBFFF",
-                        "Operation sign" to "F29E74",
-                        "Braces" to "F29E74",
-                        "Brackets" to "F29E74",
-                        "Parentheses" to "F29E74",
-                        "Closure braces" to "FFAD66",
-                        "Lambda braces" to "FFA659",
-                        "Label" to "FFA659",
-                        "Closure parameter" to "DFBFFF",
-                        "Valid string escape" to "95E6CB",
-                        "Invalid string escape" to "D95757",
-                    ),
-                "Dark" to
-                    mapOf(
-                        "Groovy constructor declaration" to "E69F25",
-                        "Groovy constructor call" to "E69F25",
-                        "Groovy var" to "BFBDB6",
-                        "Groovy reassigned var" to "D2A6FF",
-                        "Groovy parameter" to "D2A6FF",
-                        "Groovy reassigned parameter" to "D2A6FF",
-                        "Method call" to "FFB454",
-                        "Static method access" to "FFB454",
-                        "Instance field" to "F07178",
-                        "Instance property reference ID" to "F07178",
-                        "Static field" to "F07178",
-                        "Static property reference ID" to "F07178",
-                        "Map key" to "C290DF",
-                        "GROOVY_KEYWORD" to "FF8F40",
-                        "Groovydoc comment" to "AAD94C",
-                        "Groovydoc tag" to "ACB6BF",
-                        "GString" to "AAD94C",
-                        "String" to "AAD94C",
-                        "Number" to "D2A6FF",
-                        "Operation sign" to "F29668",
-                        "Braces" to "F29668",
-                        "Brackets" to "F29668",
-                        "Parentheses" to "F29668",
-                        "Closure braces" to "FFA759",
-                        "Lambda braces" to "FFA759",
-                        "Label" to "FFA759",
-                        "Closure parameter" to "D2A6FF",
-                        "Valid string escape" to "95E6CB",
-                        "Invalid string escape" to "D95757",
-                    ),
-                "Light" to
-                    mapOf(
-                        "Groovy constructor declaration" to "D89400",
-                        "Groovy constructor call" to "D89400",
-                        "Groovy var" to "5C6166",
-                        "Groovy reassigned var" to "A37ACC",
-                        "Groovy parameter" to "A37ACC",
-                        "Groovy reassigned parameter" to "A37ACC",
-                        "Method call" to "EBA400",
-                        "Static method access" to "EBA400",
-                        "Instance field" to "F07171",
-                        "Instance property reference ID" to "F07171",
-                        "Static field" to "F07171",
-                        "Static property reference ID" to "F07171",
-                        "Map key" to "55B4D4",
-                        "GROOVY_KEYWORD" to "FA8532",
-                        "Groovydoc comment" to "86B300",
-                        "Groovydoc tag" to "8A8FA5",
-                        "GString" to "86B300",
-                        "String" to "86B300",
-                        "Number" to "A37ACC",
-                        "Operation sign" to "F2A191",
-                        "Braces" to "F2A191",
-                        "Brackets" to "F2A191",
-                        "Parentheses" to "F2A191",
-                        "Closure braces" to "FA8532",
-                        "Lambda braces" to "FA8532",
-                        "Label" to "FA8532",
-                        "Closure parameter" to "A37ACC",
-                        "Valid string escape" to "4CBF99",
-                        "Invalid string escape" to "E65050",
-                    ),
-            )
-        val expectedFontTypes =
-            mapOf(
-                "Class" to 2,
-                "Interface name" to 2,
-                "Trait name" to 2,
-                "Enum name" to 2,
-                "Abstract class name" to 2,
-                "Anonymous class name" to 2,
-                "Type parameter" to 2,
-                "Groovy constructor declaration" to 2,
-                "Groovy constructor call" to 2,
-                "Static method access" to 2,
-                "Static field" to 2,
-                "Static property reference ID" to 2,
-                "GROOVY_KEYWORD" to 1,
-                "Groovydoc comment" to 2,
-                "Groovydoc tag" to 3,
-                "Closure parameter" to 2,
-            )
+        val requiredKeys = groovyJenkinsfileExtendedKeys()
+        val expectedForegrounds = groovyJenkinsfileExtendedForegrounds()
+        val expectedFontTypes = groovyJenkinsfileExtendedFontTypes()
         val l = SyntaxOverlayLoader()
 
         for (variant in listOf("Mirage", "Dark", "Light")) {
@@ -505,4 +358,191 @@ class SyntaxOverlayLoaderTest {
             )
         }
     }
+
+    private fun groovyJenkinsfileExtendedKeys(): List<String> =
+        listOf(
+            "Class",
+            "Interface name",
+            "Trait name",
+            "Enum name",
+            "Abstract class name",
+            "Anonymous class name",
+            "Type parameter",
+            "Groovy method declaration",
+            "Groovy constructor declaration",
+            "Groovy constructor call",
+            "Groovy var",
+            "Groovy reassigned var",
+            "Groovy parameter",
+            "Groovy reassigned parameter",
+            "Method call",
+            "Static method access",
+            "Instance field",
+            "Instance property reference ID",
+            "Static field",
+            "Static property reference ID",
+            "Map key",
+            "GROOVY_KEYWORD",
+            "Groovydoc comment",
+            "Groovydoc tag",
+            "GString",
+            "String",
+            "Number",
+            "Operation sign",
+            "Braces",
+            "Brackets",
+            "Parentheses",
+            "Closure braces",
+            "Lambda braces",
+            "Label",
+            "Closure parameter",
+            "Valid string escape",
+            "Invalid string escape",
+        )
+
+    private fun groovyJenkinsfileExtendedForegrounds(): Map<String, Map<String, String>> =
+        mapOf(
+            "Mirage" to
+                groovyJenkinsfileExtendedForegroundsFor(
+                    mapOf(
+                        "typeDeclaration" to "73D0FF",
+                        "abstractType" to "5CCFE6",
+                        "functionDeclaration" to "FFD173",
+                        "constructor" to "FFCC66",
+                        "localVariable" to "CCCAC2",
+                        "parameter" to "DFBFFF",
+                        "field" to "F28779",
+                        "mapKey" to "D9A6EF",
+                        "keyword" to "FFAD66",
+                        "stringLiteral" to "D5FF80",
+                        "documentationTag" to "B8CFE6",
+                        "operator" to "F29E74",
+                        "closureBraces" to "FFAD66",
+                        "label" to "FFA659",
+                        "validEscape" to "95E6CB",
+                        "invalidEscape" to "D95757",
+                    ),
+                ),
+            "Dark" to
+                groovyJenkinsfileExtendedForegroundsFor(
+                    mapOf(
+                        "typeDeclaration" to "59C2FF",
+                        "abstractType" to "39BAE6",
+                        "functionDeclaration" to "FFB454",
+                        "constructor" to "E69F25",
+                        "localVariable" to "BFBDB6",
+                        "parameter" to "D2A6FF",
+                        "field" to "F07178",
+                        "mapKey" to "C290DF",
+                        "keyword" to "FF8F40",
+                        "stringLiteral" to "AAD94C",
+                        "documentationTag" to "ACB6BF",
+                        "operator" to "F29668",
+                        "closureBraces" to "FFA759",
+                        "label" to "FFA759",
+                        "validEscape" to "95E6CB",
+                        "invalidEscape" to "D95757",
+                    ),
+                ),
+            "Light" to
+                groovyJenkinsfileExtendedForegroundsFor(
+                    mapOf(
+                        "typeDeclaration" to "22A4E6",
+                        "abstractType" to "55B4D4",
+                        "functionDeclaration" to "EBA400",
+                        "constructor" to "D89400",
+                        "localVariable" to "5C6166",
+                        "parameter" to "A37ACC",
+                        "field" to "F07171",
+                        "mapKey" to "55B4D4",
+                        "keyword" to "FA8532",
+                        "stringLiteral" to "86B300",
+                        "documentationTag" to "8A8FA5",
+                        "operator" to "F2A191",
+                        "closureBraces" to "FA8532",
+                        "label" to "FA8532",
+                        "validEscape" to "4CBF99",
+                        "invalidEscape" to "E65050",
+                    ),
+                ),
+        )
+
+    private fun groovyJenkinsfileExtendedForegroundsFor(palette: Map<String, String>): Map<String, String> {
+        val typeDeclaration = palette.getValue("typeDeclaration")
+        val abstractType = palette.getValue("abstractType")
+        val functionDeclaration = palette.getValue("functionDeclaration")
+        val constructor = palette.getValue("constructor")
+        val localVariable = palette.getValue("localVariable")
+        val parameter = palette.getValue("parameter")
+        val field = palette.getValue("field")
+        val mapKey = palette.getValue("mapKey")
+        val keyword = palette.getValue("keyword")
+        val stringLiteral = palette.getValue("stringLiteral")
+        val documentationTag = palette.getValue("documentationTag")
+        val operator = palette.getValue("operator")
+        val closureBraces = palette.getValue("closureBraces")
+        val label = palette.getValue("label")
+        val validEscape = palette.getValue("validEscape")
+        val invalidEscape = palette.getValue("invalidEscape")
+
+        return mapOf(
+            "Class" to typeDeclaration,
+            "Interface name" to typeDeclaration,
+            "Trait name" to typeDeclaration,
+            "Enum name" to typeDeclaration,
+            "Abstract class name" to abstractType,
+            "Anonymous class name" to abstractType,
+            "Type parameter" to abstractType,
+            "Groovy method declaration" to functionDeclaration,
+            "Groovy constructor declaration" to constructor,
+            "Groovy constructor call" to constructor,
+            "Groovy var" to localVariable,
+            "Groovy reassigned var" to parameter,
+            "Groovy parameter" to parameter,
+            "Groovy reassigned parameter" to parameter,
+            "Method call" to functionDeclaration,
+            "Static method access" to functionDeclaration,
+            "Instance field" to field,
+            "Instance property reference ID" to field,
+            "Static field" to field,
+            "Static property reference ID" to field,
+            "Map key" to mapKey,
+            "GROOVY_KEYWORD" to keyword,
+            "Groovydoc comment" to stringLiteral,
+            "Groovydoc tag" to documentationTag,
+            "GString" to stringLiteral,
+            "String" to stringLiteral,
+            "Number" to parameter,
+            "Operation sign" to operator,
+            "Braces" to operator,
+            "Brackets" to operator,
+            "Parentheses" to operator,
+            "Closure braces" to closureBraces,
+            "Lambda braces" to label,
+            "Label" to label,
+            "Closure parameter" to parameter,
+            "Valid string escape" to validEscape,
+            "Invalid string escape" to invalidEscape,
+        )
+    }
+
+    private fun groovyJenkinsfileExtendedFontTypes(): Map<String, Int> =
+        mapOf(
+            "Class" to 2,
+            "Interface name" to 2,
+            "Trait name" to 2,
+            "Enum name" to 2,
+            "Abstract class name" to 2,
+            "Anonymous class name" to 2,
+            "Type parameter" to 2,
+            "Groovy constructor declaration" to 2,
+            "Groovy constructor call" to 2,
+            "Static method access" to 2,
+            "Static field" to 2,
+            "Static property reference ID" to 2,
+            "GROOVY_KEYWORD" to 1,
+            "Groovydoc comment" to 2,
+            "Groovydoc tag" to 3,
+            "Closure parameter" to 2,
+        )
 }

@@ -750,7 +750,7 @@ class SyntaxIntensityApplicatorTest {
         assertEquals(Font.BOLD, attrs.fontType, "GString must use the Groovy STRING_LITERAL style")
         assertNotEquals(
             sourceColor.rgb,
-            attrs.foregroundColor?.rgb,
+            assertNotNull(attrs.foregroundColor).rgb,
             "GString must use the Groovy STRING_LITERAL slider, not the Ambient fallback",
         )
     }
@@ -864,6 +864,65 @@ class SyntaxIntensityApplicatorTest {
             typeParameterColor.rgb,
             assertNotNull(typeParameterAttrs.foregroundColor).rgb,
             "Type parameter must use the GENERICS custom slider",
+        )
+    }
+
+    @Test
+    fun `bare Groovy field keys use static and instance field custom cells`() {
+        val staticFieldKey = TextAttributesKey.createTextAttributesKey("Static field")
+        val instanceFieldKey = TextAttributesKey.createTextAttributesKey("Instance field")
+        val staticFieldColor = Color(0xF2, 0x87, 0x79)
+        val instanceFieldColor = Color(0xF2, 0x87, 0x79)
+
+        val result =
+            compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides =
+                    mapOf(
+                        "Other" to
+                            mapOf(
+                                "STATIC_FIELD" to 75,
+                                "INSTANCE_FIELD" to 25,
+                            ),
+                    ),
+                baseline =
+                    mapOf(
+                        staticFieldKey to attrsWithFg(staticFieldColor),
+                        instanceFieldKey to attrsWithFg(instanceFieldColor),
+                    ),
+                overlay = emptyMap(),
+                options =
+                    ComputeOptions(
+                        subordinatePreset = SyntaxPreset.AMBIENT,
+                        customStyles =
+                            mapOf(
+                                "Other" to
+                                    mapOf(
+                                        "STATIC_FIELD" to Font.BOLD,
+                                        "INSTANCE_FIELD" to Font.ITALIC,
+                                    ),
+                            ),
+                    ),
+            )
+
+        val staticFieldAttrs = assertNotNull(result[staticFieldKey], "Static field must not be skipped")
+        assertEquals(Font.BOLD, staticFieldAttrs.fontType, "Static field must use the STATIC_FIELD custom style")
+        assertNotEquals(
+            staticFieldColor.rgb,
+            assertNotNull(staticFieldAttrs.foregroundColor).rgb,
+            "Static field must use the STATIC_FIELD custom slider",
+        )
+
+        val instanceFieldAttrs = assertNotNull(result[instanceFieldKey], "Instance field must not be skipped")
+        assertEquals(
+            Font.ITALIC,
+            instanceFieldAttrs.fontType,
+            "Instance field must use the INSTANCE_FIELD custom style",
+        )
+        assertNotEquals(
+            instanceFieldColor.rgb,
+            assertNotNull(instanceFieldAttrs.foregroundColor).rgb,
+            "Instance field must use the INSTANCE_FIELD custom slider",
         )
     }
 
