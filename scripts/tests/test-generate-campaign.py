@@ -136,11 +136,10 @@ class GenerateCampaignTest(unittest.TestCase):
                 },
             )
 
-            result = run_generator(repository_root)
-
-            self.assertEqual(2, result.returncode)
-            fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
-            self.assertIn("follow-up.md: blocked phrase `guaranteed productivity`", fact_check)
+            self.assert_hard_blocked_fact_check_contains(
+                repository_root,
+                "follow-up.md: blocked phrase `guaranteed productivity`",
+            )
 
     def test_warning_only_guardrails_are_written_without_failing_generation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -220,11 +219,10 @@ class GenerateCampaignTest(unittest.TestCase):
                 {"launch.md": "Bad placeholder: {{ product name }}\n"},
             )
 
-            result = run_generator(repository_root)
-
-            self.assertEqual(2, result.returncode)
-            fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
-            self.assertIn("raw template placeholder `{{ product name }}` was not rendered", fact_check)
+            self.assert_hard_blocked_fact_check_contains(
+                repository_root,
+                "raw template placeholder `{{ product name }}` was not rendered",
+            )
 
     def test_unclosed_template_placeholders_fail_generation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -235,11 +233,10 @@ class GenerateCampaignTest(unittest.TestCase):
                 {"launch.md": "Bad placeholder: {{ product.name\n"},
             )
 
-            result = run_generator(repository_root)
-
-            self.assertEqual(2, result.returncode)
-            fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
-            self.assertIn("raw template placeholder `{{ product.name` was not rendered", fact_check)
+            self.assert_hard_blocked_fact_check_contains(
+                repository_root,
+                "raw template placeholder `{{ product.name` was not rendered",
+            )
 
     def test_unresolved_template_placeholders_fail_generation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -250,12 +247,11 @@ class GenerateCampaignTest(unittest.TestCase):
                 {"launch.md": "{{ product.name }} {{ missing.value }}\n"},
             )
 
-            result = run_generator(repository_root)
-
-            self.assertEqual(2, result.returncode)
-            self.assertIn("Hard-blocked claims were found", result.stderr)
-            fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
-            self.assertIn("unresolved placeholder missing.value", fact_check)
+            self.assert_hard_blocked_fact_check_contains(
+                repository_root,
+                "unresolved placeholder missing.value",
+                expected_stderr="Hard-blocked claims were found",
+            )
 
     def test_blank_public_placeholder_values_fail_generation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -300,11 +296,10 @@ class GenerateCampaignTest(unittest.TestCase):
                 """,
             )
 
-            result = run_generator(repository_root)
-
-            self.assertEqual(2, result.returncode)
-            fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
-            self.assertIn("blocked phrase `guaranteed productivity`", fact_check)
+            fact_check = self.assert_hard_blocked_fact_check_contains(
+                repository_root,
+                "blocked phrase `guaranteed productivity`",
+            )
             self.assertIn("lifetime access requires manual verification", fact_check)
 
     def test_blank_guardrail_phrases_fail_before_generation(self) -> None:
@@ -352,7 +347,7 @@ class GenerateCampaignTest(unittest.TestCase):
         temporary_directory: str,
         pricing: str,
         expected_text: str,
-    ) -> str:
+    ) -> None:
         repository_root = Path(temporary_directory)
         make_repository(
             repository_root,
@@ -360,7 +355,7 @@ class GenerateCampaignTest(unittest.TestCase):
             {"launch.md": "Pricing: {{ pricing.summary }}\n"},
             pricing=pricing,
         )
-        return self.assert_success_file_contains(repository_root, "FACT_CHECK.md", expected_text)
+        self.assert_success_file_contains(repository_root, "FACT_CHECK.md", expected_text)
 
     def test_conditional_claim_requires_feature_id_warns_when_feature_is_absent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -441,6 +436,20 @@ class GenerateCampaignTest(unittest.TestCase):
         result = run_generator(repository_root)
         self.assertNotEqual(0, result.returncode)
         self.assertIn(expected_stderr, result.stderr)
+
+    def assert_hard_blocked_fact_check_contains(
+        self,
+        repository_root: Path,
+        expected_text: str,
+        expected_stderr: str | None = None,
+    ) -> str:
+        result = run_generator(repository_root)
+        self.assertEqual(2, result.returncode)
+        if expected_stderr is not None:
+            self.assertIn(expected_stderr, result.stderr)
+        fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
+        self.assertIn(expected_text, fact_check)
+        return fact_check
 
     def test_conditional_claim_requires_path_value_allows_matching_config(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -551,6 +560,53 @@ class GenerateCampaignTest(unittest.TestCase):
                 """,
                 "Expected `conditional_claims[0].requires.value`",
                 draft_content="Public trial is open.\n",
+            )
+
+    def test_conditional_claim_requires_must_be_mapping_even_when_inactive(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            self.assert_guardrail_config_fails(
+                temporary_directory,
+                """
+                blocked_phrases: []
+                risky_phrases: []
+                conditional_claims:
+                  - phrase: unavailable claim
+                    requires: launch_status.trial_status
+                """,
+                "Expected `conditional_claims[0].requires` to be a YAML mapping",
+            )
+
+    def test_conditional_claim_feature_id_must_be_scalar_even_when_inactive(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            self.assert_guardrail_config_fails(
+                temporary_directory,
+                """
+                blocked_phrases: []
+                risky_phrases: []
+                conditional_claims:
+                  - phrase: unavailable claim
+                    requires_feature_id:
+                      - accent-overrides
+                """,
+                "Expected scalar value at `conditional_claims[0].requires_feature_id`",
+            )
+
+    def test_conditional_claim_cannot_mix_requirement_types(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            self.assert_guardrail_config_fails(
+                temporary_directory,
+                """
+                blocked_phrases: []
+                risky_phrases: []
+                conditional_claims:
+                  - phrase: external accent sources
+                    requires_feature_id: accent-overrides
+                    requires:
+                      path: launch_status.marketplace
+                      value: unreleased
+                """,
+                "Expected `conditional_claims[0]` to define only one requirement type",
+                draft_content="External accent sources are ready.\n",
             )
 
     def test_existing_campaign_directory_is_not_overwritten(self) -> None:

@@ -444,8 +444,16 @@ def read_conditional_claims(guardrails: YamlMapping) -> list[YamlMapping]:
         read_required_string(conditional_claim, "phrase", location)
         if "message" in conditional_claim:
             read_required_string(conditional_claim, "message", location)
+        if "requires_feature_id" in conditional_claim:
+            read_required_string(conditional_claim, "requires_feature_id", location)
+        if "requires_feature_id" in conditional_claim and "requires" in conditional_claim:
+            raise SystemExit(
+                f"Expected `{location}` to define only one requirement type."
+            )
         requires = conditional_claim.get("requires")
-        if isinstance(requires, dict):
+        if requires is not None and not isinstance(requires, dict):
+            raise SystemExit(f"Expected `{location}.requires` to be a YAML mapping.")
+        if requires is not None:
             read_required_string(requires, "path", f"{location}.requires")
             read_required_string(requires, "value", f"{location}.requires")
     return conditional_claims
