@@ -122,6 +122,7 @@ class GenerateCampaignTest(unittest.TestCase):
             self.assertIn("- `follow-up.md`", readme)
             self.assertIn("- `launch.md`", posting_plan)
             self.assertIn("- `follow-up.md`", posting_plan)
+            self.assertIn("Draft files:", readme)
 
     def test_warning_only_guardrails_are_written_without_failing_generation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -237,6 +238,25 @@ class GenerateCampaignTest(unittest.TestCase):
             self.assertIn("Hard-blocked claims were found", result.stderr)
             fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
             self.assertIn("unresolved placeholder missing.value", fact_check)
+
+    def test_blank_public_placeholder_values_fail_generation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            make_repository(
+                repository_root,
+                ["launch.md"],
+                {"launch.md": "Product: {{ product.name }}\n"},
+                product="""
+                name: ""
+                category: JetBrains theme
+                """,
+            )
+
+            result = run_generator(repository_root)
+
+            self.assertEqual(2, result.returncode)
+            fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
+            self.assertIn("unresolved placeholder product.name", fact_check)
 
     def test_guardrails_fail_blocked_phrase_and_report_malformed_requires(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -527,6 +547,41 @@ class GenerateCampaignTest(unittest.TestCase):
             self.assertIn("Required YAML file is missing", result.stderr)
             self.assertIn(".marketing/config.yaml", result.stderr)
 
+    def test_unreadable_selected_template_reports_template_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            make_repository(
+                repository_root,
+                ["launch.md"],
+                {"launch.md": "Ready: {{ product.name }}\n"},
+            )
+            template_path = repository_root / ".marketing" / "templates" / "launch.md"
+            template_path.unlink()
+            template_path.mkdir()
+
+            self.assert_generation_fails_with(
+                repository_root,
+                "Failed to read selected template",
+            )
+
+    def test_output_directory_parent_file_reports_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            make_repository(
+                repository_root,
+                ["launch.md"],
+                {"launch.md": "Ready: {{ product.name }}\n"},
+            )
+            (repository_root / ".marketing" / "generated").write_text(
+                "not a directory\n",
+                encoding="utf-8",
+            )
+
+            self.assert_generation_fails_with(
+                repository_root,
+                "Failed to create campaign output directory",
+            )
+
     def test_template_paths_cannot_escape_templates_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository_root = Path(temporary_directory)
@@ -623,6 +678,10 @@ def make_repository(
     guardrails: str = DEFAULT_GUARDRAILS,
     features_yaml: str = DEFAULT_FEATURES_YAML,
     social_proof: str = DEFAULT_SOCIAL_PROOF,
+    product: str = """
+    name: Ayu Islands
+    category: JetBrains theme
+    """,
     pricing: str = """
     public_claim_status: ready
     individual: 12 USD
@@ -670,8 +729,7 @@ def make_repository(
     template_list = "\n".join(f"      - {json.dumps(name)}" for name in template_names)
     config = f"""
 product:
-  name: Ayu Islands
-  category: JetBrains theme
+{textwrap.indent(textwrap.dedent(product).strip(), "  ")}
 pricing:
 {textwrap.indent(textwrap.dedent(pricing).strip(), "  ")}
 launch_status:

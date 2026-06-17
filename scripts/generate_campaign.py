@@ -101,17 +101,25 @@ def main() -> int:
     output_directory = GENERATED_DIR / f"{date.today().isoformat()}-{campaign_name}"
     if output_directory.exists():
         raise SystemExit(f"Campaign output already exists: {output_directory}")
-    output_directory.mkdir(parents=True)
+    try:
+        output_directory.mkdir(parents=True)
+    except OSError as output_error:
+        raise SystemExit(
+            f"Failed to create campaign output directory {output_directory}: {output_error}"
+        ) from output_error
 
     for rendered_file in rendered_files + build_support_files(
         template_names,
         context,
         guard_report,
     ):
-        (output_directory / rendered_file.name).write_text(
-            rendered_file.content,
-            encoding="utf-8",
-        )
+        output_path = output_directory / rendered_file.name
+        try:
+            output_path.write_text(rendered_file.content, encoding="utf-8")
+        except OSError as output_error:
+            raise SystemExit(
+                f"Failed to write campaign file {output_path}: {output_error}"
+            ) from output_error
 
     print(f"Generated campaign: {output_directory}")
     print(f"Rendered drafts: {', '.join(template_names)}")
@@ -581,7 +589,12 @@ def render_templates(template_names: list[str], context: RenderContext) -> list[
         if not template_path.exists():
             raise SystemExit(f"Selected template is missing: {template_path}")
 
-        template_content = template_path.read_text(encoding="utf-8")
+        try:
+            template_content = template_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as template_error:
+            raise SystemExit(
+                f"Failed to read selected template {template_path}: {template_error}"
+            ) from template_error
         rendered_files.append(
             RenderedFile(
                 name=template_name,
@@ -610,7 +623,11 @@ def lookup_render_value(context: RenderContext, path: str) -> RenderableValue | 
         return None
 
     section = context.get(section_name)
-    return None if section is None else section.get(value_name)
+    if section is None:
+        return None
+
+    value = section.get(value_name)
+    return None if isinstance(value, str) and not value.strip() else value
 
 
 def evaluate_guardrails(
@@ -781,7 +798,7 @@ def build_support_files(
             "",
             f"Mode: `{campaign_mode}`",
             "",
-            "Generated files:",
+            "Draft files:",
             "",
             draft_file_list,
             "",
