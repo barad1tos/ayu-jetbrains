@@ -33,9 +33,10 @@ Deps: `pyyaml`. Invoked via uv shebang.
 
 ### `generate-campaign` — private campaign draft generator
 
-Renders ignored `.marketing/templates/*.md` files with facts from
-`.marketing/config.yaml`, `docs/features.yml`, and `CHANGELOG.md`, then writes
-drafts plus review support files to `.marketing/generated/<date>-<name>/`.
+Renders the `.marketing/templates/*.md` files selected by
+`.marketing/config.yaml` with facts from `docs/features.yml` and
+`CHANGELOG.md`, then writes drafts plus review support files to
+`.marketing/generated/<date>-<slugified-name>/`.
 
 ```bash
 uv run --project scripts generate-campaign --mode soft-organic --name launch-copy

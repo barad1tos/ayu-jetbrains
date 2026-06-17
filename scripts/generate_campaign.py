@@ -341,7 +341,14 @@ def read_string_list(source: YamlMapping, key: str) -> list[str]:
         return []
     if not isinstance(value, list):
         raise SystemExit(f"Expected `{key}` to be a YAML list.")
+    return parse_string_list(value, key)
 
+
+def read_required_string_list(source: YamlMapping, key: str) -> list[str]:
+    return parse_string_list(require_yaml_list(source, key), key)
+
+
+def parse_string_list(value: list[YamlValue], key: str) -> list[str]:
     strings: list[str] = []
     for index, item in enumerate(value):
         if string_value := scalar_to_string(item, f"{key}[{index}]").strip():
@@ -357,7 +364,24 @@ def read_mapping_list(source: YamlMapping, key: str) -> list[YamlMapping]:
         return []
     if not isinstance(value, list):
         raise SystemExit(f"Expected `{key}` to be a YAML list.")
+    return parse_mapping_list(value, key)
 
+
+def read_required_mapping_list(source: YamlMapping, key: str) -> list[YamlMapping]:
+    return parse_mapping_list(require_yaml_list(source, key), key)
+
+
+def require_yaml_list(source: YamlMapping, key: str) -> list[YamlValue]:
+    if key not in source:
+        raise SystemExit(f"Expected `{key}` to be a YAML list.")
+
+    value = source[key]
+    if isinstance(value, list):
+        return value
+    raise SystemExit(f"Expected `{key}` to be a YAML list.")
+
+
+def parse_mapping_list(value: list[YamlValue], key: str) -> list[YamlMapping]:
     mappings: list[YamlMapping] = []
     for index, item in enumerate(value):
         if not isinstance(item, dict):
@@ -377,8 +401,18 @@ def read_required_string(source: YamlMapping, key: str, location: str) -> str:
 
     if value := scalar_to_string(source[key], f"{location}.{key}").strip():
         return value
-    else:
-        raise SystemExit(f"Expected `{location}.{key}` to be a non-empty scalar.")
+    raise SystemExit(f"Expected `{location}.{key}` to be a non-empty scalar.")
+
+
+def read_optional_non_empty_string(
+    source: YamlMapping,
+    key: str,
+    default: str,
+    location: str,
+) -> str:
+    if key not in source:
+        return default
+    return read_required_string(source, key, location)
 
 
 def scalar_to_string(value: YamlValue, location: str) -> str:
@@ -390,9 +424,11 @@ def scalar_to_string(value: YamlValue, location: str) -> str:
 
 
 def read_conditional_claims(guardrails: YamlMapping) -> list[YamlMapping]:
-    conditional_claims = read_mapping_list(guardrails, "conditional_claims")
+    conditional_claims = read_required_mapping_list(guardrails, "conditional_claims")
     for index, conditional_claim in enumerate(conditional_claims):
         read_required_string(conditional_claim, "phrase", f"conditional_claims[{index}]")
+        if "message" in conditional_claim:
+            read_required_string(conditional_claim, "message", f"conditional_claims[{index}]")
     return conditional_claims
 
 
@@ -502,10 +538,16 @@ def format_pricing_summary(pricing: StringMapping) -> str:
     if public_claim_status != "ready":
         return "TODO_VERIFY: pricing copy is not ready for public use"
 
-    individual = pricing.get("individual", "TODO_VERIFY")
-    commercial = pricing.get("commercial", "TODO_VERIFY")
-    model = pricing.get("model", "TODO_VERIFY")
+    individual = pricing_summary_value(pricing, "individual")
+    commercial = pricing_summary_value(pricing, "commercial")
+    model = pricing_summary_value(pricing, "model")
     return f"{individual} individual / {commercial} commercial, {model}"
+
+
+def pricing_summary_value(pricing: StringMapping, key: str) -> str:
+    if value := pricing.get(key, "").strip():
+        return value
+    return f"TODO_VERIFY {key}"
 
 
 def format_status_summary(statuses: StringMapping) -> str:
@@ -577,8 +619,8 @@ def evaluate_guardrails(
     rendered_files: list[RenderedFile],
 ) -> GuardReport:
     guardrails = require_mapping(config_data, "guardrails")
-    blocked_phrases = read_string_list(guardrails, "blocked_phrases")
-    risky_phrases = read_string_list(guardrails, "risky_phrases")
+    blocked_phrases = read_required_string_list(guardrails, "blocked_phrases")
+    risky_phrases = read_required_string_list(guardrails, "risky_phrases")
     conditional_claims = read_conditional_claims(guardrails)
     feature_records = flatten_features(features_data)
     hard_blocks: list[str] = []
@@ -643,10 +685,11 @@ def evaluate_conditional_claim(
     if phrase.lower() not in lower_content:
         return None
 
-    message = read_optional_string(
+    message = read_optional_non_empty_string(
         conditional_claim,
         "message",
         f"TODO_VERIFY: conditional claim `{phrase}` requires manual verification.",
+        "conditional_claim",
     )
     if required_feature_id := read_optional_string(
         conditional_claim, "requires_feature_id", ""

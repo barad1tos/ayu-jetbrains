@@ -75,11 +75,9 @@ class GenerateCampaignTest(unittest.TestCase):
                 },
             )
 
-            result = run_generator(repository_root)
-
-            self.assertEqual(0, result.returncode, result.stderr)
-            draft = read_generated_file(repository_root, "launch.md")
-            self.assertIn("Ayu Islands", draft)
+            draft = self.assert_success_file_contains(
+                repository_root, "launch.md", "Ayu Islands"
+            )
             self.assertIn("12 USD individual / 30 USD commercial", draft)
             self.assertIn("- marketplace: released", draft)
             self.assertIn("[Free] Accent overrides", draft)
@@ -94,55 +92,65 @@ class GenerateCampaignTest(unittest.TestCase):
                 {"launch.md": "Ayu Islands has 10,000+ downloads.\n"},
             )
 
-            result = run_generator(repository_root)
-
-            self.assertEqual(0, result.returncode, result.stderr)
-            fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
-            self.assertIn("metric claim `10,000+ downloads` needs a source", fact_check)
+            self.assert_success_file_contains(
+                repository_root,
+                "FACT_CHECK.md",
+                "metric claim `10,000+ downloads` needs a source",
+            )
             self.assertIn("- Hard blocks: 0", read_generated_file(repository_root, "README.md"))
 
     def test_risky_phrases_are_written_as_warnings(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
-            repository_root = Path(temporary_directory)
-            make_repository(
-                repository_root,
-                ["launch.md"],
-                {"launch.md": "No telemetry and no Sentry by design.\n"},
-                guardrails="""
+            fact_check = self.render_guardrail_fact_check(
+                temporary_directory,
+                "No telemetry and no Sentry by design.\n",
+                """
                 blocked_phrases: []
                 risky_phrases:
                   - telemetry
                   - Sentry
                 conditional_claims: []
                 """,
+                "risky phrase `telemetry` needs review",
             )
-
-            result = run_generator(repository_root)
-
-            self.assertEqual(0, result.returncode, result.stderr)
-            fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
-            self.assertIn("risky phrase `telemetry` needs review", fact_check)
             self.assertIn("risky phrase `Sentry` needs review", fact_check)
 
     def test_bare_todo_verify_markers_are_written_as_warnings(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
-            repository_root = Path(temporary_directory)
-            make_repository(
-                repository_root,
-                ["launch.md"],
-                {"launch.md": "Pricing: {{ pricing.summary }}\n"},
-                pricing="""
+            self.render_pricing_fact_check(
+                temporary_directory,
+                """
                 public_claim_status: ready
                 commercial: 30 USD
                 model: annual license
                 """,
+                "Pricing: TODO_VERIFY individual",
             )
 
-            result = run_generator(repository_root)
+    def test_unready_pricing_status_is_written_as_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            self.render_pricing_fact_check(
+                temporary_directory,
+                """
+                individual: 12 USD
+                commercial: 30 USD
+                model: annual license
+                """,
+                "pricing copy is not ready for public use",
+            )
 
-            self.assertEqual(0, result.returncode, result.stderr)
-            fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
-            self.assertIn("Pricing: TODO_VERIFY individual", fact_check)
+    def test_blank_ready_pricing_fields_are_written_as_warnings(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            self.render_pricing_fact_check(
+                temporary_directory,
+                """
+                public_claim_status: ready
+                individual: ""
+                commercial: 30 USD
+                model: annual license
+                """,
+                "Pricing: TODO_VERIFY individual",
+            )
 
     def test_malformed_template_placeholders_fail_generation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -205,6 +213,7 @@ class GenerateCampaignTest(unittest.TestCase):
                 guardrails="""
                 blocked_phrases:
                   - guaranteed productivity
+                risky_phrases: []
                 conditional_claims:
                   - phrase: lifetime access
                     message: "TODO_VERIFY: lifetime access requires manual verification."
@@ -222,53 +231,65 @@ class GenerateCampaignTest(unittest.TestCase):
 
     def test_blank_guardrail_phrases_fail_before_generation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
-            repository_root = Path(temporary_directory)
-            make_repository(
-                repository_root,
-                ["launch.md"],
-                {"launch.md": "Ayu Islands launch copy.\n"},
-                guardrails="""
+            self.assert_guardrail_config_fails(
+                temporary_directory,
+                """
                 blocked_phrases:
                   - ""
                 risky_phrases: []
                 conditional_claims: []
                 """,
+                "Expected `blocked_phrases[0]`",
             )
-
-            result = run_generator(repository_root)
-
-            self.assertNotEqual(0, result.returncode)
-            self.assertIn("Expected `blocked_phrases[0]`", result.stderr)
 
     def test_duplicate_guardrail_keys_fail_before_generation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
-            repository_root = Path(temporary_directory)
-            make_repository(
-                repository_root,
-                ["launch.md"],
-                {"launch.md": "guaranteed productivity\n"},
-                guardrails="""
+            self.assert_guardrail_config_fails(
+                temporary_directory,
+                """
                 blocked_phrases:
                   - guaranteed productivity
                 blocked_phrases: []
                 risky_phrases: []
                 conditional_claims: []
                 """,
+                "Duplicate YAML key `blocked_phrases`",
+                draft_content="guaranteed productivity\n",
             )
 
-            result = run_generator(repository_root)
+    def test_guardrails_must_define_required_keys(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            self.assert_guardrail_config_fails(
+                temporary_directory,
+                """
+                risky_phrases: []
+                conditional_claims: []
+                """,
+                "Expected `blocked_phrases` to be a YAML list",
+                draft_content="guaranteed productivity\n",
+            )
 
-            self.assertNotEqual(0, result.returncode)
-            self.assertIn("Duplicate YAML key `blocked_phrases`", result.stderr)
+    def render_pricing_fact_check(
+        self,
+        temporary_directory: str,
+        pricing: str,
+        expected_text: str,
+    ) -> str:
+        repository_root = Path(temporary_directory)
+        make_repository(
+            repository_root,
+            ["launch.md"],
+            {"launch.md": "Pricing: {{ pricing.summary }}\n"},
+            pricing=pricing,
+        )
+        return self.assert_success_file_contains(repository_root, "FACT_CHECK.md", expected_text)
 
     def test_conditional_claim_requires_feature_id_warns_when_feature_is_absent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
-            repository_root = Path(temporary_directory)
-            make_repository(
-                repository_root,
-                ["launch.md"],
-                {"launch.md": "External accent sources are ready.\n"},
-                guardrails="""
+            self.render_guardrail_fact_check(
+                temporary_directory,
+                "External accent sources are ready.\n",
+                """
                 blocked_phrases: []
                 risky_phrases: []
                 conditional_claims:
@@ -276,13 +297,8 @@ class GenerateCampaignTest(unittest.TestCase):
                     message: "TODO_VERIFY: external accent sources require released feature metadata."
                     requires_feature_id: external-accent-sources
                 """,
+                "external accent sources require released feature metadata",
             )
-
-            result = run_generator(repository_root)
-
-            self.assertEqual(0, result.returncode, result.stderr)
-            fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
-            self.assertIn("external accent sources require released feature metadata", fact_check)
 
     def test_conditional_claim_requires_feature_id_allows_released_feature(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -309,21 +325,16 @@ class GenerateCampaignTest(unittest.TestCase):
                     requires_feature_id: external-accent-sources
                 """,
             )
-
-            result = run_generator(repository_root)
-
-            self.assertEqual(0, result.returncode, result.stderr)
-            fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
-            self.assertIn("No warnings.", fact_check)
+            self.assert_success_file_contains(
+                repository_root, "FACT_CHECK.md", "No warnings."
+            )
 
     def test_conditional_claim_requires_path_value_warns_when_unmatched(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
-            repository_root = Path(temporary_directory)
-            make_repository(
-                repository_root,
-                ["launch.md"],
-                {"launch.md": "Public trial is open.\n"},
-                guardrails="""
+            self.render_guardrail_fact_check(
+                temporary_directory,
+                "Public trial is open.\n",
+                """
                 blocked_phrases: []
                 risky_phrases: []
                 conditional_claims:
@@ -333,13 +344,25 @@ class GenerateCampaignTest(unittest.TestCase):
                       path: launch_status.trial_status
                       value: confirmed
                 """,
+                "public trial requires confirmed launch status",
             )
 
-            result = run_generator(repository_root)
+    def assert_success_file_contains(
+        self,
+        repository_root: Path,
+        file_name: str,
+        expected_text: str,
+    ) -> str:
+        result = run_generator(repository_root)
+        self.assertEqual(0, result.returncode, result.stderr)
+        content = read_generated_file(repository_root, file_name)
+        self.assertIn(expected_text, content)
+        return content
 
-            self.assertEqual(0, result.returncode, result.stderr)
-            fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
-            self.assertIn("public trial requires confirmed launch status", fact_check)
+    def assert_generation_fails_with(self, repository_root: Path, expected_stderr: str) -> None:
+        result = run_generator(repository_root)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn(expected_stderr, result.stderr)
 
     def test_conditional_claim_requires_path_value_allows_matching_config(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -364,20 +387,47 @@ class GenerateCampaignTest(unittest.TestCase):
                 """,
             )
 
-            result = run_generator(repository_root)
+            self.assert_success_file_contains(
+                repository_root, "FACT_CHECK.md", "No warnings."
+            )
 
-            self.assertEqual(0, result.returncode, result.stderr)
-            fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
-            self.assertIn("No warnings.", fact_check)
+    def render_guardrail_fact_check(
+        self,
+        temporary_directory: str,
+        draft_content: str,
+        guardrails: str,
+        expected_text: str,
+    ) -> str:
+        repository_root = Path(temporary_directory)
+        make_repository(
+            repository_root,
+            ["launch.md"],
+            {"launch.md": draft_content},
+            guardrails=guardrails,
+        )
+        return self.assert_success_file_contains(repository_root, "FACT_CHECK.md", expected_text)
+
+    def assert_guardrail_config_fails(
+        self,
+        temporary_directory: str,
+        guardrails: str,
+        expected_stderr: str,
+        draft_content: str = "Ayu Islands launch copy.\n",
+    ) -> None:
+        repository_root = Path(temporary_directory)
+        make_repository(
+            repository_root,
+            ["launch.md"],
+            {"launch.md": draft_content},
+            guardrails=guardrails,
+        )
+        self.assert_generation_fails_with(repository_root, expected_stderr)
 
     def test_conditional_claims_must_have_a_phrase(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
-            repository_root = Path(temporary_directory)
-            make_repository(
-                repository_root,
-                ["launch.md"],
-                {"launch.md": "Public trial is open.\n"},
-                guardrails="""
+            self.assert_guardrail_config_fails(
+                temporary_directory,
+                """
                 blocked_phrases: []
                 risky_phrases: []
                 conditional_claims:
@@ -386,12 +436,27 @@ class GenerateCampaignTest(unittest.TestCase):
                       path: launch_status.trial_status
                       value: confirmed
                 """,
+                "Expected `conditional_claims[0].phrase`",
+                draft_content="Public trial is open.\n",
             )
 
-            result = run_generator(repository_root)
-
-            self.assertNotEqual(0, result.returncode)
-            self.assertIn("Expected `conditional_claims[0].phrase`", result.stderr)
+    def test_conditional_claims_must_not_have_blank_messages(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            self.assert_guardrail_config_fails(
+                temporary_directory,
+                """
+                blocked_phrases: []
+                risky_phrases: []
+                conditional_claims:
+                  - phrase: public trial
+                    message: ""
+                    requires:
+                      path: launch_status.trial_status
+                      value: confirmed
+                """,
+                "Expected `conditional_claims[0].message`",
+                draft_content="Public trial is open.\n",
+            )
 
     def test_existing_campaign_directory_is_not_overwritten(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -406,10 +471,7 @@ class GenerateCampaignTest(unittest.TestCase):
             sentinel = output_directory / "README.md"
             sentinel.write_text("keep this review note\n", encoding="utf-8")
 
-            result = run_generator(repository_root)
-
-            self.assertNotEqual(0, result.returncode)
-            self.assertIn("Campaign output already exists", result.stderr)
+            self.assert_generation_fails_with(repository_root, "Campaign output already exists")
             self.assertEqual("keep this review note\n", sentinel.read_text(encoding="utf-8"))
 
     def test_template_paths_cannot_escape_templates_directory(self) -> None:
@@ -421,10 +483,10 @@ class GenerateCampaignTest(unittest.TestCase):
                 {},
             )
 
-            result = run_generator(repository_root)
-
-            self.assertNotEqual(0, result.returncode)
-            self.assertIn("must be a file name in .marketing/templates", result.stderr)
+            self.assert_generation_fails_with(
+                repository_root,
+                "must be a file name in .marketing/templates",
+            )
 
     def test_template_names_cannot_conflict_with_support_files(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -435,10 +497,10 @@ class GenerateCampaignTest(unittest.TestCase):
                 {"readme.md": "This draft would be overwritten on case-insensitive filesystems.\n"},
             )
 
-            result = run_generator(repository_root)
-
-            self.assertNotEqual(0, result.returncode)
-            self.assertIn("conflicts with a generated support file", result.stderr)
+            self.assert_generation_fails_with(
+                repository_root,
+                "conflicts with a generated support file",
+            )
 
     def test_feature_metadata_must_be_complete(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -457,10 +519,10 @@ class GenerateCampaignTest(unittest.TestCase):
                 """,
             )
 
-            result = run_generator(repository_root)
-
-            self.assertNotEqual(0, result.returncode)
-            self.assertIn("Expected `accent.features[0].tier`", result.stderr)
+            self.assert_generation_fails_with(
+                repository_root,
+                "Expected `accent.features[0].tier`",
+            )
 
     def test_social_proof_entries_must_not_be_silently_dropped(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -476,10 +538,10 @@ class GenerateCampaignTest(unittest.TestCase):
                 """,
             )
 
-            result = run_generator(repository_root)
-
-            self.assertNotEqual(0, result.returncode)
-            self.assertIn("Expected `social_proof[0].source`", result.stderr)
+            self.assert_generation_fails_with(
+                repository_root,
+                "Expected `social_proof[0].source`",
+            )
 
     def test_social_proof_quote_must_not_be_empty(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -495,10 +557,10 @@ class GenerateCampaignTest(unittest.TestCase):
                 """,
             )
 
-            result = run_generator(repository_root)
-
-            self.assertNotEqual(0, result.returncode)
-            self.assertIn("Expected `social_proof[0].quote`", result.stderr)
+            self.assert_generation_fails_with(
+                repository_root,
+                "Expected `social_proof[0].quote`",
+            )
 
 
 def make_repository(
