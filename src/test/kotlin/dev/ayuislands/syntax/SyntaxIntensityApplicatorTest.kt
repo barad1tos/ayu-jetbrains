@@ -756,6 +756,63 @@ class SyntaxIntensityApplicatorTest {
     }
 
     @Test
+    fun `Groovy-specific declaration and variable keys use the Groovy custom cells`() {
+        val constructorKey = TextAttributesKey.createTextAttributesKey("Groovy constructor declaration")
+        val reassignedVariableKey = TextAttributesKey.createTextAttributesKey("Groovy reassigned var")
+        val constructorColor = Color(0xFF, 0xCC, 0x66)
+        val reassignedVariableColor = Color(0xDF, 0xBF, 0xFF)
+        val baseline =
+            mapOf(
+                constructorKey to attrsWithFg(constructorColor),
+                reassignedVariableKey to attrsWithFg(reassignedVariableColor),
+            )
+
+        val result =
+            compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides =
+                    mapOf(
+                        "Groovy" to
+                            mapOf(
+                                "FUNCTION_DECL" to 75,
+                                "LOCAL_VAR" to 25,
+                            ),
+                    ),
+                baseline = baseline,
+                overlay = emptyMap(),
+                options =
+                    ComputeOptions(
+                        subordinatePreset = SyntaxPreset.AMBIENT,
+                        customStyles =
+                            mapOf(
+                                "Groovy" to
+                                    mapOf(
+                                        "FUNCTION_DECL" to Font.BOLD,
+                                        "LOCAL_VAR" to Font.ITALIC,
+                                    ),
+                            ),
+                    ),
+            )
+
+        val constructorAttrs = assertNotNull(result[constructorKey], "Groovy constructor must not be skipped")
+        assertEquals(Font.BOLD, constructorAttrs.fontType, "Groovy constructor must use the FUNCTION_DECL style")
+        assertNotEquals(
+            constructorColor.rgb,
+            assertNotNull(constructorAttrs.foregroundColor).rgb,
+            "Groovy constructor must use the Groovy FUNCTION_DECL slider",
+        )
+
+        val variableAttrs =
+            assertNotNull(result[reassignedVariableKey], "Groovy reassigned var must not be skipped")
+        assertEquals(Font.ITALIC, variableAttrs.fontType, "Groovy reassigned var must use the LOCAL_VAR style")
+        assertNotEquals(
+            reassignedVariableColor.rgb,
+            assertNotNull(variableAttrs.foregroundColor).rgb,
+            "Groovy reassigned var must use the Groovy LOCAL_VAR slider",
+        )
+    }
+
+    @Test
     fun `generic bare String key does not use the Groovy custom string cell`() {
         val stringKey = TextAttributesKey.createTextAttributesKey("String")
         val sourceColor = Color(0xD5, 0xFF, 0x80)

@@ -56,9 +56,17 @@ class SyntaxLanguageRegistryTest {
             // Space-separated bucket — verifies space-rule fires before underscore-rule
             Row("Scala Line comment", "Scala", "Scala", SyntaxLanguageRegistry.Bucket.LANGUAGE),
             Row("Groovy keyword", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
+            Row("Groovy method declaration", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
+            Row("Groovy constructor declaration", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
+            Row("Groovy constructor call", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
+            Row("Groovy var", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
+            Row("Groovy reassigned var", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
+            Row("Groovy parameter", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
+            Row("Groovy reassigned parameter", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
             Row("GROOVY_KEYWORD", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
             Row("GString", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
             Row("Groovydoc comment", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
+            Row("Groovydoc tag", "Groovy", "Groovy", SyntaxLanguageRegistry.Bucket.LANGUAGE),
             // Plugin-namespaced bucket
             Row("org.rust.IDENTIFIER", "Rust", "Rust", SyntaxLanguageRegistry.Bucket.LANGUAGE),
             Row(

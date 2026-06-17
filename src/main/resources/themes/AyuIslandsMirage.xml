@@ -3257,6 +3257,21 @@
                 <option name="FOREGROUND" value="F29E74" />
             </value>
         </option>
+        <option name="Braces">
+            <value>
+                <option name="FOREGROUND" value="F29E74" />
+            </value>
+        </option>
+        <option name="Brackets">
+            <value>
+                <option name="FOREGROUND" value="F29E74" />
+            </value>
+        </option>
+        <option name="Parentheses">
+            <value>
+                <option name="FOREGROUND" value="F29E74" />
+            </value>
+        </option>
         <option name="Map key">
             <value>
                 <option name="FOREGROUND" value="D9A6EF" />
@@ -3270,6 +3285,17 @@
         <option name="Lambda braces">
             <value>
                 <option name="FOREGROUND" value="FFA659" />
+            </value>
+        </option>
+        <option name="Label">
+            <value>
+                <option name="FOREGROUND" value="FFA659" />
+            </value>
+        </option>
+        <option name="Closure parameter">
+            <value>
+                <option name="FOREGROUND" value="DFBFFF" />
+                <option name="FONT_TYPE" value="2" />
             </value>
         </option>
         <option name="Valid string escape">

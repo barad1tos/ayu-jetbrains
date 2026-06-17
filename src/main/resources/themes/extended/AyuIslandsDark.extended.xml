@@ -2990,6 +2990,21 @@
         <option name="FOREGROUND" value="F07178" />
       </value>
     </option>
+    <option name="Braces">
+      <value>
+        <option name="FOREGROUND" value="F29668" />
+      </value>
+    </option>
+    <option name="Brackets">
+      <value>
+        <option name="FOREGROUND" value="F29668" />
+      </value>
+    </option>
+    <option name="Parentheses">
+      <value>
+        <option name="FOREGROUND" value="F29668" />
+      </value>
+    </option>
     <option name="Lambda braces">
       <value>
         <option name="FOREGROUND" value="FFA759" />
