@@ -4,11 +4,10 @@ from __future__ import annotations
 import argparse
 import re
 import sys
-from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import TypeAlias
+from typing import TypeAlias, TypeGuard
 
 try:
     import yaml
@@ -41,6 +40,10 @@ METRIC_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\b\d[\d,.]*\s+(downloads|installs|reviews|users|stars)\b", re.I),
     re.compile(r"\b(revenue|conversion)\b.{0,48}\b\d[\d,.%]*", re.I),
 )
+SUPPORT_FILE_NAMES: frozenset[str] = frozenset(
+    {"README.md", "FACT_CHECK.md", "CHECKLIST.md", "POSTING_PLAN.md"}
+)
+UNRESOLVED_PLACEHOLDER_PREFIX = "TODO_VERIFY: unresolved placeholder"
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,20 +67,18 @@ class GuardReport:
     warnings: list[str]
 
 
-def as_object_list(value: object) -> list[object] | None:
-    return list(value) if isinstance(value, list) else None
+@dataclass(frozen=True, slots=True)
+class LatestChangelog:
+    version: str
+    summary: str
 
 
-def as_object_dict(value: object) -> dict[object, object] | None:
-    return dict(value) if isinstance(value, dict) else None
+def is_object_list(value: object) -> TypeGuard[list[object]]:
+    return isinstance(value, list)
 
 
-def as_object_mapping(value: object) -> Mapping[object, object] | None:
-    return value if isinstance(value, Mapping) else None
-
-
-def as_yaml_mapping(value: YamlValue) -> YamlMapping | None:
-    return value if isinstance(value, dict) else None
+def is_object_dict(value: object) -> TypeGuard[dict[object, object]]:
+    return isinstance(value, dict)
 
 
 def main() -> int:
@@ -93,7 +94,9 @@ def main() -> int:
     guard_report = evaluate_guardrails(config_data, features_data, rendered_files)
 
     output_directory = GENERATED_DIR / f"{date.today().isoformat()}-{campaign_name}"
-    output_directory.mkdir(parents=True, exist_ok=True)
+    if output_directory.exists():
+        raise SystemExit(f"Campaign output already exists: {output_directory}")
+    output_directory.mkdir(parents=True)
 
     for rendered_file in rendered_files + build_support_files(
         template_names,
@@ -146,27 +149,24 @@ def load_yaml_mapping(path: Path) -> YamlMapping:
     except yaml.YAMLError as yaml_error:
         raise SystemExit(f"Failed to parse YAML file {path}: {yaml_error}") from yaml_error
 
-    raw_yaml = loaded_yaml if loaded_yaml is not None else {}
+    raw_yaml: object = loaded_yaml if loaded_yaml is not None else {}
     normalized_yaml = normalize_yaml(raw_yaml, path.name)
-    normalized_mapping = as_yaml_mapping(normalized_yaml)
-    if normalized_mapping is None:
+    if not isinstance(normalized_yaml, dict):
         raise SystemExit(f"Expected YAML mapping at top level in {path}")
 
-    return normalized_mapping
+    return normalized_yaml
 
 
 def normalize_yaml(value: object, source_name: str) -> YamlValue:
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
 
-    raw_list = as_object_list(value)
-    if raw_list is not None:
-        return [normalize_yaml(item, source_name) for item in raw_list]
+    if is_object_list(value):
+        return [normalize_yaml(item, source_name) for item in value]
 
-    raw_mapping = as_object_dict(value)
-    if raw_mapping is not None:
+    if is_object_dict(value):
         normalized_mapping: YamlMapping = {}
-        for key, item_value in raw_mapping.items():
+        for key, item_value in value.items():
             if not isinstance(key, str):
                 raise SystemExit(f"Expected string YAML keys in {source_name}: {key!r}")
             normalized_mapping[key] = normalize_yaml(item_value, source_name)
@@ -194,14 +194,33 @@ def read_template_names(campaign_mode: YamlMapping, mode: str) -> list[str]:
     for raw_template_name in raw_templates:
         if not isinstance(raw_template_name, str):
             raise SystemExit(f"Campaign mode `{mode}` contains a non-string template name.")
-        if not raw_template_name.endswith(".md"):
-            raise SystemExit(f"Template `{raw_template_name}` must be a Markdown file.")
-        template_names.append(raw_template_name)
+        template_name = validate_template_name(raw_template_name)
+        if template_name in template_names:
+            raise SystemExit(f"Template `{template_name}` is selected more than once.")
+        if template_name in SUPPORT_FILE_NAMES:
+            raise SystemExit(f"Template `{template_name}` conflicts with a generated support file.")
+        template_names.append(template_name)
 
     if not template_names:
         raise SystemExit(f"Campaign mode `{mode}` does not select any templates.")
 
     return template_names
+
+
+def validate_template_name(template_name: str) -> str:
+    template_path = Path(template_name)
+    if (
+        template_path.is_absolute()
+        or template_name != template_path.name
+        or "\\" in template_name
+    ):
+        raise SystemExit(f"Template `{template_name}` must be a file name in .marketing/templates.")
+    if template_path.suffix != ".md":
+        raise SystemExit(f"Template `{template_name}` must be a Markdown file.")
+    if not template_path.stem:
+        raise SystemExit(f"Template `{template_name}` must include a file name.")
+
+    return template_name
 
 
 def build_context(
@@ -217,6 +236,9 @@ def build_context(
     feature_summary = summarize_features(features_data)
     manual_verification = read_string_list(config_data, "manual_verification")
     social_proof = format_social_proof(read_mapping_list(config_data, "social_proof"))
+    latest_changelog = read_latest_changelog()
+    pricing_summary = format_pricing_summary(pricing)
+    launch_status_summary = format_status_summary(launch_status)
 
     verification_todos = (
         "\n".join(
@@ -234,11 +256,22 @@ def build_context(
     }
     facts = {
         **feature_summary,
-        "latest_version": read_latest_changelog_version(),
-        "latest_changelog_summary": read_latest_changelog_summary(),
-        "pricing_summary": format_pricing_summary(pricing),
-        "launch_status_summary": format_status_summary(launch_status),
+        "latest_version": latest_changelog.version,
+        "latest_changelog_summary": latest_changelog.summary,
+        "pricing_summary": pricing_summary,
+        "launch_status_summary": launch_status_summary,
         "social_proof_summary": social_proof,
+    }
+    pricing_context = {
+        **pricing,
+        "summary": pricing_summary,
+    }
+    launch_status_context = {
+        **launch_status,
+        "summary": launch_status_summary,
+    }
+    social_proof_context = {
+        "summary": social_proof,
     }
     verification = {
         "todos": verification_todos,
@@ -248,8 +281,9 @@ def build_context(
         "product": product,
         "campaign": campaign,
         "facts": facts,
-        "pricing": pricing,
-        "launch_status": launch_status,
+        "pricing": pricing_context,
+        "launch_status": launch_status_context,
+        "social_proof": social_proof_context,
         "verification": verification,
     }
 
@@ -385,35 +419,27 @@ def format_inline_features(feature_records: list[FeatureRecord]) -> str:
     return ", ".join(feature_record.title for feature_record in feature_records[:5])
 
 
-def read_latest_changelog_version() -> str:
+def read_latest_changelog() -> LatestChangelog:
     if not CHANGELOG_PATH.exists():
-        return "TODO_VERIFY: CHANGELOG.md not found"
+        missing_changelog = "TODO_VERIFY: CHANGELOG.md not found"
+        return LatestChangelog(missing_changelog, f"- {missing_changelog}")
+
+    latest_version: str | None = None
+    summary_lines: list[str] = []
 
     for line in CHANGELOG_PATH.read_text(encoding="utf-8").splitlines():
         if match := MARKDOWN_HEADING_PATTERN.match(line):
-            return match.group(1)
-
-    return "TODO_VERIFY: no changelog version heading found"
-
-
-def read_latest_changelog_summary() -> str:
-    if not CHANGELOG_PATH.exists():
-        return "- TODO_VERIFY: CHANGELOG.md not found"
-
-    lines = CHANGELOG_PATH.read_text(encoding="utf-8").splitlines()
-    in_latest_section = False
-    summary_lines: list[str] = []
-
-    for line in lines:
-        if line.startswith("## "):
-            if in_latest_section:
+            if latest_version is not None:
                 break
-            in_latest_section = True
+            latest_version = match.group(1)
             continue
-        if in_latest_section and line.strip():
+        if latest_version is not None and line.strip():
             summary_lines.append(line)
 
-    return "\n".join(summary_lines) if summary_lines else "- TODO_VERIFY: no latest changelog body found"
+    return LatestChangelog(
+        latest_version or "TODO_VERIFY: no changelog version heading found",
+        "\n".join(summary_lines) if summary_lines else "- TODO_VERIFY: no latest changelog body found",
+    )
 
 
 def format_pricing_summary(pricing: StringMapping) -> str:
@@ -484,21 +510,12 @@ def render_text(template_content: str, context: RenderContext) -> str:
 
 
 def lookup_render_value(context: RenderContext, path: str) -> RenderableValue | None:
-    current_value: object = context
+    section_name, separator, value_name = path.partition(".")
+    if not separator or not section_name or not value_name or "." in value_name:
+        return None
 
-    for segment in path.split("."):
-        current_mapping = as_object_mapping(current_value)
-        if current_mapping is None:
-            return None
-        if segment not in current_mapping:
-            return None
-        next_value = current_mapping[segment]
-        current_value = next_value
-
-    if isinstance(current_value, (str, int, float, bool)):
-        return current_value
-
-    return None
+    section = context.get(section_name)
+    return None if section is None else section.get(value_name)
 
 
 def evaluate_guardrails(
@@ -537,6 +554,14 @@ def evaluate_guardrails(
             for unresolved_marker in find_unresolved_markers(
                 rendered_file.content
             )
+            if UNRESOLVED_PLACEHOLDER_PREFIX not in unresolved_marker
+        )
+        hard_blocks.extend(
+            f"{rendered_file.name}: {unresolved_marker}"
+            for unresolved_marker in find_unresolved_markers(
+                rendered_file.content
+            )
+            if UNRESOLVED_PLACEHOLDER_PREFIX in unresolved_marker
         )
         warnings.extend(
             f"{rendered_file.name}: TODO_VERIFY: metric claim `{metric_claim}` needs a source"
@@ -569,7 +594,11 @@ def evaluate_conditional_claim(
 
     requires = conditional_claim.get("requires")
     if isinstance(requires, dict):
+        if "path" not in requires or "value" not in requires:
+            return message
         path = read_optional_string(requires, "path", "")
+        if not path:
+            return message
         expected_value = read_optional_string(requires, "value", "")
         actual_value = lookup_yaml_value(config_data, path)
         if yaml_value_matches(actual_value, expected_value):
@@ -584,10 +613,9 @@ def lookup_yaml_value(source: YamlMapping, path: str) -> YamlValue | None:
 
     current_value: YamlValue = source
     for segment in path.split("."):
-        current_mapping = as_yaml_mapping(current_value)
-        if current_mapping is None:
+        if not isinstance(current_value, dict):
             return None
-        next_value = current_mapping.get(segment)
+        next_value = current_value.get(segment)
         if next_value is None:
             return None
         current_value = next_value
@@ -597,7 +625,7 @@ def lookup_yaml_value(source: YamlMapping, path: str) -> YamlValue | None:
 
 def yaml_value_matches(actual_value: YamlValue | None, expected_value: str) -> bool:
     if actual_value is None:
-        return not expected_value
+        return False
     if isinstance(actual_value, (str, int, float, bool)):
         return str(actual_value) == expected_value
     return False

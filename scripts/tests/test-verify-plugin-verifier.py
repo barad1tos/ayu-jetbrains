@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parent / "verify-plugin-verifier.py"
+SCRIPT = Path(__file__).resolve().parent.parent / "verify-plugin-verifier.py"
 
 
 class VerifyPluginVerifierTest(unittest.TestCase):

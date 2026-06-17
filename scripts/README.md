@@ -31,6 +31,18 @@ scripts/verify-docs.py --update-hashes # recompute content_sha256 after re-captu
 
 Deps: `pyyaml`. Invoked via uv shebang.
 
+### `generate-campaign` — private campaign draft generator
+
+Renders ignored `.marketing/templates/*.md` files with facts from
+`.marketing/config.yaml`, `docs/features.yml`, and `CHANGELOG.md`, then writes
+drafts plus review support files to `.marketing/generated/<date>-<name>/`.
+
+```bash
+uv run --project scripts generate-campaign --mode soft-organic --name launch-copy
+```
+
+Deps: `pyyaml`. Invoked through the `generate-campaign` console entry point.
+
 ### `verify-theme-xml.py` — XML scheme cross-variant consistency
 
 Parses `AyuIslandsMirage.xml`, `AyuIslandsDark.xml`, `AyuIslandsLight.xml`
@@ -86,7 +98,7 @@ After `./gradlew verifyPlugin`, enforces the project API policy:
 
 ```bash
 python3 scripts/verify-plugin-verifier.py
-python3 scripts/test-verify-plugin-verifier.py
+python3 scripts/tests/test-verify-plugin-verifier.py
 ```
 
 Deps: stdlib only. Plain `python3`.

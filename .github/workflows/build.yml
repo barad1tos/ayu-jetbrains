@@ -100,8 +100,10 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: scripts/uv.lock
+      - name: Test campaign generator
+        run: uv run --project scripts python scripts/tests/test-generate-campaign.py
       - name: Test Plugin Verifier API gate
-        run: python3 scripts/test-verify-plugin-verifier.py
+        run: python3 scripts/tests/test-verify-plugin-verifier.py
       - name: Verify docs sync (features.yml ↔ README + plugin.xml + CHANGELOG)
         run: scripts/verify-docs.py
 
