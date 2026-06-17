@@ -36,7 +36,7 @@ TEMPLATES_DIR = MARKETING_ROOT / "templates"
 GENERATED_DIR = MARKETING_ROOT / "generated"
 
 PLACEHOLDER_PATTERN: re.Pattern[str] = re.compile(r"{{\s*([a-zA-Z0-9_.-]+)\s*}}")
-MARKDOWN_HEADING_PATTERN: re.Pattern[str] = re.compile(r"^## \[?([^\]\s]+)\]?")
+MARKDOWN_HEADING_PATTERN: re.Pattern[str] = re.compile(r"^## \[?([^]\s]+)]?")
 METRIC_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\b\d[\d,.]*\s+(downloads|installs|reviews|users|stars)\b", re.I),
     re.compile(r"\b(revenue|conversion)\b.{0,48}\b\d[\d,.%]*", re.I),
@@ -65,27 +65,19 @@ class GuardReport:
 
 
 def as_object_list(value: object) -> list[object] | None:
-    if isinstance(value, list):
-        return list(value)
-    return None
+    return list(value) if isinstance(value, list) else None
 
 
 def as_object_dict(value: object) -> dict[object, object] | None:
-    if isinstance(value, dict):
-        return dict(value)
-    return None
+    return dict(value) if isinstance(value, dict) else None
 
 
 def as_object_mapping(value: object) -> Mapping[object, object] | None:
-    if isinstance(value, Mapping):
-        return value
-    return None
+    return value if isinstance(value, Mapping) else None
 
 
 def as_yaml_mapping(value: YamlValue) -> YamlMapping | None:
-    if isinstance(value, dict):
-        return value
-    return None
+    return value if isinstance(value, dict) else None
 
 
 def main() -> int:
