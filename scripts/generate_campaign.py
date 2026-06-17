@@ -189,7 +189,7 @@ def reject_duplicate_yaml_keys(
     source_name: str,
     active_nodes: set[int] | None = None,
 ) -> None:
-    node_stack = set() if active_nodes is None else active_nodes
+    node_stack: set[int] = set() if active_nodes is None else active_nodes
 
     if isinstance(node, yaml.nodes.MappingNode):
         ensure_yaml_node_is_not_recursive(node, source_name, node_stack)
@@ -237,7 +237,7 @@ def normalize_yaml(
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
 
-    value_stack = set() if active_values is None else active_values
+    value_stack: set[int] = set() if active_values is None else active_values
     if is_object_list(value):
         ensure_yaml_value_is_not_recursive(value, source_name, value_stack)
         try:
