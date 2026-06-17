@@ -310,6 +310,7 @@ class SyntaxOverlayLoaderTest {
                 "Number",
                 "Operation sign",
                 "Valid string escape",
+                "Invalid string escape",
             )
         val expectedForegrounds =
             mapOf(
@@ -328,6 +329,7 @@ class SyntaxOverlayLoaderTest {
                         "Number" to "DFBFFF",
                         "Operation sign" to "F29E74",
                         "Valid string escape" to "95E6CB",
+                        "Invalid string escape" to "D95757",
                     ),
                 "Dark" to
                     mapOf(
@@ -344,6 +346,7 @@ class SyntaxOverlayLoaderTest {
                         "Number" to "D2A6FF",
                         "Operation sign" to "F29668",
                         "Valid string escape" to "95E6CB",
+                        "Invalid string escape" to "D95757",
                     ),
                 "Light" to
                     mapOf(
@@ -360,6 +363,7 @@ class SyntaxOverlayLoaderTest {
                         "Number" to "A37ACC",
                         "Operation sign" to "F2A191",
                         "Valid string escape" to "4CBF99",
+                        "Invalid string escape" to "E65050",
                     ),
             )
         val l = SyntaxOverlayLoader()
