@@ -63,6 +63,9 @@ class SyntaxOverlayLoaderTest {
         return "%02X%02X%02X".format(color.red, color.green, color.blue)
     }
 
+    private fun Map<String, TextAttributes>.fontType(keyName: String): Int =
+        this[keyName]?.fontType ?: error("missing $keyName")
+
     @Test
     fun `constructor accepts resourceBase override`() {
         val instance = SyntaxOverlayLoader(resourceBase = "/some/test/base")
@@ -175,6 +178,16 @@ class SyntaxOverlayLoaderTest {
                         "Groovy method declaration" to "EBA400",
                     ),
             )
+        val expectedFontTypes =
+            mapOf(
+                "Class" to 2,
+                "Interface name" to 2,
+                "Trait name" to 2,
+                "Enum name" to 2,
+                "Abstract class name" to 2,
+                "Anonymous class name" to 2,
+                "Type parameter" to 2,
+            )
         val l = SyntaxOverlayLoader()
 
         for (variant in listOf("Mirage", "Dark", "Light")) {
@@ -193,6 +206,13 @@ class SyntaxOverlayLoaderTest {
                     expectedHex,
                     baselineByName.foregroundHex(keyName),
                     "$variant baseline scheme must map $keyName to the Groovy Jenkinsfile signature color",
+                )
+            }
+            for ((keyName, expectedFontType) in expectedFontTypes) {
+                assertEquals(
+                    expectedFontType,
+                    baselineByName.fontType(keyName),
+                    "$variant baseline scheme must preserve $keyName Groovy Jenkinsfile signature font style",
                 )
             }
         }
@@ -426,6 +446,25 @@ class SyntaxOverlayLoaderTest {
                         "Invalid string escape" to "E65050",
                     ),
             )
+        val expectedFontTypes =
+            mapOf(
+                "Class" to 2,
+                "Interface name" to 2,
+                "Trait name" to 2,
+                "Enum name" to 2,
+                "Abstract class name" to 2,
+                "Anonymous class name" to 2,
+                "Type parameter" to 2,
+                "Groovy constructor declaration" to 2,
+                "Groovy constructor call" to 2,
+                "Static method access" to 2,
+                "Static field" to 2,
+                "Static property reference ID" to 2,
+                "GROOVY_KEYWORD" to 1,
+                "Groovydoc comment" to 2,
+                "Groovydoc tag" to 3,
+                "Closure parameter" to 2,
+            )
         val l = SyntaxOverlayLoader()
 
         for (variant in listOf("Mirage", "Dark", "Light")) {
@@ -444,6 +483,13 @@ class SyntaxOverlayLoaderTest {
                     expectedHex,
                     overlayByName.foregroundHex(keyName),
                     "$variant extended scheme must map $keyName to the Groovy Jenkinsfile role color",
+                )
+            }
+            for ((keyName, expectedFontType) in expectedFontTypes) {
+                assertEquals(
+                    expectedFontType,
+                    overlayByName.fontType(keyName),
+                    "$variant extended scheme must preserve $keyName Groovy Jenkinsfile font style",
                 )
             }
             assertTrue(

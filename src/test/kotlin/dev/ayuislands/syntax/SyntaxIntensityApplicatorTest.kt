@@ -813,6 +813,61 @@ class SyntaxIntensityApplicatorTest {
     }
 
     @Test
+    fun `bare Groovy signature keys use class and generics custom cells`() {
+        val classKey = TextAttributesKey.createTextAttributesKey("Class")
+        val typeParameterKey = TextAttributesKey.createTextAttributesKey("Type parameter")
+        val classColor = Color(0x73, 0xD0, 0xFF)
+        val typeParameterColor = Color(0x5C, 0xCF, 0xE6)
+
+        val result =
+            compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides =
+                    mapOf(
+                        "Other" to
+                            mapOf(
+                                "CLASS_DECL" to 75,
+                                "GENERICS" to 25,
+                            ),
+                    ),
+                baseline =
+                    mapOf(
+                        classKey to attrsWithFg(classColor),
+                        typeParameterKey to attrsWithFg(typeParameterColor),
+                    ),
+                overlay = emptyMap(),
+                options =
+                    ComputeOptions(
+                        subordinatePreset = SyntaxPreset.AMBIENT,
+                        customStyles =
+                            mapOf(
+                                "Other" to
+                                    mapOf(
+                                        "CLASS_DECL" to Font.BOLD,
+                                        "GENERICS" to Font.ITALIC,
+                                    ),
+                            ),
+                    ),
+            )
+
+        val classAttrs = assertNotNull(result[classKey], "Class must not be skipped")
+        assertEquals(Font.BOLD, classAttrs.fontType, "Class must use the CLASS_DECL custom style")
+        assertNotEquals(
+            classColor.rgb,
+            assertNotNull(classAttrs.foregroundColor).rgb,
+            "Class must use the CLASS_DECL custom slider",
+        )
+
+        val typeParameterAttrs = assertNotNull(result[typeParameterKey], "Type parameter must not be skipped")
+        assertEquals(Font.ITALIC, typeParameterAttrs.fontType, "Type parameter must use the GENERICS custom style")
+        assertNotEquals(
+            typeParameterColor.rgb,
+            assertNotNull(typeParameterAttrs.foregroundColor).rgb,
+            "Type parameter must use the GENERICS custom slider",
+        )
+    }
+
+    @Test
     fun `generic bare String key does not use the Groovy custom string cell`() {
         val stringKey = TextAttributesKey.createTextAttributesKey("String")
         val sourceColor = Color(0xD5, 0xFF, 0x80)

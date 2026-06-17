@@ -148,6 +148,7 @@ object SyntaxCategoryRegistry {
             addRules(
                 PrimitiveCategory.GENERICS,
                 "TYPE_PARAMETER$|GENERIC_TYPE_PARAMETER|GENERICS$|GENERIC$|TYPE_ARGUMENT$|TYPE_NAME_DYNAMIC",
+                "^Type parameter$",
             )
             // --- Keywords / modifiers --------------------------------------
             addRules(
@@ -249,7 +250,7 @@ object SyntaxCategoryRegistry {
                 "ASSOCIATED_TYPE_DECLARATION",
                 "TYPE_HINT|PRIMITIVE_TYPE_HINT|PREDEFINED_SCOPE|PREDEFINED|Scala Type",
                 "Scala Predefined types|Scala Mutable Collection|Scala Immutable Collection",
-                "StandardF Java Collection|Type parameter|TYPE_GUARD|DOCKER_ATTRIBUTES",
+                "StandardF Java Collection|TYPE_GUARD|DOCKER_ATTRIBUTES",
                 "DOCKER_CONSTANT|QL_DATETIME|PUBLIC_REFERENCE|PROTECTED_REFERENCE",
                 "PACKAGE_PRIVATE_REFERENCE|PRIVATE_REFERENCE|KOTLIN_WRAPPED_INTO_REF",
                 "KOTLIN_ANDROID_EXTENSIONS_PROPERTY_CALL|VELOCITY_REFERENCE|FTL_REFERENCE",
