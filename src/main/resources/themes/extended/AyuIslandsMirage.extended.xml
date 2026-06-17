@@ -2961,8 +2961,18 @@
         <option name="FONT_TYPE" value="2" />
       </value>
     </option>
-    <option name="Groovydoc comment" baseAttributes="DEFAULT_DOC_COMMENT" />
-    <option name="Groovydoc tag" baseAttributes="DEFAULT_DOC_COMMENT_TAG" />
+    <option name="Groovydoc comment">
+      <value>
+        <option name="FOREGROUND" value="D5FF80" />
+        <option name="FONT_TYPE" value="2" />
+      </value>
+    </option>
+    <option name="Groovydoc tag">
+      <value>
+        <option name="FOREGROUND" value="B8CFE6" />
+        <option name="FONT_TYPE" value="3" />
+      </value>
+    </option>
     <option name="Abstract class name">
       <value>
         <option name="FOREGROUND" value="5CCFE6" />

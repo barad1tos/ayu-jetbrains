@@ -3536,6 +3536,18 @@
                 <option name="FONT_TYPE" value="1" />
             </value>
         </option>
+        <option name="Groovydoc comment">
+            <value>
+                <option name="FOREGROUND" value="AAD94C" />
+                <option name="FONT_TYPE" value="2" />
+            </value>
+        </option>
+        <option name="Groovydoc tag">
+            <value>
+                <option name="FOREGROUND" value="ACB6BF" />
+                <option name="FONT_TYPE" value="3" />
+            </value>
+        </option>
         <option name="GString">
             <value>
                 <option name="FOREGROUND" value="AAD94C" />
