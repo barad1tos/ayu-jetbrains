@@ -7,7 +7,7 @@ import sys
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import TypeAlias, TypeGuard
+from typing import TypeAlias, TypeGuard, cast
 
 try:
     import yaml
@@ -38,7 +38,7 @@ PLACEHOLDER_PATTERN: re.Pattern[str] = re.compile(r"{{\s*([a-zA-Z0-9_.-]+)\s*}}"
 RAW_PLACEHOLDER_PATTERN: re.Pattern[str] = re.compile(r"{{[^{}]*}}")
 MARKDOWN_HEADING_PATTERN: re.Pattern[str] = re.compile(r"^## \[?([^]\s]+)]?")
 METRIC_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\b\d[\d,.]*\s+(downloads|installs|reviews|users|stars)\b", re.I),
+    re.compile(r"\b\d[\d,.]*\+?\s+(downloads|installs|reviews|users|stars)\b", re.I),
     re.compile(r"\b(revenue|conversion)\b.{0,48}\b\d[\d,.%]*", re.I),
 )
 SUPPORT_FILE_NAMES: frozenset[str] = frozenset(
@@ -147,8 +147,11 @@ def load_yaml_mapping(path: Path) -> YamlMapping:
         raise SystemExit(f"Required YAML file is missing: {path}")
 
     try:
-        with path.open("r", encoding="utf-8") as handle:
-            loaded_yaml: object = yaml.safe_load(handle)
+        raw_content = path.read_text(encoding="utf-8")
+        parsed_yaml = cast(object | None, yaml.compose(raw_content))  # pyright: ignore[reportUnknownMemberType]
+        if parsed_yaml is not None:
+            reject_duplicate_yaml_keys(parsed_yaml, path.name)
+        loaded_yaml: object = yaml.safe_load(raw_content)
     except OSError as file_error:
         raise SystemExit(f"Failed to read YAML file {path}: {file_error}") from file_error
     except yaml.YAMLError as yaml_error:
@@ -160,6 +163,26 @@ def load_yaml_mapping(path: Path) -> YamlMapping:
         raise SystemExit(f"Expected YAML mapping at top level in {path}")
 
     return normalized_yaml
+
+
+def reject_duplicate_yaml_keys(node: object, source_name: str) -> None:
+    if isinstance(node, yaml.nodes.MappingNode):
+        seen_keys: set[str] = set()
+        for key_node, value_node in node.value:
+            if isinstance(key_node, yaml.nodes.ScalarNode):
+                key_name = key_node.value
+                if key_name in seen_keys:
+                    line_number = key_node.start_mark.line + 1
+                    raise SystemExit(
+                        f"Duplicate YAML key `{key_name}` in {source_name}:{line_number}."
+                    )
+                seen_keys.add(key_name)
+            reject_duplicate_yaml_keys(value_node, source_name)
+        return
+
+    if isinstance(node, yaml.nodes.SequenceNode):
+        for value_node in node.value:
+            reject_duplicate_yaml_keys(value_node, source_name)
 
 
 def normalize_yaml(value: object, source_name: str) -> YamlValue:
@@ -320,10 +343,11 @@ def read_string_list(source: YamlMapping, key: str) -> list[str]:
         raise SystemExit(f"Expected `{key}` to be a YAML list.")
 
     strings: list[str] = []
-    strings.extend(
-        scalar_to_string(item, f"{key}[{index}]")
-        for index, item in enumerate(value)
-    )
+    for index, item in enumerate(value):
+        if string_value := scalar_to_string(item, f"{key}[{index}]").strip():
+            strings.append(string_value)
+        else:
+            raise SystemExit(f"Expected `{key}[{index}]` to be a non-empty scalar.")
     return strings
 
 
@@ -351,10 +375,10 @@ def read_required_string(source: YamlMapping, key: str, location: str) -> str:
     if key not in source:
         raise SystemExit(f"Expected `{location}.{key}` to be a non-empty scalar.")
 
-    value = scalar_to_string(source[key], f"{location}.{key}").strip()
-    if not value:
+    if value := scalar_to_string(source[key], f"{location}.{key}").strip():
+        return value
+    else:
         raise SystemExit(f"Expected `{location}.{key}` to be a non-empty scalar.")
-    return value
 
 
 def scalar_to_string(value: YamlValue, location: str) -> str:
@@ -363,6 +387,13 @@ def scalar_to_string(value: YamlValue, location: str) -> str:
     if isinstance(value, (str, int, float, bool)):
         return str(value)
     raise SystemExit(f"Expected scalar value at `{location}`.")
+
+
+def read_conditional_claims(guardrails: YamlMapping) -> list[YamlMapping]:
+    conditional_claims = read_mapping_list(guardrails, "conditional_claims")
+    for index, conditional_claim in enumerate(conditional_claims):
+        read_required_string(conditional_claim, "phrase", f"conditional_claims[{index}]")
+    return conditional_claims
 
 
 def summarize_features(features_data: YamlMapping) -> StringMapping:
@@ -490,7 +521,7 @@ def format_social_proof(social_proof_entries: list[YamlMapping]) -> str:
         location = f"social_proof[{index}]"
         source = read_required_string(entry, "source", location)
         label = read_optional_string(entry, "label", "social proof")
-        quote = read_optional_string(entry, "quote", "")
+        quote = read_required_string(entry, "quote", location)
         status = read_optional_string(entry, "status", "TODO_VERIFY")
         verified_entries.append(f'- {label}: "{quote}" (source: {source}, status: {status})')
 
@@ -548,7 +579,7 @@ def evaluate_guardrails(
     guardrails = require_mapping(config_data, "guardrails")
     blocked_phrases = read_string_list(guardrails, "blocked_phrases")
     risky_phrases = read_string_list(guardrails, "risky_phrases")
-    conditional_claims = read_mapping_list(guardrails, "conditional_claims")
+    conditional_claims = read_conditional_claims(guardrails)
     feature_records = flatten_features(features_data)
     hard_blocks: list[str] = []
     warnings: list[str] = []
@@ -608,8 +639,8 @@ def evaluate_conditional_claim(
     conditional_claim: YamlMapping,
     lower_content: str,
 ) -> str | None:
-    phrase = read_optional_string(conditional_claim, "phrase", "")
-    if not phrase or phrase.lower() not in lower_content:
+    phrase = read_required_string(conditional_claim, "phrase", "conditional_claim")
+    if phrase.lower() not in lower_content:
         return None
 
     message = read_optional_string(
@@ -668,10 +699,19 @@ def find_unresolved_markers(content: str) -> list[str]:
 
 
 def find_raw_placeholders(content: str) -> list[str]:
-    return sorted(
+    raw_placeholders = {
         raw_placeholder.strip()
         for raw_placeholder in RAW_PLACEHOLDER_PATTERN.findall(content)
-    )
+    }
+    for line in content.splitlines():
+        open_index = line.find("{{")
+        while open_index != -1:
+            close_index = line.find("}}", open_index + 2)
+            if close_index == -1:
+                raw_placeholders.add(line[open_index:].strip())
+                break
+            open_index = line.find("{{", close_index + 2)
+    return sorted(raw_placeholders)
 
 
 def find_metric_claims(content: str) -> list[str]:

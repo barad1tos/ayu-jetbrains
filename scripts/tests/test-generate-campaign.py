@@ -91,14 +91,14 @@ class GenerateCampaignTest(unittest.TestCase):
             make_repository(
                 repository_root,
                 ["launch.md"],
-                {"launch.md": "Ayu Islands has 10,000 downloads.\n"},
+                {"launch.md": "Ayu Islands has 10,000+ downloads.\n"},
             )
 
             result = run_generator(repository_root)
 
             self.assertEqual(0, result.returncode, result.stderr)
             fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
-            self.assertIn("metric claim `10,000 downloads` needs a source", fact_check)
+            self.assertIn("metric claim `10,000+ downloads` needs a source", fact_check)
             self.assertIn("- Hard blocks: 0", read_generated_file(repository_root, "README.md"))
 
     def test_risky_phrases_are_written_as_warnings(self) -> None:
@@ -159,6 +159,21 @@ class GenerateCampaignTest(unittest.TestCase):
             fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
             self.assertIn("raw template placeholder `{{ product name }}` was not rendered", fact_check)
 
+    def test_unclosed_template_placeholders_fail_generation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            make_repository(
+                repository_root,
+                ["launch.md"],
+                {"launch.md": "Bad placeholder: {{ product.name\n"},
+            )
+
+            result = run_generator(repository_root)
+
+            self.assertEqual(2, result.returncode)
+            fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
+            self.assertIn("raw template placeholder `{{ product.name` was not rendered", fact_check)
+
     def test_unresolved_template_placeholders_fail_generation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository_root = Path(temporary_directory)
@@ -204,6 +219,179 @@ class GenerateCampaignTest(unittest.TestCase):
             fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
             self.assertIn("blocked phrase `guaranteed productivity`", fact_check)
             self.assertIn("lifetime access requires manual verification", fact_check)
+
+    def test_blank_guardrail_phrases_fail_before_generation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            make_repository(
+                repository_root,
+                ["launch.md"],
+                {"launch.md": "Ayu Islands launch copy.\n"},
+                guardrails="""
+                blocked_phrases:
+                  - ""
+                risky_phrases: []
+                conditional_claims: []
+                """,
+            )
+
+            result = run_generator(repository_root)
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("Expected `blocked_phrases[0]`", result.stderr)
+
+    def test_duplicate_guardrail_keys_fail_before_generation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            make_repository(
+                repository_root,
+                ["launch.md"],
+                {"launch.md": "guaranteed productivity\n"},
+                guardrails="""
+                blocked_phrases:
+                  - guaranteed productivity
+                blocked_phrases: []
+                risky_phrases: []
+                conditional_claims: []
+                """,
+            )
+
+            result = run_generator(repository_root)
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("Duplicate YAML key `blocked_phrases`", result.stderr)
+
+    def test_conditional_claim_requires_feature_id_warns_when_feature_is_absent(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            make_repository(
+                repository_root,
+                ["launch.md"],
+                {"launch.md": "External accent sources are ready.\n"},
+                guardrails="""
+                blocked_phrases: []
+                risky_phrases: []
+                conditional_claims:
+                  - phrase: external accent sources
+                    message: "TODO_VERIFY: external accent sources require released feature metadata."
+                    requires_feature_id: external-accent-sources
+                """,
+            )
+
+            result = run_generator(repository_root)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
+            self.assertIn("external accent sources require released feature metadata", fact_check)
+
+    def test_conditional_claim_requires_feature_id_allows_released_feature(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            make_repository(
+                repository_root,
+                ["launch.md"],
+                {"launch.md": "External accent sources are ready.\n"},
+                features_yaml="""
+                categories:
+                  accent:
+                    features:
+                      - id: external-accent-sources
+                        title: External accent sources
+                        tier: paid
+                        introduced: 2.8.0
+                """,
+                guardrails="""
+                blocked_phrases: []
+                risky_phrases: []
+                conditional_claims:
+                  - phrase: external accent sources
+                    message: "TODO_VERIFY: external accent sources require released feature metadata."
+                    requires_feature_id: external-accent-sources
+                """,
+            )
+
+            result = run_generator(repository_root)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
+            self.assertIn("No warnings.", fact_check)
+
+    def test_conditional_claim_requires_path_value_warns_when_unmatched(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            make_repository(
+                repository_root,
+                ["launch.md"],
+                {"launch.md": "Public trial is open.\n"},
+                guardrails="""
+                blocked_phrases: []
+                risky_phrases: []
+                conditional_claims:
+                  - phrase: public trial
+                    message: "TODO_VERIFY: public trial requires confirmed launch status."
+                    requires:
+                      path: launch_status.trial_status
+                      value: confirmed
+                """,
+            )
+
+            result = run_generator(repository_root)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
+            self.assertIn("public trial requires confirmed launch status", fact_check)
+
+    def test_conditional_claim_requires_path_value_allows_matching_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            make_repository(
+                repository_root,
+                ["launch.md"],
+                {"launch.md": "Public trial is open.\n"},
+                launch_status="""
+                marketplace: released
+                trial_status: confirmed
+                """,
+                guardrails="""
+                blocked_phrases: []
+                risky_phrases: []
+                conditional_claims:
+                  - phrase: public trial
+                    message: "TODO_VERIFY: public trial requires confirmed launch status."
+                    requires:
+                      path: launch_status.trial_status
+                      value: confirmed
+                """,
+            )
+
+            result = run_generator(repository_root)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
+            self.assertIn("No warnings.", fact_check)
+
+    def test_conditional_claims_must_have_a_phrase(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            make_repository(
+                repository_root,
+                ["launch.md"],
+                {"launch.md": "Public trial is open.\n"},
+                guardrails="""
+                blocked_phrases: []
+                risky_phrases: []
+                conditional_claims:
+                  - message: "TODO_VERIFY: public trial requires confirmed launch status."
+                    requires:
+                      path: launch_status.trial_status
+                      value: confirmed
+                """,
+            )
+
+            result = run_generator(repository_root)
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("Expected `conditional_claims[0].phrase`", result.stderr)
 
     def test_existing_campaign_directory_is_not_overwritten(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -293,6 +481,25 @@ class GenerateCampaignTest(unittest.TestCase):
             self.assertNotEqual(0, result.returncode)
             self.assertIn("Expected `social_proof[0].source`", result.stderr)
 
+    def test_social_proof_quote_must_not_be_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            make_repository(
+                repository_root,
+                ["launch.md"],
+                {"launch.md": "{{ social_proof.summary }}\n"},
+                social_proof="""
+                - source: https://example.com/review
+                  label: Missing quote
+                  status: verified
+                """,
+            )
+
+            result = run_generator(repository_root)
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("Expected `social_proof[0].quote`", result.stderr)
+
 
 def make_repository(
     repository_root: Path,
@@ -306,6 +513,9 @@ def make_repository(
     individual: 12 USD
     commercial: 30 USD
     model: annual license
+    """,
+    launch_status: str = """
+    marketplace: released
     """,
 ) -> None:
     scripts_dir = repository_root / "scripts"
@@ -350,7 +560,7 @@ product:
 pricing:
 {textwrap.indent(textwrap.dedent(pricing).strip(), "  ")}
 launch_status:
-  marketplace: released
+{textwrap.indent(textwrap.dedent(launch_status).strip(), "  ")}
 manual_verification:
   - Confirm generated copy against Marketplace listing.
 social_proof:

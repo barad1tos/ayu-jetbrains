@@ -10,6 +10,7 @@ local.properties
 samples/
 src/main/resources/META-INF/ayu-dev-mode
 .worktrees/
+.marketing/
 __pycache__/
 *.py[cod]
 *.egg-info/
