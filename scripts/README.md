@@ -1,8 +1,9 @@
 # Ayu Islands maintenance scripts
 
 All Python scripts run from the repo root. Dependencies are declared in
-`pyproject.toml` and pinned in `uv.lock` — run `uv sync` inside `scripts/`
-once to set up the local environment.
+`pyproject.toml` and pinned in `uv.lock` inside `scripts/`. Run
+`uv sync --project scripts` from the repo root, or `uv sync` from inside
+`scripts/`, once to set up the local environment.
 
 ## Scripts
 
@@ -29,6 +30,23 @@ scripts/verify-docs.py --update-hashes # recompute content_sha256 after re-captu
 ```
 
 Deps: `pyyaml`. Invoked via uv shebang.
+
+### `generate-campaign` — private campaign draft generator
+
+Renders the `.marketing/templates/*.md` files selected by
+`.marketing/config.yaml` with facts from `docs/features.yml` and
+`CHANGELOG.md`, then writes drafts plus review support files to
+`.marketing/generated/<date>-<slugified-name>/`.
+
+Requires a local ignored `.marketing/` tree with `config.yaml` and the selected
+templates before running; those campaign inputs and generated drafts are not
+tracked.
+
+```bash
+uv run --project scripts generate-campaign --mode soft-organic --name launch-copy
+```
+
+Deps: `pyyaml`. Invoked through the `generate-campaign` console entry point.
 
 ### `verify-theme-xml.py` — XML scheme cross-variant consistency
 
@@ -85,7 +103,7 @@ After `./gradlew verifyPlugin`, enforces the project API policy:
 
 ```bash
 python3 scripts/verify-plugin-verifier.py
-python3 scripts/test-verify-plugin-verifier.py
+python3 scripts/tests/test-verify-plugin-verifier.py
 ```
 
 Deps: stdlib only. Plain `python3`.

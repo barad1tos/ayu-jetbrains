@@ -1,7 +1,11 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "scripts"
 version = "0.1.0"
-description = "Ayu Islands maintenance scripts — docs drift lint, screenshot freshness checks"
+description = "Ayu Islands maintenance scripts — docs drift lint, campaign drafts, release gates"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -12,6 +16,9 @@ dependencies = [
     "defusedxml>=0.7.1",
 ]
 
+[project.scripts]
+generate-campaign = "generate_campaign:main"
+
 [dependency-groups]
 dev = [
     # Type stubs for defusedxml; PyYAML stubs aren't needed (pyright finds them
@@ -19,16 +26,17 @@ dev = [
     "types-defusedxml>=0.7.0",
 ]
 
-[tool.uv]
-package = false
+[tool.setuptools]
+py-modules = ["generate_campaign"]
 
 [tool.pyright]
+pythonVersion = "3.11"
 # Scripts import sibling modules (e.g. _plugin_xml) — Python auto-adds the
 # script's directory to sys.path at runtime, but pyright's static analyzer
 # needs an explicit hint. `.` = the scripts/ dir (where pyproject.toml lives).
 extraPaths = ["."]
-# Strict mode catches partially-unknown types (YAML `dict.get()` returning
-# `Any | str` etc.) so docs-lint stays type-safe end-to-end.
+# Strict mode catches partially-unknown types across maintenance scripts,
+# including YAML config parsing and sibling helper imports.
 typeCheckingMode = "strict"
 # types-defusedxml ships stubs only (no source) — suppress the spurious
 # "source not found" warning that would otherwise fire on every import.
