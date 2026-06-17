@@ -160,7 +160,7 @@ def load_yaml_mapping(path: Path) -> YamlMapping:
         if parsed_yaml is not None:
             reject_duplicate_yaml_keys(parsed_yaml, path.name)
         loaded_yaml: object = yaml.safe_load(raw_content)
-    except OSError as file_error:
+    except (OSError, UnicodeError) as file_error:
         raise SystemExit(f"Failed to read YAML file {path}: {file_error}") from file_error
     except yaml.YAMLError as yaml_error:
         raise SystemExit(f"Failed to parse YAML file {path}: {yaml_error}") from yaml_error
@@ -336,11 +336,17 @@ def require_mapping(source: YamlMapping, key: str) -> YamlMapping:
 
 def require_string_mapping(source: YamlMapping, key: str) -> StringMapping:
     value = require_mapping(source, key)
-    result: StringMapping = {
-        item_key: scalar_to_string(item_value, f"{key}.{item_key}")
+    return {
+        item_key: read_mapping_scalar(item_value, f"{key}.{item_key}")
         for item_key, item_value in value.items()
     }
-    return result
+
+
+def read_mapping_scalar(value: YamlValue, location: str) -> str:
+    string_value = scalar_to_string(value, location)
+    if location.startswith("pricing.") or string_value.strip():
+        return string_value
+    raise SystemExit(f"Expected `{location}` to be a non-empty scalar.")
 
 
 def read_string_list(source: YamlMapping, key: str) -> list[str]:
@@ -434,9 +440,14 @@ def scalar_to_string(value: YamlValue, location: str) -> str:
 def read_conditional_claims(guardrails: YamlMapping) -> list[YamlMapping]:
     conditional_claims = read_required_mapping_list(guardrails, "conditional_claims")
     for index, conditional_claim in enumerate(conditional_claims):
-        read_required_string(conditional_claim, "phrase", f"conditional_claims[{index}]")
+        location = f"conditional_claims[{index}]"
+        read_required_string(conditional_claim, "phrase", location)
         if "message" in conditional_claim:
-            read_required_string(conditional_claim, "message", f"conditional_claims[{index}]")
+            read_required_string(conditional_claim, "message", location)
+        requires = conditional_claim.get("requires")
+        if isinstance(requires, dict):
+            read_required_string(requires, "path", f"{location}.requires")
+            read_required_string(requires, "value", f"{location}.requires")
     return conditional_claims
 
 
@@ -526,7 +537,13 @@ def read_latest_changelog() -> LatestChangelog:
     latest_version: str | None = None
     summary_lines: list[str] = []
 
-    for line in CHANGELOG_PATH.read_text(encoding="utf-8").splitlines():
+    try:
+        changelog_content = CHANGELOG_PATH.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as changelog_error:
+        failed_changelog = f"TODO_VERIFY: failed to read CHANGELOG.md: {changelog_error}"
+        return LatestChangelog(failed_changelog, f"- {failed_changelog}")
+
+    for line in changelog_content.splitlines():
         if match := MARKDOWN_HEADING_PATTERN.match(line):
             if latest_version is not None:
                 break

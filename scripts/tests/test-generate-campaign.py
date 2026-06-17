@@ -124,6 +124,24 @@ class GenerateCampaignTest(unittest.TestCase):
             self.assertIn("- `follow-up.md`", posting_plan)
             self.assertIn("Draft files:", readme)
 
+    def test_guardrails_evaluate_every_selected_template(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            make_repository(
+                repository_root,
+                ["launch.md", "follow-up.md"],
+                {
+                    "launch.md": "Launch: {{ product.name }}\n",
+                    "follow-up.md": "guaranteed productivity\n",
+                },
+            )
+
+            result = run_generator(repository_root)
+
+            self.assertEqual(2, result.returncode)
+            fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
+            self.assertIn("follow-up.md: blocked phrase `guaranteed productivity`", fact_check)
+
     def test_warning_only_guardrails_are_written_without_failing_generation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository_root = Path(temporary_directory)
@@ -252,11 +270,10 @@ class GenerateCampaignTest(unittest.TestCase):
                 """,
             )
 
-            result = run_generator(repository_root)
-
-            self.assertEqual(2, result.returncode)
-            fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
-            self.assertIn("unresolved placeholder product.name", fact_check)
+            self.assert_generation_fails_with(
+                repository_root,
+                "Expected `product.name` to be a non-empty scalar",
+            )
 
     def test_guardrails_fail_blocked_phrase_and_report_malformed_requires(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -279,6 +296,7 @@ class GenerateCampaignTest(unittest.TestCase):
                     message: "TODO_VERIFY: lifetime access requires manual verification."
                     requires:
                       path: pricing.missing
+                      value: ready
                 """,
             )
 
@@ -518,6 +536,23 @@ class GenerateCampaignTest(unittest.TestCase):
                 draft_content="Public trial is open.\n",
             )
 
+    def test_conditional_claim_requires_value_must_not_be_blank(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            self.assert_guardrail_config_fails(
+                temporary_directory,
+                """
+                blocked_phrases: []
+                risky_phrases: []
+                conditional_claims:
+                  - phrase: public trial
+                    requires:
+                      path: launch_status.trial_status
+                      value: ""
+                """,
+                "Expected `conditional_claims[0].requires.value`",
+                draft_content="Public trial is open.\n",
+            )
+
     def test_existing_campaign_directory_is_not_overwritten(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository_root = Path(temporary_directory)
@@ -546,6 +581,40 @@ class GenerateCampaignTest(unittest.TestCase):
             self.assertNotEqual(0, result.returncode)
             self.assertIn("Required YAML file is missing", result.stderr)
             self.assertIn(".marketing/config.yaml", result.stderr)
+
+    def test_invalid_yaml_encoding_reports_config_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            make_repository(
+                repository_root,
+                ["launch.md"],
+                {"launch.md": "Ready: {{ product.name }}\n"},
+            )
+            (repository_root / ".marketing" / "config.yaml").write_bytes(b"\xff")
+
+            result = run_generator(repository_root)
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("Failed to read YAML file", result.stderr)
+            self.assertIn(".marketing/config.yaml", result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+
+    def test_unreadable_changelog_becomes_fact_check_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            make_repository(
+                repository_root,
+                ["launch.md"],
+                {"launch.md": "{{ facts.latest_changelog_summary }}\n"},
+            )
+            (repository_root / "CHANGELOG.md").write_bytes(b"\xff")
+
+            result = run_generator(repository_root)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
+            self.assertIn("failed to read CHANGELOG.md", fact_check)
+            self.assertNotIn("Traceback", result.stderr)
 
     def test_unreadable_selected_template_reports_template_path(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
