@@ -35,6 +35,7 @@ TEMPLATES_DIR = MARKETING_ROOT / "templates"
 GENERATED_DIR = MARKETING_ROOT / "generated"
 
 PLACEHOLDER_PATTERN: re.Pattern[str] = re.compile(r"{{\s*([a-zA-Z0-9_.-]+)\s*}}")
+RAW_PLACEHOLDER_PATTERN: re.Pattern[str] = re.compile(r"{{[^{}]*}}")
 MARKDOWN_HEADING_PATTERN: re.Pattern[str] = re.compile(r"^## \[?([^]\s]+)]?")
 METRIC_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\b\d[\d,.]*\s+(downloads|installs|reviews|users|stars)\b", re.I),
@@ -546,6 +547,7 @@ def evaluate_guardrails(
 ) -> GuardReport:
     guardrails = require_mapping(config_data, "guardrails")
     blocked_phrases = read_string_list(guardrails, "blocked_phrases")
+    risky_phrases = read_string_list(guardrails, "risky_phrases")
     conditional_claims = read_mapping_list(guardrails, "conditional_claims")
     feature_records = flatten_features(features_data)
     hard_blocks: list[str] = []
@@ -560,6 +562,11 @@ def evaluate_guardrails(
             f"{rendered_file.name}: blocked phrase `{blocked_phrase}`"
             for blocked_phrase in blocked_phrases
             if blocked_phrase.lower() in lower_content
+        )
+        warnings.extend(
+            f"{rendered_file.name}: TODO_VERIFY: risky phrase `{risky_phrase}` needs review"
+            for risky_phrase in risky_phrases
+            if risky_phrase.lower() in lower_content
         )
         for conditional_claim in conditional_claims:
             if warning := evaluate_conditional_claim(
@@ -583,6 +590,10 @@ def evaluate_guardrails(
                 rendered_file.content
             )
             if UNRESOLVED_PLACEHOLDER_PREFIX in unresolved_marker
+        )
+        hard_blocks.extend(
+            f"{rendered_file.name}: raw template placeholder `{raw_placeholder}` was not rendered"
+            for raw_placeholder in find_raw_placeholders(rendered_file.content)
         )
         warnings.extend(
             f"{rendered_file.name}: TODO_VERIFY: metric claim `{metric_claim}` needs a source"
@@ -653,7 +664,14 @@ def yaml_value_matches(actual_value: YamlValue | None, expected_value: str) -> b
 
 
 def find_unresolved_markers(content: str) -> list[str]:
-    return [line.strip() for line in content.splitlines() if "TODO_VERIFY:" in line]
+    return [line.strip() for line in content.splitlines() if "TODO_VERIFY" in line]
+
+
+def find_raw_placeholders(content: str) -> list[str]:
+    return sorted(
+        raw_placeholder.strip()
+        for raw_placeholder in RAW_PLACEHOLDER_PATTERN.findall(content)
+    )
 
 
 def find_metric_claims(content: str) -> list[str]:

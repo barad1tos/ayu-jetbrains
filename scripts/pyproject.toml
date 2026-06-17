@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "scripts"
 version = "0.1.0"
-description = "Ayu Islands maintenance scripts — docs drift lint, screenshot freshness checks"
+description = "Ayu Islands maintenance scripts — docs drift lint, campaign drafts, release gates"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

@@ -20,6 +20,7 @@ REPO_ROOT = SOURCE_SCRIPT.parent.parent
 DEFAULT_GUARDRAILS = """
 blocked_phrases:
   - guaranteed productivity
+risky_phrases: []
 conditional_claims: []
 """
 DEFAULT_FEATURES_YAML = """
@@ -99,6 +100,64 @@ class GenerateCampaignTest(unittest.TestCase):
             fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
             self.assertIn("metric claim `10,000 downloads` needs a source", fact_check)
             self.assertIn("- Hard blocks: 0", read_generated_file(repository_root, "README.md"))
+
+    def test_risky_phrases_are_written_as_warnings(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            make_repository(
+                repository_root,
+                ["launch.md"],
+                {"launch.md": "No telemetry and no Sentry by design.\n"},
+                guardrails="""
+                blocked_phrases: []
+                risky_phrases:
+                  - telemetry
+                  - Sentry
+                conditional_claims: []
+                """,
+            )
+
+            result = run_generator(repository_root)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
+            self.assertIn("risky phrase `telemetry` needs review", fact_check)
+            self.assertIn("risky phrase `Sentry` needs review", fact_check)
+
+    def test_bare_todo_verify_markers_are_written_as_warnings(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            make_repository(
+                repository_root,
+                ["launch.md"],
+                {"launch.md": "Pricing: {{ pricing.summary }}\n"},
+                pricing="""
+                public_claim_status: ready
+                commercial: 30 USD
+                model: annual license
+                """,
+            )
+
+            result = run_generator(repository_root)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
+            self.assertIn("Pricing: TODO_VERIFY individual", fact_check)
+
+    def test_malformed_template_placeholders_fail_generation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repository_root = Path(temporary_directory)
+            make_repository(
+                repository_root,
+                ["launch.md"],
+                {"launch.md": "Bad placeholder: {{ product name }}\n"},
+            )
+
+            result = run_generator(repository_root)
+
+            self.assertEqual(2, result.returncode)
+            fact_check = read_generated_file(repository_root, "FACT_CHECK.md")
+            self.assertIn("raw template placeholder `{{ product name }}` was not rendered", fact_check)
 
     def test_unresolved_template_placeholders_fail_generation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -242,6 +301,12 @@ def make_repository(
     guardrails: str = DEFAULT_GUARDRAILS,
     features_yaml: str = DEFAULT_FEATURES_YAML,
     social_proof: str = DEFAULT_SOCIAL_PROOF,
+    pricing: str = """
+    public_claim_status: ready
+    individual: 12 USD
+    commercial: 30 USD
+    model: annual license
+    """,
 ) -> None:
     scripts_dir = repository_root / "scripts"
     scripts_dir.mkdir(parents=True)
@@ -283,10 +348,7 @@ product:
   name: Ayu Islands
   category: JetBrains theme
 pricing:
-  public_claim_status: ready
-  individual: 12 USD
-  commercial: 30 USD
-  model: annual license
+{textwrap.indent(textwrap.dedent(pricing).strip(), "  ")}
 launch_status:
   marketplace: released
 manual_verification:
