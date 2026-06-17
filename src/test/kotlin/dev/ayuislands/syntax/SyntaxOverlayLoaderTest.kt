@@ -63,6 +63,9 @@ class SyntaxOverlayLoaderTest {
         return "%02X%02X%02X".format(color.red, color.green, color.blue)
     }
 
+    private fun Map<String, TextAttributes>.fontType(keyName: String): Int =
+        this[keyName]?.fontType ?: error("missing $keyName")
+
     @Test
     fun `constructor accepts resourceBase override`() {
         val instance = SyntaxOverlayLoader(resourceBase = "/some/test/base")
@@ -124,6 +127,95 @@ class SyntaxOverlayLoaderTest {
         val overlay = loader().loadOverlayForVariant("Mirage")
         val names = overlay.keys.map { it.externalName }
         assertTrue("FAKE_KEY_WITH_BASE_REF" in names)
+    }
+
+    @Test
+    fun `production baseline schemes materialize Groovy Jenkinsfile signature roles`() {
+        val requiredKeys =
+            listOf(
+                "Class",
+                "Interface name",
+                "Trait name",
+                "Enum name",
+                "Abstract class name",
+                "Anonymous class name",
+                "Type parameter",
+                "Groovy method declaration",
+            )
+        val expectedForegrounds =
+            mapOf(
+                "Mirage" to
+                    mapOf(
+                        "Class" to "73D0FF",
+                        "Interface name" to "73D0FF",
+                        "Trait name" to "73D0FF",
+                        "Enum name" to "73D0FF",
+                        "Abstract class name" to "5CCFE6",
+                        "Anonymous class name" to "5CCFE6",
+                        "Type parameter" to "5CCFE6",
+                        "Groovy method declaration" to "FFD173",
+                    ),
+                "Dark" to
+                    mapOf(
+                        "Class" to "59C2FF",
+                        "Interface name" to "59C2FF",
+                        "Trait name" to "59C2FF",
+                        "Enum name" to "59C2FF",
+                        "Abstract class name" to "39BAE6",
+                        "Anonymous class name" to "39BAE6",
+                        "Type parameter" to "39BAE6",
+                        "Groovy method declaration" to "FFB454",
+                    ),
+                "Light" to
+                    mapOf(
+                        "Class" to "22A4E6",
+                        "Interface name" to "22A4E6",
+                        "Trait name" to "22A4E6",
+                        "Enum name" to "22A4E6",
+                        "Abstract class name" to "55B4D4",
+                        "Anonymous class name" to "55B4D4",
+                        "Type parameter" to "55B4D4",
+                        "Groovy method declaration" to "EBA400",
+                    ),
+            )
+        val expectedFontTypes =
+            mapOf(
+                "Class" to 2,
+                "Interface name" to 2,
+                "Trait name" to 2,
+                "Enum name" to 2,
+                "Abstract class name" to 2,
+                "Anonymous class name" to 2,
+                "Type parameter" to 2,
+            )
+        val l = SyntaxOverlayLoader()
+
+        for (variant in listOf("Mirage", "Dark", "Light")) {
+            val baselineByName = l.loadBaselineForVariant(variant).entries.associate { it.key.externalName to it.value }
+            for (keyName in requiredKeys) {
+                val attributes =
+                    baselineByName[keyName]
+                        ?: error("$variant baseline scheme is missing $keyName")
+                assertNotNull(
+                    attributes.foregroundColor,
+                    "$variant baseline scheme must define a concrete foreground for $keyName",
+                )
+            }
+            for ((keyName, expectedHex) in expectedForegrounds.getValue(variant)) {
+                assertEquals(
+                    expectedHex,
+                    baselineByName.foregroundHex(keyName),
+                    "$variant baseline scheme must map $keyName to the Groovy Jenkinsfile signature color",
+                )
+            }
+            for ((keyName, expectedFontType) in expectedFontTypes) {
+                assertEquals(
+                    expectedFontType,
+                    baselineByName.fontType(keyName),
+                    "$variant baseline scheme must preserve $keyName Groovy Jenkinsfile signature font style",
+                )
+            }
+        }
     }
 
     @Test
@@ -220,4 +312,237 @@ class SyntaxOverlayLoaderTest {
             )
         }
     }
+
+    @Test
+    fun `production extended schemes materialize Groovy Jenkinsfile roles`() {
+        val requiredKeys = groovyJenkinsfileExtendedKeys()
+        val expectedForegrounds = groovyJenkinsfileExtendedForegrounds()
+        val expectedFontTypes = groovyJenkinsfileExtendedFontTypes()
+        val l = SyntaxOverlayLoader()
+
+        for (variant in listOf("Mirage", "Dark", "Light")) {
+            val overlayByName = l.loadOverlayForVariant(variant).entries.associate { it.key.externalName to it.value }
+            for (keyName in requiredKeys) {
+                val attributes =
+                    overlayByName[keyName]
+                        ?: error("$variant extended scheme is missing $keyName")
+                assertNotNull(
+                    attributes.foregroundColor,
+                    "$variant extended scheme must define a concrete foreground for $keyName",
+                )
+            }
+            for ((keyName, expectedHex) in expectedForegrounds.getValue(variant)) {
+                assertEquals(
+                    expectedHex,
+                    overlayByName.foregroundHex(keyName),
+                    "$variant extended scheme must map $keyName to the Groovy Jenkinsfile role color",
+                )
+            }
+            for ((keyName, expectedFontType) in expectedFontTypes) {
+                assertEquals(
+                    expectedFontType,
+                    overlayByName.fontType(keyName),
+                    "$variant extended scheme must preserve $keyName Groovy Jenkinsfile font style",
+                )
+            }
+            assertTrue(
+                listOf(
+                    overlayByName.foregroundHex("Groovy var"),
+                    overlayByName.foregroundHex("Groovy parameter"),
+                    overlayByName.foregroundHex("Method call"),
+                    overlayByName.foregroundHex("Instance property reference ID"),
+                    overlayByName.foregroundHex("Map key"),
+                    overlayByName.foregroundHex("GROOVY_KEYWORD"),
+                ).distinct().size >= 6,
+                "$variant extended scheme must keep core Groovy Jenkinsfile roles visually distinct",
+            )
+        }
+    }
+
+    private fun groovyJenkinsfileExtendedKeys(): List<String> =
+        listOf(
+            "Class",
+            "Interface name",
+            "Trait name",
+            "Enum name",
+            "Abstract class name",
+            "Anonymous class name",
+            "Type parameter",
+            "Groovy method declaration",
+            "Groovy constructor declaration",
+            "Groovy constructor call",
+            "Groovy var",
+            "Groovy reassigned var",
+            "Groovy parameter",
+            "Groovy reassigned parameter",
+            "Method call",
+            "Static method access",
+            "Instance field",
+            "Instance property reference ID",
+            "Static field",
+            "Static property reference ID",
+            "Map key",
+            "GROOVY_KEYWORD",
+            "Groovydoc comment",
+            "Groovydoc tag",
+            "GString",
+            "String",
+            "Number",
+            "Operation sign",
+            "Braces",
+            "Brackets",
+            "Parentheses",
+            "Closure braces",
+            "Lambda braces",
+            "Label",
+            "Closure parameter",
+            "Valid string escape",
+            "Invalid string escape",
+        )
+
+    private fun groovyJenkinsfileExtendedForegrounds(): Map<String, Map<String, String>> =
+        mapOf(
+            "Mirage" to
+                groovyJenkinsfileExtendedForegroundsFor(
+                    mapOf(
+                        "typeDeclaration" to "73D0FF",
+                        "abstractType" to "5CCFE6",
+                        "functionDeclaration" to "FFD173",
+                        "constructor" to "FFCC66",
+                        "localVariable" to "CCCAC2",
+                        "parameter" to "DFBFFF",
+                        "field" to "F28779",
+                        "mapKey" to "D9A6EF",
+                        "keyword" to "FFAD66",
+                        "stringLiteral" to "D5FF80",
+                        "documentationTag" to "B8CFE6",
+                        "operator" to "F29E74",
+                        "closureBraces" to "FFAD66",
+                        "label" to "FFA659",
+                        "validEscape" to "95E6CB",
+                        "invalidEscape" to "D95757",
+                    ),
+                ),
+            "Dark" to
+                groovyJenkinsfileExtendedForegroundsFor(
+                    mapOf(
+                        "typeDeclaration" to "59C2FF",
+                        "abstractType" to "39BAE6",
+                        "functionDeclaration" to "FFB454",
+                        "constructor" to "E69F25",
+                        "localVariable" to "BFBDB6",
+                        "parameter" to "D2A6FF",
+                        "field" to "F07178",
+                        "mapKey" to "C290DF",
+                        "keyword" to "FF8F40",
+                        "stringLiteral" to "AAD94C",
+                        "documentationTag" to "ACB6BF",
+                        "operator" to "F29668",
+                        "closureBraces" to "FFA759",
+                        "label" to "FFA759",
+                        "validEscape" to "95E6CB",
+                        "invalidEscape" to "D95757",
+                    ),
+                ),
+            "Light" to
+                groovyJenkinsfileExtendedForegroundsFor(
+                    mapOf(
+                        "typeDeclaration" to "22A4E6",
+                        "abstractType" to "55B4D4",
+                        "functionDeclaration" to "EBA400",
+                        "constructor" to "D89400",
+                        "localVariable" to "5C6166",
+                        "parameter" to "A37ACC",
+                        "field" to "F07171",
+                        "mapKey" to "55B4D4",
+                        "keyword" to "FA8532",
+                        "stringLiteral" to "86B300",
+                        "documentationTag" to "8A8FA5",
+                        "operator" to "F2A191",
+                        "closureBraces" to "FA8532",
+                        "label" to "FA8532",
+                        "validEscape" to "4CBF99",
+                        "invalidEscape" to "E65050",
+                    ),
+                ),
+        )
+
+    private fun groovyJenkinsfileExtendedForegroundsFor(palette: Map<String, String>): Map<String, String> {
+        val typeDeclaration = palette.getValue("typeDeclaration")
+        val abstractType = palette.getValue("abstractType")
+        val functionDeclaration = palette.getValue("functionDeclaration")
+        val constructor = palette.getValue("constructor")
+        val localVariable = palette.getValue("localVariable")
+        val parameter = palette.getValue("parameter")
+        val field = palette.getValue("field")
+        val mapKey = palette.getValue("mapKey")
+        val keyword = palette.getValue("keyword")
+        val stringLiteral = palette.getValue("stringLiteral")
+        val documentationTag = palette.getValue("documentationTag")
+        val operator = palette.getValue("operator")
+        val closureBraces = palette.getValue("closureBraces")
+        val label = palette.getValue("label")
+        val validEscape = palette.getValue("validEscape")
+        val invalidEscape = palette.getValue("invalidEscape")
+
+        return mapOf(
+            "Class" to typeDeclaration,
+            "Interface name" to typeDeclaration,
+            "Trait name" to typeDeclaration,
+            "Enum name" to typeDeclaration,
+            "Abstract class name" to abstractType,
+            "Anonymous class name" to abstractType,
+            "Type parameter" to abstractType,
+            "Groovy method declaration" to functionDeclaration,
+            "Groovy constructor declaration" to constructor,
+            "Groovy constructor call" to constructor,
+            "Groovy var" to localVariable,
+            "Groovy reassigned var" to parameter,
+            "Groovy parameter" to parameter,
+            "Groovy reassigned parameter" to parameter,
+            "Method call" to functionDeclaration,
+            "Static method access" to functionDeclaration,
+            "Instance field" to field,
+            "Instance property reference ID" to field,
+            "Static field" to field,
+            "Static property reference ID" to field,
+            "Map key" to mapKey,
+            "GROOVY_KEYWORD" to keyword,
+            "Groovydoc comment" to stringLiteral,
+            "Groovydoc tag" to documentationTag,
+            "GString" to stringLiteral,
+            "String" to stringLiteral,
+            "Number" to parameter,
+            "Operation sign" to operator,
+            "Braces" to operator,
+            "Brackets" to operator,
+            "Parentheses" to operator,
+            "Closure braces" to closureBraces,
+            "Lambda braces" to label,
+            "Label" to label,
+            "Closure parameter" to parameter,
+            "Valid string escape" to validEscape,
+            "Invalid string escape" to invalidEscape,
+        )
+    }
+
+    private fun groovyJenkinsfileExtendedFontTypes(): Map<String, Int> =
+        mapOf(
+            "Class" to 2,
+            "Interface name" to 2,
+            "Trait name" to 2,
+            "Enum name" to 2,
+            "Abstract class name" to 2,
+            "Anonymous class name" to 2,
+            "Type parameter" to 2,
+            "Groovy constructor declaration" to 2,
+            "Groovy constructor call" to 2,
+            "Static method access" to 2,
+            "Static field" to 2,
+            "Static property reference ID" to 2,
+            "GROOVY_KEYWORD" to 1,
+            "Groovydoc comment" to 2,
+            "Groovydoc tag" to 3,
+            "Closure parameter" to 2,
+        )
 }

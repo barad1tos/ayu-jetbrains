@@ -114,6 +114,44 @@ class SyntaxCategoryRegistryTest {
     }
 
     @Test
+    fun `bare Groovy Jenkinsfile keys classify to syntax primitives`() {
+        val expectedCategories =
+            mapOf(
+                "String" to PrimitiveCategory.STRING_LITERAL,
+                "GString" to PrimitiveCategory.STRING_LITERAL,
+                "Valid string escape" to PrimitiveCategory.STRING_LITERAL,
+                "Invalid string escape" to PrimitiveCategory.STRING_LITERAL,
+                "Number" to PrimitiveCategory.NUMBER_LITERAL,
+                "GROOVY_KEYWORD" to PrimitiveCategory.KEYWORD,
+                "Class" to PrimitiveCategory.CLASS_DECL,
+                "Trait name" to PrimitiveCategory.INTERFACE_DECL,
+                "Interface name" to PrimitiveCategory.INTERFACE_DECL,
+                "Enum name" to PrimitiveCategory.CLASS_DECL,
+                "Abstract class name" to PrimitiveCategory.CLASS_DECL,
+                "Anonymous class name" to PrimitiveCategory.CLASS_DECL,
+                "Type parameter" to PrimitiveCategory.GENERICS,
+                "Method call" to PrimitiveCategory.FUNCTION_DECL,
+                "Static method access" to PrimitiveCategory.FUNCTION_DECL,
+                "Static field" to PrimitiveCategory.STATIC_FIELD,
+                "Static property reference ID" to PrimitiveCategory.STATIC_FIELD,
+                "Instance field" to PrimitiveCategory.INSTANCE_FIELD,
+                "Instance property reference ID" to PrimitiveCategory.INSTANCE_FIELD,
+                "Map key" to PrimitiveCategory.INSTANCE_FIELD,
+                "Closure parameter" to PrimitiveCategory.PARAMETER,
+                "Operation sign" to PrimitiveCategory.OPERATOR,
+                "Closure braces" to PrimitiveCategory.OPERATOR,
+                "Lambda braces" to PrimitiveCategory.OPERATOR,
+                "Label" to PrimitiveCategory.OPERATOR,
+                "Groovydoc comment" to PrimitiveCategory.DOCUMENTATION,
+                "Groovydoc tag" to PrimitiveCategory.DOCUMENTATION,
+            )
+
+        for ((key, expected) in expectedCategories) {
+            assertEquals(expected, SyntaxCategoryRegistry.classify(key), "$key category")
+        }
+    }
+
+    @Test
     fun `JAVA_ANNOTATION classifies to ANNOTATION`() {
         assertEquals(
             PrimitiveCategory.ANNOTATION,

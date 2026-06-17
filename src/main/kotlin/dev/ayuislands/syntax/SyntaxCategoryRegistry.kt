@@ -64,7 +64,7 @@ object SyntaxCategoryRegistry {
                 "DOC_COMMENT($|_)|DOC_TAG|DOCUMENTATION$|KDOC_LINK|KDOC_TAG_NAME",
                 "DOC_IDENTIFIER|DOC_METHOD_IDENTIFIER|DOC_PROPERTY_IDENTIFIER|DOC_VAR|LUA_DOC_VALUE",
                 "ScalaDoc|MARKDOWN_LIST_MARKER|MARKDOWN_HRULE|MARKDOWN_CODE_FENCE_LANGUAGE",
-                "MARKDOWN_STRIKE_THROUGH",
+                "MARKDOWN_STRIKE_THROUGH|^Groovydoc comment$|^Groovydoc tag$",
             )
             // --- Comments ---------------------------------------------------
             addRules(
@@ -83,6 +83,7 @@ object SyntaxCategoryRegistry {
                 PrimitiveCategory.STATIC_FIELD,
                 "STATIC_FIELD|STATIC_FINAL_FIELD|STATIC_GETTER|STATIC_SETTER",
                 "STATIC_MEMBER|^Static field$|org\\.rust\\.STATIC|org\\.rust\\.MUT_STATIC|PHP_CONSTANT",
+                "^Static property reference ID$",
                 "SWIFT\\.CONSTANT",
             )
             addRules(
@@ -115,7 +116,7 @@ object SyntaxCategoryRegistry {
                 "Groovy method declaration|Groovy constructor declaration|Groovy constructor call",
                 "LOCAL_FUNC|STD_API|POWER_SHELL_COMMAND_NAME|POWER_SHELL_METHOD_CALL_NAME",
                 "RBS_TMETHOD_NAME|RBS_RUBY_SPECIFIC_CALLS",
-                "FUNCTION_REFERENCE",
+                "FUNCTION_REFERENCE|^Static method access$",
             )
             // --- Interface / trait -----------------------------------------
             addRules(
@@ -147,6 +148,7 @@ object SyntaxCategoryRegistry {
             addRules(
                 PrimitiveCategory.GENERICS,
                 "TYPE_PARAMETER$|GENERIC_TYPE_PARAMETER|GENERICS$|GENERIC$|TYPE_ARGUMENT$|TYPE_NAME_DYNAMIC",
+                "^Type parameter$",
             )
             // --- Keywords / modifiers --------------------------------------
             addRules(
@@ -205,16 +207,17 @@ object SyntaxCategoryRegistry {
             // --- String literals -------------------------------------------
             addRules(
                 PrimitiveCategory.STRING_LITERAL,
-                "STRING$|TEMPLATE_STRING$|RAW_STRING$|CHAR$|CHARACTER$|STRING_LITERAL$",
+                "STRING$|TEMPLATE_STRING$|RAW_STRING$|CHAR$|CHARACTER$|STRING_LITERAL$|^String$|^GString$",
                 "STRING_ESCAPE|ESCAPE_SEQUENCE|HEREDOC_ID|HEREDOC_CONTENT|HEREDOC|BACKQUOTE",
                 "GString|FSTRING_FRAGMENT|REGEX$|REGEXP$|ESCAPE$",
-                "VALID_ESCAPE|INVALID_ESCAPE|MARKDOWN_CODE_SPAN|INTERPOLATION",
+                "VALID_ESCAPE|INVALID_ESCAPE|^Valid string escape$|^Invalid string escape$",
+                "MARKDOWN_CODE_SPAN|INTERPOLATION",
                 "String Injection|VALUE$|CONTENT$",
             )
             // --- Number literals -------------------------------------------
             addRules(
                 PrimitiveCategory.NUMBER_LITERAL,
-                "NUMBER$|INTEGER$|FLOAT$|HEX$|NUMBER_LITERAL$",
+                "NUMBER$|INTEGER$|FLOAT$|HEX$|NUMBER_LITERAL$|^Number$",
             )
             // --- Annotations / decorators / metadata ------------------------
             addRules(
@@ -235,7 +238,7 @@ object SyntaxCategoryRegistry {
                 "FAT_ARROW|PIPE$|BANG$|AMP$|SPREAD$",
                 "SIGN$|BINARY_OPERATORS|REDIRECTION|SEPARATOR|CONCATENATION",
                 "TAG_BRACE|SCRIPT_DELIMITERS|TEMPLATE_BINDINGS|^Lambda braces$",
-                "^Closure braces$|^Label$|JS\\.LABEL|BATCH\\.LABEL",
+                "^Closure braces$|^Operation sign$|^Braces$|^Brackets$|^Parentheses$|^Label$|JS\\.LABEL|BATCH\\.LABEL",
                 "BATCH\\.LABEL_REFERENCE|GOTO_LABEL|POWER_SHELL_LABEL_NAME",
                 "YAML_SCALAR_LIST|CSS\\.AMPERSAND|PROGUARD_WILDCARD|IGNORE\\.BRACKET",
                 "WILDCARD",
@@ -247,7 +250,7 @@ object SyntaxCategoryRegistry {
                 "ASSOCIATED_TYPE_DECLARATION",
                 "TYPE_HINT|PRIMITIVE_TYPE_HINT|PREDEFINED_SCOPE|PREDEFINED|Scala Type",
                 "Scala Predefined types|Scala Mutable Collection|Scala Immutable Collection",
-                "StandardF Java Collection|Type parameter|TYPE_GUARD|DOCKER_ATTRIBUTES",
+                "StandardF Java Collection|TYPE_GUARD|DOCKER_ATTRIBUTES",
                 "DOCKER_CONSTANT|QL_DATETIME|PUBLIC_REFERENCE|PROTECTED_REFERENCE",
                 "PACKAGE_PRIVATE_REFERENCE|PRIVATE_REFERENCE|KOTLIN_WRAPPED_INTO_REF",
                 "KOTLIN_ANDROID_EXTENSIONS_PROPERTY_CALL|VELOCITY_REFERENCE|FTL_REFERENCE",

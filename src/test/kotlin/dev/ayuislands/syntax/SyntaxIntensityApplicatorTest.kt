@@ -725,6 +725,236 @@ class SyntaxIntensityApplicatorTest {
     }
 
     @Test
+    fun `Groovy-specific GString key uses the Groovy custom string cell`() {
+        val gStringKey = TextAttributesKey.createTextAttributesKey("GString")
+        val sourceColor = Color(0xD5, 0xFF, 0x80)
+        val baseline =
+            mapOf(
+                gStringKey to attrsWithFg(sourceColor),
+            )
+
+        val result =
+            compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides = mapOf("Groovy" to mapOf("STRING_LITERAL" to 75)),
+                baseline = baseline,
+                overlay = emptyMap(),
+                options =
+                    ComputeOptions(
+                        subordinatePreset = SyntaxPreset.AMBIENT,
+                        customStyles = mapOf("Groovy" to mapOf("STRING_LITERAL" to Font.BOLD)),
+                    ),
+            )
+
+        val attrs = assertNotNull(result[gStringKey], "GString must not be skipped")
+        assertEquals(Font.BOLD, attrs.fontType, "GString must use the Groovy STRING_LITERAL style")
+        assertNotEquals(
+            sourceColor.rgb,
+            assertNotNull(attrs.foregroundColor).rgb,
+            "GString must use the Groovy STRING_LITERAL slider, not the Ambient fallback",
+        )
+    }
+
+    @Test
+    fun `Groovy-specific declaration and variable keys use the Groovy custom cells`() {
+        val constructorKey = TextAttributesKey.createTextAttributesKey("Groovy constructor declaration")
+        val reassignedVariableKey = TextAttributesKey.createTextAttributesKey("Groovy reassigned var")
+        val constructorColor = Color(0xFF, 0xCC, 0x66)
+        val reassignedVariableColor = Color(0xDF, 0xBF, 0xFF)
+        val baseline =
+            mapOf(
+                constructorKey to attrsWithFg(constructorColor),
+                reassignedVariableKey to attrsWithFg(reassignedVariableColor),
+            )
+
+        val result =
+            compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides =
+                    mapOf(
+                        "Groovy" to
+                            mapOf(
+                                "FUNCTION_DECL" to 75,
+                                "LOCAL_VAR" to 25,
+                            ),
+                    ),
+                baseline = baseline,
+                overlay = emptyMap(),
+                options =
+                    ComputeOptions(
+                        subordinatePreset = SyntaxPreset.AMBIENT,
+                        customStyles =
+                            mapOf(
+                                "Groovy" to
+                                    mapOf(
+                                        "FUNCTION_DECL" to Font.BOLD,
+                                        "LOCAL_VAR" to Font.ITALIC,
+                                    ),
+                            ),
+                    ),
+            )
+
+        val constructorAttrs = assertNotNull(result[constructorKey], "Groovy constructor must not be skipped")
+        assertEquals(Font.BOLD, constructorAttrs.fontType, "Groovy constructor must use the FUNCTION_DECL style")
+        assertNotEquals(
+            constructorColor.rgb,
+            assertNotNull(constructorAttrs.foregroundColor).rgb,
+            "Groovy constructor must use the Groovy FUNCTION_DECL slider",
+        )
+
+        val variableAttrs =
+            assertNotNull(result[reassignedVariableKey], "Groovy reassigned var must not be skipped")
+        assertEquals(Font.ITALIC, variableAttrs.fontType, "Groovy reassigned var must use the LOCAL_VAR style")
+        assertNotEquals(
+            reassignedVariableColor.rgb,
+            assertNotNull(variableAttrs.foregroundColor).rgb,
+            "Groovy reassigned var must use the Groovy LOCAL_VAR slider",
+        )
+    }
+
+    @Test
+    fun `bare Groovy signature keys use class and generics custom cells`() {
+        val classKey = TextAttributesKey.createTextAttributesKey("Class")
+        val typeParameterKey = TextAttributesKey.createTextAttributesKey("Type parameter")
+        val classColor = Color(0x73, 0xD0, 0xFF)
+        val typeParameterColor = Color(0x5C, 0xCF, 0xE6)
+
+        val result =
+            compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides =
+                    mapOf(
+                        "Other" to
+                            mapOf(
+                                "CLASS_DECL" to 75,
+                                "GENERICS" to 25,
+                            ),
+                    ),
+                baseline =
+                    mapOf(
+                        classKey to attrsWithFg(classColor),
+                        typeParameterKey to attrsWithFg(typeParameterColor),
+                    ),
+                overlay = emptyMap(),
+                options =
+                    ComputeOptions(
+                        subordinatePreset = SyntaxPreset.AMBIENT,
+                        customStyles =
+                            mapOf(
+                                "Other" to
+                                    mapOf(
+                                        "CLASS_DECL" to Font.BOLD,
+                                        "GENERICS" to Font.ITALIC,
+                                    ),
+                            ),
+                    ),
+            )
+
+        val classAttrs = assertNotNull(result[classKey], "Class must not be skipped")
+        assertEquals(Font.BOLD, classAttrs.fontType, "Class must use the CLASS_DECL custom style")
+        assertNotEquals(
+            classColor.rgb,
+            assertNotNull(classAttrs.foregroundColor).rgb,
+            "Class must use the CLASS_DECL custom slider",
+        )
+
+        val typeParameterAttrs = assertNotNull(result[typeParameterKey], "Type parameter must not be skipped")
+        assertEquals(Font.ITALIC, typeParameterAttrs.fontType, "Type parameter must use the GENERICS custom style")
+        assertNotEquals(
+            typeParameterColor.rgb,
+            assertNotNull(typeParameterAttrs.foregroundColor).rgb,
+            "Type parameter must use the GENERICS custom slider",
+        )
+    }
+
+    @Test
+    fun `bare Groovy field keys use static and instance field custom cells`() {
+        val staticFieldKey = TextAttributesKey.createTextAttributesKey("Static field")
+        val instanceFieldKey = TextAttributesKey.createTextAttributesKey("Instance field")
+        val staticFieldColor = Color(0xF2, 0x87, 0x79)
+        val instanceFieldColor = Color(0xF2, 0x87, 0x79)
+
+        val result =
+            compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides =
+                    mapOf(
+                        "Other" to
+                            mapOf(
+                                "STATIC_FIELD" to 75,
+                                "INSTANCE_FIELD" to 25,
+                            ),
+                    ),
+                baseline =
+                    mapOf(
+                        staticFieldKey to attrsWithFg(staticFieldColor),
+                        instanceFieldKey to attrsWithFg(instanceFieldColor),
+                    ),
+                overlay = emptyMap(),
+                options =
+                    ComputeOptions(
+                        subordinatePreset = SyntaxPreset.AMBIENT,
+                        customStyles =
+                            mapOf(
+                                "Other" to
+                                    mapOf(
+                                        "STATIC_FIELD" to Font.BOLD,
+                                        "INSTANCE_FIELD" to Font.ITALIC,
+                                    ),
+                            ),
+                    ),
+            )
+
+        val staticFieldAttrs = assertNotNull(result[staticFieldKey], "Static field must not be skipped")
+        assertEquals(Font.BOLD, staticFieldAttrs.fontType, "Static field must use the STATIC_FIELD custom style")
+        assertNotEquals(
+            staticFieldColor.rgb,
+            assertNotNull(staticFieldAttrs.foregroundColor).rgb,
+            "Static field must use the STATIC_FIELD custom slider",
+        )
+
+        val instanceFieldAttrs = assertNotNull(result[instanceFieldKey], "Instance field must not be skipped")
+        assertEquals(
+            Font.ITALIC,
+            instanceFieldAttrs.fontType,
+            "Instance field must use the INSTANCE_FIELD custom style",
+        )
+        assertNotEquals(
+            instanceFieldColor.rgb,
+            assertNotNull(instanceFieldAttrs.foregroundColor).rgb,
+            "Instance field must use the INSTANCE_FIELD custom slider",
+        )
+    }
+
+    @Test
+    fun `generic bare String key does not use the Groovy custom string cell`() {
+        val stringKey = TextAttributesKey.createTextAttributesKey("String")
+        val sourceColor = Color(0xD5, 0xFF, 0x80)
+        val baseline = mapOf(stringKey to attrsWithFg(sourceColor))
+
+        val result =
+            compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides = mapOf("Groovy" to mapOf("STRING_LITERAL" to 75)),
+                baseline = baseline,
+                overlay = emptyMap(),
+                options =
+                    ComputeOptions(
+                        subordinatePreset = SyntaxPreset.AMBIENT,
+                        customStyles = mapOf("Groovy" to mapOf("STRING_LITERAL" to Font.BOLD)),
+                    ),
+            )
+
+        val attrs = assertNotNull(result[stringKey], "String must not be skipped")
+        assertEquals(0, attrs.fontType, "String must not use the Groovy STRING_LITERAL style")
+        assertEquals(
+            sourceColor.rgb,
+            attrs.foregroundColor?.rgb,
+            "String must use the Ambient fallback instead of the Groovy STRING_LITERAL slider",
+        )
+    }
+
+    @Test
     fun `cascade defaults materialize inherited per-language keys without own foreground`() {
         val defaultCommentKey = TextAttributesKey.createTextAttributesKey("DEFAULT_LINE_COMMENT")
         val kotlinCommentKey = TextAttributesKey.createTextAttributesKey("KOTLIN_LINE_COMMENT")
