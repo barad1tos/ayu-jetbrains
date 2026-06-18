@@ -117,6 +117,18 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.7.5</h3>
+    <ul>
+      <li>[Paid] <b>Accent Source status-bar widget</b> — Pro users can add a status-bar widget that shows which accent source won for the current project and opens the full resolution chain.</li>
+      <li>[Paid] <b>Language override controls</b> — language accent detection now shows dominance and fallback details in Settings, and forced language or fallback choices take precedence before the global accent.</li>
+      <li>[Free] <b>Quick-Switcher accent diagnostics</b> — the toolbar widget now shows the resolved accent source inline, with an expandable chain for project pins, language overrides, fallbacks, external themes, and global accents.</li>
+      <li>[Free] <b>Groovy and Jenkinsfile syntax colors</b> — Groovy and Jenkinsfile roles now have explicit Ayu colors across Dark, Mirage, and Light, including methods, fields, map keys, strings, GStrings, keywords, documentation, and inlay type hints.</li>
+      <li>[Fix] <b>Quick-Switcher widget buttons</b> — related toggle buttons now apply Chrome tinting, Glow, Accent rotation, and Follow system accent changes reliably from the widget.</li>
+      <li>[Fix] <b>Chrome tinting target preservation</b> — widget toggles and Settings Apply now preserve the exact chrome tint targets you selected instead of turning every tint surface on or off together.</li>
+      <li>[Fix] <b>Language override precedence</b> — forced-language and fallback choices now win before project/global fallback when resolving the active accent.</li>
+      <li>[Fix] <b>Accent diagnostics accuracy</b> — Quick-Switcher and status-bar diagnostics now match the actual resolver for language fallback, project fallback, and external automatic accents.</li>
+      <li>[Fix] <b>Editor Glow with pinned tabs</b> — Glow overlays now align with editor content when only pinned tabs remain, instead of using a fixed tab-strip fallback.</li>
+    </ul>
     <h3>2.7.4</h3>
     <ul>
       <li>[Paid] <b>Language override diagnostics</b> — Settings now explains whether a project's language accent is detected, polyglot, forced to a specific language, or using a project fallback.</li>
