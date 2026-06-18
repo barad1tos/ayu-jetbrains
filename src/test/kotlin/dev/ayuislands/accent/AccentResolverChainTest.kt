@@ -10,6 +10,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkAll
+import java.awt.Color
 import java.io.File
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -276,6 +277,30 @@ class AccentResolverChainTest {
     }
 
     @Test
+    fun `resolveChain forced language uses language fallback when exact mapping is missing`() {
+        val tmp = File(stubsDir, "forced-language-fallback").canonicalPath
+        mappingsState.forcedProjectLanguages[tmp] = "typescript"
+        mappingsState.languageFallbackAccent = "#73D0FF"
+        val project = stubProject(File(tmp))
+
+        val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
+
+        assertEquals("#73D0FF", AccentResolver.resolve(project, AyuVariant.MIRAGE))
+        assertEquals(AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE, AccentResolver.source(project))
+        assertTrue(
+            chain.steps.any {
+                it.source == AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE &&
+                    it.outcome == StepOutcome.NO_MAPPING
+            },
+            "Chain should keep the missing forced-language mapping diagnostic",
+        )
+        assertEquals(AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE, chain.winner.source)
+        assertEquals("#73D0FF", chain.winner.hex)
+        assertEquals(StepOutcome.WON, chain.winner.outcome)
+        assertNull(chain.verdict)
+    }
+
+    @Test
     fun `resolveChain forced language override short-circuits before language override step`() {
         val tmp = File(stubsDir, "forced-skip-lang").canonicalPath
         mappingsState.forcedProjectLanguages[tmp] = "typescript"
@@ -350,6 +375,30 @@ class AccentResolverChainTest {
     }
 
     @Test
+    fun `resolveChain language fallback wins when detected language has no exact mapping`() {
+        mappingsState.languageFallbackAccent = "#73D0FF"
+        val project = stubProject(File(stubsDir, "detected-language-fallback"))
+        every { ProjectLanguageDetector.dominant(project) } returns "python"
+        val verdict = ProjectLanguageVerdict.Detected("python", mapOf("python" to 1_000L))
+        every { ProjectLanguageDetector.verdict(project) } returns verdict
+
+        val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
+
+        assertEquals("#73D0FF", AccentResolver.resolve(project, AyuVariant.MIRAGE))
+        assertEquals(AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE, AccentResolver.source(project))
+        assertTrue(
+            chain.steps.any {
+                it.source == AccentResolver.Source.LANGUAGE_OVERRIDE &&
+                    it.outcome == StepOutcome.NO_MAPPING
+            },
+            "Chain should explain that the detected language has no exact mapping",
+        )
+        assertEquals(AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE, chain.winner.source)
+        assertEquals("#73D0FF", chain.winner.hex)
+        assertEquals(verdict, chain.verdict)
+    }
+
+    @Test
     fun `resolveChain language override shows Cold verdict when detection not yet run`() {
         mappingsState.languageAccents["kotlin"] = "#ABCDEF"
         val project = stubProject(File(stubsDir, "lang-cold"))
@@ -402,6 +451,29 @@ class AccentResolverChainTest {
         assertEquals(StepOutcome.WON, fallbackStep.outcome)
         assertEquals(fallbackStep, chain.winner)
 
+        assertEquals(noWinnerVerdict, chain.verdict)
+    }
+
+    @Test
+    fun `resolveChain project fallback wins when no language accents are configured`() {
+        val tmp = File(stubsDir, "fallback-no-language-accents").canonicalPath
+        mappingsState.projectFallbackAccents[tmp] = "#5CCFE6"
+        val project = stubProject(File(tmp))
+
+        every { ProjectLanguageDetector.dominant(project) } returns null
+        val noWinnerVerdict =
+            ProjectLanguageVerdict.NoWinner(
+                mapOf("typescript" to 500L, "javascript" to 500L),
+            )
+        every { ProjectLanguageDetector.verdict(project) } returns noWinnerVerdict
+
+        val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
+
+        assertEquals("#5CCFE6", AccentResolver.resolve(project, AyuVariant.MIRAGE))
+        assertEquals(AccentResolver.Source.PROJECT_FALLBACK, AccentResolver.source(project))
+        assertEquals(AccentResolver.Source.PROJECT_FALLBACK, chain.winner.source)
+        assertEquals("#5CCFE6", chain.winner.hex)
+        assertEquals(StepOutcome.WON, chain.winner.outcome)
         assertEquals(noWinnerVerdict, chain.verdict)
     }
 
@@ -602,6 +674,74 @@ class AccentResolverChainTest {
             assertEquals("#112233", projectStep.hex)
             assertEquals(StepOutcome.WON, projectStep.outcome)
             assertEquals(projectStep, chain.winner)
+        }
+    }
+
+    @Test
+    fun `resolveChain external automatic uses material accent before stored fallback`() {
+        val state = AyuIslandsState()
+        state.externalThemeAccentSource = ExternalAccentSource.AUTOMATIC.name
+        state.externalThemeAccent = "#445566"
+
+        val settings = mockk<AyuIslandsSettings>()
+        every { settings.state } returns state
+        every { settings.getAccentForVariant(any()) } returns globalMirageAccent
+        mockkObject(AyuIslandsSettings.Companion)
+        every { AyuIslandsSettings.getInstance() } returns settings
+
+        AccentResolver.withUiColorProviderForTest(
+            { key ->
+                if (key == "material.accent") {
+                    Color(0x0A, 0x14, 0x1E)
+                } else {
+                    null
+                }
+            },
+        ) {
+            val chain = AccentResolver.resolveChain(null, AccentContext.External)
+
+            assertEquals("#0A141E", AccentResolver.resolve(null, AccentContext.External))
+            assertEquals(
+                AccentResolver.Source.MATERIAL_THEME,
+                AccentResolver.source(null, AccentContext.External),
+            )
+            assertEquals(AccentResolver.Source.MATERIAL_THEME, chain.winner.source)
+            assertEquals("#0A141E", chain.winner.hex)
+            assertEquals(StepOutcome.WON, chain.winner.outcome)
+        }
+    }
+
+    @Test
+    fun `resolveChain external automatic uses IDE accent before stored fallback`() {
+        val state = AyuIslandsState()
+        state.externalThemeAccentSource = ExternalAccentSource.AUTOMATIC.name
+        state.externalThemeAccent = "#445566"
+
+        val settings = mockk<AyuIslandsSettings>()
+        every { settings.state } returns state
+        every { settings.getAccentForVariant(any()) } returns globalMirageAccent
+        mockkObject(AyuIslandsSettings.Companion)
+        every { AyuIslandsSettings.getInstance() } returns settings
+
+        AccentResolver.withUiColorProviderForTest(
+            { key ->
+                if (key == "Component.accentColor") {
+                    Color(0xC8, 0x64, 0x32)
+                } else {
+                    null
+                }
+            },
+        ) {
+            val chain = AccentResolver.resolveChain(null, AccentContext.External)
+
+            assertEquals("#C86432", AccentResolver.resolve(null, AccentContext.External))
+            assertEquals(
+                AccentResolver.Source.IDE_ACCENT,
+                AccentResolver.source(null, AccentContext.External),
+            )
+            assertEquals(AccentResolver.Source.IDE_ACCENT, chain.winner.source)
+            assertEquals("#C86432", chain.winner.hex)
+            assertEquals(StepOutcome.WON, chain.winner.outcome)
         }
     }
 

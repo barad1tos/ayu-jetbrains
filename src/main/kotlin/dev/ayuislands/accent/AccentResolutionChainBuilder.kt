@@ -63,16 +63,17 @@ internal object AccentResolutionChainBuilder {
         }
 
         val verdict = collectOverrideChainSteps(project, steps)
-        addUiColorStep(
+        collectUiColorStep(
             steps,
             Source.MATERIAL_THEME,
             uiColorHex(MATERIAL_ACCENT_KEY),
             "Material Theme accent found",
             "No Material Theme accent",
-        )
+        )?.let { return AccentResolutionChain(steps, it, verdict) }
 
         val ideHex = uiColorHex(COMPONENT_ACCENT_KEY) ?: uiColorHex(ACTIONS_BLUE_KEY)
-        addUiColorStep(steps, Source.IDE_ACCENT, ideHex, "IDE accent found", "No IDE accent")
+        collectUiColorStep(steps, Source.IDE_ACCENT, ideHex, "IDE accent found", "No IDE accent")
+            ?.let { return AccentResolutionChain(steps, it, verdict) }
 
         val storedHex = AccentHex.of(state.externalThemeAccent)?.value ?: AyuVariant.MIRAGE.defaultAccent
         val winner =
@@ -122,13 +123,18 @@ internal object AccentResolutionChainBuilder {
         if (collectForcedLanguageStep(forcedLanguageId, mappings, steps)) {
             return null
         }
+        val hasProjectFallbackCandidate = mappings.projectFallbackAccents.containsKey(projectKey)
 
         val verdict =
-            collectLanguageOverrideStep(forcedLanguageId, mappings, activeProject, steps)
+            collectLanguageOverrideStep(
+                forcedLanguageId = forcedLanguageId,
+                mappings = mappings,
+                activeProject = activeProject,
+                steps = steps,
+                shouldConsultForProjectFallback = hasProjectFallbackCandidate,
+            )
                 ?: return null
-        if (verdict is ProjectLanguageVerdict.Detected &&
-            mappings.languageAccents[verdict.languageId] != null
-        ) {
+        if (steps.lastOrNull()?.outcome == StepOutcome.WON) {
             return verdict
         }
 
@@ -207,7 +213,11 @@ internal object AccentResolutionChainBuilder {
                     "Forced language ${displayNameFor(forcedLanguageId)} has no accent mapping",
                 ),
             )
-            return false
+            return collectLanguageFallbackStep(
+                mappings.languageFallbackAccent,
+                "Language fallback for forced ${displayNameFor(forcedLanguageId)}",
+                steps,
+            )
         }
 
         val hex = AccentHex.of(forcedAccent)?.value
@@ -231,7 +241,11 @@ internal object AccentResolutionChainBuilder {
                 "Invalid hex for forced language ${displayNameFor(forcedLanguageId)}",
             ),
         )
-        return false
+        return collectLanguageFallbackStep(
+            mappings.languageFallbackAccent,
+            "Language fallback for forced ${displayNameFor(forcedLanguageId)}",
+            steps,
+        )
     }
 
     private fun collectLanguageOverrideStep(
@@ -239,9 +253,20 @@ internal object AccentResolutionChainBuilder {
         mappings: AccentMappingsState,
         activeProject: Project,
         steps: MutableList<AccentResolutionStep>,
+        shouldConsultForProjectFallback: Boolean,
     ): ProjectLanguageVerdict? {
-        val hasLanguageMappings = mappings.languageAccents.isNotEmpty()
-        if (forcedLanguageId != null || !hasLanguageMappings) {
+        val hasLanguageCandidate =
+            mappings.languageAccents.isNotEmpty() ||
+                mappings.languageFallbackAccent != null
+        if (forcedLanguageId != null) {
+            collectSkippedLanguageOverrideStep(forcedLanguageId, steps)
+            return if (shouldConsultForProjectFallback) {
+                ProjectLanguageDetector.verdict(activeProject)
+            } else {
+                null
+            }
+        }
+        if (!hasLanguageCandidate && !shouldConsultForProjectFallback) {
             collectSkippedLanguageOverrideStep(forcedLanguageId, steps)
             return null
         }
@@ -340,6 +365,11 @@ internal object AccentResolutionChainBuilder {
                 "Detected ${displayNameFor(verdict.languageId)} but no accent mapping",
             ),
         )
+        collectLanguageFallbackStep(
+            mappings.languageFallbackAccent,
+            "Language fallback for ${displayNameFor(verdict.languageId)}",
+            steps,
+        )
     }
 
     private fun collectProjectFallbackStep(
@@ -390,18 +420,50 @@ internal object AccentResolutionChainBuilder {
         }
     }
 
-    private fun addUiColorStep(
+    private fun collectLanguageFallbackStep(
+        rawHex: String?,
+        detail: String,
+        steps: MutableList<AccentResolutionStep>,
+    ): Boolean {
+        val fallbackHex = rawHex ?: return false
+        val hex = AccentHex.of(fallbackHex)?.value
+        if (hex != null) {
+            steps.add(
+                AccentResolutionStep(
+                    Source.LANGUAGE_FALLBACK_OVERRIDE,
+                    hex,
+                    StepOutcome.WON,
+                    detail,
+                ),
+            )
+            return true
+        }
+
+        steps.add(
+            AccentResolutionStep(
+                Source.LANGUAGE_FALLBACK_OVERRIDE,
+                null,
+                StepOutcome.NOT_SET,
+                "Invalid language fallback accent",
+            ),
+        )
+        return false
+    }
+
+    private fun collectUiColorStep(
         steps: MutableList<AccentResolutionStep>,
         source: Source,
         hex: String?,
         foundDetail: String,
         missingDetail: String,
-    ) {
+    ): AccentResolutionStep? {
         if (hex != null) {
-            steps.add(AccentResolutionStep(source, hex, StepOutcome.NOT_APPLICABLE, foundDetail))
-        } else {
-            steps.add(AccentResolutionStep(source, null, StepOutcome.NOT_SET, missingDetail))
+            val step = AccentResolutionStep(source, hex, StepOutcome.WON, foundDetail)
+            steps.add(step)
+            return step
         }
+        steps.add(AccentResolutionStep(source, null, StepOutcome.NOT_SET, missingDetail))
+        return null
     }
 
     private fun uiColorHex(key: String): String? = AccentResolver.uiColorForDiagnostics(key)?.toHex()
