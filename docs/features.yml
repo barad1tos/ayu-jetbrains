@@ -178,7 +178,7 @@ categories:
         description: >
           Language accent detection shows dominance and fallback details in
           Settings, and forced language or fallback choices take precedence
-          before the global accent.
+          over the global accent.
 
       - id: chrome-tinting
         title: "Peacock-parity chrome tinting"

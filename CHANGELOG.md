@@ -7,7 +7,7 @@
   the full resolution chain.
 - [Paid] **Language override controls** — language accent detection now shows
   dominance and fallback details in Settings, and forced language or fallback
-  choices take precedence before the global accent.
+  choices take precedence over the global accent.
 - [Free] **Quick-Switcher accent diagnostics** — the toolbar widget now shows
   the resolved accent source inline, with an expandable chain for project pins,
   language overrides, fallbacks, external themes, and global accents.
@@ -22,7 +22,8 @@
   Apply now preserve the exact chrome tint targets you selected instead of
   turning every tint surface on or off together.
 - [Fix] **Language override precedence** — forced-language and fallback choices
-  now win before project/global fallback when resolving the active accent.
+  now take precedence over project/global fallback when resolving the active
+  accent.
 - [Fix] **Accent diagnostics accuracy** — Quick-Switcher and status-bar
   diagnostics now match the actual resolver for language fallback, project
   fallback, and external automatic accents.
