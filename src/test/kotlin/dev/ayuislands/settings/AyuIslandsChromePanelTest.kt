@@ -9,7 +9,6 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.openapi.util.SystemInfo
-import com.intellij.ui.components.JBTabbedPane
 import com.intellij.ui.dsl.builder.panel
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentElementId
@@ -317,14 +316,11 @@ class AyuIslandsChromePanelTest {
     }
 
     @Test
-    fun `root Settings DialogPanel observes integrated Chrome Tinting tab changes`() {
+    fun `Settings configurable observes Chrome Tinting tab changes through built panels`() {
+        val configurable = AyuIslandsConfigurable()
         val chromePanel = AyuIslandsChromePanel()
         val chromeTabPanel = buildPanel(chromePanel, AyuVariant.DARK)
-        val tabs =
-            JBTabbedPane().apply {
-                addTab("Accent", chromeTabPanel)
-            }
-        val rootPanel = buildRootPanelForTest(tabs, listOf(chromeTabPanel))
+        replaceBuiltPanels(configurable, listOf(chromePanel))
         val statusBarCheckbox = statusBarCheckboxIn(chromeTabPanel)
 
         statusBarCheckbox.doClick()
@@ -338,8 +334,8 @@ class AyuIslandsChromePanelTest {
             "Chrome tab DialogPanel must observe Chrome Tinting changes",
         )
         assertTrue(
-            rootPanel.isModified(),
-            "Root DialogPanel must observe Chrome Tinting changes so the Settings Apply button enables",
+            configurable.isModified(),
+            "Settings Configurable must observe Chrome Tinting changes so the Apply button enables",
         )
     }
 
@@ -917,20 +913,13 @@ class AyuIslandsChromePanelTest {
         }
     }
 
-    private fun buildRootPanelForTest(
-        tabs: JBTabbedPane,
-        integratedPanels: List<DialogPanel>,
-    ): DialogPanel {
-        val method =
-            AyuIslandsConfigurable::class.java.getDeclaredMethod(
-                "buildRootPanel",
-                String::class.java,
-                AyuVariant::class.java,
-                JBTabbedPane::class.java,
-                List::class.java,
-            )
-        method.isAccessible = true
-        return method.invoke(AyuIslandsConfigurable(), "test", AyuVariant.DARK, tabs, integratedPanels) as DialogPanel
+    private fun replaceBuiltPanels(
+        configurable: AyuIslandsConfigurable,
+        panels: List<AyuIslandsSettingsPanel>,
+    ) {
+        val field = AyuIslandsConfigurable::class.java.getDeclaredField("builtPanels")
+        field.isAccessible = true
+        field.set(configurable, panels)
     }
 
     private fun statusBarCheckboxIn(root: Container): JCheckBox =
