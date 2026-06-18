@@ -160,6 +160,26 @@ categories:
           keep the default dominance logic while still choosing a project
           fallback or forced language when needed.
 
+      - id: accent-source-status-widget
+        title: "Accent Source status-bar widget"
+        keyword: "status bar"
+        introduced: "2.7.5"
+        tier: paid
+        description: >
+          Pro users can add a status-bar widget that shows which accent
+          source won for the current project and opens the full resolution
+          chain.
+
+      - id: language-override-controls
+        title: "Language override controls"
+        keyword: "language override diagnostics"
+        introduced: "2.7.5"
+        tier: paid
+        description: >
+          Language accent detection shows dominance and fallback details in
+          Settings, and forced language or fallback choices take precedence
+          over the global accent.
+
       - id: chrome-tinting
         title: "Peacock-parity chrome tinting"
         keyword: "chrome tinting"
@@ -203,6 +223,16 @@ categories:
           workflows. Hide the widget from Settings → Ayu Islands →
           General. Premium-tier rows (related toggles + quick actions)
           appear inside the popup when the license is active or in trial.
+
+      - id: quick-switcher-accent-diagnostics
+        title: "Quick-Switcher accent diagnostics"
+        keyword: "Quick-Switcher Widget"
+        introduced: "2.7.5"
+        tier: free
+        description: >
+          The toolbar widget shows the resolved accent source inline, with
+          an expandable chain for project pins, language overrides,
+          fallbacks, external themes, and global accents.
 
       - id: external-theme-accent-inheritance
         title: "External theme accent inheritance"
@@ -470,6 +500,16 @@ categories:
         description: >
           Hand-tuned syntax highlighting for 40+ languages and formats,
           with Ayu palette defaults for anything unlisted.
+
+      - id: groovy-jenkinsfile-syntax-colors
+        title: "Groovy and Jenkinsfile syntax colors"
+        keyword: "40+ individually crafted language syntaxes"
+        introduced: "2.7.5"
+        tier: free
+        description: >
+          Groovy and Jenkinsfile roles have explicit Ayu colors across Dark,
+          Mirage, and Light, including methods, fields, map keys, strings,
+          GStrings, keywords, documentation, and inlay type hints.
 
       - id: terminal-scheme
         title: "16-color terminal scheme + VCS/diff palette"

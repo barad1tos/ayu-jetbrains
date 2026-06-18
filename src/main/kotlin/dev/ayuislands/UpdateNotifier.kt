@@ -55,6 +55,14 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.7.5" to
+                releaseNotes(
+                    "[Paid] Accent Source status-bar widget shows why the current accent won",
+                    "[Paid] Language override controls now show dominance and fallback details",
+                    "[Free] Quick-Switcher diagnostics and Groovy/Jenkinsfile colors are expanded",
+                    "[Fix] Widget buttons and Settings Apply now preserve chrome tinting choices",
+                    "[Fix] Language fallback precedence and pinned-tab Glow alignment are corrected",
+                ),
             "2.7.3" to
                 releaseNotes(
                     "Syntax preview highlighting now updates reliably when switching presets and readability options",
