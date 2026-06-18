@@ -33,9 +33,9 @@ import kotlin.test.assertTrue
  * User-space + algorithmic coverage for [PanelBorderElement].
  *
  * Two invariants lock this element in addition to the standard apply/revert shape:
- * 1. `OnePixelDivider.background` is NEVER in `uiKeys` (AccentApplicator owns it).
- * 2. `uiKeys` has no overlap with [AccentApplicator.ALWAYS_ON_UI_KEYS] - double
- *    writers on the same UIManager key would make revert ambiguous (whose null wins).
+ * 1. `OnePixelDivider.background` is never written via UIManager keys.
+ * 2. `uiKeys` has no overlap with [AccentApplicator.ALWAYS_ON_UI_KEYS] - blind
+ *    always-on writes to shared peer keys would leak into editor splitters.
  */
 class PanelBorderElementTest {
     private val mockApplication = mockk<Application>(relaxed = true)
@@ -146,13 +146,12 @@ class PanelBorderElementTest {
     }
 
     @Test
-    fun `uiKeys never contains OnePixelDivider-background - AccentApplicator owns it`() {
+    fun `uiKeys never contains OnePixelDivider-background`() {
         val element = PanelBorderElement()
 
         assertFalse(
             "OnePixelDivider.background" in element.uiKeys,
-            "OnePixelDivider.background is owned by AccentApplicator.ALWAYS_ON_UI_KEYS; " +
-                "including it here would cause revert ambiguity (whose null wins)",
+            "PanelBorderElement must not write the shared OnePixelDivider UIManager key",
         )
     }
 

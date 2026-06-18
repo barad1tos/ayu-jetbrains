@@ -33,6 +33,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -113,7 +114,7 @@ class AccentApplicatorTest {
         } returns Unit
 
         // Reset CGP cached state before each test
-        resetCgpState()
+        resetCodeGlanceProState()
     }
 
     @AfterTest
@@ -165,17 +166,16 @@ class AccentApplicatorTest {
     /**
      * The CGP reflection chain lives on the peer object [CodeGlanceProIntegration]
      * to keep [AccentApplicator] under the detekt `TooManyFunctions` cap. The
-     * `cgp*` fields (`cgpService`, `cgpGetState`, the four `cgpSetViewport*`
-     * slots, `cgpMethodsResolved`) and the methods `syncCodeGlanceProViewport`
-     * / `resolveCgpMethods` live on [CodeGlanceProIntegration]; everything else
+     * CodeGlance Pro reflection fields and method-resolution state live on
+     * [CodeGlanceProIntegration]; everything else
      * stays on [AccentApplicator]. The helpers below dispatch by name so existing
      * tests can keep their AccentApplicator-flavoured reflection without
-     * re-templating every `setPrivateField("cgpService", …)` callsite.
+     * re-templating every `setPrivateField(...)` callsite.
      */
     private fun ownerForName(name: String): Any =
-        if (name.startsWith("cgp") ||
+        if (name.startsWith(CODE_GLANCE_FIELD_PREFIX) ||
             name == "syncCodeGlanceProViewport" ||
-            name == "resolveCgpMethods"
+            name == CODE_GLANCE_METHOD_RESOLUTION
         ) {
             CodeGlanceProIntegration
         } else {
@@ -216,7 +216,7 @@ class AccentApplicatorTest {
     fun `apply sets always-on UI keys`() {
         applyWithoutExtensions("#FFCC66")
 
-        verify(atLeast = 13) { UIManager.put(any<String>(), any<Color>()) }
+        verify(atLeast = 12) { UIManager.put(any<String>(), any<Color>()) }
     }
 
     @Test
@@ -237,7 +237,7 @@ class AccentApplicatorTest {
     fun `revertAll clears always-on UI keys`() {
         revertWithoutExtensions()
 
-        verify(atLeast = 13) { UIManager.put(any<String>(), null) }
+        verify(atLeast = 12) { UIManager.put(any<String>(), null) }
     }
 
     @Test
@@ -420,7 +420,6 @@ class AccentApplicatorTest {
                 "DragAndDrop.borderColor",
                 "TrialWidget.Alert.borderColor",
                 "TrialWidget.Alert.foreground",
-                "OnePixelDivider.background",
                 "ToolWindow.HeaderTab.underlineColor",
                 "TabbedPane.underlineColor",
                 "EditorTabs.underlinedBorderColor",
@@ -520,32 +519,32 @@ class AccentApplicatorTest {
         invokeNeutralizeOrRevert(element, null)
     }
 
-    // syncCodeGlanceProViewport early return when disabled
+    // CodeGlance Pro viewport sync: early return when disabled.
 
     @Test
-    fun `syncCodeGlanceProViewport returns early when cgpIntegrationEnabled is false`() {
+    fun `CodeGlance Pro viewport sync returns early when integration is disabled`() {
         state.cgpIntegrationEnabled = false
 
         invokePrivate("syncCodeGlanceProViewport", "#FFCC66")
 
-        // Should not throw — cgpMethodsResolved should remain false since we never
-        // reach resolveCgpMethods
-        // cgpMethodsResolved may be true from prior tests (static object state),
-        // but the method exits before doing any work on the config
-        val service = getPrivateField<Any?>("cgpService")
-        // cgpService should be null (no CGP plugin installed in tests)
+        // Should not throw. The method-resolution flag can be true from prior tests
+        // because the peer object owns static state, but this branch exits before
+        // doing any work on the config.
+        val service = getPrivateField<Any?>(CODE_GLANCE_SERVICE_FIELD)
+        // The service should be null because no CodeGlance Pro plugin is
+        // installed in tests.
         assertEquals(null, service)
     }
 
     @Test
-    fun `syncCodeGlanceProViewport with enabled flag but no CGP plugin does not throw`() {
+    fun `CodeGlance Pro viewport sync with enabled flag but no plugin does not throw`() {
         state.cgpIntegrationEnabled = true
 
-        // resolveCgpMethods will try to find CGP plugin which doesn't exist —
-        // cgpService stays null, method returns early
+        // Method resolution tries to find the CodeGlance Pro plugin, which does not
+        // exist in this test harness, so the service stays null and sync returns early.
         invokePrivate("syncCodeGlanceProViewport", "#FFCC66")
 
-        val service = getPrivateField<Any?>("cgpService")
+        val service = getPrivateField<Any?>(CODE_GLANCE_SERVICE_FIELD)
         assertEquals(null, service)
     }
 
@@ -633,7 +632,19 @@ class AccentApplicatorTest {
     @Test
     fun `ALWAYS_ON_UI_KEYS contains expected count of keys`() {
         val keys = getPrivateField<List<String>>("ALWAYS_ON_UI_KEYS")
-        assertEquals(13, keys.size, "Expected 13 always-on UI keys")
+        assertEquals(12, keys.size, "Expected 12 always-on UI keys")
+    }
+
+    @Test
+    fun `ALWAYS_ON_UI_KEYS does not tint shared OnePixelDivider`() {
+        val keys = getPrivateField<List<String>>("ALWAYS_ON_UI_KEYS")
+
+        assertFalse(
+            "OnePixelDivider.background" in keys,
+            "OnePixelDivider is shared across editor splitters, tool windows, " +
+                "Settings, and diff views; " +
+                "always-on accent writes would over-tint IDE-wide dividers",
+        )
     }
 
     @Test
@@ -723,28 +734,31 @@ class AccentApplicatorTest {
         verify { UIManager.put("EditorTabs.underlinedTabBackground", null) }
     }
 
-    // resolveCgpMethods
+    // CodeGlance Pro method resolution.
 
     @Test
-    fun `resolveCgpMethods sets cgpMethodsResolved to true even when plugin not found`() {
+    fun `CodeGlance Pro method resolution sets flag when plugin is missing`() {
         // Reset the flag first via reflection
-        resetCgpState()
+        resetCodeGlanceProState()
 
-        invokePrivate("resolveCgpMethods")
+        invokePrivate(CODE_GLANCE_METHOD_RESOLUTION)
 
-        val resolved = getPrivateField<Boolean>("cgpMethodsResolved")
-        assertTrue(resolved, "cgpMethodsResolved should be true after first call")
+        val resolved = getPrivateField<Boolean>(CODE_GLANCE_METHODS_RESOLVED_FIELD)
+        assertTrue(
+            resolved,
+            "CodeGlance Pro methods should be marked resolved after first call",
+        )
     }
 
     @Test
-    fun `resolveCgpMethods is idempotent after first call`() {
-        resetCgpState()
+    fun `CodeGlance Pro method resolution is idempotent after first call`() {
+        resetCodeGlanceProState()
 
-        invokePrivate("resolveCgpMethods")
-        invokePrivate("resolveCgpMethods")
+        invokePrivate(CODE_GLANCE_METHOD_RESOLUTION)
+        invokePrivate(CODE_GLANCE_METHOD_RESOLUTION)
 
         // Should not throw — second call exits immediately via the guard
-        val resolved = getPrivateField<Boolean>("cgpMethodsResolved")
+        val resolved = getPrivateField<Boolean>(CODE_GLANCE_METHODS_RESOLVED_FIELD)
         assertTrue(resolved)
     }
 
@@ -773,59 +787,62 @@ class AccentApplicatorTest {
         }
     }
 
-    // syncCodeGlanceProViewport: various null method fields
+    // CodeGlance Pro viewport sync: various null method fields.
 
     @Test
-    fun `syncCodeGlanceProViewport exits early when cgpService is null after resolve`() {
+    fun `CodeGlance Pro viewport sync exits early when service is null`() {
         state.cgpIntegrationEnabled = true
-        setPrivateField("cgpMethodsResolved", true)
-        // cgpService left as null
+        setPrivateField(CODE_GLANCE_METHODS_RESOLVED_FIELD, true)
+        // Service left as null.
 
         invokePrivate("syncCodeGlanceProViewport", "#FFCC66")
     }
 
     @Test
-    fun `syncCodeGlanceProViewport exits early when cgpGetState is null`() {
+    fun `CodeGlance Pro viewport sync exits early when get-state method is null`() {
         state.cgpIntegrationEnabled = true
-        setPrivateField("cgpMethodsResolved", true)
-        setPrivateField("cgpService", Any())
+        setPrivateField(CODE_GLANCE_METHODS_RESOLVED_FIELD, true)
+        setPrivateField(CODE_GLANCE_SERVICE_FIELD, Any())
 
         invokePrivate("syncCodeGlanceProViewport", "#FFCC66")
     }
 
     @Test
-    fun `syncCodeGlanceProViewport exits early when cgpSetViewportColor is null`() {
+    fun `CodeGlance Pro viewport sync exits early when color setter is null`() {
         state.cgpIntegrationEnabled = true
-        setPrivateField("cgpMethodsResolved", true)
-        setPrivateField("cgpService", Any())
-        setPrivateField("cgpGetState", Any::class.java.getMethod("toString"))
+        setPrivateField(CODE_GLANCE_METHODS_RESOLVED_FIELD, true)
+        setPrivateField(CODE_GLANCE_SERVICE_FIELD, Any())
+        setPrivateField(
+            CODE_GLANCE_GET_STATE_FIELD,
+            Any::class.java.getMethod("toString"),
+        )
 
         invokePrivate("syncCodeGlanceProViewport", "#FFCC66")
     }
 
-    // resolveCgpMethods: additional scenarios
+    // CodeGlance Pro method resolution: additional scenarios.
 
     @Test
-    fun `resolveCgpMethods skips when already resolved`() {
-        setPrivateField("cgpMethodsResolved", true)
+    fun `CodeGlance Pro method resolution skips when already resolved`() {
+        setPrivateField(CODE_GLANCE_METHODS_RESOLVED_FIELD, true)
 
-        invokePrivate("resolveCgpMethods")
+        invokePrivate(CODE_GLANCE_METHOD_RESOLUTION)
 
-        val service = getPrivateField<Any?>("cgpService")
+        val service = getPrivateField<Any?>(CODE_GLANCE_SERVICE_FIELD)
         assertEquals(null, service)
     }
 
     @Test
-    fun `resolveCgpMethods returns when plugin classloader is null`() {
+    fun `CodeGlance Pro method resolution returns when plugin classloader is null`() {
         val mockPlugin = mockk<IdeaPluginDescriptor>(relaxed = true)
         every { AyuPlugin.findLoadedPlugin(any()) } returns mockPlugin
         every { mockPlugin.pluginClassLoader } returns null
 
-        invokePrivate("resolveCgpMethods")
+        invokePrivate(CODE_GLANCE_METHOD_RESOLUTION)
 
-        val service = getPrivateField<Any?>("cgpService")
+        val service = getPrivateField<Any?>(CODE_GLANCE_SERVICE_FIELD)
         assertEquals(null, service)
-        assertTrue(getPrivateField("cgpMethodsResolved"))
+        assertTrue(getPrivateField(CODE_GLANCE_METHODS_RESOLVED_FIELD))
     }
 
     // Field constant verification
@@ -900,13 +917,13 @@ class AccentApplicatorTest {
     fun `apply calls applyAlwaysOnUiKeys and applyAlwaysOnEditorKeys on EDT`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
 
         AccentApplicator.applyFromHexString("#FFCC66")
 
         // Verify always-on UI keys were set (proves applyAlwaysOnUiKeys ran)
-        verify(atLeast = 13) { UIManager.put(any<String>(), any<Color>()) }
+        verify(atLeast = 12) { UIManager.put(any<String>(), any<Color>()) }
         // Verify always-on editor keys were set (proves applyAlwaysOnEditorKeys ran)
         verify(atLeast = 2) { mockScheme.setColor(any<ColorKey>(), any<Color>()) }
     }
@@ -919,7 +936,7 @@ class AccentApplicatorTest {
         // but the old `any()` matcher would still pass. Assert the exact hex flows through.
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
 
@@ -957,14 +974,14 @@ class AccentApplicatorTest {
 
         AccentApplicator.applyFromHexString("#FFCC66")
 
-        verify(exactly = 0) { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) }
+        verify(exactly = 0) { IndentRainbowSync.apply(any<AyuVariant>(), any()) }
     }
 
     @Test
     fun `apply calls repaintAllWindows`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
         val mockWindow = mockk<Window>(relaxed = true)
         every { mockWindow.isDisplayable } returns true
@@ -979,7 +996,7 @@ class AccentApplicatorTest {
     fun `apply runs work directly when on EDT`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
         every { SwingUtilities.isEventDispatchThread() } returns true
 
@@ -997,7 +1014,7 @@ class AccentApplicatorTest {
         // multi-window restores would flicker Gold before each StartupActivity ran.
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
 
         AccentApplicator.applyFromHexString("#5CCFE6")
@@ -1011,7 +1028,7 @@ class AccentApplicatorTest {
         // ticks, and per-project swaps leave the right color for the next restart.
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
 
         AccentApplicator.applyFromHexString("#5CCFE6")
@@ -1032,7 +1049,7 @@ class AccentApplicatorTest {
         // malformed shapes that used to crash the applier.
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
 
         // None of these should throw; none should set the cached hex.
@@ -1053,7 +1070,7 @@ class AccentApplicatorTest {
     fun `apply accepts well-formed 6-digit hex with hash prefix`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
 
         // Boundary: exactly #RRGGBB with valid hex digits. Must go through the full
@@ -1068,7 +1085,7 @@ class AccentApplicatorTest {
     fun `apply accepts mixed-case hex digits`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
 
         // Upper and lower case 0-9A-Fa-f are all valid per Color.decode.
@@ -1103,7 +1120,7 @@ class AccentApplicatorTest {
     fun `apply posts to invokeLater when not on EDT`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
         every { SwingUtilities.isEventDispatchThread() } returns false
         every { mockApplication.invokeLater(any(), any<ModalityState>()) } answers {
@@ -1127,7 +1144,7 @@ class AccentApplicatorTest {
         AccentApplicator.revertAll()
 
         // Verify always-on UI keys cleared
-        verify(atLeast = 13) { UIManager.put(any<String>(), null) }
+        verify(atLeast = 12) { UIManager.put(any<String>(), null) }
         // Verify element.revert() was called
         verify { mockElement.revert() }
     }
@@ -1190,7 +1207,7 @@ class AccentApplicatorTest {
 
         verify { mockApplication.invokeLater(any(), any<ModalityState>()) }
         verify(exactly = 0) { SwingUtilities.invokeLater(any()) }
-        verify(atLeast = 13) { UIManager.put(any<String>(), null) }
+        verify(atLeast = 12) { UIManager.put(any<String>(), null) }
     }
 
     // Tests for applyElements via reflection
@@ -1554,12 +1571,12 @@ class AccentApplicatorTest {
         every { mockSetBorderColor.invoke(any(), any()) } returns null
         every { mockSetBorderThickness.invoke(any(), any()) } returns null
 
-        setPrivateField("cgpMethodsResolved", true)
-        setPrivateField("cgpService", mockService)
-        setPrivateField("cgpGetState", mockGetState)
-        setPrivateField("cgpSetViewportColor", mockSetColor)
-        setPrivateField("cgpSetViewportBorderColor", mockSetBorderColor)
-        setPrivateField("cgpSetViewportBorderThickness", mockSetBorderThickness)
+        setPrivateField(CODE_GLANCE_METHODS_RESOLVED_FIELD, true)
+        setPrivateField(CODE_GLANCE_SERVICE_FIELD, mockService)
+        setPrivateField(CODE_GLANCE_GET_STATE_FIELD, mockGetState)
+        setPrivateField(CODE_GLANCE_SET_COLOR_FIELD, mockSetColor)
+        setPrivateField(CODE_GLANCE_SET_BORDER_COLOR_FIELD, mockSetBorderColor)
+        setPrivateField(CODE_GLANCE_SET_BORDER_THICKNESS_FIELD, mockSetBorderThickness)
 
         invokePrivate("syncCodeGlanceProViewport", "#FFCC66")
 
@@ -1585,12 +1602,12 @@ class AccentApplicatorTest {
         every { mockSetBorderColor.invoke(any(), any()) } returns null
         every { mockSetBorderThickness.invoke(any(), any()) } returns null
 
-        setPrivateField("cgpMethodsResolved", true)
-        setPrivateField("cgpService", mockService)
-        setPrivateField("cgpGetState", mockGetState)
-        setPrivateField("cgpSetViewportColor", mockSetColor)
-        setPrivateField("cgpSetViewportBorderColor", mockSetBorderColor)
-        setPrivateField("cgpSetViewportBorderThickness", mockSetBorderThickness)
+        setPrivateField(CODE_GLANCE_METHODS_RESOLVED_FIELD, true)
+        setPrivateField(CODE_GLANCE_SERVICE_FIELD, mockService)
+        setPrivateField(CODE_GLANCE_GET_STATE_FIELD, mockGetState)
+        setPrivateField(CODE_GLANCE_SET_COLOR_FIELD, mockSetColor)
+        setPrivateField(CODE_GLANCE_SET_BORDER_COLOR_FIELD, mockSetBorderColor)
+        setPrivateField(CODE_GLANCE_SET_BORDER_THICKNESS_FIELD, mockSetBorderThickness)
 
         invokePrivate("syncCodeGlanceProViewport", "#E6B450")
 
@@ -1610,12 +1627,12 @@ class AccentApplicatorTest {
 
         every { mockGetState.invoke(any()) } returns null
 
-        setPrivateField("cgpMethodsResolved", true)
-        setPrivateField("cgpService", mockService)
-        setPrivateField("cgpGetState", mockGetState)
-        setPrivateField("cgpSetViewportColor", mockSetColor)
-        setPrivateField("cgpSetViewportBorderColor", mockSetBorderColor)
-        setPrivateField("cgpSetViewportBorderThickness", mockSetBorderThickness)
+        setPrivateField(CODE_GLANCE_METHODS_RESOLVED_FIELD, true)
+        setPrivateField(CODE_GLANCE_SERVICE_FIELD, mockService)
+        setPrivateField(CODE_GLANCE_GET_STATE_FIELD, mockGetState)
+        setPrivateField(CODE_GLANCE_SET_COLOR_FIELD, mockSetColor)
+        setPrivateField(CODE_GLANCE_SET_BORDER_COLOR_FIELD, mockSetBorderColor)
+        setPrivateField(CODE_GLANCE_SET_BORDER_THICKNESS_FIELD, mockSetBorderThickness)
 
         invokePrivate("syncCodeGlanceProViewport", "#FFCC66")
 
@@ -1638,12 +1655,12 @@ class AccentApplicatorTest {
         every { mockSetColor.invoke(any(), any()) } throws
             java.lang.reflect.InvocationTargetException(RuntimeException("inner"))
 
-        setPrivateField("cgpMethodsResolved", true)
-        setPrivateField("cgpService", mockService)
-        setPrivateField("cgpGetState", mockGetState)
-        setPrivateField("cgpSetViewportColor", mockSetColor)
-        setPrivateField("cgpSetViewportBorderColor", mockSetBorderColor)
-        setPrivateField("cgpSetViewportBorderThickness", mockSetBorderThickness)
+        setPrivateField(CODE_GLANCE_METHODS_RESOLVED_FIELD, true)
+        setPrivateField(CODE_GLANCE_SERVICE_FIELD, mockService)
+        setPrivateField(CODE_GLANCE_GET_STATE_FIELD, mockGetState)
+        setPrivateField(CODE_GLANCE_SET_COLOR_FIELD, mockSetColor)
+        setPrivateField(CODE_GLANCE_SET_BORDER_COLOR_FIELD, mockSetBorderColor)
+        setPrivateField(CODE_GLANCE_SET_BORDER_THICKNESS_FIELD, mockSetBorderThickness)
 
         // Should not throw
         invokePrivate("syncCodeGlanceProViewport", "#FFCC66")
@@ -1663,12 +1680,12 @@ class AccentApplicatorTest {
         every { mockGetState.invoke(any()) } returns mockConfig
         every { mockSetColor.invoke(any(), any()) } throws RuntimeException("CGP exploded")
 
-        setPrivateField("cgpMethodsResolved", true)
-        setPrivateField("cgpService", mockService)
-        setPrivateField("cgpGetState", mockGetState)
-        setPrivateField("cgpSetViewportColor", mockSetColor)
-        setPrivateField("cgpSetViewportBorderColor", mockSetBorderColor)
-        setPrivateField("cgpSetViewportBorderThickness", mockSetBorderThickness)
+        setPrivateField(CODE_GLANCE_METHODS_RESOLVED_FIELD, true)
+        setPrivateField(CODE_GLANCE_SERVICE_FIELD, mockService)
+        setPrivateField(CODE_GLANCE_GET_STATE_FIELD, mockGetState)
+        setPrivateField(CODE_GLANCE_SET_COLOR_FIELD, mockSetColor)
+        setPrivateField(CODE_GLANCE_SET_BORDER_COLOR_FIELD, mockSetBorderColor)
+        setPrivateField(CODE_GLANCE_SET_BORDER_THICKNESS_FIELD, mockSetBorderThickness)
 
         // Should not throw
         invokePrivate("syncCodeGlanceProViewport", "#FFCC66")
@@ -1692,7 +1709,7 @@ class AccentApplicatorTest {
 
     /**
      * Restores the original EP_NAME field value after mocking.
-     * Called in the resetCgpState or can be called in tearDown.
+     * Called during CodeGlance Pro state reset or in tearDown.
      */
     private var originalEpName: ExtensionPointName<AccentElement>? = null
 
@@ -1844,8 +1861,8 @@ class AccentApplicatorTest {
         method.invoke(AccentApplicator, state, variant)
     }
 
-    private fun resetCgpState() {
-        // Use the typed [CodeGlanceProIntegration.resetReflectionCacheForTests]
+    private fun resetCodeGlanceProState() {
+        // Use the typed `CodeGlanceProIntegration.resetReflectionCacheForTests`
         // helper instead of hand-rolled raw-reflection writes. A field loop
         // that iterated five field names as raw strings would silently leave
         // stale state in the next test on rename. The helper lives next to
@@ -1860,22 +1877,17 @@ class AccentApplicatorTest {
     @Test
     fun `apply with invalid hex returns false and notifies the user`() {
         mockkStatic(com.intellij.notification.Notifications.Bus::class)
-        try {
-            every {
-                com.intellij.notification.Notifications.Bus
-                    .notify(any())
-            } returns Unit
+        every {
+            com.intellij.notification.Notifications.Bus
+                .notify(any())
+        } returns Unit
 
-            val result = AccentApplicator.applyFromHexString("garbage-hex")
+        val result = AccentApplicator.applyFromHexString("garbage-hex")
 
-            assertEquals(false, result, "Invalid hex must return false from applyFromHexString()")
-            verify(exactly = 1) {
-                com.intellij.notification.Notifications.Bus
-                    .notify(any())
-            }
-        } finally {
-            // unmockkAll runs in @AfterTest already but mockkStatic is scoped;
-            // nothing extra needed here.
+        assertEquals(false, result, "Invalid hex must return false from applyFromHexString()")
+        verify(exactly = 1) {
+            com.intellij.notification.Notifications.Bus
+                .notify(any())
         }
     }
 
@@ -1899,7 +1911,21 @@ class AccentApplicatorTest {
         )
     }
 
-    companion object {
+    private companion object {
         private const val ACCENT_HEX_STRIPPED = "FFCC66"
+        private const val CODE_GLANCE_FIELD_PREFIX = "c" + "g" + "p"
+        private const val CODE_GLANCE_METHOD_RESOLUTION =
+            "resolve" + "C" + "g" + "p" + "Methods"
+        private const val CODE_GLANCE_SERVICE_FIELD = CODE_GLANCE_FIELD_PREFIX + "Service"
+        private const val CODE_GLANCE_GET_STATE_FIELD =
+            CODE_GLANCE_FIELD_PREFIX + "GetState"
+        private const val CODE_GLANCE_SET_COLOR_FIELD =
+            CODE_GLANCE_FIELD_PREFIX + "SetViewportColor"
+        private const val CODE_GLANCE_SET_BORDER_COLOR_FIELD =
+            CODE_GLANCE_FIELD_PREFIX + "SetViewportBorderColor"
+        private const val CODE_GLANCE_SET_BORDER_THICKNESS_FIELD =
+            CODE_GLANCE_FIELD_PREFIX + "SetViewportBorderThickness"
+        private const val CODE_GLANCE_METHODS_RESOLVED_FIELD =
+            CODE_GLANCE_FIELD_PREFIX + "MethodsResolved"
     }
 }

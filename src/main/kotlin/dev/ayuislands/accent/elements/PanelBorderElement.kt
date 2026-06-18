@@ -13,10 +13,11 @@ private val panelBorderFirstApplyLogged = AtomicBoolean(false)
  * Tints panel / tool-window borders. This element has no foreground —
  * [foregroundKeys] is intentionally empty.
  *
- * NB: `OnePixelDivider.background` is deliberately excluded — it is already
- * managed by [dev.ayuislands.accent.AccentApplicator]'s `ALWAYS_ON_UI_KEYS`
- * list. Double-writing from two sources would make revert ambiguous (whose
- * null wins?), so this element owns only the tool-window-level border keys.
+ * NB: `OnePixelDivider.background` is deliberately excluded from UIManager
+ * writes. `OnePixelDivider` is shared across editor splitters, tool-window
+ * dividers, Settings, and diff views, so blind UIManager accent writes leak
+ * into unrelated surfaces. This element owns only the tool-window-level border
+ * keys and refreshes live dividers through the ancestor-scoped peer target.
  *
  * Intensity is read directly from [dev.ayuislands.settings.AyuIslandsSettings.state].
  *
