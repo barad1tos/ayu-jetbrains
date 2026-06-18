@@ -11,11 +11,15 @@ import com.intellij.openapi.ui.popup.JBPopupListener
 import dev.ayuislands.AyuLaf
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentContext
+import dev.ayuislands.accent.AccentResolutionChain
+import dev.ayuislands.accent.AccentResolutionStep
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.StepOutcome
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import io.mockk.CapturingSlot
 import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
@@ -25,6 +29,10 @@ import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
+import java.awt.Component
+import java.awt.Container
+import javax.swing.AbstractButton
+import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
@@ -91,6 +99,25 @@ class QuickSwitcherPopupTest {
     }
 
     @Test
+    fun `show renders accent diagnostics inline in popup content`() {
+        val chain = polyglotFallbackChain()
+        stubPopupBodyDependencies(chain = chain)
+        val contentSlot = slot<JComponent>()
+        stubPopupBuilder(contentSlot)
+
+        QuickSwitcherPopup.show(JLabel())
+
+        verify(exactly = 1) {
+            AccentResolver.resolveChain(
+                null,
+                any<AccentContext>(),
+            )
+        }
+        val texts = contentSlot.captured.visibleTexts()
+        assertTrue(texts.contains("Show resolution chain..."))
+    }
+
+    @Test
     fun `show toggles chip popup-attached ring while popup is open`() {
         stubPopupBodyDependencies()
         val (_, popup) = stubPopupBuilder()
@@ -101,20 +128,30 @@ class QuickSwitcherPopupTest {
         QuickSwitcherPopup.show(JLabel(), chip)
 
         verify(exactly = 1) { popup.addListener(any()) }
-        assertFalse(chip.isPopupAttached, "Chip must stay detached until popup listener fires")
+        assertFalse(
+            chip.isPopupAttached,
+            "Chip must stay detached until popup listener fires",
+        )
 
         listenerSlot.captured.beforeShown(mockk(relaxed = true))
         SwingUtilities.invokeAndWait { }
-        assertTrue(chip.isPopupAttached, "Chip must render attached ring while popup is open")
+        assertTrue(
+            chip.isPopupAttached,
+            "Chip must render attached ring while popup is open",
+        )
 
         listenerSlot.captured.onClosed(mockk(relaxed = true))
         SwingUtilities.invokeAndWait { }
-        assertFalse(chip.isPopupAttached, "Chip must clear attached ring after popup closes")
+        assertFalse(
+            chip.isPopupAttached,
+            "Chip must clear attached ring after popup closes",
+        )
     }
 
     private fun stubPopupBodyDependencies(
         context: AccentContext = AccentContext.Ayu(AyuVariant.MIRAGE),
         detectedVariant: AyuVariant? = AyuVariant.MIRAGE,
+        chain: AccentResolutionChain = polyglotFallbackChain(),
     ) {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns detectedVariant
@@ -126,6 +163,7 @@ class QuickSwitcherPopupTest {
         mockkObject(AccentResolver)
         every { AccentResolver.resolve(any(), any<AccentContext>()) } returns "#FFB454"
         every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFB454"
+        every { AccentResolver.resolveChain(any(), any<AccentContext>()) } returns chain
         // VariantSwitcherRow reads the active theme name during construction.
         mockkStatic(LafManager::class)
         val lafManager = mockk<LafManager>(relaxed = true)
@@ -143,16 +181,25 @@ class QuickSwitcherPopupTest {
         mockkStatic(ApplicationManager::class)
         val mockApp = mockk<Application>(relaxed = true)
         every { ApplicationManager.getApplication() } returns mockApp
-        every { mockApp.getService(ActionManager::class.java) } returns mockk<ActionManager>(relaxed = true)
+        val actionManager = mockk<ActionManager>(relaxed = true)
+        every { mockApp.getService(ActionManager::class.java) } returns actionManager
     }
 
-    private fun stubPopupBuilder(): Pair<ComponentPopupBuilder, JBPopup> {
+    private fun stubPopupBuilder(
+        contentSlot: CapturingSlot<JComponent>? = null,
+    ): Pair<ComponentPopupBuilder, JBPopup> {
         mockkStatic(JBPopupFactory::class)
         val factory = mockk<JBPopupFactory>(relaxed = true)
         val builder = mockk<ComponentPopupBuilder>(relaxed = true)
         val popup = mockk<JBPopup>(relaxed = true)
         every { JBPopupFactory.getInstance() } returns factory
-        every { factory.createComponentPopupBuilder(any(), any()) } returns builder
+        if (contentSlot == null) {
+            every { factory.createComponentPopupBuilder(any(), any()) } returns builder
+        } else {
+            every {
+                factory.createComponentPopupBuilder(capture(contentSlot), any())
+            } returns builder
+        }
         every { builder.setRequestFocus(any()) } returns builder
         every { builder.setCancelOnClickOutside(any()) } returns builder
         every { builder.setCancelOnWindowDeactivation(any()) } returns builder
@@ -162,4 +209,48 @@ class QuickSwitcherPopupTest {
         every { builder.createPopup() } returns popup
         return builder to popup
     }
+
+    private fun polyglotFallbackChain(): AccentResolutionChain {
+        val steps =
+            listOf(
+                AccentResolutionStep(
+                    source = AccentResolver.Source.PROJECT_OVERRIDE,
+                    hex = null,
+                    outcome = StepOutcome.NOT_SET,
+                    detail = "not set",
+                ),
+                AccentResolutionStep(
+                    source = AccentResolver.Source.LANGUAGE_OVERRIDE,
+                    hex = null,
+                    outcome = StepOutcome.NOT_DOMINANT,
+                    detail = "Kotlin 52%, Java 48%",
+                ),
+                AccentResolutionStep(
+                    source = AccentResolver.Source.PROJECT_FALLBACK,
+                    hex = "#FFB454",
+                    outcome = StepOutcome.WON,
+                    detail = "polyglot project",
+                ),
+            )
+        return AccentResolutionChain(steps = steps, winner = steps.last(), verdict = null)
+    }
+
+    private fun Component.visibleTexts(): List<String> =
+        descendants()
+            .filter { it.isVisible }
+            .mapNotNull { component ->
+                when (component) {
+                    is AbstractButton -> component.text
+                    is JLabel -> component.text
+                    else -> null
+                }?.takeIf { it.isNotBlank() }
+            }.toList()
+
+    private fun Component.descendants(): Sequence<Component> =
+        sequence {
+            yield(this@descendants)
+            if (this@descendants is Container) {
+                components.forEach { yieldAll(it.descendants()) }
+            }
+        }
 }

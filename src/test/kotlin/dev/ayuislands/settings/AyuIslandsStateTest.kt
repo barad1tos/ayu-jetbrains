@@ -101,6 +101,10 @@ class AyuIslandsStateTest {
     @Test
     fun `chrome tinting auxiliary defaults`() {
         val state = freshState()
+        assertTrue(
+            state.chromeTintingEnabled,
+            "chromeTintingEnabled defaults on so existing per-surface preferences keep working after upgrade",
+        )
         assertEquals(
             AyuIslandsState.DEFAULT_CHROME_TINT_INTENSITY,
             state.chromeTintIntensity,
@@ -109,6 +113,36 @@ class AyuIslandsStateTest {
         assertFalse(
             state.chromeTintingGroupExpanded,
             "chromeTintingGroupExpanded defaults collapsed (same shape as accentElementsGroupExpanded)",
+        )
+    }
+
+    @Test
+    fun `chrome master gate disables effective toggles without rewriting surface preferences`() {
+        val state = freshState()
+        state.chromeTintingEnabled = false
+        state.chromeStatusBar = true
+
+        assertFalse(
+            state.isToggleEnabled(AccentElementId.STATUS_BAR),
+            "Disabled chrome master gate must suppress effective status-bar tinting",
+        )
+        assertTrue(
+            state.chromeStatusBar,
+            "Disabled chrome master gate must preserve the status-bar preference",
+        )
+    }
+
+    @Test
+    fun `hasChromeTintingSurfaceEnabled reads raw surface preferences`() {
+        val state = freshState()
+        assertFalse(state.hasChromeTintingSurfaceEnabled())
+
+        state.chromeTintingEnabled = false
+        state.chromePanelBorder = true
+
+        assertTrue(
+            state.hasChromeTintingSurfaceEnabled(),
+            "Raw chrome surface preferences remain readable when the runtime master gate is off",
         )
     }
 

@@ -1,6 +1,6 @@
 # Single source of truth for Ayu Islands user-facing features.
 #
-# CI (scripts/verify-docs.py) enforces three invariants:
+# CI (scripts/verify-docs.py) enforces six invariants:
 #
 #   1. Every `keyword` in this file appears in README.md AND in the
 #      <description> CDATA of src/main/resources/META-INF/plugin.xml
@@ -15,6 +15,16 @@
 #      `screenshot.last_verified_sha` fails with "re-capture OR re-stamp".
 #      Plus a SHA-256 byte-hash guard that catches "bumped last_verified_sha
 #      but forgot to swap the image file".
+#
+#   4. Every `required_links` entry appears in its declared target file.
+#      Prevents public/community links from being dropped during README edits.
+#
+#   5. Every image asset is represented in `asset_inventory` and either
+#      referenced from its declared files or justified as intentionally
+#      unreferenced.
+#
+#   6. `release_sync` keeps plugin.xml <description> copy aligned with the
+#      last published Marketplace version unless the plugin version changes.
 #
 # When adding a feature: pick a distinctive keyword (short phrase that will
 # always appear verbatim in the marketing copy). When the UI changes: either
@@ -90,7 +100,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "b8a0ab23"
+          last_verified_sha: "b508a73"
           last_verified_date: "2026-06-15"
           content_sha256: "4c86c5d855c6dcefd703f647451bac4117397e435b05dd9cae6b9cbc7f479616"
 
@@ -112,7 +122,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "b8a0ab23"
+          last_verified_sha: "b508a73"
           last_verified_date: "2026-06-15"
           content_sha256: "ea83498db84a5cd122dd1d09132d74774c6e24295188b93464fddb0d784bf4e1"
 

@@ -32,6 +32,8 @@ repositories {
 }
 
 dependencies {
+    val kotestVersion = providers.gradleProperty("kotestVersion").get()
+
     intellijPlatform {
         intellijIdeaCommunity(providers.gradleProperty("platformVersion"))
         pluginVerifier()
@@ -39,7 +41,7 @@ dependencies {
     }
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testImplementation("io.mockk:mockk:${providers.gradleProperty("mockkVersion").get()}")
-    testImplementation("io.kotest:kotest-property-jvm:${providers.gradleProperty("kotestVersion").get()}")
+    testImplementation("io.kotest:kotest-property-jvm:$kotestVersion")
     testImplementation("junit:junit:${providers.gradleProperty("junitVersion").get()}")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testRuntimeOnly("org.junit.vintage:junit-vintage-engine")
@@ -147,11 +149,17 @@ intellijPlatform {
                     "A" -> setOf("A1", "A2")
                     "C" -> setOf("C")
                     in ideGroups.keys -> setOf(group)
-                    else -> error("Unknown verifyGroup '$group' — expected A1, A2, A, B, C, or unset")
+                    else ->
+                        error(
+                            "Unknown verifyGroup '$group' — expected A1, A2, A, B, C, or unset",
+                        )
                 }
-            wanted.filter { it in ideGroups }.flatMap { ideGroups.getValue(it) }.forEach { (type, version) ->
-                create(type, version)
-            }
+            wanted
+                .filter { it in ideGroups }
+                .flatMap { ideGroups.getValue(it) }
+                .forEach { (type, version) ->
+                    create(type, version)
+                }
             if ("C" in wanted) {
                 select {
                     types = listOf(IntelliJPlatformType.IntellijIdeaCommunity)

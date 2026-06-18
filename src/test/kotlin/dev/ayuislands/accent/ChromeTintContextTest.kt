@@ -148,6 +148,31 @@ class ChromeTintContextTest {
     }
 
     @Test
+    fun `isToggleEnabled respects snapshot chrome master gate`() {
+        val state =
+            AyuIslandsState().apply {
+                chromeTintingEnabled = true
+                chromeStatusBar = true
+            }
+        val snapshot =
+            chromeSnapshot(
+                chromeStatusBar = true,
+                chromeTintingEnabled = false,
+            )
+
+        ChromeTintContext.withSnapshot(snapshot) {
+            assertFalse(
+                ChromeTintContext.isToggleEnabled(state, AccentElementId.STATUS_BAR),
+                "Snapshot master gate must suppress chrome ids even when the surface is selected",
+            )
+        }
+        assertTrue(
+            ChromeTintContext.isToggleEnabled(state, AccentElementId.STATUS_BAR),
+            "State gate must reassert after the snapshot frame exits",
+        )
+    }
+
+    @Test
     fun `isToggleEnabled falls back to state for non-chrome ids even with active snapshot`() {
         // The snapshot owns CHROME ids only. Non-chrome ids
         // (Inlay hints, caret row, links, etc.) must still pull from state —
@@ -221,12 +246,12 @@ class ChromeTintContextTest {
 
     /**
      * Common-case snapshot factory. Defaults every chrome toggle to false; tests
-     * that need a specific toggle on construct [ChromeTintSnapshot] directly.
-     * Kept narrow (2 params) so detekt's `LongParameterList` rule stays happy.
+     * that need multiple chrome toggles on construct [ChromeTintSnapshot] directly.
      */
     private fun chromeSnapshot(
         intensityPercent: Int = 0,
         chromeStatusBar: Boolean = false,
+        chromeTintingEnabled: Boolean = true,
     ): ChromeTintSnapshot =
         ChromeTintSnapshot(
             chromeStatusBar = chromeStatusBar,
@@ -235,5 +260,6 @@ class ChromeTintContextTest {
             chromeNavBar = false,
             chromePanelBorder = false,
             intensity = TintIntensity.of(intensityPercent),
+            chromeTintingEnabled = chromeTintingEnabled,
         )
 }

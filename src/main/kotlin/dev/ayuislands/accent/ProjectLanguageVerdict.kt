@@ -5,7 +5,7 @@ package dev.ayuislands.accent
  * resolver fallback decisions. This is intentionally separate from
  * [ScanOutcome], which is a message-bus event payload.
  */
-internal sealed interface ProjectLanguageVerdict {
+sealed interface ProjectLanguageVerdict {
     /** No scan has produced a cache entry for this project key yet. */
     object Cold : ProjectLanguageVerdict
 

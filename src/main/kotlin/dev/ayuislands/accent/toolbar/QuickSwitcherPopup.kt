@@ -1,6 +1,7 @@
 package dev.ayuislands.accent.toolbar
 
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.JBPopupListener
@@ -14,13 +15,18 @@ import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentDefaults
+import dev.ayuislands.accent.AccentResolutionChain
+import dev.ayuislands.accent.AccentResolutionStep
 import dev.ayuislands.accent.AccentResolver
+import dev.ayuislands.accent.StepOutcome
 import dev.ayuislands.accent.toolbar.popup.AccentStripe
 import dev.ayuislands.accent.toolbar.popup.BlockSeparator
 import dev.ayuislands.accent.toolbar.popup.Density
 import dev.ayuislands.accent.toolbar.popup.SectionCard
 import dev.ayuislands.licensing.LicenseChecker
+import java.awt.BorderLayout
 import javax.swing.JComponent
+import javax.swing.JPanel
 import javax.swing.SwingUtilities
 
 /**
@@ -57,20 +63,36 @@ internal object QuickSwitcherPopup {
         chip: QuickSwitcherChipComponent? = null,
     ) {
         val context = AccentContext.detectQuickSwitcher() ?: return
+        val focusedProject = AccentApplicator.resolveFocusedProject()
 
         val accentGrid = QuickSwitcherAccentGrid()
+        val diagnosticsPanel =
+            QuickSwitcherAccentDiagnosticsPanel(
+                resolveCurrentAccentChain(focusedProject, context),
+            )
         val togglesSection = QuickSwitcherRelatedTogglesSection()
         val actionsRow = QuickSwitcherQuickActionsRow(anchor, context)
 
         val variantCard =
             when (context) {
                 is AccentContext.Ayu ->
-                    SectionCard("Variant").apply { setContent(VariantSwitcherRow(context.ayuVariant).component) }
+                    SectionCard("Variant").apply {
+                        setContent(VariantSwitcherRow(context.ayuVariant).component)
+                    }
                 AccentContext.External -> null
             }
-        val accentCard = SectionCard("Accent").apply { setContent(accentGrid.component) }
-        val togglesCard = SectionCard("Toggles").apply { setContent(togglesSection.component) }
-        val actionsCard = SectionCard("Actions").apply { setContent(actionsRow.component) }
+        val accentCard =
+            SectionCard("Accent").apply {
+                setContent(buildAccentContent(accentGrid.component, diagnosticsPanel))
+            }
+        val togglesCard =
+            SectionCard("Toggles").apply {
+                setContent(togglesSection.component)
+            }
+        val actionsCard =
+            SectionCard("Actions").apply {
+                setContent(actionsRow.component)
+            }
 
         val stripe = AccentStripe { resolveCurrentAccentHex(context) }
 
@@ -139,6 +161,42 @@ internal object QuickSwitcherPopup {
         } catch (exception: RuntimeException) {
             LOG.warn("AccentStripe resolve failed", exception)
             DEFAULT_ACCENT_FALLBACK
+        }
+
+    private fun resolveCurrentAccentChain(
+        project: Project?,
+        context: AccentContext,
+    ): AccentResolutionChain =
+        try {
+            AccentResolver.resolveChain(project, context)
+        } catch (exception: RuntimeException) {
+            LOG.warn("Accent diagnostics resolve failed", exception)
+            fallbackChain()
+        }
+
+    private fun fallbackChain(): AccentResolutionChain {
+        val winner =
+            AccentResolutionStep(
+                source = AccentResolver.Source.GLOBAL,
+                hex = DEFAULT_ACCENT_FALLBACK,
+                outcome = StepOutcome.WON,
+                detail = "Global fallback",
+            )
+        return AccentResolutionChain(
+            steps = listOf(winner),
+            winner = winner,
+            verdict = null,
+        )
+    }
+
+    private fun buildAccentContent(
+        accentGrid: JComponent,
+        diagnosticsPanel: JComponent,
+    ): JPanel =
+        JPanel(BorderLayout(0, JBUI.scale(Density.CARD_GAP))).apply {
+            isOpaque = false
+            add(accentGrid, BorderLayout.NORTH)
+            add(diagnosticsPanel, BorderLayout.CENTER)
         }
 
     /**

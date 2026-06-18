@@ -100,6 +100,9 @@
 # plugin.xml: action + CustomComponentAction (MainToolbarRight Quick-Switcher chip)
 -keep class dev.ayuislands.accent.toolbar.QuickSwitcherWidgetAction { *; }
 
+# plugin.xml: statusBarWidgetFactory (Accent diagnostics widget)
+-keep class dev.ayuislands.accent.statusbar.AccentStatusBarWidgetFactory { *; }
+
 # Public API singletons (called from kept classes)
 -keep class dev.ayuislands.accent.AccentApplicator { *; }
 -keep class dev.ayuislands.accent.AccentColor { *; }

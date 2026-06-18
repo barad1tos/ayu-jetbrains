@@ -2,6 +2,7 @@ package dev.ayuislands.settings
 
 import com.intellij.openapi.components.BaseState
 import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.AccentGroup
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.ExternalAccentSource
@@ -295,11 +296,12 @@ class AyuIslandsState : BaseState() {
     // Force overrides for conflicting elements (element ID names)
     var forceOverrides by stringSet()
 
-    // Chrome tinting: per-surface opt-in toggles and a global intensity.
+    // Chrome tinting: a runtime master gate, per-surface opt-in toggles, and a global intensity.
     // WCAG foreground contrast is always-on (no persisted toggle). CHROME-group
     // AccentElementIds are driven by these fields — NOT by the Elements-panel toggle
     // map — so they never leak into the VISUAL/INTERACTIVE checkbox list. Defaults
     // are all OFF (premium, opt-in).
+    var chromeTintingEnabled by property(true)
     var chromeStatusBar by property(false)
     var chromeMainToolbar by property(false)
     var chromeToolWindowStripe by property(false)
@@ -478,21 +480,18 @@ class AyuIslandsState : BaseState() {
     }
 
     fun isToggleEnabled(id: AccentElementId): Boolean =
-        when (id) {
-            AccentElementId.INLAY_HINTS -> inlayHints
-            AccentElementId.CARET_ROW -> caretRow
-            AccentElementId.PROGRESS_BAR -> progressBar
-            AccentElementId.SCROLLBAR -> scrollbar
-            AccentElementId.LINKS -> links
-            AccentElementId.BRACKET_MATCH -> bracketMatch
-            AccentElementId.SEARCH_RESULTS -> searchResults
-            AccentElementId.MATCHING_TAG -> matchingTag
-            AccentElementId.STATUS_BAR -> chromeStatusBar
-            AccentElementId.MAIN_TOOLBAR -> chromeMainToolbar
-            AccentElementId.TOOL_WINDOW_STRIPE -> chromeToolWindowStripe
-            AccentElementId.NAV_BAR -> chromeNavBar
-            AccentElementId.PANEL_BORDER -> chromePanelBorder
+        if (id.group == AccentGroup.CHROME) {
+            isChromeToggleEnabled(id)
+        } else {
+            isAccentElementEnabled(id)
         }
+
+    fun hasChromeTintingSurfaceEnabled(): Boolean =
+        chromeStatusBar ||
+            chromeMainToolbar ||
+            chromeToolWindowStripe ||
+            chromeNavBar ||
+            chromePanelBorder
 
     fun setToggle(
         id: AccentElementId,
@@ -643,3 +642,26 @@ class AyuIslandsState : BaseState() {
         const val MAX_CHROME_TINT_INTENSITY = 50
     }
 }
+
+private fun AyuIslandsState.isAccentElementEnabled(id: AccentElementId): Boolean =
+    when (id) {
+        AccentElementId.INLAY_HINTS -> inlayHints
+        AccentElementId.CARET_ROW -> caretRow
+        AccentElementId.PROGRESS_BAR -> progressBar
+        AccentElementId.SCROLLBAR -> scrollbar
+        AccentElementId.LINKS -> links
+        AccentElementId.BRACKET_MATCH -> bracketMatch
+        AccentElementId.SEARCH_RESULTS -> searchResults
+        AccentElementId.MATCHING_TAG -> matchingTag
+        else -> false
+    }
+
+private fun AyuIslandsState.isChromeToggleEnabled(id: AccentElementId): Boolean =
+    when (id) {
+        AccentElementId.STATUS_BAR -> chromeTintingEnabled && chromeStatusBar
+        AccentElementId.MAIN_TOOLBAR -> chromeTintingEnabled && chromeMainToolbar
+        AccentElementId.TOOL_WINDOW_STRIPE -> chromeTintingEnabled && chromeToolWindowStripe
+        AccentElementId.NAV_BAR -> chromeTintingEnabled && chromeNavBar
+        AccentElementId.PANEL_BORDER -> chromeTintingEnabled && chromePanelBorder
+        else -> false
+    }
