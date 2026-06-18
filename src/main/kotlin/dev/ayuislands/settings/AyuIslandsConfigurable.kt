@@ -91,7 +91,6 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         }
 
         val contentTabs = buildContentTabs(variant, effectiveVariant, activePanels)
-        val integratedPanels = contentTabs.mapNotNull { it.second as? DialogPanel }
         builtPanels = activePanels
 
         val settings = AyuIslandsSettings.getInstance()
@@ -105,7 +104,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                 AyuIslandsSettings.getInstance().state.settingsSelectedTab = selectedIndex
             }
 
-        return buildRootPanel(pluginVersion, variant, tabs, integratedPanels)
+        return buildRootPanel(pluginVersion, variant, tabs)
     }
 
     private fun configureAyuPanelComposition(variant: AyuVariant) {
@@ -244,7 +243,6 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         pluginVersion: String,
         variant: AyuVariant?,
         tabs: JBTabbedPane,
-        integratedPanels: List<DialogPanel>,
     ): DialogPanel =
         panel {
             row {
@@ -273,8 +271,6 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                     .resizableColumn()
                     .align(Align.FILL)
             }
-        }.also { rootPanel ->
-            integratedPanels.forEach(rootPanel::registerIntegratedPanel)
         }
 
     private fun Panel.buildAyuThemeRequiredMessage(sectionName: String) {

@@ -166,6 +166,21 @@ class AyuIslandsConfigurableChromeWiringTest {
     }
 
     @Test
+    fun `Configurable bytecode avoids internal DialogPanel integration API`() {
+        val classBytes =
+            AyuIslandsConfigurable::class.java
+                .getResourceAsStream("AyuIslandsConfigurable.class")
+                ?.readAllBytes()
+                ?: error("AyuIslandsConfigurable.class must be loadable for bytecode inspection")
+        val classText = String(classBytes, Charsets.ISO_8859_1)
+
+        assertFalse(
+            classText.contains("registerIntegratedPanel"),
+            "Settings lifecycle must flow through builtPanels, not DialogPanel.registerIntegratedPanel",
+        )
+    }
+
+    @Test
     fun `Configurable bytecode wires chromePanel to afterOverridesInjection not before`() {
         // Regression guard for the Chrome Tinting placement: chrome moved from
         // BEFORE Overrides to AFTER Overrides by rewiring the
