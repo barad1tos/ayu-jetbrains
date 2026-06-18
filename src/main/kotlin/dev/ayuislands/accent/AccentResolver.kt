@@ -66,6 +66,8 @@ object AccentResolver {
 
     private fun uiColor(key: String): Color? = uiColorProviderOverride.get()?.invoke(key) ?: UIManager.getColor(key)
 
+    internal fun uiColorForDiagnostics(key: String): Color? = uiColor(key)
+
     /**
      * Resolves the effective accent hex. Delegates to the shared override-traversal helper,
      * falling back to the global per-variant accent when no override applies.
@@ -96,6 +98,34 @@ object AccentResolver {
     ): Source = resolveContext(project, context).source
 
     /**
+     * Returns the full resolution decision trace for [project] in the given
+     * [variant]. Each step records which [Source] was considered, what hex
+     * it would have produced, the [StepOutcome] explaining why it won or lost,
+     * and a human-readable detail string.
+     *
+     * The returned [AccentResolutionChain.winner] is always one of the
+     * [AccentResolutionChain.steps] — the global fallback always wins if no
+     * override does.
+     *
+     * Unlicensed callers see [StepOutcome.LICENSE_BLOCKED] for all premium
+     * sources and [StepOutcome.WON] for [Source.GLOBAL], mirroring the license
+     * gate in [resolve].
+     */
+    fun resolveChain(
+        project: Project?,
+        variant: AyuVariant,
+    ): AccentResolutionChain = AccentResolutionChainBuilder.resolveAyu(project, variant)
+
+    fun resolveChain(
+        project: Project?,
+        context: AccentContext,
+    ): AccentResolutionChain =
+        when (context) {
+            is AccentContext.Ayu -> AccentResolutionChainBuilder.resolveAyu(project, context.ayuVariant)
+            AccentContext.External -> AccentResolutionChainBuilder.resolveExternal(project)
+        }
+
+    /**
      * Human-readable label for [source], suitable for tooltips and Settings
      * "Currently active: …" readouts. The quick-switcher chip tooltip
      * (`"{hex} — {label}"`) consumes this label; the `AyuIslandsAccentPanel`
@@ -121,22 +151,7 @@ object AccentResolver {
             Source.GLOBAL -> "Global"
         }
 
-    private fun resolveContext(
-        project: Project?,
-        context: AccentContext,
-    ): ResolvedAccent =
-        when (context) {
-            is AccentContext.Ayu -> resolveAyu(project, context.ayuVariant)
-            AccentContext.External -> resolveExternal(project)
-        }
-
-    private fun resolveAyu(
-        project: Project?,
-        variant: AyuVariant,
-    ): ResolvedAccent {
-        val globalAccent = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
-        return findOverride(project, validateHex = false) ?: ResolvedAccent(Source.GLOBAL, globalAccent)
-    }
+    // UI-color-dependent helpers stay in this object for uiColorProviderOverride access.
 
     private fun resolveExternal(project: Project?): ResolvedAccent {
         val state = AyuIslandsSettings.getInstance().state
@@ -156,10 +171,22 @@ object AccentResolver {
         source: Source,
     ): ResolvedAccent? = uiColor(key)?.let { ResolvedAccent(source, it.toHex()) }
 
-    private fun storedExternalAccent(state: AyuIslandsState): ResolvedAccent {
-        val hex = AccentHex.of(state.externalThemeAccent)?.value ?: AyuVariant.MIRAGE.defaultAccent
-        return ResolvedAccent(Source.EXTERNAL_ACCENT, hex)
+    private fun resolveAyu(
+        project: Project?,
+        variant: AyuVariant,
+    ): ResolvedAccent {
+        val globalAccent = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
+        return findOverride(project, validateHex = false) ?: ResolvedAccent(Source.GLOBAL, globalAccent)
     }
+
+    private fun resolveContext(
+        project: Project?,
+        context: AccentContext,
+    ): ResolvedAccent =
+        when (context) {
+            is AccentContext.Ayu -> resolveAyu(project, context.ayuVariant)
+            AccentContext.External -> resolveExternal(project)
+        }
 
     private fun findOverride(
         project: Project?,
@@ -323,8 +350,6 @@ object AccentResolver {
         }
     }
 
-    private fun Color.toHex(): String = "#%02X%02X%02X".format(Locale.ROOT, red, green, blue)
-
     /**
      * One-shot per-project warn gate. [tryAcquire] returns `true` the first time a given
      * project is seen and `false` on every subsequent call — so hot-path callers can emit
@@ -355,6 +380,8 @@ object AccentResolver {
     private const val COMPONENT_ACCENT_KEY = "Component.accentColor"
     private const val ACTIONS_BLUE_KEY = "Actions.Blue"
 }
+
+private fun Color.toHex(): String = "#%02X%02X%02X".format(Locale.ROOT, red, green, blue)
 
 private data class LanguageOverrideRequest(
     val languageAccents: Map<String, String>,
@@ -404,4 +431,9 @@ private fun overrideAccent(
         return ResolvedAccent(source, rawHex)
     }
     return null
+}
+
+private fun storedExternalAccent(state: AyuIslandsState): ResolvedAccent {
+    val hex = AccentHex.of(state.externalThemeAccent)?.value ?: AyuVariant.MIRAGE.defaultAccent
+    return ResolvedAccent(AccentResolver.Source.EXTERNAL_ACCENT, hex)
 }

@@ -4,6 +4,7 @@ import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.options.BoundConfigurable
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.ui.DialogPanel
 import com.intellij.openapi.ui.Messages
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTabbedPane
@@ -79,7 +80,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
             pluginsPanel,
         )
 
-    override fun createPanel(): com.intellij.openapi.ui.DialogPanel {
+    override fun createPanel(): DialogPanel {
         val pluginVersion = resolvePluginVersion()
         val variant = AyuVariant.detect()
         val effectiveVariant = variant ?: AyuVariant.MIRAGE
@@ -90,6 +91,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         }
 
         val contentTabs = buildContentTabs(variant, effectiveVariant, activePanels)
+        val integratedPanels = contentTabs.mapNotNull { it.second as? DialogPanel }
         builtPanels = activePanels
 
         val settings = AyuIslandsSettings.getInstance()
@@ -103,7 +105,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                 AyuIslandsSettings.getInstance().state.settingsSelectedTab = selectedIndex
             }
 
-        return buildRootPanel(pluginVersion, variant, tabs)
+        return buildRootPanel(pluginVersion, variant, tabs, integratedPanels)
     }
 
     private fun configureAyuPanelComposition(variant: AyuVariant) {
@@ -155,7 +157,9 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
             } else {
                 accentPanel.buildPanel(this@panel, variant)
                 elementsPanel.buildPanel(this@panel, variant)
+                activePanels += appearancePanel
                 activePanels += accentPanel
+                activePanels += chromePanel
                 activePanels += elementsPanel
                 buildResetAllSettingsRow()
             }
@@ -240,7 +244,8 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         pluginVersion: String,
         variant: AyuVariant?,
         tabs: JBTabbedPane,
-    ): com.intellij.openapi.ui.DialogPanel =
+        integratedPanels: List<DialogPanel>,
+    ): DialogPanel =
         panel {
             row {
                 scaleIcon()?.let { icon(it) }
@@ -268,6 +273,8 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                     .resizableColumn()
                     .align(Align.FILL)
             }
+        }.also { rootPanel ->
+            integratedPanels.forEach(rootPanel::registerIntegratedPanel)
         }
 
     private fun Panel.buildAyuThemeRequiredMessage(sectionName: String) {

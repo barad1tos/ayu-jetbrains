@@ -1,6 +1,6 @@
 # Single source of truth for Ayu Islands user-facing features.
 #
-# CI (scripts/verify-docs.py) enforces three invariants:
+# CI (scripts/verify-docs.py) enforces six invariants:
 #
 #   1. Every `keyword` in this file appears in README.md AND in the
 #      <description> CDATA of src/main/resources/META-INF/plugin.xml
@@ -15,6 +15,16 @@
 #      `screenshot.last_verified_sha` fails with "re-capture OR re-stamp".
 #      Plus a SHA-256 byte-hash guard that catches "bumped last_verified_sha
 #      but forgot to swap the image file".
+#
+#   4. Every `required_links` entry appears in its declared target file.
+#      Prevents public/community links from being dropped during README edits.
+#
+#   5. Every image asset is represented in `asset_inventory` and either
+#      referenced from its declared files or justified as intentionally
+#      unreferenced.
+#
+#   6. `release_sync` keeps plugin.xml <description> copy aligned with the
+#      last published Marketplace version unless the plugin version changes.
 #
 # When adding a feature: pick a distinctive keyword (short phrase that will
 # always appear verbatim in the marketing copy). When the UI changes: either

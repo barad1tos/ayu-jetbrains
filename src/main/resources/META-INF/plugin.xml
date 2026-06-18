@@ -372,6 +372,11 @@
                        path="/themes/ayu-islands-light.theme.json"/>
         <themeProvider id="com.ayuislands.theme.light.islands"
                        path="/themes/ayu-islands-light-islands.theme.json"/>
+
+        <!-- Accent source status bar widget (premium) -->
+        <statusBarWidgetFactory
+                id="AyuIslands.AccentStatusBar"
+                implementation="dev.ayuislands.accent.statusbar.AccentStatusBarWidgetFactory"/>
     </extensions>
 
     <applicationListeners>

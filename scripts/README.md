@@ -13,8 +13,9 @@ and where appropriate into `.pre-commit-config.yaml`.
 
 ### `verify-docs.py` — docs drift detector
 
-Enforces three invariants between `docs/features.yml`, `README.md`,
-`src/main/resources/META-INF/plugin.xml`, and `CHANGELOG.md`:
+Enforces six invariants between `docs/features.yml`, `README.md`,
+`src/main/resources/META-INF/plugin.xml`, `CHANGELOG.md`, declared assets,
+and release metadata:
 
 1. **Keyword coverage** — every feature's keyword appears in both
    `README.md` and the `<description>` CDATA of `plugin.xml`.
@@ -23,10 +24,17 @@ Enforces three invariants between `docs/features.yml`, `README.md`,
 3. **Screenshot freshness** — for every feature with a `screenshot` block,
    the declared Kotlin `sources` are unchanged since `last_verified_sha`
    and the file's SHA-256 matches `content_sha256`.
+4. **Required links** — every `required_links` substring appears in its
+   declared target file.
+5. **Asset inventory** — every image asset is listed and either referenced
+   from its declared files or justified as intentionally unreferenced.
+6. **Marketplace release sync** — `plugin.xml` description copy must match
+   the last published hash while the plugin version remains unchanged.
 
 ```bash
 scripts/verify-docs.py                 # lint (used by CI + pre-commit)
 scripts/verify-docs.py --update-hashes # recompute content_sha256 after re-capture
+scripts/verify-docs.py --restamp       # rebind orphaned last_verified_sha values
 ```
 
 Deps: `pyyaml`. Invoked via uv shebang.

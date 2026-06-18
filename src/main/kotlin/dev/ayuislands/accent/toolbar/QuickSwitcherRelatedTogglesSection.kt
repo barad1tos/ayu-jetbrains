@@ -2,8 +2,6 @@ package dev.ayuislands.accent.toolbar
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.ui.dsl.builder.bindSelected
-import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentContext
@@ -12,66 +10,41 @@ import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.toolbar.popup.Density
 import dev.ayuislands.accent.toolbar.popup.ToggleSwitch
 import dev.ayuislands.accent.toolbar.popup.ToggleTile
+import dev.ayuislands.glow.GlowOverlayManager
+import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.GridLayout
 import javax.swing.Icon
-import javax.swing.JCheckBox
 import javax.swing.JComponent
 import javax.swing.JPanel
 
 /**
  * 2-column × 2-row grid of [ToggleTile] composites (icon + label +
- * [ToggleSwitch]) — replaces an earlier vertical [JCheckBox] stack.
+ * [ToggleSwitch]) — replaces an earlier vertical checkbox stack.
  *
- * "Chrome tinting" binds to `state.chromeStatusBar` ONLY (the most user-visible
- * chrome surface); the full 5-surface granularity stays in Settings. Other
- * tiles bind to `glowEnabled`, `accentRotationEnabled`, `followSystemAccent`
- * respectively.
+ * The popup is an immediate command surface, not a Settings form. Each tile
+ * writes the persistent state field and then runs the matching runtime
+ * side-effect so the visible IDE changes without waiting for Settings Apply.
  *
- * Single-source-of-truth: each tile owns a hidden [JCheckBox] driven by the
- * Kotlin UI DSL `bindSelected({ state.X }, { state.X = it })` — the visual is a
- * custom switch but the binding sink stays the DSL-managed checkbox, so the
- * existing persistence path keeps working. The hidden checkbox lives inside a
- * tiny [com.intellij.openapi.ui.DialogPanel] held by [persistenceRoot].
+ * "Chrome tinting" is intentionally a master toggle here: Settings remains the
+ * granular 5-surface editor, while the compact popup answers the user's
+ * expectation that the named feature turns on or off as one unit.
  *
- * **Persistence model.** Each tile click is its own commit: the user-facing
- * [ToggleSwitch] flip writes back to the hidden binding checkbox and then calls
- * `persistenceRoot.apply()` synchronously — the popup container does NOT need
- * to run any close-time flush. No external `fun apply()` is exposed because no
- * caller needs one; per-tile-click persistence is the whole contract.
- *
- * **Re-entry guard.** A lexical `suppressEvents` flag protects the bi-directional
- * binding ↔ switch link from a `flip()` → `isSelected = ...` → `ItemEvent` →
- * `flip()` ping-pong if an external Settings-page edit fires the binding's
- * `ItemEvent` while the popup is open. The equality guard (`if (switch.isSelected
- * != binding.isSelected) flip()`) by itself is fragile — `suppressEvents` makes
- * the no-loop invariant load-bearing on the lexical scope, not on equality.
- *
- * Pattern A — every paint mutation calls `repaint()` on the calling thread
- * (already EDT for mouse events).
+ * Pattern A — mouse events already run on EDT.
  */
-internal class QuickSwitcherRelatedTogglesSection {
+internal class QuickSwitcherRelatedTogglesSection(
+    private val context: AccentContext? = AccentContext.detectQuickSwitcher(),
+) {
     val component: JComponent
-    private val persistenceRoot: com.intellij.openapi.ui.DialogPanel
-
-    /**
-     * Re-entry guard around the bi-directional binding ↔ switch link. Set to
-     * `true` for the lexical scope of any write that would otherwise re-trigger
-     * the sibling listener (switch → binding, or binding → switch). The
-     * sibling listener checks this flag first and short-circuits when set,
-     * preventing the ItemEvent ping-pong cycle.
-     */
-    private var suppressEvents: Boolean = false
 
     init {
-        val state = AyuIslandsSettings.getInstance().state
         val accentSupplier: () -> String = {
-            val context = AccentContext.detectQuickSwitcher()
+            val activeContext = context ?: AccentContext.detectQuickSwitcher()
             try {
-                if (context == null) {
+                if (activeContext == null) {
                     AccentDefaults.MIRAGE_HEX
                 } else {
-                    AccentResolver.resolve(AccentApplicator.resolveFocusedProject(), context)
+                    AccentResolver.resolve(AccentApplicator.resolveFocusedProject(), activeContext)
                 }
             } catch (exception: RuntimeException) {
                 LOG.warn("Toggles section accent resolve failed", exception)
@@ -79,55 +52,18 @@ internal class QuickSwitcherRelatedTogglesSection {
             }
         }
 
-        val chromeBinding: JCheckBox
-        val glowBinding: JCheckBox
-        val rotationBinding: JCheckBox
-        val followBinding: JCheckBox
-
-        // Build all four hidden DSL checkboxes inside ONE persistence panel so a
-        // single `apply()` flushes the pending writes. The panel is NOT added to
-        // the visible component tree — it is held by reference so the binding
-        // sinks stay alive.
-        var chromeRef: JCheckBox? = null
-        var glowRef: JCheckBox? = null
-        var rotationRef: JCheckBox? = null
-        var followRef: JCheckBox? = null
-        persistenceRoot =
-            panel {
-                row {
-                    chromeRef =
-                        checkBox("Chrome tinting")
-                            .bindSelected({ state.chromeStatusBar }, { state.chromeStatusBar = it })
-                            .component
-                }
-                row {
-                    glowRef =
-                        checkBox("Glow")
-                            .bindSelected({ state.glowEnabled }, { state.glowEnabled = it })
-                            .component
-                }
-                row {
-                    rotationRef =
-                        checkBox("Accent rotation")
-                            .bindSelected({ state.accentRotationEnabled }, { state.accentRotationEnabled = it })
-                            .component
-                }
-                row {
-                    followRef =
-                        checkBox("Follow system accent")
-                            .bindSelected({ state.followSystemAccent }, { state.followSystemAccent = it })
-                            .component
-                }
-            }
-        chromeBinding = checkNotNull(chromeRef)
-        glowBinding = checkNotNull(glowRef)
-        rotationBinding = checkNotNull(rotationRef)
-        followBinding = checkNotNull(followRef)
-
-        val chromeTile = buildTile(AllIcons.General.Layout, "Chrome tinting", chromeBinding, accentSupplier)
-        val glowTile = buildTile(AllIcons.General.Note, "Glow", glowBinding, accentSupplier)
-        val rotationTile = buildTile(AllIcons.Actions.Refresh, "Accent rotation", rotationBinding, accentSupplier)
-        val followTile = buildTile(AllIcons.General.Settings, "Follow system accent", followBinding, accentSupplier)
+        val chromeTile =
+            buildTile(AllIcons.General.Layout, "Chrome tinting", QuickSwitcherToggle.CHROME, accentSupplier)
+        val glowTile = buildTile(AllIcons.General.Note, "Glow", QuickSwitcherToggle.GLOW, accentSupplier)
+        val rotationTile =
+            buildTile(AllIcons.Actions.Refresh, "Accent rotation", QuickSwitcherToggle.ROTATION, accentSupplier)
+        val followTile =
+            buildTile(
+                AllIcons.General.Settings,
+                "Follow system accent",
+                QuickSwitcherToggle.FOLLOW_SYSTEM,
+                accentSupplier,
+            )
 
         component =
             JPanel(
@@ -149,41 +85,17 @@ internal class QuickSwitcherRelatedTogglesSection {
     private fun buildTile(
         icon: Icon,
         label: String,
-        binding: JCheckBox,
+        toggle: QuickSwitcherToggle,
         accentSupplier: () -> String,
     ): ToggleTile {
         val switch =
             ToggleSwitch(
-                initialSelected = binding.isSelected,
+                initialSelected = toggle.isSelected(),
                 accentSupplier = accentSupplier,
                 listener = { newValue ->
-                    // suppressEvents wraps the binding write so the binding's
-                    // ItemListener (below) does NOT re-fire switch.flip() in
-                    // response — which would loop through this listener again.
-                    suppressEvents = true
-                    try {
-                        binding.isSelected = newValue
-                        persistenceRoot.apply()
-                    } finally {
-                        suppressEvents = false
-                    }
+                    toggle.setSelected(newValue, context)
                 },
             )
-        // Mirror reverse: if the hidden checkbox flips externally (Settings page
-        // edit fired through the same state), the ToggleSwitch follows. The
-        // suppressEvents guard short-circuits the loopback when the switch's
-        // own listener (above) wrote the binding.
-        binding.addItemListener { _ ->
-            if (suppressEvents) return@addItemListener
-            if (switch.isSelected != binding.isSelected) {
-                suppressEvents = true
-                try {
-                    switch.flip()
-                } finally {
-                    suppressEvents = false
-                }
-            }
-        }
         return ToggleTile(icon, label, switch)
     }
 
@@ -191,5 +103,83 @@ internal class QuickSwitcherRelatedTogglesSection {
         const val GRID_ROWS = 2
         const val GRID_COLS = 2
         val LOG = logger<QuickSwitcherRelatedTogglesSection>()
+    }
+}
+
+private enum class QuickSwitcherToggle {
+    CHROME,
+    GLOW,
+    ROTATION,
+    FOLLOW_SYSTEM,
+}
+
+private fun QuickSwitcherToggle.isSelected(): Boolean {
+    val state = AyuIslandsSettings.getInstance().state
+    return when (this) {
+        QuickSwitcherToggle.CHROME ->
+            state.chromeTintingEnabled && state.hasChromeTintingSurfaceEnabled()
+        QuickSwitcherToggle.GLOW -> state.glowEnabled
+        QuickSwitcherToggle.ROTATION -> state.accentRotationEnabled
+        QuickSwitcherToggle.FOLLOW_SYSTEM -> state.followSystemAccent
+    }
+}
+
+private fun QuickSwitcherToggle.setSelected(
+    selected: Boolean,
+    context: AccentContext?,
+) {
+    val state = AyuIslandsSettings.getInstance().state
+    when (this) {
+        QuickSwitcherToggle.CHROME -> {
+            state.chromeTintingEnabled = selected
+            applyFocusedAccent(context)
+        }
+        QuickSwitcherToggle.GLOW -> {
+            state.glowEnabled = selected
+            syncGlowOverlays(selected)
+        }
+        QuickSwitcherToggle.ROTATION -> {
+            state.accentRotationEnabled = selected
+            val service = AccentRotationService.getInstance()
+            if (selected) {
+                if (state.followSystemAccent) {
+                    state.followSystemAccent = false
+                }
+                service.startRotation()
+            } else {
+                service.stopRotation()
+            }
+        }
+        QuickSwitcherToggle.FOLLOW_SYSTEM -> {
+            state.followSystemAccent = selected
+            if (selected && state.accentRotationEnabled) {
+                state.accentRotationEnabled = false
+                AccentRotationService.getInstance().stopRotation()
+            }
+            applyFocusedAccent(context)
+        }
+    }
+}
+
+private fun applyFocusedAccent(context: AccentContext?) {
+    val activeContext = context ?: AccentContext.detectQuickSwitcher() ?: AccentContext.detect() ?: return
+    try {
+        AccentApplicator.applyForFocusedProject(activeContext)
+    } catch (exception: RuntimeException) {
+        logger<QuickSwitcherRelatedTogglesSection>().warn(
+            "Quick switcher toggle failed to reapply focused accent",
+            exception,
+        )
+    }
+}
+
+private fun syncGlowOverlays(glowEnabled: Boolean) {
+    try {
+        GlowOverlayManager.syncGlowForAllProjects()
+    } catch (exception: RuntimeException) {
+        logger<QuickSwitcherRelatedTogglesSection>().warn(
+            "Quick switcher toggle failed to sync glow overlays (enabled=$glowEnabled)",
+            exception,
+        )
     }
 }

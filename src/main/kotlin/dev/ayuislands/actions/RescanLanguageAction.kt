@@ -97,12 +97,11 @@ internal class RescanLanguageAction : DumbAwareAction() {
      * Resolve a [ScanOutcome] to a human-readable balloon body.
      * [ScanOutcome.Detected] maps to the registered Language `displayName`
      * (case-insensitive, raw id on lookup failure or blank displayName).
-     * [ScanOutcome.Polyglot] and [ScanOutcome.Unavailable] both map to the
-     * polyglot copy today — from the user's perspective "no dominant
-     * language right now" reads the same whether the scan definitively
-     * said polyglot or hit a transient failure, and the UI keeps a
-     * single copy string rather than surfacing detector-internal
-     * transience.
+     * [ScanOutcome.Polyglot] and [ScanOutcome.Unavailable] now have distinct
+     * copy — polyglot means "no single dominant language" while unavailable
+     * means "detection could not complete" (scanner threw, dumb-mode race,
+     * disposal race). The status-bar widget also differentiates these with
+     * different icons and actions.
      *
      * Case-insensitive lookup because `Language.id` casing varies per
      * plugin (`"JAVA"` / `"kotlin"` / `"JavaScript"`) while the detector
@@ -112,7 +111,8 @@ internal class RescanLanguageAction : DumbAwareAction() {
     private fun humanLabelFor(outcome: ScanOutcome): String =
         when (outcome) {
             is ScanOutcome.Detected -> displayNameFor(outcome.languageId)
-            ScanOutcome.Polyglot, ScanOutcome.Unavailable -> POLYGLOT_LABEL
+            ScanOutcome.Polyglot -> POLYGLOT_LABEL
+            ScanOutcome.Unavailable -> UNAVAILABLE_LABEL
         }
 
     private fun displayNameFor(detectedId: String): String {
@@ -138,5 +138,7 @@ internal class RescanLanguageAction : DumbAwareAction() {
         private const val NOTIFICATION_TITLE = "Project language re-detected"
         private const val POLYGLOT_LABEL =
             "Polyglot — no single dominant language; global accent applies"
+        private const val UNAVAILABLE_LABEL =
+            "Language detection unavailable — try rescanning; global accent applies"
     }
 }

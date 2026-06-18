@@ -6,6 +6,8 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
+import com.intellij.ui.dsl.builder.bindValue
+import com.intellij.ui.dsl.builder.selected
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.ChromeDecorationsProbe
@@ -97,18 +99,37 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
                 premiumFeatureNotice(gate)
                 buildChromeSurfaceRows(gate, probeAllowsMainToolbar)
                 row("Intensity (%):") {
-                    val slider = JSlider(MIN_INTENSITY, MAX_INTENSITY, pendingChromeTintIntensity)
-                    slider.paintTicks = true
-                    slider.majorTickSpacing = INTENSITY_MAJOR_TICK
-                    slider.minorTickSpacing = INTENSITY_MINOR_TICK
-                    slider.applyPremiumLock(gate)
-                    val valueLabel = JLabel("${slider.value}")
-                    slider.addChangeListener {
-                        if (!gate.isUnlocked) return@addChangeListener
-                        pendingChromeTintIntensity = slider.value
-                        valueLabel.text = "${slider.value}"
-                    }
-                    cell(slider).resizableColumn().align(Align.FILL)
+                    val valueLabel = JLabel("$pendingChromeTintIntensity")
+                    val sliderCell =
+                        slider(MIN_INTENSITY, MAX_INTENSITY, INTENSITY_MAJOR_TICK, INTENSITY_MINOR_TICK)
+                            .bindValue(
+                                { pendingChromeTintIntensity },
+                                {
+                                    pendingChromeTintIntensity = it
+                                    valueLabel.text = "$it"
+                                },
+                            ).applyToComponent {
+                                value = pendingChromeTintIntensity
+                                paintTicks = true
+                                applyPremiumLock(gate)
+                                addChangeListener {
+                                    if (!gate.isUnlocked) return@addChangeListener
+                                    pendingChromeTintIntensity = value
+                                    valueLabel.text = "$value"
+                                }
+                            }
+                    val slider = sliderCell.component
+                    sliderCell
+                        .resizableColumn()
+                        .align(Align.FILL)
+                        .onReset {
+                            pendingChromeTintIntensity =
+                                storedChromeTintIntensity.coerceIn(MIN_INTENSITY, MAX_INTENSITY)
+                            slider.value = pendingChromeTintIntensity
+                            valueLabel.text = "$pendingChromeTintIntensity"
+                        }.onIsModified {
+                            pendingChromeTintIntensity != storedChromeTintIntensity
+                        }
                     cell(valueLabel)
                     intensitySlider = slider
                     intensityValueLabel = valueLabel
@@ -140,46 +161,62 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
         listOf(
             ChromeSurfaceRow(
                 label = "Status bar",
-                selected = pendingChromeStatusBar,
-                onChanged = { pendingChromeStatusBar = it },
+                currentValue = { pendingChromeStatusBar },
+                storedValue = { storedChromeStatusBar },
+                updatePending = { pendingChromeStatusBar = it },
                 rememberComponent = { statusBarCheckbox = it },
             ),
             ChromeSurfaceRow(
                 label = "Main toolbar",
-                selected = pendingChromeMainToolbar,
-                onChanged = { pendingChromeMainToolbar = it },
+                currentValue = { pendingChromeMainToolbar },
+                storedValue = { storedChromeMainToolbar },
+                updatePending = { pendingChromeMainToolbar = it },
                 rememberComponent = { mainToolbarCheckbox = it },
                 enabledWhenUnlocked = probeAllowsMainToolbar,
                 disabledComment = disabledToolbarComment,
             ),
             ChromeSurfaceRow(
                 label = "Tool window stripe",
-                selected = pendingChromeToolWindowStripe,
-                onChanged = { pendingChromeToolWindowStripe = it },
+                currentValue = { pendingChromeToolWindowStripe },
+                storedValue = { storedChromeToolWindowStripe },
+                updatePending = { pendingChromeToolWindowStripe = it },
                 rememberComponent = { toolWindowStripeCheckbox = it },
             ),
             ChromeSurfaceRow(
                 label = "Navigation bar",
-                selected = pendingChromeNavBar,
-                onChanged = { pendingChromeNavBar = it },
+                currentValue = { pendingChromeNavBar },
+                storedValue = { storedChromeNavBar },
+                updatePending = { pendingChromeNavBar = it },
                 rememberComponent = { navBarCheckbox = it },
             ),
             ChromeSurfaceRow(
                 label = "Panel borders",
-                selected = pendingChromePanelBorder,
-                onChanged = { pendingChromePanelBorder = it },
+                currentValue = { pendingChromePanelBorder },
+                storedValue = { storedChromePanelBorder },
+                updatePending = { pendingChromePanelBorder = it },
                 rememberComponent = { panelBorderCheckbox = it },
             ),
         ).forEach { surfaceRow ->
             row {
-                val checkboxCell = checkBox(surfaceRow.label)
+                val checkboxCell =
+                    checkBox(surfaceRow.label)
+                        .selected(surfaceRow.currentValue())
                 val checkbox = checkboxCell.component
-                checkbox.isSelected = surfaceRow.selected
                 checkbox.applyPremiumLock(gate, enabledWhenUnlocked = surfaceRow.enabledWhenUnlocked)
-                checkbox.addActionListener {
-                    if (!gate.isUnlocked || !surfaceRow.enabledWhenUnlocked) return@addActionListener
-                    surfaceRow.onChanged(checkbox.isSelected)
-                }
+                checkboxCell
+                    .onChanged {
+                        if (!gate.isUnlocked || !surfaceRow.enabledWhenUnlocked) return@onChanged
+                        surfaceRow.updatePending(checkbox.isSelected)
+                    }.onApply {
+                        if (gate.isUnlocked && surfaceRow.enabledWhenUnlocked) {
+                            surfaceRow.updatePending(checkbox.isSelected)
+                        }
+                    }.onReset {
+                        surfaceRow.updatePending(surfaceRow.storedValue())
+                        checkbox.isSelected = surfaceRow.currentValue()
+                    }.onIsModified {
+                        surfaceRow.currentValue() != surfaceRow.storedValue()
+                    }
                 surfaceRow.rememberComponent(checkbox)
                 surfaceRow.disabledComment?.let { checkboxCell.comment(it) }
             }
@@ -188,8 +225,9 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
 
     private class ChromeSurfaceRow(
         val label: String,
-        val selected: Boolean,
-        val onChanged: (Boolean) -> Unit,
+        val currentValue: () -> Boolean,
+        val storedValue: () -> Boolean,
+        val updatePending: (Boolean) -> Unit,
         val rememberComponent: (JBCheckBox) -> Unit,
         val enabledWhenUnlocked: Boolean = true,
         val disabledComment: String? = null,
@@ -230,6 +268,12 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
             return
         }
 
+        val chromeTintingEnabled =
+            pendingChromeStatusBar ||
+                pendingChromeMainToolbar ||
+                pendingChromeToolWindowStripe ||
+                pendingChromeNavBar ||
+                pendingChromePanelBorder
         val chromeSnapshot =
             ChromeTintSnapshot(
                 chromeStatusBar = pendingChromeStatusBar,
@@ -238,6 +282,7 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
                 chromeNavBar = pendingChromeNavBar,
                 chromePanelBorder = pendingChromePanelBorder,
                 intensity = TintIntensity.of(pendingChromeTintIntensity),
+                chromeTintingEnabled = chromeTintingEnabled,
             )
 
         // Run the EP chain FIRST so a throw from applyForFocusedProject leaves
@@ -258,6 +303,7 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
             return
         }
         val state = AyuIslandsSettings.getInstance().state
+        state.chromeTintingEnabled = chromeTintingEnabled
         state.chromeStatusBar = pendingChromeStatusBar
         state.chromeMainToolbar = pendingChromeMainToolbar
         state.chromeToolWindowStripe = pendingChromeToolWindowStripe

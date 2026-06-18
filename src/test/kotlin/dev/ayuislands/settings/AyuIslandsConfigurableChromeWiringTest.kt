@@ -1,6 +1,7 @@
 package dev.ayuislands.settings
 
 import com.intellij.ui.components.JBTabbedPane
+import dev.ayuislands.accent.AyuVariant
 import io.mockk.clearAllMocks
 import io.mockk.every
 import io.mockk.mockk
@@ -131,6 +132,37 @@ class AyuIslandsConfigurableChromeWiringTest {
         }
 
         verify(exactly = 1) { spyChrome.reset() }
+    }
+
+    @Test
+    fun `buildAccentTab registers injected panels in active panel aggregation`() {
+        val configurable = AyuIslandsConfigurable()
+        val appearancePanel = mockk<AyuIslandsAppearancePanel>(relaxed = true)
+        val accentPanel = mockk<AyuIslandsAccentPanel>(relaxed = true)
+        val chromePanel = mockk<AyuIslandsChromePanel>(relaxed = true)
+        val elementsPanel = mockk<AyuIslandsElementsPanel>(relaxed = true)
+        replaceField(configurable, "appearancePanel", appearancePanel)
+        replaceField(configurable, "accentPanel", accentPanel)
+        replaceField(configurable, "chromePanel", chromePanel)
+        replaceField(configurable, "elementsPanel", elementsPanel)
+
+        val activePanels = mutableListOf<AyuIslandsSettingsPanel>()
+        val buildAccentTab =
+            AyuIslandsConfigurable::class.java.getDeclaredMethod(
+                "buildAccentTab",
+                AyuVariant::class.java,
+                MutableList::class.java,
+            )
+        buildAccentTab.isAccessible = true
+
+        buildAccentTab.invoke(configurable, AyuVariant.DARK, activePanels)
+
+        assertEquals(
+            listOf(appearancePanel, accentPanel, chromePanel, elementsPanel),
+            activePanels,
+            "Injected Accent-tab panels must be in builtPanels; otherwise Settings Apply " +
+                "does not enable/apply Chrome Tinting changes made inside the panel.",
+        )
     }
 
     @Test

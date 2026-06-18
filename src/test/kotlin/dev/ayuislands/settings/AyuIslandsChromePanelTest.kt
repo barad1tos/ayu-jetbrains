@@ -9,6 +9,7 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.openapi.util.SystemInfo
+import com.intellij.ui.components.JBTabbedPane
 import com.intellij.ui.dsl.builder.panel
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentElementId
@@ -24,6 +25,8 @@ import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
+import java.awt.Container
+import javax.swing.JCheckBox
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -287,6 +290,85 @@ class AyuIslandsChromePanelTest {
         chromePanel.setPendingChromeTintIntensityForTest(55)
 
         assertTrue(chromePanel.isModified(), "Changing pendingChromeTintIntensity must dirty the panel")
+    }
+
+    @Test
+    fun `real status-bar checkbox click marks DialogPanel modified and persists on apply`() {
+        val chromePanel = AyuIslandsChromePanel()
+        val dialogPanel = buildPanel(chromePanel, AyuVariant.DARK)
+        val statusBarCheckbox = statusBarCheckboxIn(dialogPanel)
+
+        statusBarCheckbox.doClick()
+
+        assertTrue(
+            dialogPanel.isModified(),
+            "Real checkbox clicks must dirty the DialogPanel so the Settings Apply button enables",
+        )
+        assertTrue(
+            chromePanel.isModified(),
+            "Real checkbox clicks must dirty the Chrome panel pending state before apply",
+        )
+
+        chromePanel.apply()
+
+        assertTrue(state.chromeStatusBar, "Applying after a real checkbox click must persist chromeStatusBar")
+        assertFalse(chromePanel.isModified(), "Successful apply must refresh stored Chrome panel state")
+        assertFalse(dialogPanel.isModified(), "Successful apply must leave the DialogPanel clean")
+    }
+
+    @Test
+    fun `root Settings DialogPanel observes integrated Chrome Tinting tab changes`() {
+        val chromePanel = AyuIslandsChromePanel()
+        val chromeTabPanel = buildPanel(chromePanel, AyuVariant.DARK)
+        val tabs =
+            JBTabbedPane().apply {
+                addTab("Accent", chromeTabPanel)
+            }
+        val rootPanel = buildRootPanelForTest(tabs, listOf(chromeTabPanel))
+        val statusBarCheckbox = statusBarCheckboxIn(chromeTabPanel)
+
+        statusBarCheckbox.doClick()
+
+        assertTrue(
+            chromePanel.isModified(),
+            "Chrome panel must become modified after a real checkbox click in the integrated tab",
+        )
+        assertTrue(
+            chromeTabPanel.isModified(),
+            "Chrome tab DialogPanel must observe Chrome Tinting changes",
+        )
+        assertTrue(
+            rootPanel.isModified(),
+            "Root DialogPanel must observe Chrome Tinting changes so the Settings Apply button enables",
+        )
+    }
+
+    @Test
+    fun `real intensity slider change marks DialogPanel modified and persists on apply`() {
+        val chromePanel = AyuIslandsChromePanel()
+        val dialogPanel = buildPanel(chromePanel, AyuVariant.DARK)
+        val intensitySlider =
+            assertNotNull(
+                chromePanel.intensitySliderForTest(),
+                "Chrome Tinting intensity slider must be available after buildPanel",
+            )
+
+        intensitySlider.value = 45
+
+        assertTrue(
+            dialogPanel.isModified(),
+            "Real slider changes must dirty the DialogPanel so the Settings Apply button enables",
+        )
+        assertTrue(
+            chromePanel.isModified(),
+            "Real slider changes must dirty the Chrome panel pending state before apply",
+        )
+
+        chromePanel.apply()
+
+        assertEquals(45, state.chromeTintIntensity, "Applying after a real slider change must persist intensity")
+        assertFalse(chromePanel.isModified(), "Successful apply must refresh stored Chrome panel state")
+        assertFalse(dialogPanel.isModified(), "Successful apply must leave the DialogPanel clean")
     }
 
     // ── Test 6-7: apply() persistence ──────────────────────────────────────────
@@ -834,4 +916,35 @@ class AyuIslandsChromePanelTest {
             )
         }
     }
+
+    private fun buildRootPanelForTest(
+        tabs: JBTabbedPane,
+        integratedPanels: List<DialogPanel>,
+    ): DialogPanel {
+        val method =
+            AyuIslandsConfigurable::class.java.getDeclaredMethod(
+                "buildRootPanel",
+                String::class.java,
+                AyuVariant::class.java,
+                JBTabbedPane::class.java,
+                List::class.java,
+            )
+        method.isAccessible = true
+        return method.invoke(AyuIslandsConfigurable(), "test", AyuVariant.DARK, tabs, integratedPanels) as DialogPanel
+    }
+
+    private fun statusBarCheckboxIn(root: Container): JCheckBox =
+        descendants(root, JCheckBox::class.java)
+            .firstOrNull { it.text == "Status bar" }
+            ?: error("Chrome Tinting status-bar checkbox must be present in the built DialogPanel")
+
+    private fun <T : java.awt.Component> descendants(
+        root: Container,
+        type: Class<T>,
+    ): List<T> =
+        root.components.flatMap { child ->
+            val current = if (type.isInstance(child)) listOf(type.cast(child)) else emptyList()
+            val nested = if (child is Container) descendants(child, type) else emptyList()
+            current + nested
+        }
 }

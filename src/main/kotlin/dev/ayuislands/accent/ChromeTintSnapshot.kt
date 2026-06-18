@@ -18,17 +18,18 @@ internal data class ChromeTintSnapshot(
     val chromeNavBar: Boolean,
     val chromePanelBorder: Boolean,
     val intensity: TintIntensity,
+    val chromeTintingEnabled: Boolean = true,
 ) {
     fun isToggleEnabled(
         id: AccentElementId,
         fallbackState: AyuIslandsState,
     ): Boolean =
         when (id) {
-            AccentElementId.STATUS_BAR -> chromeStatusBar
-            AccentElementId.MAIN_TOOLBAR -> chromeMainToolbar
-            AccentElementId.TOOL_WINDOW_STRIPE -> chromeToolWindowStripe
-            AccentElementId.NAV_BAR -> chromeNavBar
-            AccentElementId.PANEL_BORDER -> chromePanelBorder
+            AccentElementId.STATUS_BAR -> chromeTintingEnabled && chromeStatusBar
+            AccentElementId.MAIN_TOOLBAR -> chromeTintingEnabled && chromeMainToolbar
+            AccentElementId.TOOL_WINDOW_STRIPE -> chromeTintingEnabled && chromeToolWindowStripe
+            AccentElementId.NAV_BAR -> chromeTintingEnabled && chromeNavBar
+            AccentElementId.PANEL_BORDER -> chromeTintingEnabled && chromePanelBorder
             else -> fallbackState.isToggleEnabled(id)
         }
 }

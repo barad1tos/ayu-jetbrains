@@ -232,13 +232,11 @@ class RescanLanguageActionTest {
     }
 
     @Test
-    fun `scan completion with Unavailable fires the polyglot balloon via the shared when arm`() {
-        // `humanLabelFor` collapses Polyglot and Unavailable into the
-        // same user-visible balloon body (polyglot copy) — the user
-        // sees "no dominant language right now" the same way whether
-        // the scan definitively said polyglot or hit a transient
-        // failure. Locks the when-arm coverage so a regression
-        // splitting the arms without updating the copy gets caught.
+    fun `scan completion with Unavailable fires the unavailable balloon`() {
+        // Unavailable is not polyglot: polyglot means the scan completed
+        // without a dominant language, unavailable means the scan could not
+        // produce a trustworthy answer. The balloon copy must keep those two
+        // user-facing states distinct.
         val listener = captureSubscribedListener()
         action.actionPerformed(event)
 
@@ -247,7 +245,7 @@ class RescanLanguageActionTest {
         verify(exactly = 1) {
             notificationGroup.createNotification(
                 "Project language re-detected",
-                "Polyglot — no single dominant language; global accent applies",
+                "Language detection unavailable — try rescanning; global accent applies",
                 NotificationType.INFORMATION,
             )
         }

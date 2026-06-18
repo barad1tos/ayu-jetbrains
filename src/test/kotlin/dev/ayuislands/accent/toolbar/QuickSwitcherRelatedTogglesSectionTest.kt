@@ -6,6 +6,8 @@ import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.toolbar.popup.Density
 import dev.ayuislands.accent.toolbar.popup.ToggleTile
+import dev.ayuislands.glow.GlowOverlayManager
+import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.every
@@ -28,8 +30,8 @@ import kotlin.test.assertTrue
  * Related-toggles section coverage:
  *   - layout is a 2 × 2 [GridLayout] of [ToggleTile] composites,
  *   - tile labels in fixed top-to-bottom / left-to-right order,
- *   - Chrome tinting writes `chromeStatusBar` only,
- *   - hidden binding writes mirror the visible switch without re-entry loops.
+ *   - Chrome tinting gates the user's configured chrome surfaces without rewriting them,
+ *   - tile clicks drive the runtime side-effects users expect immediately.
  */
 class QuickSwitcherRelatedTogglesSectionTest {
     @BeforeTest
@@ -85,13 +87,15 @@ class QuickSwitcherRelatedTogglesSectionTest {
     }
 
     @Test
-    fun `clicking Chrome tinting updates status bar without touching other chrome surfaces`() {
+    fun `clicking Chrome tinting off preserves chrome surface choices and reapplies focused accent`() {
         val state = AyuIslandsSettings.getInstance().state
-        state.chromeStatusBar = false
-        state.chromeMainToolbar = true
-        state.chromeToolWindowStripe = true
+        state.chromeStatusBar = true
+        state.chromeMainToolbar = false
+        state.chromeToolWindowStripe = false
         state.chromeNavBar = false
-        state.chromePanelBorder = true
+        state.chromePanelBorder = false
+        state.chromeTintingEnabled = true
+        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns "#FFB454"
 
         val section = QuickSwitcherRelatedTogglesSection()
         val chromeTile =
@@ -102,18 +106,119 @@ class QuickSwitcherRelatedTogglesSectionTest {
 
         chromeTile.toggleSwitch.flip()
 
-        assertEquals(true, state.chromeStatusBar, "Chrome tile must toggle the visible status-bar chrome surface")
-        assertEquals(true, state.chromeMainToolbar, "Chrome tile must not touch main-toolbar chrome")
-        assertEquals(true, state.chromeToolWindowStripe, "Chrome tile must not touch tool-window stripe chrome")
-        assertEquals(false, state.chromeNavBar, "Chrome tile must not touch nav-bar chrome")
-        assertEquals(true, state.chromePanelBorder, "Chrome tile must not touch panel-border chrome")
-        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
+        assertEquals(false, state.chromeTintingEnabled, "Chrome tile must disable only the runtime chrome gate")
+        assertEquals(true, state.chromeStatusBar, "Chrome tile must preserve status-bar chrome preference")
+        assertEquals(false, state.chromeMainToolbar, "Chrome tile must preserve main-toolbar chrome preference")
+        assertEquals(
+            false,
+            state.chromeToolWindowStripe,
+            "Chrome tile must preserve tool-window stripe chrome preference",
+        )
+        assertEquals(false, state.chromeNavBar, "Chrome tile must preserve nav-bar chrome preference")
+        assertEquals(false, state.chromePanelBorder, "Chrome tile must preserve panel-border chrome preference")
+        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.Ayu(AyuVariant.DARK)) }
+    }
+
+    @Test
+    fun `clicking Chrome tinting on restores the existing chrome surface choices`() {
+        val state = AyuIslandsSettings.getInstance().state
+        state.chromeStatusBar = true
+        state.chromeMainToolbar = false
+        state.chromeToolWindowStripe = false
+        state.chromeNavBar = false
+        state.chromePanelBorder = false
+        state.chromeTintingEnabled = false
+        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns "#FFB454"
+
+        val section = QuickSwitcherRelatedTogglesSection()
+        val chromeTile =
+            (section.component as JPanel)
+                .components
+                .filterIsInstance<ToggleTile>()
+                .first { tile -> labelOf(tile) == "Chrome tinting" }
+
+        chromeTile.toggleSwitch.flip()
+
+        assertEquals(true, state.chromeTintingEnabled, "Chrome tile must re-enable only the runtime chrome gate")
+        assertEquals(true, state.chromeStatusBar, "Chrome tile must restore the user's status-bar-only setup")
+        assertEquals(false, state.chromeMainToolbar, "Chrome tile must not promote main-toolbar chrome")
+        assertEquals(false, state.chromeToolWindowStripe, "Chrome tile must not promote tool-window stripe chrome")
+        assertEquals(false, state.chromeNavBar, "Chrome tile must not promote nav-bar chrome")
+        assertEquals(false, state.chromePanelBorder, "Chrome tile must not promote panel-border chrome")
+        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.Ayu(AyuVariant.DARK)) }
+    }
+
+    @Test
+    fun `clicking Glow off persists state and syncs overlays immediately`() {
+        val state = AyuIslandsSettings.getInstance().state
+        state.glowEnabled = true
+        mockkObject(GlowOverlayManager.Companion)
+        every { GlowOverlayManager.syncGlowForAllProjects() } returns Unit
+
+        val section = QuickSwitcherRelatedTogglesSection()
+        val glowTile =
+            (section.component as JPanel)
+                .components
+                .filterIsInstance<ToggleTile>()
+                .first { tile -> labelOf(tile) == "Glow" }
+
+        glowTile.toggleSwitch.flip()
+
+        assertEquals(false, state.glowEnabled, "Glow tile must persist disabled state")
+        verify(exactly = 1) { GlowOverlayManager.syncGlowForAllProjects() }
+    }
+
+    @Test
+    fun `clicking Accent rotation off stops rotation service immediately`() {
+        val state = AyuIslandsSettings.getInstance().state
+        state.accentRotationEnabled = true
+        val rotationService = mockk<AccentRotationService>(relaxed = true)
+        mockkObject(AccentRotationService.Companion)
+        every { AccentRotationService.getInstance() } returns rotationService
+
+        val section = QuickSwitcherRelatedTogglesSection()
+        val rotationTile =
+            (section.component as JPanel)
+                .components
+                .filterIsInstance<ToggleTile>()
+                .first { tile -> labelOf(tile) == "Accent rotation" }
+
+        rotationTile.toggleSwitch.flip()
+
+        assertEquals(false, state.accentRotationEnabled, "Rotation tile must persist disabled state")
+        verify(exactly = 1) { rotationService.stopRotation() }
+    }
+
+    @Test
+    fun `clicking Follow system accent on disables rotation and reapplies focused accent`() {
+        val state = AyuIslandsSettings.getInstance().state
+        state.followSystemAccent = false
+        state.accentRotationEnabled = true
+        val rotationService = mockk<AccentRotationService>(relaxed = true)
+        mockkObject(AccentRotationService.Companion)
+        every { AccentRotationService.getInstance() } returns rotationService
+        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns "#7DCFFF"
+
+        val section = QuickSwitcherRelatedTogglesSection()
+        val followTile =
+            (section.component as JPanel)
+                .components
+                .filterIsInstance<ToggleTile>()
+                .first { tile -> labelOf(tile) == "Follow system accent" }
+
+        followTile.toggleSwitch.flip()
+
+        assertEquals(true, state.followSystemAccent, "Follow tile must persist enabled state")
+        assertEquals(false, state.accentRotationEnabled, "Follow system accent must disable accent rotation")
+        verify(exactly = 1) { rotationService.stopRotation() }
+        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.Ayu(AyuVariant.DARK)) }
     }
 
     @Test
     fun `bindSelected reads back the matching state field at construction time`() {
         val state = AyuIslandsSettings.getInstance().state
-        state.chromeStatusBar = false
+        state.chromeTintingEnabled = false
+        state.chromeStatusBar = true
         state.glowEnabled = true
         state.accentRotationEnabled = false
         state.followSystemAccent = true
@@ -125,56 +230,6 @@ class QuickSwitcherRelatedTogglesSectionTest {
         assertEquals(true, byLabel["Glow"]?.toggleSwitch?.isSelected)
         assertEquals(false, byLabel["Accent rotation"]?.toggleSwitch?.isSelected)
         assertEquals(true, byLabel["Follow system accent"]?.toggleSwitch?.isSelected)
-    }
-
-    @Test
-    fun `external binding write does not loop through switch flip (re-entry guard)`() {
-        // Regression lock — pattern that previously broke: the per-tile
-        // listener writes `binding.isSelected = newValue` which fires
-        // `ItemEvent` on the binding; the binding's ItemListener catches it and
-        // calls `switch.flip()`; `flip()` writes back to binding → ping-pong.
-        // The equality guard (`if (switch.isSelected != binding.isSelected)`)
-        // saves the case where both already agree, but a future refactor that
-        // breaks the equality check leaves the loop open. The lexical
-        // `suppressEvents` guard makes the no-loop invariant unconditional.
-        //
-        // Simulate an external write: flip the binding directly (as a Settings
-        // page edit would do via bindSelected's setter), then assert that the
-        // switch follows once — NOT twice (which would indicate ping-pong).
-        val section = QuickSwitcherRelatedTogglesSection()
-        val tiles = (section.component as JPanel).components.filterIsInstance<ToggleTile>()
-        val chromeTile = tiles.first { tile -> labelOf(tile) == "Chrome tinting" }
-        val switch = chromeTile.toggleSwitch
-        val startState = switch.isSelected
-
-        // Reach the hidden binding via reflection on the section's
-        // persistenceRoot — its first child is the chrome binding.
-        val persistenceRootField =
-            QuickSwitcherRelatedTogglesSection::class.java.getDeclaredField("persistenceRoot")
-        persistenceRootField.isAccessible = true
-        val persistenceRoot =
-            persistenceRootField.get(section) as com.intellij.openapi.ui.DialogPanel
-        val chromeBinding =
-            collectCheckBoxes(persistenceRoot).first { box ->
-                box.text.contains("Chrome tinting")
-            }
-
-        // External edit: write directly to the binding. The switch must follow
-        // once. If suppressEvents is broken, this would either:
-        //   (a) infinite-loop and StackOverflow during dispatch, or
-        //   (b) toggle the switch back to startState (binding listener flips
-        //       switch, switch's listener flips binding back, equality check
-        //       sees match and stops — net result is no change).
-        chromeBinding.isSelected = !startState
-
-        // Switch must mirror the new binding state — exactly one flip.
-        assertEquals(
-            !startState,
-            switch.isSelected,
-            "Switch must mirror external binding write; ping-pong would reset to startState=$startState",
-        )
-        // Binding state must equal switch state — no drift.
-        assertEquals(switch.isSelected, chromeBinding.isSelected, "Binding and switch must agree post-write")
     }
 
     @Test
@@ -215,17 +270,6 @@ class QuickSwitcherRelatedTogglesSectionTest {
     }
 
     private fun labelOf(tile: ToggleTile): String = findLabelText(tile)
-
-    private fun collectCheckBoxes(
-        root: Container,
-        out: MutableList<javax.swing.JCheckBox> = mutableListOf(),
-    ): List<javax.swing.JCheckBox> {
-        for (child in root.components) {
-            if (child is javax.swing.JCheckBox) out.add(child)
-            if (child is Container) collectCheckBoxes(child, out)
-        }
-        return out
-    }
 
     private fun findLabelText(tile: ToggleTile): String {
         val labels = collectLabelTexts(tile)
