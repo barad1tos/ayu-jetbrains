@@ -139,6 +139,47 @@ jobs:
       - name: Verify JSON pair consistency
         run: python3 scripts/verify-theme-json.py
 
+  ktlint-autofix:
+    name: Ktlint autofix
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          persist-credentials: false
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
+      - name: Apply ktlint formatting
+        run: ./gradlew ktlintFormat
+      - name: Commit formatting changes
+        env:
+          AUTOFIX_TOKEN: ${{ secrets.AYU_AUTOFIX_TOKEN }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          git add -- '*.kt' '*.kts'
+          if git diff --cached --quiet; then
+            echo "ktlintFormat made no changes"
+            exit 0
+          fi
+
+          if [ -z "${AUTOFIX_TOKEN}" ]; then
+            echo "::error::AYU_AUTOFIX_TOKEN is required to push ktlint auto-fix commits and trigger fresh PR checks"
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "style: apply ktlint formatting"
+          git -c http.extraheader="AUTHORIZATION: bearer ${AUTOFIX_TOKEN}" \
+            push origin "HEAD:${HEAD_REF}"
+
   # ── Tier 2: Gradle compilation ─────────────────────────
   build:
     name: Build
@@ -268,6 +309,7 @@ jobs:
       - lint-files
       - gha-security
       - theme-consistency
+      - ktlint-autofix
       - build
       - analyze
       - test
@@ -281,6 +323,7 @@ jobs:
             "lint-files=${{ needs.lint-files.result }}"
             "gha-security=${{ needs.gha-security.result }}"
             "theme-consistency=${{ needs.theme-consistency.result }}"
+            "ktlint-autofix=${{ needs.ktlint-autofix.result }}"
             "build=${{ needs.build.result }}"
             "analyze=${{ needs.analyze.result }}"
             "test=${{ needs.test.result }}"
