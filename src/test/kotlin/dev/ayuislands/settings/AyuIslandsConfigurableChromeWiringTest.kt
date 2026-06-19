@@ -76,7 +76,7 @@ class AyuIslandsConfigurableChromeWiringTest {
         val spyChrome = spyk(AyuIslandsChromePanel())
         swapChromePanel(configurable, spyChrome)
 
-        io.mockk.every { spyChrome.isModified() } returns true
+        every { spyChrome.isModified() } returns true
 
         val panels = readField<List<AyuIslandsSettingsPanel>>(configurable, "panels")
         val modified = panels.any { it.isModified() }
@@ -314,7 +314,7 @@ class AyuIslandsConfigurableChromeWiringTest {
                 contentTabs,
                 Color.CYAN,
                 0,
-                { _: Int -> Unit },
+                { _: Int -> },
             ) as JBTabbedPane
 
         assertEquals(
@@ -363,7 +363,7 @@ class AyuIslandsConfigurableChromeWiringTest {
         assertTrue(elementsIndex >= 0, "elementsPanel must be in the panels list")
         assertEquals(
             true,
-            accentIndex < chromeIndex && chromeIndex < elementsIndex,
+            chromeIndex in (accentIndex + 1)..<elementsIndex,
             "Expected order: accentPanel ($accentIndex) < chromePanel ($chromeIndex) " +
                 "< elementsPanel ($elementsIndex) so apply/reset fire chrome BEFORE " +
                 "elements downstream of the accent resolver",
