@@ -124,8 +124,6 @@ object AccentApplicator {
             // Trial widget
             "TrialWidget.Alert.borderColor",
             "TrialWidget.Alert.foreground",
-            // Split editor border
-            "OnePixelDivider.background",
             // Tab underlines (always accent, not toggleable)
             "ToolWindow.HeaderTab.underlineColor",
             "TabbedPane.underlineColor",
