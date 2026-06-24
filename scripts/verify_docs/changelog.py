@@ -107,7 +107,14 @@ def check_semantic_release_policy(data: dict[str, Any], report: Report) -> None:
         )
 
     plugin_xml_version = read_plugin_xml_change_notes_version()
-    if plugin_xml_version is not None and plugin_xml_version != latest.version:
+    if plugin_xml_version is None:
+        report.error(
+            "_release_semantics_",
+            "plugin.xml change-notes must start with an `<h3>X.Y.Z</h3>` "
+            "heading so Marketplace release notes point at the latest "
+            "CHANGELOG entry.",
+        )
+    elif plugin_xml_version != latest.version:
         report.error(
             "_release_semantics_",
             f"plugin.xml change-notes start at {plugin_xml_version}, but the "

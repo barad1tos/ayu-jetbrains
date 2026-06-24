@@ -141,6 +141,38 @@ class VerifyReleasePolicyTest(unittest.TestCase):
         self.assertTrue(report.has_errors)
         self.assertIn("plugin.xml change-notes start at 2.7.5", messages(report))
 
+    def test_plugin_xml_change_notes_must_have_parseable_heading(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = make_repository(
+                Path(temporary_directory),
+                plugin_version="2.7.6",
+                plugin_xml_version="2.7.6",
+                changelog_text="""
+                    ## [2.7.6] - 2026-06-24
+
+                    - [Fix] Chrome tinting target preservation.
+
+                    ## [2.7.5] - 2026-06-18
+
+                    - [Fix] Groovy and Jenkinsfile colors.
+                """,
+            )
+            (root / "plugin.xml").write_text(
+                """
+                <idea-plugin>
+                  <change-notes><![CDATA[
+                    <p>No release heading</p>
+                  ]]></change-notes>
+                </idea-plugin>
+                """,
+                encoding="utf-8",
+            )
+
+            report = run_release_policy(root, features_data())
+
+        self.assertTrue(report.has_errors)
+        self.assertIn("must start with an `<h3>X.Y.Z</h3>`", messages(report))
+
 
 def make_repository(
     root: Path,
