@@ -117,6 +117,14 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.7.6</h3>
+    <ul>
+      <li>[Fix] <b>Language override diagnostics</b> — Quick-Switcher now keeps dominant-language proportions and fallback detail in the expanded resolution chain instead of crowding or overlapping the collapsed widget.</li>
+      <li>[Fix] <b>Groovy and Jenkinsfile semantic highlighting</b> — Jenkinsfile pipeline calls, named arguments, dynamic Jenkins bindings, and unresolved chained calls now resolve to Ayu-native Groovy semantic colors across Dark, Mirage, and Light.</li>
+      <li>[Fix] <b>Jenkinsfile unresolved references</b> — pipeline DSL symbols such as <code>properties</code>, <code>parameters</code>, <code>podTemplate</code>, and <code>containerTemplate</code> no longer render as near-background text or carry noisy dotted underlines.</li>
+      <li>[Fix] <b>Focus-based accent refresh</b> — switching project windows now reapplies project and language accents through IntelliJ's write-safe dispatch path instead of a raw Swing callback.</li>
+      <li>[Fix] <b>Chrome tinting dividers</b> — shared IntelliJ divider peers no longer pick up project accent tint and draw a colored editor frame outside the intended accent surfaces.</li>
+    </ul>
     <h3>2.7.5</h3>
     <ul>
       <li>[Paid] <b>Accent Source status-bar widget</b> — Pro users can add a status-bar widget that shows which accent source won for the current project and opens the full resolution chain.</li>

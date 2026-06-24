@@ -55,6 +55,14 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.7.6" to
+                releaseNotes(
+                    "[Fix] Language override diagnostics keep full details in the compact resolution chain",
+                    "[Fix] Groovy/Jenkinsfile colors cover DSL calls, named args, Jenkins bindings, and chains",
+                    "[Fix] Jenkinsfile unresolved references no longer render as dark text or dotted underlines",
+                    "[Fix] Focus-based accent refreshes now use IntelliJ's write-safe dispatch path",
+                    "[Fix] Chrome tinting no longer colors shared IDE dividers around the editor",
+                ),
             "2.7.5" to
                 releaseNotes(
                     "[Paid] Accent Source status-bar widget shows why the current accent won",
