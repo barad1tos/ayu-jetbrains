@@ -173,6 +173,19 @@ class VerifyReleasePolicyTest(unittest.TestCase):
         self.assertTrue(report.has_errors)
         self.assertIn("must start with an `<h3>X.Y.Z</h3>`", messages(report))
 
+    def test_malformed_version_reports_clear_numeric_error(self) -> None:
+        report = Report()
+
+        bump = changelog.classify_version_bump("2.7.5", "2.7.x", report)
+
+        self.assertIsNone(bump)
+        self.assertTrue(report.has_errors)
+        self.assertIn(
+            "expected numeric X.Y.Z version, got '2.7.x'",
+            messages(report),
+        )
+        self.assertNotIn("invalid literal", messages(report))
+
 
 def make_repository(
     root: Path,

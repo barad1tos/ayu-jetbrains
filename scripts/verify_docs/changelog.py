@@ -243,4 +243,12 @@ def parse_version(version: str) -> tuple[int, int, int]:
     parts = version.split(".")
     if len(parts) != 3:
         raise ValueError(f"expected X.Y.Z version, got {version!r}")
-    return int(parts[0]), int(parts[1]), int(parts[2])
+    try:
+        major = int(parts[0])
+        minor = int(parts[1])
+        patch = int(parts[2])
+    except ValueError as error:
+        raise ValueError(
+            f"expected numeric X.Y.Z version, got {version!r}"
+        ) from error
+    return major, minor, patch
