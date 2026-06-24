@@ -9,7 +9,7 @@ Thin entry point. All logic lives in the `verify_docs` package:
   plugin_xml     — <description> CDATA extractor
   git_utils      — merge-base / rev-parse / changed-since / SHA-256
   keywords       — Invariant 1 (README + plugin.xml keyword cross-ref)
-  changelog      — Invariant 2 (tier-tagged bullets ↔ introduced version)
+  changelog      — Invariants 2 + 7 (changelog ↔ features ↔ release bump)
   screenshots    — Invariant 3 (source freshness + byte-hash)
   stamps         — --update-hashes / --restamp mutators
   required_links — Invariant 4 (required substring appears in target file)
