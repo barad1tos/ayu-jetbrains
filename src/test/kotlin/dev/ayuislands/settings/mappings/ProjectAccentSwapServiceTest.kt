@@ -1,5 +1,8 @@
 package dev.ayuislands.settings.mappings
 
+import com.intellij.openapi.application.Application
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.IdeFrame
 import com.intellij.openapi.wm.WindowManager
@@ -18,6 +21,7 @@ import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
+import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.AWTEvent
@@ -517,6 +521,33 @@ class ProjectAccentSwapServiceTest {
 
         verify(exactly = 1) {
             toolkit.addAWTEventListener(any<AWTEventListener>(), AWTEvent.WINDOW_EVENT_MASK)
+        }
+    }
+
+    @Test
+    fun `install dispatches window activation through IntelliJ write-safe invokeLater`() {
+        // The activation handler can refresh editor color schemes via Indent Rainbow.
+        // Scheduling it with SwingUtilities.invokeLater puts it on EDT but outside the
+        // IntelliJ write-safe transaction context, which can surface as TransactionGuard
+        // SEVERE on focus swap. Application.invokeLater provides the platform context.
+        val toolkit = mockk<Toolkit>(relaxed = true)
+        val listenerSlot = slot<AWTEventListener>()
+        mockkStatic(Toolkit::class)
+        every { Toolkit.getDefaultToolkit() } returns toolkit
+        every {
+            toolkit.addAWTEventListener(capture(listenerSlot), AWTEvent.WINDOW_EVENT_MASK)
+        } just Runs
+        val application = mockk<Application>(relaxed = true)
+        mockkStatic(ApplicationManager::class)
+        every { ApplicationManager.getApplication() } returns application
+        every { application.invokeLater(any<Runnable>(), ModalityState.nonModal()) } just Runs
+
+        val service = ProjectAccentSwapService()
+        service.install()
+        listenerSlot.captured.eventDispatched(makeEvent(mockk(relaxed = true)))
+
+        verify(exactly = 1) {
+            application.invokeLater(any<Runnable>(), ModalityState.nonModal())
         }
     }
 

@@ -2,6 +2,7 @@ package dev.ayuislands.settings.mappings
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
@@ -72,7 +73,9 @@ class ProjectAccentSwapService : Disposable {
         val awtListener =
             AWTEventListener { event ->
                 if (event.id == WindowEvent.WINDOW_ACTIVATED) {
-                    SwingUtilities.invokeLater { onWindowActivated(event) }
+                    ApplicationManager
+                        .getApplication()
+                        .invokeLater({ onWindowActivated(event) }, ModalityState.nonModal())
                 }
             }
         Toolkit.getDefaultToolkit().addAWTEventListener(awtListener, AWTEvent.WINDOW_EVENT_MASK)

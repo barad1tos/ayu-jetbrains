@@ -1,5 +1,6 @@
 package dev.ayuislands.accent.toolbar
 
+import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentResolutionChain
 import dev.ayuislands.accent.AccentResolutionStep
 import dev.ayuislands.accent.AccentResolver
@@ -46,6 +47,25 @@ class QuickSwitcherAccentDiagnosticsPanelTest {
     }
 
     @Test
+    fun `collapsed diagnostics compacts long language detail and keeps full detail in tooltip`() {
+        val panel = QuickSwitcherAccentDiagnosticsPanel(longLanguageOverrideChain())
+
+        val texts = panel.visibleTexts()
+        val summaryLabel =
+            panel
+                .visibleLabels()
+                .first { label -> label.text.contains("Language override") }
+
+        assertTrue(texts.contains("Language override · Detected Python"))
+        assertFalse(texts.any { text -> text.contains("Groovy") || text.contains("Shell Script") })
+        assertTrue(summaryLabel.toolTipText.contains("Python 88%, Groovy 4%, Shell Script 3%"))
+        assertTrue(
+            summaryLabel.preferredSize.width <= JBUI.scale(MAX_COLLAPSED_SUMMARY_WIDTH),
+            "summary label must not size the popup from the full diagnostic detail",
+        )
+    }
+
+    @Test
     fun `collapsed summary centers marker and text vertically`() {
         val panel = QuickSwitcherAccentDiagnosticsPanel(projectOverrideChain())
 
@@ -85,6 +105,23 @@ class QuickSwitcherAccentDiagnosticsPanelTest {
                 "Project fallback",
                 "polyglot project",
             ),
+        )
+    }
+
+    @Test
+    fun `expanded diagnostics moves detected language proportions to secondary summary line`() {
+        val panel = QuickSwitcherAccentDiagnosticsPanel(longLanguageOverrideChain())
+
+        panel.clickAction("Show resolution chain...")
+        val labelTexts = panel.visibleLabels().map { label -> label.text }
+
+        assertTrue(labelTexts.contains("Language override · Detected Python"))
+        assertTrue(labelTexts.contains("Python 88%, Groovy 4%, Shell Script 3%"))
+        assertFalse(
+            labelTexts.any { text ->
+                text.contains("Language override") && text.contains("88%")
+            },
+            "expanded summary must not keep language proportions on the first line",
         )
     }
 
@@ -129,6 +166,31 @@ class QuickSwitcherAccentDiagnosticsPanelTest {
                     hex = "#FFB454",
                     outcome = StepOutcome.WON,
                     detail = "polyglot project",
+                ),
+            )
+        return AccentResolutionChain(steps = steps, winner = steps.last(), verdict = null)
+    }
+
+    private fun longLanguageOverrideChain(): AccentResolutionChain {
+        val steps =
+            listOf(
+                AccentResolutionStep(
+                    source = AccentResolver.Source.PROJECT_OVERRIDE,
+                    hex = null,
+                    outcome = StepOutcome.NOT_SET,
+                    detail = "No project override set",
+                ),
+                AccentResolutionStep(
+                    source = AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE,
+                    hex = null,
+                    outcome = StepOutcome.NOT_SET,
+                    detail = "No forced language set",
+                ),
+                AccentResolutionStep(
+                    source = AccentResolver.Source.LANGUAGE_OVERRIDE,
+                    hex = "#FFCD66",
+                    outcome = StepOutcome.WON,
+                    detail = "Detected Python 88%, Groovy 4%, Shell Script 3%",
                 ),
             )
         return AccentResolutionChain(steps = steps, winner = steps.last(), verdict = null)
@@ -195,6 +257,12 @@ class QuickSwitcherAccentDiagnosticsPanelTest {
                 }?.takeIf { it.isNotBlank() }
             }.toList()
 
+    private fun Component.visibleLabels(): List<JLabel> =
+        descendants()
+            .filter { it.isVisible }
+            .filterIsInstance<JLabel>()
+            .toList()
+
     private fun List<String>.containsText(
         first: String,
         second: String,
@@ -228,5 +296,6 @@ class QuickSwitcherAccentDiagnosticsPanelTest {
 
     private companion object {
         const val ALPHA_SHIFT = 24
+        const val MAX_COLLAPSED_SUMMARY_WIDTH = 230
     }
 }

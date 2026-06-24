@@ -3585,7 +3585,7 @@
         </option>
         <option name="Map key">
             <value>
-                <option name="FOREGROUND" value="C290DF" />
+                <option name="FOREGROUND" value="39BAE6" />
             </value>
         </option>
         <option name="Closure braces">
@@ -3685,9 +3685,7 @@
         </option>
         <option name="Unresolved reference access">
             <value>
-                <option name="FOREGROUND" value="3E4759" />
-                <option name="EFFECT_COLOR" value="3E4759" />
-                <option name="EFFECT_TYPE" value="5" />
+                <option name="FOREGROUND" value="FFB454" />
             </value>
         </option>
 

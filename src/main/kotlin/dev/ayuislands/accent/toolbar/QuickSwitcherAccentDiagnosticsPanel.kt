@@ -141,16 +141,16 @@ internal class QuickSwitcherAccentDiagnosticsPanel(
         val summaryRow = JPanel(BorderLayout(JBUI.scale(TEXT_GAP), 0))
         summaryRow.isOpaque = false
         val sourceLabel = AccentResolver.sourceLabel(winner.source)
-        val summaryText = "$sourceLabel · ${winner.detail}"
+        val summaryDetail = summaryDetail(winner)
+        val summaryText = "$sourceLabel · ${summaryDetail.primary}"
+        val fullSummaryText = "$sourceLabel · ${winner.detail}"
         summaryRow.add(
-            JBLabel(summaryText)
-                .apply {
-                    font =
-                        font.deriveFont(
-                            Font.BOLD,
-                            JBUI.scale(SUMMARY_FONT_SIZE).toFloat(),
-                        )
-                },
+            diagnosticLabel(
+                text = summaryText,
+                fullText = fullSummaryText,
+                fontStyle = Font.BOLD,
+                fontSize = SUMMARY_FONT_SIZE,
+            ),
             BorderLayout.CENTER,
         )
         winner.hex?.let { hex ->
@@ -163,6 +163,17 @@ internal class QuickSwitcherAccentDiagnosticsPanel(
             )
         }
         panel.add(summaryRow, BorderLayout.NORTH)
+        if (isExpanded && summaryDetail.secondary != null) {
+            panel.add(
+                diagnosticLabel(
+                    text = summaryDetail.secondary,
+                    fullText = winner.detail,
+                    foregroundColor = SECONDARY_TEXT,
+                    fontSize = DETAIL_FONT_SIZE,
+                ),
+                BorderLayout.CENTER,
+            )
+        }
 
         if (!hasSupportingSteps) {
             return panel
@@ -186,16 +197,19 @@ internal class QuickSwitcherAccentDiagnosticsPanel(
     private fun buildStepPanel(step: AccentResolutionStep): JComponent {
         val panel = JPanel(BorderLayout(JBUI.scale(TEXT_GAP), 0))
         panel.isOpaque = false
+        val stepText = "${AccentResolver.sourceLabel(step.source)} · ${step.detail}"
         panel.add(
-            JBLabel("${AccentResolver.sourceLabel(step.source)} · ${step.detail}").apply {
-                foreground =
+            diagnosticLabel(
+                text = stepText,
+                fullText = stepText,
+                foregroundColor =
                     if (step.outcome == StepOutcome.WON) {
                         PRIMARY_TEXT
                     } else {
                         SECONDARY_TEXT
-                    }
-                font = font.deriveFont(JBUI.scale(DETAIL_FONT_SIZE).toFloat())
-            },
+                    },
+                fontSize = DETAIL_FONT_SIZE,
+            ),
             BorderLayout.CENTER,
         )
         step.hex?.takeIf { step.outcome != StepOutcome.WON }?.let { hex ->
@@ -209,6 +223,34 @@ internal class QuickSwitcherAccentDiagnosticsPanel(
         }
         return panel
     }
+
+    private fun summaryDetail(step: AccentResolutionStep): SummaryDetail {
+        if (step.source != AccentResolver.Source.LANGUAGE_OVERRIDE || step.outcome != StepOutcome.WON) {
+            return SummaryDetail(primary = step.detail, secondary = null)
+        }
+        val match =
+            DETECTED_LANGUAGE_PERCENTAGE_DETAIL.matchEntire(step.detail)
+                ?: return SummaryDetail(primary = step.detail, secondary = null)
+        val languageName = match.groupValues[DETECTED_LANGUAGE_NAME_GROUP]
+        val proportions = match.groupValues[DETECTED_LANGUAGE_PROPORTIONS_GROUP]
+        return SummaryDetail(
+            primary = "Detected $languageName",
+            secondary = "$languageName $proportions",
+        )
+    }
+
+    private fun diagnosticLabel(
+        text: String,
+        fullText: String,
+        fontStyle: Int = Font.PLAIN,
+        fontSize: Int,
+        foregroundColor: Color? = null,
+    ): JBLabel =
+        BoundedDiagnosticLabel(text).apply {
+            toolTipText = fullText
+            foregroundColor?.let { foreground = it }
+            font = font.deriveFont(fontStyle, JBUI.scale(fontSize).toFloat())
+        }
 
     private fun markerColor(step: AccentResolutionStep): Color =
         when (step.outcome) {
@@ -226,6 +268,25 @@ internal class QuickSwitcherAccentDiagnosticsPanel(
                 null
             }
         }
+
+    private class BoundedDiagnosticLabel(
+        text: String,
+    ) : JBLabel(text) {
+        override fun getPreferredSize(): Dimension {
+            val size = super.getPreferredSize()
+            return Dimension(
+                size.width.coerceAtMost(JBUI.scale(DIAGNOSTIC_TEXT_WIDTH_LIMIT)),
+                size.height,
+            )
+        }
+
+        override fun getMinimumSize(): Dimension = Dimension(0, preferredSize.height)
+    }
+
+    private data class SummaryDetail(
+        val primary: String,
+        val secondary: String?,
+    )
 
     private data class DiagnosticsRow(
         val markerColor: Color,
@@ -303,8 +364,13 @@ internal class QuickSwitcherAccentDiagnosticsPanel(
         private const val STEP_MARKER_SIZE = 5
         private const val SUMMARY_FONT_SIZE = 11
         private const val DETAIL_FONT_SIZE = 11
+        private const val DIAGNOSTIC_TEXT_WIDTH_LIMIT = 230
+        private const val DETECTED_LANGUAGE_NAME_GROUP = 1
+        private const val DETECTED_LANGUAGE_PROPORTIONS_GROUP = 2
         private const val EXPAND_TEXT = "Show resolution chain..."
         private const val COLLAPSE_TEXT = "Collapse"
+        private val DETECTED_LANGUAGE_PERCENTAGE_DETAIL =
+            Regex("""^Detected (.+?) (\d+%(?:, .+? \d+%)*)$""")
         private val PRIMARY_TEXT: Color = JBColor.foreground()
         private val SECONDARY_TEXT: Color = JBColor.GRAY
         private val RAIL_COLOR: Color =

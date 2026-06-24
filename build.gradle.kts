@@ -36,8 +36,10 @@ dependencies {
 
     intellijPlatform {
         intellijIdeaCommunity(providers.gradleProperty("platformVersion"))
+        bundledPlugin("org.intellij.groovy")
         pluginVerifier()
         testFramework(TestFrameworkType.Platform)
+        testBundledPlugin("org.intellij.groovy")
     }
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testImplementation("io.mockk:mockk:${providers.gradleProperty("mockkVersion").get()}")

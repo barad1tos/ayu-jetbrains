@@ -11,6 +11,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -196,7 +197,7 @@ class SyntaxOverlayLoaderBaselineTest {
                         "Instance property reference ID" to "F28779",
                         "Static field" to "F28779",
                         "Static property reference ID" to "F28779",
-                        "Map key" to "D9A6EF",
+                        "Map key" to "5CCFE6",
                         "GROOVY_KEYWORD" to "FFAD66",
                         "Groovydoc comment" to "D5FF80",
                         "Groovydoc tag" to "B8CFE6",
@@ -228,7 +229,7 @@ class SyntaxOverlayLoaderBaselineTest {
                         "Instance property reference ID" to "F07178",
                         "Static field" to "F07178",
                         "Static property reference ID" to "F07178",
-                        "Map key" to "C290DF",
+                        "Map key" to "39BAE6",
                         "GROOVY_KEYWORD" to "FF8F40",
                         "Groovydoc comment" to "AAD94C",
                         "Groovydoc tag" to "ACB6BF",
@@ -354,6 +355,42 @@ class SyntaxOverlayLoaderBaselineTest {
                 expectedForegrounds.getValue(variant),
                 baselineByName.foregroundHex("INLAY_TEXT_WITHOUT_BACKGROUND"),
                 "$variant baseline scheme must map inlay type hints to the Ayu type color",
+            )
+        }
+    }
+
+    @Test
+    fun `production baseline schemes keep unresolved references readable in Ayu palette`() {
+        val referenceKeyByVariant =
+            mapOf(
+                "Mirage" to "DEFAULT_FUNCTION_CALL",
+                "Dark" to "DEFAULT_FUNCTION_CALL",
+                "Light" to "DEFAULT_FUNCTION_CALL",
+            )
+        val loader = SyntaxOverlayLoader()
+
+        for (variant in listOf("Mirage", "Dark", "Light")) {
+            val baselineByName =
+                loader.loadBaselineForVariant(variant).entries.associate {
+                    it.key.externalName to it.value
+                }
+            val referenceKeyName = referenceKeyByVariant.getValue(variant)
+            val referenceAttributes =
+                baselineByName[referenceKeyName]
+                    ?: error("$variant baseline scheme is missing $referenceKeyName")
+            val unresolvedAttributes =
+                baselineByName["Unresolved reference access"]
+                    ?: error("$variant baseline scheme is missing Unresolved reference access")
+            val referenceForeground = referenceAttributes.foregroundColor
+            assertNotNull(referenceForeground, "$variant $referenceKeyName must define a concrete foreground")
+            assertEquals(
+                referenceForeground,
+                unresolvedAttributes.foregroundColor,
+                "$variant unresolved references must follow $referenceKeyName foreground",
+            )
+            assertNull(
+                unresolvedAttributes.effectColor,
+                "$variant unresolved references must not add a diagnostic underline",
             )
         }
     }
