@@ -136,7 +136,7 @@ class SyntaxCategoryRegistryTest {
                 "Static property reference ID" to PrimitiveCategory.STATIC_FIELD,
                 "Instance field" to PrimitiveCategory.INSTANCE_FIELD,
                 "Instance property reference ID" to PrimitiveCategory.INSTANCE_FIELD,
-                "Map key" to PrimitiveCategory.INSTANCE_FIELD,
+                "Map key" to PrimitiveCategory.PARAMETER,
                 "Closure parameter" to PrimitiveCategory.PARAMETER,
                 "Operation sign" to PrimitiveCategory.OPERATOR,
                 "Closure braces" to PrimitiveCategory.OPERATOR,
