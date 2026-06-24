@@ -345,6 +345,7 @@ class AccentResolverChainTest {
         assertEquals(AccentResolver.Source.LANGUAGE_OVERRIDE, langStep.source)
         assertEquals("#ABCDEF", langStep.hex)
         assertEquals(StepOutcome.WON, langStep.outcome)
+        assertEquals("Detected kotlin 80%, java 20%", langStep.detail)
         assertEquals(langStep, chain.winner)
 
         assertNotNull(chain.verdict, "Verdict should be present when language detection consulted")

@@ -345,13 +345,12 @@ internal object AccentResolutionChainBuilder {
         val langAccent = mappings.languageAccents[verdict.languageId]
         val hex = langAccent?.let { AccentHex.of(it)?.value }
         if (hex != null) {
-            val proportions = verdict.weights?.let { proportionsText(it) } ?: ""
             steps.add(
                 AccentResolutionStep(
                     Source.LANGUAGE_OVERRIDE,
                     hex,
                     StepOutcome.WON,
-                    "Detected ${displayNameFor(verdict.languageId)}$proportions",
+                    detectedLanguageDetail(verdict),
                 ),
             )
             return
@@ -476,12 +475,25 @@ internal object AccentResolutionChainBuilder {
             ?.takeIf { it.isNotBlank() }
             ?: languageId
 
-    private fun proportionsText(weights: Map<String, Long>): String {
+    private fun detectedLanguageDetail(verdict: ProjectLanguageVerdict.Detected): String {
+        val languageDisplayName = displayNameFor(verdict.languageId)
+        val weights = verdict.weights ?: return "Detected $languageDisplayName"
         val total = weights.values.sum()
-        val top = weights.entries.sortedByDescending { it.value }.take(PROPORTIONS_TOP_N)
-        return top.joinToString(", ") { (lang, weight) ->
-            "${displayNameFor(lang)} ${proportionPct(weight, total)}"
-        }
+        val detectedEntry = weights.entries.firstOrNull { it.key.equals(verdict.languageId, ignoreCase = true) }
+        val otherEntries =
+            weights.entries
+                .filterNot { it.key.equals(verdict.languageId, ignoreCase = true) }
+                .sortedByDescending { it.value }
+                .take(PROPORTIONS_TOP_N - 1)
+        val detailSegments =
+            buildList {
+                detectedEntry?.let { add(proportionPct(it.value, total)) }
+                otherEntries.mapTo(this) { (lang, weight) ->
+                    "${displayNameFor(lang)} ${proportionPct(weight, total)}"
+                }
+            }
+        if (detailSegments.isEmpty()) return "Detected $languageDisplayName"
+        return "Detected $languageDisplayName ${detailSegments.joinToString(", ")}"
     }
 
     private fun proportionPct(
