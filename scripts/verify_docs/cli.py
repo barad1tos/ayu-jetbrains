@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from .changelog import check_changelog_cross_ref
+from .changelog import check_changelog_cross_ref, check_semantic_release_policy
 from .features import load_features
 from .inventory import check_asset_inventory
 from .keywords import check_keywords
@@ -60,6 +60,7 @@ def main() -> int:
     report = Report()
     check_keywords(data, report)
     check_changelog_cross_ref(data, report)
+    check_semantic_release_policy(data, report)
     check_screenshots(data, report)
     check_required_links(data, report)
     check_asset_inventory(data, report)

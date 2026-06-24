@@ -1,6 +1,6 @@
 # Single source of truth for Ayu Islands user-facing features.
 #
-# CI (scripts/verify-docs.py) enforces six invariants:
+# CI (scripts/verify-docs.py) enforces seven invariants:
 #
 #   1. Every `keyword` in this file appears in README.md AND in the
 #      <description> CDATA of src/main/resources/META-INF/plugin.xml
@@ -25,6 +25,11 @@
 #
 #   6. `release_sync` keeps plugin.xml <description> copy aligned with the
 #      last published Marketplace version unless the plugin version changes.
+#
+#   7. Semantic release policy: a latest release with `features.yml` entries
+#      introduced in that version must be a minor bump; a release with no new
+#      feature entries must be a patch bump. `gradle.properties.pluginVersion`
+#      and plugin.xml change-notes must point at the same latest version.
 #
 # When adding a feature: pick a distinctive keyword (short phrase that will
 # always appear verbatim in the marketing copy). When the UI changes: either
