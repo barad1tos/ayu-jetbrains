@@ -26,8 +26,18 @@ import org.jetbrains.annotations.TestOnly
  * startup.
  */
 object FontInstallConsent {
+    sealed interface InstallConsent {
+        fun matches(entry: FontCatalog.Entry): Boolean
+    }
+
+    private data class GrantedInstallConsent(
+        private val preset: FontPreset,
+    ) : InstallConsent {
+        override fun matches(entry: FontCatalog.Entry): Boolean = preset == entry.preset
+    }
+
     /**
-     * Show an install consent dialog. Returns `true` if the user accepts.
+     * Show an install consent dialog. Returns a consent proof if the user accepts.
      *
      * @param entry the [FontCatalog.Entry] describing the font to install
      * @param project project scope for the modal; may be `null` in wizards
@@ -39,13 +49,15 @@ object FontInstallConsent {
         entry: FontCatalog.Entry,
         project: Project?,
         compact: Boolean = false,
-    ): Boolean {
+    ): InstallConsent? {
         val message = buildInstallMessage(entry, compact)
-        return MessageDialogBuilder
-            .yesNo("Install ${entry.displayName}?", message)
-            .yesText("Install")
-            .noText("Cancel")
-            .ask(project)
+        val accepted =
+            MessageDialogBuilder
+                .yesNo("Install ${entry.displayName}?", message)
+                .yesText("Install")
+                .noText("Cancel")
+                .ask(project)
+        return if (accepted) GrantedInstallConsent(entry.preset) else null
     }
 
     /**

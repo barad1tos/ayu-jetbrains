@@ -1,6 +1,9 @@
 package dev.ayuislands.font
 
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.MessageDialogBuilder
 import io.mockk.every
+import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkAll
 import kotlin.test.AfterTest
@@ -23,6 +26,17 @@ class FontInstallConsentTest {
         unmockkAll()
     }
 
+    private fun acceptedInstallConsent(entry: FontCatalog.Entry): FontInstallConsent.InstallConsent {
+        mockkObject(MessageDialogBuilder.Companion)
+        val project = mockk<Project>(relaxed = true)
+        val dialog = mockk<MessageDialogBuilder.YesNo>(relaxed = true)
+        every { MessageDialogBuilder.yesNo(any<String>(), any<String>()) } returns dialog
+        every { dialog.yesText(any()) } returns dialog
+        every { dialog.noText(any()) } returns dialog
+        every { dialog.ask(project) } returns true
+        return FontInstallConsent.confirmInstall(entry, project) ?: error("Accepted dialog must return install consent")
+    }
+
     @Test
     fun `install message full copy includes license and path`() {
         val message = FontInstallConsent.buildInstallMessage(mapleEntry, compact = false)
@@ -41,6 +55,14 @@ class FontInstallConsentTest {
         assertTrue(message.contains("${mapleEntry.approxSizeMb} MB"))
         assertTrue(message.contains(mapleEntry.displayName))
         assertTrue(message.contains("~/Library/Fonts"))
+    }
+
+    @Test
+    fun `install consent proof matches only originating entry`() {
+        val consent = acceptedInstallConsent(mapleEntry)
+
+        assertTrue(consent.matches(mapleEntry))
+        assertFalse(consent.matches(FontCatalog.requirePreset(FontPreset.WHISPER)))
     }
 
     @Test

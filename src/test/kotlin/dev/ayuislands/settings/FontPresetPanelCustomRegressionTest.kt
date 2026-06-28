@@ -2,7 +2,9 @@ package dev.ayuislands.settings
 
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.font.FontCatalog
 import dev.ayuislands.font.FontDetector
+import dev.ayuislands.font.FontInstallConsent
 import dev.ayuislands.font.FontInstaller
 import dev.ayuislands.font.FontPreset
 import dev.ayuislands.font.FontStatus
@@ -246,7 +248,14 @@ class FontPresetPanelCustomRegressionTest {
         method.invoke(panel, false) // install attempt
         method.invoke(panel, true) // uninstall attempt
 
-        verify(exactly = 0) { FontInstaller.install(any(), any(), any()) }
+        verify(exactly = 0) {
+            FontInstaller.install(
+                any<FontCatalog.Entry>(),
+                any<FontInstallConsent.InstallConsent>(),
+                any(),
+                any(),
+            )
+        }
         verify(exactly = 0) { FontUninstaller.uninstall(any(), any(), any()) }
     }
 
