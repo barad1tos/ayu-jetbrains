@@ -586,7 +586,7 @@ internal class PremiumOnboardingPanel(
                     if (!project.isDisposed) refreshFontRow()
                 }
             }
-        } catch (exception: RuntimeException) {
+        } catch (exception: IllegalArgumentException) {
             LOG.warn("Font install dispatch failed for ${preset.name}", exception)
             installingFonts.remove(preset)
             refreshFontRow()

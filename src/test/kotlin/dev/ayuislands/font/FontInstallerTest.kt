@@ -330,6 +330,27 @@ class FontInstallerTest {
     }
 
     @Test
+    fun `install rejects copied entry even when preset still matches consent`() {
+        mockkStatic(com.intellij.openapi.progress.ProgressManager::class)
+        val progressMgr = mockk<com.intellij.openapi.progress.ProgressManager>(relaxed = true)
+        every {
+            com.intellij.openapi.progress.ProgressManager
+                .getInstance()
+        } returns progressMgr
+        val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
+        val copiedEntry = entry.copy()
+        val consent = acceptedInstallConsent(entry)
+
+        val error =
+            assertFailsWith<IllegalArgumentException> {
+                FontInstaller.install(copiedEntry, consent, project = null) { }
+            }
+
+        assertEquals("Install consent does not match AMBIENT", error.message)
+        verify(exactly = 0) { progressMgr.run(any<com.intellij.openapi.progress.Task.Backgroundable>()) }
+    }
+
+    @Test
     fun `applyOnly invokes applicator with CUSTOM-decoded settings for non-curated preset`() {
         // Assert applicator runs with the RIGHT preset, not any preset. An
         // earlier version used `any()` and would pass on a future refactor

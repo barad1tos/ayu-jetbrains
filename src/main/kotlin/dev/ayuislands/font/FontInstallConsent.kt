@@ -30,10 +30,12 @@ object FontInstallConsent {
         fun matches(entry: FontCatalog.Entry): Boolean
     }
 
-    private data class GrantedInstallConsent(
-        private val preset: FontPreset,
+    private class GrantedInstallConsent(
+        private val entry: FontCatalog.Entry,
     ) : InstallConsent {
-        override fun matches(entry: FontCatalog.Entry): Boolean = preset == entry.preset
+        // Consent is for the exact catalog entry shown in the dialog; a
+        // structural copy must not drift install metadata away from consent.
+        override fun matches(entry: FontCatalog.Entry): Boolean = this.entry === entry
     }
 
     /**
@@ -57,7 +59,7 @@ object FontInstallConsent {
                 .yesText("Install")
                 .noText("Cancel")
                 .ask(project)
-        return if (accepted) GrantedInstallConsent(entry.preset) else null
+        return if (accepted) GrantedInstallConsent(entry) else null
     }
 
     /**
