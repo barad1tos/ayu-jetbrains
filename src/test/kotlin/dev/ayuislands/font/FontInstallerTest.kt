@@ -1,6 +1,7 @@
 package dev.ayuislands.font
 
 import com.intellij.notification.Notification
+import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
@@ -30,13 +31,12 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * Unit tests for [FontInstaller] helpers. The full [FontInstaller.install] pipeline
- * requires a real [com.intellij.openapi.project.Project] and live HTTP, so it is
- * tested only indirectly by exercising the internal helpers that `runPipeline`
- * delegates to.
+ * Unit tests for [FontInstaller] helper branches plus the cache-backed failure path
+ * reachable from the queued [FontInstaller.install] task.
  */
 class FontInstallerTest {
     private val tmpRoot: File = createTempDirectory("ayu-font-installer-test").toFile()
@@ -52,6 +52,7 @@ class FontInstallerTest {
         entries: Map<String, ByteArray>,
     ): File {
         val file = File(tmpRoot, name)
+        file.parentFile?.mkdirs()
         ZipOutputStream(file.outputStream().buffered()).use { zip ->
             for ((entryName, data) in entries) {
                 zip.putNextEntry(ZipEntry(entryName))
@@ -307,6 +308,59 @@ class FontInstallerTest {
         FontInstaller.install(entry, consent, project = null) { }
 
         verify(exactly = 1) { progressMgr.run(any<com.intellij.openapi.progress.Task.Backgroundable>()) }
+    }
+
+    @Test
+    fun `install queued task reports asset missing when cached archive lacks font file`() {
+        mockkStatic(com.intellij.openapi.progress.ProgressManager::class)
+        mockkStatic(PathManager::class)
+        mockkStatic(ApplicationManager::class)
+        mockkStatic(Notifications.Bus::class)
+        val progressMgr = mockk<com.intellij.openapi.progress.ProgressManager>(relaxed = true)
+        val appMock = mockk<Application>(relaxed = true)
+        val capturedTasks = mutableListOf<com.intellij.openapi.progress.Task.Backgroundable>()
+        every {
+            com.intellij.openapi.progress.ProgressManager
+                .getInstance()
+        } returns progressMgr
+        every { progressMgr.run(any<com.intellij.openapi.progress.Task.Backgroundable>()) } answers {
+            capturedTasks += firstArg<com.intellij.openapi.progress.Task.Backgroundable>()
+        }
+        every { PathManager.getTempPath() } returns tmpRoot.absolutePath
+        every { ApplicationManager.getApplication() } returns appMock
+        every { appMock.invokeLater(any()) } answers { firstArg<Runnable>().run() }
+        every { Notifications.Bus.notify(any<Notification>(), null) } answers { }
+        val entry =
+            FontCatalog.requirePreset(FontPreset.AMBIENT).copy(
+                fallbackUrl = "https://example.invalid/stale-maple.zip",
+                useDirectUrl = true,
+            )
+        val consent = acceptedInstallConsent(entry)
+        // Seed the exact cache path cachedZipFile derives from fallbackUrl; the existing
+        // non-empty zip keeps downloadZip offline and drives extraction into ASSET_NOT_FOUND.
+        val cachedZip = makeZip("ayu-fonts/stale-maple.zip", mapOf("README.md" to "docs".toByteArray()))
+        assertEquals(cachedZip.absolutePath, FontInstaller.cachedZipFile(entry.fallbackUrl, entry.preset).absolutePath)
+        var result: FontInstaller.InstallResult? = null
+
+        FontInstaller.install(entry, consent, project = null) { result = it }
+        capturedTasks.single().run(mockk(relaxed = true))
+
+        val completedResult = assertNotNull(result, "Install task should report a result")
+        assertTrue(
+            completedResult is FontInstaller.InstallResult.Failure,
+            "Expected install failure, got: $completedResult",
+        )
+        val failure = completedResult
+        assertEquals(FontInstaller.FailureKind.ASSET_NOT_FOUND, failure.kind)
+        verify(exactly = 1) {
+            Notifications.Bus.notify(
+                match<Notification> {
+                    it.type == NotificationType.ERROR &&
+                        it.content.contains("GitHub didn't return the expected asset")
+                },
+                null,
+            )
+        }
     }
 
     @Test
