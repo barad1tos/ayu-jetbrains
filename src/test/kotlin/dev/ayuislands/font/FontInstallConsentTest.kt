@@ -1,12 +1,17 @@
 package dev.ayuislands.font
 
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.MessageDialogBuilder
 import io.mockk.every
+import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkAll
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class FontInstallConsentTest {
@@ -21,6 +26,40 @@ class FontInstallConsentTest {
     @AfterTest
     fun teardown() {
         unmockkAll()
+    }
+
+    private fun installConsentForDialogAnswer(
+        entry: FontCatalog.Entry,
+        accepted: Boolean,
+    ): FontInstallConsent.InstallConsent? {
+        mockkObject(MessageDialogBuilder.Companion)
+        val project = mockk<Project>(relaxed = true)
+        val dialog = mockk<MessageDialogBuilder.YesNo>(relaxed = true)
+        every { MessageDialogBuilder.yesNo(any<String>(), any<String>()) } returns dialog
+        every { dialog.yesText(any()) } returns dialog
+        every { dialog.noText(any()) } returns dialog
+        every { dialog.ask(project) } returns accepted
+        return FontInstallConsent.confirmInstall(entry, project)
+    }
+
+    private fun acceptedInstallConsent(entry: FontCatalog.Entry): FontInstallConsent.InstallConsent =
+        installConsentForDialogAnswer(entry, accepted = true) ?: error("Accepted dialog must return install consent")
+
+    @Test
+    fun `cancelled install dialog returns no consent proof`() {
+        val consent = installConsentForDialogAnswer(mapleEntry, accepted = false)
+
+        assertNull(consent)
+    }
+
+    @Test
+    fun `install consent rejects copied catalog entry before dialog`() {
+        val error =
+            assertFailsWith<IllegalArgumentException> {
+                FontInstallConsent.confirmInstall(mapleEntry.copy(), project = null)
+            }
+
+        assertTrue(error.message?.contains("canonical entry") == true)
     }
 
     @Test
@@ -41,6 +80,21 @@ class FontInstallConsentTest {
         assertTrue(message.contains("${mapleEntry.approxSizeMb} MB"))
         assertTrue(message.contains(mapleEntry.displayName))
         assertTrue(message.contains("~/Library/Fonts"))
+    }
+
+    @Test
+    fun `install consent proof matches only originating entry`() {
+        val consent = acceptedInstallConsent(mapleEntry)
+        val fabricatedEntry =
+            mapleEntry.copy(
+                fallbackUrl = "https://example.test/MapleMono-TTF.zip",
+                filesToKeep = listOf(".*InjectedFont\\.ttf$".toRegex()),
+            )
+
+        assertTrue(consent.matches(mapleEntry))
+        assertFalse(consent.matches(mapleEntry.copy()))
+        assertFalse(consent.matches(FontCatalog.requirePreset(FontPreset.WHISPER)))
+        assertFalse(consent.matches(fabricatedEntry))
     }
 
     @Test

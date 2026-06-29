@@ -1,10 +1,13 @@
 package dev.ayuislands.font
 
 import com.intellij.notification.Notification
+import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.PathManager
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.util.SystemInfo
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -26,14 +29,14 @@ import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * Unit tests for [FontInstaller] helpers. The full [FontInstaller.install] pipeline
- * requires a real [com.intellij.openapi.project.Project] and live HTTP, so it is
- * tested only indirectly by exercising the internal helpers that `runPipeline`
- * delegates to.
+ * Unit tests for [FontInstaller] helper branches plus the cache-backed failure path
+ * reachable from the queued [FontInstaller.install] task.
  */
 class FontInstallerTest {
     private val tmpRoot: File = createTempDirectory("ayu-font-installer-test").toFile()
@@ -49,6 +52,7 @@ class FontInstallerTest {
         entries: Map<String, ByteArray>,
     ): File {
         val file = File(tmpRoot, name)
+        file.parentFile?.mkdirs()
         ZipOutputStream(file.outputStream().buffered()).use { zip ->
             for ((entryName, data) in entries) {
                 zip.putNextEntry(ZipEntry(entryName))
@@ -57,6 +61,17 @@ class FontInstallerTest {
             }
         }
         return file
+    }
+
+    private fun acceptedInstallConsent(entry: FontCatalog.Entry): FontInstallConsent.InstallConsent {
+        mockkObject(MessageDialogBuilder.Companion)
+        val project = mockk<Project>(relaxed = true)
+        val dialog = mockk<MessageDialogBuilder.YesNo>(relaxed = true)
+        every { MessageDialogBuilder.yesNo(any<String>(), any<String>()) } returns dialog
+        every { dialog.yesText(any()) } returns dialog
+        every { dialog.noText(any()) } returns dialog
+        every { dialog.ask(project) } returns true
+        return FontInstallConsent.confirmInstall(entry, project) ?: error("Accepted dialog must return install consent")
     }
 
     @Test
@@ -280,25 +295,108 @@ class FontInstallerTest {
     }
 
     @Test
-    fun `install fires NON_CURATED Failure callback and skips ProgressManager`() {
-        // Visibility-gate bypass with CUSTOM must NOT hang the caller waiting
-        // for a callback that never fires. Failure must use the typed
-        // NON_CURATED kind (not UNKNOWN — that copy reads "Please report",
-        // misleading users about an intentional skip). Task is never queued.
+    fun `install with matching consent queues background task`() {
         mockkStatic(com.intellij.openapi.progress.ProgressManager::class)
         val progressMgr = mockk<com.intellij.openapi.progress.ProgressManager>(relaxed = true)
         every {
             com.intellij.openapi.progress.ProgressManager
                 .getInstance()
         } returns progressMgr
+        val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
+        val consent = acceptedInstallConsent(entry)
 
-        var captured: FontInstaller.InstallResult? = null
-        FontInstaller.install(FontPreset.CUSTOM, project = null) { captured = it }
+        FontInstaller.install(entry, consent, project = null) { }
 
-        val failure = captured as? FontInstaller.InstallResult.Failure
-        assertTrue(failure != null, "non-curated install must fire Failure callback, got: $captured")
-        assertEquals(FontInstaller.FailureKind.NON_CURATED, failure.kind)
-        assertTrue(failure.message.contains("non-curated"), "message must signal non-curated origin")
+        verify(exactly = 1) { progressMgr.run(any<com.intellij.openapi.progress.Task.Backgroundable>()) }
+    }
+
+    @Test
+    fun `install queued task reports asset missing when cached archive lacks font file`() {
+        mockkStatic(com.intellij.openapi.progress.ProgressManager::class)
+        mockkStatic(PathManager::class)
+        mockkStatic(ApplicationManager::class)
+        mockkStatic(Notifications.Bus::class)
+        val progressMgr = mockk<com.intellij.openapi.progress.ProgressManager>(relaxed = true)
+        val appMock = mockk<Application>(relaxed = true)
+        val capturedTasks = mutableListOf<com.intellij.openapi.progress.Task.Backgroundable>()
+        every {
+            com.intellij.openapi.progress.ProgressManager
+                .getInstance()
+        } returns progressMgr
+        every { progressMgr.run(any<com.intellij.openapi.progress.Task.Backgroundable>()) } answers {
+            capturedTasks += firstArg<com.intellij.openapi.progress.Task.Backgroundable>()
+        }
+        every { PathManager.getTempPath() } returns tmpRoot.absolutePath
+        every { ApplicationManager.getApplication() } returns appMock
+        every { appMock.invokeLater(any()) } answers { firstArg<Runnable>().run() }
+        every { Notifications.Bus.notify(any<Notification>(), null) } answers { }
+        val entry = FontCatalog.requirePreset(FontPreset.WHISPER)
+        val consent = acceptedInstallConsent(entry)
+        // Seed the exact cache path cachedZipFile derives from fallbackUrl; the existing
+        // non-empty zip keeps downloadZip offline and drives extraction into ASSET_NOT_FOUND.
+        val cachedZip = makeZip("ayu-fonts/VictorMonoAll.zip", mapOf("README.md" to "docs".toByteArray()))
+        assertEquals(cachedZip.absolutePath, FontInstaller.cachedZipFile(entry.fallbackUrl, entry.preset).absolutePath)
+        var result: FontInstaller.InstallResult? = null
+
+        FontInstaller.install(entry, consent, project = null) { result = it }
+        capturedTasks.single().run(mockk(relaxed = true))
+
+        val completedResult = assertNotNull(result, "Install task should report a result")
+        assertTrue(
+            completedResult is FontInstaller.InstallResult.Failure,
+            "Expected install failure, got: $completedResult",
+        )
+        val failure = completedResult
+        assertEquals(FontInstaller.FailureKind.ASSET_NOT_FOUND, failure.kind)
+        verify(exactly = 1) {
+            Notifications.Bus.notify(
+                match<Notification> {
+                    it.type == NotificationType.ERROR &&
+                        it.content.contains("GitHub didn't return the expected asset")
+                },
+                null,
+            )
+        }
+    }
+
+    @Test
+    fun `install with mismatched consent fails before queuing background task`() {
+        mockkStatic(com.intellij.openapi.progress.ProgressManager::class)
+        val progressMgr = mockk<com.intellij.openapi.progress.ProgressManager>(relaxed = true)
+        every {
+            com.intellij.openapi.progress.ProgressManager
+                .getInstance()
+        } returns progressMgr
+        val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
+        val consent = acceptedInstallConsent(FontCatalog.requirePreset(FontPreset.WHISPER))
+
+        val error =
+            assertFailsWith<IllegalArgumentException> {
+                FontInstaller.install(entry, consent, project = null) { }
+            }
+
+        assertTrue(error.message?.contains("Install consent does not match") == true)
+        verify(exactly = 0) { progressMgr.run(any<com.intellij.openapi.progress.Task.Backgroundable>()) }
+    }
+
+    @Test
+    fun `install rejects copied catalog entry before queuing background task`() {
+        mockkStatic(com.intellij.openapi.progress.ProgressManager::class)
+        val progressMgr = mockk<com.intellij.openapi.progress.ProgressManager>(relaxed = true)
+        every {
+            com.intellij.openapi.progress.ProgressManager
+                .getInstance()
+        } returns progressMgr
+        val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
+        val copiedEntry = entry.copy()
+        val consent = acceptedInstallConsent(entry)
+
+        val error =
+            assertFailsWith<IllegalArgumentException> {
+                FontInstaller.install(copiedEntry, consent, project = null) { }
+            }
+
+        assertTrue(error.message?.contains("canonical entry") == true)
         verify(exactly = 0) { progressMgr.run(any<com.intellij.openapi.progress.Task.Backgroundable>()) }
     }
 

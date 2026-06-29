@@ -26,10 +26,22 @@ import org.jetbrains.annotations.TestOnly
  * startup.
  */
 object FontInstallConsent {
+    sealed interface InstallConsent {
+        fun matches(entry: FontCatalog.Entry): Boolean
+    }
+
+    private class GrantedInstallConsent(
+        private val entry: FontCatalog.Entry,
+    ) : InstallConsent {
+        // Consent is for the exact catalog entry shown in the dialog; a
+        // structural copy must not drift install metadata away from consent.
+        override fun matches(entry: FontCatalog.Entry): Boolean = this.entry === entry
+    }
+
     /**
-     * Show an install consent dialog. Returns `true` if the user accepts.
+     * Show an install consent dialog. Returns a consent proof if the user accepts.
      *
-     * @param entry the [FontCatalog.Entry] describing the font to install
+     * @param entry the canonical [FontCatalog.Entry] describing the font to install
      * @param project project scope for the modal; may be `null` in wizards
      *   that fire before any project window exists
      * @param compact shorter copy suitable for Settings; default is the
@@ -39,13 +51,16 @@ object FontInstallConsent {
         entry: FontCatalog.Entry,
         project: Project?,
         compact: Boolean = false,
-    ): Boolean {
+    ): InstallConsent? {
+        FontCatalog.requireCanonicalEntry(entry)
         val message = buildInstallMessage(entry, compact)
-        return MessageDialogBuilder
-            .yesNo("Install ${entry.displayName}?", message)
-            .yesText("Install")
-            .noText("Cancel")
-            .ask(project)
+        val accepted =
+            MessageDialogBuilder
+                .yesNo("Install ${entry.displayName}?", message)
+                .yesText("Install")
+                .noText("Cancel")
+                .ask(project)
+        return if (accepted) GrantedInstallConsent(entry) else null
     }
 
     /**

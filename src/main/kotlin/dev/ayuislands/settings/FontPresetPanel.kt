@@ -293,8 +293,8 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
                 if (!FontInstallConsent.confirmUninstall(entry, project, absPath)) return
                 FontUninstaller.uninstall(preset, project) { refresh() }
             } else {
-                if (!FontInstallConsent.confirmInstall(entry, project, compact = true)) return
-                FontInstaller.install(preset, project) { refresh() }
+                val consent = FontInstallConsent.confirmInstall(entry, project, compact = true) ?: return
+                FontInstaller.install(entry, consent, project) { refresh() }
             }
         } catch (e: RuntimeException) {
             LOG.warn("Font lifecycle action failed (uninstall=$uninstall, preset=$pendingPreset)", e)

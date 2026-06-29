@@ -576,14 +576,20 @@ internal class PremiumOnboardingPanel(
             FontInstaller.applyOnly(preset, project)
             return
         }
-        if (!FontInstallConsent.confirmInstall(entry, project)) return
+        val consent = FontInstallConsent.confirmInstall(entry, project) ?: return
         installingFonts.add(preset)
         refreshFontRow()
-        FontInstaller.install(preset, project) {
-            installingFonts.remove(preset)
-            ApplicationManager.getApplication().invokeLater {
-                if (!project.isDisposed) refreshFontRow()
+        try {
+            FontInstaller.install(entry, consent, project) {
+                installingFonts.remove(preset)
+                ApplicationManager.getApplication().invokeLater {
+                    if (!project.isDisposed) refreshFontRow()
+                }
             }
+        } catch (exception: IllegalArgumentException) {
+            LOG.warn("Font install dispatch failed for ${preset.name}", exception)
+            installingFonts.remove(preset)
+            refreshFontRow()
         }
     }
 

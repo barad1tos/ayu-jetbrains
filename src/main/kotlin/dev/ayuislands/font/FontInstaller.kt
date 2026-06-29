@@ -37,8 +37,9 @@ import javax.net.ssl.SSLException
  * The entire pipeline (download + extract + copy + register) runs on a
  * [Task.Backgroundable] pool thread. Only the final apply step hops to the EDT.
  *
- * Every failure mode maps to a distinct notification; no exception ever escapes
- * to the caller.
+ * Runtime pipeline failures map to distinct notifications. Invalid caller
+ * preconditions, such as a non-canonical catalog entry or mismatched install
+ * consent, fail fast before a background task is queued.
  */
 object FontInstaller {
     private val LOG = logger<FontInstaller>()
@@ -56,15 +57,6 @@ object FontInstaller {
         PERMISSION_DENIED,
         DROPDOWN_STALE,
         APPLY_FAILED,
-
-        /**
-         * Caller invoked install/uninstall with a non-curated preset (CUSTOM)
-         * that has no install pipeline. Distinguishes "we deliberately skipped
-         * this" from `UNKNOWN` ("we have no idea what went wrong"). Notification
-         * code paths that route on `UNKNOWN` to "please file a bug" must not
-         * route on `NON_CURATED` — this is intentional plugin behaviour.
-         */
-        NON_CURATED,
         UNKNOWN,
     }
 
@@ -83,33 +75,25 @@ object FontInstaller {
      * Full install pipeline. Shows background progress, runs off-EDT, fires
      * the [onComplete] callback on the EDT with either a [InstallResult.Success]
      * or [InstallResult.Failure].
+     *
+     * @throws IllegalArgumentException before dispatch when [entry] is not the
+     *   canonical catalog entry for its preset, or [consent] was not granted for
+     *   that exact entry
      */
     fun install(
-        preset: FontPreset,
+        entry: FontCatalog.Entry,
+        consent: FontInstallConsent.InstallConsent,
         project: Project?,
         onComplete: (InstallResult) -> Unit,
     ) {
-        // Non-curated presets (CUSTOM) have no install pipeline — the user
-        // already chose their own font. Reaching this from UI requires a
-        // visibility-gate bypass; log + fire onComplete with a Failure so
-        // callers that track progress (e.g. an onboarding spinner backed by
-        // installingFonts) don't hang waiting for a callback that never came.
-        val entry =
-            FontCatalog.forPreset(preset)
-                ?: run {
-                    LOG.warn("FontInstaller.install called for non-curated preset $preset; ignoring")
-                    onComplete(
-                        InstallResult.Failure(
-                            kind = FailureKind.NON_CURATED,
-                            message = "No catalog entry for preset ${preset.name} (non-curated)",
-                        ),
-                    )
-                    return
-                }
+        FontCatalog.requireCanonicalEntry(entry)
+        require(consent.matches(entry)) {
+            "Install consent does not match ${entry.preset.name}"
+        }
         val task =
             object : Task.Backgroundable(project, "Installing ${entry.displayName}…", true) {
                 override fun run(indicator: ProgressIndicator) {
-                    runPipeline(entry, preset, project, indicator, onComplete)
+                    runPipeline(entry, entry.preset, project, indicator, onComplete)
                 }
             }
         ProgressManager.getInstance().run(task)
@@ -444,9 +428,6 @@ object FontInstaller {
             FailureKind.APPLY_FAILED ->
                 "Installed, but couldn't apply automatically. " +
                     "Open Settings → Editor → Font to pick ${entry.familyName}."
-            FailureKind.NON_CURATED ->
-                "This preset has no install pipeline — set the editor font manually " +
-                    "in Settings → Editor → Font."
             FailureKind.UNKNOWN ->
                 "Unexpected error. Please report at $GH_ISSUES_URL."
         }
