@@ -841,6 +841,28 @@ class LanguageDetectionRulesTest {
         assertNull(result)
     }
 
+    @Test
+    fun `pickTopMappedLanguage normalizes stored mapping ids before matching visible languages`() {
+        val result =
+            LanguageDetectionRules.pickTopMappedLanguage(
+                weights = mapOf("kotlin" to 450L, "java" to 450L, "python" to 100L),
+                mappedLanguageIds = setOf("  Kotlin  "),
+            )
+
+        assertEquals("kotlin", result)
+    }
+
+    @Test
+    fun `pickTopMappedLanguage ignores blank stored mapping ids`() {
+        val result =
+            LanguageDetectionRules.pickTopMappedLanguage(
+                weights = mapOf("kotlin" to 450L, "java" to 450L, "python" to 100L),
+                mappedLanguageIds = setOf("", "   "),
+            )
+
+        assertNull(result)
+    }
+
     // ── pickDisplayEntries (structured output) ───────────────────────────────────────
 
     @Test

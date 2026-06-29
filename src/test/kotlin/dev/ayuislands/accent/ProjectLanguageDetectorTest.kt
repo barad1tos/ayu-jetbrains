@@ -337,7 +337,7 @@ class ProjectLanguageDetectorTest {
         val projectKey = AccentResolver.projectKey(project) ?: error("stub project must have a canonical key")
         val policyState =
             AccentMappingsState().apply {
-                forcedProjectLanguages[projectKey] = "Kotlin"
+                forcedProjectLanguages[projectKey] = "  Kotlin  "
             }
         val mappingsSettings = AccentMappingsSettings.getInstance()
         every { mappingsSettings.state } returns policyState
@@ -345,6 +345,27 @@ class ProjectLanguageDetectorTest {
         assertEquals("kotlin", ProjectLanguageDetector.dominant(project))
 
         verify(exactly = 0) { ProjectLanguageScanner.scan(project) }
+        verify(exactly = 0) { ProjectRootManager.getInstance(project) }
+    }
+
+    @Test
+    fun `dominant ignores blank forced project language and keeps scanning`() {
+        val project = stubProject("/tmp/blank-forced-language-${System.nanoTime()}")
+        val projectKey = AccentResolver.projectKey(project) ?: error("stub project must have a canonical key")
+        val policyState =
+            AccentMappingsState().apply {
+                forcedProjectLanguages[projectKey] = "   "
+            }
+        val mappingsSettings = AccentMappingsSettings.getInstance()
+        every { mappingsSettings.state } returns policyState
+        every { ProjectLanguageScanner.scan(project) } returns
+            mapOf("kotlin" to 900L, "java" to 100L)
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        assertEquals("kotlin", ProjectLanguageDetector.dominant(project))
+
+        verify(exactly = 1) { ProjectLanguageScanner.scan(project) }
         verify(exactly = 0) { ProjectRootManager.getInstance(project) }
     }
 
