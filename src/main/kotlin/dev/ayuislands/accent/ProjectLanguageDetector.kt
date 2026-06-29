@@ -63,6 +63,14 @@ object ProjectLanguageDetector {
      */
     fun dominant(project: Project): String? {
         val key = AccentResolver.projectKey(project) ?: return null
+        AccentMappingsSettings
+            .getInstance()
+            .state
+            .forcedProjectLanguages[key]
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.lowercase(Locale.ROOT)
+            ?.let { return it }
         verdictCache[key]?.let { cached ->
             return (cached as? ProjectLanguageVerdict.Detected)?.languageId
         }
@@ -371,7 +379,8 @@ object ProjectLanguageDetector {
         val weights =
             ProjectLanguageScanner.scan(project)
                 ?: return DetectionResult(ProjectLanguageVerdict.Unavailable, cacheable = false)
-        val policy = AccentMappingsSettings.getInstance().state.languageResolutionPolicy()
+        val mappings = AccentMappingsSettings.getInstance().state
+        val policy = mappings.languageResolutionPolicy()
         if (weights.isNotEmpty()) {
             val scanWinner = LanguageDetectionRules.pickDominantFromAllWeights(weights, policy)
             if (scanWinner != null) {
@@ -380,6 +389,14 @@ object ProjectLanguageDetector {
                     cacheable = true,
                 )
             }
+            LanguageDetectionRules
+                .pickTopMappedLanguage(weights, mappings.languageAccents.keys)
+                ?.let { mappedWinner ->
+                    return DetectionResult(
+                        ProjectLanguageVerdict.Detected(mappedWinner, weights),
+                        cacheable = true,
+                    )
+                }
             // Scan found weights but no clear or plurality winner. Consult the
             // legacy heuristic as a tiebreaker — but only accept its answer when
             // that language is already represented in the scan's code weights at the

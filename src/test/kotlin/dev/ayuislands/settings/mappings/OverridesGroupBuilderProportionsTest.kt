@@ -103,7 +103,8 @@ class OverridesGroupBuilderProportionsTest {
             }
 
         assertEquals(
-            "Accent source: Language override\nLanguage scan: Dominant Kotlin\nKotlin 90% · Java 10%",
+            "Accent source: Language override (Kotlin, 90%)\n" +
+                "Detected in this project: Kotlin (90%) • Java (10%)",
             builder.currentProportionsTextForTest(),
         )
         verify(exactly = 0) { ProjectLanguageDetector.proportions(any()) }
@@ -130,9 +131,8 @@ class OverridesGroupBuilderProportionsTest {
 
         assertEquals(
             listOf(
-                "Accent source: Language fallback override",
-                "Language scan: Dominant TypeScript",
-                "TypeScript 90% · JavaScript 10%",
+                "Accent source: Language fallback override (TypeScript, 90%)",
+                "Detected in this project: TypeScript (90%) • JavaScript (10%)",
             ).joinToString("\n"),
             builder.currentProportionsTextForTest(),
         )
@@ -155,7 +155,7 @@ class OverridesGroupBuilderProportionsTest {
         assertEquals(
             listOf(
                 "Accent source: Project fallback #5CCFE6",
-                "Language scan: No dominant language",
+                "Detected in this project: Polyglot — no single dominant language. Project fallback applies.",
                 "JavaScript 50% · TypeScript 50%",
             ).joinToString("\n"),
             builder.currentProportionsTextForTest(),
@@ -175,8 +175,8 @@ class OverridesGroupBuilderProportionsTest {
             listOf(
                 "Accent source:",
                 "Global",
-                "Language scan:",
-                "No dominant language",
+                "Detected in this project:",
+                "Polyglot — no single dominant language. Global accent applies.",
                 "JavaScript 50%",
                 "·",
                 "TypeScript 50%",
@@ -219,7 +219,8 @@ class OverridesGroupBuilderProportionsTest {
             }
 
         assertEquals(
-            "Accent source: Forced language override\nLanguage scan: Forced TypeScript",
+            "Accent source: Language override (TypeScript, manual)\n" +
+                "Detected in this project: TypeScript (manual)",
             builder.currentProportionsTextForTest(),
         )
         assertTrue(
@@ -244,14 +245,15 @@ class OverridesGroupBuilderProportionsTest {
             }
 
         assertEquals(
-            "Accent source: Language override\nLanguage scan: Kotlin 100%",
+            "Accent source: Language override (Kotlin, 100%)\n" +
+                "Detected in this project: Kotlin (100%)",
             builder.currentProportionsTextForTest(),
         )
 
         every { LicenseChecker.isLicensedOrGrace() } returns false
 
         assertEquals(
-            "Accent source: Global\nLanguage scan: Kotlin 100%",
+            "Accent source: Global\nDetected in this project: Kotlin (100%)",
             builder.currentProportionsTextForTest(),
         )
         val labels = builder.proportionsPanelLabelsForTest().map { it.second }
@@ -299,7 +301,8 @@ class OverridesGroupBuilderProportionsTest {
             }
 
         assertEquals(
-            "Accent source: Language override\nLanguage scan: Kotlin 100%",
+            "Accent source: Language override (Kotlin, 100%)\n" +
+                "Detected in this project: Kotlin (100%)",
             builder.currentProportionsTextForTest(),
         )
         builder.proportionsPanelLabelsForTest()
@@ -328,7 +331,7 @@ class OverridesGroupBuilderProportionsTest {
         assertEquals(
             listOf(
                 "Accent source: Project fallback #5CCFE6",
-                "Language scan: No dominant language",
+                "Detected in this project: Polyglot — no single dominant language. Project fallback applies.",
                 "JavaScript 50% · TypeScript 50%",
             ).joinToString("\n"),
             builder.currentProportionsTextForTest(),

@@ -237,14 +237,38 @@ class AyuIslandsAccentPanelTest {
 
         val method =
             AyuIslandsAccentPanel::class.java
-                .getDeclaredMethod("describeActiveSource", AccentResolver.Source::class.java)
-                .apply { isAccessible = true }
+                .getDeclaredMethod(
+                    "describeActiveSource",
+                    AccentResolver.Source::class.java,
+                    String::class.java,
+                ).apply { isAccessible = true }
 
         kotlin.test.assertEquals(
             "Language override",
-            method.invoke(AyuIslandsAccentPanel(), AccentResolver.Source.LANGUAGE_OVERRIDE),
+            method.invoke(AyuIslandsAccentPanel(), AccentResolver.Source.LANGUAGE_OVERRIDE, null),
         )
         verify(exactly = 0) { ProjectLanguageDetector.dominant(any()) }
+    }
+
+    @Test
+    fun `active source description includes language detail when available`() {
+        val method =
+            AyuIslandsAccentPanel::class.java
+                .getDeclaredMethod(
+                    "describeActiveSource",
+                    AccentResolver.Source::class.java,
+                    String::class.java,
+                ).apply { isAccessible = true }
+        val panel = AyuIslandsAccentPanel()
+
+        kotlin.test.assertEquals(
+            "Language override (Kotlin, 82%)",
+            method.invoke(panel, AccentResolver.Source.LANGUAGE_OVERRIDE, "Kotlin, 82%"),
+        )
+        kotlin.test.assertEquals(
+            "Language override (Kotlin, manual)",
+            method.invoke(panel, AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE, "Kotlin, manual"),
+        )
     }
 
     @Test

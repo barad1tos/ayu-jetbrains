@@ -332,6 +332,23 @@ class ProjectLanguageDetectorTest {
     }
 
     @Test
+    fun `dominant returns forced project language without scanning`() {
+        val project = stubProject("/tmp/forced-language-${System.nanoTime()}")
+        val projectKey = AccentResolver.projectKey(project) ?: error("stub project must have a canonical key")
+        val policyState =
+            AccentMappingsState().apply {
+                forcedProjectLanguages[projectKey] = "Kotlin"
+            }
+        val mappingsSettings = AccentMappingsSettings.getInstance()
+        every { mappingsSettings.state } returns policyState
+
+        assertEquals("kotlin", ProjectLanguageDetector.dominant(project))
+
+        verify(exactly = 0) { ProjectLanguageScanner.scan(project) }
+        verify(exactly = 0) { ProjectRootManager.getInstance(project) }
+    }
+
+    @Test
     fun `content scan honors stored tiebreak floor`() {
         val policyState =
             AccentMappingsState().apply {
@@ -412,6 +429,28 @@ class ProjectLanguageDetectorTest {
         wireModuleManager(project, moduleNames = emptyList())
 
         assertNull(ProjectLanguageDetector.dominant(project))
+    }
+
+    @Test
+    fun `content scan polyglot picks mapped top language before SDK tiebreak`() {
+        val project = stubProject("/tmp/scan-polyglot-mapped-${System.nanoTime()}")
+        val policyState =
+            AccentMappingsState().apply {
+                languageAccents["kotlin"] = "#5CCFE6"
+            }
+        val mappingsSettings = AccentMappingsSettings.getInstance()
+        every { mappingsSettings.state } returns policyState
+        every { ProjectLanguageScanner.scan(project) } returns
+            mapOf("kotlin" to 450L, "java" to 450L, "python" to 100L)
+        wireProjectRootManager(project, sdkName = "JavaSDK")
+        wireModuleManager(project, moduleNames = emptyList())
+
+        assertEquals("kotlin", ProjectLanguageDetector.dominant(project))
+
+        val verdict = ProjectLanguageDetector.verdict(project)
+        assertIs<ProjectLanguageVerdict.Detected>(verdict)
+        assertEquals("kotlin", verdict.languageId)
+        verify(exactly = 0) { ProjectRootManager.getInstance(project) }
     }
 
     @Test

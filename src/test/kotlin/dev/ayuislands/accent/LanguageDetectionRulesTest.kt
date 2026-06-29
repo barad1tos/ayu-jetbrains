@@ -796,6 +796,51 @@ class LanguageDetectionRulesTest {
         assertEquals("Java (50%) • Kotlin (50%)", result)
     }
 
+    // ── pickTopMappedLanguage ────────────────────────────────────────────────────────
+
+    @Test
+    fun `pickTopMappedLanguage returns highest-share mapped language from display top three`() {
+        // Relaxed polyglot matching: the scan has no dominant winner, but the user
+        // has mapped Kotlin. Kotlin is tied for first and inside the top-three display
+        // set, so the detector can apply the user's language accent instead of
+        // falling back to global.
+        val result =
+            LanguageDetectionRules.pickTopMappedLanguage(
+                weights = mapOf("kotlin" to 450L, "java" to 450L, "python" to 100L),
+                mappedLanguageIds = setOf("kotlin"),
+            )
+
+        assertEquals("kotlin", result)
+    }
+
+    @Test
+    fun `pickTopMappedLanguage breaks mapped ties alphabetically by language id`() {
+        val result =
+            LanguageDetectionRules.pickTopMappedLanguage(
+                weights = mapOf("kotlin" to 450L, "java" to 450L, "python" to 100L),
+                mappedLanguageIds = setOf("kotlin", "java"),
+            )
+
+        assertEquals("java", result)
+    }
+
+    @Test
+    fun `pickTopMappedLanguage ignores mapped languages outside display top three`() {
+        val result =
+            LanguageDetectionRules.pickTopMappedLanguage(
+                weights =
+                    mapOf(
+                        "kotlin" to 400L,
+                        "java" to 300L,
+                        "python" to 200L,
+                        "ruby" to 100L,
+                    ),
+                mappedLanguageIds = setOf("ruby"),
+            )
+
+        assertNull(result)
+    }
+
     // ── pickDisplayEntries (structured output) ───────────────────────────────────────
 
     @Test

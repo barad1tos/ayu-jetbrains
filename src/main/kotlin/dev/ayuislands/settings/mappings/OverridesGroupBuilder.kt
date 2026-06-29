@@ -409,6 +409,38 @@ class OverridesGroupBuilder(
     ): AccentResolver.Source =
         findPendingOverride(project, warmDetector = !cacheOnly)?.source ?: AccentResolver.Source.GLOBAL
 
+    internal fun activeSourceDetailPending(
+        project: Project?,
+        source: AccentResolver.Source,
+        cacheOnly: Boolean = false,
+    ): String? {
+        if (source !in LANGUAGE_DETAIL_SOURCES) return null
+        val activeProject =
+            project
+                ?.takeUnless { it.isDefault }
+                ?.takeUnless { it.isDisposed }
+                ?: return null
+        val projectKey = AccentResolver.projectKey(activeProject) ?: return null
+        val forcedLanguageId = pendingForcedLanguages[projectKey]
+        val isManualLanguageSource =
+            source == AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE ||
+                (
+                    source == AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE &&
+                        forcedLanguageId != null
+                )
+        if (isManualLanguageSource) {
+            return forcedLanguageId?.let { "${languageDisplayName(it)}, manual" }
+        }
+        val verdict =
+            if (cacheOnly) {
+                ProjectLanguageDetector.verdict(activeProject)
+            } else {
+                ProjectLanguageDetector.dominant(activeProject)
+                ProjectLanguageDetector.verdict(activeProject)
+            }
+        return (verdict as? ProjectLanguageVerdict.Detected)?.let(::detectedLanguageDetail)
+    }
+
     private fun findPendingOverride(
         project: Project?,
         warmDetector: Boolean,
@@ -615,6 +647,22 @@ class OverridesGroupBuilder(
         val candidate = currentProjectOverrideHex() ?: currentGlobalAccentHex()
         return candidate?.let { hex -> AccentHex.of(hex)?.value }
     }
+
+    private fun detectedLanguageDetail(verdict: ProjectLanguageVerdict.Detected): String {
+        val percent =
+            verdict.weights
+                ?.let { weights ->
+                    LanguageDetectionRules
+                        .pickDisplayEntries(weights)
+                        .firstOrNull { it.id == verdict.languageId }
+                        ?.percent
+                }?.let { ", $it%" }
+                ?: ""
+        return languageDisplayName(verdict.languageId) + percent
+    }
+
+    private fun languageDisplayName(languageId: String): String =
+        LanguageDetectionRules.displayNameForLanguageId(languageId)
 
     private fun currentProjectOverrideHex(): String? {
         val projectKey = focusedProjectKey() ?: return null
@@ -830,6 +878,12 @@ class OverridesGroupBuilder(
         private const val TABLE_ROW_HEIGHT = 24
         private const val BAR_HORIZONTAL_GAP = 4
         private const val BAR_VERTICAL_GAP = 0
+        private val LANGUAGE_DETAIL_SOURCES =
+            setOf(
+                AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE,
+                AccentResolver.Source.LANGUAGE_OVERRIDE,
+                AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE,
+            )
     }
 
     /**
