@@ -3376,6 +3376,8 @@
                 <option name="FOREGROUND" value="BFBDB6" />
             </value>
         </option>
+        <option name="SWIFT.LOCAL_VARIABLE_DECLARATION" baseAttributes="SWIFT_LOCAL_VARIABLE" />
+        <option name="SWIFT.LOCAL_VARIABLE_REFERENCE" baseAttributes="SWIFT_LOCAL_VARIABLE" />
         <option name="SWIFT.MACRO" baseAttributes="SWIFT_DIRECTIVE" />
         <option name="SWIFT.MACRO_DECLARATION" baseAttributes="SWIFT_DIRECTIVE" />
         <option name="SWIFT.MACRO_EXPANSION" baseAttributes="SWIFT_DIRECTIVE" />
@@ -3391,8 +3393,15 @@
         <option name="SWIFT.OPERATOR" baseAttributes="DEFAULT_OPERATION_SIGN" />
         <option name="SWIFT.OPERATION_SIGN" baseAttributes="DEFAULT_OPERATION_SIGN" />
         <option name="SWIFT.PARAMETER" baseAttributes="SWIFT_PARAMETER" />
+        <option name="SWIFT.PARAMETER_DECLARATION" baseAttributes="SWIFT_PARAMETER" />
+        <option name="SWIFT.PARAMETER_REFERENCE" baseAttributes="SWIFT_PARAMETER" />
         <option name="SWIFT.PARENTHESES" baseAttributes="DEFAULT_PARENTHS" />
-        <option name="SWIFT.PREDEFINED_SYMBOL" baseAttributes="SWIFT_TYPE_NAME" />
+        <option name="SWIFT.PREDEFINED_SYMBOL">
+            <value>
+                <option name="FOREGROUND" value="FF8F40" />
+                <option name="FONT_TYPE" value="1" />
+            </value>
+        </option>
         <option name="SWIFT.PROPERTY" baseAttributes="SWIFT_PROPERTY" />
         <option name="SWIFT.PROTOCOL_DECLARATION" baseAttributes="SWIFT_PROTOCOL_REFERENCE" />
         <option name="SWIFT.PROTOCOL_NAME" baseAttributes="SWIFT_PROTOCOL_REFERENCE" />
@@ -3416,6 +3425,8 @@
                 <option name="FOREGROUND" value="BFBDB6" />
             </value>
         </option>
+        <option name="SWIFT.VARIABLE_DECLARATION" baseAttributes="SWIFT_LOCAL_VARIABLE" />
+        <option name="SWIFT.VARIABLE_REFERENCE" baseAttributes="SWIFT_LOCAL_VARIABLE" />
 
         <!-- Groovy / Jenkinsfile -->
         <option name="Class">

@@ -148,6 +148,47 @@ class SyntaxOverlayLoaderBaselineTest {
     }
 
     @Test
+    fun `production baseline schemes materialize Swift semantic alias and predefined keys`() {
+        val requiredKeys =
+            listOf(
+                "SWIFT.VARIABLE_DECLARATION",
+                "SWIFT.VARIABLE_REFERENCE",
+                "SWIFT.LOCAL_VARIABLE_DECLARATION",
+                "SWIFT.LOCAL_VARIABLE_REFERENCE",
+                "SWIFT.PARAMETER_DECLARATION",
+                "SWIFT.PARAMETER_REFERENCE",
+                "SWIFT.PREDEFINED_SYMBOL",
+            )
+        val expectedPredefinedForegrounds =
+            mapOf(
+                "Mirage" to "FFAD66",
+                "Dark" to "FF8F40",
+                "Light" to "FA8532",
+            )
+        val l = SyntaxOverlayLoader()
+
+        for (variant in listOf("Mirage", "Dark", "Light")) {
+            val baselineByName = l.loadBaselineForVariant(variant).entries.associate { it.key.externalName to it.value }
+            for (keyName in requiredKeys) {
+                assertTrue(
+                    keyName in baselineByName,
+                    "$variant baseline scheme is missing $keyName",
+                )
+            }
+            assertEquals(
+                expectedPredefinedForegrounds.getValue(variant),
+                baselineByName.foregroundHex("SWIFT.PREDEFINED_SYMBOL"),
+                "$variant baseline scheme must color SWIFT.PREDEFINED_SYMBOL with the Swift keyword foreground",
+            )
+            assertEquals(
+                1,
+                baselineByName.fontType("SWIFT.PREDEFINED_SYMBOL"),
+                "$variant baseline scheme must render SWIFT.PREDEFINED_SYMBOL as a keyword primitive",
+            )
+        }
+    }
+
+    @Test
     fun `production baseline schemes materialize Groovy Jenkinsfile roles`() {
         val requiredKeys =
             listOf(
