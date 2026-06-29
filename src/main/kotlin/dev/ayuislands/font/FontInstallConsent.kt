@@ -41,7 +41,7 @@ object FontInstallConsent {
     /**
      * Show an install consent dialog. Returns a consent proof if the user accepts.
      *
-     * @param entry the [FontCatalog.Entry] describing the font to install
+     * @param entry the canonical [FontCatalog.Entry] describing the font to install
      * @param project project scope for the modal; may be `null` in wizards
      *   that fire before any project window exists
      * @param compact shorter copy suitable for Settings; default is the
@@ -52,6 +52,7 @@ object FontInstallConsent {
         project: Project?,
         compact: Boolean = false,
     ): InstallConsent? {
+        FontCatalog.requireCanonicalEntry(entry)
         val message = buildInstallMessage(entry, compact)
         val accepted =
             MessageDialogBuilder

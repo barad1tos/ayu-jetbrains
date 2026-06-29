@@ -117,6 +117,13 @@ object FontCatalog {
      */
     fun forPreset(preset: FontPreset): Entry? = entries.firstOrNull { it.preset == preset }
 
+    internal fun requireCanonicalEntry(entry: Entry): Entry {
+        require(forPreset(entry.preset) === entry) {
+            "FontCatalog entry must be the canonical entry for preset ${entry.preset.name}"
+        }
+        return entry
+    }
+
     /**
      * Non-null variant for call sites that statically operate on curated presets
      * only — onboarding cards (which iterate a hardcoded `FONT_PRESETS` list) and

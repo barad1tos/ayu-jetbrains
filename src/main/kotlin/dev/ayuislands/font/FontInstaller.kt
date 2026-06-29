@@ -37,8 +37,9 @@ import javax.net.ssl.SSLException
  * The entire pipeline (download + extract + copy + register) runs on a
  * [Task.Backgroundable] pool thread. Only the final apply step hops to the EDT.
  *
- * Every failure mode maps to a distinct notification; no exception ever escapes
- * to the caller.
+ * Runtime pipeline failures map to distinct notifications. Invalid caller
+ * preconditions, such as a non-canonical catalog entry or mismatched install
+ * consent, fail fast before a background task is queued.
  */
 object FontInstaller {
     private val LOG = logger<FontInstaller>()
@@ -74,6 +75,10 @@ object FontInstaller {
      * Full install pipeline. Shows background progress, runs off-EDT, fires
      * the [onComplete] callback on the EDT with either a [InstallResult.Success]
      * or [InstallResult.Failure].
+     *
+     * @throws IllegalArgumentException before dispatch when [entry] is not the
+     *   canonical catalog entry for its preset, or [consent] was not granted for
+     *   that exact entry
      */
     fun install(
         entry: FontCatalog.Entry,
@@ -81,6 +86,7 @@ object FontInstaller {
         project: Project?,
         onComplete: (InstallResult) -> Unit,
     ) {
+        FontCatalog.requireCanonicalEntry(entry)
         require(consent.matches(entry)) {
             "Install consent does not match ${entry.preset.name}"
         }

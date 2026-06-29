@@ -9,6 +9,7 @@ import io.mockk.unmockkAll
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -49,6 +50,16 @@ class FontInstallConsentTest {
         val consent = installConsentForDialogAnswer(mapleEntry, accepted = false)
 
         assertNull(consent)
+    }
+
+    @Test
+    fun `install consent rejects copied catalog entry before dialog`() {
+        val error =
+            assertFailsWith<IllegalArgumentException> {
+                FontInstallConsent.confirmInstall(mapleEntry.copy(), project = null)
+            }
+
+        assertTrue(error.message?.contains("canonical entry") == true)
     }
 
     @Test

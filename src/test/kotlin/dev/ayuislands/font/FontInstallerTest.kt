@@ -330,15 +330,11 @@ class FontInstallerTest {
         every { ApplicationManager.getApplication() } returns appMock
         every { appMock.invokeLater(any()) } answers { firstArg<Runnable>().run() }
         every { Notifications.Bus.notify(any<Notification>(), null) } answers { }
-        val entry =
-            FontCatalog.requirePreset(FontPreset.AMBIENT).copy(
-                fallbackUrl = "https://example.invalid/stale-maple.zip",
-                useDirectUrl = true,
-            )
+        val entry = FontCatalog.requirePreset(FontPreset.WHISPER)
         val consent = acceptedInstallConsent(entry)
         // Seed the exact cache path cachedZipFile derives from fallbackUrl; the existing
         // non-empty zip keeps downloadZip offline and drives extraction into ASSET_NOT_FOUND.
-        val cachedZip = makeZip("ayu-fonts/stale-maple.zip", mapOf("README.md" to "docs".toByteArray()))
+        val cachedZip = makeZip("ayu-fonts/VictorMonoAll.zip", mapOf("README.md" to "docs".toByteArray()))
         assertEquals(cachedZip.absolutePath, FontInstaller.cachedZipFile(entry.fallbackUrl, entry.preset).absolutePath)
         var result: FontInstaller.InstallResult? = null
 
@@ -384,7 +380,7 @@ class FontInstallerTest {
     }
 
     @Test
-    fun `install rejects copied entry even when preset still matches consent`() {
+    fun `install rejects copied catalog entry before queuing background task`() {
         mockkStatic(com.intellij.openapi.progress.ProgressManager::class)
         val progressMgr = mockk<com.intellij.openapi.progress.ProgressManager>(relaxed = true)
         every {
@@ -400,7 +396,7 @@ class FontInstallerTest {
                 FontInstaller.install(copiedEntry, consent, project = null) { }
             }
 
-        assertEquals("Install consent does not match AMBIENT", error.message)
+        assertTrue(error.message?.contains("canonical entry") == true)
         verify(exactly = 0) { progressMgr.run(any<com.intellij.openapi.progress.Task.Backgroundable>()) }
     }
 
