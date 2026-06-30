@@ -223,9 +223,15 @@ class SyntaxOverlayLoaderTest {
         val requiredKeys =
             listOf(
                 "SWIFT.VARIABLE",
+                "SWIFT.VARIABLE_DECLARATION",
+                "SWIFT.VARIABLE_REFERENCE",
                 "SWIFT.IDENTIFIER",
                 "SWIFT.LOCAL_VARIABLE",
+                "SWIFT.LOCAL_VARIABLE_DECLARATION",
+                "SWIFT.LOCAL_VARIABLE_REFERENCE",
                 "SWIFT.PARAMETER",
+                "SWIFT.PARAMETER_DECLARATION",
+                "SWIFT.PARAMETER_REFERENCE",
                 "SWIFT.ARGUMENT_LABEL",
                 "SWIFT.PROPERTY",
                 "SWIFT.ENUM_MEMBER",
@@ -240,6 +246,7 @@ class SyntaxOverlayLoaderTest {
                 "SWIFT.MODULE_NAME",
                 "SWIFT.ATTRIBUTE_NAME",
                 "SWIFT.DIRECTIVE",
+                "SWIFT.PREDEFINED_SYMBOL",
                 "SWIFT.STRING",
                 "SWIFT.LINE_COMMENT",
             )
@@ -248,35 +255,62 @@ class SyntaxOverlayLoaderTest {
                 "Mirage" to
                     mapOf(
                         "SWIFT.VARIABLE" to "CCCAC2",
+                        "SWIFT.VARIABLE_DECLARATION" to "CCCAC2",
+                        "SWIFT.VARIABLE_REFERENCE" to "CCCAC2",
+                        "SWIFT.IDENTIFIER" to "CCCAC2",
+                        "SWIFT.LOCAL_VARIABLE" to "CCCAC2",
+                        "SWIFT.LOCAL_VARIABLE_DECLARATION" to "CCCAC2",
+                        "SWIFT.LOCAL_VARIABLE_REFERENCE" to "CCCAC2",
                         "SWIFT.PARAMETER" to "DFBFFF",
+                        "SWIFT.PARAMETER_DECLARATION" to "DFBFFF",
+                        "SWIFT.PARAMETER_REFERENCE" to "DFBFFF",
                         "SWIFT.ARGUMENT_LABEL" to "5CCFE6",
                         "SWIFT.PROPERTY" to "F28779",
                         "SWIFT.FUNCTION_NAME" to "FFD173",
                         "SWIFT.CLASS_NAME" to "73D0FF",
                         "SWIFT.ATTRIBUTE_NAME" to "FFDFB3",
                         "SWIFT.DIRECTIVE" to "FFAD66",
+                        "SWIFT.PREDEFINED_SYMBOL" to "FFAD66",
                     ),
                 "Dark" to
                     mapOf(
                         "SWIFT.VARIABLE" to "BFBDB6",
+                        "SWIFT.VARIABLE_DECLARATION" to "BFBDB6",
+                        "SWIFT.VARIABLE_REFERENCE" to "BFBDB6",
+                        "SWIFT.IDENTIFIER" to "BFBDB6",
+                        "SWIFT.LOCAL_VARIABLE" to "BFBDB6",
+                        "SWIFT.LOCAL_VARIABLE_DECLARATION" to "BFBDB6",
+                        "SWIFT.LOCAL_VARIABLE_REFERENCE" to "BFBDB6",
                         "SWIFT.PARAMETER" to "D2A6FF",
+                        "SWIFT.PARAMETER_DECLARATION" to "D2A6FF",
+                        "SWIFT.PARAMETER_REFERENCE" to "D2A6FF",
                         "SWIFT.ARGUMENT_LABEL" to "39BAE6",
                         "SWIFT.PROPERTY" to "F07178",
                         "SWIFT.FUNCTION_NAME" to "FFB454",
                         "SWIFT.CLASS_NAME" to "59C2FF",
                         "SWIFT.ATTRIBUTE_NAME" to "E6C08A",
                         "SWIFT.DIRECTIVE" to "FF8F40",
+                        "SWIFT.PREDEFINED_SYMBOL" to "FF8F40",
                     ),
                 "Light" to
                     mapOf(
                         "SWIFT.VARIABLE" to "5C6166",
+                        "SWIFT.VARIABLE_DECLARATION" to "5C6166",
+                        "SWIFT.VARIABLE_REFERENCE" to "5C6166",
+                        "SWIFT.IDENTIFIER" to "5C6166",
+                        "SWIFT.LOCAL_VARIABLE" to "5C6166",
+                        "SWIFT.LOCAL_VARIABLE_DECLARATION" to "5C6166",
+                        "SWIFT.LOCAL_VARIABLE_REFERENCE" to "5C6166",
                         "SWIFT.PARAMETER" to "A37ACC",
+                        "SWIFT.PARAMETER_DECLARATION" to "A37ACC",
+                        "SWIFT.PARAMETER_REFERENCE" to "A37ACC",
                         "SWIFT.ARGUMENT_LABEL" to "55B4D4",
                         "SWIFT.PROPERTY" to "F07171",
                         "SWIFT.FUNCTION_NAME" to "EBA400",
                         "SWIFT.CLASS_NAME" to "22A4E6",
                         "SWIFT.ATTRIBUTE_NAME" to "E59645",
                         "SWIFT.DIRECTIVE" to "FA8532",
+                        "SWIFT.PREDEFINED_SYMBOL" to "FA8532",
                     ),
             )
         val l = SyntaxOverlayLoader()
@@ -299,6 +333,11 @@ class SyntaxOverlayLoaderTest {
                     "$variant extended scheme must map $keyName to the Kotlin-equivalent Swift role color",
                 )
             }
+            assertEquals(
+                1,
+                overlayByName.fontType("SWIFT.PREDEFINED_SYMBOL"),
+                "$variant extended scheme must render Swift predefined symbols with the keyword font style",
+            )
             assertTrue(
                 listOf(
                     overlayByName.foregroundHex("SWIFT.VARIABLE"),

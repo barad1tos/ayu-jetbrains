@@ -39,6 +39,7 @@ class OverridesGroupBuilderPendingTest {
 
         mockkObject(ProjectLanguageDetector)
         every { ProjectLanguageDetector.dominant(any()) } returns null
+        every { ProjectLanguageDetector.verdict(any(), any<Boolean>()) } returns ProjectLanguageVerdict.Cold
 
         mockkObject(LicenseChecker)
         every { LicenseChecker.isLicensedOrGrace() } returns true
@@ -225,8 +226,9 @@ class OverridesGroupBuilderPendingTest {
         val tmp = File(System.getProperty("java.io.tmpdir"), "pending-forced-no-map").canonicalPath
         val project = stubProject(File(tmp))
         every { ProjectLanguageDetector.dominant(project) } returns "javascript"
-        every { ProjectLanguageDetector.verdict(project) } returns
-            ProjectLanguageVerdict.NoWinner(mapOf("typescript" to 500L, "javascript" to 500L))
+        val noWinnerVerdict = ProjectLanguageVerdict.NoWinner(mapOf("typescript" to 500L, "javascript" to 500L))
+        every { ProjectLanguageDetector.verdict(project) } returns noWinnerVerdict
+        every { ProjectLanguageDetector.verdict(project, warmCache = true) } returns noWinnerVerdict
 
         val builder =
             OverridesGroupBuilder().apply {
@@ -266,8 +268,9 @@ class OverridesGroupBuilderPendingTest {
         val tmp = File(System.getProperty("java.io.tmpdir"), "pending-forced-fallback").canonicalPath
         val project = stubProject(File(tmp))
         every { ProjectLanguageDetector.dominant(project) } returns "javascript"
-        every { ProjectLanguageDetector.verdict(project) } returns
-            ProjectLanguageVerdict.NoWinner(mapOf("typescript" to 500L, "javascript" to 500L))
+        val noWinnerVerdict = ProjectLanguageVerdict.NoWinner(mapOf("typescript" to 500L, "javascript" to 500L))
+        every { ProjectLanguageDetector.verdict(project) } returns noWinnerVerdict
+        every { ProjectLanguageDetector.verdict(project, warmCache = true) } returns noWinnerVerdict
 
         val builder =
             OverridesGroupBuilder().apply {
@@ -282,8 +285,7 @@ class OverridesGroupBuilderPendingTest {
 
         assertEquals("#5CCFE6", builder.resolvePending(project, "#FFCC66"))
         assertEquals(AccentResolver.Source.PROJECT_FALLBACK, builder.sourcePending(project))
-        io.mockk.verify(atLeast = 1) { ProjectLanguageDetector.dominant(project) }
-        io.mockk.verify(atLeast = 1) { ProjectLanguageDetector.verdict(project) }
+        io.mockk.verify(atLeast = 1) { ProjectLanguageDetector.verdict(project, warmCache = true) }
     }
 
     @Test
@@ -292,12 +294,14 @@ class OverridesGroupBuilderPendingTest {
         val coldProject = stubProject(File(coldPath))
         every { ProjectLanguageDetector.dominant(coldProject) } returns null
         every { ProjectLanguageDetector.verdict(coldProject) } returns ProjectLanguageVerdict.Cold
+        every { ProjectLanguageDetector.verdict(coldProject, warmCache = true) } returns ProjectLanguageVerdict.Cold
 
         val noWinnerPath = File(System.getProperty("java.io.tmpdir"), "pending-fallback-no-winner").canonicalPath
         val noWinnerProject = stubProject(File(noWinnerPath))
         every { ProjectLanguageDetector.dominant(noWinnerProject) } returns null
-        every { ProjectLanguageDetector.verdict(noWinnerProject) } returns
-            ProjectLanguageVerdict.NoWinner(mapOf("kotlin" to 500L, "java" to 500L))
+        val noWinnerVerdict = ProjectLanguageVerdict.NoWinner(mapOf("kotlin" to 500L, "java" to 500L))
+        every { ProjectLanguageDetector.verdict(noWinnerProject) } returns noWinnerVerdict
+        every { ProjectLanguageDetector.verdict(noWinnerProject, warmCache = true) } returns noWinnerVerdict
 
         val builder =
             OverridesGroupBuilder().apply {

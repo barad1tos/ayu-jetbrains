@@ -501,6 +501,31 @@ internal object LanguageDetectionRules {
     }
 
     /**
+     * Best matching user-mapped language among the same top-N entries shown in Settings.
+     *
+     * Used as a relaxed polyglot escape hatch after dominance rules fail: if the project is
+     * mixed but one of the visible top languages has an explicit user accent mapping, prefer
+     * that language instead of falling through to global. Ordering is inherited from
+     * [pickDisplayEntries]: weight descending, then language id ascending for ties.
+     */
+    fun pickTopMappedLanguage(
+        weights: Map<String, Long>,
+        mappedLanguageIds: Set<String>,
+        maxEntries: Int = DEFAULT_DISPLAY_MAX_ENTRIES,
+    ): String? {
+        if (mappedLanguageIds.isEmpty()) return null
+        val normalizedMapped =
+            mappedLanguageIds
+                .mapNotNull { id -> id.trim().lowercase(Locale.ROOT).takeIf { it.isNotEmpty() } }
+                .toSet()
+        if (normalizedMapped.isEmpty()) return null
+        return pickDisplayEntries(weights, maxEntries)
+            .asSequence()
+            .mapNotNull { it.id }
+            .firstOrNull { it in normalizedMapped }
+    }
+
+    /**
      * One entry in the structured proportions display — either a named language
      * (`id` non-null) or the trailing "other" bucket that aggregates sub-1%
      * entries and everything past [DEFAULT_DISPLAY_MAX_ENTRIES].

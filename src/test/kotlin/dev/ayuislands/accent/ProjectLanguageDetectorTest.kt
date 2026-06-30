@@ -332,6 +332,67 @@ class ProjectLanguageDetectorTest {
     }
 
     @Test
+    fun `dominant returns forced project language without scanning`() {
+        val project = stubProject("/tmp/forced-language-${System.nanoTime()}")
+        val projectKey = AccentResolver.projectKey(project) ?: error("stub project must have a canonical key")
+        val policyState =
+            AccentMappingsState().apply {
+                forcedProjectLanguages[projectKey] = "  Kotlin  "
+            }
+        val mappingsSettings = AccentMappingsSettings.getInstance()
+        every { mappingsSettings.state } returns policyState
+
+        assertEquals("kotlin", ProjectLanguageDetector.dominant(project))
+
+        verify(exactly = 0) { ProjectLanguageScanner.scan(project) }
+        verify(exactly = 0) { ProjectRootManager.getInstance(project) }
+    }
+
+    @Test
+    fun `verdict warmCache scans even when forced project language is configured`() {
+        val project = stubProject("/tmp/forced-language-warm-${System.nanoTime()}")
+        val projectKey = AccentResolver.projectKey(project) ?: error("stub project must have a canonical key")
+        val policyState =
+            AccentMappingsState().apply {
+                forcedProjectLanguages[projectKey] = "typescript"
+            }
+        val mappingsSettings = AccentMappingsSettings.getInstance()
+        every { mappingsSettings.state } returns policyState
+        val weights = mapOf("typescript" to 500L, "javascript" to 500L)
+        every { ProjectLanguageScanner.scan(project) } returns weights
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        ProjectLanguageDetector.verdict(project, warmCache = true)
+
+        assertEquals("typescript", ProjectLanguageDetector.dominant(project))
+        val verdict = assertIs<ProjectLanguageVerdict.NoWinner>(ProjectLanguageDetector.verdict(project))
+        assertEquals(weights, verdict.weights)
+        verify(exactly = 1) { ProjectLanguageScanner.scan(project) }
+    }
+
+    @Test
+    fun `dominant ignores blank forced project language and keeps scanning`() {
+        val project = stubProject("/tmp/blank-forced-language-${System.nanoTime()}")
+        val projectKey = AccentResolver.projectKey(project) ?: error("stub project must have a canonical key")
+        val policyState =
+            AccentMappingsState().apply {
+                forcedProjectLanguages[projectKey] = "   "
+            }
+        val mappingsSettings = AccentMappingsSettings.getInstance()
+        every { mappingsSettings.state } returns policyState
+        every { ProjectLanguageScanner.scan(project) } returns
+            mapOf("kotlin" to 900L, "java" to 100L)
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        assertEquals("kotlin", ProjectLanguageDetector.dominant(project))
+
+        verify(exactly = 1) { ProjectLanguageScanner.scan(project) }
+        verify(exactly = 0) { ProjectRootManager.getInstance(project) }
+    }
+
+    @Test
     fun `content scan honors stored tiebreak floor`() {
         val policyState =
             AccentMappingsState().apply {
@@ -412,6 +473,28 @@ class ProjectLanguageDetectorTest {
         wireModuleManager(project, moduleNames = emptyList())
 
         assertNull(ProjectLanguageDetector.dominant(project))
+    }
+
+    @Test
+    fun `content scan polyglot picks mapped top language before SDK tiebreak`() {
+        val project = stubProject("/tmp/scan-polyglot-mapped-${System.nanoTime()}")
+        val policyState =
+            AccentMappingsState().apply {
+                languageAccents["kotlin"] = "#5CCFE6"
+            }
+        val mappingsSettings = AccentMappingsSettings.getInstance()
+        every { mappingsSettings.state } returns policyState
+        every { ProjectLanguageScanner.scan(project) } returns
+            mapOf("kotlin" to 450L, "java" to 450L, "python" to 100L)
+        wireProjectRootManager(project, sdkName = "JavaSDK")
+        wireModuleManager(project, moduleNames = emptyList())
+
+        assertEquals("kotlin", ProjectLanguageDetector.dominant(project))
+
+        val verdict = ProjectLanguageDetector.verdict(project)
+        assertIs<ProjectLanguageVerdict.Detected>(verdict)
+        assertEquals("kotlin", verdict.languageId)
+        verify(exactly = 0) { ProjectRootManager.getInstance(project) }
     }
 
     @Test

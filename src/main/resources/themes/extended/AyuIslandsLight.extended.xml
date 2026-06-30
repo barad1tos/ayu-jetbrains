@@ -5,8 +5,14 @@
          the runtime syntax-intensity overlay skips baseAttributes-only entries. -->
     <option name="SWIFT.IDENTIFIER"><value><option name="FOREGROUND" value="5C6166" /></value></option>
     <option name="SWIFT.VARIABLE"><value><option name="FOREGROUND" value="5C6166" /></value></option>
+    <option name="SWIFT.VARIABLE_DECLARATION"><value><option name="FOREGROUND" value="5C6166" /></value></option>
+    <option name="SWIFT.VARIABLE_REFERENCE"><value><option name="FOREGROUND" value="5C6166" /></value></option>
     <option name="SWIFT.LOCAL_VARIABLE"><value><option name="FOREGROUND" value="5C6166" /></value></option>
+    <option name="SWIFT.LOCAL_VARIABLE_DECLARATION"><value><option name="FOREGROUND" value="5C6166" /></value></option>
+    <option name="SWIFT.LOCAL_VARIABLE_REFERENCE"><value><option name="FOREGROUND" value="5C6166" /></value></option>
     <option name="SWIFT.PARAMETER"><value><option name="FOREGROUND" value="A37ACC" /></value></option>
+    <option name="SWIFT.PARAMETER_DECLARATION"><value><option name="FOREGROUND" value="A37ACC" /></value></option>
+    <option name="SWIFT.PARAMETER_REFERENCE"><value><option name="FOREGROUND" value="A37ACC" /></value></option>
     <option name="SWIFT.ARGUMENT_LABEL"><value><option name="FOREGROUND" value="55B4D4" /></value></option>
     <option name="SWIFT.TUPLE_LABEL"><value><option name="FOREGROUND" value="55B4D4" /></value></option>
     <option name="SWIFT.TUPLE_TYPE_LABEL"><value><option name="FOREGROUND" value="55B4D4" /></value></option>
@@ -47,7 +53,7 @@
     <option name="SWIFT.TYPE_PARAMETER"><value><option name="FOREGROUND" value="22A4E6" /><option name="FONT_TYPE" value="2" /></value></option>
     <option name="SWIFT.TYPE"><value><option name="FOREGROUND" value="22A4E6" /><option name="FONT_TYPE" value="2" /></value></option>
     <option name="SWIFT.TYPEALIAS"><value><option name="FOREGROUND" value="22A4E6" /><option name="FONT_TYPE" value="2" /></value></option>
-    <option name="SWIFT.PREDEFINED_SYMBOL"><value><option name="FOREGROUND" value="22A4E6" /><option name="FONT_TYPE" value="2" /></value></option>
+    <option name="SWIFT.PREDEFINED_SYMBOL"><value><option name="FOREGROUND" value="FA8532" /><option name="FONT_TYPE" value="1" /></value></option>
     <option name="SWIFT.MODULE_NAME"><value><option name="FOREGROUND" value="22A4E6" /><option name="FONT_TYPE" value="2" /></value></option>
     <option name="SWIFT.ATTRIBUTE_NAME"><value><option name="FOREGROUND" value="E59645" /></value></option>
     <option name="SWIFT.METADATA"><value><option name="FOREGROUND" value="E59645" /></value></option>

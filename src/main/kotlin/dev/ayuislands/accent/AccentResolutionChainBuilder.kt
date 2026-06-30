@@ -261,7 +261,7 @@ internal object AccentResolutionChainBuilder {
         if (forcedLanguageId != null) {
             collectSkippedLanguageOverrideStep(forcedLanguageId, steps)
             return if (shouldConsultForProjectFallback) {
-                ProjectLanguageDetector.verdict(activeProject)
+                ProjectLanguageDetector.verdict(activeProject, warmCache = true)
             } else {
                 null
             }

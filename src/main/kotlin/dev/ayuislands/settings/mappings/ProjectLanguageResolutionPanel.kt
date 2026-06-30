@@ -129,15 +129,11 @@ internal class ProjectLanguageResolutionPanel(
 
     private fun scanStatusText(state: State): String {
         state.forcedLanguageId?.let { languageId ->
-            return "Forced ${displayName(languageId)}"
+            return "${displayName(languageId)} (manual)"
         }
         return when (val verdict = state.verdict) {
-            is ProjectLanguageVerdict.Detected -> {
-                val hasBreakdown =
-                    verdict.weights?.let { LanguageDetectionRules.pickDisplayEntries(it).size > 1 } == true
-                if (hasBreakdown) "Dominant ${displayName(verdict.languageId)}" else detectedText(verdict)
-            }
-            is ProjectLanguageVerdict.NoWinner -> "No dominant language"
+            is ProjectLanguageVerdict.Detected -> detectedText(verdict)
+            is ProjectLanguageVerdict.NoWinner -> polyglotText(state)
             ProjectLanguageVerdict.Cold -> "Detection pending"
             ProjectLanguageVerdict.Empty -> "No project languages detected"
             ProjectLanguageVerdict.Unavailable -> "Project language detection unavailable"
@@ -146,21 +142,17 @@ internal class ProjectLanguageResolutionPanel(
 
     private fun scanDetailText(state: State): String? =
         when (val verdict = state.verdict) {
-            is ProjectLanguageVerdict.Detected ->
-                verdict.weights
-                    ?.takeIf { LanguageDetectionRules.pickDisplayEntries(it).size > 1 }
-                    ?.let(::proportionsText)
+            is ProjectLanguageVerdict.Detected -> null
             is ProjectLanguageVerdict.NoWinner -> proportionsText(verdict.weights)
             else -> null
         }
 
     private fun detectedText(verdict: ProjectLanguageVerdict.Detected): String {
-        val percent =
+        val proportions =
             verdict.weights
-                ?.let { weights -> percentFor(verdict.languageId, weights) }
-                ?.let { " $it%" }
-                ?: ""
-        return displayName(verdict.languageId) + percent
+                ?.let(LanguageDetectionRules::pickTopLanguagesForDisplay)
+                ?.takeIf { it.isNotEmpty() }
+        return proportions ?: displayName(verdict.languageId)
     }
 
     private fun percentFor(
@@ -182,11 +174,27 @@ internal class ProjectLanguageResolutionPanel(
 
     private fun sourceText(state: State): String {
         val label = AccentResolver.sourceLabel(state.activeSource)
-        return if (state.activeSource == AccentResolver.Source.PROJECT_FALLBACK && state.fallbackHex != null) {
-            "$label ${state.fallbackHex}"
-        } else {
-            label
+        return when (state.activeSource) {
+            AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE ->
+                sourceWithDetail("Language override", manualLanguageDetail(state.forcedLanguageId))
+            AccentResolver.Source.LANGUAGE_OVERRIDE ->
+                sourceWithDetail(label, detectedLanguageDetail(state))
+            AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE ->
+                sourceWithDetail(label, manualLanguageDetail(state.forcedLanguageId) ?: detectedLanguageDetail(state))
+            AccentResolver.Source.PROJECT_FALLBACK ->
+                if (state.fallbackHex != null) "$label ${state.fallbackHex}" else label
+            else -> label
         }
+    }
+
+    private fun detectedLanguageDetail(state: State): String? {
+        val verdict = state.verdict as? ProjectLanguageVerdict.Detected ?: return null
+        val percent =
+            verdict.weights
+                ?.let { weights -> percentFor(verdict.languageId, weights) }
+                ?.let { ", $it%" }
+                ?: ""
+        return displayName(verdict.languageId) + percent
     }
 
     private fun actionSpecsFor(state: State): List<ActionSpec> {
@@ -378,7 +386,7 @@ internal class ProjectLanguageResolutionPanel(
         const val RESCAN_TOOLTIP: String = "Re-detect the dominant language of this project"
 
         private const val SOURCE_PREFIX: String = "Accent source"
-        private const val SCAN_PREFIX: String = "Language scan"
+        private const val SCAN_PREFIX: String = "Detected in this project"
         private const val SET_FALLBACK_TOOLTIP: String =
             "Use the current accent when this project has no dominant language."
         private const val ENTRY_GAP_PX: Int = 8
@@ -386,6 +394,24 @@ internal class ProjectLanguageResolutionPanel(
         private const val ROW_GAP_PX: Int = 2
     }
 }
+
+private fun polyglotText(state: ProjectLanguageResolutionPanel.State): String {
+    val applied =
+        when (state.activeSource) {
+            AccentResolver.Source.PROJECT_FALLBACK -> "Project fallback applies."
+            AccentResolver.Source.PROJECT_OVERRIDE -> "Project override applies."
+            else -> "Global accent applies."
+        }
+    return "Polyglot — no single dominant language. $applied"
+}
+
+private fun manualLanguageDetail(languageId: String?): String? =
+    languageId?.let { "${LanguageDetectionRules.displayNameForLanguageId(it)}, manual" }
+
+private fun sourceWithDetail(
+    label: String,
+    detail: String?,
+): String = detail?.let { "$label ($it)" } ?: label
 
 private fun safeLabelText(text: String): String =
     text

@@ -10,6 +10,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkAll
+import io.mockk.verify
 import java.awt.Color
 import java.io.File
 import kotlin.test.AfterTest
@@ -62,6 +63,7 @@ class AccentResolverChainTest {
         mockkObject(ProjectLanguageDetector)
         every { ProjectLanguageDetector.dominant(any()) } returns null
         every { ProjectLanguageDetector.verdict(any()) } returns ProjectLanguageVerdict.Cold
+        every { ProjectLanguageDetector.verdict(any(), any<Boolean>()) } returns ProjectLanguageVerdict.Cold
 
         // Default: licensed. Individual tests override to verify the unlicensed path.
         mockkObject(LicenseChecker)
@@ -277,6 +279,27 @@ class AccentResolverChainTest {
     }
 
     @Test
+    fun `resolveChain forced language missing accent warms cache before project fallback`() {
+        val tmp = File(stubsDir, "forced-no-map-project-fallback").canonicalPath
+        mappingsState.forcedProjectLanguages[tmp] = "typescript"
+        mappingsState.projectFallbackAccents[tmp] = "#5CCFE6"
+        val project = stubProject(File(tmp))
+        val noWinnerVerdict =
+            ProjectLanguageVerdict.NoWinner(
+                mapOf("typescript" to 500L, "javascript" to 500L),
+            )
+        every { ProjectLanguageDetector.verdict(project) } returns noWinnerVerdict
+        every { ProjectLanguageDetector.verdict(project, warmCache = true) } returns noWinnerVerdict
+
+        val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
+
+        assertEquals(AccentResolver.Source.PROJECT_FALLBACK, chain.winner.source)
+        assertEquals("#5CCFE6", chain.winner.hex)
+        assertEquals(noWinnerVerdict, chain.verdict)
+        verify(atLeast = 1) { ProjectLanguageDetector.verdict(project, warmCache = true) }
+    }
+
+    @Test
     fun `resolveChain forced language uses language fallback when exact mapping is missing`() {
         val tmp = File(stubsDir, "forced-language-fallback").canonicalPath
         mappingsState.forcedProjectLanguages[tmp] = "typescript"
@@ -434,6 +457,7 @@ class AccentResolverChainTest {
                 mapOf("typescript" to 500L, "javascript" to 500L),
             )
         every { ProjectLanguageDetector.verdict(project) } returns noWinnerVerdict
+        every { ProjectLanguageDetector.verdict(project, warmCache = true) } returns noWinnerVerdict
 
         val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
 
@@ -467,6 +491,7 @@ class AccentResolverChainTest {
                 mapOf("typescript" to 500L, "javascript" to 500L),
             )
         every { ProjectLanguageDetector.verdict(project) } returns noWinnerVerdict
+        every { ProjectLanguageDetector.verdict(project, warmCache = true) } returns noWinnerVerdict
 
         val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
 

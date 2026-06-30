@@ -31,7 +31,34 @@ class ProjectLanguageResolutionPanelTest {
         )
 
         assertEquals(
-            "Accent source: Language override\nLanguage scan: Dominant Kotlin\nKotlin 90% · Java 10%",
+            "Accent source: Language override (Kotlin, 90%)\n" +
+                "Detected in this project: Kotlin (90%) • Java (10%)",
+            panel.currentSummaryForTest(),
+        )
+    }
+
+    @Test
+    fun `summary renders detected winner when scan proportions are unavailable`() {
+        val panel = panel()
+
+        panel.refresh(
+            ProjectLanguageResolutionPanel.State(
+                verdict =
+                    ProjectLanguageVerdict.Detected(
+                        languageId = "kotlin",
+                        weights = null,
+                    ),
+                forcedLanguageId = null,
+                fallbackHex = null,
+                activeSource = AccentResolver.Source.LANGUAGE_OVERRIDE,
+                canMutate = true,
+                canRescan = false,
+            ),
+        )
+
+        assertEquals(
+            "Accent source: Language override (Kotlin)\n" +
+                "Detected in this project: Kotlin",
             panel.currentSummaryForTest(),
         )
     }
@@ -59,11 +86,11 @@ class ProjectLanguageResolutionPanelTest {
         val labels = panel.labelsForTest()
 
         assertNull(labels.first { it.second == "Project override" }.first)
-        assertEquals(icon, labels.first { it.second == "Java 100%" }.first)
+        assertEquals(icon, labels.first { it.second == "Java (100%)" }.first)
     }
 
     @Test
-    fun `detected language with visible tail renders icon-per-entry breakdown`() {
+    fun `detected language with visible tail renders icon beside detected breakdown`() {
         val icon = EmptyIcon.create(16)
         val panel = panel(languageIconForId = { icon })
 
@@ -84,10 +111,7 @@ class ProjectLanguageResolutionPanelTest {
 
         val labels = panel.labelsForTest()
 
-        assertEquals(icon, labels.first { it.second == "Dominant Kotlin" }.first)
-        assertEquals(icon, labels.first { it.second == "Kotlin 90%" }.first)
-        assertEquals(icon, labels.first { it.second == "Java 10%" }.first)
-        assertNull(labels.first { it.second == "·" }.first)
+        assertEquals(icon, labels.first { it.second == "Kotlin (90%) • Java (10%)" }.first)
     }
 
     @Test
@@ -111,10 +135,35 @@ class ProjectLanguageResolutionPanelTest {
 
         assertEquals(
             listOf(
-                "Accent source: Language fallback override",
-                "Language scan: Dominant TypeScript",
-                "TypeScript 90% · JavaScript 10%",
+                "Accent source: Language fallback override (TypeScript, 90%)",
+                "Detected in this project: TypeScript (90%) • JavaScript (10%)",
             ).joinToString("\n"),
+            panel.currentSummaryForTest(),
+        )
+    }
+
+    @Test
+    fun `summary renders manual language when fallback source is active`() {
+        val panel = panel()
+
+        panel.refresh(
+            ProjectLanguageResolutionPanel.State(
+                verdict =
+                    ProjectLanguageVerdict.Detected(
+                        languageId = "kotlin",
+                        weights = mapOf("kotlin" to 1_000L),
+                    ),
+                forcedLanguageId = "typescript",
+                fallbackHex = "#5CCFE6",
+                activeSource = AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE,
+                canMutate = true,
+                canRescan = false,
+            ),
+        )
+
+        assertEquals(
+            "Accent source: Language fallback override (TypeScript, manual)\n" +
+                "Detected in this project: TypeScript (manual)",
             panel.currentSummaryForTest(),
         )
     }
@@ -138,7 +187,35 @@ class ProjectLanguageResolutionPanelTest {
         )
 
         assertEquals(
-            "Accent source: Global\nLanguage scan: No dominant language\nJavaScript 50% · TypeScript 50%",
+            "Accent source: Global\n" +
+                "Detected in this project: Polyglot — no single dominant language. Global accent applies.\n" +
+                "JavaScript 50% · TypeScript 50%",
+            panel.currentSummaryForTest(),
+        )
+    }
+
+    @Test
+    fun `summary explains polyglot project override keeps project accent`() {
+        val panel = panel()
+
+        panel.refresh(
+            ProjectLanguageResolutionPanel.State(
+                verdict =
+                    ProjectLanguageVerdict.NoWinner(
+                        mapOf("typescript" to 500L, "javascript" to 500L),
+                    ),
+                forcedLanguageId = null,
+                fallbackHex = null,
+                activeSource = AccentResolver.Source.PROJECT_OVERRIDE,
+                canMutate = true,
+                canRescan = false,
+            ),
+        )
+
+        assertEquals(
+            "Accent source: Project override\n" +
+                "Detected in this project: Polyglot — no single dominant language. Project override applies.\n" +
+                "JavaScript 50% · TypeScript 50%",
             panel.currentSummaryForTest(),
         )
     }
@@ -189,7 +266,8 @@ class ProjectLanguageResolutionPanelTest {
         )
 
         assertEquals(
-            "Accent source: Forced language override\nLanguage scan: Forced TypeScript",
+            "Accent source: Language override (TypeScript, manual)\n" +
+                "Detected in this project: TypeScript (manual)",
             panel.currentSummaryForTest(),
         )
     }
@@ -215,7 +293,7 @@ class ProjectLanguageResolutionPanelTest {
         assertEquals(
             listOf(
                 "Accent source: Project fallback #5CCFE6",
-                "Language scan: No dominant language",
+                "Detected in this project: Polyglot — no single dominant language. Project fallback applies.",
                 "JavaScript 50% · TypeScript 50%",
             ).joinToString("\n"),
             panel.currentSummaryForTest(),
@@ -237,7 +315,7 @@ class ProjectLanguageResolutionPanelTest {
             ),
         )
         assertEquals(
-            "Accent source: Global\nLanguage scan: Detection pending",
+            "Accent source: Global\nDetected in this project: Detection pending",
             panel.currentSummaryForTest(),
         )
 
@@ -252,7 +330,7 @@ class ProjectLanguageResolutionPanelTest {
             ),
         )
         assertEquals(
-            "Accent source: Global\nLanguage scan: No project languages detected",
+            "Accent source: Global\nDetected in this project: No project languages detected",
             panel.currentSummaryForTest(),
         )
 
@@ -267,7 +345,7 @@ class ProjectLanguageResolutionPanelTest {
             ),
         )
         assertEquals(
-            "Accent source: Global\nLanguage scan: Project language detection unavailable",
+            "Accent source: Global\nDetected in this project: Project language detection unavailable",
             panel.currentSummaryForTest(),
         )
     }
@@ -370,7 +448,9 @@ class ProjectLanguageResolutionPanelTest {
         )
 
         assertEquals(
-            "Accent source: Global\nLanguage scan: No dominant language\nunresolved",
+            "Accent source: Global\n" +
+                "Detected in this project: Polyglot — no single dominant language. Global accent applies.\n" +
+                "unresolved",
             panel.currentSummaryForTest(),
         )
         assertTrue("unresolved" in panel.labelsForTest().map { it.second })

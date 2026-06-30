@@ -247,7 +247,9 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                 .firstOrNull { it.hex.equals(displayHex, ignoreCase = true) }
                 ?.name
                 ?: "Custom"
-        val sourceText = describeActiveSource(overrides.sourcePending(contextProject, cacheOnly = true))
+        val source = overrides.sourcePending(contextProject, cacheOnly = true)
+        val sourceDetail = overrides.activeSourceDetailPending(contextProject, source, cacheOnly = true)
+        val sourceText = describeActiveSource(source, sourceDetail)
         label.text = "Currently active: $presetName ($sourceText)"
     }
 
@@ -278,13 +280,19 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         return settings.getAccentForVariant(currentVariant)
     }
 
-    private fun describeActiveSource(source: AccentResolver.Source): String =
+    private fun describeActiveSource(
+        source: AccentResolver.Source,
+        languageDetail: String? = overrides.activeSourceDetailPending(contextProject, source, cacheOnly = true),
+    ): String =
         when (source) {
             AccentResolver.Source.PROJECT_OVERRIDE ->
                 "project override for \"${contextProject?.name ?: "?"}\""
-            AccentResolver.Source.LANGUAGE_OVERRIDE -> AccentResolver.sourceLabel(source)
-            AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE,
-            AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE,
+            AccentResolver.Source.LANGUAGE_OVERRIDE ->
+                sourceWithDetail(AccentResolver.sourceLabel(source), languageDetail)
+            AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE ->
+                sourceWithDetail("Language override", languageDetail)
+            AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE ->
+                sourceWithDetail(AccentResolver.sourceLabel(source), languageDetail)
             AccentResolver.Source.PROJECT_FALLBACK,
             AccentResolver.Source.MATERIAL_THEME,
             AccentResolver.Source.IDE_ACCENT,
@@ -737,3 +745,8 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         private fun colorToHex(color: Color): String = "#%02X%02X%02X".format(color.red, color.green, color.blue)
     }
 }
+
+private fun sourceWithDetail(
+    label: String,
+    detail: String?,
+): String = detail?.let { "$label ($it)" } ?: label

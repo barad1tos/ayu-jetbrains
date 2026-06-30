@@ -303,8 +303,10 @@ class SyntaxCategoryRegistryTest {
                 "SWIFT.OPERATOR" to PrimitiveCategory.OPERATOR,
                 "SWIFT.OPERATION_SIGN" to PrimitiveCategory.OPERATOR,
                 "SWIFT.PARAMETER" to PrimitiveCategory.PARAMETER,
+                "SWIFT.PARAMETER_DECLARATION" to PrimitiveCategory.PARAMETER,
+                "SWIFT.PARAMETER_REFERENCE" to PrimitiveCategory.PARAMETER,
                 "SWIFT.PARENTHESES" to PrimitiveCategory.OPERATOR,
-                "SWIFT.PREDEFINED_SYMBOL" to PrimitiveCategory.TYPE_REF,
+                "SWIFT.PREDEFINED_SYMBOL" to PrimitiveCategory.KEYWORD,
                 "SWIFT.PROPERTY" to PrimitiveCategory.INSTANCE_FIELD,
                 "SWIFT.PROTOCOL_DECLARATION" to PrimitiveCategory.INTERFACE_DECL,
                 "SWIFT.PROTOCOL_NAME" to PrimitiveCategory.INTERFACE_DECL,
@@ -324,6 +326,8 @@ class SyntaxCategoryRegistryTest {
                 "SWIFT.TYPEALIAS" to PrimitiveCategory.TYPE_REF,
                 "SWIFT.VALID_STRING_ESCAPE" to PrimitiveCategory.STRING_LITERAL,
                 "SWIFT.VARIABLE" to PrimitiveCategory.LOCAL_VAR,
+                "SWIFT.VARIABLE_DECLARATION" to PrimitiveCategory.LOCAL_VAR,
+                "SWIFT.VARIABLE_REFERENCE" to PrimitiveCategory.LOCAL_VAR,
             )
 
         for ((key, expected) in expectedCategories) {
