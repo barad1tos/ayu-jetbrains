@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.7.7] - 2026-07-01
+
+- [Fix] **Language override diagnostics** — Settings and Quick-Switcher now show
+  the detected project-language breakdown, manual forced-language state,
+  polyglot fallback detail, and the language that actually won accent
+  resolution.
+- [Fix] **Mapped accents in mixed-language projects** — polyglot scans can now
+  choose the highest-weight detected language that has a user accent mapping,
+  so balanced projects can still use a configured language color instead of
+  falling back to the global accent.
+- [Fix] **Swift and Noctule Swift highlighting** — Swift declaration and
+  reference aliases, predefined symbols, and `nil` fallback now use Ayu-native
+  semantic colors across Dark, Mirage, and Light.
+- [Fix] **Project fallback accents** — project fallback resolution now warms and
+  reuses the detector verdict consistently, keeping diagnostics aligned with
+  the accent that gets applied.
+- [Fix] **Font install consent** — Settings and onboarding font installs now
+  require the exact catalog entry that the user approved before any font files
+  are queued for installation.
+
 ## [2.7.6] - 2026-06-24
 
 - [Fix] **Language override diagnostics** — Quick-Switcher now keeps

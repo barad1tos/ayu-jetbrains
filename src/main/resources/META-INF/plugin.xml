@@ -117,6 +117,14 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.7.7</h3>
+    <ul>
+      <li>[Fix] <b>Language override diagnostics</b> — Settings and Quick-Switcher now show the detected project-language breakdown, manual forced-language state, polyglot fallback detail, and the language that actually won accent resolution.</li>
+      <li>[Fix] <b>Mapped accents in mixed-language projects</b> — polyglot scans can now choose the highest-weight detected language that has a user accent mapping, so balanced projects can still use a configured language color instead of falling back to the global accent.</li>
+      <li>[Fix] <b>Swift and Noctule Swift highlighting</b> — Swift declaration and reference aliases, predefined symbols, and <code>nil</code> fallback now use Ayu-native semantic colors across Dark, Mirage, and Light.</li>
+      <li>[Fix] <b>Project fallback accents</b> — project fallback resolution now warms and reuses the detector verdict consistently, keeping diagnostics aligned with the accent that gets applied.</li>
+      <li>[Fix] <b>Font install consent</b> — Settings and onboarding font installs now require the exact catalog entry that the user approved before any font files are queued for installation.</li>
+    </ul>
     <h3>2.7.6</h3>
     <ul>
       <li>[Fix] <b>Language override diagnostics</b> — Quick-Switcher now keeps dominant-language proportions and fallback detail in the expanded resolution chain instead of crowding or overlapping the collapsed widget.</li>
