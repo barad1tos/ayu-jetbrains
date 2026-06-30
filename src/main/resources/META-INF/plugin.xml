@@ -300,6 +300,8 @@
     <!-- idea-version patched by Gradle from gradle.properties -->
     <depends>com.intellij.modules.platform</depends>
     <depends optional="true" config-file="groovy.xml">org.intellij.groovy</depends>
+    <!-- Noctule Swift plugin id verified from its installed plugin.xml on 2026-06-30. -->
+    <depends optional="true" config-file="noctule-swift.xml">dev.j-a.swift</depends>
     <depends optional="true" config-file="codeglance-pro.xml">com.nasller.CodeGlancePro</depends>
     <depends optional="true" config-file="indent-rainbow.xml">indent-rainbow.indent-rainbow</depends>
 

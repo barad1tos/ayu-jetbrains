@@ -25,8 +25,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  *    install).
  *  - R-7 single publish: exactly one
  *    `MessageBus.syncPublisher(EditorColorsManager.TOPIC)` invocation
- *    publishing a single global-scheme-change event per apply call,
- *    wrapped in a read action.
+ *    publishing a single global-scheme-change event per apply call. The
+ *    publish must stay outside read actions because downstream editor
+ *    listeners may refresh highlighters through write-intent read actions.
  *  - Pattern A latches: a missing named scheme logs WARN once per (scheme,
  *    session); an unknown overlay variant tag arriving via
  *    [resolveActiveAyuOverlayVariant] (a future Ayu variant outside the whitelist)
@@ -335,12 +336,10 @@ class SyntaxIntensityService {
 
     private fun publishSchemeChange() {
         val application = ApplicationManager.getApplication()
-        application.runReadAction {
-            application
-                .messageBus
-                .syncPublisher(EditorColorsManager.TOPIC)
-                .globalSchemeChange(null)
-        }
+        application
+            .messageBus
+            .syncPublisher(EditorColorsManager.TOPIC)
+            .globalSchemeChange(null)
     }
 
     companion object {

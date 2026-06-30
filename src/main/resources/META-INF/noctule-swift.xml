@@ -1,0 +1,8 @@
+<idea-plugin>
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Noctule Swift language id verified from the installed plugin on 2026-06-30. -->
+        <annotator
+                language="NoctuleSwift"
+                implementationClass="dev.ayuislands.syntax.NoctuleSwiftPrimitiveAnnotator"/>
+    </extensions>
+</idea-plugin>
