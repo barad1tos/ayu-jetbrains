@@ -115,8 +115,9 @@ class AccentResolverExternalTest {
             mappingsState.projectFallbackAccents[projectPath] = "#5CCFE6"
             state.externalThemeAccent = "#445566"
             val project = stubProject(File(projectPath))
-            every { ProjectLanguageDetector.verdict(any()) } returns
-                ProjectLanguageVerdict.NoWinner(mapOf("typescript" to 500L, "javascript" to 500L))
+            val noWinnerVerdict = ProjectLanguageVerdict.NoWinner(mapOf("typescript" to 500L, "javascript" to 500L))
+            every { ProjectLanguageDetector.verdict(project) } returns noWinnerVerdict
+            every { ProjectLanguageDetector.verdict(project, any<Boolean>()) } returns noWinnerVerdict
 
             withUiColorProvider({ key -> if (key == "material.accent") Color(0x12, 0x34, 0x56) else null }) {
                 assertEquals("#5CCFE6", AccentResolver.resolve(project, AccentContext.External))
@@ -299,6 +300,7 @@ class AccentResolverExternalTest {
 
             every { ProjectLanguageDetector.dominant(any()) } returns null
             every { ProjectLanguageDetector.verdict(any()) } returns ProjectLanguageVerdict.Cold
+            every { ProjectLanguageDetector.verdict(any(), any<Boolean>()) } returns ProjectLanguageVerdict.Cold
             every { LicenseChecker.isLicensedOrGrace() } returns licensed
 
             AccentResolver.resetWarnGatesForTest()
