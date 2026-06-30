@@ -435,8 +435,7 @@ class OverridesGroupBuilder(
             if (cacheOnly) {
                 ProjectLanguageDetector.verdict(activeProject)
             } else {
-                ProjectLanguageDetector.dominant(activeProject)
-                ProjectLanguageDetector.verdict(activeProject)
+                ProjectLanguageDetector.verdict(activeProject, warmCache = true)
             }
         return (verdict as? ProjectLanguageVerdict.Detected)?.let(::detectedLanguageDetail)
     }
@@ -544,10 +543,9 @@ class OverridesGroupBuilder(
         warmDetector: Boolean,
     ): PendingResolvedAccent? {
         val fallbackAccent = pendingFallbackAccents[projectKey] ?: return null
-        if (!detectorConsulted && warmDetector) {
-            ProjectLanguageDetector.dominant(activeProject)
-        }
-        val verdict = cachedVerdict ?: ProjectLanguageDetector.verdict(activeProject)
+        val verdict =
+            cachedVerdict
+                ?: ProjectLanguageDetector.verdict(activeProject, warmCache = !detectorConsulted && warmDetector)
         return fallbackAccent
             .takeIf { verdict is ProjectLanguageVerdict.NoWinner }
             ?.let { PendingResolvedAccent(AccentResolver.Source.PROJECT_FALLBACK, it) }

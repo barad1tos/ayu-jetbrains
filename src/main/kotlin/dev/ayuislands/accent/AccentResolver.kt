@@ -221,13 +221,11 @@ object AccentResolver {
                 request = languageRequest,
             )
         languageOverride?.let { return it }
-        mappings.projectFallbackAccents[projectKey]
-            ?.also {
-                if (!detectorConsulted) {
-                    ProjectLanguageDetector.dominant(activeProject)
-                }
-            }?.takeIf { ProjectLanguageDetector.verdict(activeProject) is ProjectLanguageVerdict.NoWinner }
-            ?.let { rawHex -> overrideAccent(Source.PROJECT_FALLBACK, rawHex, validateHex)?.let { return it } }
+        val fallbackAccent = mappings.projectFallbackAccents[projectKey] ?: return null
+        val fallbackVerdict = ProjectLanguageDetector.verdict(activeProject, warmCache = !detectorConsulted)
+        if (fallbackVerdict is ProjectLanguageVerdict.NoWinner) {
+            overrideAccent(Source.PROJECT_FALLBACK, fallbackAccent, validateHex)?.let { return it }
+        }
         return null
     }
 

@@ -349,6 +349,29 @@ class ProjectLanguageDetectorTest {
     }
 
     @Test
+    fun `verdict warmCache scans even when forced project language is configured`() {
+        val project = stubProject("/tmp/forced-language-warm-${System.nanoTime()}")
+        val projectKey = AccentResolver.projectKey(project) ?: error("stub project must have a canonical key")
+        val policyState =
+            AccentMappingsState().apply {
+                forcedProjectLanguages[projectKey] = "typescript"
+            }
+        val mappingsSettings = AccentMappingsSettings.getInstance()
+        every { mappingsSettings.state } returns policyState
+        val weights = mapOf("typescript" to 500L, "javascript" to 500L)
+        every { ProjectLanguageScanner.scan(project) } returns weights
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        ProjectLanguageDetector.verdict(project, warmCache = true)
+
+        assertEquals("typescript", ProjectLanguageDetector.dominant(project))
+        val verdict = assertIs<ProjectLanguageVerdict.NoWinner>(ProjectLanguageDetector.verdict(project))
+        assertEquals(weights, verdict.weights)
+        verify(exactly = 1) { ProjectLanguageScanner.scan(project) }
+    }
+
+    @Test
     fun `dominant ignores blank forced project language and keeps scanning`() {
         val project = stubProject("/tmp/blank-forced-language-${System.nanoTime()}")
         val projectKey = AccentResolver.projectKey(project) ?: error("stub project must have a canonical key")

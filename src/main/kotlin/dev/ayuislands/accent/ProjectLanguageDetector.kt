@@ -112,9 +112,18 @@ object ProjectLanguageDetector {
             -> null
         }
 
-    internal fun verdict(project: Project): ProjectLanguageVerdict {
+    internal fun verdict(
+        project: Project,
+        warmCache: Boolean = false,
+    ): ProjectLanguageVerdict {
         val key = AccentResolver.projectKey(project) ?: return ProjectLanguageVerdict.Unavailable
-        return verdictCache[key] ?: ProjectLanguageVerdict.Cold
+        verdictCache[key]?.let { return it }
+        if (!warmCache) return ProjectLanguageVerdict.Cold
+        if (isOnEdt()) {
+            scheduleBackgroundDetection(project, key)
+            return ProjectLanguageVerdict.Cold
+        }
+        return detectAndCache(project, key)
     }
 
     /**

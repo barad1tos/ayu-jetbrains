@@ -64,6 +64,7 @@ class OverridesGroupBuilderProportionsTest {
         mockkObject(ProjectLanguageDetector)
         every { ProjectLanguageDetector.dominant(any()) } returns null
         every { ProjectLanguageDetector.verdict(any()) } returns ProjectLanguageVerdict.Cold
+        every { ProjectLanguageDetector.verdict(any(), any<Boolean>()) } returns ProjectLanguageVerdict.Cold
         every { ProjectLanguageDetector.proportions(any()) } returns null
         every { ProjectLanguageDetector.rescan(any()) } returns Unit
 

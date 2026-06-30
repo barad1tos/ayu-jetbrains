@@ -44,6 +44,7 @@ class AccentResolverTest {
         mockkObject(ProjectLanguageDetector)
         every { ProjectLanguageDetector.dominant(any()) } returns null
         every { ProjectLanguageDetector.verdict(any()) } returns ProjectLanguageVerdict.Cold
+        every { ProjectLanguageDetector.verdict(any(), any<Boolean>()) } returns ProjectLanguageVerdict.Cold
 
         // Overrides are premium: default the license gate to licensed so the resolution
         // logic under test runs. Individual tests override to verify the unlicensed path.
@@ -187,12 +188,13 @@ class AccentResolverTest {
 
         val project = stubProject(File(tmp))
         every { ProjectLanguageDetector.dominant(project) } returns null
-        every { ProjectLanguageDetector.verdict(project) } returns
-            ProjectLanguageVerdict.NoWinner(mapOf("typescript" to 500L, "javascript" to 500L))
+        val noWinnerVerdict = ProjectLanguageVerdict.NoWinner(mapOf("typescript" to 500L, "javascript" to 500L))
+        every { ProjectLanguageDetector.verdict(project) } returns noWinnerVerdict
+        every { ProjectLanguageDetector.verdict(project, warmCache = true) } returns noWinnerVerdict
 
         assertEquals("#5CCFE6", AccentResolver.resolve(project, AyuVariant.MIRAGE))
         assertEquals(AccentResolver.Source.PROJECT_FALLBACK, AccentResolver.source(project))
-        io.mockk.verify(atLeast = 1) { ProjectLanguageDetector.dominant(project) }
+        io.mockk.verify(atLeast = 1) { ProjectLanguageDetector.verdict(project, warmCache = true) }
     }
 
     @Test
@@ -204,12 +206,13 @@ class AccentResolverTest {
 
         val project = stubProject(File(tmp))
         every { ProjectLanguageDetector.dominant(project) } returns null
-        every { ProjectLanguageDetector.verdict(project) } returns
-            ProjectLanguageVerdict.NoWinner(mapOf("typescript" to 500L, "javascript" to 500L))
+        val noWinnerVerdict = ProjectLanguageVerdict.NoWinner(mapOf("typescript" to 500L, "javascript" to 500L))
+        every { ProjectLanguageDetector.verdict(project) } returns noWinnerVerdict
+        every { ProjectLanguageDetector.verdict(project, warmCache = true) } returns noWinnerVerdict
 
         assertEquals("#5CCFE6", AccentResolver.resolve(project, AyuVariant.MIRAGE))
         assertEquals(AccentResolver.Source.PROJECT_FALLBACK, AccentResolver.source(project))
-        io.mockk.verify(atLeast = 1) { ProjectLanguageDetector.dominant(project) }
+        io.mockk.verify(atLeast = 1) { ProjectLanguageDetector.verdict(project, warmCache = true) }
     }
 
     @Test
@@ -219,6 +222,7 @@ class AccentResolverTest {
 
         val project = stubProject(File(tmp))
         every { ProjectLanguageDetector.verdict(project) } returns ProjectLanguageVerdict.Cold
+        every { ProjectLanguageDetector.verdict(project, warmCache = true) } returns ProjectLanguageVerdict.Cold
 
         assertEquals(globalMirageAccent, AccentResolver.resolve(project, AyuVariant.MIRAGE))
         assertEquals(AccentResolver.Source.GLOBAL, AccentResolver.source(project))
