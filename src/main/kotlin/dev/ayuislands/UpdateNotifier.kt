@@ -55,6 +55,14 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.7.7" to
+                releaseNotes(
+                    "[Fix] Language diagnostics show detected breakdowns, manual state, and the winning accent source",
+                    "[Fix] Mapped languages can win in balanced polyglot projects instead of falling back globally",
+                    "[Fix] Swift and Noctule Swift aliases, predefined symbols, and nil fallback use Ayu colors",
+                    "[Fix] Project fallback accents reuse warmed detector verdicts for matching diagnostics",
+                    "[Fix] Font installs require the exact catalog entry approved in the consent dialog",
+                ),
             "2.7.6" to
                 releaseNotes(
                     "[Fix] Language override diagnostics keep full details in the compact resolution chain",
