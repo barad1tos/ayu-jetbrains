@@ -1404,6 +1404,54 @@ class ProjectLanguageDetectorTest {
     }
 
     @Test
+    fun `disposed cache write does not clobber reopened detected cache`() {
+        // Closing and reopened projects can share the same canonical path. If
+        // the reopened project warms a fresh cache entry while the old scan is
+        // still returning, the old scan must not overwrite that fresh entry
+        // once its project is already disposed at the cache-write boundary.
+        val weights = mapOf("kotlin" to 1_000L)
+        val basePath = "/tmp/rescan-reopened-cache-write-${System.nanoTime()}"
+        val closingProject = stubProject(basePath)
+        val reopenedProject = stubProject(basePath)
+        every { closingProject.isDisposed } returnsMany
+            listOf(
+                false, // task entry guard
+                false, // post-scan guard inside detectInternal
+                false, // pre-cache guard inside detectAndCache
+                true, // atomic cache-write guard
+                true, // scheduler post-detect guard
+            )
+        every { ProjectLanguageScanner.scan(closingProject) } answers {
+            assertEquals("kotlin", ProjectLanguageDetector.dominant(reopenedProject))
+            assertEquals(weights, ProjectLanguageDetector.proportions(reopenedProject))
+            weights
+        }
+        every { ProjectLanguageScanner.scan(reopenedProject) } returns weights
+        wireProjectRootManager(closingProject, sdkName = null)
+        wireModuleManager(closingProject, moduleNames = emptyList())
+        wireProjectRootManager(reopenedProject, sdkName = null)
+        wireModuleManager(reopenedProject, moduleNames = emptyList())
+
+        stubDumbServiceSmart(closingProject)
+        val listener = mockk<ProjectLanguageDetectionListener>(relaxed = true)
+        wireMessageBus(closingProject, listener)
+        runInvokeLaterInline()
+        runSchedulerInline()
+
+        ProjectLanguageDetector.rescan(closingProject)
+
+        verify(exactly = 0) { listener.scanCompleted(any()) }
+        assertEquals(
+            weights,
+            ProjectLanguageDetector.proportions(reopenedProject),
+            "disposed cache write must leave the reopened project's fresh detected weights intact",
+        )
+        val verdict = assertIs<ProjectLanguageVerdict.Detected>(ProjectLanguageDetector.verdict(reopenedProject))
+        assertEquals("kotlin", verdict.languageId)
+        assertEquals(weights, verdict.weights)
+    }
+
+    @Test
     fun `rescan on null project key publishes Unavailable outcome`() {
         // User-facing symptom guard: `AccentResolver.projectKey` can
         // return null for a disposal race or canonicalization failure on

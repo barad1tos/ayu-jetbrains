@@ -238,7 +238,16 @@ object ProjectLanguageDetector {
         }
         if (detection.cacheable) {
             val entry = VerdictCacheEntry(detection.verdict)
-            verdictCache[key] = entry
+            val cachedEntry =
+                verdictCache.compute(key) { _, currentEntry ->
+                    if (project.isDisposed) currentEntry else entry
+                }
+            if (cachedEntry !== entry) {
+                LOG.debug("Scan for $key reached cache write after project disposal; kept existing verdict")
+                return CachedDetection(ProjectLanguageVerdict.Unavailable, cacheEntry = null)
+            }
+            // Disposal can still happen after the atomic compute window. Remove
+            // only this exact entry so a reopened project's fresh verdict stays.
             if (project.isDisposed) {
                 verdictCache.remove(key, entry)
                 LOG.debug("Scan for $key cached during project disposal; removed stale verdict")

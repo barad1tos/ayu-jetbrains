@@ -81,7 +81,6 @@ internal object ProjectLanguageScanner {
             ProgressManager.checkCanceled()
             if (project.isDisposed) return@iterateContent false
             val shouldContinue = visit(file, weights, fileCount)
-            ProgressManager.checkCanceled()
             shouldContinue
         }
         return weights
@@ -108,7 +107,6 @@ internal object ProjectLanguageScanner {
         weights: HashMap<String, Long>,
         fileCount: IntArray,
     ): Boolean {
-        ProgressManager.checkCanceled()
         if (fileCount[0] >= LanguageDetectionRules.MAX_FILES_SCANNED) return false
         // Drop vendored / generated / build-output dirs before paying for VFS
         // metadata access. This is the single biggest real-world accuracy win:
@@ -119,11 +117,9 @@ internal object ProjectLanguageScanner {
         // Count every non-directory, non-excluded file toward the cap so binary-
         // heavy repos don't bypass it (see KDoc rationale).
         fileCount[0]++
-        ProgressManager.checkCanceled()
         sampleLanguageWeight(file)?.let { (languageId, weight) ->
             weights.merge(languageId, weight) { a, b -> a + b }
         }
-        ProgressManager.checkCanceled()
         return true
     }
 
