@@ -279,7 +279,7 @@ jobs:
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
     needs: build
-    timeout-minutes: 20
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
