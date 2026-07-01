@@ -139,6 +139,56 @@ class VerifyFontFallbackUrlsTest(unittest.TestCase):
         self.assertEqual("BAD_URL", results[0].constant_name)
         self.assertIn("URL can't contain control characters", results[0].error)
 
+    def test_checker_retries_transient_exception_then_succeeds(self) -> None:
+        attempts = 0
+        slept: list[float] = []
+
+        def flaky_opener(
+            _request: urllib.request.Request,
+            _timeout: float,
+        ) -> FakeResponse:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise urllib.error.URLError("temporary timeout")
+            return FakeResponse(200)
+
+        results = verifier.check_fallback_urls(
+            [verifier.FallbackUrl("FLAKY_URL", "https://example.com/flaky.zip")],
+            opener=flaky_opener,
+            retries=2,
+            retry_delay_seconds=0.25,
+            sleeper=slept.append,
+        )
+
+        self.assertEqual(2, attempts)
+        self.assertEqual([0.25], slept)
+        self.assertEqual(1, len(results))
+        self.assertTrue(results[0].is_success)
+
+    def test_checker_does_not_retry_non_retryable_http_status(self) -> None:
+        attempts = 0
+
+        def missing_opener(
+            _request: urllib.request.Request,
+            _timeout: float,
+        ) -> FakeResponse:
+            nonlocal attempts
+            attempts += 1
+            return FakeResponse(404)
+
+        results = verifier.check_fallback_urls(
+            [verifier.FallbackUrl("MISSING_URL", "https://example.com/missing.zip")],
+            opener=missing_opener,
+            retries=2,
+            sleeper=lambda _delay: self.fail("404 must not retry"),
+        )
+
+        self.assertEqual(1, attempts)
+        self.assertEqual(1, len(results))
+        self.assertFalse(results[0].is_success)
+        self.assertEqual("HTTP 404", results[0].error)
+
     def test_main_returns_0_for_http_200_success(self) -> None:
         requests: list[tuple[urllib.request.Request, float]] = []
 
@@ -211,6 +261,7 @@ def run_main(
             exit_code = verifier.main(
                 ["--font-catalog", str(catalog_path), "--timeout", "3.0"],
                 opener=opener,
+                sleeper=lambda _delay: None,
             )
 
     return exit_code, stdout.getvalue(), stderr.getvalue()

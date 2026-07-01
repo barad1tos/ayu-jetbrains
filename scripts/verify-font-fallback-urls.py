@@ -7,6 +7,7 @@ import argparse
 import http.client
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -28,7 +29,10 @@ DEFAULT_FONT_CATALOG = (
     / "FontCatalog.kt"
 )
 DEFAULT_TIMEOUT_SECONDS = 10.0
+DEFAULT_RETRY_COUNT = 2
+DEFAULT_RETRY_DELAY_SECONDS = 0.5
 USER_AGENT = "ayu-islands-font-fallback-smoke/1.0"
+RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 
 CONSTANT_PATTERN = re.compile(
     r'^\s*(?:(?:private|internal|public)\s+)?const\s+val\s+'
@@ -61,6 +65,7 @@ class HeadResponse(Protocol):
 
 
 UrlOpener = Callable[[urllib.request.Request, float], HeadResponse]
+Sleeper = Callable[[float], None]
 
 
 @dataclass(frozen=True)
@@ -154,68 +159,94 @@ def open_head(request: urllib.request.Request, timeout_seconds: float) -> HeadRe
     return urllib.request.urlopen(request, timeout=timeout_seconds)
 
 
+def check_fallback_url_once(
+    fallback_url: FallbackUrl,
+    *,
+    timeout_seconds: float,
+    opener: UrlOpener,
+) -> UrlCheckResult:
+    request = urllib.request.Request(
+        fallback_url.url,
+        headers={"User-Agent": USER_AGENT},
+        method="HEAD",
+    )
+    try:
+        with opener(request, timeout_seconds) as response:
+            status_code = response.getcode()
+    except urllib.error.HTTPError as exc:
+        return UrlCheckResult(
+            constant_name=fallback_url.constant_name,
+            url=fallback_url.url,
+            status_code=exc.code,
+            error=f"HTTP {exc.code}",
+        )
+    except urllib.error.URLError as exc:
+        return UrlCheckResult(
+            constant_name=fallback_url.constant_name,
+            url=fallback_url.url,
+            status_code=None,
+            error=f"request failed: {exc.reason}",
+        )
+    except http.client.HTTPException as exc:
+        return UrlCheckResult(
+            constant_name=fallback_url.constant_name,
+            url=fallback_url.url,
+            status_code=None,
+            error=f"request failed: {exc}",
+        )
+    except OSError as exc:
+        return UrlCheckResult(
+            constant_name=fallback_url.constant_name,
+            url=fallback_url.url,
+            status_code=None,
+            error=f"request failed: {exc}",
+        )
+    return UrlCheckResult(
+        constant_name=fallback_url.constant_name,
+        url=fallback_url.url,
+        status_code=status_code,
+        error=None if status_code == 200 else f"HTTP {status_code}",
+    )
+
+
+def should_retry(result: UrlCheckResult) -> bool:
+    if result.is_success:
+        return False
+    return result.status_code is None or result.status_code in RETRYABLE_STATUS_CODES
+
+
 def check_fallback_urls(
     fallback_urls: Sequence[FallbackUrl],
     *,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
     opener: UrlOpener = open_head,
+    retries: int = DEFAULT_RETRY_COUNT,
+    retry_delay_seconds: float = DEFAULT_RETRY_DELAY_SECONDS,
+    sleeper: Sleeper = time.sleep,
 ) -> list[UrlCheckResult]:
     """Run live HEAD checks for each fallback URL."""
+    if retries < 0:
+        raise ValueError("retries must be greater than or equal to 0.")
+    if retry_delay_seconds < 0:
+        raise ValueError("retry_delay_seconds must be greater than or equal to 0.")
+
     results: list[UrlCheckResult] = []
     for fallback_url in fallback_urls:
-        try:
-            request = urllib.request.Request(
-                fallback_url.url,
-                headers={"User-Agent": USER_AGENT},
-                method="HEAD",
+        result = check_fallback_url_once(
+            fallback_url,
+            timeout_seconds=timeout_seconds,
+            opener=opener,
+        )
+        for _attempt in range(retries):
+            if not should_retry(result):
+                break
+            sleeper(retry_delay_seconds)
+            result = check_fallback_url_once(
+                fallback_url,
+                timeout_seconds=timeout_seconds,
+                opener=opener,
             )
-            with opener(request, timeout_seconds) as response:
-                status_code = response.getcode()
-        except urllib.error.HTTPError as exc:
-            results.append(
-                UrlCheckResult(
-                    constant_name=fallback_url.constant_name,
-                    url=fallback_url.url,
-                    status_code=exc.code,
-                    error=f"HTTP {exc.code}",
-                )
-            )
-        except urllib.error.URLError as exc:
-            results.append(
-                UrlCheckResult(
-                    constant_name=fallback_url.constant_name,
-                    url=fallback_url.url,
-                    status_code=None,
-                    error=f"request failed: {exc.reason}",
-                )
-            )
-        except http.client.HTTPException as exc:
-            results.append(
-                UrlCheckResult(
-                    constant_name=fallback_url.constant_name,
-                    url=fallback_url.url,
-                    status_code=None,
-                    error=f"request failed: {exc}",
-                )
-            )
-        except OSError as exc:
-            results.append(
-                UrlCheckResult(
-                    constant_name=fallback_url.constant_name,
-                    url=fallback_url.url,
-                    status_code=None,
-                    error=f"request failed: {exc}",
-                )
-            )
-        else:
-            results.append(
-                UrlCheckResult(
-                    constant_name=fallback_url.constant_name,
-                    url=fallback_url.url,
-                    status_code=status_code,
-                    error=None if status_code == 200 else f"HTTP {status_code}",
-                )
-            )
+        results.append(result)
 
     return results
 
@@ -224,6 +255,7 @@ def main(
     argv: Sequence[str] | None = None,
     *,
     opener: UrlOpener = open_head,
+    sleeper: Sleeper = time.sleep,
 ) -> int:
     """CLI entry point."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -239,10 +271,28 @@ def main(
         default=DEFAULT_TIMEOUT_SECONDS,
         help="HEAD request timeout in seconds.",
     )
+    parser.add_argument(
+        "--retries",
+        type=int,
+        default=DEFAULT_RETRY_COUNT,
+        help="Number of retries for transient URL smoke failures.",
+    )
+    parser.add_argument(
+        "--retry-delay",
+        type=float,
+        default=DEFAULT_RETRY_DELAY_SECONDS,
+        help="Delay in seconds between URL smoke retries.",
+    )
     args = parser.parse_args(argv)
 
     if args.timeout <= 0:
         print("ERROR: --timeout must be greater than 0.", file=sys.stderr)
+        return 2
+    if args.retries < 0:
+        print("ERROR: --retries must be greater than or equal to 0.", file=sys.stderr)
+        return 2
+    if args.retry_delay < 0:
+        print("ERROR: --retry-delay must be greater than or equal to 0.", file=sys.stderr)
         return 2
 
     try:
@@ -259,6 +309,9 @@ def main(
         fallback_urls,
         timeout_seconds=args.timeout,
         opener=opener,
+        retries=args.retries,
+        retry_delay_seconds=args.retry_delay,
+        sleeper=sleeper,
     )
     failures = [result for result in results if not result.is_success]
     if failures:
