@@ -51,7 +51,7 @@ import javax.swing.SwingUtilities
 object ProjectLanguageDetector {
     private val LOG = logger<ProjectLanguageDetector>()
 
-    private val verdictCache = ConcurrentHashMap<String, ProjectLanguageVerdict>()
+    private val verdictCache = ConcurrentHashMap<String, VerdictCacheEntry>()
 
     /**
      * Dominant language id for [project], cached per canonical path.
@@ -72,14 +72,14 @@ object ProjectLanguageDetector {
             ?.lowercase(Locale.ROOT)
             ?.let { return it }
         verdictCache[key]?.let { cached ->
-            return (cached as? ProjectLanguageVerdict.Detected)?.languageId
+            return (cached.verdict as? ProjectLanguageVerdict.Detected)?.languageId
         }
 
         if (isOnEdt()) {
             scheduleBackgroundDetection(project, key)
             return null
         }
-        return (detectAndCache(project, key) as? ProjectLanguageVerdict.Detected)?.languageId
+        return (detectAndCache(project, key).verdict as? ProjectLanguageVerdict.Detected)?.languageId
     }
 
     /**
@@ -117,13 +117,13 @@ object ProjectLanguageDetector {
         warmCache: Boolean = false,
     ): ProjectLanguageVerdict {
         val key = AccentResolver.projectKey(project) ?: return ProjectLanguageVerdict.Unavailable
-        verdictCache[key]?.let { return it }
+        verdictCache[key]?.let { return it.verdict }
         if (!warmCache) return ProjectLanguageVerdict.Cold
         if (isOnEdt()) {
             scheduleBackgroundDetection(project, key)
             return ProjectLanguageVerdict.Cold
         }
-        return detectAndCache(project, key)
+        return detectAndCache(project, key).verdict
     }
 
     /**
@@ -210,16 +210,41 @@ object ProjectLanguageDetector {
     )
 
     /**
+     * Identity-based cache generation token. Do not make this a data class or
+     * override equality: stale disposal cleanup relies on removing only the
+     * exact entry created by the scan that is being dropped.
+     */
+    private class VerdictCacheEntry(
+        val verdict: ProjectLanguageVerdict,
+    )
+
+    private data class CachedDetection(
+        val verdict: ProjectLanguageVerdict,
+        val cacheEntry: VerdictCacheEntry?,
+    )
+
+    /**
      * EDT-safe detection wrapper. Off-EDT callers invoke this directly;
      * [dominant] routes EDT callers through [scheduleBackgroundDetection] instead.
      */
     private fun detectAndCache(
         project: Project,
         key: String,
-    ): ProjectLanguageVerdict {
+    ): CachedDetection {
         val detection = detectInternal(project)
+        if (project.isDisposed) {
+            LOG.debug("Scan for $key finished after project disposal; dropping cache write")
+            return CachedDetection(ProjectLanguageVerdict.Unavailable, cacheEntry = null)
+        }
         if (detection.cacheable) {
-            verdictCache[key] = detection.verdict
+            val entry = VerdictCacheEntry(detection.verdict)
+            verdictCache[key] = entry
+            if (project.isDisposed) {
+                verdictCache.remove(key, entry)
+                LOG.debug("Scan for $key cached during project disposal; removed stale verdict")
+                return CachedDetection(ProjectLanguageVerdict.Unavailable, cacheEntry = null)
+            }
+            return CachedDetection(detection.verdict, entry)
         } else {
             // Forensic breadcrumb: a non-cacheable result means the scan hit
             // dumb mode, a disposed project, or the scanner threw. The caller
@@ -231,7 +256,7 @@ object ProjectLanguageDetector {
             // a paper trail in idea.log.
             LOG.debug("Scan for $key returned non-cacheable result; caller will re-scan on next call")
         }
-        return detection.verdict
+        return CachedDetection(detection.verdict, cacheEntry = null)
     }
 
     /**
@@ -259,12 +284,18 @@ object ProjectLanguageDetector {
             LOG.debug("scheduleBackgroundDetection skipped for $key: DumbService.isDumb == true")
             return
         }
-        ProjectLanguageScanAsync.schedule(key) {
+        ProjectLanguageScanAsync.schedule(project, key) {
             if (project.isDisposed) {
                 LOG.debug("scheduleBackgroundDetection task aborted for $key: project disposed before scan body ran")
-                return@schedule
+                return@schedule ProjectLanguageScanAsync.ScanResult.Unavailable
             }
-            val verdict = detectAndCache(project, key)
+            val cachedDetection = detectAndCache(project, key)
+            val verdict = cachedDetection.verdict
+            if (project.isDisposed) {
+                cachedDetection.cacheEntry?.let { verdictCache.remove(key, it) }
+                LOG.debug("scheduleBackgroundDetection task aborted for $key: project disposed after scan")
+                return@schedule ProjectLanguageScanAsync.ScanResult.Unavailable
+            }
             val outcome: ScanOutcome =
                 when (verdict) {
                     is ProjectLanguageVerdict.Detected -> ScanOutcome.Detected(verdict.languageId)
@@ -285,7 +316,13 @@ object ProjectLanguageDetector {
                 ProjectLanguageVerdict.Unavailable,
                 -> Unit
             }
-            publishScanCompleted(project, outcome)
+            publishScanCompleted(project, outcome, key, cachedDetection.cacheEntry)
+            when (outcome) {
+                is ScanOutcome.Detected,
+                ScanOutcome.Polyglot,
+                -> ProjectLanguageScanAsync.ScanResult.Completed
+                ScanOutcome.Unavailable -> ProjectLanguageScanAsync.ScanResult.Unavailable
+            }
         }
     }
 
@@ -297,18 +334,29 @@ object ProjectLanguageDetector {
      * arbitrary subscriber code, and keeping that off the scan pool prevents
      * a misbehaving subscriber from stalling the shared executor. Double
      * dispose-guard (before and after invokeLater) because project disposal
-     * can race with a late-arriving scan completion.
+     * can race with a late-arriving scan completion. [cacheKey] and
+     * [cacheEntry] are a cleanup handle and must be passed together; when a
+     * late cacheable publish is dropped, the exact entry is removed without
+     * touching a newer value-equal verdict for the same project path.
      */
     private fun publishScanCompleted(
         project: Project,
         outcome: ScanOutcome,
+        cacheKey: String? = null,
+        cacheEntry: VerdictCacheEntry? = null,
     ) {
         if (project.isDisposed) {
+            if (cacheKey != null && cacheEntry != null) {
+                verdictCache.remove(cacheKey, cacheEntry)
+            }
             LOG.debug("publishScanCompleted dropped before invokeLater: project already disposed")
             return
         }
         SwingUtilities.invokeLater {
             if (project.isDisposed) {
+                if (cacheKey != null && cacheEntry != null) {
+                    verdictCache.remove(cacheKey, cacheEntry)
+                }
                 LOG.debug("publishScanCompleted dropped inside invokeLater: project disposed during EDT hop")
                 return@invokeLater
             }
@@ -388,6 +436,9 @@ object ProjectLanguageDetector {
         val weights =
             ProjectLanguageScanner.scan(project)
                 ?: return DetectionResult(ProjectLanguageVerdict.Unavailable, cacheable = false)
+        if (project.isDisposed) {
+            return DetectionResult(ProjectLanguageVerdict.Unavailable, cacheable = false)
+        }
         val mappings = AccentMappingsSettings.getInstance().state
         val policy = mappings.languageResolutionPolicy()
         if (weights.isNotEmpty()) {
