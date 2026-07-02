@@ -1,9 +1,11 @@
 package dev.ayuislands.accent
 
+import com.intellij.openapi.progress.ProcessCanceledException
+import kotlin.coroutines.cancellation.CancellationException
+
 /**
- * [kotlin.runCatching] variant that rethrows
- * [kotlin.coroutines.cancellation.CancellationException] instead of capturing it in the
- * returned [Result].
+ * [kotlin.runCatching] variant that rethrows platform and coroutine cancellation
+ * instead of capturing it in the returned [Result].
  *
  * The resolver chain ([AccentResolver.projectKey], [ProjectLanguageDetector.dominant]) is
  * reachable from `AyuIslandsStartupActivity.execute`'s coroutine body; swallowing
@@ -24,6 +26,7 @@ package dev.ayuislands.accent
 internal inline fun <T> runCatchingPreservingCancellation(block: () -> T): Result<T> {
     val result = runCatching(block)
     val cause = result.exceptionOrNull()
-    if (cause is kotlin.coroutines.cancellation.CancellationException) throw cause
+    if (cause is ProcessCanceledException) throw cause
+    if (cause is CancellationException) throw cause
     return result
 }
