@@ -148,6 +148,36 @@ internal object LanguageDetectionRules {
     const val MAX_FILES_SCANNED: Int = 10_000
 
     /**
+     * Initial eligible files sampled without gaps before bounded sampling starts.
+     * Keeps small projects exact and preserves early-root signal in large repos.
+     */
+    const val PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES: Int = 128
+
+    /**
+     * Hard cap on files whose [FileType] and length are sampled during one
+     * project-language scan. Traversal still obeys [MAX_FILES_SCANNED], but
+     * expensive language/file-type work stops at this bound.
+     */
+    const val PROJECT_LANGUAGE_MAX_SAMPLED_FILES: Int = 1_000
+
+    @Suppress("unused")
+    private val projectLanguageSamplingInvariants: Unit =
+        run {
+            require(PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES <= MAX_FILES_SCANNED) {
+                "PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES ($PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES) " +
+                    "must not exceed MAX_FILES_SCANNED ($MAX_FILES_SCANNED)."
+            }
+            require(PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES <= PROJECT_LANGUAGE_MAX_SAMPLED_FILES) {
+                "PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES ($PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES) " +
+                    "must not exceed PROJECT_LANGUAGE_MAX_SAMPLED_FILES ($PROJECT_LANGUAGE_MAX_SAMPLED_FILES)."
+            }
+            require(PROJECT_LANGUAGE_MAX_SAMPLED_FILES <= MAX_FILES_SCANNED) {
+                "PROJECT_LANGUAGE_MAX_SAMPLED_FILES ($PROJECT_LANGUAGE_MAX_SAMPLED_FILES) " +
+                    "must not exceed MAX_FILES_SCANNED ($MAX_FILES_SCANNED)."
+            }
+        }
+
+    /**
      * "Leading plurality" ratio: when no language clears [DEFAULT_DOMINANCE_THRESHOLD],
      * the top can still win if it's this many times larger than #2. Handles the
      * React-style 55 / 30 / 15 TypeScript / JavaScript / other case where no

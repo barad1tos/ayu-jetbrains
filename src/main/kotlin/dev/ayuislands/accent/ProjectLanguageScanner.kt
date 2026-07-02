@@ -11,9 +11,9 @@ import org.jetbrains.annotations.TestOnly
 
 /**
  * Walks a project's content roots under a read action and tallies per-language
- * bytes, cap-limited per file so generated monsters can't skew proportions and
- * cap-limited by total file count so the scan doesn't block the EDT on
- * linux-kernel-sized repos.
+ * bytes, cap-limited per file so generated monsters can't skew proportions,
+ * cap-limited by total file count so traversal stays bounded, and sample-limited
+ * so language/file-type work stays cheap on linux-kernel-sized repos.
  *
  * Separate object (not a private fun inside [ProjectLanguageDetector]) so the
  * detector's caching / threshold logic can be unit-tested via
@@ -73,17 +73,16 @@ internal object ProjectLanguageScanner {
     }
 
     private fun scanUnderReadAction(project: Project): Map<String, Long> {
-        val weights = HashMap<String, Long>()
-        val fileCount = IntArray(1)
+        val candidates = ArrayList<VirtualFile>(LanguageDetectionRules.PROJECT_LANGUAGE_MAX_SAMPLED_FILES)
+        val counters = ScanCounters()
         ProgressManager.checkCanceled()
         if (project.isDisposed) return emptyMap()
         ProjectFileIndex.getInstance(project).iterateContent { file ->
             ProgressManager.checkCanceled()
             if (project.isDisposed) return@iterateContent false
-            val shouldContinue = visit(file, weights, fileCount)
-            shouldContinue
+            collectCandidate(file, candidates, counters)
         }
-        return weights
+        return sampleCandidates(project, candidates)
     }
 
     /**
@@ -97,17 +96,15 @@ internal object ProjectLanguageScanner {
      * 50 200 entries before stopping, defeating the whole "keep the EDT
      * responsive on monorepos" purpose of the cap.
      *
-     * Per-file exceptions (mid-delete race, a language plugin throwing from its
-     * FileType.detect) must NOT abort the scan. Non-cancellation failures are
-     * logged at DEBUG and skipped, while IntelliJ and Kotlin cancellation
-     * signals still propagate so long-running scans can stop promptly.
+     * Expensive FileType/length reads happen later in [sampleCandidates], after
+     * this pass knows whether the scan is below the sampling cap and can stay exact.
      */
-    private fun visit(
+    private fun collectCandidate(
         file: VirtualFile,
-        weights: HashMap<String, Long>,
-        fileCount: IntArray,
+        candidates: MutableList<VirtualFile>,
+        counters: ScanCounters,
     ): Boolean {
-        if (fileCount[0] >= LanguageDetectionRules.MAX_FILES_SCANNED) return false
+        if (counters.traversedFileCount >= LanguageDetectionRules.MAX_FILES_SCANNED) return false
         // Drop vendored / generated / build-output dirs before paying for VFS
         // metadata access. This is the single biggest real-world accuracy win:
         // a Python project with a committed .venv otherwise mis-reports as
@@ -116,11 +113,55 @@ internal object ProjectLanguageScanner {
         if (file.isDirectory) return true
         // Count every non-directory, non-excluded file toward the cap so binary-
         // heavy repos don't bypass it (see KDoc rationale).
-        fileCount[0]++
-        sampleLanguageWeight(file)?.let { (languageId, weight) ->
-            weights.merge(languageId, weight) { a, b -> a + b }
-        }
+        counters.traversedFileCount++
+        candidates.add(file)
         return true
+    }
+
+    private fun sampleCandidates(
+        project: Project,
+        candidates: List<VirtualFile>,
+    ): Map<String, Long> {
+        val weights = HashMap<String, Long>()
+        val counters = ScanCounters()
+        val totalCandidateCount = candidates.size
+        candidates.forEachIndexed { index, file ->
+            ProgressManager.checkCanceled()
+            if (project.isDisposed) return emptyMap()
+            if (!shouldSampleFile(index + 1, counters.sampledFileCount, totalCandidateCount)) return@forEachIndexed
+            counters.sampledFileCount++
+            sampleLanguageWeight(file)?.let { (languageId, weight) ->
+                weights.merge(languageId, weight) { a, b -> a + b }
+            }
+        }
+        return weights
+    }
+
+    private fun shouldSampleFile(
+        traversedFileCount: Int,
+        sampledFileCount: Int,
+        totalCandidateCount: Int,
+    ): Boolean {
+        if (sampledFileCount >= LanguageDetectionRules.PROJECT_LANGUAGE_MAX_SAMPLED_FILES) return false
+        if (totalCandidateCount <= LanguageDetectionRules.PROJECT_LANGUAGE_MAX_SAMPLED_FILES) return true
+        if (traversedFileCount <= LanguageDetectionRules.PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES) return true
+        return shouldSamplePostWarmupFile(traversedFileCount, totalCandidateCount)
+    }
+
+    private fun shouldSamplePostWarmupFile(
+        traversedFileCount: Int,
+        totalCandidateCount: Int,
+    ): Boolean {
+        val remainingCandidates = totalCandidateCount - LanguageDetectionRules.PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES
+        val remainingSampleBudget =
+            LanguageDetectionRules.PROJECT_LANGUAGE_MAX_SAMPLED_FILES -
+                LanguageDetectionRules.PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES
+        if (remainingCandidates <= 0 || remainingSampleBudget <= 0) return false
+
+        val postWarmupPosition = traversedFileCount - LanguageDetectionRules.PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES
+        val previousBucket = (postWarmupPosition - 1).toLong() * remainingSampleBudget / remainingCandidates
+        val currentBucket = postWarmupPosition.toLong() * remainingSampleBudget / remainingCandidates
+        return currentBucket > previousBucket
     }
 
     @TestOnly
@@ -145,4 +186,9 @@ internal object ProjectLanguageScanner {
         }
         return sample.getOrNull()
     }
+
+    private data class ScanCounters(
+        var traversedFileCount: Int = 0,
+        var sampledFileCount: Int = 0,
+    )
 }

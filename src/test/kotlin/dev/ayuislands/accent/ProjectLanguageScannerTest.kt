@@ -102,14 +102,171 @@ class ProjectLanguageScannerTest {
 
     @Test
     fun `scan returns language weights when content iteration completes`() {
+        val kotlinFile = sourceFile("/repo/src/Main.kt", "KOTLIN", 1_200L)
+        val javaFile = sourceFile("/repo/src/App.java", "JAVA", 300L)
+        val secondKotlinFile = sourceFile("/repo/src/Feature.kt", "KOTLIN", 800L)
         every { fileIndex.iterateContent(any()) } answers {
-            firstArg<ContentIterator>().processFile(sourceFile("/repo/src/Main.kt", "KOTLIN", 1_200L))
+            val iterator = firstArg<ContentIterator>()
+            assertTrue(iterator.processFile(kotlinFile))
+            assertTrue(iterator.processFile(javaFile))
+            iterator.processFile(secondKotlinFile)
         }
 
         assertEquals(
-            mapOf("kotlin" to 1_200L),
+            mapOf("kotlin" to 2_000L, "java" to 300L),
             ProjectLanguageScanner.scan(project),
-            "Stable scans should return cacheable language weights for the detector",
+            "Small stable scans should sample every eligible file exactly",
+        )
+        verify(exactly = 1) { kotlinFile.fileType }
+        verify(exactly = 1) { javaFile.fileType }
+        verify(exactly = 1) { secondKotlinFile.fileType }
+    }
+
+    @Test
+    fun `large scan stops sampling at sample cap while traversal continues to hard ceiling`() {
+        var currentFileIndex = 0
+        val sourceFile = sourceFile("/repo/src/File0.kt", "KOTLIN", 1L)
+        every { sourceFile.path } answers { "/repo/src/File$currentFileIndex.kt" }
+        var attemptedFiles = 0
+        every { fileIndex.iterateContent(any()) } answers {
+            val iterator = firstArg<ContentIterator>()
+            for (index in 0..LanguageDetectionRules.MAX_FILES_SCANNED) {
+                currentFileIndex = index
+                attemptedFiles++
+                if (!iterator.processFile(sourceFile)) return@answers false
+            }
+            true
+        }
+
+        assertEquals(
+            mapOf("kotlin" to LanguageDetectionRules.PROJECT_LANGUAGE_MAX_SAMPLED_FILES.toLong()),
+            ProjectLanguageScanner.scan(project),
+            "Large scans should cap expensive language sampling independently from traversal",
+        )
+        assertEquals(
+            LanguageDetectionRules.MAX_FILES_SCANNED + 1,
+            attemptedFiles,
+            "Traversal should continue until the existing hard file ceiling stops iteration",
+        )
+        verify(exactly = LanguageDetectionRules.PROJECT_LANGUAGE_MAX_SAMPLED_FILES) { sourceFile.fileType }
+        verify(exactly = LanguageDetectionRules.PROJECT_LANGUAGE_MAX_SAMPLED_FILES) { sourceFile.length }
+    }
+
+    @Test
+    fun `large scan sampling is deterministic and keeps warmup signal`() {
+        val sourceFile = sourceFile("/repo/src/File0.kt", "KOTLIN", 1L)
+        var currentFileIndex = 0
+        every { sourceFile.path } answers { "/repo/src/File$currentFileIndex.kt" }
+        var sampledFileTypeCalls = 0
+        every { sourceFile.fileType } answers {
+            val sampleIndex = sampledFileTypeCalls % LanguageDetectionRules.PROJECT_LANGUAGE_MAX_SAMPLED_FILES
+            sampledFileTypeCalls++
+            if (sampleIndex == 0) {
+                languageFileType("KOTLIN")
+            } else {
+                languageFileType("JAVA")
+            }
+        }
+        every { fileIndex.iterateContent(any()) } answers {
+            val iterator = firstArg<ContentIterator>()
+            for (index in 0 until LanguageDetectionRules.MAX_FILES_SCANNED) {
+                currentFileIndex = index
+                assertTrue(iterator.processFile(sourceFile))
+            }
+            true
+        }
+
+        val firstScan = ProjectLanguageScanner.scan(project)
+        val secondScan = ProjectLanguageScanner.scan(project)
+
+        val expectedJavaSamples = LanguageDetectionRules.PROJECT_LANGUAGE_MAX_SAMPLED_FILES.toLong() - 1L
+        assertEquals(
+            mapOf("kotlin" to 1L, "java" to expectedJavaSamples),
+            firstScan,
+            "Warmup sampling should include the first eligible source file before bounded sampling",
+        )
+        assertEquals(firstScan, secondScan, "Sampling must be deterministic for the same traversal order")
+    }
+
+    @Test
+    fun `large scan sampling spans full candidate range while staying capped`() {
+        val warmupBoundaryFile = sourceFile("/repo/src/File128.kt", "KOTLIN", 1L)
+        val fillerFile = sourceFile("/repo/src/Filler.txt", "TEXT", 1L)
+        val finalFile = sourceFile("/repo/src/Final.py", "Python", 10L)
+        val postWarmupFillerCount =
+            LanguageDetectionRules.MAX_FILES_SCANNED -
+                LanguageDetectionRules.PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES - 1
+        every { fileIndex.iterateContent(any()) } answers {
+            val iterator = firstArg<ContentIterator>()
+            repeat(LanguageDetectionRules.PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES - 1) {
+                assertTrue(iterator.processFile(fillerFile))
+            }
+            assertTrue(iterator.processFile(warmupBoundaryFile))
+            repeat(postWarmupFillerCount) {
+                assertTrue(iterator.processFile(fillerFile))
+            }
+            assertTrue(iterator.processFile(finalFile))
+            true
+        }
+
+        assertEquals(
+            mapOf("text" to 998L, "kotlin" to 1L, "python" to 10L),
+            ProjectLanguageScanner.scan(project),
+            "Over-cap scans should fill the sample budget across the whole candidate range",
+        )
+        verify(exactly = 1) { finalFile.fileType }
+    }
+
+    @Test
+    fun `sub-cap scan remains exact after warmup`() {
+        val javaFiles =
+            List(LanguageDetectionRules.PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES) { index ->
+                sourceFile("/repo/src/Java$index.java", "JAVA", 1L)
+            }
+        val kotlinFiles =
+            List(200) { index ->
+                sourceFile("/repo/src/Kotlin$index.kt", "KOTLIN", 1L)
+            }
+        every { fileIndex.iterateContent(any()) } answers {
+            val iterator = firstArg<ContentIterator>()
+            (javaFiles + kotlinFiles).forEach { file ->
+                assertTrue(iterator.processFile(file))
+            }
+            true
+        }
+
+        assertEquals(
+            mapOf("java" to 128L, "kotlin" to 200L),
+            ProjectLanguageScanner.scan(project),
+            "Scans below the sampling cap should stay exact so late-majority languages are preserved",
+        )
+    }
+
+    @Test
+    fun `barely over-cap scan preserves late majority within sample budget`() {
+        val javaFiles =
+            List(LanguageDetectionRules.PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES) { index ->
+                sourceFile("/repo/src/Java$index.java", "JAVA", 1L)
+            }
+        val kotlinFiles =
+            List(
+                LanguageDetectionRules.PROJECT_LANGUAGE_MAX_SAMPLED_FILES -
+                    LanguageDetectionRules.PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES + 1,
+            ) { index ->
+                sourceFile("/repo/src/Kotlin$index.kt", "KOTLIN", 1L)
+            }
+        every { fileIndex.iterateContent(any()) } answers {
+            val iterator = firstArg<ContentIterator>()
+            (javaFiles + kotlinFiles).forEach { file ->
+                assertTrue(iterator.processFile(file))
+            }
+            true
+        }
+
+        assertEquals(
+            mapOf("java" to 128L, "kotlin" to 872L),
+            ProjectLanguageScanner.scan(project),
+            "Scans just over the sampling cap should not discard most late-majority files",
         )
     }
 
@@ -154,15 +311,20 @@ class ProjectLanguageScannerTest {
         languageId: String,
         length: Long,
     ): VirtualFile {
-        val language = mockk<Language>()
-        every { language.id } returns languageId
-        val fileType = mockk<LanguageFileType>()
-        every { fileType.language } returns language
+        val fileType = languageFileType(languageId)
         return mockk<VirtualFile>().also { file ->
             every { file.path } returns path
             every { file.isDirectory } returns false
             every { file.length } returns length
             every { file.fileType } returns fileType
         }
+    }
+
+    private fun languageFileType(languageId: String): LanguageFileType {
+        val language = mockk<Language>()
+        every { language.id } returns languageId
+        val fileType = mockk<LanguageFileType>()
+        every { fileType.language } returns language
+        return fileType
     }
 }
