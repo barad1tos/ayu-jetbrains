@@ -201,62 +201,24 @@ object AccentResolver {
 
         val mappings = AccentMappingsSettings.getInstance().state
         val projectKey = projectKey(activeProject) ?: return null
-        mappings.projectAccents[projectKey]
-            ?.let { rawHex -> overrideAccent(Source.PROJECT_OVERRIDE, rawHex, validateHex)?.let { return it } }
-
-        val languageRequest =
-            LanguageOverrideRequest(
-                languageAccents = mappings.languageAccents,
-                hasForcedLanguageEntry = mappings.forcedProjectLanguages.containsKey(projectKey),
-                forcedLanguageId = mappings.forcedProjectLanguages[projectKey]?.trim()?.takeIf { it.isNotEmpty() },
-                languageFallbackAccent = mappings.languageFallbackAccent?.trim()?.takeIf { it.isNotEmpty() },
-                validateHex = validateHex,
-            )
-        val hasProjectFallbackCandidate = mappings.projectFallbackAccents.containsKey(projectKey)
-        if (!languageRequest.hasResolutionWork && !hasProjectFallbackCandidate) return null
-
-        val (languageOverride, detectorConsulted) =
-            resolveLanguageOverride(
-                project = activeProject,
-                request = languageRequest,
-            )
-        languageOverride?.let { return it }
-        val fallbackAccent = mappings.projectFallbackAccents[projectKey] ?: return null
-        val fallbackVerdict = ProjectLanguageDetector.verdict(activeProject, warmCache = !detectorConsulted)
-        if (fallbackVerdict is ProjectLanguageVerdict.NoWinner) {
-            overrideAccent(Source.PROJECT_FALLBACK, fallbackAccent, validateHex)?.let { return it }
-        }
-        return null
-    }
-
-    private fun resolveLanguageOverride(
-        project: Project,
-        request: LanguageOverrideRequest,
-    ): Pair<ResolvedAccent?, Boolean> {
-        request.forcedLanguageId
-            ?.let { languageId ->
-                overrideAccentForLanguage(
-                    languageAccents = request.languageAccents,
-                    languageFallbackAccent = request.languageFallbackAccent,
-                    languageId = languageId,
-                    exactSource = Source.FORCED_LANGUAGE_OVERRIDE,
-                    validateHex = request.validateHex,
-                )?.let { return it to false }
-            }
-        if (!request.shouldDetectLanguage) return null to false
-        val resolvedAccent =
-            ProjectLanguageDetector
-                .dominant(project)
-                ?.let { languageId ->
-                    overrideAccentForLanguage(
-                        languageAccents = request.languageAccents,
-                        languageFallbackAccent = request.languageFallbackAccent,
-                        languageId = languageId,
-                        exactSource = Source.LANGUAGE_OVERRIDE,
-                        validateHex = request.validateHex,
-                    )
-                }
-        return resolvedAccent to true
+        return AccentOverrideResolver
+            .resolve(
+                AccentOverrideResolver.Request(
+                    projectKey = projectKey,
+                    snapshot =
+                        AccentOverrideSnapshot(
+                            projectAccents = mappings.projectAccents,
+                            languageAccents = mappings.languageAccents,
+                            projectFallbackAccents = mappings.projectFallbackAccents,
+                            forcedProjectLanguages = mappings.forcedProjectLanguages,
+                            languageFallbackAccent = mappings.languageFallbackAccent,
+                        ),
+                    overridesEnabled = true,
+                    validateHex = validateHex,
+                    detectedLanguage = { ProjectLanguageDetector.dominant(activeProject) },
+                    verdict = { warmCache -> ProjectLanguageDetector.verdict(activeProject, warmCache = warmCache) },
+                ),
+            )?.toResolvedAccent()
     }
 
     /**
@@ -381,55 +343,12 @@ object AccentResolver {
 
 private fun Color.toHex(): String = "#%02X%02X%02X".format(Locale.ROOT, red, green, blue)
 
-private data class LanguageOverrideRequest(
-    val languageAccents: Map<String, String>,
-    val hasForcedLanguageEntry: Boolean,
-    val forcedLanguageId: String?,
-    val languageFallbackAccent: String?,
-    val validateHex: Boolean,
-) {
-    private val hasLanguageCandidate = languageAccents.isNotEmpty() || languageFallbackAccent != null
-
-    val hasResolutionWork: Boolean =
-        hasLanguageCandidate && (forcedLanguageId != null || !hasForcedLanguageEntry)
-
-    val shouldDetectLanguage: Boolean =
-        hasLanguageCandidate && !hasForcedLanguageEntry
-}
-
 private data class ResolvedAccent(
     val source: AccentResolver.Source,
     val hex: String,
 )
 
-private fun overrideAccentForLanguage(
-    languageAccents: Map<String, String>,
-    languageFallbackAccent: String?,
-    languageId: String,
-    exactSource: AccentResolver.Source,
-    validateHex: Boolean,
-): ResolvedAccent? {
-    languageAccents[languageId]
-        ?.let { rawHex -> overrideAccent(exactSource, rawHex, validateHex) }
-        ?.let { return it }
-    return languageFallbackAccent
-        ?.let { rawHex -> overrideAccent(AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE, rawHex, validateHex) }
-}
-
-private fun overrideAccent(
-    source: AccentResolver.Source,
-    rawHex: String,
-    validateHex: Boolean,
-): ResolvedAccent? {
-    val accent = AccentHex.of(rawHex)
-    if (accent != null) {
-        return ResolvedAccent(source, accent.value)
-    }
-    if (!validateHex && source != AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE) {
-        return ResolvedAccent(source, rawHex)
-    }
-    return null
-}
+private fun AccentOverrideResolver.Result.toResolvedAccent(): ResolvedAccent = ResolvedAccent(source, hex)
 
 private fun storedExternalAccent(state: AyuIslandsState): ResolvedAccent {
     val hex = AccentHex.of(state.externalThemeAccent)?.value ?: AyuVariant.MIRAGE.defaultAccent
