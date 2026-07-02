@@ -148,6 +148,26 @@ internal object LanguageDetectionRules {
     const val MAX_FILES_SCANNED: Int = 10_000
 
     /**
+     * Initial eligible files sampled without gaps before stride sampling starts.
+     * Keeps small projects exact and preserves early-root signal in large repos.
+     */
+    const val PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES: Int = 128
+
+    /**
+     * Hard cap on files whose [FileType] and length are sampled during one
+     * project-language scan. Traversal still obeys [MAX_FILES_SCANNED], but
+     * expensive language/file-type work stops at this bound.
+     */
+    const val PROJECT_LANGUAGE_MAX_SAMPLED_FILES: Int = 1_000
+
+    /**
+     * Stable stride for eligible files after [PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES].
+     * A value of 10 samples the 10th, 20th, 30th, ... post-warmup file until
+     * [PROJECT_LANGUAGE_MAX_SAMPLED_FILES] is reached.
+     */
+    const val PROJECT_LANGUAGE_SAMPLE_STRIDE: Int = 10
+
+    /**
      * "Leading plurality" ratio: when no language clears [DEFAULT_DOMINANCE_THRESHOLD],
      * the top can still win if it's this many times larger than #2. Handles the
      * React-style 55 / 30 / 15 TypeScript / JavaScript / other case where no

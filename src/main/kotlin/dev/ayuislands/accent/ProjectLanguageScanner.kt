@@ -11,9 +11,9 @@ import org.jetbrains.annotations.TestOnly
 
 /**
  * Walks a project's content roots under a read action and tallies per-language
- * bytes, cap-limited per file so generated monsters can't skew proportions and
- * cap-limited by total file count so the scan doesn't block the EDT on
- * linux-kernel-sized repos.
+ * bytes, cap-limited per file so generated monsters can't skew proportions,
+ * cap-limited by total file count so traversal stays bounded, and sample-limited
+ * so language/file-type work stays cheap on linux-kernel-sized repos.
  *
  * Separate object (not a private fun inside [ProjectLanguageDetector]) so the
  * detector's caching / threshold logic can be unit-tested via
@@ -75,12 +75,13 @@ internal object ProjectLanguageScanner {
     private fun scanUnderReadAction(project: Project): Map<String, Long> {
         val weights = HashMap<String, Long>()
         val fileCount = IntArray(1)
+        val sampledFileCount = IntArray(1)
         ProgressManager.checkCanceled()
         if (project.isDisposed) return emptyMap()
         ProjectFileIndex.getInstance(project).iterateContent { file ->
             ProgressManager.checkCanceled()
             if (project.isDisposed) return@iterateContent false
-            val shouldContinue = visit(file, weights, fileCount)
+            val shouldContinue = visit(file, weights, fileCount, sampledFileCount)
             shouldContinue
         }
         return weights
@@ -106,6 +107,7 @@ internal object ProjectLanguageScanner {
         file: VirtualFile,
         weights: HashMap<String, Long>,
         fileCount: IntArray,
+        sampledFileCount: IntArray,
     ): Boolean {
         if (fileCount[0] >= LanguageDetectionRules.MAX_FILES_SCANNED) return false
         // Drop vendored / generated / build-output dirs before paying for VFS
@@ -117,10 +119,22 @@ internal object ProjectLanguageScanner {
         // Count every non-directory, non-excluded file toward the cap so binary-
         // heavy repos don't bypass it (see KDoc rationale).
         fileCount[0]++
+        if (!shouldSampleFile(fileCount[0], sampledFileCount[0])) return true
+        sampledFileCount[0]++
         sampleLanguageWeight(file)?.let { (languageId, weight) ->
             weights.merge(languageId, weight) { a, b -> a + b }
         }
         return true
+    }
+
+    private fun shouldSampleFile(
+        traversedFileCount: Int,
+        sampledFileCount: Int,
+    ): Boolean {
+        if (sampledFileCount >= LanguageDetectionRules.PROJECT_LANGUAGE_MAX_SAMPLED_FILES) return false
+        if (traversedFileCount <= LanguageDetectionRules.PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES) return true
+        val postWarmupOffset = traversedFileCount - LanguageDetectionRules.PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES
+        return postWarmupOffset % LanguageDetectionRules.PROJECT_LANGUAGE_SAMPLE_STRIDE == 0
     }
 
     @TestOnly
