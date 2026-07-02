@@ -24,6 +24,8 @@ internal object AccentOverrideResolver {
         val hex: String,
     )
 
+    fun source(request: Request): AccentResolver.Source = resolve(request)?.source ?: AccentResolver.Source.GLOBAL
+
     fun resolve(request: Request): Result? {
         if (!request.overridesEnabled) return null
         val projectKey = request.projectKey?.takeIf { it.isNotBlank() } ?: return null

@@ -141,6 +141,34 @@ class AccentOverrideResolverTest {
     }
 
     @Test
+    fun `source reports global when no override resolves`() {
+        val source =
+            AccentOverrideResolver.source(
+                request(
+                    projectKey = PROJECT_KEY,
+                    snapshot = AccentOverrideSnapshot(languageAccents = mapOf("kotlin" to "#A6E22E")),
+                    detectedLanguage = { "typescript" },
+                ),
+            )
+
+        assertEquals(AccentResolver.Source.GLOBAL, source)
+    }
+
+    @Test
+    fun `source reports project fallback for no-winner verdict`() {
+        val source =
+            AccentOverrideResolver.source(
+                request(
+                    projectKey = PROJECT_KEY,
+                    snapshot = AccentOverrideSnapshot(projectFallbackAccents = mapOf(PROJECT_KEY to "#5CCFE6")),
+                    verdict = { ProjectLanguageVerdict.NoWinner(mapOf("kotlin" to 500L, "java" to 500L)) },
+                ),
+            )
+
+        assertEquals(AccentResolver.Source.PROJECT_FALLBACK, source)
+    }
+
+    @Test
     fun `hex validation matches ayu and external traversal parity`() {
         val rawProjectResult =
             AccentOverrideResolver.resolve(

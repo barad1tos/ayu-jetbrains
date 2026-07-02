@@ -532,45 +532,17 @@ class OverridesGroupBuilder(
         projectKey: String?,
         verdict: ProjectLanguageVerdict,
         isLicensed: Boolean,
-    ): AccentResolver.Source {
-        if (!isLicensed || projectKey == null) return AccentResolver.Source.GLOBAL
-        projectModel
-            .snapshot()
-            .firstOrNull { it.canonicalPath == projectKey }
-            ?.let { return AccentResolver.Source.PROJECT_OVERRIDE }
-
-        val languageIds = languageModel.snapshot().map { it.languageId }.toSet()
-        val forcedLanguageId = pendingForcedLanguages[projectKey]
-        if (forcedLanguageId != null && forcedLanguageId in languageIds) {
-            return AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE
-        }
-        if (forcedLanguageId != null && pendingLanguageFallbackAccent != null) {
-            return AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE
-        }
-        if (forcedLanguageId == null &&
-            verdict is ProjectLanguageVerdict.Detected &&
-            verdict.languageId in languageIds
-        ) {
-            return AccentResolver.Source.LANGUAGE_OVERRIDE
-        }
-        if (forcedLanguageId == null &&
-            verdict is ProjectLanguageVerdict.Detected &&
-            pendingLanguageFallbackAccent != null
-        ) {
-            return AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE
-        }
-        return fallbackDiagnosticsSource(projectKey, verdict)
-    }
-
-    private fun fallbackDiagnosticsSource(
-        projectKey: String,
-        verdict: ProjectLanguageVerdict,
     ): AccentResolver.Source =
-        if (pendingFallbackAccents.containsKey(projectKey) && verdict is ProjectLanguageVerdict.NoWinner) {
-            AccentResolver.Source.PROJECT_FALLBACK
-        } else {
-            AccentResolver.Source.GLOBAL
-        }
+        AccentOverrideResolver.source(
+            AccentOverrideResolver.Request(
+                projectKey = projectKey,
+                snapshot = pendingOverrideSnapshot(),
+                overridesEnabled = isLicensed,
+                validateHex = false,
+                detectedLanguage = { (verdict as? ProjectLanguageVerdict.Detected)?.languageId },
+                verdict = { verdict },
+            ),
+        )
 
     private fun currentPendingAccentHex(): String? {
         val candidate = currentProjectOverrideHex() ?: currentGlobalAccentHex()
