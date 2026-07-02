@@ -14,8 +14,20 @@ internal object AccentOverrideResolver {
         val snapshot: AccentOverrideSnapshot,
         val overridesEnabled: Boolean,
         val validateHex: Boolean,
-        val warmDetector: Boolean = true,
-        val detectedLanguage: () -> String?,
+        val warmLanguageDetection: Boolean = true,
+        val languageDetection: LanguageDetection,
+    )
+
+    /**
+     * Project-language read adapter for resolver callers.
+     *
+     * [detectedLanguage] and [verdict] must honor `warmCache`: `false` is a
+     * cache-only read with no scan scheduling. The resolver passes `true` at
+     * most once per resolution path, then uses cache-only verdict reads for
+     * fallback checks after detection was already consulted.
+     */
+    data class LanguageDetection(
+        val detectedLanguage: (warmCache: Boolean) -> String?,
         val verdict: (warmCache: Boolean) -> ProjectLanguageVerdict,
     )
 
@@ -46,7 +58,10 @@ internal object AccentOverrideResolver {
         languageResult.accent?.let { return it }
 
         val fallbackAccent = request.snapshot.projectFallbackAccents[projectKey] ?: return null
-        val fallbackVerdict = request.verdict(!languageResult.detectorConsulted && request.warmDetector)
+        val fallbackVerdict =
+            request
+                .languageDetection
+                .verdict(!languageResult.detectionConsulted && request.warmLanguageDetection)
         return fallbackAccent
             .takeIf { fallbackVerdict is ProjectLanguageVerdict.NoWinner }
             ?.let { rawHex -> overrideAccent(AccentResolver.Source.PROJECT_FALLBACK, rawHex, request.validateHex) }
@@ -64,14 +79,15 @@ internal object AccentOverrideResolver {
                     languageId = languageId,
                     exactSource = AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE,
                     validateHex = request.validateHex,
-                )?.let { return LanguageResult(it, detectorConsulted = false) }
+                )?.let { return LanguageResult(it, detectionConsulted = false) }
             }
         if (!languageRequest.shouldDetectLanguage) {
-            return LanguageResult(accent = null, detectorConsulted = false)
+            return LanguageResult(accent = null, detectionConsulted = false)
         }
         val resolvedAccent =
             request
-                .detectedLanguage()
+                .languageDetection
+                .detectedLanguage(request.warmLanguageDetection)
                 ?.let { languageId ->
                     overrideAccentForLanguage(
                         languageAccents = request.snapshot.languageAccents,
@@ -81,7 +97,7 @@ internal object AccentOverrideResolver {
                         validateHex = request.validateHex,
                     )
                 }
-        return LanguageResult(resolvedAccent, detectorConsulted = true)
+        return LanguageResult(resolvedAccent, detectionConsulted = true)
     }
 
     private data class LanguageRequest(
@@ -108,7 +124,7 @@ internal object AccentOverrideResolver {
 
     private data class LanguageResult(
         val accent: Result?,
-        val detectorConsulted: Boolean,
+        val detectionConsulted: Boolean,
     )
 
     private fun overrideAccentForLanguage(

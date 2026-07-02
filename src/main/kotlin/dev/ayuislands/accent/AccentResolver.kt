@@ -205,18 +205,19 @@ object AccentResolver {
             .resolve(
                 AccentOverrideResolver.Request(
                     projectKey = projectKey,
-                    snapshot =
-                        AccentOverrideSnapshot(
-                            projectAccents = mappings.projectAccents,
-                            languageAccents = mappings.languageAccents,
-                            projectFallbackAccents = mappings.projectFallbackAccents,
-                            forcedProjectLanguages = mappings.forcedProjectLanguages,
-                            languageFallbackAccent = mappings.languageFallbackAccent,
-                        ),
+                    snapshot = mappings.toAccentOverrideSnapshot(),
                     overridesEnabled = true,
                     validateHex = validateHex,
-                    detectedLanguage = { ProjectLanguageDetector.dominant(activeProject) },
-                    verdict = { warmCache -> ProjectLanguageDetector.verdict(activeProject, warmCache = warmCache) },
+                    languageDetection =
+                        AccentOverrideResolver.LanguageDetection(
+                            detectedLanguage = { warmCache ->
+                                val verdict = ProjectLanguageDetector.verdict(activeProject, warmCache = warmCache)
+                                (verdict as? ProjectLanguageVerdict.Detected)?.languageId
+                            },
+                            verdict = { warmCache ->
+                                ProjectLanguageDetector.verdict(activeProject, warmCache = warmCache)
+                            },
+                        ),
                 ),
             )?.toResolvedAccent()
     }

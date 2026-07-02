@@ -61,7 +61,6 @@ class AccentResolverChainTest {
         every { AccentMappingsSettings.getInstance() } returns mappingsSettings
 
         mockkObject(ProjectLanguageDetector)
-        every { ProjectLanguageDetector.dominant(any()) } returns null
         every { ProjectLanguageDetector.verdict(any()) } returns ProjectLanguageVerdict.Cold
         every { ProjectLanguageDetector.verdict(any(), any<Boolean>()) } returns ProjectLanguageVerdict.Cold
 
@@ -176,7 +175,6 @@ class AccentResolverChainTest {
         mappingsState.projectAccents[tmp] = "#111111"
         mappingsState.languageAccents["kotlin"] = "#222222"
         val project = stubProject(File(tmp))
-        every { ProjectLanguageDetector.dominant(project) } returns "kotlin"
 
         val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
 
@@ -329,7 +327,6 @@ class AccentResolverChainTest {
         mappingsState.forcedProjectLanguages[tmp] = "typescript"
         mappingsState.languageAccents["typescript"] = "#3178C6"
         val project = stubProject(File(tmp))
-        every { ProjectLanguageDetector.dominant(any()) } returns "javascript"
 
         val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
 
@@ -347,7 +344,6 @@ class AccentResolverChainTest {
         mappingsState.languageAccents["kotlin"] = "#ABCDEF"
         val project = stubProject(File(stubsDir, "lang-override"))
 
-        every { ProjectLanguageDetector.dominant(project) } returns "kotlin"
         val verdict =
             ProjectLanguageVerdict.Detected(
                 languageId = "kotlin",
@@ -379,7 +375,6 @@ class AccentResolverChainTest {
     fun `resolveChain language override with NO_MAPPING when language not in accent map falls through to global`() {
         mappingsState.languageAccents["kotlin"] = "#ABCDEF"
         val project = stubProject(File(stubsDir, "lang-no-map"))
-        every { ProjectLanguageDetector.dominant(project) } returns "python"
         every { ProjectLanguageDetector.verdict(project) } returns
             ProjectLanguageVerdict.Detected("python", mapOf("python" to 1_000L))
 
@@ -402,9 +397,9 @@ class AccentResolverChainTest {
     fun `resolveChain language fallback wins when detected language has no exact mapping`() {
         mappingsState.languageFallbackAccent = "#73D0FF"
         val project = stubProject(File(stubsDir, "detected-language-fallback"))
-        every { ProjectLanguageDetector.dominant(project) } returns "python"
         val verdict = ProjectLanguageVerdict.Detected("python", mapOf("python" to 1_000L))
         every { ProjectLanguageDetector.verdict(project) } returns verdict
+        every { ProjectLanguageDetector.verdict(project, warmCache = true) } returns verdict
 
         val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
 
@@ -426,7 +421,6 @@ class AccentResolverChainTest {
     fun `resolveChain language override shows Cold verdict when detection not yet run`() {
         mappingsState.languageAccents["kotlin"] = "#ABCDEF"
         val project = stubProject(File(stubsDir, "lang-cold"))
-        every { ProjectLanguageDetector.dominant(project) } returns null
         every { ProjectLanguageDetector.verdict(project) } returns ProjectLanguageVerdict.Cold
 
         val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
@@ -451,7 +445,6 @@ class AccentResolverChainTest {
         mappingsState.projectFallbackAccents[tmp] = "#5CCFE6"
         val project = stubProject(File(tmp))
 
-        every { ProjectLanguageDetector.dominant(project) } returns null
         val noWinnerVerdict =
             ProjectLanguageVerdict.NoWinner(
                 mapOf("typescript" to 500L, "javascript" to 500L),
@@ -485,7 +478,6 @@ class AccentResolverChainTest {
         mappingsState.projectFallbackAccents[tmp] = "#5CCFE6"
         val project = stubProject(File(tmp))
 
-        every { ProjectLanguageDetector.dominant(project) } returns null
         val noWinnerVerdict =
             ProjectLanguageVerdict.NoWinner(
                 mapOf("typescript" to 500L, "javascript" to 500L),
@@ -533,7 +525,6 @@ class AccentResolverChainTest {
         mappingsState.languageAccents["kotlin"] = "#ABCDEF"
         val project = stubProject(File(tmp))
 
-        every { ProjectLanguageDetector.dominant(project) } returns "kotlin"
         every { ProjectLanguageDetector.verdict(project) } returns
             ProjectLanguageVerdict.Detected("kotlin", mapOf("kotlin" to 1_000L))
 
@@ -553,7 +544,6 @@ class AccentResolverChainTest {
         mappingsState.projectFallbackAccents[tmp] = "bad-hex"
         val project = stubProject(File(tmp))
 
-        every { ProjectLanguageDetector.dominant(project) } returns null
         every { ProjectLanguageDetector.verdict(project) } returns
             ProjectLanguageVerdict.NoWinner(mapOf("typescript" to 500L, "javascript" to 500L))
 

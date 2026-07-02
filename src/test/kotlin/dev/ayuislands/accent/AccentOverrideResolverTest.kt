@@ -18,9 +18,9 @@ class AccentOverrideResolverTest {
                             projectAccents = mapOf(PROJECT_KEY to "#111111"),
                             languageAccents = mapOf("kotlin" to "#222222"),
                         ),
-                    detectedLanguage = {
+                    languageVerdict = {
                         detectorConsulted = true
-                        "kotlin"
+                        ProjectLanguageVerdict.Detected("kotlin", weights = null)
                     },
                 ),
             )
@@ -42,9 +42,9 @@ class AccentOverrideResolverTest {
                             languageAccents = mapOf("typescript" to "#3178C6", "javascript" to "#F7DF1E"),
                             forcedProjectLanguages = mapOf(PROJECT_KEY to "typescript"),
                         ),
-                    detectedLanguage = {
+                    languageVerdict = {
                         detectorConsulted = true
-                        "javascript"
+                        ProjectLanguageVerdict.Detected("javascript", weights = null)
                     },
                 ),
             )
@@ -61,7 +61,7 @@ class AccentOverrideResolverTest {
                 request(
                     projectKey = PROJECT_KEY,
                     snapshot = AccentOverrideSnapshot(languageAccents = mapOf("kotlin" to "#A6E22E")),
-                    detectedLanguage = { "kotlin" },
+                    languageVerdict = { ProjectLanguageVerdict.Detected("kotlin", weights = null) },
                 ),
             )
 
@@ -80,7 +80,7 @@ class AccentOverrideResolverTest {
                             forcedProjectLanguages = mapOf(PROJECT_KEY to "rust"),
                             languageFallbackAccent = "#73D0FF",
                         ),
-                    detectedLanguage = { error("detector must not be consulted") },
+                    languageVerdict = { error("language verdict must not be consulted") },
                 ),
             )
 
@@ -95,7 +95,7 @@ class AccentOverrideResolverTest {
                 request(
                     projectKey = PROJECT_KEY,
                     snapshot = AccentOverrideSnapshot(projectFallbackAccents = mapOf(PROJECT_KEY to "#5CCFE6")),
-                    verdict = { ProjectLanguageVerdict.Cold },
+                    languageVerdict = { ProjectLanguageVerdict.Cold },
                 ),
             )
         val noWinnerResult =
@@ -103,13 +103,40 @@ class AccentOverrideResolverTest {
                 request(
                     projectKey = PROJECT_KEY,
                     snapshot = AccentOverrideSnapshot(projectFallbackAccents = mapOf(PROJECT_KEY to "#5CCFE6")),
-                    verdict = { ProjectLanguageVerdict.NoWinner(mapOf("kotlin" to 500L, "java" to 500L)) },
+                    languageVerdict = { ProjectLanguageVerdict.NoWinner(mapOf("kotlin" to 500L, "java" to 500L)) },
                 ),
             )
 
         assertNull(coldResult)
         assertEquals(AccentResolver.Source.PROJECT_FALLBACK, noWinnerResult?.source)
         assertEquals("#5CCFE6", noWinnerResult?.hex)
+    }
+
+    @Test
+    fun `project fallback verdict is cache-only after language detection was consulted`() {
+        val warmCacheCalls = mutableListOf<Boolean>()
+        val result =
+            AccentOverrideResolver.resolve(
+                request(
+                    projectKey = PROJECT_KEY,
+                    snapshot =
+                        AccentOverrideSnapshot(
+                            languageAccents = mapOf("kotlin" to "#A6E22E"),
+                            projectFallbackAccents = mapOf(PROJECT_KEY to "#5CCFE6"),
+                        ),
+                    languageVerdict = { warmCache ->
+                        warmCacheCalls += warmCache
+                        if (warmCacheCalls.size == 1) {
+                            ProjectLanguageVerdict.Detected("typescript", weights = null)
+                        } else {
+                            ProjectLanguageVerdict.NoWinner(mapOf("kotlin" to 500L, "typescript" to 500L))
+                        }
+                    },
+                ),
+            )
+
+        assertEquals(AccentResolver.Source.PROJECT_FALLBACK, result?.source)
+        assertEquals(listOf(true, false), warmCacheCalls)
     }
 
     @Test
@@ -125,13 +152,9 @@ class AccentOverrideResolverTest {
                             languageAccents = mapOf("kotlin" to "#222222"),
                             projectFallbackAccents = mapOf(PROJECT_KEY to "#333333"),
                         ),
-                    detectedLanguage = {
+                    languageVerdict = {
                         detectorConsulted = true
-                        "kotlin"
-                    },
-                    verdict = {
-                        detectorConsulted = true
-                        ProjectLanguageVerdict.NoWinner(emptyMap())
+                        ProjectLanguageVerdict.Detected("kotlin", weights = null)
                     },
                 ).copy(overridesEnabled = false),
             )
@@ -147,7 +170,7 @@ class AccentOverrideResolverTest {
                 request(
                     projectKey = PROJECT_KEY,
                     snapshot = AccentOverrideSnapshot(languageAccents = mapOf("kotlin" to "#A6E22E")),
-                    detectedLanguage = { "typescript" },
+                    languageVerdict = { ProjectLanguageVerdict.Detected("typescript", weights = null) },
                 ),
             )
 
@@ -161,7 +184,7 @@ class AccentOverrideResolverTest {
                 request(
                     projectKey = PROJECT_KEY,
                     snapshot = AccentOverrideSnapshot(projectFallbackAccents = mapOf(PROJECT_KEY to "#5CCFE6")),
-                    verdict = { ProjectLanguageVerdict.NoWinner(mapOf("kotlin" to 500L, "java" to 500L)) },
+                    languageVerdict = { ProjectLanguageVerdict.NoWinner(mapOf("kotlin" to 500L, "java" to 500L)) },
                 ),
             )
 
@@ -208,16 +231,20 @@ class AccentOverrideResolverTest {
         projectKey: String?,
         snapshot: AccentOverrideSnapshot,
         validateHex: Boolean = false,
-        detectedLanguage: () -> String? = { null },
-        verdict: (warmCache: Boolean) -> ProjectLanguageVerdict = { ProjectLanguageVerdict.Cold },
+        languageVerdict: (warmCache: Boolean) -> ProjectLanguageVerdict = { ProjectLanguageVerdict.Cold },
     ): AccentOverrideResolver.Request =
         AccentOverrideResolver.Request(
             projectKey = projectKey,
             snapshot = snapshot,
             overridesEnabled = true,
             validateHex = validateHex,
-            detectedLanguage = detectedLanguage,
-            verdict = verdict,
+            languageDetection =
+                AccentOverrideResolver.LanguageDetection(
+                    detectedLanguage = { warmCache ->
+                        (languageVerdict(warmCache) as? ProjectLanguageVerdict.Detected)?.languageId
+                    },
+                    verdict = languageVerdict,
+                ),
         )
 
     private companion object {

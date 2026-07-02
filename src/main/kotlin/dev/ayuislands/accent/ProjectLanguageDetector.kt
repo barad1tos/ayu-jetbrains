@@ -33,13 +33,14 @@ import javax.swing.SwingUtilities
  *     recognized source files: brand-new project, docs-only-after-filtering, or
  *     pre-indexing state.
  *
- * Concurrency: `dominant()` may be called from EDT (settings UI, focus-swap listener).
- * On EDT, first-call detection on a large monorepo is a ~300–500 ms freeze. To avoid
- * that, an EDT invocation with an empty cache kicks off a deduplicated background scan
- * via [ProjectLanguageScanAsync] and returns null immediately; the caller falls through
- * to the global accent. When the BG scan completes with a cacheable verdict, the
- * detector re-applies the resolver result on EDT so the UI picks up either the new
- * winner or the fallback without waiting for the next focus swap.
+ * Concurrency: `verdict(warmCache = true)` and `dominant()` may be called from EDT
+ * settings and focus-swap paths. On EDT, first-call detection on a large monorepo is a
+ * ~300–500 ms freeze. To avoid that, an EDT invocation with an empty cache kicks off a
+ * deduplicated background scan via [ProjectLanguageScanAsync] and returns a cold/null
+ * result immediately; the caller falls through to the global accent. When the BG scan
+ * completes with a cacheable verdict, the detector re-applies the resolver result on EDT
+ * so the UI picks up either the new winner or the fallback without waiting for the next
+ * focus swap.
  *
  * Cache correctness: a detection whose scan threw is NOT cached — the next call
  * retries. A scan that ran cleanly but produced no winner (after both the proportional
@@ -93,9 +94,9 @@ object ProjectLanguageDetector {
      *
      * Never triggers a scan or schedules background work. The caller is responsible
      * for rendering a fallback (polyglot copy) on null. The single [verdictCache]
-     * entry is warmed via [dominant] (called from
-     * [dev.ayuislands.AyuIslandsStartupActivity] and the focus-swap path in
-     * [AccentResolver]) and invalidated via [invalidate].
+     * entry is warmed via [dominant] from
+     * [dev.ayuislands.AyuIslandsStartupActivity] and via `verdict(warmCache = true)`
+     * from resolver and pending-settings paths, then invalidated via [invalidate].
      *
      * Phase 26 contract: this is a read-only projection of existing detector state.
      * Phase 29 supplies a manual rescan trigger; Phase 31 may extend this API with

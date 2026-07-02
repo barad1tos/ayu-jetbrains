@@ -40,7 +40,7 @@ class AccentResolverExternalTest {
             mappingsState.languageAccents["kotlin"] = "#223344"
             state.externalThemeAccent = "#445566"
             val project = stubProject(File(System.getProperty("java.io.tmpdir"), "external-language"))
-            every { ProjectLanguageDetector.dominant(project) } returns "kotlin"
+            stubDetectedLanguage(project, "kotlin")
 
             withUiColorProvider({ key -> if (key == "material.accent") Color(0xAA, 0xBB, 0xCC) else null }) {
                 assertEquals("#223344", AccentResolver.resolve(project, AccentContext.External))
@@ -58,7 +58,7 @@ class AccentResolverExternalTest {
             mappingsState.languageFallbackAccent = "#73D0FF"
             state.externalThemeAccent = "#445566"
             val project = stubProject(File(System.getProperty("java.io.tmpdir"), "external-language-fallback"))
-            every { ProjectLanguageDetector.dominant(project) } returns "terraform"
+            stubDetectedLanguage(project, "terraform")
 
             withUiColorProvider({ key -> if (key == "material.accent") Color(0xAA, 0xBB, 0xCC) else null }) {
                 assertEquals("#73D0FF", AccentResolver.resolve(project, AccentContext.External))
@@ -76,7 +76,7 @@ class AccentResolverExternalTest {
             mappingsState.languageFallbackAccent = "not-a-hex"
             state.externalThemeAccent = "#445566"
             val project = stubProject(File(System.getProperty("java.io.tmpdir"), "external-invalid-language-fallback"))
-            every { ProjectLanguageDetector.dominant(project) } returns "terraform"
+            stubDetectedLanguage(project, "terraform")
 
             withUiColorProvider({ key -> if (key == "material.accent") Color(0xAA, 0xBB, 0xCC) else null }) {
                 assertEquals("#AABBCC", AccentResolver.resolve(project, AccentContext.External))
@@ -96,7 +96,7 @@ class AccentResolverExternalTest {
             mappingsState.languageAccents["typescript"] = "#3178C6"
             state.externalThemeAccent = "#445566"
             val project = stubProject(File(projectPath))
-            every { ProjectLanguageDetector.dominant(project) } returns "javascript"
+            stubDetectedLanguage(project, "javascript")
 
             withUiColorProvider({ key -> if (key == "material.accent") Color(0xAA, 0xBB, 0xCC) else null }) {
                 assertEquals("#3178C6", AccentResolver.resolve(project, AccentContext.External))
@@ -230,7 +230,7 @@ class AccentResolverExternalTest {
             state.externalThemeAccentSource = ExternalAccentSource.MANUAL.name
             state.externalThemeAccent = "#13579B"
             val project = stubProject(File(projectPath))
-            every { ProjectLanguageDetector.dominant(project) } returns "kotlin"
+            stubDetectedLanguage(project, "kotlin")
 
             withUiColorProvider({ key -> if (key == "material.accent") Color(0xAA, 0xBB, 0xCC) else null }) {
                 assertEquals("#13579B", AccentResolver.resolve(project, AccentContext.External))
@@ -250,7 +250,7 @@ class AccentResolverExternalTest {
             mappingsState.languageAccents["kotlin"] = "#223344"
             state.externalThemeAccent = "#445566"
             val project = stubProject(File(projectPath))
-            every { ProjectLanguageDetector.dominant(project) } returns "kotlin"
+            stubDetectedLanguage(project, "kotlin")
 
             withUiColorProvider({ key -> if (key == "material.accent") Color(0xAA, 0xBB, 0xCC) else null }) {
                 assertEquals("#AABBCC", AccentResolver.resolve(project, AccentContext.External))
@@ -298,7 +298,6 @@ class AccentResolverExternalTest {
             every { mappingsSettings.state } returns mappingsState
             every { AccentMappingsSettings.getInstance() } returns mappingsSettings
 
-            every { ProjectLanguageDetector.dominant(any()) } returns null
             every { ProjectLanguageDetector.verdict(any()) } returns ProjectLanguageVerdict.Cold
             every { ProjectLanguageDetector.verdict(any(), any<Boolean>()) } returns ProjectLanguageVerdict.Cold
             every { LicenseChecker.isLicensedOrGrace() } returns licensed
@@ -321,6 +320,14 @@ class AccentResolverExternalTest {
         block: () -> Unit,
     ) {
         AccentResolver.withUiColorProviderForTest(provider, block)
+    }
+
+    private fun stubDetectedLanguage(
+        project: Project,
+        languageId: String,
+    ) {
+        every { ProjectLanguageDetector.verdict(project, warmCache = true) } returns
+            ProjectLanguageVerdict.Detected(languageId, weights = null)
     }
 
     private data class ResolverStubs(

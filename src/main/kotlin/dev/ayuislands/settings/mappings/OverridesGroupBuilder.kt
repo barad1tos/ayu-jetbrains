@@ -400,7 +400,7 @@ class OverridesGroupBuilder(
         project: Project?,
         fallbackGlobalHex: String,
         cacheOnly: Boolean = false,
-    ): String = resolvePendingOverride(project, warmDetector = !cacheOnly)?.hex ?: fallbackGlobalHex
+    ): String = resolvePendingOverride(project, warmLanguageDetection = !cacheOnly)?.hex ?: fallbackGlobalHex
 
     /**
      * Matching [AccentResolver.Source] for [project] under the **pending** overrides model.
@@ -409,7 +409,7 @@ class OverridesGroupBuilder(
         project: Project?,
         cacheOnly: Boolean = false,
     ): AccentResolver.Source =
-        resolvePendingOverride(project, warmDetector = !cacheOnly)?.source ?: AccentResolver.Source.GLOBAL
+        resolvePendingOverride(project, warmLanguageDetection = !cacheOnly)?.source ?: AccentResolver.Source.GLOBAL
 
     internal fun activeSourceDetailPending(
         project: Project?,
@@ -444,7 +444,7 @@ class OverridesGroupBuilder(
 
     private fun resolvePendingOverride(
         project: Project?,
-        warmDetector: Boolean,
+        warmLanguageDetection: Boolean,
     ): AccentOverrideResolver.Result? {
         val activeProject =
             project
@@ -466,9 +466,14 @@ class OverridesGroupBuilder(
                 snapshot = pendingOverrideSnapshot(),
                 overridesEnabled = LicenseChecker.isLicensedOrGrace(),
                 validateHex = false,
-                warmDetector = warmDetector,
-                detectedLanguage = { (verdict(warmDetector) as? ProjectLanguageVerdict.Detected)?.languageId },
-                verdict = ::verdict,
+                warmLanguageDetection = warmLanguageDetection,
+                languageDetection =
+                    AccentOverrideResolver.LanguageDetection(
+                        detectedLanguage = { warmCache ->
+                            (verdict(warmCache) as? ProjectLanguageVerdict.Detected)?.languageId
+                        },
+                        verdict = ::verdict,
+                    ),
             ),
         )
     }
@@ -539,8 +544,11 @@ class OverridesGroupBuilder(
                 snapshot = pendingOverrideSnapshot(),
                 overridesEnabled = isLicensed,
                 validateHex = false,
-                detectedLanguage = { (verdict as? ProjectLanguageVerdict.Detected)?.languageId },
-                verdict = { verdict },
+                languageDetection =
+                    AccentOverrideResolver.LanguageDetection(
+                        detectedLanguage = { (verdict as? ProjectLanguageVerdict.Detected)?.languageId },
+                        verdict = { verdict },
+                    ),
             ),
         )
 

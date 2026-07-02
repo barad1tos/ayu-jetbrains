@@ -7,12 +7,13 @@ import kotlin.coroutines.cancellation.CancellationException
  * [kotlin.runCatching] variant that rethrows platform and coroutine cancellation
  * instead of capturing it in the returned [Result].
  *
- * The resolver chain ([AccentResolver.projectKey], [ProjectLanguageDetector.dominant]) is
- * reachable from `AyuIslandsStartupActivity.execute`'s coroutine body; swallowing
- * cancellation there would let the coroutine continue past its scope's cancellation,
- * breaking structured concurrency. Other `Throwable`s (including `Error` subtypes like
- * `NoClassDefFoundError` from a mid-dispose race on a lazily-loaded service accessor) keep
- * the existing fall-back-to-failure-result behavior.
+ * The startup resolver chain ([AccentResolver.projectKey],
+ * [ProjectLanguageDetector.dominant]) is reachable from
+ * `AyuIslandsStartupActivity.execute`'s coroutine body; swallowing cancellation there
+ * would let the coroutine continue past its scope's cancellation, breaking structured
+ * concurrency. Other `Throwable`s (including `Error` subtypes like `NoClassDefFoundError`
+ * from a mid-dispose race on a lazily-loaded service accessor) keep the existing
+ * fall-back-to-failure-result behavior.
  *
  * Only the top-level exception is inspected. If an IntelliJ platform API catches a
  * `CancellationException` and rewraps it (e.g. `throw IllegalStateException("disposed",

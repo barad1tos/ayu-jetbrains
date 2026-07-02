@@ -1,6 +1,7 @@
 package dev.ayuislands.settings.mappings
 
 import com.intellij.openapi.components.BaseState
+import dev.ayuislands.accent.AccentOverrideSnapshot
 import dev.ayuislands.accent.LanguageDetectionRules
 
 /**
@@ -29,6 +30,15 @@ class AccentMappingsState : BaseState() {
             dominanceMarginRatio = dominanceMarginRatio.toStoredDouble(),
             dominanceFloor = dominanceFloor.toStoredDouble(),
             tiebreakMinShare = tiebreakMinShare.toStoredDouble(),
+        )
+
+    internal fun toAccentOverrideSnapshot(): AccentOverrideSnapshot =
+        AccentOverrideSnapshot(
+            projectAccents = projectAccents.toMap(),
+            languageAccents = languageAccents.toMap(),
+            projectFallbackAccents = projectFallbackAccents.toMap(),
+            forcedProjectLanguages = forcedProjectLanguages.toMap(),
+            languageFallbackAccent = languageFallbackAccent,
         )
 }
 

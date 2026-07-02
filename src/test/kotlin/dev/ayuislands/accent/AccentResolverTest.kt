@@ -42,7 +42,6 @@ class AccentResolverTest {
         every { AccentMappingsSettings.getInstance() } returns mappingsSettings
 
         mockkObject(ProjectLanguageDetector)
-        every { ProjectLanguageDetector.dominant(any()) } returns null
         every { ProjectLanguageDetector.verdict(any()) } returns ProjectLanguageVerdict.Cold
         every { ProjectLanguageDetector.verdict(any(), any<Boolean>()) } returns ProjectLanguageVerdict.Cold
 
@@ -87,7 +86,7 @@ class AccentResolverTest {
     fun `resolve prefers language override over global when no project override`() {
         mappingsState.languageAccents["kotlin"] = "#ABCDEF"
         val project = stubProject(File(System.getProperty("java.io.tmpdir"), "kotlin-proj"))
-        every { ProjectLanguageDetector.dominant(project) } returns "kotlin"
+        stubDetectedLanguage(project, "kotlin")
 
         assertEquals("#ABCDEF", AccentResolver.resolve(project, AyuVariant.MIRAGE))
     }
@@ -97,7 +96,7 @@ class AccentResolverTest {
         mappingsState.languageAccents["kotlin"] = "#ABCDEF"
         mappingsState.languageFallbackAccent = "#73D0FF"
         val project = stubProject(File(System.getProperty("java.io.tmpdir"), "typescript-fallback"))
-        every { ProjectLanguageDetector.dominant(project) } returns "typescript"
+        stubDetectedLanguage(project, "typescript")
 
         assertEquals("#73D0FF", AccentResolver.resolve(project, AyuVariant.MIRAGE))
         assertEquals(AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE, AccentResolver.source(project))
@@ -108,7 +107,7 @@ class AccentResolverTest {
         mappingsState.languageAccents["kotlin"] = "#ABCDEF"
         mappingsState.languageFallbackAccent = "#73D0FF"
         val project = stubProject(File(System.getProperty("java.io.tmpdir"), "kotlin-exact-fallback"))
-        every { ProjectLanguageDetector.dominant(project) } returns "kotlin"
+        stubDetectedLanguage(project, "kotlin")
 
         assertEquals("#ABCDEF", AccentResolver.resolve(project, AyuVariant.MIRAGE))
         assertEquals(AccentResolver.Source.LANGUAGE_OVERRIDE, AccentResolver.source(project))
@@ -121,7 +120,7 @@ class AccentResolverTest {
         mappingsState.languageAccents["kotlin"] = "#222222"
 
         val project = stubProject(File(tmp))
-        every { ProjectLanguageDetector.dominant(project) } returns "kotlin"
+        stubDetectedLanguage(project, "kotlin")
 
         assertEquals("#111111", AccentResolver.resolve(project, AyuVariant.MIRAGE))
     }
@@ -134,7 +133,7 @@ class AccentResolverTest {
         mappingsState.languageAccents["javascript"] = "#F7DF1E"
 
         val project = stubProject(File(tmp))
-        every { ProjectLanguageDetector.dominant(project) } returns "javascript"
+        stubDetectedLanguage(project, "javascript")
 
         assertEquals("#3178C6", AccentResolver.resolve(project, AyuVariant.MIRAGE))
         assertEquals(AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE, AccentResolver.source(project))
@@ -147,12 +146,11 @@ class AccentResolverTest {
         mappingsState.languageAccents["javascript"] = "#F7DF1E"
 
         val project = stubProject(File(tmp))
-        every { ProjectLanguageDetector.dominant(project) } returns "javascript"
+        stubDetectedLanguage(project, "javascript")
 
         assertEquals(globalMirageAccent, AccentResolver.resolve(project, AyuVariant.MIRAGE))
         assertEquals(AccentResolver.Source.GLOBAL, AccentResolver.source(project))
-        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.dominant(any()) }
-        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.verdict(any()) }
+        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.verdict(any(), any<Boolean>()) }
     }
 
     @Test
@@ -162,11 +160,11 @@ class AccentResolverTest {
         mappingsState.languageFallbackAccent = "#73D0FF"
 
         val project = stubProject(File(tmp))
-        every { ProjectLanguageDetector.dominant(project) } returns "javascript"
+        stubDetectedLanguage(project, "javascript")
 
         assertEquals("#73D0FF", AccentResolver.resolve(project, AyuVariant.MIRAGE))
         assertEquals(AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE, AccentResolver.source(project))
-        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.dominant(any()) }
+        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.verdict(any(), any<Boolean>()) }
     }
 
     @Test
@@ -175,7 +173,7 @@ class AccentResolverTest {
         mappingsState.languageFallbackAccent = "not-a-hex"
 
         val project = stubProject(File(tmp))
-        every { ProjectLanguageDetector.dominant(project) } returns "typescript"
+        stubDetectedLanguage(project, "typescript")
 
         assertEquals(globalMirageAccent, AccentResolver.resolve(project, AyuVariant.MIRAGE))
         assertEquals(AccentResolver.Source.GLOBAL, AccentResolver.source(project))
@@ -187,7 +185,6 @@ class AccentResolverTest {
         mappingsState.projectFallbackAccents[tmp] = "#5CCFE6"
 
         val project = stubProject(File(tmp))
-        every { ProjectLanguageDetector.dominant(project) } returns null
         val noWinnerVerdict = ProjectLanguageVerdict.NoWinner(mapOf("typescript" to 500L, "javascript" to 500L))
         every { ProjectLanguageDetector.verdict(project) } returns noWinnerVerdict
         every { ProjectLanguageDetector.verdict(project, warmCache = true) } returns noWinnerVerdict
@@ -205,7 +202,6 @@ class AccentResolverTest {
         mappingsState.languageAccents["javascript"] = "#F7DF1E"
 
         val project = stubProject(File(tmp))
-        every { ProjectLanguageDetector.dominant(project) } returns null
         val noWinnerVerdict = ProjectLanguageVerdict.NoWinner(mapOf("typescript" to 500L, "javascript" to 500L))
         every { ProjectLanguageDetector.verdict(project) } returns noWinnerVerdict
         every { ProjectLanguageDetector.verdict(project, warmCache = true) } returns noWinnerVerdict
@@ -234,8 +230,7 @@ class AccentResolverTest {
 
         assertEquals(globalMirageAccent, AccentResolver.resolve(project, AyuVariant.MIRAGE))
 
-        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.dominant(any()) }
-        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.verdict(any()) }
+        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.verdict(any(), any<Boolean>()) }
     }
 
     @Test
@@ -247,8 +242,7 @@ class AccentResolverTest {
 
         assertEquals(globalMirageAccent, AccentResolver.resolve(project, AyuVariant.MIRAGE))
 
-        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.dominant(any()) }
-        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.verdict(any()) }
+        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.verdict(any(), any<Boolean>()) }
     }
 
     @Test
@@ -257,7 +251,7 @@ class AccentResolverTest {
         val project = stubProject(File(System.getProperty("java.io.tmpdir"), "skip-detector"))
 
         assertEquals(globalMirageAccent, AccentResolver.resolve(project, AyuVariant.MIRAGE))
-        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.dominant(any()) }
+        io.mockk.verify(exactly = 0) { ProjectLanguageDetector.verdict(any(), any<Boolean>()) }
     }
 
     @Test
@@ -273,7 +267,7 @@ class AccentResolverTest {
     fun `source reports LANGUAGE_OVERRIDE when only language mapped`() {
         mappingsState.languageAccents["python"] = "#222222"
         val project = stubProject(File(System.getProperty("java.io.tmpdir"), "src-lang"))
-        every { ProjectLanguageDetector.dominant(project) } returns "python"
+        stubDetectedLanguage(project, "python")
 
         assertEquals(AccentResolver.Source.LANGUAGE_OVERRIDE, AccentResolver.source(project))
     }
@@ -350,7 +344,7 @@ class AccentResolverTest {
         every { LicenseChecker.isLicensedOrGrace() } returns false
 
         val project = stubProject(File(System.getProperty("java.io.tmpdir"), "unlicensed-lang"))
-        every { ProjectLanguageDetector.dominant(project) } returns "kotlin"
+        stubDetectedLanguage(project, "kotlin")
 
         assertEquals(globalMirageAccent, AccentResolver.resolve(project, AyuVariant.MIRAGE))
     }
@@ -365,7 +359,7 @@ class AccentResolverTest {
         every { LicenseChecker.isLicensedOrGrace() } returns false
 
         val project = stubProject(File(tmp))
-        every { ProjectLanguageDetector.dominant(project) } returns "kotlin"
+        stubDetectedLanguage(project, "kotlin")
 
         assertEquals(AccentResolver.Source.GLOBAL, AccentResolver.source(project))
     }
@@ -375,10 +369,18 @@ class AccentResolverTest {
         // Row 6 of the truth table: LM=Y, D=Y, L=N → global wins.
         mappingsState.languageAccents["kotlin"] = "#ABCDEF"
         val project = stubProject(File(System.getProperty("java.io.tmpdir"), "python-only"))
-        every { ProjectLanguageDetector.dominant(project) } returns "python"
+        stubDetectedLanguage(project, "python")
 
         assertEquals(globalMirageAccent, AccentResolver.resolve(project, AyuVariant.MIRAGE))
         assertEquals(AccentResolver.Source.GLOBAL, AccentResolver.source(project))
+    }
+
+    private fun stubDetectedLanguage(
+        project: Project,
+        languageId: String,
+    ) {
+        every { ProjectLanguageDetector.verdict(project, warmCache = true) } returns
+            ProjectLanguageVerdict.Detected(languageId, weights = null)
     }
 
     @Test
