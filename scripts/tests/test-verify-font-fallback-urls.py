@@ -166,6 +166,17 @@ class VerifyFontFallbackUrlsTest(unittest.TestCase):
         self.assertEqual(1, len(results))
         self.assertTrue(results[0].is_success)
 
+    def test_checker_treats_http_204_as_success(self) -> None:
+        results = verifier.check_fallback_urls(
+            [verifier.FallbackUrl("NO_BODY_URL", "https://example.com/no-body.zip")],
+            opener=lambda _request, _timeout: FakeResponse(204),
+            retries=0,
+        )
+
+        self.assertEqual(1, len(results))
+        self.assertTrue(results[0].is_success)
+        self.assertIsNone(results[0].error)
+
     def test_checker_does_not_retry_non_retryable_http_status(self) -> None:
         attempts = 0
 
@@ -189,6 +200,45 @@ class VerifyFontFallbackUrlsTest(unittest.TestCase):
         self.assertFalse(results[0].is_success)
         self.assertEqual("HTTP 404", results[0].error)
 
+    def test_main_rejects_non_positive_timeout(self) -> None:
+        exit_code, _stdout, stderr = run_main_args(
+            ["--timeout", "0", "--retries", "0", "--retry-delay", "0"],
+        )
+
+        self.assertEqual(2, exit_code)
+        self.assertIn("--timeout must be greater than 0", stderr)
+
+    def test_main_rejects_negative_retries(self) -> None:
+        exit_code, _stdout, stderr = run_main_args(
+            ["--timeout", "10", "--retries", "-1", "--retry-delay", "0"],
+        )
+
+        self.assertEqual(2, exit_code)
+        self.assertIn("--retries must be greater than or equal to 0", stderr)
+
+    def test_main_rejects_negative_retry_delay(self) -> None:
+        exit_code, _stdout, stderr = run_main_args(
+            ["--timeout", "10", "--retries", "0", "--retry-delay", "-1"],
+        )
+
+        self.assertEqual(2, exit_code)
+        self.assertIn("--retry-delay must be greater than or equal to 0", stderr)
+
+    def test_check_fallback_urls_rejects_negative_retries(self) -> None:
+        with self.assertRaisesRegex(ValueError, "retries"):
+            verifier.check_fallback_urls(
+                [verifier.FallbackUrl("GOOD_URL", "https://example.com/good.zip")],
+                retries=-1,
+            )
+
+    def test_check_fallback_urls_rejects_negative_retry_delay(self) -> None:
+        with self.assertRaisesRegex(ValueError, "retry_delay_seconds"):
+            verifier.check_fallback_urls(
+                [verifier.FallbackUrl("GOOD_URL", "https://example.com/good.zip")],
+                retries=0,
+                retry_delay_seconds=-1,
+            )
+
     def test_main_returns_0_for_http_200_success(self) -> None:
         requests: list[tuple[urllib.request.Request, float]] = []
 
@@ -208,6 +258,10 @@ class VerifyFontFallbackUrlsTest(unittest.TestCase):
         self.assertIn("1 URL(s) checked", stdout)
         self.assertEqual("HEAD", requests[0][0].get_method())
         self.assertEqual(3.0, requests[0][1])
+        self.assertEqual(
+            verifier.USER_AGENT,
+            requests[0][0].headers["User-agent"],
+        )
 
 
 class FakeResponse:
@@ -263,6 +317,21 @@ def run_main(
                 opener=opener,
                 sleeper=lambda _delay: None,
             )
+
+    return exit_code, stdout.getvalue(), stderr.getvalue()
+
+
+def run_main_args(
+    argv: list[str],
+) -> tuple[int, str, str]:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    with redirect_stdout(stdout), redirect_stderr(stderr):
+        exit_code = verifier.main(
+            argv,
+            opener=successful_opener,
+            sleeper=lambda _delay: None,
+        )
 
     return exit_code, stdout.getvalue(), stderr.getvalue()
 

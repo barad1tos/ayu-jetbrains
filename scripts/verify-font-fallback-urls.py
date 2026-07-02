@@ -83,7 +83,11 @@ class UrlCheckResult:
 
     @property
     def is_success(self) -> bool:
-        return self.status_code == 200 and self.error is None
+        return (
+            self.error is None
+            and self.status_code is not None
+            and 200 <= self.status_code < 300
+        )
 
 
 def extract_fallback_urls(font_catalog_source: str) -> list[FallbackUrl]:
@@ -201,11 +205,12 @@ def check_fallback_url_once(
             status_code=None,
             error=f"request failed: {exc}",
         )
+    is_success_status = 200 <= status_code < 300
     return UrlCheckResult(
         constant_name=fallback_url.constant_name,
         url=fallback_url.url,
         status_code=status_code,
-        error=None if status_code == 200 else f"HTTP {status_code}",
+        error=None if is_success_status else f"HTTP {status_code}",
     )
 
 
