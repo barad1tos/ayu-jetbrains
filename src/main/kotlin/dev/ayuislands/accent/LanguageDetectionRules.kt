@@ -148,7 +148,7 @@ internal object LanguageDetectionRules {
     const val MAX_FILES_SCANNED: Int = 10_000
 
     /**
-     * Initial eligible files sampled without gaps before stride sampling starts.
+     * Initial eligible files sampled without gaps before bounded sampling starts.
      * Keeps small projects exact and preserves early-root signal in large repos.
      */
     const val PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES: Int = 128
@@ -159,13 +159,6 @@ internal object LanguageDetectionRules {
      * expensive language/file-type work stops at this bound.
      */
     const val PROJECT_LANGUAGE_MAX_SAMPLED_FILES: Int = 1_000
-
-    /**
-     * Stable stride for eligible files after [PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES].
-     * A value of 10 samples the 10th, 20th, 30th, ... post-warmup file until
-     * [PROJECT_LANGUAGE_MAX_SAMPLED_FILES] is reached.
-     */
-    const val PROJECT_LANGUAGE_SAMPLE_STRIDE: Int = 10
 
     @Suppress("unused")
     private val projectLanguageSamplingInvariants: Unit =
@@ -181,9 +174,6 @@ internal object LanguageDetectionRules {
             require(PROJECT_LANGUAGE_MAX_SAMPLED_FILES <= MAX_FILES_SCANNED) {
                 "PROJECT_LANGUAGE_MAX_SAMPLED_FILES ($PROJECT_LANGUAGE_MAX_SAMPLED_FILES) " +
                     "must not exceed MAX_FILES_SCANNED ($MAX_FILES_SCANNED)."
-            }
-            require(PROJECT_LANGUAGE_SAMPLE_STRIDE > 0) {
-                "PROJECT_LANGUAGE_SAMPLE_STRIDE ($PROJECT_LANGUAGE_SAMPLE_STRIDE) must be greater than 0."
             }
         }
 

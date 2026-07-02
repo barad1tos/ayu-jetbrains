@@ -124,11 +124,11 @@ internal object ProjectLanguageScanner {
     ): Map<String, Long> {
         val weights = HashMap<String, Long>()
         val counters = ScanCounters()
-        val isSubCapScan = candidates.size <= LanguageDetectionRules.PROJECT_LANGUAGE_MAX_SAMPLED_FILES
+        val totalCandidateCount = candidates.size
         candidates.forEachIndexed { index, file ->
             ProgressManager.checkCanceled()
             if (project.isDisposed) return emptyMap()
-            if (!shouldSampleFile(index + 1, counters.sampledFileCount, isSubCapScan)) return@forEachIndexed
+            if (!shouldSampleFile(index + 1, counters.sampledFileCount, totalCandidateCount)) return@forEachIndexed
             counters.sampledFileCount++
             sampleLanguageWeight(file)?.let { (languageId, weight) ->
                 weights.merge(languageId, weight) { a, b -> a + b }
@@ -140,13 +140,28 @@ internal object ProjectLanguageScanner {
     private fun shouldSampleFile(
         traversedFileCount: Int,
         sampledFileCount: Int,
-        isSubCapScan: Boolean,
+        totalCandidateCount: Int,
     ): Boolean {
         if (sampledFileCount >= LanguageDetectionRules.PROJECT_LANGUAGE_MAX_SAMPLED_FILES) return false
-        if (isSubCapScan) return true
+        if (totalCandidateCount <= LanguageDetectionRules.PROJECT_LANGUAGE_MAX_SAMPLED_FILES) return true
         if (traversedFileCount <= LanguageDetectionRules.PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES) return true
-        val postWarmupOffset = traversedFileCount - LanguageDetectionRules.PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES
-        return postWarmupOffset % LanguageDetectionRules.PROJECT_LANGUAGE_SAMPLE_STRIDE == 0
+        return shouldSamplePostWarmupFile(traversedFileCount, totalCandidateCount)
+    }
+
+    private fun shouldSamplePostWarmupFile(
+        traversedFileCount: Int,
+        totalCandidateCount: Int,
+    ): Boolean {
+        val remainingCandidates = totalCandidateCount - LanguageDetectionRules.PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES
+        val remainingSampleBudget =
+            LanguageDetectionRules.PROJECT_LANGUAGE_MAX_SAMPLED_FILES -
+                LanguageDetectionRules.PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES
+        if (remainingCandidates <= 0 || remainingSampleBudget <= 0) return false
+
+        val postWarmupPosition = traversedFileCount - LanguageDetectionRules.PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES
+        val previousBucket = (postWarmupPosition - 1).toLong() * remainingSampleBudget / remainingCandidates
+        val currentBucket = postWarmupPosition.toLong() * remainingSampleBudget / remainingCandidates
+        return currentBucket > previousBucket
     }
 
     @TestOnly
