@@ -1,5 +1,6 @@
 package dev.ayuislands.accent
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
@@ -643,6 +644,34 @@ class ProjectLanguageDetectorTest {
 
         assertEquals(ProjectLanguageVerdict.Cold, ProjectLanguageDetector.verdict(project))
         verify(exactly = 0) { ProjectLanguageScanner.scan(any()) }
+    }
+
+    @Test
+    fun `dominant on EDT returns fallback immediately and schedules background scan`() {
+        val project = stubProject("/tmp/edt-cold-cache-${System.nanoTime()}")
+        stubDumbServiceSmart(project)
+        every { ProjectLanguageScanner.scan(project) } answers {
+            error("EDT dominant must schedule scan instead of reading project files synchronously")
+        }
+        mockkStatic(ApplicationManager::class)
+        val application = mockk<com.intellij.openapi.application.Application>()
+        every { ApplicationManager.getApplication() } returns application
+        every { application.isDispatchThread } returns true
+        mockkObject(ProjectLanguageScanAsync)
+        val capturedKey = io.mockk.slot<String>()
+        every { ProjectLanguageScanAsync.schedule(project, capture(capturedKey), any()) } returns true
+
+        assertNull(
+            ProjectLanguageDetector.dominant(project),
+            "Cold-cache EDT lookup must return the global fallback immediately",
+        )
+
+        assertEquals(
+            AccentResolver.projectKey(project),
+            capturedKey.captured,
+            "The scheduled scan must use the canonical project key for deduplication",
+        )
+        verify(exactly = 1) { ProjectLanguageScanAsync.schedule(project, any(), any()) }
     }
 
     @Test

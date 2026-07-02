@@ -4,9 +4,11 @@ import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.util.concurrency.AppExecutorUtil
 import io.mockk.every
+import io.mockk.justRun
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
@@ -178,6 +180,128 @@ class ProjectLanguageScanAsyncTest {
 
         assertFalse(ranTask, "Disposed project must skip the task body")
         assertFalse(ProjectLanguageScanAsync.isInFlight("alpha"), "Gate must clear after disposal skip")
+    }
+
+    @Test
+    fun `project disposed after progress starts skips task and leaves scan reschedulable`() {
+        var isDisposed = false
+        every { project.isDisposed } answers { isDisposed }
+        every { ProgressManager.getInstance().runProcess(any<Runnable>(), any<ProgressIndicator>()) } answers {
+            isDisposed = true
+            firstArg<Runnable>().run()
+        }
+        var ranTask = false
+        ProjectLanguageScanAsync.schedule(project, "alpha") {
+            ranTask = true
+            ProjectLanguageScanAsync.ScanResult.Completed
+        }
+
+        capturedRunnables[0].run()
+
+        assertFalse(ranTask, "Project-close race must cancel the scan before it touches project files")
+        assertFalse(ProjectLanguageScanAsync.isInFlight("alpha"), "Gate must clear after mid-process disposal")
+        assertTrue(
+            ProjectLanguageScanAsync.schedule(project, "alpha") {
+                ProjectLanguageScanAsync.ScanResult.Completed
+            },
+            "After a project-close race, the next focus or rescan request must be schedulable",
+        )
+    }
+
+    @Test
+    fun `disposal hook registration failure skips task and leaves scan reschedulable`() {
+        mockkStatic(Disposer::class)
+        every { Disposer.register(project, any()) } throws RuntimeException("project is closing")
+        var ranTask = false
+        ProjectLanguageScanAsync.schedule(project, "alpha") {
+            ranTask = true
+            ProjectLanguageScanAsync.ScanResult.Completed
+        }
+
+        capturedRunnables[0].run()
+
+        assertFalse(ranTask, "Scan must not run when it cannot attach project-lifetime cancellation")
+        assertFalse(ProjectLanguageScanAsync.isInFlight("alpha"), "Gate must clear after disposal hook failure")
+        assertTrue(
+            ProjectLanguageScanAsync.schedule(project, "alpha") {
+                ProjectLanguageScanAsync.ScanResult.Completed
+            },
+            "A transient disposal-hook failure must not block future rescans for the project",
+        )
+    }
+
+    @Test
+    fun `disposal hook cancellation skips task and leaves scan reschedulable`() {
+        mockkStatic(Disposer::class)
+        every { Disposer.register(project, any()) } throws ProcessCanceledException()
+        var ranTask = false
+        ProjectLanguageScanAsync.schedule(project, "alpha") {
+            ranTask = true
+            ProjectLanguageScanAsync.ScanResult.Completed
+        }
+
+        capturedRunnables[0].run()
+
+        assertFalse(ranTask, "Canceled disposal-hook registration must not run the scan")
+        assertFalse(
+            ProjectLanguageScanAsync.isInFlight("alpha"),
+            "Gate must clear after hook registration cancellation",
+        )
+        assertTrue(
+            ProjectLanguageScanAsync.schedule(project, "alpha") {
+                ProjectLanguageScanAsync.ScanResult.Completed
+            },
+            "Platform cancellation during hook registration must not block future rescans",
+        )
+    }
+
+    @Test
+    fun `disposal hook cleanup failure still leaves scan reschedulable`() {
+        mockkStatic(Disposer::class)
+        justRun { Disposer.register(project, any()) }
+        every { Disposer.dispose(any()) } throws RuntimeException("hook already disposed")
+        var ranTask = false
+        ProjectLanguageScanAsync.schedule(project, "alpha") {
+            ranTask = true
+            ProjectLanguageScanAsync.ScanResult.Completed
+        }
+
+        capturedRunnables[0].run()
+
+        assertTrue(ranTask, "Cleanup failure happens after the user-visible scan result is produced")
+        assertFalse(
+            ProjectLanguageScanAsync.isInFlight("alpha"),
+            "Gate must clear even when hook cleanup races disposal",
+        )
+        assertTrue(
+            ProjectLanguageScanAsync.schedule(project, "alpha") {
+                ProjectLanguageScanAsync.ScanResult.Completed
+            },
+            "After hook cleanup failure, future rescans must still be available",
+        )
+    }
+
+    @Test
+    fun `disposal hook cleanup cancellation still leaves scan reschedulable`() {
+        mockkStatic(Disposer::class)
+        justRun { Disposer.register(project, any()) }
+        every { Disposer.dispose(any()) } throws ProcessCanceledException()
+        var ranTask = false
+        ProjectLanguageScanAsync.schedule(project, "alpha") {
+            ranTask = true
+            ProjectLanguageScanAsync.ScanResult.Completed
+        }
+
+        capturedRunnables[0].run()
+
+        assertTrue(ranTask, "Cleanup cancellation happens after the scan produced a result")
+        assertFalse(ProjectLanguageScanAsync.isInFlight("alpha"), "Gate must clear after hook cleanup cancellation")
+        assertTrue(
+            ProjectLanguageScanAsync.schedule(project, "alpha") {
+                ProjectLanguageScanAsync.ScanResult.Completed
+            },
+            "Cleanup cancellation must not block future rescans for the same project",
+        )
     }
 
     @Test
