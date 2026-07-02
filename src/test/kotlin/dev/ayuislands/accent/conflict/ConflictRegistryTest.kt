@@ -40,8 +40,30 @@ class ConflictRegistryTest {
     }
 
     @Test
-    fun `entries has exactly 2 known conflict plugins`() {
-        assertEquals(2, getEntries().size)
+    fun `entries has exactly 3 known conflict plugins`() {
+        assertEquals(3, getEntries().size)
+    }
+
+    @Test
+    fun `entries contain Atom Material Icons as unsupported plugin-level conflict`() {
+        val atomMaterialIcons = getEntries().first { it.pluginId == "com.mallowigi" }
+
+        assertEquals("Atom Material Icons", atomMaterialIcons.pluginDisplayName)
+        assertEquals(ConflictType.BLOCK, atomMaterialIcons.type)
+        assertTrue(
+            atomMaterialIcons.affectedElements.isEmpty(),
+            "Atom Material Icons must not map stale CHECKBOXES or synthetic MATCHING_TAG to a current element",
+        )
+    }
+
+    @Test
+    fun `Atom Material Icons entry does not claim synthetic affected elements`() {
+        val atomMaterialIcons = getEntries().first { it.pluginId == "com.mallowigi" }
+
+        assertTrue(
+            atomMaterialIcons.affectedElements.isEmpty(),
+            "Atom Material Icons must not map generic fixtures such as MATCHING_TAG to production conflicts",
+        )
     }
 
     @Test
@@ -123,7 +145,7 @@ class ConflictRegistryTest {
         val second = ConflictRegistry.detectConflicts()
 
         assertSame(first, second, "Cached result must be reused across calls")
-        verify(exactly = 2) { AyuPlugin.findLoadedPlugin(any<PluginId>()) }
+        verify(exactly = 3) { AyuPlugin.findLoadedPlugin(any<PluginId>()) }
     }
 
     /**
@@ -136,8 +158,8 @@ class ConflictRegistryTest {
         ConflictRegistry.resetCachedConflictsForTesting()
         val secondBatch = ConflictRegistry.detectConflicts()
 
-        // Two separate computations: 2 entries x 2 calls = 4 lookups
-        verify(exactly = 4) { AyuPlugin.findLoadedPlugin(any<PluginId>()) }
+        // Two separate computations: 3 entries x 2 calls = 6 lookups
+        verify(exactly = 6) { AyuPlugin.findLoadedPlugin(any<PluginId>()) }
         // Same content, different instances (cache was cleared)
         assertEquals(firstBatch, secondBatch)
     }
@@ -179,6 +201,24 @@ class ConflictRegistryTest {
         assertEquals("indent-rainbow.indent-rainbow", conflicts.single().pluginId)
         assertTrue(ConflictRegistry.isIndentRainbowDetected())
         assertTrue(!ConflictRegistry.isCodeGlanceProDetected())
+    }
+
+    @Test
+    fun `detectConflicts returns Atom Material Icons when only Atom Material Icons is installed`() {
+        val atomDescriptor = mockk<IdeaPluginDescriptor>()
+        every {
+            AyuPlugin.findLoadedPlugin(PluginId.getId("com.mallowigi"))
+        } returns atomDescriptor
+
+        val conflicts = ConflictRegistry.detectConflicts()
+
+        assertEquals(1, conflicts.size)
+        assertEquals("com.mallowigi", conflicts.single().pluginId)
+        assertEquals(ConflictType.BLOCK, conflicts.single().type)
+        assertTrue(conflicts.single().affectedElements.isEmpty())
+        assertTrue(ConflictRegistry.isAtomMaterialIconsDetected())
+        assertTrue(!ConflictRegistry.isCodeGlanceProDetected())
+        assertTrue(!ConflictRegistry.isIndentRainbowDetected())
     }
 
     /**

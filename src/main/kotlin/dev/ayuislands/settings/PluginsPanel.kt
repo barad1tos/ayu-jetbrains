@@ -27,7 +27,7 @@ import javax.swing.JLabel
 import javax.swing.JList
 import javax.swing.JSlider
 
-/** Plugin's tab: third-party plugin integrations (CodeGlance Pro, Indent Rainbow). */
+/** Plugin's tab: third-party plugin integrations and compatibility warnings. */
 class PluginsPanel : AyuIslandsSettingsPanel {
     private var pendingSettings = PluginSettingsSnapshot()
     private var storedSettings = PluginSettingsSnapshot()
@@ -69,16 +69,18 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         customModeVisible.set(isCustomIndentControlsVisible(licensed))
         irEnabled.set(pendingSettings.isIndentRainbowEnabled || !licensed)
 
-        val cgpDetected = ConflictRegistry.isCodeGlanceProDetected()
-        val irDetected = ConflictRegistry.isIndentRainbowDetected()
+        val detectedPlugins =
+            DetectedPluginsSnapshot(
+                isCodeGlanceProDetected = ConflictRegistry.isCodeGlanceProDetected(),
+                isIndentRainbowDetected = ConflictRegistry.isIndentRainbowDetected(),
+                isAtomMaterialIconsDetected = ConflictRegistry.isAtomMaterialIconsDetected(),
+            )
 
         panel.row { comment("Tune how Ayu colors integrate with compatible plugins.") }
         panel.buildExternalThemeSupportGroup()
         panel.buildPluginIntegrationsGroup(
             gate = gate,
-            licensed = licensed,
-            isCodeGlanceProDetected = cgpDetected,
-            isIndentRainbowDetected = irDetected,
+            detectedPlugins = detectedPlugins,
             irEnabled = irEnabled,
         )
     }
@@ -101,28 +103,38 @@ class PluginsPanel : AyuIslandsSettingsPanel {
 
     private fun Panel.buildPluginIntegrationsGroup(
         gate: PremiumFeatureGate,
-        licensed: Boolean,
-        isCodeGlanceProDetected: Boolean,
-        isIndentRainbowDetected: Boolean,
+        detectedPlugins: DetectedPluginsSnapshot,
         irEnabled: AtomicBooleanProperty,
     ) {
+        val licensed = gate.isUnlocked
         group("Plugin Integrations") {
-            if (isCodeGlanceProDetected || isIndentRainbowDetected) {
+            if (detectedPlugins.hasPremiumIntegration) {
                 premiumFeatureNotice(gate)
             }
             buildIgnorePluginRow()
 
-            if (isCodeGlanceProDetected) {
+            if (detectedPlugins.isCodeGlanceProDetected) {
                 buildCodeGlanceProRow(licensed)
             }
 
-            if (isIndentRainbowDetected) {
+            if (detectedPlugins.isIndentRainbowDetected) {
                 buildIndentRainbowRows(licensed, irEnabled)
             }
 
-            if (!isCodeGlanceProDetected && !isIndentRainbowDetected) {
+            if (detectedPlugins.isAtomMaterialIconsDetected) {
+                buildAtomMaterialIconsWarningRow()
+            }
+
+            if (!detectedPlugins.hasAnyPlugin) {
                 buildNoSupportedPluginsMessage()
             }
+        }
+    }
+
+    private fun Panel.buildAtomMaterialIconsWarningRow() {
+        row {
+            label("Atom Material Icons detected - No automatic sync is available.")
+            browserLink("Plugin page", "https://plugins.jetbrains.com/plugin/10044-atom-material-icons")
         }
     }
 
@@ -492,6 +504,15 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         irEnabled.set(pendingSettings.isIndentRainbowEnabled || !licensed)
         customModeVisible.set(isCustomIndentControlsVisible(licensed))
         suppressListeners = false
+    }
+
+    private data class DetectedPluginsSnapshot(
+        val isCodeGlanceProDetected: Boolean,
+        val isIndentRainbowDetected: Boolean,
+        val isAtomMaterialIconsDetected: Boolean,
+    ) {
+        val hasPremiumIntegration: Boolean = isCodeGlanceProDetected || isIndentRainbowDetected
+        val hasAnyPlugin: Boolean = hasPremiumIntegration || isAtomMaterialIconsDetected
     }
 
     private data class PluginSettingsSnapshot(

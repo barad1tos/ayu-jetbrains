@@ -54,6 +54,7 @@ class PluginsPanelTest {
         mockkObject(ConflictRegistry)
         every { ConflictRegistry.isCodeGlanceProDetected() } returns false
         every { ConflictRegistry.isIndentRainbowDetected() } returns true
+        every { ConflictRegistry.isAtomMaterialIconsDetected() } returns false
 
         wireUiDslServices()
     }
@@ -210,6 +211,23 @@ class PluginsPanelTest {
             "Indent Rainbow" in labels,
             "Indent Rainbow should render as an integration row, not a standalone group",
         )
+    }
+
+    @Test
+    fun `atom material icons renders unsupported readonly warning without mutating settings`() {
+        every { ConflictRegistry.isIndentRainbowDetected() } returns false
+        every { ConflictRegistry.isAtomMaterialIconsDetected() } returns true
+        val pluginsPanel = PluginsPanel()
+
+        val dialogPanel = buildDialogPanel(pluginsPanel)
+        val labels = descendants(dialogPanel, JLabel::class.java).mapNotNull { it.text }
+        val checkboxes = descendants(dialogPanel, JCheckBox::class.java)
+
+        assertTrue(labels.any { it.contains("Atom Material Icons detected") })
+        assertTrue(labels.any { it.contains("No automatic sync is available") })
+        assertFalse(labels.any { it.contains("Install CodeGlance Pro or Indent Rainbow") })
+        assertFalse(checkboxes.any { it.text == "Atom Material Icons" })
+        assertFalse(pluginsPanel.isModified())
     }
 
     @Test

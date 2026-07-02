@@ -312,6 +312,7 @@
     <depends optional="true" config-file="noctule-swift.xml">dev.j-a.swift</depends>
     <depends optional="true" config-file="codeglance-pro.xml">com.nasller.CodeGlancePro</depends>
     <depends optional="true" config-file="indent-rainbow.xml">indent-rainbow.indent-rainbow</depends>
+    <depends optional="true" config-file="atom-material-icons.xml">com.mallowigi</depends>
 
     <!-- JetBrains ties release-date to the paid product release-version. Keep
          this date aligned with the existing Marketplace entry for the same

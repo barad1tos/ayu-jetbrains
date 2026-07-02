@@ -25,6 +25,12 @@ import kotlin.test.assertSame
  *    disabled or broken optional dependencies surface as `null`.
  */
 class AyuPluginTest {
+    private fun markerClassName(pluginId: PluginId): String? {
+        val method = AyuPlugin::class.java.getDeclaredMethod("markerClassName", PluginId::class.java)
+        method.isAccessible = true
+        return method.invoke(AyuPlugin, pluginId) as String?
+    }
+
     @AfterTest
     fun tearDown() {
         unmockkAll()
@@ -76,6 +82,15 @@ class AyuPluginTest {
         every { ApplicationManager.getApplication() } returns app
 
         assertNull(AyuPlugin.findLoadedPlugin(absentId))
+    }
+
+    @Test
+    fun `known optional plugin marker classes include Atom Material Icons`() {
+        assertEquals(
+            "com.mallowigi.config.AtomSettingsConfig",
+            markerClassName(PluginId.getId("com.mallowigi")),
+            "Atom Material Icons must resolve through its stable settings config marker class",
+        )
     }
 
     @Test

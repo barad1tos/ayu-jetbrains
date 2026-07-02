@@ -29,6 +29,12 @@ object ConflictRegistry {
                 affectedElements = emptySet(),
                 type = ConflictType.INTEGRATE,
             ),
+            ConflictEntry(
+                pluginDisplayName = "Atom Material Icons",
+                pluginId = "com.mallowigi",
+                affectedElements = emptySet(),
+                type = ConflictType.BLOCK,
+            ),
         )
 
     // Installed plugins don't change during a session, so the first detection is cached.
@@ -60,6 +66,8 @@ object ConflictRegistry {
     fun isCodeGlanceProDetected(): Boolean = getCachedConflicts().any { it.pluginId == "com.nasller.CodeGlancePro" }
 
     fun isIndentRainbowDetected(): Boolean = getCachedConflicts().any { it.pluginId == "indent-rainbow.indent-rainbow" }
+
+    fun isAtomMaterialIconsDetected(): Boolean = getCachedConflicts().any { it.pluginId == "com.mallowigi" }
 
     @TestOnly
     internal fun resetCachedConflictsForTesting() {
