@@ -157,8 +157,11 @@ class ProjectLanguageScannerTest {
         val sourceFile = sourceFile("/repo/src/File0.kt", "KOTLIN", 1L)
         var currentFileIndex = 0
         every { sourceFile.path } answers { "/repo/src/File$currentFileIndex.kt" }
+        var sampledFileTypeCalls = 0
         every { sourceFile.fileType } answers {
-            if (currentFileIndex == 0) {
+            val sampleIndex = sampledFileTypeCalls % LanguageDetectionRules.PROJECT_LANGUAGE_MAX_SAMPLED_FILES
+            sampledFileTypeCalls++
+            if (sampleIndex == 0) {
                 languageFileType("KOTLIN")
             } else {
                 languageFileType("JAVA")
@@ -191,6 +194,7 @@ class ProjectLanguageScannerTest {
         val firstPostWarmupFile = sourceFile("/repo/src/File129.java", "JAVA", 100L)
         val firstStrideFile = sourceFile("/repo/src/File138.py", "Python", 10L)
         val fillerFile = sourceFile("/repo/src/Filler.txt", "TEXT", 1L)
+        val tailFile = sourceFile("/repo/src/Tail.txt", "TEXT", 1L)
         every { fileIndex.iterateContent(any()) } answers {
             val iterator = firstArg<ContentIterator>()
             repeat(LanguageDetectionRules.PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES - 1) {
@@ -201,15 +205,45 @@ class ProjectLanguageScannerTest {
             repeat(LanguageDetectionRules.PROJECT_LANGUAGE_SAMPLE_STRIDE - 2) {
                 assertTrue(iterator.processFile(fillerFile))
             }
-            iterator.processFile(firstStrideFile)
+            assertTrue(iterator.processFile(firstStrideFile))
+            repeat(LanguageDetectionRules.PROJECT_LANGUAGE_MAX_SAMPLED_FILES) {
+                assertTrue(iterator.processFile(tailFile))
+            }
+            true
         }
 
         assertEquals(
-            mapOf("text" to 127L, "kotlin" to 1L, "python" to 10L),
+            mapOf("text" to 227L, "kotlin" to 1L, "python" to 10L),
             ProjectLanguageScanner.scan(project),
-            "Sampling must include the warmup boundary, skip file 129, and sample the first stride boundary",
+            "Over-cap scans must include warmup, skip file 129, and sample the first stride boundary",
         )
         verify(exactly = 0) { firstPostWarmupFile.fileType }
+        verify(exactly = 1) { firstStrideFile.fileType }
+    }
+
+    @Test
+    fun `sub-cap scan remains exact instead of striding after warmup`() {
+        val javaFiles =
+            List(LanguageDetectionRules.PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES) { index ->
+                sourceFile("/repo/src/Java$index.java", "JAVA", 1L)
+            }
+        val kotlinFiles =
+            List(200) { index ->
+                sourceFile("/repo/src/Kotlin$index.kt", "KOTLIN", 1L)
+            }
+        every { fileIndex.iterateContent(any()) } answers {
+            val iterator = firstArg<ContentIterator>()
+            (javaFiles + kotlinFiles).forEach { file ->
+                assertTrue(iterator.processFile(file))
+            }
+            true
+        }
+
+        assertEquals(
+            mapOf("java" to 128L, "kotlin" to 200L),
+            ProjectLanguageScanner.scan(project),
+            "Scans below the sampling cap should stay exact so late-majority languages are preserved",
+        )
     }
 
     @Test

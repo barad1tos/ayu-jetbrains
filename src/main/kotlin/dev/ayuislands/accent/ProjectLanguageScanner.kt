@@ -73,18 +73,16 @@ internal object ProjectLanguageScanner {
     }
 
     private fun scanUnderReadAction(project: Project): Map<String, Long> {
-        val weights = HashMap<String, Long>()
-        val fileCount = IntArray(1)
-        val sampledFileCount = IntArray(1)
+        val candidates = ArrayList<VirtualFile>(LanguageDetectionRules.PROJECT_LANGUAGE_MAX_SAMPLED_FILES)
+        val counters = ScanCounters()
         ProgressManager.checkCanceled()
         if (project.isDisposed) return emptyMap()
         ProjectFileIndex.getInstance(project).iterateContent { file ->
             ProgressManager.checkCanceled()
             if (project.isDisposed) return@iterateContent false
-            val shouldContinue = visit(file, weights, fileCount, sampledFileCount)
-            shouldContinue
+            collectCandidate(file, candidates, counters)
         }
-        return weights
+        return sampleCandidates(project, candidates)
     }
 
     /**
@@ -98,18 +96,15 @@ internal object ProjectLanguageScanner {
      * 50 200 entries before stopping, defeating the whole "keep the EDT
      * responsive on monorepos" purpose of the cap.
      *
-     * Per-file exceptions (mid-delete race, a language plugin throwing from its
-     * FileType.detect) must NOT abort the scan. Non-cancellation failures are
-     * logged at DEBUG and skipped, while IntelliJ and Kotlin cancellation
-     * signals still propagate so long-running scans can stop promptly.
+     * Expensive FileType/length reads happen later in [sampleCandidates], after
+     * this pass knows whether the scan is below the sampling cap and can stay exact.
      */
-    private fun visit(
+    private fun collectCandidate(
         file: VirtualFile,
-        weights: HashMap<String, Long>,
-        fileCount: IntArray,
-        sampledFileCount: IntArray,
+        candidates: MutableList<VirtualFile>,
+        counters: ScanCounters,
     ): Boolean {
-        if (fileCount[0] >= LanguageDetectionRules.MAX_FILES_SCANNED) return false
+        if (counters.traversedFileCount >= LanguageDetectionRules.MAX_FILES_SCANNED) return false
         // Drop vendored / generated / build-output dirs before paying for VFS
         // metadata access. This is the single biggest real-world accuracy win:
         // a Python project with a committed .venv otherwise mis-reports as
@@ -118,20 +113,37 @@ internal object ProjectLanguageScanner {
         if (file.isDirectory) return true
         // Count every non-directory, non-excluded file toward the cap so binary-
         // heavy repos don't bypass it (see KDoc rationale).
-        fileCount[0]++
-        if (!shouldSampleFile(fileCount[0], sampledFileCount[0])) return true
-        sampledFileCount[0]++
-        sampleLanguageWeight(file)?.let { (languageId, weight) ->
-            weights.merge(languageId, weight) { a, b -> a + b }
-        }
+        counters.traversedFileCount++
+        candidates.add(file)
         return true
+    }
+
+    private fun sampleCandidates(
+        project: Project,
+        candidates: List<VirtualFile>,
+    ): Map<String, Long> {
+        val weights = HashMap<String, Long>()
+        val counters = ScanCounters()
+        val isSubCapScan = candidates.size <= LanguageDetectionRules.PROJECT_LANGUAGE_MAX_SAMPLED_FILES
+        candidates.forEachIndexed { index, file ->
+            ProgressManager.checkCanceled()
+            if (project.isDisposed) return emptyMap()
+            if (!shouldSampleFile(index + 1, counters.sampledFileCount, isSubCapScan)) return@forEachIndexed
+            counters.sampledFileCount++
+            sampleLanguageWeight(file)?.let { (languageId, weight) ->
+                weights.merge(languageId, weight) { a, b -> a + b }
+            }
+        }
+        return weights
     }
 
     private fun shouldSampleFile(
         traversedFileCount: Int,
         sampledFileCount: Int,
+        isSubCapScan: Boolean,
     ): Boolean {
         if (sampledFileCount >= LanguageDetectionRules.PROJECT_LANGUAGE_MAX_SAMPLED_FILES) return false
+        if (isSubCapScan) return true
         if (traversedFileCount <= LanguageDetectionRules.PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES) return true
         val postWarmupOffset = traversedFileCount - LanguageDetectionRules.PROJECT_LANGUAGE_WARMUP_SAMPLE_FILES
         return postWarmupOffset % LanguageDetectionRules.PROJECT_LANGUAGE_SAMPLE_STRIDE == 0
@@ -159,4 +171,9 @@ internal object ProjectLanguageScanner {
         }
         return sample.getOrNull()
     }
+
+    private data class ScanCounters(
+        var traversedFileCount: Int = 0,
+        var sampledFileCount: Int = 0,
+    )
 }
