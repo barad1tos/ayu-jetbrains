@@ -27,8 +27,6 @@ internal object AyuPlugin {
     private const val CODE_GLANCE_PRO_MARKER_CLASS = "com.nasller.codeglance.config.CodeGlanceConfigService"
     private const val INDENT_RAINBOW_ID = "indent-rainbow.indent-rainbow"
     private const val INDENT_RAINBOW_MARKER_CLASS = "indent.rainbow.settings.IrConfig"
-    private const val ATOM_MATERIAL_ICONS_ID = "com.mallowigi"
-    private const val ATOM_MATERIAL_ICONS_MARKER_CLASS = "com.mallowigi.config.AtomSettingsConfig"
 
     /**
      * Returns the loaded descriptor for [pluginId], or `null` when the plugin
@@ -73,7 +71,6 @@ internal object AyuPlugin {
             ID_STRING -> AyuPlugin::class.java.name
             CODE_GLANCE_PRO_ID -> CODE_GLANCE_PRO_MARKER_CLASS
             INDENT_RAINBOW_ID -> INDENT_RAINBOW_MARKER_CLASS
-            ATOM_MATERIAL_ICONS_ID -> ATOM_MATERIAL_ICONS_MARKER_CLASS
             else -> null
         }
 

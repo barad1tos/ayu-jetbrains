@@ -1262,8 +1262,8 @@ class AccentApplicatorTest {
         every { mockElement.displayName } returns "Matching Tag"
         val conflict =
             ConflictEntry(
-                pluginDisplayName = "Synthetic Blocking Plugin",
-                pluginId = "test.blocking.plugin",
+                pluginDisplayName = "Atom Material Icons",
+                pluginId = "com.mallowigi",
                 affectedElements = setOf(AccentElementId.MATCHING_TAG),
                 type = ConflictType.BLOCK,
             )
@@ -1284,8 +1284,8 @@ class AccentApplicatorTest {
         every { mockElement.displayName } returns "Matching Tag"
         val conflict =
             ConflictEntry(
-                pluginDisplayName = "Synthetic Blocking Plugin",
-                pluginId = "test.blocking.plugin",
+                pluginDisplayName = "Atom Material Icons",
+                pluginId = "com.mallowigi",
                 affectedElements = setOf(AccentElementId.MATCHING_TAG),
                 type = ConflictType.BLOCK,
             )
@@ -1431,8 +1431,8 @@ class AccentApplicatorTest {
         val element = createFakeAccentElement(AccentElementId.MATCHING_TAG, "Matching Tag")
         val conflict =
             ConflictEntry(
-                pluginDisplayName = "Synthetic Blocking Plugin",
-                pluginId = "test.blocking.plugin",
+                pluginDisplayName = "Atom Material Icons",
+                pluginId = "com.mallowigi",
                 affectedElements = setOf(AccentElementId.MATCHING_TAG),
                 type = ConflictType.BLOCK,
             )
@@ -1459,8 +1459,8 @@ class AccentApplicatorTest {
         val element = createFakeAccentElement(AccentElementId.MATCHING_TAG, "Matching Tag")
         val conflict =
             ConflictEntry(
-                pluginDisplayName = "Synthetic Blocking Plugin",
-                pluginId = "test.blocking.plugin",
+                pluginDisplayName = "Atom Material Icons",
+                pluginId = "com.mallowigi",
                 affectedElements = setOf(AccentElementId.MATCHING_TAG),
                 type = ConflictType.BLOCK,
             )
