@@ -14,6 +14,7 @@ import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.TopGap
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
+import org.jetbrains.annotations.TestOnly
 import java.awt.Component
 import java.io.File
 import javax.swing.DefaultListCellRenderer
@@ -135,6 +136,26 @@ class AddProjectMappingDialog(
                 ?: File(canonical).name
         resultHex = swatchPicker.selectedHex
         super.doOKAction()
+    }
+
+    @TestOnly
+    internal fun setPathForTest(path: String) {
+        pathField.text = path
+    }
+
+    @TestOnly
+    internal fun selectHexForTest(hex: String?) {
+        swatchPicker.selectedHex = hex
+    }
+
+    @TestOnly
+    internal fun validationMessageForTest(): String? = doValidate()?.message
+
+    @TestOnly
+    internal fun confirmForTest() {
+        val validation = doValidate()
+        check(validation == null) { validation?.message ?: "Dialog validation failed" }
+        doOKAction()
     }
 
     private fun loadRecentProjects(excluded: Set<String>): List<RecentProjectRow> =

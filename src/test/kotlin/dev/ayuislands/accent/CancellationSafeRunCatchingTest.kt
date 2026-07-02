@@ -1,5 +1,6 @@
 package dev.ayuislands.accent
 
+import com.intellij.openapi.progress.ProcessCanceledException
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -55,6 +56,19 @@ class CancellationSafeRunCatchingTest {
             }
         assertEquals("coroutine cancelled mid-probe", thrown.message)
         assertSame(boom, thrown, "must rethrow the ORIGINAL instance, not a wrapper")
+    }
+
+    @Test
+    fun `ProcessCanceledException is rethrown instead of being captured`() {
+        // IntelliJ uses ProcessCanceledException for progress and project-disposal
+        // cancellation. Capturing it would let long-running platform scans continue
+        // after cancellation and potentially cache stale results.
+        val boom = ProcessCanceledException()
+        val thrown =
+            assertFailsWith<ProcessCanceledException> {
+                runCatchingPreservingCancellation<String> { throw boom }
+            }
+        assertSame(boom, thrown, "must rethrow the ORIGINAL platform cancellation")
     }
 
     @Test

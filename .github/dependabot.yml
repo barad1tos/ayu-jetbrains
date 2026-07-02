@@ -35,11 +35,3 @@ updates:
     commit-message:
       prefix: "chore"
       include: "scope"
-    ignore:
-      # IntelliJ Platform Gradle Plugin 2.14.0 regressed TestFrameworkType.Platform
-      # — com.intellij.testFramework.LoggedErrorProcessor disappears from test classpath,
-      # breaking LicenseTransitionListenerTest + AccentRotationServiceTest (see PR #123).
-      # Lift when 2.14.x fixes resolution or after verifying an alternative
-      # TestFrameworkType variant exposes the class.
-      - dependency-name: "org.jetbrains.intellij.platform"
-        versions: [">= 2.14.0"]

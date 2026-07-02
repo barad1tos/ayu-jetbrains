@@ -1,5 +1,6 @@
 package dev.ayuislands.accent
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
@@ -646,6 +647,34 @@ class ProjectLanguageDetectorTest {
     }
 
     @Test
+    fun `dominant on EDT returns fallback immediately and schedules background scan`() {
+        val project = stubProject("/tmp/edt-cold-cache-${System.nanoTime()}")
+        stubDumbServiceSmart(project)
+        every { ProjectLanguageScanner.scan(project) } answers {
+            error("EDT dominant must schedule scan instead of reading project files synchronously")
+        }
+        mockkStatic(ApplicationManager::class)
+        val application = mockk<com.intellij.openapi.application.Application>()
+        every { ApplicationManager.getApplication() } returns application
+        every { application.isDispatchThread } returns true
+        mockkObject(ProjectLanguageScanAsync)
+        val capturedKey = io.mockk.slot<String>()
+        every { ProjectLanguageScanAsync.schedule(project, capture(capturedKey), any()) } returns true
+
+        assertNull(
+            ProjectLanguageDetector.dominant(project),
+            "Cold-cache EDT lookup must return the global fallback immediately",
+        )
+
+        assertEquals(
+            AccentResolver.projectKey(project),
+            capturedKey.captured,
+            "The scheduled scan must use the canonical project key for deduplication",
+        )
+        verify(exactly = 1) { ProjectLanguageScanAsync.schedule(project, any(), any()) }
+    }
+
+    @Test
     fun `invalidate after content scan triggers a fresh scan`() {
         // ModuleRootListener fires invalidate on content-root changes (gradle sync,
         // module add/remove). Next dominance lookup must hit the scanner again so a
@@ -1027,7 +1056,7 @@ class ProjectLanguageDetectorTest {
 
         stubDumbServiceSmart(project)
         mockkObject(ProjectLanguageScanAsync)
-        every { ProjectLanguageScanAsync.schedule(any(), any()) } returns true
+        every { ProjectLanguageScanAsync.schedule(any(), any(), any()) } returns true
 
         ProjectLanguageDetector.rescan(project)
 
@@ -1051,7 +1080,7 @@ class ProjectLanguageDetectorTest {
         stubDumbServiceSmart(project)
         mockkObject(ProjectLanguageScanAsync)
         val capturedKey = io.mockk.slot<String>()
-        every { ProjectLanguageScanAsync.schedule(capture(capturedKey), any()) } returns true
+        every { ProjectLanguageScanAsync.schedule(any(), capture(capturedKey), any()) } returns true
 
         ProjectLanguageDetector.rescan(project)
 
@@ -1076,7 +1105,7 @@ class ProjectLanguageDetectorTest {
 
         ProjectLanguageDetector.rescan(project)
 
-        verify(exactly = 0) { ProjectLanguageScanAsync.schedule(any(), any()) }
+        verify(exactly = 0) { ProjectLanguageScanAsync.schedule(any(), any(), any()) }
     }
 
     @Test
@@ -1217,9 +1246,9 @@ class ProjectLanguageDetectorTest {
 
         // Custom scheduler: flips disposed right before running the task.
         mockkObject(ProjectLanguageScanAsync)
-        every { ProjectLanguageScanAsync.schedule(any(), any()) } answers {
+        every { ProjectLanguageScanAsync.schedule(any(), any(), any()) } answers {
             every { project.isDisposed } returns true
-            val task = secondArg<() -> Unit>()
+            val task = thirdArg<() -> ProjectLanguageScanAsync.ScanResult>()
             task()
             true
         }
@@ -1227,6 +1256,228 @@ class ProjectLanguageDetectorTest {
         ProjectLanguageDetector.rescan(project)
 
         verify(exactly = 0) { listener.scanCompleted(any()) }
+    }
+
+    @Test
+    fun `rescan skips cache and publish when project disposes after scan before cache write`() {
+        // Dispose-after-scan race: the scanner may return a detected result
+        // just as the project closes. The detector must re-check lifetime
+        // before writing the verdict cache or publishing a stale detected
+        // outcome to subscribers.
+        val project = stubProject("/tmp/rescan-disposed-after-scan-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } answers {
+            every { project.isDisposed } returns true
+            mapOf("kotlin" to 1_000L)
+        }
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+
+        stubDumbServiceSmart(project)
+        val listener = mockk<ProjectLanguageDetectionListener>(relaxed = true)
+        wireMessageBus(project, listener)
+        runInvokeLaterInline()
+        runSchedulerInline()
+
+        ProjectLanguageDetector.rescan(project)
+
+        verify(exactly = 0) { listener.scanCompleted(any()) }
+        assertNull(
+            ProjectLanguageDetector.proportions(project),
+            "disposed-after-scan detected weights must not be cached",
+        )
+        assertEquals(
+            ProjectLanguageVerdict.Cold,
+            ProjectLanguageDetector.verdict(project),
+            "disposed-after-scan detected verdict must not be cached",
+        )
+    }
+
+    @Test
+    fun `rescan removes detected cache when project disposes after cache write before publish`() {
+        // Narrower disposal race: the project stays live through the
+        // pre-cache guards, then closes immediately after the cache write.
+        // The scheduler's later publish guard suppresses MessageBus output,
+        // but the detector must also remove the just-written verdict by the
+        // already-known key so a reopened project does not inherit it.
+        val basePath = "/tmp/rescan-disposed-after-cache-${System.nanoTime()}"
+        val closingProject = stubProject(basePath)
+        val reopenedProject = stubProject(basePath)
+        every { closingProject.isDisposed } returnsMany
+            listOf(
+                false, // task entry guard
+                false, // post-scan guard inside detectInternal
+                false, // pre-cache guard inside detectAndCache
+                true, // late disposal immediately after cache write
+                true, // scheduler post-detect guard
+            )
+        every { ProjectLanguageScanner.scan(closingProject) } returns mapOf("kotlin" to 1_000L)
+        wireProjectRootManager(closingProject, sdkName = null)
+        wireModuleManager(closingProject, moduleNames = emptyList())
+
+        stubDumbServiceSmart(closingProject)
+        val listener = mockk<ProjectLanguageDetectionListener>(relaxed = true)
+        wireMessageBus(closingProject, listener)
+        runInvokeLaterInline()
+        runSchedulerInline()
+
+        ProjectLanguageDetector.rescan(closingProject)
+
+        verify(exactly = 0) { listener.scanCompleted(any()) }
+        assertNull(
+            ProjectLanguageDetector.proportions(reopenedProject),
+            "late-disposed detected weights must not survive under the canonical project key",
+        )
+        assertEquals(
+            ProjectLanguageVerdict.Cold,
+            ProjectLanguageDetector.verdict(reopenedProject),
+            "late-disposed detected verdict must be removed by the already-known scheduler key",
+        )
+    }
+
+    @Test
+    fun `rescan removes detected cache when project disposes inside publish delivery`() {
+        // Latest disposal race: cache write and scheduler post-detect guard
+        // both observe a live project. Disposal then happens during the EDT
+        // hop for scanCompleted publish. Dropping that publish must also
+        // remove the just-written verdict by the already-known key.
+        val basePath = "/tmp/rescan-disposed-during-publish-${System.nanoTime()}"
+        val closingProject = stubProject(basePath)
+        val reopenedProject = stubProject(basePath)
+        every { ProjectLanguageScanner.scan(closingProject) } returns mapOf("kotlin" to 1_000L)
+        wireProjectRootManager(closingProject, sdkName = null)
+        wireModuleManager(closingProject, moduleNames = emptyList())
+
+        stubDumbServiceSmart(closingProject)
+        val listener = mockk<ProjectLanguageDetectionListener>(relaxed = true)
+        wireMessageBus(closingProject, listener)
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.resolveFocusedProject() } returns reopenedProject
+        mockkStatic(javax.swing.SwingUtilities::class)
+        var invokeLaterCalls = 0
+        every { javax.swing.SwingUtilities.invokeLater(any()) } answers {
+            invokeLaterCalls++
+            if (invokeLaterCalls == 2) {
+                every { closingProject.isDisposed } returns true
+            }
+            firstArg<Runnable>().run()
+        }
+        runSchedulerInline()
+
+        ProjectLanguageDetector.rescan(closingProject)
+
+        verify(exactly = 0) { listener.scanCompleted(any()) }
+        assertNull(
+            ProjectLanguageDetector.proportions(reopenedProject),
+            "publish-drop detected weights must not survive under the canonical project key",
+        )
+        assertEquals(
+            ProjectLanguageVerdict.Cold,
+            ProjectLanguageDetector.verdict(reopenedProject),
+            "publish-drop detected verdict must be removed by the already-known scheduler key",
+        )
+    }
+
+    @Test
+    fun `stale publish cleanup does not remove reopened equal detected cache`() {
+        // The stale close path and the reopened project can produce
+        // value-equal Detected verdicts for the same canonical path. Cleanup
+        // from the old publish drop must only remove the exact cache generation
+        // it wrote, not a newer equal verdict warmed by the reopened project.
+        val weights = mapOf("kotlin" to 1_000L)
+        val basePath = "/tmp/rescan-reopened-equal-cache-${System.nanoTime()}"
+        val closingProject = stubProject(basePath)
+        val reopenedProject = stubProject(basePath)
+        every { ProjectLanguageScanner.scan(closingProject) } returns weights
+        every { ProjectLanguageScanner.scan(reopenedProject) } returns weights
+        wireProjectRootManager(closingProject, sdkName = null)
+        wireModuleManager(closingProject, moduleNames = emptyList())
+        wireProjectRootManager(reopenedProject, sdkName = null)
+        wireModuleManager(reopenedProject, moduleNames = emptyList())
+
+        stubDumbServiceSmart(closingProject)
+        val listener = mockk<ProjectLanguageDetectionListener>(relaxed = true)
+        wireMessageBus(closingProject, listener)
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.resolveFocusedProject() } returns reopenedProject
+        mockkStatic(javax.swing.SwingUtilities::class)
+        var invokeLaterCalls = 0
+        lateinit var stalePublish: Runnable
+        every { javax.swing.SwingUtilities.invokeLater(any()) } answers {
+            invokeLaterCalls++
+            val runnable = firstArg<Runnable>()
+            if (invokeLaterCalls == 1) {
+                runnable.run()
+            } else {
+                stalePublish = runnable
+            }
+        }
+        runSchedulerInline()
+
+        ProjectLanguageDetector.rescan(closingProject)
+        ProjectLanguageDetector.invalidate(reopenedProject)
+        assertEquals("kotlin", ProjectLanguageDetector.dominant(reopenedProject))
+        assertEquals(weights, ProjectLanguageDetector.proportions(reopenedProject))
+
+        every { closingProject.isDisposed } returns true
+        stalePublish.run()
+
+        verify(exactly = 0) { listener.scanCompleted(any()) }
+        assertEquals(
+            weights,
+            ProjectLanguageDetector.proportions(reopenedProject),
+            "stale publish cleanup must not remove a fresh equal detected cache entry",
+        )
+        val verdict = assertIs<ProjectLanguageVerdict.Detected>(ProjectLanguageDetector.verdict(reopenedProject))
+        assertEquals("kotlin", verdict.languageId)
+        assertEquals(weights, verdict.weights)
+    }
+
+    @Test
+    fun `disposed cache write does not clobber reopened detected cache`() {
+        // Closing and reopened projects can share the same canonical path. If
+        // the reopened project warms a fresh cache entry while the old scan is
+        // still returning, the old scan must not overwrite that fresh entry
+        // once its project is already disposed at the cache-write boundary.
+        val weights = mapOf("kotlin" to 1_000L)
+        val basePath = "/tmp/rescan-reopened-cache-write-${System.nanoTime()}"
+        val closingProject = stubProject(basePath)
+        val reopenedProject = stubProject(basePath)
+        every { closingProject.isDisposed } returnsMany
+            listOf(
+                false, // task entry guard
+                false, // post-scan guard inside detectInternal
+                false, // pre-cache guard inside detectAndCache
+                true, // atomic cache-write guard
+                true, // scheduler post-detect guard
+            )
+        every { ProjectLanguageScanner.scan(closingProject) } answers {
+            assertEquals("kotlin", ProjectLanguageDetector.dominant(reopenedProject))
+            assertEquals(weights, ProjectLanguageDetector.proportions(reopenedProject))
+            weights
+        }
+        every { ProjectLanguageScanner.scan(reopenedProject) } returns weights
+        wireProjectRootManager(closingProject, sdkName = null)
+        wireModuleManager(closingProject, moduleNames = emptyList())
+        wireProjectRootManager(reopenedProject, sdkName = null)
+        wireModuleManager(reopenedProject, moduleNames = emptyList())
+
+        stubDumbServiceSmart(closingProject)
+        val listener = mockk<ProjectLanguageDetectionListener>(relaxed = true)
+        wireMessageBus(closingProject, listener)
+        runInvokeLaterInline()
+        runSchedulerInline()
+
+        ProjectLanguageDetector.rescan(closingProject)
+
+        verify(exactly = 0) { listener.scanCompleted(any()) }
+        assertEquals(
+            weights,
+            ProjectLanguageDetector.proportions(reopenedProject),
+            "disposed cache write must leave the reopened project's fresh detected weights intact",
+        )
+        val verdict = assertIs<ProjectLanguageVerdict.Detected>(ProjectLanguageDetector.verdict(reopenedProject))
+        assertEquals("kotlin", verdict.languageId)
+        assertEquals(weights, verdict.weights)
     }
 
     @Test
@@ -1254,7 +1505,7 @@ class ProjectLanguageDetectorTest {
         ProjectLanguageDetector.rescan(project)
 
         verify(exactly = 1) { listener.scanCompleted(ScanOutcome.Unavailable) }
-        verify(exactly = 0) { ProjectLanguageScanAsync.schedule(any(), any()) }
+        verify(exactly = 0) { ProjectLanguageScanAsync.schedule(any(), any(), any()) }
     }
 
     @Test
@@ -1314,8 +1565,8 @@ class ProjectLanguageDetectorTest {
 
     private fun runSchedulerInline() {
         mockkObject(ProjectLanguageScanAsync)
-        every { ProjectLanguageScanAsync.schedule(any(), any()) } answers {
-            val task = secondArg<() -> Unit>()
+        every { ProjectLanguageScanAsync.schedule(any(), any(), any()) } answers {
+            val task = thirdArg<() -> ProjectLanguageScanAsync.ScanResult>()
             task()
             true
         }

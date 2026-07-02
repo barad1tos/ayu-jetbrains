@@ -45,6 +45,9 @@ jobs:
           persist-credentials: false
 
       - if: matrix.language == 'java-kotlin'
+        uses: ./.github/actions/free-disk-space
+
+      - if: matrix.language == 'java-kotlin'
         uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520 # v5
         with:
           distribution: temurin

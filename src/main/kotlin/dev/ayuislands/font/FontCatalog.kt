@@ -32,6 +32,8 @@ object FontCatalog {
         val useDirectUrl: Boolean = false,
     )
 
+    // scripts/verify-font-fallback-urls.py parses fallbackUrl values as
+    // references to these simple string const vals; keep them as literal URLs.
     // Last-known-good 2026-04-09 (verified via live HTTP, see RESEARCH.md §1).
     private const val VICTOR_MONO_DIRECT_URL = "https://rubjo.github.io/victor-mono/VictorMonoAll.zip"
 
