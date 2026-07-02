@@ -66,7 +66,7 @@ class OverridesGroupBuilderPendingTest {
     fun `resolvePending returns language override when project has no pending entry`() {
         mappingsState.languageAccents["kotlin"] = "#112233"
         val project = stubProject(File(System.getProperty("java.io.tmpdir"), "pending-lang"))
-        every { ProjectLanguageDetector.dominant(project) } returns "kotlin"
+        detectLanguage(project, "kotlin")
 
         val builder = OverridesGroupBuilder().apply { loadFromState() }
 
@@ -79,7 +79,7 @@ class OverridesGroupBuilderPendingTest {
         mappingsState.languageAccents["kotlin"] = "#112233"
         mappingsState.languageFallbackAccent = "#73D0FF"
         val project = stubProject(File(System.getProperty("java.io.tmpdir"), "pending-language-fallback"))
-        every { ProjectLanguageDetector.dominant(project) } returns "typescript"
+        detectLanguage(project, "typescript")
 
         val builder = OverridesGroupBuilder().apply { loadFromState() }
 
@@ -219,6 +219,25 @@ class OverridesGroupBuilderPendingTest {
         assertEquals("#3178C6", builder.resolvePending(project, "#FFCC66"))
         assertEquals(AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE, builder.sourcePending(project))
         io.mockk.verify(exactly = 0) { ProjectLanguageDetector.dominant(project) }
+    }
+
+    @Test
+    fun `resolvePending uses pending forced language removal instead of persisted forced language`() {
+        val tmp = File(System.getProperty("java.io.tmpdir"), "pending-forced-removed").canonicalPath
+        mappingsState.forcedProjectLanguages[tmp] = "typescript"
+        mappingsState.languageAccents["typescript"] = "#3178C6"
+        mappingsState.languageAccents["javascript"] = "#F7DF1E"
+        val project = stubProject(File(tmp))
+        every { ProjectLanguageDetector.dominant(project) } returns "typescript"
+        every { ProjectLanguageDetector.verdict(project, warmCache = true) } returns
+            ProjectLanguageVerdict.Detected("javascript", mapOf("javascript" to 1_000L))
+
+        val builder = OverridesGroupBuilder().apply { loadFromState() }
+        builder.setPendingForcedLanguage(tmp, null)
+
+        assertEquals("#F7DF1E", builder.resolvePending(project, "#FFCC66"))
+        assertEquals(AccentResolver.Source.LANGUAGE_OVERRIDE, builder.sourcePending(project))
+        io.mockk.verify(atLeast = 1) { ProjectLanguageDetector.verdict(project, warmCache = true) }
     }
 
     @Test
@@ -362,11 +381,11 @@ class OverridesGroupBuilderPendingTest {
         val builder = OverridesGroupBuilder().apply { loadFromState() }
 
         val lowercaseProject = stubProject(File(System.getProperty("java.io.tmpdir"), "case-lower"))
-        every { ProjectLanguageDetector.dominant(lowercaseProject) } returns "kotlin"
+        detectLanguage(lowercaseProject, "kotlin")
         assertEquals("#CAFE00", builder.resolvePending(lowercaseProject, "#FFCC66"))
 
         val mixedCaseProject = stubProject(File(System.getProperty("java.io.tmpdir"), "case-mixed"))
-        every { ProjectLanguageDetector.dominant(mixedCaseProject) } returns "Kotlin"
+        detectLanguage(mixedCaseProject, "Kotlin")
         assertEquals(
             "#FFCC66",
             builder.resolvePending(mixedCaseProject, "#FFCC66"),
@@ -381,5 +400,13 @@ class OverridesGroupBuilderPendingTest {
         every { project.basePath } returns baseDir.path
         every { project.name } returns baseDir.name
         return project
+    }
+
+    private fun detectLanguage(
+        project: Project,
+        languageId: String,
+    ) {
+        every { ProjectLanguageDetector.verdict(project, warmCache = true) } returns
+            ProjectLanguageVerdict.Detected(languageId, mapOf(languageId to 1_000L))
     }
 }
