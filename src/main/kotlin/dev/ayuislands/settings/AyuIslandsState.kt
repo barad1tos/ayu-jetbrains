@@ -350,6 +350,16 @@ class AyuIslandsState : BaseState() {
      */
     fun effectiveLastAppliedAccentHex(): AccentHex? = AccentHex.of(lastAppliedAccentHex)
 
+    /**
+     * The cached accent that may be painted without re-resolving — the single
+     * trust boundary over the persisted [lastAppliedAccentHex]/[lastApplyOk]
+     * pair. Non-null only when the persisted hex is valid AND the previous
+     * apply finished cleanly; a torn apply (hex persisted, flag false) returns
+     * `null` so callers fall back to the resolver instead of re-painting a
+     * half-applied accent. Callers must not read the raw pair directly.
+     */
+    fun trustedCachedAccent(): AccentHex? = effectiveLastAppliedAccentHex()?.takeIf { lastApplyOk }
+
     // --- VCS color customization (premium) ---
     // Master kill-switch. Default OFF so upgraders observe byte-identical
     // diff/file-status/gutter colors until they opt in via the VCS settings tab.
