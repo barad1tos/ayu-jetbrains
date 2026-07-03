@@ -20,8 +20,9 @@ import kotlin.coroutines.cancellation.CancellationException
  * cancellation signal is lost. No current caller sits behind such a rewrap, but if a
  * future call site does, walk the `cause` chain before returning the Result.
  *
- * Package-internal because every caller today sits in `dev.ayuislands.accent`; lift
- * further if a caller from another package ever needs the same contract.
+ * Internal (module-wide) rather than private: callers include both `dev.ayuislands.accent`
+ * and `dev.ayuislands.reapply.ThemeReapplication.runPlan`. Lift to `public` only if a caller
+ * outside this module ever needs the same contract.
  */
 internal inline fun <T> runCatchingPreservingCancellation(block: () -> T): Result<T> {
     val result = runCatching(block)

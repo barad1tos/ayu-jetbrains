@@ -7,17 +7,18 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.CheckedDisposable
 import com.intellij.openapi.util.Condition
 import com.intellij.openapi.util.Disposer
 import com.intellij.util.concurrency.AppExecutorUtil
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
-import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentColor
 import dev.ayuislands.accent.AyuVariant
-import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.reapply.ReapplyReason
+import dev.ayuislands.reapply.ReapplyResult
+import dev.ayuislands.reapply.ReapplyStep
+import dev.ayuislands.reapply.ThemeReapplication
 import dev.ayuislands.settings.AyuIslandsSettings
 import org.jetbrains.annotations.TestOnly
 import java.util.concurrent.ScheduledFuture
@@ -184,10 +185,12 @@ class AccentRotationService : Disposable {
                         )
                     nextIndex to hex
                 }
-                AccentRotationMode.RANDOM ->
+
+                AccentRotationMode.RANDOM -> {
                     -1 to
                         ContrastAwareColorGenerator
                             .generate(variant)
+                }
             }
 
         val app =
@@ -200,13 +203,13 @@ class AccentRotationService : Disposable {
                 }
         app.invokeLater(
             {
-                val applyFailure = runApplyStage(mode, newHex, variant, state, settings)
-                val glowFailure = runGlowStage()
-
-                if (applyFailure != null || glowFailure != null) {
-                    onRotationFailure(applyFailure ?: glowFailure!!)
-                } else {
-                    consecutiveFailures = 0
+                commitRotationState(mode, newHex, variant, state, settings)
+                ThemeReapplication.reapply(ReapplyReason.RotationTick(variant)) { result ->
+                    if (result.isClean) {
+                        consecutiveFailures = 0
+                    } else {
+                        onRotationFailure(rotationFailureFrom(result))
+                    }
                 }
             },
             ModalityState.nonModal(),
@@ -215,64 +218,50 @@ class AccentRotationService : Disposable {
     }
 
     /**
-     * Commit the new preset index + global accent hex, then re-apply the resolver output for
-     * the focused project so overrides stay sticky. Returns a failure descriptor on exception.
+     * Commit the new preset index + global accent hex, plus the last-switch timestamp. State
+     * only — [ThemeReapplication.reapply] performs the actual apply (and glow sync) against the
+     * resolver output, so per-project and per-language overrides keep winning during rotation.
      */
-    private fun runApplyStage(
+    private fun commitRotationState(
         mode: AccentRotationMode,
         newHex: Pair<Int, String>,
         variant: AyuVariant,
         state: dev.ayuislands.settings.AyuIslandsState,
         settings: AyuIslandsSettings,
-    ): RotationFailure? {
-        val stage = Stage.APPLY
-        return try {
-            if (mode == AccentRotationMode.PRESET) {
-                state.accentRotationPresetIndex = newHex.first
-            }
-            settings.setAccentForVariant(variant, newHex.second)
-            state.accentRotationLastSwitchMs = System.currentTimeMillis()
-            // Rotation updates the GLOBAL accent layer only. For the currently focused project we
-            // must apply the RESOLVED color so per-project and per-language overrides keep winning
-            // during rotation ticks.
-            val resolvedHex = AccentApplicator.applyForFocusedProject(variant)
-            LOG.info("Accent rotated: mode=$mode, global=${newHex.second}, applied=$resolvedHex")
-            null
-        } catch (exception: RuntimeException) {
-            // Include focused-project identity so post-mortems can tell which project's
-            // override (if any) the apply stage was wrestling with when it failed.
-            val focusedName =
-                runCatching { focusedProjectName() }.getOrDefault("<unknown>")
-            LOG.error(
-                "Accent rotation stage=$stage failed (mode=$mode, color=${newHex.second}, " +
-                    "focusedProject=$focusedName)",
-                exception,
-            )
-            RotationFailure(stage = stage, exception = exception)
+    ) {
+        if (mode == AccentRotationMode.PRESET) {
+            state.accentRotationPresetIndex = newHex.first
         }
+        settings.setAccentForVariant(variant, newHex.second)
+        state.accentRotationLastSwitchMs = System.currentTimeMillis()
+        LOG.info("Accent rotated: mode=$mode, global=${newHex.second}")
     }
 
-    private fun focusedProjectName(): String =
-        ProjectManager
-            .getInstance()
-            .openProjects
-            .firstOrNull { !it.isDefault && !it.isDisposed }
-            ?.name
-            ?: "<none>"
-
     /**
-     * Sync glow overlays with the new accent. Returns a [RotationFailure] so the circuit
-     * breaker upstream can count glow-sync failures alongside apply failures.
+     * Map a failed [ReapplyResult] to the circuit breaker's [RotationFailure], logging every
+     * failed step for idea.log forensics. When both the accent apply and the glow sync fail,
+     * apply wins priority — mirrors the pre-seam behaviour where the apply-stage catch block
+     * ran (and reported) before the glow-stage catch block. Falls back to the first recorded
+     * failure (defaulting to [Stage.APPLY]) if neither of those two steps is the one that
+     * failed — this runs inside an EDT `invokeLater` callback, so it must never throw: a
+     * `RotationTick` plan gaining a new step must degrade gracefully here, not crash the EDT.
+     * [result.failures] is guaranteed non-empty by [ReapplyResult.isClean]'s contract, so
+     * `first()` is safe.
      */
-    private fun runGlowStage(): RotationFailure? {
-        val stage = Stage.GLOW_SYNC
-        return try {
-            GlowOverlayManager.syncGlowForAllProjects()
-            null
-        } catch (exception: RuntimeException) {
-            LOG.error("Accent rotation stage=$stage failed", exception)
-            RotationFailure(stage = stage, exception = exception)
+    private fun rotationFailureFrom(result: ReapplyResult): RotationFailure {
+        result.failures.forEach { failure ->
+            LOG.error("Accent rotation step=${failure.step} failed", failure.error)
         }
+        val applyError = result.failures.firstOrNull { it.step == ReapplyStep.ApplyResolvedAccent }?.error
+        val glowError = result.failures.firstOrNull { it.step == ReapplyStep.Glow }?.error
+        val exception = applyError ?: glowError ?: result.failures.first().error
+        val stage =
+            when {
+                applyError != null -> Stage.APPLY
+                glowError != null -> Stage.GLOW_SYNC
+                else -> Stage.APPLY
+            }
+        return RotationFailure(stage = stage, exception = exception)
     }
 
     /**
