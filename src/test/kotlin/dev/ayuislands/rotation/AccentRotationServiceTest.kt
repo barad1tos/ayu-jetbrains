@@ -358,8 +358,9 @@ class AccentRotationServiceTest {
     @Test
     fun `successful tick between failures resets the circuit-breaker budget`() {
         // Regression guard for the reset-on-success path (consecutiveFailures = 0 after a
-        // clean runApplyStage). Two fail + one success + two fail must NOT trip the breaker
-        // because consecutive-failures counts go 1, 2, 0, 1, 2 — never reaches 3.
+        // clean ReapplyResult, i.e. ThemeReapplication.reapply reports isClean == true). Two
+        // fail + one success + two fail must NOT trip the breaker because consecutive-failures
+        // counts go 1, 2, 0, 1, 2 — never reaches 3.
         mockRotationEnvironment()
         val (notificationGroup, _) = captureNotifications()
         state.accentRotationEnabled = true
@@ -457,12 +458,15 @@ class AccentRotationServiceTest {
 
         val service = AccentRotationService()
         LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
-            // Must not propagate — rotateAccent catches RuntimeException inside invokeLater.
+            // Must not propagate — ThemeReapplication.runPlan isolates each step via
+            // mapNotNull { runCatchingPreservingCancellation { runStep(...) } }, so the
+            // ApplyResolvedAccent failure is captured as a StepFailure instead of throwing.
             service.rotateAccent()
         }
 
         verify(exactly = 1) { AccentApplicator.applyFromHexString(any()) }
-        // Glow sync runs in a separate try/catch and should still fire after apply() fails.
+        // Glow is isolated as its own step in runPlan's mapNotNull chain and should still
+        // fire after the ApplyResolvedAccent step fails.
         verify(exactly = 1) { GlowOverlayManager.syncGlowForAllProjects() }
         assertEquals(1, loggedErrors.size, "Expected exactly one LOG.error for the failed apply()")
         assertEquals("boom", loggedErrors.single()?.message)

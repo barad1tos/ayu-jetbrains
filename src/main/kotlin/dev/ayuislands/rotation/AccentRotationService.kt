@@ -241,7 +241,12 @@ class AccentRotationService : Disposable {
      * Map a failed [ReapplyResult] to the circuit breaker's [RotationFailure], logging every
      * failed step for idea.log forensics. When both the accent apply and the glow sync fail,
      * apply wins priority — mirrors the pre-seam behaviour where the apply-stage catch block
-     * ran (and reported) before the glow-stage catch block.
+     * ran (and reported) before the glow-stage catch block. Falls back to the first recorded
+     * failure (defaulting to [Stage.APPLY]) if neither of those two steps is the one that
+     * failed — this runs inside an EDT `invokeLater` callback, so it must never throw: a
+     * `RotationTick` plan gaining a new step must degrade gracefully here, not crash the EDT.
+     * [result.failures] is guaranteed non-empty by [ReapplyResult.isClean]'s contract, so
+     * `first()` is safe.
      */
     private fun rotationFailureFrom(result: ReapplyResult): RotationFailure {
         result.failures.forEach { failure ->
@@ -249,10 +254,13 @@ class AccentRotationService : Disposable {
         }
         val applyError = result.failures.firstOrNull { it.step == ReapplyStep.ApplyResolvedAccent }?.error
         val glowError = result.failures.firstOrNull { it.step == ReapplyStep.Glow }?.error
-        val exception =
-            applyError ?: glowError
-                ?: error("rotationFailureFrom called with a clean ReapplyResult")
-        val stage = if (applyError != null) Stage.APPLY else Stage.GLOW_SYNC
+        val exception = applyError ?: glowError ?: result.failures.first().error
+        val stage =
+            when {
+                applyError != null -> Stage.APPLY
+                glowError != null -> Stage.GLOW_SYNC
+                else -> Stage.APPLY
+            }
         return RotationFailure(stage = stage, exception = exception)
     }
 
