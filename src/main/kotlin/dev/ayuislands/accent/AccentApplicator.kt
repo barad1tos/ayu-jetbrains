@@ -4,7 +4,6 @@ import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.colors.ColorKey
 import com.intellij.openapi.editor.colors.EditorColorsManager
@@ -168,24 +167,20 @@ object AccentApplicator {
      * top-level [applyFromHexString] helper which centralizes the
      * notification-on-bad-hex + `false` return contract.
      *
-     * Return contract: `true` means the hex passed validation and the
-     * EP dispatch was scheduled (actual EP work may still happen asynchronously
-     * if the caller is off-EDT — the Boolean reports validation + scheduling,
-     * not end-to-end paint completion). The return stays `Boolean` rather than
-     * `Unit` so the string-wrapper's `false` path can bubble up.
-     *
      * Cache write ordering: [AyuIslandsState.lastAppliedAccentHex] is written BEFORE the EP
      * iteration runs, not after — a mid-EP throw would otherwise drop the anti-flicker
      * cache and re-flash Gold on the next startup. The paired
      * [AyuIslandsState.lastApplyOk] flag is reset to `false` before EP iteration and
-     * flipped to `true` only after the full sequence completes, so the startup listener
-     * can distinguish "cached hex from a clean apply" from "cached hex from a torn
-     * apply" and fall back to the resolver in the torn case.
+     * flipped to `true` only by the [AccentApplyStep.MarkApplyClean] step, so the
+     * startup listener can distinguish "cached hex from a clean apply" from "cached hex
+     * from a torn apply" and fall back to the resolver in the torn case. A throwing
+     * step aborts the plan ([AccentApplyFailurePolicy.AbortOnFirstFailure]) and is
+     * contained into an [AccentApplyOutcome.Torn] WARN — it never reaches the caller.
      *
      * ### Threading contract
      *
-     * Synchronous when called on the EDT; posts the full Runnable via
-     * [invokeLaterSafe] when called off-EDT. The ordering invariant —
+     * Synchronous when called on the EDT; posts the full plan via
+     * [AccentApplyPlanRunner] when called off-EDT. The ordering invariant —
      * applyElements / editor keys / repaint all happen BEFORE the method
      * returns on EDT — is load-bearing for callers that publish follow-on
      * cache state (for example [ProjectAccentSwapService.notifyExternalApply]
@@ -203,68 +198,67 @@ object AccentApplicator {
         val variant = context?.variant
 
         // Persist BEFORE the EP iteration so the cache survives a mid-EP
-        // throw. Clear the clean-apply flag here and only set it true after the
-        // full sequence completes — the startup listener reads the pair and
-        // falls through to the resolver when the flag is false.
+        // throw. Clear the clean-apply flag here; only the MarkApplyClean step
+        // sets it true — the startup listener reads the pair and falls through
+        // to the resolver when the flag is false.
         state.lastAppliedAccentHex = trimmedHex
         state.lastApplyOk = false
 
-        // All work batched into a single EDT dispatch (UIManager.put is not
-        // thread-safe, and elements previously posted their own invokeLater)
-        val work =
-            Runnable {
-                applyAlwaysOnUiKeys(state, accent)
-
+        // Step order and gating live in [AccentApplyPlan.applyPlanFor] (including
+        // the IR-before-CGP-before-notify integration lock shared with revertAll);
+        // this map only binds each step to its side-effecting worker. Gating is
+        // duplicated between plan and map on purpose: if they ever drift, getValue
+        // throws and surfaces as a step failure instead of a silent skip.
+        val workers: Map<AccentApplyStep, () -> Unit> =
+            buildMap {
+                put(AccentApplyStep.ApplyAlwaysOnUiKeys) { applyAlwaysOnUiKeys(state, accent) }
                 if (variant != null) {
-                    applyElements(state, accent, variant)
+                    put(AccentApplyStep.ApplyElements) { applyElements(state, accent, variant) }
+                    put(AccentApplyStep.ApplyTabUnderline) { applyTabUnderline(state, variant) }
                 }
-                // Pattern G + L — ordering lock. Apply path mirrors the
-                // revert path: IR before CGP before notifyOnly. The revert
-                // ordering is locked by AccentApplicatorRevertAllSymmetryTest;
-                // an inverted order on the apply side would silently let
-                // app-scoped state drift between the two paths (apply leaves
-                // CGP's cache holding what IR's cache pushed first; revert
-                // unwinds the other way). Keep both sequences identical so
-                // future debugging only has to reason about one ordering.
                 if (context != null) {
-                    IndentRainbowSync.apply(context, trimmedHex)
+                    put(AccentApplyStep.SyncIndentRainbow) { IndentRainbowSync.apply(context, trimmedHex) }
                 }
-                CodeGlanceProIntegration.syncCodeGlanceProViewport(trimmedHex, context)
-                applyAlwaysOnEditorKeys(accent)
-                if (variant != null) {
-                    applyTabUnderline(state, variant)
+                put(AccentApplyStep.SyncCodeGlanceProViewport) {
+                    CodeGlanceProIntegration.syncCodeGlanceProViewport(trimmedHex, context)
                 }
-
-                // Mirror of the refresh hook in revertAll. Re-publish
-                // ComponentTreeRefreshedTopic after EP apply so subscribers
-                // (EditorScrollbarManager, ProjectViewScrollbarManager) re-read
-                // UIManager state. Chrome surfaces do NOT subscribe to this topic —
-                // they own their own live-refresh path. This hook is the
-                // architectural symmetry primitive.
-                //
-                // This site MUST NOT publish LafManagerListener.TOPIC — that broadcast
-                // would re-enter the LAF cycle. notifyOnly only.
-                for (project in ProjectManager.getInstance().openProjects) {
-                    if (!project.isUsable()) continue
-                    ComponentTreeRefresher.notifyOnly(project)
+                put(AccentApplyStep.ApplyAlwaysOnEditorKeys) { applyAlwaysOnEditorKeys(accent) }
+                put(AccentApplyStep.NotifyComponentTrees) {
+                    // Mirror of the refresh hook in revertAll. Re-publish
+                    // ComponentTreeRefreshedTopic after EP apply so subscribers
+                    // (EditorScrollbarManager, ProjectViewScrollbarManager) re-read
+                    // UIManager state. Chrome surfaces do NOT subscribe to this topic —
+                    // they own their own live-refresh path.
+                    //
+                    // This site MUST NOT publish LafManagerListener.TOPIC — that broadcast
+                    // would re-enter the LAF cycle. notifyOnly only.
+                    for (project in ProjectManager.getInstance().openProjects) {
+                        if (!project.isUsable()) continue
+                        ComponentTreeRefresher.notifyOnly(project)
+                    }
                 }
-
-                repaintAllWindows(Window.getWindows())
-
-                // Mark the apply clean only after the full EP sequence
-                // succeeded. A throw earlier leaves the flag false and the
-                // startup listener (AyuIslandsAppListener.appFrameCreated)
-                // will fall through to the resolver rather than trust the
-                // cached hex.
-                state.lastApplyOk = true
-
-                publishAccentChanged(accentHex)
+                put(AccentApplyStep.RepaintWindows) { repaintAllWindows(Window.getWindows()) }
+                // A throw in any earlier step aborts the plan and skips this
+                // write, leaving the flag false so the startup listener
+                // (AyuIslandsAppListener.appFrameCreated) falls through to the
+                // resolver rather than trusting the cached hex.
+                put(AccentApplyStep.MarkApplyClean) { state.lastApplyOk = true }
+                put(AccentApplyStep.PublishAccentChanged) { publishAccentChanged(accentHex) }
             }
 
-        if (SwingUtilities.isEventDispatchThread()) {
-            work.run()
-        } else {
-            invokeLaterSafe(work)
+        AccentApplyPlanRunner.run(
+            plan = AccentApplyPlan.applyPlanFor(context),
+            policy = AccentApplyFailurePolicy.AbortOnFirstFailure,
+            executeStep = { step -> workers.getValue(step)() },
+        ) { failures ->
+            val outcome = AccentApplyOutcome.of(accentHex, failures)
+            if (outcome is AccentApplyOutcome.Torn) {
+                val first = outcome.failures.first()
+                log.warn(
+                    "Accent apply torn at ${first.step}; later steps skipped, lastApplyOk stays false",
+                    first.error,
+                )
+            }
         }
     }
 
@@ -322,7 +316,7 @@ object AccentApplicator {
      * and calls [AccentResolver.resolve] + [apply] directly with that project.
      *
      * EDT-only. Neither this helper nor [resolveFocusedProject] self-dispatch; only the
-     * inner [apply] call hops to the EDT internally via [invokeLaterSafe], and that hop
+     * inner [apply] call hops to the EDT internally via [AccentApplyPlanRunner], and that hop
      * does NOT rescue the preceding [resolveFocusedProject] + [AccentResolver.resolve]
      * steps (the first traverses EDT-only platform APIs, the second reads settings state
      * that may race off-EDT). [ProjectAccentSwapService.notifyExternalApply] is likewise
@@ -456,55 +450,48 @@ object AccentApplicator {
     }
 
     fun revertAll() {
-        // All revert work batched into a single EDT dispatch
-        val work =
-            Runnable {
-                clearReverseUiAndExtensions()
-                revertAlwaysOnEditorKeys()
-
-                // Integration revert plumbing. Pattern G — apply
-                // path calls IndentRainbowSync.apply + syncCodeGlanceProViewport;
-                // revert path mirrors with IndentRainbowSync.revert + revertCodeGlanceProViewport.
-                // Each block isolated by RuntimeException catch (Pattern B) so one
-                // integration's failure cannot block the other or the downstream
-                // notifyOnly loop. Order — IR before CGP before notifyOnly — locked
-                // by AccentApplicatorRevertAllSymmetryTest source-regex.
-                try {
-                    IndentRainbowSync.revert()
-                } catch (exception: RuntimeException) {
-                    log.warn("Failed to revert Indent Rainbow integration", exception)
-                }
-
-                try {
+        // Step order lives in [AccentApplyPlan.revertPlan]: integrations unwind
+        // in the same IR-before-CGP-before-notify order the apply plan uses, and
+        // there is deliberately NO repaint step — revertAll runs inside
+        // lookAndFeelChanged before the new theme finishes loading, and forcing
+        // a repaint NPEs in platform code (HeaderToolbarButtonLook) because UI
+        // keys are cleared but not yet replaced. The platform repaints
+        // everything after the theme switch.
+        val workers: Map<AccentApplyStep, () -> Unit> =
+            buildMap {
+                put(AccentApplyStep.ClearUiAndExtensions) { clearReverseUiAndExtensions() }
+                put(AccentApplyStep.RevertAlwaysOnEditorKeys) { revertAlwaysOnEditorKeys() }
+                put(AccentApplyStep.RevertIndentRainbow) { IndentRainbowSync.revert() }
+                put(AccentApplyStep.RevertCodeGlanceProViewport) {
                     CodeGlanceProIntegration.revertCodeGlanceProViewport()
-                } catch (exception: RuntimeException) {
-                    log.warn("Failed to revert CodeGlance Pro integration", exception)
                 }
-
-                // Cached JBColor instances survive a bare UIManager.put(key, null)
-                // clear. Publish the refresh topic per usable open project so subscribers
-                // (e.g. EditorScrollbarManager) reapply their customizations against the
-                // freshly-reverted UIManager state. notifyOnly stops short of
-                // IJSwingUtilities.updateComponentTreeUI — that path would crash here
-                // because LAF refresh is still mid-flight (see the no-repaint note
-                // below). Publishing a topic lets subscribers decide when to repaint.
-                for (project in ProjectManager.getInstance().openProjects) {
-                    if (!project.isUsable()) continue
-                    ComponentTreeRefresher.notifyOnly(project)
+                put(AccentApplyStep.NotifyComponentTrees) {
+                    // Cached JBColor instances survive a bare UIManager.put(key, null)
+                    // clear. Publish the refresh topic per usable open project so
+                    // subscribers (e.g. EditorScrollbarManager) reapply their
+                    // customizations against the freshly-reverted UIManager state.
+                    // notifyOnly stops short of IJSwingUtilities.updateComponentTreeUI —
+                    // that path would crash here because LAF refresh is still
+                    // mid-flight. Publishing a topic lets subscribers decide when to
+                    // repaint.
+                    for (project in ProjectManager.getInstance().openProjects) {
+                        if (!project.isUsable()) continue
+                        ComponentTreeRefresher.notifyOnly(project)
+                    }
                 }
-
-                // No repaintAllWindows here: revertAll runs inside
-                // lookAndFeelChanged, before the new theme finishes
-                // loading. Forcing a repaint at this point causes
-                // NPE in the platform code (HeaderToolbarButtonLook)
-                // because UI keys are cleared but not yet replaced.
-                // The platform repaints everything after the theme switch.
             }
 
-        if (SwingUtilities.isEventDispatchThread()) {
-            work.run()
-        } else {
-            invokeLaterSafe(work)
+        // ContinuePerStep: each surface unwinds independently (Pattern B) — one
+        // integration's failure must not block the others or the downstream
+        // notifyOnly loop.
+        AccentApplyPlanRunner.run(
+            plan = AccentApplyPlan.revertPlan(),
+            policy = AccentApplyFailurePolicy.ContinuePerStep,
+            executeStep = { step -> workers.getValue(step)() },
+        ) { failures ->
+            for (failure in failures) {
+                log.warn("Accent revert step ${failure.step} failed; remaining steps still ran", failure.error)
+            }
         }
     }
 
@@ -627,12 +614,16 @@ object AccentApplicator {
         // Editor tab background tint (respects persisted tab mode, not gated by license)
         val tabMode = GlowTabMode.fromName(state.glowTabMode ?: "MINIMAL")
         when (tabMode) {
-            GlowTabMode.MINIMAL -> UIManager.put(KEY_TAB_BACKGROUND, TRANSPARENT_TAB_BACKGROUND)
+            GlowTabMode.MINIMAL -> {
+                UIManager.put(KEY_TAB_BACKGROUND, TRANSPARENT_TAB_BACKGROUND)
+            }
+
             GlowTabMode.FULL -> {
                 val tintedColor = ColorUtil.toAlpha(accent, TAB_ACCENT_BG_ALPHA)
                 val tinted = JBColor(tintedColor, tintedColor)
                 UIManager.put(KEY_TAB_BACKGROUND, tinted)
             }
+
             GlowTabMode.OFF -> {
                 val variant = AyuVariant.detect()
                 val neutralColor = variant?.let { Color.decode(it.neutralGray) }
@@ -713,19 +704,6 @@ object AccentApplicator {
                 .messageBus
                 .syncPublisher(EditorColorsManager.TOPIC)
                 .globalSchemeChange(null)
-        }
-    }
-
-    private fun invokeLaterSafe(work: Runnable) {
-        val app = ApplicationManager.getApplication()
-        if (app != null) {
-            app.invokeLater(work, ModalityState.nonModal())
-        } else {
-            log.warn(
-                "Application not available, " +
-                    "falling back to SwingUtilities",
-            )
-            SwingUtilities.invokeLater(work)
         }
     }
 

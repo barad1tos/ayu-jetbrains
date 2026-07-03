@@ -23,13 +23,16 @@ import kotlin.test.assertFalse
  * crept back in, not a generic "banned substrings found".
  */
 class AccentApplicatorBannedApiGuardTest {
+    // The runner executes the applicator's step plan on the same EDT turn, so
+    // the banned-API profile covers both files: a LafManager publish smuggled
+    // into the dispatch layer would recurse exactly like one in the applicator.
     private val source: String by lazy {
-        val file =
-            File(
-                System.getProperty("user.dir"),
-                "src/main/kotlin/dev/ayuislands/accent/AccentApplicator.kt",
-            )
-        stripComments(FileUtil.loadFile(file))
+        listOf(
+            "src/main/kotlin/dev/ayuislands/accent/AccentApplicator.kt",
+            "src/main/kotlin/dev/ayuislands/accent/AccentApplyPlanRunner.kt",
+        ).joinToString("\n") { path ->
+            stripComments(FileUtil.loadFile(File(System.getProperty("user.dir"), path)))
+        }
     }
 
     /**

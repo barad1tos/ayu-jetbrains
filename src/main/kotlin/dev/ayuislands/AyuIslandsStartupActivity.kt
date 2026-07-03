@@ -60,7 +60,7 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         //    WindowManager, IdeFocusManager, ProjectManager, all EDT-only APIs.
         //  - AccentApplicator.apply is @RequiresEdt — its KDoc lines 200-205
         //    explicitly state the helper does NOT self-dispatch the pre-apply steps,
-        //    and the inner invokeLaterSafe hop inside apply() only batches the
+        //    and the inner AccentApplyPlanRunner hop inside apply() only batches the
         //    UIManager/editor writes; it does not rescue anything that runs before.
         //  - ProjectAccentSwapService.install registers an AWT listener whose
         //    WINDOW_ACTIVATED handler expects to fire after the initial apply's

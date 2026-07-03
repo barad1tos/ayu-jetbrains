@@ -84,7 +84,8 @@ class AyuIslandsState : BaseState() {
 
     /**
      * Whether the most recent [dev.ayuislands.accent.AccentApplicator.apply] call
-     * completed its full EP iteration cleanly. Used by
+     * completed its full step plan cleanly — set `true` only by the final
+     * [dev.ayuislands.accent.AccentApplyStep.MarkApplyClean] step. Used by
      * [dev.ayuislands.AyuIslandsAppListener.appFrameCreated] as a trust gate around
      * the cached [lastAppliedAccentHex]: persisting the hex BEFORE the EP iteration
      * makes startup anti-flicker robust to a failed apply, but the cached value is
@@ -425,13 +426,16 @@ class AyuIslandsState : BaseState() {
             VcsColorCategory.PROJECT_VIEW_FILE_STATUS,
             VcsColorCategory.EDITOR_GUTTER,
             -> effectiveVcsDiffPreset()
+
             VcsColorCategory.CONFLICT_MARKERS,
             VcsColorCategory.MERGE_3WAY,
             VcsColorCategory.INLINE_DIFF_POPUP,
             -> effectiveVcsMergePreset()
+
             VcsColorCategory.BLAME_GUTTER,
             VcsColorCategory.LOCAL_HISTORY,
             -> effectiveVcsBlamePreset()
+
             VcsColorCategory.BRANCH_INDICATOR,
             VcsColorCategory.BRANCHES_POPUP,
             VcsColorCategory.COMMIT_HIGHLIGHTS,
