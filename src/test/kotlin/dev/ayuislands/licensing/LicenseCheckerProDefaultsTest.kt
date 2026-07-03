@@ -279,6 +279,7 @@ class LicenseCheckerProDefaultsTest {
         val rotationService = mockk<AccentRotationService>(relaxed = true)
         val app = mockk<Application>()
         every { ApplicationManager.getApplication() } returns app
+        every { app.isDispatchThread } returns true
         every { app.getService(AccentRotationService::class.java) } returns rotationService
 
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
@@ -304,6 +305,7 @@ class LicenseCheckerProDefaultsTest {
         mockkStatic(ApplicationManager::class)
         val app = mockk<Application>()
         every { ApplicationManager.getApplication() } returns app
+        every { app.isDispatchThread } returns true
         every { app.getService(AccentRotationService::class.java) } returns null
 
         // Mock GlowOverlayManager.syncGlowForAllProjects()
@@ -345,6 +347,7 @@ class LicenseCheckerProDefaultsTest {
         mockkStatic(ApplicationManager::class)
         val app = mockk<Application>()
         every { ApplicationManager.getApplication() } returns app
+        every { app.isDispatchThread } returns true
         every { app.getService(AccentRotationService::class.java) } returns null
 
         // Mock GlowOverlayManager.syncGlowForAllProjects()

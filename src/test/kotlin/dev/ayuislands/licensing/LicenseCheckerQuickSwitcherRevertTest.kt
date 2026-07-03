@@ -63,6 +63,7 @@ class LicenseCheckerQuickSwitcherRevertTest {
         mockkStatic(ApplicationManager::class)
         val app = mockk<Application>()
         every { ApplicationManager.getApplication() } returns app
+        every { app.isDispatchThread } returns true
         val rotationService = mockk<AccentRotationService>(relaxed = true)
         every { app.getService(AccentRotationService::class.java) } returns rotationService
 
