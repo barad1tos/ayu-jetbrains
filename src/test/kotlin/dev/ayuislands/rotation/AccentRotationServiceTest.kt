@@ -114,6 +114,11 @@ class AccentRotationServiceTest {
         } answers {
             firstArg<Runnable>().run()
         }
+        // rotateAccent() now delegates the apply+glow work to `ThemeReapplication.reapply`,
+        // which reads `isDispatchThread` to decide whether to run its plan inline or hop
+        // through the (unstubbed) 2-arg invokeLater overload. Stub it `true` so the plan runs
+        // synchronously and this file's `verify`/state assertions observe its effects.
+        every { appMock.isDispatchThread } returns true
 
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns settingsMock
