@@ -33,8 +33,8 @@ import javax.swing.JComponent
  * apply and revert.
  *
  * EDT: callers MUST already be on EDT — Swing background mutation + repaint are
- * EDT-only. `AccentApplicator` dispatches its apply/revert Runnable through
- * `invokeLaterSafe`, which satisfies this precondition.
+ * EDT-only. `AccentApplicator` dispatches its step plan through
+ * `AccentApplyPlanRunner`, which satisfies this precondition.
  */
 internal object LiveChromeRefresher {
     private val log = Logger.getInstance(LiveChromeRefresher::class.java)
@@ -103,36 +103,46 @@ internal object LiveChromeRefresher {
         color: Color,
     ) {
         when (target) {
-            ChromeTarget.StatusBar ->
+            ChromeTarget.StatusBar -> {
                 forEachUsableStatusBarComponent { component ->
                     component.background = color
                     paintNavBarCompactPanel(component, color)
                     component.repaint()
                 }
-            is ChromeTarget.ByClassName ->
+            }
+
+            is ChromeTarget.ByClassName -> {
                 forEachShowingWindow { refreshOnTree(it, target.fqn, color) }
-            is ChromeTarget.ByClassNameInside ->
+            }
+
+            is ChromeTarget.ByClassNameInside -> {
                 forEachShowingWindow {
                     refreshOnTreeInsideAncestor(it, target.target, target.ancestor, color)
                 }
+            }
         }
     }
 
     /** Pattern G mirror of [refresh] — hands [target]'s peer back to LAF default. */
     fun clear(target: ChromeTarget) {
         when (target) {
-            ChromeTarget.StatusBar ->
+            ChromeTarget.StatusBar -> {
                 forEachUsableStatusBarComponent { component ->
                     component.background = null
                     clearNavBarCompactPanel(component)
                     component.repaint()
                 }
-            is ChromeTarget.ByClassName ->
+            }
+
+            is ChromeTarget.ByClassName -> {
                 forEachShowingWindow { clearOnTree(it, target.fqn) }
-            is ChromeTarget.ByClassNameInside ->
+            }
+
+            is ChromeTarget.ByClassNameInside -> {
                 forEachShowingWindow {
                     clearOnTreeInsideAncestor(it, target.target, target.ancestor)
                 }
+            }
         }
     }
 

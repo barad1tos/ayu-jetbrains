@@ -6,7 +6,9 @@ import kotlin.test.Test
 import kotlin.test.assertFalse
 
 /**
- * Regression guards that freeze the banned-API profile of [AccentApplicator].
+ * Regression guards that freeze the banned-API profile of the accent apply
+ * path — both [AccentApplicator] and [AccentApplyPlanRunner], since the runner
+ * executes the applicator's step plan on the same EDT turn.
  *
  * The apply-path refresh hook uses [dev.ayuislands.ui.ComponentTreeRefresher.notifyOnly]
  * only — never a [com.intellij.ide.ui.LafManagerListener.TOPIC] publish or a

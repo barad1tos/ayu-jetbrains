@@ -16,6 +16,7 @@ import dev.ayuislands.accent.AccentApplyStep.SyncCodeGlanceProViewport
 import dev.ayuislands.accent.AccentApplyStep.SyncIndentRainbow
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
@@ -24,8 +25,10 @@ import kotlin.test.assertTrue
  * Pure list-equality locks on the accent apply/revert step ordering. This is
  * the behavioral replacement for the former source-regex symmetry test: the
  * plan below is what [AccentApplicator] actually executes (runner order
- * fidelity is locked by `AccentApplyPlanRunnerTest`), so asserting on the plan
- * is strictly stronger than grepping call order out of the source text.
+ * fidelity is locked by `AccentApplyPlanRunnerTest`, and the end-to-end apply
+ * and revert tests confirm the applicator feeds these plans through the
+ * runner), so together these locks are stronger than grepping call order out
+ * of the source text.
  */
 class AccentApplyPlanTest {
     @Test
@@ -43,7 +46,7 @@ class AccentApplyPlanTest {
                 MarkApplyClean,
                 PublishAccentChanged,
             ),
-            AccentApplyPlan.applyPlanFor(AccentContext.Ayu(AyuVariant.DARK)),
+            applyPlanFor(AccentContext.Ayu(AyuVariant.DARK)).steps,
         )
     }
 
@@ -60,7 +63,7 @@ class AccentApplyPlanTest {
                 MarkApplyClean,
                 PublishAccentChanged,
             ),
-            AccentApplyPlan.applyPlanFor(AccentContext.External),
+            applyPlanFor(AccentContext.External).steps,
         )
     }
 
@@ -76,7 +79,7 @@ class AccentApplyPlanTest {
                 MarkApplyClean,
                 PublishAccentChanged,
             ),
-            AccentApplyPlan.applyPlanFor(null),
+            applyPlanFor(null).steps,
         )
     }
 
@@ -90,24 +93,39 @@ class AccentApplyPlanTest {
                 RevertCodeGlanceProViewport,
                 NotifyComponentTrees,
             ),
-            AccentApplyPlan.revertPlan(),
+            revertPlan().steps,
         )
+    }
+
+    @Test
+    fun `apply plans always abort on first failure and revert plans always continue`() {
+        // The policy pairing is structural: a torn apply base must not keep
+        // painting, while a revert must unwind every surface independently.
+        val contexts = listOf(AccentContext.Ayu(AyuVariant.DARK), AccentContext.External, null)
+        for (context in contexts) {
+            assertEquals(
+                AccentApplyFailurePolicy.AbortOnFirstFailure,
+                applyPlanFor(context).policy,
+                "context=$context",
+            )
+        }
+        assertEquals(AccentApplyFailurePolicy.ContinuePerStep, revertPlan().policy)
     }
 
     @Test
     fun `apply and revert order integrations identically`() {
         val applyIntegrations =
-            AccentApplyPlan
-                .applyPlanFor(AccentContext.Ayu(AyuVariant.DARK))
+            applyPlanFor(AccentContext.Ayu(AyuVariant.DARK))
+                .steps
                 .mapNotNull(::integrationTokenOf)
-        val revertIntegrations = AccentApplyPlan.revertPlan().mapNotNull(::integrationTokenOf)
+        val revertIntegrations = revertPlan().steps.mapNotNull(::integrationTokenOf)
         assertEquals(listOf("IndentRainbow", "CodeGlancePro", "Notify"), applyIntegrations)
         assertEquals(applyIntegrations, revertIntegrations)
     }
 
     @Test
     fun `every integration apply step has a revert counterpart in the revert plan`() {
-        val revertSteps = AccentApplyPlan.revertPlan()
+        val revertSteps = revertPlan().steps
         assertTrue(RevertIndentRainbow in revertSteps)
         assertTrue(RevertCodeGlanceProViewport in revertSteps)
         assertTrue(RevertAlwaysOnEditorKeys in revertSteps)
@@ -115,7 +133,7 @@ class AccentApplyPlanTest {
 
     @Test
     fun `revert plan never repaints windows, marks clean, or publishes`() {
-        val revertSteps = AccentApplyPlan.revertPlan()
+        val revertSteps = revertPlan().steps
         assertFalse(RepaintWindows in revertSteps)
         assertFalse(MarkApplyClean in revertSteps)
         assertFalse(PublishAccentChanged in revertSteps)
@@ -125,9 +143,9 @@ class AccentApplyPlanTest {
     fun `mark clean immediately precedes accent publish in every apply plan`() {
         val contexts = listOf(AccentContext.Ayu(AyuVariant.DARK), AccentContext.External, null)
         for (context in contexts) {
-            val plan = AccentApplyPlan.applyPlanFor(context)
-            assertEquals(MarkApplyClean, plan[plan.size - 2], "context=$context")
-            assertEquals(PublishAccentChanged, plan.last(), "context=$context")
+            val steps = applyPlanFor(context).steps
+            assertEquals(MarkApplyClean, steps[steps.size - 2], "context=$context")
+            assertEquals(PublishAccentChanged, steps.last(), "context=$context")
         }
     }
 
@@ -148,6 +166,16 @@ class AccentApplyPlanTest {
         assertIs<AccentApplyOutcome.Torn>(outcome)
         assertEquals(listOf(failure), outcome.failures)
         assertEquals(hex, outcome.accentHex)
+    }
+
+    @Test
+    fun `torn outcome refuses an empty failure list by construction`() {
+        // AccentApplicator logs `failures.first()` on Torn — an empty-failures
+        // Torn would crash the logging path, so the type rejects it outright.
+        val hex = requireNotNull(AccentHex.of("#FFCC66"))
+        assertFailsWith<IllegalArgumentException> {
+            AccentApplyOutcome.Torn(hex, emptyList())
+        }
     }
 
     private fun integrationTokenOf(step: AccentApplyStep): String? =

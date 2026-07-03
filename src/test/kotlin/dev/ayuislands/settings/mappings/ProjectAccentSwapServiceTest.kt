@@ -62,6 +62,9 @@ class ProjectAccentSwapServiceTest {
         // Default: IR integration enabled. The disabled-IR test flips this to
         // assert the gate skips `IR.apply` on the same-hex branch.
         state.irIntegrationEnabled = true
+        // Default: previous apply completed cleanly, so notifyExternalApply's
+        // torn-apply gate lets cache writes through. The gate tests flip this.
+        state.lastApplyOk = true
 
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns mockSettings
@@ -457,6 +460,37 @@ class ProjectAccentSwapServiceTest {
         // resolve was called (project changed from null to projectA) but apply was skipped
         // because the effective hex matches the cache.
         verify(exactly = 1) { AccentResolver.resolve(project, AyuVariant.MIRAGE) }
+        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
+    }
+
+    @Test
+    fun `notifyExternalApply refuses to prime the cache after a torn apply`() {
+        // Pattern D, torn half: a mid-step throw leaves lastApplyOk=false, meaning
+        // the hex was never fully painted. Priming the cache anyway would make the
+        // next same-hex WINDOW_ACTIVATED skip the re-apply that self-heals the
+        // tear — so the write must be gated on the clean flag.
+        state.lastApplyOk = false
+        val (window, project) = wireMatchingFrame()
+        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
+        val service = ProjectAccentSwapService()
+
+        service.notifyExternalApply("#FFCC66") // gated: must NOT prime the cache
+        service.onWindowActivatedForTest(makeEvent(window))
+
+        // The swap re-applies (self-heal) because the torn hex never entered the cache.
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("#FFCC66") }
+    }
+
+    @Test
+    fun `notifyExternalApply primes the cache only after a clean apply`() {
+        state.lastApplyOk = true
+        val (window, project) = wireMatchingFrame()
+        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
+        val service = ProjectAccentSwapService()
+
+        service.notifyExternalApply("#FFCC66")
+        service.onWindowActivatedForTest(makeEvent(window))
+
         verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
     }
 

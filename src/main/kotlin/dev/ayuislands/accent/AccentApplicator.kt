@@ -204,20 +204,26 @@ object AccentApplicator {
         state.lastAppliedAccentHex = trimmedHex
         state.lastApplyOk = false
 
-        // Step order and gating live in [AccentApplyPlan.applyPlanFor] (including
-        // the IR-before-CGP-before-notify integration lock shared with revertAll);
-        // this map only binds each step to its side-effecting worker. Gating is
-        // duplicated between plan and map on purpose: if they ever drift, getValue
-        // throws and surfaces as a step failure instead of a silent skip.
+        // Step order AND gating live only in [applyPlanFor] (including the
+        // IR-before-CGP-before-notify integration lock shared with revertAll);
+        // this map binds every step unconditionally to its side-effecting
+        // worker. Context-shaped steps guard with checkNotNull so a plan bug
+        // that schedules them without their input fails with a precise message
+        // (surfaced as that step's failure) instead of an NPE.
         val workers: Map<AccentApplyStep, () -> Unit> =
             buildMap {
                 put(AccentApplyStep.ApplyAlwaysOnUiKeys) { applyAlwaysOnUiKeys(state, accent) }
-                if (variant != null) {
-                    put(AccentApplyStep.ApplyElements) { applyElements(state, accent, variant) }
-                    put(AccentApplyStep.ApplyTabUnderline) { applyTabUnderline(state, variant) }
+                put(AccentApplyStep.ApplyElements) {
+                    applyElements(state, accent, checkNotNull(variant) { "ApplyElements planned without Ayu variant" })
                 }
-                if (context != null) {
-                    put(AccentApplyStep.SyncIndentRainbow) { IndentRainbowSync.apply(context, trimmedHex) }
+                put(AccentApplyStep.ApplyTabUnderline) {
+                    applyTabUnderline(state, checkNotNull(variant) { "ApplyTabUnderline planned without Ayu variant" })
+                }
+                put(AccentApplyStep.SyncIndentRainbow) {
+                    IndentRainbowSync.apply(
+                        checkNotNull(context) { "SyncIndentRainbow planned without accent context" },
+                        trimmedHex,
+                    )
                 }
                 put(AccentApplyStep.SyncCodeGlanceProViewport) {
                     CodeGlanceProIntegration.syncCodeGlanceProViewport(trimmedHex, context)
@@ -247,15 +253,15 @@ object AccentApplicator {
             }
 
         AccentApplyPlanRunner.run(
-            plan = AccentApplyPlan.applyPlanFor(context),
-            policy = AccentApplyFailurePolicy.AbortOnFirstFailure,
+            plan = applyPlanFor(context),
             executeStep = { step -> workers.getValue(step)() },
         ) { failures ->
             val outcome = AccentApplyOutcome.of(accentHex, failures)
             if (outcome is AccentApplyOutcome.Torn) {
                 val first = outcome.failures.first()
                 log.warn(
-                    "Accent apply torn at ${first.step}; later steps skipped, lastApplyOk stays false",
+                    "Accent apply torn at ${first.step} (hex=$trimmedHex, " +
+                        "lastApplyOk=${state.lastApplyOk}); later steps (if any) were skipped",
                     first.error,
                 )
             }
@@ -329,8 +335,11 @@ object AccentApplicator {
         // apply returns a validation flag. If the resolver hands back a hex
         // that fails shape validation (corrupted per-project override, manual
         // XML edit, future resolver bug), skip the swap-cache publish so the
-        // cache does not drift to a hex that was never actually painted. The
-        // apply call itself already surfaces the user-visible notification.
+        // cache does not drift to a hex that was never actually painted; the
+        // apply call surfaces the user-visible notification for that case.
+        // The torn-apply half of the same invariant (valid hex, mid-step
+        // throw) is gated inside [ProjectAccentSwapService.notifyExternalApply],
+        // which consults the persisted clean flag before recording the hex.
         val applied = applyFromHexString(hex)
         // Pattern D — regression lock: if you remove this gate, the swap cache
         // will publish hexes that `applyFromHexString` rejected (malformed XML,
@@ -450,7 +459,7 @@ object AccentApplicator {
     }
 
     fun revertAll() {
-        // Step order lives in [AccentApplyPlan.revertPlan]: integrations unwind
+        // Step order lives in [revertPlan]: integrations unwind
         // in the same IR-before-CGP-before-notify order the apply plan uses, and
         // there is deliberately NO repaint step — revertAll runs inside
         // lookAndFeelChanged before the new theme finishes loading, and forcing
@@ -481,12 +490,11 @@ object AccentApplicator {
                 }
             }
 
-        // ContinuePerStep: each surface unwinds independently (Pattern B) — one
-        // integration's failure must not block the others or the downstream
-        // notifyOnly loop.
+        // The revert plan bundles ContinuePerStep: each surface unwinds
+        // independently (Pattern B) — one integration's failure must not block
+        // the others or the downstream notifyOnly loop.
         AccentApplyPlanRunner.run(
-            plan = AccentApplyPlan.revertPlan(),
-            policy = AccentApplyFailurePolicy.ContinuePerStep,
+            plan = revertPlan(),
             executeStep = { step -> workers.getValue(step)() },
         ) { failures ->
             for (failure in failures) {

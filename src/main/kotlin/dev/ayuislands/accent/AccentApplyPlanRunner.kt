@@ -6,10 +6,10 @@ import com.intellij.openapi.diagnostic.logger
 import javax.swing.SwingUtilities
 
 /**
- * Thin executor for an [AccentApplyPlan] step list. Owns exactly two concerns:
+ * Thin executor for an [AccentApplyPlan]. Owns exactly two concerns:
  * dispatching the whole plan onto a single EDT turn, and isolating step
- * failures per [AccentApplyFailurePolicy]. All step semantics live in the
- * worker lambdas the caller binds.
+ * failures per the plan's [AccentApplyFailurePolicy]. All step semantics live
+ * in the worker lambdas the caller binds.
  *
  * Dispatch contract: synchronous when already on the EDT (load-bearing for
  * callers that must observe the apply before returning, e.g. the settings
@@ -19,19 +19,21 @@ import javax.swing.SwingUtilities
  * is not yet (or no longer) available.
  *
  * Cancellation ([com.intellij.openapi.progress.ProcessCanceledException],
- * coroutine cancellation) always rethrows — only genuine step failures are
- * captured into [AccentApplyStepFailure]s.
+ * coroutine cancellation) and [VirtualMachineError] (OOM, stack overflow)
+ * always rethrow — only genuine step failures are captured into
+ * [AccentApplyStepFailure]s. Note [onComplete] is NOT invoked when a rethrow
+ * interrupts the plan mid-run: it reports completed runs (clean or torn), not
+ * cancelled ones, so cleanup must not live in it.
  */
 internal object AccentApplyPlanRunner {
     private val log = logger<AccentApplyPlanRunner>()
 
     fun run(
-        plan: List<AccentApplyStep>,
-        policy: AccentApplyFailurePolicy,
+        plan: AccentApplyPlan,
         executeStep: (AccentApplyStep) -> Unit,
-        onComplete: (List<AccentApplyStepFailure>) -> Unit = {},
+        onComplete: (List<AccentApplyStepFailure>) -> Unit,
     ) {
-        val work = Runnable { onComplete(runSteps(plan, policy, executeStep)) }
+        val work = Runnable { onComplete(runSteps(plan, executeStep)) }
         if (SwingUtilities.isEventDispatchThread()) {
             work.run()
         } else {
@@ -40,16 +42,23 @@ internal object AccentApplyPlanRunner {
     }
 
     private fun runSteps(
-        plan: List<AccentApplyStep>,
-        policy: AccentApplyFailurePolicy,
+        plan: AccentApplyPlan,
         executeStep: (AccentApplyStep) -> Unit,
     ): List<AccentApplyStepFailure> {
         val failures = mutableListOf<AccentApplyStepFailure>()
-        for (step in plan) {
+        for (step in plan.steps) {
             runCatchingPreservingCancellation { executeStep(step) }
                 .exceptionOrNull()
-                ?.let { failures += AccentApplyStepFailure(step, it) }
-            if (failures.isNotEmpty() && policy == AccentApplyFailurePolicy.AbortOnFirstFailure) break
+                ?.let { error ->
+                    // A JVM-level error (heap exhaustion, stack overflow) must not
+                    // degrade into a per-step WARN — the process is compromised and
+                    // the old pre-plan code let it propagate. LinkageError stays
+                    // contained: plugin-unload races produce NoClassDefFoundError
+                    // in integration steps by design (ThemeReapplication precedent).
+                    if (error is VirtualMachineError) throw error
+                    failures += AccentApplyStepFailure(step, error)
+                }
+            if (failures.isNotEmpty() && plan.policy == AccentApplyFailurePolicy.AbortOnFirstFailure) break
         }
         return failures
     }

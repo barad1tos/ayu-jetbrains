@@ -230,8 +230,17 @@ class ProjectAccentSwapService : Disposable {
     /**
      * Notify after an external apply (settings panel, rotation, startup activity) so the
      * cache matches the current UIManager state and we don't skip the next real swap.
+     *
+     * Gated on [AyuIslandsState.lastApplyOk]: a torn apply never fully painted [hex],
+     * so recording it would make the next same-hex WINDOW_ACTIVATED skip the re-apply
+     * that would have self-healed the tear. Callers already sit right after their own
+     * apply call on the EDT (apply is EDT-synchronous), so the flag reflects THAT apply.
      */
     fun notifyExternalApply(hex: String) {
+        if (!AyuIslandsSettings.getInstance().state.lastApplyOk) {
+            LOG.warn("Swap cache not updated for '$hex': the last accent apply did not complete cleanly")
+            return
+        }
         lastAppliedHex = hex
     }
 

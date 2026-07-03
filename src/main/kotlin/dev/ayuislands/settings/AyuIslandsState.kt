@@ -84,8 +84,9 @@ class AyuIslandsState : BaseState() {
 
     /**
      * Whether the most recent [dev.ayuislands.accent.AccentApplicator.apply] call
-     * completed its full step plan cleanly — set `true` only by the final
-     * [dev.ayuislands.accent.AccentApplyStep.MarkApplyClean] step. Used by
+     * completed its full step plan cleanly — set `true` only by the penultimate
+     * [dev.ayuislands.accent.AccentApplyStep.MarkApplyClean] step (only the
+     * accent-changed publish follows it). Used by
      * [dev.ayuislands.AyuIslandsAppListener.appFrameCreated] as a trust gate around
      * the cached [lastAppliedAccentHex]: persisting the hex BEFORE the EP iteration
      * makes startup anti-flicker robust to a failed apply, but the cached value is
@@ -356,7 +357,9 @@ class AyuIslandsState : BaseState() {
      * pair. Non-null only when the persisted hex is valid AND the previous
      * apply finished cleanly; a torn apply (hex persisted, flag false) returns
      * `null` so callers fall back to the resolver instead of re-painting a
-     * half-applied accent. Callers must not read the raw pair directly.
+     * half-applied accent. Callers must not combine the raw pair for trust
+     * decisions (raw reads for state hygiene, e.g. the startup corruption
+     * clear, remain legitimate).
      */
     fun trustedCachedAccent(): AccentHex? = effectiveLastAppliedAccentHex()?.takeIf { lastApplyOk }
 

@@ -22,7 +22,9 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class AccentApplyPlanRunnerTest {
-    private val plan = listOf(ApplyAlwaysOnUiKeys, ApplyAlwaysOnEditorKeys, NotifyComponentTrees)
+    private val steps = listOf(ApplyAlwaysOnUiKeys, ApplyAlwaysOnEditorKeys, NotifyComponentTrees)
+    private val abortingPlan = AccentApplyPlan(steps, AccentApplyFailurePolicy.AbortOnFirstFailure)
+    private val continuingPlan = AccentApplyPlan(steps, AccentApplyFailurePolicy.ContinuePerStep)
 
     @BeforeTest
     fun setUp() {
@@ -41,12 +43,11 @@ class AccentApplyPlanRunnerTest {
         var reported: List<AccentApplyStepFailure>? = null
 
         AccentApplyPlanRunner.run(
-            plan = plan,
-            policy = AccentApplyFailurePolicy.AbortOnFirstFailure,
+            plan = abortingPlan,
             executeStep = { executed += it },
         ) { reported = it }
 
-        assertEquals(plan, executed)
+        assertEquals(steps, executed)
         assertEquals(emptyList(), reported)
     }
 
@@ -57,8 +58,7 @@ class AccentApplyPlanRunnerTest {
         val boom = IllegalStateException("boom")
 
         AccentApplyPlanRunner.run(
-            plan = plan,
-            policy = AccentApplyFailurePolicy.AbortOnFirstFailure,
+            plan = abortingPlan,
             executeStep = { step ->
                 executed += step
                 if (step == ApplyAlwaysOnEditorKeys) throw boom
@@ -75,15 +75,14 @@ class AccentApplyPlanRunnerTest {
         var reported: List<AccentApplyStepFailure>? = null
 
         AccentApplyPlanRunner.run(
-            plan = plan,
-            policy = AccentApplyFailurePolicy.ContinuePerStep,
+            plan = continuingPlan,
             executeStep = { step ->
                 executed += step
                 if (step != NotifyComponentTrees) error("boom at $step")
             },
         ) { reported = it }
 
-        assertEquals(plan, executed)
+        assertEquals(steps, executed)
         assertEquals(
             listOf(ApplyAlwaysOnUiKeys, ApplyAlwaysOnEditorKeys),
             reported?.map { it.step },
@@ -94,9 +93,9 @@ class AccentApplyPlanRunnerTest {
     fun `rethrows ProcessCanceledException instead of capturing it`() {
         assertFailsWith<ProcessCanceledException> {
             AccentApplyPlanRunner.run(
-                plan = plan,
-                policy = AccentApplyFailurePolicy.ContinuePerStep,
+                plan = continuingPlan,
                 executeStep = { throw ProcessCanceledException() },
+                onComplete = {},
             )
         }
     }
@@ -105,15 +104,33 @@ class AccentApplyPlanRunnerTest {
     fun `rethrows coroutine CancellationException instead of capturing it`() {
         assertFailsWith<CancellationException> {
             AccentApplyPlanRunner.run(
-                plan = plan,
-                policy = AccentApplyFailurePolicy.ContinuePerStep,
+                plan = continuingPlan,
                 executeStep = { throw CancellationException("cancelled") },
+                onComplete = {},
             )
         }
     }
 
     @Test
-    fun `posts through application invokeLater when off EDT`() {
+    fun `rethrows VirtualMachineError even under the continue policy`() {
+        // OOM / stack overflow must not degrade into a per-step WARN — the
+        // process is compromised and containment would mask it.
+        val executed = mutableListOf<AccentApplyStep>()
+        assertFailsWith<OutOfMemoryError> {
+            AccentApplyPlanRunner.run(
+                plan = continuingPlan,
+                executeStep = { step ->
+                    executed += step
+                    if (step == ApplyAlwaysOnUiKeys) throw OutOfMemoryError("synthetic")
+                },
+                onComplete = {},
+            )
+        }
+        assertEquals(listOf(ApplyAlwaysOnUiKeys), executed)
+    }
+
+    @Test
+    fun `posts through application invokeLater with nonModal modality when off EDT`() {
         every { SwingUtilities.isEventDispatchThread() } returns false
         val mockApplication = mockk<Application>()
         mockkStatic(ApplicationManager::class)
@@ -125,14 +142,15 @@ class AccentApplyPlanRunnerTest {
         var completed = false
 
         AccentApplyPlanRunner.run(
-            plan = plan,
-            policy = AccentApplyFailurePolicy.AbortOnFirstFailure,
+            plan = abortingPlan,
             executeStep = { executed += it },
         ) { completed = true }
 
-        verify { mockApplication.invokeLater(any(), any<ModalityState>()) }
+        // Pin nonModal(): ModalityState.any() would let the apply run inside a
+        // modal dialog's event pump and repaint behind the dialog.
+        verify { mockApplication.invokeLater(any(), ModalityState.nonModal()) }
         verify(exactly = 0) { SwingUtilities.invokeLater(any()) }
-        assertEquals(plan, executed)
+        assertEquals(steps, executed)
         assertTrue(completed, "onComplete must run after the dispatched work")
     }
 
@@ -147,12 +165,12 @@ class AccentApplyPlanRunnerTest {
         val executed = mutableListOf<AccentApplyStep>()
 
         AccentApplyPlanRunner.run(
-            plan = plan,
-            policy = AccentApplyFailurePolicy.AbortOnFirstFailure,
+            plan = abortingPlan,
             executeStep = { executed += it },
+            onComplete = {},
         )
 
         verify { SwingUtilities.invokeLater(any()) }
-        assertEquals(plan, executed)
+        assertEquals(steps, executed)
     }
 }

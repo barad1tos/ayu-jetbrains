@@ -56,20 +56,21 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         // yet (single-project launch or pre-focus-manager startup).
         //
         // Dispatch to the EDT: every step in this triplet has an EDT precondition.
-        //  - AccentApplicator.resolveFocusedProject is @RequiresEdt — it traverses
-        //    WindowManager, IdeFocusManager, ProjectManager, all EDT-only APIs.
-        //  - AccentApplicator.apply is @RequiresEdt — its KDoc lines 200-205
-        //    explicitly state the helper does NOT self-dispatch the pre-apply steps,
-        //    and the inner AccentApplyPlanRunner hop inside apply() only batches the
-        //    UIManager/editor writes; it does not rescue anything that runs before.
+        //  - AccentApplicator.resolveFocusedProject and applyForFocusedProject are
+        //    @RequiresEdt — they traverse WindowManager, IdeFocusManager,
+        //    ProjectManager, all EDT-only APIs.
+        //  - AccentApplicator.apply self-dispatches only the step plan (see the
+        //    "Threading contract" section of its KDoc): the inner
+        //    AccentApplyPlanRunner hop batches the UIManager/editor writes and
+        //    does not rescue anything that runs before it.
         //  - ProjectAccentSwapService.install registers an AWT listener whose
         //    WINDOW_ACTIVATED handler expects to fire after the initial apply's
         //    UIManager state is visible; calling it off the EDT would let the first
         //    real activation race an in-flight apply.
-        //  - ProjectAccentSwapService.notifyExternalApply is a bare volatile write
-        //    with no dispatch; per the AccentApplicator KDoc (lines 203-205) callers
-        //    must already be on the EDT so the lastAppliedHex cache publishes in the
-        //    same ordering as the apply that preceded it — otherwise the first
+        //  - ProjectAccentSwapService.notifyExternalApply is a clean-flag-gated
+        //    volatile write with no dispatch; per applyForFocusedProject's EDT-only
+        //    KDoc paragraph callers must already be on the EDT so the lastAppliedHex
+        //    cache publishes in the same ordering as the apply — otherwise the first
         //    WINDOW_ACTIVATED after startup would re-apply the same color it just
         //    painted.
         // ProjectActivity.execute runs on a background coroutine, so the full
