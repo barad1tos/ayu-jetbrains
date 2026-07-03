@@ -54,6 +54,9 @@ class ProjectAccentSwapServicePublishTest {
     @BeforeTest
     fun setUp() {
         state.irIntegrationEnabled = true
+        // Cache priming routes through the torn-apply gate; these tests
+        // simulate post-clean-apply swaps, so the flag must read clean.
+        state.lastApplyOk = true
 
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns mockSettings

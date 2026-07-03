@@ -482,6 +482,26 @@ class ProjectAccentSwapServiceTest {
     }
 
     @Test
+    fun `focus-swap apply does not prime the cache when the apply tears`() {
+        // The internal write site must route through the same torn-apply gate:
+        // applyFromHexString returning true only proves the hex shape was valid.
+        // If the plan tore (lastApplyOk=false), priming the cache would freeze
+        // the tear behind the same-hex branch; the swap path must keep retrying
+        // on every activation instead — pre-plan behavior.
+        state.lastApplyOk = false
+        val (window, project) = wireMatchingFrame()
+        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
+        val service = ProjectAccentSwapService()
+
+        service.onWindowActivatedForTest(makeEvent(window))
+        service.onWindowActivatedForTest(makeEvent(window))
+
+        // Both activations re-applied: the torn hex never entered the cache,
+        // so the second event did NOT take the cheap same-hex branch.
+        verify(exactly = 2) { AccentApplicator.applyFromHexString("#FFCC66") }
+    }
+
+    @Test
     fun `notifyExternalApply primes the cache only after a clean apply`() {
         state.lastApplyOk = true
         val (window, project) = wireMatchingFrame()
