@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+- [Fix] **Project-language accent scans** — background detection now cancels
+  when a project closes, checks cancellation during large repository scans, and
+  drops late cache or publish results so reopened projects do not inherit stale
+  language accents.
+- [Fix] **Large project language accents** — language detection now keeps exact
+  scans for projects under the file cap and uses bounded sampling for larger
+  repositories, so accents resolve consistently without walking every file in a
+  monorepo.
+- [Fix] **Font installer fallbacks** — fallback font download URLs are now
+  smoke-checked in CI before release, catching broken upstream links before a
+  bundled font install reaches users.
+
 ## [2.7.7] - 2026-07-01
 
 - [Fix] **Language override diagnostics** — Settings and Quick-Switcher now show
