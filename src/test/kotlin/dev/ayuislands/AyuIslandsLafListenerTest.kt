@@ -1,6 +1,8 @@
 package dev.ayuislands
 
 import com.intellij.ide.ui.LafManager
+import com.intellij.openapi.application.Application
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.ProjectManager
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentContext
@@ -30,8 +32,9 @@ import kotlin.test.Test
  *      `AccentApplicator.applyAlwaysOnEditorKeys` mutates `globalScheme`
  *      in-place and a swap-after-mutate would strand the prior scheme with
  *      accent overrides forever.
- *   3. The `variant == null` early-return path (theme switched AWAY from
- *      Ayu) does NOT call `bindForVariant` — the binder has no revert path.
+ *   3. The null-context path (theme switched AWAY from Ayu — `ThemeReapplication.planFor`
+ *      omits `BindScheme` from its plan) does NOT call `bindForVariant` — the binder has
+ *      no revert path.
  *
  * Pattern G — symmetry between the bind/apply order and the revert path.
  */
@@ -41,6 +44,7 @@ class AyuIslandsLafListenerTest {
     private val mockSettings = mockk<AyuIslandsSettings>(relaxed = true)
     private val mockProjectManager = mockk<ProjectManager>(relaxed = true)
     private val mockSyntaxService = mockk<SyntaxIntensityService>(relaxed = true)
+    private val mockApplication = mockk<Application>(relaxed = true)
 
     @BeforeTest
     fun setUp() {
@@ -48,6 +52,14 @@ class AyuIslandsLafListenerTest {
         every { mockSettings.state } returns state
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns mockSettings
+
+        // `lookAndFeelChanged` now delegates to `ThemeReapplication.reapply`, which reads
+        // `ApplicationManager.getApplication().isDispatchThread` to decide whether to run
+        // its plan inline or hop through `invokeLater`. Stub it to run inline so the plan's
+        // effects (and this file's `verify` assertions) happen synchronously.
+        mockkStatic(ApplicationManager::class)
+        every { ApplicationManager.getApplication() } returns mockApplication
+        every { mockApplication.isDispatchThread } returns true
 
         mockkStatic(ProjectManager::class)
         every { ProjectManager.getInstance() } returns mockProjectManager
@@ -132,9 +144,10 @@ class AyuIslandsLafListenerTest {
 
     @Test
     fun `lookAndFeelChanged on non-Ayu LAF reverts and does NOT bind`() {
-        // Pattern J — the listener's `variant == null` early-return must NOT
-        // call the binder. The binder has no revert path (Ayu→non-Ayu would
-        // require persisting the user's prior scheme — separate feature).
+        // Pattern J — a null context (theme switched AWAY from Ayu) must NOT
+        // call the binder: `ThemeReapplication.planFor` omits `BindScheme` from
+        // its plan for a null context. The binder has no revert path (Ayu→non-Ayu
+        // would require persisting the user's prior scheme — separate feature).
         state.syncEditorScheme = true
         state.externalThemeEnhancementsEnabled = false
         every { AyuVariant.detect() } returns null
