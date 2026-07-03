@@ -13,14 +13,15 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.ui.LicensingFacade
 import dev.ayuislands.AyuPlugin
-import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AccentGroup
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowAnimation
-import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
+import dev.ayuislands.reapply.ReapplyReason
+import dev.ayuislands.reapply.ReapplyStep
+import dev.ayuislands.reapply.ThemeReapplication
 import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -30,7 +31,6 @@ import dev.ayuislands.syntax.SyntaxIntensityService
 import dev.ayuislands.syntax.SyntaxIntensityState
 import dev.ayuislands.syntax.SyntaxPreset
 import dev.ayuislands.syntax.SyntaxReadabilityOptions
-import dev.ayuislands.vcs.VcsColorApplier
 import dev.ayuislands.vcs.VcsColorPreset
 import org.jetbrains.annotations.VisibleForTesting
 import java.time.LocalDate
@@ -225,10 +225,10 @@ object LicenseChecker {
      * transition listener, and any future direct callers). `BaseState` itself
      * is not thread-safe for parallel writes, and the writes here are idempotent
      * resets — a lost update would produce the same terminal state, but the lock
-     * prevents a half-committed toggle map from leaking. Downstream calls
-     * (`AccentApplicator.apply`, `GlowOverlayManager.syncGlowForAllProjects`)
-     * intentionally stay *outside* the lock: both hop to EDT and can take other
-     * platform locks, so holding `state` across them would risk deadlock.
+     * prevents a half-committed toggle map from leaking. The downstream
+     * [ThemeReapplication.reapply] call (accent, glow, VCS colors) intentionally
+     * stays *outside* the lock: it hops to EDT and can take other platform
+     * locks, so holding `state` across it would risk deadlock.
      */
     fun revertToFreeDefaults(variant: AyuVariant) {
         val state = AyuIslandsSettings.getInstance().state
@@ -317,52 +317,42 @@ object LicenseChecker {
 
         ApplicationManager.getApplication().getService(AccentRotationService::class.java)?.stopRotation()
 
-        // Re-apply accent with reset toggles (accent color itself stays — it's free)
-        try {
-            val accentHex = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
-            val applied = AccentApplicator.applyFromHexString(accentHex)
-            if (!applied) {
-                LOG.warn(
-                    "Revert-to-free accent apply rejected (hex='$accentHex', variant=$variant); " +
-                        "visible accent left unchanged",
-                )
+        // Re-apply accent (free-tier feature stays), sync glow, and revert VCS colors
+        // through the shared reapplication seam so this caller matches the LAF-listener
+        // and rotation-tick paths. `LicenseRevert`'s plan is [ApplyExplicitHex, Glow,
+        // VcsRevert] (see `ThemeReapplication.planFor`) — same order as before this migration.
+        val freeHex = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
+        ThemeReapplication.reapply(ReapplyReason.LicenseRevert(freeHex)) { result ->
+            for (failure in result.failures) {
+                LOG.warn("License revert step=${failure.step} failed", failure.error)
             }
-        } catch (exception: RuntimeException) {
-            LOG.warn("Revert to free defaults failed", exception)
-            NotificationGroupManager
-                .getInstance()
-                .getNotificationGroup(NOTIFICATION_GROUP)
-                .createNotification(
+            if (result.failed(ReapplyStep.ApplyExplicitHex)) {
+                notifyRevertIncomplete(
                     "Accent revert incomplete",
                     "Some accent colors could not be reverted. " +
                         "Restart your IDE to complete the reset.",
-                    NotificationType.WARNING,
-                ).notify(null)
-        }
-
-        try {
-            GlowOverlayManager.syncGlowForAllProjects()
-        } catch (exception: RuntimeException) {
-            LOG.warn("Glow sync after license revert failed", exception)
-            NotificationGroupManager
-                .getInstance()
-                .getNotificationGroup(NOTIFICATION_GROUP)
-                .createNotification(
+                )
+            }
+            if (result.failed(ReapplyStep.Glow)) {
+                notifyRevertIncomplete(
                     "Glow sync incomplete",
                     "Glow overlays could not be updated after license change. " +
                         "Restart your IDE to complete the reset.",
-                    NotificationType.WARNING,
-                ).notify(null)
+                )
+            }
+            // VcsRevert failures stay LOG.warn-only (above), matching pre-migration behavior.
         }
+    }
 
-        // Write nulls into the editor scheme for every VCS color key the plugin
-        // owns so the user sees stock colors restore immediately, without
-        // waiting for a theme switch or restart.
-        try {
-            VcsColorApplier.revertAll()
-        } catch (exception: RuntimeException) {
-            LOG.warn("VCS color revert after license revert failed", exception)
-        }
+    private fun notifyRevertIncomplete(
+        title: String,
+        body: String,
+    ) {
+        NotificationGroupManager
+            .getInstance()
+            .getNotificationGroup(NOTIFICATION_GROUP)
+            .createNotification(title, body, NotificationType.WARNING)
+            .notify(null)
     }
 
     private fun resetSyntaxIntensityToFreeDefaults() {

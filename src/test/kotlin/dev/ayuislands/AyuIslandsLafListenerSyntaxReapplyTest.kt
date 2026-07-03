@@ -1,6 +1,8 @@
 package dev.ayuislands
 
 import com.intellij.ide.ui.LafManager
+import com.intellij.openapi.application.Application
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.io.FileUtil
 import dev.ayuislands.accent.AccentApplicator
@@ -42,6 +44,7 @@ class AyuIslandsLafListenerSyntaxReapplyTest {
     private val mockSettings = mockk<AyuIslandsSettings>(relaxed = true)
     private val mockProjectManager = mockk<ProjectManager>(relaxed = true)
     private val mockSyntaxService = mockk<SyntaxIntensityService>(relaxed = true)
+    private val mockApplication = mockk<Application>(relaxed = true)
 
     @BeforeTest
     fun setUp() {
@@ -49,6 +52,14 @@ class AyuIslandsLafListenerSyntaxReapplyTest {
         every { mockSettings.state } returns state
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns mockSettings
+
+        // `lookAndFeelChanged` now delegates to `ThemeReapplication.reapply`, which reads
+        // `ApplicationManager.getApplication().isDispatchThread` to decide whether to run
+        // its plan inline or hop through `invokeLater`. Stub it to run inline so the plan's
+        // effects (and this file's `verify` assertions) happen synchronously.
+        mockkStatic(ApplicationManager::class)
+        every { ApplicationManager.getApplication() } returns mockApplication
+        every { mockApplication.isDispatchThread } returns true
 
         mockkStatic(ProjectManager::class)
         every { ProjectManager.getInstance() } returns mockProjectManager
@@ -84,8 +95,9 @@ class AyuIslandsLafListenerSyntaxReapplyTest {
     @Test
     fun `lookAndFeelChanged when AyuVariant isAyuActive true calls reapplyForActiveLaf`() {
         // Pattern J — reapply must fire whenever the LAF lands on an Ayu variant.
-        // `detect` returns non-null (passes the early-return guard) and
-        // `isAyuActive` returns true (passes the source-grep gate at the call site).
+        // `detect` returns non-null, so `ThemeReapplication.planFor` includes the
+        // `Syntax` step, and `isAyuActive` returns true, so the step's own gate
+        // (inside `ThemeReapplication.runStep`) lets the call through.
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         every { AyuVariant.isAyuActive() } returns true
         val mockLafManager = mockk<LafManager>(relaxed = true)
@@ -99,9 +111,10 @@ class AyuIslandsLafListenerSyntaxReapplyTest {
     @Test
     fun `lookAndFeelChanged when AyuVariant isAyuActive false does NOT call reapplyForActiveLaf`() {
         // Pattern J — non-Ayu LAF must skip the reapply path entirely.
-        // `detect` returns null which triggers the listener's early-return
-        // BEFORE the syntax reapply block; `isAyuActive` returns false to
-        // double-lock the gate at the call site for future audits.
+        // `detect` returns null, so `ThemeReapplication.planFor` omits the `Syntax`
+        // step outright; `isAyuActive` returns false to double-lock the seam's own
+        // gate for future audits, in case a step-ordering change ever reintroduces
+        // `Syntax` for a null context.
         state.externalThemeEnhancementsEnabled = false
         every { AyuVariant.detect() } returns null
         every { AyuVariant.isAyuActive() } returns false
