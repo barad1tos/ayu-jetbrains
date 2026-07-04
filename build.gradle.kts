@@ -270,8 +270,9 @@ kover {
                     //     paint, JBLabel layout
                     //   - WhatsNewEditor: thin FileEditor contract wrapper
                     //   - WhatsNewLauncher: OnboardingSchedulerService coroutine launch,
-                    //     Dispatchers.EDT hop, IdeFocusManager lookup, FileEditorManager open
-                    //     (the pure isEligible + version normalization paths ARE tested)
+                    //     FileEditorManager open (the pure isEligible + version
+                    //     normalization paths ARE tested; the focus-race protocol lives
+                    //     in the fully tested dev.ayuislands.ui.FocusWinningTabOpener)
                     "dev.ayuislands.whatsnew.WhatsNewPanel",
                     $$"dev.ayuislands.whatsnew.WhatsNewPanel$1",
                     $$"dev.ayuislands.whatsnew.WhatsNewPanel$2",

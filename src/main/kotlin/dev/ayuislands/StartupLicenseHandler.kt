@@ -1,13 +1,8 @@
 package dev.ayuislands
 
-import com.intellij.openapi.application.EDT
-import com.intellij.openapi.application.ModalityState
-import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.openapi.wm.IdeFocusManager
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.editor.EditorScrollbarManager
@@ -22,10 +17,9 @@ import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.PanelWidthMode
-import kotlinx.coroutines.Dispatchers
+import dev.ayuislands.ui.FocusWinningTabOpener
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
@@ -114,10 +108,24 @@ internal object StartupLicenseHandler {
     }
 
     /**
+     * Focus-race protocol shared with the What's New launcher: EDT hop,
+     * disposed guard, focus check, [OnboardingOrchestrator.gate] claim, and
+     * release-on-failure so one failed `openFile` can't permanently block the
+     * wizard for the whole JVM session.
+     */
+    private val wizardOpener =
+        FocusWinningTabOpener(
+            gate = OnboardingOrchestrator.gate,
+            log = LOG,
+            logPrefix = "Ayu onboarding",
+            subject = "wizard",
+        )
+
+    /**
      * Schedule a wizard display. Every project running the startup activity schedules
      * its own coroutine. When the coroutines fire after the delay, only the project
-     * whose frame is currently active will actually open the wizard — see
-     * [scheduleFreeWizard] / [scheduleTrialWelcome] for the focus-aware claim logic.
+     * whose frame is currently active will actually open the wizard — the focus-aware
+     * claim logic lives in [FocusWinningTabOpener].
      */
     fun handleWizardAction(
         action: WizardAction,
@@ -143,8 +151,11 @@ internal object StartupLicenseHandler {
         scope.launch {
             delay(delayMs.milliseconds)
             if (project.isDisposed) return@launch
-            openWizardIfThisProjectWins(project, OnboardingVirtualFile()) {
-                settings.state.premiumOnboardingShown = true
+            wizardOpener.open(
+                project = project,
+                onSuccess = { settings.state.premiumOnboardingShown = true },
+            ) { target ->
+                FileEditorManager.getInstance(target).openFile(OnboardingVirtualFile(), true)
             }
         }
     }
@@ -165,47 +176,11 @@ internal object StartupLicenseHandler {
         scope.launch {
             delay(delayMs.milliseconds)
             if (project.isDisposed) return@launch
-            openWizardIfThisProjectWins(project, FreeOnboardingVirtualFile()) {
-                settings.state.freeOnboardingShown = true
-            }
-        }
-    }
-
-    /**
-     * Hop to EDT and open the wizard in the user's active project tab.
-     *
-     * In merged-window mode (project tabs), all projects share one OS frame.
-     * [IdeFocusManager.getGlobalInstance] `.lastFocusedFrame.project` identifies
-     * which project tab the user is currently viewing — even when the IDE itself is in
-     * the background. Only the matching project opens the wizard; the rest bail out.
-     * If no frame is focused (cold start, or IDE minimized), the first project to call
-     * [OnboardingOrchestrator.tryPick] wins as a fallback.
-     */
-    private suspend fun openWizardIfThisProjectWins(
-        project: Project,
-        file: VirtualFile,
-        onSuccess: () -> Unit,
-    ) {
-        withContext(Dispatchers.EDT + ModalityState.nonModal().asContextElement()) {
-            if (project.isDisposed) return@withContext
-
-            val activeProject = IdeFocusManager.getGlobalInstance().lastFocusedFrame?.project
-            if (activeProject != null && activeProject != project) {
-                LOG.info("Ayu onboarding: project ${project.name} is not the active tab — deferring")
-                return@withContext
-            }
-
-            if (!OnboardingOrchestrator.tryPick()) {
-                LOG.info("Ayu onboarding: another project already claimed the wizard slot")
-                return@withContext
-            }
-
-            LOG.info("Ayu onboarding: opening wizard in ${project.name}")
-            try {
-                FileEditorManager.getInstance(project).openFile(file, true)
-                onSuccess()
-            } catch (exception: RuntimeException) {
-                LOG.error("Ayu onboarding: failed to open wizard in ${project.name}", exception)
+            wizardOpener.open(
+                project = project,
+                onSuccess = { settings.state.freeOnboardingShown = true },
+            ) { target ->
+                FileEditorManager.getInstance(target).openFile(FreeOnboardingVirtualFile(), true)
             }
         }
     }

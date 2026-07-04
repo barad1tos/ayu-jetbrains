@@ -1,6 +1,6 @@
 package dev.ayuislands.onboarding
 
-import java.util.concurrent.atomic.AtomicBoolean
+import dev.ayuislands.ui.SessionOneShot
 
 /** Decision result from the onboarding state machine. */
 sealed class WizardAction {
@@ -15,27 +15,15 @@ sealed class WizardAction {
  * Pure-logic state machine that resolves which onboarding wizard to display.
  *
  * No platform dependencies — all inputs are plain booleans, making this trivially testable.
- * The [AtomicBoolean] guard ensures at most one project window actually opens the wizard
- * in a JVM session, even when several project windows race to claim it after their
- * individual coroutine delays elapse. Unlike a simple acquire-on-schedule lock, the
- * pick happens *after* the delay so the currently-focused project window wins, not
- * whichever project happened to start first.
+ * The [gate] ensures at most one project window actually opens the wizard in a JVM session,
+ * even when several project windows race to claim it after their individual coroutine
+ * delays elapse. Unlike a simple acquire-on-schedule lock, the pick happens *after* the
+ * delay so the currently-focused project window wins, not whichever project happened to
+ * start first.
  */
 internal object OnboardingOrchestrator {
-    private val wizardShown = AtomicBoolean(false)
-
-    /**
-     * Atomically claims the right to open the wizard. Returns `true` only to the
-     * first caller; subsequent callers get `false` and must bail without showing.
-     * One-shot for the lifetime of the JVM session.
-     */
-    fun tryPick(): Boolean = wizardShown.compareAndSet(false, true)
-
-    /** Test-only hook: reset the one-shot pick flag between test cases. */
-    @org.jetbrains.annotations.TestOnly
-    fun resetForTesting() {
-        wizardShown.set(false)
-    }
+    /** In-session one-shot claim for the onboarding wizard — see [SessionOneShot]. */
+    val gate: SessionOneShot = SessionOneShot()
 
     /**
      * Resolves which wizard action to take based on license and onboarding state.

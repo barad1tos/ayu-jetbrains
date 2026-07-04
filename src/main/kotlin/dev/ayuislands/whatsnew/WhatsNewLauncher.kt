@@ -1,20 +1,15 @@
 package dev.ayuislands.whatsnew
 
-import com.intellij.openapi.application.EDT
-import com.intellij.openapi.application.ModalityState
-import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.wm.IdeFocusManager
 import dev.ayuislands.AyuPlugin
 import dev.ayuislands.onboarding.OnboardingSchedulerService
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.ui.FocusWinningTabOpener
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
@@ -25,17 +20,26 @@ import kotlin.time.Duration.Companion.milliseconds
  *  - Persistent: [dev.ayuislands.settings.AyuIslandsState.lastWhatsNewShownVersion]
  *    survives IDE restarts. Once the tab opens for v2.5.0, it never auto-opens
  *    again until v2.6.0 (or whichever version next ships a manifest).
- *  - In-session: [WhatsNewOrchestrator] handles the multi-window startup race.
+ *  - In-session: [WhatsNewOrchestrator] holds the gate for the multi-window
+ *    startup race.
  *
- * Tab open mirrors `StartupLicenseHandler.openWizardIfThisProjectWins` —
- * focus-aware so the user's currently-focused project gets the tab, not just
- * the first one to schedule.
+ * The focus-race protocol itself (EDT hop, disposed guard, focus check, CAS
+ * claim, release-on-failure) lives in [FocusWinningTabOpener], shared with the
+ * onboarding wizard scheduler in `dev.ayuislands.StartupLicenseHandler`.
  */
 internal object WhatsNewLauncher {
     private val LOG = logger<WhatsNewLauncher>()
 
     /** Delay before opening so the IDE frame settles and focus stabilizes. */
     private const val OPEN_DELAY_MS = 500
+
+    private val opener =
+        FocusWinningTabOpener(
+            gate = WhatsNewOrchestrator.gate,
+            log = LOG,
+            logPrefix = "Ayu What's New",
+            subject = "tab",
+        )
 
     /**
      * Auto-trigger entry called from [dev.ayuislands.UpdateNotifier]. Returns
@@ -98,10 +102,19 @@ internal object WhatsNewLauncher {
             try {
                 delay(OPEN_DELAY_MS.milliseconds)
                 if (project.isDisposed) return@launch
-                openIfThisProjectWins(project, isManual) {
-                    settings.state.lastWhatsNewShownVersion = normalizedVersion
-                    LOG.info("Ayu What's New: marked $normalizedVersion as shown")
-                }
+                // Manual triggers bypass both the focus check AND the
+                // orchestrator gate — the user explicitly asked from the
+                // action menu, so this project is the right one and the
+                // auto-trigger one-shot must not block them.
+                opener.open(
+                    project = project,
+                    bypassFocus = isManual,
+                    bypassGate = isManual,
+                    onSuccess = {
+                        settings.state.lastWhatsNewShownVersion = normalizedVersion
+                        LOG.info("Ayu What's New: marked $normalizedVersion as shown")
+                    },
+                ) { target -> openWhatsNewTab(target) }
             } catch (cancellation: CancellationException) {
                 // Catch order matters: CancellationException is a RuntimeException
                 // subtype, so this branch MUST come first to preserve structured
@@ -117,89 +130,25 @@ internal object WhatsNewLauncher {
     }
 
     /**
-     * Hop to EDT and open the tab in the user's active project. Mirrors
-     * [dev.ayuislands.StartupLicenseHandler.openWizardIfThisProjectWins]:
-     *  - In merged-window mode (project tabs), `IdeFocusManager.lastFocusedFrame.project`
-     *    identifies which project tab the user is viewing.
-     *  - Only the matching project opens the tab; others bail.
-     *  - If no frame is focused (cold start), the first project to call
-     *    [WhatsNewOrchestrator.tryPick] wins as a fallback.
+     * What's New-specific open action, run by [FocusWinningTabOpener] on EDT.
      *
-     * For [isManual] = true, both the focus check AND the orchestrator gate
-     * are skipped — the user explicitly asked from the action menu, so this
-     * project is the right one and the orchestrator's auto-trigger one-shot
-     * must not block them. If `openFile` throws, we always release the
-     * orchestrator claim so the JVM session doesn't deadlock.
+     * [WhatsNewVirtualFile] uses identity equality, so a fresh instance would
+     * NOT match an already-open tab and [FileEditorManager] would create a
+     * duplicate. Look up the existing instance first and pass THAT to
+     * `openFile`, which then focuses the existing tab instead. If MULTIPLE
+     * stale instances exist (leaked from an earlier bug or a split-editor
+     * race), focus the first and close the rest so the tab strip doesn't
+     * collect orphans silently.
      */
-    private suspend fun openIfThisProjectWins(
-        project: Project,
-        isManual: Boolean,
-        onSuccess: () -> Unit,
-    ) {
-        withContext(Dispatchers.EDT + ModalityState.nonModal().asContextElement()) {
-            if (project.isDisposed) return@withContext
-            if (!shouldOpenForThisProject(project, isManual)) return@withContext
-            val claimed = !isManual && WhatsNewOrchestrator.tryPick()
-            if (!isManual && !claimed) {
-                LOG.info("Ayu What's New: another project already claimed the tab slot")
-                return@withContext
-            }
-            performOpen(project, isManual, claimed, onSuccess)
+    private fun openWhatsNewTab(project: Project) {
+        val manager = FileEditorManager.getInstance(project)
+        val matches = manager.openFiles.filterIsInstance<WhatsNewVirtualFile>()
+        if (matches.size > 1) {
+            LOG.warn("Ayu What's New: found ${matches.size} stale tabs in ${project.name}; closing extras")
+            matches.drop(1).forEach { manager.closeFile(it) }
         }
-    }
-
-    /**
-     * Returns true iff this project is the right one to open the tab in. For
-     * manual triggers it's always true (user explicitly clicked the menu in
-     * this project). For auto triggers the user's currently-focused project
-     * wins; other windows defer.
-     */
-    private fun shouldOpenForThisProject(
-        project: Project,
-        isManual: Boolean,
-    ): Boolean {
-        if (isManual) return true
-        val activeProject = IdeFocusManager.getGlobalInstance().lastFocusedFrame?.project
-        if (activeProject != null && activeProject != project) {
-            LOG.info("Ayu What's New: ${project.name} is not the active tab — deferring")
-            return false
-        }
-        return true
-    }
-
-    /**
-     * Opens the tab and invokes [onSuccess] on a clean open. On failure releases
-     * the orchestrator claim if it was held — without this, a single failed open
-     * would deadlock the JVM session for both auto and manual triggers.
-     */
-    private fun performOpen(
-        project: Project,
-        isManual: Boolean,
-        claimed: Boolean,
-        onSuccess: () -> Unit,
-    ) {
-        LOG.info("Ayu What's New: opening tab in ${project.name} (manual=$isManual)")
-        try {
-            // WhatsNewVirtualFile uses identity equality, so a fresh instance
-            // would NOT match an already-open tab and FileEditorManager would
-            // create a duplicate. Look up the existing instance first and pass
-            // THAT to openFile, which then focuses the existing tab instead.
-            // If MULTIPLE stale instances exist (leaked from an earlier bug or
-            // a split-editor race), focus the first and close the rest so the
-            // tab strip doesn't collect orphans silently.
-            val manager = FileEditorManager.getInstance(project)
-            val matches = manager.openFiles.filterIsInstance<WhatsNewVirtualFile>()
-            if (matches.size > 1) {
-                LOG.warn("Ayu What's New: found ${matches.size} stale tabs in ${project.name}; closing extras")
-                matches.drop(1).forEach { manager.closeFile(it) }
-            }
-            val target = matches.firstOrNull() ?: WhatsNewVirtualFile()
-            manager.openFile(target, true)
-            onSuccess()
-        } catch (exception: RuntimeException) {
-            LOG.error("Ayu What's New: failed to open tab in ${project.name}", exception)
-            if (claimed) WhatsNewOrchestrator.release()
-        }
+        val target = matches.firstOrNull() ?: WhatsNewVirtualFile()
+        manager.openFile(target, true)
     }
 
     private fun pluginDescriptor() = AyuPlugin.findLoadedPlugin(AyuPlugin.ID)

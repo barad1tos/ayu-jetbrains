@@ -1,27 +1,15 @@
 package dev.ayuislands.onboarding
 
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
-import kotlin.test.AfterTest
-import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 
+/**
+ * The wizard claim gate ([OnboardingOrchestrator.gate]) is a
+ * `dev.ayuislands.ui.SessionOneShot` — its acquire/release/thread-safety
+ * semantics are locked in `SessionOneShotTest`. This file covers the pure
+ * `resolve` state machine.
+ */
 class OnboardingOrchestratorTest {
-    @BeforeTest
-    fun setUp() {
-        OnboardingOrchestrator.resetForTesting()
-    }
-
-    @AfterTest
-    fun tearDown() {
-        OnboardingOrchestrator.resetForTesting()
-    }
-
     // -----------------------------------------------------------------------
     // resolve() - full truth table (all meaningful input combinations)
     // -----------------------------------------------------------------------
@@ -271,69 +259,6 @@ class OnboardingOrchestratorTest {
             WizardAction.NoWizard,
             resolve(licensed = false, freeShown = true, returning = false, premiumShown = true),
         )
-    }
-
-    // -----------------------------------------------------------------------
-    // tryPick - one-shot claim guard
-    // -----------------------------------------------------------------------
-
-    @Test
-    fun `tryPick returns true on first call`() {
-        assertTrue(OnboardingOrchestrator.tryPick())
-    }
-
-    @Test
-    fun `tryPick returns false on subsequent calls`() {
-        OnboardingOrchestrator.tryPick()
-        assertFalse(OnboardingOrchestrator.tryPick())
-    }
-
-    @Test
-    fun `resetForTesting re-enables tryPick`() {
-        OnboardingOrchestrator.tryPick()
-        OnboardingOrchestrator.resetForTesting()
-        assertTrue(OnboardingOrchestrator.tryPick())
-    }
-
-    @Test
-    fun `tryPick is thread-safe under concurrent access from 100 threads`() {
-        OnboardingOrchestrator.resetForTesting()
-        val threadCount = 100
-        val startLatch = CountDownLatch(1)
-        val doneLatch = CountDownLatch(threadCount)
-        val trueCount = AtomicInteger(0)
-        val executor = Executors.newFixedThreadPool(threadCount)
-        try {
-            repeat(threadCount) {
-                executor.submit {
-                    try {
-                        // Block all worker threads until the main thread releases them,
-                        // so they race on tryPick() instead of running serialized.
-                        startLatch.await()
-                        if (OnboardingOrchestrator.tryPick()) {
-                            trueCount.incrementAndGet()
-                        }
-                    } finally {
-                        doneLatch.countDown()
-                    }
-                }
-            }
-            startLatch.countDown()
-            assertTrue(
-                doneLatch.await(5, TimeUnit.SECONDS),
-                "Worker threads did not finish within 5 seconds",
-            )
-        } finally {
-            executor.shutdownNow()
-        }
-
-        assertEquals(
-            1,
-            trueCount.get(),
-            "Exactly one of $threadCount concurrent callers must win tryPick()",
-        )
-        // Subsequent call must still return false - the one-shot is latched.
-        assertFalse(OnboardingOrchestrator.tryPick())
     }
 
     // -----------------------------------------------------------------------
