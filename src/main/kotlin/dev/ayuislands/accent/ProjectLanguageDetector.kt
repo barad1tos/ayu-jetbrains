@@ -105,6 +105,7 @@ object ProjectLanguageDetector {
     fun proportions(project: Project): Map<String, Long>? =
         when (val cached = verdict(project)) {
             is ProjectLanguageVerdict.Detected -> cached.weights
+
             is ProjectLanguageVerdict.NoWinner,
             ProjectLanguageVerdict.Cold,
             ProjectLanguageVerdict.Empty,
@@ -308,9 +309,11 @@ object ProjectLanguageDetector {
             val outcome: ScanOutcome =
                 when (verdict) {
                     is ProjectLanguageVerdict.Detected -> ScanOutcome.Detected(verdict.languageId)
+
                     is ProjectLanguageVerdict.NoWinner,
                     ProjectLanguageVerdict.Empty,
                     -> ScanOutcome.Polyglot
+
                     ProjectLanguageVerdict.Cold,
                     ProjectLanguageVerdict.Unavailable,
                     -> ScanOutcome.Unavailable
@@ -330,6 +333,7 @@ object ProjectLanguageDetector {
                 is ScanOutcome.Detected,
                 ScanOutcome.Polyglot,
                 -> ProjectLanguageScanAsync.ScanResult.Completed
+
                 ScanOutcome.Unavailable -> ProjectLanguageScanAsync.ScanResult.Unavailable
             }
         }
@@ -510,8 +514,9 @@ object ProjectLanguageDetector {
     private fun legacySdkModuleDetection(project: Project): DetectionResult {
         // Both platform lookups wrap via runCatchingPreservingCancellation — `dominant`
         // is reachable from AyuIslandsStartupActivity.execute's coroutine body via
-        // AccentResolver.findOverride, and plain `runCatching` would swallow
-        // CancellationException and keep a cancelled coroutine alive.
+        // the resolution engine in [AccentResolutionChainBuilder], and plain
+        // `runCatching` would swallow CancellationException and keep a cancelled
+        // coroutine alive.
         val sdkResult =
             runCatchingPreservingCancellation {
                 ProjectRootManager
@@ -581,15 +586,20 @@ object ProjectLanguageDetector {
     private fun sdkNameLookupSecondary(lowered: String): String? =
         when {
             lowered.contains("ruby") -> "ruby"
+
             lowered.contains("php") -> "php"
+
             lowered.contains("dart") -> "dart"
+
             lowered.contains("scala") -> "scala"
+
             // "jdk" covers "OpenJDK", "AdoptOpenJDK", "Amazon Corretto JDK"; the
             // conjunction handles "Java SDK" / "JavaSDK" SDK type names where
             // lowercasing drops the word boundary and the letters never form
             // a "jdk" substring (j-a-v-a-s-d-k).
             lowered.contains("jdk") ||
                 (lowered.contains("java") && lowered.contains("sdk")) -> "java"
+
             else -> null
         }
 
