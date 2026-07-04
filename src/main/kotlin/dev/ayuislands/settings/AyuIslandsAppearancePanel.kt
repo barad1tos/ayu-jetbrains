@@ -28,14 +28,30 @@ typealias SystemAccentRowInstaller = (Panel) -> Unit
  * The scheme-bind row is rendered FIRST so it surfaces above the macOS-only
  * group when both apply. On non-macOS platforms only the scheme-bind row is
  * rendered.
+ *
+ * Pending/stored bookkeeping is delegated to a [SettingsSection] over
+ * [AppearanceSettings] — except `syncEditorScheme`, whose pending/stored
+ * Boolean fields are a reflection contract with
+ * `AyuIslandsAppearancePanelSyncEditorSchemeTest` (the test writes the fields
+ * via `getDeclaredField`), so they deliberately stay hand-rolled.
  */
 class AyuIslandsAppearancePanel : AyuIslandsSettingsPanel {
-    private var pendingFollowAppearance: Boolean = false
-    private var storedFollowAppearance: Boolean = false
-    private var followAppearanceCheckbox: JBCheckBox? = null
+    private data class AppearanceSettings(
+        val followSystemAppearance: Boolean = false,
+        val nightTheme: String = "Mirage",
+    )
 
-    private var pendingNightTheme: String = "Mirage"
-    private var storedNightTheme: String = "Mirage"
+    private val section =
+        SettingsSection(initial = AppearanceSettings()) {
+            val state = AyuIslandsSettings.getInstance().state
+            val currentDarkTheme = state.lastDarkAppearanceTheme ?: "Ayu Mirage (Islands UI)"
+            AppearanceSettings(
+                followSystemAppearance = state.followSystemAppearance,
+                nightTheme = if (currentDarkTheme.contains("Dark")) "Dark" else "Mirage",
+            )
+        }
+
+    private var followAppearanceCheckbox: JBCheckBox? = null
     private var nightThemeCombo: JComboBox<String>? = null
 
     private var pendingSyncEditorScheme: Boolean = true
@@ -49,13 +65,7 @@ class AyuIslandsAppearancePanel : AyuIslandsSettingsPanel {
         variant: AyuVariant,
     ) {
         val settings = AyuIslandsSettings.getInstance()
-        storedFollowAppearance = settings.state.followSystemAppearance
-        pendingFollowAppearance = storedFollowAppearance
-
-        val currentDarkTheme = settings.state.lastDarkAppearanceTheme ?: "Ayu Mirage (Islands UI)"
-        val currentNight = if (currentDarkTheme.contains("Dark")) "Dark" else "Mirage"
-        storedNightTheme = currentNight
-        pendingNightTheme = currentNight
+        section.load()
 
         storedSyncEditorScheme = settings.state.syncEditorScheme
         pendingSyncEditorScheme = storedSyncEditorScheme
@@ -88,9 +98,9 @@ class AyuIslandsAppearancePanel : AyuIslandsSettingsPanel {
                     checkboxCell =
                         checkBox("Follow system appearance (Light / Dark)")
                     val checkbox = checkboxCell.component
-                    checkbox.isSelected = pendingFollowAppearance
+                    checkbox.isSelected = section.pending.followSystemAppearance
                     checkbox.addActionListener {
-                        pendingFollowAppearance = checkbox.isSelected
+                        section.update { it.copy(followSystemAppearance = checkbox.isSelected) }
                     }
                     followAppearanceCheckbox = checkbox
                 }
@@ -98,15 +108,15 @@ class AyuIslandsAppearancePanel : AyuIslandsSettingsPanel {
                     label("Night theme:")
                     val nightOptions = listOf("Mirage", "Dark")
                     val combo = comboBox(nightOptions).component
-                    combo.selectedItem = currentNight
+                    combo.selectedItem = section.pending.nightTheme
                     combo.addActionListener {
-                        pendingNightTheme = combo.selectedItem as? String ?: "Mirage"
+                        section.update { it.copy(nightTheme = combo.selectedItem as? String ?: "Mirage") }
                     }
                     nightThemeCombo = combo
                 }.visibleIf(checkboxCell.selected)
 
                 // Accent-color system checkbox lives in AyuIslandsAccentPanel (owns the
-                // pendingFollowSystem state and swatch-panel disable logic). We inject
+                // pending follow-system state and swatch-panel disable logic). We inject
                 // its row here so the UI groups both macOS integrations together.
                 systemAccentRowInstaller?.invoke(this)
             }
@@ -117,32 +127,31 @@ class AyuIslandsAppearancePanel : AyuIslandsSettingsPanel {
     }
 
     override fun isModified(): Boolean =
-        pendingFollowAppearance != storedFollowAppearance ||
-            pendingNightTheme != storedNightTheme ||
+        section.isModified() ||
             pendingSyncEditorScheme != storedSyncEditorScheme
 
     override fun apply() {
         if (!isModified()) return
         val settings = AyuIslandsSettings.getInstance()
 
-        if (pendingFollowAppearance != storedFollowAppearance) {
-            settings.state.followSystemAppearance = pendingFollowAppearance
-            storedFollowAppearance = pendingFollowAppearance
-            if (pendingFollowAppearance) {
-                AppearanceSyncService.getInstance().syncIfNeeded()
-            }
-        }
-
-        if (pendingNightTheme != storedNightTheme) {
-            val currentDarkTheme = settings.state.lastDarkAppearanceTheme ?: ""
-            val isIslands = currentDarkTheme.contains("Islands UI")
-            val newDarkTheme =
-                when (pendingNightTheme) {
-                    "Dark" -> if (isIslands) "Ayu Dark (Islands UI)" else "Ayu Dark"
-                    else -> if (isIslands) "Ayu Mirage (Islands UI)" else "Ayu Mirage"
+        section.commit { pending, stored ->
+            if (pending.followSystemAppearance != stored.followSystemAppearance) {
+                settings.state.followSystemAppearance = pending.followSystemAppearance
+                if (pending.followSystemAppearance) {
+                    AppearanceSyncService.getInstance().syncIfNeeded()
                 }
-            settings.state.lastDarkAppearanceTheme = newDarkTheme
-            storedNightTheme = pendingNightTheme
+            }
+
+            if (pending.nightTheme != stored.nightTheme) {
+                val currentDarkTheme = settings.state.lastDarkAppearanceTheme ?: ""
+                val isIslands = currentDarkTheme.contains("Islands UI")
+                val newDarkTheme =
+                    when (pending.nightTheme) {
+                        "Dark" -> if (isIslands) "Ayu Dark (Islands UI)" else "Ayu Dark"
+                        else -> if (isIslands) "Ayu Mirage (Islands UI)" else "Ayu Mirage"
+                    }
+                settings.state.lastDarkAppearanceTheme = newDarkTheme
+            }
         }
 
         if (pendingSyncEditorScheme != storedSyncEditorScheme) {
@@ -152,10 +161,9 @@ class AyuIslandsAppearancePanel : AyuIslandsSettingsPanel {
     }
 
     override fun reset() {
-        pendingFollowAppearance = storedFollowAppearance
-        followAppearanceCheckbox?.isSelected = storedFollowAppearance
-        pendingNightTheme = storedNightTheme
-        nightThemeCombo?.selectedItem = storedNightTheme
+        val restored = section.resetToStored()
+        followAppearanceCheckbox?.isSelected = restored.followSystemAppearance
+        nightThemeCombo?.selectedItem = restored.nightTheme
         pendingSyncEditorScheme = storedSyncEditorScheme
         syncEditorSchemeCheckbox?.isSelected = storedSyncEditorScheme
     }
