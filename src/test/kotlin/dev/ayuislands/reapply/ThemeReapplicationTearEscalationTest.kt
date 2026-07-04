@@ -92,6 +92,22 @@ class ThemeReapplicationTearEscalationTest {
     }
 
     @Test
+    fun `rotation tick reports the apply step failed when the resolver hex is shape-invalid`() {
+        // The one case the clean-flag check cannot see: a shape-invalid hex makes
+        // the applicator skip apply() entirely, leaving lastApplyOk stale (true
+        // here). The returned hex carries the signal instead.
+        state.lastApplyOk = true
+        every {
+            AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AccentContext>())
+        } returns "not-a-hex"
+
+        var result: ReapplyResult? = null
+        ThemeReapplication.reapply(ReapplyReason.RotationTick(AyuVariant.DARK)) { result = it }
+
+        assertTrue(requireNotNull(result).failed(ReapplyStep.ApplyResolvedAccent))
+    }
+
+    @Test
     fun `license revert reports the explicit-hex step failed when the hex is rejected`() {
         state.lastApplyOk = true
         every { AccentApplicator.applyFromHexString(any()) } returns false
