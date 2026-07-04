@@ -9,6 +9,7 @@ import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Focus-race protocol for opening a feature tab in exactly one project window.
@@ -75,16 +76,28 @@ internal class FocusWinningTabOpener(
             log.info("$logPrefix: another project already claimed the $subject slot")
             return
         }
-        log.info("$logPrefix: opening $subject in ${project.name}")
+        log.info("$logPrefix: opening $subject in ${project.name} (bypassGate=$bypassGate)")
         try {
             openTab(project)
-            onSuccess()
+        } catch (cancellation: CancellationException) {
+            // PCE (and its IndexNotReadyException subtype thrown by
+            // FileEditorManager.openFile mid-indexing) extends
+            // CancellationException extends RuntimeException on 2024.1+ —
+            // it is control flow, never log.error material. Release the claim
+            // so the cancelled open can retry, then let the signal propagate.
+            if (claimed) gate.release()
+            throw cancellation
         } catch (exception: RuntimeException) {
             log.error("$logPrefix: failed to open $subject in ${project.name}", exception)
             if (claimed && gate.release()) {
                 log.info("$logPrefix: $subject claim released after failed open")
             }
+            return
         }
+        // Outside the try: the tab IS open at this point, so a throwing
+        // success callback must neither release the claim nor log a
+        // misleading "failed open" breadcrumb.
+        onSuccess()
     }
 
     /**

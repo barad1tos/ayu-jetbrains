@@ -150,6 +150,61 @@ class FocusWinningTabOpenerTest {
     }
 
     @Test
+    fun `cancellation during open releases the claim and rethrows without error logging`() {
+        // PCE (and IndexNotReadyException, its openFile-thrown subtype) is
+        // control flow: it must propagate — log.error on it trips the
+        // platform's ensureNotControlFlow assertion — and the claim must free
+        // so the cancelled open can retry.
+        val gate = SessionOneShot()
+        val target = project("alpha")
+        focusOn(target)
+        var rethrown = false
+
+        try {
+            opener(gate).openOnEdt(
+                target,
+                bypassFocus = false,
+                bypassGate = false,
+                onSuccess = {},
+            ) {
+                throw com.intellij.openapi.progress
+                    .ProcessCanceledException()
+            }
+        } catch (expected: com.intellij.openapi.progress.ProcessCanceledException) {
+            rethrown = true
+        }
+
+        assertTrue(rethrown, "cancellation must propagate, not convert to a logged failure")
+        assertTrue(gate.tryAcquire(), "cancelled open must release the claim for retry")
+        io.mockk.verify(exactly = 0) { log.error(any<String>(), any<Throwable>()) }
+    }
+
+    @Test
+    fun `success callback throwing does not release the claim — the tab did open`() {
+        // The callback runs outside the open try: the tab is on screen, so a
+        // throwing shown-flag write must not free the gate (a sibling window
+        // would open a duplicate) nor log a misleading "failed open".
+        val gate = SessionOneShot()
+        val target = project("alpha")
+        focusOn(target)
+        var opened = false
+
+        try {
+            opener(gate).openOnEdt(
+                target,
+                bypassFocus = false,
+                bypassGate = false,
+                onSuccess = { error("shown-flag persistence hiccup") },
+            ) { opened = true }
+        } catch (expected: IllegalStateException) {
+            // propagates to the caller's coroutine catch — by design
+        }
+
+        assertTrue(opened)
+        assertFalse(gate.tryAcquire(), "claim must stay held — the tab is genuinely open")
+    }
+
+    @Test
     fun `onboarding wizard claim is released when the wizard open fails`() {
         // Latent-bug regression lock: before the shared opener, the license
         // path's copy of this protocol claimed the onboarding slot via
