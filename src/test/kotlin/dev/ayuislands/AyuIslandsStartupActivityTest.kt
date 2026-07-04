@@ -614,6 +614,31 @@ class AyuIslandsStartupActivityTest {
         )
     }
 
+    @Test
+    fun `startup installs the scan-completion accent refresher before the first accent resolve`() {
+        // Regression guard: `runStartupAccentOnEdt` can schedule the first
+        // background language scan (EDT resolve on a cold detector cache).
+        // `ScanCompletionAccentRefresher` owns the post-scan accent re-apply,
+        // so it must subscribe BEFORE that first resolve — otherwise the
+        // startup scan's completion fires into an empty subscriber list and
+        // the accent stays on the global fallback until the next focus swap.
+        // Like the EDT-wrap guards above, the invariant is source-level:
+        // dynamically invoking execute() needs a full project fixture.
+        val source = readStartupActivitySource()
+        val installCall = "ScanCompletionAccentRefresher.getInstance(project)"
+        val firstResolveCall = "runStartupAccentOnEdt(project, variant)"
+        val installIndex = source.indexOf(installCall)
+        val resolveIndex = source.indexOf(firstResolveCall)
+
+        assertTrue(installIndex >= 0, "startup must install ScanCompletionAccentRefresher")
+        assertTrue(resolveIndex >= 0, "startup must still run the initial accent resolve")
+        assertTrue(
+            installIndex < resolveIndex,
+            "ScanCompletionAccentRefresher must be installed before runStartupAccentOnEdt " +
+                "schedules the first background language scan",
+        )
+    }
+
     private fun readStartupActivitySource(): String {
         val source =
             java.io

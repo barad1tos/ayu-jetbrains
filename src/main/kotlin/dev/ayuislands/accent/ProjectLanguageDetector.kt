@@ -7,7 +7,6 @@ import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectRootManager
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
-import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import javax.swing.SwingUtilities
@@ -37,9 +36,12 @@ import javax.swing.SwingUtilities
  * On EDT, first-call detection on a large monorepo is a ~300–500 ms freeze. To avoid
  * that, an EDT invocation with an empty cache kicks off a deduplicated background scan
  * via [ProjectLanguageScanAsync] and returns null immediately; the caller falls through
- * to the global accent. When the BG scan completes with a cacheable verdict, the
- * detector re-applies the resolver result on EDT so the UI picks up either the new
- * winner or the fallback without waiting for the next focus swap.
+ * to the global accent. When the BG scan completes, the detector only publishes
+ * [ProjectLanguageDetectionListener.scanCompleted]; [ScanCompletionAccentRefresher] —
+ * the sole accent-owning subscriber — re-applies the resolver result on EDT for
+ * cacheable outcomes so the UI picks up either the new winner or the fallback
+ * without waiting for the next focus swap. Detection stays a one-way event: this
+ * detector never re-enters the resolve+apply pipeline itself.
  *
  * Cache correctness: a detection whose scan threw is NOT cached — the next call
  * retries. A scan that ran cleanly but produced no winner (after both the proportional
@@ -159,8 +161,9 @@ object ProjectLanguageDetector {
      *    the next `ModuleRootListener.rootsChanged` to re-trigger detection
      *    on a Gradle sync / module change).
      *  - On scan completion, [ProjectLanguageDetectionListener.scanCompleted]
-     *    fires on EDT via [publishScanCompleted], so UI subscribers (the
-     *    Settings proportions row, the action's balloon) receive the new
+     *    fires on EDT via [publishScanCompleted], so subscribers (the
+     *    Settings proportions row, the action's balloon, the
+     *    [ScanCompletionAccentRefresher] accent re-apply) receive the new
      *    state without polling.
      *  - When [project] has no canonical path (disposal race, default
      *    project), publishes [ScanOutcome.Unavailable] immediately so one-shot
@@ -318,16 +321,6 @@ object ProjectLanguageDetector {
                     ProjectLanguageVerdict.Unavailable,
                     -> ScanOutcome.Unavailable
                 }
-            when (verdict) {
-                is ProjectLanguageVerdict.Detected,
-                is ProjectLanguageVerdict.NoWinner,
-                ProjectLanguageVerdict.Empty,
-                -> tryRefreshAccentAfterCacheableScan(project)
-
-                ProjectLanguageVerdict.Cold,
-                ProjectLanguageVerdict.Unavailable,
-                -> Unit
-            }
             publishScanCompleted(project, outcome, key, cachedDetection.cacheEntry)
             when (outcome) {
                 is ScanOutcome.Detected,
@@ -380,56 +373,6 @@ object ProjectLanguageDetector {
             }.onFailure { exception ->
                 LOG.warn("scanCompleted publish failed; subscribers will not refresh for this scan", exception)
             }
-        }
-    }
-
-    /**
-     * After a background scan reaches a cacheable verdict, re-apply the current
-     * resolver result. Both positive hits and definitive polyglot/no-match
-     * outcomes can change the visible accent: a hit may enable a language
-     * override, while a fallback verdict may remove one.
-     */
-    private fun tryRefreshAccentAfterCacheableScan(project: Project) {
-        SwingUtilities.invokeLater { refreshAccentOnEdt(project) }
-    }
-
-    /**
-     * EDT body extracted from [tryRefreshAccentAfterCacheableScan] so the
-     * resolver + apply chain can be red/green tested synchronously without
-     * having to pump a Swing event loop. The caller is expected to already be
-     * on the EDT (production: wrapped in `SwingUtilities.invokeLater`; tests:
-     * called directly on the test thread). Returns early on disposal, logs and
-     * swallows any downstream apply failure.
-     *
-     * `internal` (no `@TestOnly`) because [tryRefreshAccentAfterCacheableScan]
-     * — the production caller — reaches this helper through the
-     * `SwingUtilities.invokeLater` boundary; marking it test-only would
-     * misrepresent the call graph and any `@TestOnly` inspection would either
-     * miss real misuse or flag this legitimate production path.
-     */
-    internal fun refreshAccentOnEdt(project: Project) {
-        if (project.isDisposed) return
-        runCatchingPreservingCancellation {
-            // Best-effort refresh: the cache already has the cacheable scan
-            // verdict, so `dominant()` behavior is unaffected by failures here.
-            // Containing exceptions keeps a regression in any of the
-            // downstream apply paths (variant detection, UIManager writes,
-            // focus-swap notification) from surfacing as an uncaught EDT
-            // exception and risking the UI.
-            if (AccentApplicator.resolveFocusedProject() !== project) {
-                LOG.debug("Post-scan accent refresh skipped because focused project changed")
-                return@runCatchingPreservingCancellation
-            }
-            val variant = AyuVariant.detect() ?: return@runCatchingPreservingCancellation
-            val hex = AccentResolver.resolve(project, variant)
-            val applied = AccentApplicator.applyFromHexString(hex)
-            if (applied) {
-                ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
-            } else {
-                LOG.warn("Skipping swap publish: applyFromHexString rejected '$hex'")
-            }
-        }.onFailure { exception ->
-            LOG.warn("Post-scan accent refresh failed; cache is still warm", exception)
         }
     }
 
