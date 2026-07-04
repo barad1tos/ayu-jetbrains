@@ -58,7 +58,10 @@ internal class ScanCompletionAccentRefresher(
 
     /**
      * EDT body of the post-scan refresh. Returns early on disposal, logs and
-     * swallows any downstream apply failure.
+     * swallows any downstream apply failure. The EDT contract is enforced only
+     * transitively by `publishScanCompleted`'s dispatch choice — a future
+     * producer publishing off-EDT would race the UIManager writes downstream,
+     * so keep that dispatch the sole publish path.
      */
     private fun refreshAccent() {
         if (project.isDisposed) return
