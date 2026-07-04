@@ -120,18 +120,25 @@ object ThemeReapplication {
             ApplyResolvedAccent -> {
                 val context = accentContextOf(reason) ?: return
                 AccentApplicator.applyForFocusedProject(context)
+                ensureAccentApplyClean(step)
             }
 
             ApplyExplicitHex -> {
                 val hex = (reason as? ReapplyReason.LicenseRevert)?.freeHex ?: return
-                AccentApplicator.applyFromHexString(hex)
+                check(AccentApplicator.applyFromHexString(hex)) {
+                    "free-default hex rejected by the applicator: '$hex'"
+                }
+                ensureAccentApplyClean(step)
             }
 
             RevertAccent -> {
                 AccentApplicator.revertAll()
             }
 
-            Font, RevertFont, Notify, Glow, Syntax, VcsRevert -> {}
+            // Surface steps are dispatched by runStep; unreachable here.
+            Font, RevertFont, Notify, Glow, Syntax, VcsRevert -> {
+                return
+            }
         }
     }
 
@@ -164,7 +171,26 @@ object ThemeReapplication {
                 VcsColorApplier.revertAll()
             }
 
-            BindScheme, ApplyResolvedAccent, ApplyExplicitHex, RevertAccent -> {}
+            // Accent steps are dispatched by runStep; unreachable here.
+            BindScheme, ApplyResolvedAccent, ApplyExplicitHex, RevertAccent -> {
+                return
+            }
+        }
+    }
+
+    /**
+     * Escalate a torn accent apply into this step's [StepFailure]. The applicator
+     * contains mid-step throws internally (WARN + skipped tail — see
+     * `AccentApplyPlanRunner`), so the only in-process tear signal available to
+     * plan consumers is the persisted clean flag: [reapply] runs on the EDT and
+     * the apply is EDT-synchronous, so after the apply call returns the flag
+     * reflects THAT apply. Throwing here restores what consumers relied on
+     * before the containment refactor: the rotation circuit breaker counts the
+     * failure and the license revert surfaces its "restart to complete" notice.
+     */
+    private fun ensureAccentApplyClean(step: ReapplyStep) {
+        check(AyuIslandsSettings.getInstance().state.lastApplyOk) {
+            "accent apply torn during $step — see the 'Accent apply torn at' warning above"
         }
     }
 

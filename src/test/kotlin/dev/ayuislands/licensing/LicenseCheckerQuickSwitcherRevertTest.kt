@@ -44,6 +44,9 @@ class LicenseCheckerQuickSwitcherRevertTest {
     @BeforeEach
     fun setUp() {
         state = AyuIslandsState()
+        // Stubbed applies report success, so the persisted clean flag must read
+        // clean too — ThemeReapplication's tear-escalation check consults it.
+        state.lastApplyOk = true
         settings = mockk()
         every { settings.state } returns state
         every { settings.getAccentForVariant(any()) } returns "#FFCC66"
