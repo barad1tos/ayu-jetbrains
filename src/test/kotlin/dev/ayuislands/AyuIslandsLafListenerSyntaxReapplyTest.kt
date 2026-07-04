@@ -49,6 +49,9 @@ class AyuIslandsLafListenerSyntaxReapplyTest {
     @BeforeTest
     fun setUp() {
         state = AyuIslandsState()
+        // Stubbed applies report success, so the persisted clean flag must read
+        // clean too — ThemeReapplication's tear-escalation check consults it.
+        state.lastApplyOk = true
         every { mockSettings.state } returns state
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns mockSettings

@@ -104,6 +104,9 @@ class AccentRotationServiceTest {
 
     private fun mockRotationEnvironment() {
         state = AyuIslandsState()
+        // Stubbed applies report success, so the persisted clean flag must read
+        // clean too — ThemeReapplication's tear-escalation check consults it.
+        state.lastApplyOk = true
         settingsMock = mockk(relaxed = true)
 
         mockkStatic(ApplicationManager::class)
