@@ -19,18 +19,34 @@ import javax.swing.JCheckBox
 
 /** Per-element accent toggle checkboxes with conflict detection and license-aware dimming. */
 class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
-    private val pendingToggles: MutableMap<AccentElementId, Boolean> = mutableMapOf()
-    private var storedToggles: Map<AccentElementId, Boolean> = emptyMap()
-    private var pendingForceOverrides: MutableSet<String> = mutableSetOf()
-    private var storedForceOverrides: Set<String> = emptySet()
-    private var pendingTabMode: String = "MINIMAL"
-    private var storedTabMode: String = "MINIMAL"
-    private var pendingTabUnderlineHeight: Int = AyuIslandsState.DEFAULT_TAB_UNDERLINE_HEIGHT
-    private var storedTabUnderlineHeight: Int = AyuIslandsState.DEFAULT_TAB_UNDERLINE_HEIGHT
-    private var pendingTabUnderlineGlowSync: Boolean = false
-    private var storedTabUnderlineGlowSync: Boolean = false
-    private var pendingBracketScope: Boolean = true
-    private var storedBracketScope: Boolean = true
+    private data class ElementSettings(
+        val toggles: Map<AccentElementId, Boolean> = emptyMap(),
+        val forceOverrides: Set<String> = emptySet(),
+        val tabMode: String = "MINIMAL",
+        val tabUnderlineHeight: Int = AyuIslandsState.DEFAULT_TAB_UNDERLINE_HEIGHT,
+        val tabUnderlineGlowSync: Boolean = false,
+        val bracketScope: Boolean = true,
+    )
+
+    // CHROME-group ids are owned by the Chrome tinting panel and must NOT surface
+    // in this panel's checkbox list — the snapshot filters them out; blockedIds
+    // and enable/disable-all filter likewise.
+    private val section =
+        SettingsSection(initial = ElementSettings()) {
+            val state = AyuIslandsSettings.getInstance().state
+            ElementSettings(
+                toggles =
+                    AccentElementId.entries
+                        .filter { it.group != AccentGroup.CHROME }
+                        .associateWith { state.isToggleEnabled(it) },
+                forceOverrides = state.forceOverrides.toSet(),
+                tabMode = state.glowTabMode ?: "MINIMAL",
+                tabUnderlineHeight = state.tabUnderlineHeight,
+                tabUnderlineGlowSync = state.tabUnderlineGlowSync,
+                bracketScope = state.bracketScopeEnabled,
+            )
+        }
+
     private val checkboxes: MutableMap<AccentElementId, JCheckBox> = mutableMapOf()
     private var tabModeSegmented: SegmentedButton<GlowTabMode>? = null
     private var tabModeCommentRow: Row? = null
@@ -56,7 +72,6 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
         variant: AyuVariant,
     ) {
         this.variant = variant
-        val state = AyuIslandsSettings.getInstance().state
         val gate =
             PremiumFeatureGate(
                 featureName = "Accent elements",
@@ -67,27 +82,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
             )
         licensed = gate.isUnlocked
 
-        // Initialize toggle state from persisted settings. CHROME-group ids are owned
-        // by the Chrome tinting panel (phase 40) and must NOT surface in this panel's
-        // checkbox list — filter them out here, at blockedIds, and at enable/disable-all.
-        for (id in AccentElementId.entries.filter { it.group != AccentGroup.CHROME }) {
-            val enabled = state.isToggleEnabled(id)
-            pendingToggles[id] = enabled
-        }
-        storedToggles = pendingToggles.toMap()
-
-        storedForceOverrides = state.forceOverrides.toSet()
-        pendingForceOverrides = storedForceOverrides.toMutableSet()
-
-        storedTabMode = state.glowTabMode ?: "MINIMAL"
-        pendingTabMode = storedTabMode
-
-        storedTabUnderlineHeight = state.tabUnderlineHeight
-        pendingTabUnderlineHeight = storedTabUnderlineHeight
-        storedTabUnderlineGlowSync = state.tabUnderlineGlowSync
-        pendingTabUnderlineGlowSync = storedTabUnderlineGlowSync
-        storedBracketScope = state.bracketScopeEnabled
-        pendingBracketScope = storedBracketScope
+        section.load()
 
         // Detect conflicts on panel open and clean stale overrides for blocked elements
         ConflictRegistry.detectConflicts()
@@ -97,12 +92,12 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
                 .filter { ConflictRegistry.getConflictFor(it)?.type == ConflictType.BLOCK }
                 .map { it.name }
                 .toSet()
-        pendingForceOverrides.removeAll(blockedIds)
+        section.update { it.copy(forceOverrides = it.forceOverrides - blockedIds) }
 
         // Create a preview component (used inside the row below)
         val preview = AyuIslandsPreviewPanel()
         preview.previewAccentHex = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
-        preview.previewToggles = pendingToggles.toMap()
+        preview.previewToggles = section.pending.toggles
         preview.previewGlowEnabled = false
         val previewComponent = preview.createComponent()
         elementPreview = preview
@@ -136,20 +131,10 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
                         )
                         row {
                             link("Enable all") {
-                                AccentElementId.entries
-                                    .filter { it.group != AccentGroup.CHROME }
-                                    .forEach { pendingToggles[it] = true }
-                                refreshCheckboxes()
-                                syncPreviewToggles()
-                                onToggleChanged?.invoke()
+                                setAllToggles(enabled = true)
                             }.enabled(licensed)
                             link("Disable all") {
-                                AccentElementId.entries
-                                    .filter { it.group != AccentGroup.CHROME }
-                                    .forEach { pendingToggles[it] = false }
-                                refreshCheckboxes()
-                                syncPreviewToggles()
-                                onToggleChanged?.invoke()
+                                setAllToggles(enabled = false)
                             }.enabled(licensed)
                         }
                     }
@@ -169,11 +154,11 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
                     val scopeCb =
                         checkBox("Highlight bracket scope on gutter")
                             .comment("Show accent-colored scope stripe when caret is on a bracket")
-                    scopeCb.component.isSelected = pendingBracketScope
+                    scopeCb.component.isSelected = section.pending.bracketScope
                     scopeCb.component.isEnabled = licensed
                     scopeCb.component.addActionListener {
                         if (!licensed) return@addActionListener
-                        pendingBracketScope = scopeCb.component.isSelected
+                        section.update { it.copy(bracketScope = scopeCb.component.isSelected) }
                     }
                     bracketScopeCheckbox = scopeCb.component
                 }
@@ -182,6 +167,20 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
         collapsible.addExpandedListener { expanded ->
             settings.state.accentElementsGroupExpanded = expanded
         }
+    }
+
+    private fun setAllToggles(enabled: Boolean) {
+        section.update { settings ->
+            settings.copy(
+                toggles =
+                    AccentElementId.entries
+                        .filter { it.group != AccentGroup.CHROME }
+                        .associateWith { enabled },
+            )
+        }
+        refreshCheckboxes()
+        syncPreviewToggles()
+        onToggleChanged?.invoke()
     }
 
     /**
@@ -206,30 +205,30 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
                 label("Tab accent style")
                 val segmented =
                     segmentedButton(GlowTabMode.entries) { mode -> text = mode.displayName }
-                segmented.selectedItem = GlowTabMode.fromName(pendingTabMode)
+                segmented.selectedItem = GlowTabMode.fromName(section.pending.tabMode)
                 segmented.enabled(licensed)
                 @Suppress("UnstableApiUsage")
                 segmented.whenItemSelected { mode ->
                     if (!licensed) return@whenItemSelected
-                    pendingTabMode = mode.name
+                    section.update { it.copy(tabMode = mode.name) }
                     updateThicknessRowVisibility()
                 }
                 tabModeSegmented = segmented
             }.visible(islandsUi)
 
         // Underline thickness presets (non-Islands only)
-        val tabModeIsOff = GlowTabMode.fromName(pendingTabMode) == GlowTabMode.OFF
+        val tabModeIsOff = GlowTabMode.fromName(section.pending.tabMode) == GlowTabMode.OFF
         thicknessRow =
             row {
                 label("Underline thickness")
                 val thickSegmented =
                     segmentedButton(UNDERLINE_THICKNESS_PRESETS) { value -> text = "${value}px" }
-                thickSegmented.selectedItem = pendingTabUnderlineHeight
-                thickSegmented.enabled(licensed && !pendingTabUnderlineGlowSync)
+                thickSegmented.selectedItem = section.pending.tabUnderlineHeight
+                thickSegmented.enabled(licensed && !section.pending.tabUnderlineGlowSync)
                 @Suppress("UnstableApiUsage")
                 thickSegmented.whenItemSelected { value ->
                     if (licensed) {
-                        pendingTabUnderlineHeight = value
+                        section.update { it.copy(tabUnderlineHeight = value) }
                     }
                 }
                 thicknessSegmented = thickSegmented
@@ -239,16 +238,16 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
         syncRow =
             row {
                 val cb = checkBox("Sync with glow width")
-                cb.component.isSelected = pendingTabUnderlineGlowSync
+                cb.component.isSelected = section.pending.tabUnderlineGlowSync
                 cb.component.isEnabled = licensed && glowEnabled
                 if (!glowEnabled) {
                     cb.component.toolTipText = "Enable glow to sync"
                 }
                 cb.component.addActionListener {
                     if (!licensed) return@addActionListener
-                    pendingTabUnderlineGlowSync = cb.component.isSelected
+                    section.update { it.copy(tabUnderlineGlowSync = cb.component.isSelected) }
                     updateThicknessEnabledState()
-                    if (pendingTabUnderlineGlowSync && glowEnabled) {
+                    if (section.pending.tabUnderlineGlowSync && glowEnabled) {
                         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
                         val syncedWidth = state.getWidthForStyle(style)
                         thicknessSegmented?.selectedItem = syncedWidth
@@ -259,7 +258,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
     }
 
     private fun updateThicknessRowVisibility() {
-        val isOff = GlowTabMode.fromName(pendingTabMode) == GlowTabMode.OFF
+        val isOff = GlowTabMode.fromName(section.pending.tabMode) == GlowTabMode.OFF
         val visible = if (licensed) !isOff && !AyuVariant.isIslandsUi() else !AyuVariant.isIslandsUi()
         thicknessRow?.visible(visible)
         syncRow?.visible(visible)
@@ -269,7 +268,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
     }
 
     private fun updateThicknessEnabledState() {
-        thicknessSegmented?.enabled(licensed && !pendingTabUnderlineGlowSync)
+        thicknessSegmented?.enabled(licensed && !section.pending.tabUnderlineGlowSync)
         syncCheckbox?.isEnabled = licensed && AyuIslandsSettings.getInstance().state.glowEnabled
     }
 
@@ -283,11 +282,11 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
 
         panel.row {
             val cb = checkBox(id.displayName)
-            cb.component.isSelected = pendingToggles[id] ?: true
+            cb.component.isSelected = section.pending.toggles[id] ?: true
             cb.component.isEnabled = licensed && !isBlocking
             cb.component.addActionListener {
                 if (!licensed || isBlocking) return@addActionListener
-                pendingToggles[id] = cb.component.isSelected
+                section.update { it.copy(toggles = it.toggles + (id to cb.component.isSelected)) }
                 syncPreviewToggles()
                 onToggleChanged?.invoke()
             }
@@ -316,45 +315,32 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
 
     private fun refreshCheckboxes() {
         for ((id, cb) in checkboxes) {
-            cb.isSelected = pendingToggles[id] ?: true
+            cb.isSelected = section.pending.toggles[id] ?: true
         }
     }
 
     private fun syncPreviewToggles() {
-        elementPreview?.previewToggles = pendingToggles.toMap()
+        elementPreview?.previewToggles = section.pending.toggles
         elementPreview?.updatePreview()
     }
 
-    override fun isModified(): Boolean {
-        if (pendingToggles != storedToggles) return true
-        if (pendingForceOverrides != storedForceOverrides) return true
-        if (pendingTabMode != storedTabMode) return true
-        if (pendingTabUnderlineHeight != storedTabUnderlineHeight) return true
-        if (pendingTabUnderlineGlowSync != storedTabUnderlineGlowSync) return true
-        if (pendingBracketScope != storedBracketScope) return true
-        return false
-    }
+    override fun isModified(): Boolean = section.isModified()
 
     override fun apply() {
         if (!isModified()) return
         if (!LicenseChecker.isLicensedOrGrace()) return
-        val state = AyuIslandsSettings.getInstance().state
 
-        for ((id, enabled) in pendingToggles) {
-            state.setToggle(id, enabled)
+        section.commit { pending, _ ->
+            val state = AyuIslandsSettings.getInstance().state
+            for ((id, enabled) in pending.toggles) {
+                state.setToggle(id, enabled)
+            }
+            state.forceOverrides = pending.forceOverrides.toMutableSet()
+            state.glowTabMode = pending.tabMode
+            state.tabUnderlineHeight = pending.tabUnderlineHeight
+            state.tabUnderlineGlowSync = pending.tabUnderlineGlowSync
+            state.bracketScopeEnabled = pending.bracketScope
         }
-        state.forceOverrides = pendingForceOverrides.toMutableSet()
-        state.glowTabMode = pendingTabMode
-        state.tabUnderlineHeight = pendingTabUnderlineHeight
-        state.tabUnderlineGlowSync = pendingTabUnderlineGlowSync
-        state.bracketScopeEnabled = pendingBracketScope
-
-        storedToggles = pendingToggles.toMap()
-        storedForceOverrides = pendingForceOverrides.toSet()
-        storedTabMode = pendingTabMode
-        storedTabUnderlineHeight = pendingTabUnderlineHeight
-        storedTabUnderlineGlowSync = pendingTabUnderlineGlowSync
-        storedBracketScope = pendingBracketScope
 
         // Re-apply accent with new toggle states via applyForFocusedProject so per-project/
         // per-language overrides aren't stomped by the accent applied by AyuIslandsAccentPanel
@@ -364,19 +350,13 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
     }
 
     override fun reset() {
-        pendingToggles.clear()
-        pendingToggles.putAll(storedToggles)
-        pendingForceOverrides = storedForceOverrides.toMutableSet()
-        pendingTabMode = storedTabMode
-        pendingTabUnderlineHeight = storedTabUnderlineHeight
-        pendingTabUnderlineGlowSync = storedTabUnderlineGlowSync
-        pendingBracketScope = storedBracketScope
+        val restored = section.resetToStored()
         refreshCheckboxes()
-        bracketScopeCheckbox?.isSelected = storedBracketScope
+        bracketScopeCheckbox?.isSelected = restored.bracketScope
         syncPreviewToggles()
-        tabModeSegmented?.selectedItem = GlowTabMode.fromName(pendingTabMode)
-        thicknessSegmented?.selectedItem = pendingTabUnderlineHeight
-        syncCheckbox?.isSelected = pendingTabUnderlineGlowSync
+        tabModeSegmented?.selectedItem = GlowTabMode.fromName(restored.tabMode)
+        thicknessSegmented?.selectedItem = restored.tabUnderlineHeight
+        syncCheckbox?.isSelected = restored.tabUnderlineGlowSync
         updateThicknessRowVisibility()
     }
 

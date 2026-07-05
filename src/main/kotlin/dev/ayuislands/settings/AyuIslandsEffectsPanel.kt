@@ -34,26 +34,53 @@ private data class SliderConfig(
  * [buildGlowPanel] renders the master toggle, preset selection, style/animation controls,
  * sliders, and glow targets.
  * Called from [AyuIslandsConfigurable] into a single tab pane.
+ *
+ * Pending/stored bookkeeping is delegated to a [SettingsSection] over the
+ * immutable [GlowSettings] snapshot.
  */
 @Suppress("TooManyFunctions") // Settings panel with grouped UI builders
 class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
-    // Pending state (applied on OK/Apply, not live)
-    private var pendingGlowEnabled: Boolean = false
-    private var pendingPreset: GlowPreset = GlowPreset.WHISPER
-    private var pendingStyle: GlowStyle = GlowStyle.SOFT
-    private var pendingIntensity: MutableMap<GlowStyle, Int> = mutableMapOf()
-    private var pendingWidth: MutableMap<GlowStyle, Int> = mutableMapOf()
-    private var pendingAnimation: GlowAnimation = GlowAnimation.NONE
-    private var pendingIslandToggles: MutableMap<String, Boolean> = mutableMapOf()
+    private data class GlowSettings(
+        val enabled: Boolean = false,
+        val preset: GlowPreset = GlowPreset.WHISPER,
+        val style: GlowStyle = GlowStyle.SOFT,
+        val intensity: Map<GlowStyle, Int> = emptyMap(),
+        val width: Map<GlowStyle, Int> = emptyMap(),
+        val animation: GlowAnimation = GlowAnimation.NONE,
+        val islandToggles: Map<String, Boolean> = emptyMap(),
+    ) {
+        /**
+         * Folds [preset]'s canonical style/intensity/width/animation into the
+         * snapshot. Returns `this` unchanged for presets without canonical
+         * values (i.e. [GlowPreset.CUSTOM]).
+         */
+        fun withPresetValues(preset: GlowPreset): GlowSettings {
+            val presetStyle = preset.style ?: return this
+            val presetIntensity = preset.intensity ?: return this
+            val presetWidth = preset.width ?: return this
+            val presetAnimation = preset.animation ?: return this
+            return copy(
+                style = presetStyle,
+                intensity = intensity + (presetStyle to presetIntensity),
+                width = width + (presetStyle to presetWidth),
+                animation = presetAnimation,
+            )
+        }
+    }
 
-    // Stored state (for isModified comparison)
-    private var storedGlowEnabled: Boolean = false
-    private var storedPreset: GlowPreset = GlowPreset.WHISPER
-    private var storedStyle: GlowStyle = GlowStyle.SOFT
-    private var storedIntensity: Map<GlowStyle, Int> = emptyMap()
-    private var storedWidth: Map<GlowStyle, Int> = emptyMap()
-    private var storedAnimation: GlowAnimation = GlowAnimation.NONE
-    private var storedIslandToggles: Map<String, Boolean> = emptyMap()
+    private val section =
+        SettingsSection(initial = GlowSettings()) {
+            val state = AyuIslandsSettings.getInstance().state
+            GlowSettings(
+                enabled = state.glowEnabled,
+                preset = GlowPreset.fromName(migratePresetIfNeeded(state)),
+                style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name),
+                intensity = GlowStyle.entries.associateWith { state.getIntensityForStyle(it) },
+                width = GlowStyle.entries.associateWith { state.getWidthForStyle(it) },
+                animation = GlowAnimation.fromName(state.glowAnimation ?: GlowAnimation.NONE.name),
+                islandToggles = ISLAND_IDS.associateWith { state.isIslandEnabled(it) },
+            )
+        }
 
     // Observable property for Custom mode visibility
     private val customModeVisible = AtomicBooleanProperty(false)
@@ -83,10 +110,8 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
 
     private fun ensureStateLoaded() {
         if (stateLoaded) return
-        val state = AyuIslandsSettings.getInstance().state
-        val migratedPreset = migratePresetIfNeeded(state)
-        loadStateIntoPending(state, migratedPreset)
-        copyPendingToStored()
+        section.load()
+        customModeVisible.set(section.pending.preset == GlowPreset.CUSTOM)
         stateLoaded = true
     }
 
@@ -114,10 +139,10 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
     ) {
         panel.row {
             val cb = checkBox("Enable glow")
-            cb.component.isSelected = pendingGlowEnabled
+            cb.component.isSelected = section.pending.enabled
             cb.component.isEnabled = licensed
             cb.component.addActionListener {
-                pendingGlowEnabled = cb.component.isSelected
+                section.update { it.copy(enabled = cb.component.isSelected) }
                 updateControlStates()
                 updateGlowGroupPanel()
             }
@@ -125,8 +150,9 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
 
             if (licensed) {
                 link("Reset defaults") {
-                    applyPresetValues(GlowPreset.WHISPER)
-                    pendingPreset = GlowPreset.WHISPER
+                    section.update {
+                        it.withPresetValues(GlowPreset.WHISPER).copy(preset = GlowPreset.WHISPER)
+                    }
                     refreshAllControls()
                 }
             }
@@ -161,12 +187,12 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                                 label = "Intensity",
                                 min = 0,
                                 max = MAX_INTENSITY,
-                                initialValue = pendingIntensity[pendingStyle] ?: DEFAULT_INTENSITY,
+                                initialValue = section.pending.intensity[section.pending.style] ?: DEFAULT_INTENSITY,
                                 majorTick = INTENSITY_MAJOR_TICK,
                                 minorTick = INTENSITY_MINOR_TICK,
                             ),
-                        onValueChanged = {
-                            pendingIntensity[pendingStyle] = it
+                        onValueChanged = { value ->
+                            section.update { it.copy(intensity = it.intensity + (it.style to value)) }
                             updateGlowGroupPanel()
                         },
                         onCreated = { slider, label ->
@@ -182,11 +208,11 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                                 label = "Width (px)",
                                 min = MIN_WIDTH,
                                 max = MAX_WIDTH,
-                                initialValue = pendingWidth[pendingStyle] ?: DEFAULT_WIDTH,
+                                initialValue = section.pending.width[section.pending.style] ?: DEFAULT_WIDTH,
                                 majorTick = WIDTH_MAJOR_TICK,
                             ),
-                        onValueChanged = {
-                            pendingWidth[pendingStyle] = it
+                        onValueChanged = { value ->
+                            section.update { it.copy(width = it.width + (it.style to value)) }
                             updateGlowGroupPanel()
                         },
                         onCreated = { slider, label ->
@@ -215,13 +241,18 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                     text = preset.displayName
                 }
             segmented.maxButtonsCount(GlowPreset.entries.size)
-            segmented.selectedItem = pendingPreset
+            segmented.selectedItem = section.pending.preset
             @Suppress("UnstableApiUsage")
             segmented.whenItemSelected { preset ->
                 if (!suppressListeners && LicenseChecker.isLicensedOrGrace()) {
-                    pendingPreset = preset
+                    section.update { current ->
+                        if (preset == GlowPreset.CUSTOM) {
+                            current.copy(preset = preset)
+                        } else {
+                            current.withPresetValues(preset).copy(preset = preset)
+                        }
+                    }
                     if (preset != GlowPreset.CUSTOM) {
-                        applyPresetValues(preset)
                         refreshSliders()
                         refreshStyleAndAnimation()
                     }
@@ -244,13 +275,13 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                 label("Style")
                 val model = DefaultComboBoxModel(GlowStyle.entries.map { it.displayName }.toTypedArray())
                 val combo = ComboBox(model)
-                combo.selectedItem = pendingStyle.displayName
-                combo.isEnabled = licensed && pendingGlowEnabled
+                combo.selectedItem = section.pending.style.displayName
+                combo.isEnabled = licensed && section.pending.enabled
                 combo.addActionListener {
                     if (!suppressListeners) {
                         val selectedName = combo.selectedItem as? String ?: return@addActionListener
                         val style = GlowStyle.entries.first { it.displayName == selectedName }
-                        pendingStyle = style
+                        section.update { it.copy(style = style) }
                         switchToCustom()
                         refreshSliders()
                     }
@@ -274,7 +305,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                 slider.paintTicks = true
                 slider.majorTickSpacing = config.majorTick
                 if (config.minorTick > 0) slider.minorTickSpacing = config.minorTick
-                slider.applyPremiumLock(gate, pendingGlowEnabled)
+                slider.applyPremiumLock(gate, section.pending.enabled)
                 val valueLabel = JLabel("${slider.value}")
                 slider.addChangeListener {
                     if (!suppressListeners && gate.isUnlocked) {
@@ -299,12 +330,13 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                 label("Animation")
                 val model = DefaultComboBoxModel(GlowAnimation.entries.map { it.displayName }.toTypedArray())
                 val combo = ComboBox(model)
-                combo.selectedItem = pendingAnimation.displayName
-                combo.isEnabled = licensed && pendingGlowEnabled
+                combo.selectedItem = section.pending.animation.displayName
+                combo.isEnabled = licensed && section.pending.enabled
                 combo.addActionListener {
                     if (!suppressListeners) {
                         val selectedName = combo.selectedItem as? String ?: return@addActionListener
-                        pendingAnimation = GlowAnimation.entries.first { it.displayName == selectedName }
+                        val animation = GlowAnimation.entries.first { it.displayName == selectedName }
+                        section.update { it.copy(animation = animation) }
                         switchToCustom()
                         updateAnimationDescription()
                     }
@@ -314,7 +346,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
             }.visibleIfUnlockedOrPreview(customModeVisible, gate)
         group
             .row {
-                val descCell = comment(animationDescription(pendingAnimation))
+                val descCell = comment(animationDescription(section.pending.animation))
                 animationDescriptionLabel = descCell.component
             }.visibleIfUnlockedOrPreview(customModeVisible, gate)
     }
@@ -334,17 +366,13 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                 }
                 row {
                     link("Enable all") {
-                        for (key in pendingIslandToggles.keys) {
-                            pendingIslandToggles[key] = true
-                        }
+                        section.update { s -> s.copy(islandToggles = s.islandToggles.mapValues { true }) }
                         refreshIslandCheckboxes()
-                    }.enabled(licensed && pendingGlowEnabled)
+                    }.enabled(licensed && section.pending.enabled)
                     link("Disable all") {
-                        for (key in pendingIslandToggles.keys) {
-                            pendingIslandToggles[key] = false
-                        }
+                        section.update { s -> s.copy(islandToggles = s.islandToggles.mapValues { false }) }
                         refreshIslandCheckboxes()
-                    }.enabled(licensed && pendingGlowEnabled)
+                    }.enabled(licensed && section.pending.enabled)
                 }
                 // Headers row
                 threeColumnsRow(
@@ -378,31 +406,19 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         licensed: Boolean,
     ) {
         val cb = checkBox(islandId)
-        cb.component.isSelected = pendingIslandToggles[islandId] ?: false
-        cb.component.isEnabled = licensed && pendingGlowEnabled
+        cb.component.isSelected = section.pending.islandToggles[islandId] ?: false
+        cb.component.isEnabled = licensed && section.pending.enabled
         cb.component.addActionListener {
-            pendingIslandToggles[islandId] = cb.component.isSelected
+            section.update { it.copy(islandToggles = it.islandToggles + (islandId to cb.component.isSelected)) }
         }
         islandCheckboxes[islandId] = cb.component
     }
 
     // Preset helpers
 
-    private fun applyPresetValues(preset: GlowPreset) {
-        val style = preset.style ?: return
-        val intensity = preset.intensity ?: return
-        val width = preset.width ?: return
-        val animation = preset.animation ?: return
-
-        pendingStyle = style
-        pendingIntensity[style] = intensity
-        pendingWidth[style] = width
-        pendingAnimation = animation
-    }
-
     private fun switchToCustom() {
-        if (pendingPreset != GlowPreset.CUSTOM) {
-            pendingPreset = GlowPreset.CUSTOM
+        if (section.pending.preset != GlowPreset.CUSTOM) {
+            section.update { it.copy(preset = GlowPreset.CUSTOM) }
             customModeVisible.set(true)
             suppressListeners = true
             presetSegmentedButton?.selectedItem = GlowPreset.CUSTOM
@@ -413,8 +429,9 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
 
     private fun refreshSliders() {
         suppressListeners = true
-        val intensity = pendingIntensity[pendingStyle] ?: pendingStyle.defaultIntensity
-        val width = pendingWidth[pendingStyle] ?: pendingStyle.defaultWidth
+        val pending = section.pending
+        val intensity = pending.intensity[pending.style] ?: pending.style.defaultIntensity
+        val width = pending.width[pending.style] ?: pending.style.defaultWidth
         intensitySlider?.value = intensity
         widthSlider?.value = width
         intensityValueLabel?.text = "$intensity"
@@ -424,15 +441,15 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
 
     private fun refreshStyleAndAnimation() {
         suppressListeners = true
-        styleCombo?.selectedItem = pendingStyle.displayName
-        animationCombo?.selectedItem = pendingAnimation.displayName
+        styleCombo?.selectedItem = section.pending.style.displayName
+        animationCombo?.selectedItem = section.pending.animation.displayName
         updateAnimationDescription()
         suppressListeners = false
     }
 
     private fun refreshIslandCheckboxes() {
         for ((id, cb) in islandCheckboxes) {
-            cb.isSelected = pendingIslandToggles[id] ?: false
+            cb.isSelected = section.pending.islandToggles[id] ?: false
         }
     }
 
@@ -447,7 +464,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         }
 
     private fun updateAnimationDescription() {
-        animationDescriptionLabel?.text = animationDescription(pendingAnimation)
+        animationDescriptionLabel?.text = animationDescription(section.pending.animation)
     }
 
     // State management
@@ -459,40 +476,6 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         val width = state.getWidthForStyle(style)
         val animation = GlowAnimation.fromName(state.glowAnimation ?: GlowAnimation.NONE.name)
         return GlowPreset.detect(style, intensity, width, animation).name
-    }
-
-    private fun loadStateIntoPending(
-        state: AyuIslandsState,
-        presetName: String = state.glowPreset ?: GlowPreset.WHISPER.name,
-    ) {
-        pendingGlowEnabled = state.glowEnabled
-        pendingPreset = GlowPreset.fromName(presetName)
-        pendingStyle = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
-        pendingAnimation = GlowAnimation.fromName(state.glowAnimation ?: GlowAnimation.NONE.name)
-
-        pendingIntensity.clear()
-        pendingWidth.clear()
-        for (style in GlowStyle.entries) {
-            pendingIntensity[style] = state.getIntensityForStyle(style)
-            pendingWidth[style] = state.getWidthForStyle(style)
-        }
-
-        pendingIslandToggles.clear()
-        for (id in ISLAND_IDS) {
-            pendingIslandToggles[id] = state.isIslandEnabled(id)
-        }
-
-        customModeVisible.set(pendingPreset == GlowPreset.CUSTOM)
-    }
-
-    private fun copyPendingToStored() {
-        storedGlowEnabled = pendingGlowEnabled
-        storedPreset = pendingPreset
-        storedStyle = pendingStyle
-        storedIntensity = pendingIntensity.toMap()
-        storedWidth = pendingWidth.toMap()
-        storedAnimation = pendingAnimation
-        storedIslandToggles = pendingIslandToggles.toMap()
     }
 
     private fun resolveAccentColor(): Color {
@@ -508,16 +491,17 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
 
     private fun updateGlowGroupPanel() {
         val panel = glowGroupPanel ?: return
-        val style = pendingStyle
-        val intensity = pendingIntensity[style] ?: style.defaultIntensity
-        val width = pendingWidth[style] ?: style.defaultWidth
+        val pending = section.pending
+        val style = pending.style
+        val intensity = pending.intensity[style] ?: style.defaultIntensity
+        val width = pending.width[style] ?: style.defaultWidth
         val color = resolveAccentColor()
-        val visible = pendingGlowEnabled || !LicenseChecker.isLicensedOrGrace()
+        val visible = pending.enabled || !LicenseChecker.isLicensedOrGrace()
         panel.updateFromPreset(style, intensity, width, color, visible)
     }
 
     private fun updateControlStates() {
-        val enabled = pendingGlowEnabled && LicenseChecker.isLicensedOrGrace()
+        val enabled = section.pending.enabled && LicenseChecker.isLicensedOrGrace()
 
         intensitySlider?.isEnabled = enabled
         widthSlider?.isEnabled = enabled
@@ -532,13 +516,13 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
 
     private fun refreshAllControls() {
         suppressListeners = true
-        presetSegmentedButton?.selectedItem = pendingPreset
-        customModeVisible.set(pendingPreset == GlowPreset.CUSTOM)
-        styleCombo?.selectedItem = pendingStyle.displayName
-        animationCombo?.selectedItem = pendingAnimation.displayName
+        presetSegmentedButton?.selectedItem = section.pending.preset
+        customModeVisible.set(section.pending.preset == GlowPreset.CUSTOM)
+        styleCombo?.selectedItem = section.pending.style.displayName
+        animationCombo?.selectedItem = section.pending.animation.displayName
         refreshSliders()
         refreshIslandCheckboxes()
-        masterToggle?.isSelected = pendingGlowEnabled
+        masterToggle?.isSelected = section.pending.enabled
         updateAnimationDescription()
         suppressListeners = false
         updateControlStates()
@@ -547,52 +531,37 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
 
     // AyuIslandsSettingsPanel contract
 
-    override fun isModified(): Boolean =
-        pendingGlowEnabled != storedGlowEnabled ||
-            pendingPreset != storedPreset ||
-            pendingStyle != storedStyle ||
-            pendingIntensity != storedIntensity ||
-            pendingWidth != storedWidth ||
-            pendingAnimation != storedAnimation ||
-            pendingIslandToggles != storedIslandToggles
+    override fun isModified(): Boolean = section.isModified()
 
     override fun apply() {
         if (!isModified()) return
         if (!LicenseChecker.isLicensedOrGrace()) return
-        val state = AyuIslandsSettings.getInstance().state
 
-        state.glowEnabled = pendingGlowEnabled
-        state.glowPreset = pendingPreset.name
+        // Write-through: preset values → raw state fields (GlowOverlayManager reads
+        // raw fields). Folding before commit lets stored converge onto the folded
+        // pending values, exactly like the previous copy-pending-to-stored did.
+        section.update { if (it.preset == GlowPreset.CUSTOM) it else it.withPresetValues(it.preset) }
 
-        // Write-through: preset values → raw state fields (GlowOverlayManager reads raw fields)
-        if (pendingPreset != GlowPreset.CUSTOM) {
-            applyPresetValues(pendingPreset)
+        section.commit { pending, _ ->
+            val state = AyuIslandsSettings.getInstance().state
+            state.glowEnabled = pending.enabled
+            state.glowPreset = pending.preset.name
+            state.glowStyle = pending.style.name
+            state.glowAnimation = pending.animation.name
+
+            for (style in GlowStyle.entries) {
+                state.setIntensityForStyle(style, pending.intensity[style] ?: style.defaultIntensity)
+                state.setWidthForStyle(style, pending.width[style] ?: style.defaultWidth)
+            }
+
+            for (id in ISLAND_IDS) {
+                state.setIslandEnabled(id, pending.islandToggles[id] ?: false)
+            }
         }
-
-        state.glowStyle = pendingStyle.name
-        state.glowAnimation = pendingAnimation.name
-
-        for (style in GlowStyle.entries) {
-            state.setIntensityForStyle(style, pendingIntensity[style] ?: style.defaultIntensity)
-            state.setWidthForStyle(style, pendingWidth[style] ?: style.defaultWidth)
-        }
-
-        for (id in ISLAND_IDS) {
-            state.setIslandEnabled(id, pendingIslandToggles[id] ?: false)
-        }
-
-        copyPendingToStored()
     }
 
     override fun reset() {
-        pendingGlowEnabled = storedGlowEnabled
-        pendingPreset = storedPreset
-        pendingStyle = storedStyle
-        pendingIntensity = storedIntensity.toMutableMap()
-        pendingWidth = storedWidth.toMutableMap()
-        pendingAnimation = storedAnimation
-        pendingIslandToggles = storedIslandToggles.toMutableMap()
-
+        section.resetToStored()
         refreshAllControls()
     }
 
