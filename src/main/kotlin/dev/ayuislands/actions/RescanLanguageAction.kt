@@ -27,6 +27,12 @@ import dev.ayuislands.licensing.LicenseChecker
  * is a one-shot — it disconnects inside the callback so rapid-fire clicks don't
  * pile subscriptions on the bus. The scheduler's dedup gate coalesces concurrent
  * scans, so one balloon fires per *completed* scan regardless of click spam.
+ *
+ * Triage note: on a pathologically slow startup this action can complete a scan
+ * before [dev.ayuislands.accent.ScanCompletionAccentRefresher] is installed by
+ * the project activity — the balloon then reports the detected language while
+ * the accent visibly changes only moments later, once the activity's own apply
+ * reads the (already warm) cache. Expected convergence, not a lost refresh.
  */
 internal class RescanLanguageAction : DumbAwareAction() {
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT

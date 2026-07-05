@@ -12,6 +12,7 @@ import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.ProjectLanguageDetector
 import dev.ayuislands.accent.ProjectLanguageRootChangeListener
+import dev.ayuislands.accent.ScanCompletionAccentRefresher
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.accent.runCatchingPreservingCancellation
 import dev.ayuislands.editor.EditorScrollbarManager
@@ -39,6 +40,18 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         LOG.info("Ayu Islands loaded — active theme: $themeName, project: ${project.name}")
 
         val settings = AyuIslandsSettings.getInstance()
+
+        // Language detection is a one-way event: the detector only publishes
+        // scanCompleted, and this project service is the single subscriber that
+        // owns the post-scan re-resolve + accent apply. Instantiate it BEFORE
+        // the first accent resolve below — runStartupAccentOnEdt can schedule
+        // the first background scan (EDT resolve on a cold cache), and the
+        // scan's completion must not fire into an empty subscriber list.
+        // Installed before the external-theme early return on purpose: the
+        // refresher self-gates on AyuVariant.detect(), mirroring the reaction
+        // that previously lived unconditionally inside the detector.
+        ScanCompletionAccentRefresher.getInstance(project)
+
         val variant =
             AyuVariant.fromThemeName(themeName) ?: return initializeExternalThemeIfEnabled(project, settings)
 

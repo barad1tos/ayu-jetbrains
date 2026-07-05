@@ -883,159 +883,6 @@ class ProjectLanguageDetectorTest {
         )
     }
 
-    // ── refreshAccentOnEdt (extracted from cacheable scan refresh) ────────────
-
-    @Test
-    fun `refreshAccentOnEdt reapplies resolver fallback when language override no longer matches`() {
-        // A cacheable scan can remove the active language override as well as
-        // add one. The resolver owns that fallback decision; this helper must
-        // apply whatever it resolves so chrome/glow do not stay on the old
-        // language accent until the next focus swap.
-        mockkObject(AyuVariant.Companion)
-        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-        mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFCC66"
-        mockkObject(AccentApplicator)
-        justRun { AccentApplicator.apply(any()) }
-        val swapService = mockk<dev.ayuislands.settings.mappings.ProjectAccentSwapService>(relaxed = true)
-        mockkObject(dev.ayuislands.settings.mappings.ProjectAccentSwapService.Companion)
-        every {
-            dev.ayuislands.settings.mappings.ProjectAccentSwapService
-                .getInstance()
-        } returns swapService
-
-        val project = stubProject("/tmp/refresh-fallback-${System.nanoTime()}")
-        every { AccentApplicator.resolveFocusedProject() } returns project
-        ProjectLanguageDetector.refreshAccentOnEdt(project)
-
-        verify(exactly = 1) { AccentApplicator.applyFromHexString("#FFCC66") }
-        verify(exactly = 1) { swapService.notifyExternalApply("#FFCC66") }
-    }
-
-    @Test
-    fun `refreshAccentOnEdt runs the full apply chain when override is present`() {
-        // Happy-path lock: given a resolved language override on a live
-        // project, the helper must call the full resolver → applicator →
-        // swap-cache chain. Dropping any of the three downstream calls would
-        // leave users stuck on the previous accent until the next focus swap.
-        mockkObject(AyuVariant.Companion)
-        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-        mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFCC66"
-        mockkObject(AccentApplicator)
-        justRun { AccentApplicator.apply(any()) }
-        val swapService = mockk<dev.ayuislands.settings.mappings.ProjectAccentSwapService>(relaxed = true)
-        mockkObject(dev.ayuislands.settings.mappings.ProjectAccentSwapService.Companion)
-        every {
-            dev.ayuislands.settings.mappings.ProjectAccentSwapService
-                .getInstance()
-        } returns swapService
-
-        val project = stubProject("/tmp/refresh-hit-${System.nanoTime()}")
-        every { AccentApplicator.resolveFocusedProject() } returns project
-        ProjectLanguageDetector.refreshAccentOnEdt(project)
-
-        verify(exactly = 1) { AccentApplicator.applyFromHexString("#FFCC66") }
-        verify(exactly = 1) { swapService.notifyExternalApply("#FFCC66") }
-    }
-
-    @Test
-    fun `refreshAccentOnEdt swallows a throwing apply chain without rethrowing`() {
-        // Contract lock on the runCatchingPreservingCancellation wrapper:
-        // AccentApplicator.apply can throw on a LafManager race / UIManager
-        // shutdown; if that propagates out of the invokeLater callback it
-        // becomes an uncaught EDT exception. This test asserts the helper
-        // returns normally (WARN-logged internally) instead of rethrowing.
-        mockkObject(AyuVariant.Companion)
-        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-        mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFCC66"
-        mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } throws RuntimeException("LafManager boom")
-
-        val project = stubProject("/tmp/refresh-throw-${System.nanoTime()}")
-        every { AccentApplicator.resolveFocusedProject() } returns project
-        // Must not throw — load-bearing assertion is simply that the call
-        // completes. A regression dropping the runCatching would propagate
-        // the RuntimeException and fail this test.
-        ProjectLanguageDetector.refreshAccentOnEdt(project)
-    }
-
-    @Test
-    fun `refreshAccentOnEdt swallows a throwing resolver without rethrowing`() {
-        // The resolver now owns both hit and fallback decisions. A corrupt
-        // override, plugin-unload race, or resolver regression must not escape
-        // the invokeLater callback as an uncaught EDT exception.
-        mockkObject(AyuVariant.Companion)
-        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-        mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any<AyuVariant>()) } throws RuntimeException("resolver boom")
-
-        mockkObject(AccentApplicator)
-        justRun { AccentApplicator.apply(any()) }
-
-        val project = stubProject("/tmp/refresh-settings-boom-${System.nanoTime()}")
-        every { AccentApplicator.resolveFocusedProject() } returns project
-
-        // Must not throw — the runCatching contains the resolver.
-        ProjectLanguageDetector.refreshAccentOnEdt(project)
-
-        // And because the resolver failed, the apply chain must not be reached.
-        verify(exactly = 0) { AccentApplicator.apply(any()) }
-    }
-
-    @Test
-    fun `refreshAccentOnEdt skips apply chain when variant detection returns null`() {
-        // Null variant = no Ayu theme active. The early `?: return@…` keeps
-        // the applicator from touching UIManager when there's no Ayu theme to
-        // drive. Locking the guard so a future author doesn't delete it as
-        // "dead code" — it's the fallback path for users on a non-Ayu theme.
-        mockkObject(AyuVariant.Companion)
-        every { AyuVariant.detect() } returns null
-
-        mockkObject(AccentApplicator)
-        justRun { AccentApplicator.apply(any()) }
-
-        val project = stubProject("/tmp/refresh-null-variant-${System.nanoTime()}")
-        every { AccentApplicator.resolveFocusedProject() } returns project
-        ProjectLanguageDetector.refreshAccentOnEdt(project)
-
-        verify(exactly = 0) { AccentApplicator.apply(any()) }
-    }
-
-    @Test
-    fun `refreshAccentOnEdt skips apply chain when focused project changed after scan`() {
-        // The apply path writes app-global UIManager state. A background scan
-        // from an old project must not repaint over the project that gained
-        // focus while the scan was running.
-        val scannedProject = stubProject("/tmp/refresh-old-focus-${System.nanoTime()}")
-        val focusedProject = stubProject("/tmp/refresh-new-focus-${System.nanoTime()}")
-        mockkObject(AccentApplicator)
-        every { AccentApplicator.resolveFocusedProject() } returns focusedProject
-        justRun { AccentApplicator.apply(any()) }
-
-        ProjectLanguageDetector.refreshAccentOnEdt(scannedProject)
-
-        verify(exactly = 0) { AccentApplicator.apply(any()) }
-    }
-
-    @Test
-    fun `refreshAccentOnEdt skips apply chain when project is disposed`() {
-        // Round-2 disposal guard: scheduling delay between background scan
-        // and EDT dispatch can close the project. The early return here
-        // keeps the applicator from writing UIManager entries for a dead
-        // project's swap-cache.
-        mockkObject(AccentApplicator)
-        justRun { AccentApplicator.apply(any()) }
-
-        val project = stubProject("/tmp/refresh-disposed-${System.nanoTime()}")
-        every { project.isDisposed } returns true
-
-        ProjectLanguageDetector.refreshAccentOnEdt(project)
-
-        verify(exactly = 0) { AccentApplicator.apply(any()) }
-    }
-
     // ── rescan (Phase 29) ─────────────────────────────────────────────────────
 
     @Test
@@ -1350,15 +1197,13 @@ class ProjectLanguageDetectorTest {
         stubDumbServiceSmart(closingProject)
         val listener = mockk<ProjectLanguageDetectionListener>(relaxed = true)
         wireMessageBus(closingProject, listener)
-        mockkObject(AccentApplicator)
-        every { AccentApplicator.resolveFocusedProject() } returns reopenedProject
         mockkStatic(javax.swing.SwingUtilities::class)
-        var invokeLaterCalls = 0
         every { javax.swing.SwingUtilities.invokeLater(any()) } answers {
-            invokeLaterCalls++
-            if (invokeLaterCalls == 2) {
-                every { closingProject.isDisposed } returns true
-            }
+            // With the accent refresh behind the scanCompleted subscriber, the
+            // scan body queues exactly ONE EDT hop — the publish. Flip
+            // disposal before the queued runnable runs to simulate the
+            // project closing during that hop.
+            every { closingProject.isDisposed } returns true
             firstArg<Runnable>().run()
         }
         runSchedulerInline()
@@ -1397,19 +1242,14 @@ class ProjectLanguageDetectorTest {
         stubDumbServiceSmart(closingProject)
         val listener = mockk<ProjectLanguageDetectionListener>(relaxed = true)
         wireMessageBus(closingProject, listener)
-        mockkObject(AccentApplicator)
-        every { AccentApplicator.resolveFocusedProject() } returns reopenedProject
         mockkStatic(javax.swing.SwingUtilities::class)
-        var invokeLaterCalls = 0
         lateinit var stalePublish: Runnable
         every { javax.swing.SwingUtilities.invokeLater(any()) } answers {
-            invokeLaterCalls++
-            val runnable = firstArg<Runnable>()
-            if (invokeLaterCalls == 1) {
-                runnable.run()
-            } else {
-                stalePublish = runnable
-            }
+            // The scan body queues exactly one EDT hop (the scanCompleted
+            // publish); capture it without running so the test can replay it
+            // as a stale publish after the reopened project warms a fresh
+            // cache entry.
+            stalePublish = firstArg<Runnable>()
         }
         runSchedulerInline()
 
@@ -1547,13 +1387,29 @@ class ProjectLanguageDetectorTest {
         every { project.getService(com.intellij.openapi.project.DumbService::class.java) } returns dumbService
     }
 
+    /**
+     * Wires a mocked `MessageBus` whose `syncPublisher` fans each publish out
+     * to BOTH the test's [listener] (assertion surface) AND a real
+     * [ScanCompletionAccentRefresher] subscribed through the mocked
+     * connection — so detector specs exercise the production accent-refresh
+     * reaction end-to-end through the one-way `scanCompleted` event.
+     */
     private fun wireMessageBus(
         project: Project,
         listener: ProjectLanguageDetectionListener,
     ) {
         val bus = mockk<com.intellij.util.messages.MessageBus>()
         every { project.messageBus } returns bus
-        every { bus.syncPublisher(ProjectLanguageDetectionListener.TOPIC) } returns listener
+        val connection = mockk<com.intellij.util.messages.MessageBusConnection>()
+        every { bus.connect(any<com.intellij.openapi.Disposable>()) } returns connection
+        val subscribed = mutableListOf<ProjectLanguageDetectionListener>()
+        every { connection.subscribe(ProjectLanguageDetectionListener.TOPIC, capture(subscribed)) } returns Unit
+        ScanCompletionAccentRefresher(project)
+        every { bus.syncPublisher(ProjectLanguageDetectionListener.TOPIC) } returns
+            ProjectLanguageDetectionListener { outcome ->
+                listener.scanCompleted(outcome)
+                subscribed.forEach { it.scanCompleted(outcome) }
+            }
     }
 
     private fun runInvokeLaterInline() {

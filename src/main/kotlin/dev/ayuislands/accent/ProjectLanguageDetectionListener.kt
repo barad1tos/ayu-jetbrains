@@ -8,10 +8,13 @@ import com.intellij.util.messages.Topic
  * definitive no-winner verdict, or hit a transient failure path.
  *
  * Subscribers refresh UI projections over the detector cache (the Settings
- * proportions status row, the Tools-menu Rescan balloon). Listener runs on
- * the EDT so handlers can touch Swing directly without their own
- * `invokeLater` wrap; [ProjectLanguageDetector.publishScanCompleted] is the
- * sole producer and already dispatches the publish onto EDT.
+ * proportions status row, the Tools-menu Rescan balloon); the one
+ * non-projection subscriber is [ScanCompletionAccentRefresher], which owns
+ * the post-scan re-resolve + accent apply so the detector stays a one-way
+ * event source. Listener runs on the EDT so handlers can touch Swing
+ * directly without their own `invokeLater` wrap;
+ * [ProjectLanguageDetector.publishScanCompleted] is the sole producer and
+ * already dispatches the publish onto EDT.
  *
  * Project-scoped (not application-scoped) so the subscription list is
  * automatically cleared when the project closes and the `Project`-keyed
