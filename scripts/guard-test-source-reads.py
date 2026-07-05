@@ -55,6 +55,18 @@ ALLOWLIST: dict[tuple[str, str], Allowance] = {
         "src/main/kotlin/dev/ayuislands/AyuIslandsStartupActivity.kt",
     ): Allowance(1, "documented startup wiring compromise"),
     (
+        "src/test/kotlin/dev/ayuislands/ui/FocusWinningTabOpenerTest.kt",
+        "src/main/kotlin/dev/ayuislands/ui/FocusWinningTabOpener.kt",
+    ): Allowance(1, "documented EDT-hop shape compromise (Dispatchers.EDT undispatchable headless)"),
+    (
+        "src/test/kotlin/dev/ayuislands/ui/FocusWinningTabOpenerTest.kt",
+        "src/main/kotlin/dev/ayuislands/whatsnew/WhatsNewLauncher.kt",
+    ): Allowance(1, "documented opener wiring compromise"),
+    (
+        "src/test/kotlin/dev/ayuislands/ui/FocusWinningTabOpenerTest.kt",
+        "src/main/kotlin/dev/ayuislands/StartupLicenseHandler.kt",
+    ): Allowance(1, "documented opener wiring compromise"),
+    (
         "src/test/kotlin/dev/ayuislands/accent/AccentApplicatorBannedApiGuardTest.kt",
         "src/main/kotlin/dev/ayuislands/accent/AccentApplicator.kt",
     ): Allowance(1, "banned platform API guard"),

@@ -6,7 +6,6 @@ import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.editor.EditorScrollbarManager
 import dev.ayuislands.gitpanel.GitPanelAutoFitManager
 import dev.ayuislands.licensing.LicenseChecker
-import dev.ayuislands.onboarding.OnboardingOrchestrator
 import dev.ayuislands.onboarding.WizardAction
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -48,9 +47,6 @@ class StartupLicenseStateTest {
         every { LicenseChecker.applyWorkspaceDefaults() } just runs
         every { LicenseChecker.revertToFreeDefaults(any()) } just runs
         every { LicenseChecker.notifyTrialExpired(any()) } just runs
-
-        mockkObject(OnboardingOrchestrator)
-        every { OnboardingOrchestrator.tryPick() } returns true
 
         mockkObject(StartupLicenseHandler)
         every { StartupLicenseHandler.scheduleTrialWelcome(any(), any()) } just runs
