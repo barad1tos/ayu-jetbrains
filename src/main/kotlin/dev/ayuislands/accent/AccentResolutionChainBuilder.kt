@@ -48,7 +48,7 @@ internal object AccentResolutionChainBuilder {
     ): AccentResolutionChain {
         val globalAccent = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
         val steps = mutableListOf<AccentResolutionStep>()
-        val verdict = collectOverrideChainSteps(project, steps)
+        val verdict = collectOverrideChainSteps(project, steps, AccentResolutionRequest.diagnostics())
         val winner =
             steps.firstOrNull { it.outcome == StepOutcome.WON }
                 ?: AccentResolutionStep(
@@ -81,7 +81,7 @@ internal object AccentResolutionChainBuilder {
             return AccentResolutionChain(listOf(step), step, null)
         }
 
-        val verdict = collectOverrideChainSteps(project, steps)
+        val verdict = collectOverrideChainSteps(project, steps, AccentResolutionRequest.diagnostics())
         collectUiColorStep(
             steps,
             Source.MATERIAL_THEME,
@@ -139,7 +139,7 @@ internal object AccentResolutionChainBuilder {
     private fun collectOverrideChainSteps(
         project: Project?,
         steps: MutableList<AccentResolutionStep>,
-        request: AccentResolutionRequest = AccentResolutionRequest.diagnostics(),
+        request: AccentResolutionRequest,
     ): ProjectLanguageVerdict? {
         if (!LicenseChecker.isLicensedOrGrace()) {
             collectPremiumUnavailableSteps(steps, StepOutcome.LICENSE_BLOCKED, DETAIL_LICENSE_BLOCKED)

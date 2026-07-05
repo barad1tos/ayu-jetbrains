@@ -62,6 +62,33 @@ internal sealed interface AccentDetectorLookup {
     }
 
     /**
+     * Strictly read-only lookup for the pending cache-only preview: NO rung
+     * ever warms the cache, so merely opening or refreshing the read-only
+     * Settings resolution panel cannot enqueue a background scan. This
+     * reproduces the pre-engine pending walker exactly
+     * (`warmCache = !detectorConsulted && warmDetector` — always false when
+     * cacheOnly). Diagnostics chains use [CacheOnlyLookup] instead, whose
+     * fallback-corner warm-up is pre-existing pinned behavior.
+     */
+    data object StrictCacheOnlyLookup : AccentDetectorLookup {
+        override fun languageRungVerdict(
+            project: Project,
+            hasLanguageCandidate: Boolean,
+            hasFallbackCandidate: Boolean,
+        ): ProjectLanguageVerdict? =
+            if (hasLanguageCandidate || hasFallbackCandidate) {
+                ProjectLanguageDetector.verdict(project)
+            } else {
+                null
+            }
+
+        override fun fallbackRungVerdict(
+            project: Project,
+            languageRungVerdict: ProjectLanguageVerdict?,
+        ): ProjectLanguageVerdict = languageRungVerdict ?: ProjectLanguageDetector.verdict(project)
+    }
+
+    /**
      * Live-resolve lookup: the language rung rides [ProjectLanguageDetector.dominant]
      * (which warms the cache off the EDT and schedules a background scan on it),
      * and the fallback rung warms only when the language rung was not consulted.

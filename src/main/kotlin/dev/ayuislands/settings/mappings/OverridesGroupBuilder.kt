@@ -452,9 +452,10 @@ class OverridesGroupBuilder(
 
     /**
      * Winning pending override for [project], or `null` when the global accent
-     * applies. Cache-only mode keeps the read-only detector contract of the
-     * Settings preview ([AccentDetectorLookup.CacheOnlyLookup]); the default
-     * warming mode mirrors live resolution. [AccentHexPolicy.RAW] because the
+     * applies. Cache-only mode keeps the strictly read-only detector contract
+     * of the Settings preview ([AccentDetectorLookup.StrictCacheOnlyLookup] —
+     * never schedules a scan); the default warming mode mirrors live
+     * resolution. [AccentHexPolicy.RAW] because the
      * pending models normalize values at entry — see [PendingAccentMappingsView].
      */
     private fun pendingOverrideWinner(
@@ -467,7 +468,7 @@ class OverridesGroupBuilder(
                 view = pendingMappingsView(),
                 lookup =
                     if (cacheOnly) {
-                        AccentDetectorLookup.CacheOnlyLookup
+                        AccentDetectorLookup.StrictCacheOnlyLookup
                     } else {
                         AccentDetectorLookup.WarmingLookup
                     },

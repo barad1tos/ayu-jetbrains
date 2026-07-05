@@ -94,6 +94,8 @@ class AccentDetectorLookupTest {
 
     @Test
     fun `cache-only fallback rung warms the cache when the language rung was skipped`() {
+        // Pre-existing diagnostics-chain behavior (pinned by AccentResolverChainTest):
+        // without the warm-up the fallback answer would stay "Detection pending" forever.
         val noWinner = ProjectLanguageVerdict.NoWinner(mapOf("kotlin" to 500L, "java" to 500L))
         every { ProjectLanguageDetector.verdict(project, warmCache = true) } returns noWinner
 
@@ -101,6 +103,40 @@ class AccentDetectorLookupTest {
 
         assertEquals(noWinner, verdict)
         verify(atLeast = 1) { ProjectLanguageDetector.verdict(project, warmCache = true) }
+    }
+
+    // StrictCacheOnlyLookup
+
+    @Test
+    fun `strict cache-only fallback rung never warms even when the language rung was skipped`() {
+        // The pending Settings preview is read-only: opening or refreshing the
+        // resolution panel must not enqueue a background scan (pre-engine
+        // pending-walker behavior, re-flagged by two independent reviews).
+        val cold = ProjectLanguageVerdict.Cold
+        every { ProjectLanguageDetector.verdict(project) } returns cold
+
+        val verdict =
+            AccentDetectorLookup.StrictCacheOnlyLookup.fallbackRungVerdict(project, languageRungVerdict = null)
+
+        assertEquals(cold, verdict)
+        verify(exactly = 0) { ProjectLanguageDetector.verdict(project, warmCache = true) }
+    }
+
+    @Test
+    fun `strict cache-only language rung reads the cached verdict without warming`() {
+        val detected = ProjectLanguageVerdict.Detected("kotlin", weights = null)
+        every { ProjectLanguageDetector.verdict(project) } returns detected
+
+        val verdict =
+            AccentDetectorLookup.StrictCacheOnlyLookup.languageRungVerdict(
+                project,
+                hasLanguageCandidate = true,
+                hasFallbackCandidate = false,
+            )
+
+        assertEquals(detected, verdict)
+        verify(exactly = 0) { ProjectLanguageDetector.verdict(project, warmCache = true) }
+        verify(exactly = 0) { ProjectLanguageDetector.dominant(project) }
     }
 
     // WarmingLookup
