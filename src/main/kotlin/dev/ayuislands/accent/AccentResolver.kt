@@ -2,10 +2,8 @@ package dev.ayuislands.accent
 
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
-import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
-import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import org.jetbrains.annotations.TestOnly
 import java.awt.Color
 import java.io.File
@@ -30,8 +28,16 @@ import javax.swing.UIManager
  *  6. **Global** — [AyuIslandsSettings.getAccentForVariant] (which itself honors
  *     follow-system-accent and per-variant stored hex).
  *
+ * The ladder itself lives in ONE place — [AccentResolutionChainBuilder]. [resolve] and
+ * [source] are projections of that engine's winning step, and [resolveChain] renders the
+ * same walk as a diagnostics trace, so hex, source label, and chain cannot drift apart.
+ * The projections differ from diagnostics only in their [AccentResolutionRequest] seams:
+ * live resolution warms the detector cache ([AccentDetectorLookup.WarmingLookup]) and
+ * judges hex leniently ([AccentHexPolicy.LENIENT]) for native variants, while the
+ * external path validates strictly.
+ *
  * Per-project and per-language overrides are premium features: when the license check
- * fails, the resolver short-circuits to the global accent regardless of stored mappings.
+ * fails, the engine short-circuits to the global accent regardless of stored mappings.
  * The UI disables override add/edit for unlicensed users, but this guard protects against
  * trial expiry with previously-stored mappings and against manually imported settings XML.
  *
@@ -69,8 +75,8 @@ object AccentResolver {
     internal fun uiColorForDiagnostics(key: String): Color? = uiColor(key)
 
     /**
-     * Resolves the effective accent hex. Delegates to the shared override-traversal helper,
-     * falling back to the global per-variant accent when no override applies.
+     * Resolves the effective accent hex: the engine's override winner, falling back
+     * to the global per-variant accent when no override rung wins.
      */
     fun resolve(
         project: Project?,
@@ -86,11 +92,15 @@ object AccentResolver {
      * Returns which layer of the resolution chain produced the accent for [project].
      * Used by the settings UI to surface "Currently active: ... (project override)" context.
      *
-     * Mirrors the license gate in [resolve]: unlicensed callers always see [Source.GLOBAL],
-     * so the UI label does not claim a project/language override is "active" when the
-     * resolver is actually returning the global accent.
+     * Runs the same engine walk as [resolve] (same request seams), so the label and the
+     * applied hex agree by construction — unlicensed callers always see [Source.GLOBAL]
+     * because the engine's license gate fires before any mapping is read.
      */
-    fun source(project: Project?): Source = findOverride(project, validateHex = false)?.source ?: Source.GLOBAL
+    fun source(project: Project?): Source =
+        AccentResolutionChainBuilder
+            .overrideWinner(project, AccentResolutionRequest.liveResolve(AccentHexPolicy.LENIENT))
+            ?.source
+            ?: Source.GLOBAL
 
     fun source(
         project: Project?,
@@ -159,7 +169,9 @@ object AccentResolver {
             return storedExternalAccent(state)
         }
 
-        findOverride(project, validateHex = true)?.let { return it }
+        AccentResolutionChainBuilder
+            .overrideWinner(project, AccentResolutionRequest.liveResolve(AccentHexPolicy.STRICT))
+            ?.let { return it }
         uiColorAccent(MATERIAL_ACCENT_KEY, Source.MATERIAL_THEME)?.let { return it }
         uiColorAccent(COMPONENT_ACCENT_KEY, Source.IDE_ACCENT)?.let { return it }
         uiColorAccent(ACTIONS_BLUE_KEY, Source.IDE_ACCENT)?.let { return it }
@@ -176,7 +188,9 @@ object AccentResolver {
         variant: AyuVariant,
     ): ResolvedAccent {
         val globalAccent = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
-        return findOverride(project, validateHex = false) ?: ResolvedAccent(Source.GLOBAL, globalAccent)
+        return AccentResolutionChainBuilder
+            .overrideWinner(project, AccentResolutionRequest.liveResolve(AccentHexPolicy.LENIENT))
+            ?: ResolvedAccent(Source.GLOBAL, globalAccent)
     }
 
     private fun resolveContext(
@@ -187,77 +201,6 @@ object AccentResolver {
             is AccentContext.Ayu -> resolveAyu(project, context.ayuVariant)
             AccentContext.External -> resolveExternal(project)
         }
-
-    private fun findOverride(
-        project: Project?,
-        validateHex: Boolean,
-    ): ResolvedAccent? {
-        if (!LicenseChecker.isLicensedOrGrace()) return null
-        val activeProject =
-            project
-                ?.takeUnless { it.isDefault }
-                ?.takeUnless { it.isDisposed }
-                ?: return null
-
-        val mappings = AccentMappingsSettings.getInstance().state
-        val projectKey = projectKey(activeProject) ?: return null
-        mappings.projectAccents[projectKey]
-            ?.let { rawHex -> overrideAccent(Source.PROJECT_OVERRIDE, rawHex, validateHex)?.let { return it } }
-
-        val languageRequest =
-            LanguageOverrideRequest(
-                languageAccents = mappings.languageAccents,
-                hasForcedLanguageEntry = mappings.forcedProjectLanguages.containsKey(projectKey),
-                forcedLanguageId = mappings.forcedProjectLanguages[projectKey]?.trim()?.takeIf { it.isNotEmpty() },
-                languageFallbackAccent = mappings.languageFallbackAccent?.trim()?.takeIf { it.isNotEmpty() },
-                validateHex = validateHex,
-            )
-        val hasProjectFallbackCandidate = mappings.projectFallbackAccents.containsKey(projectKey)
-        if (!languageRequest.hasResolutionWork && !hasProjectFallbackCandidate) return null
-
-        val (languageOverride, detectorConsulted) =
-            resolveLanguageOverride(
-                project = activeProject,
-                request = languageRequest,
-            )
-        languageOverride?.let { return it }
-        val fallbackAccent = mappings.projectFallbackAccents[projectKey] ?: return null
-        val fallbackVerdict = ProjectLanguageDetector.verdict(activeProject, warmCache = !detectorConsulted)
-        if (fallbackVerdict is ProjectLanguageVerdict.NoWinner) {
-            overrideAccent(Source.PROJECT_FALLBACK, fallbackAccent, validateHex)?.let { return it }
-        }
-        return null
-    }
-
-    private fun resolveLanguageOverride(
-        project: Project,
-        request: LanguageOverrideRequest,
-    ): Pair<ResolvedAccent?, Boolean> {
-        request.forcedLanguageId
-            ?.let { languageId ->
-                overrideAccentForLanguage(
-                    languageAccents = request.languageAccents,
-                    languageFallbackAccent = request.languageFallbackAccent,
-                    languageId = languageId,
-                    exactSource = Source.FORCED_LANGUAGE_OVERRIDE,
-                    validateHex = request.validateHex,
-                )?.let { return it to false }
-            }
-        if (!request.shouldDetectLanguage) return null to false
-        val resolvedAccent =
-            ProjectLanguageDetector
-                .dominant(project)
-                ?.let { languageId ->
-                    overrideAccentForLanguage(
-                        languageAccents = request.languageAccents,
-                        languageFallbackAccent = request.languageFallbackAccent,
-                        languageId = languageId,
-                        exactSource = Source.LANGUAGE_OVERRIDE,
-                        validateHex = request.validateHex,
-                    )
-                }
-        return resolvedAccent to true
-    }
 
     /**
      * Stable key for a [project]: the canonicalized absolute path of `basePath`.
@@ -381,55 +324,16 @@ object AccentResolver {
 
 private fun Color.toHex(): String = "#%02X%02X%02X".format(Locale.ROOT, red, green, blue)
 
-private data class LanguageOverrideRequest(
-    val languageAccents: Map<String, String>,
-    val hasForcedLanguageEntry: Boolean,
-    val forcedLanguageId: String?,
-    val languageFallbackAccent: String?,
-    val validateHex: Boolean,
-) {
-    private val hasLanguageCandidate = languageAccents.isNotEmpty() || languageFallbackAccent != null
-
-    val hasResolutionWork: Boolean =
-        hasLanguageCandidate && (forcedLanguageId != null || !hasForcedLanguageEntry)
-
-    val shouldDetectLanguage: Boolean =
-        hasLanguageCandidate && !hasForcedLanguageEntry
-}
-
-private data class ResolvedAccent(
+/**
+ * Winning `(source, hex)` pair of one override-ladder walk. Produced by
+ * [AccentResolutionChainBuilder.overrideWinner] and by the global / external
+ * fallbacks in [AccentResolver]; the `hex` is non-null by construction so no
+ * consumer needs a defensive null check before handing it to the applicator.
+ */
+internal data class ResolvedAccent(
     val source: AccentResolver.Source,
     val hex: String,
 )
-
-private fun overrideAccentForLanguage(
-    languageAccents: Map<String, String>,
-    languageFallbackAccent: String?,
-    languageId: String,
-    exactSource: AccentResolver.Source,
-    validateHex: Boolean,
-): ResolvedAccent? {
-    languageAccents[languageId]
-        ?.let { rawHex -> overrideAccent(exactSource, rawHex, validateHex) }
-        ?.let { return it }
-    return languageFallbackAccent
-        ?.let { rawHex -> overrideAccent(AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE, rawHex, validateHex) }
-}
-
-private fun overrideAccent(
-    source: AccentResolver.Source,
-    rawHex: String,
-    validateHex: Boolean,
-): ResolvedAccent? {
-    val accent = AccentHex.of(rawHex)
-    if (accent != null) {
-        return ResolvedAccent(source, accent.value)
-    }
-    if (!validateHex && source != AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE) {
-        return ResolvedAccent(source, rawHex)
-    }
-    return null
-}
 
 private fun storedExternalAccent(state: AyuIslandsState): ResolvedAccent {
     val hex = AccentHex.of(state.externalThemeAccent)?.value ?: AyuVariant.MIRAGE.defaultAccent

@@ -10,13 +10,19 @@ import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.table.JBTable
 import com.intellij.util.messages.MessageBusConnection
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentDetectorLookup
 import dev.ayuislands.accent.AccentHex
+import dev.ayuislands.accent.AccentHexPolicy
+import dev.ayuislands.accent.AccentMappingsView
+import dev.ayuislands.accent.AccentResolutionChainBuilder
+import dev.ayuislands.accent.AccentResolutionRequest
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.LanguageDetectionRules
 import dev.ayuislands.accent.ProjectLanguageDetectionListener
 import dev.ayuislands.accent.ProjectLanguageDetector
 import dev.ayuislands.accent.ProjectLanguageVerdict
+import dev.ayuislands.accent.ResolvedAccent
 import dev.ayuislands.accent.runCatchingPreservingCancellation
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -393,21 +399,25 @@ class OverridesGroupBuilder(
     /**
      * Resolve the accent hex using the **pending** (not yet applied) overrides model.
      * Falls back to [fallbackGlobalHex] when no override matches.
+     *
+     * Projection of the shared [AccentResolutionChainBuilder] engine over
+     * [PendingAccentMappingsView] — the same ladder walk that serves the persisted
+     * [AccentResolver.resolve], so the preview cannot drift from post-Apply behavior.
      */
     fun resolvePending(
         project: Project?,
         fallbackGlobalHex: String,
         cacheOnly: Boolean = false,
-    ): String = findPendingOverride(project, warmDetector = !cacheOnly)?.hex ?: fallbackGlobalHex
+    ): String = pendingOverrideWinner(project, cacheOnly)?.hex ?: fallbackGlobalHex
 
     /**
      * Matching [AccentResolver.Source] for [project] under the **pending** overrides model.
+     * Same engine walk as [resolvePending], so hex and source label agree by construction.
      */
     fun sourcePending(
         project: Project?,
         cacheOnly: Boolean = false,
-    ): AccentResolver.Source =
-        findPendingOverride(project, warmDetector = !cacheOnly)?.source ?: AccentResolver.Source.GLOBAL
+    ): AccentResolver.Source = pendingOverrideWinner(project, cacheOnly)?.source ?: AccentResolver.Source.GLOBAL
 
     internal fun activeSourceDetailPending(
         project: Project?,
@@ -440,116 +450,40 @@ class OverridesGroupBuilder(
         return (verdict as? ProjectLanguageVerdict.Detected)?.let(::detectedLanguageDetail)
     }
 
-    private fun findPendingOverride(
+    /**
+     * Winning pending override for [project], or `null` when the global accent
+     * applies. Cache-only mode keeps the strictly read-only detector contract
+     * of the Settings preview ([AccentDetectorLookup.StrictCacheOnlyLookup] —
+     * never schedules a scan); the default warming mode mirrors live
+     * resolution. [AccentHexPolicy.RAW] because the
+     * pending models normalize values at entry — see [PendingAccentMappingsView].
+     */
+    private fun pendingOverrideWinner(
         project: Project?,
-        warmDetector: Boolean,
-    ): PendingResolvedAccent? {
-        if (!LicenseChecker.isLicensedOrGrace()) return null
-        val activeProject =
-            project
-                ?.takeUnless { it.isDefault }
-                ?.takeUnless { it.isDisposed }
-                ?: return null
-        val projectKey = AccentResolver.projectKey(activeProject) ?: return null
-        projectModel
-            .snapshot()
-            .firstOrNull { it.canonicalPath == projectKey }
-            ?.let { return PendingResolvedAccent(AccentResolver.Source.PROJECT_OVERRIDE, it.hex) }
-
-        val languageAccents = languageModel.snapshot().associate { it.languageId to it.hex }
-        val hasProjectFallbackCandidate = pendingFallbackAccents.containsKey(projectKey)
-
-        val cachedVerdict =
-            if (warmDetector) {
-                null
-            } else {
-                ProjectLanguageDetector.verdict(activeProject)
-            }
-        val languageOverride =
-            findPendingLanguageOverride(
-                activeProject = activeProject,
-                projectKey = projectKey,
-                languageAccents = languageAccents,
-                cachedVerdict = cachedVerdict,
-                warmDetector = warmDetector,
-            )
-        languageOverride.accent?.let { return it }
-        if (!languageOverride.hasResolutionWork && !hasProjectFallbackCandidate) return null
-
-        return findPendingFallbackOverride(
-            activeProject = activeProject,
-            projectKey = projectKey,
-            detectorConsulted = languageOverride.detectorConsulted,
-            cachedVerdict = cachedVerdict,
-            warmDetector = warmDetector,
+        cacheOnly: Boolean,
+    ): ResolvedAccent? =
+        AccentResolutionChainBuilder.overrideWinner(
+            project,
+            AccentResolutionRequest(
+                view = pendingMappingsView(),
+                lookup =
+                    if (cacheOnly) {
+                        AccentDetectorLookup.StrictCacheOnlyLookup
+                    } else {
+                        AccentDetectorLookup.WarmingLookup
+                    },
+                policy = AccentHexPolicy.RAW,
+            ),
         )
-    }
 
-    private fun findPendingLanguageOverride(
-        activeProject: Project,
-        projectKey: String,
-        languageAccents: Map<String, String>,
-        cachedVerdict: ProjectLanguageVerdict?,
-        warmDetector: Boolean,
-    ): PendingLanguageOverrideResult {
-        val hasForcedLanguageEntry = pendingForcedLanguages.containsKey(projectKey)
-        val hasLanguageCandidate = languageAccents.isNotEmpty() || pendingLanguageFallbackAccent != null
-        pendingForcedLanguages[projectKey]
-            ?.let { languageId ->
-                pendingAccentForLanguage(
-                    languageAccents = languageAccents,
-                    languageId = languageId,
-                    exactSource = AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE,
-                )
-            }?.let { return PendingLanguageOverrideResult(it, hasResolutionWork = true, detectorConsulted = false) }
-
-        val shouldDetectLanguage = !hasForcedLanguageEntry && hasLanguageCandidate
-        if (!shouldDetectLanguage) {
-            return PendingLanguageOverrideResult(
-                accent = null,
-                hasResolutionWork = hasLanguageCandidate && !hasForcedLanguageEntry,
-                detectorConsulted = false,
-            )
-        }
-
-        val accent =
-            pendingDetectedLanguageId(activeProject, cachedVerdict, warmDetector)
-                ?.let { languageId ->
-                    pendingAccentForLanguage(
-                        languageAccents = languageAccents,
-                        languageId = languageId,
-                        exactSource = AccentResolver.Source.LANGUAGE_OVERRIDE,
-                    )
-                }
-        return PendingLanguageOverrideResult(accent, hasResolutionWork = true, detectorConsulted = true)
-    }
-
-    private fun pendingDetectedLanguageId(
-        activeProject: Project,
-        cachedVerdict: ProjectLanguageVerdict?,
-        warmDetector: Boolean,
-    ): String? =
-        if (warmDetector) {
-            ProjectLanguageDetector.dominant(activeProject)
-        } else {
-            (cachedVerdict as? ProjectLanguageVerdict.Detected)?.languageId
-        }
-
-    private fun findPendingFallbackOverride(
-        activeProject: Project,
-        projectKey: String,
-        detectorConsulted: Boolean,
-        cachedVerdict: ProjectLanguageVerdict?,
-        warmDetector: Boolean,
-    ): PendingResolvedAccent? {
-        val fallbackAccent = pendingFallbackAccents[projectKey] ?: return null
-        val verdict =
-            cachedVerdict
-                ?: ProjectLanguageDetector.verdict(activeProject, warmCache = !detectorConsulted && warmDetector)
-        return fallbackAccent
-            .takeIf { verdict is ProjectLanguageVerdict.NoWinner }
-            ?.let { PendingResolvedAccent(AccentResolver.Source.PROJECT_FALLBACK, it) }
-    }
+    private fun pendingMappingsView(): AccentMappingsView =
+        PendingAccentMappingsView(
+            projectAccents = projectModel.snapshot().associate { it.canonicalPath to it.hex },
+            languageAccents = languageModel.snapshot().associate { it.languageId to it.hex },
+            forcedLanguages = pendingForcedLanguages,
+            projectFallbackAccents = pendingFallbackAccents,
+            languageFallbackAccent = pendingLanguageFallbackAccent,
+        )
 
     // Internals: pending-model resolver + UI wiring helpers
 
@@ -590,56 +524,14 @@ class OverridesGroupBuilder(
             verdict = verdict,
             forcedLanguageId = projectKey?.let(pendingForcedLanguages::get),
             fallbackHex = projectKey?.let(pendingFallbackAccents::get),
-            activeSource = diagnosticsSource(projectKey, verdict, licensed),
+            // Same cache-only engine walk as the "Currently active" label — the
+            // diagnostics row and the label can never disagree on the source.
+            activeSource = sourcePending(parentProject, cacheOnly = true),
             canMutate = licensed && projectKey != null,
             canRescan = licensed && projectKey != null,
             canSetFallbackToCurrentAccent = licensed && currentPendingAccentHex() != null,
         )
     }
-
-    private fun diagnosticsSource(
-        projectKey: String?,
-        verdict: ProjectLanguageVerdict,
-        isLicensed: Boolean,
-    ): AccentResolver.Source {
-        if (!isLicensed || projectKey == null) return AccentResolver.Source.GLOBAL
-        projectModel
-            .snapshot()
-            .firstOrNull { it.canonicalPath == projectKey }
-            ?.let { return AccentResolver.Source.PROJECT_OVERRIDE }
-
-        val languageIds = languageModel.snapshot().map { it.languageId }.toSet()
-        val forcedLanguageId = pendingForcedLanguages[projectKey]
-        if (forcedLanguageId != null && forcedLanguageId in languageIds) {
-            return AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE
-        }
-        if (forcedLanguageId != null && pendingLanguageFallbackAccent != null) {
-            return AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE
-        }
-        if (forcedLanguageId == null &&
-            verdict is ProjectLanguageVerdict.Detected &&
-            verdict.languageId in languageIds
-        ) {
-            return AccentResolver.Source.LANGUAGE_OVERRIDE
-        }
-        if (forcedLanguageId == null &&
-            verdict is ProjectLanguageVerdict.Detected &&
-            pendingLanguageFallbackAccent != null
-        ) {
-            return AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE
-        }
-        return fallbackDiagnosticsSource(projectKey, verdict)
-    }
-
-    private fun fallbackDiagnosticsSource(
-        projectKey: String,
-        verdict: ProjectLanguageVerdict,
-    ): AccentResolver.Source =
-        if (pendingFallbackAccents.containsKey(projectKey) && verdict is ProjectLanguageVerdict.NoWinner) {
-            AccentResolver.Source.PROJECT_FALLBACK
-        } else {
-            AccentResolver.Source.GLOBAL
-        }
 
     private fun currentPendingAccentHex(): String? {
         val candidate = currentProjectOverrideHex() ?: currentGlobalAccentHex()
@@ -960,27 +852,6 @@ class OverridesGroupBuilder(
         }
     }
 
-    private data class PendingResolvedAccent(
-        val source: AccentResolver.Source,
-        val hex: String,
-    )
-
-    private data class PendingLanguageOverrideResult(
-        val accent: PendingResolvedAccent?,
-        val hasResolutionWork: Boolean,
-        val detectorConsulted: Boolean,
-    )
-
-    private fun pendingAccentForLanguage(
-        languageAccents: Map<String, String>,
-        languageId: String,
-        exactSource: AccentResolver.Source,
-    ): PendingResolvedAccent? =
-        languageAccents[languageId]
-            ?.let { PendingResolvedAccent(exactSource, it) }
-            ?: pendingLanguageFallbackAccent
-                ?.let { PendingResolvedAccent(AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE, it) }
-
     private class DimOrphanRenderer(
         private val orphanProbe: (Int) -> Boolean,
     ) : DefaultTableCellRenderer() {
@@ -1020,6 +891,45 @@ class OverridesGroupBuilder(
             return this
         }
     }
+}
+
+/**
+ * [AccentMappingsView] over the not-yet-applied Settings models, so the pending
+ * preview ("Currently active: ...") walks the exact same
+ * [dev.ayuislands.accent.AccentResolutionChainBuilder] ladder as the persisted
+ * resolver — parity by construction instead of by paired tests.
+ *
+ * Values arrive pre-normalized by [OverridesGroupBuilder]: table rows enforce
+ * `#RRGGBB` hex at construction, forced-language ids are trimmed/lowercased on
+ * entry, and fallback accents are dropped when malformed. The view therefore
+ * returns everything verbatim — re-normalizing here would mask a broken
+ * model-entry path instead of surfacing it.
+ *
+ * Construct with named arguments only: four of the five parameters share the
+ * `Map<String, String>` shape, so positional calls are a silent swap hazard.
+ */
+internal class PendingAccentMappingsView(
+    private val projectAccents: Map<String, String>,
+    private val languageAccents: Map<String, String>,
+    private val forcedLanguages: Map<String, String>,
+    private val projectFallbackAccents: Map<String, String>,
+    override val languageFallbackAccent: String?,
+) : AccentMappingsView {
+    override fun projectAccent(projectKey: String): String? = projectAccents[projectKey]
+
+    override fun forcedLanguageId(projectKey: String): String? = forcedLanguages[projectKey]
+
+    override fun hasForcedLanguageEntry(projectKey: String): Boolean = forcedLanguages.containsKey(projectKey)
+
+    override fun languageAccent(languageId: String): String? = languageAccents[languageId]
+
+    override val hasLanguageAccents: Boolean
+        get() = languageAccents.isNotEmpty()
+
+    override fun projectFallbackAccent(projectKey: String): String? = projectFallbackAccents[projectKey]
+
+    override fun hasProjectFallbackCandidate(projectKey: String): Boolean =
+        projectFallbackAccents.containsKey(projectKey)
 }
 
 /**

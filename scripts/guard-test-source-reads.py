@@ -75,6 +75,10 @@ ALLOWLIST: dict[tuple[str, str], Allowance] = {
         "src/main/kotlin/dev/ayuislands/accent/AccentApplyPlanRunner.kt",
     ): Allowance(1, "banned platform API guard"),
     (
+        "src/test/kotlin/dev/ayuislands/accent/AccentResolutionChainBuilderGuardTest.kt",
+        "src/main/kotlin/dev/ayuislands/accent/AccentResolutionChainBuilder.kt",
+    ): Allowance(1, "documented unreachable-guard shape compromise (Pattern L)"),
+    (
         "src/test/kotlin/dev/ayuislands/settings/AyuIslandsSyntaxPanelTest.kt",
         "src/main/kotlin/dev/ayuislands/settings/AyuIslandsSyntaxPanel.kt",
     ): Allowance(1, "documented syntax panel static compromise"),

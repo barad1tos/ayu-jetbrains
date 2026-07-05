@@ -1,17 +1,36 @@
 package dev.ayuislands.accent
 
 import com.intellij.lang.Language
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
-import dev.ayuislands.settings.mappings.AccentMappingsSettings
-import dev.ayuislands.settings.mappings.AccentMappingsState
 import java.awt.Color
 import java.util.Locale
 
 private typealias Source = AccentResolver.Source
 
+/**
+ * The single accent-resolution engine: one walk of the override priority
+ * ladder (project override → forced language → language override / fallback →
+ * project fallback), parameterized by an [AccentResolutionRequest].
+ *
+ * Every consumer is a projection of the same walk:
+ * - [resolveAyu] / [resolveExternal] build the full diagnostics trace
+ *   (steps + winner + verdict) for the status-bar widget and Settings.
+ * - [overrideWinner] reduces the walk to its winning `(source, hex)` pair —
+ *   the projection behind [AccentResolver.resolve], [AccentResolver.source],
+ *   and the Settings pending preview in
+ *   `dev.ayuislands.settings.mappings.OverridesGroupBuilder`.
+ *
+ * Parity between hex, source label, and the rendered chain therefore holds by
+ * construction: they cannot disagree on ladder order, license gating, or
+ * short-circuit points, only on the seams a request explicitly selects
+ * (mapping source, detector consultation, hex validation).
+ */
 internal object AccentResolutionChainBuilder {
+    private val LOG = logger<AccentResolutionChainBuilder>()
+
     private const val PROPORTIONS_TOP_N = 3
     private const val NO_WINNER_TOP_N = 2
     private const val PERCENTAGE_SCALE = 100
@@ -29,7 +48,7 @@ internal object AccentResolutionChainBuilder {
     ): AccentResolutionChain {
         val globalAccent = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
         val steps = mutableListOf<AccentResolutionStep>()
-        val verdict = collectOverrideChainSteps(project, steps)
+        val verdict = collectOverrideChainSteps(project, steps, AccentResolutionRequest.diagnostics())
         val winner =
             steps.firstOrNull { it.outcome == StepOutcome.WON }
                 ?: AccentResolutionStep(
@@ -62,7 +81,7 @@ internal object AccentResolutionChainBuilder {
             return AccentResolutionChain(listOf(step), step, null)
         }
 
-        val verdict = collectOverrideChainSteps(project, steps)
+        val verdict = collectOverrideChainSteps(project, steps, AccentResolutionRequest.diagnostics())
         collectUiColorStep(
             steps,
             Source.MATERIAL_THEME,
@@ -90,9 +109,37 @@ internal object AccentResolutionChainBuilder {
         return AccentResolutionChain(steps, winner, verdict)
     }
 
+    /**
+     * Runs one ladder walk for [request] and reduces it to the winning
+     * override, or `null` when no override rung won (the caller then serves
+     * its own global / external fallback). This is the ONLY reduction from
+     * chain to accent — [AccentResolver.resolve] and [AccentResolver.source]
+     * both go through here, so their answers agree by construction.
+     */
+    fun overrideWinner(
+        project: Project?,
+        request: AccentResolutionRequest,
+    ): ResolvedAccent? {
+        val steps = mutableListOf<AccentResolutionStep>()
+        collectOverrideChainSteps(project, steps, request)
+        val winner = steps.firstOrNull { it.outcome == StepOutcome.WON } ?: return null
+        val hex = winner.hex
+        if (hex == null) {
+            // Unreachable today: every WON step built by collectOverrideChainSteps carries a
+            // non-null hex. Lock kept against future step-construction refactors — degrading a
+            // hex-less winner to "no override" keeps callers on their global fallback instead
+            // of pushing a null hex toward the applicator. Source-locked in
+            // `AccentResolutionChainBuilderGuardTest`.
+            LOG.warn("Override winner ${winner.source} carried no hex; treating as no override")
+            return null
+        }
+        return ResolvedAccent(winner.source, hex)
+    }
+
     private fun collectOverrideChainSteps(
         project: Project?,
         steps: MutableList<AccentResolutionStep>,
+        request: AccentResolutionRequest,
     ): ProjectLanguageVerdict? {
         if (!LicenseChecker.isLicensedOrGrace()) {
             collectPremiumUnavailableSteps(steps, StepOutcome.LICENSE_BLOCKED, DETAIL_LICENSE_BLOCKED)
@@ -108,38 +155,32 @@ internal object AccentResolutionChainBuilder {
             return null
         }
 
-        val mappings = AccentMappingsSettings.getInstance().state
         val projectKey = AccentResolver.projectKey(activeProject)
         if (projectKey == null) {
             collectPremiumUnavailableSteps(steps, StepOutcome.NOT_APPLICABLE, DETAIL_NO_PROJECT_KEY)
             return null
         }
 
-        if (collectProjectOverrideStep(projectKey, mappings, steps)) {
+        if (collectProjectOverrideStep(projectKey, request, steps)) {
+            return null
+        }
+        if (collectForcedLanguageStep(request.view.forcedLanguageId(projectKey), request, steps)) {
             return null
         }
 
-        val forcedLanguageId = mappings.forcedProjectLanguages[projectKey]
-        if (collectForcedLanguageStep(forcedLanguageId, mappings, steps)) {
-            return null
-        }
-        val hasProjectFallbackCandidate = mappings.projectFallbackAccents.containsKey(projectKey)
-
-        val verdict =
-            collectLanguageOverrideStep(
-                forcedLanguageId = forcedLanguageId,
-                mappings = mappings,
-                activeProject = activeProject,
-                steps = steps,
-                shouldConsultForProjectFallback = hasProjectFallbackCandidate,
-            )
-                ?: return null
+        val hasForcedLanguageEntry = request.view.hasForcedLanguageEntry(projectKey)
+        val hasFallbackCandidate = request.view.hasProjectFallbackCandidate(projectKey)
+        val languageVerdict =
+            collectLanguageOverrideStep(activeProject, hasForcedLanguageEntry, hasFallbackCandidate, request, steps)
         if (steps.lastOrNull()?.outcome == StepOutcome.WON) {
-            return verdict
+            return languageVerdict
+        }
+        if (languageVerdict == null && !hasFallbackCandidate) {
+            return null
         }
 
-        collectProjectFallbackStep(projectKey, verdict, mappings, steps)
-        return verdict
+        val fallbackVerdict = collectProjectFallbackStep(projectKey, activeProject, languageVerdict, request, steps)
+        return languageVerdict ?: fallbackVerdict
     }
 
     private fun collectPremiumUnavailableSteps(
@@ -161,10 +202,10 @@ internal object AccentResolutionChainBuilder {
 
     private fun collectProjectOverrideStep(
         projectKey: String,
-        mappings: AccentMappingsState,
+        request: AccentResolutionRequest,
         steps: MutableList<AccentResolutionStep>,
     ): Boolean {
-        val projectAccent = mappings.projectAccents[projectKey]
+        val projectAccent = request.view.projectAccent(projectKey)
         if (projectAccent == null) {
             steps.add(
                 AccentResolutionStep(Source.PROJECT_OVERRIDE, null, StepOutcome.NOT_SET, "No project override set"),
@@ -172,7 +213,7 @@ internal object AccentResolutionChainBuilder {
             return false
         }
 
-        val hex = AccentHex.of(projectAccent)?.value
+        val hex = request.policy.accept(Source.PROJECT_OVERRIDE, projectAccent)
         if (hex != null) {
             steps.add(
                 AccentResolutionStep(Source.PROJECT_OVERRIDE, hex, StepOutcome.WON, "Pinned accent for this project"),
@@ -188,7 +229,7 @@ internal object AccentResolutionChainBuilder {
 
     private fun collectForcedLanguageStep(
         forcedLanguageId: String?,
-        mappings: AccentMappingsState,
+        request: AccentResolutionRequest,
         steps: MutableList<AccentResolutionStep>,
     ): Boolean {
         if (forcedLanguageId == null) {
@@ -203,7 +244,7 @@ internal object AccentResolutionChainBuilder {
             return false
         }
 
-        val forcedAccent = mappings.languageAccents[forcedLanguageId]
+        val forcedAccent = request.view.languageAccent(forcedLanguageId)
         if (forcedAccent == null) {
             steps.add(
                 AccentResolutionStep(
@@ -214,13 +255,13 @@ internal object AccentResolutionChainBuilder {
                 ),
             )
             return collectLanguageFallbackStep(
-                mappings.languageFallbackAccent,
+                request,
                 "Language fallback for forced ${displayNameFor(forcedLanguageId)}",
                 steps,
             )
         }
 
-        val hex = AccentHex.of(forcedAccent)?.value
+        val hex = request.policy.accept(Source.FORCED_LANGUAGE_OVERRIDE, forcedAccent)
         if (hex != null) {
             steps.add(
                 AccentResolutionStep(
@@ -242,44 +283,51 @@ internal object AccentResolutionChainBuilder {
             ),
         )
         return collectLanguageFallbackStep(
-            mappings.languageFallbackAccent,
+            request,
             "Language fallback for forced ${displayNameFor(forcedLanguageId)}",
             steps,
         )
     }
 
+    /**
+     * Language-override rung. Returns the verdict the detector produced, or
+     * `null` when the rung was skipped — either because a forced-language
+     * entry suppresses detection (any entry, even a blank-id one) or because
+     * the [AccentDetectorLookup] declined to consult for the candidate set.
+     */
     private fun collectLanguageOverrideStep(
-        forcedLanguageId: String?,
-        mappings: AccentMappingsState,
         activeProject: Project,
+        hasForcedLanguageEntry: Boolean,
+        hasFallbackCandidate: Boolean,
+        request: AccentResolutionRequest,
         steps: MutableList<AccentResolutionStep>,
-        shouldConsultForProjectFallback: Boolean,
     ): ProjectLanguageVerdict? {
-        val hasLanguageCandidate =
-            mappings.languageAccents.isNotEmpty() ||
-                mappings.languageFallbackAccent != null
-        if (forcedLanguageId != null) {
-            collectSkippedLanguageOverrideStep(forcedLanguageId, steps)
-            return if (shouldConsultForProjectFallback) {
-                ProjectLanguageDetector.verdict(activeProject, warmCache = true)
-            } else {
-                null
-            }
-        }
-        if (!hasLanguageCandidate && !shouldConsultForProjectFallback) {
-            collectSkippedLanguageOverrideStep(forcedLanguageId, steps)
+        if (hasForcedLanguageEntry) {
+            collectSkippedLanguageOverrideStep(hasForcedLanguageEntry = true, steps)
             return null
         }
-
-        val verdict = ProjectLanguageDetector.verdict(activeProject)
+        val hasLanguageCandidate = request.view.hasLanguageAccents || request.view.languageFallbackAccent != null
+        val verdict = request.lookup.languageRungVerdict(activeProject, hasLanguageCandidate, hasFallbackCandidate)
+        if (verdict == null) {
+            collectSkippedLanguageOverrideStep(hasForcedLanguageEntry = false, steps)
+            return null
+        }
         when (verdict) {
-            is ProjectLanguageVerdict.Detected -> collectDetectedLanguageStep(verdict, mappings, steps)
-            is ProjectLanguageVerdict.NoWinner -> collectNoWinnerLanguageStep(verdict, steps)
-            ProjectLanguageVerdict.Cold ->
+            is ProjectLanguageVerdict.Detected -> {
+                collectDetectedLanguageStep(verdict, request, steps)
+            }
+
+            is ProjectLanguageVerdict.NoWinner -> {
+                collectNoWinnerLanguageStep(verdict, steps)
+            }
+
+            ProjectLanguageVerdict.Cold -> {
                 steps.add(
                     AccentResolutionStep(Source.LANGUAGE_OVERRIDE, null, StepOutcome.NOT_SET, "Detection pending"),
                 )
-            ProjectLanguageVerdict.Empty ->
+            }
+
+            ProjectLanguageVerdict.Empty -> {
                 steps.add(
                     AccentResolutionStep(
                         Source.LANGUAGE_OVERRIDE,
@@ -288,7 +336,9 @@ internal object AccentResolutionChainBuilder {
                         "No project languages detected",
                     ),
                 )
-            ProjectLanguageVerdict.Unavailable ->
+            }
+
+            ProjectLanguageVerdict.Unavailable -> {
                 steps.add(
                     AccentResolutionStep(
                         Source.LANGUAGE_OVERRIDE,
@@ -297,21 +347,22 @@ internal object AccentResolutionChainBuilder {
                         "Language detection unavailable",
                     ),
                 )
+            }
         }
         return verdict
     }
 
     private fun collectSkippedLanguageOverrideStep(
-        forcedLanguageId: String?,
+        hasForcedLanguageEntry: Boolean,
         steps: MutableList<AccentResolutionStep>,
     ) {
         val detail =
-            if (forcedLanguageId != null) {
+            if (hasForcedLanguageEntry) {
                 "Skipped — forced language takes priority"
             } else {
                 "No language accent mappings configured"
             }
-        val outcome = if (forcedLanguageId != null) StepOutcome.NOT_APPLICABLE else StepOutcome.NOT_SET
+        val outcome = if (hasForcedLanguageEntry) StepOutcome.NOT_APPLICABLE else StepOutcome.NOT_SET
         steps.add(AccentResolutionStep(Source.LANGUAGE_OVERRIDE, null, outcome, detail))
     }
 
@@ -339,11 +390,11 @@ internal object AccentResolutionChainBuilder {
 
     private fun collectDetectedLanguageStep(
         verdict: ProjectLanguageVerdict.Detected,
-        mappings: AccentMappingsState,
+        request: AccentResolutionRequest,
         steps: MutableList<AccentResolutionStep>,
     ) {
-        val langAccent = mappings.languageAccents[verdict.languageId]
-        val hex = langAccent?.let { AccentHex.of(it)?.value }
+        val languageAccent = request.view.languageAccent(verdict.languageId)
+        val hex = languageAccent?.let { request.policy.accept(Source.LANGUAGE_OVERRIDE, it) }
         if (hex != null) {
             steps.add(
                 AccentResolutionStep(
@@ -365,26 +416,33 @@ internal object AccentResolutionChainBuilder {
             ),
         )
         collectLanguageFallbackStep(
-            mappings.languageFallbackAccent,
+            request,
             "Language fallback for ${displayNameFor(verdict.languageId)}",
             steps,
         )
     }
 
+    /**
+     * Project-fallback rung. Returns the verdict it consulted, or `null`
+     * when no fallback accent is stored — in that case the detector is not
+     * consulted at all — the zero-work guarantee live resolution relies on.
+     */
     private fun collectProjectFallbackStep(
         projectKey: String,
-        verdict: ProjectLanguageVerdict,
-        mappings: AccentMappingsState,
+        activeProject: Project,
+        languageVerdict: ProjectLanguageVerdict?,
+        request: AccentResolutionRequest,
         steps: MutableList<AccentResolutionStep>,
-    ) {
-        val fallbackHex = mappings.projectFallbackAccents[projectKey]
-        if (fallbackHex == null) {
+    ): ProjectLanguageVerdict? {
+        val fallbackAccent = request.view.projectFallbackAccent(projectKey)
+        if (fallbackAccent == null) {
             steps.add(
                 AccentResolutionStep(Source.PROJECT_FALLBACK, null, StepOutcome.NOT_SET, "No project fallback set"),
             )
-            return
+            return null
         }
 
+        val verdict = request.lookup.fallbackRungVerdict(activeProject, languageVerdict)
         if (verdict !is ProjectLanguageVerdict.NoWinner) {
             steps.add(
                 AccentResolutionStep(
@@ -394,10 +452,10 @@ internal object AccentResolutionChainBuilder {
                     "Fallback only applies when no dominant language",
                 ),
             )
-            return
+            return verdict
         }
 
-        val hex = AccentHex.of(fallbackHex)?.value
+        val hex = request.policy.accept(Source.PROJECT_FALLBACK, fallbackAccent)
         if (hex != null) {
             steps.add(
                 AccentResolutionStep(
@@ -417,15 +475,16 @@ internal object AccentResolutionChainBuilder {
                 ),
             )
         }
+        return verdict
     }
 
     private fun collectLanguageFallbackStep(
-        rawHex: String?,
+        request: AccentResolutionRequest,
         detail: String,
         steps: MutableList<AccentResolutionStep>,
     ): Boolean {
-        val fallbackHex = rawHex ?: return false
-        val hex = AccentHex.of(fallbackHex)?.value
+        val fallbackHex = request.view.languageFallbackAccent ?: return false
+        val hex = request.policy.accept(Source.LANGUAGE_FALLBACK_OVERRIDE, fallbackHex)
         if (hex != null) {
             steps.add(
                 AccentResolutionStep(
