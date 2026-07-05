@@ -27,7 +27,14 @@ import kotlin.coroutines.cancellation.CancellationException
 internal inline fun <T> runCatchingPreservingCancellation(block: () -> T): Result<T> {
     val result = runCatching(block)
     val cause = result.exceptionOrNull()
-    if (cause is ProcessCanceledException) throw cause
-    if (cause is CancellationException) throw cause
+    // VirtualMachineError joins the cancellation rethrows: JVM-level errors
+    // (heap exhaustion, stack overflow) must not degrade into a
+    // fallback-to-failure Result anywhere in the plugin — the process is
+    // compromised and containment would mask it. LinkageError subtypes stay
+    // contained: plugin-unload races produce NoClassDefFoundError in
+    // integration paths by design.
+    if (cause is ProcessCanceledException || cause is CancellationException || cause is VirtualMachineError) {
+        throw cause
+    }
     return result
 }

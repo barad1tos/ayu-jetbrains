@@ -5,6 +5,7 @@ import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.project.ProjectManager
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentContext
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.runCatchingPreservingCancellation
 import dev.ayuislands.font.FontPresetApplicator
@@ -119,19 +120,34 @@ object ThemeReapplication {
 
             ApplyResolvedAccent -> {
                 val context = accentContextOf(reason) ?: return
-                AccentApplicator.applyForFocusedProject(context)
+                val hex = AccentApplicator.applyForFocusedProject(context)
+                // A shape-invalid hex is the ONE case where the applicator skips
+                // apply() entirely (leaving lastApplyOk stale from the previous
+                // apply), so the clean-flag check below cannot see it. The hex
+                // itself carries the signal: mirror ApplyExplicitHex's rejection
+                // failure by validating the returned value.
+                check(AccentHex.of(hex) != null) {
+                    "resolver produced a shape-invalid hex '$hex'; apply was skipped"
+                }
+                ensureAccentApplyClean(step)
             }
 
             ApplyExplicitHex -> {
                 val hex = (reason as? ReapplyReason.LicenseRevert)?.freeHex ?: return
-                AccentApplicator.applyFromHexString(hex)
+                check(AccentApplicator.applyFromHexString(hex)) {
+                    "free-default hex rejected by the applicator: '$hex'"
+                }
+                ensureAccentApplyClean(step)
             }
 
             RevertAccent -> {
                 AccentApplicator.revertAll()
             }
 
-            Font, RevertFont, Notify, Glow, Syntax, VcsRevert -> {}
+            // Surface steps are dispatched by runStep; unreachable here.
+            Font, RevertFont, Notify, Glow, Syntax, VcsRevert -> {
+                return
+            }
         }
     }
 
@@ -164,7 +180,34 @@ object ThemeReapplication {
                 VcsColorApplier.revertAll()
             }
 
-            BindScheme, ApplyResolvedAccent, ApplyExplicitHex, RevertAccent -> {}
+            // Accent steps are dispatched by runStep; unreachable here.
+            BindScheme, ApplyResolvedAccent, ApplyExplicitHex, RevertAccent -> {
+                return
+            }
+        }
+    }
+
+    /**
+     * Escalate a torn accent apply into this step's [StepFailure]. The applicator
+     * contains mid-step throws internally (WARN + skipped tail — see
+     * `AccentApplyPlanRunner`), so the only in-process tear signal available to
+     * plan consumers is the persisted clean flag: [reapply] runs on the EDT and
+     * the apply is EDT-synchronous, so after the apply call returns the flag
+     * reflects THAT apply. Throwing here restores what consumers relied on
+     * before the containment refactor: the rotation circuit breaker counts the
+     * failure and the license revert surfaces its "restart to complete" notice.
+     *
+     * Synchronicity coupling: this contract holds only while [reapply]'s EDT
+     * check (`Application.isDispatchThread`) and the runner's
+     * (`SwingUtilities.isEventDispatchThread`) agree — they delegate to the same
+     * EDT in production. A runner dispatch refactor must preserve that.
+     *
+     * Does NOT cover the rejected-hex skip (apply never ran, flag stale) — the
+     * callers validate the hex shape separately before consulting this.
+     */
+    private fun ensureAccentApplyClean(step: ReapplyStep) {
+        check(AyuIslandsSettings.getInstance().state.lastApplyOk) {
+            "accent apply torn during $step — see the 'Accent apply torn at' warning above"
         }
     }
 

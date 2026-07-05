@@ -47,17 +47,11 @@ internal object AccentApplyPlanRunner {
     ): List<AccentApplyStepFailure> {
         val failures = mutableListOf<AccentApplyStepFailure>()
         for (step in plan.steps) {
+            // Cancellation and VirtualMachineError rethrow inside the helper;
+            // only genuine step failures reach the Result.
             runCatchingPreservingCancellation { executeStep(step) }
                 .exceptionOrNull()
-                ?.let { error ->
-                    // A JVM-level error (heap exhaustion, stack overflow) must not
-                    // degrade into a per-step WARN — the process is compromised and
-                    // the old pre-plan code let it propagate. LinkageError stays
-                    // contained: plugin-unload races produce NoClassDefFoundError
-                    // in integration steps by design (ThemeReapplication precedent).
-                    if (error is VirtualMachineError) throw error
-                    failures += AccentApplyStepFailure(step, error)
-                }
+                ?.let { failures += AccentApplyStepFailure(step, it) }
             if (failures.isNotEmpty() && plan.policy == AccentApplyFailurePolicy.AbortOnFirstFailure) break
         }
         return failures
