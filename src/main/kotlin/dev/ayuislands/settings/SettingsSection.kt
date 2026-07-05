@@ -24,10 +24,13 @@ package dev.ayuislands.settings
  *  - [commit] runs the panel's whole apply step — side-effects and
  *    persistence in whatever order that panel requires — and only converges
  *    [stored] onto [pending] afterwards. A throw from [commit]'s action
- *    leaves both values untouched, so [isModified] keeps reporting `true`
- *    and the user can retry. The action may normalize [pending] via [update]
- *    (e.g. folding preset values before persisting); [stored] converges onto
- *    the value of [pending] as observed AFTER the action returns.
+ *    aborts the commit: [stored] is guaranteed unchanged, so [isModified]
+ *    keeps reporting `true` and the user can retry. [pending], however, keeps
+ *    any [update] mutations the action made before throwing — actions that
+ *    normalize [pending] mid-commit should do so before their first throwing
+ *    operation. The action may normalize [pending] via [update] (e.g. folding
+ *    preset values before persisting); [stored] converges onto the value of
+ *    [pending] as observed AFTER the action returns.
  *
  * Named `commit` rather than `apply` on purpose: a zero-parameter trailing
  * lambda on an `apply(action: (T, T) -> Unit)` member would silently resolve
@@ -71,7 +74,8 @@ internal class SettingsSection<T>(
     /**
      * Runs [action] with the current ([pending], [stored]) pair, then
      * converges [stored] onto [pending]. No-op when nothing diverged; a
-     * throw from [action] propagates with both values untouched.
+     * throw from [action] propagates with [stored] unchanged — [pending]
+     * keeps any [update] mutations made before the throw (see class KDoc).
      */
     fun commit(action: (pending: T, stored: T) -> Unit) {
         if (!isModified()) return
