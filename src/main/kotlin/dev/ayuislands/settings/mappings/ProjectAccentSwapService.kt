@@ -159,7 +159,14 @@ class ProjectAccentSwapService : Disposable {
             LOG.warn("Skipping swap publish: applyFromHexString rejected '$hex'")
             return false
         }
-        lastAppliedHex = hex
+        // Route the cache write through the torn-apply gate rather than
+        // assigning lastAppliedHex directly: `applied == true` only proves the
+        // hex shape was valid, not that the plan painted cleanly. Priming the
+        // torn hex here would make every subsequent same-hex activation take
+        // the cheap same-hex branch and freeze the tear; the gated skip keeps
+        // this activation path retrying (WARN per attempt) — the same
+        // retry-per-activation behavior the pre-plan code had.
+        notifyExternalApply(hex)
         return true
     }
 
@@ -228,10 +235,21 @@ class ProjectAccentSwapService : Disposable {
     }
 
     /**
-     * Notify after an external apply (settings panel, rotation, startup activity) so the
-     * cache matches the current UIManager state and we don't skip the next real swap.
+     * Record [hex] as the last painted accent after an apply — external callers
+     * (settings panel, rotation, startup activity) and this service's own
+     * focus-swap apply both route through here so the cache matches the current
+     * UIManager state and we don't skip the next real swap.
+     *
+     * Gated on [AyuIslandsState.lastApplyOk]: a torn apply never fully painted [hex],
+     * so recording it would make the next same-hex WINDOW_ACTIVATED skip the re-apply
+     * that would have self-healed the tear. Callers already sit right after their own
+     * apply call on the EDT (apply is EDT-synchronous), so the flag reflects THAT apply.
      */
     fun notifyExternalApply(hex: String) {
+        if (!AyuIslandsSettings.getInstance().state.lastApplyOk) {
+            LOG.warn("Swap cache not updated for '$hex': the last accent apply did not complete cleanly")
+            return
+        }
         lastAppliedHex = hex
     }
 

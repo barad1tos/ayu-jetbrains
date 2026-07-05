@@ -84,7 +84,9 @@ class AyuIslandsState : BaseState() {
 
     /**
      * Whether the most recent [dev.ayuislands.accent.AccentApplicator.apply] call
-     * completed its full EP iteration cleanly. Used by
+     * completed its full step plan cleanly — set `true` only by the penultimate
+     * [dev.ayuislands.accent.AccentApplyStep.MarkApplyClean] step (only the
+     * accent-changed publish follows it). Used by
      * [dev.ayuislands.AyuIslandsAppListener.appFrameCreated] as a trust gate around
      * the cached [lastAppliedAccentHex]: persisting the hex BEFORE the EP iteration
      * makes startup anti-flicker robust to a failed apply, but the cached value is
@@ -349,6 +351,18 @@ class AyuIslandsState : BaseState() {
      */
     fun effectiveLastAppliedAccentHex(): AccentHex? = AccentHex.of(lastAppliedAccentHex)
 
+    /**
+     * The cached accent that may be painted without re-resolving — the single
+     * trust boundary over the persisted [lastAppliedAccentHex]/[lastApplyOk]
+     * pair. Non-null only when the persisted hex is valid AND the previous
+     * apply finished cleanly; a torn apply (hex persisted, flag false) returns
+     * `null` so callers fall back to the resolver instead of re-painting a
+     * half-applied accent. Callers must not combine the raw pair for trust
+     * decisions (raw reads for state hygiene, e.g. the startup corruption
+     * clear, remain legitimate).
+     */
+    fun trustedCachedAccent(): AccentHex? = effectiveLastAppliedAccentHex()?.takeIf { lastApplyOk }
+
     // --- VCS color customization (premium) ---
     // Master kill-switch. Default OFF so upgraders observe byte-identical
     // diff/file-status/gutter colors until they opt in via the VCS settings tab.
@@ -425,13 +439,16 @@ class AyuIslandsState : BaseState() {
             VcsColorCategory.PROJECT_VIEW_FILE_STATUS,
             VcsColorCategory.EDITOR_GUTTER,
             -> effectiveVcsDiffPreset()
+
             VcsColorCategory.CONFLICT_MARKERS,
             VcsColorCategory.MERGE_3WAY,
             VcsColorCategory.INLINE_DIFF_POPUP,
             -> effectiveVcsMergePreset()
+
             VcsColorCategory.BLAME_GUTTER,
             VcsColorCategory.LOCAL_HISTORY,
             -> effectiveVcsBlamePreset()
+
             VcsColorCategory.BRANCH_INDICATOR,
             VcsColorCategory.BRANCHES_POPUP,
             VcsColorCategory.COMMIT_HIGHLIGHTS,

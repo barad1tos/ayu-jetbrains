@@ -200,6 +200,29 @@ class AccentApplicatorRevertAllIntegrationTest {
     }
 
     @Test
+    fun `revertAll continues past a throwing UI-clear step and still unwinds integrations`() {
+        // Widened isolation lock (ContinuePerStep): pre-plan code isolated only
+        // the IR/CGP reverts — a throw while clearing UIManager keys aborted the
+        // whole revert and stranded integrations tinted across a theme switch.
+        // Every step is now isolated in the runner, so the tail must still run.
+        val project = mockProject()
+        every { mockProjectManager.openProjects } returns arrayOf(project)
+        every { UIManager.put(any<String>(), isNull()) } throws RuntimeException("UI clear exploded")
+
+        val events = mutableListOf<String>()
+        every { IndentRainbowSync.revert() } answers { events += "ir_revert" }
+        AccentApplicator.codeGlanceProRevertHook.set { _, _, _ -> events += "cgp_revert" }
+        try {
+            AccentApplicator.revertAll() // MUST NOT throw — every step is isolated
+        } finally {
+            AccentApplicator.resetCodeGlanceProRevertHookForTests()
+        }
+
+        assertEquals(listOf("ir_revert", "cgp_revert"), events)
+        verify(exactly = 1) { ComponentTreeRefresher.notifyOnly(project) }
+    }
+
+    @Test
     fun `revertAll orders IR revert before CGP revert before notifyOnly`() {
         // Ordering lock: integrations BEFORE notifyOnly so subscribers see
         // consistent app-scoped state when they decide to repaint. Pattern G + L:

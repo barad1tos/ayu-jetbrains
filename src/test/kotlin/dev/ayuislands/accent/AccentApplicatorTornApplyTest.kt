@@ -13,6 +13,7 @@ import com.intellij.testFramework.LoggedErrorProcessor
 import com.intellij.util.messages.MessageBus
 import dev.ayuislands.AyuPlugin
 import dev.ayuislands.accent.conflict.ConflictRegistry
+import dev.ayuislands.indent.IndentRainbowSync
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.ui.ComponentTreeRefresher
@@ -28,23 +29,24 @@ import javax.swing.UIManager
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Invariant lock: [AccentApplicator.apply] publishes [AccentChangedTopic.TOPIC]
- * exactly once per open usable project, on the EDT, AFTER `state.lastApplyOk = true`.
+ * End-to-end lock on the torn-apply contract: a mid-step throw inside
+ * [AccentApplicator.apply] is contained (never reaches the caller), aborts the
+ * remaining plan (no component-tree notify, no accent publish, `lastApplyOk`
+ * stays false), keeps the anti-flicker hex persisted, and leaves
+ * [AyuIslandsState.trustedCachedAccent] refusing the torn cache. This is the
+ * composed behavior the plan/runner unit tests cannot see — it pins the wiring
+ * between [applyPlanFor], the worker map, and [AccentApplyPlanRunner].
  *
- * The publish step has to run in the same EDT turn as — and immediately after —
- * the `MarkApplyClean` flag write, so subscribers (toolbar stripe + chip) only
- * fire on a fully-painted apply. The step adjacency itself is locked by
- * `AccentApplyPlanTest`; this test locks the observable behavior end-to-end.
- * Per-project try/catch (Pattern B) prevents a single throwing subscriber from
- * tearing down the apply pipeline mid-EDT and leaving the IDE in a half-applied state.
- *
- * Mirrors `AccentApplicatorTest.setUp` for the platform-static mock harness so the
+ * Mirrors `AccentChangedPublishTest`'s platform-static mock harness so the
  * test runs headless without booting the IntelliJ application.
  */
-class AccentChangedPublishTest {
+class AccentApplicatorTornApplyTest {
     private val mockScheme = mockk<EditorColorsScheme>(relaxed = true)
     private val mockColorsManager = mockk<EditorColorsManager>(relaxed = true)
     private val mockSettings = mockk<AyuIslandsSettings>(relaxed = true)
@@ -74,12 +76,7 @@ class AccentChangedPublishTest {
         mockkStatic(ApplicationManager::class)
         every { ApplicationManager.getApplication() } returns mockApplication
         every { mockApplication.messageBus } returns mockMessageBus
-
-        // Editor colour scheme publish is fired during apply — keep it relaxed
-        // (it is not the publisher under test).
         every { mockMessageBus.syncPublisher(EditorColorsManager.TOPIC) } returns mockk(relaxed = true)
-
-        // The publisher under test.
         listener = mockk(relaxed = true)
         every { mockMessageBus.syncPublisher(AccentChangedTopic.TOPIC) } returns listener
 
@@ -99,24 +96,26 @@ class AccentChangedPublishTest {
         mockkObject(AyuPlugin)
         every { AyuPlugin.findLoadedPlugin(any()) } returns null
 
-        // ProjectManager.openProjects drives the per-project publish loop.
         project =
             mockk {
                 every { isDefault } returns false
                 every { isDisposed } returns false
-                every { name } returns "publish-project"
-                every { basePath } returns "/tmp/publish-project"
+                every { name } returns "torn-project"
+                every { basePath } returns "/tmp/torn-project"
             }
         mockkStatic(ProjectManager::class)
         every { ProjectManager.getInstance() } returns mockProjectManager
         every { mockProjectManager.openProjects } returns arrayOf(project)
 
-        // notifyOnly + AccentResolver.source are downstream of the publish loop.
         mockkObject(ComponentTreeRefresher)
         every { ComponentTreeRefresher.notifyOnly(any()) } returns Unit
 
-        mockkObject(AccentResolver)
-        every { AccentResolver.source(project) } returns AccentResolver.Source.GLOBAL
+        // The synthetic tear: SyncIndentRainbow is the third apply step, so
+        // ApplyAlwaysOnUiKeys/ApplyElements ran, everything after must not.
+        mockkObject(IndentRainbowSync)
+        every {
+            IndentRainbowSync.apply(any<AccentContext>(), any())
+        } throws RuntimeException("synthetic tear")
     }
 
     @AfterTest
@@ -162,90 +161,47 @@ class AccentChangedPublishTest {
     }
 
     @Test
-    fun `apply publishes AccentChangedTopic exactly once per usable open project`() {
-        // One publish per usable project, with the post-resolution source (so
-        // subscribers can render the "Project override" / "Global" label).
-        // Payload is the AccentHex value class, not raw String — assertion
-        // matches by wrapping the literal via the same factory the publisher uses.
-        val accentHex = AccentHex.of("#FFCC66")!!
-        AccentApplicator.apply(accentHex)
-
-        verify(exactly = 1) {
-            listener.accentChanged(project, accentHex, AccentResolver.Source.GLOBAL)
-        }
-    }
-
-    @Test
-    fun `apply does not publish for default or disposed projects`() {
-        // The publish loop reuses the existing `project.isUsable()` filter — a
-        // mid-dispose race must NOT fan out a stale project to subscribers.
-        val disposed =
-            mockk<Project> {
-                every { isDefault } returns false
-                every { isDisposed } returns true
-                every { name } returns "disposed"
-            }
-        val default =
-            mockk<Project> {
-                every { isDefault } returns true
-                every { isDisposed } returns false
-                every { name } returns "default"
-            }
-        every { mockProjectManager.openProjects } returns arrayOf(disposed, default, project)
-        every { AccentResolver.source(project) } returns AccentResolver.Source.PROJECT_OVERRIDE
-
-        val accentHex = AccentHex.of("#5CCFE6")!!
-        AccentApplicator.apply(accentHex)
-
-        verify(exactly = 0) { listener.accentChanged(disposed, any(), any()) }
-        verify(exactly = 0) { listener.accentChanged(default, any(), any()) }
-        verify(exactly = 1) {
-            listener.accentChanged(project, accentHex, AccentResolver.Source.PROJECT_OVERRIDE)
-        }
-    }
-
-    @Test
-    fun `apply marks clean and runs on EDT when subscriber throws`() {
-        // Pattern B regression lock: a throwing subscriber must NOT propagate into
-        // the apply pipeline. `lastApplyOk` must stay `true`, and the WARN line
-        // must be captured so triage has a thread to pull.
-        val onEdtCapture = mutableListOf<Boolean>()
-        every {
-            listener.accentChanged(project, any(), any())
-        } answers {
-            onEdtCapture += SwingUtilities.isEventDispatchThread()
-            error("boom subscriber")
-        }
-
-        val capturedWarns = mutableListOf<String>()
+    fun `mid-step throw is contained, aborts the tail, and leaves the torn markers`() {
+        val accentHex = requireNotNull(AccentHex.of("#FFCC66"))
+        val warns = mutableListOf<String>()
         val processor =
             object : LoggedErrorProcessor() {
                 override fun processWarn(
                     category: String,
                     message: String,
-                    throwable: Throwable?,
+                    t: Throwable?,
                 ): Boolean {
-                    if (!message.contains("AccentChangedTopic publish failed")) return true
-                    capturedWarns += message
-                    return false
+                    warns += message
+                    return true
                 }
             }
 
-        LoggedErrorProcessor.executeWith<Throwable>(processor) {
-            AccentApplicator.apply(AccentHex.of("#DFBFFF")!!)
+        LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
+            AccentApplicator.apply(accentHex) // MUST NOT throw — tear is contained
         }
 
+        // Anti-flicker cache persisted BEFORE the plan ran, and survives the tear.
+        assertEquals("#FFCC66", state.lastAppliedAccentHex)
+        // MarkApplyClean was skipped, so the two-phase flag marks the tear...
+        assertFalse(state.lastApplyOk)
+        // ...and the trust boundary refuses the torn cache.
+        assertNull(state.trustedCachedAccent())
+        // Later steps aborted: no component-tree notify, no accent publish.
+        verify(exactly = 0) { ComponentTreeRefresher.notifyOnly(any()) }
+        verify(exactly = 0) { listener.accentChanged(any(), any(), any()) }
+        // The WARN names the failing step for triage.
         assertTrue(
-            state.lastApplyOk,
-            "state.lastApplyOk must remain true — the throw is contained by the per-project try/catch",
+            warns.any { it.startsWith("Accent apply torn at SyncIndentRainbow") },
+            "expected torn-apply WARN naming the failing step, got: $warns",
         )
-        assertTrue(
-            onEdtCapture.any { it },
-            "AccentChanged publish must run on EDT (Pattern C) — captured EDT flags: $onEdtCapture",
-        )
-        assertTrue(
-            capturedWarns.any { it.contains("AccentChangedTopic publish failed") },
-            "Pattern B: subscriber exception must surface as WARN with the topic-failed marker; got: $capturedWarns",
-        )
+    }
+
+    @Test
+    fun `applyFromHexString still reports the dispatch as accepted on a torn apply`() {
+        // The Boolean contract is validation + scheduling, not paint completion —
+        // torn-state signaling belongs to lastApplyOk / trustedCachedAccent.
+        val accepted = AccentApplicator.applyFromHexString("#FFCC66")
+        assertTrue(accepted)
+        assertFalse(state.lastApplyOk)
     }
 }

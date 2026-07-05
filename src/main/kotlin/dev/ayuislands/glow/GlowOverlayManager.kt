@@ -548,9 +548,4 @@ private fun resolveCurrentGlowAccentHex(
     project: Project,
     state: AyuIslandsState,
     context: AccentContext,
-): String =
-    state
-        .effectiveLastAppliedAccentHex()
-        ?.takeIf { state.lastApplyOk }
-        ?.value
-        ?: AccentResolver.resolve(project, context)
+): String = state.trustedCachedAccent()?.value ?: AccentResolver.resolve(project, context)

@@ -35,10 +35,6 @@ ALLOWLIST: dict[tuple[str, str], Allowance] = {
         "src/main/kotlin/dev/ayuislands/settings/mappings/ProjectAccentSwapService.kt",
     ): Allowance(1, "documented hex-gate shape compromise"),
     (
-        "src/test/kotlin/dev/ayuislands/accent/AccentApplicatorRevertAllSymmetryTest.kt",
-        "src/main/kotlin/dev/ayuislands/accent/AccentApplicator.kt",
-    ): Allowance(1, "documented apply-revert symmetry compromise"),
-    (
         "src/test/kotlin/dev/ayuislands/settings/AyuIslandsChromePanelTest.kt",
         "src/main/kotlin/dev/ayuislands/settings/AyuIslandsChromePanel.kt",
     ): Allowance(2, "documented chrome panel static regression compromise"),
@@ -61,6 +57,10 @@ ALLOWLIST: dict[tuple[str, str], Allowance] = {
     (
         "src/test/kotlin/dev/ayuislands/accent/AccentApplicatorBannedApiGuardTest.kt",
         "src/main/kotlin/dev/ayuislands/accent/AccentApplicator.kt",
+    ): Allowance(1, "banned platform API guard"),
+    (
+        "src/test/kotlin/dev/ayuislands/accent/AccentApplicatorBannedApiGuardTest.kt",
+        "src/main/kotlin/dev/ayuislands/accent/AccentApplyPlanRunner.kt",
     ): Allowance(1, "banned platform API guard"),
     (
         "src/test/kotlin/dev/ayuislands/settings/AyuIslandsSyntaxPanelTest.kt",
@@ -128,8 +128,14 @@ def main() -> int:
             )
 
     if errors:
-        print("Production source reads in tests must be reviewed explicitly.", file=sys.stderr)
-        print("Tests assert on observable behavior, not source-file text.", file=sys.stderr)
+        print(
+            "Production source reads in tests must be reviewed explicitly.",
+            file=sys.stderr,
+        )
+        print(
+            "Tests assert on observable behavior, not source-file text.",
+            file=sys.stderr,
+        )
         for error in errors:
             print(f"  [ERROR] {error}", file=sys.stderr)
         return 1
@@ -153,10 +159,7 @@ def find_source_path_literals() -> Counter[tuple[str, str]]:
 
 
 def string_literals(text: str) -> list[str]:
-    return [
-        match.group()[1:-1]
-        for match in STRING_LITERAL_RE.finditer(text)
-    ]
+    return [match.group()[1:-1] for match in STRING_LITERAL_RE.finditer(text)]
 
 
 def split_path_literals(text: str) -> list[str]:
@@ -165,7 +168,7 @@ def split_path_literals(text: str) -> list[str]:
         closing_paren = find_closing_paren(text, match.end() - 1)
         if closing_paren is None:
             continue
-        segments = string_literals(text[match.end():closing_paren])
+        segments = string_literals(text[match.end() : closing_paren])
         if len(segments) < 2:
             continue
         if any(is_production_source_path(segment) for segment in segments):

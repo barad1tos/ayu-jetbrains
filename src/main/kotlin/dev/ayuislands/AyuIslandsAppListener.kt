@@ -29,17 +29,17 @@ internal class AyuIslandsAppListener : AppLifecycleListener {
         // through to the resolver path just like a fresh install.
         val settings = AyuIslandsSettings.getInstance()
         val cached = settings.state.lastAppliedAccentHex
-        val cleanCache = settings.state.lastApplyOk
         val validCached = settings.state.effectiveLastAppliedAccentHex()
         if (cached != null && validCached == null) {
             LOG.warn("AyuIslandsAppListener: invalid cached hex '$cached'; clearing and re-resolving")
             settings.state.lastAppliedAccentHex = null
         }
-        // Trust the cached hex only when the previous session's apply finished
-        // cleanly (lastApplyOk=true). A mid-EP throw leaves the hex persisted
-        // without the clean flag, so we must fall back to the resolver rather
-        // than re-paint against a torn half-apply.
-        val trustedCached = validCached?.takeIf { cleanCache }
+        // Trust decision is centralized in [AyuIslandsState.trustedCachedAccent]:
+        // non-null only when the hex is valid AND the previous session's apply
+        // finished cleanly. A mid-step throw leaves the hex persisted without
+        // the clean flag, so we fall back to the resolver rather than re-paint
+        // against a torn half-apply.
+        val trustedCached = settings.state.trustedCachedAccent()
         val accentHex = trustedCached?.value ?: AccentResolver.resolve(null, variant)
         val applied = AccentApplicator.applyFromHexString(accentHex)
         val source =

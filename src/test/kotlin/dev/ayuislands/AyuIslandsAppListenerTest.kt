@@ -157,6 +157,29 @@ class AyuIslandsAppListenerTest {
     }
 
     @Test
+    fun `appFrameCreated falls back to resolver when the cached hex comes from a torn apply`() {
+        // Torn-apply trust gate (trustedCachedAccent): hex persisted but
+        // lastApplyOk=false means the previous session threw mid-plan. Painting
+        // the cached hex would restore a half-applied accent; the listener must
+        // re-resolve instead.
+        state.lastAppliedAccentHex = "#5CCFE6"
+        state.lastApplyOk = false
+        mockkObject(AccentResolver)
+        every { AccentResolver.resolve(null, AyuVariant.MIRAGE) } returns "#FF0000"
+
+        val laf = mockk<UIThemeLookAndFeelInfo>()
+        every { laf.name } returns "Ayu Mirage (Islands UI)"
+        val lafManager = mockk<LafManager>()
+        every { lafManager.currentUIThemeLookAndFeel } returns laf
+        every { LafManager.getInstance() } returns lafManager
+
+        listener.appFrameCreated(mutableListOf())
+
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("#FF0000") }
+        verify(exactly = 0) { AccentApplicator.applyFromHexString("#5CCFE6") }
+    }
+
+    @Test
     fun `appFrameCreated falls back to resolver when lastAppliedAccentHex is null`() {
         // First-ever launch (or post-settings-reset) has no cached hex — resolver path
         // must still run so the first frame paints *something* sensible, even if it

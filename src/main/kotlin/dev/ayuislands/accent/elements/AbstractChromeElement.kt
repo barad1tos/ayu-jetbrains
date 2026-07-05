@@ -46,8 +46,8 @@ import javax.swing.UIManager
  * the logged fields (keysSeen / keysMissed / walk target class) differ per
  * element.
  *
- * EDT: callers are already on EDT (AccentApplicator dispatches through
- * `invokeLaterSafe`), so [UIManager.put] + peer mutation are safe.
+ * EDT: callers are already on EDT (AccentApplicator dispatches its step plan
+ * through `AccentApplyPlanRunner`), so [UIManager.put] + peer mutation are safe.
  */
 abstract class AbstractChromeElement : AccentElement {
     /** UIManager keys that receive a tinted color on apply, nulled on revert. */

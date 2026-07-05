@@ -233,6 +233,33 @@ class AyuIslandsStateTest {
     }
 
     @Test
+    fun `trustedCachedAccent returns the hex only after a clean apply`() {
+        val state = freshState()
+        state.lastAppliedAccentHex = "#5CCFE6"
+        state.lastApplyOk = true
+        assertEquals("#5CCFE6", state.trustedCachedAccent()?.value)
+    }
+
+    @Test
+    fun `trustedCachedAccent returns null for a torn apply`() {
+        // Hex persisted but the clean flag never flipped: the previous session
+        // threw mid-plan. Callers must fall back to the resolver instead of
+        // re-painting the half-applied accent.
+        val state = freshState()
+        state.lastAppliedAccentHex = "#5CCFE6"
+        state.lastApplyOk = false
+        kotlin.test.assertNull(state.trustedCachedAccent())
+    }
+
+    @Test
+    fun `trustedCachedAccent returns null for corrupted hex even with clean flag`() {
+        val state = freshState()
+        state.lastAppliedAccentHex = "garbage"
+        state.lastApplyOk = true
+        kotlin.test.assertNull(state.trustedCachedAccent())
+    }
+
+    @Test
     fun `chromeTintingGroupExpanded round-trips`() {
         val state = freshState()
         state.chromeTintingGroupExpanded = true
