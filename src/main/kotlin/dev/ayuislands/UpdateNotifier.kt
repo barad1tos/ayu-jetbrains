@@ -55,6 +55,14 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.7.8" to
+                releaseNotes(
+                    "[Fix] Failed What's New or onboarding opens retry instead of blocking the session",
+                    "[Fix] Interrupted accent applies recover on the next window focus",
+                    "[Fix] Accent rotation stops with a notification when applies keep failing",
+                    "[Fix] Settings overrides preview no longer schedules background language scans",
+                    "[Fix] Language scans cancel on project close and skip stale results",
+                ),
             "2.7.7" to
                 releaseNotes(
                     "[Fix] Language diagnostics show detected breakdowns, manual state, and the winning accent source",
