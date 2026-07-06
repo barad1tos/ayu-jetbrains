@@ -117,6 +117,18 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.7.8</h3>
+    <ul>
+      <li>[Fix] <b>What's New and onboarding tabs</b> — a failed tab open no longer blocks the What's New tab or the license wizard for the rest of the IDE session; the next trigger simply retries.</li>
+      <li>[Fix] <b>Accent apply recovery</b> — when applying an accent fails midway, the color now recovers on the next window focus instead of freezing until restart, and startup only trusts cached accents from a cleanly finished apply.</li>
+      <li>[Fix] <b>Accent rotation reliability</b> — rotation now counts failed applies and stops with the "accent rotation stopped" notification instead of silently ticking forever against a broken apply.</li>
+      <li>[Fix] <b>License downgrade revert</b> — the "restart to complete the reset" notice now appears when the free-tier revert could not finish cleanly.</li>
+      <li>[Fix] <b>Settings overrides preview</b> — opening the Accent → Overrides resolution preview is now strictly read-only and never schedules background language scans.</li>
+      <li>[Fix] <b>Resolution diagnostics consistency</b> — the "Currently active" label, the diagnostics row, and the accent actually applied now always name the same resolution source.</li>
+      <li>[Fix] <b>Project-language accent scans</b> — background detection now cancels when a project closes, checks cancellation during large repository scans, and drops late cache or publish results so reopened projects do not inherit stale language accents.</li>
+      <li>[Fix] <b>Large project language accents</b> — language detection now keeps exact scans for projects under the file cap and uses bounded sampling for larger repositories, so accents resolve consistently without walking every file in a monorepo.</li>
+      <li>[Fix] <b>Font installer fallbacks</b> — fallback font download URLs are now smoke-checked in CI before release, catching broken upstream links before a bundled font install reaches users.</li>
+    </ul>
     <h3>2.7.7</h3>
     <ul>
       <li>[Fix] <b>Language override diagnostics</b> — Settings and Quick-Switcher now show the detected project-language breakdown, manual forced-language state, polyglot fallback detail, and the language that actually won accent resolution.</li>

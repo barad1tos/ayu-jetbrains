@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [2.7.8] - 2026-07-06
+
+- [Fix] **What's New and onboarding tabs** — a failed tab open no longer
+  blocks the What's New tab or the license wizard for the rest of the IDE
+  session; the next trigger simply retries.
+- [Fix] **Accent apply recovery** — when applying an accent fails midway, the
+  color now recovers on the next window focus instead of freezing until
+  restart, and startup only trusts cached accents from a cleanly finished
+  apply.
+- [Fix] **Accent rotation reliability** — rotation now counts failed applies
+  and stops with the "accent rotation stopped" notification instead of
+  silently ticking forever against a broken apply.
+- [Fix] **License downgrade revert** — the "restart to complete the reset"
+  notice now appears when the free-tier revert could not finish cleanly.
+- [Fix] **Settings overrides preview** — opening the Accent → Overrides
+  resolution preview is now strictly read-only and never schedules background
+  language scans.
+- [Fix] **Resolution diagnostics consistency** — the "Currently active" label,
+  the diagnostics row, and the accent actually applied now always name the
+  same resolution source.
 - [Fix] **Project-language accent scans** — background detection now cancels
   when a project closes, checks cancellation during large repository scans, and
   drops late cache or publish results so reopened projects do not inherit stale
