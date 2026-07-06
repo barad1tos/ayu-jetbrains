@@ -1,7 +1,5 @@
 # Changelog
 
-## [Unreleased]
-
 ## [2.7.8] - 2026-07-06
 
 - [Fix] **What's New and onboarding tabs** — a failed tab open no longer
