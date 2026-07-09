@@ -327,6 +327,16 @@ categories:
           Glow can follow Ayu accents on non-Ayu themes when explicitly
           enabled; external Glow stays off by default.
 
+      - id: glow-placement
+        title: "Glow placement variants"
+        keyword: "Glow"
+        introduced: "2.8.0"
+        tier: paid
+        description: >
+          Choose where glow renders per surface: the full island frame, a
+          strip under the editor tabs, or tool-window side edges only.
+          Existing setups keep the full-island default.
+
   fonts:
     title: "Font presets"
     features:

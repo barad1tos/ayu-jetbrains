@@ -8,6 +8,7 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.ExternalAccentSource
 import dev.ayuislands.accent.TintIntensity
 import dev.ayuislands.glow.GlowAnimation
+import dev.ayuislands.glow.GlowPlacement
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.indent.IndentPreset
@@ -149,6 +150,11 @@ class AyuIslandsState : BaseState() {
 
     // Focused input focus-ring glow (subtle, less intense than an island glow)
     var glowFocusRing by property(true)
+
+    // Glow placement per surface family; normalized through
+    // GlowPlacement.forEditor / forToolWindow at read sites.
+    var glowEditorPlacement by string(GlowPlacement.ISLAND.name)
+    var glowToolWindowPlacement by string(GlowPlacement.ISLAND.name)
 
     // CodeGlancePro integration (opt-in, default OFF)
     var cgpIntegrationEnabled by property(false)

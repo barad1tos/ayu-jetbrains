@@ -5,6 +5,7 @@ import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.ui.dsl.builder.SegmentedButton
+import dev.ayuislands.glow.GlowPlacement
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.licensing.LicenseChecker
 import io.mockk.every
@@ -22,6 +23,7 @@ import javax.swing.JSlider
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -133,6 +135,54 @@ class AyuIslandsEffectsPanelTest {
         )
     }
 
+    @Test
+    fun `licensed placement selection persists through apply into state`() {
+        val effectsPanel = AyuIslandsEffectsPanel()
+        buildDialogPanel(effectsPanel)
+
+        placementSegmented(effectsPanel, "editorPlacementSegmented").selectedItem = GlowPlacement.TAB_BAR
+        placementSegmented(effectsPanel, "toolWindowPlacementSegmented").selectedItem = GlowPlacement.SIDE_EDGES
+
+        assertTrue(effectsPanel.isModified(), "placement change must dirty the panel")
+        effectsPanel.apply()
+
+        assertEquals(GlowPlacement.TAB_BAR.name, state.glowEditorPlacement)
+        assertEquals(GlowPlacement.SIDE_EDGES.name, state.glowToolWindowPlacement)
+        assertFalse(effectsPanel.isModified(), "apply must converge stored onto pending")
+    }
+
+    @Test
+    fun `unlicensed glow placement preview cannot mutate pending state`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        val effectsPanel = AyuIslandsEffectsPanel()
+        buildDialogPanel(effectsPanel)
+
+        placementSegmented(effectsPanel, "editorPlacementSegmented").selectedItem = GlowPlacement.TAB_BAR
+
+        assertFalse(
+            effectsPanel.isModified(),
+            "locked placement preview must ignore selection changes instead of dirtying Settings",
+        )
+    }
+
+    @Test
+    fun `reset restores placement selection from stored state`() {
+        val effectsPanel = AyuIslandsEffectsPanel()
+        buildDialogPanel(effectsPanel)
+
+        placementSegmented(effectsPanel, "editorPlacementSegmented").selectedItem = GlowPlacement.TAB_BAR
+        assertTrue(effectsPanel.isModified(), "precondition: selection dirtied the panel")
+
+        effectsPanel.reset()
+
+        assertFalse(effectsPanel.isModified(), "reset must drop the pending placement change")
+        assertEquals(
+            GlowPlacement.ISLAND,
+            placementSegmented(effectsPanel, "editorPlacementSegmented").selectedItem,
+            "reset must restore the stored placement selection",
+        )
+    }
+
     private fun buildDialogPanel(panel: AyuIslandsEffectsPanel) =
         com.intellij.ui.dsl.builder
             .panel {
@@ -145,6 +195,17 @@ class AyuIslandsEffectsPanelTest {
         field.isAccessible = true
         return field.get(panel) as? SegmentedButton<GlowPreset>
             ?: error("Glow preset segmented button must be created")
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun placementSegmented(
+        panel: AyuIslandsEffectsPanel,
+        fieldName: String,
+    ): SegmentedButton<GlowPlacement> {
+        val field = AyuIslandsEffectsPanel::class.java.getDeclaredField(fieldName)
+        field.isAccessible = true
+        return field.get(panel) as? SegmentedButton<GlowPlacement>
+            ?: error("Glow placement segmented button '$fieldName' must be created")
     }
 
     @Suppress("UNCHECKED_CAST")
