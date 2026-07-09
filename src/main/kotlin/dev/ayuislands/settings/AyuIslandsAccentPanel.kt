@@ -91,8 +91,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         updateHeroGlow()
         panel.buildAccentColorGroup(colorPanel)
         beforeOverridesInjection?.invoke(panel)
-        overrides.buildGroup(panel, contextProject)
-        projectIconAccent.buildRow(panel)
+        overrides.buildGroup(panel, contextProject) { projectIconAccent.buildRow(this) }
         afterOverridesInjection?.invoke(panel)
         quickSwitcher.buildGroup(panel)
         panel.buildAccentRotationGroup()

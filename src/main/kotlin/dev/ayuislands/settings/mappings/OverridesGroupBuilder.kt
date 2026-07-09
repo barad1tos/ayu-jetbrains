@@ -206,6 +206,7 @@ class OverridesGroupBuilder(
     fun buildGroup(
         panel: Panel,
         contextProject: Project?,
+        trailingContent: (Panel.() -> Unit)? = null,
     ) {
         parentProject = contextProject
         loadFromState()
@@ -274,6 +275,7 @@ class OverridesGroupBuilder(
                     refreshResolutionPanel()
                     cell(resolutionPanel)
                 }
+                trailingContent?.invoke(this)
             }
         collapsible.expanded = settings.state.overridesGroupExpanded
         collapsible.addExpandedListener { expanded ->
