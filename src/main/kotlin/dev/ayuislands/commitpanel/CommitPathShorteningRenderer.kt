@@ -1,5 +1,6 @@
 package dev.ayuislands.commitpanel
 
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.ui.SimpleColoredComponent
 import com.intellij.ui.SimpleTextAttributes
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -9,6 +10,7 @@ import dev.ayuislands.settings.PanelWidthMode
 import java.awt.Component
 import java.awt.Container
 import java.awt.Font
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.JComponent
 import javax.swing.JTree
 import javax.swing.ToolTipManager
@@ -27,16 +29,36 @@ internal class CommitPathShorteningRenderer(
         row: Int,
         hasFocus: Boolean,
     ): Component {
+        // The macOS accessibility bridge walks tree nodes from EDT dispatches
+        // that PROHIBIT taking the platform RW lock (Dispatchers.UI /
+        // prohibitTakingLocksInsideAndRun), but the platform changes-tree
+        // renderers this delegates to still take read actions while rendering
+        // (ChangesBrowserChangeNode.render, git hover icons). Without this
+        // guard every such walk throws LockAccessDisallowed with this class as
+        // the entry frame. Serve a minimal text component instead — the a11y
+        // walk only needs something to derive role/state/bounds from.
         val component =
-            delegate.getTreeCellRendererComponent(
-                tree,
-                value,
-                selected,
-                expanded,
-                leaf,
-                row,
-                hasFocus,
-            )
+            try {
+                delegate.getTreeCellRendererComponent(
+                    tree,
+                    value,
+                    selected,
+                    expanded,
+                    leaf,
+                    row,
+                    hasFocus,
+                )
+            } catch (exception: RuntimeException) {
+                if (!exception.isLockAccessDisallowed()) throw exception
+                if (lockDisallowedLogged.compareAndSet(false, true)) {
+                    log.warn(
+                        "Commit path renderer: platform delegate required a read action in a " +
+                            "lock-prohibited context (accessibility walk); serving fallback text",
+                        exception,
+                    )
+                }
+                return fallbackComponent(value)
+            }
         component.clearRendererTooltips()
         val textComponent = component.findPathTextComponent() ?: return component
         shortenPathFragment(
@@ -265,7 +287,36 @@ internal class CommitPathShorteningRenderer(
         return result
     }
 
+    private fun Throwable.isLockAccessDisallowed(): Boolean {
+        var current: Throwable? = this
+        while (current != null) {
+            if (current.javaClass.name.endsWith(LOCK_DISALLOWED_CLASS_SUFFIX)) return true
+            current = current.cause.takeIf { it !== current }
+        }
+        return false
+    }
+
+    private fun fallbackComponent(value: Any?): Component =
+        SimpleColoredComponent().apply {
+            append(value?.toString().orEmpty(), SimpleTextAttributes.REGULAR_ATTRIBUTES)
+        }
+
     companion object {
+        private val log = logger<CommitPathShorteningRenderer>()
+
+        /**
+         * One WARN per IDE session, not per walked node — the accessibility
+         * bridge re-renders every visible row on each walk, so an unlatched
+         * warning floods idea.log within seconds.
+         */
+        private val lockDisallowedLogged = AtomicBoolean(false)
+
+        /**
+         * Matched by name: `ThreadingSupport.LockAccessDisallowed` is not part
+         * of the 2025.1 compile-time API surface this plugin builds against.
+         */
+        private const val LOCK_DISALLOWED_CLASS_SUFFIX = "LockAccessDisallowed"
+
         private const val DEFAULT_FONT_SIZE = 12
         private const val UNIX_SEPARATOR = "/"
         private const val WINDOWS_SEPARATOR = "\\"

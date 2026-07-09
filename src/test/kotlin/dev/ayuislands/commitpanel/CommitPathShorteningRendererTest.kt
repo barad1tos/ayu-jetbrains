@@ -17,6 +17,7 @@ import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.TreeCellRenderer
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
@@ -451,6 +452,61 @@ class CommitPathShorteningRendererTest {
             assertTrue(fragments.last().contains("..."))
         }
     }
+
+    @Test
+    fun `renderer serves fallback text when the delegate hits a lock-prohibited context`() {
+        SwingUtilities.invokeAndWait {
+            val renderer =
+                CommitPathShorteningRenderer(
+                    delegate = TreeCellRenderer { _, _, _, _, _, _, _ -> throw FakeLockAccessDisallowed() },
+                    stateProvider = { AyuIslandsState() },
+                )
+
+            val component = render(renderer, treeWithVisibleWidth(260), value = "ChangeNode.txt")
+
+            assertEquals(listOf("ChangeNode.txt"), component.fragmentsForTest())
+        }
+    }
+
+    @Test
+    fun `renderer serves fallback text when the lock error is wrapped as a cause`() {
+        SwingUtilities.invokeAndWait {
+            val renderer =
+                CommitPathShorteningRenderer(
+                    delegate =
+                        TreeCellRenderer { _, _, _, _, _, _, _ ->
+                            throw IllegalStateException("render failed", FakeLockAccessDisallowed())
+                        },
+                    stateProvider = { AyuIslandsState() },
+                )
+
+            val component = render(renderer, treeWithVisibleWidth(260), value = "WrappedNode.txt")
+
+            assertEquals(listOf("WrappedNode.txt"), component.fragmentsForTest())
+        }
+    }
+
+    @Test
+    fun `renderer rethrows unrelated delegate failures`() {
+        SwingUtilities.invokeAndWait {
+            val renderer =
+                CommitPathShorteningRenderer(
+                    delegate = TreeCellRenderer { _, _, _, _, _, _, _ -> throw IllegalStateException("boom") },
+                    stateProvider = { AyuIslandsState() },
+                )
+
+            assertFailsWith<IllegalStateException> {
+                renderComponent(renderer, treeWithVisibleWidth(260))
+            }
+        }
+    }
+
+    /**
+     * Stand-in for the platform's `ThreadingSupport$LockAccessDisallowed`,
+     * which is not on the 2025.1 compile classpath — the production guard
+     * matches by class-name suffix, which this fake's name satisfies too.
+     */
+    private class FakeLockAccessDisallowed : IllegalStateException("lock guard test double")
 
     private fun render(
         renderer: TreeCellRenderer,

@@ -10,6 +10,10 @@
 - [Paid] **Accent from project icon** — projects without an override can take
   their accent from `.idea/icon.png` automatically when they open, and the
   Add Override dialog offers the icon's dominant color as a one-click pick.
+- [Fix] **Commit panel accessibility crash** — screen-reader and macOS
+  accessibility walks over the commit changes tree no longer flood idea.log
+  with "Attempt to take read lock was prevented" errors; the path renderer
+  now serves plain text when the platform forbids model access mid-walk.
 
 ## [2.7.8] - 2026-07-06
 
