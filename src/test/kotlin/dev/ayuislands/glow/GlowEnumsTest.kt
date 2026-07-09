@@ -94,5 +94,45 @@ class GlowEnumsTest {
         assertEquals(3, GlowStyle.entries.size)
         assertEquals(3, GlowTabMode.entries.size)
         assertEquals(4, GlowAnimation.entries.size)
+        assertEquals(3, GlowPlacement.entries.size)
+    }
+
+    // GlowPlacement
+
+    @Test
+    fun `GlowPlacement fromName returns correct entry for valid names`() {
+        assertEquals(GlowPlacement.ISLAND, GlowPlacement.fromName("ISLAND"))
+        assertEquals(GlowPlacement.TAB_BAR, GlowPlacement.fromName("TAB_BAR"))
+        assertEquals(GlowPlacement.SIDE_EDGES, GlowPlacement.fromName("SIDE_EDGES"))
+    }
+
+    @Test
+    fun `GlowPlacement fromName falls back to ISLAND for invalid name`() {
+        assertEquals(GlowPlacement.ISLAND, GlowPlacement.fromName("NONEXISTENT"))
+        assertEquals(GlowPlacement.ISLAND, GlowPlacement.fromName(""))
+        assertEquals(GlowPlacement.ISLAND, GlowPlacement.fromName(null))
+    }
+
+    @Test
+    fun `GlowPlacement forEditor normalizes the tool-window-only placement to ISLAND`() {
+        assertEquals(GlowPlacement.TAB_BAR, GlowPlacement.forEditor("TAB_BAR"))
+        assertEquals(GlowPlacement.ISLAND, GlowPlacement.forEditor("ISLAND"))
+        assertEquals(GlowPlacement.ISLAND, GlowPlacement.forEditor("SIDE_EDGES"))
+        assertEquals(GlowPlacement.ISLAND, GlowPlacement.forEditor("GARBAGE"))
+    }
+
+    @Test
+    fun `GlowPlacement forToolWindow normalizes the editor-only placement to ISLAND`() {
+        assertEquals(GlowPlacement.SIDE_EDGES, GlowPlacement.forToolWindow("SIDE_EDGES"))
+        assertEquals(GlowPlacement.ISLAND, GlowPlacement.forToolWindow("ISLAND"))
+        assertEquals(GlowPlacement.ISLAND, GlowPlacement.forToolWindow("TAB_BAR"))
+        assertEquals(GlowPlacement.ISLAND, GlowPlacement.forToolWindow(null))
+    }
+
+    @Test
+    fun `GlowPlacement entries have correct display names`() {
+        assertEquals("Island", GlowPlacement.ISLAND.displayName)
+        assertEquals("Under tabs", GlowPlacement.TAB_BAR.displayName)
+        assertEquals("Side edges", GlowPlacement.SIDE_EDGES.displayName)
     }
 }

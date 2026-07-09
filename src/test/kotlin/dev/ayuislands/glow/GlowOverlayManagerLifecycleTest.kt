@@ -209,6 +209,42 @@ class GlowOverlayManagerLifecycleTest {
     }
 
     @Test
+    fun `updateGlow pushes per-surface placement onto live overlays`() {
+        // Changing placement in Settings must restyle live overlays through the
+        // normal updateGlow path: the editor overlay picks the editor placement,
+        // every other overlay picks the tool-window placement.
+        every { AyuVariant.isAyuActive() } returns true
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        state.glowEditorPlacement = GlowPlacement.TAB_BAR.name
+        state.glowToolWindowPlacement = GlowPlacement.SIDE_EDGES.name
+
+        val project = stubProject("placement-project")
+        val manager = GlowOverlayManager(project)
+        val editorPane = mockk<GlowGlassPane>(relaxed = true)
+        val toolWindowPane = mockk<GlowGlassPane>(relaxed = true)
+        seedOverlaysMapWithMocks(
+            manager,
+            editorPane,
+            host = mockk(relaxed = true),
+            layeredPane = mockk(relaxed = true),
+            key = "Editor",
+        )
+        seedOverlaysMapWithMocks(
+            manager,
+            toolWindowPane,
+            host = mockk(relaxed = true),
+            layeredPane = mockk(relaxed = true),
+        )
+
+        manager.updateGlow()
+
+        verify(exactly = 1) { editorPane.glowPlacement = GlowPlacement.TAB_BAR }
+        verify(exactly = 1) { toolWindowPane.glowPlacement = GlowPlacement.SIDE_EDGES }
+        verify(exactly = 0) { editorPane.glowPlacement = GlowPlacement.SIDE_EDGES }
+        verify(exactly = 0) { toolWindowPane.glowPlacement = GlowPlacement.TAB_BAR }
+    }
+
+    @Test
     fun `updateGlow paints clean last applied accent instead of project resolver`() {
         // Glow follows the app-global chrome color that was actually painted.
         // A background project may resolve to a different override, but its
@@ -599,14 +635,16 @@ class GlowOverlayManagerLifecycleTest {
      * passed in. The non-disposal-path `updateOverlayStyles` iteration just
      * assigns properties on the glassPane mock, which relaxed-mock no-ops.
      *
-     * Always seeds under the [DISPOSAL_TARGET_KEY] sentinel — the only
-     * caller is the disposal-path test, which doesn't need to vary the key.
+     * Seeds under [DISPOSAL_TARGET_KEY] by default (the disposal-path tests
+     * don't vary the key); the placement-push test overrides [key] with the
+     * editor overlay id to hit the editor branch of the placement resolver.
      */
     private fun seedOverlaysMapWithMocks(
         manager: GlowOverlayManager,
         glassPane: GlowGlassPane,
         host: javax.swing.JComponent,
         layeredPane: javax.swing.JLayeredPane,
+        key: String = DISPOSAL_TARGET_KEY,
     ) {
         val field = GlowOverlayManager::class.java.getDeclaredField("overlays")
         field.isAccessible = true
@@ -620,7 +658,7 @@ class GlowOverlayManagerLifecycleTest {
                 Any::class.java,
                 Any::class.java,
             )
-        putMethod.invoke(map, DISPOSAL_TARGET_KEY, makeOverlayEntryWith(glassPane, host, layeredPane))
+        putMethod.invoke(map, key, makeOverlayEntryWith(glassPane, host, layeredPane))
     }
 
     private fun makeOverlayEntryWith(

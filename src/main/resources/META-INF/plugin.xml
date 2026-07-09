@@ -120,6 +120,7 @@
     <h3>2.8.0</h3>
     <ul>
       <li>[Paid] <b>Chrome tint on external themes</b> — chrome surfaces and accent elements can now follow the Ayu accent on non-Ayu themes when explicitly enabled; external chrome tint stays off by default.</li>
+      <li>[Paid] <b>Glow placement</b> — choose where glow renders: the full island, a strip under the editor tabs, or tool-window side edges only.</li>
     </ul>
     <h3>2.7.8</h3>
     <ul>

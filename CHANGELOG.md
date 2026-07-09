@@ -5,6 +5,8 @@
 - [Paid] **Chrome tint on external themes** — chrome surfaces and accent
   elements can now follow the Ayu accent on non-Ayu themes when explicitly
   enabled; external chrome tint stays off by default.
+- [Paid] **Glow placement** — choose where glow renders: the full island, a
+  strip under the editor tabs, or tool-window side edges only.
 
 ## [2.7.8] - 2026-07-06
 
