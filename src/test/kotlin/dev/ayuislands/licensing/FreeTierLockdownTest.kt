@@ -157,6 +157,15 @@ class FreeTierLockdownTest {
     }
 
     @Test
+    fun `revertToFreeDefaults clears the project icon accent toggle`() {
+        state.projectIconAccentEnabled = true
+
+        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
+
+        assertFalse(state.projectIconAccentEnabled)
+    }
+
+    @Test
     fun `revertToFreeDefaults clears the external chrome tint allowance`() {
         // The allowance has no separate feature master (unlike glow/CGP/IR),
         // so the reverter must clear the flag itself — otherwise a downgraded

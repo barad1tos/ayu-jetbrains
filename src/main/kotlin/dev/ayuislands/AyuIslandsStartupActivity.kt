@@ -26,6 +26,7 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import dev.ayuislands.settings.mappings.AccentMappingsState
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
+import dev.ayuislands.settings.mappings.ProjectIconAccentAssigner
 import dev.ayuislands.syntax.SyntaxIntensityMigrationNotifier
 import dev.ayuislands.syntax.SyntaxIntensityService
 import dev.ayuislands.ui.ComponentTreeRefresher
@@ -40,6 +41,13 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         LOG.info("Ayu Islands loaded — active theme: $themeName, project: ${project.name}")
 
         val settings = AyuIslandsSettings.getInstance()
+
+        // Icon-derived per-project accent must land in the mappings BEFORE the
+        // first resolve below — both the native path (runStartupAccentOnEdt)
+        // and the external path (initializeExternalThemeIfEnabled) read the
+        // project-override rung.
+        runCatchingPreservingCancellation { ProjectIconAccentAssigner.assignIfAbsent(project) }
+            .onFailure { LOG.warn("Project icon accent auto-assign failed for '${project.name}'", it) }
 
         // Language detection is a one-way event: the detector only publishes
         // scanCompleted, and this project service is the single subscriber that

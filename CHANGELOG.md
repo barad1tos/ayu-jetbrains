@@ -7,6 +7,9 @@
   enabled; external chrome tint stays off by default.
 - [Paid] **Glow placement** — choose where glow renders: the full island, a
   strip under the editor tabs, or tool-window side edges only.
+- [Paid] **Accent from project icon** — projects without an override can take
+  their accent from `.idea/icon.png` automatically when they open, and the
+  Add Override dialog offers the icon's dominant color as a one-click pick.
 
 ## [2.7.8] - 2026-07-06
 

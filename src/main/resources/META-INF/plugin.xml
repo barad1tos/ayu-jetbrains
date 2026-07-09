@@ -64,6 +64,10 @@
           Settings → Theme Synchronization. WCAG-aware foreground keeps
           text readable at any saturation. Inspired by Peacock for VS Code
           (johnpapa.net), built on JetBrains primitives — not ported.</li>
+      <li><b>Accent from project icon</b> — projects without a pin take
+          their accent from the project icon (.idea/icon.png) automatically
+          on open; the Add Override dialog offers the icon's dominant color
+          as a one-click pick.</li>
       <li><b>VCS color customization</b> — Settings → Ayu Islands → VCS
           tunes intensity across five surfaces (diff viewer, Project View
           file status, editor gutter, conflict markers, Git blame
@@ -121,6 +125,7 @@
     <ul>
       <li>[Paid] <b>Chrome tint on external themes</b> — chrome surfaces and accent elements can now follow the Ayu accent on non-Ayu themes when explicitly enabled; external chrome tint stays off by default.</li>
       <li>[Paid] <b>Glow placement</b> — choose where glow renders: the full island, a strip under the editor tabs, or tool-window side edges only.</li>
+      <li>[Paid] <b>Accent from project icon</b> — projects without an override can take their accent from .idea/icon.png automatically when they open; the Add Override dialog offers the icon's dominant color as a one-click pick.</li>
     </ul>
     <h3>2.7.8</h3>
     <ul>

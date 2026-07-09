@@ -210,6 +210,16 @@ categories:
           on non-Ayu themes when explicitly enabled; external chrome
           tint stays off by default.
 
+      - id: accent-from-project-icon
+        title: "Accent from project icon"
+        keyword: "project icon"
+        introduced: "2.8.0"
+        tier: paid
+        description: >
+          Projects without an override take their accent from the project
+          icon (.idea/icon.png) automatically on open; the Add Override
+          dialog offers the icon's dominant color as a one-click pick.
+
       - id: vcs-color-customization
         title: "VCS color customization"
         keyword: "VCS color customization"

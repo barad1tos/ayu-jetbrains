@@ -316,6 +316,11 @@ object LicenseChecker {
 
             // Stop accent rotation (premium feature)
             state.accentRotationEnabled = false
+
+            // Icon-derived project accents are premium; clearing the toggle
+            // stops NEW auto-assigns after a downgrade. Existing rows stay and
+            // go inert through the resolver's license gate, same as manual pins.
+            state.projectIconAccentEnabled = false
         }
 
         resetSyntaxIntensityToFreeDefaults()

@@ -1,6 +1,7 @@
 package dev.ayuislands.accent.color
 
 import com.intellij.ui.ColorUtil
+import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.rotation.HslColor
 import kotlin.math.abs
@@ -113,6 +114,54 @@ class AccentHslTest {
             abs(result.saturation - input.saturation) < epsilon,
             "Saturation drifted from ${input.saturation} to ${result.saturation}",
         )
+    }
+
+    @Test
+    fun `clampToPaletteRange lifts a too-dark color to the palette floor keeping hue and saturation`() {
+        val input = HslColor.fromColor(ColorUtil.fromHex("#113355"))
+        val result = AccentHsl.clampToPaletteRange(AccentHex.unsafeOf("#113355")).value
+        val resultHsl = HslColor.fromColor(ColorUtil.fromHex(result))
+
+        assertTrue(
+            abs(resultHsl.lightness - AccentHsl.MIN_PALETTE_LIGHTNESS) < epsilon,
+            "Expected palette floor L=${AccentHsl.MIN_PALETTE_LIGHTNESS}, got ${resultHsl.lightness}",
+        )
+        assertTrue(
+            abs(resultHsl.hue - input.hue) < hueRoundingTolerance,
+            "Hue drifted from ${input.hue} to ${resultHsl.hue}",
+        )
+    }
+
+    @Test
+    fun `clampToPaletteRange lowers a near-white color to the palette ceiling`() {
+        val result = AccentHsl.clampToPaletteRange(AccentHex.unsafeOf("#FDF6E3")).value
+        val resultLightness = HslColor.fromColor(ColorUtil.fromHex(result)).lightness
+
+        assertTrue(
+            abs(resultLightness - AccentHsl.MAX_PALETTE_LIGHTNESS) < epsilon,
+            "Expected palette ceiling L=${AccentHsl.MAX_PALETTE_LIGHTNESS}, got $resultLightness",
+        )
+    }
+
+    @Test
+    fun `clampToPaletteRange returns the input instance unchanged when already in band`() {
+        val inBand = AccentHex.unsafeOf("#5CCFE6")
+        assertEquals(inBand, AccentHsl.clampToPaletteRange(inBand), "in-band color must be a no-op by equality")
+    }
+
+    @Test
+    fun `every curated accent preset is a fixed point of clampToPaletteRange`() {
+        // Locks the band to the palette empirically: the curated presets span
+        // Slate (L~0.57) to Lavender (L~0.87), all inside [0.55, 0.90] — the
+        // clamp must never rewrite a color the palette itself ships.
+        for (preset in AYU_ACCENT_PRESETS) {
+            val hex = AccentHex.unsafeOf(preset.hex)
+            assertEquals(
+                hex,
+                AccentHsl.clampToPaletteRange(hex),
+                "preset ${preset.name} (${preset.hex}) must pass through the palette clamp unchanged",
+            )
+        }
     }
 
     @Test
