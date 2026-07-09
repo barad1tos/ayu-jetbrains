@@ -7,6 +7,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.TextFieldWithBrowseButton
 import com.intellij.openapi.ui.ValidationInfo
+import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
@@ -14,6 +15,7 @@ import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.TopGap
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
+import dev.ayuislands.accent.color.ProjectIconAccentExtractor
 import org.jetbrains.annotations.TestOnly
 import java.awt.Component
 import java.io.File
@@ -22,6 +24,8 @@ import javax.swing.DefaultListModel
 import javax.swing.JComponent
 import javax.swing.JList
 import javax.swing.ListSelectionModel
+import javax.swing.event.DocumentEvent
+import javax.swing.event.DocumentListener
 
 /** Row model used by the recent-projects list inside [AddProjectMappingDialog]. */
 internal data class RecentProjectRow(
@@ -42,6 +46,7 @@ class AddProjectMappingDialog(
     private val pathField = TextFieldWithBrowseButton()
     private val recentList = JBList<RecentProjectRow>()
     private val swatchPicker = AccentSwatchPickerRow { selected -> resultHex = selected }
+    private val useIconColorLink = ActionLink("Use icon color") { applyIconColor() }
 
     var resultCanonicalPath: String? = null
         private set
@@ -69,6 +74,20 @@ class AddProjectMappingDialog(
             recentList.selectedValue?.let { row -> pathField.text = row.canonicalPath }
         }
 
+        // Detect, don't assume: the icon shortcut only appears when the typed
+        // (or recent-list-selected — that path routes through pathField.text
+        // too) project actually has a usable .idea/icon.png.
+        pathField.textField.document.addDocumentListener(
+            object : DocumentListener {
+                override fun insertUpdate(event: DocumentEvent) = refreshIconLinkVisibility()
+
+                override fun removeUpdate(event: DocumentEvent) = refreshIconLinkVisibility()
+
+                override fun changedUpdate(event: DocumentEvent) = refreshIconLinkVisibility()
+            },
+        )
+        refreshIconLinkVisibility()
+
         init()
     }
 
@@ -92,6 +111,7 @@ class AddProjectMappingDialog(
             }
             row("Color:") {
                 cell(swatchPicker)
+                cell(useIconColorLink)
             }.topGap(TopGap.MEDIUM)
             row {
                 comment("Applied across all Ayu variants (Mirage, Dark, Light).")
@@ -137,6 +157,30 @@ class AddProjectMappingDialog(
         resultHex = swatchPicker.selectedHex
         super.doOKAction()
     }
+
+    private fun refreshIconLinkVisibility() {
+        useIconColorLink.isVisible = resolveIconFile() != null
+    }
+
+    private fun resolveIconFile(): File? = ProjectIconAccentExtractor.projectIconFile(pathField.text.trim())
+
+    private fun applyIconColor() {
+        val iconFile = resolveIconFile() ?: return
+        val accent = ProjectIconAccentExtractor.extract(iconFile)
+        if (accent == null) {
+            setErrorText("No dominant color found in the project icon.", swatchPicker)
+            return
+        }
+        setErrorText(null)
+        swatchPicker.selectedHex = accent.value
+        resultHex = accent.value
+    }
+
+    @TestOnly
+    internal fun iconLinkVisibleForTest(): Boolean = useIconColorLink.isVisible
+
+    @TestOnly
+    internal fun useIconColorForTest() = applyIconColor()
 
     @TestOnly
     internal fun setPathForTest(path: String) {

@@ -28,10 +28,29 @@ object AccentHsl {
     internal const val STEP = 0.05f
     internal const val MIN_LIGHTNESS = 0.10f
     internal const val MAX_LIGHTNESS = 0.95f
+    internal const val MIN_PALETTE_LIGHTNESS = 0.55f
+    internal const val MAX_PALETTE_LIGHTNESS = 0.90f
 
     fun lighten(hex: AccentHex): AccentHex = adjust(hex, +STEP)
 
     fun darken(hex: AccentHex): AccentHex = adjust(hex, -STEP)
+
+    /**
+     * Coerces an arbitrary color's HSL lightness into the Ayu accent band
+     * (`[0.55, 0.90]` — the curated `AYU_ACCENT_PRESETS` span Slate 0.57 to
+     * Lavender 0.87) so producer-derived accents (project icons) stay visible
+     * on dark chrome without washing out. Hue and saturation are preserved:
+     * the palette itself ships the near-gray Slate, so muted brand colors
+     * stay muted. Returns the input instance unchanged when already in band,
+     * mirroring the [lighten]/[darken] no-op-by-equality convention.
+     */
+    fun clampToPaletteRange(hex: AccentHex): AccentHex {
+        val color = ColorUtil.fromHex(hex.value)
+        val hsl = HslColor.fromColor(color)
+        val lightness = hsl.lightness.coerceIn(MIN_PALETTE_LIGHTNESS, MAX_PALETTE_LIGHTNESS)
+        if (lightness == hsl.lightness) return hex
+        return AccentHex.unsafeOf(HslColor.toHex(hsl.hue, hsl.saturation, lightness))
+    }
 
     private fun adjust(
         hex: AccentHex,

@@ -270,6 +270,9 @@ class AyuIslandsState : BaseState() {
 
     // Accent rotation
     var accentRotationEnabled by property(false)
+
+    // Auto-assign per-project accent from .idea/icon.png on project open (premium)
+    var projectIconAccentEnabled by property(false)
     var accentRotationMode by string(AccentRotationMode.PRESET.name)
     var accentRotationIntervalHours by property(DEFAULT_ROTATION_INTERVAL_HOURS)
     var accentRotationLastSwitchMs by property(0L)

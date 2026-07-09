@@ -153,6 +153,15 @@ class FreeTierLockdownTest {
     }
 
     @Test
+    fun `revertToFreeDefaults preserves the project icon accent preference`() {
+        state.projectIconAccentEnabled = true
+
+        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
+
+        assertTrue(state.projectIconAccentEnabled)
+    }
+
+    @Test
     fun `revertToFreeDefaults preserves the external chrome tint preference`() {
         // Runtime entitlement gates paid behavior. Keep the stored choice so a
         // renewed license restores the exact external-theme preference.

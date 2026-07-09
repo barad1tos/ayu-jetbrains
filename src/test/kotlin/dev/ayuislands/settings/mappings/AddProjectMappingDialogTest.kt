@@ -2,13 +2,18 @@ package dev.ayuislands.settings.mappings
 
 import com.intellij.openapi.ui.DialogWrapper
 import org.junit.jupiter.api.io.TempDir
+import java.awt.Color
+import java.awt.image.BufferedImage
 import java.lang.reflect.InvocationTargetException
 import java.nio.file.Files
 import java.nio.file.Path
+import javax.imageio.ImageIO
 import javax.swing.SwingUtilities
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class AddProjectMappingDialogTest {
     @field:TempDir
@@ -95,6 +100,40 @@ class AddProjectMappingDialogTest {
                 if (!confirmed) {
                     dialog.close(DialogWrapper.CANCEL_EXIT_CODE)
                 }
+            }
+        }
+
+    @Test
+    fun `icon color shortcut appears only for projects with a usable icon`() =
+        onEdt {
+            val projectDir = Files.createDirectory(tempDir.resolve("icon-project"))
+            val ideaDir = Files.createDirectories(projectDir.resolve(".idea"))
+            val image = BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB)
+            for (x in 0 until 16) {
+                for (y in 0 until 16) {
+                    image.setRGB(x, y, Color(0x5C, 0xCF, 0xE6).rgb)
+                }
+            }
+            ImageIO.write(image, "png", ideaDir.resolve("icon.png").toFile())
+            val plainDir = Files.createDirectory(tempDir.resolve("plain-project"))
+            val dialog = AddProjectMappingDialog(parent = null, excludedPaths = emptySet())
+
+            dialog.useDialog {
+                it.setPathForTest(projectDir.toString())
+                assertTrue(
+                    it.iconLinkVisibleForTest(),
+                    "icon shortcut must appear for a project with .idea/icon.png",
+                )
+
+                it.useIconColorForTest()
+                assertEquals("#5CCFE6", it.resultHex, "shortcut must fill the icon's dominant color")
+                assertNull(it.validationMessageForTest(), "icon-derived color satisfies color validation")
+
+                it.setPathForTest(plainDir.toString())
+                assertFalse(
+                    it.iconLinkVisibleForTest(),
+                    "icon shortcut must hide when the project has no icon",
+                )
             }
         }
 
