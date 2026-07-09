@@ -48,7 +48,7 @@ internal class CommitPathShorteningRenderer(
                     row,
                     hasFocus,
                 )
-            } catch (exception: RuntimeException) {
+            } catch (exception: IllegalStateException) {
                 if (!exception.isLockAccessDisallowed()) throw exception
                 if (lockDisallowedLogged.compareAndSet(false, true)) {
                     log.warn(
@@ -316,6 +316,11 @@ internal class CommitPathShorteningRenderer(
          * of the 2025.1 compile-time API surface this plugin builds against.
          */
         private const val LOCK_DISALLOWED_CLASS_SUFFIX = "LockAccessDisallowed"
+
+        // The guard catches IllegalStateException because that is the platform
+        // class's direct superclass — verified via javap against
+        // intellij.platform.core.jar in 2026.1; the class itself is absent
+        // from the 2025.1 compile classpath, hence the name-suffix match.
 
         private const val DEFAULT_FONT_SIZE = 12
         private const val UNIX_SEPARATOR = "/"
