@@ -157,6 +157,18 @@ class FreeTierLockdownTest {
     }
 
     @Test
+    fun `revertToFreeDefaults clears the external chrome tint allowance`() {
+        // The allowance has no separate feature master (unlike glow/CGP/IR),
+        // so the reverter must clear the flag itself — otherwise a downgraded
+        // user on a foreign theme keeps tinted chrome through a premium toggle.
+        state.externalThemeChromeTintEnabled = true
+
+        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
+
+        assertFalse(state.externalThemeChromeTintEnabled)
+    }
+
+    @Test
     fun `revertToFreeDefaults resets glowTabMode to MINIMAL`() {
         state.glowTabMode = "FULL"
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)

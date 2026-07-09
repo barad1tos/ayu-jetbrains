@@ -60,6 +60,8 @@ object AccentApplicator {
     private val DARK_FOREGROUND = JBColor(DARK_FOREGROUND_HEX, DARK_FOREGROUND_HEX)
     private const val TAB_ACCENT_BG_ALPHA = 50
     private const val KEY_TAB_BACKGROUND = "EditorTabs.underlinedTabBackground"
+    private const val KEY_TAB_UNDERLINE_HEIGHT = "EditorTabs.underlineHeight"
+    private const val KEY_TAB_UNDERLINE_ARC = "EditorTabs.underlineArc"
     private const val DEFAULT_UNDERLINE_ARC = 8
     private val TRANSPARENT_TAB_BACKGROUND =
         JBColor(
@@ -195,7 +197,6 @@ object AccentApplicator {
         val accent = accentHex.toColor()
         val state = AyuIslandsSettings.getInstance().state
         val context = AccentContext.detect()
-        val variant = context?.variant
 
         // Persist BEFORE the EP iteration so the cache survives a mid-EP
         // throw. Clear the clean-apply flag here; only the MarkApplyClean step
@@ -214,10 +215,17 @@ object AccentApplicator {
             buildMap {
                 put(AccentApplyStep.ApplyAlwaysOnUiKeys) { applyAlwaysOnUiKeys(state, accent) }
                 put(AccentApplyStep.ApplyElements) {
-                    applyElements(state, accent, checkNotNull(variant) { "ApplyElements planned without Ayu variant" })
+                    applyElements(
+                        state,
+                        accent,
+                        checkNotNull(context) { "ApplyElements planned without accent context" },
+                    )
                 }
                 put(AccentApplyStep.ApplyTabUnderline) {
-                    applyTabUnderline(state, checkNotNull(variant) { "ApplyTabUnderline planned without Ayu variant" })
+                    applyTabUnderline(
+                        state,
+                        checkNotNull(context) { "ApplyTabUnderline planned without accent context" },
+                    )
                 }
                 put(AccentApplyStep.SyncIndentRainbow) {
                     IndentRainbowSync.apply(
@@ -514,8 +522,8 @@ object AccentApplicator {
         UIManager.put("Button.default.startBorderColor", null)
         UIManager.put("Button.default.endBorderColor", null)
         UIManager.put(KEY_TAB_BACKGROUND, null)
-        UIManager.put("EditorTabs.underlineHeight", null)
-        UIManager.put("EditorTabs.underlineArc", null)
+        UIManager.put(KEY_TAB_UNDERLINE_HEIGHT, null)
+        UIManager.put(KEY_TAB_UNDERLINE_ARC, null)
 
         for (element in EP_NAME.extensionList) {
             try {
@@ -544,13 +552,26 @@ object AccentApplicator {
         }
     }
 
+    private fun isExternalTintBlocked(
+        state: AyuIslandsState,
+        context: AccentContext,
+    ): Boolean {
+        val blocked = context == AccentContext.External && !state.isExternalChromeTintAllowed()
+        if (blocked) {
+            log.debug("External chrome tint allowance off; reverting tinted chrome surfaces")
+        }
+        return blocked
+    }
+
     private fun applyElements(
         state: AyuIslandsState,
         accent: Color,
-        variant: AyuVariant?,
+        context: AccentContext,
     ) {
+        val variant = context.variant
+        val externalTintBlocked = isExternalTintBlocked(state, context)
         for (element in EP_NAME.extensionList) {
-            val enabled = ChromeTintContext.isToggleEnabled(state, element.id)
+            val enabled = !externalTintBlocked && ChromeTintContext.isToggleEnabled(state, element.id)
             if (!enabled) {
                 neutralizeOrRevert(element, variant)
                 continue
@@ -674,8 +695,14 @@ object AccentApplicator {
 
     private fun applyTabUnderline(
         state: AyuIslandsState,
-        variant: AyuVariant?,
+        context: AccentContext,
     ) {
+        if (isExternalTintBlocked(state, context)) {
+            UIManager.put(KEY_TAB_UNDERLINE_HEIGHT, null)
+            UIManager.put(KEY_TAB_UNDERLINE_ARC, null)
+            return
+        }
+        val variant = context.variant
         val tabMode = GlowTabMode.fromName(state.glowTabMode ?: "MINIMAL")
         if (tabMode == GlowTabMode.OFF && variant != null) {
             val scheme = EditorColorsManager.getInstance().globalScheme
@@ -683,10 +710,10 @@ object AccentApplicator {
         }
 
         val height = resolveUnderlineHeight(state)
-        UIManager.put("EditorTabs.underlineHeight", Integer.valueOf(height))
+        UIManager.put(KEY_TAB_UNDERLINE_HEIGHT, Integer.valueOf(height))
 
         val arc = UIManager.getInt("Island.arc").let { if (it > 0) it else DEFAULT_UNDERLINE_ARC }
-        UIManager.put("EditorTabs.underlineArc", Integer.valueOf(arc))
+        UIManager.put(KEY_TAB_UNDERLINE_ARC, Integer.valueOf(arc))
 
         log.info("Tab underline: height=${height}px, arc=${arc}px")
     }

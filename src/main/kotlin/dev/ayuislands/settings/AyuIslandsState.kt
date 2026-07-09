@@ -48,6 +48,7 @@ class AyuIslandsState : BaseState() {
     var externalThemeGlowEnabled by property(false)
     var externalThemeCodeGlanceProEnabled by property(true)
     var externalThemeIndentRainbowEnabled by property(true)
+    var externalThemeChromeTintEnabled by property(false)
     var externalThemeAccentSource by string(ExternalAccentSource.AUTOMATIC.name)
     var externalThemeAccent by string(AyuVariant.MIRAGE.defaultAccent)
     var followSystemAccent by property(false)
@@ -410,26 +411,15 @@ class AyuIslandsState : BaseState() {
     var vcsCommitHighlightIntensity by property(VcsColorPreset.AMBIENT_SLIDER)
 
     /**
-     * Returns the active preset for the Diff and File Status section, falling
-     * back to [VcsColorPreset.AMBIENT] on unknown / corrupted strings. Mirrors
-     * the [effectiveChromeTintIntensity] discipline — Ambient is the no-op
+     * Returns the preset governing [category], falling back to
+     * [VcsColorPreset.AMBIENT] on unknown / corrupted strings. Mirrors the
+     * [effectiveChromeTintIntensity] discipline — Ambient is the no-op
      * default so corrupted persisted XML never accidentally tints surfaces
-     * the user didn't opt into.
-     */
-    fun effectiveVcsDiffPreset(): VcsColorPreset = VcsColorPreset.byName(vcsDiffPreset)
-
-    /** Returns the active preset for the Merge and Conflict section (defaults to AMBIENT). */
-    fun effectiveVcsMergePreset(): VcsColorPreset = VcsColorPreset.byName(vcsMergePreset)
-
-    /** Returns the active preset for the Blame and History section (defaults to AMBIENT). */
-    fun effectiveVcsBlamePreset(): VcsColorPreset = VcsColorPreset.byName(vcsBlamePreset)
-
-    /**
-     * Returns the preset governing [category]. Maps each color category to
-     * the section's preset field — DIFF_VIEWER / PROJECT_VIEW_FILE_STATUS /
-     * EDITOR_GUTTER live under [effectiveVcsDiffPreset], CONFLICT_MARKERS under
-     * [effectiveVcsMergePreset], BLAME_GUTTER under [effectiveVcsBlamePreset].
-     * Placeholder categories (MERGE_3WAY, INLINE_DIFF_POPUP, LOCAL_HISTORY,
+     * the user didn't opt into. Maps each color category to the owning
+     * section's preset field — DIFF_VIEWER / PROJECT_VIEW_FILE_STATUS /
+     * EDITOR_GUTTER read [vcsDiffPreset], CONFLICT_MARKERS reads
+     * [vcsMergePreset], BLAME_GUTTER reads [vcsBlamePreset]. Placeholder
+     * categories (MERGE_3WAY, INLINE_DIFF_POPUP, LOCAL_HISTORY,
      * BRANCH_INDICATOR, BRANCHES_POPUP, COMMIT_HIGHLIGHTS) default to
      * AMBIENT until their respective sections wire up in a future release.
      */
@@ -438,16 +428,16 @@ class AyuIslandsState : BaseState() {
             VcsColorCategory.DIFF_VIEWER,
             VcsColorCategory.PROJECT_VIEW_FILE_STATUS,
             VcsColorCategory.EDITOR_GUTTER,
-            -> effectiveVcsDiffPreset()
+            -> VcsColorPreset.byName(vcsDiffPreset)
 
             VcsColorCategory.CONFLICT_MARKERS,
             VcsColorCategory.MERGE_3WAY,
             VcsColorCategory.INLINE_DIFF_POPUP,
-            -> effectiveVcsMergePreset()
+            -> VcsColorPreset.byName(vcsMergePreset)
 
             VcsColorCategory.BLAME_GUTTER,
             VcsColorCategory.LOCAL_HISTORY,
-            -> effectiveVcsBlamePreset()
+            -> VcsColorPreset.byName(vcsBlamePreset)
 
             VcsColorCategory.BRANCH_INDICATOR,
             VcsColorCategory.BRANCHES_POPUP,
@@ -610,6 +600,8 @@ class AyuIslandsState : BaseState() {
     fun isExternalCodeGlanceProAllowed(): Boolean = externalAllowed(externalThemeCodeGlanceProEnabled)
 
     fun isExternalIndentRainbowAllowed(): Boolean = externalAllowed(externalThemeIndentRainbowEnabled)
+
+    fun isExternalChromeTintAllowed(): Boolean = externalAllowed(externalThemeChromeTintEnabled)
 
     private fun externalAllowed(enabled: Boolean): Boolean = externalThemeEnhancementsEnabled && enabled
 

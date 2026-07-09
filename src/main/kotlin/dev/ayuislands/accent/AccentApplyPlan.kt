@@ -41,10 +41,12 @@ internal data class AccentApplyPlan(
  * persisted flag false (unless the sole failure is the final
  * [AccentApplyStep.PublishAccentChanged], which runs after the flag write).
  *
- * Pure — reads no settings and touches no platform; Ayu-only surfaces
- * (element EPs, tab underline) and the IndentRainbow sync gate on the context
- * shape. This is the ONLY gating site: the worker map in [AccentApplicator]
- * binds every step unconditionally.
+ * Pure — reads no settings and touches no platform; element EPs, tab
+ * underline, and the IndentRainbow sync gate on the context shape (scheduled
+ * for any non-null context, Ayu or External). This is the ONLY context-shape
+ * gating site: the worker map in [AccentApplicator] binds every step
+ * unconditionally, and the per-feature External allowances (chrome tint,
+ * indent rainbow) are checked inside the workers with revert symmetry.
  *
  * Ordering locks encoded here (formerly defended by a source-regex test):
  *  - Integrations run IndentRainbow before CodeGlancePro before the
@@ -60,11 +62,11 @@ internal fun applyPlanFor(context: AccentContext?): AccentApplyPlan =
         steps =
             buildList {
                 add(AccentApplyStep.ApplyAlwaysOnUiKeys)
-                if (context?.variant != null) add(AccentApplyStep.ApplyElements)
+                if (context != null) add(AccentApplyStep.ApplyElements)
                 if (context != null) add(AccentApplyStep.SyncIndentRainbow)
                 add(AccentApplyStep.SyncCodeGlanceProViewport)
                 add(AccentApplyStep.ApplyAlwaysOnEditorKeys)
-                if (context?.variant != null) add(AccentApplyStep.ApplyTabUnderline)
+                if (context != null) add(AccentApplyStep.ApplyTabUnderline)
                 add(AccentApplyStep.NotifyComponentTrees)
                 add(AccentApplyStep.RepaintWindows)
                 add(AccentApplyStep.MarkApplyClean)

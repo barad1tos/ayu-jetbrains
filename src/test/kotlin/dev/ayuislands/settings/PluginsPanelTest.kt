@@ -283,17 +283,44 @@ class PluginsPanelTest {
         val glowCheckbox = checkboxes.first { it.text == "Glow" }
         val codeGlanceProCheckbox = checkboxes.first { it.text == "CodeGlance Pro" }
         val indentRainbowCheckbox = checkboxes.first { it.text == "Indent Rainbow" }
+        val chromeTintCheckbox = checkboxes.first { it.text == "Chrome tint" }
 
         quickSwitcherCheckbox.doClick()
         glowCheckbox.doClick()
         codeGlanceProCheckbox.doClick()
         indentRainbowCheckbox.doClick()
+        chromeTintCheckbox.doClick()
         pluginsPanel.apply()
 
         assertFalse(state.externalThemeQuickSwitcherEnabled)
         assertTrue(state.externalThemeGlowEnabled)
         assertFalse(state.externalThemeCodeGlanceProEnabled)
         assertFalse(state.externalThemeIndentRainbowEnabled)
+        assertTrue(state.externalThemeChromeTintEnabled)
+        assertFalse(pluginsPanel.isModified())
+    }
+
+    @Test
+    fun `unlicensed external chrome tint checkbox is visible but locked`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        val pluginsPanel = PluginsPanel()
+        val dialogPanel = buildDialogPanel(pluginsPanel)
+        val chromeTintCheckbox =
+            descendants(dialogPanel, JCheckBox::class.java)
+                .first { it.text == "Chrome tint" }
+
+        assertFalse(
+            chromeTintCheckbox.isEnabled,
+            "Chrome tint on external themes is Pro — the checkbox must be locked for free users",
+        )
+
+        chromeTintCheckbox.doClick()
+        pluginsPanel.apply()
+
+        assertFalse(
+            state.externalThemeChromeTintEnabled,
+            "A locked checkbox must never persist the premium allowance",
+        )
         assertFalse(pluginsPanel.isModified())
     }
 
@@ -376,8 +403,11 @@ class PluginsPanelTest {
                 ActionManager::class.java,
                 ActionManagerEx::class.java,
                 -> actionManagerMock
+
                 SyntaxIntensityService::class.java -> syntaxIntensityService
+
                 experimentalUiClass -> experimentalUiMock
+
                 else -> mockkClass(serviceClass.kotlin, relaxed = true)
             }
         }

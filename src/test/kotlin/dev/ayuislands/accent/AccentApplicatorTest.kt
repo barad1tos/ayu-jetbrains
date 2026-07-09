@@ -946,7 +946,7 @@ class AccentApplicatorTest {
     }
 
     @Test
-    fun `apply external context syncs integrations without Ayu-only elements or tab underline`() {
+    fun `apply external context reverts elements and clears underline geometry while allowance is off`() {
         val element = createFakeAccentElement(AccentElementId.CARET_ROW, "Caret Row")
         mockEpExtensionList(listOf(element))
         mockkObject(IndentRainbowSync)
@@ -959,10 +959,56 @@ class AccentApplicatorTest {
 
         verify(exactly = 1) { IndentRainbowSync.apply(AccentContext.External, "#AABBCC") }
         verify(exactly = 0) { element.apply(any()) }
+        verify(exactly = 1) { element.revert() }
+        verify(exactly = 0) { element.applyNeutral(any()) }
+        // MockK's any() matches null under type erasure, so "only the null
+        // clear happened" is proven as: exactly one call total, and that call
+        // carried null.
+        verify(exactly = 1) { UIManager.put("EditorTabs.underlineHeight", null) }
+        verify(exactly = 1) { UIManager.put("EditorTabs.underlineArc", null) }
+        verify(exactly = 1) { UIManager.put("EditorTabs.underlineHeight", any()) }
+        verify(exactly = 1) { UIManager.put("EditorTabs.underlineArc", any()) }
+    }
+
+    @Test
+    fun `apply external context tints elements and writes underline geometry when allowance is on`() {
+        val element = createFakeAccentElement(AccentElementId.CARET_ROW, "Caret Row")
+        mockEpExtensionList(listOf(element))
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns Unit
+        state.cgpIntegrationEnabled = false
+        state.externalThemeEnhancementsEnabled = true
+        state.externalThemeChromeTintEnabled = true
+        every { AyuVariant.detect() } returns null
+
+        AccentApplicator.applyFromHexString("#AABBCC")
+
+        verify(exactly = 1) { element.apply(Color.decode("#AABBCC")) }
         verify(exactly = 0) { element.revert() }
         verify(exactly = 0) { element.applyNeutral(any()) }
-        verify(exactly = 0) { UIManager.put("EditorTabs.underlineHeight", any<Int>()) }
-        verify(exactly = 0) { UIManager.put("EditorTabs.underlineArc", any<Int>()) }
+        verify(exactly = 1) { UIManager.put("EditorTabs.underlineHeight", any()) }
+        verify(exactly = 1) { UIManager.put("EditorTabs.underlineArc", any()) }
+        verify(exactly = 0) { UIManager.put("EditorTabs.underlineHeight", null) }
+        verify(exactly = 0) { UIManager.put("EditorTabs.underlineArc", null) }
+    }
+
+    @Test
+    fun `apply external context reverts a toggled-off element even when allowance is on`() {
+        val element = createFakeAccentElement(AccentElementId.CARET_ROW, "Caret Row")
+        mockEpExtensionList(listOf(element))
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns Unit
+        state.cgpIntegrationEnabled = false
+        state.externalThemeEnhancementsEnabled = true
+        state.externalThemeChromeTintEnabled = true
+        state.setToggle(AccentElementId.CARET_ROW, false)
+        every { AyuVariant.detect() } returns null
+
+        AccentApplicator.applyFromHexString("#AABBCC")
+
+        verify(exactly = 0) { element.apply(any()) }
+        verify(exactly = 1) { element.revert() }
+        verify(exactly = 0) { element.applyNeutral(any()) }
     }
 
     @Test
@@ -1220,7 +1266,7 @@ class AccentApplicatorTest {
         mockEpExtensionList(listOf(mockElement))
 
         val accent = Color.decode("#FFCC66")
-        invokeApplyElements(state, accent, AyuVariant.MIRAGE)
+        invokeApplyElements(state, accent, AccentContext.Ayu(AyuVariant.MIRAGE))
 
         verify { mockElement.apply(accent) }
     }
@@ -1234,22 +1280,24 @@ class AccentApplicatorTest {
         mockEpExtensionList(listOf(mockElement))
 
         val accent = Color.decode("#FFCC66")
-        invokeApplyElements(state, accent, AyuVariant.MIRAGE)
+        invokeApplyElements(state, accent, AccentContext.Ayu(AyuVariant.MIRAGE))
 
         verify { mockElement.applyNeutral(AyuVariant.MIRAGE) }
         verify(exactly = 0) { mockElement.apply(any()) }
     }
 
     @Test
-    fun `applyElements with disabled toggle and null variant reverts element`() {
+    fun `applyElements with disabled toggle under external context reverts element`() {
         val mockElement = mockk<AccentElement>(relaxed = true)
         every { mockElement.id } returns AccentElementId.CARET_ROW
         every { mockElement.displayName } returns "Caret Row"
         state.caretRow = false
+        state.externalThemeEnhancementsEnabled = true
+        state.externalThemeChromeTintEnabled = true
         mockEpExtensionList(listOf(mockElement))
 
         val accent = Color.decode("#FFCC66")
-        invokeApplyElements(state, accent, null)
+        invokeApplyElements(state, accent, AccentContext.External)
 
         verify { mockElement.revert() }
         verify(exactly = 0) { mockElement.apply(any()) }
@@ -1271,7 +1319,7 @@ class AccentApplicatorTest {
         mockEpExtensionList(listOf(mockElement))
 
         val accent = Color.decode("#FFCC66")
-        invokeApplyElements(state, accent, AyuVariant.MIRAGE)
+        invokeApplyElements(state, accent, AccentContext.Ayu(AyuVariant.MIRAGE))
 
         verify { mockElement.applyNeutral(AyuVariant.MIRAGE) }
         verify(exactly = 0) { mockElement.apply(any()) }
@@ -1294,7 +1342,7 @@ class AccentApplicatorTest {
         mockEpExtensionList(listOf(mockElement))
 
         val accent = Color.decode("#FFCC66")
-        invokeApplyElements(state, accent, AyuVariant.MIRAGE)
+        invokeApplyElements(state, accent, AccentContext.Ayu(AyuVariant.MIRAGE))
 
         verify { mockElement.apply(accent) }
     }
@@ -1309,7 +1357,7 @@ class AccentApplicatorTest {
 
         val accent = Color.decode("#FFCC66")
         // Should not throw
-        invokeApplyElements(state, accent, AyuVariant.MIRAGE)
+        invokeApplyElements(state, accent, AccentContext.Ayu(AyuVariant.MIRAGE))
     }
 
     @Test
@@ -1325,7 +1373,7 @@ class AccentApplicatorTest {
         mockEpExtensionList(listOf(element1, element2))
 
         val accent = Color.decode("#FFCC66")
-        invokeApplyElements(state, accent, AyuVariant.MIRAGE)
+        invokeApplyElements(state, accent, AccentContext.Ayu(AyuVariant.MIRAGE))
 
         // element2 should still be applied despite element1 throwing
         verify { element2.apply(accent) }
@@ -1351,7 +1399,7 @@ class AccentApplicatorTest {
 
         val accent = Color.decode("#FFCC66")
         // Must not propagate the simulated exception
-        invokeApplyElements(state, accent, AyuVariant.MIRAGE)
+        invokeApplyElements(state, accent, AccentContext.Ayu(AyuVariant.MIRAGE))
 
         // Loop must have continued past the failing middle element
         verify { first.apply(accent) }
@@ -1395,7 +1443,7 @@ class AccentApplicatorTest {
 
         val accent = Color.decode("#FFCC66")
         // Must not throw despite failing.applyNeutral exploding
-        invokeApplyElements(state, accent, AyuVariant.MIRAGE)
+        invokeApplyElements(state, accent, AccentContext.Ayu(AyuVariant.MIRAGE))
 
         // Loop continued and the trailing element was processed normally
         verify { failing.applyNeutral(AyuVariant.MIRAGE) }
@@ -1414,7 +1462,7 @@ class AccentApplicatorTest {
         mockEpExtensionList(listOf(element))
 
         val accent = Color.decode("#FFCC66")
-        invokeApplyElements(state, accent, AyuVariant.MIRAGE)
+        invokeApplyElements(state, accent, AccentContext.Ayu(AyuVariant.MIRAGE))
 
         verify(exactly = 0) { element.apply(any()) }
         verify { element.applyNeutral(AyuVariant.MIRAGE) }
@@ -1442,7 +1490,7 @@ class AccentApplicatorTest {
         mockEpExtensionList(listOf(element))
 
         val accent = Color.decode("#FFCC66")
-        invokeApplyElements(state, accent, AyuVariant.MIRAGE)
+        invokeApplyElements(state, accent, AccentContext.Ayu(AyuVariant.MIRAGE))
 
         verify(exactly = 0) { element.apply(any()) }
         verify { element.applyNeutral(AyuVariant.MIRAGE) }
@@ -1469,7 +1517,7 @@ class AccentApplicatorTest {
         mockEpExtensionList(listOf(element))
 
         val accent = Color.decode("#FFCC66")
-        invokeApplyElements(state, accent, AyuVariant.MIRAGE)
+        invokeApplyElements(state, accent, AccentContext.Ayu(AyuVariant.MIRAGE))
 
         // Force override wins — apply called, neutralize path not taken
         verify { element.apply(accent) }
@@ -1501,7 +1549,7 @@ class AccentApplicatorTest {
 
         val accent = Color.decode("#FFCC66")
         // Must not propagate the simulated apply failure.
-        invokeApplyElements(state, accent, AyuVariant.MIRAGE)
+        invokeApplyElements(state, accent, AccentContext.Ayu(AyuVariant.MIRAGE))
 
         // Revert was invoked exactly once on the throwing element — this is
         // the revert-on-apply-fail lock; if the try/revert block is deleted,
@@ -1527,7 +1575,7 @@ class AccentApplicatorTest {
 
         val accent = Color.decode("#FFCC66")
         // Must not propagate either the apply or the revert exception.
-        invokeApplyElements(state, accent, AyuVariant.MIRAGE)
+        invokeApplyElements(state, accent, AccentContext.Ayu(AyuVariant.MIRAGE))
 
         // Revert WAS attempted on the failing element, even though it
         // threw — locks that the cleanup path runs unconditionally after
@@ -1742,19 +1790,19 @@ class AccentApplicatorTest {
     }
 
     /**
-     * Invokes the private `applyElements(AyuIslandsState, Color, AyuVariant?)` method
-     * via reflection.
+     * Invokes the private `applyElements(AyuIslandsState, Color, AccentContext)`
+     * method via reflection.
      */
     private fun invokeApplyElements(
         targetState: AyuIslandsState,
         accent: Color,
-        variant: AyuVariant?,
+        context: AccentContext,
     ) {
         val method =
             AccentApplicator::class.java.declaredMethods
                 .first { it.name == "applyElements" }
         method.isAccessible = true
-        method.invoke(AccentApplicator, targetState, accent, variant)
+        method.invoke(AccentApplicator, targetState, accent, context)
     }
 
     // Helper for invoking private methods that accept nullable parameters
@@ -1817,7 +1865,7 @@ class AccentApplicatorTest {
         state.tabUnderlineHeight = 4
         state.tabUnderlineGlowSync = false
 
-        invokeApplyTabUnderline(state, AyuVariant.MIRAGE)
+        invokeApplyTabUnderline(state, AccentContext.Ayu(AyuVariant.MIRAGE))
 
         verify { UIManager.put("EditorTabs.underlineHeight", Integer.valueOf(4)) }
         verify { UIManager.put("EditorTabs.underlineArc", any<Int>()) }
@@ -1827,7 +1875,7 @@ class AccentApplicatorTest {
     fun `applyTabUnderline sets neutral gray when OFF and variant present`() {
         state.glowTabMode = "OFF"
 
-        invokeApplyTabUnderline(state, AyuVariant.MIRAGE)
+        invokeApplyTabUnderline(state, AccentContext.Ayu(AyuVariant.MIRAGE))
 
         verify { mockScheme.setColor(any(), Color.decode(AyuVariant.MIRAGE.neutralGray)) }
     }
@@ -1836,29 +1884,31 @@ class AccentApplicatorTest {
     fun `applyTabUnderline skips neutral gray when not OFF`() {
         state.glowTabMode = "MINIMAL"
 
-        invokeApplyTabUnderline(state, AyuVariant.MIRAGE)
+        invokeApplyTabUnderline(state, AccentContext.Ayu(AyuVariant.MIRAGE))
 
         verify(exactly = 0) { mockScheme.setColor(ColorKey.find("TAB_UNDERLINE"), any()) }
     }
 
     @Test
-    fun `applyTabUnderline skips neutral gray when variant is null`() {
+    fun `applyTabUnderline skips neutral gray under external context with allowance on`() {
         state.glowTabMode = "OFF"
+        state.externalThemeEnhancementsEnabled = true
+        state.externalThemeChromeTintEnabled = true
 
-        invokeApplyTabUnderline(state, null)
+        invokeApplyTabUnderline(state, AccentContext.External)
 
         verify(exactly = 0) { mockScheme.setColor(ColorKey.find("TAB_UNDERLINE"), any()) }
     }
 
     private fun invokeApplyTabUnderline(
         state: AyuIslandsState,
-        variant: AyuVariant?,
+        context: AccentContext,
     ) {
         val method =
             AccentApplicator::class.java.declaredMethods
                 .first { it.name == "applyTabUnderline" }
         method.isAccessible = true
-        method.invoke(AccentApplicator, state, variant)
+        method.invoke(AccentApplicator, state, context)
     }
 
     private fun resetCodeGlanceProState() {

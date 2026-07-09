@@ -249,6 +249,11 @@ object LicenseChecker {
                 state.setToggle(id, defaultForFree)
             }
 
+            // External chrome tint has no separate feature master to reset, so
+            // clear the allowance itself; a downgraded user on a foreign theme
+            // must not keep tinted chrome/accent elements.
+            state.externalThemeChromeTintEnabled = false
+
             // Reset chrome-tinting auxiliary state to defaults (intensity baseline,
             // group collapsed). The WCAG foreground contrast is now always-on so no
             // toggle needs resetting.

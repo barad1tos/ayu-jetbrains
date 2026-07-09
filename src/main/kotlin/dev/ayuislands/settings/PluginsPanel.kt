@@ -41,6 +41,7 @@ class PluginsPanel : AyuIslandsSettingsPanel {
     private var externalGlowCheckbox: JCheckBox? = null
     private var externalCodeGlanceProCheckbox: JCheckBox? = null
     private var externalIndentRainbowCheckbox: JCheckBox? = null
+    private var externalChromeTintCheckbox: JCheckBox? = null
     private var externalAccentSourceCombo: JComboBox<ExternalAccentSource>? = null
     private var externalAccentPicker: AccentSwatchPickerRow? = null
     private var alphaSlider: JSlider? = null
@@ -73,7 +74,7 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         val irDetected = ConflictRegistry.isIndentRainbowDetected()
 
         panel.row { comment("Tune how Ayu colors integrate with compatible plugins.") }
-        panel.buildExternalThemeSupportGroup()
+        panel.buildExternalThemeSupportGroup(licensed)
         panel.buildPluginIntegrationsGroup(
             gate = gate,
             licensed = licensed,
@@ -140,7 +141,7 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         }
     }
 
-    private fun Panel.buildExternalThemeSupportGroup() {
+    private fun Panel.buildExternalThemeSupportGroup(licensed: Boolean) {
         group("External Theme Support") {
             row {
                 val checkboxCell =
@@ -176,6 +177,9 @@ class PluginsPanel : AyuIslandsSettingsPanel {
                                     updateSelection = { copy(isCodeGlanceProEnabled = it) },
                                     storeCheckbox = { externalCodeGlanceProCheckbox = it },
                                 )
+                            }
+                            row {
+                                buildExternalChromeTintCell(licensed)
                             }
                         }.gap(RightGap.COLUMNS)
                         panel {
@@ -274,6 +278,24 @@ class PluginsPanel : AyuIslandsSettingsPanel {
                 )
         }
         storeCheckbox(checkboxCell.component)
+    }
+
+    private fun Row.buildExternalChromeTintCell(licensed: Boolean) {
+        externalChromeTintCheckbox =
+            buildLicensedCheckbox(
+                labelText = "Chrome tint",
+                description =
+                    "Tint chrome surfaces and accent elements with the Ayu accent. " +
+                        "Configure surfaces on the Accent tab while an Ayu theme is active.",
+                licensed = licensed,
+                isSelected = pendingSettings.externalInheritance.isChromeTintEnabled,
+            ) { isSelected ->
+                pendingSettings =
+                    pendingSettings.copy(
+                        externalInheritance =
+                            pendingSettings.externalInheritance.copy(isChromeTintEnabled = isSelected),
+                    )
+            }
     }
 
     private fun Row.buildLicensedCheckbox(
@@ -463,6 +485,7 @@ class PluginsPanel : AyuIslandsSettingsPanel {
                     GlowOverlayManager.syncGlowForAllProjects()
                 }
             }
+
             externalChanged -> {
                 AccentApplicator.revertAll()
                 GlowOverlayManager.syncGlowForAllProjects()
@@ -483,6 +506,7 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         externalGlowCheckbox?.isSelected = storedSettings.externalInheritance.isGlowEnabled
         externalCodeGlanceProCheckbox?.isSelected = storedSettings.externalInheritance.isCodeGlanceProEnabled
         externalIndentRainbowCheckbox?.isSelected = storedSettings.externalInheritance.isIndentRainbowEnabled
+        externalChromeTintCheckbox?.isSelected = storedSettings.externalInheritance.isChromeTintEnabled
         externalAccentSourceCombo?.selectedItem = ExternalAccentSource.fromName(storedSettings.externalAccentSource)
         externalAccentPicker?.selectedHex = storedSettings.externalAccent
         presetSegmented?.selectedItem = IndentPreset.fromName(storedSettings.indentPresetName)
@@ -560,12 +584,14 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         val isGlowEnabled: Boolean = false,
         val isCodeGlanceProEnabled: Boolean = true,
         val isIndentRainbowEnabled: Boolean = true,
+        val isChromeTintEnabled: Boolean = false,
     ) {
         fun applyTo(state: AyuIslandsState) {
             state.externalThemeQuickSwitcherEnabled = isQuickSwitcherEnabled
             state.externalThemeGlowEnabled = isGlowEnabled
             state.externalThemeCodeGlanceProEnabled = isCodeGlanceProEnabled
             state.externalThemeIndentRainbowEnabled = isIndentRainbowEnabled
+            state.externalThemeChromeTintEnabled = isChromeTintEnabled
         }
 
         companion object {
@@ -575,6 +601,7 @@ class PluginsPanel : AyuIslandsSettingsPanel {
                     isGlowEnabled = state.externalThemeGlowEnabled,
                     isCodeGlanceProEnabled = state.externalThemeCodeGlanceProEnabled,
                     isIndentRainbowEnabled = state.externalThemeIndentRainbowEnabled,
+                    isChromeTintEnabled = state.externalThemeChromeTintEnabled,
                 )
         }
     }

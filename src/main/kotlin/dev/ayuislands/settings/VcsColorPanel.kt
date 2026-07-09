@@ -98,9 +98,9 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
             val state = AyuIslandsSettings.getInstance().state
             VcsColorSettings(
                 enabled = state.vcsColorEnabled,
-                diffPreset = state.effectiveVcsDiffPreset(),
-                mergePreset = state.effectiveVcsMergePreset(),
-                blamePreset = state.effectiveVcsBlamePreset(),
+                diffPreset = state.effectiveVcsPresetFor(VcsColorCategory.DIFF_VIEWER),
+                mergePreset = state.effectiveVcsPresetFor(VcsColorCategory.CONFLICT_MARKERS),
+                blamePreset = state.effectiveVcsPresetFor(VcsColorCategory.BLAME_GUTTER),
                 diffIntensity = state.vcsDiffIntensity,
                 projectViewIntensity = state.vcsProjectViewIntensity,
                 gutterIntensity = state.vcsGutterIntensity,
@@ -327,9 +327,7 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
                         blameValueLabel = valueLabel
                     }
 
-                    else -> {
-                        Unit
-                    }
+                    else -> {}
                 }
             }
         sliderRow.visibleIfUnlockedOrPreview(sectionCustomVisible, gate)
@@ -411,9 +409,7 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
                 blamePresetSegmented?.selectedItem = VcsColorPreset.CUSTOM
             }
 
-            else -> {
-                Unit
-            }
+            else -> {}
         }
     }
 
@@ -622,9 +618,7 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
                 blameValueLabel?.text = "$value"
             }
 
-            else -> {
-                Unit
-            }
+            else -> {}
         }
         vcsPreview?.updatePreview(variant ?: AyuVariant.DARK, previewIntensities())
     }

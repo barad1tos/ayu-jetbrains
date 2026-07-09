@@ -51,13 +51,18 @@ class AccentApplyPlanTest {
     }
 
     @Test
-    fun `apply plan for External context skips elements and tab underline`() {
+    fun `apply plan for External context schedules elements and tab underline like Ayu`() {
+        // Elements and underline gate on context SHAPE only; the External
+        // chrome-tint allowance is enforced inside the applicator workers
+        // with revert symmetry, so the plan is identical to the Ayu plan.
         assertEquals(
             listOf(
                 ApplyAlwaysOnUiKeys,
+                ApplyElements,
                 SyncIndentRainbow,
                 SyncCodeGlanceProViewport,
                 ApplyAlwaysOnEditorKeys,
+                ApplyTabUnderline,
                 NotifyComponentTrees,
                 RepaintWindows,
                 MarkApplyClean,
