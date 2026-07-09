@@ -74,15 +74,20 @@ object EditorTabGeometry {
         }
 
         val selectedContentBounds = findSelectedContentBounds(editorTabs, host)
-        if (selectedContentBounds != null) return selectedContentBounds
+        if (selectedContentBounds != null) {
+            log.debug("Editor overlay bounds from selected content: $selectedContentBounds")
+            return selectedContentBounds
+        }
 
-        val selectedLabelBottom = findSelectedLabelBottom(editorTabs)
+        val selectedLabelBottom = findSelectedLabelBottom(editorTabs, host)
         if (selectedLabelBottom != null) {
+            log.debug("Editor overlay top from selected tab label bottom: $selectedLabelBottom")
             return Rectangle(0, selectedLabelBottom, host.width, (host.height - selectedLabelBottom).coerceAtLeast(0))
         }
 
-        val nestedLabelBottom = findNestedTabLabelBottom(editorTabs)
+        val nestedLabelBottom = findNestedTabLabelBottom(editorTabs, host)
         if (nestedLabelBottom != null) {
+            log.debug("Editor overlay top from nested tab label bottom: $nestedLabelBottom")
             return Rectangle(0, nestedLabelBottom, host.width, (host.height - nestedLabelBottom).coerceAtLeast(0))
         }
 
@@ -135,8 +140,17 @@ object EditorTabGeometry {
 
             val parent = contentComponent.parent ?: return null
             val contentBounds = contentComponent.bounds
+
             @Suppress("ConvertExpressionToRectangleConstructor")
-            return SwingUtilities.convertRectangle(parent, contentBounds, host)
+            val converted = SwingUtilities.convertRectangle(parent, contentBounds, host)
+            // Sanity gate: selected content that starts at (or above) the
+            // host's top edge means the tab strip was NOT subtracted — newer
+            // tab layouts (2026.x) report the selected tab's component as
+            // spanning the whole host. Trusting that rectangle put the
+            // "Under tabs" glow strip along the window top. Fall through to
+            // the label-based fallbacks, which measure the real strip.
+            if (converted.y <= 0) return null
+            return converted
         } catch (_: ReflectiveOperationException) {
             return null
         } catch (_: IllegalArgumentException) {
@@ -145,16 +159,20 @@ object EditorTabGeometry {
     }
 
     /**
-     * Use reflection to call `getSelectedLabel()` and return its bottom edge (y + height).
+     * Use reflection to call `getSelectedLabel()` and return its bottom edge
+     * converted into [host] coordinates.
      */
-    private fun findSelectedLabelBottom(editorTabs: Container): Int? {
+    private fun findSelectedLabelBottom(
+        editorTabs: Container,
+        host: JComponent,
+    ): Int? {
         try {
             val getSelectedLabel =
                 editorTabs.javaClass.methods.firstOrNull {
                     it.name == "getSelectedLabel" && it.parameterCount == 0
                 } ?: return null
             val label = getSelectedLabel.invoke(editorTabs) as? JComponent ?: return null
-            return label.y + label.height
+            return labelBottomInHost(label, host)
         } catch (_: ReflectiveOperationException) {
             return null
         } catch (_: IllegalArgumentException) {
@@ -163,24 +181,43 @@ object EditorTabGeometry {
     }
 
     /**
-     * Recursively search for a visible TabLabel and return its bottom edge.
-     * Limited to [maxDepth] levels to avoid expensive traversal on deep Swing trees.
+     * Recursively search for a visible TabLabel and return its bottom edge in
+     * [host] coordinates. Limited to [maxDepth] levels to avoid expensive
+     * traversal on deep Swing trees.
      */
     private fun findNestedTabLabelBottom(
         component: Component,
+        host: JComponent,
         maxDepth: Int = 8,
     ): Int? {
         if (maxDepth <= 0) return null
         if (component.javaClass.name.contains("TabLabel") && component is JComponent && component.isVisible) {
-            return component.y + component.height
+            return labelBottomInHost(component, host)
         }
         if (component is Container) {
             for (child in component.components) {
-                val found = findNestedTabLabelBottom(child, maxDepth - 1)
+                val found = findNestedTabLabelBottom(child, host, maxDepth - 1)
                 if (found != null) return found
             }
         }
         return null
+    }
+
+    /**
+     * [label]'s bottom edge converted into [host] coordinates, or null when
+     * the conversion lands at or above the host top (a label outside the
+     * host cannot anchor the strip). The previous implementation returned
+     * `label.y + label.height` in the label parent's coordinate space, which
+     * matched host coordinates only when the tabs component happened to sit
+     * at the host origin.
+     */
+    private fun labelBottomInHost(
+        label: JComponent,
+        host: JComponent,
+    ): Int? {
+        val parent = label.parent ?: return null
+        val bottom = SwingUtilities.convertPoint(parent, 0, label.y + label.height, host).y
+        return bottom.takeIf { it > 0 }
     }
 
     /**

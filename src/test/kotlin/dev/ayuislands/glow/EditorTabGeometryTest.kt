@@ -135,9 +135,112 @@ class EditorTabGeometryTest {
         assertEquals(0, bounds.height)
     }
 
+    @Test
+    fun `calculateEditorOverlayBounds rejects selected content that spans the whole host`() {
+        // 2026.x tab layouts report the selected tab's component as covering
+        // the entire host (y=0). Trusting that rectangle drew the "Under tabs"
+        // strip along the window top; the sanity gate must fall through to the
+        // real tab-label measurement instead.
+        val host = JPanel(null)
+        host.setSize(800, 600)
+        val editorTabs = SelectionEditorTabsFake()
+        editorTabs.setBounds(0, 0, 800, 600)
+        host.add(editorTabs)
+
+        val fullHostContent = JPanel()
+        fullHostContent.setBounds(0, 0, 800, 600)
+        editorTabs.add(fullHostContent)
+        editorTabs.infoForTest = TabInfoFake(fullHostContent)
+
+        val label = MockTabLabel()
+        label.setBounds(0, 0, 120, 25)
+        editorTabs.add(label)
+        editorTabs.labelForTest = label
+
+        val bounds = EditorTabGeometry.calculateEditorOverlayBounds(host)
+
+        assertEquals(Rectangle(0, 25, 800, 575), bounds)
+    }
+
+    @Test
+    fun `calculateEditorOverlayBounds trusts selected content that starts below the tab strip`() {
+        val host = JPanel(null)
+        host.setSize(800, 600)
+        val editorTabs = SelectionEditorTabsFake()
+        editorTabs.setBounds(0, 0, 800, 600)
+        host.add(editorTabs)
+
+        val content = JPanel()
+        content.setBounds(0, 30, 800, 570)
+        editorTabs.add(content)
+        editorTabs.infoForTest = TabInfoFake(content)
+
+        val bounds = EditorTabGeometry.calculateEditorOverlayBounds(host)
+
+        assertEquals(Rectangle(0, 30, 800, 570), bounds)
+    }
+
+    @Test
+    fun `tab label bottom converts through offset containers into host coordinates`() {
+        // The strip anchor must be measured in HOST coordinates: a tabs
+        // component sitting 10px below the host top means the strip starts at
+        // label bottom + that offset, not at the label's local bottom.
+        val host = JPanel(null)
+        host.setSize(800, 600)
+        val editorTabs = MockEditorTabs()
+        editorTabs.setBounds(0, 10, 800, 25)
+        host.add(editorTabs)
+
+        val tabLabel = MockTabLabel()
+        tabLabel.setBounds(0, 0, 100, 20)
+        editorTabs.add(tabLabel)
+
+        val bounds = EditorTabGeometry.calculateEditorOverlayBounds(host)
+
+        assertEquals(Rectangle(0, 30, 800, 570), bounds)
+    }
+
+    @Test
+    fun `tab label whose converted bottom is at the host top falls back to default`() {
+        val host = JPanel(null)
+        host.setSize(800, 600)
+        val editorTabs = MockEditorTabs()
+        editorTabs.setBounds(0, 0, 800, 25)
+        host.add(editorTabs)
+
+        val tabLabel = MockTabLabel()
+        tabLabel.setBounds(0, -25, 100, 25)
+        editorTabs.add(tabLabel)
+
+        val bounds = EditorTabGeometry.calculateEditorOverlayBounds(host)
+
+        val defaultH = EditorTabGeometry.DEFAULT_TAB_HEIGHT
+        assertEquals(Rectangle(0, defaultH, 800, 600 - defaultH), bounds)
+    }
+
     // Mock classes — javaClass.name contains the substrings that
     // ComponentHierarchyUtils.findChildByClassName matches against
     private class MockEditorTabs : JPanel()
 
     private class MockTabLabel : JComponent()
+}
+
+// File-level fakes (NOT private nested classes): the production code invokes
+// getSelectedInfo/getSelectedLabel/getComponent reflectively, and reflection
+// on a private nested Kotlin class throws IllegalAccessException, which the
+// production catch would silently convert into a fallback — making the tests
+// pass for the wrong reason.
+internal class SelectionEditorTabsFake : JPanel(null) {
+    var infoForTest: Any? = null
+    var labelForTest: JComponent? = null
+
+    fun getSelectedInfo(): Any? = infoForTest
+
+    fun getSelectedLabel(): JComponent? = labelForTest
+}
+
+internal class TabInfoFake(
+    private val content: JComponent,
+) {
+    fun getComponent(): JComponent = content
 }
