@@ -76,6 +76,10 @@ class SettingsBadgesTest {
 
         SettingsBadges.acknowledgeTab(state, "Glow")
 
+        assertFalse(
+            SettingsBadges.isPending(state, "glow-waveform"),
+            "the visible Shape row is acknowledged on tab visit",
+        )
         assertTrue(
             SettingsBadges.isPending(state, "glow-placement"),
             "a collapsed spoiler hides its anchor — visiting the tab must not count as seeing it",
@@ -90,6 +94,7 @@ class SettingsBadgesTest {
         SettingsBadges.acknowledgeTab(state, "Glow")
 
         assertFalse(SettingsBadges.isPending(state, "glow-placement"))
+        assertFalse(SettingsBadges.isPending(state, "glow-waveform"))
     }
 
     @Test

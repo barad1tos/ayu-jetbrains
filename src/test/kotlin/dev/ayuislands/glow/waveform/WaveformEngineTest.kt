@@ -77,13 +77,13 @@ class WaveformEngineTest {
         assertEquals(1f, clockwiseFrame.beats.single().opacity)
 
         val fadingFrame =
-            clockwise.handle(WaveformEvent.Tick(nowMs = 5_000L, trackLength = 1_000f)).frame
+            clockwise.handle(WaveformEvent.Tick(nowMs = 3_500L, trackLength = 700f)).frame
                 ?: error("monitor tick must produce a fading frame")
         assertEquals(0.6f, fadingFrame.beats.single().opacity, 0.001f)
     }
 
     @Test
-    fun `monitor freezes only after beats drain and idle timeout expires`() {
+    fun `monitor freezes at the idle deadline`() {
         val engine = WaveformEngine(WaveformConfig(), Random(31))
         engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
         engine.handle(WaveformEvent.Keystroke(nowMs = 0L))
@@ -100,6 +100,20 @@ class WaveformEngineTest {
         assertIs<WaveformState.MonitorWaiting>(engine.state)
         assertEquals(TimerDirective.STOP, frozen.timerDirective)
         assertTrue(frozen.needsRepaint)
+        assertTrue(frozen.frame?.beats?.isEmpty() == true)
+    }
+
+    @Test
+    fun `large monitor track freezes at the idle deadline on its baseline`() {
+        val engine = WaveformEngine(WaveformConfig(), Random(35))
+        engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
+        engine.handle(WaveformEvent.Keystroke(nowMs = 0L))
+
+        val stopped = engine.handle(WaveformEvent.Tick(nowMs = 4_000L, trackLength = 5_000f))
+
+        assertIs<WaveformState.MonitorWaiting>(engine.state)
+        assertEquals(TimerDirective.STOP, stopped.timerDirective)
+        assertTrue(stopped.frame?.beats?.isEmpty() == true)
     }
 
     @Test

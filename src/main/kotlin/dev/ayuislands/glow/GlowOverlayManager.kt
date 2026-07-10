@@ -1,5 +1,6 @@
 package dev.ayuislands.glow
 
+import com.intellij.ide.PowerSaveMode
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
@@ -17,6 +18,9 @@ import dev.ayuislands.accent.AccentChangedTopic
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
+import dev.ayuislands.glow.waveform.WaveformConfig
+import dev.ayuislands.glow.waveform.WaveformDirection
+import dev.ayuislands.glow.waveform.WaveformMotion
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -28,6 +32,7 @@ import java.awt.event.ComponentEvent
 import java.awt.event.HierarchyBoundsAdapter
 import java.awt.event.HierarchyEvent
 import java.beans.PropertyChangeListener
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.JComponent
 import javax.swing.JLayeredPane
 import javax.swing.SwingUtilities
@@ -55,10 +60,16 @@ class GlowOverlayManager(
     companion object {
         private const val EDITOR_ID = "Editor"
         private const val DEFAULT_ACCENT_HEX = "#FFCC66"
+        private val hubFailureLogged = AtomicBoolean(false)
 
         fun getInstance(project: Project): GlowOverlayManager = project.getService(GlowOverlayManager::class.java)
 
         fun syncGlowForAllProjects() {
+            try {
+                KeystrokeHub.getInstance().invalidateLicenseGate()
+            } catch (exception: RuntimeException) {
+                logger<GlowOverlayManager>().warn("Failed to refresh glow keystroke license gate", exception)
+            }
             for (project in ProjectManager.getInstance().openProjects) {
                 try {
                     getInstance(project).updateGlow()
@@ -68,6 +79,23 @@ class GlowOverlayManager(
                         exception,
                     )
                 }
+            }
+        }
+
+        fun broadcastPowerSave(enabled: Boolean) {
+            for (project in ProjectManager.getInstance().openProjects) {
+                val update =
+                    Runnable {
+                        try {
+                            getInstance(project).input.onPowerSaveChanged(enabled)
+                        } catch (exception: RuntimeException) {
+                            logger<GlowOverlayManager>().warn(
+                                "Failed to sync Power Save glow for project ${project.name}",
+                                exception,
+                            )
+                        }
+                    }
+                if (SwingUtilities.isEventDispatchThread()) update.run() else SwingUtilities.invokeLater(update)
             }
         }
 
@@ -88,6 +116,23 @@ class GlowOverlayManager(
     )
 
     private var messageBusConnected = false
+    internal val input =
+        GlowInputSink(
+            keystroke = keystroke@{
+                if (disposed) return@keystroke
+                val state = AyuIslandsSettings.getInstance().state
+                if (!state.glowEnabled) return@keystroke
+                val glassPane = activeGlowId?.let { overlays[it]?.glassPane } ?: return@keystroke
+                if (GlowShape.fromName(state.glowShape) == GlowShape.WAVEFORM) {
+                    glassPane.onWaveformKeystroke()
+                } else {
+                    animator?.onKeystroke()
+                }
+            },
+            powerSaveChange = { enabled ->
+                activeGlowId?.let { overlays[it]?.glassPane }?.changeWaveformPowerSave(enabled)
+            },
+        )
 
     fun initialize() {
         if (disposed) return
@@ -117,6 +162,13 @@ class GlowOverlayManager(
         messageBusConnected = true
 
         subscribeToMessageBus()
+        try {
+            KeystrokeHub.getInstance().initialize()
+        } catch (exception: RuntimeException) {
+            if (hubFailureLogged.compareAndSet(false, true)) {
+                log.warn("Glow keystroke hub initialization failed", exception)
+            }
+        }
 
         SwingUtilities.invokeLater {
             attachVisibleToolWindowOverlays()
@@ -261,7 +313,21 @@ class GlowOverlayManager(
         if (!host.isShowing) return
         try {
             val point = SwingUtilities.convertPoint(host, 0, 0, layeredPane)
-            if (glassPane.isEditorOverlay) {
+            if (glassPane.isWaveform) {
+                val contentBounds =
+                    if (glassPane.isEditorOverlay) {
+                        EditorTabGeometry.calculateEditorOverlayBounds(host)
+                    } else {
+                        java.awt.Rectangle(0, 0, host.width, host.height)
+                    }
+                val margin = glassPane.waveformMargin
+                glassPane.setBounds(
+                    point.x + contentBounds.x - margin,
+                    point.y + contentBounds.y - margin,
+                    contentBounds.width + margin * 2,
+                    contentBounds.height + margin * 2,
+                )
+            } else if (glassPane.isEditorOverlay) {
                 val bounds = EditorTabGeometry.calculateEditorOverlayBounds(host)
                 glassPane.setBounds(point.x + bounds.x, point.y + bounds.y, bounds.width, bounds.height)
             } else {
@@ -305,6 +371,10 @@ class GlowOverlayManager(
                 isEditorOverlay = isEditorOverlay,
                 glowPlacement = resolveGlowPlacement(isEditorOverlay, state),
             )
+        glassPane.configureWaveform(
+            GlowShape.fromName(state.glowShape),
+            resolveWaveformConfig(state),
+        )
 
         layeredPane.setLayer(glassPane, JLayeredPane.PALETTE_LAYER)
         layeredPane.add(glassPane)
@@ -410,6 +480,14 @@ class GlowOverlayManager(
     }
 
     private fun startAnimationIfConfigured(glassPane: GlowGlassPane) {
+        if (glassPane.isWaveform) {
+            animator?.let { Disposer.dispose(it) }
+            animator = null
+            glassPane.animationAlpha = 1.0f
+            glassPane.activateWaveform(PowerSaveMode.isEnabled())
+            return
+        }
+        glassPane.deactivateWaveform()
         val state = AyuIslandsSettings.getInstance().state
         val animation = GlowAnimation.fromName(state.glowAnimation ?: GlowAnimation.NONE.name)
         if (animation == GlowAnimation.NONE) {
@@ -433,11 +511,16 @@ class GlowOverlayManager(
     private fun stopAnimation(glassPane: GlowGlassPane) {
         animator?.let { Disposer.dispose(it) }
         animator = null
+        glassPane.deactivateWaveform()
         glassPane.animationAlpha = 1.0f
     }
 
     fun updateGlow(appliedAccent: AccentHex? = null) {
         if (disposed) return
+        if (!LicenseChecker.isLicensedOrGrace()) {
+            removeAllOverlays()
+            return
+        }
         val context = AccentContext.detect()
         if (context == null) {
             removeAllOverlays()
@@ -505,6 +588,8 @@ class GlowOverlayManager(
             entry.glassPane.glowIntensity = state.getIntensityForStyle(style)
             entry.glassPane.glowWidth = state.getWidthForStyle(style)
             entry.glassPane.glowPlacement = resolveGlowPlacement(isEditorOverlay = id == EDITOR_ID, state = state)
+            entry.glassPane.configureWaveform(GlowShape.fromName(state.glowShape), resolveWaveformConfig(state))
+            updateOverlayBounds(entry.glassPane, entry.host, entry.layeredPane)
             entry.glassPane.invalidateRendererCache()
             entry.glassPane.repaint()
         }
@@ -584,3 +669,11 @@ private fun resolveGlowPlacement(
     } else {
         GlowPlacement.fromName(state.glowToolWindowPlacement)
     }
+
+private fun resolveWaveformConfig(state: AyuIslandsState): WaveformConfig =
+    WaveformConfig(
+        motion = WaveformMotion.fromName(state.waveformMotion),
+        direction = WaveformDirection.fromName(state.waveformDirection),
+        amplitude = state.effectiveWaveformAmplitude(),
+        intensity = state.effectiveWaveformIntensity(),
+    )

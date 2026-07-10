@@ -308,7 +308,8 @@ internal class WaveformEngine(
 
         val alive =
             current.beats.filter { beat ->
-                beat.startMs > event.nowMs || traveledDistance(event.nowMs, beat.startMs) <= event.trackLength
+                beat.startMs > event.nowMs ||
+                    traveledDistance(event.nowMs, beat.startMs) < event.trackLength
             }
         val frameBeats =
             alive.mapNotNull { beat ->
@@ -321,11 +322,15 @@ internal class WaveformEngine(
                 )
             }
         val frame = WaveformFrame(event.nowMs, current.config, beats = frameBeats)
-        if (alive.isEmpty() && event.nowMs - current.lastInputMs >= IDLE_TIMEOUT_MS) {
+        if (event.nowMs - current.lastInputMs >= IDLE_TIMEOUT_MS) {
             val waiting = WaveformState.MonitorWaiting(current.config)
             return Transition(
                 waiting,
-                WaveformUpdate(TimerDirective.STOP, needsRepaint = true, frame = frame),
+                WaveformUpdate(
+                    TimerDirective.STOP,
+                    needsRepaint = true,
+                    frame = frame.copy(beats = emptyList()),
+                ),
             )
         }
         return Transition(
@@ -405,7 +410,6 @@ internal class WaveformEngine(
         const val FADE_MULTIPLIER = 4f
         const val STATIC_BOOST_INCREMENT = 0.6f
         const val STATIC_ENVELOPE_MS = 1_500f
-        const val STATIC_BASE_BRIGHTNESS = 0.55f
         const val STATIC_BRIGHTNESS_RANGE = 0.45f
     }
 }

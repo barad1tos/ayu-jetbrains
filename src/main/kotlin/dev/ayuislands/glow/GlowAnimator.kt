@@ -92,6 +92,10 @@ class GlowAnimator : Disposable {
             GlowAnimation.NONE -> 1.0f
         }
 
+    fun onKeystroke() {
+        if (currentAnimation == GlowAnimation.REACTIVE) reactiveBoost = 1f
+    }
+
     fun stop() {
         timer?.stop()
         timer = null

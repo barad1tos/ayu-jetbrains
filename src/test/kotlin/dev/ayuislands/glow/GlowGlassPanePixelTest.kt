@@ -1,8 +1,21 @@
 package dev.ayuislands.glow
 
+import dev.ayuislands.glow.waveform.BeatMorphology
+import dev.ayuislands.glow.waveform.FrameBeat
+import dev.ayuislands.glow.waveform.STATIC_BASE_BRIGHTNESS
+import dev.ayuislands.glow.waveform.WaveformConfig
+import dev.ayuislands.glow.waveform.WaveformFrame
+import dev.ayuislands.glow.waveform.WaveformMotion
+import dev.ayuislands.glow.waveform.WaveformPaintRequest
+import dev.ayuislands.glow.waveform.WaveformPaintResult
+import dev.ayuislands.glow.waveform.WaveformPainter
 import java.awt.Color
 import java.awt.image.BufferedImage
+import kotlin.random.Random
 import kotlin.test.Test
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -16,6 +29,7 @@ class GlowGlassPanePixelTest {
         const val WIDTH = 400
         const val HEIGHT = 300
         const val ALPHA_FLOOR = 8
+        const val ALPHA_SHIFT = 24
     }
 
     private fun paintedImage(
@@ -112,4 +126,164 @@ class GlowGlassPanePixelTest {
         assertTrue(image.rowHasGlow(2), "top edge must glow on the full frame")
         assertTrue(image.rowHasGlow(HEIGHT - 3), "bottom edge must glow on the full frame")
     }
+
+    @Test
+    fun `waveform shape dispatch paints its frame through the glass pane`() {
+        val config = WaveformConfig(amplitude = 16, intensity = 100)
+        val flatPane = waveformPane(config)
+        val flat = paint(flatPane)
+        val trackLength = flatPane.waveformTrackLength
+        flatPane.showWaveformFrame(
+            WaveformFrame(
+                nowMs = 0L,
+                config = config,
+                beats =
+                    listOf(
+                        FrameBeat(
+                            centerDistance = trackLength * 0.25f,
+                            morphology = BeatMorphology.random(Random(42)),
+                            opacity = 1f,
+                        ),
+                    ),
+            ),
+        )
+
+        val beat = paint(flatPane)
+
+        assertTrue(pixelDifference(flat, beat) > 100, "waveform frame must change production glass-pane pixels")
+    }
+
+    @Test
+    fun `waveform timer follows engine start and stop directives`() {
+        val pane = waveformPane(WaveformConfig())
+        pane.activateWaveform(powerSaveEnabled = false)
+
+        pane.onWaveformKeystroke(nowMs = 0L)
+        assertNotNull(readWaveformTimer(pane))
+
+        pane.deactivateWaveform()
+        assertNull(readWaveformTimer(pane))
+        assertNull(readWaveformFrame(pane))
+    }
+
+    @Test
+    fun `static idle brightness is stable before and after an envelope`() {
+        val config = WaveformConfig(motion = WaveformMotion.STATIC_PULSE)
+        val pane = waveformPane(config)
+        val initial = paint(pane)
+
+        pane.showWaveformFrame(
+            WaveformFrame(
+                nowMs = 1_500L,
+                config = config,
+                staticBoost = 0f,
+                brightness = STATIC_BASE_BRIGHTNESS,
+            ),
+        )
+
+        assertTrue(pixelDifference(initial, paint(pane)) == 0)
+    }
+
+    @Test
+    fun `reconfigure clears a frame rendered with old geometry`() {
+        val oldConfig = WaveformConfig(amplitude = 6)
+        val pane = waveformPane(oldConfig)
+        pane.showWaveformFrame(WaveformFrame(nowMs = 0L, config = oldConfig))
+
+        pane.configureWaveform(GlowShape.WAVEFORM, WaveformConfig(amplitude = 16))
+
+        assertNull(readWaveformFrame(pane))
+    }
+
+    @Test
+    fun `paint failure falls back to solid and stops waveform timer`() {
+        val pane = waveformPane(WaveformConfig())
+        installWaveformPainter(
+            pane,
+            object : WaveformPainter() {
+                override fun paint(
+                    graphics: java.awt.Graphics2D,
+                    request: WaveformPaintRequest,
+                ): WaveformPaintResult = throw UnsupportedOperationException("paint failed")
+            },
+        )
+        pane.activateWaveform(powerSaveEnabled = false)
+        pane.onWaveformKeystroke(nowMs = 0L)
+
+        val fallback = paint(pane)
+
+        assertNull(readWaveformTimer(pane))
+        assertTrue(readWaveformFailed(pane))
+        assertFalse(pane.isWaveform, "failed waveform must restore ordinary overlay bounds")
+        assertTrue(alphaSum(fallback) > 0L, "solid fallback must remain visible")
+    }
+
+    private fun waveformPane(config: WaveformConfig): GlowGlassPane =
+        GlowGlassPane(
+            glowColor = Color(0xFF8F40),
+            glowStyle = GlowStyle.SOFT,
+            glowIntensity = 80,
+            glowWidth = 12,
+            isEditorOverlay = false,
+            glowPlacement = GlowPlacement.ISLAND,
+        ).also { pane ->
+            pane.setSize(WIDTH, HEIGHT)
+            pane.configureWaveform(GlowShape.WAVEFORM, config)
+            GlowGlassPane::class.java.getDeclaredField("fadeAlpha").apply {
+                isAccessible = true
+                setFloat(pane, 1.0f)
+            }
+        }
+
+    private fun paint(pane: GlowGlassPane): BufferedImage {
+        val image = BufferedImage(pane.width, pane.height, BufferedImage.TYPE_INT_ARGB)
+        val graphics = image.createGraphics()
+        try {
+            pane.paint(graphics)
+        } finally {
+            graphics.dispose()
+        }
+        return image
+    }
+
+    private fun pixelDifference(
+        first: BufferedImage,
+        second: BufferedImage,
+    ): Int =
+        (0 until first.height).sumOf { y ->
+            (0 until first.width).count { x -> first.getRGB(x, y) != second.getRGB(x, y) }
+        }
+
+    private fun alphaSum(image: BufferedImage): Long =
+        (0 until image.height).sumOf { y ->
+            (0 until image.width).sumOf { x -> (image.getRGB(x, y) ushr ALPHA_SHIFT).toLong() }
+        }
+
+    private fun installWaveformPainter(
+        pane: GlowGlassPane,
+        painter: WaveformPainter,
+    ) {
+        GlowGlassPane::class.java.getDeclaredField("waveformPainter").apply {
+            isAccessible = true
+            set(pane, painter)
+        }
+    }
+
+    private fun readWaveformFailed(pane: GlowGlassPane): Boolean =
+        GlowGlassPane::class.java.getDeclaredField("waveformFailed").let { field ->
+            field.isAccessible = true
+            field.getBoolean(pane)
+        }
+
+    private fun readWaveformTimer(pane: GlowGlassPane): Any? =
+        GlowGlassPane::class.java.getDeclaredField("waveformTimer").let { field ->
+            field.isAccessible = true
+            field.get(pane)
+        }
+
+    private fun readWaveformFrame(pane: GlowGlassPane): Any? =
+        GlowGlassPane::class.java.getDeclaredField("waveformFrame").let { field ->
+            field.isAccessible = true
+            field.get(pane)
+        }
 }

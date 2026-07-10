@@ -11,6 +11,9 @@ import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AccentGroup
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowOverlayManager
+import dev.ayuislands.glow.GlowShape
+import dev.ayuislands.glow.waveform.WaveformDirection
+import dev.ayuislands.glow.waveform.WaveformMotion
 import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -99,6 +102,25 @@ class FreeTierLockdownTest {
         state.glowEnabled = true
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
         assertFalse(state.glowEnabled)
+    }
+
+    @Test
+    fun `revertToFreeDefaults preserves waveform preferences`() {
+        state.glowEnabled = true
+        state.glowShape = GlowShape.WAVEFORM.name
+        state.waveformMotion = WaveformMotion.STATIC_PULSE.name
+        state.waveformDirection = WaveformDirection.COUNTER_CLOCKWISE.name
+        state.waveformAmplitude = 16
+        state.waveformIntensity = 88
+
+        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
+
+        assertFalse(state.glowEnabled)
+        assertEquals(GlowShape.WAVEFORM.name, state.glowShape)
+        assertEquals(WaveformMotion.STATIC_PULSE.name, state.waveformMotion)
+        assertEquals(WaveformDirection.COUNTER_CLOCKWISE.name, state.waveformDirection)
+        assertEquals(16, state.waveformAmplitude)
+        assertEquals(88, state.waveformIntensity)
     }
 
     @Test

@@ -63,6 +63,11 @@ internal object SettingsBadges {
                 tabTitle = "Plugins",
             ),
             SettingsBadgeAnchor(
+                id = "glow-waveform",
+                title = "ECG waveform glow",
+                tabTitle = "Glow",
+            ),
+            SettingsBadgeAnchor(
                 id = "glow-placement",
                 title = "Glow placement",
                 tabTitle = "Glow",

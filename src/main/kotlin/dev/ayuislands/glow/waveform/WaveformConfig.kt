@@ -6,6 +6,7 @@ const val MAX_WAVEFORM_AMPLITUDE = 16
 const val DEFAULT_WAVEFORM_INTENSITY = 70
 const val MIN_WAVEFORM_INTENSITY = 0
 const val MAX_WAVEFORM_INTENSITY = 100
+internal const val STATIC_BASE_BRIGHTNESS = 0.55f
 
 /** Effective waveform settings consumed by the engine and painter. */
 data class WaveformConfig(

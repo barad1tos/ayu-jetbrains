@@ -1,5 +1,6 @@
 package dev.ayuislands.glow
 
+import javax.swing.SwingUtilities
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -173,6 +174,30 @@ class GlowAnimatorTest {
         assertEquals(0.4f, alpha, "Zero boost should yield base alpha 0.4")
     }
 
+    @Test
+    fun `reactive keystroke raises boost before existing decay`() {
+        val animator = GlowAnimator()
+        animator.setCurrentAnimation(GlowAnimation.REACTIVE)
+
+        animator.onKeystroke()
+        val alpha = animator.calculateAlpha(GlowAnimation.REACTIVE)
+
+        assertEquals(0.92f, animator.reactiveBoost, 0.001f)
+        assertEquals(0.952f, alpha, 0.001f)
+    }
+
+    @Test
+    fun `keystroke is a no-op for non-reactive animations`() {
+        val animator = GlowAnimator()
+
+        for (animation in listOf(GlowAnimation.NONE, GlowAnimation.PULSE, GlowAnimation.BREATHE)) {
+            animator.setCurrentAnimation(animation)
+            animator.reactiveBoost = 0f
+            animator.onKeystroke()
+            assertEquals(0f, animator.reactiveBoost, "$animation must not consume typing boost")
+        }
+    }
+
     // ---- stop() tests ----
 
     @Test
@@ -233,12 +258,12 @@ class GlowAnimatorTest {
         animator.frame = 500
         animator.reactiveBoost = 0.8f
 
-        animator.start(GlowAnimation.PULSE) {}
-
-        assertEquals(0L, animator.frame)
-        assertEquals(0.0f, animator.reactiveBoost)
-        // Clean up timer
-        animator.stop()
+        SwingUtilities.invokeAndWait {
+            animator.start(GlowAnimation.PULSE) {}
+            assertEquals(0L, animator.frame)
+            assertEquals(0.0f, animator.reactiveBoost)
+            animator.stop()
+        }
     }
 
     @Test

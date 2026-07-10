@@ -8,6 +8,10 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.ui.dsl.builder.SegmentedButton
 import dev.ayuislands.glow.GlowPlacement
 import dev.ayuislands.glow.GlowPreset
+import dev.ayuislands.glow.GlowShape
+import dev.ayuislands.glow.GlowStyle
+import dev.ayuislands.glow.waveform.WaveformDirection
+import dev.ayuislands.glow.waveform.WaveformMotion
 import dev.ayuislands.licensing.LicenseChecker
 import io.mockk.every
 import io.mockk.mockk
@@ -223,6 +227,142 @@ class AyuIslandsEffectsPanelTest {
         )
     }
 
+    @Test
+    fun `shape switch shows waveform controls and restores dormant solid choices`() {
+        state.glowPreset = GlowPreset.CUSTOM.name
+        state.glowStyle = GlowStyle.SHARP_NEON.name
+        state.setIntensityForStyle(GlowStyle.SHARP_NEON, 73)
+        val effectsPanel = AyuIslandsEffectsPanel()
+        val dialogPanel = buildDialogPanel(effectsPanel)
+        val shape = waveformField<JComboBox<*>>(effectsPanel, "shapeCombo")
+        val style = field<JComboBox<*>>(effectsPanel, "styleCombo")
+        val solidIntensity = field<JSlider>(effectsPanel, "intensitySlider")
+        val motion = waveformField<JComboBox<*>>(effectsPanel, "motionCombo")
+        val direction = waveformField<JComboBox<*>>(effectsPanel, "directionCombo")
+        val amplitude = waveformField<JSlider>(effectsPanel, "amplitudeSlider")
+
+        shape.selectedItem = GlowShape.WAVEFORM.displayName
+
+        assertTrue(motion.isEffectivelyVisibleWithin(dialogPanel))
+        assertTrue(direction.isEffectivelyVisibleWithin(dialogPanel))
+        assertTrue(amplitude.isEffectivelyVisibleWithin(dialogPanel))
+        assertFalse(style.isEffectivelyVisibleWithin(dialogPanel))
+        val editorPlacementLabel = descendants(dialogPanel, JLabel::class.java).first { it.text == "Editor placement" }
+        assertFalse(editorPlacementLabel.isEffectivelyVisibleWithin(dialogPanel))
+
+        motion.selectedItem = WaveformMotion.STATIC_PULSE.displayName
+        assertFalse(direction.isEffectivelyVisibleWithin(dialogPanel), "Direction is meaningful only for Live monitor")
+
+        shape.selectedItem = GlowShape.SOLID.displayName
+
+        assertTrue(style.isEffectivelyVisibleWithin(dialogPanel))
+        assertEquals(GlowStyle.SHARP_NEON.displayName, style.selectedItem)
+        assertEquals(73, solidIntensity.value)
+        assertEquals(GlowPreset.CUSTOM, presetSegmented(effectsPanel).selectedItem)
+    }
+
+    @Test
+    fun `glow preview content stays transparent over the painted border`() {
+        val effectsPanel = AyuIslandsEffectsPanel()
+        buildDialogPanel(effectsPanel)
+        val glowPanel = field<GlowGroupPanel>(effectsPanel, "glowGroupPanel")
+        val content = glowPanel.components.filterIsInstance<javax.swing.JComponent>()
+
+        assertTrue(content.isNotEmpty())
+        assertTrue(content.all { !it.isOpaque })
+    }
+
+    @Test
+    fun `default reset covers solid and waveform settings`() {
+        val reset =
+            GlowSettings(
+                shape = GlowShape.WAVEFORM,
+                preset = GlowPreset.CUSTOM,
+                waveformMotion = WaveformMotion.STATIC_PULSE,
+                waveformDirection = WaveformDirection.COUNTER_CLOCKWISE,
+                waveformAmplitude = 16,
+                waveformIntensity = 12,
+            ).withDefaults()
+
+        assertEquals(GlowShape.SOLID, reset.shape)
+        assertEquals(GlowPreset.WHISPER, reset.preset)
+        assertEquals(WaveformMotion.MONITOR, reset.waveformMotion)
+        assertEquals(WaveformDirection.CLOCKWISE, reset.waveformDirection)
+        assertEquals(10, reset.waveformAmplitude)
+        assertEquals(70, reset.waveformIntensity)
+    }
+
+    @Test
+    fun `waveform settings apply without rewriting dormant solid preferences`() {
+        state.glowPreset = GlowPreset.CUSTOM.name
+        state.glowStyle = GlowStyle.GRADIENT.name
+        state.setIntensityForStyle(GlowStyle.GRADIENT, 47)
+        val effectsPanel = AyuIslandsEffectsPanel()
+        buildDialogPanel(effectsPanel)
+
+        waveformField<JComboBox<*>>(effectsPanel, "shapeCombo").selectedItem = GlowShape.WAVEFORM.displayName
+        waveformField<JComboBox<*>>(effectsPanel, "motionCombo").selectedItem = WaveformMotion.STATIC_PULSE.displayName
+        waveformField<JComboBox<*>>(effectsPanel, "directionCombo").selectedItem =
+            WaveformDirection.COUNTER_CLOCKWISE.displayName
+        waveformField<JSlider>(effectsPanel, "amplitudeSlider").value = 16
+        waveformField<JSlider>(effectsPanel, "intensitySlider").value = 88
+
+        effectsPanel.apply()
+
+        assertEquals(GlowShape.WAVEFORM.name, state.glowShape)
+        assertEquals(WaveformMotion.STATIC_PULSE.name, state.waveformMotion)
+        assertEquals(WaveformDirection.COUNTER_CLOCKWISE.name, state.waveformDirection)
+        assertEquals(16, state.waveformAmplitude)
+        assertEquals(88, state.waveformIntensity)
+        assertEquals(GlowPreset.CUSTOM.name, state.glowPreset)
+        assertEquals(GlowStyle.GRADIENT.name, state.glowStyle)
+        assertEquals(47, state.getIntensityForStyle(GlowStyle.GRADIENT))
+        assertFalse(effectsPanel.isModified())
+    }
+
+    @Test
+    fun `shape-only apply preserves noncanonical dormant preset fields`() {
+        state.glowPreset = GlowPreset.WHISPER.name
+        state.glowStyle = GlowStyle.GRADIENT.name
+        state.setIntensityForStyle(GlowStyle.GRADIENT, 47)
+        state.setWidthForStyle(GlowStyle.GRADIENT, 13)
+        val effectsPanel = AyuIslandsEffectsPanel()
+        buildDialogPanel(effectsPanel)
+
+        waveformField<JComboBox<*>>(effectsPanel, "shapeCombo").selectedItem = GlowShape.WAVEFORM.displayName
+        effectsPanel.apply()
+
+        assertEquals(GlowPreset.WHISPER.name, state.glowPreset)
+        assertEquals(GlowStyle.GRADIENT.name, state.glowStyle)
+        assertEquals(47, state.getIntensityForStyle(GlowStyle.GRADIENT))
+        assertEquals(13, state.getWidthForStyle(GlowStyle.GRADIENT))
+    }
+
+    @Test
+    fun `locked waveform layout stays visible disabled and clean`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        state.glowEnabled = false
+        state.glowShape = GlowShape.WAVEFORM.name
+        val effectsPanel = AyuIslandsEffectsPanel()
+        val dialogPanel = buildDialogPanel(effectsPanel)
+        val shape = waveformField<JComboBox<*>>(effectsPanel, "shapeCombo")
+        val motion = waveformField<JComboBox<*>>(effectsPanel, "motionCombo")
+        val amplitude = waveformField<JSlider>(effectsPanel, "amplitudeSlider")
+        val targetCheckboxes = islandCheckboxes(effectsPanel).values.toList()
+
+        assertTrue(motion.isEffectivelyVisibleWithin(dialogPanel))
+        assertTrue(amplitude.isEffectivelyVisibleWithin(dialogPanel))
+        assertFalse(shape.isEnabled)
+        assertFalse(motion.isEnabled)
+        assertFalse(amplitude.isEnabled)
+        assertTrue(targetCheckboxes.isNotEmpty())
+        assertTrue(targetCheckboxes.all { !it.isEnabled })
+
+        shape.selectedItem = GlowShape.SOLID.displayName
+        amplitude.value = 12
+        assertFalse(effectsPanel.isModified(), "locked waveform preview cannot dirty pending settings")
+    }
+
     private fun buildDialogPanel(panel: AyuIslandsEffectsPanel) =
         com.intellij.ui.dsl.builder
             .panel {
@@ -264,6 +404,19 @@ class AyuIslandsEffectsPanelTest {
         field.isAccessible = true
         @Suppress("UNCHECKED_CAST")
         return field.get(panel) as? T ?: error("$fieldName must be created")
+    }
+
+    private fun <T : Component> waveformField(
+        panel: AyuIslandsEffectsPanel,
+        fieldName: String,
+    ): T {
+        val controlsField = AyuIslandsEffectsPanel::class.java.getDeclaredField("waveformControls")
+        controlsField.isAccessible = true
+        val controls = controlsField.get(panel) ?: error("waveformControls must be created")
+        val field = controls.javaClass.getDeclaredField(fieldName)
+        field.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        return field.get(controls) as? T ?: error("$fieldName must be created")
     }
 
     private fun <T : Component> descendants(
