@@ -197,7 +197,11 @@ class GlowRenderer {
 
                 g2.color = ColorUtil.toAlpha(cachedColor, alpha)
                 g2.fillRect(i, 0, 1, height)
-                g2.fillRect(width - 1 - i, 0, 1, height)
+                // On odd-width overlays the strips meet in the middle; paint
+                // the shared center column once or SrcOver doubles its alpha
+                // into a bright seam.
+                val rightX = width - 1 - i
+                if (rightX != i) g2.fillRect(rightX, 0, 1, height)
             }
         } finally {
             g2.dispose()

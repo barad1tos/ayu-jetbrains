@@ -18,7 +18,11 @@ class GlowGlassPanePixelTest {
         const val ALPHA_FLOOR = 8
     }
 
-    private fun paintedImage(placement: GlowPlacement): BufferedImage {
+    private fun paintedImage(
+        placement: GlowPlacement,
+        width: Int = WIDTH,
+        height: Int = HEIGHT,
+    ): BufferedImage {
         val pane =
             GlowGlassPane(
                 glowColor = Color(0xFF8F40),
@@ -28,14 +32,14 @@ class GlowGlassPanePixelTest {
                 isEditorOverlay = false,
                 glowPlacement = placement,
             )
-        pane.setSize(WIDTH, HEIGHT)
+        pane.setSize(width, height)
         // paintComponent guards on fade-in alpha; tests bypass the animation timer.
         GlowGlassPane::class.java.getDeclaredField("fadeAlpha").apply {
             isAccessible = true
             setFloat(pane, 1.0f)
         }
 
-        val image = BufferedImage(WIDTH, HEIGHT, BufferedImage.TYPE_INT_ARGB)
+        val image = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
         val graphics = image.createGraphics()
         try {
             pane.paint(graphics)
@@ -84,6 +88,21 @@ class GlowGlassPanePixelTest {
         // frame leaked arc segments there).
         val cornerSpill = (image.getRGB(WIDTH / 2, 1) ushr 24) and 0xFF
         assertTrue(cornerSpill <= ALPHA_FLOOR, "top row must stay clear outside the vertical strips")
+    }
+
+    @Test
+    fun `narrow odd-width overlay paints its center column once, not as a bright seam`() {
+        // Strips meet in the middle on a 7px-wide overlay; the shared center
+        // column must carry single-pass alpha, so the falloff stays monotonic
+        // toward the middle instead of spiking where the passes overlap.
+        val image = paintedImage(GlowPlacement.SIDE_EDGES, width = 7, height = 50)
+
+        val nearEdge = (image.getRGB(2, 25) ushr 24) and 0xFF
+        val center = (image.getRGB(3, 25) ushr 24) and 0xFF
+        assertTrue(
+            center <= nearEdge,
+            "center column ($center) must not outshine the column nearer the edge ($nearEdge)",
+        )
     }
 
     @Test
