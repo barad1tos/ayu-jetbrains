@@ -95,16 +95,18 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
 
         val settings = AyuIslandsSettings.getInstance()
         val state = settings.state
+        val accentColor = resolveTabAccentColor(settings, variant)
         val tabs =
             createSettingsTabs(
                 contentTabs = contentTabs,
-                accentColor = resolveTabAccentColor(settings, variant),
+                accentColor = accentColor,
                 selectedIndex = state.settingsSelectedTab,
             ) { selectedIndex ->
                 AyuIslandsSettings.getInstance().state.settingsSelectedTab = selectedIndex
             }
+        val badges = installSettingsBadges(tabs, contentTabs.map { it.first }, accentColor)
 
-        return buildRootPanel(pluginVersion, variant, tabs)
+        return buildRootPanel(pluginVersion, variant, tabs, badges)
     }
 
     private fun configureAyuPanelComposition(variant: AyuVariant) {
@@ -243,6 +245,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         pluginVersion: String,
         variant: AyuVariant?,
         tabs: JBTabbedPane,
+        badges: SettingsBadgeController?,
     ): DialogPanel =
         panel {
             row {
@@ -254,6 +257,13 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                 val status = if (LicenseChecker.isLicensedOrGrace()) "Licensed" else ""
                 val themeStatus = variant?.let { "${it.name} variant" } ?: "External theme"
                 comment("$themeStatus $status".trim())
+            }
+
+            badges?.let { controller ->
+                row {
+                    comment(controller.headerText)
+                    link("Review") { controller.jumpToFirstPending() }
+                }.visibleIf(controller.headerVisible)
             }
 
             if (!LicenseChecker.isLicensedOrGrace()) {

@@ -14,6 +14,11 @@
   accessibility walks over the commit changes tree no longer flood idea.log
   with "Attempt to take read lock was prevented" errors; the path renderer
   now serves plain text when the platform forbids model access mid-walk.
+- [Free] **Find what's new faster** — the settings page now points at newly
+  added controls: a "New in this release" index at the top with a Review
+  jump link, an accent dot on tabs that contain new settings, and small
+  "New" marks on the rows themselves. Everything clears as you visit the
+  tabs, never outlives 45 days, and fresh installs see no badges at all.
 
 ## [2.7.8] - 2026-07-06
 

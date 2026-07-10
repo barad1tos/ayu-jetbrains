@@ -364,8 +364,14 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         customVisible: AtomicBooleanProperty,
     ) {
         val licensed = gate.isUnlocked
+        val targetsTitle =
+            if (SettingsBadges.isPending(AyuIslandsSettings.getInstance().state, "glow-placement")) {
+                "Targets (New)"
+            } else {
+                "Targets"
+            }
         panel
-            .collapsibleGroup("Targets") {
+            .collapsibleGroup(targetsTitle) {
                 row {
                     comment(
                         "Fine-tune where glow appears. All targets are enabled by default.",
@@ -386,6 +392,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                         labelText = "Editor placement",
                         items = listOf(GlowPlacement.ISLAND, GlowPlacement.TAB_BAR),
                         licensed = licensed,
+                        badgeAnchorId = "glow-placement",
                     ) { placement -> section.update { it.copy(editorPlacement = placement) } }
                 editorPlacementSegmented?.selectedItem = section.pending.editorPlacement
                 toolWindowPlacementSegmented =
@@ -429,6 +436,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         labelText: String,
         items: List<GlowPlacement>,
         licensed: Boolean,
+        badgeAnchorId: String? = null,
         onSelected: (GlowPlacement) -> Unit,
     ): SegmentedButton<GlowPlacement> {
         lateinit var segmented: SegmentedButton<GlowPlacement>
@@ -446,6 +454,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                     onSelected(placement)
                 }
             }
+            badgeAnchorId?.let { newFeatureBadge(it) }
         }
         return segmented
     }

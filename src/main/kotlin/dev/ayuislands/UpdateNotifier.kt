@@ -5,6 +5,7 @@ import com.intellij.notification.NotificationType
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.SettingsBadges
 import dev.ayuislands.whatsnew.WhatsNewLauncher
 
 internal object UpdateNotifier {
@@ -16,14 +17,25 @@ internal object UpdateNotifier {
                 ?: return
         val currentVersion = descriptor.version
         val state = AyuIslandsSettings.getInstance().state
+        // Badge lifetime is checked on EVERY startup — the version gate below
+        // never fires again between releases, but the 45-day cap must.
+        SettingsBadges.expireIfDue(state, System.currentTimeMillis())
         val lastSeen = state.lastSeenVersion
 
         if (lastSeen == currentVersion) return
 
         state.lastSeenVersion = currentVersion
 
-        // Skip notification on the first installation (no previous version)
-        if (lastSeen == null) return
+        // Skip notification on the first installation (no previous version).
+        // Everything is new to a fresh install, so no settings badge shows;
+        // onboarding and What's New own the first-run experience.
+        if (lastSeen == null) {
+            SettingsBadges.seedAllAcknowledged(state)
+            return
+        }
+
+        SettingsBadges.pruneStaleIds(state)
+        SettingsBadges.armExpiry(state, System.currentTimeMillis())
 
         // Tab supersedes balloon when the version ships rich What's New content.
         // Falls through to balloon for patches without a manifest. The launcher's
