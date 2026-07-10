@@ -8,7 +8,6 @@ import java.awt.RenderingHints
 import java.awt.geom.Path2D
 import kotlin.math.ceil
 import kotlin.math.roundToInt
-import kotlin.random.Random
 
 internal data class WaveformPaintResult(
     val track: WaveformTrack,
@@ -21,10 +20,12 @@ internal data class WaveformPaintRequest(
     val accent: Color,
     val frame: WaveformFrame,
     val isEditorOverlay: Boolean,
+    val isEdgeAligned: Boolean = isEditorOverlay,
+    val displacementScale: Float = 1f,
 )
 
 internal open class WaveformPainter {
-    private val staticMorphology = BeatMorphology.random(Random(STATIC_MORPHOLOGY_SEED))
+    private val staticMorphology = BeatMorphology.standard()
     private var trackKey: TrackKey? = null
     private var cachedTrack: WaveformTrack? = null
 
@@ -38,7 +39,13 @@ internal open class WaveformPainter {
         val dirtyRegions = dirtyRegions(request.bounds, amplitude)
         if (!track.isClosed) return WaveformPaintResult(track, dirtyRegions)
 
-        val path = buildPath(track, frame, amplitude.toFloat())
+        val path =
+            buildPath(
+                track = track,
+                frame = frame,
+                amplitude = amplitude * request.displacementScale.coerceIn(0f, 1f),
+                isEdgeAligned = request.isEdgeAligned,
+            )
         val intensity = frame.config.intensity.coerceIn(MIN_WAVEFORM_INTENSITY, MAX_WAVEFORM_INTENSITY)
         val strength = intensity / PERCENT_DIVISOR * frame.brightness.coerceIn(0f, 1f)
         if (strength <= 0f) return WaveformPaintResult(track, dirtyRegions)
@@ -113,10 +120,20 @@ internal open class WaveformPainter {
         track: WaveformTrack,
         frame: WaveformFrame,
         amplitude: Float,
+        isEdgeAligned: Boolean,
     ): Path2D.Float {
         val path = Path2D.Float(Path2D.WIND_NON_ZERO, track.samples.size)
+        val edgeDirection =
+            if (frame.config.motion == WaveformMotion.MONITOR) {
+                frame.config.direction
+            } else {
+                WaveformDirection.CLOCKWISE
+            }
+        val origin = if (isEdgeAligned) visibleOrigin(track, edgeDirection) else 0f
+        val staticCenter = if (isEdgeAligned) origin else track.length * STATIC_CENTER_FRACTION
         track.samples.forEachIndexed { index, sample ->
-            val displacement = sampleDisplacement(sample, track, frame) * amplitude * sample.amplitudeMask
+            val displacement =
+                sampleDisplacement(sample, track, frame, origin, staticCenter) * amplitude * sample.amplitudeMask
             val x = sample.x + sample.normalX * displacement
             val y = sample.y + sample.normalY * displacement
             if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
@@ -129,19 +146,21 @@ internal open class WaveformPainter {
         sample: WaveformSample,
         track: WaveformTrack,
         frame: WaveformFrame,
+        monitorOrigin: Float,
+        staticCenter: Float,
     ): Float =
         when (frame.config.motion) {
             WaveformMotion.MONITOR ->
                 if (frame.beats.isEmpty()) {
-                    staticValue(sample.distance, track.length) * MONITOR_IDLE_STRENGTH
+                    staticValue(sample.distance, track.length, staticCenter) * MONITOR_IDLE_STRENGTH
                 } else {
                     frame.beats
-                        .sumOf { beat -> monitorValue(sample.distance, track.length, beat).toDouble() }
+                        .sumOf { beat -> monitorValue(sample.distance, track.length, beat, monitorOrigin).toDouble() }
                         .toFloat()
                         .coerceIn(MIN_DISPLACEMENT, MAX_DISPLACEMENT)
                 }
             WaveformMotion.STATIC_PULSE ->
-                staticValue(sample.distance, track.length) *
+                staticValue(sample.distance, track.length, staticCenter) *
                     (
                         STATIC_IDLE_STRENGTH +
                             frame.staticBoost.coerceIn(0f, 1f) * (1f - STATIC_IDLE_STRENGTH)
@@ -152,8 +171,10 @@ internal open class WaveformPainter {
         sampleDistance: Float,
         trackLength: Float,
         beat: FrameBeat,
+        origin: Float,
     ): Float {
-        val delta = circularDelta(sampleDistance, beat.centerDistance, trackLength)
+        val center = wrap(beat.centerDistance + origin, trackLength)
+        val delta = circularDelta(sampleDistance, center, trackLength)
         val phase = R_PEAK_PHASE + delta / BEAT_SPAN
         return beat.morphology.valueAt(phase) * beat.opacity.coerceIn(0f, 1f)
     }
@@ -161,8 +182,8 @@ internal open class WaveformPainter {
     private fun staticValue(
         sampleDistance: Float,
         trackLength: Float,
+        center: Float,
     ): Float {
-        val center = trackLength * STATIC_CENTER_FRACTION
         val delta = circularDelta(sampleDistance, center, trackLength)
         return staticMorphology.valueAt(R_PEAK_PHASE + delta / BEAT_SPAN)
     }
@@ -175,6 +196,23 @@ internal open class WaveformPainter {
         val half = trackLength / HALF_DIVISOR
         return ((sampleDistance - centerDistance + half) % trackLength + trackLength) % trackLength - half
     }
+
+    private fun visibleOrigin(
+        track: WaveformTrack,
+        direction: WaveformDirection,
+    ): Float {
+        val samples =
+            when (direction) {
+                WaveformDirection.CLOCKWISE -> track.samples
+                WaveformDirection.COUNTER_CLOCKWISE -> track.samples.asReversed()
+            }
+        return samples.firstOrNull { it.amplitudeMask >= FULL_AMPLITUDE_MASK }?.distance ?: 0f
+    }
+
+    private fun wrap(
+        distance: Float,
+        length: Float,
+    ): Float = ((distance % length) + length) % length
 
     private fun paintPass(
         graphics: Graphics2D,
@@ -208,10 +246,10 @@ internal open class WaveformPainter {
         const val STATIC_CENTER_FRACTION = 0.25f
         private const val MONITOR_IDLE_STRENGTH = 0.55f
         private const val STATIC_IDLE_STRENGTH = 0.12f
-        const val STATIC_MORPHOLOGY_SEED = 2_026_0710
         private const val MIN_DISPLACEMENT = -1.25f
         private const val MAX_DISPLACEMENT = 1.25f
         private const val MAX_COLOR_ALPHA = 255
+        private const val FULL_AMPLITUDE_MASK = 0.999f
 
         fun marginFor(amplitude: Int): Float =
             amplitude.coerceIn(MIN_WAVEFORM_AMPLITUDE, MAX_WAVEFORM_AMPLITUDE) + BLOOM_RADIUS + OUTER_PADDING

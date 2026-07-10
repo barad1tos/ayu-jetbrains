@@ -17,10 +17,13 @@ import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 
 @Service(Service.Level.APP)
-class KeystrokeHub : Disposable {
+class KeystrokeHub internal constructor(
+    private val nowMs: () -> Long = System::currentTimeMillis,
+) : Disposable {
     private val log = logger<KeystrokeHub>()
     private var initialized = false
     private var isLicenseAllowed: Boolean? = null
+    private var licenseCheckedAtMs = Long.MIN_VALUE
     private var routeFailureLogged = false
 
     internal val actionListener: AnActionListener =
@@ -61,10 +64,21 @@ class KeystrokeHub : Disposable {
 
     private fun route(project: Project?) {
         if (project == null) return
-        val licenseAllowed = isLicenseAllowed ?: LicenseChecker.isLicensedOrGrace().also { isLicenseAllowed = it }
-        if (!licenseAllowed) return
+        if (!licenseAllowsInput()) return
         if (!AyuIslandsSettings.getInstance().state.glowEnabled) return
         GlowOverlayManager.getInstance(project).input.onKeystroke()
+    }
+
+    private fun licenseAllowsInput(): Boolean {
+        val currentTimeMs = nowMs()
+        val cacheAgeMs = currentTimeMs - licenseCheckedAtMs
+        val cached = isLicenseAllowed
+        if (cached != null && cacheAgeMs in 0 until LICENSE_CACHE_MS) return cached
+
+        return LicenseChecker.isLicensedOrGrace().also { allowed ->
+            isLicenseAllowed = allowed
+            licenseCheckedAtMs = currentTimeMs
+        }
     }
 
     private fun routeSafely(project: Project?) {
@@ -86,12 +100,14 @@ class KeystrokeHub : Disposable {
 
     internal fun invalidateLicenseGate() {
         isLicenseAllowed = null
+        licenseCheckedAtMs = Long.MIN_VALUE
         routeFailureLogged = false
     }
 
     override fun dispose() = Unit
 
     companion object {
+        private const val LICENSE_CACHE_MS = 30_000L
         private val TYPING_ACTION_IDS =
             setOf(
                 IdeActions.ACTION_EDITOR_BACKSPACE,

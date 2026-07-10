@@ -7,6 +7,7 @@ import com.intellij.ui.LicensingFacade
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
+import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.settings.AyuIslandsSettings
 
 /**
@@ -66,10 +67,11 @@ internal class LicenseTransitionListener : LicensingFacade.LicenseStateListener 
             if (previous != null && previous != isNowLicensed) {
                 ApplicationManager.getApplication().invokeLater {
                     try {
-                        if (previous && !isNowLicensed) {
+                        if (previous) {
                             cleanupCommitPanelPathRendering()
                         }
 
+                        GlowOverlayManager.syncGlowForAllProjects()
                         val variant = AyuVariant.detect() ?: return@invokeLater
                         AccentApplicator.applyForFocusedProject(variant)
                         LOG.info("Ayu license transition: re-applied accent for chrome refresh")

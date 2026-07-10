@@ -39,6 +39,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -150,6 +151,60 @@ class GlowOverlayManagerLifecycleTest {
     }
 
     @Test
+    fun `license restoration schedules overlay reattachment with a fresh active target`() {
+        val project = stubProject("license-restore-project")
+        val manager = GlowOverlayManager(project)
+        seedOverlaysMap(manager, "Editor")
+        setActiveGlow(manager, "Editor")
+        setMessageBusConnected(manager)
+
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        manager.updateGlow()
+
+        assertTrue(readOverlaysMap(manager).isEmpty())
+        assertNull(readActiveGlow(manager), "removed overlays must not retain a stale active id")
+
+        val scheduled = slot<Runnable>()
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        every { SwingUtilities.invokeLater(capture(scheduled)) } just Runs
+
+        manager.updateGlow()
+
+        assertTrue(scheduled.isCaptured, "restored license must schedule visible overlay reattachment")
+    }
+
+    @Test
+    fun `failed waveform keeps expanded bounds for aligned solid fallback`() {
+        val project = stubProject("waveform-fallback-project")
+        val manager = GlowOverlayManager(project)
+        val host = mockk<javax.swing.JComponent>(relaxed = true)
+        val layeredPane = mockk<javax.swing.JLayeredPane>(relaxed = true)
+        val pane =
+            GlowGlassPane(
+                glowColor = Color(0xFF8F40),
+                glowStyle = GlowStyle.SOFT,
+                glowIntensity = 80,
+                glowWidth = 12,
+                isEditorOverlay = false,
+            )
+        pane.configureWaveform(GlowShape.WAVEFORM, WaveformConfig(amplitude = 16))
+        setWaveformFailed(pane)
+        every { host.isShowing } returns true
+        every { host.width } returns 120
+        every { host.height } returns 80
+        every { SwingUtilities.convertPoint(host, 0, 0, layeredPane) } returns Point(10, 20)
+
+        invokeUpdateOverlayBounds(manager, pane, host, layeredPane)
+
+        val margin = pane.waveformMargin
+        assertEquals(
+            Rectangle(10 - margin, 20 - margin, 120 + margin * 2, 80 + margin * 2),
+            pane.bounds,
+        )
+    }
+
+    @Test
     fun `updateGlow pushes waveform shape and effective config to overlays`() {
         every { AyuVariant.isAyuActive() } returns true
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
@@ -227,7 +282,7 @@ class GlowOverlayManagerLifecycleTest {
         seedOverlaysMapWithMocks(manager, old, mockk(relaxed = true), mockk(relaxed = true), key = "old")
         seedOverlaysMapWithMocks(manager, new, mockk(relaxed = true), mockk(relaxed = true), key = "new")
 
-        invokeMoveGlowFocus(manager, "old", "new")
+        invokeMoveGlowFocus(manager)
 
         verify(exactly = 1) { old.deactivateWaveform() }
         verify(exactly = 1) { new.activateWaveform(powerSaveEnabled = false) }
@@ -683,6 +738,17 @@ class GlowOverlayManagerLifecycleTest {
     }
 
     @Test
+    fun `syncGlowForAllProjects invalidates the cached keystroke license gate`() {
+        val hub = mockk<KeystrokeHub>(relaxed = true)
+        every { mockApplication.getService(KeystrokeHub::class.java) } returns hub
+        every { mockProjectManager.openProjects } returns emptyArray()
+
+        GlowOverlayManager.syncGlowForAllProjects()
+
+        verify(exactly = 1) { hub.invalidateLicenseGate() }
+    }
+
+    @Test
     fun `syncGlowForAllProjects disposes every project glow when variant becomes null`() {
         // When the LAF listener detects a non-Ayu LAF, it calls
         // `GlowOverlayManager.syncGlowForAllProjects()` which iterates every
@@ -767,11 +833,42 @@ class GlowOverlayManagerLifecycleTest {
         field.set(manager, key)
     }
 
-    private fun invokeMoveGlowFocus(
+    private fun readActiveGlow(manager: GlowOverlayManager): String? {
+        val field = GlowOverlayManager::class.java.getDeclaredField("activeGlowId")
+        field.isAccessible = true
+        return field.get(manager) as String?
+    }
+
+    private fun setMessageBusConnected(manager: GlowOverlayManager) {
+        val field = GlowOverlayManager::class.java.getDeclaredField("messageBusConnected")
+        field.isAccessible = true
+        field.setBoolean(manager, true)
+    }
+
+    private fun setWaveformFailed(pane: GlowGlassPane) {
+        val field = GlowGlassPane::class.java.getDeclaredField("waveformFailed")
+        field.isAccessible = true
+        field.setBoolean(pane, true)
+    }
+
+    private fun invokeUpdateOverlayBounds(
         manager: GlowOverlayManager,
-        from: String,
-        to: String,
+        pane: GlowGlassPane,
+        host: javax.swing.JComponent,
+        layeredPane: javax.swing.JLayeredPane,
     ) {
+        val method =
+            GlowOverlayManager::class.java.getDeclaredMethod(
+                "updateOverlayBounds",
+                GlowGlassPane::class.java,
+                javax.swing.JComponent::class.java,
+                javax.swing.JLayeredPane::class.java,
+            )
+        method.isAccessible = true
+        method.invoke(manager, pane, host, layeredPane)
+    }
+
+    private fun invokeMoveGlowFocus(manager: GlowOverlayManager) {
         val method =
             GlowOverlayManager::class.java.getDeclaredMethod(
                 "moveGlowFocus",
@@ -779,7 +876,7 @@ class GlowOverlayManagerLifecycleTest {
                 String::class.java,
             )
         method.isAccessible = true
-        method.invoke(manager, from, to)
+        method.invoke(manager, "old", "new")
     }
 
     private fun invokeAttachOverlay(

@@ -13,6 +13,7 @@ import java.awt.Color
 import java.awt.image.BufferedImage
 import kotlin.random.Random
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -181,7 +182,7 @@ class GlowGlassPanePixelTest {
             ),
         )
 
-        assertTrue(pixelDifference(initial, paint(pane)) == 0)
+        assertEquals(0, pixelDifference(initial, paint(pane)))
     }
 
     @Test
@@ -214,7 +215,8 @@ class GlowGlassPanePixelTest {
 
         assertNull(readWaveformTimer(pane))
         assertTrue(readWaveformFailed(pane))
-        assertFalse(pane.isWaveform, "failed waveform must restore ordinary overlay bounds")
+        assertFalse(pane.isWaveform, "failed waveform must switch to the solid renderer")
+        assertTrue(pane.usesWaveformBounds, "solid fallback must retain expanded bounds around the host perimeter")
         assertTrue(alphaSum(fallback) > 0L, "solid fallback must remain visible")
     }
 

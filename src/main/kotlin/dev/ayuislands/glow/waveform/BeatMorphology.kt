@@ -72,6 +72,20 @@ class BeatMorphology private constructor(
                 jitter = random.sample(JITTER),
             )
 
+        fun standard(): BeatMorphology =
+            BeatMorphology(
+                pAmplitude = P_AMPLITUDE.midpoint,
+                qAmplitude = Q_AMPLITUDE.midpoint,
+                rAmplitude = R_AMPLITUDE.midpoint,
+                sAmplitude = S_AMPLITUDE.midpoint,
+                tAmplitude = T_AMPLITUDE.midpoint,
+                stretch = STRETCH.midpoint,
+                jitter = JITTER.midpoint,
+            )
+
+        private val Variation.midpoint: Float
+            get() = (minimum + maximum) / 2f
+
         private fun Random.sample(variation: Variation): Float =
             variation.minimum + nextFloat() * (variation.maximum - variation.minimum)
 

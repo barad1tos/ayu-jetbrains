@@ -49,7 +49,12 @@ class WaveformPainterPixelTest {
         val top =
             flat.result.track.samples
                 .first { it.normalY < -0.999f && it.x > WIDTH * 0.45f }
-        val beat = render(frame(config, top.distance), isEditorOverlay = true)
+        val beat =
+            render(
+                frame(config, top.distance),
+                isEditorOverlay = true,
+                isEdgeAligned = false,
+            )
         val outwardLimit = (top.y - WaveformPainter.BLOOM_RADIUS).roundToInt()
 
         assertEquals(
@@ -57,6 +62,67 @@ class WaveformPainterPixelTest {
             alphaCount(beat.image, (WIDTH * 0.4f).roundToInt() until (WIDTH * 0.6f).roundToInt(), 0 until outwardLimit),
             "masked editor top must not displace pixels into the tab band",
         )
+    }
+
+    @Test
+    fun `editor monitor beat starts on a visible edge below the tab mask`() {
+        val visibleEdges = Rectangle(0, EDITOR_TOP_MASK_BAND, WIDTH, HEIGHT - EDITOR_TOP_MASK_BAND)
+
+        for (direction in WaveformDirection.entries) {
+            val config = WaveformConfig(direction = direction, amplitude = 14, intensity = 100)
+            val idle = render(WaveformFrame(nowMs = 0L, config = config), isEditorOverlay = true)
+            val started = render(frame(config, center = 0f), isEditorOverlay = true)
+            val top =
+                started.result.track.samples
+                    .first { it.normalY < -0.999f && it.x > WIDTH * 0.45f }
+            val outwardLimit = (top.y - WaveformPainter.BLOOM_RADIUS).roundToInt()
+
+            assertTrue(
+                pixelDifference(idle.image, started.image, visibleEdges) > MIN_PIXEL_DIFFERENCE,
+                "$direction monitor beat must start on a visible editor edge",
+            )
+            assertEquals(
+                0,
+                alphaCount(started.image, 0 until WIDTH, 0 until outwardLimit),
+                "$direction monitor beat must keep the editor tab band clear",
+            )
+        }
+    }
+
+    @Test
+    fun `editor static pulse ignores dormant monitor direction`() {
+        val clockwise =
+            render(
+                WaveformFrame(
+                    nowMs = 0L,
+                    config =
+                        WaveformConfig(
+                            motion = WaveformMotion.STATIC_PULSE,
+                            direction = WaveformDirection.CLOCKWISE,
+                            amplitude = 16,
+                            intensity = 100,
+                        ),
+                    staticBoost = 1f,
+                ),
+                isEditorOverlay = true,
+            )
+        val counterClockwise =
+            render(
+                WaveformFrame(
+                    nowMs = 0L,
+                    config =
+                        WaveformConfig(
+                            motion = WaveformMotion.STATIC_PULSE,
+                            direction = WaveformDirection.COUNTER_CLOCKWISE,
+                            amplitude = 16,
+                            intensity = 100,
+                        ),
+                    staticBoost = 1f,
+                ),
+                isEditorOverlay = true,
+            )
+
+        assertEquals(0, pixelDifference(clockwise.image, counterClockwise.image))
     }
 
     @Test
@@ -104,6 +170,7 @@ class WaveformPainterPixelTest {
     private fun render(
         frame: WaveformFrame,
         isEditorOverlay: Boolean = false,
+        isEdgeAligned: Boolean = isEditorOverlay,
     ): Rendered {
         val image = BufferedImage(WIDTH, HEIGHT, BufferedImage.TYPE_INT_ARGB)
         val graphics = image.createGraphics()
@@ -118,6 +185,7 @@ class WaveformPainterPixelTest {
                             accent = accent,
                             frame = frame,
                             isEditorOverlay = isEditorOverlay,
+                            isEdgeAligned = isEdgeAligned,
                         ),
                 )
             } finally {
@@ -129,9 +197,10 @@ class WaveformPainterPixelTest {
     private fun pixelDifference(
         first: BufferedImage,
         second: BufferedImage,
+        bounds: Rectangle = Rectangle(0, 0, first.width, first.height),
     ): Int =
-        (0 until first.height).sumOf { y ->
-            (0 until first.width).count { x -> first.getRGB(x, y) != second.getRGB(x, y) }
+        (bounds.y until bounds.y + bounds.height).sumOf { y ->
+            (bounds.x until bounds.x + bounds.width).count { x -> first.getRGB(x, y) != second.getRGB(x, y) }
         }
 
     private fun alphaCount(
@@ -167,6 +236,7 @@ class WaveformPainterPixelTest {
         const val ARC_WIDTH = 16
         const val OUTWARD_PROBE = 11f
         const val IDLE_PEAK_PROBE = 10f
+        const val EDITOR_TOP_MASK_BAND = 40
         const val MIN_PIXEL_DIFFERENCE = 100
         const val ALPHA_SHIFT = 24
         const val MAX_ALPHA = 0xFF

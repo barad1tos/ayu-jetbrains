@@ -52,6 +52,9 @@ class GlowGlassPane(
     internal val isWaveform: Boolean
         get() = glowShape == GlowShape.WAVEFORM && !waveformFailed
 
+    internal val usesWaveformBounds: Boolean
+        get() = glowShape == GlowShape.WAVEFORM
+
     internal val waveformMargin: Int
         get() = WaveformPainter.marginFor(waveformConfig.amplitude).toInt()
 

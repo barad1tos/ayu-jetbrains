@@ -117,6 +117,33 @@ class KeystrokeHubTest {
     }
 
     @Test
+    fun `license gate invalidation restores typing after renewal`() {
+        every { LicenseChecker.isLicensedOrGrace() } returnsMany listOf(false, true)
+        val hub = KeystrokeHub()
+
+        hub.actionListener.beforeEditorTyping('a', dataContext)
+        hub.invalidateLicenseGate()
+        hub.actionListener.beforeEditorTyping('b', dataContext)
+
+        verify(exactly = 1) { input.onKeystroke() }
+        verify(exactly = 2) { LicenseChecker.isLicensedOrGrace() }
+    }
+
+    @Test
+    fun `cached license expires and rechecks before routing more input`() {
+        var nowMs = 0L
+        every { LicenseChecker.isLicensedOrGrace() } returnsMany listOf(true, false)
+        val hub = KeystrokeHub { nowMs }
+
+        hub.actionListener.beforeEditorTyping('a', dataContext)
+        nowMs = OFFLINE_GRACE_MS
+        hub.actionListener.beforeEditorTyping('b', dataContext)
+
+        verify(exactly = 1) { input.onKeystroke() }
+        verify(exactly = 2) { LicenseChecker.isLicensedOrGrace() }
+    }
+
+    @Test
     fun `Power Save topic broadcasts the current mode`() {
         val application = mockk<Application>()
         val messageBus = mockk<MessageBus>()
@@ -140,6 +167,7 @@ class KeystrokeHubTest {
     }
 
     private companion object {
+        const val OFFLINE_GRACE_MS = 48L * 60 * 60 * 1_000
         val APPROVED_ACTION_IDS =
             setOf(
                 IdeActions.ACTION_EDITOR_BACKSPACE,

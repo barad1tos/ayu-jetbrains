@@ -19,9 +19,10 @@ import java.awt.Graphics2D
 import java.awt.Rectangle
 import java.awt.RenderingHints
 import java.awt.geom.Area
+import java.awt.geom.Rectangle2D
 import java.awt.geom.RoundRectangle2D
 import javax.swing.JPanel
-import kotlin.random.Random
+import kotlin.math.roundToInt
 
 internal data class GlowPreview(
     val shape: GlowShape,
@@ -50,7 +51,7 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
 
     private val renderer = GlowRenderer()
     private val waveformPainter = WaveformPainter()
-    private val previewMorphology = BeatMorphology.random(Random(WaveformPainter.STATIC_MORPHOLOGY_SEED))
+    private val previewMorphology = BeatMorphology.standard()
 
     init {
         border = JBUI.Borders.empty(FIXED_PADDING)
@@ -130,19 +131,24 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
         glowColor = preview.color
         glowVisible = preview.visible
         waveformConfig = preview.waveformConfig
-        val contentInset =
-            if (preview.shape == GlowShape.WAVEFORM) {
-                WaveformPainter.marginFor(preview.waveformConfig.amplitude).toInt() + WAVEFORM_CONTENT_CLEARANCE
-            } else {
-                FIXED_PADDING
-            }
-        border = JBUI.Borders.empty(contentInset)
-        revalidate()
         repaint()
     }
 
     private fun paintWaveform(graphics: Graphics2D) {
-        val bounds = Rectangle(0, 0, width, height)
+        val margin = WaveformPainter.marginFor(waveformConfig.amplitude)
+        val baselineInset = JBUI.scale(PREVIEW_BASELINE_INSET).toFloat()
+        val shift = (margin - baselineInset).roundToInt().coerceAtLeast(0)
+        val bounds = Rectangle(-shift, -shift, width + shift * 2, height + shift * 2)
+        val content =
+            Rectangle2D.Float(
+                insets.left.toFloat(),
+                insets.top.toFloat(),
+                (width - insets.left - insets.right).toFloat(),
+                (height - insets.top - insets.bottom).toFloat(),
+            )
+        val borderArea = Area(Rectangle2D.Float(0f, 0f, width.toFloat(), height.toFloat()))
+        borderArea.subtract(Area(content))
+        graphics.clip(borderArea)
         val previewConfig = waveformConfig.copy(motion = WaveformMotion.MONITOR)
         val trackLength = waveformPainter.trackLength(bounds, ARC_F.toInt(), previewConfig, isEditorOverlay = false)
         val frame =
@@ -166,6 +172,7 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
                 accent = glowColor,
                 frame = frame,
                 isEditorOverlay = false,
+                displacementScale = PREVIEW_DISPLACEMENT_SCALE,
             ),
         )
     }
@@ -179,6 +186,7 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
         private const val DEFAULT_WIDTH = 8
         private const val DEFAULT_COLOR_HEX = "#FFCC66"
         private const val FIXED_PADDING = 10
-        private const val WAVEFORM_CONTENT_CLEARANCE = 13
+        private const val PREVIEW_BASELINE_INSET = 8
+        private const val PREVIEW_DISPLACEMENT_SCALE = 0.25f
     }
 }

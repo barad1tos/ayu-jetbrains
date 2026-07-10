@@ -3,8 +3,8 @@ package dev.ayuislands.settings
 import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.waveform.WaveformConfig
-import dev.ayuislands.glow.waveform.WaveformPainter
 import java.awt.Color
+import java.awt.Rectangle
 import java.awt.image.BufferedImage
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -27,16 +27,42 @@ class GlowPreviewTest {
     }
 
     @Test
-    fun `waveform preview reserves its paint band outside settings content`() {
+    fun `shape changes preserve preview content insets`() {
         val amplitude = 14
         val panel = GlowGroupPanel()
+        panel.updatePreview(preview(GlowShape.SOLID))
+        val solidInsets = panel.insets
         panel.updatePreview(preview(GlowShape.WAVEFORM).copy(waveformConfig = WaveformConfig(amplitude = amplitude)))
-        val safeInset = WaveformPainter.marginFor(amplitude).toInt() + CONTENT_CLEARANCE
 
-        assertTrue(
-            panel.insets.top >= safeInset,
-            "settings content must start below the waveform baseline and inward bloom",
+        assertEquals(
+            solidInsets,
+            panel.insets,
+            "shape changes must not move settings content",
         )
+    }
+
+    @Test
+    fun `waveform preview paints only outside the solid content bounds`() {
+        val hidden = GlowGroupPanel()
+        hidden.setSize(WIDTH, HEIGHT)
+        hidden.updatePreview(preview(GlowShape.WAVEFORM).copy(visible = false))
+        val withoutWaveform = render(hidden)
+
+        val visible = GlowGroupPanel()
+        visible.setSize(WIDTH, HEIGHT)
+        visible.updatePreview(preview(GlowShape.WAVEFORM))
+        val withWaveform = render(visible)
+        val insets = visible.insets
+        val contentBounds =
+            Rectangle(
+                insets.left,
+                insets.top,
+                WIDTH - insets.left - insets.right,
+                HEIGHT - insets.top - insets.bottom,
+            )
+
+        assertEquals(0, pixelDifference(withoutWaveform, withWaveform, contentBounds))
+        assertTrue(pixelDifference(withoutWaveform, withWaveform) > MIN_PIXEL_DIFFERENCE)
     }
 
     private fun preview(shape: GlowShape): GlowPreview =
@@ -64,15 +90,15 @@ class GlowPreviewTest {
     private fun pixelDifference(
         first: BufferedImage,
         second: BufferedImage,
+        bounds: Rectangle = Rectangle(0, 0, first.width, first.height),
     ): Int =
-        (0 until first.height).sumOf { y ->
-            (0 until first.width).count { x -> first.getRGB(x, y) != second.getRGB(x, y) }
+        (bounds.y until bounds.y + bounds.height).sumOf { y ->
+            (bounds.x until bounds.x + bounds.width).count { x -> first.getRGB(x, y) != second.getRGB(x, y) }
         }
 
     private companion object {
         const val WIDTH = 420
         const val HEIGHT = 300
         const val MIN_PIXEL_DIFFERENCE = 100
-        const val CONTENT_CLEARANCE = 13
     }
 }

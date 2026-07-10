@@ -313,7 +313,7 @@ class GlowOverlayManager(
         if (!host.isShowing) return
         try {
             val point = SwingUtilities.convertPoint(host, 0, 0, layeredPane)
-            if (glassPane.isWaveform) {
+            if (glassPane.usesWaveformBounds) {
                 val contentBounds =
                     if (glassPane.isEditorOverlay) {
                         EditorTabGeometry.calculateEditorOverlayBounds(host)
@@ -537,6 +537,7 @@ class GlowOverlayManager(
             removeAllOverlays()
             return
         }
+        if (messageBusConnected && overlays.isEmpty()) reattachOverlays()
 
         val accentHex =
             appliedAccent?.value
@@ -620,6 +621,7 @@ class GlowOverlayManager(
             detachOverlayEntry(entry)
         }
         overlays.clear()
+        activeGlowId = null
         focusRingManager.removeFocusListeners()
         log.info("All glow overlays removed")
     }
