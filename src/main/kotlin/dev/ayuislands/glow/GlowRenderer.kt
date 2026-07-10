@@ -54,6 +54,7 @@ class GlowRenderer {
         val color: Color,
         val baseAlpha: Int,
         val glowWidth: Int,
+        val edgesOnly: Boolean,
     )
 
     private var frameKey: FrameKey? = null
@@ -88,14 +89,17 @@ class GlowRenderer {
     }
 
     /**
-     * Paints glow as concentric rounded rectangles from edge inward.
-     * Renders to a cached BufferedImage for performance (~0.5ms after first render).
+     * Paints glow from a cached BufferedImage (~0.5ms after first render):
+     * concentric rounded rectangles from edge inward, or — with [edgesOnly] —
+     * straight full-height vertical falloff strips on the left and right,
+     * with no corner arcs at all.
      */
     fun paintGlow(
         graphics: Graphics2D,
         bounds: Rectangle,
         glowWidth: Int = DEFAULT_GLOW_WIDTH,
         arcWidth: Int = 0,
+        edgesOnly: Boolean = false,
     ) {
         if (bounds.width <= 0 || bounds.height <= 0) return
 
@@ -108,11 +112,17 @@ class GlowRenderer {
                 cachedColor,
                 cachedBaseAlpha,
                 glowWidth,
+                edgesOnly,
             )
 
         if (fKey != frameKey || cachedFrame == null) {
             val startNanos = System.nanoTime()
-            cachedFrame = renderFrame(bounds.width, bounds.height, arcWidth, glowWidth)
+            cachedFrame =
+                if (edgesOnly) {
+                    renderSideEdges(bounds.width, bounds.height, glowWidth)
+                } else {
+                    renderFrame(bounds.width, bounds.height, arcWidth, glowWidth)
+                }
             frameKey = fKey
             val elapsedMs = (System.nanoTime() - startNanos) / NANOS_PER_MS
             if (elapsedMs > FRAME_RENDER_BUDGET_MS) {
@@ -169,11 +179,38 @@ class GlowRenderer {
         return image
     }
 
+    // Side-edges placement: two mirrored vertical falloff strips, every column
+    // uniform from y=0 to height — deliberately no rounded-corner geometry.
+    private fun renderSideEdges(
+        width: Int,
+        height: Int,
+        glowWidth: Int,
+    ): BufferedImage {
+        val image = UIUtil.createImage(null as Component?, width, height, BufferedImage.TYPE_INT_ARGB)
+        val g2 = image.createGraphics()
+        try {
+            val columns = glowWidth.coerceAtMost((width + 1) / 2)
+            for (i in 0 until columns) {
+                val progress = i.toFloat() / glowWidth.toFloat()
+                val alpha = computeAlpha(progress)
+                if (alpha <= 0) continue
+
+                g2.color = ColorUtil.toAlpha(cachedColor, alpha)
+                g2.fillRect(i, 0, 1, height)
+                g2.fillRect(width - 1 - i, 0, 1, height)
+            }
+        } finally {
+            g2.dispose()
+        }
+        return image
+    }
+
     internal fun computeAlpha(progress: Float): Int =
         when (cachedStyle) {
             GlowStyle.SOFT -> {
                 ((1.0f - progress) * cachedBaseAlpha / SOFT_ALPHA_DIVISOR).toInt().coerceIn(0, MAX_ALPHA)
             }
+
             GlowStyle.SHARP_NEON -> {
                 if (progress < NEON_CORE_THRESHOLD) {
                     cachedBaseAlpha
@@ -182,6 +219,7 @@ class GlowRenderer {
                     (cachedBaseAlpha * NEON_BLOOM_INTENSITY * (1.0f - bloomProgress)).toInt().coerceIn(0, MAX_ALPHA)
                 }
             }
+
             GlowStyle.GRADIENT -> {
                 ((1.0f - progress) * cachedBaseAlpha / GRADIENT_ALPHA_DIVISOR).toInt().coerceIn(0, MAX_ALPHA)
             }

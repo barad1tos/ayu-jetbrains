@@ -6,10 +6,10 @@ import kotlin.test.Test
 import kotlin.test.assertTrue
 
 /**
- * Pixel-level locks for partial glow placements rendered through the real
- * [GlowGlassPane.paint] path: SIDE_EDGES must light BOTH vertical edges and
- * nothing else. Guards against clip regressions that unit tests on
- * [GlowPlacementGeometry] rectangles alone cannot see.
+ * Pixel-level locks for glow placements rendered through the real
+ * [GlowGlassPane.paint] path: SIDE_EDGES must light BOTH vertical edges as
+ * straight full-height strips — uniform from top to bottom, with no rounded
+ * corner hooks — and nothing else.
  */
 class GlowGlassPanePixelTest {
     private companion object {
@@ -65,6 +65,25 @@ class GlowGlassPanePixelTest {
 
         val middleGlow = (0 until HEIGHT).any { y -> (image.getRGB(WIDTH / 2, y) ushr 24) and 0xFF > ALPHA_FLOOR }
         assertTrue(!middleGlow, "center column must stay clear so only side edges light up")
+    }
+
+    @Test
+    fun `side edges strips run straight from top to bottom without corner hooks`() {
+        val image = paintedImage(GlowPlacement.SIDE_EDGES)
+
+        // A straight strip means the edge column carries the same alpha at the
+        // very top, the middle, and the very bottom — a clipped rounded frame
+        // would bend away from the edge near the corners.
+        val top = (image.getRGB(2, 0) ushr 24) and 0xFF
+        val middle = (image.getRGB(2, HEIGHT / 2) ushr 24) and 0xFF
+        val bottom = (image.getRGB(2, HEIGHT - 1) ushr 24) and 0xFF
+        assertTrue(top == middle && middle == bottom, "edge column alpha must be uniform: $top/$middle/$bottom")
+        assertTrue(middle > ALPHA_FLOOR, "edge column must actually glow")
+
+        // No horizontal spill beyond the strip at the corners (the old clipped
+        // frame leaked arc segments there).
+        val cornerSpill = (image.getRGB(WIDTH / 2, 1) ushr 24) and 0xFF
+        assertTrue(cornerSpill <= ALPHA_FLOOR, "top row must stay clear outside the vertical strips")
     }
 
     @Test

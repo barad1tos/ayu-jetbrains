@@ -7,7 +7,6 @@ import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.Rectangle
 import java.awt.RenderingHints
-import java.awt.geom.Area
 import javax.swing.JPanel
 import javax.swing.Timer
 import javax.swing.UIManager
@@ -76,17 +75,14 @@ class GlowGlassPane(
             val arcWidth = UIManager.getInt("Island.arc").let { if (it > 0) it else DEFAULT_ARC_FALLBACK }
             val bounds = Rectangle(0, 0, width, height)
 
-            val clipRegions = GlowPlacementGeometry.clipRegions(glowPlacement, width, height, glowWidth, arcWidth)
-            if (clipRegions.isNotEmpty()) {
-                val clipArea = Area()
-                for (region in clipRegions) {
-                    clipArea.add(Area(region))
-                }
-                g2.clip(clipArea)
-            }
-
             renderer.ensureCache(glowColor, glowStyle, glowIntensity, glowWidth)
-            renderer.paintGlow(g2, bounds, glowWidth, arcWidth)
+            renderer.paintGlow(
+                g2,
+                bounds,
+                glowWidth,
+                arcWidth,
+                edgesOnly = glowPlacement == GlowPlacement.SIDE_EDGES,
+            )
         } finally {
             g2.dispose()
         }
