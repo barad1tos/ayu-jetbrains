@@ -1,13 +1,12 @@
 package dev.ayuislands.glow
 
 import com.intellij.openapi.diagnostic.logger
-import dev.ayuislands.glow.waveform.STATIC_BASE_BRIGHTNESS
+import dev.ayuislands.glow.waveform.IDLE_WAVEFORM_BRIGHTNESS
 import dev.ayuislands.glow.waveform.TimerDirective
 import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.WaveformEngine
 import dev.ayuislands.glow.waveform.WaveformEvent
 import dev.ayuislands.glow.waveform.WaveformFrame
-import dev.ayuislands.glow.waveform.WaveformMotion
 import dev.ayuislands.glow.waveform.WaveformPaintRequest
 import dev.ayuislands.glow.waveform.WaveformPainter
 import dev.ayuislands.glow.waveform.WaveformUpdate
@@ -208,8 +207,6 @@ class GlowGlassPane(
     ) {
         val startNanos = System.nanoTime()
         try {
-            val idleBrightness =
-                if (waveformConfig.motion == WaveformMotion.STATIC_PULSE) STATIC_BASE_BRIGHTNESS else 1f
             waveformPainter.paint(
                 graphics = graphics,
                 request =
@@ -222,7 +219,7 @@ class GlowGlassPane(
                                 ?: WaveformFrame(
                                     System.currentTimeMillis(),
                                     waveformConfig,
-                                    brightness = idleBrightness,
+                                    brightness = IDLE_WAVEFORM_BRIGHTNESS,
                                 ),
                         isEditorOverlay = isEditorOverlay,
                     ),

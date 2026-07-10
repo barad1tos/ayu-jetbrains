@@ -2,7 +2,7 @@ package dev.ayuislands.glow
 
 import dev.ayuislands.glow.waveform.BeatMorphology
 import dev.ayuislands.glow.waveform.FrameBeat
-import dev.ayuislands.glow.waveform.STATIC_BASE_BRIGHTNESS
+import dev.ayuislands.glow.waveform.IDLE_WAVEFORM_BRIGHTNESS
 import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.WaveformFrame
 import dev.ayuislands.glow.waveform.WaveformMotion
@@ -177,7 +177,7 @@ class GlowGlassPanePixelTest {
                 nowMs = 1_500L,
                 config = config,
                 staticBoost = 0f,
-                brightness = STATIC_BASE_BRIGHTNESS,
+                brightness = IDLE_WAVEFORM_BRIGHTNESS,
             ),
         )
 

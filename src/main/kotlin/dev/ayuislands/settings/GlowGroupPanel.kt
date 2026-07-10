@@ -130,6 +130,14 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
         glowColor = preview.color
         glowVisible = preview.visible
         waveformConfig = preview.waveformConfig
+        val contentInset =
+            if (preview.shape == GlowShape.WAVEFORM) {
+                WaveformPainter.marginFor(preview.waveformConfig.amplitude).toInt() + WAVEFORM_CONTENT_CLEARANCE
+            } else {
+                FIXED_PADDING
+            }
+        border = JBUI.Borders.empty(contentInset)
+        revalidate()
         repaint()
     }
 
@@ -171,5 +179,6 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
         private const val DEFAULT_WIDTH = 8
         private const val DEFAULT_COLOR_HEX = "#FFCC66"
         private const val FIXED_PADDING = 10
+        private const val WAVEFORM_CONTENT_CLEARANCE = 13
     }
 }

@@ -27,6 +27,22 @@ class WaveformPainterPixelTest {
     }
 
     @Test
+    fun `idle monitor keeps a visible ECG peak without active-beat brightness`() {
+        val config = WaveformConfig(amplitude = 14, intensity = 100)
+        val idle = render(WaveformFrame(nowMs = 0L, config = config, brightness = IDLE_WAVEFORM_BRIGHTNESS))
+        val peak =
+            idle.result.track.samples.minBy { sample ->
+                kotlin.math.abs(sample.distance - idle.result.track.length * WaveformPainter.STATIC_CENTER_FRACTION)
+            }
+        val probeX = (peak.x + peak.normalX * IDLE_PEAK_PROBE).roundToInt()
+        val probeY = (peak.y + peak.normalY * IDLE_PEAK_PROBE).roundToInt()
+        val active = render(frame(config, peak.distance))
+
+        assertTrue(alphaAt(idle.image, probeX, probeY) > 0, "idle R peak must read as ECG geometry")
+        assertTrue(alphaSum(active.image) > alphaSum(idle.image), "typing beat must remain brighter than idle ECG")
+    }
+
+    @Test
     fun `editor top edge stays flat while a beat crosses it`() {
         val config = WaveformConfig(amplitude = 16, intensity = 100)
         val flat = render(WaveformFrame(nowMs = 0L, config = config), isEditorOverlay = true)
@@ -150,6 +166,7 @@ class WaveformPainterPixelTest {
         const val HEIGHT = 160
         const val ARC_WIDTH = 16
         const val OUTWARD_PROBE = 11f
+        const val IDLE_PEAK_PROBE = 10f
         const val MIN_PIXEL_DIFFERENCE = 100
         const val ALPHA_SHIFT = 24
         const val MAX_ALPHA = 0xFF

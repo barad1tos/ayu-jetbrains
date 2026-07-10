@@ -281,7 +281,7 @@ internal class WaveformEngine(
                 nowMs = event.nowMs,
                 config = current.config,
                 staticBoost = boost,
-                brightness = STATIC_BASE_BRIGHTNESS + boost * STATIC_BRIGHTNESS_RANGE,
+                brightness = IDLE_WAVEFORM_BRIGHTNESS + boost * STATIC_BRIGHTNESS_RANGE,
             )
         if (boost == 0f) {
             return Transition(
@@ -329,7 +329,7 @@ internal class WaveformEngine(
                 WaveformUpdate(
                     TimerDirective.STOP,
                     needsRepaint = true,
-                    frame = frame.copy(beats = emptyList()),
+                    frame = frame.copy(beats = emptyList(), brightness = IDLE_WAVEFORM_BRIGHTNESS),
                 ),
             )
         }

@@ -3,6 +3,7 @@ package dev.ayuislands.settings
 import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.waveform.WaveformConfig
+import dev.ayuislands.glow.waveform.WaveformPainter
 import java.awt.Color
 import java.awt.image.BufferedImage
 import kotlin.test.Test
@@ -23,6 +24,19 @@ class GlowPreviewTest {
 
         assertTrue(pixelDifference(solid, firstWaveform) > MIN_PIXEL_DIFFERENCE)
         assertEquals(0, pixelDifference(firstWaveform, secondWaveform))
+    }
+
+    @Test
+    fun `waveform preview reserves its paint band outside settings content`() {
+        val amplitude = 14
+        val panel = GlowGroupPanel()
+        panel.updatePreview(preview(GlowShape.WAVEFORM).copy(waveformConfig = WaveformConfig(amplitude = amplitude)))
+        val safeInset = WaveformPainter.marginFor(amplitude).toInt() + CONTENT_CLEARANCE
+
+        assertTrue(
+            panel.insets.top >= safeInset,
+            "settings content must start below the waveform baseline and inward bloom",
+        )
     }
 
     private fun preview(shape: GlowShape): GlowPreview =
@@ -59,5 +73,6 @@ class GlowPreviewTest {
         const val WIDTH = 420
         const val HEIGHT = 300
         const val MIN_PIXEL_DIFFERENCE = 100
+        const val CONTENT_CLEARANCE = 13
     }
 }

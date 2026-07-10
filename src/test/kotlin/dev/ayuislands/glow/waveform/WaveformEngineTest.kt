@@ -100,7 +100,9 @@ class WaveformEngineTest {
         assertIs<WaveformState.MonitorWaiting>(engine.state)
         assertEquals(TimerDirective.STOP, frozen.timerDirective)
         assertTrue(frozen.needsRepaint)
-        assertTrue(frozen.frame?.beats?.isEmpty() == true)
+        val frozenFrame = requireNotNull(frozen.frame)
+        assertTrue(frozenFrame.beats.isEmpty())
+        assertEquals(IDLE_WAVEFORM_BRIGHTNESS, frozenFrame.brightness)
     }
 
     @Test

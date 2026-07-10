@@ -133,7 +133,7 @@ internal open class WaveformPainter {
         when (frame.config.motion) {
             WaveformMotion.MONITOR ->
                 if (frame.beats.isEmpty()) {
-                    staticValue(sample.distance, track.length) * BASELINE_RIPPLE_STRENGTH
+                    staticValue(sample.distance, track.length) * MONITOR_IDLE_STRENGTH
                 } else {
                     frame.beats
                         .sumOf { beat -> monitorValue(sample.distance, track.length, beat).toDouble() }
@@ -143,8 +143,8 @@ internal open class WaveformPainter {
             WaveformMotion.STATIC_PULSE ->
                 staticValue(sample.distance, track.length) *
                     (
-                        BASELINE_RIPPLE_STRENGTH +
-                            frame.staticBoost.coerceIn(0f, 1f) * (1f - BASELINE_RIPPLE_STRENGTH)
+                        STATIC_IDLE_STRENGTH +
+                            frame.staticBoost.coerceIn(0f, 1f) * (1f - STATIC_IDLE_STRENGTH)
                     )
         }
 
@@ -206,7 +206,8 @@ internal open class WaveformPainter {
         private const val BEAT_SPAN = 76f
         private const val R_PEAK_PHASE = 0.289f
         const val STATIC_CENTER_FRACTION = 0.25f
-        private const val BASELINE_RIPPLE_STRENGTH = 0.12f
+        private const val MONITOR_IDLE_STRENGTH = 0.55f
+        private const val STATIC_IDLE_STRENGTH = 0.12f
         const val STATIC_MORPHOLOGY_SEED = 2_026_0710
         private const val MIN_DISPLACEMENT = -1.25f
         private const val MAX_DISPLACEMENT = 1.25f
