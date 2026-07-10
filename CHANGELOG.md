@@ -9,9 +9,6 @@
   frame or its side edges only, per surface (editor and tool windows).
   Placement clicks preview on the live window instantly; Apply keeps them,
   Cancel puts everything back.
-- [Paid] **Inactive glow brightness** — unfocused islands can keep a dim
-  glow instead of going dark, so the bright one always marks your focus;
-  0 keeps the classic focused-only behavior.
 - [Paid] **Accent from project icon** — projects without an override can take
   their accent from `.idea/icon.png` automatically when they open, and the
   Add Override dialog offers the icon's dominant color as a one-click pick.

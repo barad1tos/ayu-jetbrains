@@ -69,12 +69,6 @@ internal object SettingsBadges {
                 collapsibleGroupTitle = "Targets",
             ),
             SettingsBadgeAnchor(
-                id = "glow-inactive-brightness",
-                title = "Inactive glow brightness",
-                tabTitle = "Glow",
-                collapsibleGroupTitle = "Targets",
-            ),
-            SettingsBadgeAnchor(
                 id = "accent-from-project-icon",
                 title = "Accent from project icon",
                 tabTitle = "Accent",

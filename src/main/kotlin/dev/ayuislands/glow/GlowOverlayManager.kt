@@ -331,11 +331,6 @@ class GlowOverlayManager(
         }
 
         overlays[id] = OverlayEntry(glassPane, host, layeredPane, compListener, boundsListener)
-        // A freshly attached overlay is unfocused by definition; give it the
-        // inactive brightness right away so it does not sit dark until the
-        // first focus round-trip (no-op at the default 0).
-        val inactiveFraction = state.effectiveGlowInactiveFraction()
-        if (inactiveFraction > 0f && id != activeGlowId) glassPane.fadeTo(inactiveFraction)
         log.info(
             "Glow overlay attached: $id (host: ${host.javaClass.simpleName}, " +
                 "chain: ${ComponentHierarchyUtils.describeAncestry(host)})",
@@ -405,9 +400,7 @@ class GlowOverlayManager(
     ) {
         from?.let { overlays[it] }?.let { entry ->
             stopAnimation(entry.glassPane)
-            // Unfocused overlays keep the configured inactive brightness; at
-            // the default 0 this is the classic full fade-out.
-            entry.glassPane.fadeTo(AyuIslandsSettings.getInstance().state.effectiveGlowInactiveFraction())
+            entry.glassPane.startFadeOut()
         }
         to?.let { overlays[it] }?.let { entry ->
             entry.glassPane.startFadeIn()
@@ -506,14 +499,12 @@ class GlowOverlayManager(
         accent: Color,
         style: GlowStyle,
     ) {
-        val inactiveFraction = state.effectiveGlowInactiveFraction()
         for ((id, entry) in overlays) {
             entry.glassPane.glowColor = accent
             entry.glassPane.glowStyle = style
             entry.glassPane.glowIntensity = state.getIntensityForStyle(style)
             entry.glassPane.glowWidth = state.getWidthForStyle(style)
             entry.glassPane.glowPlacement = resolveGlowPlacement(isEditorOverlay = id == EDITOR_ID, state = state)
-            if (id != activeGlowId) entry.glassPane.fadeTo(inactiveFraction)
             entry.glassPane.invalidateRendererCache()
             entry.glassPane.repaint()
         }

@@ -192,40 +192,6 @@ class AyuIslandsEffectsPanelTest {
     }
 
     @Test
-    fun `licensed inactive brightness persists through apply into state`() {
-        val effectsPanel = AyuIslandsEffectsPanel()
-        buildDialogPanel(effectsPanel)
-
-        inactiveSlider(effectsPanel).value = 30
-
-        assertTrue(effectsPanel.isModified(), "slider change must dirty the panel")
-        effectsPanel.apply()
-
-        assertEquals(30, state.glowInactiveIntensityPercent)
-        assertFalse(effectsPanel.isModified(), "apply must converge stored onto pending")
-    }
-
-    @Test
-    fun `unlicensed inactive brightness slider cannot mutate pending state`() {
-        every { LicenseChecker.isLicensedOrGrace() } returns false
-        val effectsPanel = AyuIslandsEffectsPanel()
-        buildDialogPanel(effectsPanel)
-
-        inactiveSlider(effectsPanel).value = 30
-
-        assertFalse(
-            effectsPanel.isModified(),
-            "locked inactive-brightness preview must ignore slider changes",
-        )
-    }
-
-    private fun inactiveSlider(panel: AyuIslandsEffectsPanel): JSlider {
-        val field = AyuIslandsEffectsPanel::class.java.getDeclaredField("inactiveSlider")
-        field.isAccessible = true
-        return field.get(panel) as? JSlider ?: error("inactive brightness slider must be created")
-    }
-
-    @Test
     fun `unlicensed glow placement preview cannot mutate pending state`() {
         every { LicenseChecker.isLicensedOrGrace() } returns false
         val effectsPanel = AyuIslandsEffectsPanel()

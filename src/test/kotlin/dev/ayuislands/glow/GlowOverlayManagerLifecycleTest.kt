@@ -245,38 +245,6 @@ class GlowOverlayManagerLifecycleTest {
     }
 
     @Test
-    fun `updateGlow dims unfocused overlays to the configured inactive brightness`() {
-        every { AyuVariant.isAyuActive() } returns true
-        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-        state.glowInactiveIntensityPercent = 30
-
-        val project = stubProject("dim-project")
-        val manager = GlowOverlayManager(project)
-        val editorPane = mockk<GlowGlassPane>(relaxed = true)
-        val toolWindowPane = mockk<GlowGlassPane>(relaxed = true)
-        seedOverlaysMapWithMocks(
-            manager,
-            editorPane,
-            host = mockk(relaxed = true),
-            layeredPane = mockk(relaxed = true),
-            key = "Editor",
-        )
-        seedOverlaysMapWithMocks(
-            manager,
-            toolWindowPane,
-            host = mockk(relaxed = true),
-            layeredPane = mockk(relaxed = true),
-        )
-        // The editor overlay currently owns focus; only the unfocused one dims.
-        setActiveGlowId(manager, "Editor")
-
-        manager.updateGlow()
-
-        verify(exactly = 0) { editorPane.fadeTo(any()) }
-        verify(exactly = 1) { toolWindowPane.fadeTo(0.3f) }
-    }
-
-    @Test
     fun `preview placements restyle live overlays and revert re-reads state`() {
         every { AyuVariant.isAyuActive() } returns true
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
@@ -632,15 +600,6 @@ class GlowOverlayManagerLifecycleTest {
         val field = GlowOverlayManager::class.java.getDeclaredField("overlays")
         field.isAccessible = true
         return field.get(manager) as Map<*, *>
-    }
-
-    private fun setActiveGlowId(
-        manager: GlowOverlayManager,
-        id: String,
-    ) {
-        val field = GlowOverlayManager::class.java.getDeclaredField("activeGlowId")
-        field.isAccessible = true
-        field.set(manager, id)
     }
 
     private fun readLateOverlayGlassPane(manager: GlowOverlayManager): GlowGlassPane {

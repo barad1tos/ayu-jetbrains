@@ -157,13 +157,6 @@ class AyuIslandsState : BaseState() {
     var glowEditorPlacement by string(GlowPlacement.ISLAND.name)
     var glowToolWindowPlacement by string(GlowPlacement.ISLAND.name)
 
-    // Brightness kept by unfocused overlays, percent of full glow intensity.
-    // 0 = classic focused-only glow; capped so inactive never rivals active.
-    var glowInactiveIntensityPercent by property(0)
-
-    fun effectiveGlowInactiveFraction(): Float =
-        glowInactiveIntensityPercent.coerceIn(0, MAX_INACTIVE_GLOW_PERCENT) / PERCENT_DIVISOR
-
     // CodeGlancePro integration (opt-in, default OFF)
     var cgpIntegrationEnabled by property(false)
 
@@ -635,8 +628,6 @@ class AyuIslandsState : BaseState() {
         fun decodeFontPaths(raw: String?): List<String> = raw?.split(PATH_SEP)?.filter { it.isNotBlank() }.orEmpty()
 
         const val DEFAULT_TAB_UNDERLINE_HEIGHT = 4
-        const val MAX_INACTIVE_GLOW_PERCENT = 60
-        private const val PERCENT_DIVISOR = 100f
         const val DEFAULT_AUTO_FIT_MAX_WIDTH = 400
         const val DEFAULT_PROJECT_AUTO_FIT_MIN_WIDTH = 250
         const val DEFAULT_COMMIT_AUTO_FIT_MIN_WIDTH = 250
