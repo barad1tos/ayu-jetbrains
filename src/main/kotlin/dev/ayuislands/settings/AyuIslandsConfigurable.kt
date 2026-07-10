@@ -494,6 +494,10 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         }
         runCatchingPreservingCancellation { accentPanel.overrides.dispose() }
             .onFailure { log.warn("OverridesGroupBuilder dispose threw", it) }
+        // Badge wiring holds the refresh closure and group-expanded suppliers,
+        // which reference this dialog's component tree — clear on close so the
+        // singleton does not pin the dead UI until the next Settings open.
+        SettingsBadges.clearSessionWiring()
         super.disposeUIResources()
     }
 

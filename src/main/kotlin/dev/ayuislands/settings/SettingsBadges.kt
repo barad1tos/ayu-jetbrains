@@ -7,7 +7,6 @@ import com.intellij.ui.components.JBTabbedPane
 import com.intellij.ui.dsl.builder.CollapsibleRow
 import com.intellij.ui.dsl.builder.Row
 import com.intellij.util.ui.JBUI
-import org.jetbrains.annotations.TestOnly
 import java.awt.Color
 import java.awt.Component
 import java.awt.Container
@@ -129,11 +128,18 @@ internal object SettingsBadges {
         groupExpanded[anchorId] = isExpanded
     }
 
+    // No registered supplier means the group never got built on this dialog
+    // (stub tab, hidden section) — the spoiler cannot gate the anchor, so a
+    // tab visit retires it; otherwise the badge would be unreachable there.
     private fun isVisibleOnTabVisit(anchor: SettingsBadgeAnchor): Boolean =
-        anchor.collapsibleGroupTitle == null || groupExpanded[anchor.id]?.invoke() == true
+        anchor.collapsibleGroupTitle == null || groupExpanded[anchor.id]?.invoke() != false
 
-    @TestOnly
-    fun resetSessionWiring() {
+    /**
+     * Drops the session wiring. Called from the Settings dialog's dispose so
+     * the refresh closure and expanded suppliers stop pinning the closed
+     * dialog's component tree; also resets state between tests.
+     */
+    fun clearSessionWiring() {
         groupExpanded.clear()
         onBadgesChanged = null
     }
@@ -242,9 +248,17 @@ internal fun installSettingsBadges(
  * Marks this collapsible group as the home of a new-settings anchor: reports
  * live expanded state for tab-visit acknowledgement and retires the anchor
  * the moment the user expands the spoiler.
+ *
+ * [visibleToUser] covers groups behind visibility gates (preset-only
+ * sections): while the group itself is hidden the spoiler cannot gate the
+ * anchor, so a tab visit retires it — otherwise the badge would be
+ * unreachable until the user flips an unrelated setting.
  */
-internal fun CollapsibleRow.bindNewSettingBadge(anchorId: String) {
-    SettingsBadges.registerGroupExpanded(anchorId) { expanded }
+internal fun CollapsibleRow.bindNewSettingBadge(
+    anchorId: String,
+    visibleToUser: () -> Boolean = { true },
+) {
+    SettingsBadges.registerGroupExpanded(anchorId) { !visibleToUser() || expanded }
     addExpandedListener { nowExpanded ->
         if (nowExpanded) {
             SettingsBadges.acknowledgeAnchor(AyuIslandsSettings.getInstance().state, anchorId)

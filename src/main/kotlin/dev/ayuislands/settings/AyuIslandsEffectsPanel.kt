@@ -425,7 +425,9 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                         { },
                     )
                 }
-        targetsGroup.bindNewSettingBadge("glow-placement")
+        // Mirrors visibleIfUnlockedOrPreview below: locked users always see the
+        // preview group; licensed users only see it on the Custom preset.
+        targetsGroup.bindNewSettingBadge("glow-placement") { !gate.isUnlocked || customVisible.get() }
         targetsGroup.visibleIfUnlockedOrPreview(customVisible, gate)
     }
 

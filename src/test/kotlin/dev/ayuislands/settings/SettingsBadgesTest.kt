@@ -36,7 +36,7 @@ class SettingsBadgesTest {
     @AfterTest
     fun tearDown() {
         unmockkAll()
-        SettingsBadges.resetSessionWiring()
+        SettingsBadges.clearSessionWiring()
     }
 
     private fun updatedState(): AyuIslandsState = AyuIslandsState().apply { lastSeenVersion = "2.8.0" }
@@ -90,6 +90,35 @@ class SettingsBadgesTest {
         SettingsBadges.acknowledgeTab(state, "Glow")
 
         assertFalse(SettingsBadges.isPending(state, "glow-placement"))
+    }
+
+    @Test
+    fun `a tab visit retires a grouped anchor when its group never got built`() {
+        // Stub tab or hidden section: no supplier registered — the spoiler
+        // cannot gate the anchor, so the badge must not become unreachable.
+        val state = updatedState()
+
+        SettingsBadges.acknowledgeTab(state, "Glow")
+
+        assertFalse(SettingsBadges.isPending(state, "glow-placement"))
+    }
+
+    @Test
+    fun `clearing session wiring drops suppliers and the refresh hook`() {
+        val state = updatedState()
+        var refreshed = false
+        SettingsBadges.registerGroupExpanded("glow-placement") { false }
+        SettingsBadges.onBadgesChanged = { refreshed = true }
+
+        SettingsBadges.clearSessionWiring()
+
+        SettingsBadges.acknowledgeAnchor(state, "chrome-tint-external-themes")
+        assertFalse(refreshed, "cleared refresh hook must not fire for a closed dialog")
+        SettingsBadges.acknowledgeTab(state, "Glow")
+        assertFalse(
+            SettingsBadges.isPending(state, "glow-placement"),
+            "cleared supplier must fall back to visit-acknowledgement",
+        )
     }
 
     @Test
