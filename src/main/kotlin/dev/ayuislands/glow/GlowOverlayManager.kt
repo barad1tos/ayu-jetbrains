@@ -332,7 +332,10 @@ class GlowOverlayManager(
         }
 
         overlays[id] = OverlayEntry(glassPane, host, layeredPane, compListener, boundsListener)
-        log.info("Glow overlay attached: $id (host: ${host.javaClass.simpleName})")
+        log.info(
+            "Glow overlay attached: $id (host: ${host.javaClass.simpleName}, " +
+                "chain: ${ComponentHierarchyUtils.describeAncestry(host)})",
+        )
     }
 
     private fun detachOverlayEntry(entry: OverlayEntry) {
