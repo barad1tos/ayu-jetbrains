@@ -14,9 +14,12 @@ import java.awt.Container
 import java.awt.FlowLayout
 import java.awt.Graphics
 import java.awt.Graphics2D
+import java.awt.Insets
 import java.awt.RenderingHints
 import javax.swing.JComponent
 import javax.swing.JPanel
+import javax.swing.border.Border
+import javax.swing.border.CompoundBorder
 
 /**
  * A settings surface introduced in the current release cycle.
@@ -264,10 +267,9 @@ internal fun Row.newFeatureBadge(anchorId: String) {
  * Puts an accent dot after the title of every collapsible group hiding a
  * pending anchor, and restores the plain title once acknowledged.
  *
- * The dot rides the separator label's text as HTML — the label's icon slot
- * already carries the expand/collapse chevron. `TitledSeparator.getText()`
- * keeps returning the original title (it reads the stored text, not the
- * label), so lookup by group title stays stable across refreshes.
+ * The dot paints from a border decoration on the separator label: the label's
+ * icon slot already carries the expand/collapse chevron, and a border keeps
+ * the dot at the exact tab-dot size, vertically centered on the title text.
  */
 private fun refreshGroupTitleDots(
     tabs: JBTabbedPane,
@@ -280,6 +282,9 @@ private fun refreshGroupTitleDots(
     }
 }
 
+private const val DOT_MARKER = "ayu.newSettingsDotMarker"
+private const val DOT_ORIGINAL_BORDER = "ayu.newSettingsDotOriginalBorder"
+
 private fun refreshGroupTitleDot(
     anchor: SettingsBadgeAnchor,
     tabs: JBTabbedPane,
@@ -291,18 +296,49 @@ private fun refreshGroupTitleDot(
     val tabIndex = tabTitles.indexOf(anchor.tabTitle)
     if (tabIndex < 0 || tabIndex >= tabs.tabCount) return
     val root = tabs.getComponentAt(tabIndex) as? Container ?: return
-    val separator = findTitledSeparator(root, groupTitle) ?: return
+    val label = findTitledSeparator(root, groupTitle)?.label ?: return
 
     val pending = SettingsBadges.isPending(state, anchor.id)
-    separator.label.text =
-        if (pending) {
-            val hex = "#%02x%02x%02x".format(accent.red, accent.green, accent.blue)
-            "<html>$groupTitle <font color=\"$hex\">●</font></html>"
-        } else {
-            groupTitle
+    val marked = label.getClientProperty(DOT_MARKER) == true
+    if (pending && !marked) {
+        label.putClientProperty(DOT_ORIGINAL_BORDER, label.border)
+        label.putClientProperty(DOT_MARKER, true)
+        label.border = CompoundBorder(label.border, TitleDotBorder(accent))
+        label.accessibleContext.accessibleDescription = "Contains new settings"
+    } else if (!pending && marked) {
+        label.border = label.getClientProperty(DOT_ORIGINAL_BORDER) as? Border
+        label.putClientProperty(DOT_MARKER, null)
+        label.putClientProperty(DOT_ORIGINAL_BORDER, null)
+        label.accessibleContext.accessibleDescription = null
+    }
+}
+
+/** Trailing accent dot at [BADGE_DOT_SIZE], centered on the component's text height. */
+private class TitleDotBorder(
+    private val color: Color,
+) : Border {
+    override fun paintBorder(
+        c: Component,
+        g: Graphics,
+        x: Int,
+        y: Int,
+        width: Int,
+        height: Int,
+    ) {
+        val g2 = g.create() as Graphics2D
+        try {
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            g2.color = color
+            val size = JBUI.scale(BADGE_DOT_SIZE)
+            g2.fillOval(x + width - size, y + (height - size) / 2, size, size)
+        } finally {
+            g2.dispose()
         }
-    separator.label.accessibleContext.accessibleDescription =
-        if (pending) "Contains new settings" else null
+    }
+
+    override fun getBorderInsets(c: Component): Insets = JBUI.insetsRight(BADGE_GAP + BADGE_DOT_SIZE)
+
+    override fun isBorderOpaque(): Boolean = false
 }
 
 private const val GROUP_DOT_SCAN_CAP = 800

@@ -230,6 +230,8 @@ class SettingsBadgesTest {
         val tabs = JBTabbedPane()
         tabs.addTab("Accent", accentTab)
 
+        val originalBorder = findSeparator(accentTab, "Overrides")?.label?.border
+
         installSettingsBadges(tabs, listOf("Accent"), Color.ORANGE)
 
         assertTrue(
@@ -238,15 +240,18 @@ class SettingsBadgesTest {
         )
         val separator = findSeparator(accentTab, "Overrides")
         assertNotNull(separator, "collapsible group title separator must be discoverable")
-        assertTrue(
-            separator.label.text.contains("●"),
-            "pending grouped anchor must show a dot on the spoiler title",
+        assertEquals(
+            true,
+            separator.label.getClientProperty("ayu.newSettingsDotMarker"),
+            "pending grouped anchor must decorate the spoiler title with a dot border",
         )
+        assertNotSame(originalBorder, separator.label.border, "dot border must wrap the original")
 
         // Expanding the spoiler acknowledges the anchor and restores the plain title.
         overrides.expanded = true
         assertFalse(SettingsBadges.isPending(state, "accent-from-project-icon"))
-        assertEquals("Overrides", separator.label.text)
+        assertNull(separator.label.getClientProperty("ayu.newSettingsDotMarker"))
+        assertSame(originalBorder, separator.label.border, "acknowledged title must restore its border")
     }
 
     // Kotlin UI DSL touches ActionManager and ExperimentalUI during panel
