@@ -441,6 +441,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                         inactiveSlider = slider
                         cell(slider).resizableColumn().align(Align.FILL)
                         cell(valueLabel)
+                        newFeatureBadge("glow-inactive-brightness")
                     }
                     row {
                         comment("How bright unfocused islands stay; 0 keeps glow on the focused island only.")
@@ -473,6 +474,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         // Mirrors visibleIfUnlockedOrPreview below: locked users always see the
         // preview group; licensed users only see it on the Custom preset.
         targetsGroup.bindNewSettingBadge("glow-placement") { !gate.isUnlocked || customVisible.get() }
+        targetsGroup.bindNewSettingBadge("glow-inactive-brightness") { !gate.isUnlocked || customVisible.get() }
         targetsGroup.visibleIfUnlockedOrPreview(customVisible, gate)
     }
 

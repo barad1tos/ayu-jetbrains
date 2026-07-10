@@ -345,9 +345,17 @@ categories:
         description: >
           Choose where glow renders per surface: the full island frame or
           its side edges only, for the editor and for tool windows.
-          Selection previews on live windows before Apply. Unfocused islands
-          can keep a configurable dim glow (0 = classic focused-only).
+          Selection previews on live windows before Apply.
           Existing setups keep the full-island default.
+      - id: glow-inactive-brightness
+        title: "Inactive glow brightness"
+        keyword: "Glow"
+        introduced: "2.8.0"
+        tier: paid
+        description: >
+          Unfocused islands can keep a configurable dim glow instead of
+          going dark, so the bright island always marks the focused
+          surface. 0 keeps the classic focused-only behavior.
 
   fonts:
     title: "Font presets"

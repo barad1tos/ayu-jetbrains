@@ -13,6 +13,7 @@ from .paths import FEATURES_YAML, REPO_ROOT
 from .report import Report
 from .required_links import check_required_links
 from .screenshots import check_screenshots
+from .settings_badges import check_settings_badges
 from .stamps import restamp_orphaned, update_hashes
 
 
@@ -65,5 +66,6 @@ def main() -> int:
     check_required_links(data, report)
     check_asset_inventory(data, report)
     check_marketplace_sync(data, report)
+    check_settings_badges(data, report)
     report.print()
     return 1 if report.has_errors else 0
