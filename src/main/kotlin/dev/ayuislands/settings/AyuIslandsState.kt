@@ -152,7 +152,7 @@ class AyuIslandsState : BaseState() {
     var glowFocusRing by property(true)
 
     // Glow placement per surface family; normalized through
-    // GlowPlacement.forEditor / forToolWindow at read sites.
+    // GlowPlacement.fromName at read sites (retired names fall back to ISLAND).
     var glowEditorPlacement by string(GlowPlacement.ISLAND.name)
     var glowToolWindowPlacement by string(GlowPlacement.ISLAND.name)
 

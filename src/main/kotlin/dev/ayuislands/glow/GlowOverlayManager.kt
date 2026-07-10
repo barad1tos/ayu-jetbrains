@@ -560,7 +560,7 @@ private fun resolveGlowPlacement(
     state: AyuIslandsState,
 ): GlowPlacement =
     if (isEditorOverlay) {
-        GlowPlacement.forEditor(state.glowEditorPlacement)
+        GlowPlacement.fromName(state.glowEditorPlacement)
     } else {
-        GlowPlacement.forToolWindow(state.glowToolWindowPlacement)
+        GlowPlacement.fromName(state.glowToolWindowPlacement)
     }

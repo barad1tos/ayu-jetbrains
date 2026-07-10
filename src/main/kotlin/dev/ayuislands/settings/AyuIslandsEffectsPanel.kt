@@ -82,8 +82,8 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                 width = GlowStyle.entries.associateWith { state.getWidthForStyle(it) },
                 animation = GlowAnimation.fromName(state.glowAnimation ?: GlowAnimation.NONE.name),
                 islandToggles = ISLAND_IDS.associateWith { state.isIslandEnabled(it) },
-                editorPlacement = GlowPlacement.forEditor(state.glowEditorPlacement),
-                toolWindowPlacement = GlowPlacement.forToolWindow(state.glowToolWindowPlacement),
+                editorPlacement = GlowPlacement.fromName(state.glowEditorPlacement),
+                toolWindowPlacement = GlowPlacement.fromName(state.glowToolWindowPlacement),
             )
         }
 
@@ -385,7 +385,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                     editorPlacementSegmented =
                         buildPlacementRow(
                             labelText = "Editor placement",
-                            items = listOf(GlowPlacement.ISLAND, GlowPlacement.TAB_BAR, GlowPlacement.SIDE_EDGES),
+                            items = listOf(GlowPlacement.ISLAND, GlowPlacement.SIDE_EDGES),
                             licensed = licensed,
                             badgeAnchorId = "glow-placement",
                         ) { placement -> section.update { it.copy(editorPlacement = placement) } }
@@ -398,7 +398,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                         ) { placement -> section.update { it.copy(toolWindowPlacement = placement) } }
                     toolWindowPlacementSegmented?.selectedItem = section.pending.toolWindowPlacement
                     row {
-                        comment("Island glows the full frame; Under tabs and Side edges glow only that strip.")
+                        comment("Island glows the full frame; Side edges glows only the left and right strips.")
                     }
                     // Headers row
                     threeColumnsRow(

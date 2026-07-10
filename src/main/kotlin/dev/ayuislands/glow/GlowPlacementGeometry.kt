@@ -32,11 +32,6 @@ object GlowPlacementGeometry {
                 emptyList()
             }
 
-            GlowPlacement.TAB_BAR -> {
-                val strip = stripThickness(glowWidth, arcWidth).coerceAtMost(height)
-                listOf(Rectangle(0, 0, width, strip))
-            }
-
             GlowPlacement.SIDE_EDGES -> {
                 val strip = stripThickness(glowWidth, arcWidth).coerceAtMost(width)
                 listOf(

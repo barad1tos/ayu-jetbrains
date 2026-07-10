@@ -140,13 +140,13 @@ class AyuIslandsEffectsPanelTest {
         val effectsPanel = AyuIslandsEffectsPanel()
         buildDialogPanel(effectsPanel)
 
-        placementSegmented(effectsPanel, "editorPlacementSegmented").selectedItem = GlowPlacement.TAB_BAR
+        placementSegmented(effectsPanel, "editorPlacementSegmented").selectedItem = GlowPlacement.SIDE_EDGES
         placementSegmented(effectsPanel, "toolWindowPlacementSegmented").selectedItem = GlowPlacement.SIDE_EDGES
 
         assertTrue(effectsPanel.isModified(), "placement change must dirty the panel")
         effectsPanel.apply()
 
-        assertEquals(GlowPlacement.TAB_BAR.name, state.glowEditorPlacement)
+        assertEquals(GlowPlacement.SIDE_EDGES.name, state.glowEditorPlacement)
         assertEquals(GlowPlacement.SIDE_EDGES.name, state.glowToolWindowPlacement)
         assertFalse(effectsPanel.isModified(), "apply must converge stored onto pending")
     }
@@ -157,7 +157,7 @@ class AyuIslandsEffectsPanelTest {
         val effectsPanel = AyuIslandsEffectsPanel()
         buildDialogPanel(effectsPanel)
 
-        placementSegmented(effectsPanel, "editorPlacementSegmented").selectedItem = GlowPlacement.TAB_BAR
+        placementSegmented(effectsPanel, "editorPlacementSegmented").selectedItem = GlowPlacement.SIDE_EDGES
 
         assertFalse(
             effectsPanel.isModified(),
@@ -170,7 +170,7 @@ class AyuIslandsEffectsPanelTest {
         val effectsPanel = AyuIslandsEffectsPanel()
         buildDialogPanel(effectsPanel)
 
-        placementSegmented(effectsPanel, "editorPlacementSegmented").selectedItem = GlowPlacement.TAB_BAR
+        placementSegmented(effectsPanel, "editorPlacementSegmented").selectedItem = GlowPlacement.SIDE_EDGES
         assertTrue(effectsPanel.isModified(), "precondition: selection dirtied the panel")
 
         effectsPanel.reset()

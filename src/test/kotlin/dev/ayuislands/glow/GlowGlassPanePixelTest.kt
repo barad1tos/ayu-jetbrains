@@ -8,8 +8,8 @@ import kotlin.test.assertTrue
 /**
  * Pixel-level locks for partial glow placements rendered through the real
  * [GlowGlassPane.paint] path: SIDE_EDGES must light BOTH vertical edges and
- * TAB_BAR only the top strip. Guards against clip regressions that unit tests
- * on [GlowPlacementGeometry] rectangles alone cannot see.
+ * nothing else. Guards against clip regressions that unit tests on
+ * [GlowPlacementGeometry] rectangles alone cannot see.
  */
 class GlowGlassPanePixelTest {
     private companion object {
@@ -68,10 +68,10 @@ class GlowGlassPanePixelTest {
     }
 
     @Test
-    fun `tab bar paints only the top strip`() {
-        val image = paintedImage(GlowPlacement.TAB_BAR)
+    fun `island placement paints the full frame including top and bottom`() {
+        val image = paintedImage(GlowPlacement.ISLAND)
 
-        assertTrue(image.rowHasGlow(2), "top strip must glow")
-        assertTrue(!image.rowHasGlow(HEIGHT - 3), "bottom edge must stay clear for tab-bar placement")
+        assertTrue(image.rowHasGlow(2), "top edge must glow on the full frame")
+        assertTrue(image.rowHasGlow(HEIGHT - 3), "bottom edge must glow on the full frame")
     }
 }

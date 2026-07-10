@@ -215,8 +215,8 @@ class GlowOverlayManagerLifecycleTest {
         // every other overlay picks the tool-window placement.
         every { AyuVariant.isAyuActive() } returns true
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-        state.glowEditorPlacement = GlowPlacement.TAB_BAR.name
-        state.glowToolWindowPlacement = GlowPlacement.SIDE_EDGES.name
+        state.glowEditorPlacement = GlowPlacement.SIDE_EDGES.name
+        state.glowToolWindowPlacement = GlowPlacement.ISLAND.name
 
         val project = stubProject("placement-project")
         val manager = GlowOverlayManager(project)
@@ -238,10 +238,10 @@ class GlowOverlayManagerLifecycleTest {
 
         manager.updateGlow()
 
-        verify(exactly = 1) { editorPane.glowPlacement = GlowPlacement.TAB_BAR }
-        verify(exactly = 1) { toolWindowPane.glowPlacement = GlowPlacement.SIDE_EDGES }
-        verify(exactly = 0) { editorPane.glowPlacement = GlowPlacement.SIDE_EDGES }
-        verify(exactly = 0) { toolWindowPane.glowPlacement = GlowPlacement.TAB_BAR }
+        verify(exactly = 1) { editorPane.glowPlacement = GlowPlacement.SIDE_EDGES }
+        verify(exactly = 1) { toolWindowPane.glowPlacement = GlowPlacement.ISLAND }
+        verify(exactly = 0) { editorPane.glowPlacement = GlowPlacement.ISLAND }
+        verify(exactly = 0) { toolWindowPane.glowPlacement = GlowPlacement.SIDE_EDGES }
     }
 
     @Test

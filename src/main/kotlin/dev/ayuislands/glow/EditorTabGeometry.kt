@@ -146,9 +146,9 @@ object EditorTabGeometry {
             // Sanity gate: selected content that starts at (or above) the
             // host's top edge means the tab strip was NOT subtracted — newer
             // tab layouts (2026.x) report the selected tab's component as
-            // spanning the whole host. Trusting that rectangle put the
-            // "Under tabs" glow strip along the window top. Fall through to
-            // the label-based fallbacks, which measure the real strip.
+            // spanning the whole host. Trusting that rectangle would start the
+            // editor overlay at the window top, over the tab strip. Fall
+            // through to the label-based fallbacks, which measure it.
             if (converted.y <= 0) return null
             return converted
         } catch (_: ReflectiveOperationException) {

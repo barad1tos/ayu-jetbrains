@@ -8,8 +8,7 @@ import kotlin.test.assertTrue
 /**
  * Pure-math locks for [GlowPlacementGeometry.clipRegions] — the strips the
  * glass pane clips the cached glow frame to. The user-visible contract:
- * ISLAND paints the full frame, TAB_BAR only a band under the editor tab
- * strip, SIDE_EDGES only the left/right tool-window edges.
+ * ISLAND paints the full frame, SIDE_EDGES only the left/right edges.
  */
 class GlowPlacementGeometryTest {
     @Test
@@ -18,13 +17,6 @@ class GlowPlacementGeometryTest {
             emptyList(),
             GlowPlacementGeometry.clipRegions(GlowPlacement.ISLAND, 800, 600, 10, 8),
         )
-    }
-
-    @Test
-    fun `tab bar placement clips to a single top strip spanning the full width`() {
-        val regions = GlowPlacementGeometry.clipRegions(GlowPlacement.TAB_BAR, 800, 600, 10, 8)
-
-        assertEquals(listOf(Rectangle(0, 0, 800, 14)), regions, "strip = glowWidth + arc/2 = 10 + 4")
     }
 
     @Test
@@ -43,9 +35,6 @@ class GlowPlacementGeometryTest {
 
     @Test
     fun `strips never exceed the overlay bounds`() {
-        val tabBar = GlowPlacementGeometry.clipRegions(GlowPlacement.TAB_BAR, 800, 6, 10, 8)
-        assertEquals(listOf(Rectangle(0, 0, 800, 6)), tabBar, "tab strip clamps to a short overlay")
-
         val edges = GlowPlacementGeometry.clipRegions(GlowPlacement.SIDE_EDGES, 10, 600, 10, 8)
         assertTrue(
             edges.all { it.x >= 0 && it.x + it.width <= 10 },
@@ -71,8 +60,8 @@ class GlowPlacementGeometryTest {
 
     @Test
     fun `strip thickness never collapses below one pixel`() {
-        val regions = GlowPlacementGeometry.clipRegions(GlowPlacement.TAB_BAR, 800, 600, 0, 0)
+        val regions = GlowPlacementGeometry.clipRegions(GlowPlacement.SIDE_EDGES, 800, 600, 0, 0)
 
-        assertEquals(listOf(Rectangle(0, 0, 800, 1)), regions)
+        assertEquals(listOf(Rectangle(0, 0, 1, 600), Rectangle(799, 0, 1, 600)), regions)
     }
 }

@@ -138,7 +138,7 @@ class EditorTabGeometryTest {
     @Test
     fun `calculateEditorOverlayBounds rejects selected content that spans the whole host`() {
         // 2026.x tab layouts report the selected tab's component as covering
-        // the entire host (y=0). Trusting that rectangle drew the "Under tabs"
+        // the entire host (y=0). Trusting that rectangle drew the top-anchored
         // strip along the window top; the sanity gate must fall through to the
         // real tab-label measurement instead.
         val host = JPanel(null)
