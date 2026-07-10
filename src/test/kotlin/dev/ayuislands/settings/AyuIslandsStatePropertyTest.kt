@@ -4,7 +4,10 @@ import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AccentGroup
 import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowPreset
+import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
+import dev.ayuislands.glow.waveform.WaveformDirection
+import dev.ayuislands.glow.waveform.WaveformMotion
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -111,6 +114,23 @@ class AyuIslandsStatePropertyTest {
     fun `default glow animation is NONE`() {
         val state = AyuIslandsState()
         assertEquals(GlowAnimation.NONE.name, state.glowAnimation)
+    }
+
+    @Test
+    fun `waveform settings default safely and clamp corrupted persisted numbers`() {
+        val state = AyuIslandsState()
+
+        assertEquals(GlowShape.SOLID.name, state.glowShape)
+        assertEquals(WaveformMotion.MONITOR.name, state.waveformMotion)
+        assertEquals(WaveformDirection.CLOCKWISE.name, state.waveformDirection)
+        assertEquals(10, state.effectiveWaveformAmplitude())
+        assertEquals(70, state.effectiveWaveformIntensity())
+
+        state.waveformAmplitude = Int.MIN_VALUE
+        state.waveformIntensity = Int.MAX_VALUE
+
+        assertEquals(6, state.effectiveWaveformAmplitude())
+        assertEquals(100, state.effectiveWaveformIntensity())
     }
 
     @Test

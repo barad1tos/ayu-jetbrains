@@ -3,7 +3,10 @@ package dev.ayuislands.settings
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AccentGroup
 import dev.ayuislands.glow.GlowAnimation
+import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
+import dev.ayuislands.glow.waveform.WaveformDirection
+import dev.ayuislands.glow.waveform.WaveformMotion
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -82,6 +85,24 @@ class AyuIslandsStatePersistenceTest {
             reloaded.state.getWidthForStyle(GlowStyle.SHARP_NEON),
         )
         assertEquals(GlowAnimation.BREATHE.name, reloaded.state.glowAnimation)
+    }
+
+    @Test
+    fun `waveform settings survive save reload cycle`() {
+        val reloaded =
+            roundTrip { state ->
+                state.glowShape = GlowShape.WAVEFORM.name
+                state.waveformMotion = WaveformMotion.STATIC_PULSE.name
+                state.waveformDirection = WaveformDirection.COUNTER_CLOCKWISE.name
+                state.waveformAmplitude = 16
+                state.waveformIntensity = 88
+            }
+
+        assertEquals(GlowShape.WAVEFORM.name, reloaded.state.glowShape)
+        assertEquals(WaveformMotion.STATIC_PULSE.name, reloaded.state.waveformMotion)
+        assertEquals(WaveformDirection.COUNTER_CLOCKWISE.name, reloaded.state.waveformDirection)
+        assertEquals(16, reloaded.state.waveformAmplitude)
+        assertEquals(88, reloaded.state.waveformIntensity)
     }
 
     @Test

@@ -10,7 +10,16 @@ import dev.ayuislands.accent.TintIntensity
 import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowPlacement
 import dev.ayuislands.glow.GlowPreset
+import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
+import dev.ayuislands.glow.waveform.DEFAULT_WAVEFORM_AMPLITUDE
+import dev.ayuislands.glow.waveform.DEFAULT_WAVEFORM_INTENSITY
+import dev.ayuislands.glow.waveform.MAX_WAVEFORM_AMPLITUDE
+import dev.ayuislands.glow.waveform.MAX_WAVEFORM_INTENSITY
+import dev.ayuislands.glow.waveform.MIN_WAVEFORM_AMPLITUDE
+import dev.ayuislands.glow.waveform.MIN_WAVEFORM_INTENSITY
+import dev.ayuislands.glow.waveform.WaveformDirection
+import dev.ayuislands.glow.waveform.WaveformMotion
 import dev.ayuislands.indent.IndentPreset
 import dev.ayuislands.rotation.AccentRotationMode
 import dev.ayuislands.vcs.VcsColorCategory
@@ -111,6 +120,9 @@ class AyuIslandsState : BaseState() {
     // Glow effect
     var glowEnabled by property(false)
 
+    // Glow rendering shape (solid frame or ECG waveform)
+    var glowShape by string(GlowShape.SOLID.name)
+
     // Glow preset (null = legacy state, needs migration via GlowPreset.detect())
     var glowPreset by string(GlowPreset.WHISPER.name)
 
@@ -129,6 +141,12 @@ class AyuIslandsState : BaseState() {
 
     // Animation
     var glowAnimation by string(GlowAnimation.NONE.name)
+
+    // Waveform-specific controls. Solid preferences remain stored independently.
+    var waveformMotion by string(WaveformMotion.MONITOR.name)
+    var waveformDirection by string(WaveformDirection.CLOCKWISE.name)
+    var waveformAmplitude by property(DEFAULT_WAVEFORM_AMPLITUDE)
+    var waveformIntensity by property(DEFAULT_WAVEFORM_INTENSITY)
 
     // Per-island toggles (all ON by default — glow visibility is controlled by glowEnabled)
     var glowEditor by property(true)
@@ -571,6 +589,10 @@ class AyuIslandsState : BaseState() {
             GlowStyle.GRADIENT -> gradientWidth = value
         }
     }
+
+    fun effectiveWaveformAmplitude(): Int = waveformAmplitude.coerceIn(MIN_WAVEFORM_AMPLITUDE, MAX_WAVEFORM_AMPLITUDE)
+
+    fun effectiveWaveformIntensity(): Int = waveformIntensity.coerceIn(MIN_WAVEFORM_INTENSITY, MAX_WAVEFORM_INTENSITY)
 
     fun isIslandEnabled(toolWindowId: String): Boolean =
         when (toolWindowId) {

@@ -51,6 +51,9 @@
 -keep enum dev.ayuislands.glow.GlowTabMode { *; }
 -keep enum dev.ayuislands.glow.GlowPreset { *; }
 -keep enum dev.ayuislands.glow.GlowPlacement { *; }
+-keep enum dev.ayuislands.glow.GlowShape { *; }
+-keep enum dev.ayuislands.glow.waveform.WaveformMotion { *; }
+-keep enum dev.ayuislands.glow.waveform.WaveformDirection { *; }
 -keep enum dev.ayuislands.font.FontWeight { *; }
 -keep enum dev.ayuislands.font.FontPreset { *; }
 -keep enum dev.ayuislands.vcs.VcsColorPreset { *; }

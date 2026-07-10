@@ -1,9 +1,40 @@
 package dev.ayuislands.glow
 
+import dev.ayuislands.glow.waveform.WaveformDirection
+import dev.ayuislands.glow.waveform.WaveformMotion
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class GlowEnumsTest {
+    // GlowShape
+
+    @Test
+    fun `GlowShape decodes persisted names and falls back to SOLID`() {
+        assertEquals(GlowShape.SOLID, GlowShape.fromName("SOLID"))
+        assertEquals(GlowShape.WAVEFORM, GlowShape.fromName("WAVEFORM"))
+        assertEquals(GlowShape.SOLID, GlowShape.fromName("UNKNOWN"))
+        assertEquals(GlowShape.SOLID, GlowShape.fromName(null))
+    }
+
+    @Test
+    fun `WaveformMotion decodes persisted names and falls back to MONITOR`() {
+        assertEquals(WaveformMotion.MONITOR, WaveformMotion.fromName("MONITOR"))
+        assertEquals(WaveformMotion.STATIC_PULSE, WaveformMotion.fromName("STATIC_PULSE"))
+        assertEquals(WaveformMotion.MONITOR, WaveformMotion.fromName("UNKNOWN"))
+        assertEquals(WaveformMotion.MONITOR, WaveformMotion.fromName(null))
+    }
+
+    @Test
+    fun `WaveformDirection decodes persisted names and falls back to CLOCKWISE`() {
+        assertEquals(WaveformDirection.CLOCKWISE, WaveformDirection.fromName("CLOCKWISE"))
+        assertEquals(
+            WaveformDirection.COUNTER_CLOCKWISE,
+            WaveformDirection.fromName("COUNTER_CLOCKWISE"),
+        )
+        assertEquals(WaveformDirection.CLOCKWISE, WaveformDirection.fromName("UNKNOWN"))
+        assertEquals(WaveformDirection.CLOCKWISE, WaveformDirection.fromName(null))
+    }
+
     // GlowStyle
 
     @Test
