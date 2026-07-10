@@ -16,6 +16,7 @@ class GlowGlassPanePixelTest {
         const val WIDTH = 400
         const val HEIGHT = 300
         const val ALPHA_FLOOR = 8
+        const val MAX_FADE_STEPS = 40
     }
 
     private fun paintedImage(
@@ -88,6 +89,32 @@ class GlowGlassPanePixelTest {
         // frame leaked arc segments there).
         val cornerSpill = (image.getRGB(WIDTH / 2, 1) ushr 24) and 0xFF
         assertTrue(cornerSpill <= ALPHA_FLOOR, "top row must stay clear outside the vertical strips")
+    }
+
+    @Test
+    fun `fade converges onto a fractional target from both directions`() {
+        val pane =
+            GlowGlassPane(
+                glowColor = Color(0xFF8F40),
+                glowStyle = GlowStyle.SOFT,
+                glowIntensity = 80,
+                glowWidth = 12,
+            )
+        val alphaField =
+            GlowGlassPane::class.java.getDeclaredField("fadeAlpha").apply { isAccessible = true }
+        val targetField =
+            GlowGlassPane::class.java.getDeclaredField("fadeTarget").apply { isAccessible = true }
+
+        // From above: a focused overlay dimming down to 30% must stop at 30%.
+        alphaField.setFloat(pane, 1.0f)
+        targetField.setFloat(pane, 0.3f)
+        repeat(MAX_FADE_STEPS) { pane.advanceFade() }
+        assertTrue(alphaField.getFloat(pane) == 0.3f, "fade must settle exactly on the dim target")
+
+        // From below: an attached overlay brightening up to the dim level.
+        alphaField.setFloat(pane, 0.0f)
+        repeat(MAX_FADE_STEPS) { pane.advanceFade() }
+        assertTrue(alphaField.getFloat(pane) == 0.3f, "fade must rise to the dim target and hold")
     }
 
     @Test

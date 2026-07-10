@@ -4,6 +4,7 @@ import com.intellij.ide.ui.LafManager
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.ui.dsl.builder.SegmentedButton
 import dev.ayuislands.glow.GlowPlacement
 import dev.ayuislands.glow.GlowPreset
@@ -55,6 +56,11 @@ class AyuIslandsEffectsPanelTest {
         every { appMock.getService(ActionManager::class.java) } returns actionManagerMock
         every { appMock.getService(LafManager::class.java) } returns lafManagerMock
         every { actionManagerMock.getAction(any()) } returns null
+        // Placement preview's default sink iterates open projects; headless
+        // tests have none, which keeps the un-injected path a no-op.
+        val projectManagerMock = mockk<ProjectManager>(relaxed = true)
+        every { appMock.getService(ProjectManager::class.java) } returns projectManagerMock
+        every { projectManagerMock.openProjects } returns emptyArray()
 
         @Suppress("UNCHECKED_CAST")
         val experimentalUiClass = Class.forName("com.intellij.ui.ExperimentalUI") as Class<Any>
@@ -149,6 +155,74 @@ class AyuIslandsEffectsPanelTest {
         assertEquals(GlowPlacement.SIDE_EDGES.name, state.glowEditorPlacement)
         assertEquals(GlowPlacement.SIDE_EDGES.name, state.glowToolWindowPlacement)
         assertFalse(effectsPanel.isModified(), "apply must converge stored onto pending")
+    }
+
+    @Test
+    fun `placement selection pushes a live preview and reset reverts it`() {
+        val effectsPanel = AyuIslandsEffectsPanel()
+        val previews = mutableListOf<Pair<GlowPlacement, GlowPlacement>>()
+        var reverted = 0
+        effectsPanel.placementPreview = { editor, toolWindow -> previews.add(editor to toolWindow) }
+        effectsPanel.placementPreviewRevert = { reverted++ }
+        buildDialogPanel(effectsPanel)
+        previews.clear() // building the panel replays stored selections; only user clicks matter
+
+        placementSegmented(effectsPanel, "editorPlacementSegmented").selectedItem = GlowPlacement.SIDE_EDGES
+
+        assertEquals(
+            GlowPlacement.SIDE_EDGES to GlowPlacement.ISLAND,
+            previews.lastOrNull(),
+            "selection must push the pending placements onto live overlays before Apply",
+        )
+
+        effectsPanel.reset()
+        assertTrue(reverted > 0, "reset must revert the live preview to stored state")
+    }
+
+    @Test
+    fun `disposing the panel reverts an unapplied preview`() {
+        val effectsPanel = AyuIslandsEffectsPanel()
+        var reverted = 0
+        effectsPanel.placementPreviewRevert = { reverted++ }
+        buildDialogPanel(effectsPanel)
+
+        effectsPanel.dispose()
+
+        assertTrue(reverted > 0, "closing Settings must not leave a previewed placement on screen")
+    }
+
+    @Test
+    fun `licensed inactive brightness persists through apply into state`() {
+        val effectsPanel = AyuIslandsEffectsPanel()
+        buildDialogPanel(effectsPanel)
+
+        inactiveSlider(effectsPanel).value = 30
+
+        assertTrue(effectsPanel.isModified(), "slider change must dirty the panel")
+        effectsPanel.apply()
+
+        assertEquals(30, state.glowInactiveIntensityPercent)
+        assertFalse(effectsPanel.isModified(), "apply must converge stored onto pending")
+    }
+
+    @Test
+    fun `unlicensed inactive brightness slider cannot mutate pending state`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        val effectsPanel = AyuIslandsEffectsPanel()
+        buildDialogPanel(effectsPanel)
+
+        inactiveSlider(effectsPanel).value = 30
+
+        assertFalse(
+            effectsPanel.isModified(),
+            "locked inactive-brightness preview must ignore slider changes",
+        )
+    }
+
+    private fun inactiveSlider(panel: AyuIslandsEffectsPanel): JSlider {
+        val field = AyuIslandsEffectsPanel::class.java.getDeclaredField("inactiveSlider")
+        field.isAccessible = true
+        return field.get(panel) as? JSlider ?: error("inactive brightness slider must be created")
     }
 
     @Test

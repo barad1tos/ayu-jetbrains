@@ -1,6 +1,8 @@
 package dev.ayuislands.settings
 
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
@@ -8,6 +10,7 @@ import com.intellij.ui.dsl.builder.Row
 import com.intellij.ui.dsl.builder.SegmentedButton
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowAnimation
+import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.glow.GlowPlacement
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
@@ -51,6 +54,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         val islandToggles: Map<String, Boolean> = emptyMap(),
         val editorPlacement: GlowPlacement = GlowPlacement.ISLAND,
         val toolWindowPlacement: GlowPlacement = GlowPlacement.ISLAND,
+        val inactivePercent: Int = 0,
     ) {
         /**
          * Folds [preset]'s canonical style/intensity/width/animation into the
@@ -84,6 +88,8 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                 islandToggles = ISLAND_IDS.associateWith { state.isIslandEnabled(it) },
                 editorPlacement = GlowPlacement.fromName(state.glowEditorPlacement),
                 toolWindowPlacement = GlowPlacement.fromName(state.glowToolWindowPlacement),
+                inactivePercent =
+                    state.glowInactiveIntensityPercent.coerceIn(0, AyuIslandsState.MAX_INACTIVE_GLOW_PERCENT),
             )
         }
 
@@ -103,7 +109,18 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
     private var presetSegmentedButton: SegmentedButton<GlowPreset>? = null
     private var editorPlacementSegmented: SegmentedButton<GlowPlacement>? = null
     private var toolWindowPlacementSegmented: SegmentedButton<GlowPlacement>? = null
+    private var inactiveSlider: JSlider? = null
     private var glowGroupPanel: GlowGroupPanel? = null
+
+    // Live-preview seam (same idea as the Appearance theme preview): a
+    // placement click restyles live overlays before Apply; reset/dispose
+    // reverts to stored state. Tests inject recorders.
+    internal var placementPreview: (GlowPlacement, GlowPlacement) -> Unit = { editor, toolWindow ->
+        forEachOpenGlowManager { it.previewPlacements(editor, toolWindow) }
+    }
+    internal var placementPreviewRevert: () -> Unit = {
+        forEachOpenGlowManager { it.previewPlacements(null, null) }
+    }
 
     // Suppress listener events during programmatic updates
     private var suppressListeners = false
@@ -388,17 +405,45 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                             items = listOf(GlowPlacement.ISLAND, GlowPlacement.SIDE_EDGES),
                             licensed = licensed,
                             badgeAnchorId = "glow-placement",
-                        ) { placement -> section.update { it.copy(editorPlacement = placement) } }
+                        ) { placement ->
+                            section.update { it.copy(editorPlacement = placement) }
+                            pushPlacementPreview()
+                        }
                     editorPlacementSegmented?.selectedItem = section.pending.editorPlacement
                     toolWindowPlacementSegmented =
                         buildPlacementRow(
                             labelText = "Tool window placement",
                             items = listOf(GlowPlacement.ISLAND, GlowPlacement.SIDE_EDGES),
                             licensed = licensed,
-                        ) { placement -> section.update { it.copy(toolWindowPlacement = placement) } }
+                        ) { placement ->
+                            section.update { it.copy(toolWindowPlacement = placement) }
+                            pushPlacementPreview()
+                        }
                     toolWindowPlacementSegmented?.selectedItem = section.pending.toolWindowPlacement
                     row {
                         comment("Island glows the full frame; Side edges glows only the left and right strips.")
+                    }
+                    row {
+                        label("Inactive brightness")
+                        val slider =
+                            JSlider(0, AyuIslandsState.MAX_INACTIVE_GLOW_PERCENT, section.pending.inactivePercent)
+                        slider.paintTicks = true
+                        slider.majorTickSpacing = INACTIVE_SLIDER_MAJOR_TICK
+                        slider.minorTickSpacing = INACTIVE_SLIDER_MINOR_TICK
+                        slider.applyPremiumLock(gate, section.pending.enabled)
+                        val valueLabel = JLabel("${slider.value}")
+                        slider.addChangeListener {
+                            if (!suppressListeners && gate.isUnlocked) {
+                                section.update { it.copy(inactivePercent = slider.value) }
+                            }
+                            valueLabel.text = "${slider.value}"
+                        }
+                        inactiveSlider = slider
+                        cell(slider).resizableColumn().align(Align.FILL)
+                        cell(valueLabel)
+                    }
+                    row {
+                        comment("How bright unfocused islands stay; 0 keeps glow on the focused island only.")
                     }
                     // Headers row
                     threeColumnsRow(
@@ -567,6 +612,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         presetSegmentedButton?.enabled(enabled)
         editorPlacementSegmented?.enabled(enabled)
         toolWindowPlacementSegmented?.enabled(enabled)
+        inactiveSlider?.isEnabled = enabled
 
         for ((_, cb) in islandCheckboxes) {
             cb.isEnabled = enabled
@@ -581,6 +627,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         customModeVisible.set(section.pending.preset == GlowPreset.CUSTOM)
         styleCombo?.selectedItem = section.pending.style.displayName
         animationCombo?.selectedItem = section.pending.animation.displayName
+        inactiveSlider?.value = section.pending.inactivePercent
         refreshSliders()
         refreshIslandCheckboxes()
         masterToggle?.isSelected = section.pending.enabled
@@ -621,12 +668,23 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
 
             state.glowEditorPlacement = pending.editorPlacement.name
             state.glowToolWindowPlacement = pending.toolWindowPlacement.name
+            state.glowInactiveIntensityPercent = pending.inactivePercent
         }
     }
 
     override fun reset() {
         section.resetToStored()
         refreshAllControls()
+        placementPreviewRevert()
+    }
+
+    override fun dispose() {
+        // A previewed-but-not-applied placement must not outlive the dialog.
+        placementPreviewRevert()
+    }
+
+    private fun pushPlacementPreview() {
+        placementPreview(section.pending.editorPlacement, section.pending.toolWindowPlacement)
     }
 
     companion object {
@@ -634,11 +692,24 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         private const val DEFAULT_INTENSITY = 20
         private const val INTENSITY_MAJOR_TICK = 25
         private const val INTENSITY_MINOR_TICK = 5
+        private const val INACTIVE_SLIDER_MAJOR_TICK = 20
+        private const val INACTIVE_SLIDER_MINOR_TICK = 10
         private const val MIN_WIDTH = 2
         private const val MAX_WIDTH = 16
         private const val DEFAULT_WIDTH = 4
         private const val WIDTH_MAJOR_TICK = 2
         private const val FALLBACK_COLOR_HEX = "#FFCC66"
         private val ISLAND_IDS = listOf("Editor", "Project", "Terminal", "Run", "Debug", "Git", "Services")
+    }
+}
+
+private fun forEachOpenGlowManager(action: (GlowOverlayManager) -> Unit) {
+    for (openProject in ProjectManager.getInstance().openProjects) {
+        try {
+            action(GlowOverlayManager.getInstance(openProject))
+        } catch (exception: RuntimeException) {
+            logger<AyuIslandsEffectsPanel>()
+                .warn("Glow placement preview failed for project ${openProject.name}", exception)
+        }
     }
 }

@@ -27,6 +27,7 @@ class GlowGlassPane(
 ) : JPanel(null) {
     private val renderer = GlowRenderer()
     private var fadeAlpha: Float = 0.0f
+    private var fadeTarget: Float = 0.0f
     private var fadeTimer: Timer? = null
 
     companion object {
@@ -88,24 +89,33 @@ class GlowGlassPane(
         }
     }
 
-    fun startFadeIn() {
+    fun startFadeIn() = fadeTo(1.0f)
+
+    fun startFadeOut() = fadeTo(0.0f)
+
+    /**
+     * Animates the glow toward [target] opacity. 1.0 is the focused overlay,
+     * 0.0 is fully off, and anything between keeps an unfocused island dimly
+     * lit (the inactive-brightness setting).
+     */
+    fun fadeTo(target: Float) {
+        fadeTarget = target.coerceIn(0.0f, 1.0f)
         fadeTimer?.stop()
         fadeTimer =
             Timer(FADE_TIMER_INTERVAL_MS) {
-                fadeAlpha = (fadeAlpha + FADE_STEP).coerceAtMost(1.0f)
+                advanceFade()
                 repaint()
-                if (fadeAlpha >= 1.0f) fadeTimer?.stop()
+                if (fadeAlpha == fadeTarget) fadeTimer?.stop()
             }.also { it.start() }
     }
 
-    fun startFadeOut() {
-        fadeTimer?.stop()
-        fadeTimer =
-            Timer(FADE_TIMER_INTERVAL_MS) {
-                fadeAlpha = (fadeAlpha - FADE_STEP).coerceAtLeast(0.0f)
-                repaint()
-                if (fadeAlpha <= 0.0f) fadeTimer?.stop()
-            }.also { it.start() }
+    internal fun advanceFade() {
+        fadeAlpha =
+            if (fadeAlpha < fadeTarget) {
+                (fadeAlpha + FADE_STEP).coerceAtMost(fadeTarget)
+            } else {
+                (fadeAlpha - FADE_STEP).coerceAtLeast(fadeTarget)
+            }
     }
 
     fun stopAnimation() {

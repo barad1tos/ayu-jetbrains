@@ -429,6 +429,26 @@ class AyuIslandsStateTest {
     }
 
     @Test
+    fun `inactive glow brightness defaults to zero and clamps to its cap`() {
+        val state = freshState()
+        assertEquals(0, state.glowInactiveIntensityPercent)
+        assertEquals(0.0f, state.effectiveGlowInactiveFraction())
+
+        state.glowInactiveIntensityPercent = 30
+        assertEquals(0.3f, state.effectiveGlowInactiveFraction())
+
+        // Hand-edited XML beyond the cap must not let inactive rival active.
+        state.glowInactiveIntensityPercent = 500
+        assertEquals(
+            AyuIslandsState.MAX_INACTIVE_GLOW_PERCENT / 100f,
+            state.effectiveGlowInactiveFraction(),
+        )
+
+        state.glowInactiveIntensityPercent = -10
+        assertEquals(0.0f, state.effectiveGlowInactiveFraction())
+    }
+
+    @Test
     fun `glow style defaults to SOFT`() {
         val state = freshState()
         assertEquals(GlowStyle.SOFT.name, state.glowStyle)

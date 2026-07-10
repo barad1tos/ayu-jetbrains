@@ -345,6 +345,8 @@ categories:
         description: >
           Choose where glow renders per surface: the full island frame or
           its side edges only, for the editor and for tool windows.
+          Selection previews on live windows before Apply. Unfocused islands
+          can keep a configurable dim glow (0 = classic focused-only).
           Existing setups keep the full-island default.
 
   fonts:

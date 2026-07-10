@@ -215,8 +215,7 @@ class GlowOverlayManager(
         val newActiveId = if (focusOwner != null) findOverlayForComponent(focusOwner) else null
 
         if (newActiveId != activeGlowId) {
-            activeGlowId?.let { deactivateGlow(it) }
-            newActiveId?.let { activateGlow(it) }
+            moveGlowFocus(from = activeGlowId, to = newActiveId)
             activeGlowId = newActiveId
         }
     }
@@ -332,6 +331,11 @@ class GlowOverlayManager(
         }
 
         overlays[id] = OverlayEntry(glassPane, host, layeredPane, compListener, boundsListener)
+        // A freshly attached overlay is unfocused by definition; give it the
+        // inactive brightness right away so it does not sit dark until the
+        // first focus round-trip (no-op at the default 0).
+        val inactiveFraction = state.effectiveGlowInactiveFraction()
+        if (inactiveFraction > 0f && id != activeGlowId) glassPane.fadeTo(inactiveFraction)
         log.info(
             "Glow overlay attached: $id (host: ${host.javaClass.simpleName}, " +
                 "chain: ${ComponentHierarchyUtils.describeAncestry(host)})",
@@ -395,17 +399,21 @@ class GlowOverlayManager(
         attachOverlay(EDITOR_ID, host, isEditorOverlay = true)
     }
 
-    private fun activateGlow(id: String) {
-        val entry = overlays[id] ?: return
-        entry.glassPane.startFadeIn()
-        startAnimationIfConfigured(entry.glassPane)
-        log.info("Glow activated: $id")
-    }
-
-    private fun deactivateGlow(id: String) {
-        val entry = overlays[id] ?: return
-        stopAnimation(entry.glassPane)
-        entry.glassPane.startFadeOut()
+    private fun moveGlowFocus(
+        from: String?,
+        to: String?,
+    ) {
+        from?.let { overlays[it] }?.let { entry ->
+            stopAnimation(entry.glassPane)
+            // Unfocused overlays keep the configured inactive brightness; at
+            // the default 0 this is the classic full fade-out.
+            entry.glassPane.fadeTo(AyuIslandsSettings.getInstance().state.effectiveGlowInactiveFraction())
+        }
+        to?.let { overlays[it] }?.let { entry ->
+            entry.glassPane.startFadeIn()
+            startAnimationIfConfigured(entry.glassPane)
+            log.info("Glow activated: $to")
+        }
     }
 
     private fun startAnimationIfConfigured(glassPane: GlowGlassPane) {
@@ -474,17 +482,38 @@ class GlowOverlayManager(
         log.info("Glow overlays updated: style=$style, accent=$accentHex")
     }
 
+    /**
+     * Settings-dialog preview: pushes placements onto live overlays without
+     * touching persisted state, exactly like the theme preview in Appearance.
+     * Null placements re-read the stored state — the Cancel/reset revert path.
+     */
+    fun previewPlacements(
+        editorPlacement: GlowPlacement?,
+        toolWindowPlacement: GlowPlacement?,
+    ) {
+        val state = AyuIslandsSettings.getInstance().state
+        for ((id, entry) in overlays) {
+            val isEditor = id == EDITOR_ID
+            entry.glassPane.glowPlacement =
+                (if (isEditor) editorPlacement else toolWindowPlacement)
+                    ?: resolveGlowPlacement(isEditorOverlay = isEditor, state = state)
+            entry.glassPane.repaint()
+        }
+    }
+
     private fun updateOverlayStyles(
         state: AyuIslandsState,
         accent: Color,
         style: GlowStyle,
     ) {
+        val inactiveFraction = state.effectiveGlowInactiveFraction()
         for ((id, entry) in overlays) {
             entry.glassPane.glowColor = accent
             entry.glassPane.glowStyle = style
             entry.glassPane.glowIntensity = state.getIntensityForStyle(style)
             entry.glassPane.glowWidth = state.getWidthForStyle(style)
             entry.glassPane.glowPlacement = resolveGlowPlacement(isEditorOverlay = id == EDITOR_ID, state = state)
+            if (id != activeGlowId) entry.glassPane.fadeTo(inactiveFraction)
             entry.glassPane.invalidateRendererCache()
             entry.glassPane.repaint()
         }
