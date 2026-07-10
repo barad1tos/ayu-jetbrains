@@ -385,7 +385,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                     editorPlacementSegmented =
                         buildPlacementRow(
                             labelText = "Editor placement",
-                            items = listOf(GlowPlacement.ISLAND, GlowPlacement.TAB_BAR),
+                            items = listOf(GlowPlacement.ISLAND, GlowPlacement.TAB_BAR, GlowPlacement.SIDE_EDGES),
                             licensed = licensed,
                             badgeAnchorId = "glow-placement",
                         ) { placement -> section.update { it.copy(editorPlacement = placement) } }

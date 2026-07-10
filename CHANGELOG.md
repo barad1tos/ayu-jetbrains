@@ -6,7 +6,7 @@
   elements can now follow the Ayu accent on non-Ayu themes when explicitly
   enabled; external chrome tint stays off by default.
 - [Paid] **Glow placement** — choose where glow renders: the full island, a
-  strip under the editor tabs, or tool-window side edges only.
+  strip under the editor tabs, or side edges only (editor and tool windows).
 - [Paid] **Accent from project icon** — projects without an override can take
   their accent from `.idea/icon.png` automatically when they open, and the
   Add Override dialog offers the icon's dominant color as a one-click pick.

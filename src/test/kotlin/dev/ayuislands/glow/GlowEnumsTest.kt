@@ -114,10 +114,10 @@ class GlowEnumsTest {
     }
 
     @Test
-    fun `GlowPlacement forEditor normalizes the tool-window-only placement to ISLAND`() {
+    fun `GlowPlacement forEditor accepts every placement including side edges`() {
         assertEquals(GlowPlacement.TAB_BAR, GlowPlacement.forEditor("TAB_BAR"))
         assertEquals(GlowPlacement.ISLAND, GlowPlacement.forEditor("ISLAND"))
-        assertEquals(GlowPlacement.ISLAND, GlowPlacement.forEditor("SIDE_EDGES"))
+        assertEquals(GlowPlacement.SIDE_EDGES, GlowPlacement.forEditor("SIDE_EDGES"))
         assertEquals(GlowPlacement.ISLAND, GlowPlacement.forEditor("GARBAGE"))
     }
 
