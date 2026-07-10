@@ -364,72 +364,69 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         customVisible: AtomicBooleanProperty,
     ) {
         val licensed = gate.isUnlocked
-        val targetsTitle =
-            if (SettingsBadges.isPending(AyuIslandsSettings.getInstance().state, "glow-placement")) {
-                "Targets (New)"
-            } else {
-                "Targets"
-            }
-        panel
-            .collapsibleGroup(targetsTitle) {
-                row {
-                    comment(
-                        "Fine-tune where glow appears. All targets are enabled by default.",
+        val targetsGroup =
+            panel
+                .collapsibleGroup("Targets") {
+                    row {
+                        comment(
+                            "Fine-tune where glow appears. All targets are enabled by default.",
+                        )
+                    }
+                    row {
+                        link("Enable all") {
+                            section.update { s -> s.copy(islandToggles = s.islandToggles.mapValues { true }) }
+                            refreshIslandCheckboxes()
+                        }.enabled(licensed && section.pending.enabled)
+                        link("Disable all") {
+                            section.update { s -> s.copy(islandToggles = s.islandToggles.mapValues { false }) }
+                            refreshIslandCheckboxes()
+                        }.enabled(licensed && section.pending.enabled)
+                    }
+                    editorPlacementSegmented =
+                        buildPlacementRow(
+                            labelText = "Editor placement",
+                            items = listOf(GlowPlacement.ISLAND, GlowPlacement.TAB_BAR),
+                            licensed = licensed,
+                            badgeAnchorId = "glow-placement",
+                        ) { placement -> section.update { it.copy(editorPlacement = placement) } }
+                    editorPlacementSegmented?.selectedItem = section.pending.editorPlacement
+                    toolWindowPlacementSegmented =
+                        buildPlacementRow(
+                            labelText = "Tool window placement",
+                            items = listOf(GlowPlacement.ISLAND, GlowPlacement.SIDE_EDGES),
+                            licensed = licensed,
+                        ) { placement -> section.update { it.copy(toolWindowPlacement = placement) } }
+                    toolWindowPlacementSegmented?.selectedItem = section.pending.toolWindowPlacement
+                    row {
+                        comment("Island glows the full frame; Under tabs and Side edges glow only that strip.")
+                    }
+                    // Headers row
+                    threeColumnsRow(
+                        { label("Workspace").bold() },
+                        { label("Output").bold() },
+                        { label("VCS").bold() },
+                    )
+                    // Row 1: Editor | Terminal | Git
+                    threeColumnsRow(
+                        { islandCheckbox("Editor", licensed) },
+                        { islandCheckbox("Terminal", licensed) },
+                        { islandCheckbox("Git", licensed) },
+                    )
+                    // Row 2: Project | Run | Services
+                    threeColumnsRow(
+                        { islandCheckbox("Project", licensed) },
+                        { islandCheckbox("Run", licensed) },
+                        { islandCheckbox("Services", licensed) },
+                    )
+                    // Row 3: (empty) | Debug | (empty)
+                    threeColumnsRow(
+                        { },
+                        { islandCheckbox("Debug", licensed) },
+                        { },
                     )
                 }
-                row {
-                    link("Enable all") {
-                        section.update { s -> s.copy(islandToggles = s.islandToggles.mapValues { true }) }
-                        refreshIslandCheckboxes()
-                    }.enabled(licensed && section.pending.enabled)
-                    link("Disable all") {
-                        section.update { s -> s.copy(islandToggles = s.islandToggles.mapValues { false }) }
-                        refreshIslandCheckboxes()
-                    }.enabled(licensed && section.pending.enabled)
-                }
-                editorPlacementSegmented =
-                    buildPlacementRow(
-                        labelText = "Editor placement",
-                        items = listOf(GlowPlacement.ISLAND, GlowPlacement.TAB_BAR),
-                        licensed = licensed,
-                        badgeAnchorId = "glow-placement",
-                    ) { placement -> section.update { it.copy(editorPlacement = placement) } }
-                editorPlacementSegmented?.selectedItem = section.pending.editorPlacement
-                toolWindowPlacementSegmented =
-                    buildPlacementRow(
-                        labelText = "Tool window placement",
-                        items = listOf(GlowPlacement.ISLAND, GlowPlacement.SIDE_EDGES),
-                        licensed = licensed,
-                    ) { placement -> section.update { it.copy(toolWindowPlacement = placement) } }
-                toolWindowPlacementSegmented?.selectedItem = section.pending.toolWindowPlacement
-                row {
-                    comment("Island glows the full frame; Under tabs and Side edges glow only that strip.")
-                }
-                // Headers row
-                threeColumnsRow(
-                    { label("Workspace").bold() },
-                    { label("Output").bold() },
-                    { label("VCS").bold() },
-                )
-                // Row 1: Editor | Terminal | Git
-                threeColumnsRow(
-                    { islandCheckbox("Editor", licensed) },
-                    { islandCheckbox("Terminal", licensed) },
-                    { islandCheckbox("Git", licensed) },
-                )
-                // Row 2: Project | Run | Services
-                threeColumnsRow(
-                    { islandCheckbox("Project", licensed) },
-                    { islandCheckbox("Run", licensed) },
-                    { islandCheckbox("Services", licensed) },
-                )
-                // Row 3: (empty) | Debug | (empty)
-                threeColumnsRow(
-                    { },
-                    { islandCheckbox("Debug", licensed) },
-                    { },
-                )
-            }.visibleIfUnlockedOrPreview(customVisible, gate)
+        targetsGroup.bindNewSettingBadge("glow-placement")
+        targetsGroup.visibleIfUnlockedOrPreview(customVisible, gate)
     }
 
     private fun Panel.buildPlacementRow(

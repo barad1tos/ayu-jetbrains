@@ -27,6 +27,7 @@ import dev.ayuislands.accent.runCatchingPreservingCancellation
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.PremiumFeatureGate
+import dev.ayuislands.settings.bindNewSettingBadge
 import dev.ayuislands.settings.premiumFeatureNotice
 import java.awt.CardLayout
 import java.awt.Component
@@ -281,6 +282,8 @@ class OverridesGroupBuilder(
         collapsible.addExpandedListener { expanded ->
             settings.state.overridesGroupExpanded = expanded
         }
+        // The project-icon accent toggle ships inside this group (trailingContent).
+        collapsible.bindNewSettingBadge("accent-from-project-icon")
         // Two independent refresh channels share one diagnostics refresh helper:
         //  - Pending-change listener: Settings-local edits (add / edit / delete a row)
         //    fire `fireChanged()` synchronously on EDT, which re-reads the warm cache.

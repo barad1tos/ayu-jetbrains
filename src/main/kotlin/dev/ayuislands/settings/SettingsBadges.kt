@@ -1,12 +1,16 @@
 package dev.ayuislands.settings
 
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
+import com.intellij.ui.TitledSeparator
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTabbedPane
+import com.intellij.ui.dsl.builder.CollapsibleRow
 import com.intellij.ui.dsl.builder.Row
 import com.intellij.util.ui.JBUI
+import org.jetbrains.annotations.TestOnly
 import java.awt.Color
 import java.awt.Component
+import java.awt.Container
 import java.awt.FlowLayout
 import java.awt.Graphics
 import java.awt.Graphics2D
@@ -14,11 +18,19 @@ import java.awt.RenderingHints
 import javax.swing.JComponent
 import javax.swing.JPanel
 
-/** A settings surface introduced in the current release cycle. */
+/**
+ * A settings surface introduced in the current release cycle.
+ *
+ * [collapsibleGroupTitle] names the collapsible group hiding the anchor, or
+ * null when the anchor is visible as soon as its tab opens. Grouped anchors
+ * get an accent dot on the group title and retire on expansion instead of on
+ * tab visit — a visit never reveals what a collapsed spoiler hides.
+ */
 internal data class SettingsBadgeAnchor(
     val id: String,
     val title: String,
     val tabTitle: String,
+    val collapsibleGroupTitle: String? = null,
 )
 
 /**
@@ -52,13 +64,23 @@ internal object SettingsBadges {
                 id = "glow-placement",
                 title = "Glow placement",
                 tabTitle = "Glow",
+                collapsibleGroupTitle = "Targets",
             ),
             SettingsBadgeAnchor(
                 id = "accent-from-project-icon",
                 title = "Accent from project icon",
                 tabTitle = "Accent",
+                collapsibleGroupTitle = "Overrides",
             ),
         )
+
+    // Session-scoped wiring, refreshed on every Settings build: panels report
+    // whether their collapsible group is currently expanded, and the installed
+    // badge view registers one refresh hook so panel-side acknowledgements
+    // clear tab dots and group dots live. Rebuilding Settings overwrites both;
+    // stale entries from a closed dialog are harmless no-ops.
+    private val groupExpanded = mutableMapOf<String, () -> Boolean>()
+    internal var onBadgesChanged: (() -> Unit)? = null
 
     fun pendingAnchors(state: AyuIslandsState): List<SettingsBadgeAnchor> {
         // Defensive fresh-install check: UpdateNotifier seeds the set on first
@@ -72,14 +94,45 @@ internal object SettingsBadges {
         anchorId: String,
     ): Boolean = pendingAnchors(state).any { it.id == anchorId }
 
-    /** Seeing is acknowledging: a visited tab retires every anchor on it. */
+    /**
+     * Seeing is acknowledging — for what a visit can actually show: anchors
+     * behind a collapsed collapsible group survive the visit and retire via
+     * [acknowledgeAnchor] when the group expands.
+     */
     fun acknowledgeTab(
         state: AyuIslandsState,
         tabTitle: String,
     ) {
         for (anchor in registry) {
-            if (anchor.tabTitle == tabTitle) state.acknowledgedSettingsBadges.add(anchor.id)
+            if (anchor.tabTitle != tabTitle) continue
+            if (isVisibleOnTabVisit(anchor)) state.acknowledgedSettingsBadges.add(anchor.id)
         }
+    }
+
+    /** Direct retirement (group expanded, deep link followed) with a live badge refresh. */
+    fun acknowledgeAnchor(
+        state: AyuIslandsState,
+        anchorId: String,
+    ) {
+        state.acknowledgedSettingsBadges.add(anchorId)
+        onBadgesChanged?.invoke()
+    }
+
+    /** Panels report their collapsible group's live expanded state per anchor. */
+    fun registerGroupExpanded(
+        anchorId: String,
+        isExpanded: () -> Boolean,
+    ) {
+        groupExpanded[anchorId] = isExpanded
+    }
+
+    private fun isVisibleOnTabVisit(anchor: SettingsBadgeAnchor): Boolean =
+        anchor.collapsibleGroupTitle == null || groupExpanded[anchor.id]?.invoke() == true
+
+    @TestOnly
+    fun resetSessionWiring() {
+        groupExpanded.clear()
+        onBadgesChanged = null
     }
 
     /** Fresh install: everything is new to this user, so nothing is badged. */
@@ -123,9 +176,11 @@ internal class SettingsBadgeController(
 )
 
 /**
- * Wires badge dots onto [tabs] and returns the header-row controller, or null
- * when nothing is pending (no header row, no dots, no listeners). Selecting a
- * tab acknowledges its anchors and refreshes every level live.
+ * Wires badge dots onto [tabs] and collapsible group titles, and returns the
+ * header-row controller, or null when nothing is pending (no header row, no
+ * dots, no listeners). Selecting a tab acknowledges its visible anchors and
+ * refreshes every level live; grouped anchors refresh through
+ * [SettingsBadges.onBadgesChanged] when their spoiler expands.
  */
 internal fun installSettingsBadges(
     tabs: JBTabbedPane,
@@ -151,6 +206,7 @@ internal fun installSettingsBadges(
                 if (title in pendingTabs) badgeTabComponent(default, title, accent) else default,
             )
         }
+        refreshGroupTitleDots(tabs, tabTitles, accent, state)
         headerVisible.set(pendingTabs.isNotEmpty())
     }
 
@@ -162,6 +218,7 @@ internal fun installSettingsBadges(
         }
     }
 
+    SettingsBadges.onBadgesChanged = { refresh() }
     refresh()
     // The initially selected tab is on screen right now — that counts as seen.
     acknowledgeSelected()
@@ -178,6 +235,20 @@ internal fun installSettingsBadges(
     )
 }
 
+/**
+ * Marks this collapsible group as the home of a new-settings anchor: reports
+ * live expanded state for tab-visit acknowledgement and retires the anchor
+ * the moment the user expands the spoiler.
+ */
+internal fun CollapsibleRow.bindNewSettingBadge(anchorId: String) {
+    SettingsBadges.registerGroupExpanded(anchorId) { expanded }
+    addExpandedListener { nowExpanded ->
+        if (nowExpanded) {
+            SettingsBadges.acknowledgeAnchor(AyuIslandsSettings.getInstance().state, anchorId)
+        }
+    }
+}
+
 /** Adds a small "New" pill after the row content while [anchorId] is pending. */
 internal fun Row.newFeatureBadge(anchorId: String) {
     val state = AyuIslandsSettings.getInstance().state
@@ -187,6 +258,69 @@ internal fun Row.newFeatureBadge(anchorId: String) {
         foreground = JBUI.CurrentTheme.Link.Foreground.ENABLED
         accessibleContext.accessibleDescription = "New in this release"
     }
+}
+
+/**
+ * Puts an accent dot after the title of every collapsible group hiding a
+ * pending anchor, and restores the plain title once acknowledged.
+ *
+ * The dot rides the separator label's text as HTML — the label's icon slot
+ * already carries the expand/collapse chevron. `TitledSeparator.getText()`
+ * keeps returning the original title (it reads the stored text, not the
+ * label), so lookup by group title stays stable across refreshes.
+ */
+private fun refreshGroupTitleDots(
+    tabs: JBTabbedPane,
+    tabTitles: List<String>,
+    accent: Color,
+    state: AyuIslandsState,
+) {
+    for (anchor in SettingsBadges.registry) {
+        refreshGroupTitleDot(anchor, tabs, tabTitles, accent, state)
+    }
+}
+
+private fun refreshGroupTitleDot(
+    anchor: SettingsBadgeAnchor,
+    tabs: JBTabbedPane,
+    tabTitles: List<String>,
+    accent: Color,
+    state: AyuIslandsState,
+) {
+    val groupTitle = anchor.collapsibleGroupTitle ?: return
+    val tabIndex = tabTitles.indexOf(anchor.tabTitle)
+    if (tabIndex < 0 || tabIndex >= tabs.tabCount) return
+    val root = tabs.getComponentAt(tabIndex) as? Container ?: return
+    val separator = findTitledSeparator(root, groupTitle) ?: return
+
+    val pending = SettingsBadges.isPending(state, anchor.id)
+    separator.label.text =
+        if (pending) {
+            val hex = "#%02x%02x%02x".format(accent.red, accent.green, accent.blue)
+            "<html>$groupTitle <font color=\"$hex\">●</font></html>"
+        } else {
+            groupTitle
+        }
+    separator.label.accessibleContext.accessibleDescription =
+        if (pending) "Contains new settings" else null
+}
+
+private const val GROUP_DOT_SCAN_CAP = 800
+
+private fun findTitledSeparator(
+    root: Container,
+    title: String,
+): TitledSeparator? {
+    val queue = ArrayDeque<Component>()
+    queue.add(root)
+    var visited = 0
+    while (queue.isNotEmpty() && visited < GROUP_DOT_SCAN_CAP) {
+        val current = queue.removeFirst()
+        visited++
+        if (current is TitledSeparator && current.text == title) return current
+        if (current is Container) queue.addAll(current.components)
+    }
+    return null
 }
 
 private fun badgeTabComponent(
