@@ -106,12 +106,18 @@ class GlowEnumsTest {
     }
 
     @Test
-    fun `GlowPlacement fromName falls back to ISLAND for invalid or retired name`() {
+    fun `GlowPlacement fromName falls back to ISLAND for invalid names`() {
         assertEquals(GlowPlacement.ISLAND, GlowPlacement.fromName("NONEXISTENT"))
-        // Retired 2.8.0-pre-release value: persisted TAB_BAR must degrade safely.
-        assertEquals(GlowPlacement.ISLAND, GlowPlacement.fromName("TAB_BAR"))
         assertEquals(GlowPlacement.ISLAND, GlowPlacement.fromName(""))
         assertEquals(GlowPlacement.ISLAND, GlowPlacement.fromName(null))
+    }
+
+    @Test
+    fun `GlowPlacement fromName migrates retired TAB_BAR to its successor`() {
+        // 2.8.0 pre-release value: side edges replaced under-tabs, so a saved
+        // partial placement must stay partial instead of silently going
+        // full-frame ISLAND.
+        assertEquals(GlowPlacement.SIDE_EDGES, GlowPlacement.fromName("TAB_BAR"))
     }
 
     @Test
