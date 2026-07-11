@@ -14,12 +14,14 @@ import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.waveform.DEFAULT_WAVEFORM_AMPLITUDE
 import dev.ayuislands.glow.waveform.DEFAULT_WAVEFORM_INTENSITY
+import dev.ayuislands.glow.waveform.DEFAULT_WAVEFORM_LOOP_SECONDS
 import dev.ayuislands.glow.waveform.MAX_WAVEFORM_AMPLITUDE
 import dev.ayuislands.glow.waveform.MAX_WAVEFORM_INTENSITY
 import dev.ayuislands.glow.waveform.MIN_WAVEFORM_AMPLITUDE
 import dev.ayuislands.glow.waveform.MIN_WAVEFORM_INTENSITY
 import dev.ayuislands.glow.waveform.WaveformDirection
 import dev.ayuislands.glow.waveform.WaveformMotion
+import dev.ayuislands.glow.waveform.normalizedLoopSeconds
 import dev.ayuislands.indent.IndentPreset
 import dev.ayuislands.rotation.AccentRotationMode
 import dev.ayuislands.vcs.VcsColorCategory
@@ -147,6 +149,7 @@ class AyuIslandsState : BaseState() {
     var waveformDirection by string(WaveformDirection.CLOCKWISE.name)
     var waveformAmplitude by property(DEFAULT_WAVEFORM_AMPLITUDE)
     var waveformIntensity by property(DEFAULT_WAVEFORM_INTENSITY)
+    var waveformLoopSeconds by property(DEFAULT_WAVEFORM_LOOP_SECONDS)
 
     // Per-island toggles (all ON by default — glow visibility is controlled by glowEnabled)
     var glowEditor by property(true)
@@ -688,6 +691,8 @@ class AyuIslandsState : BaseState() {
         const val MAX_CHROME_TINT_INTENSITY = 50
     }
 }
+
+fun AyuIslandsState.effectiveLoopSeconds(): Float = waveformLoopSeconds.normalizedLoopSeconds()
 
 private fun AyuIslandsState.isAccentElementEnabled(id: AccentElementId): Boolean =
     when (id) {

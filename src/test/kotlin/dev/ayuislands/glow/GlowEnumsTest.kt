@@ -25,6 +25,12 @@ class GlowEnumsTest {
     }
 
     @Test
+    fun `WaveformMotion exposes user-facing motion names`() {
+        assertEquals("Perimeter loop", WaveformMotion.MONITOR.displayName)
+        assertEquals("Static pulse", WaveformMotion.STATIC_PULSE.displayName)
+    }
+
+    @Test
     fun `WaveformDirection decodes persisted names and falls back to CLOCKWISE`() {
         assertEquals(WaveformDirection.CLOCKWISE, WaveformDirection.fromName("CLOCKWISE"))
         assertEquals(

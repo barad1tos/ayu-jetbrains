@@ -9,6 +9,11 @@ import java.awt.Rectangle
 import javax.swing.JComponent
 import javax.swing.SwingUtilities
 
+internal data class EditorOverlayGeometry(
+    val contentBounds: Rectangle,
+    val occupiedTopSpans: List<IntRange>,
+)
+
 /**
  * Tab strip height calculation and editor-tab repaint utilities.
  *
@@ -63,39 +68,131 @@ object EditorTabGeometry {
      * the selected `TabLabel` bottom edge, then any visible nested `TabLabel`,
      * and finally [DEFAULT_TAB_HEIGHT].
      */
-    fun calculateEditorOverlayBounds(host: JComponent): Rectangle {
+    fun calculateEditorOverlayBounds(host: JComponent): Rectangle = editorOverlayGeometry(host).contentBounds
+
+    internal fun editorOverlayGeometry(host: JComponent): EditorOverlayGeometry {
         val editorTabs = findEditorTabsRecursive(host) as? Container
         if (editorTabs == null) {
             if (warnedHosts.add("EditorTabsOverlay:${host.javaClass.name}")) {
                 log.warn("EditorTabs not found in ${host.javaClass.name}, using DEFAULT_TAB_HEIGHT for overlay")
             }
             val tabStripBottom = DEFAULT_TAB_HEIGHT
-            return Rectangle(0, tabStripBottom, host.width, (host.height - tabStripBottom).coerceAtLeast(0))
+            return EditorOverlayGeometry(
+                contentBounds =
+                    Rectangle(
+                        0,
+                        tabStripBottom,
+                        host.width,
+                        (host.height - tabStripBottom).coerceAtLeast(0),
+                    ),
+                occupiedTopSpans = emptyList(),
+            )
         }
 
         val selectedContentBounds = findSelectedContentBounds(editorTabs, host)
         if (selectedContentBounds != null) {
             log.debug("Editor overlay bounds from selected content: $selectedContentBounds")
-            return selectedContentBounds
+            return geometryFor(selectedContentBounds, editorTabs, host)
         }
 
         val selectedLabelBottom = findSelectedLabelBottom(editorTabs, host)
         if (selectedLabelBottom != null) {
             log.debug("Editor overlay top from selected tab label bottom: $selectedLabelBottom")
-            return Rectangle(0, selectedLabelBottom, host.width, (host.height - selectedLabelBottom).coerceAtLeast(0))
+            return geometryFor(
+                Rectangle(0, selectedLabelBottom, host.width, (host.height - selectedLabelBottom).coerceAtLeast(0)),
+                editorTabs,
+                host,
+            )
         }
 
         val nestedLabelBottom = findNestedTabLabelBottom(editorTabs, host)
         if (nestedLabelBottom != null) {
             log.debug("Editor overlay top from nested tab label bottom: $nestedLabelBottom")
-            return Rectangle(0, nestedLabelBottom, host.width, (host.height - nestedLabelBottom).coerceAtLeast(0))
+            return geometryFor(
+                Rectangle(0, nestedLabelBottom, host.width, (host.height - nestedLabelBottom).coerceAtLeast(0)),
+                editorTabs,
+                host,
+            )
         }
 
         if (warnedHosts.add("TabLabelOverlay:${editorTabs.javaClass.name}")) {
             log.warn("TabLabel not found in EditorTabs, using DEFAULT_TAB_HEIGHT for overlay")
         }
         val tabStripBottom = DEFAULT_TAB_HEIGHT
-        return Rectangle(0, tabStripBottom, host.width, (host.height - tabStripBottom).coerceAtLeast(0))
+        return geometryFor(
+            Rectangle(0, tabStripBottom, host.width, (host.height - tabStripBottom).coerceAtLeast(0)),
+            editorTabs,
+            host,
+        )
+    }
+
+    private fun geometryFor(
+        contentBounds: Rectangle,
+        editorTabs: Container,
+        host: JComponent,
+    ): EditorOverlayGeometry =
+        EditorOverlayGeometry(
+            contentBounds = contentBounds,
+            occupiedTopSpans = occupiedTopSpans(editorTabs, host, contentBounds),
+        )
+
+    private fun occupiedTopSpans(
+        editorTabs: Container,
+        host: JComponent,
+        contentBounds: Rectangle,
+    ): List<IntRange> {
+        if (contentBounds.width <= 0) return emptyList()
+
+        val spans = mutableListOf<IntRange>()
+
+        fun collect(
+            component: Component,
+            depth: Int,
+        ) {
+            if (depth <= 0 || !component.isVisible) return
+            topChromeSpan(component, host, contentBounds)?.let(spans::add)
+            if (component is Container) {
+                component.components.forEach { child -> collect(child, depth - 1) }
+            }
+        }
+        collect(editorTabs, MAX_GEOMETRY_DEPTH)
+        return mergeSpans(spans)
+    }
+
+    private fun topChromeSpan(
+        component: Component,
+        host: JComponent,
+        contentBounds: Rectangle,
+    ): IntRange? {
+        if (component !is JComponent) return null
+        val name = component.javaClass.name
+        if (!name.contains("TabLabel") && !name.contains("ActionToolbar")) return null
+
+        val parent = component.parent ?: return null
+        val converted = SwingUtilities.convertRectangle(parent, component.bounds, host)
+        if (converted.y >= contentBounds.y || converted.width <= 0) return null
+
+        val start = (converted.x - contentBounds.x).coerceAtLeast(0)
+        val end =
+            (converted.x + converted.width - contentBounds.x - 1)
+                .coerceAtMost(contentBounds.width - 1)
+        return (start..end).takeIf { start <= end }
+    }
+
+    private fun mergeSpans(spans: List<IntRange>): List<IntRange> {
+        val sorted = spans.sortedBy(IntRange::first)
+        if (sorted.isEmpty()) return emptyList()
+
+        val merged = mutableListOf(sorted.first())
+        for (span in sorted.drop(1)) {
+            val previous = merged.last()
+            if (span.first <= previous.last + 1) {
+                merged[merged.lastIndex] = previous.first..maxOf(previous.last, span.last)
+            } else {
+                merged += span
+            }
+        }
+        return merged
     }
 
     /**
@@ -104,7 +201,7 @@ object EditorTabGeometry {
      */
     private fun findEditorTabsRecursive(
         component: Component,
-        maxDepth: Int = 8,
+        maxDepth: Int = MAX_GEOMETRY_DEPTH,
     ): Component? {
         if (maxDepth <= 0) return null
         if (component.javaClass.name.contains("EditorTabs")) return component
@@ -188,7 +285,7 @@ object EditorTabGeometry {
     private fun findNestedTabLabelBottom(
         component: Component,
         host: JComponent,
-        maxDepth: Int = 8,
+        maxDepth: Int = MAX_GEOMETRY_DEPTH,
     ): Int? {
         if (maxDepth <= 0) return null
         if (component.javaClass.name.contains("TabLabel") && component is JComponent && component.isVisible) {
@@ -256,4 +353,6 @@ object EditorTabGeometry {
             log.debug("Could not repaint editor tabs", exception)
         }
     }
+
+    private const val MAX_GEOMETRY_DEPTH = 8
 }

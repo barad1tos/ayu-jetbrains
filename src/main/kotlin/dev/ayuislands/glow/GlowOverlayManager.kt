@@ -24,6 +24,7 @@ import dev.ayuislands.glow.waveform.WaveformMotion
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.settings.effectiveLoopSeconds
 import java.awt.Color
 import java.awt.Component
 import java.awt.KeyboardFocusManager
@@ -314,12 +315,17 @@ class GlowOverlayManager(
         try {
             val point = SwingUtilities.convertPoint(host, 0, 0, layeredPane)
             if (glassPane.usesWaveformBounds) {
-                val contentBounds =
+                val geometry =
                     if (glassPane.isEditorOverlay) {
-                        EditorTabGeometry.calculateEditorOverlayBounds(host)
+                        EditorTabGeometry.editorOverlayGeometry(host)
                     } else {
-                        java.awt.Rectangle(0, 0, host.width, host.height)
+                        EditorOverlayGeometry(
+                            contentBounds = java.awt.Rectangle(0, 0, host.width, host.height),
+                            occupiedTopSpans = emptyList(),
+                        )
                     }
+                val contentBounds = geometry.contentBounds
+                glassPane.waveformTopSpans = geometry.occupiedTopSpans
                 val margin = glassPane.waveformMargin
                 glassPane.setBounds(
                     point.x + contentBounds.x - margin,
@@ -371,6 +377,11 @@ class GlowOverlayManager(
                 isEditorOverlay = isEditorOverlay,
                 glowPlacement = resolveGlowPlacement(isEditorOverlay, state),
             )
+        if (isEditorOverlay) {
+            glassPane.topSpansProvider = {
+                EditorTabGeometry.editorOverlayGeometry(host).occupiedTopSpans
+            }
+        }
         glassPane.configureWaveform(
             GlowShape.fromName(state.glowShape),
             resolveWaveformConfig(state),
@@ -453,7 +464,11 @@ class GlowOverlayManager(
     }
 
     private fun attachEditorOverlayIfNeeded() {
-        if (overlays.containsKey(EDITOR_ID)) return
+        overlays[EDITOR_ID]?.let { entry ->
+            updateOverlayBounds(entry.glassPane, entry.host, entry.layeredPane)
+            entry.glassPane.repaint()
+            return
+        }
 
         val state = AyuIslandsSettings.getInstance().state
         if (!state.isIslandEnabled(EDITOR_ID)) return
@@ -678,4 +693,5 @@ private fun resolveWaveformConfig(state: AyuIslandsState): WaveformConfig =
         direction = WaveformDirection.fromName(state.waveformDirection),
         amplitude = state.effectiveWaveformAmplitude(),
         intensity = state.effectiveWaveformIntensity(),
+        loopSeconds = state.effectiveLoopSeconds(),
     )

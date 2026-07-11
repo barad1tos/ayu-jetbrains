@@ -9,6 +9,7 @@ import dev.ayuislands.glow.waveform.WaveformMotion
 import dev.ayuislands.glow.waveform.WaveformPaintRequest
 import dev.ayuislands.glow.waveform.WaveformPaintResult
 import dev.ayuislands.glow.waveform.WaveformPainter
+import dev.ayuislands.glow.waveform.WaveformTrack
 import java.awt.Color
 import java.awt.image.BufferedImage
 import kotlin.random.Random
@@ -136,14 +137,12 @@ class GlowGlassPanePixelTest {
         val trackLength = flatPane.waveformTrackLength
         flatPane.showWaveformFrame(
             WaveformFrame(
-                nowMs = 0L,
                 config = config,
                 beats =
                     listOf(
                         FrameBeat(
                             centerDistance = trackLength * 0.25f,
                             morphology = BeatMorphology.random(Random(42)),
-                            opacity = 1f,
                         ),
                     ),
             ),
@@ -152,6 +151,47 @@ class GlowGlassPanePixelTest {
         val beat = paint(flatPane)
 
         assertTrue(pixelDifference(flat, beat) > 100, "waveform frame must change production glass-pane pixels")
+    }
+
+    @Test
+    fun `waveform paint refreshes editor top spans from its host provider`() {
+        val pane = waveformPane(WaveformConfig())
+        var currentSpans = listOf(0..80)
+        var nowMs = 0L
+        pane.topSpansProvider = { currentSpans }
+        pane.timeSource = { nowMs }
+        val captured = mutableListOf<List<IntRange>>()
+        installWaveformPainter(
+            pane,
+            object : WaveformPainter() {
+                override fun paint(
+                    graphics: java.awt.Graphics2D,
+                    request: WaveformPaintRequest,
+                ): WaveformPaintResult {
+                    captured += request.occupiedTopSpans
+                    return WaveformPaintResult(WaveformTrack(emptyList(), 0f, 0f, 0f), emptyList())
+                }
+            },
+        )
+
+        paint(pane)
+        currentSpans = listOf(0..160)
+        nowMs = 249L
+        paint(pane)
+        nowMs = 250L
+        paint(pane)
+
+        assertEquals(listOf(listOf(0..80), listOf(0..80), listOf(0..160)), captured)
+    }
+
+    @Test
+    fun `waveform top span refresh failure is contained and recorded once`() {
+        val pane = waveformPane(WaveformConfig())
+        pane.topSpansProvider = { error("tab hierarchy changed") }
+
+        assertTrue(alphaSum(paint(pane)) > 0L)
+        assertTrue(readTopSpansFailureLogged(pane))
+        assertTrue(alphaSum(paint(pane)) > 0L)
     }
 
     @Test
@@ -175,9 +215,8 @@ class GlowGlassPanePixelTest {
 
         pane.showWaveformFrame(
             WaveformFrame(
-                nowMs = 1_500L,
                 config = config,
-                staticBoost = 0f,
+                energy = 0f,
                 brightness = IDLE_WAVEFORM_BRIGHTNESS,
             ),
         )
@@ -189,11 +228,12 @@ class GlowGlassPanePixelTest {
     fun `reconfigure clears a frame rendered with old geometry`() {
         val oldConfig = WaveformConfig(amplitude = 6)
         val pane = waveformPane(oldConfig)
-        pane.showWaveformFrame(WaveformFrame(nowMs = 0L, config = oldConfig))
+        pane.showWaveformFrame(WaveformFrame(config = oldConfig))
 
         pane.configureWaveform(GlowShape.WAVEFORM, WaveformConfig(amplitude = 16))
 
-        assertNull(readWaveformFrame(pane))
+        val frame = assertNotNull(readWaveformFrame(pane) as? WaveformFrame)
+        assertEquals(16, frame.config.amplitude)
     }
 
     @Test
@@ -273,6 +313,12 @@ class GlowGlassPanePixelTest {
 
     private fun readWaveformFailed(pane: GlowGlassPane): Boolean =
         GlowGlassPane::class.java.getDeclaredField("waveformFailed").let { field ->
+            field.isAccessible = true
+            field.getBoolean(pane)
+        }
+
+    private fun readTopSpansFailureLogged(pane: GlowGlassPane): Boolean =
+        GlowGlassPane::class.java.getDeclaredField("topSpansFailureLogged").let { field ->
             field.isAccessible = true
             field.getBoolean(pane)
         }

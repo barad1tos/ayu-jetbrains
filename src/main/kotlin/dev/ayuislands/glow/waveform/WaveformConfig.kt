@@ -1,12 +1,15 @@
 package dev.ayuislands.glow.waveform
 
 const val DEFAULT_WAVEFORM_AMPLITUDE = 10
-const val MIN_WAVEFORM_AMPLITUDE = 6
-const val MAX_WAVEFORM_AMPLITUDE = 16
+const val MIN_WAVEFORM_AMPLITUDE = 8
+const val MAX_WAVEFORM_AMPLITUDE = 24
 const val DEFAULT_WAVEFORM_INTENSITY = 70
 const val MIN_WAVEFORM_INTENSITY = 0
 const val MAX_WAVEFORM_INTENSITY = 100
-internal const val IDLE_WAVEFORM_BRIGHTNESS = 0.55f
+const val DEFAULT_WAVEFORM_LOOP_SECONDS = 2.8f
+const val MIN_WAVEFORM_LOOP_SECONDS = 1.5f
+const val MAX_WAVEFORM_LOOP_SECONDS = 6.0f
+internal const val IDLE_WAVEFORM_BRIGHTNESS = 0.35f
 
 /** Effective waveform settings consumed by the engine and painter. */
 data class WaveformConfig(
@@ -14,7 +17,23 @@ data class WaveformConfig(
     val direction: WaveformDirection = WaveformDirection.CLOCKWISE,
     val amplitude: Int = DEFAULT_WAVEFORM_AMPLITUDE,
     val intensity: Int = DEFAULT_WAVEFORM_INTENSITY,
+    val loopSeconds: Float = DEFAULT_WAVEFORM_LOOP_SECONDS,
 )
+
+internal fun Float.normalizedLoopSeconds(): Float =
+    if (isNaN()) {
+        DEFAULT_WAVEFORM_LOOP_SECONDS
+    } else {
+        coerceIn(MIN_WAVEFORM_LOOP_SECONDS, MAX_WAVEFORM_LOOP_SECONDS)
+    }
+
+internal fun smoothStep(progress: Float): Float {
+    val value = progress.coerceIn(0f, 1f)
+    return value * value * (SMOOTH_STEP_HIGH - SMOOTH_STEP_LOW * value)
+}
+
+private const val SMOOTH_STEP_HIGH = 3f
+private const val SMOOTH_STEP_LOW = 2f
 
 /** Direction along the clockwise-sampled perimeter. Values persist by [Enum.name]. */
 enum class WaveformDirection(
@@ -34,7 +53,7 @@ enum class WaveformDirection(
 enum class WaveformMotion(
     val displayName: String,
 ) {
-    MONITOR("Live monitor"),
+    MONITOR("Perimeter loop"),
     STATIC_PULSE("Static pulse"),
     ;
 

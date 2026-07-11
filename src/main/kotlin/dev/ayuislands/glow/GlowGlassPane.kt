@@ -2,6 +2,7 @@ package dev.ayuislands.glow
 
 import com.intellij.openapi.diagnostic.logger
 import dev.ayuislands.glow.waveform.IDLE_WAVEFORM_BRIGHTNESS
+import dev.ayuislands.glow.waveform.SolidFrameSpec
 import dev.ayuislands.glow.waveform.TimerDirective
 import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.WaveformEngine
@@ -37,17 +38,22 @@ class GlowGlassPane(
 ) : JPanel(null) {
     private val log = logger<GlowGlassPane>()
     private val renderer = GlowRenderer()
-    private var waveformPainter = WaveformPainter()
+    private var waveformPainter = WaveformPainter(renderer)
     private var fadeAlpha: Float = 0.0f
     private var fadeTimer: Timer? = null
     private var waveformTimer: Timer? = null
     private var waveformEngine: WaveformEngine? = null
     private var waveformFrame: WaveformFrame? = null
+    internal var waveformTopSpans: List<IntRange> = emptyList()
+    internal var topSpansProvider: (() -> List<IntRange>)? = null
+    internal var timeSource: () -> Long = System::currentTimeMillis
+    private var topSpansRefreshAtMs = 0L
     private var waveformConfig = WaveformConfig()
     private var glowShape = GlowShape.SOLID
     private var waveformFailed = false
     private var waveformFailureLogged = false
     private var slowWaveformLogged = false
+    private var topSpansFailureLogged = false
 
     internal val isWaveform: Boolean
         get() = glowShape == GlowShape.WAVEFORM && !waveformFailed
@@ -56,7 +62,7 @@ class GlowGlassPane(
         get() = glowShape == GlowShape.WAVEFORM
 
     internal val waveformMargin: Int
-        get() = WaveformPainter.marginFor(waveformConfig.amplitude).toInt()
+        get() = WaveformPainter.marginFor(waveformConfig.amplitude, glowWidth).toInt()
 
     companion object {
         private const val DEFAULT_ARC_FALLBACK = 8
@@ -65,6 +71,7 @@ class GlowGlassPane(
         private const val FADE_STEP = 0.08f
         private const val FRAME_BUDGET_MS = 16.0
         private const val NANOS_PER_MILLISECOND = 1_000_000.0
+        private const val TOP_SPANS_REFRESH_MS = 250L
     }
 
     /** Animation alpha modulated by GlowAnimator (Pulse/Breathe/Reactive). Default 1.0 = no effect. */
@@ -173,7 +180,8 @@ class GlowGlassPane(
                 bounds = Rectangle(0, 0, width, height),
                 arcWidth = UIManager.getInt("Island.arc").let { if (it > 0) it else DEFAULT_ARC_FALLBACK },
                 config = waveformConfig,
-                isEditorOverlay = isEditorOverlay,
+                solidWidth = glowWidth,
+                occupiedTopSpans = waveformTopSpans,
             )
 
     private fun paintSolid(
@@ -209,6 +217,20 @@ class GlowGlassPane(
         arcWidth: Int,
     ) {
         val startNanos = System.nanoTime()
+        val nowMs = timeSource()
+        if (nowMs >= topSpansRefreshAtMs) {
+            try {
+                topSpansProvider?.invoke()?.let { waveformTopSpans = it }
+            } catch (exception: RuntimeException) {
+                if (!topSpansFailureLogged) {
+                    topSpansFailureLogged = true
+                    log.warn("Waveform top-span refresh failed; keeping the last geometry", exception)
+                } else {
+                    log.debug("Waveform top-span refresh still unavailable", exception)
+                }
+            }
+            topSpansRefreshAtMs = nowMs + TOP_SPANS_REFRESH_MS
+        }
         try {
             waveformPainter.paint(
                 graphics = graphics,
@@ -220,11 +242,23 @@ class GlowGlassPane(
                         frame =
                             waveformFrame
                                 ?: WaveformFrame(
-                                    System.currentTimeMillis(),
                                     waveformConfig,
                                     brightness = IDLE_WAVEFORM_BRIGHTNESS,
                                 ),
-                        isEditorOverlay = isEditorOverlay,
+                        solidFrame =
+                            SolidFrameSpec(
+                                bounds =
+                                    Rectangle(
+                                        waveformMargin,
+                                        waveformMargin,
+                                        (bounds.width - waveformMargin * 2).coerceAtLeast(0),
+                                        (bounds.height - waveformMargin * 2).coerceAtLeast(0),
+                                    ),
+                                style = glowStyle,
+                                intensity = glowIntensity,
+                                width = glowWidth,
+                            ),
+                        occupiedTopSpans = waveformTopSpans,
                     ),
             )
         } catch (exception: RuntimeException) {
@@ -296,7 +330,7 @@ class GlowGlassPane(
 
     private fun repaintWaveformBands() {
         val bounds = Rectangle(0, 0, width, height)
-        for (region in waveformPainter.dirtyRegions(bounds, waveformConfig.amplitude)) {
+        for (region in waveformPainter.dirtyRegions(bounds, waveformConfig.amplitude, glowWidth)) {
             repaint(region.x, region.y, region.width, region.height)
         }
     }

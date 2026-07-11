@@ -14,7 +14,6 @@ class WaveformTrackPropertyTest {
                 overlayBounds = Rectangle(0, 0, 240, 160),
                 margin = 16f,
                 arcRadius = 12f,
-                flattenTopEdge = false,
             )
 
         assertTrue(track.isClosed)
@@ -37,22 +36,99 @@ class WaveformTrackPropertyTest {
     }
 
     @Test
-    fun `editor track flattens the top edge with smooth corner shoulders`() {
+    fun `occupied top spans mask only the signal with smooth shoulders`() {
         val track =
             WaveformTrack.create(
-                overlayBounds = Rectangle(0, 0, 240, 160),
+                overlayBounds = Rectangle(0, 0, 600, 240),
                 margin = 16f,
                 arcRadius = 12f,
-                flattenTopEdge = true,
+                occupiedTopSpans = listOf(0..220),
             )
         val topEdge = track.samples.filter { it.normalY < -0.999f && it.normalX in -0.001f..0.001f }
         val shoulders = track.samples.filter { it.amplitudeMask > 0f && it.amplitudeMask < 1f }
 
         assertTrue(topEdge.isNotEmpty())
-        assertTrue(topEdge.all { it.amplitudeMask == 0f })
+        assertTrue(topEdge.filter { it.x <= 220f }.all { it.amplitudeMask == 0f })
+        assertTrue(topEdge.any { it.x >= 300f && it.amplitudeMask == 1f })
         assertTrue(shoulders.isNotEmpty())
         assertTrue(track.samples.all { it.amplitudeMask in 0f..1f })
         assertTrue(track.samples.any { it.amplitudeMask == 1f })
+    }
+
+    @Test
+    fun `empty occupancy anchors the signal at two thirds of the top edge`() {
+        val track =
+            WaveformTrack.create(
+                overlayBounds = Rectangle(0, 0, 900, 400),
+                margin = 16f,
+                arcRadius = 12f,
+            )
+
+        val anchor = track.sampleNearest(track.signalAnchorDistance)
+
+        assertEquals(600f, anchor.x, 3f)
+        assertEquals(16f, anchor.y, 0.1f)
+    }
+
+    @Test
+    fun `largest free top span centers a full complex`() {
+        val track =
+            WaveformTrack.create(
+                overlayBounds = Rectangle(0, 0, 900, 400),
+                margin = 16f,
+                arcRadius = 12f,
+                occupiedTopSpans = listOf(0..300, 700..899),
+            )
+
+        val anchor = track.sampleNearest(track.signalAnchorDistance)
+
+        assertEquals(500f, anchor.x, 3f)
+        assertEquals(220f, track.signalSpan, 0.1f)
+    }
+
+    @Test
+    fun `narrow free top span compresses horizontal complex length`() {
+        val track =
+            WaveformTrack.create(
+                overlayBounds = Rectangle(0, 0, 600, 300),
+                margin = 16f,
+                arcRadius = 12f,
+                occupiedTopSpans = listOf(0..199, 380..599),
+            )
+
+        val anchor = track.sampleNearest(track.signalAnchorDistance)
+
+        assertEquals(290f, anchor.x, 3f)
+        assertTrue(track.signalSpan in 178f..181f)
+    }
+
+    @Test
+    fun `top gaps below minimum move the anchor to the upper right edge`() {
+        val track =
+            WaveformTrack.create(
+                overlayBounds = Rectangle(0, 0, 500, 360),
+                margin = 16f,
+                arcRadius = 12f,
+                occupiedTopSpans = listOf(0..170, 290..499),
+            )
+
+        val anchor = track.sampleNearest(track.signalAnchorDistance)
+
+        assertEquals(484f, anchor.x, 0.1f)
+        assertEquals(120f, anchor.y, 4f)
+        assertEquals(220f.coerceAtMost(track.length * 0.3f), track.signalSpan, 0.1f)
+    }
+
+    @Test
+    fun `complex span is capped at thirty percent of a small perimeter`() {
+        val track =
+            WaveformTrack.create(
+                overlayBounds = Rectangle(0, 0, 180, 120),
+                margin = 8f,
+                arcRadius = 8f,
+            )
+
+        assertEquals(track.length * 0.3f, track.signalSpan, 0.1f)
     }
 
     @Test
@@ -62,11 +138,13 @@ class WaveformTrackPropertyTest {
                 overlayBounds = Rectangle(0, 0, 20, 20),
                 margin = 12f,
                 arcRadius = 8f,
-                flattenTopEdge = false,
             )
 
         assertTrue(track.samples.isEmpty())
         assertEquals(0f, track.length)
         assertTrue(!track.isClosed)
     }
+
+    private fun WaveformTrack.sampleNearest(distance: Float): WaveformSample =
+        samples.minBy { sample -> kotlin.math.abs(sample.distance - distance) }
 }

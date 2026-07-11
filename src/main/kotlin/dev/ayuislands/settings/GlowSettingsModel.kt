@@ -8,6 +8,7 @@ import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.waveform.DEFAULT_WAVEFORM_AMPLITUDE
 import dev.ayuislands.glow.waveform.DEFAULT_WAVEFORM_INTENSITY
+import dev.ayuislands.glow.waveform.DEFAULT_WAVEFORM_LOOP_SECONDS
 import dev.ayuislands.glow.waveform.WaveformDirection
 import dev.ayuislands.glow.waveform.WaveformMotion
 
@@ -26,6 +27,7 @@ internal data class GlowSettings(
     val waveformDirection: WaveformDirection = WaveformDirection.CLOCKWISE,
     val waveformAmplitude: Int = DEFAULT_WAVEFORM_AMPLITUDE,
     val waveformIntensity: Int = DEFAULT_WAVEFORM_INTENSITY,
+    val waveformLoopSeconds: Float = DEFAULT_WAVEFORM_LOOP_SECONDS,
 ) {
     fun withPresetValues(preset: GlowPreset): GlowSettings {
         val presetStyle = preset.style ?: return this
@@ -47,6 +49,7 @@ internal data class GlowSettings(
             direction = waveformDirection,
             amplitude = waveformAmplitude,
             intensity = waveformIntensity,
+            loopSeconds = waveformLoopSeconds,
         )
 
     fun withDefaults(): GlowSettings =
@@ -57,6 +60,7 @@ internal data class GlowSettings(
             waveformDirection = WaveformDirection.CLOCKWISE,
             waveformAmplitude = DEFAULT_WAVEFORM_AMPLITUDE,
             waveformIntensity = DEFAULT_WAVEFORM_INTENSITY,
+            waveformLoopSeconds = DEFAULT_WAVEFORM_LOOP_SECONDS,
         )
 }
 
@@ -78,8 +82,9 @@ internal fun loadGlowSettings(
         toolWindowPlacement = GlowPlacement.fromName(state.glowToolWindowPlacement),
         waveformMotion = WaveformMotion.fromName(state.waveformMotion),
         waveformDirection = WaveformDirection.fromName(state.waveformDirection),
-        waveformAmplitude = state.effectiveWaveformAmplitude(),
-        waveformIntensity = state.effectiveWaveformIntensity(),
+        waveformAmplitude = state.waveformAmplitude,
+        waveformIntensity = state.waveformIntensity,
+        waveformLoopSeconds = state.waveformLoopSeconds,
     )
 
 internal class GlowVisibility {
@@ -87,6 +92,7 @@ internal class GlowVisibility {
     val solidControls = AtomicBooleanProperty(false)
     val waveform = AtomicBooleanProperty(false)
     val direction = AtomicBooleanProperty(false)
+    val loopDuration = AtomicBooleanProperty(false)
     val placement = AtomicBooleanProperty(true)
     val targets = AtomicBooleanProperty(false)
 
@@ -98,6 +104,7 @@ internal class GlowVisibility {
         solidShape.set(!isWaveform)
         waveform.set(isWaveform)
         direction.set(isWaveform && settings.waveformMotion == WaveformMotion.MONITOR)
+        loopDuration.set(isWaveform && settings.waveformMotion == WaveformMotion.MONITOR)
         solidControls.set(!isWaveform && (!licensed || settings.preset == GlowPreset.CUSTOM))
         placement.set(!isWaveform)
         targets.set(isWaveform || !licensed || settings.preset == GlowPreset.CUSTOM)

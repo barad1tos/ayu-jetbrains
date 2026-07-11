@@ -181,6 +181,47 @@ class EditorTabGeometryTest {
     }
 
     @Test
+    fun `editor geometry returns visible tab and action spans in content coordinates`() {
+        val host = JPanel(null)
+        host.setSize(800, 600)
+        val editorTabs = SelectionEditorTabsFake()
+        editorTabs.setBounds(20, 0, 760, 600)
+        host.add(editorTabs)
+
+        val content = JPanel()
+        content.setBounds(10, 30, 720, 570)
+        editorTabs.add(content)
+        editorTabs.infoForTest = TabInfoFake(content)
+
+        val tabLabel = MockTabLabel()
+        tabLabel.setBounds(10, 0, 180, 30)
+        editorTabs.add(tabLabel)
+        val toolbar = MockActionToolbar()
+        toolbar.setBounds(650, 0, 80, 30)
+        editorTabs.add(toolbar)
+        val hiddenToolbar = MockActionToolbar()
+        hiddenToolbar.setBounds(400, 0, 100, 30)
+        hiddenToolbar.isVisible = false
+        editorTabs.add(hiddenToolbar)
+
+        val geometry = EditorTabGeometry.editorOverlayGeometry(host)
+
+        assertEquals(Rectangle(30, 30, 720, 570), geometry.contentBounds)
+        assertEquals(listOf(0..179, 640..719), geometry.occupiedTopSpans)
+    }
+
+    @Test
+    fun `editor geometry leaves top spans empty when tab internals are unavailable`() {
+        val host = JPanel()
+        host.setSize(800, 600)
+
+        val geometry = EditorTabGeometry.editorOverlayGeometry(host)
+
+        assertEquals(emptyList(), geometry.occupiedTopSpans)
+        assertEquals(EditorTabGeometry.calculateEditorOverlayBounds(host), geometry.contentBounds)
+    }
+
+    @Test
     fun `tab label bottom converts through offset containers into host coordinates`() {
         // The strip anchor must be measured in HOST coordinates: a tabs
         // component sitting 10px below the host top means the strip starts at
@@ -223,6 +264,8 @@ class EditorTabGeometryTest {
     private class MockEditorTabs : JPanel()
 
     private class MockTabLabel : JComponent()
+
+    private class MockActionToolbar : JComponent()
 }
 
 // File-level fakes (NOT private nested classes): the production code invokes

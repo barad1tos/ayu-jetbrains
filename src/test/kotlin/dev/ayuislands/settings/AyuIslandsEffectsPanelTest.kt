@@ -240,18 +240,27 @@ class AyuIslandsEffectsPanelTest {
         val motion = waveformField<JComboBox<*>>(effectsPanel, "motionCombo")
         val direction = waveformField<JComboBox<*>>(effectsPanel, "directionCombo")
         val amplitude = waveformField<JSlider>(effectsPanel, "amplitudeSlider")
+        val loopDuration = waveformField<JSlider>(effectsPanel, "loopSlider")
 
         shape.selectedItem = GlowShape.WAVEFORM.displayName
 
         assertTrue(motion.isEffectivelyVisibleWithin(dialogPanel))
         assertTrue(direction.isEffectivelyVisibleWithin(dialogPanel))
         assertTrue(amplitude.isEffectivelyVisibleWithin(dialogPanel))
+        assertTrue(loopDuration.isEffectivelyVisibleWithin(dialogPanel))
         assertFalse(style.isEffectivelyVisibleWithin(dialogPanel))
         val editorPlacementLabel = descendants(dialogPanel, JLabel::class.java).first { it.text == "Editor placement" }
         assertFalse(editorPlacementLabel.isEffectivelyVisibleWithin(dialogPanel))
 
         motion.selectedItem = WaveformMotion.STATIC_PULSE.displayName
-        assertFalse(direction.isEffectivelyVisibleWithin(dialogPanel), "Direction is meaningful only for Live monitor")
+        assertFalse(
+            direction.isEffectivelyVisibleWithin(dialogPanel),
+            "Direction is meaningful only for Perimeter loop",
+        )
+        assertFalse(
+            loopDuration.isEffectivelyVisibleWithin(dialogPanel),
+            "Loop duration applies only to Perimeter loop",
+        )
 
         shape.selectedItem = GlowShape.SOLID.displayName
 
@@ -282,6 +291,7 @@ class AyuIslandsEffectsPanelTest {
                 waveformDirection = WaveformDirection.COUNTER_CLOCKWISE,
                 waveformAmplitude = 16,
                 waveformIntensity = 12,
+                waveformLoopSeconds = 5.5f,
             ).withDefaults()
 
         assertEquals(GlowShape.SOLID, reset.shape)
@@ -290,6 +300,7 @@ class AyuIslandsEffectsPanelTest {
         assertEquals(WaveformDirection.CLOCKWISE, reset.waveformDirection)
         assertEquals(10, reset.waveformAmplitude)
         assertEquals(70, reset.waveformIntensity)
+        assertEquals(2.8f, reset.waveformLoopSeconds)
     }
 
     @Test
@@ -317,6 +328,40 @@ class AyuIslandsEffectsPanelTest {
         assertEquals(GlowPreset.CUSTOM.name, state.glowPreset)
         assertEquals(GlowStyle.GRADIENT.name, state.glowStyle)
         assertEquals(47, state.getIntensityForStyle(GlowStyle.GRADIENT))
+        assertFalse(effectsPanel.isModified())
+    }
+
+    @Test
+    fun `applying another glow setting preserves legacy waveform values`() {
+        state.waveformAmplitude = 6
+        state.waveformIntensity = -5
+        state.waveformLoopSeconds = 99f
+        val effectsPanel = AyuIslandsEffectsPanel()
+        buildDialogPanel(effectsPanel)
+
+        assertFalse(effectsPanel.isModified())
+        field<JSlider>(effectsPanel, "intensitySlider").value = 42
+        effectsPanel.apply()
+
+        assertEquals(6, state.waveformAmplitude)
+        assertEquals(-5, state.waveformIntensity)
+        assertEquals(99f, state.waveformLoopSeconds)
+        assertEquals(8, waveformField<JSlider>(effectsPanel, "amplitudeSlider").value)
+        assertEquals(0, waveformField<JSlider>(effectsPanel, "intensitySlider").value)
+        assertEquals(60, waveformField<JSlider>(effectsPanel, "loopSlider").value)
+    }
+
+    @Test
+    fun `perimeter loop duration applies in tenths of a second`() {
+        val effectsPanel = AyuIslandsEffectsPanel()
+        buildDialogPanel(effectsPanel)
+
+        waveformField<JComboBox<*>>(effectsPanel, "shapeCombo").selectedItem = GlowShape.WAVEFORM.displayName
+        waveformField<JSlider>(effectsPanel, "loopSlider").value = 37
+
+        effectsPanel.apply()
+
+        assertEquals(3.7f, state.waveformLoopSeconds)
         assertFalse(effectsPanel.isModified())
     }
 

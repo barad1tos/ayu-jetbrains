@@ -32,4 +32,30 @@ class BeatMorphologyPropertyTest {
         assertTrue(firstValues.any { it > 0.8f }, "R peak must dominate the complex")
         assertNotEquals(firstValues, secondValues)
     }
+
+    @Test
+    fun `randomized morphology features stay within eight percent of standard`() {
+        val standard = featureMagnitudes(BeatMorphology.standard())
+
+        repeat(50) { seed ->
+            val varied = featureMagnitudes(BeatMorphology.random(Random(seed)))
+            for (index in standard.indices) {
+                val ratio = varied[index] / standard[index]
+                assertTrue(
+                    ratio in 0.92f..1.08f,
+                    "Morphology feature $index for seed $seed varied by ${(ratio - 1f) * 100f}%",
+                )
+            }
+        }
+    }
+
+    private fun featureMagnitudes(morphology: BeatMorphology): List<Float> {
+        val samples = (0..5_000).map { sample -> sample / 5_000f to morphology.valueAt(sample / 5_000f) }
+        return listOf(
+            samples.filter { (time) -> time <= 0.22f }.maxOf { (_, value) -> value },
+            -samples.filter { (time) -> time in 0.20f..0.40f }.minOf { (_, value) -> value },
+            samples.filter { (time) -> time in 0.22f..0.40f }.maxOf { (_, value) -> value },
+            samples.filter { (time) -> time in 0.40f..0.75f }.maxOf { (_, value) -> value },
+        )
+    }
 }

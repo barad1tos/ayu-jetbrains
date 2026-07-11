@@ -6,6 +6,7 @@ import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.waveform.BeatMorphology
 import dev.ayuislands.glow.waveform.FrameBeat
+import dev.ayuislands.glow.waveform.SolidFrameSpec
 import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.WaveformFrame
 import dev.ayuislands.glow.waveform.WaveformMotion
@@ -50,7 +51,7 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
     var waveformConfig: WaveformConfig = WaveformConfig()
 
     private val renderer = GlowRenderer()
-    private val waveformPainter = WaveformPainter()
+    private val waveformPainter = WaveformPainter(renderer)
     private val previewMorphology = BeatMorphology.standard()
 
     init {
@@ -61,7 +62,6 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
         super.paintComponent(g)
         if (!glowVisible) return
         if (glowShape == GlowShape.SOLID && glowIntensity <= 0) return
-        if (glowShape == GlowShape.WAVEFORM && waveformConfig.intensity <= 0) return
 
         val g2 = g.create() as Graphics2D
         try {
@@ -135,7 +135,7 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
     }
 
     private fun paintWaveform(graphics: Graphics2D) {
-        val margin = WaveformPainter.marginFor(waveformConfig.amplitude)
+        val margin = WaveformPainter.marginFor(waveformConfig.amplitude, glowWidth)
         val baselineInset = JBUI.scale(PREVIEW_BASELINE_INSET).toFloat()
         val shift = (margin - baselineInset).roundToInt().coerceAtLeast(0)
         val bounds = Rectangle(-shift, -shift, width + shift * 2, height + shift * 2)
@@ -150,17 +150,14 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
         borderArea.subtract(Area(content))
         graphics.clip(borderArea)
         val previewConfig = waveformConfig.copy(motion = WaveformMotion.MONITOR)
-        val trackLength = waveformPainter.trackLength(bounds, ARC_F.toInt(), previewConfig, isEditorOverlay = false)
         val frame =
             WaveformFrame(
-                nowMs = 0L,
                 config = previewConfig,
                 beats =
                     listOf(
                         FrameBeat(
-                            centerDistance = trackLength * WaveformPainter.STATIC_CENTER_FRACTION,
+                            centerDistance = 0f,
                             morphology = previewMorphology,
-                            opacity = 1f,
                         ),
                     ),
             )
@@ -171,7 +168,13 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
                 arcWidth = ARC_F.toInt(),
                 accent = glowColor,
                 frame = frame,
-                isEditorOverlay = false,
+                solidFrame =
+                    SolidFrameSpec(
+                        bounds = Rectangle(0, 0, width, height),
+                        style = glowStyle,
+                        intensity = glowIntensity,
+                        width = glowWidth,
+                    ),
                 displacementScale = PREVIEW_DISPLACEMENT_SCALE,
             ),
         )

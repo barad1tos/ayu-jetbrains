@@ -36,24 +36,56 @@ internal sealed interface WaveformEvent {
     data object RenderFailed : WaveformEvent
 }
 
-internal data class ScheduledBeat(
-    val startMs: Long,
-    val morphology: BeatMorphology,
-)
-
 internal data class FrameBeat(
+    /** Signed perimeter offset from the track's signal anchor. */
     val centerDistance: Float,
     val morphology: BeatMorphology,
-    val opacity: Float,
 )
 
 internal data class WaveformFrame(
-    val nowMs: Long,
     val config: WaveformConfig,
     val beats: List<FrameBeat> = emptyList(),
-    val staticBoost: Float = 0f,
     val brightness: Float = 1f,
+    val energy: Float = 0f,
+    val morphology: BeatMorphology = BeatMorphology.standard(),
 )
+
+internal data class EnergyEnvelope(
+    val startLevel: Float,
+    val startMs: Long,
+    val peakMs: Long,
+    val endMs: Long,
+) {
+    fun levelAt(nowMs: Long): Float =
+        when {
+            nowMs <= startMs -> startLevel
+            nowMs < peakMs -> {
+                val progress = (nowMs - startMs).toFloat() / (peakMs - startMs).coerceAtLeast(1L)
+                startLevel + (1f - startLevel) * progress
+            }
+            nowMs < endMs -> 1f - (nowMs - peakMs).toFloat() / (endMs - peakMs).coerceAtLeast(1L)
+            else -> 0f
+        }.coerceIn(0f, 1f)
+
+    fun refreshed(nowMs: Long): EnergyEnvelope {
+        val currentLevel = levelAt(nowMs)
+        val nextPeakMs = if (nowMs < peakMs) peakMs else nowMs + ENERGY_RISE_MS
+        return EnergyEnvelope(currentLevel, nowMs, nextPeakMs, nextPeakMs + ENERGY_DECAY_MS)
+    }
+
+    companion object {
+        const val ENERGY_RISE_MS = 80L
+        const val ENERGY_DECAY_MS = 600L
+
+        fun start(nowMs: Long): EnergyEnvelope =
+            EnergyEnvelope(
+                startLevel = 0f,
+                startMs = nowMs,
+                peakMs = nowMs + ENERGY_RISE_MS,
+                endMs = nowMs + ENERGY_RISE_MS + ENERGY_DECAY_MS,
+            )
+    }
+}
 
 internal sealed interface WaveformState {
     val config: WaveformConfig?
@@ -62,27 +94,26 @@ internal sealed interface WaveformState {
         override val config: WaveformConfig,
     ) : WaveformState
 
-    data class MonitorWaiting(
+    data class Looping(
         override val config: WaveformConfig,
+        val phase: Float = 0f,
+        val lastTickMs: Long? = null,
+        val morphology: BeatMorphology = BeatMorphology.standard(),
+        val energyEnvelope: EnergyEnvelope? = null,
     ) : WaveformState
 
-    data class MonitorRunning(
+    data class StaticResting(
         override val config: WaveformConfig,
-        val beats: List<ScheduledBeat>,
-        val lastInputMs: Long,
+        val morphology: BeatMorphology = BeatMorphology.standard(),
     ) : WaveformState
 
-    data class StaticWaiting(
+    data class StaticResponding(
         override val config: WaveformConfig,
+        val energyEnvelope: EnergyEnvelope,
+        val morphology: BeatMorphology,
     ) : WaveformState
 
-    data class StaticDecaying(
-        override val config: WaveformConfig,
-        val boost: Float,
-        val lastTickMs: Long,
-    ) : WaveformState
-
-    data class PowerSavePaused(
+    data class Suspended(
         override val config: WaveformConfig,
     ) : WaveformState
 
@@ -99,13 +130,11 @@ internal data class WaveformUpdate(
 )
 
 /*
- * Inactive -> MonitorWaiting | StaticWaiting on Activate.
- * MonitorWaiting -> MonitorRunning on Keystroke; MonitorRunning ->
- * MonitorWaiting after queue drain + idle timeout.
- * StaticWaiting -> StaticDecaying on Keystroke; StaticDecaying ->
- * StaticWaiting after envelope decay.
- * Every active state -> PowerSavePaused on PowerSaveOn, then back to the
- * configured waiting state on PowerSaveOff.
+ * Inactive -> Looping | StaticResting | Suspended on Activate.
+ * Looping remains active across Tick and Keystroke; StaticResting enters
+ * StaticResponding on Keystroke and returns after the energy envelope.
+ * Every active state enters Suspended when motion becomes unavailable and
+ * resumes the configured mode from its anchor when motion becomes available.
  * Every non-failed state -> Inactive on Deactivate and -> Failed on
  * RenderFailed. Failed is terminal. Other cells are explicit ignores.
  */
@@ -123,7 +152,7 @@ internal class WaveformEngine(
                 is WaveformEvent.Activate -> activate(event)
                 WaveformEvent.Deactivate -> deactivate()
                 is WaveformEvent.Configure -> configure(event.config)
-                is WaveformEvent.Keystroke -> keystroke(event)
+                is WaveformEvent.Keystroke -> keystroke(event.nowMs)
                 is WaveformEvent.Tick -> tick(event)
                 is WaveformEvent.PowerSaveChanged -> changePowerSave(event.enabled)
                 WaveformEvent.RenderFailed -> fail()
@@ -134,103 +163,220 @@ internal class WaveformEngine(
 
     private fun activate(event: WaveformEvent.Activate): Transition =
         when (val current = state) {
-            is WaveformState.Inactive -> {
-                val next =
-                    if (event.powerSaveEnabled) {
-                        WaveformState.PowerSavePaused(current.config)
-                    } else {
-                        waitingState(current.config)
-                    }
-                Transition(next, WaveformUpdate(TimerDirective.STOP, needsRepaint = true))
-            }
-            is WaveformState.MonitorWaiting -> ignore(current)
-            is WaveformState.MonitorRunning -> ignore(current)
-            is WaveformState.StaticWaiting -> ignore(current)
-            is WaveformState.StaticDecaying -> ignore(current)
-            is WaveformState.PowerSavePaused -> ignore(current)
+            is WaveformState.Inactive ->
+                if (event.powerSaveEnabled) {
+                    suspended(current.config)
+                } else {
+                    active(current.config)
+                }
+            is WaveformState.Looping,
+            is WaveformState.StaticResting,
+            is WaveformState.StaticResponding,
+            is WaveformState.Suspended,
+            -> ignore(current)
             WaveformState.Failed -> failedTerminal()
         }
 
     private fun deactivate(): Transition =
         when (val current = state) {
             is WaveformState.Inactive -> ignore(current)
-            is WaveformState.MonitorWaiting -> inactive(current.config)
-            is WaveformState.MonitorRunning -> inactive(current.config)
-            is WaveformState.StaticWaiting -> inactive(current.config)
-            is WaveformState.StaticDecaying -> inactive(current.config)
-            is WaveformState.PowerSavePaused -> inactive(current.config)
+            is WaveformState.Looping -> inactive(current.config)
+            is WaveformState.StaticResting -> inactive(current.config)
+            is WaveformState.StaticResponding -> inactive(current.config)
+            is WaveformState.Suspended -> inactive(current.config)
             WaveformState.Failed -> failedTerminal()
         }
 
     private fun configure(config: WaveformConfig): Transition =
         when (val current = state) {
-            is WaveformState.Inactive -> Transition(current.copy(config = config), WaveformUpdate())
-            is WaveformState.MonitorWaiting -> reconfigure(current, config)
-            is WaveformState.MonitorRunning -> reconfigure(current, config)
-            is WaveformState.StaticWaiting -> reconfigure(current, config)
-            is WaveformState.StaticDecaying -> reconfigure(current, config)
-            is WaveformState.PowerSavePaused ->
-                Transition(current.copy(config = config), WaveformUpdate(needsRepaint = true))
+            is WaveformState.Inactive ->
+                if (config == current.config) ignore(current) else inactive(config)
+            is WaveformState.Looping -> configureLooping(current, config)
+            is WaveformState.StaticResting -> configureStaticResting(current, config)
+            is WaveformState.StaticResponding -> configureStaticResponding(current, config)
+            is WaveformState.Suspended ->
+                if (config == current.config) ignore(current) else suspended(config)
             WaveformState.Failed -> failedTerminal()
         }
 
-    private fun keystroke(event: WaveformEvent.Keystroke): Transition =
+    private fun keystroke(nowMs: Long): Transition =
         when (val current = state) {
             is WaveformState.Inactive -> ignore(current)
-            is WaveformState.MonitorWaiting -> {
-                val beat = ScheduledBeat(event.nowMs, BeatMorphology.random(random))
-                val next = WaveformState.MonitorRunning(current.config, listOf(beat), event.nowMs)
-                Transition(next, WaveformUpdate(TimerDirective.START, needsRepaint = true))
-            }
-            is WaveformState.MonitorRunning -> scheduleMonitorBeat(current, event.nowMs)
-            is WaveformState.StaticWaiting -> {
-                val next = WaveformState.StaticDecaying(current.config, STATIC_BOOST_INCREMENT, event.nowMs)
-                Transition(next, WaveformUpdate(TimerDirective.START, needsRepaint = true))
-            }
-            is WaveformState.StaticDecaying -> pumpStatic(current, event.nowMs)
-            is WaveformState.PowerSavePaused -> ignore(current)
+            is WaveformState.Looping ->
+                Transition(
+                    current.copy(
+                        energyEnvelope = current.energyEnvelope?.refreshed(nowMs) ?: EnergyEnvelope.start(nowMs),
+                    ),
+                    WaveformUpdate(needsRepaint = true),
+                )
+            is WaveformState.StaticResting ->
+                Transition(
+                    WaveformState.StaticResponding(
+                        config = current.config,
+                        energyEnvelope = EnergyEnvelope.start(nowMs),
+                        morphology = BeatMorphology.random(random),
+                    ),
+                    WaveformUpdate(TimerDirective.START, needsRepaint = true),
+                )
+            is WaveformState.StaticResponding ->
+                Transition(
+                    current.copy(energyEnvelope = current.energyEnvelope.refreshed(nowMs)),
+                    WaveformUpdate(needsRepaint = true),
+                )
+            is WaveformState.Suspended -> ignore(current)
             WaveformState.Failed -> failedTerminal()
         }
 
     private fun tick(event: WaveformEvent.Tick): Transition =
         when (val current = state) {
             is WaveformState.Inactive -> ignore(current)
-            is WaveformState.MonitorWaiting -> ignore(current)
-            is WaveformState.MonitorRunning -> tickMonitor(current, event)
-            is WaveformState.StaticWaiting -> ignore(current)
-            is WaveformState.StaticDecaying -> tickStatic(current, event)
-            is WaveformState.PowerSavePaused -> ignore(current)
+            is WaveformState.Looping -> tickLooping(current, event)
+            is WaveformState.StaticResting -> ignore(current)
+            is WaveformState.StaticResponding -> tickStatic(current, event)
+            is WaveformState.Suspended -> ignore(current)
             WaveformState.Failed -> failedTerminal()
         }
 
     private fun changePowerSave(enabled: Boolean): Transition =
         when (val current = state) {
             is WaveformState.Inactive -> ignore(current)
-            is WaveformState.MonitorWaiting -> pauseIfEnabled(current.config, enabled, current)
-            is WaveformState.MonitorRunning -> pauseIfEnabled(current.config, enabled, current)
-            is WaveformState.StaticWaiting -> pauseIfEnabled(current.config, enabled, current)
-            is WaveformState.StaticDecaying -> pauseIfEnabled(current.config, enabled, current)
-            is WaveformState.PowerSavePaused -> {
-                if (enabled) {
-                    ignore(current)
-                } else {
-                    Transition(
-                        waitingState(current.config),
-                        WaveformUpdate(TimerDirective.STOP, needsRepaint = true),
-                    )
-                }
-            }
+            is WaveformState.Looping -> if (enabled) suspended(current.config) else ignore(current)
+            is WaveformState.StaticResting -> if (enabled) suspended(current.config) else ignore(current)
+            is WaveformState.StaticResponding -> if (enabled) suspended(current.config) else ignore(current)
+            is WaveformState.Suspended -> if (enabled) ignore(current) else active(current.config)
             WaveformState.Failed -> failedTerminal()
         }
+
+    private fun configureLooping(
+        current: WaveformState.Looping,
+        config: WaveformConfig,
+    ): Transition =
+        when {
+            config == current.config -> ignore(current)
+            config.motion == WaveformMotion.MONITOR ->
+                Transition(current.copy(config = config), WaveformUpdate(needsRepaint = true))
+            else ->
+                Transition(
+                    WaveformState.StaticResting(config, current.morphology),
+                    WaveformUpdate(
+                        TimerDirective.STOP,
+                        needsRepaint = true,
+                        frame = restingFrame(config, current.morphology),
+                    ),
+                )
+        }
+
+    private fun configureStaticResting(
+        current: WaveformState.StaticResting,
+        config: WaveformConfig,
+    ): Transition =
+        when {
+            config == current.config -> ignore(current)
+            config.motion == WaveformMotion.STATIC_PULSE ->
+                Transition(current.copy(config = config), WaveformUpdate(needsRepaint = true))
+            else -> looping(config, current.morphology)
+        }
+
+    private fun configureStaticResponding(
+        current: WaveformState.StaticResponding,
+        config: WaveformConfig,
+    ): Transition =
+        when {
+            config == current.config -> ignore(current)
+            config.motion == WaveformMotion.STATIC_PULSE ->
+                Transition(current.copy(config = config), WaveformUpdate(needsRepaint = true))
+            else ->
+                Transition(
+                    WaveformState.Looping(
+                        config = config,
+                        morphology = current.morphology,
+                        energyEnvelope = current.energyEnvelope,
+                    ),
+                    WaveformUpdate(TimerDirective.START, needsRepaint = true),
+                )
+        }
+
+    private fun tickLooping(
+        current: WaveformState.Looping,
+        event: WaveformEvent.Tick,
+    ): Transition {
+        val elapsedMs = current.lastTickMs?.let { (event.nowMs - it).coerceAtLeast(0L) } ?: 0L
+        val unwrappedPhase = current.phase + elapsedMs / loopDurationMs(current.config)
+        val phase = wrap(unwrappedPhase, 1f)
+        val morphology = if (unwrappedPhase >= 1f) BeatMorphology.random(random) else current.morphology
+        val energy = current.energyEnvelope?.levelAt(event.nowMs) ?: 0f
+        val envelope = current.energyEnvelope?.takeIf { event.nowMs < it.endMs }
+        val beats = movingBeat(event.trackLength, phase, current.config.direction, morphology)
+        val frame = activeFrame(current.config, energy, morphology, beats)
+        return Transition(
+            current.copy(
+                phase = phase,
+                lastTickMs = event.nowMs,
+                morphology = morphology,
+                energyEnvelope = envelope,
+            ),
+            WaveformUpdate(needsRepaint = event.trackLength > 0f, frame = frame),
+        )
+    }
+
+    private fun tickStatic(
+        current: WaveformState.StaticResponding,
+        event: WaveformEvent.Tick,
+    ): Transition {
+        val energy = current.energyEnvelope.levelAt(event.nowMs)
+        val frame = activeFrame(current.config, energy, current.morphology)
+        if (event.nowMs >= current.energyEnvelope.endMs) {
+            return Transition(
+                WaveformState.StaticResting(current.config, current.morphology),
+                WaveformUpdate(TimerDirective.STOP, needsRepaint = true, frame = frame),
+            )
+        }
+        return Transition(
+            current,
+            WaveformUpdate(needsRepaint = event.trackLength > 0f, frame = frame),
+        )
+    }
+
+    private fun active(config: WaveformConfig): Transition =
+        when (config.motion) {
+            WaveformMotion.MONITOR -> looping(config, BeatMorphology.random(random))
+            WaveformMotion.STATIC_PULSE -> {
+                val morphology = BeatMorphology.random(random)
+                Transition(
+                    WaveformState.StaticResting(config, morphology),
+                    WaveformUpdate(TimerDirective.STOP, needsRepaint = true, frame = restingFrame(config, morphology)),
+                )
+            }
+        }
+
+    private fun looping(
+        config: WaveformConfig,
+        morphology: BeatMorphology,
+    ): Transition =
+        Transition(
+            WaveformState.Looping(config = config, morphology = morphology),
+            WaveformUpdate(TimerDirective.START, needsRepaint = true, frame = restingFrame(config, morphology)),
+        )
+
+    private fun suspended(config: WaveformConfig): Transition =
+        Transition(
+            WaveformState.Suspended(config),
+            WaveformUpdate(TimerDirective.STOP, needsRepaint = true, frame = restingFrame(config)),
+        )
+
+    private fun inactive(config: WaveformConfig): Transition =
+        Transition(
+            WaveformState.Inactive(config),
+            WaveformUpdate(TimerDirective.STOP, needsRepaint = true, frame = restingFrame(config)),
+        )
 
     private fun fail(): Transition =
         when (state) {
             is WaveformState.Inactive,
-            is WaveformState.MonitorWaiting,
-            is WaveformState.MonitorRunning,
-            is WaveformState.StaticWaiting,
-            is WaveformState.StaticDecaying,
-            is WaveformState.PowerSavePaused,
+            is WaveformState.Looping,
+            is WaveformState.StaticResting,
+            is WaveformState.StaticResponding,
+            is WaveformState.Suspended,
             ->
                 Transition(
                     WaveformState.Failed,
@@ -241,151 +387,6 @@ internal class WaveformEngine(
                     ),
                 )
             WaveformState.Failed -> failedTerminal()
-        }
-
-    private fun scheduleMonitorBeat(
-        current: WaveformState.MonitorRunning,
-        nowMs: Long,
-    ): Transition {
-        if (current.beats.size >= MAX_QUEUED_BEATS) {
-            return Transition(
-                current.copy(lastInputMs = nowMs),
-                WaveformUpdate(needsRepaint = true),
-            )
-        }
-        val lastStartMs = current.beats.lastOrNull()?.startMs
-        val startMs = lastStartMs?.let { maxOf(nowMs, it + MIN_RR_MS) } ?: nowMs
-        val beat = ScheduledBeat(startMs, BeatMorphology.random(random))
-        val beats = current.beats + beat
-        val next = current.copy(beats = beats, lastInputMs = nowMs)
-        return Transition(next, WaveformUpdate(needsRepaint = true))
-    }
-
-    private fun pumpStatic(
-        current: WaveformState.StaticDecaying,
-        nowMs: Long,
-    ): Transition {
-        val boost = (current.boost + STATIC_BOOST_INCREMENT).coerceAtMost(1f)
-        val next = current.copy(boost = boost, lastTickMs = nowMs)
-        return Transition(next, WaveformUpdate(needsRepaint = true))
-    }
-
-    private fun tickStatic(
-        current: WaveformState.StaticDecaying,
-        event: WaveformEvent.Tick,
-    ): Transition {
-        val elapsedMs = (event.nowMs - current.lastTickMs).coerceAtLeast(0L)
-        val boost = (current.boost - elapsedMs / STATIC_ENVELOPE_MS).coerceAtLeast(0f)
-        val frame =
-            WaveformFrame(
-                nowMs = event.nowMs,
-                config = current.config,
-                staticBoost = boost,
-                brightness = IDLE_WAVEFORM_BRIGHTNESS + boost * STATIC_BRIGHTNESS_RANGE,
-            )
-        if (boost == 0f) {
-            return Transition(
-                WaveformState.StaticWaiting(current.config),
-                WaveformUpdate(TimerDirective.STOP, needsRepaint = true, frame = frame),
-            )
-        }
-        return Transition(
-            current.copy(boost = boost, lastTickMs = event.nowMs),
-            WaveformUpdate(needsRepaint = true, frame = frame),
-        )
-    }
-
-    private fun tickMonitor(
-        current: WaveformState.MonitorRunning,
-        event: WaveformEvent.Tick,
-    ): Transition {
-        if (event.trackLength <= 0f) {
-            return Transition(
-                WaveformState.MonitorWaiting(current.config),
-                WaveformUpdate(TimerDirective.STOP, needsRepaint = true),
-            )
-        }
-
-        val alive =
-            current.beats.filter { beat ->
-                beat.startMs > event.nowMs ||
-                    traveledDistance(event.nowMs, beat.startMs) < event.trackLength
-            }
-        val frameBeats =
-            alive.mapNotNull { beat ->
-                if (beat.startMs > event.nowMs) return@mapNotNull null
-                val traveled = traveledDistance(event.nowMs, beat.startMs)
-                FrameBeat(
-                    centerDistance = wrap(traveled * current.config.direction.travelSign, event.trackLength),
-                    morphology = beat.morphology,
-                    opacity = ((1f - traveled / event.trackLength) * FADE_MULTIPLIER).coerceIn(0f, 1f),
-                )
-            }
-        val frame = WaveformFrame(event.nowMs, current.config, beats = frameBeats)
-        if (event.nowMs - current.lastInputMs >= IDLE_TIMEOUT_MS) {
-            val waiting = WaveformState.MonitorWaiting(current.config)
-            return Transition(
-                waiting,
-                WaveformUpdate(
-                    TimerDirective.STOP,
-                    needsRepaint = true,
-                    frame = frame.copy(beats = emptyList(), brightness = IDLE_WAVEFORM_BRIGHTNESS),
-                ),
-            )
-        }
-        return Transition(
-            current.copy(beats = alive),
-            WaveformUpdate(needsRepaint = current.beats.isNotEmpty(), frame = frame),
-        )
-    }
-
-    private fun traveledDistance(
-        nowMs: Long,
-        startMs: Long,
-    ): Float = (nowMs - startMs) / MILLIS_PER_SECOND * BEAT_SPEED
-
-    private fun wrap(
-        distance: Float,
-        length: Float,
-    ): Float = ((distance % length) + length) % length
-
-    private fun pauseIfEnabled(
-        config: WaveformConfig,
-        enabled: Boolean,
-        current: WaveformState,
-    ): Transition =
-        if (enabled) {
-            Transition(
-                WaveformState.PowerSavePaused(config),
-                WaveformUpdate(TimerDirective.STOP, needsRepaint = true),
-            )
-        } else {
-            ignore(current)
-        }
-
-    private fun waitingState(config: WaveformConfig): WaveformState =
-        when (config.motion) {
-            WaveformMotion.MONITOR -> WaveformState.MonitorWaiting(config)
-            WaveformMotion.STATIC_PULSE -> WaveformState.StaticWaiting(config)
-        }
-
-    private fun inactive(config: WaveformConfig): Transition =
-        Transition(
-            WaveformState.Inactive(config),
-            WaveformUpdate(TimerDirective.STOP, needsRepaint = true),
-        )
-
-    private fun reconfigure(
-        current: WaveformState,
-        config: WaveformConfig,
-    ): Transition =
-        if (config == current.config) {
-            ignore(current)
-        } else {
-            Transition(
-                waitingState(config),
-                WaveformUpdate(TimerDirective.STOP, needsRepaint = true),
-            )
         }
 
     private fun failedTerminal(): Transition =
@@ -402,14 +403,56 @@ internal class WaveformEngine(
     )
 
     private companion object {
-        const val MIN_RR_MS = 190L
-        const val MAX_QUEUED_BEATS = 24
-        const val IDLE_TIMEOUT_MS = 4_000L
         const val MILLIS_PER_SECOND = 1_000f
-        const val BEAT_SPEED = 170f
-        const val FADE_MULTIPLIER = 4f
-        const val STATIC_BOOST_INCREMENT = 0.6f
-        const val STATIC_ENVELOPE_MS = 1_500f
-        const val STATIC_BRIGHTNESS_RANGE = 0.45f
+        const val ACTIVE_BRIGHTNESS_RANGE = 1f - IDLE_WAVEFORM_BRIGHTNESS
+
+        fun loopDurationMs(config: WaveformConfig): Float =
+            config.loopSeconds.normalizedLoopSeconds() * MILLIS_PER_SECOND
+
+        fun movingBeat(
+            trackLength: Float,
+            phase: Float,
+            direction: WaveformDirection,
+            morphology: BeatMorphology,
+        ): List<FrameBeat> =
+            if (trackLength > 0f) {
+                listOf(
+                    FrameBeat(
+                        centerDistance = wrap(phase * direction.travelSign, 1f) * trackLength,
+                        morphology = morphology,
+                    ),
+                )
+            } else {
+                emptyList()
+            }
+
+        fun activeFrame(
+            config: WaveformConfig,
+            energy: Float,
+            morphology: BeatMorphology,
+            beats: List<FrameBeat> = emptyList(),
+        ): WaveformFrame =
+            WaveformFrame(
+                config = config,
+                beats = beats,
+                brightness = IDLE_WAVEFORM_BRIGHTNESS + energy * ACTIVE_BRIGHTNESS_RANGE,
+                energy = energy,
+                morphology = morphology,
+            )
+
+        fun restingFrame(
+            config: WaveformConfig,
+            morphology: BeatMorphology = BeatMorphology.standard(),
+        ): WaveformFrame =
+            WaveformFrame(
+                config = config,
+                brightness = IDLE_WAVEFORM_BRIGHTNESS,
+                morphology = morphology,
+            )
+
+        fun wrap(
+            distance: Float,
+            length: Float,
+        ): Float = ((distance % length) + length) % length
     }
 }

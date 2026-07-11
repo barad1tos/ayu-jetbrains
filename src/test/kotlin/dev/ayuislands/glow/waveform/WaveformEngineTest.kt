@@ -5,51 +5,83 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class WaveformEngineTest {
     @Test
-    fun `activating monitor enters waiting state without starting timer`() {
+    fun `activating perimeter loop starts continuous motion without queued beats`() {
         val engine = WaveformEngine(WaveformConfig())
 
         val update = engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
 
-        assertIs<WaveformState.MonitorWaiting>(engine.state)
-        assertEquals(TimerDirective.STOP, update.timerDirective)
-        assertTrue(update.needsRepaint)
-    }
-
-    @Test
-    fun `monitor keystroke creates a beat and starts the frame timer`() {
-        val engine = WaveformEngine(WaveformConfig(), Random(7))
-        engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
-
-        val update = engine.handle(WaveformEvent.Keystroke(nowMs = 1_000L))
-
-        val running = assertIs<WaveformState.MonitorRunning>(engine.state)
-        assertEquals(1, running.beats.size)
-        assertEquals(1_000L, running.beats.single().startMs)
+        assertIs<WaveformState.Looping>(engine.state)
         assertEquals(TimerDirective.START, update.timerDirective)
         assertTrue(update.needsRepaint)
     }
 
     @Test
-    fun `rapid monitor keystrokes schedule beats at the minimum RR interval`() {
-        val engine = WaveformEngine(WaveformConfig(), Random(11))
-        engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
-        engine.handle(WaveformEvent.Keystroke(nowMs = 1_000L))
+    fun `perimeter loop period is independent of track length`() {
+        val shortTrack = WaveformEngine(WaveformConfig(loopSeconds = 2.8f), Random(5))
+        val longTrack = WaveformEngine(WaveformConfig(loopSeconds = 2.8f), Random(5))
+        for (engine in listOf(shortTrack, longTrack)) {
+            engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
+            engine.handle(WaveformEvent.Tick(nowMs = 0L, trackLength = 1_000f))
+        }
 
-        val update = engine.handle(WaveformEvent.Keystroke(nowMs = 1_050L))
+        val shortFrame = requireNotNull(shortTrack.handle(WaveformEvent.Tick(1_400L, 1_000f)).frame)
+        val longFrame = requireNotNull(longTrack.handle(WaveformEvent.Tick(1_400L, 2_000f)).frame)
 
-        val running = assertIs<WaveformState.MonitorRunning>(engine.state)
-        assertEquals(listOf(1_000L, 1_190L), running.beats.map { it.startMs })
-        assertEquals(1_050L, running.lastInputMs)
-        assertEquals(TimerDirective.KEEP, update.timerDirective)
-        assertTrue(update.needsRepaint)
+        assertEquals(500f, shortFrame.beats.single().centerDistance, 0.001f)
+        assertEquals(1_000f, longFrame.beats.single().centerDistance, 0.001f)
     }
 
     @Test
-    fun `monitor direction reverses travel around the closed perimeter`() {
+    fun `perimeter keystroke raises energy without restarting phase`() {
+        val engine = WaveformEngine(WaveformConfig(), Random(7))
+        engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
+        engine.handle(WaveformEvent.Tick(nowMs = 0L, trackLength = 1_000f))
+        engine.handle(WaveformEvent.Tick(nowMs = 700L, trackLength = 1_000f))
+
+        val input = engine.handle(WaveformEvent.Keystroke(nowMs = 700L))
+        val rising = requireNotNull(engine.handle(WaveformEvent.Tick(740L, 1_000f)).frame)
+        val peak = requireNotNull(engine.handle(WaveformEvent.Tick(780L, 1_000f)).frame)
+        val decaying = requireNotNull(engine.handle(WaveformEvent.Tick(1_080L, 1_000f)).frame)
+        val resting = requireNotNull(engine.handle(WaveformEvent.Tick(1_380L, 1_000f)).frame)
+
+        assertEquals(TimerDirective.KEEP, input.timerDirective)
+        assertEquals(0.5f, rising.energy, 0.001f)
+        assertEquals(0.675f, rising.brightness, 0.001f)
+        assertEquals(264.286f, rising.beats.single().centerDistance, 0.001f)
+        assertEquals(1f, peak.energy, 0.001f)
+        assertEquals(0.5f, decaying.energy, 0.001f)
+        assertEquals(0f, resting.energy, 0.001f)
+        assertEquals(0.35f, resting.brightness, 0.001f)
+    }
+
+    @Test
+    fun `repeated perimeter input restores energy without creating a queue`() {
+        val engine = WaveformEngine(WaveformConfig(), Random(11))
+        engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
+        engine.handle(WaveformEvent.Tick(nowMs = 0L, trackLength = 1_000f))
+        engine.handle(WaveformEvent.Keystroke(nowMs = 0L))
+        engine.handle(WaveformEvent.Tick(nowMs = 80L, trackLength = 1_000f))
+        val decaying = requireNotNull(engine.handle(WaveformEvent.Tick(500L, 1_000f)).frame)
+
+        engine.handle(WaveformEvent.Keystroke(nowMs = 500L))
+        val risingAgain = requireNotNull(engine.handle(WaveformEvent.Tick(540L, 1_000f)).frame)
+        val peakAgain = requireNotNull(engine.handle(WaveformEvent.Tick(580L, 1_000f)).frame)
+        val resting = requireNotNull(engine.handle(WaveformEvent.Tick(1_180L, 1_000f)).frame)
+
+        assertIs<WaveformState.Looping>(engine.state)
+        assertEquals(0.3f, decaying.energy, 0.001f)
+        assertEquals(0.65f, risingAgain.energy, 0.001f)
+        assertEquals(1f, peakAgain.energy, 0.001f)
+        assertEquals(0f, resting.energy, 0.001f)
+    }
+
+    @Test
+    fun `perimeter direction reverses continuous travel around the closed track`() {
         val clockwise =
             WaveformEngine(
                 WaveformConfig(direction = WaveformDirection.CLOCKWISE),
@@ -62,143 +94,133 @@ class WaveformEngineTest {
             )
         for (engine in listOf(clockwise, counterClockwise)) {
             engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
-            engine.handle(WaveformEvent.Keystroke(nowMs = 0L))
+            engine.handle(WaveformEvent.Tick(nowMs = 0L, trackLength = 1_000f))
         }
 
         val clockwiseFrame =
-            clockwise.handle(WaveformEvent.Tick(nowMs = 1_000L, trackLength = 1_000f)).frame
-                ?: error("monitor tick must produce a frame")
+            clockwise.handle(WaveformEvent.Tick(nowMs = 700L, trackLength = 1_000f)).frame
+                ?: error("perimeter tick must produce a frame")
         val counterFrame =
-            counterClockwise.handle(WaveformEvent.Tick(nowMs = 1_000L, trackLength = 1_000f)).frame
-                ?: error("monitor tick must produce a frame")
+            counterClockwise.handle(WaveformEvent.Tick(nowMs = 700L, trackLength = 1_000f)).frame
+                ?: error("perimeter tick must produce a frame")
 
-        assertEquals(170f, clockwiseFrame.beats.single().centerDistance, 0.001f)
-        assertEquals(830f, counterFrame.beats.single().centerDistance, 0.001f)
-        assertEquals(1f, clockwiseFrame.beats.single().opacity)
-
-        val fadingFrame =
-            clockwise.handle(WaveformEvent.Tick(nowMs = 3_500L, trackLength = 700f)).frame
-                ?: error("monitor tick must produce a fading frame")
-        assertEquals(0.6f, fadingFrame.beats.single().opacity, 0.001f)
+        assertEquals(250f, clockwiseFrame.beats.single().centerDistance, 0.001f)
+        assertEquals(750f, counterFrame.beats.single().centerDistance, 0.001f)
     }
 
     @Test
-    fun `monitor freezes at the idle deadline`() {
+    fun `perimeter loop keeps moving without input or idle timeout`() {
         val engine = WaveformEngine(WaveformConfig(), Random(31))
         engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
-        engine.handle(WaveformEvent.Keystroke(nowMs = 0L))
+        engine.handle(WaveformEvent.Tick(nowMs = 0L, trackLength = 1_000f))
 
-        val beforeTimeout = engine.handle(WaveformEvent.Tick(nowMs = 3_999L, trackLength = 100f))
-        assertIs<WaveformState.MonitorRunning>(engine.state)
-        assertEquals(TimerDirective.KEEP, beforeTimeout.timerDirective)
-        assertTrue(beforeTimeout.needsRepaint)
+        val update = engine.handle(WaveformEvent.Tick(nowMs = 5_600L, trackLength = 1_000f))
 
-        val unchanged = engine.handle(WaveformEvent.Tick(nowMs = 3_999L, trackLength = 100f))
-        assertFalse(unchanged.needsRepaint)
-
-        val frozen = engine.handle(WaveformEvent.Tick(nowMs = 4_000L, trackLength = 100f))
-        assertIs<WaveformState.MonitorWaiting>(engine.state)
-        assertEquals(TimerDirective.STOP, frozen.timerDirective)
-        assertTrue(frozen.needsRepaint)
-        val frozenFrame = requireNotNull(frozen.frame)
-        assertTrue(frozenFrame.beats.isEmpty())
-        assertEquals(IDLE_WAVEFORM_BRIGHTNESS, frozenFrame.brightness)
+        assertIs<WaveformState.Looping>(engine.state)
+        assertEquals(TimerDirective.KEEP, update.timerDirective)
+        assertEquals(0f, requireNotNull(update.frame).beats.single().centerDistance, 0.001f)
+        assertTrue(update.needsRepaint)
     }
 
     @Test
-    fun `large monitor track freezes at the idle deadline on its baseline`() {
-        val engine = WaveformEngine(WaveformConfig(), Random(35))
+    fun `perimeter morphology stays stable within a loop and changes at wrap`() {
+        val engine = WaveformEngine(WaveformConfig(loopSeconds = 2.8f), Random(37))
         engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
-        engine.handle(WaveformEvent.Keystroke(nowMs = 0L))
+        val initial = requireNotNull(engine.handle(WaveformEvent.Tick(0L, 1_000f)).frame)
+        val withinLoop = requireNotNull(engine.handle(WaveformEvent.Tick(2_000L, 1_000f)).frame)
+        val nextLoop = requireNotNull(engine.handle(WaveformEvent.Tick(2_800L, 1_000f)).frame)
 
-        val stopped = engine.handle(WaveformEvent.Tick(nowMs = 4_000L, trackLength = 5_000f))
-
-        assertIs<WaveformState.MonitorWaiting>(engine.state)
-        assertEquals(TimerDirective.STOP, stopped.timerDirective)
-        assertTrue(stopped.frame?.beats?.isEmpty() == true)
+        val initialSamples = morphologySamples(initial)
+        assertEquals(initialSamples, morphologySamples(withinLoop))
+        assertTrue(initialSamples != morphologySamples(nextLoop))
     }
 
     @Test
-    fun `static keystroke starts a bounded pulse envelope`() {
+    fun `static keystroke starts the shared typing energy envelope`() {
         val engine =
             WaveformEngine(
                 WaveformConfig(motion = WaveformMotion.STATIC_PULSE),
                 Random(41),
             )
         engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
-        assertIs<WaveformState.StaticWaiting>(engine.state)
+        assertIs<WaveformState.StaticResting>(engine.state)
 
         val started = engine.handle(WaveformEvent.Keystroke(nowMs = 1_000L))
-        val firstPulse = assertIs<WaveformState.StaticDecaying>(engine.state)
-        assertEquals(0.6f, firstPulse.boost, 0.001f)
+        assertIs<WaveformState.StaticResponding>(engine.state)
         assertEquals(TimerDirective.START, started.timerDirective)
+        val rising = requireNotNull(engine.handle(WaveformEvent.Tick(1_040L, 1_000f)).frame)
+        val sessionMorphology = morphologySamples(rising.morphology)
 
-        val pumped = engine.handle(WaveformEvent.Keystroke(nowMs = 1_010L))
-        val secondPulse = assertIs<WaveformState.StaticDecaying>(engine.state)
-        assertEquals(1f, secondPulse.boost)
+        val pumped = engine.handle(WaveformEvent.Keystroke(nowMs = 1_040L))
+        val peak = requireNotNull(engine.handle(WaveformEvent.Tick(1_080L, 1_000f)).frame)
+
+        assertEquals(0.5f, rising.energy, 0.001f)
+        assertEquals(1f, peak.energy, 0.001f)
+        assertEquals(sessionMorphology, morphologySamples(peak.morphology))
         assertEquals(TimerDirective.KEEP, pumped.timerDirective)
     }
 
     @Test
-    fun `static pulse decays monotonically and stops after the envelope`() {
+    fun `static pulse decays to resting energy and stops its timer`() {
         val engine = WaveformEngine(WaveformConfig(motion = WaveformMotion.STATIC_PULSE), Random(51))
         engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
         engine.handle(WaveformEvent.Keystroke(nowMs = 0L))
-        engine.handle(WaveformEvent.Keystroke(nowMs = 0L))
+        val peak = engine.handle(WaveformEvent.Tick(nowMs = 80L, trackLength = 1_000f))
 
-        val halfway = engine.handle(WaveformEvent.Tick(nowMs = 750L, trackLength = 1_000f))
-        val halfwayState = assertIs<WaveformState.StaticDecaying>(engine.state)
-        assertEquals(0.5f, halfwayState.boost, 0.001f)
-        assertEquals(0.5f, halfway.frame?.staticBoost ?: -1f, 0.001f)
-        assertEquals(0.775f, halfway.frame?.brightness ?: -1f, 0.001f)
+        val halfway = engine.handle(WaveformEvent.Tick(nowMs = 380L, trackLength = 1_000f))
+        val halfwayState = assertIs<WaveformState.StaticResponding>(engine.state)
+        assertEquals(0.5f, halfwayState.energyEnvelope.levelAt(380L), 0.001f)
+        assertEquals(1f, peak.frame?.energy ?: -1f, 0.001f)
+        assertEquals(0.5f, halfway.frame?.energy ?: -1f, 0.001f)
+        assertEquals(0.675f, halfway.frame?.brightness ?: -1f, 0.001f)
 
-        val finished = engine.handle(WaveformEvent.Tick(nowMs = 1_500L, trackLength = 1_000f))
-        assertIs<WaveformState.StaticWaiting>(engine.state)
+        val finished = engine.handle(WaveformEvent.Tick(nowMs = 680L, trackLength = 1_000f))
+        assertIs<WaveformState.StaticResting>(engine.state)
         assertEquals(TimerDirective.STOP, finished.timerDirective)
-        assertEquals(0f, finished.frame?.staticBoost ?: -1f)
-        assertEquals(0.55f, finished.frame?.brightness ?: -1f, 0.001f)
+        assertEquals(0f, finished.frame?.energy ?: -1f)
+        assertEquals(0.35f, finished.frame?.brightness ?: -1f, 0.001f)
     }
 
     @Test
-    fun `monitor queue is bounded during a burst`() {
-        val engine = WaveformEngine(WaveformConfig(), Random(61))
+    fun `perimeter keeps a fresh energy envelope when input and tick share a millisecond`() {
+        val engine = WaveformEngine(WaveformConfig(), Random(53))
         engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
+        engine.handle(WaveformEvent.Tick(nowMs = 1_000L, trackLength = 1_000f))
+        engine.handle(WaveformEvent.Keystroke(nowMs = 1_000L))
 
-        repeat(40) { index ->
-            engine.handle(WaveformEvent.Keystroke(nowMs = index.toLong()))
-        }
+        engine.handle(WaveformEvent.Tick(nowMs = 1_000L, trackLength = 1_000f))
+        val looping = assertIs<WaveformState.Looping>(engine.state)
+        val rising = requireNotNull(engine.handle(WaveformEvent.Tick(1_040L, 1_000f)).frame)
 
-        val running = assertIs<WaveformState.MonitorRunning>(engine.state)
-        assertEquals(24, running.beats.size)
-        assertEquals(0L, running.beats.first().startMs)
-        assertEquals(4_370L, running.beats.last().startMs)
-        assertEquals(39L, running.lastInputMs)
+        assertNotNull(looping.energyEnvelope)
+        assertEquals(0.5f, rising.energy, 0.001f)
     }
 
     @Test
-    fun `keystroke after the monitor queue drains starts a new beat`() {
-        val engine = WaveformEngine(WaveformConfig(), Random(65))
+    fun `static keeps responding when input and tick share a millisecond`() {
+        val engine = WaveformEngine(WaveformConfig(motion = WaveformMotion.STATIC_PULSE), Random(59))
         engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
-        engine.handle(WaveformEvent.Keystroke(nowMs = 0L))
-        engine.handle(WaveformEvent.Tick(nowMs = 1_000L, trackLength = 100f))
+        engine.handle(WaveformEvent.Keystroke(nowMs = 1_000L))
 
-        engine.handle(WaveformEvent.Keystroke(nowMs = 1_500L))
+        val immediate = engine.handle(WaveformEvent.Tick(nowMs = 1_000L, trackLength = 1_000f))
+        val rising = requireNotNull(engine.handle(WaveformEvent.Tick(1_040L, 1_000f)).frame)
 
-        val running = assertIs<WaveformState.MonitorRunning>(engine.state)
-        assertEquals(listOf(1_500L), running.beats.map { it.startMs })
+        assertIs<WaveformState.StaticResponding>(engine.state)
+        assertEquals(TimerDirective.KEEP, immediate.timerDirective)
+        assertEquals(0.5f, rising.energy, 0.001f)
     }
 
     @Test
-    fun `degenerate monitor track clears beats and stops the frame timer`() {
+    fun `degenerate perimeter track keeps phase timer alive without a beat`() {
         val engine = WaveformEngine(WaveformConfig(), Random(67))
         engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
-        engine.handle(WaveformEvent.Keystroke(nowMs = 0L))
 
         val update = engine.handle(WaveformEvent.Tick(nowMs = 1L, trackLength = 0f))
 
-        assertIs<WaveformState.MonitorWaiting>(engine.state)
-        assertEquals(TimerDirective.STOP, update.timerDirective)
-        assertTrue(update.needsRepaint)
+        assertIs<WaveformState.Looping>(engine.state)
+        assertEquals(TimerDirective.KEEP, update.timerDirective)
+        assertTrue(requireNotNull(update.frame).beats.isEmpty())
+        assertFalse(update.needsRepaint)
     }
 
     @Test
@@ -208,18 +230,19 @@ class WaveformEngineTest {
         engine.handle(WaveformEvent.Keystroke(nowMs = 0L))
 
         val paused = engine.handle(WaveformEvent.PowerSaveChanged(enabled = true))
-        assertIs<WaveformState.PowerSavePaused>(engine.state)
+        assertIs<WaveformState.Suspended>(engine.state)
         assertEquals(TimerDirective.STOP, paused.timerDirective)
         assertTrue(paused.needsRepaint)
 
         val ignored = engine.handle(WaveformEvent.Keystroke(nowMs = 1_000L))
-        assertIs<WaveformState.PowerSavePaused>(engine.state)
+        assertIs<WaveformState.Suspended>(engine.state)
         assertEquals(TimerDirective.KEEP, ignored.timerDirective)
         assertFalse(ignored.needsRepaint)
 
         val resumed = engine.handle(WaveformEvent.PowerSaveChanged(enabled = false))
-        assertIs<WaveformState.MonitorWaiting>(engine.state)
-        assertEquals(TimerDirective.STOP, resumed.timerDirective)
+        val running = assertIs<WaveformState.Looping>(engine.state)
+        assertEquals(0f, running.phase)
+        assertEquals(TimerDirective.START, resumed.timerDirective)
         assertTrue(resumed.needsRepaint)
     }
 
@@ -230,7 +253,7 @@ class WaveformEngineTest {
 
         val update = engine.handle(WaveformEvent.Activate(powerSaveEnabled = true))
 
-        val paused = assertIs<WaveformState.PowerSavePaused>(engine.state)
+        val paused = assertIs<WaveformState.Suspended>(engine.state)
         assertEquals(config, paused.config)
         assertEquals(TimerDirective.STOP, update.timerDirective)
     }
@@ -243,7 +266,7 @@ class WaveformEngineTest {
         val staticConfig = WaveformConfig(motion = WaveformMotion.STATIC_PULSE)
 
         val reconfigured = engine.handle(WaveformEvent.Configure(staticConfig))
-        val waiting = assertIs<WaveformState.StaticWaiting>(engine.state)
+        val waiting = assertIs<WaveformState.StaticResting>(engine.state)
         assertEquals(staticConfig, waiting.config)
         assertEquals(TimerDirective.STOP, reconfigured.timerDirective)
         assertTrue(reconfigured.needsRepaint)
@@ -251,8 +274,33 @@ class WaveformEngineTest {
         engine.handle(WaveformEvent.PowerSaveChanged(enabled = true))
         val monitorConfig = WaveformConfig(motion = WaveformMotion.MONITOR)
         engine.handle(WaveformEvent.Configure(monitorConfig))
-        val paused = assertIs<WaveformState.PowerSavePaused>(engine.state)
+        val paused = assertIs<WaveformState.Suspended>(engine.state)
         assertEquals(monitorConfig, paused.config)
+    }
+
+    @Test
+    fun `perimeter configuration preserves phase and typing energy`() {
+        val engine = WaveformEngine(WaveformConfig(), Random(82))
+        engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
+        engine.handle(WaveformEvent.Tick(0L, 1_000f))
+        engine.handle(WaveformEvent.Tick(700L, 1_000f))
+        engine.handle(WaveformEvent.Keystroke(700L))
+        engine.handle(WaveformEvent.Tick(740L, 1_000f))
+        val updatedConfig =
+            WaveformConfig(
+                direction = WaveformDirection.COUNTER_CLOCKWISE,
+                amplitude = 24,
+                loopSeconds = 6f,
+            )
+
+        val update = engine.handle(WaveformEvent.Configure(updatedConfig))
+
+        val running = assertIs<WaveformState.Looping>(engine.state)
+        assertEquals(0.264_286f, running.phase, 0.001f)
+        assertEquals(0.5f, requireNotNull(running.energyEnvelope).levelAt(740L), 0.001f)
+        assertEquals(updatedConfig, running.config)
+        assertEquals(TimerDirective.KEEP, update.timerDirective)
+        assertTrue(update.needsRepaint)
     }
 
     @Test
@@ -264,8 +312,7 @@ class WaveformEngineTest {
 
         val update = engine.handle(WaveformEvent.Configure(config))
 
-        val running = assertIs<WaveformState.MonitorRunning>(engine.state)
-        assertEquals(1, running.beats.size)
+        assertIs<WaveformState.Looping>(engine.state)
         assertEquals(TimerDirective.KEEP, update.timerDirective)
         assertFalse(update.needsRepaint)
     }
@@ -310,7 +357,15 @@ class WaveformEngineTest {
         engine.handle(WaveformEvent.Configure(staticConfig))
         engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
 
-        val waiting = assertIs<WaveformState.StaticWaiting>(engine.state)
+        val waiting = assertIs<WaveformState.StaticResting>(engine.state)
         assertEquals(staticConfig, waiting.config)
     }
+
+    private fun morphologySamples(frame: WaveformFrame): List<Float> {
+        val morphology = frame.beats.single().morphology
+        return morphologySamples(morphology)
+    }
+
+    private fun morphologySamples(morphology: BeatMorphology): List<Float> =
+        (0..100).map { sample -> morphology.valueAt(sample / 100f) }
 }

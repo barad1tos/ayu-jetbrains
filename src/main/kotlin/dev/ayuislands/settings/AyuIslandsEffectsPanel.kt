@@ -266,7 +266,12 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
             WaveformSettingsControls(
                 initial = pending.waveformValue(),
                 gate = gate,
-                visibility = WaveformControlVisibility(visibility.waveform, visibility.direction),
+                visibility =
+                    WaveformControlVisibility(
+                        visibility.waveform,
+                        visibility.direction,
+                        visibility.loopDuration,
+                    ),
                 onChange = { waveform ->
                     section.update {
                         it.copy(
@@ -275,6 +280,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                             waveformDirection = waveform.direction,
                             waveformAmplitude = waveform.amplitude,
                             waveformIntensity = waveform.intensity,
+                            waveformLoopSeconds = waveform.loopSeconds,
                         )
                     }
                     refreshVisibility()
@@ -593,6 +599,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                         direction = pending.waveformDirection,
                         amplitude = pending.waveformAmplitude,
                         intensity = pending.waveformIntensity,
+                        loopSeconds = pending.waveformLoopSeconds,
                     ),
             ),
         )
@@ -664,6 +671,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
             state.waveformDirection = pending.waveformDirection.name
             state.waveformAmplitude = pending.waveformAmplitude
             state.waveformIntensity = pending.waveformIntensity
+            state.waveformLoopSeconds = pending.waveformLoopSeconds
         }
     }
 

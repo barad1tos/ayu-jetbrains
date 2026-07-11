@@ -96,6 +96,7 @@ class AyuIslandsStatePersistenceTest {
                 state.waveformDirection = WaveformDirection.COUNTER_CLOCKWISE.name
                 state.waveformAmplitude = 16
                 state.waveformIntensity = 88
+                state.waveformLoopSeconds = 3.7f
             }
 
         assertEquals(GlowShape.WAVEFORM.name, reloaded.state.glowShape)
@@ -103,6 +104,7 @@ class AyuIslandsStatePersistenceTest {
         assertEquals(WaveformDirection.COUNTER_CLOCKWISE.name, reloaded.state.waveformDirection)
         assertEquals(16, reloaded.state.waveformAmplitude)
         assertEquals(88, reloaded.state.waveformIntensity)
+        assertEquals(3.7f, reloaded.state.waveformLoopSeconds)
     }
 
     @Test

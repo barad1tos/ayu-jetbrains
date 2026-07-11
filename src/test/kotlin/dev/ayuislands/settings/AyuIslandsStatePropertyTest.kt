@@ -129,8 +129,33 @@ class AyuIslandsStatePropertyTest {
         state.waveformAmplitude = Int.MIN_VALUE
         state.waveformIntensity = Int.MAX_VALUE
 
-        assertEquals(6, state.effectiveWaveformAmplitude())
+        assertEquals(8, state.effectiveWaveformAmplitude())
         assertEquals(100, state.effectiveWaveformIntensity())
+
+        state.waveformAmplitude = Int.MAX_VALUE
+        assertEquals(24, state.effectiveWaveformAmplitude())
+
+        state.waveformAmplitude = 16
+        assertEquals(16, state.effectiveWaveformAmplitude())
+    }
+
+    @Test
+    fun `waveform loop period defaults safely and clamps corrupted persisted numbers`() {
+        val state = AyuIslandsState()
+
+        assertEquals(2.8f, state.effectiveLoopSeconds())
+
+        state.waveformLoopSeconds = Float.NEGATIVE_INFINITY
+        assertEquals(1.5f, state.effectiveLoopSeconds())
+
+        state.waveformLoopSeconds = Float.POSITIVE_INFINITY
+        assertEquals(6.0f, state.effectiveLoopSeconds())
+
+        state.waveformLoopSeconds = 3.7f
+        assertEquals(3.7f, state.effectiveLoopSeconds())
+
+        state.waveformLoopSeconds = Float.NaN
+        assertEquals(2.8f, state.effectiveLoopSeconds())
     }
 
     @Test

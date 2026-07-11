@@ -334,9 +334,10 @@ categories:
         introduced: "2.8.0"
         tier: paid
         description: >
-          Trace the focused island with a typing-driven ECG line. Choose
-          live monitor or static pulse motion, direction, amplitude, and
-          waveform intensity without changing saved solid-glow preferences.
+          Trace the focused island with a continuous Perimeter loop or an
+          anchored Static pulse. Configure direction, loop duration, amplitude,
+          and signal intensity while typing boosts ECG energy without changing
+          saved solid-glow preferences.
 
       - id: glow-external-themes
         title: "Glow on external themes"

@@ -213,6 +213,7 @@ class GlowOverlayManagerLifecycleTest {
         state.waveformDirection = WaveformDirection.COUNTER_CLOCKWISE.name
         state.waveformAmplitude = 99
         state.waveformIntensity = -1
+        state.waveformLoopSeconds = 99f
         val project = stubProject("waveform-config-project")
         val manager = GlowOverlayManager(project)
         val glassPane = mockk<GlowGlassPane>(relaxed = true)
@@ -226,8 +227,9 @@ class GlowOverlayManagerLifecycleTest {
                 WaveformConfig(
                     motion = WaveformMotion.STATIC_PULSE,
                     direction = WaveformDirection.COUNTER_CLOCKWISE,
-                    amplitude = 16,
+                    amplitude = 24,
                     intensity = 0,
+                    loopSeconds = 6f,
                 ),
             )
         }
@@ -312,11 +314,38 @@ class GlowOverlayManagerLifecycleTest {
         state.waveformAmplitude = 10
         val waveformManager = GlowOverlayManager(project)
         invokeAttachOverlay(waveformManager, "waveform", host)
-        val margin = WaveformPainter.marginFor(10).toInt()
+        val margin = WaveformPainter.marginFor(10, state.getWidthForStyle(GlowStyle.SOFT)).toInt()
         assertEquals(
             Rectangle(50 - margin, 40 - margin, 120 + margin * 2, 80 + margin * 2),
             readGlassPane(waveformManager, "waveform").bounds,
         )
+    }
+
+    @Test
+    fun `existing editor overlay refreshes top spans when editor selection changes`() {
+        val project = stubProject("editor-tab-geometry-project")
+        val manager = GlowOverlayManager(project)
+        val host = mockk<javax.swing.JComponent>(relaxed = true)
+        val layeredPane = mockk<javax.swing.JLayeredPane>(relaxed = true)
+        val pane =
+            GlowGlassPane(
+                glowColor = Color(0x5CCFE6),
+                glowStyle = GlowStyle.SOFT,
+                glowIntensity = 80,
+                glowWidth = 4,
+                isEditorOverlay = true,
+            )
+        pane.configureWaveform(GlowShape.WAVEFORM, WaveformConfig())
+        every { host.isShowing } returns true
+        every { SwingUtilities.convertPoint(host, 0, 0, layeredPane) } returns Point(10, 20)
+        mockkObject(EditorTabGeometry)
+        every { EditorTabGeometry.editorOverlayGeometry(host) } returns
+            EditorOverlayGeometry(Rectangle(0, 28, 120, 80), listOf(0..72))
+        seedOverlaysMapWithMocks(manager, pane, host, layeredPane, key = "Editor")
+
+        invokeAttachEditorOverlayIfNeeded(manager)
+
+        assertEquals(listOf(0..72), pane.waveformTopSpans)
     }
 
     @Test
@@ -866,6 +895,12 @@ class GlowOverlayManagerLifecycleTest {
             )
         method.isAccessible = true
         method.invoke(manager, pane, host, layeredPane)
+    }
+
+    private fun invokeAttachEditorOverlayIfNeeded(manager: GlowOverlayManager) {
+        val method = GlowOverlayManager::class.java.getDeclaredMethod("attachEditorOverlayIfNeeded")
+        method.isAccessible = true
+        method.invoke(manager)
     }
 
     private fun invokeMoveGlowFocus(manager: GlowOverlayManager) {
