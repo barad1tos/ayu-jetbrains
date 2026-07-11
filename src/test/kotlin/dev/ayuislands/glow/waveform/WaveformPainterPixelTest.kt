@@ -5,6 +5,8 @@ import dev.ayuislands.glow.GlowStyle
 import java.awt.Color
 import java.awt.Rectangle
 import java.awt.image.BufferedImage
+import kotlin.math.abs
+import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.random.Random
 import kotlin.test.Test
@@ -20,7 +22,7 @@ class WaveformPainterPixelTest {
     @Test
     fun `signal strokes derive from the solid width`() {
         assertEquals(
-            WaveformPainter.SignalStrokes(core = 2f, inner = 4f, bloom = 8f),
+            WaveformPainter.SignalStrokes(core = 2f, inner = 4f, bloom = 8f, outer = 14f),
             WaveformPainter.strokeWidths(solidWidth = 4),
         )
     }
@@ -258,6 +260,143 @@ class WaveformPainterPixelTest {
     }
 
     @Test
+    fun `comet alpha cuts ahead of the head and decays monotonically behind it`() {
+        assertEquals(1f, WaveformPainter.cometAlpha(WaveformPainter.HEAD_PHASE), 0.001f)
+        assertEquals(0f, WaveformPainter.cometAlpha(WaveformPainter.HEAD_PHASE + WaveformPainter.HEAD_LEAD + 0.01f))
+        assertEquals(0f, WaveformPainter.cometAlpha(-0.01f))
+        assertTrue(
+            WaveformPainter.cometAlpha(WaveformPainter.R_PEAK_PHASE) >= 0.6f,
+            "R complex must stay conspicuous inside the comet tail",
+        )
+
+        var previous = 0f
+        for (step in 0..COMET_PROFILE_STEPS) {
+            val phase = WaveformPainter.HEAD_PHASE * step / COMET_PROFILE_STEPS
+            val alpha = WaveformPainter.cometAlpha(phase)
+            assertTrue(alpha >= previous, "comet must brighten toward the head: alpha($phase)=$alpha < $previous")
+            previous = alpha
+        }
+    }
+
+    @Test
+    fun `toward white lerps every channel to white`() {
+        assertEquals(accent, WaveformPainter.towardWhite(accent, 0f))
+        assertEquals(Color.WHITE, WaveformPainter.towardWhite(accent, 1f))
+        val half = WaveformPainter.towardWhite(accent, 0.5f)
+        assertTrue(half.red > accent.red && half.red < Color.WHITE.red)
+    }
+
+    @Test
+    fun `comet trail paints behind the head and cuts off ahead of it`() {
+        for (direction in WaveformDirection.entries) {
+            val config = WaveformConfig(direction = direction, amplitude = 14, intensity = 100)
+            val base = renderSolidBase()
+            val flat = render(WaveformFrame(config = config))
+            val track = flat.result.track
+            val sign = direction.travelSign
+            val beatSample = track.samples.first { it.normalY < -0.999f && abs(it.x - BEAT_X) < 2f }
+            val rendered = render(frame(config, beatSample.distance - track.signalAnchorDistance))
+            val headX =
+                beatSample.x + sign * (WaveformPainter.HEAD_PHASE - WaveformPainter.R_PEAK_PHASE) * track.signalSpan
+
+            val ahead =
+                addedAlpha(base, rendered.image, topStrip(headX + sign * AHEAD_NEAR, headX + sign * AHEAD_FAR))
+            val nearTail =
+                addedAlpha(base, rendered.image, topStrip(headX - sign * TAIL_NEAR_END, headX - sign * TAIL_NEAR_START))
+            val farTail =
+                addedAlpha(base, rendered.image, topStrip(headX - sign * TAIL_FAR_END, headX - sign * TAIL_FAR_START))
+
+            assertTrue(nearTail > farTail, "$direction trail must decay with distance: near=$nearTail far=$farTail")
+            assertTrue(
+                ahead < nearTail / MIN_TRAIL_CONTRAST,
+                "$direction comet must cut off ahead of the head: ahead=$ahead near=$nearTail",
+            )
+        }
+    }
+
+    @Test
+    fun `white-hot head leads while the tail keeps the accent color`() {
+        val config = WaveformConfig(amplitude = 14, intensity = 100)
+        val base = renderSolidBase()
+        val flat = render(WaveformFrame(config = config))
+        val track = flat.result.track
+        val beatSample = track.samples.first { it.normalY < -0.999f && abs(it.x - BEAT_X) < 2f }
+        val rendered = render(frame(config, beatSample.distance - track.signalAnchorDistance))
+        val headX = beatSample.x + (WaveformPainter.HEAD_PHASE - WaveformPainter.R_PEAK_PHASE) * track.signalSpan
+
+        val headColor =
+            strongestChangedColorIn(base, rendered.image, topStrip(headX - HEAD_PROBE_HALF, headX + HEAD_PROBE_HALF))
+        val tailColor =
+            strongestChangedColorIn(
+                base,
+                rendered.image,
+                topStrip(beatSample.x + TAIL_PROBE_START, beatSample.x + TAIL_PROBE_END),
+            )
+
+        assertTrue(
+            headColor.red >= accent.red + MIN_HEAD_WHITENESS,
+            "head core must overheat toward white: head=$headColor accent=$accent",
+        )
+        assertEquals(accent.red.toDouble(), tailColor.red.toDouble(), COLOR_TOLERANCE, "tail must stay accent")
+        assertEquals(accent.green.toDouble(), tailColor.green.toDouble(), COLOR_TOLERANCE, "tail must stay accent")
+        assertEquals(accent.blue.toDouble(), tailColor.blue.toDouble(), COLOR_TOLERANCE, "tail must stay accent")
+    }
+
+    @Test
+    fun `all concurrent beats paint on the perimeter`() {
+        val config = WaveformConfig(amplitude = 16, intensity = 100)
+        val base = renderSolidBase()
+        val flat = render(WaveformFrame(config = config))
+        val track = flat.result.track
+        val anchor = track.sampleNearest(track.signalAnchorDistance)
+        val bottom = track.samples.first { it.normalY > 0.999f && abs(it.x - WIDTH / 2f) < 3f }
+        val rendered =
+            render(
+                WaveformFrame(
+                    config = config,
+                    beats =
+                        listOf(
+                            FrameBeat(0f, BeatMorphology.random(Random(1))),
+                            FrameBeat(bottom.distance - track.signalAnchorDistance, BeatMorphology.random(Random(2))),
+                        ),
+                    brightness = 1f,
+                    energy = 1f,
+                ),
+            )
+
+        for (sample in listOf(anchor, bottom)) {
+            val x = (sample.x + sample.normalX * OUTWARD_PROBE).roundToInt()
+            val y = (sample.y + sample.normalY * OUTWARD_PROBE).roundToInt()
+            assertTrue(
+                alphaAt(rendered.image, x, y) > alphaAt(base, x, y),
+                "every concurrent beat must paint its R peak: $x,$y",
+            )
+        }
+    }
+
+    @Test
+    fun `beat fade dims the comet`() {
+        val config = WaveformConfig(amplitude = 14, intensity = 100)
+        val base = renderSolidBase()
+        val morphology = BeatMorphology.random(Random(42))
+        val topThird = Rectangle(0, 0, WIDTH, HEIGHT / 3)
+        val full =
+            render(WaveformFrame(config = config, beats = listOf(FrameBeat(0f, morphology)), energy = 1f))
+        val faded =
+            render(
+                WaveformFrame(
+                    config = config,
+                    beats = listOf(FrameBeat(0f, morphology, fade = 0.3f)),
+                    energy = 1f,
+                ),
+            )
+
+        val fullAlpha = addedAlpha(base, full.image, topThird)
+        val fadedAlpha = addedAlpha(base, faded.image, topThird)
+        assertTrue(fadedAlpha < fullAlpha / 2, "faded beat must dim: full=$fullAlpha faded=$fadedAlpha")
+    }
+
+    @Test
     fun `signal offset preserves QRS notches outside content`() {
         val baseline = WaveformPainter.signalOffset(0f)
         val q = WaveformPainter.signalOffset(-0.09f)
@@ -377,6 +516,34 @@ class WaveformPainterPixelTest {
             }
         }
 
+    private fun topStrip(
+        firstX: Float,
+        secondX: Float,
+    ): Rectangle {
+        val left = min(firstX, secondX).roundToInt().coerceAtLeast(0)
+        val right =
+            kotlin.math
+                .max(firstX, secondX)
+                .roundToInt()
+                .coerceAtMost(WIDTH)
+        return Rectangle(left, 0, (right - left).coerceAtLeast(0), HEIGHT / 3)
+    }
+
+    private fun strongestChangedColorIn(
+        base: BufferedImage,
+        active: BufferedImage,
+        region: Rectangle,
+    ): Color {
+        val pixel =
+            (region.y until region.y + region.height)
+                .flatMap { y ->
+                    (region.x until region.x + region.width).mapNotNull { x ->
+                        active.getRGB(x, y).takeIf { it != base.getRGB(x, y) }
+                    }
+                }.maxBy { it ushr ALPHA_SHIFT and MAX_ALPHA }
+        return Color(pixel, true)
+    }
+
     private fun strongestChangedColor(
         base: BufferedImage,
         active: BufferedImage,
@@ -436,5 +603,18 @@ class WaveformPainterPixelTest {
         const val MIN_APEX_EXPANSION = 2
         const val MIN_ACTIVE_HEIGHT_FRACTION = 0.75
         const val MIN_FLASH_ALPHA_RATIO = 2.5
+        const val COMET_PROFILE_STEPS = 72
+        const val BEAT_X = 120f
+        const val AHEAD_NEAR = 10f
+        const val AHEAD_FAR = 30f
+        const val TAIL_NEAR_START = 10f
+        const val TAIL_NEAR_END = 30f
+        const val TAIL_FAR_START = 100f
+        const val TAIL_FAR_END = 120f
+        const val MIN_TRAIL_CONTRAST = 5
+        const val HEAD_PROBE_HALF = 8f
+        const val TAIL_PROBE_START = 30f
+        const val TAIL_PROBE_END = 50f
+        const val MIN_HEAD_WHITENESS = 40
     }
 }

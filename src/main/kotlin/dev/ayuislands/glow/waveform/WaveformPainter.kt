@@ -10,6 +10,7 @@ import java.awt.Rectangle
 import java.awt.RenderingHints
 import java.awt.geom.Path2D
 import kotlin.math.ceil
+import kotlin.math.exp
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -58,50 +59,92 @@ internal open class WaveformPainter(
         val strength = intensity / PERCENT_DIVISOR * frame.brightness.coerceIn(0f, 1f)
         if (strength <= 0f) return WaveformPaintResult(track, dirtyRegions)
 
-        val glowPaths =
-            signalPaths(
-                track = track,
-                frame = frame,
-                amplitude = amplitude * request.displacementScale.coerceIn(0f, 1f),
-                maximumDisplacement = MAX_GLOW_DISPLACEMENT,
+        val displacementAmplitude = amplitude * request.displacementScale.coerceIn(0f, 1f)
+        val layers =
+            SignalLayers(
+                glow =
+                    signalPaths(
+                        track = track,
+                        frame = frame,
+                        amplitude = displacementAmplitude,
+                        maximumDisplacement = MAX_GLOW_DISPLACEMENT,
+                    ),
+                core =
+                    signalPaths(
+                        track = track,
+                        frame = frame,
+                        amplitude = displacementAmplitude,
+                        maximumDisplacement = 1f,
+                    ),
             )
-        val corePaths =
-            signalPaths(
-                track = track,
-                frame = frame,
-                amplitude = amplitude * request.displacementScale.coerceIn(0f, 1f),
-                maximumDisplacement = 1f,
-            )
-        val strokes = strokeWidths(solidWidth)
         graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-        glowPaths.forEachIndexed { band, path ->
+        paintSignal(graphics, request.accent, strokeWidths(solidWidth), layers, strength)
+        return WaveformPaintResult(track, dirtyRegions)
+    }
+
+    private fun paintSignal(
+        graphics: Graphics2D,
+        accent: Color,
+        strokes: SignalStrokes,
+        layers: SignalLayers,
+        strength: Float,
+    ) {
+        val glowPaths = layers.glow
+        val corePaths = layers.core
+        glowPaths.bands.forEachIndexed { band, path ->
             val bandAlpha = (band + 1f) / ALPHA_BANDS
+            if (band >= OUTER_MIN_BAND) {
+                paintPass(
+                    graphics,
+                    path,
+                    accent,
+                    signalStroke(strokes.outer, isCore = false),
+                    OUTER_ALPHA * strength * bandAlpha,
+                )
+            }
+            if (band >= MID_MIN_BAND) {
+                paintPass(
+                    graphics,
+                    path,
+                    accent,
+                    signalStroke(strokes.bloom, isCore = false),
+                    MID_ALPHA * strength * bandAlpha,
+                )
+            }
             paintPass(
                 graphics,
                 path,
-                request.accent,
-                signalStroke(strokes.bloom, isCore = false),
-                BLOOM_ALPHA * strength * bandAlpha,
-            )
-            paintPass(
-                graphics,
-                path,
-                request.accent,
+                accent,
                 signalStroke(strokes.inner, isCore = false),
                 INNER_ALPHA * strength * bandAlpha,
             )
         }
-        corePaths.forEachIndexed { band, path ->
+        corePaths.bands.forEachIndexed { band, path ->
             val bandAlpha = (band + 1f) / ALPHA_BANDS
             paintPass(
                 graphics,
                 path,
-                request.accent,
+                accent,
                 signalStroke(strokes.core, isCore = true),
                 CORE_ALPHA * strength * bandAlpha,
             )
         }
-        return WaveformPaintResult(track, dirtyRegions)
+        corePaths.heads.forEach { head ->
+            paintPass(
+                graphics,
+                head.path,
+                towardWhite(accent, HEAD_CORE_HEAT),
+                signalStroke(strokes.core, isCore = true),
+                CORE_ALPHA * strength * head.fade,
+            )
+            paintPass(
+                graphics,
+                head.path,
+                towardWhite(accent, HEAD_INNER_HEAT),
+                signalStroke(strokes.inner, isCore = false),
+                INNER_ALPHA * strength * head.fade,
+            )
+        }
     }
 
     fun trackLength(
@@ -184,59 +227,94 @@ internal open class WaveformPainter(
         frame: WaveformFrame,
         amplitude: Float,
         maximumDisplacement: Float,
-    ): List<Path2D.Float> {
-        val paths = List(ALPHA_BANDS) { Path2D.Float() }
-        val lastIndex = IntArray(ALPHA_BANDS) { NO_INDEX }
-        val signal = signalFor(track, frame)
+    ): SignalPathSet {
+        val bands = List(ALPHA_BANDS) { Path2D.Float() }
+        val heads = mutableListOf<HeadPath>()
         val energy = frame.energy.coerceIn(0f, 1f)
-        val amplitudeScale = REST_AMPLITUDE_SCALE + energy * ACTIVE_AMPLITUDE_RANGE
+        val scaledAmplitude = amplitude * (REST_AMPLITUDE_SCALE + energy * ACTIVE_AMPLITUDE_RANGE)
+        signalSpecs(track, frame).forEach { spec ->
+            appendSignal(track, spec, scaledAmplitude, maximumDisplacement, bands)?.let { heads += it }
+        }
+        return SignalPathSet(bands, heads)
+    }
+
+    private fun appendSignal(
+        track: WaveformTrack,
+        spec: SignalSpec,
+        amplitude: Float,
+        maximumDisplacement: Float,
+        bands: List<Path2D.Float>,
+    ): HeadPath? {
+        val lastIndex = IntArray(ALPHA_BANDS) { NO_INDEX }
+        val headPath = Path2D.Float()
+        var headLastIndex = NO_INDEX
         var previousPoint: SignalPoint? = null
 
         track.samples.forEachIndexed { index, sample ->
-            val delta = circularDelta(sample.distance, signal.center, track.length)
-            val phase = R_PEAK_PHASE + delta * signal.travelSign / track.signalSpan
-            val windowAlpha = windowAlpha(phase) * sample.amplitudeMask
-            if (windowAlpha <= 0f) {
+            val delta = circularDelta(sample.distance, spec.center, track.length)
+            val phase = R_PEAK_PHASE + delta * spec.travelSign / track.signalSpan
+            val alpha = signalAlpha(spec, phase) * sample.amplitudeMask
+            if (alpha <= 0f) {
                 previousPoint = null
                 return@forEachIndexed
             }
 
             val displacement =
-                signalOffset(signal.morphology.valueAt(phase)).coerceAtMost(maximumDisplacement) *
-                    amplitude * amplitudeScale * sample.amplitudeMask
+                signalOffset(spec.morphology.valueAt(phase)).coerceAtMost(maximumDisplacement) *
+                    amplitude * sample.amplitudeMask
             val x = sample.x + sample.normalX * displacement
             val y = sample.y + sample.normalY * displacement
-            val band = min((windowAlpha * ALPHA_BANDS).toInt(), ALPHA_BANDS - 1)
+            val band = min((alpha * ALPHA_BANDS).toInt(), ALPHA_BANDS - 1)
             if (lastIndex[band] == index - 1) {
-                paths[band].lineTo(x, y)
+                bands[band].lineTo(x, y)
             } else {
                 previousPoint?.let { previous ->
-                    paths[band].moveTo(previous.x, previous.y)
-                    paths[band].lineTo(x, y)
-                } ?: paths[band].moveTo(x, y)
+                    bands[band].moveTo(previous.x, previous.y)
+                    bands[band].lineTo(x, y)
+                } ?: bands[band].moveTo(x, y)
             }
             lastIndex[band] = index
             previousPoint = SignalPoint(x, y)
+
+            if (spec.moving && phase >= HEAD_PHASE - HEAD_HOT_SPAN && phase <= HEAD_PHASE + HEAD_LEAD) {
+                if (headLastIndex == index - 1) headPath.lineTo(x, y) else headPath.moveTo(x, y)
+                headLastIndex = index
+            }
         }
-        return paths
+        return if (headLastIndex != NO_INDEX) HeadPath(headPath, spec.fade) else null
     }
 
-    private fun signalFor(
+    private fun signalSpecs(
         track: WaveformTrack,
         frame: WaveformFrame,
-    ): SignalSpec {
-        val movingBeat = frame.beats.firstOrNull().takeIf { frame.config.motion == WaveformMotion.MONITOR }
-        return SignalSpec(
-            center =
-                if (movingBeat != null) {
-                    wrap(track.signalAnchorDistance + movingBeat.centerDistance, track.length)
-                } else {
-                    track.signalAnchorDistance
-                },
-            morphology = movingBeat?.morphology ?: frame.morphology,
-            travelSign = if (movingBeat != null) frame.config.direction.travelSign else 1f,
-        )
+    ): List<SignalSpec> {
+        val movingBeats = if (frame.config.motion == WaveformMotion.MONITOR) frame.beats else emptyList()
+        if (movingBeats.isEmpty()) {
+            return listOf(
+                SignalSpec(
+                    center = track.signalAnchorDistance,
+                    morphology = frame.morphology,
+                    travelSign = 1f,
+                    moving = false,
+                    fade = 1f,
+                ),
+            )
+        }
+        return movingBeats.map { beat ->
+            SignalSpec(
+                center = wrap(track.signalAnchorDistance + beat.centerDistance, track.length),
+                morphology = beat.morphology,
+                travelSign = frame.config.direction.travelSign,
+                moving = true,
+                fade = beat.fade.coerceIn(0f, 1f),
+            )
+        }
     }
+
+    private fun signalAlpha(
+        spec: SignalSpec,
+        phase: Float,
+    ): Float = if (spec.moving) cometAlpha(phase) * spec.fade else windowAlpha(phase)
 
     private fun windowAlpha(phase: Float): Float =
         when {
@@ -296,6 +374,8 @@ internal open class WaveformPainter(
         val center: Float,
         val morphology: BeatMorphology,
         val travelSign: Float,
+        val moving: Boolean,
+        val fade: Float,
     )
 
     private data class SignalPoint(
@@ -303,10 +383,26 @@ internal open class WaveformPainter(
         val y: Float,
     )
 
+    private class SignalPathSet(
+        val bands: List<Path2D.Float>,
+        val heads: List<HeadPath>,
+    )
+
+    private class SignalLayers(
+        val glow: SignalPathSet,
+        val core: SignalPathSet,
+    )
+
+    private class HeadPath(
+        val path: Path2D.Float,
+        val fade: Float,
+    )
+
     internal data class SignalStrokes(
         val core: Float,
         val inner: Float,
         val bloom: Float,
+        val outer: Float,
     )
 
     internal companion object {
@@ -314,24 +410,70 @@ internal open class WaveformPainter(
         private const val PERCENT_DIVISOR = 100f
         private const val ARC_DIAMETER_DIVISOR = 2f
         private const val HALF_DIVISOR = 2f
-        private const val R_PEAK_PHASE = 0.287f
+        internal const val R_PEAK_PHASE = 0.287f
         private const val BASE_FRAME_STRENGTH = 0.2f
         private const val REST_AMPLITUDE_SCALE = 0.4f
         private const val ACTIVE_AMPLITUDE_RANGE = 1f - REST_AMPLITUDE_SCALE
         private const val WINDOW_SHOULDER = 0.1f
-        private const val BLOOM_ALPHA = 0.16f
-        private const val INNER_ALPHA = 0.38f
+        private const val MID_ALPHA = 0.18f
+        private const val OUTER_ALPHA = 0.08f
+        private const val INNER_ALPHA = 0.42f
         private const val CORE_ALPHA = 0.95f
-        private const val ALPHA_BANDS = 8
+        private const val ALPHA_BANDS = 6
+        private const val MID_MIN_BAND = 2
+        private const val OUTER_MIN_BAND = 4
         private const val MAX_COLOR_ALPHA = 255
         private const val NO_INDEX = -2
         private const val CORE_WIDTH_FACTOR = 0.5f
         private const val BLOOM_WIDTH_FACTOR = 2f
+        private const val OUTER_WIDTH_FACTOR = 3.5f
         private const val SIGNAL_BASELINE_OFFSET = 0.22f
         private const val CORE_MITER_LIMIT = 3f
         private const val MAX_GLOW_DISPLACEMENT = 0.72f
+        internal const val HEAD_PHASE = 0.72f
+        internal const val HEAD_LEAD = 0.04f
+        private const val HEAD_HOT_SPAN = 0.08f
+        private const val SLOW_DECAY_TAU = 1.2f
+        private const val PHOSPHOR_KNEE = 0.45f
+        private const val FAST_DECAY_TAU = 0.10f
+        private val KNEE_LEVEL = exp(-PHOSPHOR_KNEE / SLOW_DECAY_TAU)
+        private const val HEAD_CORE_HEAT = 0.8f
+        private const val HEAD_INNER_HEAT = 0.45f
+        private const val WHITE_CHANNEL = 255
 
         fun signalOffset(morphology: Float): Float = (morphology + SIGNAL_BASELINE_OFFSET).coerceIn(0f, 1f)
+
+        /**
+         * Asymmetric phosphor-decay window for moving beats: a hard cut just
+         * ahead of the head, a shallow decay through the T and R waves behind
+         * it, then a fast decay that lets the old trail die out like a CRT
+         * comet tail.
+         */
+        fun cometAlpha(phase: Float): Float {
+            if (phase < 0f || phase > HEAD_PHASE + HEAD_LEAD) return 0f
+            if (phase > HEAD_PHASE) return smoothStep((HEAD_PHASE + HEAD_LEAD - phase) / HEAD_LEAD)
+            val behind = HEAD_PHASE - phase
+            val decay =
+                if (behind <= PHOSPHOR_KNEE) {
+                    exp(-behind / SLOW_DECAY_TAU)
+                } else {
+                    KNEE_LEVEL * exp(-(behind - PHOSPHOR_KNEE) / FAST_DECAY_TAU)
+                }
+            return decay * smoothStep(phase / WINDOW_SHOULDER)
+        }
+
+        /** Per-channel lerp toward white; heat 0 keeps the color, heat 1 is pure white. */
+        fun towardWhite(
+            color: Color,
+            heat: Float,
+        ): Color {
+            val amount = heat.coerceIn(0f, 1f)
+            return Color(
+                color.red + ((WHITE_CHANNEL - color.red) * amount).roundToInt(),
+                color.green + ((WHITE_CHANNEL - color.green) * amount).roundToInt(),
+                color.blue + ((WHITE_CHANNEL - color.blue) * amount).roundToInt(),
+            )
+        }
 
         fun strokeWidths(solidWidth: Int): SignalStrokes {
             val width = solidWidth.coerceAtLeast(1).toFloat()
@@ -339,10 +481,11 @@ internal open class WaveformPainter(
                 core = width * CORE_WIDTH_FACTOR,
                 inner = width,
                 bloom = width * BLOOM_WIDTH_FACTOR,
+                outer = width * OUTER_WIDTH_FACTOR,
             )
         }
 
-        fun bloomRadiusFor(solidWidth: Int): Float = strokeWidths(solidWidth).bloom / 2f
+        fun bloomRadiusFor(solidWidth: Int): Float = strokeWidths(solidWidth).outer / 2f
 
         fun marginFor(
             amplitude: Int,
