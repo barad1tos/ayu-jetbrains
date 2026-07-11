@@ -40,6 +40,14 @@ internal data class FrameBeat(
     /** Signed perimeter offset from the track's signal anchor. */
     val centerDistance: Float,
     val morphology: BeatMorphology,
+    /** 0..1 window-alpha multiplier easing beats in at spawn and out at expiry. */
+    val fade: Float = 1f,
+)
+
+/** A beat that has been passed by a newer one and keeps running until it expires. */
+internal data class TrailingBeat(
+    val phase: Float,
+    val morphology: BeatMorphology,
 )
 
 internal data class WaveformFrame(
@@ -58,13 +66,22 @@ internal data class EnergyEnvelope(
 ) {
     fun levelAt(nowMs: Long): Float =
         when {
-            nowMs <= startMs -> startLevel
+            nowMs <= startMs -> {
+                startLevel
+            }
+
             nowMs < peakMs -> {
                 val progress = (nowMs - startMs).toFloat() / (peakMs - startMs).coerceAtLeast(1L)
                 startLevel + (1f - startLevel) * progress
             }
-            nowMs < endMs -> 1f - (nowMs - peakMs).toFloat() / (endMs - peakMs).coerceAtLeast(1L)
-            else -> 0f
+
+            nowMs < endMs -> {
+                1f - (nowMs - peakMs).toFloat() / (endMs - peakMs).coerceAtLeast(1L)
+            }
+
+            else -> {
+                0f
+            }
         }.coerceIn(0f, 1f)
 
     fun refreshed(nowMs: Long): EnergyEnvelope {
@@ -100,6 +117,9 @@ internal sealed interface WaveformState {
         val lastTickMs: Long? = null,
         val morphology: BeatMorphology = BeatMorphology.standard(),
         val energyEnvelope: EnergyEnvelope? = null,
+        val cadence: TypingCadence = TypingCadence(),
+        val speedMultiplier: Float = 1f,
+        val trailingBeats: List<TrailingBeat> = emptyList(),
     ) : WaveformState
 
     data class StaticResting(
@@ -163,18 +183,25 @@ internal class WaveformEngine(
 
     private fun activate(event: WaveformEvent.Activate): Transition =
         when (val current = state) {
-            is WaveformState.Inactive ->
+            is WaveformState.Inactive -> {
                 if (event.powerSaveEnabled) {
                     suspended(current.config)
                 } else {
                     active(current.config)
                 }
+            }
+
             is WaveformState.Looping,
             is WaveformState.StaticResting,
             is WaveformState.StaticResponding,
             is WaveformState.Suspended,
-            -> ignore(current)
-            WaveformState.Failed -> failedTerminal()
+            -> {
+                ignore(current)
+            }
+
+            WaveformState.Failed -> {
+                failedTerminal()
+            }
         }
 
     private fun deactivate(): Transition =
@@ -189,27 +216,48 @@ internal class WaveformEngine(
 
     private fun configure(config: WaveformConfig): Transition =
         when (val current = state) {
-            is WaveformState.Inactive ->
+            is WaveformState.Inactive -> {
                 if (config == current.config) ignore(current) else inactive(config)
-            is WaveformState.Looping -> configureLooping(current, config)
-            is WaveformState.StaticResting -> configureStaticResting(current, config)
-            is WaveformState.StaticResponding -> configureStaticResponding(current, config)
-            is WaveformState.Suspended ->
+            }
+
+            is WaveformState.Looping -> {
+                configureLooping(current, config)
+            }
+
+            is WaveformState.StaticResting -> {
+                configureStaticResting(current, config)
+            }
+
+            is WaveformState.StaticResponding -> {
+                configureStaticResponding(current, config)
+            }
+
+            is WaveformState.Suspended -> {
                 if (config == current.config) ignore(current) else suspended(config)
-            WaveformState.Failed -> failedTerminal()
+            }
+
+            WaveformState.Failed -> {
+                failedTerminal()
+            }
         }
 
     private fun keystroke(nowMs: Long): Transition =
         when (val current = state) {
-            is WaveformState.Inactive -> ignore(current)
-            is WaveformState.Looping ->
+            is WaveformState.Inactive -> {
+                ignore(current)
+            }
+
+            is WaveformState.Looping -> {
                 Transition(
                     current.copy(
                         energyEnvelope = current.energyEnvelope?.refreshed(nowMs) ?: EnergyEnvelope.start(nowMs),
+                        cadence = current.cadence.keystroke(nowMs),
                     ),
                     WaveformUpdate(needsRepaint = true),
                 )
-            is WaveformState.StaticResting ->
+            }
+
+            is WaveformState.StaticResting -> {
                 Transition(
                     WaveformState.StaticResponding(
                         config = current.config,
@@ -218,13 +266,22 @@ internal class WaveformEngine(
                     ),
                     WaveformUpdate(TimerDirective.START, needsRepaint = true),
                 )
-            is WaveformState.StaticResponding ->
+            }
+
+            is WaveformState.StaticResponding -> {
                 Transition(
                     current.copy(energyEnvelope = current.energyEnvelope.refreshed(nowMs)),
                     WaveformUpdate(needsRepaint = true),
                 )
-            is WaveformState.Suspended -> ignore(current)
-            WaveformState.Failed -> failedTerminal()
+            }
+
+            is WaveformState.Suspended -> {
+                ignore(current)
+            }
+
+            WaveformState.Failed -> {
+                failedTerminal()
+            }
         }
 
     private fun tick(event: WaveformEvent.Tick): Transition =
@@ -252,10 +309,15 @@ internal class WaveformEngine(
         config: WaveformConfig,
     ): Transition =
         when {
-            config == current.config -> ignore(current)
-            config.motion == WaveformMotion.MONITOR ->
+            config == current.config -> {
+                ignore(current)
+            }
+
+            config.motion == WaveformMotion.MONITOR -> {
                 Transition(current.copy(config = config), WaveformUpdate(needsRepaint = true))
-            else ->
+            }
+
+            else -> {
                 Transition(
                     WaveformState.StaticResting(config, current.morphology),
                     WaveformUpdate(
@@ -264,6 +326,7 @@ internal class WaveformEngine(
                         frame = restingFrame(config, current.morphology),
                     ),
                 )
+            }
         }
 
     private fun configureStaticResting(
@@ -271,10 +334,17 @@ internal class WaveformEngine(
         config: WaveformConfig,
     ): Transition =
         when {
-            config == current.config -> ignore(current)
-            config.motion == WaveformMotion.STATIC_PULSE ->
+            config == current.config -> {
+                ignore(current)
+            }
+
+            config.motion == WaveformMotion.STATIC_PULSE -> {
                 Transition(current.copy(config = config), WaveformUpdate(needsRepaint = true))
-            else -> looping(config, current.morphology)
+            }
+
+            else -> {
+                looping(config, current.morphology)
+            }
         }
 
     private fun configureStaticResponding(
@@ -282,10 +352,15 @@ internal class WaveformEngine(
         config: WaveformConfig,
     ): Transition =
         when {
-            config == current.config -> ignore(current)
-            config.motion == WaveformMotion.STATIC_PULSE ->
+            config == current.config -> {
+                ignore(current)
+            }
+
+            config.motion == WaveformMotion.STATIC_PULSE -> {
                 Transition(current.copy(config = config), WaveformUpdate(needsRepaint = true))
-            else ->
+            }
+
+            else -> {
                 Transition(
                     WaveformState.Looping(
                         config = config,
@@ -294,6 +369,7 @@ internal class WaveformEngine(
                     ),
                     WaveformUpdate(TimerDirective.START, needsRepaint = true),
                 )
+            }
         }
 
     private fun tickLooping(
@@ -301,23 +377,71 @@ internal class WaveformEngine(
         event: WaveformEvent.Tick,
     ): Transition {
         val elapsedMs = current.lastTickMs?.let { (event.nowMs - it).coerceAtLeast(0L) } ?: 0L
-        val unwrappedPhase = current.phase + elapsedMs / loopDurationMs(current.config)
-        val phase = wrap(unwrappedPhase, 1f)
-        val morphology = if (unwrappedPhase >= 1f) BeatMorphology.random(random) else current.morphology
+        val speed = slewedSpeed(current, event.nowMs, elapsedMs)
+        val unwrappedPhase = current.phase + elapsedMs * speed / loopDurationMs(current.config)
+        val advance = advanceBeats(current, unwrappedPhase, speed)
         val energy = current.energyEnvelope?.levelAt(event.nowMs) ?: 0f
         val envelope = current.energyEnvelope?.takeIf { event.nowMs < it.endMs }
-        val beats = movingBeat(event.trackLength, phase, current.config.direction, morphology)
-        val frame = activeFrame(current.config, energy, morphology, beats)
+        val beats = movingBeats(event.trackLength, current.config.direction, beatSpacing(speed), advance)
+        val frame = activeFrame(current.config, energy, advance.morphology, beats)
         return Transition(
             current.copy(
-                phase = phase,
+                phase = advance.phase,
                 lastTickMs = event.nowMs,
-                morphology = morphology,
+                morphology = advance.morphology,
                 energyEnvelope = envelope,
+                speedMultiplier = speed,
+                trailingBeats = advance.trailingBeats,
             ),
             WaveformUpdate(needsRepaint = event.trackLength > 0f, frame = frame),
         )
     }
+
+    private fun slewedSpeed(
+        current: WaveformState.Looping,
+        nowMs: Long,
+        elapsedMs: Long,
+    ): Float {
+        val target = current.cadence.targetSpeed(nowMs)
+        val maxDelta = SPEED_SLEW_PER_SECOND * elapsedMs / MILLIS_PER_SECOND
+        return current.speedMultiplier + (target - current.speedMultiplier).coerceIn(-maxDelta, maxDelta)
+    }
+
+    private fun advanceBeats(
+        current: WaveformState.Looping,
+        unwrappedPhase: Float,
+        speed: Float,
+    ): BeatAdvance {
+        val travelled = unwrappedPhase - current.phase
+        val trailing =
+            current.trailingBeats
+                .map { beat -> beat.copy(phase = beat.phase + travelled) }
+                .toMutableList()
+        var leadPhase = unwrappedPhase
+        var morphology = current.morphology
+        val spacing = beatSpacing(speed)
+        if (spacing >= 1f) {
+            if (unwrappedPhase >= 1f) morphology = BeatMorphology.random(random)
+            leadPhase = wrap(unwrappedPhase, 1f)
+        } else {
+            while (leadPhase >= spacing) {
+                trailing += TrailingBeat(leadPhase, morphology)
+                leadPhase -= spacing
+                morphology = BeatMorphology.random(random)
+            }
+        }
+        return BeatAdvance(
+            phase = leadPhase,
+            morphology = morphology,
+            trailingBeats = trailing.filter { it.phase < TRAIL_EXPIRE_PHASE }.takeLast(MAX_TRAILING_BEATS),
+        )
+    }
+
+    private data class BeatAdvance(
+        val phase: Float,
+        val morphology: BeatMorphology,
+        val trailingBeats: List<TrailingBeat>,
+    )
 
     private fun tickStatic(
         current: WaveformState.StaticResponding,
@@ -339,7 +463,10 @@ internal class WaveformEngine(
 
     private fun active(config: WaveformConfig): Transition =
         when (config.motion) {
-            WaveformMotion.MONITOR -> looping(config, BeatMorphology.random(random))
+            WaveformMotion.MONITOR -> {
+                looping(config, BeatMorphology.random(random))
+            }
+
             WaveformMotion.STATIC_PULSE -> {
                 val morphology = BeatMorphology.random(random)
                 Transition(
@@ -377,7 +504,7 @@ internal class WaveformEngine(
             is WaveformState.StaticResting,
             is WaveformState.StaticResponding,
             is WaveformState.Suspended,
-            ->
+            -> {
                 Transition(
                     WaveformState.Failed,
                     WaveformUpdate(
@@ -386,7 +513,11 @@ internal class WaveformEngine(
                         fallbackToSolid = true,
                     ),
                 )
-            WaveformState.Failed -> failedTerminal()
+            }
+
+            WaveformState.Failed -> {
+                failedTerminal()
+            }
         }
 
     private fun failedTerminal(): Transition =
@@ -405,26 +536,41 @@ internal class WaveformEngine(
     private companion object {
         const val MILLIS_PER_SECOND = 1_000f
         const val ACTIVE_BRIGHTNESS_RANGE = 1f - IDLE_WAVEFORM_BRIGHTNESS
+        const val SPEED_SLEW_PER_SECOND = 1.2f
+        const val BEAT_DENSITY_GAIN = 1f
+        const val TRAIL_EXPIRE_PHASE = 1f
+        const val TRAIL_FADE_OUT_PHASE = 0.12f
+        const val LEAD_IGNITE_PHASE = 0.05f
+        const val MAX_TRAILING_BEATS = 4
 
         fun loopDurationMs(config: WaveformConfig): Float =
             config.loopSeconds.normalizedLoopSeconds() * MILLIS_PER_SECOND
 
-        fun movingBeat(
+        fun beatSpacing(speed: Float): Float = 1f / (1f + (speed - 1f) * BEAT_DENSITY_GAIN)
+
+        fun movingBeats(
             trackLength: Float,
-            phase: Float,
             direction: WaveformDirection,
-            morphology: BeatMorphology,
-        ): List<FrameBeat> =
-            if (trackLength > 0f) {
-                listOf(
-                    FrameBeat(
-                        centerDistance = wrap(phase * direction.travelSign, 1f) * trackLength,
-                        morphology = morphology,
-                    ),
+            spacing: Float,
+            advance: BeatAdvance,
+        ): List<FrameBeat> {
+            if (trackLength <= 0f) return emptyList()
+            val lead =
+                FrameBeat(
+                    centerDistance = wrap(advance.phase * direction.travelSign, 1f) * trackLength,
+                    morphology = advance.morphology,
+                    fade = if (spacing < 1f) smoothStep(advance.phase / LEAD_IGNITE_PHASE) else 1f,
                 )
-            } else {
-                emptyList()
-            }
+            val trailing =
+                advance.trailingBeats.map { beat ->
+                    FrameBeat(
+                        centerDistance = wrap(beat.phase * direction.travelSign, 1f) * trackLength,
+                        morphology = beat.morphology,
+                        fade = smoothStep((TRAIL_EXPIRE_PHASE - beat.phase) / TRAIL_FADE_OUT_PHASE),
+                    )
+                }
+            return listOf(lead) + trailing
+        }
 
         fun activeFrame(
             config: WaveformConfig,

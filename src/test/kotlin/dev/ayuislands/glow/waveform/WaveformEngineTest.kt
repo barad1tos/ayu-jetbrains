@@ -361,6 +361,99 @@ class WaveformEngineTest {
         assertEquals(staticConfig, waiting.config)
     }
 
+    @Test
+    fun `single keystroke leaves travel speed at rest`() {
+        val typing = WaveformEngine(WaveformConfig(), Random(11))
+        val idle = WaveformEngine(WaveformConfig(), Random(11))
+        for (engine in listOf(typing, idle)) {
+            engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
+            engine.handle(WaveformEvent.Tick(nowMs = 0L, trackLength = 1_000f))
+        }
+
+        typing.handle(WaveformEvent.Keystroke(nowMs = 100L))
+        val typingFrame = requireNotNull(typing.handle(WaveformEvent.Tick(700L, 1_000f)).frame)
+        val idleFrame = requireNotNull(idle.handle(WaveformEvent.Tick(700L, 1_000f)).frame)
+
+        assertEquals(1f, assertIs<WaveformState.Looping>(typing.state).speedMultiplier, 0.001f)
+        assertEquals(
+            idleFrame.beats.single().centerDistance,
+            typingFrame.beats.single().centerDistance,
+            0.001f,
+        )
+    }
+
+    @Test
+    fun `typing burst accelerates travel without jumps`() {
+        val typing = WaveformEngine(WaveformConfig(), Random(13))
+        val idle = WaveformEngine(WaveformConfig(), Random(13))
+        for (engine in listOf(typing, idle)) {
+            engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
+            engine.handle(WaveformEvent.Tick(nowMs = 0L, trackLength = 10_000f))
+        }
+        typing.handle(WaveformEvent.Keystroke(nowMs = 0L))
+
+        var previousSpeed = 1f
+        var typingFrame: WaveformFrame? = null
+        for (tick in 1..10) {
+            val nowMs = tick * 100L
+            typing.handle(WaveformEvent.Keystroke(nowMs))
+            typingFrame = typing.handle(WaveformEvent.Tick(nowMs, 10_000f)).frame
+            idle.handle(WaveformEvent.Tick(nowMs, 10_000f))
+
+            val speed = assertIs<WaveformState.Looping>(typing.state).speedMultiplier
+            assertTrue(speed >= previousSpeed, "speed dropped mid-burst: $previousSpeed -> $speed")
+            assertTrue(speed - previousSpeed <= 0.121f, "speed jumped: $previousSpeed -> $speed")
+            previousSpeed = speed
+        }
+
+        val looping = assertIs<WaveformState.Looping>(typing.state)
+        val idlePhase = assertIs<WaveformState.Looping>(idle.state).phase
+        val typingTravel = (looping.trailingBeats.maxOfOrNull { it.phase } ?: 0f).coerceAtLeast(looping.phase)
+        assertEquals(2.2f, previousSpeed, 0.01f)
+        assertTrue(typingTravel > idlePhase, "burst travel $typingTravel should outrun idle $idlePhase")
+        assertNotNull(typingFrame)
+    }
+
+    @Test
+    fun `sustained fast typing spawns concurrent beats with distinct morphologies`() {
+        val engine = WaveformEngine(WaveformConfig(), Random(17))
+        engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
+        engine.handle(WaveformEvent.Tick(nowMs = 0L, trackLength = 10_000f))
+
+        var frame: WaveformFrame? = null
+        for (tick in 1..80) {
+            val nowMs = tick * 50L
+            engine.handle(WaveformEvent.Keystroke(nowMs))
+            frame = engine.handle(WaveformEvent.Tick(nowMs, 10_000f)).frame
+        }
+
+        val beats = requireNotNull(frame).beats
+        assertTrue(beats.size >= 2, "expected concurrent beats, got ${beats.size}")
+        assertEquals(beats.size, beats.map { it.morphology }.toSet().size)
+        assertTrue(beats.all { it.fade in 0f..1f })
+    }
+
+    @Test
+    fun `idle eases the pulse back to a single resting beat`() {
+        val engine = WaveformEngine(WaveformConfig(), Random(19))
+        engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
+        engine.handle(WaveformEvent.Tick(nowMs = 0L, trackLength = 10_000f))
+        for (tick in 1..80) {
+            val nowMs = tick * 50L
+            engine.handle(WaveformEvent.Keystroke(nowMs))
+            engine.handle(WaveformEvent.Tick(nowMs, 10_000f))
+        }
+        assertTrue(assertIs<WaveformState.Looping>(engine.state).speedMultiplier > 2f)
+
+        var frame: WaveformFrame? = null
+        for (tick in 81..280) {
+            frame = engine.handle(WaveformEvent.Tick(tick * 50L, 10_000f)).frame
+        }
+
+        assertEquals(1f, assertIs<WaveformState.Looping>(engine.state).speedMultiplier, 0.001f)
+        assertEquals(1, requireNotNull(frame).beats.size)
+    }
+
     private fun morphologySamples(frame: WaveformFrame): List<Float> {
         val morphology = frame.beats.single().morphology
         return morphologySamples(morphology)
