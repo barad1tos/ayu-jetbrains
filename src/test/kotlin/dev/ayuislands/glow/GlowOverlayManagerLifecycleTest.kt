@@ -289,6 +289,8 @@ class GlowOverlayManagerLifecycleTest {
         verify(exactly = 1) { old.deactivateWaveform() }
         verify(exactly = 1) { new.activateWaveform(powerSaveEnabled = false) }
         verify(exactly = 0) { old.activateWaveform(any()) }
+        verify(exactly = 1) { old.startFadeOut() }
+        verify(exactly = 1) { new.startFadeIn() }
     }
 
     @Test

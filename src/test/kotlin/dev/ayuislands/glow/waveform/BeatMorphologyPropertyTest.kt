@@ -34,6 +34,15 @@ class BeatMorphologyPropertyTest {
     }
 
     @Test
+    fun `standard R complex has one narrow dominant apex`() {
+        val morphology = BeatMorphology.standard()
+
+        assertTrue(morphology.valueAt(0.287f) > 0.9f, "R apex must dominate")
+        assertTrue(morphology.valueAt(0.277f) < 0.2f, "Q-to-R rise must stay narrow")
+        assertTrue(morphology.valueAt(0.299f) < 0.2f, "R-to-S fall must stay narrow")
+    }
+
+    @Test
     fun `randomized morphology features stay within eight percent of standard`() {
         val standard = featureMagnitudes(BeatMorphology.standard())
 
@@ -50,7 +59,7 @@ class BeatMorphologyPropertyTest {
     }
 
     private fun featureMagnitudes(morphology: BeatMorphology): List<Float> {
-        val samples = (0..5_000).map { sample -> sample / 5_000f to morphology.valueAt(sample / 5_000f) }
+        val samples = (0..20_000).map { sample -> sample / 20_000f to morphology.valueAt(sample / 20_000f) }
         return listOf(
             samples.filter { (time) -> time <= 0.22f }.maxOf { (_, value) -> value },
             -samples.filter { (time) -> time in 0.20f..0.40f }.minOf { (_, value) -> value },

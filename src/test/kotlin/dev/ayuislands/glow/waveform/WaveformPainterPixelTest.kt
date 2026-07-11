@@ -212,6 +212,63 @@ class WaveformPainterPixelTest {
         assertTrue(alphaSum(active.image) > alphaSum(idle.image))
     }
 
+    @Test
+    fun `active R peak reads as a tall sharp flash`() {
+        val config = WaveformConfig(motion = WaveformMotion.STATIC_PULSE, amplitude = 24, intensity = 100)
+        val idle =
+            render(
+                WaveformFrame(
+                    config = config,
+                    energy = 0f,
+                    brightness = IDLE_WAVEFORM_BRIGHTNESS,
+                ),
+            )
+        val active = render(WaveformFrame(config = config, energy = 1f, brightness = 1f))
+        val base = renderSolidBase()
+        val anchor = active.result.track.sampleNearest(active.result.track.signalAnchorDistance)
+        val region =
+            Rectangle(
+                (anchor.x - FLASH_HALF_WIDTH).roundToInt(),
+                0,
+                FLASH_HALF_WIDTH * 2,
+                anchor.y.roundToInt() + 1,
+            )
+        val profile = peakProfile(base, active.image, region, anchor.y.roundToInt())
+        val activeAlpha = addedAlpha(base, active.image, region)
+        val idleAlpha = addedAlpha(base, idle.image, region)
+
+        assertTrue(
+            profile.height >= config.amplitude * MIN_ACTIVE_HEIGHT_FRACTION,
+            "active R peak must use the configured amplitude: $profile",
+        )
+        assertTrue(profile.apexWidth <= MAX_APEX_WIDTH, "R apex must stay needle-sharp: $profile")
+        assertTrue(
+            profile.midWidth >= profile.apexWidth * MIN_APEX_EXPANSION,
+            "R peak must widen below a narrow apex instead of forming a rounded bump: $profile",
+        )
+        assertTrue(
+            activeAlpha >= idleAlpha * MIN_FLASH_ALPHA_RATIO,
+            "typing must produce a conspicuous brightness flash: active=$activeAlpha idle=$idleAlpha",
+        )
+        assertEquals(
+            0,
+            pixelDifference(base, active.image, Rectangle(region.x, 0, region.width, 1)),
+            "R peak must not clip against the overlay edge",
+        )
+    }
+
+    @Test
+    fun `signal offset preserves QRS notches outside content`() {
+        val baseline = WaveformPainter.signalOffset(0f)
+        val q = WaveformPainter.signalOffset(-0.09f)
+        val s = WaveformPainter.signalOffset(-0.22f)
+        val r = WaveformPainter.signalOffset(0.96f)
+
+        assertTrue(q in 0f..<baseline, "Q must dip below the local outward baseline")
+        assertEquals(0f, s, "S must return to the Solid frame without entering content")
+        assertEquals(1f, r, "R must use the full configured outward amplitude")
+    }
+
     private fun frame(
         config: WaveformConfig,
         center: Float,
@@ -284,6 +341,42 @@ class WaveformPainterPixelTest {
             (0 until image.width).sumOf { x -> alphaAt(image, x, y).toLong() }
         }
 
+    private fun peakProfile(
+        base: BufferedImage,
+        active: BufferedImage,
+        region: Rectangle,
+        baselineY: Int,
+    ): PeakProfile {
+        val brightRows =
+            (region.y until region.y + region.height).mapNotNull { y ->
+                val width =
+                    (region.x until region.x + region.width).count { x ->
+                        alphaAt(active, x, y) - alphaAt(base, x, y) >= FLASH_ALPHA_DELTA
+                    }
+                if (width > 0) y to width else null
+            }
+        val top = brightRows.first()
+        val height = baselineY - top.first
+        val apexY = (top.first + APEX_DEPTH).coerceAtMost(baselineY)
+        val middleY = top.first + height / 2
+        return PeakProfile(
+            height = height,
+            apexWidth = brightRows.firstOrNull { it.first == apexY }?.second ?: 0,
+            midWidth = brightRows.firstOrNull { it.first == middleY }?.second ?: 0,
+        )
+    }
+
+    private fun addedAlpha(
+        base: BufferedImage,
+        active: BufferedImage,
+        region: Rectangle,
+    ): Long =
+        (region.y until region.y + region.height).sumOf { y ->
+            (region.x until region.x + region.width).sumOf { x ->
+                (alphaAt(active, x, y) - alphaAt(base, x, y)).coerceAtLeast(0).toLong()
+            }
+        }
+
     private fun strongestChangedColor(
         base: BufferedImage,
         active: BufferedImage,
@@ -314,6 +407,12 @@ class WaveformPainterPixelTest {
         val result: WaveformPaintResult,
     )
 
+    private data class PeakProfile(
+        val height: Int,
+        val apexWidth: Int,
+        val midWidth: Int,
+    )
+
     private fun WaveformTrack.sampleNearest(distance: Float): WaveformSample =
         samples.minBy { sample -> kotlin.math.abs(sample.distance - distance) }
 
@@ -322,7 +421,7 @@ class WaveformPainterPixelTest {
         const val HEIGHT = 160
         const val ARC_WIDTH = 16
         const val OUTWARD_PROBE = 11f
-        const val IDLE_PEAK_PROBE = 10f
+        const val IDLE_PEAK_PROBE = 6f
         const val RIGHT_FALLBACK_BAND = 40
         const val MIN_PIXEL_DIFFERENCE = 100
         const val SOLID_INTENSITY = 80
@@ -330,5 +429,12 @@ class WaveformPainterPixelTest {
         const val ALPHA_SHIFT = 24
         const val MAX_ALPHA = 0xFF
         const val COLOR_TOLERANCE = 2.0
+        const val FLASH_HALF_WIDTH = 32
+        const val FLASH_ALPHA_DELTA = 48
+        const val APEX_DEPTH = 2
+        const val MAX_APEX_WIDTH = 3
+        const val MIN_APEX_EXPANSION = 2
+        const val MIN_ACTIVE_HEIGHT_FRACTION = 0.75
+        const val MIN_FLASH_ALPHA_RATIO = 2.5
     }
 }

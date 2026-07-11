@@ -10,7 +10,6 @@ import java.awt.Rectangle
 import java.awt.RenderingHints
 import java.awt.geom.Path2D
 import kotlin.math.ceil
-import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -59,19 +58,48 @@ internal open class WaveformPainter(
         val strength = intensity / PERCENT_DIVISOR * frame.brightness.coerceIn(0f, 1f)
         if (strength <= 0f) return WaveformPaintResult(track, dirtyRegions)
 
-        val paths =
+        val glowPaths =
             signalPaths(
                 track = track,
                 frame = frame,
                 amplitude = amplitude * request.displacementScale.coerceIn(0f, 1f),
+                maximumDisplacement = MAX_GLOW_DISPLACEMENT,
+            )
+        val corePaths =
+            signalPaths(
+                track = track,
+                frame = frame,
+                amplitude = amplitude * request.displacementScale.coerceIn(0f, 1f),
+                maximumDisplacement = 1f,
             )
         val strokes = strokeWidths(solidWidth)
         graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-        paths.forEachIndexed { band, path ->
+        glowPaths.forEachIndexed { band, path ->
             val bandAlpha = (band + 1f) / ALPHA_BANDS
-            paintPass(graphics, path, request.accent, strokes.bloom, BLOOM_ALPHA * strength * bandAlpha)
-            paintPass(graphics, path, request.accent, strokes.inner, INNER_ALPHA * strength * bandAlpha)
-            paintPass(graphics, path, request.accent, strokes.core, CORE_ALPHA * strength * bandAlpha)
+            paintPass(
+                graphics,
+                path,
+                request.accent,
+                signalStroke(strokes.bloom, isCore = false),
+                BLOOM_ALPHA * strength * bandAlpha,
+            )
+            paintPass(
+                graphics,
+                path,
+                request.accent,
+                signalStroke(strokes.inner, isCore = false),
+                INNER_ALPHA * strength * bandAlpha,
+            )
+        }
+        corePaths.forEachIndexed { band, path ->
+            val bandAlpha = (band + 1f) / ALPHA_BANDS
+            paintPass(
+                graphics,
+                path,
+                request.accent,
+                signalStroke(strokes.core, isCore = true),
+                CORE_ALPHA * strength * bandAlpha,
+            )
         }
         return WaveformPaintResult(track, dirtyRegions)
     }
@@ -155,6 +183,7 @@ internal open class WaveformPainter(
         track: WaveformTrack,
         frame: WaveformFrame,
         amplitude: Float,
+        maximumDisplacement: Float,
     ): List<Path2D.Float> {
         val paths = List(ALPHA_BANDS) { Path2D.Float() }
         val lastIndex = IntArray(ALPHA_BANDS) { NO_INDEX }
@@ -173,7 +202,8 @@ internal open class WaveformPainter(
             }
 
             val displacement =
-                max(0f, signal.morphology.valueAt(phase)) * amplitude * amplitudeScale * sample.amplitudeMask
+                signalOffset(signal.morphology.valueAt(phase)).coerceAtMost(maximumDisplacement) *
+                    amplitude * amplitudeScale * sample.amplitudeMask
             val x = sample.x + sample.normalX * displacement
             val y = sample.y + sample.normalY * displacement
             val band = min((windowAlpha * ALPHA_BANDS).toInt(), ALPHA_BANDS - 1)
@@ -234,15 +264,25 @@ internal open class WaveformPainter(
         graphics: Graphics2D,
         path: Path2D,
         accent: Color,
-        width: Float,
+        stroke: BasicStroke,
         alpha: Float,
     ) {
         val colorAlpha = (MAX_COLOR_ALPHA * alpha).roundToInt().coerceIn(0, MAX_COLOR_ALPHA)
         if (colorAlpha == 0) return
-        graphics.stroke = BasicStroke(width, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+        graphics.stroke = stroke
         graphics.color = ColorUtil.toAlpha(accent, colorAlpha)
         graphics.draw(path)
     }
+
+    private fun signalStroke(
+        width: Float,
+        isCore: Boolean,
+    ): BasicStroke =
+        if (isCore) {
+            BasicStroke(width, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, CORE_MITER_LIMIT)
+        } else {
+            BasicStroke(width, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+        }
 
     private data class TrackKey(
         val bounds: Rectangle,
@@ -274,7 +314,7 @@ internal open class WaveformPainter(
         private const val PERCENT_DIVISOR = 100f
         private const val ARC_DIAMETER_DIVISOR = 2f
         private const val HALF_DIVISOR = 2f
-        private const val R_PEAK_PHASE = 0.289f
+        private const val R_PEAK_PHASE = 0.287f
         private const val BASE_FRAME_STRENGTH = 0.2f
         private const val REST_AMPLITUDE_SCALE = 0.4f
         private const val ACTIVE_AMPLITUDE_RANGE = 1f - REST_AMPLITUDE_SCALE
@@ -287,6 +327,11 @@ internal open class WaveformPainter(
         private const val NO_INDEX = -2
         private const val CORE_WIDTH_FACTOR = 0.5f
         private const val BLOOM_WIDTH_FACTOR = 2f
+        private const val SIGNAL_BASELINE_OFFSET = 0.22f
+        private const val CORE_MITER_LIMIT = 3f
+        private const val MAX_GLOW_DISPLACEMENT = 0.72f
+
+        fun signalOffset(morphology: Float): Float = (morphology + SIGNAL_BASELINE_OFFSET).coerceIn(0f, 1f)
 
         fun strokeWidths(solidWidth: Int): SignalStrokes {
             val width = solidWidth.coerceAtLeast(1).toFloat()

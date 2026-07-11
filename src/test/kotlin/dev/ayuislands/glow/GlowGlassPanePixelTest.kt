@@ -208,6 +208,21 @@ class GlowGlassPanePixelTest {
     }
 
     @Test
+    fun `configuring waveform keeps an inactive overlay hidden`() {
+        val pane =
+            GlowGlassPane(
+                glowColor = Color(0xFF8F40),
+                glowStyle = GlowStyle.SOFT,
+                glowIntensity = 80,
+                glowWidth = 12,
+            ).also { it.setSize(WIDTH, HEIGHT) }
+
+        pane.configureWaveform(GlowShape.WAVEFORM, WaveformConfig())
+
+        assertEquals(0L, alphaSum(paint(pane)))
+    }
+
+    @Test
     fun `static idle brightness is stable before and after an envelope`() {
         val config = WaveformConfig(motion = WaveformMotion.STATIC_PULSE)
         val pane = waveformPane(config)

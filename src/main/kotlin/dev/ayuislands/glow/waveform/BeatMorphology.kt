@@ -44,9 +44,9 @@ class BeatMorphology private constructor(
         )
 
         private val P_PHASE = Phase(0.06f, 0.16f)
-        private val Q_PHASE = Phase(0.24f, 0.27f)
-        private val R_PHASE = Phase(0.27f, 0.315f)
-        private val S_PHASE = Phase(0.315f, 0.35f)
+        private val Q_PHASE = Phase(0.245f, 0.279f)
+        private val R_PHASE = Phase(0.279f, 0.299f)
+        private val S_PHASE = Phase(0.299f, 0.335f)
         private val T_PHASE = Phase(0.46f, 0.66f)
 
         private val P_AMPLITUDE = around(0.125f)
