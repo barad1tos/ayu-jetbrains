@@ -324,7 +324,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/GlowGroupPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/AyuIslandsEffectsPanel.kt
             - src/main/kotlin/dev/ayuislands/glow
-          last_verified_sha: "ac282eb9"
+          last_verified_sha: "798b3186"
           last_verified_date: "2026-07-12"
           content_sha256: "3ef51add4539d9c82ce6ad559bce68f6d88fb97606986910ea9b9d13da64fef5"
 
@@ -335,9 +335,11 @@ categories:
         tier: paid
         description: >
           Trace the focused island with a continuous Perimeter loop or an
-          anchored Static pulse. Configure direction, loop duration, amplitude,
-          and signal intensity while typing boosts ECG energy without changing
-          saved solid-glow preferences.
+          anchored Static pulse. The moving trace renders as a phosphor comet
+          with a white-hot head, and its heart rate follows your typing tempo:
+          fast typing speeds the sweep and spawns extra beats. Configure
+          direction, loop duration, amplitude, and signal intensity without
+          changing saved solid-glow preferences.
 
       - id: glow-external-themes
         title: "Glow on external themes"
