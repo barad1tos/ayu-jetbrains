@@ -1,5 +1,7 @@
 package dev.ayuislands.commitpanel
 
+import com.intellij.openapi.application.Application
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.ui.SimpleColoredComponent
 import com.intellij.ui.SimpleTextAttributes
@@ -10,6 +12,7 @@ import dev.ayuislands.settings.PanelWidthMode
 import java.awt.Component
 import java.awt.Container
 import java.awt.Font
+import java.lang.reflect.Method
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.JComponent
 import javax.swing.JTree
@@ -19,6 +22,7 @@ import javax.swing.tree.TreeCellRenderer
 internal class CommitPathShorteningRenderer(
     internal val delegate: TreeCellRenderer,
     private val stateProvider: () -> AyuIslandsState = { AyuIslandsSettings.getInstance().state },
+    private val isLockProhibited: () -> Boolean = Companion::isLockProhibited,
 ) : TreeCellRenderer {
     override fun getTreeCellRendererComponent(
         tree: JTree,
@@ -30,13 +34,15 @@ internal class CommitPathShorteningRenderer(
         hasFocus: Boolean,
     ): Component {
         // The macOS accessibility bridge walks tree nodes from EDT dispatches
-        // that PROHIBIT taking the platform RW lock (Dispatchers.UI /
-        // prohibitTakingLocksInsideAndRun), but the platform changes-tree
+        // that prohibit taking the platform RW lock (`Dispatchers.UI` /
+        // `prohibitTakingLocksInsideAndRun`), but the platform changes-tree
         // renderers this delegates to still take read actions while rendering
-        // (ChangesBrowserChangeNode.render, git hover icons). Without this
-        // guard every such walk throws LockAccessDisallowed with this class as
-        // the entry frame. Serve a minimal text component instead — the a11y
-        // walk only needs something to derive role/state/bounds from.
+        // (`ChangesBrowserChangeNode.render`, Git hover icons). Some delegates
+        // log and swallow `LockAccessDisallowed` internally, so preflight the
+        // lock context instead of relying only on the exception guard. The
+        // accessibility walk only needs a component for role/state/bounds.
+        if (isLockProhibited()) return fallbackComponent(value)
+
         val component =
             try {
                 delegate.getTreeCellRendererComponent(
@@ -311,11 +317,59 @@ internal class CommitPathShorteningRenderer(
          */
         private val lockDisallowedLogged = AtomicBoolean(false)
 
+        private val probeFailureLogged = AtomicBoolean(false)
+
+        private val lockAdviceMethod by lazy { resolveLockAdvice(Application::class.java) }
+
+        internal fun resolveLockAdvice(type: Class<*>): Method? =
+            LOCK_ADVICE_METHODS.firstNotNullOfOrNull { methodName ->
+                type.methods.firstOrNull { method ->
+                    method.name == methodName && method.parameterCount == 0
+                }
+            }
+
+        internal fun reportsLockProhibited(
+            application: Any?,
+            method: Method?,
+        ): Boolean {
+            if (application == null || method == null) return false
+            return try {
+                when (val advice = method.invoke(application)) {
+                    null -> false
+                    is Boolean -> advice
+                    is CharSequence -> true
+                    else -> false
+                }
+            } catch (exception: ReflectiveOperationException) {
+                reportProbeFailure(exception)
+            } catch (exception: IllegalArgumentException) {
+                reportProbeFailure(exception)
+            } catch (exception: SecurityException) {
+                reportProbeFailure(exception)
+            }
+        }
+
+        private fun isLockProhibited(): Boolean =
+            reportsLockProhibited(ApplicationManager.getApplication(), lockAdviceMethod)
+
+        private fun reportProbeFailure(exception: Exception): Boolean {
+            if (probeFailureLogged.compareAndSet(false, true)) {
+                log.warn("Commit path renderer could not inspect the platform lock context", exception)
+            }
+            return false
+        }
+
         /**
          * Matched by name: `ThreadingSupport.LockAccessDisallowed` is not part
          * of the 2025.1 compile-time API surface this plugin builds against.
          */
         private const val LOCK_DISALLOWED_CLASS_SUFFIX = "LockAccessDisallowed"
+
+        private val LOCK_ADVICE_METHODS =
+            listOf(
+                "getLockProhibitedAdvice",
+                "isLockingProhibited",
+            )
 
         // The guard catches IllegalStateException because that is the platform
         // class's direct superclass — verified via javap against

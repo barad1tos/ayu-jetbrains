@@ -1,5 +1,6 @@
 package dev.ayuislands.commitpanel
 
+import com.intellij.openapi.application.Application
 import com.intellij.ui.SimpleColoredComponent
 import com.intellij.ui.SimpleTextAttributes
 import dev.ayuislands.settings.AyuIslandsState
@@ -19,6 +20,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -454,6 +456,86 @@ class CommitPathShorteningRendererTest {
     }
 
     @Test
+    fun `lock probe supports both platform advice methods and boolean results`() {
+        val current = ModernLockAdvice("Dispatchers.UI")
+        val legacy = LegacyLockAdvice("Dispatchers.UI")
+        val prohibited = BooleanLockAdvice(true)
+        val permitted = BooleanLockAdvice(false)
+        val allowed = ModernLockAdvice(null)
+        val broken = BrokenLockAdvice()
+
+        assertTrue(
+            CommitPathShorteningRenderer.reportsLockProhibited(
+                current,
+                CommitPathShorteningRenderer.resolveLockAdvice(current.javaClass),
+            ),
+        )
+        assertTrue(
+            CommitPathShorteningRenderer.reportsLockProhibited(
+                legacy,
+                CommitPathShorteningRenderer.resolveLockAdvice(legacy.javaClass),
+            ),
+        )
+        assertTrue(
+            CommitPathShorteningRenderer.reportsLockProhibited(
+                prohibited,
+                CommitPathShorteningRenderer.resolveLockAdvice(prohibited.javaClass),
+            ),
+        )
+        assertFalse(
+            CommitPathShorteningRenderer.reportsLockProhibited(
+                permitted,
+                CommitPathShorteningRenderer.resolveLockAdvice(permitted.javaClass),
+            ),
+        )
+        assertFalse(
+            CommitPathShorteningRenderer.reportsLockProhibited(
+                allowed,
+                CommitPathShorteningRenderer.resolveLockAdvice(allowed.javaClass),
+            ),
+        )
+        assertFalse(
+            CommitPathShorteningRenderer.reportsLockProhibited(
+                broken,
+                CommitPathShorteningRenderer.resolveLockAdvice(broken.javaClass),
+            ),
+        )
+    }
+
+    @Test
+    fun `lock probe resolves the compile target application contract`() {
+        val method = assertNotNull(CommitPathShorteningRenderer.resolveLockAdvice(Application::class.java))
+
+        assertTrue(method.name in setOf("getLockProhibitedAdvice", "isLockingProhibited"))
+        assertEquals(0, method.parameterCount)
+        assertEquals(String::class.java, method.returnType)
+    }
+
+    @Test
+    fun `renderer skips the delegate when platform locks are prohibited`() {
+        SwingUtilities.invokeAndWait {
+            var delegateCalls = 0
+            val renderer =
+                CommitPathShorteningRenderer(
+                    delegate =
+                        TreeCellRenderer { _, _, _, _, _, _, _ ->
+                            delegateCalls += 1
+                            SimpleColoredComponent().apply {
+                                append("delegate", SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                            }
+                        },
+                    stateProvider = { AyuIslandsState() },
+                    isLockProhibited = { true },
+                )
+
+            val component = render(renderer, treeWithVisibleWidth(260), value = "ChangeNode.txt")
+
+            assertEquals(0, delegateCalls)
+            assertEquals(listOf("ChangeNode.txt"), component.fragmentsForTest())
+        }
+    }
+
+    @Test
     fun `renderer serves fallback text when the delegate hits a lock-prohibited context`() {
         SwingUtilities.invokeAndWait {
             val renderer =
@@ -600,4 +682,26 @@ class CommitPathShorteningRendererTest {
         }
         return fragments
     }
+}
+
+private class ModernLockAdvice(
+    private val advice: String?,
+) {
+    fun getLockProhibitedAdvice(): String? = advice
+}
+
+private class LegacyLockAdvice(
+    private val advice: String?,
+) {
+    fun isLockingProhibited(): String? = advice
+}
+
+private class BooleanLockAdvice(
+    private val advice: Boolean,
+) {
+    fun getLockProhibitedAdvice(): Boolean = advice
+}
+
+private class BrokenLockAdvice {
+    fun getLockProhibitedAdvice(): String = error("lock probe failed")
 }
