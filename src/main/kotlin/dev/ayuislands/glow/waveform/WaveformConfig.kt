@@ -9,7 +9,8 @@ const val MAX_WAVEFORM_INTENSITY = 100
 const val DEFAULT_WAVEFORM_LOOP_SECONDS = 2.8f
 const val MIN_WAVEFORM_LOOP_SECONDS = 1.5f
 const val MAX_WAVEFORM_LOOP_SECONDS = 6.0f
-internal const val IDLE_WAVEFORM_BRIGHTNESS = 0.35f
+private const val MONITOR_IDLE_BRIGHTNESS = 0.85f
+private const val STATIC_IDLE_BRIGHTNESS = 0.35f
 
 /** Effective waveform settings consumed by the engine and painter. */
 data class WaveformConfig(
@@ -19,6 +20,15 @@ data class WaveformConfig(
     val intensity: Int = DEFAULT_WAVEFORM_INTENSITY,
     val loopSeconds: Float = DEFAULT_WAVEFORM_LOOP_SECONDS,
 )
+
+internal fun WaveformConfig.brightnessAt(energy: Float): Float {
+    val idleBrightness =
+        when (motion) {
+            WaveformMotion.MONITOR -> MONITOR_IDLE_BRIGHTNESS
+            WaveformMotion.STATIC_PULSE -> STATIC_IDLE_BRIGHTNESS
+        }
+    return idleBrightness + energy.coerceIn(0f, 1f) * (1f - idleBrightness)
+}
 
 internal fun Float.normalizedLoopSeconds(): Float =
     if (isNaN()) {

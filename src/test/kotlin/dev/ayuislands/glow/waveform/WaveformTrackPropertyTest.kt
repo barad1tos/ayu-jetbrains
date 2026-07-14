@@ -14,6 +14,7 @@ class WaveformTrackPropertyTest {
                 overlayBounds = Rectangle(0, 0, 240, 160),
                 margin = 16f,
                 arcRadius = 12f,
+                motion = WaveformMotion.STATIC_PULSE,
             )
 
         assertTrue(track.isClosed)
@@ -42,6 +43,7 @@ class WaveformTrackPropertyTest {
                 overlayBounds = Rectangle(0, 0, 600, 240),
                 margin = 16f,
                 arcRadius = 12f,
+                motion = WaveformMotion.STATIC_PULSE,
                 occupiedTopSpans = listOf(0..220),
             )
         val topEdge = track.samples.filter { it.normalY < -0.999f && it.normalX in -0.001f..0.001f }
@@ -62,6 +64,7 @@ class WaveformTrackPropertyTest {
                 overlayBounds = Rectangle(0, 0, 900, 400),
                 margin = 16f,
                 arcRadius = 12f,
+                motion = WaveformMotion.STATIC_PULSE,
             )
 
         val anchor = track.sampleNearest(track.signalAnchorDistance)
@@ -77,6 +80,7 @@ class WaveformTrackPropertyTest {
                 overlayBounds = Rectangle(0, 0, 900, 400),
                 margin = 16f,
                 arcRadius = 12f,
+                motion = WaveformMotion.STATIC_PULSE,
                 occupiedTopSpans = listOf(0..300, 700..899),
             )
 
@@ -93,6 +97,7 @@ class WaveformTrackPropertyTest {
                 overlayBounds = Rectangle(0, 0, 600, 300),
                 margin = 16f,
                 arcRadius = 12f,
+                motion = WaveformMotion.STATIC_PULSE,
                 occupiedTopSpans = listOf(0..199, 380..599),
             )
 
@@ -109,6 +114,7 @@ class WaveformTrackPropertyTest {
                 overlayBounds = Rectangle(0, 0, 500, 360),
                 margin = 16f,
                 arcRadius = 12f,
+                motion = WaveformMotion.STATIC_PULSE,
                 occupiedTopSpans = listOf(0..170, 290..499),
             )
 
@@ -126,6 +132,7 @@ class WaveformTrackPropertyTest {
                 overlayBounds = Rectangle(0, 0, 180, 120),
                 margin = 8f,
                 arcRadius = 8f,
+                motion = WaveformMotion.STATIC_PULSE,
             )
 
         assertEquals(track.length * 0.3f, track.signalSpan, 0.1f)
@@ -138,6 +145,7 @@ class WaveformTrackPropertyTest {
                 overlayBounds = Rectangle(0, 0, 20, 20),
                 margin = 12f,
                 arcRadius = 8f,
+                motion = WaveformMotion.STATIC_PULSE,
             )
 
         assertTrue(track.samples.isEmpty())

@@ -30,7 +30,6 @@ class WaveformTrack internal constructor(
 
     companion object {
         private const val DEFAULT_SAMPLE_STEP = 2f
-        private const val MIN_SAMPLE_STEP = 0.5f
         private const val HALF_DIVISOR = 2f
         private const val HALF_PI = PI / 2
         private const val THREE_HALVES_PI = PI * 1.5
@@ -39,8 +38,8 @@ class WaveformTrack internal constructor(
             overlayBounds: Rectangle,
             margin: Float,
             arcRadius: Float,
+            motion: WaveformMotion,
             occupiedTopSpans: List<IntRange> = emptyList(),
-            sampleStep: Float = DEFAULT_SAMPLE_STEP,
         ): WaveformTrack {
             val left = overlayBounds.x + margin
             val top = overlayBounds.y + margin
@@ -53,7 +52,7 @@ class WaveformTrack internal constructor(
                     arcRadius.coerceAtLeast(0f),
                     min((right - left) / HALF_DIVISOR, (bottom - top) / HALF_DIVISOR),
                 )
-            val builder = TrackBuilder(sampleStep.coerceAtLeast(MIN_SAMPLE_STEP))
+            val builder = TrackBuilder(DEFAULT_SAMPLE_STEP)
             builder.addLine(
                 LineSpec(left + radius, top, right - radius, top, 0f, -1f),
                 topLineMask(left + radius, right - radius, occupiedTopSpans, overlayBounds.x),
@@ -72,7 +71,7 @@ class WaveformTrack internal constructor(
                 topArcMask(left + radius, radius, PI, occupiedTopSpans, overlayBounds.x),
             )
             val track = builder.build()
-            return withSignalGeometry(track, overlayBounds, margin, occupiedTopSpans)
+            return withSignalGeometry(track, overlayBounds, margin, motion, occupiedTopSpans)
         }
 
         private fun topLineMask(
@@ -115,6 +114,7 @@ class WaveformTrack internal constructor(
             track: WaveformTrack,
             bounds: Rectangle,
             margin: Float,
+            motion: WaveformMotion,
             occupiedSpans: List<IntRange>,
         ): WaveformTrack {
             if (!track.isClosed) return track
@@ -132,9 +132,14 @@ class WaveformTrack internal constructor(
                 }
             val anchorY = if (useRightEdge) bounds.y + bounds.height * RIGHT_EDGE_FRACTION else top
             val anchorDistance = track.nearestDistance(anchorX, anchorY.coerceIn(top, bottom))
-            val maximumSpan = min(DEFAULT_SIGNAL_SPAN, track.length * MAX_PERIMETER_FRACTION)
+            val preferredSpan =
+                when (motion) {
+                    WaveformMotion.MONITOR -> max(DEFAULT_SIGNAL_SPAN, bounds.width * SIGNAL_SPAN_WIDTH_FRACTION)
+                    WaveformMotion.STATIC_PULSE -> DEFAULT_SIGNAL_SPAN
+                }
+            val maximumSpan = min(preferredSpan, track.length * MAX_PERIMETER_FRACTION)
             val signalSpan =
-                if (freeSpan != null && freeSpan.width in MIN_TOP_SPAN until DEFAULT_SIGNAL_SPAN.toInt()) {
+                if (freeSpan != null && freeSpan.width >= MIN_TOP_SPAN) {
                     min(maximumSpan, freeSpan.width.toFloat())
                 } else {
                     maximumSpan
@@ -188,6 +193,7 @@ class WaveformTrack internal constructor(
 
         private const val MASK_SHOULDER = 50f
         private const val DEFAULT_SIGNAL_SPAN = 220f
+        private const val SIGNAL_SPAN_WIDTH_FRACTION = 0.55f
         private const val MIN_TOP_SPAN = 140
         private const val MAX_PERIMETER_FRACTION = 0.3f
         private const val FALLBACK_ANCHOR_FRACTION = 2f / 3f

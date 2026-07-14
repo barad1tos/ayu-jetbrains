@@ -51,19 +51,18 @@ class WaveformPainterPixelTest {
     }
 
     @Test
-    fun `idle monitor keeps a visible ECG peak without active-beat brightness`() {
+    fun `idle monitor keeps a full sized visible ECG peak`() {
         val config = WaveformConfig(amplitude = 14, intensity = 100)
-        val idle = render(WaveformFrame(config = config, brightness = IDLE_WAVEFORM_BRIGHTNESS))
+        val idle = render(WaveformFrame(config = config, brightness = config.brightnessAt(0f)))
         val peak =
             idle.result.track.samples.minBy { sample ->
                 kotlin.math.abs(sample.distance - idle.result.track.signalAnchorDistance)
             }
-        val probeX = (peak.x + peak.normalX * IDLE_PEAK_PROBE).roundToInt()
-        val probeY = (peak.y + peak.normalY * IDLE_PEAK_PROBE).roundToInt()
-        val active = render(frame(config, peak.distance))
+        val probeDistance = config.amplitude * MIN_ACTIVE_HEIGHT_FRACTION
+        val probeX = (peak.x + peak.normalX * probeDistance).roundToInt()
+        val probeY = (peak.y + peak.normalY * probeDistance).roundToInt()
 
         assertTrue(alphaAt(idle.image, probeX, probeY) > 0, "idle R peak must read as ECG geometry")
-        assertTrue(alphaSum(active.image) > alphaSum(idle.image), "typing beat must remain brighter than idle ECG")
     }
 
     @Test
@@ -205,7 +204,7 @@ class WaveformPainterPixelTest {
                 WaveformFrame(
                     config = config,
                     energy = 0f,
-                    brightness = IDLE_WAVEFORM_BRIGHTNESS,
+                    brightness = config.brightnessAt(0f),
                 ),
             )
         val active = render(WaveformFrame(config = config, energy = 1f, brightness = 1f))
@@ -222,7 +221,7 @@ class WaveformPainterPixelTest {
                 WaveformFrame(
                     config = config,
                     energy = 0f,
-                    brightness = IDLE_WAVEFORM_BRIGHTNESS,
+                    brightness = config.brightnessAt(0f),
                 ),
             )
         val active = render(WaveformFrame(config = config, energy = 1f, brightness = 1f))
@@ -257,6 +256,65 @@ class WaveformPainterPixelTest {
             pixelDifference(base, active.image, Rectangle(region.x, 0, region.width, 1)),
             "R peak must not clip against the overlay edge",
         )
+    }
+
+    @Test
+    fun `idle monitor preserves configured peak geometry while typing changes luminance`() {
+        val config = WaveformConfig(amplitude = MAX_WAVEFORM_AMPLITUDE, intensity = MAX_WAVEFORM_INTENSITY)
+        val engine = WaveformEngine(config, Random(42))
+        val activated = requireNotNull(engine.handle(WaveformEvent.Activate(powerSaveEnabled = false)).frame)
+        val trackLength = renderEditorScale(activated).result.track.length
+        val idleFrame = requireNotNull(engine.handle(WaveformEvent.Tick(0L, trackLength)).frame)
+        val idle = renderEditorScale(idleFrame)
+        engine.handle(WaveformEvent.Keystroke(0L))
+        val activeFrame = requireNotNull(engine.handle(WaveformEvent.Tick(80L, trackLength)).frame)
+        val active = renderEditorScale(activeFrame)
+        val base = renderEditorScale(idleFrame.copy(config = config.copy(intensity = 0)))
+        val anchor = idle.result.track.sampleNearest(idle.result.track.signalAnchorDistance)
+        val topRegion = Rectangle(0, 0, idle.image.width, anchor.y.roundToInt() + 1)
+        val idleBounds =
+            visibleSignalBounds(
+                base = base.image,
+                active = idle.image,
+                region = topRegion,
+            )
+        val activeBounds = visibleSignalBounds(base.image, active.image, topRegion)
+        val idlePeakHeight = anchor.y.roundToInt() - idleBounds.y
+        val activePeakHeight = anchor.y.roundToInt() - activeBounds.y
+
+        assertTrue(
+            idlePeakHeight >= config.amplitude * MIN_ACTIVE_HEIGHT_FRACTION,
+            "monitor amplitude must not collapse while idle: height=$idlePeakHeight signal=$idleBounds",
+        )
+        assertTrue(
+            abs(activePeakHeight - idlePeakHeight) <= MAX_MONITOR_PEAK_DELTA,
+            "typing must not resize monitor geometry: idle=$idlePeakHeight active=$activePeakHeight",
+        )
+        assertTrue(
+            addedAlpha(base.image, active.image, topRegion) > addedAlpha(base.image, idle.image, topRegion),
+            "typing must brighten the monitor without changing its amplitude",
+        )
+        assertTrue(
+            idleBounds.width >= EDITOR_CONTENT_WIDTH * MIN_EDITOR_SIGNAL_WIDTH_FRACTION,
+            "editor ECG must occupy a substantial visible span: $idleBounds",
+        )
+    }
+
+    @Test
+    fun `production static pulse keeps its compact span after monitor render`() {
+        val monitorConfig = WaveformConfig(amplitude = MAX_WAVEFORM_AMPLITUDE, intensity = MAX_WAVEFORM_INTENSITY)
+        val monitor = renderEditorScale(WaveformFrame(config = monitorConfig))
+        val staticPulse =
+            renderEditorScale(
+                WaveformFrame(
+                    config = monitorConfig.copy(motion = WaveformMotion.STATIC_PULSE),
+                    energy = 1f,
+                    brightness = 1f,
+                ),
+            )
+
+        assertTrue(monitor.result.track.signalSpan > staticPulse.result.track.signalSpan)
+        assertEquals(STATIC_SIGNAL_SPAN, staticPulse.result.track.signalSpan, 0.1f)
     }
 
     @Test
@@ -422,8 +480,10 @@ class WaveformPainterPixelTest {
     private fun render(
         frame: WaveformFrame,
         occupiedTopSpans: List<IntRange> = emptyList(),
+        renderBounds: Rectangle = bounds,
+        solidFrame: SolidFrameSpec = solidFrame(),
     ): Rendered {
-        val image = BufferedImage(WIDTH, HEIGHT, BufferedImage.TYPE_INT_ARGB)
+        val image = BufferedImage(renderBounds.width, renderBounds.height, BufferedImage.TYPE_INT_ARGB)
         val graphics = image.createGraphics()
         val result =
             try {
@@ -431,18 +491,41 @@ class WaveformPainterPixelTest {
                     graphics = graphics,
                     request =
                         WaveformPaintRequest(
-                            bounds = bounds,
+                            bounds = renderBounds,
                             arcWidth = ARC_WIDTH,
                             accent = accent,
                             frame = frame,
                             occupiedTopSpans = occupiedTopSpans,
-                            solidFrame = solidFrame(),
+                            solidFrame = solidFrame,
                         ),
                 )
             } finally {
                 graphics.dispose()
             }
         return Rendered(image, result)
+    }
+
+    private fun renderEditorScale(frame: WaveformFrame): Rendered {
+        val margin = WaveformPainter.marginFor(frame.config.amplitude, EDITOR_SOLID_WIDTH).toInt()
+        val renderBounds =
+            Rectangle(
+                0,
+                0,
+                EDITOR_CONTENT_WIDTH + margin * 2,
+                EDITOR_CONTENT_HEIGHT + margin * 2,
+            )
+        return render(
+            frame = frame,
+            occupiedTopSpans = listOf(0..EDITOR_LEFT_CHROME_END, EDITOR_RIGHT_CHROME_START until EDITOR_CONTENT_WIDTH),
+            renderBounds = renderBounds,
+            solidFrame =
+                SolidFrameSpec(
+                    bounds = Rectangle(margin, margin, EDITOR_CONTENT_WIDTH, EDITOR_CONTENT_HEIGHT),
+                    style = GlowStyle.SHARP_NEON,
+                    intensity = MAX_WAVEFORM_INTENSITY,
+                    width = EDITOR_SOLID_WIDTH,
+                ),
+        )
     }
 
     private fun renderSolidBase(): BufferedImage {
@@ -479,6 +562,28 @@ class WaveformPainterPixelTest {
         (0 until image.height).sumOf { y ->
             (0 until image.width).sumOf { x -> alphaAt(image, x, y).toLong() }
         }
+
+    private fun visibleSignalBounds(
+        base: BufferedImage,
+        active: BufferedImage,
+        region: Rectangle,
+    ): Rectangle {
+        var left = region.x + region.width
+        var top = region.y + region.height
+        var right = region.x - 1
+        var bottom = region.y - 1
+        for (y in region.y until region.y + region.height) {
+            for (x in region.x until region.x + region.width) {
+                if (alphaAt(active, x, y) - alphaAt(base, x, y) < VISIBLE_SIGNAL_ALPHA_DELTA) continue
+                left = minOf(left, x)
+                top = minOf(top, y)
+                right = maxOf(right, x)
+                bottom = maxOf(bottom, y)
+            }
+        }
+        check(left <= right && top <= bottom) { "expected visible ECG pixels in $region" }
+        return Rectangle(left, top, right - left + 1, bottom - top + 1)
+    }
 
     private fun peakProfile(
         base: BufferedImage,
@@ -588,7 +693,6 @@ class WaveformPainterPixelTest {
         const val HEIGHT = 160
         const val ARC_WIDTH = 16
         const val OUTWARD_PROBE = 11f
-        const val IDLE_PEAK_PROBE = 6f
         const val RIGHT_FALLBACK_BAND = 40
         const val MIN_PIXEL_DIFFERENCE = 100
         const val SOLID_INTENSITY = 80
@@ -616,5 +720,14 @@ class WaveformPainterPixelTest {
         const val TAIL_PROBE_START = 30f
         const val TAIL_PROBE_END = 50f
         const val MIN_HEAD_WHITENESS = 40
+        const val EDITOR_CONTENT_WIDTH = 1331
+        const val EDITOR_CONTENT_HEIGHT = 800
+        const val EDITOR_SOLID_WIDTH = 3
+        const val EDITOR_LEFT_CHROME_END = 240
+        const val EDITOR_RIGHT_CHROME_START = 1190
+        const val VISIBLE_SIGNAL_ALPHA_DELTA = 24
+        const val MIN_EDITOR_SIGNAL_WIDTH_FRACTION = 0.33
+        const val MAX_MONITOR_PEAK_DELTA = 1
+        const val STATIC_SIGNAL_SPAN = 220f
     }
 }

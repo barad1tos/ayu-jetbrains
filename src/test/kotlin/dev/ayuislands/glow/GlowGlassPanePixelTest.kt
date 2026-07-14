@@ -2,7 +2,6 @@ package dev.ayuislands.glow
 
 import dev.ayuislands.glow.waveform.BeatMorphology
 import dev.ayuislands.glow.waveform.FrameBeat
-import dev.ayuislands.glow.waveform.IDLE_WAVEFORM_BRIGHTNESS
 import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.WaveformFrame
 import dev.ayuislands.glow.waveform.WaveformMotion
@@ -10,6 +9,7 @@ import dev.ayuislands.glow.waveform.WaveformPaintRequest
 import dev.ayuislands.glow.waveform.WaveformPaintResult
 import dev.ayuislands.glow.waveform.WaveformPainter
 import dev.ayuislands.glow.waveform.WaveformTrack
+import dev.ayuislands.glow.waveform.brightnessAt
 import java.awt.Color
 import java.awt.image.BufferedImage
 import kotlin.random.Random
@@ -232,7 +232,7 @@ class GlowGlassPanePixelTest {
             WaveformFrame(
                 config = config,
                 energy = 0f,
-                brightness = IDLE_WAVEFORM_BRIGHTNESS,
+                brightness = config.brightnessAt(0f),
             ),
         )
 

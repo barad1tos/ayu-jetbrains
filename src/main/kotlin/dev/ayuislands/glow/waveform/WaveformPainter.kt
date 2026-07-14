@@ -51,7 +51,14 @@ internal open class WaveformPainter(
         val frame = request.frame
         val amplitude = frame.config.amplitude.coerceIn(MIN_WAVEFORM_AMPLITUDE, MAX_WAVEFORM_AMPLITUDE)
         val solidWidth = request.solidFrame.width.coerceAtLeast(1)
-        val track = createTrack(request.bounds, request.arcWidth, amplitude, solidWidth, request.occupiedTopSpans)
+        val track =
+            createTrack(
+                request.bounds,
+                request.arcWidth,
+                frame.config,
+                solidWidth,
+                request.occupiedTopSpans,
+            )
         val dirtyRegions = dirtyRegions(request.bounds, amplitude, solidWidth)
         if (!track.isClosed) return WaveformPaintResult(track, dirtyRegions)
 
@@ -153,10 +160,7 @@ internal open class WaveformPainter(
         config: WaveformConfig,
         solidWidth: Int,
         occupiedTopSpans: List<IntRange> = emptyList(),
-    ): Float {
-        val amplitude = config.amplitude.coerceIn(MIN_WAVEFORM_AMPLITUDE, MAX_WAVEFORM_AMPLITUDE)
-        return createTrack(bounds, arcWidth, amplitude, solidWidth, occupiedTopSpans).length
-    }
+    ): Float = createTrack(bounds, arcWidth, config, solidWidth, occupiedTopSpans).length
 
     fun dirtyRegions(
         bounds: Rectangle,
@@ -199,11 +203,12 @@ internal open class WaveformPainter(
     private fun createTrack(
         bounds: Rectangle,
         arcWidth: Int,
-        amplitude: Int,
+        config: WaveformConfig,
         solidWidth: Int,
         occupiedTopSpans: List<IntRange>,
     ): WaveformTrack {
-        val key = TrackKey(Rectangle(bounds), arcWidth, amplitude, solidWidth, occupiedTopSpans)
+        val amplitude = config.amplitude.coerceIn(MIN_WAVEFORM_AMPLITUDE, MAX_WAVEFORM_AMPLITUDE)
+        val key = TrackKey(Rectangle(bounds), arcWidth, amplitude, solidWidth, config.motion, occupiedTopSpans)
         if (key == trackKey) return requireNotNull(cachedTrack)
 
         val margin = marginFor(amplitude, solidWidth)
@@ -212,6 +217,7 @@ internal open class WaveformPainter(
                 overlayBounds = bounds,
                 margin = margin,
                 arcRadius = arcWidth.coerceAtLeast(0) / ARC_DIAMETER_DIVISOR,
+                motion = config.motion,
                 occupiedTopSpans =
                     occupiedTopSpans.map { span ->
                         (span.first + margin.toInt())..(span.last + margin.toInt())
@@ -231,7 +237,12 @@ internal open class WaveformPainter(
         val bands = List(ALPHA_BANDS) { Path2D.Float() }
         val heads = mutableListOf<HeadPath>()
         val energy = frame.energy.coerceIn(0f, 1f)
-        val scaledAmplitude = amplitude * (REST_AMPLITUDE_SCALE + energy * ACTIVE_AMPLITUDE_RANGE)
+        val amplitudeScale =
+            when (frame.config.motion) {
+                WaveformMotion.MONITOR -> 1f
+                WaveformMotion.STATIC_PULSE -> REST_AMPLITUDE_SCALE + energy * ACTIVE_AMPLITUDE_RANGE
+            }
+        val scaledAmplitude = amplitude * amplitudeScale
         signalSpecs(track, frame).forEach { spec ->
             appendSignal(track, spec, scaledAmplitude, maximumDisplacement, bands)?.let { heads += it }
         }
@@ -367,6 +378,7 @@ internal open class WaveformPainter(
         val arcWidth: Int,
         val amplitude: Int,
         val solidWidth: Int,
+        val motion: WaveformMotion,
         val occupiedTopSpans: List<IntRange>,
     )
 

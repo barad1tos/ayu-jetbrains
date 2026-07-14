@@ -51,12 +51,12 @@ class WaveformEngineTest {
 
         assertEquals(TimerDirective.KEEP, input.timerDirective)
         assertEquals(0.5f, rising.energy, 0.001f)
-        assertEquals(0.675f, rising.brightness, 0.001f)
+        assertEquals(0.925f, rising.brightness, 0.001f)
         assertEquals(264.286f, rising.beats.single().centerDistance, 0.001f)
         assertEquals(1f, peak.energy, 0.001f)
         assertEquals(0.5f, decaying.energy, 0.001f)
         assertEquals(0f, resting.energy, 0.001f)
-        assertEquals(0.35f, resting.brightness, 0.001f)
+        assertEquals(0.85f, resting.brightness, 0.001f)
     }
 
     @Test

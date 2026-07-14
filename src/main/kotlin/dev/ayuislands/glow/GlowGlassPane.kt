@@ -1,7 +1,6 @@
 package dev.ayuislands.glow
 
 import com.intellij.openapi.diagnostic.logger
-import dev.ayuislands.glow.waveform.IDLE_WAVEFORM_BRIGHTNESS
 import dev.ayuislands.glow.waveform.SolidFrameSpec
 import dev.ayuislands.glow.waveform.TimerDirective
 import dev.ayuislands.glow.waveform.WaveformConfig
@@ -11,6 +10,7 @@ import dev.ayuislands.glow.waveform.WaveformFrame
 import dev.ayuislands.glow.waveform.WaveformPaintRequest
 import dev.ayuislands.glow.waveform.WaveformPainter
 import dev.ayuislands.glow.waveform.WaveformUpdate
+import dev.ayuislands.glow.waveform.brightnessAt
 import java.awt.AlphaComposite
 import java.awt.Color
 import java.awt.Dimension
@@ -243,7 +243,7 @@ class GlowGlassPane(
                             waveformFrame
                                 ?: WaveformFrame(
                                     waveformConfig,
-                                    brightness = IDLE_WAVEFORM_BRIGHTNESS,
+                                    brightness = waveformConfig.brightnessAt(0f),
                                 ),
                         solidFrame =
                             SolidFrameSpec(

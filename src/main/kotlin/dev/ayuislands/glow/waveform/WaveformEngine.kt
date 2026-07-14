@@ -535,7 +535,6 @@ internal class WaveformEngine(
 
     private companion object {
         const val MILLIS_PER_SECOND = 1_000f
-        const val ACTIVE_BRIGHTNESS_RANGE = 1f - IDLE_WAVEFORM_BRIGHTNESS
         const val SPEED_SLEW_PER_SECOND = 1.2f
         const val BEAT_DENSITY_GAIN = 1f
         const val TRAIL_EXPIRE_PHASE = 1f
@@ -581,7 +580,7 @@ internal class WaveformEngine(
             WaveformFrame(
                 config = config,
                 beats = beats,
-                brightness = IDLE_WAVEFORM_BRIGHTNESS + energy * ACTIVE_BRIGHTNESS_RANGE,
+                brightness = config.brightnessAt(energy),
                 energy = energy,
                 morphology = morphology,
             )
@@ -592,7 +591,7 @@ internal class WaveformEngine(
         ): WaveformFrame =
             WaveformFrame(
                 config = config,
-                brightness = IDLE_WAVEFORM_BRIGHTNESS,
+                brightness = config.brightnessAt(0f),
                 morphology = morphology,
             )
 
