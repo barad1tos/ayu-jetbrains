@@ -5,7 +5,7 @@ import dev.ayuislands.glow.GlowRenderer
 import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.waveform.BeatMorphology
-import dev.ayuislands.glow.waveform.FrameBeat
+import dev.ayuislands.glow.waveform.FrameTrace
 import dev.ayuislands.glow.waveform.SolidFrameSpec
 import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.WaveformFrame
@@ -153,12 +153,10 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
         val frame =
             WaveformFrame(
                 config = previewConfig,
-                beats =
-                    listOf(
-                        FrameBeat(
-                            centerDistance = 0f,
-                            morphology = previewMorphology,
-                        ),
+                trace =
+                    FrameTrace(
+                        anchorOffset = 0f,
+                        history = List(PREVIEW_TRACE_COUNT) { previewMorphology },
                     ),
             )
         waveformPainter.paint(
@@ -191,5 +189,6 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
         private const val FIXED_PADDING = 10
         private const val PREVIEW_BASELINE_INSET = 8
         private const val PREVIEW_DISPLACEMENT_SCALE = 0.25f
+        private const val PREVIEW_TRACE_COUNT = 4
     }
 }

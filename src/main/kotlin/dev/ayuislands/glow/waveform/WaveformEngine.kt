@@ -1,7 +1,12 @@
 package dev.ayuislands.glow.waveform
 
 import com.intellij.util.concurrency.annotations.RequiresEdt
+import kotlin.math.floor
+import kotlin.math.min
 import kotlin.random.Random
+
+private const val INITIAL_TRACE_PHASE = 0.055f
+internal const val TRACE_COMPLEX_COUNT = 4
 
 internal enum class TimerDirective {
     KEEP,
@@ -36,23 +41,17 @@ internal sealed interface WaveformEvent {
     data object RenderFailed : WaveformEvent
 }
 
-internal data class FrameBeat(
+internal data class FrameTrace(
     /** Signed perimeter offset from the track's signal anchor. */
-    val centerDistance: Float,
-    val morphology: BeatMorphology,
-    /** 0..1 window-alpha multiplier easing beats in at spawn and out at expiry. */
-    val fade: Float = 1f,
-)
-
-/** A beat that has been passed by a newer one and keeps running until it expires. */
-internal data class TrailingBeat(
-    val phase: Float,
-    val morphology: BeatMorphology,
+    val anchorOffset: Float,
+    /** Current morphology followed by older complexes that still occupy the fading trace. */
+    val history: List<BeatMorphology>,
+    val phase: Float = INITIAL_TRACE_PHASE,
 )
 
 internal data class WaveformFrame(
     val config: WaveformConfig,
-    val beats: List<FrameBeat> = emptyList(),
+    val trace: FrameTrace? = null,
     val brightness: Float = 1f,
     val energy: Float = 0f,
     val morphology: BeatMorphology = BeatMorphology.standard(),
@@ -113,13 +112,13 @@ internal sealed interface WaveformState {
 
     data class Looping(
         override val config: WaveformConfig,
-        val phase: Float = 0f,
+        val travelPhase: Float = 0f,
+        val tracePhase: Float = INITIAL_TRACE_PHASE,
         val lastTickMs: Long? = null,
-        val morphology: BeatMorphology = BeatMorphology.standard(),
+        val history: List<BeatMorphology>,
         val energyEnvelope: EnergyEnvelope? = null,
         val cadence: TypingCadence = TypingCadence(),
-        val speedMultiplier: Float = 1f,
-        val trailingBeats: List<TrailingBeat> = emptyList(),
+        val traceRate: Float = 1f,
     ) : WaveformState
 
     data class StaticResting(
@@ -318,12 +317,13 @@ internal class WaveformEngine(
             }
 
             else -> {
+                val morphology = current.history.first()
                 Transition(
-                    WaveformState.StaticResting(config, current.morphology),
+                    WaveformState.StaticResting(config, morphology),
                     WaveformUpdate(
                         TimerDirective.STOP,
                         needsRepaint = true,
-                        frame = restingFrame(config, current.morphology),
+                        frame = restingFrame(config, morphology),
                     ),
                 )
             }
@@ -362,11 +362,7 @@ internal class WaveformEngine(
 
             else -> {
                 Transition(
-                    WaveformState.Looping(
-                        config = config,
-                        morphology = current.morphology,
-                        energyEnvelope = current.energyEnvelope,
-                    ),
+                    loopingState(config, current.morphology, current.energyEnvelope),
                     WaveformUpdate(TimerDirective.START, needsRepaint = true),
                 )
             }
@@ -377,70 +373,53 @@ internal class WaveformEngine(
         event: WaveformEvent.Tick,
     ): Transition {
         val elapsedMs = current.lastTickMs?.let { (event.nowMs - it).coerceAtLeast(0L) } ?: 0L
-        val speed = slewedSpeed(current, event.nowMs, elapsedMs)
-        val unwrappedPhase = current.phase + elapsedMs * speed / loopDurationMs(current.config)
-        val advance = advanceBeats(current, unwrappedPhase, speed)
+        val traceRate = slewedTraceRate(current, event.nowMs, elapsedMs)
+        val travelPhase = wrap(current.travelPhase + elapsedMs / loopDurationMs(current.config), 1f)
+        val trace = advanceTrace(current, elapsedMs, traceRate)
         val energy = current.energyEnvelope?.levelAt(event.nowMs) ?: 0f
         val envelope = current.energyEnvelope?.takeIf { event.nowMs < it.endMs }
-        val beats = movingBeats(event.trackLength, current.config.direction, beatSpacing(speed), advance)
-        val frame = activeFrame(current.config, energy, advance.morphology, beats)
+        val frameTrace = movingTrace(event.trackLength, current.config.direction, travelPhase, trace)
+        val frame = activeFrame(current.config, energy, trace.history.first(), frameTrace)
         return Transition(
             current.copy(
-                phase = advance.phase,
+                travelPhase = travelPhase,
+                tracePhase = trace.phase,
                 lastTickMs = event.nowMs,
-                morphology = advance.morphology,
+                history = trace.history,
                 energyEnvelope = envelope,
-                speedMultiplier = speed,
-                trailingBeats = advance.trailingBeats,
+                traceRate = traceRate,
             ),
             WaveformUpdate(needsRepaint = event.trackLength > 0f, frame = frame),
         )
     }
 
-    private fun slewedSpeed(
+    private fun slewedTraceRate(
         current: WaveformState.Looping,
         nowMs: Long,
         elapsedMs: Long,
     ): Float {
-        val target = current.cadence.targetSpeed(nowMs)
-        val maxDelta = SPEED_SLEW_PER_SECOND * elapsedMs / MILLIS_PER_SECOND
-        return current.speedMultiplier + (target - current.speedMultiplier).coerceIn(-maxDelta, maxDelta)
+        val target = current.cadence.targetRate(nowMs)
+        val maxDelta = TRACE_SLEW_RATE * elapsedMs / MILLIS_PER_SECOND
+        return current.traceRate + (target - current.traceRate).coerceIn(-maxDelta, maxDelta)
     }
 
-    private fun advanceBeats(
+    private fun advanceTrace(
         current: WaveformState.Looping,
-        unwrappedPhase: Float,
-        speed: Float,
-    ): BeatAdvance {
-        val travelled = unwrappedPhase - current.phase
-        val trailing =
-            current.trailingBeats
-                .map { beat -> beat.copy(phase = beat.phase + travelled) }
-                .toMutableList()
-        var leadPhase = unwrappedPhase
-        var morphology = current.morphology
-        val spacing = beatSpacing(speed)
-        if (spacing >= 1f) {
-            if (unwrappedPhase >= 1f) morphology = BeatMorphology.random(random)
-            leadPhase = wrap(unwrappedPhase, 1f)
-        } else {
-            while (leadPhase >= spacing) {
-                trailing += TrailingBeat(leadPhase, morphology)
-                leadPhase -= spacing
-                morphology = BeatMorphology.random(random)
-            }
-        }
-        return BeatAdvance(
-            phase = leadPhase,
-            morphology = morphology,
-            trailingBeats = trailing.filter { it.phase < TRAIL_EXPIRE_PHASE }.takeLast(MAX_TRAILING_BEATS),
-        )
+        elapsedMs: Long,
+        traceRate: Float,
+    ): TraceAdvance {
+        val unwrappedPhase = current.tracePhase + elapsedMs * traceRate / TRACE_PERIOD_MS
+        val completedCycles = floor(unwrappedPhase).toInt().coerceAtLeast(0)
+        if (completedCycles == 0) return TraceAdvance(unwrappedPhase, current.history)
+
+        val generated = List(min(completedCycles, TRACE_COMPLEX_COUNT)) { BeatMorphology.random(random) }
+        val history = (generated.asReversed() + current.history).take(TRACE_COMPLEX_COUNT)
+        return TraceAdvance(wrap(unwrappedPhase, 1f), history)
     }
 
-    private data class BeatAdvance(
+    private data class TraceAdvance(
         val phase: Float,
-        val morphology: BeatMorphology,
-        val trailingBeats: List<TrailingBeat>,
+        val history: List<BeatMorphology>,
     )
 
     private fun tickStatic(
@@ -479,11 +458,27 @@ internal class WaveformEngine(
     private fun looping(
         config: WaveformConfig,
         morphology: BeatMorphology,
-    ): Transition =
-        Transition(
-            WaveformState.Looping(config = config, morphology = morphology),
+    ): Transition {
+        val state = loopingState(config, morphology)
+        return Transition(
+            state,
             WaveformUpdate(TimerDirective.START, needsRepaint = true, frame = restingFrame(config, morphology)),
         )
+    }
+
+    private fun loopingState(
+        config: WaveformConfig,
+        morphology: BeatMorphology,
+        energyEnvelope: EnergyEnvelope? = null,
+    ): WaveformState.Looping =
+        WaveformState.Looping(
+            config = config,
+            history = initialHistory(morphology),
+            energyEnvelope = energyEnvelope,
+        )
+
+    private fun initialHistory(morphology: BeatMorphology): List<BeatMorphology> =
+        listOf(morphology) + List(TRACE_COMPLEX_COUNT - 1) { BeatMorphology.random(random) }
 
     private fun suspended(config: WaveformConfig): Transition =
         Transition(
@@ -535,51 +530,35 @@ internal class WaveformEngine(
 
     private companion object {
         const val MILLIS_PER_SECOND = 1_000f
-        const val SPEED_SLEW_PER_SECOND = 1.2f
-        const val BEAT_DENSITY_GAIN = 1f
-        const val TRAIL_EXPIRE_PHASE = 1f
-        const val TRAIL_FADE_OUT_PHASE = 0.12f
-        const val LEAD_IGNITE_PHASE = 0.05f
-        const val MAX_TRAILING_BEATS = 4
+        const val TRACE_PERIOD_MS = 1_200f
+        const val TRACE_SLEW_RATE = 1.2f
 
         fun loopDurationMs(config: WaveformConfig): Float =
             config.loopSeconds.normalizedLoopSeconds() * MILLIS_PER_SECOND
 
-        fun beatSpacing(speed: Float): Float = 1f / (1f + (speed - 1f) * BEAT_DENSITY_GAIN)
-
-        fun movingBeats(
+        fun movingTrace(
             trackLength: Float,
             direction: WaveformDirection,
-            spacing: Float,
-            advance: BeatAdvance,
-        ): List<FrameBeat> {
-            if (trackLength <= 0f) return emptyList()
-            val lead =
-                FrameBeat(
-                    centerDistance = wrap(advance.phase * direction.travelSign, 1f) * trackLength,
-                    morphology = advance.morphology,
-                    fade = if (spacing < 1f) smoothStep(advance.phase / LEAD_IGNITE_PHASE) else 1f,
-                )
-            val trailing =
-                advance.trailingBeats.map { beat ->
-                    FrameBeat(
-                        centerDistance = wrap(beat.phase * direction.travelSign, 1f) * trackLength,
-                        morphology = beat.morphology,
-                        fade = smoothStep((TRAIL_EXPIRE_PHASE - beat.phase) / TRAIL_FADE_OUT_PHASE),
-                    )
-                }
-            return listOf(lead) + trailing
+            travelPhase: Float,
+            trace: TraceAdvance,
+        ): FrameTrace? {
+            if (trackLength <= 0f) return null
+            return FrameTrace(
+                anchorOffset = wrap(travelPhase * direction.travelSign, 1f) * trackLength,
+                phase = trace.phase,
+                history = trace.history,
+            )
         }
 
         fun activeFrame(
             config: WaveformConfig,
             energy: Float,
             morphology: BeatMorphology,
-            beats: List<FrameBeat> = emptyList(),
+            trace: FrameTrace? = null,
         ): WaveformFrame =
             WaveformFrame(
                 config = config,
-                beats = beats,
+                trace = trace,
                 brightness = config.brightnessAt(energy),
                 energy = energy,
                 morphology = morphology,

@@ -1,8 +1,5 @@
 package dev.ayuislands.glow.waveform
 
-import kotlin.math.PI
-import kotlin.math.pow
-import kotlin.math.sin
 import kotlin.random.Random
 
 /** One randomized P-QRS-T complex evaluated over a normalized `0..1` beat window. */
@@ -19,48 +16,47 @@ class BeatMorphology private constructor(
         if (time !in 0f..1f) return 0f
         val adjusted = time / stretch + jitter
 
-        segment(adjusted, P_PHASE)?.let { return pAmplitude * sin(PI * it).toFloat() }
-        segment(adjusted, Q_PHASE)?.let { return -qAmplitude * sin(PI * it).toFloat() }
-        segment(adjusted, R_PHASE)?.let { progress ->
-            val triangle = if (progress < RISE_FRACTION) progress / RISE_FRACTION else (1f - progress) / FALL_FRACTION
-            return rAmplitude * triangle
+        return when {
+            adjusted < P_START -> 0f
+            adjusted < P_APEX -> interpolate(adjusted, P_START, P_APEX, 0f, pAmplitude)
+            adjusted < P_END -> interpolate(adjusted, P_APEX, P_END, pAmplitude, 0f)
+            adjusted < QRS_START -> 0f
+            adjusted < Q_APEX -> interpolate(adjusted, QRS_START, Q_APEX, 0f, -qAmplitude)
+            adjusted < R_APEX -> interpolate(adjusted, Q_APEX, R_APEX, -qAmplitude, rAmplitude)
+            adjusted < S_APEX -> interpolate(adjusted, R_APEX, S_APEX, rAmplitude, -sAmplitude)
+            adjusted < QRS_END -> interpolate(adjusted, S_APEX, QRS_END, -sAmplitude, 0f)
+            adjusted < T_START -> 0f
+            adjusted < T_APEX -> interpolate(adjusted, T_START, T_APEX, 0f, tAmplitude)
+            adjusted < T_END -> interpolate(adjusted, T_APEX, T_END, tAmplitude, 0f)
+            else -> 0f
         }
-        segment(adjusted, S_PHASE)?.let { return -sAmplitude * sin(PI * it).toFloat() }
-        segment(adjusted, T_PHASE)?.let { progress ->
-            return tAmplitude * sin(PI * progress.toDouble().pow(T_WAVE_POWER)).toFloat()
-        }
-        return 0f
     }
 
     companion object {
-        private data class Phase(
-            val start: Float,
-            val end: Float,
-        )
-
         private data class Variation(
             val minimum: Float,
             val maximum: Float,
         )
 
-        private val P_PHASE = Phase(0.06f, 0.16f)
-        private val Q_PHASE = Phase(0.245f, 0.279f)
-        private val R_PHASE = Phase(0.279f, 0.299f)
-        private val S_PHASE = Phase(0.299f, 0.335f)
-        private val T_PHASE = Phase(0.46f, 0.66f)
+        private val P_AMPLITUDE = Variation(0.09f, 0.16f)
+        private val Q_AMPLITUDE = Variation(0.05f, 0.13f)
+        private val R_AMPLITUDE = Variation(0.82f, 1.00f)
+        private val S_AMPLITUDE = Variation(0.14f, 0.30f)
+        private val T_AMPLITUDE = Variation(0.20f, 0.36f)
+        private val STRETCH = Variation(0.90f, 1.10f)
+        private val JITTER = Variation(-0.01f, 0.01f)
 
-        private val P_AMPLITUDE = around(0.125f)
-        private val Q_AMPLITUDE = around(0.09f)
-        private val R_AMPLITUDE = around(0.96f)
-        private val S_AMPLITUDE = around(0.22f)
-        private val T_AMPLITUDE = around(0.28f)
-        private val STRETCH = Variation(0.96f, 1.04f)
-        private val JITTER = Variation(-0.004f, 0.004f)
-
-        private const val RISE_FRACTION = 0.42f
-        private const val FALL_FRACTION = 0.58f
-        private const val T_WAVE_POWER = 0.75
-        private const val VARIATION_FRACTION = 0.08f
+        private const val P_START = 0.06f
+        private const val P_APEX = 0.10f
+        private const val P_END = 0.15f
+        private const val QRS_START = 0.235f
+        private const val Q_APEX = 0.255f
+        private const val R_APEX = 0.275f
+        private const val S_APEX = 0.300f
+        private const val QRS_END = 0.330f
+        private const val T_START = 0.40f
+        private const val T_APEX = 0.47f
+        private const val T_END = 0.56f
 
         fun random(random: Random = Random.Default): BeatMorphology =
             BeatMorphology(
@@ -90,20 +86,15 @@ class BeatMorphology private constructor(
         private fun Random.sample(variation: Variation): Float =
             variation.minimum + nextFloat() * (variation.maximum - variation.minimum)
 
-        private fun around(value: Float): Variation =
-            Variation(
-                minimum = value * (1f - VARIATION_FRACTION),
-                maximum = value * (1f + VARIATION_FRACTION),
-            )
-
-        private fun segment(
+        private fun interpolate(
             time: Float,
-            phase: Phase,
-        ): Float? =
-            if (time >= phase.start && time < phase.end) {
-                (time - phase.start) / (phase.end - phase.start)
-            } else {
-                null
-            }
+            startTime: Float,
+            endTime: Float,
+            startValue: Float,
+            endValue: Float,
+        ): Float {
+            val progress = (time - startTime) / (endTime - startTime)
+            return startValue + (endValue - startValue) * progress
+        }
     }
 }

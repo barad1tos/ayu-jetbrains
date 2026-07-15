@@ -10,7 +10,7 @@ import kotlin.test.assertTrue
 
 class WaveformEngineTest {
     @Test
-    fun `activating perimeter loop starts continuous motion without queued beats`() {
+    fun `activating perimeter loop starts one continuous trace`() {
         val engine = WaveformEngine(WaveformConfig())
 
         val update = engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
@@ -32,8 +32,19 @@ class WaveformEngineTest {
         val shortFrame = requireNotNull(shortTrack.handle(WaveformEvent.Tick(1_400L, 1_000f)).frame)
         val longFrame = requireNotNull(longTrack.handle(WaveformEvent.Tick(1_400L, 2_000f)).frame)
 
-        assertEquals(500f, shortFrame.beats.single().centerDistance, 0.001f)
-        assertEquals(1_000f, longFrame.beats.single().centerDistance, 0.001f)
+        assertEquals(500f, trace(shortFrame).anchorOffset, 0.001f)
+        assertEquals(1_000f, trace(longFrame).anchorOffset, 0.001f)
+    }
+
+    @Test
+    fun `thirty second loop setting makes a thirty second perimeter sweep`() {
+        val engine = WaveformEngine(WaveformConfig(loopSeconds = 30f), Random(6))
+        engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
+        engine.handle(WaveformEvent.Tick(nowMs = 0L, trackLength = 1_000f))
+
+        val threeSeconds = requireNotNull(engine.handle(WaveformEvent.Tick(3_000L, 1_000f)).frame)
+
+        assertEquals(100f, trace(threeSeconds).anchorOffset, 0.001f)
     }
 
     @Test
@@ -52,7 +63,7 @@ class WaveformEngineTest {
         assertEquals(TimerDirective.KEEP, input.timerDirective)
         assertEquals(0.5f, rising.energy, 0.001f)
         assertEquals(0.925f, rising.brightness, 0.001f)
-        assertEquals(264.286f, rising.beats.single().centerDistance, 0.001f)
+        assertEquals(24.667f, trace(rising).anchorOffset, 0.001f)
         assertEquals(1f, peak.energy, 0.001f)
         assertEquals(0.5f, decaying.energy, 0.001f)
         assertEquals(0f, resting.energy, 0.001f)
@@ -104,8 +115,8 @@ class WaveformEngineTest {
             counterClockwise.handle(WaveformEvent.Tick(nowMs = 700L, trackLength = 1_000f)).frame
                 ?: error("perimeter tick must produce a frame")
 
-        assertEquals(250f, clockwiseFrame.beats.single().centerDistance, 0.001f)
-        assertEquals(750f, counterFrame.beats.single().centerDistance, 0.001f)
+        assertEquals(23.333f, trace(clockwiseFrame).anchorOffset, 0.001f)
+        assertEquals(976.667f, trace(counterFrame).anchorOffset, 0.001f)
     }
 
     @Test
@@ -118,21 +129,25 @@ class WaveformEngineTest {
 
         assertIs<WaveformState.Looping>(engine.state)
         assertEquals(TimerDirective.KEEP, update.timerDirective)
-        assertEquals(0f, requireNotNull(update.frame).beats.single().centerDistance, 0.001f)
+        assertEquals(186.667f, trace(requireNotNull(update.frame)).anchorOffset, 0.001f)
         assertTrue(update.needsRepaint)
     }
 
     @Test
-    fun `perimeter morphology stays stable within a loop and changes at wrap`() {
-        val engine = WaveformEngine(WaveformConfig(loopSeconds = 2.8f), Random(37))
+    fun `trace history changes on its own cycle without waiting for perimeter wrap`() {
+        val engine = WaveformEngine(WaveformConfig(loopSeconds = 30f), Random(37))
         engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
         val initial = requireNotNull(engine.handle(WaveformEvent.Tick(0L, 1_000f)).frame)
-        val withinLoop = requireNotNull(engine.handle(WaveformEvent.Tick(2_000L, 1_000f)).frame)
-        val nextLoop = requireNotNull(engine.handle(WaveformEvent.Tick(2_800L, 1_000f)).frame)
+        val withinCycle = requireNotNull(engine.handle(WaveformEvent.Tick(1_000L, 1_000f)).frame)
+        val nextCycle = requireNotNull(engine.handle(WaveformEvent.Tick(1_200L, 1_000f)).frame)
 
         val initialSamples = morphologySamples(initial)
-        assertEquals(initialSamples, morphologySamples(withinLoop))
-        assertTrue(initialSamples != morphologySamples(nextLoop))
+        assertEquals(initialSamples, morphologySamples(withinCycle))
+        assertTrue(initialSamples != morphologySamples(nextCycle))
+        assertTrue(
+            trace(nextCycle).anchorOffset < 50f,
+            "the 30 s perimeter loop must still be near its start",
+        )
     }
 
     @Test
@@ -219,7 +234,7 @@ class WaveformEngineTest {
 
         assertIs<WaveformState.Looping>(engine.state)
         assertEquals(TimerDirective.KEEP, update.timerDirective)
-        assertTrue(requireNotNull(update.frame).beats.isEmpty())
+        assertEquals(null, requireNotNull(update.frame).trace)
         assertFalse(update.needsRepaint)
     }
 
@@ -241,7 +256,7 @@ class WaveformEngineTest {
 
         val resumed = engine.handle(WaveformEvent.PowerSaveChanged(enabled = false))
         val running = assertIs<WaveformState.Looping>(engine.state)
-        assertEquals(0f, running.phase)
+        assertEquals(0f, running.travelPhase)
         assertEquals(TimerDirective.START, resumed.timerDirective)
         assertTrue(resumed.needsRepaint)
     }
@@ -296,7 +311,7 @@ class WaveformEngineTest {
         val update = engine.handle(WaveformEvent.Configure(updatedConfig))
 
         val running = assertIs<WaveformState.Looping>(engine.state)
-        assertEquals(0.264_286f, running.phase, 0.001f)
+        assertEquals(0.024_667f, running.travelPhase, 0.001f)
         assertEquals(0.5f, requireNotNull(running.energyEnvelope).levelAt(740L), 0.001f)
         assertEquals(updatedConfig, running.config)
         assertEquals(TimerDirective.KEEP, update.timerDirective)
@@ -362,7 +377,7 @@ class WaveformEngineTest {
     }
 
     @Test
-    fun `single keystroke leaves travel speed at rest`() {
+    fun `single keystroke leaves trace rate at rest`() {
         val typing = WaveformEngine(WaveformConfig(), Random(11))
         val idle = WaveformEngine(WaveformConfig(), Random(11))
         for (engine in listOf(typing, idle)) {
@@ -374,16 +389,16 @@ class WaveformEngineTest {
         val typingFrame = requireNotNull(typing.handle(WaveformEvent.Tick(700L, 1_000f)).frame)
         val idleFrame = requireNotNull(idle.handle(WaveformEvent.Tick(700L, 1_000f)).frame)
 
-        assertEquals(1f, assertIs<WaveformState.Looping>(typing.state).speedMultiplier, 0.001f)
+        assertEquals(1f, assertIs<WaveformState.Looping>(typing.state).traceRate, 0.001f)
         assertEquals(
-            idleFrame.beats.single().centerDistance,
-            typingFrame.beats.single().centerDistance,
+            trace(idleFrame).anchorOffset,
+            trace(typingFrame).anchorOffset,
             0.001f,
         )
     }
 
     @Test
-    fun `typing burst accelerates travel without jumps`() {
+    fun `typing burst accelerates the trace without changing perimeter travel`() {
         val typing = WaveformEngine(WaveformConfig(), Random(13))
         val idle = WaveformEngine(WaveformConfig(), Random(13))
         for (engine in listOf(typing, idle)) {
@@ -392,30 +407,30 @@ class WaveformEngineTest {
         }
         typing.handle(WaveformEvent.Keystroke(nowMs = 0L))
 
-        var previousSpeed = 1f
+        var previousRate = 1f
         var typingFrame: WaveformFrame? = null
+        var idleFrame: WaveformFrame? = null
         for (tick in 1..10) {
             val nowMs = tick * 100L
             typing.handle(WaveformEvent.Keystroke(nowMs))
             typingFrame = typing.handle(WaveformEvent.Tick(nowMs, 10_000f)).frame
-            idle.handle(WaveformEvent.Tick(nowMs, 10_000f))
+            idleFrame = idle.handle(WaveformEvent.Tick(nowMs, 10_000f)).frame
 
-            val speed = assertIs<WaveformState.Looping>(typing.state).speedMultiplier
-            assertTrue(speed >= previousSpeed, "speed dropped mid-burst: $previousSpeed -> $speed")
-            assertTrue(speed - previousSpeed <= 0.121f, "speed jumped: $previousSpeed -> $speed")
-            previousSpeed = speed
+            val rate = assertIs<WaveformState.Looping>(typing.state).traceRate
+            assertTrue(rate >= previousRate, "trace rate dropped mid-burst: $previousRate -> $rate")
+            assertTrue(rate - previousRate <= 0.121f, "trace rate jumped: $previousRate -> $rate")
+            previousRate = rate
         }
 
-        val looping = assertIs<WaveformState.Looping>(typing.state)
-        val idlePhase = assertIs<WaveformState.Looping>(idle.state).phase
-        val typingTravel = (looping.trailingBeats.maxOfOrNull { it.phase } ?: 0f).coerceAtLeast(looping.phase)
-        assertEquals(2.2f, previousSpeed, 0.01f)
-        assertTrue(typingTravel > idlePhase, "burst travel $typingTravel should outrun idle $idlePhase")
-        assertNotNull(typingFrame)
+        val typingTrace = trace(requireNotNull(typingFrame))
+        val idleTrace = trace(requireNotNull(idleFrame))
+        assertEquals(2.2f, previousRate, 0.01f)
+        assertEquals(idleTrace.anchorOffset, typingTrace.anchorOffset, 0.001f)
+        assertTrue(typingTrace.phase != idleTrace.phase, "typing must advance the internal ECG trace")
     }
 
     @Test
-    fun `sustained fast typing spawns concurrent beats with distinct morphologies`() {
+    fun `sustained fast typing keeps one moving trace with varied history`() {
         val engine = WaveformEngine(WaveformConfig(), Random(17))
         engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
         engine.handle(WaveformEvent.Tick(nowMs = 0L, trackLength = 10_000f))
@@ -427,14 +442,13 @@ class WaveformEngineTest {
             frame = engine.handle(WaveformEvent.Tick(nowMs, 10_000f)).frame
         }
 
-        val beats = requireNotNull(frame).beats
-        assertTrue(beats.size >= 2, "expected concurrent beats, got ${beats.size}")
-        assertEquals(beats.size, beats.map { it.morphology }.toSet().size)
-        assertTrue(beats.all { it.fade in 0f..1f })
+        val trace = trace(requireNotNull(frame))
+        assertEquals(4, trace.history.size)
+        assertEquals(4, trace.history.toSet().size)
     }
 
     @Test
-    fun `idle eases the pulse back to a single resting beat`() {
+    fun `idle eases the trace rate back while keeping one moving window`() {
         val engine = WaveformEngine(WaveformConfig(), Random(19))
         engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
         engine.handle(WaveformEvent.Tick(nowMs = 0L, trackLength = 10_000f))
@@ -443,21 +457,23 @@ class WaveformEngineTest {
             engine.handle(WaveformEvent.Keystroke(nowMs))
             engine.handle(WaveformEvent.Tick(nowMs, 10_000f))
         }
-        assertTrue(assertIs<WaveformState.Looping>(engine.state).speedMultiplier > 2f)
+        assertTrue(assertIs<WaveformState.Looping>(engine.state).traceRate > 2f)
 
         var frame: WaveformFrame? = null
         for (tick in 81..280) {
             frame = engine.handle(WaveformEvent.Tick(tick * 50L, 10_000f)).frame
         }
 
-        assertEquals(1f, assertIs<WaveformState.Looping>(engine.state).speedMultiplier, 0.001f)
-        assertEquals(1, requireNotNull(frame).beats.size)
+        assertEquals(1f, assertIs<WaveformState.Looping>(engine.state).traceRate, 0.001f)
+        assertNotNull(requireNotNull(frame).trace)
     }
 
     private fun morphologySamples(frame: WaveformFrame): List<Float> {
-        val morphology = frame.beats.single().morphology
+        val morphology = trace(frame).history.first()
         return morphologySamples(morphology)
     }
+
+    private fun trace(frame: WaveformFrame): FrameTrace = requireNotNull(frame.trace)
 
     private fun morphologySamples(morphology: BeatMorphology): List<Float> =
         (0..100).map { sample -> morphology.valueAt(sample / 100f) }

@@ -229,7 +229,7 @@ class GlowOverlayManagerLifecycleTest {
                     direction = WaveformDirection.COUNTER_CLOCKWISE,
                     amplitude = 24,
                     intensity = 0,
-                    loopSeconds = 6f,
+                    loopSeconds = 40f,
                 ),
             )
         }

@@ -189,7 +189,14 @@ class WaveformPainterPixelTest {
             )
 
         for (sample in edgeSamples) {
-            val beat = render(frame(config, sample.distance - flat.result.track.signalAnchorDistance))
+            val beat =
+                render(
+                    frame(
+                        config,
+                        sample.distance - flat.result.track.signalAnchorDistance,
+                        BeatMorphology.standard(),
+                    ),
+                )
             val x = (sample.x + sample.normalX * OUTWARD_PROBE).roundToInt()
             val y = (sample.y + sample.normalY * OUTWARD_PROBE).roundToInt()
             assertTrue(alphaAt(beat.image, x, y) > alphaAt(flat.image, x, y), "R peak must paint outward at $x,$y")
@@ -301,6 +308,29 @@ class WaveformPainterPixelTest {
     }
 
     @Test
+    fun `monitor trace evolves independently of perimeter travel`() {
+        val config = WaveformConfig(loopSeconds = 30f, amplitude = 18, intensity = 100)
+        val engine = WaveformEngine(config, Random(43))
+        val activated = requireNotNull(engine.handle(WaveformEvent.Activate(powerSaveEnabled = false)).frame)
+        val trackLength = renderEditorScale(activated).result.track.length
+        val initial = requireNotNull(engine.handle(WaveformEvent.Tick(0L, trackLength)).frame)
+        val evolved = requireNotNull(engine.handle(WaveformEvent.Tick(160L, trackLength)).frame)
+        val initialOffset = requireNotNull(initial.trace).anchorOffset
+        val aligned =
+            evolved.copy(
+                trace = requireNotNull(evolved.trace).copy(anchorOffset = initialOffset),
+            )
+
+        val initialImage = renderEditorScale(initial).image
+        val evolvedImage = renderEditorScale(aligned).image
+
+        assertTrue(
+            pixelDifference(initialImage, evolvedImage) > MIN_PIXEL_DIFFERENCE,
+            "the ECG geometry must scroll inside its moving perimeter window",
+        )
+    }
+
+    @Test
     fun `production static pulse keeps its compact span after monitor render`() {
         val monitorConfig = WaveformConfig(amplitude = MAX_WAVEFORM_AMPLITUDE, intensity = MAX_WAVEFORM_INTENSITY)
         val monitor = renderEditorScale(WaveformFrame(config = monitorConfig))
@@ -401,57 +431,37 @@ class WaveformPainterPixelTest {
     }
 
     @Test
-    fun `all concurrent beats paint on the perimeter`() {
+    fun `trace history paints distinct complexes inside one moving window`() {
         val config = WaveformConfig(amplitude = 16, intensity = 100)
-        val base = renderSolidBase()
-        val flat = render(WaveformFrame(config = config))
-        val track = flat.result.track
-        val anchor = track.sampleNearest(track.signalAnchorDistance)
-        val bottom = track.samples.first { it.normalY > 0.999f && abs(it.x - WIDTH / 2f) < 3f }
-        val rendered =
+        val morphology = BeatMorphology.standard()
+        val repeated =
             render(
                 WaveformFrame(
                     config = config,
-                    beats =
-                        listOf(
-                            FrameBeat(0f, BeatMorphology.random(Random(1))),
-                            FrameBeat(bottom.distance - track.signalAnchorDistance, BeatMorphology.random(Random(2))),
+                    trace =
+                        FrameTrace(
+                            anchorOffset = 0f,
+                            history = List(4) { morphology },
+                        ),
+                    brightness = 1f,
+                    energy = 1f,
+                ),
+            )
+        val varied =
+            render(
+                WaveformFrame(
+                    config = config,
+                    trace =
+                        FrameTrace(
+                            anchorOffset = 0f,
+                            history = List(4) { seed -> BeatMorphology.random(Random(seed)) },
                         ),
                     brightness = 1f,
                     energy = 1f,
                 ),
             )
 
-        for (sample in listOf(anchor, bottom)) {
-            val x = (sample.x + sample.normalX * OUTWARD_PROBE).roundToInt()
-            val y = (sample.y + sample.normalY * OUTWARD_PROBE).roundToInt()
-            assertTrue(
-                alphaAt(rendered.image, x, y) > alphaAt(base, x, y),
-                "every concurrent beat must paint its R peak: $x,$y",
-            )
-        }
-    }
-
-    @Test
-    fun `beat fade dims the comet`() {
-        val config = WaveformConfig(amplitude = 14, intensity = 100)
-        val base = renderSolidBase()
-        val morphology = BeatMorphology.random(Random(42))
-        val topThird = Rectangle(0, 0, WIDTH, HEIGHT / 3)
-        val full =
-            render(WaveformFrame(config = config, beats = listOf(FrameBeat(0f, morphology)), energy = 1f))
-        val faded =
-            render(
-                WaveformFrame(
-                    config = config,
-                    beats = listOf(FrameBeat(0f, morphology, fade = 0.3f)),
-                    energy = 1f,
-                ),
-            )
-
-        val fullAlpha = addedAlpha(base, full.image, topThird)
-        val fadedAlpha = addedAlpha(base, faded.image, topThird)
-        assertTrue(fadedAlpha < fullAlpha / 2, "faded beat must dim: full=$fullAlpha faded=$fadedAlpha")
+        assertTrue(pixelDifference(repeated.image, varied.image) > MIN_PIXEL_DIFFERENCE)
     }
 
     @Test
@@ -460,19 +470,23 @@ class WaveformPainterPixelTest {
         val q = WaveformPainter.signalOffset(-0.09f)
         val s = WaveformPainter.signalOffset(-0.22f)
         val r = WaveformPainter.signalOffset(0.96f)
+        val shortR = WaveformPainter.signalOffset(0.82f)
+        val tallR = WaveformPainter.signalOffset(1f)
 
         assertTrue(q in 0f..<baseline, "Q must dip below the local outward baseline")
         assertEquals(0f, s, "S must return to the Solid frame without entering content")
-        assertEquals(1f, r, "R must use the full configured outward amplitude")
+        assertTrue(shortR < r && r < tallR, "different R amplitudes must produce different displacements")
+        assertEquals(1f, tallR, "the tallest R variation may use the full configured amplitude")
     }
 
     private fun frame(
         config: WaveformConfig,
         center: Float,
+        morphology: BeatMorphology = BeatMorphology.random(Random(42)),
     ): WaveformFrame =
         WaveformFrame(
             config = config,
-            beats = listOf(FrameBeat(center, BeatMorphology.random(Random(42)))),
+            trace = FrameTrace(anchorOffset = center, history = listOf(morphology)),
             brightness = 1f,
             energy = 1f,
         )
@@ -703,7 +717,7 @@ class WaveformPainterPixelTest {
         const val FLASH_HALF_WIDTH = 32
         const val FLASH_ALPHA_DELTA = 48
         const val APEX_DEPTH = 2
-        const val MAX_APEX_WIDTH = 3
+        const val MAX_APEX_WIDTH = 5
         const val MIN_APEX_EXPANSION = 2
         const val MIN_ACTIVE_HEIGHT_FRACTION = 0.75
         const val MIN_FLASH_ALPHA_RATIO = 2.5

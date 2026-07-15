@@ -300,7 +300,7 @@ class AyuIslandsEffectsPanelTest {
         assertEquals(WaveformDirection.CLOCKWISE, reset.waveformDirection)
         assertEquals(10, reset.waveformAmplitude)
         assertEquals(70, reset.waveformIntensity)
-        assertEquals(2.8f, reset.waveformLoopSeconds)
+        assertEquals(30f, reset.waveformLoopSeconds)
     }
 
     @Test
@@ -348,7 +348,7 @@ class AyuIslandsEffectsPanelTest {
         assertEquals(99f, state.waveformLoopSeconds)
         assertEquals(8, waveformField<JSlider>(effectsPanel, "amplitudeSlider").value)
         assertEquals(0, waveformField<JSlider>(effectsPanel, "intensitySlider").value)
-        assertEquals(60, waveformField<JSlider>(effectsPanel, "loopSlider").value)
+        assertEquals(400, waveformField<JSlider>(effectsPanel, "loopSlider").value)
     }
 
     @Test
@@ -357,7 +357,9 @@ class AyuIslandsEffectsPanelTest {
         buildDialogPanel(effectsPanel)
 
         waveformField<JComboBox<*>>(effectsPanel, "shapeCombo").selectedItem = GlowShape.WAVEFORM.displayName
-        waveformField<JSlider>(effectsPanel, "loopSlider").value = 37
+        val loopSlider = waveformField<JSlider>(effectsPanel, "loopSlider")
+        assertEquals(10, loopSlider.minorTickSpacing)
+        loopSlider.value = 37
 
         effectsPanel.apply()
 

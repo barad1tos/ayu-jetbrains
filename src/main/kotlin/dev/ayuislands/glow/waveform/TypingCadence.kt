@@ -2,9 +2,9 @@ package dev.ayuislands.glow.waveform
 
 /**
  * Tracks typing cadence as an exponential moving average of keystroke rate and
- * maps it to a waveform travel-speed multiplier (resting 1x up to
- * [MAX_SPEED_MULTIPLIER]). An isolated keystroke measures no interval, so it
- * never changes speed; sustained typing is required to raise the pulse.
+ * maps it to the ECG trace-scroll rate (resting 1x up to
+ * [MAX_TRACE_RATE]). An isolated keystroke measures no interval, so it never
+ * changes the rate; sustained typing is required to raise the pulse.
  */
 internal data class TypingCadence(
     val lastKeystrokeMs: Long? = null,
@@ -32,12 +32,11 @@ internal data class TypingCadence(
         }
     }
 
-    fun targetSpeed(nowMs: Long): Float =
-        1f + (MAX_SPEED_MULTIPLIER - 1f) * smoothStep(currentRate(nowMs) / RATE_FOR_MAX_SPEED)
+    fun targetRate(nowMs: Long): Float = 1f + (MAX_TRACE_RATE - 1f) * smoothStep(currentRate(nowMs) / FULL_RATE_STROKES)
 
     companion object {
-        const val MAX_SPEED_MULTIPLIER = 2.5f
-        const val RATE_FOR_MAX_SPEED = 6f
+        const val MAX_TRACE_RATE = 2.5f
+        const val FULL_RATE_STROKES = 6f
         const val EMA_GAIN = 0.3f
         const val MS_PER_SECOND = 1_000f
         const val CADENCE_RESET_MS = 2_000L

@@ -181,7 +181,7 @@ internal class WaveformSettingsControls(
                     )
                 slider.paintTicks = true
                 slider.majorTickSpacing = LOOP_MAJOR_TICK
-                slider.minorTickSpacing = 1
+                slider.minorTickSpacing = LOOP_MINOR_TICK
                 slider.applyPremiumLock(gate, enabledWhenUnlocked = true)
                 val label = JLabel(formatSeconds(displayedSeconds))
                 slider.addChangeListener {
@@ -248,7 +248,8 @@ internal class WaveformSettingsControls(
     private companion object {
         const val AMPLITUDE_MAJOR_TICK = 2
         const val INTENSITY_MAJOR_TICK = 25
-        const val LOOP_MAJOR_TICK = 15
+        const val LOOP_MAJOR_TICK = 50
+        const val LOOP_MINOR_TICK = 10
         const val TENTHS_PER_SECOND = 10f
     }
 }

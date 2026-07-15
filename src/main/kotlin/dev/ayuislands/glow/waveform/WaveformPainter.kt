@@ -11,6 +11,7 @@ import java.awt.RenderingHints
 import java.awt.geom.Path2D
 import kotlin.math.ceil
 import kotlin.math.exp
+import kotlin.math.floor
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -142,14 +143,14 @@ internal open class WaveformPainter(
                 head.path,
                 towardWhite(accent, HEAD_CORE_HEAT),
                 signalStroke(strokes.core, isCore = true),
-                CORE_ALPHA * strength * head.fade,
+                CORE_ALPHA * strength,
             )
             paintPass(
                 graphics,
                 head.path,
                 towardWhite(accent, HEAD_INNER_HEAT),
                 signalStroke(strokes.inner, isCore = false),
-                INNER_ALPHA * strength * head.fade,
+                INNER_ALPHA * strength,
             )
         }
     }
@@ -243,9 +244,7 @@ internal open class WaveformPainter(
                 WaveformMotion.STATIC_PULSE -> REST_AMPLITUDE_SCALE + energy * ACTIVE_AMPLITUDE_RANGE
             }
         val scaledAmplitude = amplitude * amplitudeScale
-        signalSpecs(track, frame).forEach { spec ->
-            appendSignal(track, spec, scaledAmplitude, maximumDisplacement, bands)?.let { heads += it }
-        }
+        appendSignal(track, signalSpec(track, frame), scaledAmplitude, maximumDisplacement, bands)?.let { heads += it }
         return SignalPathSet(bands, heads)
     }
 
@@ -271,7 +270,7 @@ internal open class WaveformPainter(
             }
 
             val displacement =
-                signalOffset(spec.morphology.valueAt(phase)).coerceAtMost(maximumDisplacement) *
+                signalOffset(signalValue(spec, phase)).coerceAtMost(maximumDisplacement) *
                     amplitude * sample.amplitudeMask
             val x = sample.x + sample.normalX * displacement
             val y = sample.y + sample.normalY * displacement
@@ -292,40 +291,50 @@ internal open class WaveformPainter(
                 headLastIndex = index
             }
         }
-        return if (headLastIndex != NO_INDEX) HeadPath(headPath, spec.fade) else null
+        return if (headLastIndex != NO_INDEX) HeadPath(headPath) else null
     }
 
-    private fun signalSpecs(
+    private fun signalSpec(
         track: WaveformTrack,
         frame: WaveformFrame,
-    ): List<SignalSpec> {
-        val movingBeats = if (frame.config.motion == WaveformMotion.MONITOR) frame.beats else emptyList()
-        if (movingBeats.isEmpty()) {
-            return listOf(
-                SignalSpec(
-                    center = track.signalAnchorDistance,
-                    morphology = frame.morphology,
-                    travelSign = 1f,
-                    moving = false,
-                    fade = 1f,
-                ),
+    ): SignalSpec {
+        val trace = frame.trace.takeIf { frame.config.motion == WaveformMotion.MONITOR }
+        if (trace == null) {
+            return SignalSpec(
+                center = track.signalAnchorDistance,
+                history = listOf(frame.morphology),
+                tracePhase = 0f,
+                travelSign = 1f,
+                moving = false,
             )
         }
-        return movingBeats.map { beat ->
-            SignalSpec(
-                center = wrap(track.signalAnchorDistance + beat.centerDistance, track.length),
-                morphology = beat.morphology,
-                travelSign = frame.config.direction.travelSign,
-                moving = true,
-                fade = beat.fade.coerceIn(0f, 1f),
-            )
-        }
+        return SignalSpec(
+            center = wrap(track.signalAnchorDistance + trace.anchorOffset, track.length),
+            history = trace.history,
+            tracePhase = trace.phase,
+            travelSign = frame.config.direction.travelSign,
+            moving = true,
+        )
+    }
+
+    private fun signalValue(
+        spec: SignalSpec,
+        windowPhase: Float,
+    ): Float {
+        if (!spec.moving) return spec.history.first().valueAt(windowPhase)
+
+        val sourcePhase = spec.tracePhase - (HEAD_PHASE - windowPhase) * TRACE_COMPLEX_COUNT
+        val cycle = floor(sourcePhase).toInt()
+        val historyIndex = -cycle
+        if (historyIndex < 0) return 0f
+        val morphology = spec.history.getOrElse(historyIndex) { spec.history.last() }
+        return morphology.valueAt(sourcePhase - cycle)
     }
 
     private fun signalAlpha(
         spec: SignalSpec,
         phase: Float,
-    ): Float = if (spec.moving) cometAlpha(phase) * spec.fade else windowAlpha(phase)
+    ): Float = if (spec.moving) cometAlpha(phase) else windowAlpha(phase)
 
     private fun windowAlpha(phase: Float): Float =
         when {
@@ -384,10 +393,10 @@ internal open class WaveformPainter(
 
     private data class SignalSpec(
         val center: Float,
-        val morphology: BeatMorphology,
+        val history: List<BeatMorphology>,
+        val tracePhase: Float,
         val travelSign: Float,
         val moving: Boolean,
-        val fade: Float,
     )
 
     private data class SignalPoint(
@@ -407,7 +416,6 @@ internal open class WaveformPainter(
 
     private class HeadPath(
         val path: Path2D.Float,
-        val fade: Float,
     )
 
     internal data class SignalStrokes(
@@ -422,7 +430,7 @@ internal open class WaveformPainter(
         private const val PERCENT_DIVISOR = 100f
         private const val ARC_DIAMETER_DIVISOR = 2f
         private const val HALF_DIVISOR = 2f
-        internal const val R_PEAK_PHASE = 0.287f
+        internal const val R_PEAK_PHASE = 0.275f
         private const val BASE_FRAME_STRENGTH = 0.2f
         private const val REST_AMPLITUDE_SCALE = 0.4f
         private const val ACTIVE_AMPLITUDE_RANGE = 1f - REST_AMPLITUDE_SCALE
@@ -453,10 +461,18 @@ internal open class WaveformPainter(
         private const val HEAD_INNER_HEAT = 0.45f
         private const val WHITE_CHANNEL = 255
 
-        fun signalOffset(morphology: Float): Float = (morphology + SIGNAL_BASELINE_OFFSET).coerceIn(0f, 1f)
+        fun signalOffset(morphology: Float): Float {
+            val displacement =
+                if (morphology >= 0f) {
+                    SIGNAL_BASELINE_OFFSET + morphology * (1f - SIGNAL_BASELINE_OFFSET)
+                } else {
+                    SIGNAL_BASELINE_OFFSET + morphology
+                }
+            return displacement.coerceIn(0f, 1f)
+        }
 
         /**
-         * Asymmetric phosphor-decay window for moving beats: a hard cut just
+         * Asymmetric phosphor-decay window for the moving trace: a hard cut just
          * ahead of the head, a shallow decay through the T and R waves behind
          * it, then a fast decay that lets the old trail die out like a CRT
          * comet tail.

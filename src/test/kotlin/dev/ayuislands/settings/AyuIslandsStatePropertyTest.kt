@@ -143,19 +143,19 @@ class AyuIslandsStatePropertyTest {
     fun `waveform loop period defaults safely and clamps corrupted persisted numbers`() {
         val state = AyuIslandsState()
 
-        assertEquals(2.8f, state.effectiveLoopSeconds())
+        assertEquals(30f, state.effectiveLoopSeconds())
 
         state.waveformLoopSeconds = Float.NEGATIVE_INFINITY
         assertEquals(1.5f, state.effectiveLoopSeconds())
 
         state.waveformLoopSeconds = Float.POSITIVE_INFINITY
-        assertEquals(6.0f, state.effectiveLoopSeconds())
+        assertEquals(40f, state.effectiveLoopSeconds())
 
         state.waveformLoopSeconds = 3.7f
         assertEquals(3.7f, state.effectiveLoopSeconds())
 
         state.waveformLoopSeconds = Float.NaN
-        assertEquals(2.8f, state.effectiveLoopSeconds())
+        assertEquals(30f, state.effectiveLoopSeconds())
     }
 
     @Test

@@ -1,7 +1,7 @@
 package dev.ayuislands.glow
 
 import dev.ayuislands.glow.waveform.BeatMorphology
-import dev.ayuislands.glow.waveform.FrameBeat
+import dev.ayuislands.glow.waveform.FrameTrace
 import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.WaveformFrame
 import dev.ayuislands.glow.waveform.WaveformMotion
@@ -138,12 +138,10 @@ class GlowGlassPanePixelTest {
         flatPane.showWaveformFrame(
             WaveformFrame(
                 config = config,
-                beats =
-                    listOf(
-                        FrameBeat(
-                            centerDistance = trackLength * 0.25f,
-                            morphology = BeatMorphology.random(Random(42)),
-                        ),
+                trace =
+                    FrameTrace(
+                        anchorOffset = trackLength * 0.25f,
+                        history = listOf(BeatMorphology.random(Random(42))),
                     ),
             ),
         )
