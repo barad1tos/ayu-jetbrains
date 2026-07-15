@@ -129,6 +129,20 @@ class GlowPreviewTest {
         assertTrue(pixelDifference(defaultDensity, maximumDensity) > MIN_PIXEL_DIFFERENCE)
     }
 
+    @Test
+    fun `trace length changes the live waveform preview before apply`() {
+        val panel = GlowGroupPanel()
+        panel.setSize(WIDTH, HEIGHT)
+        val waveform = preview(GlowShape.WAVEFORM)
+        panel.updatePreview(waveform)
+        val compactTrace = render(panel)
+
+        panel.updatePreview(waveform.copy(waveformConfig = waveform.waveformConfig.copy(traceLength = 640)))
+        val longTrace = render(panel)
+
+        assertTrue(pixelDifference(compactTrace, longTrace) > MIN_PIXEL_DIFFERENCE)
+    }
+
     private fun preview(shape: GlowShape): GlowPreview =
         GlowPreview(
             shape = shape,

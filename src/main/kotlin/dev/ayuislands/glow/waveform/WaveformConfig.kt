@@ -12,7 +12,12 @@ const val MAX_WAVEFORM_LOOP_SECONDS = 40f
 const val DEFAULT_TRACE_DENSITY = 1
 const val MIN_TRACE_DENSITY = 1
 const val MAX_TRACE_DENSITY = 4
+const val DEFAULT_TRACE_LENGTH = 167
+const val MIN_TRACE_LENGTH = 120
+const val MAX_TRACE_LENGTH = 800
 internal const val BASE_COMPLEX_COUNT = 4
+internal const val TRACE_ANCHOR_PHASE = 0.275f
+internal const val TRACE_PHASE_SPAN = 0.76f
 private const val MONITOR_IDLE_BRIGHTNESS = 0.85f
 private const val STATIC_IDLE_BRIGHTNESS = 0.35f
 
@@ -25,10 +30,14 @@ data class WaveformConfig(
     val intensity: Int = DEFAULT_WAVEFORM_INTENSITY,
     val loopSeconds: Float = DEFAULT_WAVEFORM_LOOP_SECONDS,
     val traceDensity: Int = DEFAULT_TRACE_DENSITY,
+    val traceLength: Int = DEFAULT_TRACE_LENGTH,
 )
 
 internal val WaveformConfig.traceComplexCount: Int
     get() = BASE_COMPLEX_COUNT * traceDensity.coerceIn(MIN_TRACE_DENSITY, MAX_TRACE_DENSITY)
+
+internal val WaveformConfig.effectiveTraceLength: Int
+    get() = traceLength.coerceIn(MIN_TRACE_LENGTH, MAX_TRACE_LENGTH)
 
 internal fun WaveformConfig.brightnessAt(energy: Float): Float {
     val idleBrightness =

@@ -7,6 +7,7 @@ import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.waveform.DEFAULT_TRACE_DENSITY
+import dev.ayuislands.glow.waveform.DEFAULT_TRACE_LENGTH
 import dev.ayuislands.glow.waveform.DEFAULT_WAVEFORM_AMPLITUDE
 import dev.ayuislands.glow.waveform.DEFAULT_WAVEFORM_INTENSITY
 import dev.ayuislands.glow.waveform.DEFAULT_WAVEFORM_LOOP_SECONDS
@@ -29,6 +30,7 @@ internal data class GlowSettings(
     val waveformDirection: WaveformDirection = WaveformDirection.CLOCKWISE,
     val waveformBaseline: WaveformBaseline = WaveformBaseline.OUTSIDE,
     val waveformTraceDensity: Int = DEFAULT_TRACE_DENSITY,
+    val waveformTraceLength: Int = DEFAULT_TRACE_LENGTH,
     val waveformAmplitude: Int = DEFAULT_WAVEFORM_AMPLITUDE,
     val waveformIntensity: Int = DEFAULT_WAVEFORM_INTENSITY,
     val waveformLoopSeconds: Float = DEFAULT_WAVEFORM_LOOP_SECONDS,
@@ -53,6 +55,7 @@ internal data class GlowSettings(
             direction = waveformDirection,
             baseline = waveformBaseline,
             traceDensity = waveformTraceDensity,
+            traceLength = waveformTraceLength,
             amplitude = waveformAmplitude,
             intensity = waveformIntensity,
             loopSeconds = waveformLoopSeconds,
@@ -66,6 +69,7 @@ internal data class GlowSettings(
             waveformDirection = WaveformDirection.CLOCKWISE,
             waveformBaseline = WaveformBaseline.OUTSIDE,
             waveformTraceDensity = DEFAULT_TRACE_DENSITY,
+            waveformTraceLength = DEFAULT_TRACE_LENGTH,
             waveformAmplitude = DEFAULT_WAVEFORM_AMPLITUDE,
             waveformIntensity = DEFAULT_WAVEFORM_INTENSITY,
             waveformLoopSeconds = DEFAULT_WAVEFORM_LOOP_SECONDS,
@@ -92,6 +96,7 @@ internal fun loadGlowSettings(
         waveformDirection = WaveformDirection.fromName(state.waveformDirection),
         waveformBaseline = WaveformBaseline.fromName(state.waveformBaseline),
         waveformTraceDensity = state.waveformTraceDensity,
+        waveformTraceLength = state.waveformTraceLength,
         waveformAmplitude = state.waveformAmplitude,
         waveformIntensity = state.waveformIntensity,
         waveformLoopSeconds = state.waveformLoopSeconds,

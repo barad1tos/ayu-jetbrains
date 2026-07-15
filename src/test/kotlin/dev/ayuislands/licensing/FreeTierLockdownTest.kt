@@ -113,6 +113,7 @@ class FreeTierLockdownTest {
         state.waveformDirection = WaveformDirection.COUNTER_CLOCKWISE.name
         state.waveformBaseline = WaveformBaseline.CENTERED.name
         state.waveformTraceDensity = 4
+        state.waveformTraceLength = 640
         state.waveformAmplitude = 16
         state.waveformIntensity = 88
 
@@ -124,6 +125,7 @@ class FreeTierLockdownTest {
         assertEquals(WaveformDirection.COUNTER_CLOCKWISE.name, state.waveformDirection)
         assertEquals(WaveformBaseline.CENTERED.name, state.waveformBaseline)
         assertEquals(4, state.waveformTraceDensity)
+        assertEquals(640, state.waveformTraceLength)
         assertEquals(16, state.waveformAmplitude)
         assertEquals(88, state.waveformIntensity)
     }

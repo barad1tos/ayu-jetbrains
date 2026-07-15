@@ -305,9 +305,10 @@ class WaveformPainterPixelTest {
             addedAlpha(base.image, active.image, topRegion) > addedAlpha(base.image, idle.image, topRegion),
             "typing must brighten the monitor without changing its amplitude",
         )
-        assertTrue(
-            idleBounds.width >= EDITOR_CONTENT_WIDTH * MIN_EDITOR_SIGNAL_WIDTH_FRACTION,
-            "editor ECG must occupy a substantial visible span: $idleBounds",
+        assertEquals(
+            DEFAULT_TRACE_LENGTH.toFloat(),
+            idle.result.track.signalSpan * TRACE_PHASE_SPAN,
+            0.1f,
         )
     }
 
@@ -336,7 +337,12 @@ class WaveformPainterPixelTest {
 
     @Test
     fun `production static pulse keeps its compact span after monitor render`() {
-        val monitorConfig = WaveformConfig(amplitude = MAX_WAVEFORM_AMPLITUDE, intensity = MAX_WAVEFORM_INTENSITY)
+        val monitorConfig =
+            WaveformConfig(
+                amplitude = MAX_WAVEFORM_AMPLITUDE,
+                intensity = MAX_WAVEFORM_INTENSITY,
+                traceLength = 360,
+            )
         val monitor = renderEditorScale(WaveformFrame(config = monitorConfig))
         val staticPulse =
             renderEditorScale(
@@ -347,8 +353,28 @@ class WaveformPainterPixelTest {
                 ),
             )
 
-        assertTrue(monitor.result.track.signalSpan > staticPulse.result.track.signalSpan)
-        assertEquals(STATIC_SIGNAL_SPAN, staticPulse.result.track.signalSpan, 0.1f)
+        assertEquals(360f, monitor.result.track.signalSpan * TRACE_PHASE_SPAN, 0.1f)
+        assertEquals(220f, staticPulse.result.track.signalSpan, 0.1f)
+    }
+
+    @Test
+    fun `track cache repositions a centered monitor when direction changes`() {
+        val clockwise =
+            renderEditorScale(
+                WaveformFrame(
+                    config = WaveformConfig(direction = WaveformDirection.CLOCKWISE, traceLength = 360),
+                ),
+            )
+        val counterClockwise =
+            renderEditorScale(
+                WaveformFrame(
+                    config = WaveformConfig(direction = WaveformDirection.COUNTER_CLOCKWISE, traceLength = 360),
+                ),
+            )
+
+        assertTrue(
+            abs(clockwise.result.track.signalAnchorDistance - counterClockwise.result.track.signalAnchorDistance) > 1f,
+        )
     }
 
     @Test
@@ -475,6 +501,7 @@ class WaveformPainterPixelTest {
             WaveformConfig(
                 amplitude = MAX_WAVEFORM_AMPLITUDE,
                 intensity = MAX_WAVEFORM_INTENSITY,
+                traceLength = 360,
             )
         val maximumConfig = defaultConfig.copy(traceDensity = MAX_TRACE_DENSITY)
         val defaultFrame = movingFrame(defaultConfig, List(defaultConfig.traceComplexCount) { morphology })
@@ -1023,9 +1050,7 @@ class WaveformPainterPixelTest {
         const val EDITOR_LEFT_CHROME_END = 240
         const val EDITOR_RIGHT_CHROME_START = 1190
         const val VISIBLE_SIGNAL_ALPHA_DELTA = 24
-        const val MIN_EDITOR_SIGNAL_WIDTH_FRACTION = 0.33
         const val MAX_MORPHOLOGY_PEAK_DELTA = 4
-        const val STATIC_SIGNAL_SPAN = 220f
         const val CORE_ALPHA_THRESHOLD = 128
         const val CORE_SIDE_TOLERANCE = 2
         const val MIN_INWARD_NOTCH = 3

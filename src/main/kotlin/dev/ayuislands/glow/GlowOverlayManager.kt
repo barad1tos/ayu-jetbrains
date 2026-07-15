@@ -27,6 +27,7 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.effectiveLoopSeconds
 import dev.ayuislands.settings.effectiveTraceDensity
+import dev.ayuislands.settings.effectiveTraceLength
 import java.awt.Color
 import java.awt.Component
 import java.awt.KeyboardFocusManager
@@ -695,6 +696,7 @@ private fun resolveWaveformConfig(state: AyuIslandsState): WaveformConfig =
         direction = WaveformDirection.fromName(state.waveformDirection),
         baseline = WaveformBaseline.fromName(state.waveformBaseline),
         traceDensity = state.effectiveTraceDensity(),
+        traceLength = state.effectiveTraceLength(),
         amplitude = state.effectiveWaveformAmplitude(),
         intensity = state.effectiveWaveformIntensity(),
         loopSeconds = state.effectiveLoopSeconds(),

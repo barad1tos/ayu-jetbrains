@@ -218,7 +218,9 @@ internal open class WaveformPainter(
                 amplitude,
                 solidWidth,
                 config.motion,
+                config.direction,
                 config.baseline,
+                config.effectiveTraceLength,
                 occupiedTopSpans,
             )
         if (key == trackKey) return requireNotNull(cachedTrack)
@@ -232,7 +234,7 @@ internal open class WaveformPainter(
                 arcRadius =
                     (arcWidth.coerceAtLeast(0) / ARC_DIAMETER_DIVISOR - baselineInset)
                         .coerceAtLeast(0f),
-                motion = config.motion,
+                config = config,
                 occupiedTopSpans =
                     occupiedTopSpans.map { span ->
                         (span.first + outerMargin.toInt())..(span.last + outerMargin.toInt())
@@ -524,7 +526,9 @@ internal open class WaveformPainter(
         val amplitude: Int,
         val solidWidth: Int,
         val motion: WaveformMotion,
+        val direction: WaveformDirection,
         val baseline: WaveformBaseline,
+        val traceLength: Int,
         val occupiedTopSpans: List<IntRange>,
     )
 
@@ -575,7 +579,7 @@ internal open class WaveformPainter(
         private const val PERCENT_DIVISOR = 100f
         private const val ARC_DIAMETER_DIVISOR = 2f
         private const val HALF_DIVISOR = 2f
-        internal const val R_PEAK_PHASE = 0.275f
+        internal const val R_PEAK_PHASE = TRACE_ANCHOR_PHASE
         private const val BASE_FRAME_STRENGTH = 0.2f
         private const val REST_AMPLITUDE_SCALE = 0.4f
         private const val ACTIVE_AMPLITUDE_RANGE = 1f - REST_AMPLITUDE_SCALE
@@ -597,7 +601,7 @@ internal open class WaveformPainter(
         private const val MAX_GLOW_DISPLACEMENT = 0.72f
         private const val SAMPLE_DISTANCE_EPSILON = 0.001f
         internal const val HEAD_PHASE = 0.72f
-        internal const val HEAD_LEAD = 0.04f
+        internal const val HEAD_LEAD = TRACE_PHASE_SPAN - HEAD_PHASE
         private const val HEAD_HOT_SPAN = 0.08f
         private const val SLOW_DECAY_TAU = 1.2f
         private const val PHOSPHOR_KNEE = 0.45f
@@ -632,8 +636,8 @@ internal open class WaveformPainter(
          * comet tail.
          */
         fun cometAlpha(phase: Float): Float {
-            if (phase < 0f || phase > HEAD_PHASE + HEAD_LEAD) return 0f
-            if (phase > HEAD_PHASE) return smoothStep((HEAD_PHASE + HEAD_LEAD - phase) / HEAD_LEAD)
+            if (phase < 0f || phase > TRACE_PHASE_SPAN) return 0f
+            if (phase > HEAD_PHASE) return smoothStep((TRACE_PHASE_SPAN - phase) / HEAD_LEAD)
             val behind = HEAD_PHASE - phase
             val decay =
                 if (behind <= PHOSPHOR_KNEE) {

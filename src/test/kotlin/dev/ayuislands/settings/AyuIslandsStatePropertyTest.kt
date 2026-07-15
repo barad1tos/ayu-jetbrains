@@ -6,7 +6,10 @@ import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
+import dev.ayuislands.glow.waveform.DEFAULT_TRACE_LENGTH
 import dev.ayuislands.glow.waveform.MAX_TRACE_DENSITY
+import dev.ayuislands.glow.waveform.MAX_TRACE_LENGTH
+import dev.ayuislands.glow.waveform.MIN_TRACE_LENGTH
 import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformDirection
 import dev.ayuislands.glow.waveform.WaveformMotion
@@ -127,16 +130,19 @@ class AyuIslandsStatePropertyTest {
         assertEquals(WaveformDirection.CLOCKWISE.name, state.waveformDirection)
         assertEquals(WaveformBaseline.OUTSIDE.name, state.waveformBaseline)
         assertEquals(1, state.effectiveTraceDensity())
+        assertEquals(DEFAULT_TRACE_LENGTH, state.effectiveTraceLength())
         assertEquals(10, state.effectiveWaveformAmplitude())
         assertEquals(70, state.effectiveWaveformIntensity())
 
         state.waveformAmplitude = Int.MIN_VALUE
         state.waveformIntensity = Int.MAX_VALUE
         state.waveformTraceDensity = Int.MAX_VALUE
+        state.waveformTraceLength = Int.MAX_VALUE
 
         assertEquals(8, state.effectiveWaveformAmplitude())
         assertEquals(100, state.effectiveWaveformIntensity())
         assertEquals(MAX_TRACE_DENSITY, state.effectiveTraceDensity())
+        assertEquals(MAX_TRACE_LENGTH, state.effectiveTraceLength())
 
         state.waveformAmplitude = Int.MAX_VALUE
         assertEquals(24, state.effectiveWaveformAmplitude())
@@ -145,7 +151,12 @@ class AyuIslandsStatePropertyTest {
         assertEquals(16, state.effectiveWaveformAmplitude())
 
         state.waveformTraceDensity = Int.MIN_VALUE
+        state.waveformTraceLength = Int.MIN_VALUE
         assertEquals(1, state.effectiveTraceDensity())
+        assertEquals(MIN_TRACE_LENGTH, state.effectiveTraceLength())
+
+        state.waveformTraceLength = 360
+        assertEquals(360, state.effectiveTraceLength())
         assertEquals(WaveformBaseline.OUTSIDE, WaveformBaseline.fromName("retired-value"))
     }
 

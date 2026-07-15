@@ -13,6 +13,7 @@ import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.glow.waveform.MAX_TRACE_LENGTH
 import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.WaveformDirection
@@ -214,6 +215,7 @@ class GlowOverlayManagerLifecycleTest {
         state.waveformDirection = WaveformDirection.COUNTER_CLOCKWISE.name
         state.waveformBaseline = WaveformBaseline.CENTERED.name
         state.waveformTraceDensity = 99
+        state.waveformTraceLength = Int.MAX_VALUE
         state.waveformAmplitude = 99
         state.waveformIntensity = -1
         state.waveformLoopSeconds = 99f
@@ -232,6 +234,7 @@ class GlowOverlayManagerLifecycleTest {
                     direction = WaveformDirection.COUNTER_CLOCKWISE,
                     baseline = WaveformBaseline.CENTERED,
                     traceDensity = 4,
+                    traceLength = MAX_TRACE_LENGTH,
                     amplitude = 24,
                     intensity = 0,
                     loopSeconds = 40f,

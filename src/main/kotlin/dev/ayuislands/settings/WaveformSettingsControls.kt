@@ -6,10 +6,12 @@ import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
 import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.waveform.MAX_TRACE_DENSITY
+import dev.ayuislands.glow.waveform.MAX_TRACE_LENGTH
 import dev.ayuislands.glow.waveform.MAX_WAVEFORM_AMPLITUDE
 import dev.ayuislands.glow.waveform.MAX_WAVEFORM_INTENSITY
 import dev.ayuislands.glow.waveform.MAX_WAVEFORM_LOOP_SECONDS
 import dev.ayuislands.glow.waveform.MIN_TRACE_DENSITY
+import dev.ayuislands.glow.waveform.MIN_TRACE_LENGTH
 import dev.ayuislands.glow.waveform.MIN_WAVEFORM_AMPLITUDE
 import dev.ayuislands.glow.waveform.MIN_WAVEFORM_INTENSITY
 import dev.ayuislands.glow.waveform.MIN_WAVEFORM_LOOP_SECONDS
@@ -30,6 +32,7 @@ internal data class WaveformSettingsValue(
     val direction: WaveformDirection,
     val baseline: WaveformBaseline,
     val traceDensity: Int,
+    val traceLength: Int,
     val amplitude: Int,
     val intensity: Int,
     val loopSeconds: Float,
@@ -52,12 +55,14 @@ internal class WaveformSettingsControls(
     internal var directionCombo: ComboBox<String>? = null
     internal var baselineCombo: ComboBox<String>? = null
     internal var densitySlider: JSlider? = null
+    internal var traceLengthSlider: JSlider? = null
     internal var amplitudeSlider: JSlider? = null
     internal var intensitySlider: JSlider? = null
     internal var loopSlider: JSlider? = null
 
     private var amplitudeLabel: JLabel? = null
     private var densityLabel: JLabel? = null
+    private var traceLengthLabel: JLabel? = null
     private var intensityLabel: JLabel? = null
     private var loopLabel: JLabel? = null
     private var value = initial
@@ -82,6 +87,21 @@ internal class WaveformSettingsControls(
                 onCreated = { slider, label ->
                     densitySlider = slider
                     densityLabel = label
+                },
+            ),
+        )
+        buildSlider(
+            group,
+            WaveformSliderSpec(
+                label = "Trace length (px)",
+                range = MIN_TRACE_LENGTH..MAX_TRACE_LENGTH,
+                initialValue = value.traceLength.coerceIn(MIN_TRACE_LENGTH, MAX_TRACE_LENGTH),
+                majorTick = TRACE_LENGTH_TICK,
+                visibleWhen = visibility.direction,
+                onChange = { update(value.copy(traceLength = it)) },
+                onCreated = { slider, label ->
+                    traceLengthSlider = slider
+                    traceLengthLabel = label
                 },
             ),
         )
@@ -126,6 +146,8 @@ internal class WaveformSettingsControls(
         baselineCombo?.selectedItem = value.baseline.displayName
         val displayedDensity = value.traceDensity.coerceIn(MIN_TRACE_DENSITY, MAX_TRACE_DENSITY)
         densitySlider?.value = displayedDensity
+        val displayedTraceLength = value.traceLength.coerceIn(MIN_TRACE_LENGTH, MAX_TRACE_LENGTH)
+        traceLengthSlider?.value = displayedTraceLength
         val displayedAmplitude = value.amplitude.coerceIn(MIN_WAVEFORM_AMPLITUDE, MAX_WAVEFORM_AMPLITUDE)
         amplitudeSlider?.value = displayedAmplitude
         val displayedIntensity = value.intensity.coerceIn(MIN_WAVEFORM_INTENSITY, MAX_WAVEFORM_INTENSITY)
@@ -133,6 +155,7 @@ internal class WaveformSettingsControls(
         intensitySlider?.value = displayedIntensity
         loopSlider?.value = secondsToTenths(displayedLoopSeconds)
         densityLabel?.text = "$displayedDensity×"
+        traceLengthLabel?.text = "$displayedTraceLength"
         amplitudeLabel?.text = "$displayedAmplitude"
         intensityLabel?.text = "$displayedIntensity"
         loopLabel?.text = formatSeconds(displayedLoopSeconds)
@@ -145,6 +168,7 @@ internal class WaveformSettingsControls(
         directionCombo?.isEnabled = enabled
         baselineCombo?.isEnabled = enabled
         densitySlider?.isEnabled = enabled
+        traceLengthSlider?.isEnabled = enabled
         amplitudeSlider?.isEnabled = enabled
         intensitySlider?.isEnabled = enabled
         loopSlider?.isEnabled = enabled
@@ -302,5 +326,6 @@ internal class WaveformSettingsControls(
         const val LOOP_MAJOR_TICK = 50
         const val LOOP_MINOR_TICK = 10
         const val TENTHS_PER_SECOND = 10f
+        const val TRACE_LENGTH_TICK = 100
     }
 }

@@ -67,7 +67,7 @@ class WaveformTrack internal constructor(
             overlayBounds: Rectangle,
             margin: Float,
             arcRadius: Float,
-            motion: WaveformMotion,
+            config: WaveformConfig,
             occupiedTopSpans: List<IntRange> = emptyList(),
         ): WaveformTrack {
             val left = overlayBounds.x + margin
@@ -100,7 +100,7 @@ class WaveformTrack internal constructor(
                 topArcMask(left + radius, radius, PI, occupiedTopSpans, overlayBounds.x),
             )
             val track = builder.build()
-            return withSignalGeometry(track, overlayBounds, margin, motion, occupiedTopSpans)
+            return withSignalGeometry(track, overlayBounds, margin, config, occupiedTopSpans)
         }
 
         private fun topLineMask(
@@ -143,7 +143,7 @@ class WaveformTrack internal constructor(
             track: WaveformTrack,
             bounds: Rectangle,
             margin: Float,
-            motion: WaveformMotion,
+            config: WaveformConfig,
             occupiedSpans: List<IntRange>,
         ): WaveformTrack {
             if (!track.isClosed) return track
@@ -152,7 +152,11 @@ class WaveformTrack internal constructor(
             val right = bounds.x + bounds.width - margin
             val bottom = bounds.y + bounds.height - margin
             val freeSpan = largestFreeSpan(bounds, occupiedSpans)
-            val useRightEdge = freeSpan != null && freeSpan.width < MIN_TOP_SPAN
+            val signalSpan = signalSpan(track.length, freeSpan, config)
+            val visibleLength = signalSpan * config.motion.phaseSpan()
+            val requiredTopSpan = max(MIN_TOP_SPAN.toFloat(), visibleLength)
+            val useRightEdge =
+                occupiedSpans.isNotEmpty() && (freeSpan == null || freeSpan.width < requiredTopSpan)
             val anchorX =
                 when {
                     useRightEdge -> right
@@ -160,21 +164,65 @@ class WaveformTrack internal constructor(
                     else -> bounds.x + bounds.width * FALLBACK_ANCHOR_FRACTION
                 }
             val anchorY = if (useRightEdge) bounds.y + bounds.height * RIGHT_EDGE_FRACTION else top
-            val anchorDistance = track.nearestDistance(anchorX, anchorY.coerceIn(top, bottom))
-            val preferredSpan =
-                when (motion) {
-                    WaveformMotion.MONITOR -> max(DEFAULT_SIGNAL_SPAN, bounds.width * SIGNAL_SPAN_WIDTH_FRACTION)
-                    WaveformMotion.STATIC_PULSE -> DEFAULT_SIGNAL_SPAN
-                }
-            val maximumSpan = min(preferredSpan, track.length * MAX_PERIMETER_FRACTION)
-            val signalSpan =
-                if (freeSpan != null && freeSpan.width >= MIN_TOP_SPAN) {
-                    min(maximumSpan, freeSpan.width.toFloat())
+            val requestedAnchorDistance = track.nearestDistance(anchorX, anchorY.coerceIn(top, bottom))
+            val centeredAnchorDistance =
+                if (useRightEdge && config.motion == WaveformMotion.MONITOR) {
+                    track.rightEdgeCenter(requestedAnchorDistance, visibleLength)
                 } else {
-                    maximumSpan
+                    requestedAnchorDistance
                 }
+            val anchorDistance =
+                adjustedAnchorDistance(
+                    centeredAnchorDistance,
+                    track.length,
+                    freeSpan != null || useRightEdge,
+                    signalSpan,
+                    config,
+                )
             return WaveformTrack(track.samples, track.length, anchorDistance, signalSpan)
         }
+
+        private fun signalSpan(
+            trackLength: Float,
+            freeSpan: FreeSpan?,
+            config: WaveformConfig,
+        ): Float {
+            val preferredVisibleLength =
+                when (config.motion) {
+                    WaveformMotion.MONITOR -> config.effectiveTraceLength.toFloat()
+                    WaveformMotion.STATIC_PULSE -> STATIC_TRACE_LENGTH
+                }
+            val maximumVisibleLength = min(preferredVisibleLength, trackLength * MAX_PERIMETER_FRACTION)
+            val visibleLength =
+                if (config.motion == WaveformMotion.STATIC_PULSE) {
+                    freeSpan
+                        ?.takeIf { it.width >= MIN_TOP_SPAN }
+                        ?.let { min(maximumVisibleLength, it.width.toFloat()) }
+                        ?: maximumVisibleLength
+                } else {
+                    maximumVisibleLength
+                }
+            return visibleLength / config.motion.phaseSpan()
+        }
+
+        private fun adjustedAnchorDistance(
+            centeredDistance: Float,
+            trackLength: Float,
+            shouldCenter: Boolean,
+            signalSpan: Float,
+            config: WaveformConfig,
+        ): Float {
+            if (config.motion != WaveformMotion.MONITOR || !shouldCenter) {
+                return centeredDistance
+            }
+            val centerOffset =
+                config.direction.travelSign *
+                    (TRACE_PHASE_SPAN / HALF_DIVISOR - TRACE_ANCHOR_PHASE) *
+                    signalSpan
+            return wrapDistance(centeredDistance - centerOffset, trackLength)
+        }
+
+        private fun WaveformMotion.phaseSpan(): Float = if (this == WaveformMotion.MONITOR) TRACE_PHASE_SPAN else 1f
 
         private fun largestFreeSpan(
             bounds: Rectangle,
@@ -210,6 +258,31 @@ class WaveformTrack internal constructor(
                     deltaX * deltaX + deltaY * deltaY
                 }.distance
 
+        private fun WaveformTrack.rightEdgeCenter(
+            requestedDistance: Float,
+            visibleLength: Float,
+        ): Float {
+            val safeStart =
+                samples.firstOrNull { it.normalX == 1f && it.normalY == 0f }?.distance
+                    ?: return requestedDistance
+            val safeEnd =
+                samples.lastOrNull { it.normalX == -1f && it.normalY == 0f }?.distance
+                    ?: return requestedDistance
+            val halfLength = visibleLength / HALF_DIVISOR
+            val minimumCenter = safeStart + halfLength
+            val maximumCenter = safeEnd - halfLength
+            return if (minimumCenter <= maximumCenter) {
+                requestedDistance.coerceIn(minimumCenter, maximumCenter)
+            } else {
+                requestedDistance
+            }
+        }
+
+        private fun wrapDistance(
+            distance: Float,
+            length: Float,
+        ): Float = ((distance % length) + length) % length
+
         private data class FreeSpan(
             val start: Float,
             val end: Float,
@@ -221,8 +294,7 @@ class WaveformTrack internal constructor(
         }
 
         private const val MASK_SHOULDER = 50f
-        private const val DEFAULT_SIGNAL_SPAN = 220f
-        private const val SIGNAL_SPAN_WIDTH_FRACTION = 0.55f
+        private const val STATIC_TRACE_LENGTH = 220f
         private const val MIN_TOP_SPAN = 140
         private const val MAX_PERIMETER_FRACTION = 0.3f
         private const val FALLBACK_ANCHOR_FRACTION = 2f / 3f

@@ -97,6 +97,7 @@ class AyuIslandsStatePersistenceTest {
                 state.waveformDirection = WaveformDirection.COUNTER_CLOCKWISE.name
                 state.waveformBaseline = WaveformBaseline.CENTERED.name
                 state.waveformTraceDensity = 4
+                state.waveformTraceLength = 640
                 state.waveformAmplitude = 16
                 state.waveformIntensity = 88
                 state.waveformLoopSeconds = 3.7f
@@ -107,6 +108,7 @@ class AyuIslandsStatePersistenceTest {
         assertEquals(WaveformDirection.COUNTER_CLOCKWISE.name, reloaded.state.waveformDirection)
         assertEquals(WaveformBaseline.CENTERED.name, reloaded.state.waveformBaseline)
         assertEquals(4, reloaded.state.waveformTraceDensity)
+        assertEquals(640, reloaded.state.waveformTraceLength)
         assertEquals(16, reloaded.state.waveformAmplitude)
         assertEquals(88, reloaded.state.waveformIntensity)
         assertEquals(3.7f, reloaded.state.waveformLoopSeconds)

@@ -280,6 +280,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                             waveformDirection = waveform.direction,
                             waveformBaseline = waveform.baseline,
                             waveformTraceDensity = waveform.traceDensity,
+                            waveformTraceLength = waveform.traceLength,
                             waveformAmplitude = waveform.amplitude,
                             waveformIntensity = waveform.intensity,
                             waveformLoopSeconds = waveform.loopSeconds,
@@ -601,6 +602,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                         direction = pending.waveformDirection,
                         baseline = pending.waveformBaseline,
                         traceDensity = pending.waveformTraceDensity,
+                        traceLength = pending.waveformTraceLength,
                         amplitude = pending.waveformAmplitude,
                         intensity = pending.waveformIntensity,
                         loopSeconds = pending.waveformLoopSeconds,
@@ -675,6 +677,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
             state.waveformDirection = pending.waveformDirection.name
             state.waveformBaseline = pending.waveformBaseline.name
             state.waveformTraceDensity = pending.waveformTraceDensity
+            state.waveformTraceLength = pending.waveformTraceLength
             state.waveformAmplitude = pending.waveformAmplitude
             state.waveformIntensity = pending.waveformIntensity
             state.waveformLoopSeconds = pending.waveformLoopSeconds

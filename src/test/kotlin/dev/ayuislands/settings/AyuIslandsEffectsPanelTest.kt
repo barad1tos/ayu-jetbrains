@@ -10,6 +10,7 @@ import dev.ayuislands.glow.GlowPlacement
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
+import dev.ayuislands.glow.waveform.DEFAULT_TRACE_LENGTH
 import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformDirection
 import dev.ayuislands.glow.waveform.WaveformMotion
@@ -242,6 +243,7 @@ class AyuIslandsEffectsPanelTest {
         val direction = waveformField<JComboBox<*>>(effectsPanel, "directionCombo")
         val baseline = waveformField<JComboBox<*>>(effectsPanel, "baselineCombo")
         val density = waveformField<JSlider>(effectsPanel, "densitySlider")
+        val traceLength = waveformField<JSlider>(effectsPanel, "traceLengthSlider")
         val amplitude = waveformField<JSlider>(effectsPanel, "amplitudeSlider")
         val loopDuration = waveformField<JSlider>(effectsPanel, "loopSlider")
 
@@ -251,6 +253,7 @@ class AyuIslandsEffectsPanelTest {
         assertTrue(direction.isEffectivelyVisibleWithin(dialogPanel))
         assertTrue(baseline.isEffectivelyVisibleWithin(dialogPanel))
         assertTrue(density.isEffectivelyVisibleWithin(dialogPanel))
+        assertTrue(traceLength.isEffectivelyVisibleWithin(dialogPanel))
         assertTrue(amplitude.isEffectivelyVisibleWithin(dialogPanel))
         assertTrue(loopDuration.isEffectivelyVisibleWithin(dialogPanel))
         assertFalse(style.isEffectivelyVisibleWithin(dialogPanel))
@@ -269,6 +272,10 @@ class AyuIslandsEffectsPanelTest {
         assertFalse(
             density.isEffectivelyVisibleWithin(dialogPanel),
             "Spike density applies only to Perimeter loop",
+        )
+        assertFalse(
+            traceLength.isEffectivelyVisibleWithin(dialogPanel),
+            "Trace length applies only to Perimeter loop",
         )
         assertTrue(baseline.isEffectivelyVisibleWithin(dialogPanel))
 
@@ -301,6 +308,7 @@ class AyuIslandsEffectsPanelTest {
                 waveformDirection = WaveformDirection.COUNTER_CLOCKWISE,
                 waveformBaseline = WaveformBaseline.CENTERED,
                 waveformTraceDensity = 4,
+                waveformTraceLength = 640,
                 waveformAmplitude = 16,
                 waveformIntensity = 12,
                 waveformLoopSeconds = 5.5f,
@@ -312,6 +320,7 @@ class AyuIslandsEffectsPanelTest {
         assertEquals(WaveformDirection.CLOCKWISE, reset.waveformDirection)
         assertEquals(WaveformBaseline.OUTSIDE, reset.waveformBaseline)
         assertEquals(1, reset.waveformTraceDensity)
+        assertEquals(DEFAULT_TRACE_LENGTH, reset.waveformTraceLength)
         assertEquals(10, reset.waveformAmplitude)
         assertEquals(70, reset.waveformIntensity)
         assertEquals(30f, reset.waveformLoopSeconds)
@@ -351,6 +360,7 @@ class AyuIslandsEffectsPanelTest {
         state.waveformIntensity = -5
         state.waveformLoopSeconds = 99f
         state.waveformTraceDensity = 99
+        state.waveformTraceLength = 9_999
         state.waveformBaseline = WaveformBaseline.CENTERED.name
         val effectsPanel = AyuIslandsEffectsPanel()
         buildDialogPanel(effectsPanel)
@@ -363,11 +373,13 @@ class AyuIslandsEffectsPanelTest {
         assertEquals(-5, state.waveformIntensity)
         assertEquals(99f, state.waveformLoopSeconds)
         assertEquals(99, state.waveformTraceDensity)
+        assertEquals(9_999, state.waveformTraceLength)
         assertEquals(WaveformBaseline.CENTERED.name, state.waveformBaseline)
         assertEquals(8, waveformField<JSlider>(effectsPanel, "amplitudeSlider").value)
         assertEquals(0, waveformField<JSlider>(effectsPanel, "intensitySlider").value)
         assertEquals(400, waveformField<JSlider>(effectsPanel, "loopSlider").value)
         assertEquals(4, waveformField<JSlider>(effectsPanel, "densitySlider").value)
+        assertEquals(800, waveformField<JSlider>(effectsPanel, "traceLengthSlider").value)
         assertEquals(
             WaveformBaseline.CENTERED.displayName,
             waveformField<JComboBox<*>>(effectsPanel, "baselineCombo").selectedItem,
@@ -391,18 +403,37 @@ class AyuIslandsEffectsPanelTest {
     }
 
     @Test
-    fun `maximum spike density and centered baseline apply together`() {
+    fun `reset restores the stored trace length`() {
+        state.glowShape = GlowShape.WAVEFORM.name
+        state.waveformTraceLength = 320
+        val effectsPanel = AyuIslandsEffectsPanel()
+        buildDialogPanel(effectsPanel)
+        val traceLength = waveformField<JSlider>(effectsPanel, "traceLengthSlider")
+
+        traceLength.value = 640
+        assertTrue(effectsPanel.isModified())
+
+        effectsPanel.reset()
+
+        assertEquals(320, traceLength.value)
+        assertFalse(effectsPanel.isModified())
+    }
+
+    @Test
+    fun `waveform geometry controls apply together`() {
         val effectsPanel = AyuIslandsEffectsPanel()
         buildDialogPanel(effectsPanel)
 
         waveformField<JComboBox<*>>(effectsPanel, "shapeCombo").selectedItem = GlowShape.WAVEFORM.displayName
         waveformField<JSlider>(effectsPanel, "densitySlider").value = 4
+        waveformField<JSlider>(effectsPanel, "traceLengthSlider").value = 640
         waveformField<JComboBox<*>>(effectsPanel, "baselineCombo").selectedItem =
             WaveformBaseline.CENTERED.displayName
 
         effectsPanel.apply()
 
         assertEquals(4, state.waveformTraceDensity)
+        assertEquals(640, state.waveformTraceLength)
         assertEquals(WaveformBaseline.CENTERED.name, state.waveformBaseline)
         assertFalse(effectsPanel.isModified())
     }
@@ -436,17 +467,20 @@ class AyuIslandsEffectsPanelTest {
         val motion = waveformField<JComboBox<*>>(effectsPanel, "motionCombo")
         val baseline = waveformField<JComboBox<*>>(effectsPanel, "baselineCombo")
         val density = waveformField<JSlider>(effectsPanel, "densitySlider")
+        val traceLength = waveformField<JSlider>(effectsPanel, "traceLengthSlider")
         val amplitude = waveformField<JSlider>(effectsPanel, "amplitudeSlider")
         val targetCheckboxes = islandCheckboxes(effectsPanel).values.toList()
 
         assertTrue(motion.isEffectivelyVisibleWithin(dialogPanel))
         assertTrue(baseline.isEffectivelyVisibleWithin(dialogPanel))
         assertTrue(density.isEffectivelyVisibleWithin(dialogPanel))
+        assertTrue(traceLength.isEffectivelyVisibleWithin(dialogPanel))
         assertTrue(amplitude.isEffectivelyVisibleWithin(dialogPanel))
         assertFalse(shape.isEnabled)
         assertFalse(motion.isEnabled)
         assertFalse(baseline.isEnabled)
         assertFalse(density.isEnabled)
+        assertFalse(traceLength.isEnabled)
         assertFalse(amplitude.isEnabled)
         assertTrue(targetCheckboxes.isNotEmpty())
         assertTrue(targetCheckboxes.all { !it.isEnabled })
@@ -454,6 +488,7 @@ class AyuIslandsEffectsPanelTest {
         shape.selectedItem = GlowShape.SOLID.displayName
         baseline.selectedItem = WaveformBaseline.CENTERED.displayName
         density.value = 4
+        traceLength.value = 640
         amplitude.value = 12
         assertFalse(effectsPanel.isModified(), "locked waveform preview cannot dirty pending settings")
     }
