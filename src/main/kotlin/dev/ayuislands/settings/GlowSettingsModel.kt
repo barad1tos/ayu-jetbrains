@@ -6,9 +6,11 @@ import dev.ayuislands.glow.GlowPlacement
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
+import dev.ayuislands.glow.waveform.DEFAULT_TRACE_DENSITY
 import dev.ayuislands.glow.waveform.DEFAULT_WAVEFORM_AMPLITUDE
 import dev.ayuislands.glow.waveform.DEFAULT_WAVEFORM_INTENSITY
 import dev.ayuislands.glow.waveform.DEFAULT_WAVEFORM_LOOP_SECONDS
+import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformDirection
 import dev.ayuislands.glow.waveform.WaveformMotion
 
@@ -25,6 +27,8 @@ internal data class GlowSettings(
     val toolWindowPlacement: GlowPlacement = GlowPlacement.ISLAND,
     val waveformMotion: WaveformMotion = WaveformMotion.MONITOR,
     val waveformDirection: WaveformDirection = WaveformDirection.CLOCKWISE,
+    val waveformBaseline: WaveformBaseline = WaveformBaseline.OUTSIDE,
+    val waveformTraceDensity: Int = DEFAULT_TRACE_DENSITY,
     val waveformAmplitude: Int = DEFAULT_WAVEFORM_AMPLITUDE,
     val waveformIntensity: Int = DEFAULT_WAVEFORM_INTENSITY,
     val waveformLoopSeconds: Float = DEFAULT_WAVEFORM_LOOP_SECONDS,
@@ -47,6 +51,8 @@ internal data class GlowSettings(
             shape = shape,
             motion = waveformMotion,
             direction = waveformDirection,
+            baseline = waveformBaseline,
+            traceDensity = waveformTraceDensity,
             amplitude = waveformAmplitude,
             intensity = waveformIntensity,
             loopSeconds = waveformLoopSeconds,
@@ -58,6 +64,8 @@ internal data class GlowSettings(
             preset = GlowPreset.WHISPER,
             waveformMotion = WaveformMotion.MONITOR,
             waveformDirection = WaveformDirection.CLOCKWISE,
+            waveformBaseline = WaveformBaseline.OUTSIDE,
+            waveformTraceDensity = DEFAULT_TRACE_DENSITY,
             waveformAmplitude = DEFAULT_WAVEFORM_AMPLITUDE,
             waveformIntensity = DEFAULT_WAVEFORM_INTENSITY,
             waveformLoopSeconds = DEFAULT_WAVEFORM_LOOP_SECONDS,
@@ -82,6 +90,8 @@ internal fun loadGlowSettings(
         toolWindowPlacement = GlowPlacement.fromName(state.glowToolWindowPlacement),
         waveformMotion = WaveformMotion.fromName(state.waveformMotion),
         waveformDirection = WaveformDirection.fromName(state.waveformDirection),
+        waveformBaseline = WaveformBaseline.fromName(state.waveformBaseline),
+        waveformTraceDensity = state.waveformTraceDensity,
         waveformAmplitude = state.waveformAmplitude,
         waveformIntensity = state.waveformIntensity,
         waveformLoopSeconds = state.waveformLoopSeconds,

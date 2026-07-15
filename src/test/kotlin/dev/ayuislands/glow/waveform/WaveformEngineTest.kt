@@ -448,6 +448,38 @@ class WaveformEngineTest {
     }
 
     @Test
+    fun `maximum trace density starts with sixteen varied complexes`() {
+        val engine =
+            WaveformEngine(
+                WaveformConfig(traceDensity = MAX_TRACE_DENSITY),
+                Random(18),
+            )
+
+        engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
+        val frame = requireNotNull(engine.handle(WaveformEvent.Tick(0L, 1_000f)).frame)
+        val history = trace(frame).history
+
+        assertEquals(16, history.size)
+        assertEquals(16, history.map(::morphologySamples).toSet().size)
+    }
+
+    @Test
+    fun `raising trace density fills the moving trace immediately`() {
+        val engine = WaveformEngine(WaveformConfig(), Random(20))
+        engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
+        engine.handle(WaveformEvent.Tick(0L, 1_000f))
+
+        engine.handle(
+            WaveformEvent.Configure(
+                WaveformConfig(traceDensity = MAX_TRACE_DENSITY),
+            ),
+        )
+        val frame = requireNotNull(engine.handle(WaveformEvent.Tick(1L, 1_000f)).frame)
+
+        assertEquals(16, trace(frame).history.size)
+    }
+
+    @Test
     fun `idle eases the trace rate back while keeping one moving window`() {
         val engine = WaveformEngine(WaveformConfig(), Random(19))
         engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))

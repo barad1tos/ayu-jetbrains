@@ -6,6 +6,8 @@ import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
+import dev.ayuislands.glow.waveform.MAX_TRACE_DENSITY
+import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformDirection
 import dev.ayuislands.glow.waveform.WaveformMotion
 import kotlin.test.Test
@@ -123,20 +125,28 @@ class AyuIslandsStatePropertyTest {
         assertEquals(GlowShape.SOLID.name, state.glowShape)
         assertEquals(WaveformMotion.MONITOR.name, state.waveformMotion)
         assertEquals(WaveformDirection.CLOCKWISE.name, state.waveformDirection)
+        assertEquals(WaveformBaseline.OUTSIDE.name, state.waveformBaseline)
+        assertEquals(1, state.effectiveTraceDensity())
         assertEquals(10, state.effectiveWaveformAmplitude())
         assertEquals(70, state.effectiveWaveformIntensity())
 
         state.waveformAmplitude = Int.MIN_VALUE
         state.waveformIntensity = Int.MAX_VALUE
+        state.waveformTraceDensity = Int.MAX_VALUE
 
         assertEquals(8, state.effectiveWaveformAmplitude())
         assertEquals(100, state.effectiveWaveformIntensity())
+        assertEquals(MAX_TRACE_DENSITY, state.effectiveTraceDensity())
 
         state.waveformAmplitude = Int.MAX_VALUE
         assertEquals(24, state.effectiveWaveformAmplitude())
 
         state.waveformAmplitude = 16
         assertEquals(16, state.effectiveWaveformAmplitude())
+
+        state.waveformTraceDensity = Int.MIN_VALUE
+        assertEquals(1, state.effectiveTraceDensity())
+        assertEquals(WaveformBaseline.OUTSIDE, WaveformBaseline.fromName("retired-value"))
     }
 
     @Test

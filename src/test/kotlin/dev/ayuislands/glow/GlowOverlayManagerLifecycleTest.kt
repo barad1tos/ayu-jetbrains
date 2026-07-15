@@ -13,6 +13,7 @@ import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.WaveformDirection
 import dev.ayuislands.glow.waveform.WaveformMotion
@@ -211,6 +212,8 @@ class GlowOverlayManagerLifecycleTest {
         state.glowShape = GlowShape.WAVEFORM.name
         state.waveformMotion = WaveformMotion.STATIC_PULSE.name
         state.waveformDirection = WaveformDirection.COUNTER_CLOCKWISE.name
+        state.waveformBaseline = WaveformBaseline.CENTERED.name
+        state.waveformTraceDensity = 99
         state.waveformAmplitude = 99
         state.waveformIntensity = -1
         state.waveformLoopSeconds = 99f
@@ -227,6 +230,8 @@ class GlowOverlayManagerLifecycleTest {
                 WaveformConfig(
                     motion = WaveformMotion.STATIC_PULSE,
                     direction = WaveformDirection.COUNTER_CLOCKWISE,
+                    baseline = WaveformBaseline.CENTERED,
+                    traceDensity = 4,
                     amplitude = 24,
                     intensity = 0,
                     loopSeconds = 40f,

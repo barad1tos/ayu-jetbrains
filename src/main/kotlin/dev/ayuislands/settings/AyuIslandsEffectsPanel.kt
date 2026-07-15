@@ -278,6 +278,8 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                             shape = waveform.shape,
                             waveformMotion = waveform.motion,
                             waveformDirection = waveform.direction,
+                            waveformBaseline = waveform.baseline,
+                            waveformTraceDensity = waveform.traceDensity,
                             waveformAmplitude = waveform.amplitude,
                             waveformIntensity = waveform.intensity,
                             waveformLoopSeconds = waveform.loopSeconds,
@@ -597,6 +599,8 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                     WaveformConfig(
                         motion = pending.waveformMotion,
                         direction = pending.waveformDirection,
+                        baseline = pending.waveformBaseline,
+                        traceDensity = pending.waveformTraceDensity,
                         amplitude = pending.waveformAmplitude,
                         intensity = pending.waveformIntensity,
                         loopSeconds = pending.waveformLoopSeconds,
@@ -669,6 +673,8 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
             state.glowToolWindowPlacement = pending.toolWindowPlacement.name
             state.waveformMotion = pending.waveformMotion.name
             state.waveformDirection = pending.waveformDirection.name
+            state.waveformBaseline = pending.waveformBaseline.name
+            state.waveformTraceDensity = pending.waveformTraceDensity
             state.waveformAmplitude = pending.waveformAmplitude
             state.waveformIntensity = pending.waveformIntensity
             state.waveformLoopSeconds = pending.waveformLoopSeconds

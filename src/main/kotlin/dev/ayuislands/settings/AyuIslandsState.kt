@@ -12,13 +12,17 @@ import dev.ayuislands.glow.GlowPlacement
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
+import dev.ayuislands.glow.waveform.DEFAULT_TRACE_DENSITY
 import dev.ayuislands.glow.waveform.DEFAULT_WAVEFORM_AMPLITUDE
 import dev.ayuislands.glow.waveform.DEFAULT_WAVEFORM_INTENSITY
 import dev.ayuislands.glow.waveform.DEFAULT_WAVEFORM_LOOP_SECONDS
+import dev.ayuislands.glow.waveform.MAX_TRACE_DENSITY
 import dev.ayuislands.glow.waveform.MAX_WAVEFORM_AMPLITUDE
 import dev.ayuislands.glow.waveform.MAX_WAVEFORM_INTENSITY
+import dev.ayuislands.glow.waveform.MIN_TRACE_DENSITY
 import dev.ayuislands.glow.waveform.MIN_WAVEFORM_AMPLITUDE
 import dev.ayuislands.glow.waveform.MIN_WAVEFORM_INTENSITY
+import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformDirection
 import dev.ayuislands.glow.waveform.WaveformMotion
 import dev.ayuislands.glow.waveform.normalizedLoopSeconds
@@ -147,6 +151,8 @@ class AyuIslandsState : BaseState() {
     // Waveform-specific controls. Solid preferences remain stored independently.
     var waveformMotion by string(WaveformMotion.MONITOR.name)
     var waveformDirection by string(WaveformDirection.CLOCKWISE.name)
+    var waveformBaseline by string(WaveformBaseline.OUTSIDE.name)
+    var waveformTraceDensity by property(DEFAULT_TRACE_DENSITY)
     var waveformAmplitude by property(DEFAULT_WAVEFORM_AMPLITUDE)
     var waveformIntensity by property(DEFAULT_WAVEFORM_INTENSITY)
     var waveformLoopSeconds by property(DEFAULT_WAVEFORM_LOOP_SECONDS)
@@ -691,6 +697,8 @@ class AyuIslandsState : BaseState() {
         const val MAX_CHROME_TINT_INTENSITY = 50
     }
 }
+
+fun AyuIslandsState.effectiveTraceDensity(): Int = waveformTraceDensity.coerceIn(MIN_TRACE_DENSITY, MAX_TRACE_DENSITY)
 
 fun AyuIslandsState.effectiveLoopSeconds(): Float = waveformLoopSeconds.normalizedLoopSeconds()
 

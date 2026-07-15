@@ -5,6 +5,7 @@ import dev.ayuislands.accent.AccentGroup
 import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
+import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformDirection
 import dev.ayuislands.glow.waveform.WaveformMotion
 import java.io.File
@@ -94,6 +95,8 @@ class AyuIslandsStatePersistenceTest {
                 state.glowShape = GlowShape.WAVEFORM.name
                 state.waveformMotion = WaveformMotion.STATIC_PULSE.name
                 state.waveformDirection = WaveformDirection.COUNTER_CLOCKWISE.name
+                state.waveformBaseline = WaveformBaseline.CENTERED.name
+                state.waveformTraceDensity = 4
                 state.waveformAmplitude = 16
                 state.waveformIntensity = 88
                 state.waveformLoopSeconds = 3.7f
@@ -102,6 +105,8 @@ class AyuIslandsStatePersistenceTest {
         assertEquals(GlowShape.WAVEFORM.name, reloaded.state.glowShape)
         assertEquals(WaveformMotion.STATIC_PULSE.name, reloaded.state.waveformMotion)
         assertEquals(WaveformDirection.COUNTER_CLOCKWISE.name, reloaded.state.waveformDirection)
+        assertEquals(WaveformBaseline.CENTERED.name, reloaded.state.waveformBaseline)
+        assertEquals(4, reloaded.state.waveformTraceDensity)
         assertEquals(16, reloaded.state.waveformAmplitude)
         assertEquals(88, reloaded.state.waveformIntensity)
         assertEquals(3.7f, reloaded.state.waveformLoopSeconds)

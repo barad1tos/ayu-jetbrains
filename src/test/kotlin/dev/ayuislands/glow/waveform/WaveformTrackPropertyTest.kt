@@ -4,6 +4,7 @@ import java.awt.Rectangle
 import kotlin.math.hypot
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class WaveformTrackPropertyTest {
@@ -151,6 +152,65 @@ class WaveformTrackPropertyTest {
         assertTrue(track.samples.isEmpty())
         assertEquals(0f, track.length)
         assertTrue(!track.isClosed)
+    }
+
+    @Test
+    fun `zero radius track keeps one strictly increasing representation of each corner`() {
+        val track =
+            WaveformTrack.create(
+                overlayBounds = Rectangle(0, 0, 240, 160),
+                margin = 16f,
+                arcRadius = 0f,
+                motion = WaveformMotion.MONITOR,
+            )
+
+        assertTrue(track.samples.zipWithNext().all { (left, right) -> left.distance < right.distance })
+        assertTrue(track.samples.last().distance < track.length)
+    }
+
+    @Test
+    fun `interpolated samples remain distinct and continuous across the track seam`() {
+        val track =
+            WaveformTrack.create(
+                overlayBounds = Rectangle(0, 0, 240, 160),
+                margin = 16f,
+                arcRadius = 12f,
+                motion = WaveformMotion.MONITOR,
+            )
+        val distances = listOf(track.length - 0.75f, track.length - 0.25f, 0.25f, 0.75f)
+        val samples = distances.map(track::sampleAt)
+
+        assertEquals(distances[0], samples[0].distance, 0.001f)
+        assertEquals(distances[1], samples[1].distance, 0.001f)
+        assertEquals(distances[2], samples[2].distance, 0.001f)
+        assertEquals(distances[3], samples[3].distance, 0.001f)
+        assertTrue(
+            samples.zipWithNext().all { (left, right) ->
+                hypot((right.x - left.x).toDouble(), (right.y - left.y).toDouble()) in 0.1..1.0
+            },
+        )
+        assertTrue(
+            samples.all { sample ->
+                hypot(sample.normalX.toDouble(), sample.normalY.toDouble()) in 0.999..1.001
+            },
+        )
+    }
+
+    @Test
+    fun `interpolation rejects a track that does not start at distance zero`() {
+        val invalidTrack =
+            WaveformTrack(
+                samples =
+                    listOf(
+                        WaveformSample(0f, 0f, 0f, -1f, 1f, 1f),
+                        WaveformSample(1f, 0f, 0f, -1f, 2f, 1f),
+                    ),
+                length = 3f,
+                signalAnchorDistance = 0f,
+                signalSpan = 1f,
+            )
+
+        assertFailsWith<IllegalStateException> { invalidTrack.sampleAt(0f) }
     }
 
     private fun WaveformTrack.sampleNearest(distance: Float): WaveformSample =

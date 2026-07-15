@@ -12,6 +12,7 @@ import dev.ayuislands.accent.AccentGroup
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.glow.GlowShape
+import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformDirection
 import dev.ayuislands.glow.waveform.WaveformMotion
 import dev.ayuislands.rotation.AccentRotationService
@@ -110,6 +111,8 @@ class FreeTierLockdownTest {
         state.glowShape = GlowShape.WAVEFORM.name
         state.waveformMotion = WaveformMotion.STATIC_PULSE.name
         state.waveformDirection = WaveformDirection.COUNTER_CLOCKWISE.name
+        state.waveformBaseline = WaveformBaseline.CENTERED.name
+        state.waveformTraceDensity = 4
         state.waveformAmplitude = 16
         state.waveformIntensity = 88
 
@@ -119,6 +122,8 @@ class FreeTierLockdownTest {
         assertEquals(GlowShape.WAVEFORM.name, state.glowShape)
         assertEquals(WaveformMotion.STATIC_PULSE.name, state.waveformMotion)
         assertEquals(WaveformDirection.COUNTER_CLOCKWISE.name, state.waveformDirection)
+        assertEquals(WaveformBaseline.CENTERED.name, state.waveformBaseline)
+        assertEquals(4, state.waveformTraceDensity)
         assertEquals(16, state.waveformAmplitude)
         assertEquals(88, state.waveformIntensity)
     }

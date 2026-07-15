@@ -18,6 +18,7 @@ import dev.ayuislands.accent.AccentChangedTopic
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
+import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.WaveformDirection
 import dev.ayuislands.glow.waveform.WaveformMotion
@@ -25,6 +26,7 @@ import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.effectiveLoopSeconds
+import dev.ayuislands.settings.effectiveTraceDensity
 import java.awt.Color
 import java.awt.Component
 import java.awt.KeyboardFocusManager
@@ -691,6 +693,8 @@ private fun resolveWaveformConfig(state: AyuIslandsState): WaveformConfig =
     WaveformConfig(
         motion = WaveformMotion.fromName(state.waveformMotion),
         direction = WaveformDirection.fromName(state.waveformDirection),
+        baseline = WaveformBaseline.fromName(state.waveformBaseline),
+        traceDensity = state.effectiveTraceDensity(),
         amplitude = state.effectiveWaveformAmplitude(),
         intensity = state.effectiveWaveformIntensity(),
         loopSeconds = state.effectiveLoopSeconds(),

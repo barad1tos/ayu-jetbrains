@@ -12,6 +12,7 @@ import dev.ayuislands.glow.waveform.WaveformFrame
 import dev.ayuislands.glow.waveform.WaveformMotion
 import dev.ayuislands.glow.waveform.WaveformPaintRequest
 import dev.ayuislands.glow.waveform.WaveformPainter
+import dev.ayuislands.glow.waveform.traceComplexCount
 import java.awt.AlphaComposite
 import java.awt.BorderLayout
 import java.awt.Color
@@ -136,8 +137,8 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
 
     private fun paintWaveform(graphics: Graphics2D) {
         val margin = WaveformPainter.marginFor(waveformConfig.amplitude, glowWidth)
-        val baselineInset = JBUI.scale(PREVIEW_BASELINE_INSET).toFloat()
-        val shift = (margin - baselineInset).roundToInt().coerceAtLeast(0)
+        val gutter = JBUI.scale(PREVIEW_GUTTER)
+        val shift = (margin - gutter).roundToInt().coerceAtLeast(0)
         val bounds = Rectangle(-shift, -shift, width + shift * 2, height + shift * 2)
         val content =
             Rectangle2D.Float(
@@ -156,7 +157,7 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
                 trace =
                     FrameTrace(
                         anchorOffset = 0f,
-                        history = List(PREVIEW_TRACE_COUNT) { previewMorphology },
+                        history = List(previewConfig.traceComplexCount) { previewMorphology },
                     ),
             )
         waveformPainter.paint(
@@ -168,7 +169,13 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
                 frame = frame,
                 solidFrame =
                     SolidFrameSpec(
-                        bounds = Rectangle(0, 0, width, height),
+                        bounds =
+                            Rectangle(
+                                gutter,
+                                gutter,
+                                (width - gutter * 2).coerceAtLeast(0),
+                                (height - gutter * 2).coerceAtLeast(0),
+                            ),
                         style = glowStyle,
                         intensity = glowIntensity,
                         width = glowWidth,
@@ -187,8 +194,7 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
         private const val DEFAULT_WIDTH = 8
         private const val DEFAULT_COLOR_HEX = "#FFCC66"
         private const val FIXED_PADDING = 10
-        private const val PREVIEW_BASELINE_INSET = 8
+        private const val PREVIEW_GUTTER = 4
         private const val PREVIEW_DISPLACEMENT_SCALE = 0.25f
-        private const val PREVIEW_TRACE_COUNT = 4
     }
 }

@@ -28,11 +28,40 @@ class WaveformTrack internal constructor(
 ) {
     val isClosed: Boolean = samples.isNotEmpty()
 
+    internal fun sampleAt(distance: Float): WaveformSample {
+        require(isClosed) { "Cannot sample an empty waveform track" }
+        val wrappedDistance = ((distance % length) + length) % length
+        val foundIndex = samples.binarySearch { sample -> sample.distance.compareTo(wrappedDistance) }
+        if (foundIndex >= 0) return samples[foundIndex]
+
+        val nextIndex = -foundIndex - 1
+        check(nextIndex > 0) { "Waveform track samples must start at distance zero" }
+        val previous = samples[nextIndex - 1]
+        val next = if (nextIndex == samples.size) samples.first() else samples[nextIndex]
+        val previousDistance = previous.distance
+        val nextDistance = if (nextIndex == samples.size) next.distance + length else next.distance
+        val progress = (wrappedDistance - previousDistance) / (nextDistance - previousDistance)
+        val normalX = previous.normalX + (next.normalX - previous.normalX) * progress
+        val normalY = previous.normalY + (next.normalY - previous.normalY) * progress
+        val normalLength = hypot(normalX.toDouble(), normalY.toDouble()).toFloat().coerceAtLeast(MIN_NORMAL_LENGTH)
+        return WaveformSample(
+            x = previous.x + (next.x - previous.x) * progress,
+            y = previous.y + (next.y - previous.y) * progress,
+            normalX = normalX / normalLength,
+            normalY = normalY / normalLength,
+            distance = wrappedDistance,
+            amplitudeMask =
+                previous.amplitudeMask +
+                    (next.amplitudeMask - previous.amplitudeMask) * progress,
+        )
+    }
+
     companion object {
         private const val DEFAULT_SAMPLE_STEP = 2f
         private const val HALF_DIVISOR = 2f
         private const val HALF_PI = PI / 2
         private const val THREE_HALVES_PI = PI * 1.5
+        private const val MIN_NORMAL_LENGTH = 0.0001f
 
         fun create(
             overlayBounds: Rectangle,
@@ -236,6 +265,7 @@ private class TrackBuilder(
         mask: (Float) -> Float = { 1f },
     ) {
         val length = hypot((spec.endX - spec.startX).toDouble(), (spec.endY - spec.startY).toDouble()).toFloat()
+        if (length <= 0f) return
         val count = ceil(length / sampleStep).toInt().coerceAtLeast(1)
         repeat(count) { index ->
             val progress = index.toFloat() / count
@@ -255,6 +285,7 @@ private class TrackBuilder(
         mask: (Float) -> Float = { 1f },
     ) {
         val length = ((spec.endAngle - spec.startAngle) * spec.radius).toFloat()
+        if (length <= 0f) return
         val count = ceil(length / sampleStep).toInt().coerceAtLeast(1)
         repeat(count) { index ->
             val progress = index.toFloat() / count

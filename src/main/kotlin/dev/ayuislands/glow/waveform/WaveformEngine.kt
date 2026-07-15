@@ -6,7 +6,6 @@ import kotlin.math.min
 import kotlin.random.Random
 
 private const val INITIAL_TRACE_PHASE = 0.055f
-internal const val TRACE_COMPLEX_COUNT = 4
 
 internal enum class TimerDirective {
     KEEP,
@@ -313,7 +312,13 @@ internal class WaveformEngine(
             }
 
             config.motion == WaveformMotion.MONITOR -> {
-                Transition(current.copy(config = config), WaveformUpdate(needsRepaint = true))
+                Transition(
+                    current.copy(
+                        config = config,
+                        history = fitHistory(current.history, config.traceComplexCount),
+                    ),
+                    WaveformUpdate(needsRepaint = true),
+                )
             }
 
             else -> {
@@ -412,8 +417,9 @@ internal class WaveformEngine(
         val completedCycles = floor(unwrappedPhase).toInt().coerceAtLeast(0)
         if (completedCycles == 0) return TraceAdvance(unwrappedPhase, current.history)
 
-        val generated = List(min(completedCycles, TRACE_COMPLEX_COUNT)) { BeatMorphology.random(random) }
-        val history = (generated.asReversed() + current.history).take(TRACE_COMPLEX_COUNT)
+        val complexCount = current.config.traceComplexCount
+        val generated = List(min(completedCycles, complexCount)) { BeatMorphology.random(random) }
+        val history = (generated.asReversed() + current.history).take(complexCount)
         return TraceAdvance(wrap(unwrappedPhase, 1f), history)
     }
 
@@ -473,12 +479,24 @@ internal class WaveformEngine(
     ): WaveformState.Looping =
         WaveformState.Looping(
             config = config,
-            history = initialHistory(morphology),
+            history = initialHistory(config, morphology),
             energyEnvelope = energyEnvelope,
         )
 
-    private fun initialHistory(morphology: BeatMorphology): List<BeatMorphology> =
-        listOf(morphology) + List(TRACE_COMPLEX_COUNT - 1) { BeatMorphology.random(random) }
+    private fun initialHistory(
+        config: WaveformConfig,
+        morphology: BeatMorphology,
+    ): List<BeatMorphology> = listOf(morphology) + List(config.traceComplexCount - 1) { BeatMorphology.random(random) }
+
+    private fun fitHistory(
+        history: List<BeatMorphology>,
+        complexCount: Int,
+    ): List<BeatMorphology> =
+        if (history.size >= complexCount) {
+            history.take(complexCount)
+        } else {
+            history + List(complexCount - history.size) { BeatMorphology.random(random) }
+        }
 
     private fun suspended(config: WaveformConfig): Transition =
         Transition(

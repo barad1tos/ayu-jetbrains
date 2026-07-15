@@ -12,6 +12,11 @@ class BeatMorphology private constructor(
     private val stretch: Float,
     private val jitter: Float,
 ) {
+    private val vertices =
+        FEATURE_PHASES
+            .map { phase -> (phase - jitter) * stretch }
+            .filter { phase -> phase in 0f..1f }
+
     fun valueAt(time: Float): Float {
         if (time !in 0f..1f) return 0f
         val adjusted = time / stretch + jitter
@@ -31,6 +36,8 @@ class BeatMorphology private constructor(
             else -> 0f
         }
     }
+
+    internal fun vertexPhases(): List<Float> = vertices
 
     companion object {
         private data class Variation(
@@ -57,6 +64,20 @@ class BeatMorphology private constructor(
         private const val T_START = 0.40f
         private const val T_APEX = 0.47f
         private const val T_END = 0.56f
+        private val FEATURE_PHASES =
+            listOf(
+                P_START,
+                P_APEX,
+                P_END,
+                QRS_START,
+                Q_APEX,
+                R_APEX,
+                S_APEX,
+                QRS_END,
+                T_START,
+                T_APEX,
+                T_END,
+            )
 
         fun random(random: Random = Random.Default): BeatMorphology =
             BeatMorphology(

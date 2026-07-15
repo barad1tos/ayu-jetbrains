@@ -266,7 +266,7 @@ class WaveformPainterPixelTest {
     }
 
     @Test
-    fun `idle monitor preserves configured peak geometry while typing changes luminance`() {
+    fun `idle monitor preserves configured peak range while typing changes luminance`() {
         val config = WaveformConfig(amplitude = MAX_WAVEFORM_AMPLITUDE, intensity = MAX_WAVEFORM_INTENSITY)
         val engine = WaveformEngine(config, Random(42))
         val activated = requireNotNull(engine.handle(WaveformEvent.Activate(powerSaveEnabled = false)).frame)
@@ -294,8 +294,12 @@ class WaveformPainterPixelTest {
             "monitor amplitude must not collapse while idle: height=$idlePeakHeight signal=$idleBounds",
         )
         assertTrue(
-            abs(activePeakHeight - idlePeakHeight) <= MAX_MONITOR_PEAK_DELTA,
-            "typing must not resize monitor geometry: idle=$idlePeakHeight active=$activePeakHeight",
+            activePeakHeight >= config.amplitude * MIN_ACTIVE_HEIGHT_FRACTION,
+            "active monitor amplitude must remain full sized: height=$activePeakHeight signal=$activeBounds",
+        )
+        assertTrue(
+            abs(activePeakHeight - idlePeakHeight) <= MAX_MORPHOLOGY_PEAK_DELTA,
+            "randomized R peaks must stay within the morphology range: idle=$idlePeakHeight active=$activePeakHeight",
         )
         assertTrue(
             addedAlpha(base.image, active.image, topRegion) > addedAlpha(base.image, idle.image, topRegion),
@@ -465,6 +469,131 @@ class WaveformPainterPixelTest {
     }
 
     @Test
+    fun `maximum density renders four times as many R peaks without widening the monitor span`() {
+        val morphology = BeatMorphology.standard()
+        val defaultConfig =
+            WaveformConfig(
+                amplitude = MAX_WAVEFORM_AMPLITUDE,
+                intensity = MAX_WAVEFORM_INTENSITY,
+            )
+        val maximumConfig = defaultConfig.copy(traceDensity = MAX_TRACE_DENSITY)
+        val defaultFrame = movingFrame(defaultConfig, List(defaultConfig.traceComplexCount) { morphology })
+        val maximumFrame = movingFrame(maximumConfig, List(maximumConfig.traceComplexCount) { morphology })
+        val signalOnly = solidFrame().copy(intensity = 0, width = MIN_SIGNAL_WIDTH)
+        val default = render(defaultFrame, solidFrame = signalOnly)
+        val maximum = render(maximumFrame, solidFrame = signalOnly)
+        val defaultPeaks = visiblePeakRuns(default, defaultConfig.amplitude)
+        val maximumPeaks = visiblePeakRuns(maximum, maximumConfig.amplitude)
+
+        assertEquals(4, defaultConfig.traceComplexCount)
+        assertEquals(defaultConfig.traceComplexCount * MAX_TRACE_DENSITY, maximumConfig.traceComplexCount)
+        assertEquals(default.result.track.signalSpan, maximum.result.track.signalSpan, 0.001f)
+        assertEquals(expectedRPeaks(defaultFrame), defaultPeaks)
+        assertEquals(
+            defaultPeaks * MAX_TRACE_DENSITY,
+            maximumPeaks,
+            "the rendered monitor segment must contain four times as many distinct R peaks",
+        )
+    }
+
+    @Test
+    fun `maximum density keeps every visible peak across phase wrap and both directions`() {
+        for (direction in WaveformDirection.entries) {
+            for (phase in DENSITY_TEST_PHASES) {
+                val config =
+                    WaveformConfig(
+                        direction = direction,
+                        amplitude = MAX_WAVEFORM_AMPLITUDE,
+                        intensity = MAX_WAVEFORM_INTENSITY,
+                        traceDensity = MAX_TRACE_DENSITY,
+                    )
+                val standardHistory = List(config.traceComplexCount) { BeatMorphology.standard() }
+                val standardFrame = movingFrame(config, standardHistory, phase)
+                val signalOnly = solidFrame().copy(intensity = 0, width = MIN_SIGNAL_WIDTH)
+                val standard = render(standardFrame, solidFrame = signalOnly)
+                val expectedPeaks = expectedRPeaks(standardFrame)
+
+                assertEquals(
+                    expectedPeaks,
+                    visiblePeakRuns(standard, config.amplitude),
+                    "missing peak for direction=$direction phase=$phase",
+                )
+
+                val variedHistory =
+                    List(config.traceComplexCount) { index ->
+                        BeatMorphology.random(Random(index + DENSITY_RANDOM_SEED))
+                    }
+                val varied = render(movingFrame(config, variedHistory, phase), solidFrame = signalOnly)
+                assertTrue(
+                    abs(visiblePeakRuns(varied, config.amplitude) - expectedPeaks) <= VARIED_PEAK_TOLERANCE,
+                    "randomized peaks became unstable for direction=$direction phase=$phase",
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `centered maximum density orders a seam crossing QRS continuously in both directions`() {
+        for (direction in WaveformDirection.entries) {
+            val config =
+                WaveformConfig(
+                    direction = direction,
+                    baseline = WaveformBaseline.CENTERED,
+                    amplitude = MAX_WAVEFORM_AMPLITUDE,
+                    intensity = MAX_WAVEFORM_INTENSITY,
+                    traceDensity = MAX_TRACE_DENSITY,
+                )
+            val morphology = BeatMorphology.standard()
+            val history = List(config.traceComplexCount) { morphology }
+            val provisional = render(movingFrame(config, history, SEAM_TRACE_PHASE))
+            val track = provisional.result.track
+            val frame =
+                movingFrame(
+                    config = config,
+                    history = history,
+                    phase = SEAM_TRACE_PHASE,
+                    anchorOffset = -track.signalAnchorDistance,
+                )
+            val qWindowPhase =
+                WaveformPainter.HEAD_PHASE +
+                    (-SEAM_HISTORY_INDEX + Q_APEX_PHASE - SEAM_TRACE_PHASE) /
+                    config.traceComplexCount
+            val rWindowPhase =
+                WaveformPainter.HEAD_PHASE +
+                    (-SEAM_HISTORY_INDEX + WaveformPainter.R_PEAK_PHASE - SEAM_TRACE_PHASE) /
+                    config.traceComplexCount
+            val qDistance =
+                wrappedDistance(
+                    (qWindowPhase - WaveformPainter.R_PEAK_PHASE) * track.signalSpan /
+                        direction.travelSign,
+                    track.length,
+                )
+            val rDistance =
+                wrappedDistance(
+                    (rWindowPhase - WaveformPainter.R_PEAK_PHASE) * track.signalSpan /
+                        direction.travelSign,
+                    track.length,
+                )
+            val samples = painter.signalSamples(track, frame)
+            val qIndex =
+                samples.indices.minBy { index ->
+                    circularDistance(samples[index].distance, qDistance, track.length)
+                }
+            val rIndex =
+                samples.indices.minBy { index ->
+                    circularDistance(samples[index].distance, rDistance, track.length)
+                }
+
+            assertEquals(
+                1,
+                abs(qIndex - rIndex),
+                "Q and R vertices must stay adjacent when their segment crosses the track seam for $direction",
+            )
+            assertTrue(samples.zipWithNext().any { (left, right) -> left.distance > right.distance })
+        }
+    }
+
+    @Test
     fun `signal offset preserves QRS notches outside content`() {
         val baseline = WaveformPainter.signalOffset(0f)
         val q = WaveformPainter.signalOffset(-0.09f)
@@ -479,6 +608,60 @@ class WaveformPainterPixelTest {
         assertEquals(1f, tallR, "the tallest R variation may use the full configured amplitude")
     }
 
+    @Test
+    fun `centered baseline sends QRS notches to both sides of the perimeter`() {
+        val baseline = WaveformPainter.signalOffset(0f, WaveformBaseline.CENTERED)
+        val q = WaveformPainter.signalOffset(-0.09f, WaveformBaseline.CENTERED)
+        val s = WaveformPainter.signalOffset(-0.22f, WaveformBaseline.CENTERED)
+        val r = WaveformPainter.signalOffset(0.96f, WaveformBaseline.CENTERED)
+
+        assertEquals(0f, baseline)
+        assertTrue(q < 0f && s < q, "Q and S must enter the island from the centered baseline")
+        assertTrue(r > 0f, "R must still rise outward from the centered baseline")
+    }
+
+    @Test
+    fun `centered waveform straddles the middle of the solid glow band`() {
+        val outsideConfig =
+            WaveformConfig(
+                motion = WaveformMotion.STATIC_PULSE,
+                amplitude = MAX_WAVEFORM_AMPLITUDE,
+                intensity = MAX_WAVEFORM_INTENSITY,
+            )
+        val centeredConfig = outsideConfig.copy(baseline = WaveformBaseline.CENTERED)
+        val emptyBase = solidFrame().copy(intensity = 0)
+        val outside =
+            render(
+                WaveformFrame(outsideConfig, energy = 1f, brightness = 1f),
+                solidFrame = emptyBase,
+            )
+        val centered =
+            render(
+                WaveformFrame(centeredConfig, energy = 1f, brightness = 1f),
+                solidFrame = emptyBase,
+            )
+        val outsideBaseline =
+            outside.result.track.samples
+                .first { it.normalY < -0.999f }
+                .y
+                .roundToInt()
+        val centeredBaseline =
+            centered.result.track.samples
+                .first { it.normalY < -0.999f }
+                .y
+                .roundToInt()
+        val outsideExtents = topCoreExtents(outside)
+        val centeredExtents = topCoreExtents(centered)
+
+        assertEquals(outsideBaseline + SOLID_WIDTH / 2, centeredBaseline)
+        assertTrue(outsideExtents.last <= outsideBaseline + CORE_SIDE_TOLERANCE)
+        assertTrue(centeredExtents.last >= centeredBaseline + MIN_INWARD_NOTCH)
+        assertTrue(
+            centeredBaseline - centeredExtents.first >= centeredConfig.amplitude * MIN_ACTIVE_HEIGHT_FRACTION,
+            "centered R peak must retain the configured outward amplitude",
+        )
+    }
+
     private fun frame(
         config: WaveformConfig,
         center: Float,
@@ -487,6 +670,24 @@ class WaveformPainterPixelTest {
         WaveformFrame(
             config = config,
             trace = FrameTrace(anchorOffset = center, history = listOf(morphology)),
+            brightness = 1f,
+            energy = 1f,
+        )
+
+    private fun movingFrame(
+        config: WaveformConfig,
+        history: List<BeatMorphology>,
+        phase: Float = TEST_TRACE_PHASE,
+        anchorOffset: Float = 0f,
+    ): WaveformFrame =
+        WaveformFrame(
+            config = config,
+            trace =
+                FrameTrace(
+                    anchorOffset = anchorOffset,
+                    history = history,
+                    phase = phase,
+                ),
             brightness = 1f,
             energy = 1f,
         )
@@ -598,6 +799,77 @@ class WaveformPainterPixelTest {
         check(left <= right && top <= bottom) { "expected visible ECG pixels in $region" }
         return Rectangle(left, top, right - left + 1, bottom - top + 1)
     }
+
+    private fun topCoreExtents(rendered: Rendered): IntRange {
+        val topSamples =
+            rendered.result.track.samples
+                .filter { it.normalY < -0.999f }
+        val left = topSamples.minOf { it.x }.roundToInt()
+        val right = topSamples.maxOf { it.x }.roundToInt()
+        val baseline = topSamples.first().y.roundToInt()
+        var top = baseline
+        var bottom = baseline
+        for (y in 0..(baseline + MAX_WAVEFORM_AMPLITUDE).coerceAtMost(rendered.image.height - 1)) {
+            for (x in left..right) {
+                if (alphaAt(rendered.image, x, y) < CORE_ALPHA_THRESHOLD) continue
+                top = minOf(top, y)
+                bottom = maxOf(bottom, y)
+            }
+        }
+        return top..bottom
+    }
+
+    private fun visiblePeakRuns(
+        rendered: Rendered,
+        amplitude: Int,
+    ): Int {
+        val track = rendered.result.track
+        val peakProbe = amplitude * R_PEAK_THRESHOLD
+        val sampleCount = kotlin.math.ceil(track.length / PEAK_SCAN_STEP).toInt()
+        val visible =
+            List(sampleCount) { index ->
+                val distance = index * PEAK_SCAN_STEP
+                val sample = track.sampleAt(distance)
+                val x = (sample.x + sample.normalX * peakProbe).roundToInt()
+                val y = (sample.y + sample.normalY * peakProbe).roundToInt()
+                hasVisiblePixel(rendered.image, x, y, PEAK_SCAN_RADIUS)
+            }
+        return visible.indices.count { index ->
+            visible[index] && !visible[(index - 1 + visible.size) % visible.size]
+        }
+    }
+
+    private fun expectedRPeaks(frame: WaveformFrame): Int {
+        val trace = requireNotNull(frame.trace)
+        return (0 until frame.config.traceComplexCount).count { historyIndex ->
+            val windowPhase =
+                WaveformPainter.HEAD_PHASE +
+                    (-historyIndex + WaveformPainter.R_PEAK_PHASE - trace.phase) /
+                    frame.config.traceComplexCount
+            WaveformPainter.cometAlpha(windowPhase) > 0f
+        }
+    }
+
+    private fun hasVisiblePixel(
+        image: BufferedImage,
+        centerX: Int,
+        centerY: Int,
+        radius: Int,
+    ): Boolean =
+        (centerY - radius..centerY + radius).any { y ->
+            (centerX - radius..centerX + radius).any { x -> alphaAt(image, x, y) > 0 }
+        }
+
+    private fun wrappedDistance(
+        distance: Float,
+        length: Float,
+    ): Float = ((distance % length) + length) % length
+
+    private fun circularDistance(
+        first: Float,
+        second: Float,
+        length: Float,
+    ): Float = min(abs(first - second), length - abs(first - second))
 
     private fun peakProfile(
         base: BufferedImage,
@@ -711,6 +983,17 @@ class WaveformPainterPixelTest {
         const val MIN_PIXEL_DIFFERENCE = 100
         const val SOLID_INTENSITY = 80
         const val SOLID_WIDTH = 4
+        const val MIN_SIGNAL_WIDTH = 1
+        const val R_PEAK_THRESHOLD = 0.8f
+        const val PEAK_SCAN_STEP = 0.5f
+        const val PEAK_SCAN_RADIUS = 1
+        const val TEST_TRACE_PHASE = 0.055f
+        const val DENSITY_RANDOM_SEED = 400
+        const val VARIED_PEAK_TOLERANCE = 1
+        const val Q_APEX_PHASE = 0.255f
+        const val SEAM_TRACE_PHASE = 0.395f
+        const val SEAM_HISTORY_INDEX = 7
+        val DENSITY_TEST_PHASES = listOf(0.01f, 0.49f, 0.99f)
         const val ALPHA_SHIFT = 24
         const val MAX_ALPHA = 0xFF
         const val COLOR_TOLERANCE = 2.0
@@ -741,7 +1024,10 @@ class WaveformPainterPixelTest {
         const val EDITOR_RIGHT_CHROME_START = 1190
         const val VISIBLE_SIGNAL_ALPHA_DELTA = 24
         const val MIN_EDITOR_SIGNAL_WIDTH_FRACTION = 0.33
-        const val MAX_MONITOR_PEAK_DELTA = 1
+        const val MAX_MORPHOLOGY_PEAK_DELTA = 4
         const val STATIC_SIGNAL_SPAN = 220f
+        const val CORE_ALPHA_THRESHOLD = 128
+        const val CORE_SIDE_TOLERANCE = 2
+        const val MIN_INWARD_NOTCH = 3
     }
 }
