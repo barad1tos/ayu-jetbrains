@@ -22,9 +22,9 @@ class AyuIslandsStateVcsTest {
     fun `default state has VCS disabled and all three sections on Ambient`() {
         val state = freshState()
         assertFalse(state.vcsColorEnabled, "Master kill-switch defaults off (byte-identical to prior release)")
-        assertEquals(VcsColorPreset.AMBIENT, state.effectiveVcsDiffPreset())
-        assertEquals(VcsColorPreset.AMBIENT, state.effectiveVcsMergePreset())
-        assertEquals(VcsColorPreset.AMBIENT, state.effectiveVcsBlamePreset())
+        assertEquals(VcsColorPreset.AMBIENT, state.effectiveVcsPresetFor(VcsColorCategory.DIFF_VIEWER))
+        assertEquals(VcsColorPreset.AMBIENT, state.effectiveVcsPresetFor(VcsColorCategory.CONFLICT_MARKERS))
+        assertEquals(VcsColorPreset.AMBIENT, state.effectiveVcsPresetFor(VcsColorCategory.BLAME_GUTTER))
         // Master off => effective intensity is always 0, regardless of preset.
         for (category in VcsColorCategory.entries) {
             assertEquals(0, state.effectiveVcsIntensityFor(category).percent)
@@ -37,9 +37,9 @@ class AyuIslandsStateVcsTest {
         state.vcsDiffPreset = VcsColorPreset.NEON.name
         state.vcsMergePreset = VcsColorPreset.WHISPER.name
         state.vcsBlamePreset = VcsColorPreset.CYBERPUNK.name
-        assertEquals(VcsColorPreset.NEON, state.effectiveVcsDiffPreset())
-        assertEquals(VcsColorPreset.WHISPER, state.effectiveVcsMergePreset())
-        assertEquals(VcsColorPreset.CYBERPUNK, state.effectiveVcsBlamePreset())
+        assertEquals(VcsColorPreset.NEON, state.effectiveVcsPresetFor(VcsColorCategory.DIFF_VIEWER))
+        assertEquals(VcsColorPreset.WHISPER, state.effectiveVcsPresetFor(VcsColorCategory.CONFLICT_MARKERS))
+        assertEquals(VcsColorPreset.CYBERPUNK, state.effectiveVcsPresetFor(VcsColorCategory.BLAME_GUTTER))
     }
 
     @Test
@@ -51,9 +51,9 @@ class AyuIslandsStateVcsTest {
         state.vcsDiffPreset = "GARBAGE"
         state.vcsMergePreset = ""
         state.vcsBlamePreset = "UNKNOWN_PRESET_NAME"
-        assertEquals(VcsColorPreset.AMBIENT, state.effectiveVcsDiffPreset())
-        assertEquals(VcsColorPreset.AMBIENT, state.effectiveVcsMergePreset())
-        assertEquals(VcsColorPreset.AMBIENT, state.effectiveVcsBlamePreset())
+        assertEquals(VcsColorPreset.AMBIENT, state.effectiveVcsPresetFor(VcsColorCategory.DIFF_VIEWER))
+        assertEquals(VcsColorPreset.AMBIENT, state.effectiveVcsPresetFor(VcsColorCategory.CONFLICT_MARKERS))
+        assertEquals(VcsColorPreset.AMBIENT, state.effectiveVcsPresetFor(VcsColorCategory.BLAME_GUTTER))
     }
 
     @Test

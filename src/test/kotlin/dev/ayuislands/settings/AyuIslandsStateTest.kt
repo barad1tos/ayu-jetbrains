@@ -375,8 +375,24 @@ class AyuIslandsStateTest {
         assertFalse(state.externalThemeGlowEnabled)
         assertTrue(state.externalThemeCodeGlanceProEnabled)
         assertTrue(state.externalThemeIndentRainbowEnabled)
+        assertFalse(state.externalThemeChromeTintEnabled)
         assertEquals(ExternalAccentSource.AUTOMATIC.name, state.externalThemeAccentSource)
         assertEquals("#FFCC66", state.externalThemeAccent)
+    }
+
+    @Test
+    fun `external chrome tint allowance requires both master flag and feature flag`() {
+        val state = freshState()
+        assertFalse(state.isExternalChromeTintAllowed(), "defaults are off")
+        state.externalThemeChromeTintEnabled = true
+        assertFalse(
+            state.isExternalChromeTintAllowed(),
+            "feature flag alone must not unlock chrome tint without the external master flag",
+        )
+        state.externalThemeEnhancementsEnabled = true
+        assertTrue(state.isExternalChromeTintAllowed())
+        state.externalThemeChromeTintEnabled = false
+        assertFalse(state.isExternalChromeTintAllowed(), "master flag alone must not unlock chrome tint")
     }
 
     @Test

@@ -140,6 +140,42 @@ class ChromeTintBlenderTest {
         assertEquals(0, result.blue)
     }
 
+    @Test
+    fun `blend holds identity opacity and hue invariants on foreign theme bases`() {
+        // External Theme Support feeds the blender stock colors captured from
+        // non-Ayu LAFs. Representative samples: Darcula chrome, IntelliJ-Light
+        // chrome, and both high-contrast extremes.
+        val accent = Color(0x5C, 0xCF, 0xE6)
+        val foreignBases =
+            listOf(
+                Color(0x3C, 0x3F, 0x41),
+                Color(0xF2, 0xF2, 0xF2),
+                Color(0x00, 0x00, 0x00),
+                Color(0xFF, 0xFF, 0xFF),
+            )
+
+        for (base in foreignBases) {
+            val identity = ChromeTintBlender.blend(accent, base, TintIntensity.of(0))
+            assertEquals(base.rgb, identity.rgb, "intensity=0 must return the base unchanged for $base")
+
+            val tinted = ChromeTintBlender.blend(accent, base, TintIntensity.of(TintIntensity.MAX))
+            assertEquals(255, tinted.alpha, "blend output must stay opaque for $base")
+            assertTrue(
+                hueDelta(hueOf(tinted), hueOf(accent)) <= HUE_EPSILON,
+                "max-intensity hue must track the accent on foreign base $base: got ${hueOf(tinted)}",
+            )
+        }
+    }
+
+    @Test
+    fun `blend drops base alpha and returns an opaque color`() {
+        // A foreign theme may stock a translucent color in a key the plugin
+        // treats as opaque fill; the contract is opacify, never alpha-blend.
+        val translucentBase = Color(0x2E, 0x35, 0x44, 0x80)
+        val tinted = ChromeTintBlender.blend(accentRed, translucentBase, TintIntensity.of(25))
+        assertEquals(255, tinted.alpha)
+    }
+
     // --- Hue-space invariant helpers ---
 
     private fun hueOf(color: Color): Float {

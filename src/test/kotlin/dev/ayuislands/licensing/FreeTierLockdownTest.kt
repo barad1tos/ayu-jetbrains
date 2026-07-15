@@ -123,10 +123,9 @@ class FreeTierLockdownTest {
     }
 
     @Test
-    fun `revertToFreeDefaults resets VISUAL INTERACTIVE toggles to true and CHROME toggles to false`() {
-        // Seed every toggle to the OPPOSITE of its free-tier default so we can see the revert
-        // actually run: VISUAL/INTERACTIVE start false (free-tier default is true) and CHROME
-        // starts true (free-tier default is false — chrome tinting is premium-only).
+    fun `revertToFreeDefaults preserves every element choice`() {
+        // Free choices remain immediately effective. Premium CHROME choices stay
+        // persisted while runtime entitlement suppresses their rendering.
         for (id in AccentElementId.entries) {
             state.setToggle(id, id.group == AccentGroup.CHROME)
         }
@@ -134,33 +133,41 @@ class FreeTierLockdownTest {
         LicenseChecker.revertToFreeDefaults(AyuVariant.LIGHT)
 
         for (id in AccentElementId.entries.filter { elementId -> elementId.group != AccentGroup.CHROME }) {
-            assertTrue(state.isToggleEnabled(id), "${id.name} must be re-enabled on revert")
+            assertFalse(state.isToggleEnabled(id), "${id.name} must be preserved on free-tier revert")
         }
         for (id in AccentElementId.entries.filter { elementId -> elementId.group == AccentGroup.CHROME }) {
-            assertFalse(state.isToggleEnabled(id), "${id.name} must be disabled on free-tier revert")
+            assertTrue(state.isToggleEnabled(id), "${id.name} must be preserved on free-tier revert")
         }
-        // 4 VISUAL + 4 INTERACTIVE + 5 CHROME = 13. Update this number and the reverter together.
-        assertEquals(13, AccentElementId.entries.size, "element count locked to 13 — update reverter if this changes")
+        assertEquals(13, AccentElementId.entries.size, "element inventory changed — update the preservation test")
     }
 
     @Test
-    fun `revertToFreeDefaults resets chrome tinting auxiliary state to defaults`() {
-        // Mutate every chrome-tinting auxiliary field away from its free-tier default,
-        // then prove the reverter restores each one.
+    fun `revertToFreeDefaults preserves chrome intensity and UI state`() {
         state.chromeTintIntensity = 75
         state.chromeTintingGroupExpanded = true
 
         LicenseChecker.revertToFreeDefaults(AyuVariant.LIGHT)
 
-        assertEquals(AyuIslandsState.DEFAULT_CHROME_TINT_INTENSITY, state.chromeTintIntensity)
-        assertFalse(state.chromeTintingGroupExpanded)
+        assertEquals(75, state.chromeTintIntensity)
+        assertTrue(state.chromeTintingGroupExpanded)
     }
 
     @Test
-    fun `revertToFreeDefaults resets glowTabMode to MINIMAL`() {
+    fun `revertToFreeDefaults preserves the external chrome tint preference`() {
+        // Runtime entitlement gates paid behavior. Keep the stored choice so a
+        // renewed license restores the exact external-theme preference.
+        state.externalThemeChromeTintEnabled = true
+
+        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
+
+        assertTrue(state.externalThemeChromeTintEnabled)
+    }
+
+    @Test
+    fun `revertToFreeDefaults preserves glowTabMode preference`() {
         state.glowTabMode = "FULL"
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-        assertEquals("MINIMAL", state.glowTabMode)
+        assertEquals("FULL", state.glowTabMode)
     }
 
     @Test
@@ -282,7 +289,7 @@ class FreeTierLockdownTest {
         assertFalse(state.glowEnabled)
         assertFalse(state.accentRotationEnabled)
         assertFalse(state.cgpIntegrationEnabled)
-        // VISUAL/INTERACTIVE toggles flip to true; CHROME toggles stay off on free tier.
+        // Every element choice stays at its constructor default.
         for (id in AccentElementId.entries.filter { it.group != AccentGroup.CHROME }) {
             assertTrue(state.isToggleEnabled(id))
         }
@@ -308,7 +315,7 @@ class FreeTierLockdownTest {
             state.glowTabMode = "FULL"
             state.hideProjectRootPath = true
             state.hideProjectViewHScrollbar = true
-            // Seed opposite of free-tier defaults: non-CHROME to false, CHROME to true.
+            // Seed free toggles false and persisted premium choices true.
             for (id in AccentElementId.entries) {
                 state.setToggle(id, id.group == AccentGroup.CHROME)
             }
@@ -325,14 +332,14 @@ class FreeTierLockdownTest {
             assertFalse(state.accentRotationEnabled)
             assertFalse(state.cgpIntegrationEnabled)
             assertFalse(state.irIntegrationEnabled)
-            assertEquals("MINIMAL", state.glowTabMode)
+            assertEquals("FULL", state.glowTabMode)
             assertFalse(state.hideProjectRootPath)
             assertFalse(state.hideProjectViewHScrollbar)
             for (id in AccentElementId.entries.filter { elementId -> elementId.group != AccentGroup.CHROME }) {
-                assertTrue(state.isToggleEnabled(id), "${id.name} must be true after concurrent revert")
+                assertFalse(state.isToggleEnabled(id), "${id.name} must be preserved after concurrent revert")
             }
             for (id in AccentElementId.entries.filter { elementId -> elementId.group == AccentGroup.CHROME }) {
-                assertFalse(state.isToggleEnabled(id), "${id.name} must be false after concurrent revert")
+                assertTrue(state.isToggleEnabled(id), "${id.name} must be preserved after concurrent revert")
             }
         }
     }

@@ -67,17 +67,50 @@ abstract class AbstractChromeElement : AccentElement {
         get() = true
 
     override fun apply(color: Color) {
+        applyTint(
+            color = color,
+            canHandleEmpty = true,
+            claimOwnership = {},
+        )
+    }
+
+    internal fun applyExternal(
+        color: Color,
+        claimOwnership: () -> Unit,
+    ) {
+        applyTint(
+            color = color,
+            canHandleEmpty = false,
+            claimOwnership = claimOwnership,
+        )
+    }
+
+    private fun applyTint(
+        color: Color,
+        canHandleEmpty: Boolean,
+        claimOwnership: () -> Unit,
+    ) {
         if (!isEnabled) return
         val state = AyuIslandsSettings.getInstance().state
         val intensity = ChromeTintContext.currentIntensity(state)
         val tintedBackgrounds = LinkedHashMap<String, Color>()
+        var hasClaimedOwnership = false
         for (key in backgroundKeys) {
             val baseColor = ChromeBaseColors[key] ?: continue
             val tinted = ChromeTintBlender.blend(color, baseColor, intensity)
+            if (!hasClaimedOwnership) {
+                // UIManager.put receives non-null key/value pairs here. Its only
+                // realistic RuntimeException path is a property listener throwing
+                // after UIDefaults has already mutated, so ownership must be claimed
+                // immediately before the write to keep rollback retryable.
+                claimOwnership()
+                hasClaimedOwnership = true
+            }
             UIManager.put(key, tinted)
             ChromeBaseColors.rememberPluginTint(key, tinted)
             tintedBackgrounds[key] = tinted
         }
+        if (tintedBackgrounds.isEmpty() && !canHandleEmpty) return
         onBackgroundsTinted(tintedBackgrounds)
         writeForegrounds(tintedBackgrounds)
         val samplingBg = tintedBackgrounds.values.firstOrNull()

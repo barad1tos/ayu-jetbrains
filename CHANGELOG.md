@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.8.0] - 2026-07-09
+
+- [Paid] **Chrome tint on external themes** — selected chrome surfaces and the
+  active tab underline can now follow the Ayu accent on non-Ayu themes when
+  explicitly enabled; external chrome tint stays off by default.
+
 ## [2.7.8] - 2026-07-06
 
 - [Fix] **What's New and onboarding tabs** — a failed tab open no longer

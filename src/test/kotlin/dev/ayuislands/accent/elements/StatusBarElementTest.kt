@@ -24,6 +24,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -120,6 +121,19 @@ class StatusBarElementTest {
         verify { UIManager.put("StatusBar.Widget.pressedBackground", null) }
         // No opaque tint should have been written since the bases were absent.
         verify(exactly = 0) { UIManager.put("StatusBar.background", blended) }
+    }
+
+    @Test
+    fun `external apply with no base leaves the host theme untouched`() {
+        every { ChromeBaseColors[any()] } returns null
+        var hasMutated = false
+
+        StatusBarElement().applyExternal(accent) {
+            hasMutated = true
+        }
+
+        verify(exactly = 0) { UIManager.put(any<String>(), any()) }
+        assertFalse(hasMutated)
     }
 
     @Test

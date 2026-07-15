@@ -184,19 +184,19 @@ class LicenseCheckerProDefaultsTest {
     }
 
     @Test
-    fun `revertToFreeDefaults resets tab mode to MINIMAL`() {
+    fun `revertToFreeDefaults preserves tab mode preference`() {
         state.glowTabMode = "FULL"
         mockAccentApplicator()
 
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
 
-        assertEquals("MINIMAL", state.glowTabMode)
+        assertEquals("FULL", state.glowTabMode)
     }
 
     @Test
-    fun `revertToFreeDefaults resets VISUAL INTERACTIVE toggles to true and CHROME toggles to false`() {
-        // CHROME group is premium-only (phase 40 chrome tinting) — revert must leave it off
-        // on free tier even if the user had it enabled pre-downgrade.
+    fun `revertToFreeDefaults preserves every element choice`() {
+        // Entitlement gates CHROME execution without erasing any free or premium
+        // surface choice during a temporary downgrade.
         for (id in AccentElementId.entries) {
             state.setToggle(id, id.group == AccentGroup.CHROME)
         }
@@ -205,10 +205,10 @@ class LicenseCheckerProDefaultsTest {
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
 
         for (id in AccentElementId.entries.filter { it.group != AccentGroup.CHROME }) {
-            assertTrue(state.isToggleEnabled(id), "${id.name} should be reset to true")
+            assertFalse(state.isToggleEnabled(id), "${id.name} should be preserved on free tier")
         }
         for (id in AccentElementId.entries.filter { it.group == AccentGroup.CHROME }) {
-            assertFalse(state.isToggleEnabled(id), "${id.name} should be forcibly disabled on free tier")
+            assertTrue(state.isToggleEnabled(id), "${id.name} should be preserved on free tier")
         }
     }
 
