@@ -209,7 +209,7 @@ class WaveformPainterPixelTest {
             WaveformConfig(
                 amplitude = 16,
                 intensity = 100,
-                baseline = WaveformBaseline.CENTERED,
+                baseline = WaveformBaseline.OUTSIDE,
             )
         val flat = render(WaveformFrame(config = config.copy(intensity = 0)))
         val samples = flat.result.track.samples
@@ -249,12 +249,34 @@ class WaveformPainterPixelTest {
     }
 
     @Test
-    fun `single blocked edge keeps the other edge outward`() {
+    fun `centered baseline ignores clipped edge redirection`() {
         val config =
             WaveformConfig(
                 amplitude = 16,
                 intensity = 100,
                 baseline = WaveformBaseline.CENTERED,
+            )
+        val centered = render(WaveformFrame(config = config))
+        val clipped =
+            render(
+                frame = WaveformFrame(config = config),
+                inwardEdges = WaveformEdge.entries.toSet(),
+            )
+
+        assertEquals(
+            0,
+            pixelDifference(centered.image, clipped.image),
+            "clipped window geometry must not replace the selected centered baseline",
+        )
+    }
+
+    @Test
+    fun `single blocked edge keeps the other edge outward`() {
+        val config =
+            WaveformConfig(
+                amplitude = 16,
+                intensity = 100,
+                baseline = WaveformBaseline.OUTSIDE,
             )
         val flat = render(WaveformFrame(config = config.copy(intensity = 0)))
         val rightSample =
@@ -290,7 +312,7 @@ class WaveformPainterPixelTest {
             WaveformConfig(
                 amplitude = 16,
                 intensity = 100,
-                baseline = WaveformBaseline.CENTERED,
+                baseline = WaveformBaseline.OUTSIDE,
             )
         val flat = render(WaveformFrame(config = config.copy(intensity = 0)))
         val corner =
@@ -384,7 +406,7 @@ class WaveformPainterPixelTest {
                 motion = WaveformMotion.STATIC_PULSE,
                 amplitude = MAX_WAVEFORM_AMPLITUDE,
                 intensity = MAX_WAVEFORM_INTENSITY,
-                baseline = WaveformBaseline.CENTERED,
+                baseline = WaveformBaseline.OUTSIDE,
             )
         val margin = WaveformPainter.marginFor(config.amplitude, SOLID_WIDTH).toInt()
         val contentBounds = Rectangle(margin, margin, WIDTH, HEIGHT)
@@ -420,13 +442,13 @@ class WaveformPainterPixelTest {
     }
 
     @Test
-    fun `clipped edge keeps centered Q and S waves inside content`() {
+    fun `clipped outside edge keeps Q and S waves inside content`() {
         val config =
             WaveformConfig(
                 motion = WaveformMotion.STATIC_PULSE,
                 amplitude = MAX_WAVEFORM_AMPLITUDE,
                 intensity = MAX_WAVEFORM_INTENSITY,
-                baseline = WaveformBaseline.CENTERED,
+                baseline = WaveformBaseline.OUTSIDE,
             )
         val signalWidth = 1
         val margin = WaveformPainter.marginFor(config.amplitude, signalWidth).toInt()
@@ -458,7 +480,7 @@ class WaveformPainterPixelTest {
         assertEquals(
             0,
             pixelDifference(empty, rendered.image, escapedRegion),
-            "centered Q and S waves must not escape through a clipped top edge",
+            "outside Q and S waves must not escape through a clipped top edge",
         )
     }
 
