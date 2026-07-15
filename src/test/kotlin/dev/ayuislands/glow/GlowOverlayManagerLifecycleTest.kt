@@ -17,6 +17,7 @@ import dev.ayuislands.glow.waveform.MAX_TRACE_LENGTH
 import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.WaveformDirection
+import dev.ayuislands.glow.waveform.WaveformEdge
 import dev.ayuislands.glow.waveform.WaveformMotion
 import dev.ayuislands.glow.waveform.WaveformPainter
 import dev.ayuislands.licensing.LicenseChecker
@@ -329,6 +330,50 @@ class GlowOverlayManagerLifecycleTest {
             Rectangle(50 - margin, 40 - margin, 120 + margin * 2, 80 + margin * 2),
             readGlassPane(waveformManager, "waveform").bounds,
         )
+    }
+
+    @Test
+    fun `waveform directs clipped edges inward and clears them when space returns`() {
+        val project = stubProject("clipped-waveform-project")
+        val manager = GlowOverlayManager(project)
+        val host = mockk<javax.swing.JComponent>(relaxed = true)
+        val layeredPane = mockk<javax.swing.JLayeredPane>(relaxed = true)
+        val pane =
+            GlowGlassPane(
+                glowColor = Color(0x5CCFE6),
+                glowStyle = GlowStyle.SHARP_NEON,
+                glowIntensity = 100,
+                glowWidth = 4,
+            )
+        pane.configureWaveform(GlowShape.WAVEFORM, WaveformConfig(amplitude = 24))
+        every { host.isShowing } returns true
+        every { host.width } returns 120
+        every { host.height } returns 80
+        every { SwingUtilities.convertPoint(host, 0, 0, layeredPane) } returns Point(0, 0)
+        every { layeredPane.visibleRect } returns Rectangle(0, 0, 120, 80)
+
+        invokeUpdateOverlayBounds(manager, pane, host, layeredPane)
+
+        assertEquals(WaveformEdge.entries.toSet(), pane.waveformInwardEdges)
+
+        every { layeredPane.visibleRect } returns Rectangle(0, 0, 240, 200)
+        val singletonCases =
+            listOf(
+                WaveformEdge.TOP to Point(60, 0),
+                WaveformEdge.RIGHT to Point(120, 60),
+                WaveformEdge.BOTTOM to Point(60, 120),
+                WaveformEdge.LEFT to Point(0, 60),
+            )
+        for ((edge, point) in singletonCases) {
+            every { SwingUtilities.convertPoint(host, 0, 0, layeredPane) } returns point
+            invokeUpdateOverlayBounds(manager, pane, host, layeredPane)
+            assertEquals(setOf(edge), pane.waveformInwardEdges)
+        }
+
+        every { SwingUtilities.convertPoint(host, 0, 0, layeredPane) } returns Point(60, 60)
+        invokeUpdateOverlayBounds(manager, pane, host, layeredPane)
+
+        assertTrue(pane.waveformInwardEdges.isEmpty())
     }
 
     @Test

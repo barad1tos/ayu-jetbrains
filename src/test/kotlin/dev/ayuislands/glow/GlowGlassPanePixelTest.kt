@@ -3,6 +3,7 @@ package dev.ayuislands.glow
 import dev.ayuislands.glow.waveform.BeatMorphology
 import dev.ayuislands.glow.waveform.FrameTrace
 import dev.ayuislands.glow.waveform.WaveformConfig
+import dev.ayuislands.glow.waveform.WaveformEdge
 import dev.ayuislands.glow.waveform.WaveformFrame
 import dev.ayuislands.glow.waveform.WaveformMotion
 import dev.ayuislands.glow.waveform.WaveformPaintRequest
@@ -180,6 +181,30 @@ class GlowGlassPanePixelTest {
         paint(pane)
 
         assertEquals(listOf(listOf(0..80), listOf(0..80), listOf(0..160)), captured)
+    }
+
+    @Test
+    fun `waveform paint passes inward edges to the painter`() {
+        val pane = waveformPane(WaveformConfig())
+        val expected = setOf(WaveformEdge.TOP, WaveformEdge.RIGHT)
+        pane.waveformInwardEdges = expected
+        var captured: Set<WaveformEdge>? = null
+        installWaveformPainter(
+            pane,
+            object : WaveformPainter() {
+                override fun paint(
+                    graphics: java.awt.Graphics2D,
+                    request: WaveformPaintRequest,
+                ): WaveformPaintResult {
+                    captured = request.inwardEdges
+                    return WaveformPaintResult(WaveformTrack(emptyList(), 0f, 0f, 0f), emptyList())
+                }
+            },
+        )
+
+        paint(pane)
+
+        assertEquals(expected, captured)
     }
 
     @Test

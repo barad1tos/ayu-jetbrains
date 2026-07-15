@@ -4,6 +4,7 @@ import com.intellij.openapi.diagnostic.logger
 import dev.ayuislands.glow.waveform.SolidFrameSpec
 import dev.ayuislands.glow.waveform.TimerDirective
 import dev.ayuislands.glow.waveform.WaveformConfig
+import dev.ayuislands.glow.waveform.WaveformEdge
 import dev.ayuislands.glow.waveform.WaveformEngine
 import dev.ayuislands.glow.waveform.WaveformEvent
 import dev.ayuislands.glow.waveform.WaveformFrame
@@ -45,6 +46,12 @@ class GlowGlassPane(
     private var waveformEngine: WaveformEngine? = null
     private var waveformFrame: WaveformFrame? = null
     internal var waveformTopSpans: List<IntRange> = emptyList()
+    internal var waveformInwardEdges: Set<WaveformEdge> = emptySet()
+        set(value) {
+            if (field == value) return
+            field = value.toSet()
+            repaintWaveformBands()
+        }
     internal var topSpansProvider: (() -> List<IntRange>)? = null
     internal var timeSource: () -> Long = System::currentTimeMillis
     private var topSpansRefreshAtMs = 0L
@@ -259,6 +266,7 @@ class GlowGlassPane(
                                 width = glowWidth,
                             ),
                         occupiedTopSpans = waveformTopSpans,
+                        inwardEdges = waveformInwardEdges,
                     ),
             )
         } catch (exception: RuntimeException) {

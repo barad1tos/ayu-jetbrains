@@ -21,6 +21,7 @@ import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.WaveformDirection
+import dev.ayuislands.glow.waveform.WaveformEdge
 import dev.ayuislands.glow.waveform.WaveformMotion
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -31,6 +32,7 @@ import dev.ayuislands.settings.effectiveTraceLength
 import java.awt.Color
 import java.awt.Component
 import java.awt.KeyboardFocusManager
+import java.awt.Rectangle
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.awt.event.HierarchyBoundsAdapter
@@ -323,23 +325,28 @@ class GlowOverlayManager(
                         EditorTabGeometry.editorOverlayGeometry(host)
                     } else {
                         EditorOverlayGeometry(
-                            contentBounds = java.awt.Rectangle(0, 0, host.width, host.height),
+                            contentBounds = Rectangle(0, 0, host.width, host.height),
                             occupiedTopSpans = emptyList(),
                         )
                     }
                 val contentBounds = geometry.contentBounds
                 glassPane.waveformTopSpans = geometry.occupiedTopSpans
                 val margin = glassPane.waveformMargin
-                glassPane.setBounds(
-                    point.x + contentBounds.x - margin,
-                    point.y + contentBounds.y - margin,
-                    contentBounds.width + margin * 2,
-                    contentBounds.height + margin * 2,
-                )
+                val overlayBounds =
+                    Rectangle(
+                        point.x + contentBounds.x - margin,
+                        point.y + contentBounds.y - margin,
+                        contentBounds.width + margin * 2,
+                        contentBounds.height + margin * 2,
+                    )
+                glassPane.setBounds(overlayBounds)
+                glassPane.waveformInwardEdges = clippedWaveformEdges(overlayBounds, layeredPane.visibleRect)
             } else if (glassPane.isEditorOverlay) {
+                glassPane.waveformInwardEdges = emptySet()
                 val bounds = EditorTabGeometry.calculateEditorOverlayBounds(host)
                 glassPane.setBounds(point.x + bounds.x, point.y + bounds.y, bounds.width, bounds.height)
             } else {
+                glassPane.waveformInwardEdges = emptySet()
                 glassPane.setBounds(point.x, point.y, host.width, host.height)
             }
         } catch (exception: RuntimeException) {
@@ -663,6 +670,18 @@ class GlowOverlayManager(
         }
     }
 }
+
+private fun clippedWaveformEdges(
+    overlayBounds: Rectangle,
+    visibleBounds: Rectangle,
+): Set<WaveformEdge> =
+    buildSet {
+        // Redirect before the phosphor halo leaves the Swing root so the complete trace stays visible.
+        if (overlayBounds.y < visibleBounds.y) add(WaveformEdge.TOP)
+        if (overlayBounds.maxX > visibleBounds.maxX) add(WaveformEdge.RIGHT)
+        if (overlayBounds.maxY > visibleBounds.maxY) add(WaveformEdge.BOTTOM)
+        if (overlayBounds.x < visibleBounds.x) add(WaveformEdge.LEFT)
+    }
 
 private fun isExternalGlowBlocked(
     context: AccentContext,

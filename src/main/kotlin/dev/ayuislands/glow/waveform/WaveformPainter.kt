@@ -28,6 +28,41 @@ internal data class SolidFrameSpec(
     val width: Int,
 )
 
+internal enum class WaveformEdge {
+    TOP,
+    RIGHT,
+    BOTTOM,
+    LEFT,
+}
+
+private fun WaveformSample.horizontalOffset(
+    outwardOffset: Float,
+    inwardOffset: Float,
+    inwardEdges: Set<WaveformEdge>,
+): Float {
+    val edge =
+        when {
+            normalX > 0f -> WaveformEdge.RIGHT
+            normalX < 0f -> WaveformEdge.LEFT
+            else -> return outwardOffset
+        }
+    return if (edge in inwardEdges) inwardOffset else outwardOffset
+}
+
+private fun WaveformSample.verticalOffset(
+    outwardOffset: Float,
+    inwardOffset: Float,
+    inwardEdges: Set<WaveformEdge>,
+): Float {
+    val edge =
+        when {
+            normalY < 0f -> WaveformEdge.TOP
+            normalY > 0f -> WaveformEdge.BOTTOM
+            else -> return outwardOffset
+        }
+    return if (edge in inwardEdges) inwardOffset else outwardOffset
+}
+
 internal data class WaveformPaintRequest(
     val bounds: Rectangle,
     val arcWidth: Int,
@@ -36,6 +71,7 @@ internal data class WaveformPaintRequest(
     val solidFrame: SolidFrameSpec,
     val displacementScale: Float = 1f,
     val occupiedTopSpans: List<IntRange> = emptyList(),
+    val inwardEdges: Set<WaveformEdge> = emptySet(),
 )
 
 internal open class WaveformPainter(
@@ -78,6 +114,7 @@ internal open class WaveformPainter(
                         frame = frame,
                         amplitude = displacementAmplitude,
                         maximumDisplacement = MAX_GLOW_DISPLACEMENT,
+                        inwardEdges = request.inwardEdges,
                     ),
                 core =
                     signalPaths(
@@ -85,6 +122,7 @@ internal open class WaveformPainter(
                         frame = frame,
                         amplitude = displacementAmplitude,
                         maximumDisplacement = 1f,
+                        inwardEdges = request.inwardEdges,
                     ),
             )
         graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
@@ -250,6 +288,7 @@ internal open class WaveformPainter(
         frame: WaveformFrame,
         amplitude: Float,
         maximumDisplacement: Float,
+        inwardEdges: Set<WaveformEdge>,
     ): SignalPathSet {
         val bands = List(ALPHA_BANDS) { Path2D.Float() }
         val heads = mutableListOf<HeadPath>()
@@ -260,7 +299,7 @@ internal open class WaveformPainter(
                 WaveformMotion.STATIC_PULSE -> REST_AMPLITUDE_SCALE + energy * ACTIVE_AMPLITUDE_RANGE
             }
         val scaledAmplitude = amplitude * amplitudeScale
-        appendSignal(signal, scaledAmplitude, maximumDisplacement, bands)?.let { heads += it }
+        appendSignal(signal, scaledAmplitude, maximumDisplacement, inwardEdges, bands)?.let { heads += it }
         return SignalPathSet(bands, heads)
     }
 
@@ -268,6 +307,7 @@ internal open class WaveformPainter(
         signal: SampledSignal,
         amplitude: Float,
         maximumDisplacement: Float,
+        inwardEdges: Set<WaveformEdge>,
         bands: List<Path2D.Float>,
     ): HeadPath? {
         val lastIndex = IntArray(ALPHA_BANDS) { NO_INDEX }
@@ -286,12 +326,21 @@ internal open class WaveformPainter(
                 return@forEachIndexed
             }
 
-            val normalizedOffset = signalOffset(signalValue(spec, phase), spec.baseline)
-            val displacement =
-                normalizedOffset.coerceIn(-maximumDisplacement, maximumDisplacement) *
+            val morphology = signalValue(spec, phase)
+            val outwardOffset = signalOffset(morphology, spec.baseline)
+            val inwardOffset = -signalOffset(morphology, WaveformBaseline.OUTSIDE)
+            val horizontalDisplacement =
+                sample
+                    .horizontalOffset(outwardOffset, inwardOffset, inwardEdges)
+                    .coerceIn(-maximumDisplacement, maximumDisplacement) *
                     amplitude * sample.amplitudeMask
-            val x = sample.x + sample.normalX * displacement
-            val y = sample.y + sample.normalY * displacement
+            val verticalDisplacement =
+                sample
+                    .verticalOffset(outwardOffset, inwardOffset, inwardEdges)
+                    .coerceIn(-maximumDisplacement, maximumDisplacement) *
+                    amplitude * sample.amplitudeMask
+            val x = sample.x + sample.normalX * horizontalDisplacement
+            val y = sample.y + sample.normalY * verticalDisplacement
             val band = min((alpha * ALPHA_BANDS).toInt(), ALPHA_BANDS - 1)
             if (lastIndex[band] == index - 1) {
                 bands[band].lineTo(x, y)

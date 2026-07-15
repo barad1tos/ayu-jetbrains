@@ -204,6 +204,118 @@ class WaveformPainterPixelTest {
     }
 
     @Test
+    fun `blocked perimeter edges direct R peaks inward`() {
+        val config =
+            WaveformConfig(
+                amplitude = 16,
+                intensity = 100,
+                baseline = WaveformBaseline.CENTERED,
+            )
+        val flat = render(WaveformFrame(config = config.copy(intensity = 0)))
+        val samples = flat.result.track.samples
+        val edgeSamples =
+            listOf(
+                WaveformEdge.TOP to samples.first { it.normalY < -0.999f },
+                WaveformEdge.RIGHT to samples.first { it.normalX > 0.999f },
+                WaveformEdge.BOTTOM to samples.first { it.normalY > 0.999f },
+                WaveformEdge.LEFT to samples.first { it.normalX < -0.999f },
+            )
+
+        for ((edge, sample) in edgeSamples) {
+            val beat =
+                render(
+                    frame(
+                        config,
+                        sample.distance - flat.result.track.signalAnchorDistance,
+                        BeatMorphology.standard(),
+                    ),
+                    inwardEdges = setOf(edge),
+                )
+            val inwardX = (sample.x - sample.normalX * OUTWARD_PROBE).roundToInt()
+            val inwardY = (sample.y - sample.normalY * OUTWARD_PROBE).roundToInt()
+            val outwardX = (sample.x + sample.normalX * OUTWARD_PROBE).roundToInt()
+            val outwardY = (sample.y + sample.normalY * OUTWARD_PROBE).roundToInt()
+
+            assertTrue(
+                alphaAt(beat.image, inwardX, inwardY) > alphaAt(flat.image, inwardX, inwardY),
+                "$edge R peak must paint inward at $inwardX,$inwardY",
+            )
+            assertEquals(
+                alphaAt(flat.image, outwardX, outwardY),
+                alphaAt(beat.image, outwardX, outwardY),
+                "$edge R peak must not escape through the clipped edge",
+            )
+        }
+    }
+
+    @Test
+    fun `single blocked edge keeps the other edge outward`() {
+        val config =
+            WaveformConfig(
+                amplitude = 16,
+                intensity = 100,
+                baseline = WaveformBaseline.CENTERED,
+            )
+        val flat = render(WaveformFrame(config = config.copy(intensity = 0)))
+        val rightSample =
+            flat.result.track.samples
+                .first { it.normalX > 0.999f }
+        val beat =
+            render(
+                frame(
+                    config,
+                    rightSample.distance - flat.result.track.signalAnchorDistance,
+                    BeatMorphology.standard(),
+                ),
+                inwardEdges = setOf(WaveformEdge.TOP),
+            )
+        val outwardX = (rightSample.x + rightSample.normalX * OUTWARD_PROBE).roundToInt()
+        val outwardY = (rightSample.y + rightSample.normalY * OUTWARD_PROBE).roundToInt()
+        val inwardX = (rightSample.x - rightSample.normalX * OUTWARD_PROBE).roundToInt()
+        val inwardY = (rightSample.y - rightSample.normalY * OUTWARD_PROBE).roundToInt()
+
+        assertTrue(
+            alphaAt(beat.image, outwardX, outwardY) > alphaAt(flat.image, outwardX, outwardY),
+            "unblocked right edge must preserve the configured outward R peak",
+        )
+        assertTrue(
+            alphaAt(beat.image, outwardX, outwardY) > alphaAt(beat.image, inwardX, inwardY),
+            "top clipping must keep the right R peak predominantly outward",
+        )
+    }
+
+    @Test
+    fun `single blocked edge changes only its corner component`() {
+        val config =
+            WaveformConfig(
+                amplitude = 16,
+                intensity = 100,
+                baseline = WaveformBaseline.CENTERED,
+            )
+        val flat = render(WaveformFrame(config = config.copy(intensity = 0)))
+        val corner =
+            flat.result.track.samples
+                .filter { it.normalX > 0f && it.normalY < 0f }
+                .minBy { kotlin.math.abs(it.normalX + it.normalY) }
+        val beat =
+            render(
+                frame(
+                    config,
+                    corner.distance - flat.result.track.signalAnchorDistance,
+                    BeatMorphology.standard(),
+                ),
+                inwardEdges = setOf(WaveformEdge.TOP),
+            )
+        val mixedX = (corner.x + corner.normalX * OUTWARD_PROBE).roundToInt()
+        val mixedY = (corner.y - corner.normalY * OUTWARD_PROBE).roundToInt()
+
+        assertTrue(
+            alphaAt(beat.image, mixedX, mixedY) > alphaAt(flat.image, mixedX, mixedY),
+            "top-right corner must move down from the clipped top while retaining its free right component",
+        )
+    }
+
+    @Test
     fun `full static boost increases displaced pixels and brightness`() {
         val config = WaveformConfig(motion = WaveformMotion.STATIC_PULSE, amplitude = 16, intensity = 100)
         val idle =
@@ -262,6 +374,91 @@ class WaveformPainterPixelTest {
             0,
             pixelDifference(base, active.image, Rectangle(region.x, 0, region.width, 1)),
             "R peak must not clip against the overlay edge",
+        )
+    }
+
+    @Test
+    fun `clipped top edge renders a full ECG peak inside content`() {
+        val config =
+            WaveformConfig(
+                motion = WaveformMotion.STATIC_PULSE,
+                amplitude = MAX_WAVEFORM_AMPLITUDE,
+                intensity = MAX_WAVEFORM_INTENSITY,
+                baseline = WaveformBaseline.CENTERED,
+            )
+        val margin = WaveformPainter.marginFor(config.amplitude, SOLID_WIDTH).toInt()
+        val contentBounds = Rectangle(margin, margin, WIDTH, HEIGHT)
+        val renderBounds = Rectangle(0, 0, WIDTH + margin * 2, HEIGHT + margin * 2)
+        val rendered =
+            render(
+                frame = WaveformFrame(config = config, energy = 1f, brightness = 1f),
+                renderBounds = renderBounds,
+                solidFrame =
+                    SolidFrameSpec(
+                        bounds = contentBounds,
+                        style = GlowStyle.SHARP_NEON,
+                        intensity = 0,
+                        width = SOLID_WIDTH,
+                    ),
+                inwardEdges = setOf(WaveformEdge.TOP),
+            )
+        val anchor = rendered.result.track.sampleNearest(rendered.result.track.signalAnchorDistance)
+        val visibleClip =
+            Rectangle(
+                (anchor.x - FLASH_HALF_WIDTH).roundToInt(),
+                contentBounds.y,
+                FLASH_HALF_WIDTH * 2,
+                config.amplitude + 1,
+            )
+        val empty = BufferedImage(renderBounds.width, renderBounds.height, BufferedImage.TYPE_INT_ARGB)
+        val visible = visibleSignalBounds(empty, rendered.image, visibleClip)
+
+        assertTrue(
+            visible.height >= config.amplitude * MIN_ACTIVE_HEIGHT_FRACTION,
+            "native clip must retain the full ECG peak inside content: $visible",
+        )
+    }
+
+    @Test
+    fun `clipped edge keeps centered Q and S waves inside content`() {
+        val config =
+            WaveformConfig(
+                motion = WaveformMotion.STATIC_PULSE,
+                amplitude = MAX_WAVEFORM_AMPLITUDE,
+                intensity = MAX_WAVEFORM_INTENSITY,
+                baseline = WaveformBaseline.CENTERED,
+            )
+        val signalWidth = 1
+        val margin = WaveformPainter.marginFor(config.amplitude, signalWidth).toInt()
+        val contentBounds = Rectangle(margin, margin, WIDTH, HEIGHT)
+        val renderBounds = Rectangle(0, 0, WIDTH + margin * 2, HEIGHT + margin * 2)
+        val rendered =
+            render(
+                frame = frame(config, center = 0f, morphology = BeatMorphology.standard()),
+                renderBounds = renderBounds,
+                solidFrame =
+                    SolidFrameSpec(
+                        bounds = contentBounds,
+                        style = GlowStyle.SHARP_NEON,
+                        intensity = 0,
+                        width = signalWidth,
+                    ),
+                inwardEdges = setOf(WaveformEdge.TOP),
+            )
+        val anchor = rendered.result.track.sampleNearest(rendered.result.track.signalAnchorDistance)
+        val escapedRegion =
+            Rectangle(
+                (anchor.x - FLASH_HALF_WIDTH).roundToInt(),
+                0,
+                FLASH_HALF_WIDTH * 2,
+                contentBounds.y - SIGNAL_ESCAPE_CLEARANCE,
+            )
+        val empty = BufferedImage(renderBounds.width, renderBounds.height, BufferedImage.TYPE_INT_ARGB)
+
+        assertEquals(
+            0,
+            pixelDifference(empty, rendered.image, escapedRegion),
+            "centered Q and S waves must not escape through a clipped top edge",
         )
     }
 
@@ -724,6 +921,7 @@ class WaveformPainterPixelTest {
         occupiedTopSpans: List<IntRange> = emptyList(),
         renderBounds: Rectangle = bounds,
         solidFrame: SolidFrameSpec = solidFrame(),
+        inwardEdges: Set<WaveformEdge> = emptySet(),
     ): Rendered {
         val image = BufferedImage(renderBounds.width, renderBounds.height, BufferedImage.TYPE_INT_ARGB)
         val graphics = image.createGraphics()
@@ -739,6 +937,7 @@ class WaveformPainterPixelTest {
                             frame = frame,
                             occupiedTopSpans = occupiedTopSpans,
                             solidFrame = solidFrame,
+                            inwardEdges = inwardEdges,
                         ),
                 )
             } finally {
@@ -1011,6 +1210,7 @@ class WaveformPainterPixelTest {
         const val SOLID_INTENSITY = 80
         const val SOLID_WIDTH = 4
         const val MIN_SIGNAL_WIDTH = 1
+        const val SIGNAL_ESCAPE_CLEARANCE = 3
         const val R_PEAK_THRESHOLD = 0.8f
         const val PEAK_SCAN_STEP = 0.5f
         const val PEAK_SCAN_RADIUS = 1
