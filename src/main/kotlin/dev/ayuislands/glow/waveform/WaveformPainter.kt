@@ -106,9 +106,6 @@ internal open class WaveformPainter(
 
         val displacementAmplitude = amplitude * request.displacementScale.coerceIn(0f, 1f)
         val signal = sampledSignal(track, frame)
-        // Keep `CENTERED` symmetric on the border; only an outside trace may move inward to avoid clipping.
-        val inwardEdges =
-            if (frame.config.baseline == WaveformBaseline.OUTSIDE) request.inwardEdges else emptySet()
         val layers =
             SignalLayers(
                 glow =
@@ -117,7 +114,7 @@ internal open class WaveformPainter(
                         frame = frame,
                         amplitude = displacementAmplitude,
                         maximumDisplacement = MAX_GLOW_DISPLACEMENT,
-                        inwardEdges = inwardEdges,
+                        inwardEdges = request.inwardEdges,
                     ),
                 core =
                     signalPaths(
@@ -125,7 +122,7 @@ internal open class WaveformPainter(
                         frame = frame,
                         amplitude = displacementAmplitude,
                         maximumDisplacement = 1f,
-                        inwardEdges = inwardEdges,
+                        inwardEdges = request.inwardEdges,
                     ),
             )
         graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
@@ -331,7 +328,8 @@ internal open class WaveformPainter(
 
             val morphology = signalValue(spec, phase)
             val outwardOffset = signalOffset(morphology, spec.baseline)
-            val inwardOffset = -signalOffset(morphology, WaveformBaseline.OUTSIDE)
+            // Mirror a clipped `CENTERED` trace so R stays visible; minor Q/S notches may be clipped.
+            val inwardOffset = -outwardOffset
             val horizontalDisplacement =
                 sample
                     .horizontalOffset(outwardOffset, inwardOffset, inwardEdges)

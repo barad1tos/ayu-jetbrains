@@ -249,24 +249,34 @@ class WaveformPainterPixelTest {
     }
 
     @Test
-    fun `centered baseline ignores clipped edge redirection`() {
+    fun `clipped centered ECG mirrors inward`() {
         val config =
             WaveformConfig(
-                amplitude = 16,
-                intensity = 100,
+                motion = WaveformMotion.STATIC_PULSE,
+                amplitude = MAX_WAVEFORM_AMPLITUDE,
+                intensity = MAX_WAVEFORM_INTENSITY,
                 baseline = WaveformBaseline.CENTERED,
             )
-        val centered = render(WaveformFrame(config = config))
-        val clipped =
+        val rendered =
             render(
-                frame = WaveformFrame(config = config),
-                inwardEdges = WaveformEdge.entries.toSet(),
+                frame = WaveformFrame(config = config, energy = 1f, brightness = 1f),
+                solidFrame = solidFrame().copy(intensity = 0),
+                inwardEdges = setOf(WaveformEdge.TOP),
             )
+        val baseline =
+            rendered.result.track.samples
+                .first { it.normalY < -0.999f }
+                .y
+                .roundToInt()
+        val extents = topCoreExtents(rendered)
 
-        assertEquals(
-            0,
-            pixelDifference(centered.image, clipped.image),
-            "clipped window geometry must not replace the selected centered baseline",
+        assertTrue(
+            extents.last - baseline >= config.amplitude * MIN_ACTIVE_HEIGHT_FRACTION,
+            "clipped centered R peak must point inward: baseline=$baseline extents=$extents",
+        )
+        assertTrue(
+            baseline - extents.first >= MIN_INWARD_NOTCH,
+            "R-prioritizing mirror must leave Q and S on the native-clipped side: baseline=$baseline extents=$extents",
         )
     }
 
