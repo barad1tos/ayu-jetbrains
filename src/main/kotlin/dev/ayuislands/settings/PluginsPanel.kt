@@ -285,7 +285,7 @@ class PluginsPanel : AyuIslandsSettingsPanel {
             buildLicensedCheckbox(
                 labelText = "Chrome tint",
                 description =
-                    "Tint chrome surfaces and accent elements with the Ayu accent. " +
+                    "Tint selected chrome surfaces and the active tab underline with the Ayu accent. " +
                         "Configure surfaces on the Accent tab while an Ayu theme is active.",
                 licensed = licensed,
                 isSelected = pendingSettings.externalInheritance.isChromeTintEnabled,

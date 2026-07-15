@@ -14,7 +14,10 @@ import dev.ayuislands.AyuPlugin
 import dev.ayuislands.accent.conflict.ConflictEntry
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.accent.conflict.ConflictType
+import dev.ayuislands.accent.elements.AbstractChromeElement
+import dev.ayuislands.glow.GlowTabMode
 import dev.ayuislands.indent.IndentRainbowSync
+import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.clearAllMocks
@@ -82,6 +85,8 @@ class AccentApplicatorTest {
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns mockSettings
         every { mockSettings.state } returns state
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.isLicensedOrGrace() } returns true
 
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
@@ -119,6 +124,7 @@ class AccentApplicatorTest {
 
     @AfterTest
     fun tearDown() {
+        ExternalChromeOwnership.resetForTests()
         restoreOriginalEpName()
         unmockkAll()
         clearAllMocks()
@@ -134,7 +140,12 @@ class AccentApplicatorTest {
         // Replicate the always-on logic from AccentApplicator.apply() without
         // applyElements (requires EP_NAME) and syncCodeGlanceProViewport (requires CGP).
         val state = AyuIslandsSettings.getInstance().state
-        invokePrivate("applyAlwaysOnUiKeys", state, accent)
+        invokePrivate(
+            "applyAlwaysOnUiKeys",
+            state,
+            accent,
+            LicenseChecker.isLicensedOrGrace(),
+        )
         invokePrivate("applyAlwaysOnEditorKeys", accent)
         val windows = Window.getWindows()
         invokePrivate("repaintAllWindows", windows)
@@ -261,6 +272,34 @@ class AccentApplicatorTest {
                 },
             )
         }
+    }
+
+    @Test
+    fun `unlicensed apply renders minimal tab mode without erasing FULL preference`() {
+        state.glowTabMode = "FULL"
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+
+        applyWithoutExtensions("#FFCC66")
+
+        verify {
+            UIManager.put(
+                "EditorTabs.underlinedTabBackground",
+                match<Color> { color -> color.alpha == 0 },
+            )
+        }
+        assertEquals("FULL", state.glowTabMode)
+    }
+
+    @Test
+    fun `apply snapshots chrome entitlement once`() {
+        mockEpExtensionList(emptyList())
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns Unit
+        state.cgpIntegrationEnabled = false
+
+        AccentApplicator.applyFromHexString("#FFCC66")
+
+        verify(exactly = 1) { LicenseChecker.isLicensedOrGrace() }
     }
 
     @Test
@@ -896,10 +935,10 @@ class AccentApplicatorTest {
             AccentApplicator::class.java.declaredMethods
                 .first { it.name == "applyAlwaysOnUiKeys" }
         assertEquals(
-            2,
+            3,
             method.parameterCount,
-            "applyAlwaysOnUiKeys must accept (state, accent) so tab-mode resolution shares the same state snapshot " +
-                "as the outer apply() call and cannot drift mid-apply",
+            "applyAlwaysOnUiKeys must accept (state, accent, entitlement) so tab-mode resolution shares the " +
+                "outer apply() snapshots and cannot drift mid-apply",
         )
         assertEquals(
             AyuIslandsState::class.java,
@@ -910,6 +949,11 @@ class AccentApplicatorTest {
             Color::class.java,
             method.parameterTypes[1],
             "Second parameter must be the resolved accent Color",
+        )
+        assertEquals(
+            Boolean::class.javaPrimitiveType,
+            method.parameterTypes[2],
+            "Third parameter must be the chrome entitlement captured once by apply()",
         )
     }
 
@@ -946,46 +990,49 @@ class AccentApplicatorTest {
     }
 
     @Test
-    fun `apply external context reverts elements and clears underline geometry while allowance is off`() {
-        val element = createFakeAccentElement(AccentElementId.CARET_ROW, "Caret Row")
-        mockEpExtensionList(listOf(element))
+    fun `external chrome default off leaves every element and underline untouched`() {
+        val visualElement = createFakeAccentElement(AccentElementId.CARET_ROW, "Caret Row")
+        val chromeElement = createExternalChromeElement()
+        stubExternalChromeBase(Color(0x24, 0x29, 0x36))
+        mockEpExtensionList(listOf(visualElement, chromeElement))
         mockkObject(IndentRainbowSync)
         every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
         state.externalThemeEnhancementsEnabled = true
+        state.chromePanelBorder = true
         every { AyuVariant.detect() } returns null
 
         AccentApplicator.applyFromHexString("#AABBCC")
 
         verify(exactly = 1) { IndentRainbowSync.apply(AccentContext.External, "#AABBCC") }
-        verify(exactly = 0) { element.apply(any()) }
-        verify(exactly = 1) { element.revert() }
-        verify(exactly = 0) { element.applyNeutral(any()) }
-        // MockK's any() matches null under type erasure, so "only the null
-        // clear happened" is proven as: exactly one call total, and that call
-        // carried null.
-        verify(exactly = 1) { UIManager.put("EditorTabs.underlineHeight", null) }
-        verify(exactly = 1) { UIManager.put("EditorTabs.underlineArc", null) }
-        verify(exactly = 1) { UIManager.put("EditorTabs.underlineHeight", any()) }
-        verify(exactly = 1) { UIManager.put("EditorTabs.underlineArc", any()) }
+        verify(exactly = 0) { visualElement.apply(any()) }
+        verify(exactly = 0) { visualElement.revert() }
+        verify(exactly = 0) { visualElement.applyNeutral(any()) }
+        verify(exactly = 0) { UIManager.put(EXTERNAL_CHROME_TEST_KEY, any()) }
+        verify(exactly = 0) { UIManager.put("EditorTabs.underlineHeight", any()) }
+        verify(exactly = 0) { UIManager.put("EditorTabs.underlineArc", any()) }
     }
 
     @Test
-    fun `apply external context tints elements and writes underline geometry when allowance is on`() {
-        val element = createFakeAccentElement(AccentElementId.CARET_ROW, "Caret Row")
-        mockEpExtensionList(listOf(element))
+    fun `external chrome applies only chrome group surfaces and underline`() {
+        val visualElement = createFakeAccentElement(AccentElementId.CARET_ROW, "Caret Row")
+        val chromeElement = createExternalChromeElement()
+        stubExternalChromeBase(Color(0x24, 0x29, 0x36))
+        mockEpExtensionList(listOf(visualElement, chromeElement))
         mockkObject(IndentRainbowSync)
         every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
         state.externalThemeEnhancementsEnabled = true
         state.externalThemeChromeTintEnabled = true
+        state.chromePanelBorder = true
         every { AyuVariant.detect() } returns null
 
         AccentApplicator.applyFromHexString("#AABBCC")
 
-        verify(exactly = 1) { element.apply(Color.decode("#AABBCC")) }
-        verify(exactly = 0) { element.revert() }
-        verify(exactly = 0) { element.applyNeutral(any()) }
+        verify(exactly = 0) { visualElement.apply(any()) }
+        verify(exactly = 0) { visualElement.revert() }
+        verify(exactly = 0) { visualElement.applyNeutral(any()) }
+        verify(exactly = 1) { UIManager.put(EXTERNAL_CHROME_TEST_KEY, any<Color>()) }
         verify(exactly = 1) { UIManager.put("EditorTabs.underlineHeight", any()) }
         verify(exactly = 1) { UIManager.put("EditorTabs.underlineArc", any()) }
         verify(exactly = 0) { UIManager.put("EditorTabs.underlineHeight", null) }
@@ -993,22 +1040,176 @@ class AccentApplicatorTest {
     }
 
     @Test
-    fun `apply external context reverts a toggled-off element even when allowance is on`() {
-        val element = createFakeAccentElement(AccentElementId.CARET_ROW, "Caret Row")
-        mockEpExtensionList(listOf(element))
+    fun `disabling external chrome reverts only surfaces this process tinted`() {
+        val chromeElement = createExternalChromeElement()
+        stubExternalChromeBase(Color(0x24, 0x29, 0x36))
+        mockEpExtensionList(listOf(chromeElement))
         mockkObject(IndentRainbowSync)
         every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns Unit
         state.cgpIntegrationEnabled = false
         state.externalThemeEnhancementsEnabled = true
         state.externalThemeChromeTintEnabled = true
-        state.setToggle(AccentElementId.CARET_ROW, false)
+        state.chromePanelBorder = true
+        every { AyuVariant.detect() } returns null
+
+        AccentApplicator.applyFromHexString("#AABBCC")
+        state.externalThemeChromeTintEnabled = false
+        AccentApplicator.applyFromHexString("#AABBCC")
+
+        verify(exactly = 2) { UIManager.put(EXTERNAL_CHROME_TEST_KEY, any()) }
+        verify(exactly = 1) { UIManager.put(EXTERNAL_CHROME_TEST_KEY, null) }
+        verify(exactly = 2) { UIManager.put("EditorTabs.underlineHeight", any()) }
+        verify(exactly = 1) { UIManager.put("EditorTabs.underlineHeight", null) }
+    }
+
+    @Test
+    fun `failed global revert keeps external surface owned for retry`() {
+        val chromeElement = createExternalChromeElement()
+        stubExternalChromeBase(Color(0x24, 0x29, 0x36))
+        mockEpExtensionList(listOf(chromeElement))
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns Unit
+        state.cgpIntegrationEnabled = false
+        state.externalThemeEnhancementsEnabled = true
+        state.externalThemeChromeTintEnabled = true
+        state.chromePanelBorder = true
+        every { AyuVariant.detect() } returns null
+
+        AccentApplicator.applyFromHexString("#AABBCC")
+        every { UIManager.put(EXTERNAL_CHROME_TEST_KEY, null) } throws RuntimeException("revert failed")
+        invokePrivate("clearReverseUiAndExtensions")
+
+        every { UIManager.put(EXTERNAL_CHROME_TEST_KEY, null) } returns Unit
+        state.externalThemeChromeTintEnabled = false
+        AccentApplicator.applyFromHexString("#AABBCC")
+
+        verify(exactly = 2) { UIManager.put(EXTERNAL_CHROME_TEST_KEY, null) }
+    }
+
+    @Test
+    fun `external write exception rolls back the preclaimed surface`() {
+        val chromeElement = createExternalChromeElement()
+        stubExternalChromeBase(Color(0x24, 0x29, 0x36))
+        mockEpExtensionList(listOf(chromeElement))
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns Unit
+        state.cgpIntegrationEnabled = false
+        state.externalThemeEnhancementsEnabled = true
+        state.externalThemeChromeTintEnabled = true
+        state.chromePanelBorder = true
+        every { AyuVariant.detect() } returns null
+        every {
+            UIManager.put(EXTERNAL_CHROME_TEST_KEY, any<Color>())
+        } throws RuntimeException("listener failed after write")
+        every { UIManager.put(EXTERNAL_CHROME_TEST_KEY, null) } returns Unit
+
+        AccentApplicator.applyFromHexString("#AABBCC")
+
+        verify(exactly = 2) { UIManager.put(EXTERNAL_CHROME_TEST_KEY, any()) }
+        verify(exactly = 1) { UIManager.put(EXTERNAL_CHROME_TEST_KEY, null) }
+    }
+
+    @Test
+    fun `partial external underline write remains owned for retry`() {
+        mockEpExtensionList(emptyList())
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns Unit
+        state.cgpIntegrationEnabled = false
+        state.externalThemeEnhancementsEnabled = true
+        state.externalThemeChromeTintEnabled = true
+        every { AyuVariant.detect() } returns null
+        every { UIManager.put("EditorTabs.underlineArc", any<Int>()) } throws RuntimeException("arc failed")
+
+        AccentApplicator.applyFromHexString("#AABBCC")
+        every { UIManager.put("EditorTabs.underlineArc", any()) } returns Unit
+        state.externalThemeChromeTintEnabled = false
+        AccentApplicator.applyFromHexString("#AABBCC")
+
+        verify(exactly = 1) { UIManager.put("EditorTabs.underlineHeight", null) }
+        verify(exactly = 1) { UIManager.put("EditorTabs.underlineArc", null) }
+    }
+
+    @Test
+    fun `failed external underline cleanup remains owned for retry`() {
+        mockEpExtensionList(emptyList())
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns Unit
+        state.cgpIntegrationEnabled = false
+        state.externalThemeEnhancementsEnabled = true
+        state.externalThemeChromeTintEnabled = true
+        every { AyuVariant.detect() } returns null
+
+        AccentApplicator.applyFromHexString("#AABBCC")
+        state.externalThemeChromeTintEnabled = false
+        every { UIManager.put("EditorTabs.underlineArc", null) } throws RuntimeException("cleanup failed")
+        AccentApplicator.applyFromHexString("#AABBCC")
+
+        every { UIManager.put("EditorTabs.underlineArc", null) } returns Unit
+        AccentApplicator.applyFromHexString("#AABBCC")
+
+        verify(exactly = 2) { UIManager.put("EditorTabs.underlineHeight", null) }
+        verify(exactly = 2) { UIManager.put("EditorTabs.underlineArc", null) }
+    }
+
+    @Test
+    fun `external chrome with a missing base never claims or reverts the surface`() {
+        val chromeElement = createExternalChromeElement()
+        stubExternalChromeBase(null)
+        mockEpExtensionList(listOf(chromeElement))
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns Unit
+        state.cgpIntegrationEnabled = false
+        state.externalThemeEnhancementsEnabled = true
+        state.externalThemeChromeTintEnabled = true
+        state.chromePanelBorder = true
+        every { AyuVariant.detect() } returns null
+
+        AccentApplicator.applyFromHexString("#AABBCC")
+        state.externalThemeChromeTintEnabled = false
+        AccentApplicator.applyFromHexString("#AABBCC")
+
+        verify(exactly = 0) { UIManager.put(EXTERNAL_CHROME_TEST_KEY, any()) }
+    }
+
+    @Test
+    fun `external chrome disabled surface never claims or reverts ownership`() {
+        val chromeElement = createExternalChromeElement(isEnabled = false)
+        stubExternalChromeBase(Color(0x24, 0x29, 0x36))
+        mockEpExtensionList(listOf(chromeElement))
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns Unit
+        state.cgpIntegrationEnabled = false
+        state.externalThemeEnhancementsEnabled = true
+        state.externalThemeChromeTintEnabled = true
+        state.chromePanelBorder = true
+        every { AyuVariant.detect() } returns null
+
+        AccentApplicator.applyFromHexString("#AABBCC")
+        state.externalThemeChromeTintEnabled = false
+        AccentApplicator.applyFromHexString("#AABBCC")
+
+        verify(exactly = 0) { UIManager.put(EXTERNAL_CHROME_TEST_KEY, any()) }
+    }
+
+    @Test
+    fun `unlicensed external startup leaves chrome and underline untouched`() {
+        val chromeElement = createExternalChromeElement()
+        stubExternalChromeBase(Color(0x24, 0x29, 0x36))
+        mockEpExtensionList(listOf(chromeElement))
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns Unit
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        state.cgpIntegrationEnabled = false
+        state.externalThemeEnhancementsEnabled = true
+        state.externalThemeChromeTintEnabled = true
+        state.chromePanelBorder = true
         every { AyuVariant.detect() } returns null
 
         AccentApplicator.applyFromHexString("#AABBCC")
 
-        verify(exactly = 0) { element.apply(any()) }
-        verify(exactly = 1) { element.revert() }
-        verify(exactly = 0) { element.applyNeutral(any()) }
+        verify(exactly = 0) { UIManager.put(EXTERNAL_CHROME_TEST_KEY, any()) }
+        verify(exactly = 0) { UIManager.put("EditorTabs.underlineHeight", any()) }
+        verify(exactly = 0) { UIManager.put("EditorTabs.underlineArc", any()) }
     }
 
     @Test
@@ -1287,7 +1488,7 @@ class AccentApplicatorTest {
     }
 
     @Test
-    fun `applyElements with disabled toggle under external context reverts element`() {
+    fun `applyElements under external context leaves non chrome element untouched`() {
         val mockElement = mockk<AccentElement>(relaxed = true)
         every { mockElement.id } returns AccentElementId.CARET_ROW
         every { mockElement.displayName } returns "Caret Row"
@@ -1299,8 +1500,24 @@ class AccentApplicatorTest {
         val accent = Color.decode("#FFCC66")
         invokeApplyElements(state, accent, AccentContext.External)
 
-        verify { mockElement.revert() }
+        verify(exactly = 0) { mockElement.revert() }
         verify(exactly = 0) { mockElement.apply(any()) }
+    }
+
+    @Test
+    fun `applyElements under Ayu context gates chrome without erasing its preference`() {
+        val chromeElement = mockk<AccentElement>(relaxed = true)
+        every { chromeElement.id } returns AccentElementId.PANEL_BORDER
+        every { chromeElement.displayName } returns "Panel border"
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        state.chromePanelBorder = true
+        mockEpExtensionList(listOf(chromeElement))
+
+        invokeApplyElements(state, Color.decode("#FFCC66"), AccentContext.Ayu(AyuVariant.MIRAGE))
+
+        verify(exactly = 1) { chromeElement.applyNeutral(AyuVariant.MIRAGE) }
+        verify(exactly = 0) { chromeElement.apply(any()) }
+        kotlin.test.assertTrue(state.chromePanelBorder)
     }
 
     @Test
@@ -1790,7 +2007,7 @@ class AccentApplicatorTest {
     }
 
     /**
-     * Invokes the private `applyElements(AyuIslandsState, Color, AccentContext)`
+     * Invokes the private `applyElements(AyuIslandsState, Color, AccentContext, Boolean)`
      * method via reflection.
      */
     private fun invokeApplyElements(
@@ -1802,7 +2019,13 @@ class AccentApplicatorTest {
             AccentApplicator::class.java.declaredMethods
                 .first { it.name == "applyElements" }
         method.isAccessible = true
-        method.invoke(AccentApplicator, targetState, accent, context)
+        method.invoke(
+            AccentApplicator,
+            targetState,
+            accent,
+            context,
+            LicenseChecker.isLicensedOrGrace(),
+        )
     }
 
     // Helper for invoking private methods that accept nullable parameters
@@ -1822,7 +2045,7 @@ class AccentApplicatorTest {
         state.glowTabMode = "OFF"
         state.tabUnderlineHeight = 6
 
-        assertEquals(6, resolveUnderlineHeight(state))
+        assertEquals(6, resolveUnderlineHeight(state, GlowTabMode.OFF))
     }
 
     @Test
@@ -1831,7 +2054,7 @@ class AccentApplicatorTest {
         state.tabUnderlineGlowSync = false
         state.tabUnderlineHeight = 4
 
-        assertEquals(4, resolveUnderlineHeight(state))
+        assertEquals(4, resolveUnderlineHeight(state, GlowTabMode.MINIMAL))
     }
 
     @Test
@@ -1842,7 +2065,7 @@ class AccentApplicatorTest {
         state.glowStyle = "SOFT"
 
         val expected = state.getWidthForStyle(dev.ayuislands.glow.GlowStyle.SOFT)
-        assertEquals(expected, resolveUnderlineHeight(state))
+        assertEquals(expected, resolveUnderlineHeight(state, GlowTabMode.MINIMAL))
     }
 
     @Test
@@ -1852,7 +2075,7 @@ class AccentApplicatorTest {
         state.glowEnabled = false
         state.tabUnderlineHeight = 8
 
-        assertEquals(8, resolveUnderlineHeight(state))
+        assertEquals(8, resolveUnderlineHeight(state, GlowTabMode.MINIMAL))
     }
 
     // applyTabUnderline tests (merged from applyTabUnderlineStyle +
@@ -1890,7 +2113,7 @@ class AccentApplicatorTest {
     }
 
     @Test
-    fun `applyTabUnderline skips neutral gray under external context with allowance on`() {
+    fun `applyTabUnderline leaves external geometry untouched when tab mode is OFF`() {
         state.glowTabMode = "OFF"
         state.externalThemeEnhancementsEnabled = true
         state.externalThemeChromeTintEnabled = true
@@ -1898,6 +2121,8 @@ class AccentApplicatorTest {
         invokeApplyTabUnderline(state, AccentContext.External)
 
         verify(exactly = 0) { mockScheme.setColor(ColorKey.find("TAB_UNDERLINE"), any()) }
+        verify(exactly = 0) { UIManager.put("EditorTabs.underlineHeight", any()) }
+        verify(exactly = 0) { UIManager.put("EditorTabs.underlineArc", any()) }
     }
 
     private fun invokeApplyTabUnderline(
@@ -1908,7 +2133,12 @@ class AccentApplicatorTest {
             AccentApplicator::class.java.declaredMethods
                 .first { it.name == "applyTabUnderline" }
         method.isAccessible = true
-        method.invoke(AccentApplicator, state, context)
+        method.invoke(
+            AccentApplicator,
+            state,
+            context,
+            LicenseChecker.isLicensedOrGrace(),
+        )
     }
 
     private fun resetCodeGlanceProState() {
@@ -1918,6 +2148,24 @@ class AccentApplicatorTest {
         // stale state in the next test on rename. The helper lives next to
         // the fields it resets — a Kotlin rename refactors both at once.
         CodeGlanceProIntegration.resetReflectionCacheForTests()
+    }
+
+    private fun createExternalChromeElement(isEnabled: Boolean = true): AbstractChromeElement =
+        object : AbstractChromeElement() {
+            override val id = AccentElementId.PANEL_BORDER
+            override val displayName = "Test external chrome"
+            override val backgroundKeys = listOf(EXTERNAL_CHROME_TEST_KEY)
+            override val foregroundKeys = emptyList<String>()
+            override val foregroundTextTarget = WcagForeground.TextTarget.PRIMARY_TEXT
+            override val peerTarget: ChromeTarget? = null
+            override val isEnabled = isEnabled
+        }
+
+    private fun stubExternalChromeBase(color: Color?) {
+        mockkObject(ChromeBaseColors)
+        every { ChromeBaseColors[EXTERNAL_CHROME_TEST_KEY] } returns color
+        every { ChromeBaseColors.rememberPluginTint(any(), any()) } returns Unit
+        every { ChromeBaseColors.forgetPluginTint(any()) } returns Unit
     }
 
     // apply() with an invalid hex returns false AND posts a user-visible
@@ -1963,6 +2211,7 @@ class AccentApplicatorTest {
 
     private companion object {
         private const val ACCENT_HEX_STRIPPED = "FFCC66"
+        private const val EXTERNAL_CHROME_TEST_KEY = "Ayu.Test.externalChrome"
         private const val CODE_GLANCE_FIELD_PREFIX = "c" + "g" + "p"
         private const val CODE_GLANCE_METHOD_RESOLUTION =
             "resolve" + "C" + "g" + "p" + "Methods"

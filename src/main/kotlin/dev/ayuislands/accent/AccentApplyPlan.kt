@@ -45,8 +45,9 @@ internal data class AccentApplyPlan(
  * underline, and the IndentRainbow sync gate on the context shape (scheduled
  * for any non-null context, Ayu or External). This is the ONLY context-shape
  * gating site: the worker map in [AccentApplicator] binds every step
- * unconditionally, and the per-feature External allowances (chrome tint,
- * indent rainbow) are checked inside the workers with revert symmetry.
+ * unconditionally. External allowances are checked inside the workers: chrome
+ * tint owns only CHROME-group surfaces and tab underline, while Indent Rainbow
+ * keeps its separate integration gate.
  *
  * Ordering locks encoded here (formerly defended by a source-regex test):
  *  - Integrations run IndentRainbow before CodeGlancePro before the

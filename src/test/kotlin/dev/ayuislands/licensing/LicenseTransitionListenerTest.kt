@@ -6,6 +6,7 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.testFramework.LoggedErrorProcessor
 import com.intellij.ui.LicensingFacade
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -48,10 +49,10 @@ class LicenseTransitionListenerTest {
 
         // Mock the accent re-apply path so transition tests can assert that it fires
         // (on either direction) without spinning up AccentApplicator's platform deps.
-        // Each test re-stubs AyuVariant.detect() when it needs to exercise the
-        // null-variant silent-skip branch.
+        // Each test re-stubs [AyuVariant.detect] when it needs to exercise a
+        // different active accent context.
         mockkObject(AccentApplicator)
-        every { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AyuVariant>()) } returns "#FFCC66"
+        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns "#FFCC66"
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         mockkObject(CommitPanelAutoFitManager.Companion)
@@ -65,7 +66,7 @@ class LicenseTransitionListenerTest {
     @Test
     fun `first licensed notification does not flip flag (initial state)`() {
         state.premiumOnboardingShown = true
-        every { LicenseChecker.isLicensed() } returns true
+        every { LicenseChecker.isLicensedOrGrace() } returns true
 
         LicenseTransitionListener().licenseStateChanged(facade)
 
@@ -77,11 +78,11 @@ class LicenseTransitionListenerTest {
         state.premiumOnboardingShown = true
         val listener = LicenseTransitionListener()
 
-        every { LicenseChecker.isLicensed() } returns false
+        every { LicenseChecker.isLicensedOrGrace() } returns false
         listener.licenseStateChanged(facade)
         assertTrue(state.premiumOnboardingShown)
 
-        every { LicenseChecker.isLicensed() } returns true
+        every { LicenseChecker.isLicensedOrGrace() } returns true
         listener.licenseStateChanged(facade)
 
         assertFalse(state.premiumOnboardingShown)
@@ -92,7 +93,7 @@ class LicenseTransitionListenerTest {
         state.premiumOnboardingShown = true
         val listener = LicenseTransitionListener()
 
-        every { LicenseChecker.isLicensed() } returns true
+        every { LicenseChecker.isLicensedOrGrace() } returns true
         listener.licenseStateChanged(facade)
         listener.licenseStateChanged(facade)
 
@@ -102,7 +103,7 @@ class LicenseTransitionListenerTest {
     @Test
     fun `unlicensed notifications do not flip flag`() {
         state.premiumOnboardingShown = true
-        every { LicenseChecker.isLicensed() } returns false
+        every { LicenseChecker.isLicensedOrGrace() } returns false
 
         LicenseTransitionListener().licenseStateChanged(facade)
 
@@ -114,9 +115,9 @@ class LicenseTransitionListenerTest {
         state.premiumOnboardingShown = false
         val listener = LicenseTransitionListener()
 
-        every { LicenseChecker.isLicensed() } returns false
+        every { LicenseChecker.isLicensedOrGrace() } returns false
         listener.licenseStateChanged(facade)
-        every { LicenseChecker.isLicensed() } returns true
+        every { LicenseChecker.isLicensedOrGrace() } returns true
         listener.licenseStateChanged(facade)
 
         assertFalse(state.premiumOnboardingShown)
@@ -130,11 +131,11 @@ class LicenseTransitionListenerTest {
         state.premiumOnboardingShown = true
         val listener = LicenseTransitionListener()
 
-        every { LicenseChecker.isLicensed() } returns true
+        every { LicenseChecker.isLicensedOrGrace() } returns true
         listener.licenseStateChanged(facade)
         assertTrue(state.premiumOnboardingShown)
 
-        every { LicenseChecker.isLicensed() } returns false
+        every { LicenseChecker.isLicensedOrGrace() } returns false
         listener.licenseStateChanged(facade)
 
         assertTrue(state.premiumOnboardingShown)
@@ -166,15 +167,15 @@ class LicenseTransitionListenerTest {
             }
 
         LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
-            every { LicenseChecker.isLicensed() } throws RuntimeException("platform glitch")
+            every { LicenseChecker.isLicensedOrGrace() } throws RuntimeException("platform glitch")
             listener.licenseStateChanged(facade)
             assertTrue(state.premiumOnboardingShown, "exception must not mutate the flag")
 
-            every { LicenseChecker.isLicensed() } returns false
+            every { LicenseChecker.isLicensedOrGrace() } returns false
             listener.licenseStateChanged(facade)
             assertTrue(state.premiumOnboardingShown, "first successful call records baseline only")
 
-            every { LicenseChecker.isLicensed() } returns true
+            every { LicenseChecker.isLicensedOrGrace() } returns true
             listener.licenseStateChanged(facade)
             assertFalse(state.premiumOnboardingShown, "transition must still fire after glitch recovery")
         }
@@ -189,35 +190,55 @@ class LicenseTransitionListenerTest {
     // user is unlicensed so chrome tinting falls back to the global accent. On
     // either transition direction (licensed↔unlicensed) the listener MUST
     // re-apply the accent so the chrome renderer picks up the fresh resolver
-    // output. The initial notification (previous == null) must not fire the
-    // re-apply — otherwise a routine startup notification spams a redundant
-    // repaint on every launch.
+    // output. Initial licensed notification stays quiet; initial unlicensed
+    // notification reconciles once because startup may have rendered while the
+    // licensing facade was still unavailable.
 
     @Test
     fun `initial notification does not re-apply accent`() {
         // First notification records the baseline only. An apply here would fire
         // on every IDE startup (Topic listeners receive a synthetic initial
         // notification) and trigger a redundant chrome repaint.
-        every { LicenseChecker.isLicensed() } returns true
+        every { LicenseChecker.isLicensedOrGrace() } returns true
         LicenseTransitionListener().licenseStateChanged(facade)
 
-        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AyuVariant>()) }
+        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<AccentContext>()) }
+    }
+
+    @Test
+    fun `initial unlicensed notification reconciles optimistically applied external chrome`() {
+        state.externalThemeEnhancementsEnabled = true
+        state.externalThemeChromeTintEnabled = true
+        every { AyuVariant.detect() } returns null
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        val openProject =
+            mockk<Project> {
+                every { isDisposed } returns false
+            }
+        val manager = mockk<CommitPanelAutoFitManager>(relaxed = true)
+        every { projectManager.openProjects } returns arrayOf(openProject)
+        every { CommitPanelAutoFitManager.getInstance(openProject) } returns manager
+
+        LicenseTransitionListener().licenseStateChanged(facade)
+
+        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.External) }
+        verify(exactly = 1) { manager.apply() }
     }
 
     @Test
     fun `licensed to unlicensed transition re-applies accent for chrome refresh`() {
         val listener = LicenseTransitionListener()
         // Baseline call: licensed. No apply expected.
-        every { LicenseChecker.isLicensed() } returns true
+        every { LicenseChecker.isLicensedOrGrace() } returns true
         listener.licenseStateChanged(facade)
-        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AyuVariant>()) }
+        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<AccentContext>()) }
 
         // Transition: licensed → unlicensed. Chrome must re-render using the
         // global accent because the resolver now short-circuits overrides.
-        every { LicenseChecker.isLicensed() } returns false
+        every { LicenseChecker.isLicensedOrGrace() } returns false
         listener.licenseStateChanged(facade)
 
-        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE) }
+        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.Ayu(AyuVariant.MIRAGE)) }
     }
 
     @Test
@@ -235,10 +256,10 @@ class LicenseTransitionListenerTest {
         every { CommitPanelAutoFitManager.getInstance(openProject) } returns manager
         val listener = LicenseTransitionListener()
 
-        every { LicenseChecker.isLicensed() } returns true
+        every { LicenseChecker.isLicensedOrGrace() } returns true
         listener.licenseStateChanged(facade)
 
-        every { LicenseChecker.isLicensed() } returns false
+        every { LicenseChecker.isLicensedOrGrace() } returns false
         listener.licenseStateChanged(facade)
 
         verify(exactly = 1) { manager.apply() }
@@ -246,26 +267,48 @@ class LicenseTransitionListenerTest {
     }
 
     @Test
+    fun `commit panel cleanup failure does not block license-loss accent reapply`() {
+        val openProject =
+            mockk<Project> {
+                every { isDisposed } returns false
+            }
+        val manager = mockk<CommitPanelAutoFitManager>()
+        every { projectManager.openProjects } returns arrayOf(openProject)
+        every { CommitPanelAutoFitManager.getInstance(openProject) } returns manager
+        every { manager.apply() } throws RuntimeException("renderer cleanup failed")
+        val listener = LicenseTransitionListener()
+
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        listener.licenseStateChanged(facade)
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        listener.licenseStateChanged(facade)
+
+        verify(exactly = 1) { manager.apply() }
+        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.Ayu(AyuVariant.MIRAGE)) }
+    }
+
+    @Test
     fun `unlicensed to licensed transition re-applies accent AND rearms wizard`() {
         state.premiumOnboardingShown = true
         val listener = LicenseTransitionListener()
 
-        // Baseline call: unlicensed. No apply expected on initial notification.
-        every { LicenseChecker.isLicensed() } returns false
+        // Baseline call: unlicensed. One reconciliation closes the optimistic
+        // startup window before the actual unlicensed → licensed transition.
+        every { LicenseChecker.isLicensedOrGrace() } returns false
         listener.licenseStateChanged(facade)
-        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AyuVariant>()) }
+        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.Ayu(AyuVariant.MIRAGE)) }
 
         // Transition: unlicensed → licensed. BOTH side effects fire:
         //   - wizard re-arm (premiumOnboardingShown flipped to false)
         //   - accent re-apply (overrides resolver now honors project/language rules)
-        every { LicenseChecker.isLicensed() } returns true
+        every { LicenseChecker.isLicensedOrGrace() } returns true
         listener.licenseStateChanged(facade)
 
         assertFalse(
             state.premiumOnboardingShown,
             "unlicensed→licensed transition must re-arm premium wizard for next startup",
         )
-        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE) }
+        verify(exactly = 2) { AccentApplicator.applyForFocusedProject(AccentContext.Ayu(AyuVariant.MIRAGE)) }
     }
 
     @Test
@@ -276,41 +319,62 @@ class LicenseTransitionListenerTest {
         // suppress this path.
         val listener = LicenseTransitionListener()
 
-        every { LicenseChecker.isLicensed() } returns true
+        every { LicenseChecker.isLicensedOrGrace() } returns true
         listener.licenseStateChanged(facade)
         listener.licenseStateChanged(facade)
 
-        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AyuVariant>()) }
+        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<AccentContext>()) }
     }
 
     @Test
-    fun `unlicensed to unlicensed refresh does not re-apply accent`() {
-        // Mirror of the licensed→licensed noise guard: an unlicensed refresh
-        // (e.g. trial keeps pinging the facade) must not trigger a repaint.
+    fun `initial unlicensed reconcile is not repeated by unlicensed refresh`() {
+        // The first definitive unlicensed result closes the optimistic startup
+        // window; later identical heartbeats must not repaint again.
         val listener = LicenseTransitionListener()
 
-        every { LicenseChecker.isLicensed() } returns false
+        every { LicenseChecker.isLicensedOrGrace() } returns false
         listener.licenseStateChanged(facade)
         listener.licenseStateChanged(facade)
 
-        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AyuVariant>()) }
+        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.Ayu(AyuVariant.MIRAGE)) }
     }
 
     @Test
-    fun `transition with null variant skips re-apply silently`() {
-        // AyuVariant.detect() returns null when the active theme is not an Ayu
-        // theme (the user is on a non-Ayu dark theme but still has a valid
-        // Ayu license). The invokeLater body must short-circuit silently — no
-        // crash, no apply call, no LOG.error spam.
+    fun `transition without an active accent context skips re-apply silently`() {
+        // No Ayu theme and no external-theme support means the transition has
+        // no accent surface to refresh.
         every { AyuVariant.detect() } returns null
 
         val listener = LicenseTransitionListener()
-        every { LicenseChecker.isLicensed() } returns true
+        every { LicenseChecker.isLicensedOrGrace() } returns true
         listener.licenseStateChanged(facade)
 
-        every { LicenseChecker.isLicensed() } returns false
+        every { LicenseChecker.isLicensedOrGrace() } returns false
         listener.licenseStateChanged(facade)
 
-        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AyuVariant>()) }
+        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<AccentContext>()) }
+    }
+
+    @Test
+    fun `external entitlement loss and regain reapply without changing preference`() {
+        state.externalThemeEnhancementsEnabled = true
+        state.externalThemeChromeTintEnabled = true
+        every { AyuVariant.detect() } returns null
+        val listener = LicenseTransitionListener()
+
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        listener.licenseStateChanged(facade)
+
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        listener.licenseStateChanged(facade)
+
+        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.External) }
+        assertTrue(state.externalThemeChromeTintEnabled)
+
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        listener.licenseStateChanged(facade)
+
+        verify(exactly = 2) { AccentApplicator.applyForFocusedProject(AccentContext.External) }
+        assertTrue(state.externalThemeChromeTintEnabled)
     }
 }

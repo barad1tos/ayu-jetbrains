@@ -206,9 +206,9 @@ categories:
         introduced: "2.8.0"
         tier: paid
         description: >
-          Chrome surfaces and accent elements can follow the Ayu accent
-          on non-Ayu themes when explicitly enabled; external chrome
-          tint stays off by default.
+          Selected chrome surfaces and the active tab underline can follow
+          the Ayu accent on non-Ayu themes when explicitly enabled; external
+          chrome tint stays off by default.
 
       - id: vcs-color-customization
         title: "VCS color customization"

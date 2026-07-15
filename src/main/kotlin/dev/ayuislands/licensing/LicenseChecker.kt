@@ -13,8 +13,6 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.ui.LicensingFacade
 import dev.ayuislands.AyuPlugin
-import dev.ayuislands.accent.AccentElementId
-import dev.ayuislands.accent.AccentGroup
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowPreset
@@ -236,29 +234,6 @@ object LicenseChecker {
         synchronized(state) {
             // Disable glow (premium feature)
             state.glowEnabled = false
-
-            // Reset tab accent to free default (underline only, no tinted background)
-            state.glowTabMode = "MINIMAL"
-
-            // Reset per-element toggles to defaults. VISUAL/INTERACTIVE groups are
-            // free-tier features that default to ON; the CHROME group is a premium-only
-            // chrome-tinting surface that must be forcibly disabled on the free tier
-            // so unlicensed users never see tinted chrome after a downgrade.
-            for (id in AccentElementId.entries) {
-                val defaultForFree = id.group != AccentGroup.CHROME
-                state.setToggle(id, defaultForFree)
-            }
-
-            // External chrome tint has no separate feature master to reset, so
-            // clear the allowance itself; a downgraded user on a foreign theme
-            // must not keep tinted chrome/accent elements.
-            state.externalThemeChromeTintEnabled = false
-
-            // Reset chrome-tinting auxiliary state to defaults (intensity baseline,
-            // group collapsed). The WCAG foreground contrast is now always-on so no
-            // toggle needs resetting.
-            state.chromeTintIntensity = AyuIslandsState.DEFAULT_CHROME_TINT_INTENSITY
-            state.chromeTintingGroupExpanded = false
 
             // Reset VCS color customization — premium feature. The master toggle
             // goes off so the EditorColorsScheme falls back to stock XML on the

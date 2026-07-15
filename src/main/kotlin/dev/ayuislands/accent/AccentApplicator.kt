@@ -17,9 +17,11 @@ import com.intellij.ui.ColorUtil
 import com.intellij.ui.JBColor
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import dev.ayuislands.accent.conflict.ConflictRegistry
+import dev.ayuislands.accent.elements.AbstractChromeElement
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.GlowTabMode
 import dev.ayuislands.indent.IndentRainbowSync
+import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
@@ -197,6 +199,9 @@ object AccentApplicator {
         val accent = accentHex.toColor()
         val state = AyuIslandsSettings.getInstance().state
         val context = AccentContext.detect()
+        val isChromeAllowed: Boolean by lazy(LazyThreadSafetyMode.NONE) {
+            LicenseChecker.isLicensedOrGrace()
+        }
 
         // Persist BEFORE the EP iteration so the cache survives a mid-EP
         // throw. Clear the clean-apply flag here; only the MarkApplyClean step
@@ -213,18 +218,22 @@ object AccentApplicator {
         // (surfaced as that step's failure) instead of an NPE.
         val workers: Map<AccentApplyStep, () -> Unit> =
             buildMap {
-                put(AccentApplyStep.ApplyAlwaysOnUiKeys) { applyAlwaysOnUiKeys(state, accent) }
+                put(AccentApplyStep.ApplyAlwaysOnUiKeys) {
+                    applyAlwaysOnUiKeys(state, accent, isChromeAllowed)
+                }
                 put(AccentApplyStep.ApplyElements) {
                     applyElements(
                         state,
                         accent,
                         checkNotNull(context) { "ApplyElements planned without accent context" },
+                        isChromeAllowed,
                     )
                 }
                 put(AccentApplyStep.ApplyTabUnderline) {
                     applyTabUnderline(
                         state,
                         checkNotNull(context) { "ApplyTabUnderline planned without accent context" },
+                        isChromeAllowed,
                     )
                 }
                 put(AccentApplyStep.SyncIndentRainbow) {
@@ -524,17 +533,21 @@ object AccentApplicator {
         UIManager.put(KEY_TAB_BACKGROUND, null)
         UIManager.put(KEY_TAB_UNDERLINE_HEIGHT, null)
         UIManager.put(KEY_TAB_UNDERLINE_ARC, null)
+        ExternalChromeOwnership.releaseTabUnderline()
 
+        val failedExternalReverts = mutableSetOf<AccentElementId>()
         for (element in EP_NAME.extensionList) {
             try {
                 element.revert()
             } catch (exception: RuntimeException) {
+                failedExternalReverts.add(element.id)
                 log.warn(
                     "Failed to revert ${element.displayName}",
                     exception,
                 )
             }
         }
+        ExternalChromeOwnership.finishRevert(failedExternalReverts)
     }
 
     private fun neutralizeOrRevert(
@@ -552,26 +565,38 @@ object AccentApplicator {
         }
     }
 
-    private fun isExternalTintBlocked(
+    private fun canTintExternalChrome(
         state: AyuIslandsState,
         context: AccentContext,
-    ): Boolean {
-        val blocked = context == AccentContext.External && !state.isExternalChromeTintAllowed()
-        if (blocked) {
-            log.debug("External chrome tint allowance off; reverting tinted chrome surfaces")
-        }
-        return blocked
-    }
+        isChromeAllowed: Boolean,
+    ): Boolean =
+        context != AccentContext.External ||
+            (state.isExternalChromeTintAllowed() && isChromeAllowed)
 
     private fun applyElements(
         state: AyuIslandsState,
         accent: Color,
         context: AccentContext,
+        isChromeAllowed: Boolean,
     ) {
+        if (context == AccentContext.External) {
+            ExternalChromeOwnership.apply(
+                elements = EP_NAME.extensionList,
+                state = state,
+                accent = accent,
+                isAllowed = canTintExternalChrome(state, context, isChromeAllowed),
+            )
+            return
+        }
+        ExternalChromeOwnership.clearOwnership()
+
         val variant = context.variant
-        val externalTintBlocked = isExternalTintBlocked(state, context)
         for (element in EP_NAME.extensionList) {
-            val enabled = !externalTintBlocked && ChromeTintContext.isToggleEnabled(state, element.id)
+            if (element.id.group == AccentGroup.CHROME && !isChromeAllowed) {
+                neutralizeOrRevert(element, variant)
+                continue
+            }
+            val enabled = ChromeTintContext.isToggleEnabled(state, element.id)
             if (!enabled) {
                 neutralizeOrRevert(element, variant)
                 continue
@@ -623,6 +648,7 @@ object AccentApplicator {
     private fun applyAlwaysOnUiKeys(
         state: AyuIslandsState,
         accent: Color,
+        isChromeAllowed: Boolean,
     ) {
         for (key in ALWAYS_ON_UI_KEYS) {
             UIManager.put(key, accent)
@@ -640,8 +666,8 @@ object AccentApplicator {
         UIManager.put("Button.default.startBorderColor", darkenedAccent)
         UIManager.put("Button.default.endBorderColor", darkenedAccent)
 
-        // Editor tab background tint (respects persisted tab mode, not gated by license)
-        val tabMode = GlowTabMode.fromName(state.glowTabMode ?: "MINIMAL")
+        // Editor tab background tint follows the persisted mode when chrome features are entitled.
+        val tabMode = effectiveTabMode(state, isChromeAllowed)
         when (tabMode) {
             GlowTabMode.MINIMAL -> {
                 UIManager.put(KEY_TAB_BACKGROUND, TRANSPARENT_TAB_BACKGROUND)
@@ -696,20 +722,33 @@ object AccentApplicator {
     private fun applyTabUnderline(
         state: AyuIslandsState,
         context: AccentContext,
+        isChromeAllowed: Boolean,
     ) {
-        if (isExternalTintBlocked(state, context)) {
-            UIManager.put(KEY_TAB_UNDERLINE_HEIGHT, null)
-            UIManager.put(KEY_TAB_UNDERLINE_ARC, null)
+        val variant = context.variant
+        val tabMode = effectiveTabMode(state, isChromeAllowed)
+        if (
+            context == AccentContext.External &&
+            (!canTintExternalChrome(state, context, isChromeAllowed) || tabMode == GlowTabMode.OFF)
+        ) {
+            if (ExternalChromeOwnership.hasTabUnderline()) {
+                UIManager.put(KEY_TAB_UNDERLINE_HEIGHT, null)
+                UIManager.put(KEY_TAB_UNDERLINE_ARC, null)
+                ExternalChromeOwnership.releaseTabUnderline()
+            }
             return
         }
-        val variant = context.variant
-        val tabMode = GlowTabMode.fromName(state.glowTabMode ?: "MINIMAL")
+        if (context != AccentContext.External) {
+            ExternalChromeOwnership.releaseTabUnderline()
+        }
         if (tabMode == GlowTabMode.OFF && variant != null) {
             val scheme = EditorColorsManager.getInstance().globalScheme
             scheme.setColor(ColorKey.find("TAB_UNDERLINE"), Color.decode(variant.neutralGray))
         }
 
-        val height = resolveUnderlineHeight(state)
+        val height = resolveUnderlineHeight(state, tabMode)
+        if (context == AccentContext.External) {
+            ExternalChromeOwnership.markTabUnderline()
+        }
         UIManager.put(KEY_TAB_UNDERLINE_HEIGHT, Integer.valueOf(height))
 
         val arc = UIManager.getInt("Island.arc").let { if (it > 0) it else DEFAULT_UNDERLINE_ARC }
@@ -841,8 +880,125 @@ object AccentApplicator {
     }
 }
 
-internal fun resolveUnderlineHeight(state: AyuIslandsState): Int {
-    val tabMode = GlowTabMode.fromName(state.glowTabMode ?: "MINIMAL")
+internal object ExternalChromeOwnership {
+    private val log = logger<ExternalChromeOwnership>()
+    private val ownedElements: MutableSet<AccentElementId> =
+        java.util.EnumSet.noneOf(AccentElementId::class.java)
+    private val typeMismatchLogged: MutableSet<AccentElementId> =
+        java.util.EnumSet.noneOf(AccentElementId::class.java)
+    private var ownsTabUnderline = false
+
+    fun apply(
+        elements: List<AccentElement>,
+        state: AyuIslandsState,
+        accent: Color,
+        isAllowed: Boolean,
+    ) {
+        if (!isAllowed) {
+            revertAll(elements)
+            return
+        }
+        for (element in elements) {
+            if (element.id.group != AccentGroup.CHROME) continue
+            applyElement(element, state, accent)
+        }
+    }
+
+    fun clearOwnership() {
+        ownedElements.clear()
+        ownsTabUnderline = false
+    }
+
+    fun markTabUnderline() {
+        ownsTabUnderline = true
+    }
+
+    fun hasTabUnderline(): Boolean = ownsTabUnderline
+
+    fun releaseTabUnderline() {
+        ownsTabUnderline = false
+    }
+
+    fun finishRevert(failedElements: Set<AccentElementId>) {
+        ownedElements.retainAll(failedElements)
+    }
+
+    @TestOnly
+    fun resetForTests() {
+        clearOwnership()
+        typeMismatchLogged.clear()
+    }
+
+    private fun applyElement(
+        element: AccentElement,
+        state: AyuIslandsState,
+        accent: Color,
+    ) {
+        val conflict = ConflictRegistry.getConflictFor(element.id)
+        val isForced = element.id.name in state.forceOverrides
+        if (!ChromeTintContext.isToggleEnabled(state, element.id) || (conflict != null && !isForced)) {
+            revertOne(element)
+            return
+        }
+        if (conflict != null) {
+            log.warn("Force-overriding ${conflict.pluginDisplayName} conflict for ${element.displayName}")
+        }
+
+        val chromeElement = element as? AbstractChromeElement
+        if (chromeElement == null) {
+            logTypeMismatch(element)
+            return
+        }
+        try {
+            chromeElement.applyExternal(accent) {
+                ownedElements.add(element.id)
+            }
+        } catch (exception: RuntimeException) {
+            log.warn("Failed to apply external chrome accent to ${element.displayName}", exception)
+            revertOne(element)
+        }
+    }
+
+    private fun logTypeMismatch(element: AccentElement) {
+        if (!typeMismatchLogged.add(element.id)) return
+        log.warn(
+            "Skipping external chrome element ${element.displayName}: " +
+                "implementation does not expose mutation ownership",
+        )
+    }
+
+    private fun revertAll(elements: List<AccentElement>) {
+        if (ownedElements.isEmpty()) return
+        for (element in elements) {
+            revertOne(element)
+        }
+    }
+
+    private fun revertOne(element: AccentElement) {
+        if (!ownedElements.remove(element.id)) return
+        try {
+            element.revert()
+        } catch (exception: RuntimeException) {
+            ownedElements.add(element.id)
+            log.warn("Failed to restore external chrome surface ${element.displayName}", exception)
+        }
+    }
+}
+
+private fun effectiveTabMode(
+    state: AyuIslandsState,
+    isChromeAllowed: Boolean,
+): GlowTabMode =
+    if (isChromeAllowed) {
+        GlowTabMode.fromName(state.glowTabMode ?: GlowTabMode.MINIMAL.name)
+    } else {
+        GlowTabMode.MINIMAL
+    }
+
+internal fun resolveUnderlineHeight(
+    state: AyuIslandsState,
+    tabMode: GlowTabMode,
+): Int {
     if (tabMode == GlowTabMode.OFF) return state.tabUnderlineHeight
 
     if (state.tabUnderlineGlowSync && state.glowEnabled) {
