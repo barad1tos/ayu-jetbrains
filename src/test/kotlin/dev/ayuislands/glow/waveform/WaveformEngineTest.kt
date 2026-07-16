@@ -254,6 +254,25 @@ class WaveformEngineTest {
     }
 
     @Test
+    fun `refresh activation preserves the configured moving trace`() {
+        val engine = WaveformEngine(WaveformConfig(), Random(84))
+        engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
+        engine.handle(WaveformEvent.Tick(0L, 1_000f))
+        engine.handle(WaveformEvent.Keystroke(100L))
+        engine.handle(WaveformEvent.Tick(140L, 1_000f))
+        engine.handle(WaveformEvent.Configure(WaveformConfig(amplitude = 24)))
+        val configured = assertIs<WaveformState.Looping>(engine.state)
+        assertTrue(configured.travelPhase > 0f)
+        assertNotNull(configured.energyEnvelope)
+
+        val update = engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
+
+        assertEquals(configured, engine.state, "refresh activation must not restart the live trace")
+        assertEquals(TimerDirective.KEEP, update.timerDirective)
+        assertFalse(update.needsRepaint)
+    }
+
+    @Test
     fun `identical configuration preserves running animation`() {
         val config = WaveformConfig()
         val engine = WaveformEngine(config, Random(83))

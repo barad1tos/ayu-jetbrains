@@ -363,6 +363,18 @@ class GlowOverlayManagerLifecycleTest {
     }
 
     @Test
+    fun `Power Save reaches the active waveform through the real input sink`() {
+        val manager = GlowOverlayManager(stubProject("power-save-input-project"))
+        val active = mockk<GlowGlassPane>(relaxed = true)
+        seedOverlaysMapWithMocks(manager, active, mockk(relaxed = true), mockk(relaxed = true), key = "active")
+        setActiveGlow(manager, "active")
+
+        manager.input.onPowerSaveChanged(enabled = true)
+
+        verify(exactly = 1) { active.changeWaveformPowerSave(true) }
+    }
+
+    @Test
     fun `focus handoff deactivates old waveform and activates only the new overlay`() {
         state.glowShape = GlowShape.WAVEFORM.name
         val project = stubProject("focus-project")

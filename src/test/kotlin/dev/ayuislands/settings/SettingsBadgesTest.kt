@@ -298,6 +298,28 @@ class SettingsBadgesTest {
     }
 
     @Test
+    fun `review action opens and acknowledges the first pending tab`() {
+        val state = updatedState()
+        val settings = mockk<AyuIslandsSettings>()
+        every { settings.state } returns state
+        mockkObject(AyuIslandsSettings.Companion)
+        every { AyuIslandsSettings.getInstance() } returns settings
+        SettingsBadges.registerGroupExpanded("accent-from-project-icon") { false }
+
+        val titles = listOf("Plugins", "Glow", "Accent")
+        val tabs = JBTabbedPane()
+        for (title in titles) tabs.addTab(title, JPanel())
+        val controller = assertNotNull(installSettingsBadges(tabs, titles, Color.ORANGE))
+
+        controller.jumpToFirstPending()
+
+        assertEquals(1, tabs.selectedIndex, "Review must open the first tab that still carries a badge")
+        assertFalse(SettingsBadges.isPending(state, "glow-waveform"))
+        assertFalse(SettingsBadges.isPending(state, "glow-placement"))
+        assertTrue(SettingsBadges.isPending(state, "accent-from-project-icon"))
+    }
+
+    @Test
     fun `group title carries an accent dot while its anchor pends and restores after`() {
         val state = updatedState()
         val settings = mockk<AyuIslandsSettings>()
