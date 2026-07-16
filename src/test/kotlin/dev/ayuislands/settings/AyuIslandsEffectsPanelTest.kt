@@ -30,6 +30,8 @@ import javax.swing.JComboBox
 import javax.swing.JLabel
 import javax.swing.JSlider
 import javax.swing.SwingUtilities
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -278,7 +280,7 @@ class AyuIslandsEffectsPanelTest {
     }
 
     @Test
-    fun `waveform controls distinguish discrete density from normalized continuous rails`() {
+    fun `waveform controls align density and mark real slider values`() {
         state.glowShape = GlowShape.WAVEFORM.name
         val effectsPanel = AyuIslandsEffectsPanel()
         val dialogPanel = buildDialogPanel(effectsPanel)
@@ -308,23 +310,29 @@ class AyuIslandsEffectsPanelTest {
         }
 
         val densityBounds = densityControl(dialogPanel).boundsIn(dialogPanel)
-        val sliderStart = sliderBounds.first().x
-        assertTrue(densityBounds.x in sliderStart - JBUI.scale(2)..sliderStart + JBUI.scale(2))
-        assertTrue(densityBounds.width < sliderBounds.first().width)
+        val referenceRailBounds = sliders.first().parent.boundsIn(dialogPanel)
+        assertTrue(abs(densityBounds.x - referenceRailBounds.x) <= JBUI.scale(2))
+        assertTrue(abs(densityBounds.maxX.roundToInt() - referenceRailBounds.maxX.roundToInt()) <= JBUI.scale(2))
 
-        val tickStrips = descendants(dialogPanel, SliderTickStrip::class.java)
-        assertEquals(4, tickStrips.size)
-        assertEquals(EXPECTED_TICK_COUNT, tickStrips.first().tickCount)
-        assertEquals(1, tickStrips.map(SliderTickStrip::tickCount).distinct().size)
+        val tickScales =
+            listOf(
+                TickScale(20..400 step 20, (100..400 step 100).toSet()),
+                TickScale(120..800 step 40, (200..800 step 200).toSet()),
+                TickScale(8..40 step 2, (8..40 step 8).toSet()),
+                TickScale(0..200 step 10, (0..200 step 50).toSet()),
+            )
+        val tickStrips =
+            sliders.map { slider ->
+                slider.parent.components
+                    .filterIsInstance<SliderTickStrip>()
+                    .single()
+            }
         assertTrue(tickStrips.all { it.isEffectivelyVisibleWithin(dialogPanel) && it.width > 0 && it.height > 0 })
-        val expectedTickHeights = tickStrips.first().paintedTickHeights()
-        assertEquals(EXPECTED_TICK_COUNT, expectedTickHeights.size)
-        val majorHeight = expectedTickHeights.max()
-        assertEquals(
-            listOf(0, 4, 8, 12, 16),
-            expectedTickHeights.indices.filter { expectedTickHeights[it] == majorHeight },
-        )
-        assertTrue(tickStrips.all { it.paintedTickHeights() == expectedTickHeights })
+        sliders.zip(tickStrips).zip(tickScales).forEach { (control, scale) ->
+            val (slider, tickStrip) = control
+            val sliderLabel = sliderRows[sliders.indexOf(slider)].first
+            assertEquals(expectedTicks(slider, scale), tickStrip.paintedTicks(), "Unexpected ticks for $sliderLabel")
+        }
 
         val glowPanel = field<GlowGroupPanel>(effectsPanel, "glowGroupPanel")
         val readouts =
@@ -686,7 +694,7 @@ class AyuIslandsEffectsPanelTest {
     private fun Component.boundsIn(root: Container): Rectangle =
         SwingUtilities.convertRectangle(requireNotNull(parent), bounds, root)
 
-    private fun SliderTickStrip.paintedTickHeights(): List<Int> {
+    private fun SliderTickStrip.paintedTicks(): List<PaintedTick> {
         val image = BufferedImage(TICK_STRIP_WIDTH, preferredSize.height, BufferedImage.TYPE_INT_ARGB)
         setSize(image.width, image.height)
         val graphics = image.createGraphics()
@@ -700,16 +708,33 @@ class AyuIslandsEffectsPanelTest {
                 (0 until image.height).count { y -> image.getRGB(x, y).ushr(24) != 0 }
             }
         return buildList {
+            var start = -1
             var currentHeight = 0
-            for (height in columnHeights) {
+            for ((x, height) in columnHeights.withIndex()) {
                 if (height > 0) {
+                    if (start < 0) start = x
                     currentHeight = maxOf(currentHeight, height)
-                } else if (currentHeight > 0) {
-                    add(currentHeight)
+                } else if (start >= 0) {
+                    add(PaintedTick((start + x - 1) / 2, currentHeight))
+                    start = -1
                     currentHeight = 0
                 }
             }
-            if (currentHeight > 0) add(currentHeight)
+            if (start >= 0) add(PaintedTick((start + columnHeights.lastIndex) / 2, currentHeight))
+        }
+    }
+
+    private fun expectedTicks(
+        slider: JSlider,
+        scale: TickScale,
+    ): List<PaintedTick> {
+        val trackStart = JBUI.scale(TICK_TRACK_INSET)
+        val trackWidth = TICK_STRIP_WIDTH - trackStart * 2 - 1
+        val sliderSpan = slider.maximum - slider.minimum
+        return scale.values.map { value ->
+            val fraction = (value - slider.minimum).toFloat() / sliderSpan
+            val height = if (value in scale.majorValues) MAJOR_TICK_HEIGHT else MINOR_TICK_HEIGHT
+            PaintedTick(trackStart + (trackWidth * fraction).roundToInt(), JBUI.scale(height))
         }
     }
 
@@ -723,9 +748,21 @@ class AyuIslandsEffectsPanelTest {
     }
 
     private companion object {
-        const val EXPECTED_TICK_COUNT = 17
+        const val MAJOR_TICK_HEIGHT = 7
+        const val MINOR_TICK_HEIGHT = 4
         const val READOUT_INSET = 12
         const val TEST_PANEL_WIDTH = 800
+        const val TICK_TRACK_INSET = 7
         const val TICK_STRIP_WIDTH = 320
     }
+
+    private data class TickScale(
+        val values: IntProgression,
+        val majorValues: Set<Int>,
+    )
+
+    private data class PaintedTick(
+        val x: Int,
+        val height: Int,
+    )
 }
