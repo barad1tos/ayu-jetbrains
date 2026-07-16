@@ -247,7 +247,7 @@ class AyuIslandsEffectsPanelTest {
         val solidIntensity = field<JSlider>(effectsPanel, "intensitySlider")
         val direction = waveformField<JComboBox<*>>(effectsPanel, "directionCombo")
         val baseline = waveformField<JComboBox<*>>(effectsPanel, "baselineCombo")
-        val density = waveformField<JSlider>(effectsPanel, "densitySlider")
+        val density = densityControl(dialogPanel)
         val traceLength = waveformField<JSlider>(effectsPanel, "traceLengthSlider")
         val amplitude = waveformField<JSlider>(effectsPanel, "amplitudeSlider")
         val loopDuration = waveformField<JSlider>(effectsPanel, "loopSlider")
@@ -278,7 +278,7 @@ class AyuIslandsEffectsPanelTest {
     }
 
     @Test
-    fun `waveform controls share aligned rows and a uniform tick rail`() {
+    fun `waveform controls distinguish discrete density from normalized continuous rails`() {
         state.glowShape = GlowShape.WAVEFORM.name
         val effectsPanel = AyuIslandsEffectsPanel()
         val dialogPanel = buildDialogPanel(effectsPanel)
@@ -294,7 +294,6 @@ class AyuIslandsEffectsPanelTest {
         val sliderRows =
             listOf(
                 "Loop duration" to "loopSlider",
-                "Spike density" to "densitySlider",
                 "Trace length (px)" to "traceLengthSlider",
                 "Amplitude (px)" to "amplitudeSlider",
                 "Intensity" to "intensitySlider",
@@ -308,16 +307,28 @@ class AyuIslandsEffectsPanelTest {
             assertSame(slider, rowLabel.labelFor)
         }
 
+        val densityBounds = densityControl(dialogPanel).boundsIn(dialogPanel)
+        val sliderStart = sliderBounds.first().x
+        assertTrue(densityBounds.x in sliderStart - JBUI.scale(2)..sliderStart + JBUI.scale(2))
+        assertTrue(densityBounds.width < sliderBounds.first().width)
+
         val tickStrips = descendants(dialogPanel, SliderTickStrip::class.java)
-        assertEquals(5, tickStrips.size)
+        assertEquals(4, tickStrips.size)
         assertEquals(EXPECTED_TICK_COUNT, tickStrips.first().tickCount)
         assertEquals(1, tickStrips.map(SliderTickStrip::tickCount).distinct().size)
         assertTrue(tickStrips.all { it.isEffectivelyVisibleWithin(dialogPanel) && it.width > 0 && it.height > 0 })
-        assertTrue(tickStrips.all { it.hasPaintedTicks() })
+        val expectedTickHeights = tickStrips.first().paintedTickHeights()
+        assertEquals(EXPECTED_TICK_COUNT, expectedTickHeights.size)
+        val majorHeight = expectedTickHeights.max()
+        assertEquals(
+            listOf(0, 4, 8, 12, 16),
+            expectedTickHeights.indices.filter { expectedTickHeights[it] == majorHeight },
+        )
+        assertTrue(tickStrips.all { it.paintedTickHeights() == expectedTickHeights })
 
         val glowPanel = field<GlowGroupPanel>(effectsPanel, "glowGroupPanel")
         val readouts =
-            listOf("loopLabel", "densityLabel", "traceLengthLabel", "amplitudeLabel", "intensityLabel")
+            listOf("loopLabel", "traceLengthLabel", "amplitudeLabel", "intensityLabel")
                 .map { waveformField<JLabel>(effectsPanel, it).boundsIn(glowPanel) }
         val innerRightEdge = glowPanel.width - glowPanel.insets.right
         assertTrue(
@@ -342,7 +353,7 @@ class AyuIslandsEffectsPanelTest {
             waveformField<JComboBox<*>>(effectsPanel, "baselineCombo").selectedItem,
         )
         assertEquals(200, waveformField<JSlider>(effectsPanel, "loopSlider").value)
-        assertEquals(1, waveformField<JSlider>(effectsPanel, "densitySlider").value)
+        assertEquals(1, densitySegmented(effectsPanel).selectedItem)
         assertEquals(199, waveformField<JSlider>(effectsPanel, "traceLengthSlider").value)
 
         val amplitude = waveformField<JSlider>(effectsPanel, "amplitudeSlider")
@@ -464,7 +475,7 @@ class AyuIslandsEffectsPanelTest {
         assertEquals(8, waveformField<JSlider>(effectsPanel, "amplitudeSlider").value)
         assertEquals(0, waveformField<JSlider>(effectsPanel, "intensitySlider").value)
         assertEquals(400, waveformField<JSlider>(effectsPanel, "loopSlider").value)
-        assertEquals(4, waveformField<JSlider>(effectsPanel, "densitySlider").value)
+        assertEquals(4, densitySegmented(effectsPanel).selectedItem)
         assertEquals(800, waveformField<JSlider>(effectsPanel, "traceLengthSlider").value)
         assertEquals(
             WaveformBaseline.CENTERED.displayName,
@@ -488,18 +499,22 @@ class AyuIslandsEffectsPanelTest {
     }
 
     @Test
-    fun `reset restores the stored trace length`() {
+    fun `reset restores the stored waveform geometry`() {
         state.glowShape = GlowShape.WAVEFORM.name
+        state.waveformTraceDensity = 2
         state.waveformTraceLength = 320
         val effectsPanel = AyuIslandsEffectsPanel()
         buildDialogPanel(effectsPanel)
+        val density = densitySegmented(effectsPanel)
         val traceLength = waveformField<JSlider>(effectsPanel, "traceLengthSlider")
 
+        density.selectedItem = 4
         traceLength.value = 640
         assertTrue(effectsPanel.isModified())
 
         effectsPanel.reset()
 
+        assertEquals(2, density.selectedItem)
         assertEquals(320, traceLength.value)
         assertFalse(effectsPanel.isModified())
     }
@@ -510,7 +525,7 @@ class AyuIslandsEffectsPanelTest {
         buildDialogPanel(effectsPanel)
 
         waveformField<JComboBox<*>>(effectsPanel, "shapeCombo").selectedItem = GlowShape.WAVEFORM.displayName
-        waveformField<JSlider>(effectsPanel, "densitySlider").value = 4
+        densitySegmented(effectsPanel).selectedItem = 4
         waveformField<JSlider>(effectsPanel, "traceLengthSlider").value = 640
         waveformField<JComboBox<*>>(effectsPanel, "baselineCombo").selectedItem =
             WaveformBaseline.CENTERED.displayName
@@ -551,20 +566,21 @@ class AyuIslandsEffectsPanelTest {
         val shape = waveformField<JComboBox<*>>(effectsPanel, "shapeCombo")
         val direction = waveformField<JComboBox<*>>(effectsPanel, "directionCombo")
         val baseline = waveformField<JComboBox<*>>(effectsPanel, "baselineCombo")
-        val density = waveformField<JSlider>(effectsPanel, "densitySlider")
+        val density = densitySegmented(effectsPanel)
+        val densityControl = densityControl(dialogPanel)
         val traceLength = waveformField<JSlider>(effectsPanel, "traceLengthSlider")
         val amplitude = waveformField<JSlider>(effectsPanel, "amplitudeSlider")
         val targetCheckboxes = islandCheckboxes(effectsPanel).values.toList()
 
         assertTrue(direction.isEffectivelyVisibleWithin(dialogPanel))
         assertTrue(baseline.isEffectivelyVisibleWithin(dialogPanel))
-        assertTrue(density.isEffectivelyVisibleWithin(dialogPanel))
+        assertTrue(densityControl.isEffectivelyVisibleWithin(dialogPanel))
         assertTrue(traceLength.isEffectivelyVisibleWithin(dialogPanel))
         assertTrue(amplitude.isEffectivelyVisibleWithin(dialogPanel))
         assertFalse(shape.isEnabled)
         assertFalse(direction.isEnabled)
         assertFalse(baseline.isEnabled)
-        assertFalse(density.isEnabled)
+        assertFalse(densityControl.isEnabled)
         assertFalse(traceLength.isEnabled)
         assertFalse(amplitude.isEnabled)
         assertTrue(targetCheckboxes.isNotEmpty())
@@ -572,7 +588,7 @@ class AyuIslandsEffectsPanelTest {
 
         shape.selectedItem = GlowShape.SOLID.displayName
         baseline.selectedItem = WaveformBaseline.CENTERED.displayName
-        density.value = 4
+        density.selectedItem = 4
         traceLength.value = 640
         amplitude.value = 12
         assertFalse(effectsPanel.isModified(), "locked waveform preview cannot dirty pending settings")
@@ -603,6 +619,9 @@ class AyuIslandsEffectsPanelTest {
             ?: error("Glow placement segmented button '$fieldName' must be created")
     }
 
+    private fun densitySegmented(panel: AyuIslandsEffectsPanel): SegmentedButton<Int> =
+        waveformModelField(panel, "densitySegmentedButton")
+
     @Suppress("UNCHECKED_CAST")
     private fun islandCheckboxes(panel: AyuIslandsEffectsPanel): Map<String, JCheckBox> {
         val field = AyuIslandsEffectsPanel::class.java.getDeclaredField("islandCheckboxes")
@@ -624,15 +643,26 @@ class AyuIslandsEffectsPanelTest {
     private fun <T : Component> waveformField(
         panel: AyuIslandsEffectsPanel,
         fieldName: String,
+    ): T = waveformModelField(panel, fieldName)
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <T : Any> waveformModelField(
+        panel: AyuIslandsEffectsPanel,
+        fieldName: String,
     ): T {
         val controlsField = AyuIslandsEffectsPanel::class.java.getDeclaredField("waveformControls")
         controlsField.isAccessible = true
         val controls = controlsField.get(panel) ?: error("waveformControls must be created")
         val field = controls.javaClass.getDeclaredField(fieldName)
         field.isAccessible = true
-        @Suppress("UNCHECKED_CAST")
         return field.get(controls) as? T ?: error("$fieldName must be created")
     }
+
+    private fun densityControl(dialogPanel: Container): Component =
+        descendants(dialogPanel, JLabel::class.java)
+            .first { it.text == "Spike density" }
+            .labelFor
+            ?: error("Spike density control must be linked to its row label")
 
     private fun <T : Component> descendants(
         container: Container,
@@ -656,7 +686,7 @@ class AyuIslandsEffectsPanelTest {
     private fun Component.boundsIn(root: Container): Rectangle =
         SwingUtilities.convertRectangle(requireNotNull(parent), bounds, root)
 
-    private fun SliderTickStrip.hasPaintedTicks(): Boolean {
+    private fun SliderTickStrip.paintedTickHeights(): List<Int> {
         val image = BufferedImage(TICK_STRIP_WIDTH, preferredSize.height, BufferedImage.TYPE_INT_ARGB)
         setSize(image.width, image.height)
         val graphics = image.createGraphics()
@@ -665,11 +695,22 @@ class AyuIslandsEffectsPanelTest {
         } finally {
             graphics.dispose()
         }
-        val paintedColumns =
-            (0 until image.width).count { x ->
-                (0 until image.height).any { y -> image.getRGB(x, y).ushr(24) != 0 }
+        val columnHeights =
+            (0 until image.width).map { x ->
+                (0 until image.height).count { y -> image.getRGB(x, y).ushr(24) != 0 }
             }
-        return paintedColumns >= tickCount
+        return buildList {
+            var currentHeight = 0
+            for (height in columnHeights) {
+                if (height > 0) {
+                    currentHeight = maxOf(currentHeight, height)
+                } else if (currentHeight > 0) {
+                    add(currentHeight)
+                    currentHeight = 0
+                }
+            }
+            if (currentHeight > 0) add(currentHeight)
+        }
     }
 
     private fun Component.isEffectivelyVisibleWithin(root: Component): Boolean {
@@ -682,7 +723,7 @@ class AyuIslandsEffectsPanelTest {
     }
 
     private companion object {
-        const val EXPECTED_TICK_COUNT = 39
+        const val EXPECTED_TICK_COUNT = 17
         const val READOUT_INSET = 12
         const val TEST_PANEL_WIDTH = 800
         const val TICK_STRIP_WIDTH = 320

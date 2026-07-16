@@ -6,6 +6,7 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.DslComponentProperty
 import com.intellij.ui.dsl.builder.Panel
+import com.intellij.ui.dsl.builder.SegmentedButton
 import com.intellij.ui.dsl.gridLayout.UnscaledGaps
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.glow.GlowShape
@@ -62,14 +63,13 @@ internal class WaveformSettingsControls(
     internal var shapeCombo: ComboBox<String>? = null
     internal var directionCombo: ComboBox<String>? = null
     internal var baselineCombo: ComboBox<String>? = null
-    internal var densitySlider: JSlider? = null
+    internal var densitySegmentedButton: SegmentedButton<Int>? = null
     internal var traceLengthSlider: JSlider? = null
     internal var amplitudeSlider: JSlider? = null
     internal var intensitySlider: JSlider? = null
     internal var loopSlider: JSlider? = null
 
     private var amplitudeLabel: JLabel? = null
-    private var densityLabel: JLabel? = null
     private var traceLengthLabel: JLabel? = null
     private var intensityLabel: JLabel? = null
     private var loopLabel: JLabel? = null
@@ -81,21 +81,7 @@ internal class WaveformSettingsControls(
         buildDirectionRow(group)
         buildBaselineRow(group)
         buildLoopRow(group)
-        buildSlider(
-            group,
-            WaveformSliderSpec(
-                label = "Spike density",
-                range = MIN_TRACE_DENSITY..MAX_TRACE_DENSITY,
-                initialValue = value.traceDensity.coerceIn(MIN_TRACE_DENSITY, MAX_TRACE_DENSITY),
-                visibleWhen = visibility.waveform,
-                formatValue = { "$it×" },
-                onChange = { update(value.copy(traceDensity = it)) },
-                onCreated = { slider, label ->
-                    densitySlider = slider
-                    densityLabel = label
-                },
-            ),
-        )
+        buildDensityRow(group)
         buildSlider(
             group,
             WaveformSliderSpec(
@@ -147,7 +133,7 @@ internal class WaveformSettingsControls(
         directionCombo?.selectedItem = value.direction.displayName
         baselineCombo?.selectedItem = value.baseline.displayName
         val displayedDensity = value.traceDensity.coerceIn(MIN_TRACE_DENSITY, MAX_TRACE_DENSITY)
-        densitySlider?.value = displayedDensity
+        densitySegmentedButton?.selectedItem = displayedDensity
         val displayedTraceLength = value.traceLength.coerceIn(MIN_TRACE_LENGTH, MAX_TRACE_LENGTH)
         traceLengthSlider?.value = displayedTraceLength
         val displayedAmplitude = value.amplitude.coerceIn(MIN_WAVEFORM_AMPLITUDE, MAX_WAVEFORM_AMPLITUDE)
@@ -156,7 +142,6 @@ internal class WaveformSettingsControls(
         val displayedLoopSeconds = value.loopSeconds.normalizedLoopSeconds()
         intensitySlider?.value = displayedIntensity
         loopSlider?.value = secondsToTenths(displayedLoopSeconds)
-        densityLabel?.text = "$displayedDensity×"
         traceLengthLabel?.text = "$displayedTraceLength"
         amplitudeLabel?.text = "$displayedAmplitude"
         intensityLabel?.text = "$displayedIntensity"
@@ -168,7 +153,7 @@ internal class WaveformSettingsControls(
         shapeCombo?.isEnabled = enabled
         directionCombo?.isEnabled = enabled
         baselineCombo?.isEnabled = enabled
-        densitySlider?.isEnabled = enabled
+        densitySegmentedButton?.enabled(enabled)
         traceLengthSlider?.isEnabled = enabled
         amplitudeSlider?.isEnabled = enabled
         intensitySlider?.isEnabled = enabled
@@ -250,6 +235,24 @@ internal class WaveformSettingsControls(
             }.visibleIf(visibility.waveform)
     }
 
+    private fun buildDensityRow(group: Panel) {
+        group
+            .row("Spike density") {
+                val segmented =
+                    segmentedButton((MIN_TRACE_DENSITY..MAX_TRACE_DENSITY).toList()) { density ->
+                        text = "$density×"
+                        if (!gate.isUnlocked) toolTipText = gate.tooltip
+                    }
+                segmented.selectedItem = value.traceDensity.coerceIn(MIN_TRACE_DENSITY, MAX_TRACE_DENSITY)
+                segmented.enabled(gate.isUnlocked)
+                @Suppress("UnstableApiUsage")
+                segmented.whenItemSelected { density ->
+                    update(value.copy(traceDensity = density))
+                }
+                densitySegmentedButton = segmented
+            }.visibleIf(visibility.waveform)
+    }
+
     private fun buildSlider(
         group: Panel,
         spec: WaveformSliderSpec,
@@ -259,10 +262,10 @@ internal class WaveformSettingsControls(
                 val slider = JSlider(spec.range.first, spec.range.last, spec.initialValue)
                 slider.paintTicks = false
                 slider.applyPremiumLock(gate, enabledWhenUnlocked = true)
-                val label = JLabel(spec.formatValue(slider.value)).apply { horizontalAlignment = SwingConstants.RIGHT }
+                val label = JLabel("${slider.value}").apply { horizontalAlignment = SwingConstants.RIGHT }
                 slider.addChangeListener {
                     if (!refreshing && gate.isUnlocked) spec.onChange(slider.value)
-                    label.text = spec.formatValue(slider.value)
+                    label.text = "${slider.value}"
                 }
                 spec.onCreated(slider, label)
                 cell(sliderRail(slider)).resizableColumn().align(Align.FILL)
@@ -303,7 +306,6 @@ internal class WaveformSettingsControls(
         val range: IntRange,
         val initialValue: Int,
         val visibleWhen: AtomicBooleanProperty,
-        val formatValue: (Int) -> String = { "$it" },
         val onChange: (Int) -> Unit,
         val onCreated: (JSlider, JLabel) -> Unit,
     )
@@ -359,9 +361,9 @@ internal class SliderTickStrip(
         val TICK_COLOR = JBColor.namedColor("Slider.tickColor", JBColor.GRAY)
         val DISABLED_TICK_COLOR = JBColor.namedColor("Component.disabledBorderColor", JBColor.GRAY)
 
-        const val DEFAULT_TICK_COUNT = 39
+        const val DEFAULT_TICK_COUNT = 17
         const val MAJOR_TICK_HEIGHT = 7
-        const val MAJOR_TICK_INTERVAL = 5
+        const val MAJOR_TICK_INTERVAL = 4
         const val MINOR_TICK_HEIGHT = 4
         const val MIN_TICK_COUNT = 2
         const val TRACK_INSET = 7
