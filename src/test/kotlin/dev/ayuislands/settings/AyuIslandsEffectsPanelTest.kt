@@ -24,13 +24,16 @@ import io.mockk.unmockkAll
 import java.awt.Component
 import java.awt.Container
 import java.awt.Rectangle
+import java.awt.event.ActionEvent
+import java.awt.event.KeyEvent
 import java.awt.image.BufferedImage
 import javax.swing.JCheckBox
 import javax.swing.JComboBox
+import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JSlider
+import javax.swing.KeyStroke
 import javax.swing.SwingUtilities
-import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -280,7 +283,7 @@ class AyuIslandsEffectsPanelTest {
     }
 
     @Test
-    fun `waveform controls align density and mark real slider values`() {
+    fun `waveform sliders align and mark real values`() {
         state.glowShape = GlowShape.WAVEFORM.name
         val effectsPanel = AyuIslandsEffectsPanel()
         val dialogPanel = buildDialogPanel(effectsPanel)
@@ -296,6 +299,7 @@ class AyuIslandsEffectsPanelTest {
         val sliderRows =
             listOf(
                 "Loop duration" to "loopSlider",
+                "Spike density" to "densitySlider",
                 "Trace length (px)" to "traceLengthSlider",
                 "Amplitude (px)" to "amplitudeSlider",
                 "Intensity" to "intensitySlider",
@@ -309,17 +313,13 @@ class AyuIslandsEffectsPanelTest {
             assertSame(slider, rowLabel.labelFor)
         }
 
-        val densityBounds = densityControl(dialogPanel).boundsIn(dialogPanel)
-        val referenceRailBounds = sliders.first().parent.boundsIn(dialogPanel)
-        assertTrue(abs(densityBounds.x - referenceRailBounds.x) <= JBUI.scale(2))
-        assertTrue(abs(densityBounds.maxX.roundToInt() - referenceRailBounds.maxX.roundToInt()) <= JBUI.scale(2))
-
         val tickScales =
             listOf(
-                TickScale(20..400 step 20, (100..400 step 100).toSet()),
-                TickScale(120..800 step 40, (200..800 step 200).toSet()),
-                TickScale(8..40 step 2, (8..40 step 8).toSet()),
-                TickScale(0..200 step 10, (0..200 step 50).toSet()),
+                TickScale((20..400 step 20).toList(), (100..400 step 100).toSet()),
+                TickScale((1..4).toList(), (1..4).toSet()),
+                TickScale((120..800 step 40).toList(), (200..800 step 200).toSet()),
+                TickScale(listOf(1) + (5..40 step 5), setOf(1, 10, 20, 30, 40)),
+                TickScale((0..200 step 10).toList(), (0..200 step 50).toSet()),
             )
         val tickStrips =
             sliders.map { slider ->
@@ -346,6 +346,72 @@ class AyuIslandsEffectsPanelTest {
     }
 
     @Test
+    fun `amplitude snaps to the nearest displayed tick`() {
+        state.glowShape = GlowShape.WAVEFORM.name
+        val effectsPanel = AyuIslandsEffectsPanel()
+        buildDialogPanel(effectsPanel)
+        val amplitude = waveformField<JSlider>(effectsPanel, "amplitudeSlider")
+
+        amplitude.valueIsAdjusting = true
+        amplitude.value = 23
+        assertEquals(23, amplitude.value)
+        assertTrue(effectsPanel.isModified(), "dragging must update the live waveform preview")
+        amplitude.valueIsAdjusting = false
+        effectsPanel.apply()
+
+        assertEquals(25, amplitude.value)
+        assertEquals(25, state.waveformAmplitude)
+        assertFalse(effectsPanel.isModified())
+    }
+
+    @Test
+    fun `amplitude snapping resolves equal distance toward the lower tick`() {
+        state.glowShape = GlowShape.WAVEFORM.name
+        val effectsPanel = AyuIslandsEffectsPanel()
+        buildDialogPanel(effectsPanel)
+        val amplitude = waveformField<JSlider>(effectsPanel, "amplitudeSlider")
+
+        amplitude.valueIsAdjusting = true
+        amplitude.value = 3
+        amplitude.valueIsAdjusting = false
+
+        assertEquals(1, amplitude.value)
+    }
+
+    @Test
+    fun `amplitude keyboard navigation moves between displayed ticks`() {
+        state.glowShape = GlowShape.WAVEFORM.name
+        val effectsPanel = AyuIslandsEffectsPanel()
+        buildDialogPanel(effectsPanel)
+        val amplitude = waveformField<JSlider>(effectsPanel, "amplitudeSlider")
+
+        performFocusedAction(amplitude, KeyEvent.VK_LEFT)
+        assertEquals(20, amplitude.value)
+
+        performFocusedAction(amplitude, KeyEvent.VK_RIGHT)
+        assertEquals(25, amplitude.value)
+
+        performFocusedAction(amplitude, KeyEvent.VK_DOWN)
+        assertEquals(20, amplitude.value)
+
+        performFocusedAction(amplitude, KeyEvent.VK_UP)
+        assertEquals(25, amplitude.value)
+
+        amplitude.value = amplitude.minimum
+        performFocusedAction(amplitude, KeyEvent.VK_LEFT)
+        assertEquals(amplitude.minimum, amplitude.value)
+        performFocusedAction(amplitude, KeyEvent.VK_DOWN)
+        assertEquals(amplitude.minimum, amplitude.value)
+
+        amplitude.value = amplitude.maximum
+        performFocusedAction(amplitude, KeyEvent.VK_RIGHT)
+        assertEquals(amplitude.maximum, amplitude.value)
+        performFocusedAction(amplitude, KeyEvent.VK_UP)
+        assertEquals(amplitude.maximum, amplitude.value)
+        assertTrue(effectsPanel.isModified())
+    }
+
+    @Test
     fun `first waveform selection uses the calibrated ECG profile`() {
         val effectsPanel = AyuIslandsEffectsPanel()
         buildDialogPanel(effectsPanel)
@@ -361,13 +427,14 @@ class AyuIslandsEffectsPanelTest {
             waveformField<JComboBox<*>>(effectsPanel, "baselineCombo").selectedItem,
         )
         assertEquals(200, waveformField<JSlider>(effectsPanel, "loopSlider").value)
-        assertEquals(1, densitySegmented(effectsPanel).selectedItem)
+        assertEquals(1, waveformField<JSlider>(effectsPanel, "densitySlider").value)
         assertEquals(199, waveformField<JSlider>(effectsPanel, "traceLengthSlider").value)
 
         val amplitude = waveformField<JSlider>(effectsPanel, "amplitudeSlider")
         val intensity = waveformField<JSlider>(effectsPanel, "intensitySlider")
         assertEquals(24, amplitude.value)
-        assertEquals(amplitude.minimum + amplitude.maximum, amplitude.value * 2)
+        assertEquals(1, amplitude.minimum)
+        assertEquals(40, amplitude.maximum)
         assertEquals(100, intensity.value)
         assertEquals(intensity.minimum + intensity.maximum, intensity.value * 2)
     }
@@ -451,7 +518,7 @@ class AyuIslandsEffectsPanelTest {
 
         assertEquals(GlowShape.WAVEFORM.name, state.glowShape)
         assertEquals(WaveformDirection.COUNTER_CLOCKWISE.name, state.waveformDirection)
-        assertEquals(16, state.waveformAmplitude)
+        assertEquals(15, state.waveformAmplitude)
         assertEquals(88, state.waveformIntensity)
         assertEquals(GlowPreset.CUSTOM.name, state.glowPreset)
         assertEquals(GlowStyle.GRADIENT.name, state.glowStyle)
@@ -480,10 +547,10 @@ class AyuIslandsEffectsPanelTest {
         assertEquals(99, state.waveformTraceDensity)
         assertEquals(9_999, state.waveformTraceLength)
         assertEquals(WaveformBaseline.CENTERED.name, state.waveformBaseline)
-        assertEquals(8, waveformField<JSlider>(effectsPanel, "amplitudeSlider").value)
+        assertEquals(6, waveformField<JSlider>(effectsPanel, "amplitudeSlider").value)
         assertEquals(0, waveformField<JSlider>(effectsPanel, "intensitySlider").value)
         assertEquals(400, waveformField<JSlider>(effectsPanel, "loopSlider").value)
-        assertEquals(4, densitySegmented(effectsPanel).selectedItem)
+        assertEquals(4, waveformField<JSlider>(effectsPanel, "densitySlider").value)
         assertEquals(800, waveformField<JSlider>(effectsPanel, "traceLengthSlider").value)
         assertEquals(
             WaveformBaseline.CENTERED.displayName,
@@ -513,16 +580,16 @@ class AyuIslandsEffectsPanelTest {
         state.waveformTraceLength = 320
         val effectsPanel = AyuIslandsEffectsPanel()
         buildDialogPanel(effectsPanel)
-        val density = densitySegmented(effectsPanel)
+        val density = waveformField<JSlider>(effectsPanel, "densitySlider")
         val traceLength = waveformField<JSlider>(effectsPanel, "traceLengthSlider")
 
-        density.selectedItem = 4
+        density.value = 4
         traceLength.value = 640
         assertTrue(effectsPanel.isModified())
 
         effectsPanel.reset()
 
-        assertEquals(2, density.selectedItem)
+        assertEquals(2, density.value)
         assertEquals(320, traceLength.value)
         assertFalse(effectsPanel.isModified())
     }
@@ -533,7 +600,7 @@ class AyuIslandsEffectsPanelTest {
         buildDialogPanel(effectsPanel)
 
         waveformField<JComboBox<*>>(effectsPanel, "shapeCombo").selectedItem = GlowShape.WAVEFORM.displayName
-        densitySegmented(effectsPanel).selectedItem = 4
+        waveformField<JSlider>(effectsPanel, "densitySlider").value = 4
         waveformField<JSlider>(effectsPanel, "traceLengthSlider").value = 640
         waveformField<JComboBox<*>>(effectsPanel, "baselineCombo").selectedItem =
             WaveformBaseline.CENTERED.displayName
@@ -574,7 +641,7 @@ class AyuIslandsEffectsPanelTest {
         val shape = waveformField<JComboBox<*>>(effectsPanel, "shapeCombo")
         val direction = waveformField<JComboBox<*>>(effectsPanel, "directionCombo")
         val baseline = waveformField<JComboBox<*>>(effectsPanel, "baselineCombo")
-        val density = densitySegmented(effectsPanel)
+        val density = waveformField<JSlider>(effectsPanel, "densitySlider")
         val densityControl = densityControl(dialogPanel)
         val traceLength = waveformField<JSlider>(effectsPanel, "traceLengthSlider")
         val amplitude = waveformField<JSlider>(effectsPanel, "amplitudeSlider")
@@ -596,7 +663,7 @@ class AyuIslandsEffectsPanelTest {
 
         shape.selectedItem = GlowShape.SOLID.displayName
         baseline.selectedItem = WaveformBaseline.CENTERED.displayName
-        density.selectedItem = 4
+        density.value = 4
         traceLength.value = 640
         amplitude.value = 12
         assertFalse(effectsPanel.isModified(), "locked waveform preview cannot dirty pending settings")
@@ -626,9 +693,6 @@ class AyuIslandsEffectsPanelTest {
         return field.get(panel) as? SegmentedButton<GlowPlacement>
             ?: error("Glow placement segmented button '$fieldName' must be created")
     }
-
-    private fun densitySegmented(panel: AyuIslandsEffectsPanel): SegmentedButton<Int> =
-        waveformModelField(panel, "densitySegmentedButton")
 
     @Suppress("UNCHECKED_CAST")
     private fun islandCheckboxes(panel: AyuIslandsEffectsPanel): Map<String, JCheckBox> {
@@ -671,6 +735,16 @@ class AyuIslandsEffectsPanelTest {
             .first { it.text == "Spike density" }
             .labelFor
             ?: error("Spike density control must be linked to its row label")
+
+    private fun performFocusedAction(
+        component: JComponent,
+        keyCode: Int,
+    ) {
+        val keyStroke = KeyStroke.getKeyStroke(keyCode, 0)
+        val actionKey = component.getInputMap(JComponent.WHEN_FOCUSED).get(keyStroke)
+        val action = component.actionMap[actionKey] ?: error("No focused action for $keyStroke")
+        action.actionPerformed(ActionEvent(component, ActionEvent.ACTION_PERFORMED, actionKey.toString()))
+    }
 
     private fun <T : Component> descendants(
         container: Container,
@@ -757,7 +831,7 @@ class AyuIslandsEffectsPanelTest {
     }
 
     private data class TickScale(
-        val values: IntProgression,
+        val values: List<Int>,
         val majorValues: Set<Int>,
     )
 

@@ -6,7 +6,6 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.DslComponentProperty
 import com.intellij.ui.dsl.builder.Panel
-import com.intellij.ui.dsl.builder.SegmentedButton
 import com.intellij.ui.dsl.gridLayout.UnscaledGaps
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.glow.GlowShape
@@ -29,13 +28,17 @@ import java.awt.Dimension
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.RenderingHints
+import java.awt.event.ActionEvent
 import java.awt.event.ActionListener
+import java.awt.event.KeyEvent
 import java.util.Locale
+import javax.swing.AbstractAction
 import javax.swing.DefaultComboBoxModel
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JSlider
+import javax.swing.KeyStroke
 import javax.swing.SwingConstants
 import kotlin.math.roundToInt
 
@@ -63,13 +66,14 @@ internal class WaveformSettingsControls(
     internal var shapeCombo: ComboBox<String>? = null
     internal var directionCombo: ComboBox<String>? = null
     internal var baselineCombo: ComboBox<String>? = null
-    internal var densitySegmentedButton: SegmentedButton<Int>? = null
+    internal var densitySlider: JSlider? = null
     internal var traceLengthSlider: JSlider? = null
     internal var amplitudeSlider: JSlider? = null
     internal var intensitySlider: JSlider? = null
     internal var loopSlider: JSlider? = null
 
     private var amplitudeLabel: JLabel? = null
+    private var densityLabel: JLabel? = null
     private var traceLengthLabel: JLabel? = null
     private var intensityLabel: JLabel? = null
     private var loopLabel: JLabel? = null
@@ -81,15 +85,32 @@ internal class WaveformSettingsControls(
         buildDirectionRow(group)
         buildBaselineRow(group)
         buildLoopRow(group)
-        buildDensityRow(group)
+        buildSlider(
+            group,
+            WaveformSliderSpec(
+                label = "Spike density",
+                range = MIN_TRACE_DENSITY..MAX_TRACE_DENSITY,
+                initialValue = value.traceDensity.coerceIn(MIN_TRACE_DENSITY, MAX_TRACE_DENSITY),
+                tickValues = DENSITY_TICKS,
+                majorTickValues = DENSITY_TICKS.toSet(),
+                snapValues = DENSITY_TICKS,
+                formatValue = { "$it×" },
+                visibleWhen = visibility.waveform,
+                onChange = { update(value.copy(traceDensity = it)) },
+                onCreated = { slider, label ->
+                    densitySlider = slider
+                    densityLabel = label
+                },
+            ),
+        )
         buildSlider(
             group,
             WaveformSliderSpec(
                 label = "Trace length (px)",
                 range = MIN_TRACE_LENGTH..MAX_TRACE_LENGTH,
                 initialValue = value.traceLength.coerceIn(MIN_TRACE_LENGTH, MAX_TRACE_LENGTH),
-                tickValues = MIN_TRACE_LENGTH..MAX_TRACE_LENGTH step 40,
-                majorTickValues = 200..MAX_TRACE_LENGTH step 200,
+                tickValues = (MIN_TRACE_LENGTH..MAX_TRACE_LENGTH step 40).toList(),
+                majorTickValues = (200..MAX_TRACE_LENGTH step 200).toSet(),
                 visibleWhen = visibility.waveform,
                 onChange = { update(value.copy(traceLength = it)) },
                 onCreated = { slider, label ->
@@ -104,8 +125,9 @@ internal class WaveformSettingsControls(
                 label = "Amplitude (px)",
                 range = MIN_WAVEFORM_AMPLITUDE..MAX_WAVEFORM_AMPLITUDE,
                 initialValue = value.amplitude.coerceIn(MIN_WAVEFORM_AMPLITUDE, MAX_WAVEFORM_AMPLITUDE),
-                tickValues = MIN_WAVEFORM_AMPLITUDE..MAX_WAVEFORM_AMPLITUDE step 2,
-                majorTickValues = MIN_WAVEFORM_AMPLITUDE..MAX_WAVEFORM_AMPLITUDE step 8,
+                tickValues = AMPLITUDE_TICKS,
+                majorTickValues = AMPLITUDE_MAJOR_TICKS,
+                snapValues = AMPLITUDE_TICKS,
                 visibleWhen = visibility.waveform,
                 onChange = { update(value.copy(amplitude = it)) },
                 onCreated = { slider, label ->
@@ -120,8 +142,8 @@ internal class WaveformSettingsControls(
                 label = "Intensity",
                 range = MIN_WAVEFORM_INTENSITY..MAX_WAVEFORM_INTENSITY,
                 initialValue = value.intensity.coerceIn(MIN_WAVEFORM_INTENSITY, MAX_WAVEFORM_INTENSITY),
-                tickValues = MIN_WAVEFORM_INTENSITY..MAX_WAVEFORM_INTENSITY step 10,
-                majorTickValues = MIN_WAVEFORM_INTENSITY..MAX_WAVEFORM_INTENSITY step 50,
+                tickValues = (MIN_WAVEFORM_INTENSITY..MAX_WAVEFORM_INTENSITY step 10).toList(),
+                majorTickValues = (MIN_WAVEFORM_INTENSITY..MAX_WAVEFORM_INTENSITY step 50).toSet(),
                 visibleWhen = visibility.waveform,
                 onChange = { update(value.copy(intensity = it)) },
                 onCreated = { slider, label ->
@@ -139,7 +161,7 @@ internal class WaveformSettingsControls(
         directionCombo?.selectedItem = value.direction.displayName
         baselineCombo?.selectedItem = value.baseline.displayName
         val displayedDensity = value.traceDensity.coerceIn(MIN_TRACE_DENSITY, MAX_TRACE_DENSITY)
-        densitySegmentedButton?.selectedItem = displayedDensity
+        densitySlider?.value = displayedDensity
         val displayedTraceLength = value.traceLength.coerceIn(MIN_TRACE_LENGTH, MAX_TRACE_LENGTH)
         traceLengthSlider?.value = displayedTraceLength
         val displayedAmplitude = value.amplitude.coerceIn(MIN_WAVEFORM_AMPLITUDE, MAX_WAVEFORM_AMPLITUDE)
@@ -149,6 +171,7 @@ internal class WaveformSettingsControls(
         intensitySlider?.value = displayedIntensity
         loopSlider?.value = secondsToTenths(displayedLoopSeconds)
         traceLengthLabel?.text = "$displayedTraceLength"
+        densityLabel?.text = "$displayedDensity×"
         amplitudeLabel?.text = "$displayedAmplitude"
         intensityLabel?.text = "$displayedIntensity"
         loopLabel?.text = formatSeconds(displayedLoopSeconds)
@@ -159,7 +182,7 @@ internal class WaveformSettingsControls(
         shapeCombo?.isEnabled = enabled
         directionCombo?.isEnabled = enabled
         baselineCombo?.isEnabled = enabled
-        densitySegmentedButton?.enabled(enabled)
+        densitySlider?.isEnabled = enabled
         traceLengthSlider?.isEnabled = enabled
         amplitudeSlider?.isEnabled = enabled
         intensitySlider?.isEnabled = enabled
@@ -237,37 +260,19 @@ internal class WaveformSettingsControls(
                 cell(
                     sliderRail(
                         slider,
-                        secondsToTenths(LOOP_TICK_SECONDS)..secondsToTenths(MAX_WAVEFORM_LOOP_SECONDS) step
-                            secondsToTenths(LOOP_TICK_SECONDS),
-                        secondsToTenths(LOOP_MAJOR_SECONDS)..secondsToTenths(MAX_WAVEFORM_LOOP_SECONDS) step
-                            secondsToTenths(LOOP_MAJOR_SECONDS),
+                        (
+                            secondsToTenths(LOOP_TICK_SECONDS)..secondsToTenths(MAX_WAVEFORM_LOOP_SECONDS) step
+                                secondsToTenths(LOOP_TICK_SECONDS)
+                        ).toList(),
+                        (
+                            secondsToTenths(LOOP_MAJOR_SECONDS)..secondsToTenths(MAX_WAVEFORM_LOOP_SECONDS) step
+                                secondsToTenths(LOOP_MAJOR_SECONDS)
+                        ).toSet(),
                     ),
                 ).resizableColumn().align(Align.FILL)
                 cell(label)
                     .widthGroup(WAVEFORM_VALUE_GROUP)
                     .customize(UnscaledGaps(0, 0, 0, VALUE_RIGHT_INSET))
-            }.visibleIf(visibility.waveform)
-    }
-
-    private fun buildDensityRow(group: Panel) {
-        group
-            .row("Spike density") {
-                val segmented =
-                    segmentedButton((MIN_TRACE_DENSITY..MAX_TRACE_DENSITY).toList()) { density ->
-                        text = "$density×"
-                        if (!gate.isUnlocked) toolTipText = gate.tooltip
-                    }
-                segmented.selectedItem = value.traceDensity.coerceIn(MIN_TRACE_DENSITY, MAX_TRACE_DENSITY)
-                segmented.enabled(gate.isUnlocked)
-                @Suppress("UnstableApiUsage")
-                segmented.whenItemSelected { density ->
-                    update(value.copy(traceDensity = density))
-                }
-                segmented.align(Align.FILL).resizableColumn()
-                cell(JLabel(""))
-                    .widthGroup(WAVEFORM_VALUE_GROUP)
-                    .customize(UnscaledGaps(0, 0, 0, VALUE_RIGHT_INSET))
-                densitySegmentedButton = segmented
             }.visibleIf(visibility.waveform)
     }
 
@@ -280,10 +285,23 @@ internal class WaveformSettingsControls(
                 val slider = JSlider(spec.range.first, spec.range.last, spec.initialValue)
                 slider.paintTicks = false
                 slider.applyPremiumLock(gate, enabledWhenUnlocked = true)
-                val label = JLabel("${slider.value}").apply { horizontalAlignment = SwingConstants.RIGHT }
+                installSnapKeyActions(slider, spec.snapValues)
+                val label = JLabel(spec.formatValue(slider.value)).apply { horizontalAlignment = SwingConstants.RIGHT }
                 slider.addChangeListener {
-                    if (!refreshing && gate.isUnlocked) spec.onChange(slider.value)
-                    label.text = "${slider.value}"
+                    label.text = spec.formatValue(slider.value)
+                    if (refreshing || !gate.isUnlocked) return@addChangeListener
+                    if (slider.valueIsAdjusting) {
+                        spec.onChange(slider.value)
+                        return@addChangeListener
+                    }
+                    if (spec.snapValues.isNotEmpty()) {
+                        val snappedValue = spec.snapValues.minBy { kotlin.math.abs(it - slider.value) }
+                        if (snappedValue != slider.value) {
+                            slider.value = snappedValue
+                            return@addChangeListener
+                        }
+                    }
+                    spec.onChange(slider.value)
                 }
                 spec.onCreated(slider, label)
                 cell(sliderRail(slider, spec.tickValues, spec.majorTickValues)).resizableColumn().align(Align.FILL)
@@ -293,10 +311,40 @@ internal class WaveformSettingsControls(
             }.visibleIf(spec.visibleWhen)
     }
 
+    private fun installSnapKeyActions(
+        slider: JSlider,
+        snapValues: List<Int>,
+    ) {
+        if (snapValues.isEmpty()) return
+
+        slider.getInputMap(JComponent.WHEN_FOCUSED).apply {
+            put(KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, 0), PREVIOUS_SNAP_ACTION)
+            put(KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, 0), PREVIOUS_SNAP_ACTION)
+            put(KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT, 0), NEXT_SNAP_ACTION)
+            put(KeyStroke.getKeyStroke(KeyEvent.VK_UP, 0), NEXT_SNAP_ACTION)
+        }
+        slider.actionMap.put(
+            PREVIOUS_SNAP_ACTION,
+            object : AbstractAction() {
+                override fun actionPerformed(event: ActionEvent?) {
+                    slider.value = snapValues.lastOrNull { it < slider.value } ?: snapValues.first()
+                }
+            },
+        )
+        slider.actionMap.put(
+            NEXT_SNAP_ACTION,
+            object : AbstractAction() {
+                override fun actionPerformed(event: ActionEvent?) {
+                    slider.value = snapValues.firstOrNull { it > slider.value } ?: snapValues.last()
+                }
+            },
+        )
+    }
+
     private fun sliderRail(
         slider: JSlider,
-        tickValues: IntProgression,
-        majorTickValues: IntProgression,
+        tickValues: List<Int>,
+        majorTickValues: Set<Int>,
     ): JPanel =
         JPanel(BorderLayout()).apply {
             isOpaque = false
@@ -327,8 +375,10 @@ internal class WaveformSettingsControls(
         val label: String,
         val range: IntRange,
         val initialValue: Int,
-        val tickValues: IntProgression,
-        val majorTickValues: IntProgression,
+        val tickValues: List<Int>,
+        val majorTickValues: Set<Int>,
+        val snapValues: List<Int> = emptyList(),
+        val formatValue: (Int) -> String = Int::toString,
         val visibleWhen: AtomicBooleanProperty,
         val onChange: (Int) -> Unit,
         val onCreated: (JSlider, JLabel) -> Unit,
@@ -338,16 +388,22 @@ internal class WaveformSettingsControls(
         const val LOOP_MAJOR_SECONDS = 10f
         const val LOOP_TICK_SECONDS = 2f
         const val TENTHS_PER_SECOND = 10f
+        const val PREVIOUS_SNAP_ACTION = "waveform.previousSnap"
+        const val NEXT_SNAP_ACTION = "waveform.nextSnap"
         const val WAVEFORM_COMBO_GROUP = "waveform-combo"
         const val WAVEFORM_VALUE_GROUP = "waveform-value"
         const val VALUE_RIGHT_INSET = 12
+
+        val DENSITY_TICKS = (MIN_TRACE_DENSITY..MAX_TRACE_DENSITY).toList()
+        val AMPLITUDE_TICKS = listOf(MIN_WAVEFORM_AMPLITUDE) + (5..MAX_WAVEFORM_AMPLITUDE step 5)
+        val AMPLITUDE_MAJOR_TICKS = setOf(MIN_WAVEFORM_AMPLITUDE, 10, 20, 30, 40)
     }
 }
 
 internal class SliderTickStrip(
     private val slider: JSlider,
-    private val tickValues: IntProgression,
-    private val majorTickValues: IntProgression,
+    private val tickValues: List<Int>,
+    private val majorTickValues: Set<Int>,
 ) : JComponent() {
     init {
         isFocusable = false

@@ -11,6 +11,7 @@ import dev.ayuislands.glow.waveform.MAX_TRACE_LENGTH
 import dev.ayuislands.glow.waveform.MAX_WAVEFORM_AMPLITUDE
 import dev.ayuislands.glow.waveform.MAX_WAVEFORM_INTENSITY
 import dev.ayuislands.glow.waveform.MIN_TRACE_LENGTH
+import dev.ayuislands.glow.waveform.MIN_WAVEFORM_AMPLITUDE
 import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformDirection
 import kotlin.test.Test
@@ -138,7 +139,7 @@ class AyuIslandsStatePropertyTest {
         state.waveformTraceDensity = Int.MAX_VALUE
         state.waveformTraceLength = Int.MAX_VALUE
 
-        assertEquals(8, state.effectiveWaveformAmplitude())
+        assertEquals(MIN_WAVEFORM_AMPLITUDE, state.effectiveWaveformAmplitude())
         assertEquals(MAX_WAVEFORM_INTENSITY, state.effectiveWaveformIntensity())
         assertEquals(MAX_TRACE_DENSITY, state.effectiveTraceDensity())
         assertEquals(MAX_TRACE_LENGTH, state.effectiveTraceLength())

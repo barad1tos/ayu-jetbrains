@@ -1,7 +1,7 @@
 package dev.ayuislands.glow.waveform
 
 const val DEFAULT_WAVEFORM_AMPLITUDE = 24
-const val MIN_WAVEFORM_AMPLITUDE = 8
+const val MIN_WAVEFORM_AMPLITUDE = 1
 const val MAX_WAVEFORM_AMPLITUDE = 40
 const val DEFAULT_WAVEFORM_INTENSITY = 100
 const val MIN_WAVEFORM_INTENSITY = 0
